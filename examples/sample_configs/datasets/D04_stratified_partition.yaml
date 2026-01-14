@@ -1,0 +1,19 @@
+# Stratified partition for classification
+#
+# Auto-generated test configuration
+
+name: D04_stratified_partition
+task_type: binary_classification
+signal_type: absorbance
+global_params:
+  delimiter: ','
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/D04_stratified_partition/data.csv
+partition:
+  train: 70%
+  test: 30%
+  stratify: target
+  shuffle: true
+  random_state: 42

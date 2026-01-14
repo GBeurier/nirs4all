@@ -1,0 +1,20 @@
+# Mean aggregation by sample_id
+#
+# Auto-generated test configuration
+
+name: E04_aggregate_mean
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ;
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/E04_aggregate_mean/Xcal.csv
+train_y: sample_datasets/E04_aggregate_mean/Ycal.csv
+test_x: sample_datasets/E04_aggregate_mean/Xval.csv
+test_y: sample_datasets/E04_aggregate_mean/Yval.csv
+train_group: sample_datasets/E04_aggregate_mean/Mcal.csv
+test_group: sample_datasets/E04_aggregate_mean/Mval.csv
+aggregate: sample_id
+aggregate_method: mean

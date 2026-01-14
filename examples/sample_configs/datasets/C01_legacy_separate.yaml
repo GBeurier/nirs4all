@@ -1,0 +1,16 @@
+# Legacy format with separate train_x, train_y files
+#
+# Auto-generated test configuration
+
+name: C01_legacy_separate
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ;
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/C01_legacy_separate/train_x.csv
+train_y: sample_datasets/C01_legacy_separate/train_y.csv
+test_x: sample_datasets/C01_legacy_separate/test_x.csv
+test_y: sample_datasets/C01_legacy_separate/test_y.csv

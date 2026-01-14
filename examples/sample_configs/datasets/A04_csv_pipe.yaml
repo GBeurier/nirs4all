@@ -1,0 +1,16 @@
+# Pipe-delimited CSV
+#
+# Auto-generated test configuration
+
+name: A04_csv_pipe
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: '|'
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/A04_csv_pipe/Xcal.csv
+train_y: sample_datasets/A04_csv_pipe/Ycal.csv
+test_x: sample_datasets/A04_csv_pipe/Xval.csv
+test_y: sample_datasets/A04_csv_pipe/Yval.csv

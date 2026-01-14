@@ -1,0 +1,76 @@
+# Index-based partition (explicit indices)
+#
+# Auto-generated test configuration
+
+name: D03_index_partition
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ','
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/D03_index_partition/data.csv
+partition:
+  train:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  - 19
+  - 20
+  - 21
+  - 22
+  - 23
+  - 24
+  - 25
+  - 26
+  - 27
+  - 28
+  - 29
+  - 30
+  - 31
+  - 32
+  - 33
+  - 34
+  - 35
+  - 36
+  - 37
+  - 38
+  - 39
+  - 40
+  - 41
+  - 42
+  - 43
+  - 44
+  - 45
+  - 46
+  - 47
+  test:
+  - 48
+  - 49
+  - 50
+  - 51
+  - 52
+  - 53
+  - 54
+  - 55
+  - 56
+  - 57
+  - 58
+  - 59

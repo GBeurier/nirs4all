@@ -1,0 +1,16 @@
+# Tab-separated values
+#
+# Auto-generated test configuration
+
+name: A03_csv_tab
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: "\t"
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/A03_csv_tab/Xcal.tsv
+train_y: sample_datasets/A03_csv_tab/Ycal.tsv
+test_x: sample_datasets/A03_csv_tab/Xval.tsv
+test_y: sample_datasets/A03_csv_tab/Yval.tsv

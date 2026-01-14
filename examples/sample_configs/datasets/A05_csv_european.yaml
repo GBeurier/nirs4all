@@ -1,0 +1,17 @@
+# European CSV format (semicolon delimiter, comma decimal)
+#
+# Auto-generated test configuration
+
+name: A05_csv_european
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ;
+  decimal_separator: ','
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/A05_csv_european/Xcal.csv
+train_y: sample_datasets/A05_csv_european/Ycal.csv
+test_x: sample_datasets/A05_csv_european/Xval.csv
+test_y: sample_datasets/A05_csv_european/Yval.csv

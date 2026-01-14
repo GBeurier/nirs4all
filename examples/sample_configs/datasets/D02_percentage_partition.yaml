@@ -1,0 +1,18 @@
+# Percentage-based partition (80/20 split)
+#
+# Auto-generated test configuration
+
+name: D02_percentage_partition
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ','
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/D02_percentage_partition/data.csv
+partition:
+  train: 80%
+  test: 20%
+  shuffle: true
+  random_state: 42

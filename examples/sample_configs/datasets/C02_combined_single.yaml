@@ -1,0 +1,19 @@
+# Single file with partition column
+#
+# Auto-generated test configuration
+
+name: C02_combined_single
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ','
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/C02_combined_single/data.csv
+partition:
+  column: partition
+  train_values:
+  - train
+  test_values:
+  - test

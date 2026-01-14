@@ -1,0 +1,16 @@
+# Gzip compressed CSV files
+#
+# Auto-generated test configuration
+
+name: C05_compressed
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ;
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/C05_compressed/Xcal.csv.gz
+train_y: sample_datasets/C05_compressed/Ycal.csv.gz
+test_x: sample_datasets/C05_compressed/Xval.csv.gz
+test_y: sample_datasets/C05_compressed/Yval.csv.gz

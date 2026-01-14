@@ -1,0 +1,17 @@
+# Latin-1 encoding with 2 skip rows
+#
+# Auto-generated test configuration
+
+name: B05_encoding_skiprows
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ;
+  has_header: true
+  header_unit: nm
+  encoding: latin-1
+  na_policy: remove
+train_x: sample_datasets/B05_encoding_skiprows/Xcal.csv
+train_y: sample_datasets/B05_encoding_skiprows/Ycal.csv
+test_x: sample_datasets/B05_encoding_skiprows/Xval.csv
+test_y: sample_datasets/B05_encoding_skiprows/Yval.csv

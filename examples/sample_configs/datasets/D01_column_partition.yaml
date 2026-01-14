@@ -1,0 +1,19 @@
+# Column-based partition (split column)
+#
+# Auto-generated test configuration
+
+name: D01_column_partition
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ','
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/D01_column_partition/data.csv
+partition:
+  column: partition
+  train_values:
+  - train
+  test_values:
+  - test

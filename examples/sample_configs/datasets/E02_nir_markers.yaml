@@ -1,0 +1,26 @@
+# NIR spectra with auxiliary markers
+#
+# Auto-generated test configuration
+
+name: E02_nir_markers
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ;
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+sources:
+- name: NIR
+  train_x: sample_datasets/E02_nir_markers/NIR_train.csv
+  test_x: sample_datasets/E02_nir_markers/NIR_test.csv
+- name: markers
+  train_x: sample_datasets/E02_nir_markers/markers_train.csv
+  test_x: sample_datasets/E02_nir_markers/markers_test.csv
+shared_targets:
+  path: sample_datasets/E02_nir_markers/Y_train.csv
+  link_by: sample_id
+train_y: sample_datasets/E02_nir_markers/Y_train.csv
+test_y: sample_datasets/E02_nir_markers/Y_test.csv
+train_group: sample_datasets/E02_nir_markers/metadata_train.csv
+test_group: sample_datasets/E02_nir_markers/metadata_test.csv

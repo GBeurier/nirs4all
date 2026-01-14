@@ -1,0 +1,16 @@
+# Wavenumber headers (cm-1)
+#
+# Auto-generated test configuration
+
+name: B02_wavenumber
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ;
+  has_header: true
+  header_unit: cm-1
+  na_policy: remove
+train_x: sample_datasets/B02_wavenumber/Xcal.csv
+train_y: sample_datasets/B02_wavenumber/Ycal.csv
+test_x: sample_datasets/B02_wavenumber/Xval.csv
+test_y: sample_datasets/B02_wavenumber/Yval.csv

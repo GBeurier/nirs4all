@@ -1,0 +1,16 @@
+# CSV without column headers
+#
+# Auto-generated test configuration
+
+name: B01_no_header
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ;
+  has_header: false
+  header_unit: index
+  na_policy: remove
+train_x: sample_datasets/B01_no_header/Xcal.csv
+train_y: sample_datasets/B01_no_header/Ycal.csv
+test_x: sample_datasets/B01_no_header/Xval.csv
+test_y: sample_datasets/B01_no_header/Yval.csv
