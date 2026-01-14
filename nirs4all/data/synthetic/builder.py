@@ -64,6 +64,16 @@ class BuilderState:
     component_names: Optional[List[str]] = None
     component_library: Optional[ComponentLibrary] = None
 
+    # === Custom physics parameters (override complexity presets) ===
+    custom_params: Optional[Dict[str, Any]] = None  # Dict with any of:
+    # path_length_std, baseline_amplitude, scatter_alpha_std, scatter_beta_std,
+    # tilt_std, global_slope_mean, global_slope_std, shift_std, stretch_std,
+    # instrumental_fwhm, noise_base, noise_signal_dep, artifact_prob
+
+    # === Instrument simulation (Phase 2) ===
+    instrument: Optional[str] = None  # Instrument archetype name
+    measurement_mode: Optional[str] = None  # Measurement mode
+
     # Target configuration
     concentration_method: Literal["dirichlet", "uniform", "lognormal", "correlated"] = "dirichlet"
     target_range: Optional[Tuple[float, float]] = None
@@ -211,6 +221,23 @@ class SyntheticDatasetBuilder:
         complexity: Optional[Literal["simple", "realistic", "complex"]] = None,
         components: Optional[List[str]] = None,
         component_library: Optional[ComponentLibrary] = None,
+        # Custom physics parameters (override complexity presets)
+        path_length_std: Optional[float] = None,
+        baseline_amplitude: Optional[float] = None,
+        scatter_alpha_std: Optional[float] = None,
+        scatter_beta_std: Optional[float] = None,
+        tilt_std: Optional[float] = None,
+        global_slope_mean: Optional[float] = None,
+        global_slope_std: Optional[float] = None,
+        shift_std: Optional[float] = None,
+        stretch_std: Optional[float] = None,
+        instrumental_fwhm: Optional[float] = None,
+        noise_base: Optional[float] = None,
+        noise_signal_dep: Optional[float] = None,
+        artifact_prob: Optional[float] = None,
+        # Instrument simulation (Phase 2)
+        instrument: Optional[str] = None,
+        measurement_mode: Optional[str] = None,
     ) -> SyntheticDatasetBuilder:
         """
         Configure spectral feature generation.
@@ -222,6 +249,21 @@ class SyntheticDatasetBuilder:
                 Options: 'simple', 'realistic', 'complex'.
             components: List of predefined component names to use.
             component_library: Pre-configured ComponentLibrary instance.
+            path_length_std: Standard deviation of optical path length variation.
+            baseline_amplitude: Amplitude of polynomial baseline drift.
+            scatter_alpha_std: MSC-like multiplicative scattering coefficient variation.
+            scatter_beta_std: Additive scattering offset variation.
+            tilt_std: Standard deviation of linear spectral tilt.
+            global_slope_mean: Mean slope across all spectra.
+            global_slope_std: Standard deviation of global slope.
+            shift_std: Random wavelength axis shift (nm).
+            stretch_std: Wavelength axis stretching/compression factor.
+            instrumental_fwhm: Instrumental broadening FWHM (nm).
+            noise_base: Constant noise floor (detector noise).
+            noise_signal_dep: Noise proportional to signal intensity (shot noise).
+            artifact_prob: Probability of spectral artifacts.
+            instrument: Instrument archetype name (e.g., 'foss_xds', 'bruker_mpa').
+            measurement_mode: Measurement mode ('transmittance', 'reflectance', 'atr', etc.).
 
         Returns:
             Self for method chaining.
@@ -230,10 +272,22 @@ class SyntheticDatasetBuilder:
             ValueError: If both components and component_library are specified.
 
         Example:
+            >>> # Simple usage with preset
             >>> builder.with_features(
             ...     wavelength_range=(1000, 2500),
             ...     complexity="realistic",
             ...     components=["water", "protein"]
+            ... )
+
+            >>> # Advanced usage with custom physics parameters
+            >>> builder.with_features(
+            ...     wavelength_range=(1000, 2500),
+            ...     components=["water", "protein", "lipid"],
+            ...     noise_base=0.003,
+            ...     noise_signal_dep=0.008,
+            ...     baseline_amplitude=0.015,
+            ...     scatter_alpha_std=0.04,
+            ...     instrument="foss_xds"
             ... )
         """
         if components is not None and component_library is not None:
@@ -253,6 +307,36 @@ class SyntheticDatasetBuilder:
 
         if component_library is not None:
             self.state.component_library = component_library
+
+        # Store custom physics parameters
+        custom_params = {}
+        param_mappings = {
+            'path_length_std': path_length_std,
+            'baseline_amplitude': baseline_amplitude,
+            'scatter_alpha_std': scatter_alpha_std,
+            'scatter_beta_std': scatter_beta_std,
+            'tilt_std': tilt_std,
+            'global_slope_mean': global_slope_mean,
+            'global_slope_std': global_slope_std,
+            'shift_std': shift_std,
+            'stretch_std': stretch_std,
+            'instrumental_fwhm': instrumental_fwhm,
+            'noise_base': noise_base,
+            'noise_signal_dep': noise_signal_dep,
+            'artifact_prob': artifact_prob,
+        }
+        for key, value in param_mappings.items():
+            if value is not None:
+                custom_params[key] = value
+
+        if custom_params:
+            self.state.custom_params = custom_params
+
+        # Instrument simulation
+        if instrument is not None:
+            self.state.instrument = instrument
+        if measurement_mode is not None:
+            self.state.measurement_mode = measurement_mode
 
         return self
 
@@ -700,6 +784,9 @@ class SyntheticDatasetBuilder:
             wavelength_step=self.state.wavelength_step,
             component_library=library,
             complexity=self.state.complexity,
+            custom_params=self.state.custom_params,
+            instrument=self.state.instrument,
+            measurement_mode=self.state.measurement_mode,
             random_state=self.state.random_state,
         )
 

@@ -9,7 +9,7 @@ from typing import List, Any, Dict, Union
 import yaml
 
 from .component_serialization import serialize_component
-from .generator import expand_spec, expand_spec_with_choices, count_combinations
+from .generator import expand_spec, expand_spec_with_choices, count_combinations, ALL_KEYWORDS
 
 
 class _ShortNameFormatter(logging.Formatter):
@@ -116,7 +116,7 @@ class PipelineConfigs:
                     if k != "branch"
                 )
 
-            if "_or_" in obj or "_range_" in obj:
+            if any(k in obj for k in ALL_KEYWORDS):
                 return True
             return any(PipelineConfigs._has_gen_keys(v, skip_branch) for v in obj.values())
         elif isinstance(obj, list):
