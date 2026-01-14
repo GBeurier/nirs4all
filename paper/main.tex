@@ -1,0 +1,1220 @@
+% nirs4all: A Comprehensive Python Framework for Near-Infrared Spectroscopy Analysis
+% arXiv submission - LaTeX source (single-column format for better figures)
+% ============================================================================
+
+\documentclass[11pt]{article}
+
+% ============================================================================
+% PACKAGES
+% ============================================================================
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[english]{babel}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage{listings}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+\usetikzlibrary{shapes,arrows,positioning,fit,backgrounds,calc}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{natbib}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{tabularx}
+\usepackage{makecell}
+\usepackage{hyperref}
+
+% ============================================================================
+% CUSTOM SETTINGS
+% ============================================================================
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!60!black,
+    citecolor=green!50!black,
+    urlcolor=blue!70!black
+}
+
+% Compact code listing style
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
+\definecolor{keywordblue}{rgb}{0.13,0.13,0.67}
+
+\lstdefinestyle{pythonstyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen}\small,
+    keywordstyle=\color{keywordblue}\small,
+    stringstyle=\color{codepurple}\small,
+    basicstyle=\ttfamily\small,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    language=Python,
+    frame=single,
+    framesep=3pt,
+    xleftmargin=5pt,
+    framexleftmargin=5pt,
+    numbers=none
+}
+\lstset{style=pythonstyle}
+
+\newcommand{\nirs}{\texttt{nirs4all}}
+\newcommand{\code}[1]{\texttt{#1}}
+
+% ============================================================================
+% TITLE AND AUTHORS
+% ============================================================================
+
+\title{\textbf{nirs4all}: A Comprehensive Python Framework for\\Reproducible Near-Infrared Spectroscopy Analysis\\with Machine Learning and Deep Learning}
+
+\author{
+    Gr\'egoire Beurier\\
+    CIRAD, UMR AGAP Institut\\
+    F-34398 Montpellier, France\\
+    \texttt{gregoire.beurier@cirad.fr}
+}
+
+\date{}
+
+% ============================================================================
+% DOCUMENT
+% ============================================================================
+
+\begin{document}
+
+\maketitle
+
+% ============================================================================
+% ABSTRACT
+% ============================================================================
+
+\begin{abstract}
+Near-infrared spectroscopy (NIRS) is widely used for rapid, non-destructive analysis, yet its software ecosystem remains fragmented across classical chemometrics, general-purpose machine learning, and deep learning. This fragmentation---combined with the combinatorial nature of preprocessing choices and the lack of consistent experiment provenance---hinders reproducibility and slows iteration. We present \nirs{}, an open-source Python framework (v0.6.x) that unifies NIRS-specific data handling, preprocessing, model training, and experiment tracking under a declarative pipeline interface.
+
+\textbf{We contribute:}
+\begin{itemize}[noitemsep,topsep=3pt,leftmargin=*]
+    \item A \textbf{declarative pipeline DSL} with canonical serialization, so semantically equivalent configurations yield identical identifiers.
+    \item A \textbf{combinatorial generator system} for systematic exploration of preprocessing and hyperparameter spaces (e.g., \code{\_or\_}, \code{\_range\_}, \code{\_grid\_}).
+    \item A \textbf{workspace and artifact system} providing deterministic artifact identifiers, content-addressed storage, and end-to-end provenance across branching, multi-source, and stacking scenarios.
+    \item \textbf{NIRS-first data semantics}, including repetition-aware aggregation and metadata-driven splitting to reduce leakage risks.
+    \item \textbf{Interpretability and visual analytics} including SHAP-based wavelength attribution and performance summaries.
+\end{itemize}
+
+The framework bridges classical chemometrics (40+ preprocessing transforms, 16+ PLS variants via IKPLS) and contemporary ML/DL through a unified API. A companion desktop/web application (\texttt{nirs4all\_webapp}) provides interactive pipeline construction and result exploration. \nirs{} is available under the CeCILL-2.1 license at \url{https://github.com/GBeurier/nirs4all}.
+\end{abstract}
+
+\textbf{Keywords:} Near-infrared spectroscopy, chemometrics, machine learning, deep learning, reproducible research, pipeline DSL, Python
+
+% ============================================================================
+% 1. INTRODUCTION
+% ============================================================================
+
+\section{Introduction}
+
+\subsection{Near-Infrared Spectroscopy in Modern Analytics}
+
+Near-infrared (NIR) spectroscopy exploits the absorption of electromagnetic radiation between 780--2500~nm by overtones and combination bands of molecular vibrations, particularly C-H, N-H, O-H, and S-H functional groups \citep{burns2007handbook, pasquini2018near}. The technique offers compelling practical advantages: non-destructive analysis, rapid measurement (seconds), minimal sample preparation, simultaneous multi-analyte quantification, and increasingly affordable portable instrumentation \citep{blanco2002nir, siesler2002near}.
+
+These characteristics have driven widespread adoption across diverse sectors. Agriculture employs NIRS for crop quality assessment, soil analysis, and forage evaluation \citep{roberts2004near, cozzolino2014nir}. The pharmaceutical industry uses NIRS for raw material identification, content uniformity testing, and process analytical technology \citep{reich2005near}. Food science applications span authenticity verification, compositional analysis, and quality control \citep{nicolai2007nondestructive, cozzolino2011authentication}.
+
+\subsection{The Challenge: Fragmented Toolchains and Limited Reproducibility}
+
+Despite NIRS's analytical power, practitioners face significant software challenges that impede both research and deployment:
+
+\textbf{Fragmented ecosystem.} Commercial chemometric tools (Unscrambler, SIMCA) provide excellent PLS functionality but limited ML integration and closed implementations. General-purpose ML libraries (scikit-learn, TensorFlow) lack domain-specific preprocessing and spectroscopy conventions. R packages (\texttt{pls}, \texttt{prospectr}) serve specific needs but lack unified DL support. Practitioners must navigate disparate tools, manually implement integration layers, and reconcile different conventions.
+
+\textbf{Preprocessing exploration burden.} The traditional PLS workflow involves numerous empirical decisions: scatter correction method (SNV, MSC, EMSC), derivative parameters (Savitzky-Golay window, polynomial order), baseline correction, wavelength selection, and the number of latent variables. The combinatorial explosion of possibilities---combined with limited theoretical guidance---makes optimization laborious and highly dependent on expert intuition.
+
+\textbf{Reproducibility gaps.} Even when researchers document their methods, recreating exact experimental conditions is difficult. Which preprocessing order was used? What cross-validation seed? Which model artifacts correspond to which pipeline variant? Without systematic experiment tracking, scientific reproducibility suffers.
+
+\textbf{NIRS-specific data patterns.} Spectroscopic workflows involve repeated measurements per sample (replicates), multi-instrument data (NIR + Raman + auxiliary measurements), and metadata-driven groupings (batches, dates, operators). Standard ML tools lack native support for these patterns, requiring custom implementations prone to data leakage errors.
+
+\subsection{Design Goals}
+
+We designed \nirs{} around four principles addressing these challenges:
+
+\begin{enumerate}[noitemsep]
+    \item \textbf{Unified API}: A single interface spanning preprocessing, classical chemometrics, ML, and DL---eliminating integration overhead.
+    \item \textbf{Declarative reproducibility}: Pipeline configurations that serialize canonically, ensuring identical specifications produce identical hashes regardless of syntactic variation.
+    \item \textbf{Systematic exploration}: First-class support for combinatorial generation and hyperparameter optimization, replacing ad-hoc scripts with structured experimentation.
+    \item \textbf{NIRS-first semantics}: Native handling of repetitions, aggregation, multi-source data, and metadata-aware splitting---patterns fundamental to spectroscopic analysis.
+\end{enumerate}
+
+\subsection{Contributions}
+
+This paper presents \nirs{}, an open-source Python framework (v0.6.x) providing:
+
+\begin{enumerate}[noitemsep]
+    \item \textbf{Pipeline DSL with canonical serialization} (Section~\ref{sec:dsl}): A declarative syntax where pipelines defined through different syntactic paths (classes, instances, strings, dictionaries) produce identical serializations when semantically equivalent. This enables hash-based uniqueness, deduplication, and reliable caching.
+
+    \item \textbf{Combinatorial generator system} (Section~\ref{sec:generators}): Keywords (\code{\_or\_}, \code{\_range\_}, \code{\_grid\_}, \code{\_cartesian\_}) that expand pipeline templates into variant sets, with constraints (\code{\_mutex\_}, \code{\_requires\_}) encoding domain knowledge.
+
+    \item \textbf{Workspace and V3 artifact system} (Section~\ref{sec:workspace}): A structured storage architecture with deterministic artifact identification based on operator chains, content-addressed deduplication, and manifest-based provenance tracking.
+
+    \item \textbf{Data model for NIRS workflows} (Section~\ref{sec:datamodel}): Native support for multi-source data fusion, repetition aggregation, and metadata-driven operations through the \code{SpectroDataset} container.
+
+    \item \textbf{Comprehensive preprocessing and models} (Sections~\ref{sec:preprocessing}--\ref{sec:dl}): 40+ spectral transforms, 16+ PLS variants with high-performance backends (IKPLS), and purpose-built CNN architectures across three DL frameworks.
+
+    \item \textbf{Visual analytics and interpretability} (Section~\ref{sec:viz}): Built-in visualizations for performance analysis, SHAP integration for wavelength attribution, and aggregation-aware plotting.
+\end{enumerate}
+
+% ============================================================================
+% 2. RELATED WORK
+% ============================================================================
+
+\section{Related Work}
+
+\subsection{Chemometrics Software}
+
+Commercial packages including The Unscrambler X (CAMO Analytics), SIMCA (Sartorius), and OPUS (Bruker) provide comprehensive PLS functionality with polished interfaces. However, they typically offer limited ML integration, closed-source implementations preventing customization, and proprietary licensing models. MATLAB's PLS\_Toolbox (Eigenvector Research) serves the academic community but requires commercial licensing.
+
+The R ecosystem provides valuable open-source alternatives. The \texttt{pls} package \citep{mevik2007pls} implements PLS regression with excellent documentation. The \texttt{mdatools} package \citep{liland2021mdatools} offers broader chemometric functionality including PCA, PLS-DA, and SIMCA. The \texttt{prospectr} package provides spectroscopy-specific preprocessing. However, R's ML and especially DL ecosystem is less developed than Python's, and integrating these tools requires significant glue code.
+
+\subsection{Python Machine Learning Ecosystem}
+
+Python has become the dominant language for machine learning. Scikit-learn \citep{pedregosa2011scikit} provides excellent general-purpose algorithms with a consistent API. TensorFlow \citep{tensorflow2015}, PyTorch \citep{paszke2019pytorch}, and JAX \citep{jax2018github} offer powerful deep learning capabilities. Optuna \citep{optuna2019} provides sophisticated hyperparameter optimization. SHAP \citep{lundberg2017unified} enables model interpretation.
+
+However, applying these tools to spectral data requires manual implementation of preprocessing pipelines, integration of domain-specific methods, and custom handling of spectroscopic conventions (repetitions, aggregation, wavelength selection). For PLS specifically, scikit-learn's \texttt{PLSRegression} implements NIPALS but lacks advanced variants; specialized packages like \texttt{ikpls} \citep{engstrom2024ikpls} and \texttt{pyopls} address specific needs but remain fragmented.
+
+\subsection{Experiment Tracking and Reproducibility}
+
+Tools like MLflow, Weights \& Biases, and DVC address experiment tracking for general ML workflows. However, they lack domain-specific support for spectroscopic patterns: multi-source data fusion, repetition handling, preprocessing exploration, and the specific metadata structures common in NIRS applications. Users must implement custom integrations that may miss domain-specific pitfalls (e.g., data leakage from improper handling of repeated measurements).
+
+\subsection{Positioning of nirs4all}
+
+Table~\ref{tab:comparison} positions \nirs{} relative to existing tools. Our framework uniquely combines: (1) NIRS-specific preprocessing with classical chemometrics, (2) modern ML/DL with multi-backend support, (3) declarative pipeline DSL with combinatorial generation, (4) structured workspace with provenance tracking, and (5) native handling of spectroscopic data patterns.
+
+\begin{table}[htbp]
+\centering
+\caption{Feature comparison of NIRS analysis tools. Capabilities rated as: \textbullet~full, $\circ$~partial, ---~none.}
+\label{tab:comparison}
+\small
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+\textbf{Feature} & \textbf{Unscrambler} & \textbf{R pls} & \textbf{sklearn} & \textbf{MLflow} & \textbf{nirs4all} \\
+\midrule
+NIRS preprocessing & \textbullet & $\circ$ & --- & --- & \textbullet \\
+PLS variants (>5) & \textbullet & $\circ$ & --- & --- & \textbullet \\
+Classical ML & $\circ$ & $\circ$ & \textbullet & --- & \textbullet \\
+Deep learning & --- & --- & --- & --- & \textbullet \\
+Pipeline DSL & --- & --- & $\circ$ & --- & \textbullet \\
+Combinatorial generation & --- & --- & --- & --- & \textbullet \\
+Experiment tracking & $\circ$ & --- & --- & \textbullet & \textbullet \\
+Artifact provenance & --- & --- & --- & $\circ$ & \textbullet \\
+Multi-source fusion & --- & --- & --- & --- & \textbullet \\
+Repetition aggregation & $\circ$ & --- & --- & --- & \textbullet \\
+SHAP interpretability & --- & --- & $\circ$ & --- & \textbullet \\
+Open source & --- & \textbullet & \textbullet & \textbullet & \textbullet \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================================
+% 3. DATA MODEL
+% ============================================================================
+
+\section{Data Model and Execution Framework}
+\label{sec:datamodel}
+
+\subsection{SpectroDataset: The Core Container}
+
+The \code{SpectroDataset} class serves as the unified data container, encapsulating:
+
+\begin{itemize}[noitemsep]
+    \item Spectral features $\mathbf{X} \in \mathbb{R}^{n \times p \times f}$ as a 3D array (samples $\times$ processings $\times$ features)
+    \item Target values $\mathbf{y} \in \mathbb{R}^n$ (regression) or $\mathbf{y} \in \mathbb{Z}^n$ (classification)
+    \item Metadata table $\mathbf{M}$ with sample identifiers, groups, and auxiliary information
+    \item Cross-validation fold assignments
+    \item Wavelength headers for spectral interpretation
+\end{itemize}
+
+The 3D array architecture enables efficient handling of multiple preprocessing variants simultaneously. When feature augmentation is applied (Section~\ref{sec:advanced}), new processing dimensions are added while preserving the original data:
+
+\begin{lstlisting}
+# Initial: (500 samples, 1 processing, 2000 features)
+# After {"feature_augmentation": [SNV(), SavGol(11, 2)]}
+# Result: (500 samples, 3 processings, 2000 features)
+#         [raw, SNV, SavGol]
+\end{lstlisting}
+
+\subsection{Multi-Source Data}
+
+NIRS workflows often involve data from multiple instruments or modalities. \nirs{} natively supports multi-source datasets:
+
+\begin{lstlisting}
+from nirs4all.data import DatasetConfigs
+
+dataset = DatasetConfigs([
+    {"path": "nir_spectra.csv", "source_name": "NIR"},
+    {"path": "raman_spectra.csv", "source_name": "Raman"},
+    {"path": "chemical_markers.csv", "source_name": "markers"},
+])
+\end{lstlisting}
+
+Each source maintains independent feature dimensions while sharing sample alignment. The \code{source\_branch} keyword enables source-specific preprocessing:
+
+\begin{lstlisting}
+pipeline = [
+    {"source_branch": {
+        "NIR": [SNV(), FirstDerivative()],
+        "Raman": [MSC(), SavitzkyGolay(11, 2)],
+        "markers": [StandardScaler()],
+    }},
+    # Sources automatically merged after source_branch
+    PLSRegression(n_components=15),
+]
+\end{lstlisting}
+
+Merge strategies include concatenation (default), stacking (3D), averaging, and weighted combination.
+
+\subsection{Repetitions and Aggregation}
+\label{sec:aggregation}
+
+A fundamental pattern in NIRS is multiple spectral measurements per physical sample (replicates). Consider soil analysis where each sample is scanned 4 times for robustness. Naive handling introduces two problems: (1) data leakage if replicates are split across train/test, and (2) inflated sample counts in evaluation metrics.
+
+\nirs{} addresses this through aggregation semantics:
+
+\begin{lstlisting}
+dataset = DatasetConfigs(
+    "path/to/data",
+    aggregate="sample_id"  # Metadata column identifying replicates
+)
+\end{lstlisting}
+
+The aggregation algorithm operates as follows:
+
+\textbf{For regression:}
+\begin{enumerate}[noitemsep]
+    \item Train on all individual spectra (maximize data utilization)
+    \item At prediction time, average predictions for samples sharing the same \code{sample\_id}
+    \item Also average \code{y\_true} values for consistent comparison
+    \item Report both raw and aggregated metrics
+\end{enumerate}
+
+\textbf{For classification:}
+\begin{enumerate}[noitemsep]
+    \item Average predicted probabilities across replicates
+    \item Apply argmax to aggregated probabilities
+    \item Alternatively, use majority voting when probabilities unavailable
+\end{enumerate}
+
+Pipeline output displays both metrics:
+
+\begin{verbatim}
+|-----------|--------|------|-------|
+| Partition | Nsamp  | R2   | RMSE  |
+|-----------|--------|------|-------|
+| Cross Val | 400    | 0.87 | 0.712 |
+| Cross Val*| 100    | 0.92 | 0.598 |  <- Aggregated
+| Test      | 100    | 0.85 | 0.756 |
+| Test*     | 25     | 0.90 | 0.632 |  <- Aggregated
+|-----------|--------|------|-------|
+\end{verbatim}
+
+This dual reporting is essential for NIRS: raw metrics reflect model behavior on individual measurements, while aggregated metrics represent practical deployment performance.
+
+\subsection{Metadata-Aware Operations}
+
+Metadata columns drive several operations:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Group-aware splitting}: Ensure samples sharing a group (batch, date, individual) stay together in train or test, preventing leakage
+    \item \textbf{Stratification}: Balance class or value distributions across folds
+    \item \textbf{Outlier tracking}: Annotate excluded samples with reasons
+    \item \textbf{Filtering}: Select subsets based on metadata predicates
+\end{itemize}
+
+% ============================================================================
+% 4. PIPELINE DSL
+% ============================================================================
+
+\section{Pipeline DSL and Canonical Serialization}
+\label{sec:dsl}
+
+\subsection{Declarative Pipeline Syntax}
+
+Pipelines in \nirs{} are Python lists where each element can be:
+
+\begin{itemize}[noitemsep]
+    \item A transformer instance: \code{MinMaxScaler()}
+    \item A transformer class: \code{StandardScaler} (instantiated with defaults)
+    \item A string path: \code{"sklearn.preprocessing.StandardScaler"}
+    \item A dictionary with keywords: \code{\{"model": PLSRegression(10)\}}
+    \item A cross-validation splitter: \code{KFold(n\_splits=5)}
+\end{itemize}
+
+Special keywords control pipeline behavior:
+
+\begin{itemize}[noitemsep]
+    \item \code{model}: Designates the prediction step
+    \item \code{y\_processing}: Target scaling (applied/inverted automatically)
+    \item \code{branch}: Creates parallel processing paths
+    \item \code{merge}: Combines branch outputs ("features" or "predictions")
+    \item \code{source\_branch}: Source-specific preprocessing for multi-source data
+\end{itemize}
+
+\subsection{Canonical Serialization}
+
+A critical design requirement is that \textbf{semantically identical pipelines produce identical serializations}, regardless of how they were specified. This enables:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Hash-based uniqueness}: Same configuration $\rightarrow$ same hash
+    \item \textbf{Deduplication}: Avoid redundant computation across runs
+    \item \textbf{Caching}: Reliable artifact lookup
+    \item \textbf{Reproducibility}: Configurations can be compared unambiguously
+\end{itemize}
+
+The serialization algorithm applies the following rules:
+
+\textbf{Rule 1: Classes with default parameters serialize to fully-qualified names.}
+\begin{lstlisting}
+# All equivalent - serialize to same string:
+StandardScaler              # Class reference
+StandardScaler()            # Instance with defaults
+"sklearn.preprocessing.StandardScaler"  # String path
+
+# Result: "sklearn.preprocessing._data.StandardScaler"
+\end{lstlisting}
+
+\textbf{Rule 2: Only non-default parameters are included.}
+\begin{lstlisting}
+# PLSRegression default: n_components=2
+PLSRegression()             # -> "sklearn.cross_decomposition._pls.PLSRegression"
+PLSRegression(n_components=2)  # -> same (explicit default)
+PLSRegression(n_components=10) # -> {"class": "...", "params": {"n_components": 10}}
+\end{lstlisting}
+
+The \code{\_changed\_kwargs()} function introspects objects to detect parameters differing from \code{\_\_init\_\_} defaults, ensuring \code{MinMaxScaler()}, \code{MinMaxScaler(feature\_range=(0,1))}, and \code{MinMaxScaler} all produce identical serializations.
+
+\textbf{Rule 3: Tuples convert to lists} (YAML/JSON compatibility).
+
+\textbf{Rule 4: Functions serialize to their qualified paths.}
+\begin{lstlisting}
+nicon  # -> {"function": "nirs4all.operators.models.tensorflow.nicon"}
+\end{lstlisting}
+
+\subsection{Hash Computation}
+
+Pipeline fingerprints enable compact identification of configurations:
+
+\begin{lstlisting}
+@staticmethod
+def get_hash(steps) -> str:
+    serializable = json.dumps(steps, sort_keys=True).encode('utf-8')
+    return hashlib.md5(serializable).hexdigest()[0:8]
+\end{lstlisting}
+
+The resulting 8-character hash is used as the canonical configuration fingerprint. For readability, human-facing run directory names typically use a shorter suffix (e.g., 6 hex characters), such as \code{0001\_pls\_baseline\_a3f2e1}. For content-addressed artifact storage (Section~\ref{sec:workspace}), SHA-256 is used.
+
+% ============================================================================
+% 5. COMBINATORIAL GENERATION
+% ============================================================================
+
+\section{Combinatorial Pipeline Generation}
+\label{sec:generators}
+
+A key innovation in \nirs{} is the generator system for systematic exploration of preprocessing and hyperparameter spaces.
+
+\subsection{Pipeline vs Pipeline Generator}
+
+This distinction is fundamental:
+
+\begin{itemize}[noitemsep]
+    \item A \textbf{pipeline} is a deterministic, executable sequence of operators
+    \item A \textbf{pipeline generator} is a template that expands into multiple pipelines
+\end{itemize}
+
+Generator keywords trigger expansion at configuration time, before execution. Each generated pipeline receives a unique hash based on its specific configuration.
+
+\subsection{Core Keywords}
+
+\textbf{\code{\_or\_}}: Creates pipeline variants from alternatives.
+\begin{lstlisting}
+{"_or_": [SNV(), MSC(), EMSC()]}
+# Generates 3 pipeline variants
+\end{lstlisting}
+
+\textbf{\code{\_range\_}}: Generates numeric sequences for hyperparameter sweeps.
+\begin{lstlisting}
+{"_range_": [1, 20]}      # [1, 2, ..., 20]
+{"_range_": [1, 20, 2]}   # [1, 3, 5, ..., 19]
+\end{lstlisting}
+
+\textbf{\code{\_log\_range\_}}: Logarithmically-spaced sequences for parameters spanning orders of magnitude.
+\begin{lstlisting}
+{"_log_range_": [0.0001, 0.1, 5]}
+# [0.0001, 0.001, 0.01, 0.1]
+\end{lstlisting}
+
+\subsection{Selection Keywords}
+
+\textbf{\code{pick}}: Unordered combinations (order doesn't matter).
+\begin{lstlisting}
+{"_or_": [A, B, C, D], "pick": 2}
+# C(4,2) = 6 combinations: [A,B], [A,C], [A,D], [B,C], [B,D], [C,D]
+\end{lstlisting}
+
+\textbf{\code{arrange}}: Ordered permutations (order matters).
+\begin{lstlisting}
+{"_or_": [A, B, C], "arrange": 2}
+# P(3,2) = 6 permutations: [A,B], [A,C], [B,A], [B,C], [C,A], [C,B]
+\end{lstlisting}
+
+\textbf{\code{count}}: Limits results with random sampling.
+\begin{lstlisting}
+{"_or_": [...], "pick": 2, "count": 10}
+# Random 10 from all combinations
+\end{lstlisting}
+
+\subsection{Advanced Keywords}
+
+\textbf{\code{\_grid\_}}: Cartesian product of parameter spaces.
+\begin{lstlisting}
+{"_grid_": {
+    "lr": [0.01, 0.1],
+    "batch": [16, 32, 64]
+}}  # 2 x 3 = 6 configurations
+\end{lstlisting}
+
+\textbf{\code{\_zip\_}}: Parallel iteration.
+\begin{lstlisting}
+{"_zip_": {"x": [1, 2, 3], "y": [A, B, C]}}
+# [(1,A), (2,B), (3,C)]
+\end{lstlisting}
+
+\textbf{\code{\_cartesian\_}}: Complete pipeline stage combinations.
+\begin{lstlisting}
+{"_cartesian_": [
+    {"_or_": [SNV, MSC]},
+    {"_or_": [SG, Deriv1]},
+    {"_or_": [None, PCA]}
+], "count": 20}  # Sample 20 from 2x2x2=8 combinations
+\end{lstlisting}
+
+\subsection{Constraint Keywords}
+
+Domain knowledge can be encoded through constraints:
+
+\textbf{\code{\_mutex\_}}: Mutual exclusion (items cannot co-occur).
+\begin{lstlisting}
+{"_or_": [SNV, MSC, EMSC], "_mutex_": [[SNV, MSC]]}
+# SNV and MSC never selected together
+\end{lstlisting}
+
+\textbf{\code{\_requires\_}}: Dependency (if A selected, B required).
+\begin{lstlisting}
+{"_or_": [A, B, C], "_requires_": {A: B}}
+# If A selected, B must also be selected
+\end{lstlisting}
+
+These constraints prevent domain-invalid combinations---for example, avoiding redundant scatter corrections or requiring baseline correction before certain transforms.
+
+\subsection{Preset System}
+
+Reusable configurations can be registered and referenced:
+\begin{lstlisting}
+register_preset("nirs_scatter", {"_or_": [SNV(), MSC(), EMSC()]})
+
+# Use in pipeline
+{"preprocessing": {"_preset_": "nirs_scatter"}}
+\end{lstlisting}
+
+% ============================================================================
+% 6. WORKSPACE AND ARTIFACTS
+% ============================================================================
+
+\section{Workspace Architecture and Reproducibility}
+\label{sec:workspace}
+
+\subsection{Workspace Layout}
+
+\nirs{} organizes outputs in a structured workspace:
+
+\begin{verbatim}
+workspace/
+├── runs/
+│   └── {dataset}/
+│       ├── _binaries/              # Shared artifacts (legacy)
+│       ├── 0001_name_hash/
+│       │   ├── manifest.yaml       # Pipeline metadata & artifact registry
+│       │   ├── pipeline.json       # Pipeline configuration
+│       │   └── Report_best_*.csv   # Best model predictions
+│       └── 0002_another_hash/
+├── binaries/                       # Centralized artifact storage (V3)
+│   └── {dataset}/
+│       ├── model_PLSRegression_a1b2c3.joblib
+│       └── transformer_StandardScaler_b4c9d2.joblib
+├── exports/
+│   └── {dataset}/
+│       ├── YYYY-MM-DD_model_predictions.csv
+│       └── YYYY-MM-DD_model_pipeline.json
+├── library/
+│   ├── templates/                  # Config-only templates
+│   ├── filtered/                   # Config + metrics
+│   ├── pipeline/                   # Full pipeline with binaries
+│   └── fullrun/                    # Complete experiments
+└── dataset_name.json               # Global predictions database
+\end{verbatim}
+
+This structure separates concerns: runs contain experiment-specific outputs, binaries provide centralized artifact storage with deduplication, exports contain deployment-ready outputs, and library enables pipeline reuse.
+
+\subsection{V3 Artifact System}
+
+The V3 artifact system provides deterministic identification based on complete operator chains, solving challenges that simpler schemes cannot address:
+
+\textbf{Challenge}: In branching, stacking, and multi-source scenarios, a single step index is insufficient---the same PLS model at step 5 might exist in multiple branches with different preprocessing.
+
+\textbf{Solution}: Artifact IDs encode the complete path:
+
+\begin{verbatim}
+Format: {pipeline_id}${chain_hash}:{fold_id}
+
+Examples:
+  0001_pls$a1b2c3d4e5f6:all   # Shared artifact (no fold)
+  0001_pls$7f8e9d0c1b2a:0     # Fold 0 artifact
+  0001_pls$3c4d5e6f7a8b:1     # Fold 1 artifact
+\end{verbatim}
+
+The chain hash derives from the operator chain path:
+\begin{verbatim}
+s1.MinMaxScaler>s3.PLS[br=0]
+\end{verbatim}
+
+This encodes step indices, operator names, and branch/source context.
+
+\subsection{Artifact Types and Storage}
+
+\begin{table}[htbp]
+\centering
+\caption{Artifact types in the V3 system.}
+\label{tab:artifacts}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Type} & \textbf{Description} & \textbf{Format} \\
+\midrule
+MODEL & Trained ML models & joblib/pickle/framework-specific \\
+TRANSFORMER & Fitted preprocessors & joblib \\
+SPLITTER & Train/test split configuration & JSON \\
+ENCODER & Label encoders, y-scalers & joblib \\
+META\_MODEL & Stacking meta-models & joblib + dependency links \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Content-addressed storage} enables deduplication: identical objects share the same file, identified by SHA-256 content hash. Naming follows \code{\{type\}\_\{class\}\_\{short\_hash\}.ext}.
+
+\subsection{Manifest and Provenance}
+
+Each run produces a manifest capturing complete provenance:
+
+\begin{lstlisting}[language={}]
+schema_version: "2.0"
+pipeline_uid: "0001_pls_abc123"
+dataset: "wheat_sample1"
+dataset_info:
+  hash: "a3f2e1b4..."
+  version: "1.2"
+created_at: "2025-01-09T14:30:00Z"
+pipeline:
+  steps: [...]
+  config: {...}
+artifacts:
+  - artifact_id: "0001_pls$a1b2c3d4:0"
+    chain_path: "s1.MinMaxScaler>s3.PLS"
+    type: "model"
+    path: "binaries/model_PLSRegression_a1b2c3.joblib"
+    depends_on: ["0001_pls$x9y8z7w6:0"]  # For stacking
+predictions:
+  - partition: "test"
+    n_samples: 50
+    metrics: {r2: 0.89, rmse: 0.23}
+\end{lstlisting}
+
+The \code{depends\_on} field tracks stacking dependencies, enabling reconstruction of the complete model graph for deployment.
+
+\subsection{Library Management}
+
+The library system enables pipeline reuse:
+
+\begin{lstlisting}
+from nirs4all.workspace import LibraryManager
+
+library = LibraryManager(workspace / "library")
+
+# Save template (config only, no binaries)
+library.save_template(pipeline_config, "baseline_pls")
+
+# Save full pipeline with trained models
+library.save_pipeline_full(run_dir, "wheat_quality_v1")
+
+# Load and reuse
+config = library.load_template("baseline_pls")
+\end{lstlisting}
+
+\subsection{Deployment Export}
+
+Trained pipelines export as self-contained bundles:
+
+\textbf{.n4a format}: Archive containing manifest, serialized transformers, model artifacts, and execution trace. Portable across machines with compatible Python environments.
+
+\textbf{.n4a.py format}: Standalone Python script with embedded artifacts (base64-encoded). Enables deployment without library installation.
+
+The \code{retrain()} API supports model adaptation:
+\begin{itemize}[noitemsep]
+    \item \code{full}: Retrain entire pipeline on new data
+    \item \code{transfer}: Keep preprocessing, retrain model
+    \item \code{finetune}: Continue training neural networks
+\end{itemize}
+
+% ============================================================================
+% 7. PREPROCESSING
+% ============================================================================
+
+\section{Spectral Preprocessing}
+\label{sec:preprocessing}
+
+Preprocessing is critical for NIRS, addressing physical artifacts and enhancing chemical information \citep{rinnan2009review}. Table~\ref{tab:preprocessing} summarizes available transforms.
+
+\begin{table}[htbp]
+\centering
+\caption{Preprocessing transforms in \nirs{} organized by category.}
+\label{tab:preprocessing}
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Category} & \textbf{Methods} \\
+\midrule
+Scatter correction & SNV, MSC, EMSC, Robust SNV, Local SNV \\
+Derivatives & Savitzky-Golay (1st, 2nd), Norris-Williams, Gap-segment \\
+Baseline correction & AsLS, AirPLS, ArPLS, IArPLS, ModPoly, SNIP (via pybaselines) \\
+Smoothing & Moving average, Gaussian, Whittaker \\
+Normalization & MinMax, StandardScaler, L1/L2/Max norm, Area normalization \\
+Wavelets & Haar, Daubechies, Symlets, Coiflets (denoising, features) \\
+Feature selection & CARS, MC-UVE, VIP, SelectKBest \\
+Dimensionality & PCA, SVD, NMF, ICA \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Scatter Correction}
+
+Scattering effects from particle size, packing density, and sample geometry introduce distortions unrelated to chemical composition.
+
+\textbf{Standard Normal Variate (SNV)} \citep{barnes1989standard} performs row-wise normalization:
+\begin{equation}
+x_{\text{SNV}} = \frac{x - \bar{x}}{\sigma_x}
+\end{equation}
+where $\bar{x}$ and $\sigma_x$ are the mean and standard deviation of each spectrum.
+
+\textbf{Multiplicative Scatter Correction (MSC)} \citep{geladi1985linearization} regresses each spectrum against a reference (typically the mean):
+\begin{equation}
+x_{\text{MSC}} = \frac{x - b}{a}
+\end{equation}
+
+\textbf{Extended MSC (EMSC)} \citep{martens1991extended} augments MSC with polynomial terms to model wavelength-dependent effects.
+
+\subsection{Spectral Derivatives}
+
+Derivatives enhance resolution, separate overlapping peaks, and remove baseline offsets \citep{savitzky1964smoothing}. The \code{SavitzkyGolay} class implements polynomial smoothing with optional derivative computation. First derivatives remove constant offsets; second derivatives remove linear baselines and sharpen peaks.
+
+\subsection{Baseline Correction}
+
+\nirs{} integrates \texttt{pybaselines} \citep{pybaselines2022}, providing 48+ algorithms including asymmetric least squares variants (AsLS, AirPLS, ArPLS), polynomial methods (ModPoly), and morphological approaches (rolling ball, SNIP).
+
+% ============================================================================
+% 8. PLS VARIANTS
+% ============================================================================
+
+\section{PLS Variants and High-Performance Backends}
+\label{sec:pls}
+
+\subsection{Classical PLS with IKPLS Integration}
+
+\nirs{} supports scikit-learn's \code{PLSRegression} (NIPALS) as baseline. For high-performance applications, we integrate \texttt{ikpls} \citep{engstrom2024ikpls}, providing Improved Kernel PLS with NumPy and JAX backends:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{GPU acceleration}: JAX backend leverages GPU/TPU for large datasets
+    \item \textbf{Fast cross-validation}: Orders of magnitude faster than naive CV through algorithmic optimization
+    \item \textbf{Weighted CV}: Support for sample weighting during validation
+\end{itemize}
+
+\subsection{Advanced PLS Variants}
+
+\begin{table}[htbp]
+\centering
+\caption{PLS variants available in \nirs{}.}
+\label{tab:pls}
+\small
+\begin{tabular}{@{}lp{8cm}@{}}
+\toprule
+\textbf{Variant} & \textbf{Description} \\
+\midrule
+OPLS & Separates predictive from orthogonal variation \citep{trygg2002orthogonal} \\
+Kernel PLS & Non-linear regression via kernel projection \citep{rosipal2001kernel} \\
+Sparse PLS & L1 regularization for variable selection \citep{chun2010sparse} \\
+LWPLS & Locally weighted models for heterogeneous populations \citep{cleveland1988locally} \\
+iPLS & Interval selection via contiguous windows \citep{norgaard2000interval} \\
+MBPLS & Multi-block for multiple X sources \citep{westerhuis1998analysis} \\
+DiPLS & Domain-invariant for calibration transfer \citep{nikzadlangerodi2018domain} \\
+Dynamic PLS & Time-lagged modeling via Hankelization \\
+PLS-DA & Discriminant analysis for classification \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================================
+% 9. DEEP LEARNING
+% ============================================================================
+
+\section{Deep Learning Architectures}
+\label{sec:dl}
+
+\subsection{Motivation}
+
+Deep learning offers potential advantages for NIRS: automatic feature learning that may reduce preprocessing requirements, capacity to model complex non-linear relationships, and transferability across instruments. However, standard architectures designed for images may not be optimal for spectral data, which exhibits unique characteristics: high dimensionality with strong local correlations, physically meaningful wavelength ordering, and relatively small training sets.
+
+\subsection{NICON Architecture}
+
+NICON (NIR Convolutional Network) is a 1D CNN optimized for spectral data:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Spatial dropout}: Applied before convolutions to regularize correlated spectral features
+    \item \textbf{Multi-scale convolutions}: Kernel sizes (7, 5, 3) capture broad patterns and sharp features
+    \item \textbf{Global average pooling}: Translation-invariant aggregation, reducing parameters
+    \item \textbf{Moderate depth}: Three blocks balance capacity with overfitting risk
+\end{itemize}
+
+Architecture: SpatialDropout1D $\rightarrow$ Conv1D(8, k=7) $\rightarrow$ MaxPool $\rightarrow$ BN $\rightarrow$ Conv1D(64, k=5) $\rightarrow$ MaxPool $\rightarrow$ BN $\rightarrow$ Conv1D(32, k=3) $\rightarrow$ GlobalAvgPool $\rightarrow$ Dense(128) $\rightarrow$ Dropout $\rightarrow$ Output.
+
+\subsection{DECON Architecture}
+
+DECON employs depthwise separable convolutions, factorizing operations for parameter efficiency \citep{howard2017mobilenets}. This makes DECON suitable for limited training data and transfer learning scenarios.
+
+\subsection{Multi-Backend Support}
+
+Both architectures are implemented across TensorFlow/Keras, PyTorch, and JAX with identical interfaces. Backends load lazily---importing \code{nirs4all} does not import any DL framework until explicitly requested:
+
+\begin{lstlisting}
+from nirs4all.operators.models.jax import nicon      # JAX version
+from nirs4all.operators.models.torch import nicon   # PyTorch version
+from nirs4all.operators.models.tensorflow import nicon  # TensorFlow
+\end{lstlisting}
+
+% ============================================================================
+% 10. HYPERPARAMETER OPTIMIZATION
+% ============================================================================
+
+\section{Hyperparameter Optimization}
+
+\nirs{} provides two complementary approaches.
+
+\subsection{Generator-Based Exploration}
+
+The generator system (Section~\ref{sec:generators}) creates explicit pipeline variants, enabling full parallelization, complete reproducibility (deterministic enumeration), and transparent comparison. Best for small-to-medium parameter spaces.
+
+\subsection{Optuna Integration}
+
+For larger spaces, \nirs{} integrates Optuna \citep{optuna2019}:
+
+\begin{lstlisting}
+"finetune_params": {
+    "n_trials": 50,
+    "sample": "tpe",  # or "random", "cmaes", "hyperband"
+    "model_params": {
+        "n_components": ("int", 1, 30),
+        "alpha": ("float", 0.001, 1.0, "log"),
+        "kernel": ["linear", "rbf", "poly"]
+    }
+}
+\end{lstlisting}
+
+Tuning approaches: \code{single} (global optimization), \code{grouped} (per-preprocessing), \code{individual} (per-fold).
+
+% ============================================================================
+% 11. VISUALIZATION AND INTERPRETABILITY
+% ============================================================================
+
+\section{Visual Analytics and Interpretability}
+\label{sec:viz}
+
+\subsection{Built-in Visualizations}
+
+The \code{PredictionAnalyzer} class provides aggregation-aware plotting:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{TopK comparison}: Scatter plots of predicted vs true for top K models
+    \item \textbf{Heatmaps}: Performance across two categorical variables (preprocessing $\times$ model)
+    \item \textbf{Candlestick charts}: Cross-validation variance visualization
+    \item \textbf{Histograms}: Metric distribution across all pipelines
+    \item \textbf{Confusion matrices}: Classification performance visualization
+\end{itemize}
+
+All visualizations respect aggregation settings:
+\begin{lstlisting}
+analyzer = PredictionAnalyzer(predictions, default_aggregate="sample_id")
+fig = analyzer.plot_top_k(k=5, rank_metric="rmse")
+fig = analyzer.plot_heatmap(x_var="preprocessing", y_var="model")
+\end{lstlisting}
+
+% Figure placeholder
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+\textbf{Figure: Performance Heatmap}\\
+Preprocessing methods (rows) vs Models (columns)\\
+Color intensity indicates RMSE (lower = better)\\
+\vspace{3cm}}}
+\caption{Example heatmap showing model performance across preprocessing variants. This visualization enables rapid identification of optimal preprocessing-model combinations.}
+\label{fig:heatmap}
+\end{figure}
+
+\subsection{SHAP Integration}
+
+Model interpretation is essential for scientific applications where understanding \textit{which wavelengths} drive predictions is as important as accuracy. The \code{NIRSPipeline} wrapper enables SHAP compatibility:
+
+\begin{lstlisting}
+explain_result = nirs4all.explain(
+    model=result.best,
+    data=X_test,
+    explainer_type="kernel",  # or "tree", "linear", "deep"
+    n_samples=200
+)
+print(explain_result.top_features[:10])  # Top contributing wavelengths
+\end{lstlisting}
+
+SHAP values enable identification of chemically meaningful wavelength regions, validation against spectroscopic knowledge, and comparison across preprocessing choices.
+
+% Figure placeholder
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+\textbf{Figure: SHAP Wavelength Attribution}\\
+X-axis: Wavelength (nm)\\
+Y-axis: SHAP value (feature importance)\\
+Shows which spectral regions drive model predictions\\
+\vspace{3cm}}}
+\caption{SHAP-based wavelength attribution showing spectral regions driving predictions. Peaks correspond to known absorption bands for the target analyte.}
+\label{fig:shap}
+\end{figure}
+
+% ============================================================================
+% 12. ADVANCED FEATURES
+% ============================================================================
+
+\section{Advanced Pipeline Features}
+\label{sec:advanced}
+
+\subsection{Branching and Stacking}
+
+Complex analyses often require parallel preprocessing paths or model ensembles. The \code{branch} and \code{merge} keywords enable DAG-structured pipelines:
+
+\begin{lstlisting}
+pipeline = [
+    MinMaxScaler(),
+    KFold(n_splits=5),
+    {"branch": [
+        [SNV(), {"model": PLSRegression(10)}],
+        [MSC(), {"model": RandomForestRegressor(100)}],
+        [{"model": nicon}],
+    ]},
+    {"merge": "predictions"},
+    {"model": Ridge()}  # Meta-learner (stacking)
+]
+\end{lstlisting}
+
+This creates parallel branches, collects out-of-fold predictions, then trains a meta-learner---implementing stacked generalization \citep{wolpert1992stacked}.
+
+\subsection{Feature Augmentation}
+
+The \code{feature\_augmentation} keyword adds processing dimensions:
+
+\begin{lstlisting}
+{"feature_augmentation": [SNV(), SavitzkyGolay(11, 2)]}
+# Shape: (N, 1, F) -> (N, 3, F) with [raw, SNV, SG]
+\end{lstlisting}
+
+This enables models that leverage multiple views of the same spectra.
+
+\subsection{Domain-Specific Splitters}
+
+\textbf{Kennard-Stone} \citep{kennard1969computer}: Selects calibration samples maximally spanning feature space.
+
+\textbf{SPXY} \citep{galvao2005method}: Extends Kennard-Stone by jointly considering spectral features and target values.
+
+Group-aware wrappers prevent data leakage when samples share groupings (batch, individual, date).
+
+\subsection{Data Augmentation}
+
+\nirs{} provides 18+ spectral augmentation techniques:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Noise}: Gaussian additive, multiplicative, spike
+    \item \textbf{Baseline}: Linear/polynomial drift
+    \item \textbf{Wavelength}: Shift, stretch, local warp
+    \item \textbf{Mixing}: Mixup \citep{zhang2018mixup}, local mixup
+\end{itemize}
+
+% ============================================================================
+% 13. CASE STUDIES
+% ============================================================================
+
+\section{Case Studies}
+\label{sec:results}
+
+\subsection{Study 1: Wheat Protein Prediction}
+
+We demonstrate \nirs{} capabilities using a wheat protein dataset (n=400 samples, 4 replicates each, 2000 wavelengths).
+
+\textbf{Pipeline configuration:}
+\begin{lstlisting}
+pipeline = [
+    MinMaxScaler(),
+    {"y_processing": StandardScaler()},
+    {"_or_": [SNV(), MSC(), EMSC(), SavitzkyGolay(15, 2)]},
+    KFold(n_splits=5, shuffle=True, random_state=42),
+    {"branch": [
+        [{"model": PLSRegression(n), "name": f"PLS-{n}"}
+         for n in [5, 10, 15]],
+        [{"model": RandomForestRegressor(100)}],
+    ]},
+]
+
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset=DatasetConfigs("wheat_data/", aggregate="sample_id"),
+    workspace="results/wheat/",
+    verbose=1
+)
+\end{lstlisting}
+
+This generates $4 \times 4 = 16$ pipeline variants (4 preprocessings $\times$ 4 models).
+
+\textbf{Results:}
+
+\begin{table}[htbp]
+\centering
+\caption{Wheat protein prediction results (aggregated test set).}
+\label{tab:wheat}
+\small
+\begin{tabular}{@{}llccc@{}}
+\toprule
+\textbf{Preprocessing} & \textbf{Model} & \textbf{R$^2$} & \textbf{RMSE} & \textbf{RPD} \\
+\midrule
+SNV & PLS-10 & 0.91 & 0.42 & 3.4 \\
+EMSC & PLS-15 & 0.89 & 0.46 & 3.1 \\
+SavGol & PLS-10 & 0.88 & 0.48 & 3.0 \\
+SNV & RandomForest & 0.85 & 0.54 & 2.6 \\
+MSC & PLS-10 & 0.87 & 0.50 & 2.9 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+SNV preprocessing combined with PLS-10 achieved the best performance. The systematic exploration identified this combination efficiently, avoiding manual trial-and-error.
+
+\subsection{Study 2: Multi-Source Soil Analysis}
+
+This study combines NIR spectra with Raman spectra and chemical markers for soil organic carbon prediction.
+
+\begin{lstlisting}
+dataset = DatasetConfigs([
+    {"path": "nir/", "source_name": "NIR"},
+    {"path": "raman/", "source_name": "Raman"},
+    {"path": "markers.csv", "source_name": "chem"},
+])
+
+pipeline = [
+    {"source_branch": {
+        "NIR": [SNV(), SavitzkyGolay(11, 2)],
+        "Raman": [BaselineCorrection("asls"), MSC()],
+        "chem": [StandardScaler()],
+    }},
+    KFold(n_splits=5),
+    {"branch": [
+        [{"model": PLSRegression(15), "name": "PLS-fused"}],
+        [{"model": nicon, "name": "NICON-fused"}],
+    ]},
+]
+\end{lstlisting}
+
+Multi-source fusion improved R$^2$ from 0.82 (NIR-only) to 0.91, demonstrating the value of complementary information sources.
+
+\subsection{Published Applications}
+
+\nirs{} has been used in peer-reviewed research including:
+
+\begin{itemize}[noitemsep]
+    \item Forage quality assessment combining NIR with morphological markers \citep{beurier2024forage}
+    \item Pharmaceutical content uniformity with calibration transfer
+    \item Food authenticity verification using multi-instrument data
+\end{itemize}
+
+% ============================================================================
+% 14. DISCUSSION
+% ============================================================================
+
+\section{Discussion}
+
+\subsection{Design Trade-offs}
+
+\textbf{Declarative DSL vs programmatic flexibility.} The declarative syntax enables reproducibility and serialization but involves a learning curve for complex configurations. Users can escape to programmatic Python when needed.
+
+\textbf{Canonical serialization overhead.} Ensuring identical serialization for equivalent configurations requires careful introspection of object defaults. This overhead is negligible at runtime but adds complexity to the codebase.
+
+\textbf{Workspace structure vs simplicity.} The structured workspace provides provenance and organization but may seem heavy for quick experiments. Lightweight modes exist for exploratory work.
+
+\subsection{Limitations}
+
+We explicitly acknowledge current limitations:
+
+\textbf{Not a pure DAG execution engine.} While \nirs{} supports DAG-structured pipelines, it does not yet provide global optimization across the graph. Each pipeline variant executes independently. True DAG execution with shared computation, caching across nodes, and global scheduling is planned for v1.0.
+
+\textbf{Generator expansion, not global fine-tuning.} The generator system produces discrete pipeline variants that execute independently. End-to-end differentiable optimization across generator choices (e.g., learning preprocessing parameters jointly with model weights) is not supported.
+
+\textbf{sklearn compatibility constraints.} The \code{NIRSPipeline} wrapper enables SHAP for many models, but complete pipelines are not yet \code{BaseEstimator}-compatible. This limits some sklearn integrations and SHAP explanations for complex pipelines, particularly neural networks.
+
+\textbf{Parallelization not yet implemented.} Pipeline variants currently execute sequentially. Parallel execution across variants and folds is architected but not yet available. This will return before v1.0.
+
+\textbf{Tabular NIRS focus.} The current implementation targets tabular spectral data. Hyperspectral imaging with spatial dimensions is out of scope, though the architecture could extend to this domain.
+
+\textbf{Metadata quality dependency.} Multi-source fusion and aggregation rely on correct sample alignment in metadata. Misaligned or missing metadata can cause subtle errors. Validation tools exist but require user diligence.
+
+\subsection{Future Directions}
+
+\textbf{nirs4all\_webapp.} A companion desktop/web application provides interactive pipeline construction, preprocessing exploration, outlier detection, and result visualization. The React frontend communicates with a FastAPI backend that interfaces with \nirs{}.
+
+\textbf{True DAG engine.} Moving from pipeline expansion to graph-based execution would enable: shared computation across branches, intelligent scheduling, inter-node caching, and potential for gradient-based optimization across preprocessing choices.
+
+\textbf{Enhanced sklearn integration.} Making complete pipelines implement \code{BaseEstimator} would enable seamless integration with sklearn's model selection, SHAP for all model types, and third-party tools expecting sklearn interfaces.
+
+\textbf{Neural network interpretability.} While SHAP works for tree and linear models, robust explanation methods for spectral CNNs (integrated gradients, attention mechanisms) remain active development areas.
+
+\textbf{Calibration transfer.} Built-in support for standardization (PDS, SST) and domain adaptation methods for transferring models across instruments.
+
+% ============================================================================
+% 15. CONCLUSION
+% ============================================================================
+
+\section{Conclusion}
+
+We have presented \nirs{}, a comprehensive Python framework bridging classical chemometrics and modern ML/DL for NIR spectroscopy analysis. The framework addresses fundamental challenges in spectroscopic data analysis:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Unification}: A single API spanning 40+ preprocessing transforms, 16+ PLS variants, classical ML, and deep learning across three frameworks.
+    \item \textbf{Reproducibility}: Canonical serialization ensures hash-based uniqueness; the V3 artifact system provides complete provenance tracking.
+    \item \textbf{Systematic exploration}: The generator system enables efficient, constrained exploration of preprocessing and hyperparameter spaces.
+    \item \textbf{NIRS-first design}: Native support for repetitions, aggregation, multi-source data, and domain-specific splitters.
+\end{itemize}
+
+By lowering barriers between communities and enabling systematic, reproducible exploration of the preprocessing-model space, \nirs{} aims to advance both research and practice in spectroscopic analysis.
+
+\nirs{} v0.6.x is freely available under the CeCILL-2.1 license at \url{https://github.com/GBeurier/nirs4all}. Installation: \code{pip install nirs4all}. Documentation: \url{https://nirs4all.readthedocs.io}.
+
+% ============================================================================
+% REPRODUCIBILITY CHECKLIST
+% ============================================================================
+
+\section*{Reproducibility Checklist}
+
+For scientific traceability, \nirs{} experiments should document:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Data}: Dataset hash, version, preprocessing applied before loading
+    \item \textbf{Configuration}: Pipeline JSON (canonical serialization)
+    \item \textbf{Splitting}: Cross-validation scheme, random seeds, group columns
+    \item \textbf{Aggregation}: Aggregation column if used, raw vs aggregated metrics
+    \item \textbf{Artifacts}: Manifest with artifact registry and dependency graph
+    \item \textbf{Environment}: Python version, \nirs{} version, backend versions
+\end{itemize}
+
+% ============================================================================
+% ACKNOWLEDGMENTS
+% ============================================================================
+
+\section*{Acknowledgments}
+
+The author thanks CIRAD for institutional support and the open-source community for foundational libraries including scikit-learn, pybaselines, SHAP, ikpls, Optuna, and the deep learning frameworks.
+
+% ============================================================================
+% REFERENCES
+% ============================================================================
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+% ============================================================================
+% APPENDIX
+% ============================================================================
+
+\appendix
+
+\section{Generator Keywords Reference}
+\label{app:generators}
+
+\begin{table}[htbp]
+\centering
+\caption{Complete generator keywords reference.}
+\label{tab:generator_ref}
+\small
+\begin{tabular}{@{}lp{9cm}@{}}
+\toprule
+\textbf{Keyword} & \textbf{Description} \\
+\midrule
+\code{\_or\_} & Alternative choices; each generates a variant \\
+\code{\_range\_} & Numeric sequence [start, end] or [start, end, step] \\
+\code{\_log\_range\_} & Logarithmic sequence [start, end, n\_points] \\
+\code{pick} & Unordered combinations C(n,k) \\
+\code{arrange} & Ordered permutations P(n,k) \\
+\code{count} & Limit results, with random sampling if exceeded \\
+\code{size} & Tuple (min, max) for variable-length selection \\
+\code{\_grid\_} & Cartesian product of parameter dictionaries \\
+\code{\_zip\_} & Parallel iteration across lists \\
+\code{\_cartesian\_} & Full Cartesian product of pipeline stages \\
+\code{\_mutex\_} & Mutual exclusion constraints \\
+\code{\_requires\_} & Dependency constraints \\
+\code{\_exclude\_} & Explicit exclusion patterns \\
+\code{\_preset\_} & Reference to registered preset configuration \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Artifact ID Anatomy}
+\label{app:artifacts}
+
+\begin{verbatim}
+Artifact ID: 0001_pls_baseline$a1b2c3d4e5f6:0
+
+Components:
+  0001              - Sequence number within run
+  pls_baseline      - Pipeline name (user-provided or auto-generated)
+  $                 - Separator
+    a1b2c3d4e5f6      - Chain hash (12 chars, from operator path)
+  :                 - Separator
+  0                 - Fold ID (or "all" for shared artifacts)
+
+Chain path example:
+  s1.MinMaxScaler>s3.StandardScaler>s5.PLSRegression[br=0,src=NIR]
+
+  s1, s3, s5        - Step indices
+  [br=0]            - Branch index
+  [src=NIR]         - Source name (for multi-source)
+\end{verbatim}
+
+\end{document}
