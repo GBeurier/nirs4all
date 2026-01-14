@@ -1,0 +1,26 @@
+# Dual NIR sources (NIR + MIR)
+#
+# Auto-generated test configuration
+
+name: E01_dual_source
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ;
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+sources:
+- name: NIR
+  train_x: sample_datasets/E01_dual_source/NIR_train.csv
+  test_x: sample_datasets/E01_dual_source/NIR_test.csv
+- name: MIR
+  train_x: sample_datasets/E01_dual_source/MIR_train.csv
+  test_x: sample_datasets/E01_dual_source/MIR_test.csv
+shared_targets:
+  path: sample_datasets/E01_dual_source/Y_train.csv
+  link_by: sample_id
+train_y: sample_datasets/E01_dual_source/Y_train.csv
+test_y: sample_datasets/E01_dual_source/Y_test.csv
+train_group: sample_datasets/E01_dual_source/metadata_train.csv
+test_group: sample_datasets/E01_dual_source/metadata_test.csv

@@ -1,0 +1,27 @@
+# Feature variations with separate mode
+#
+# Auto-generated test configuration
+
+name: F04_variations_separate
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ;
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+variations:
+- name: raw
+  description: Raw spectral data
+  train_x: sample_datasets/F04_variations_separate/X_raw_train.csv
+  test_x: sample_datasets/F04_variations_separate/X_raw_test.csv
+- name: snv
+  description: SNV preprocessed spectra
+  train_x: sample_datasets/F04_variations_separate/X_snv_train.csv
+  test_x: sample_datasets/F04_variations_separate/X_snv_test.csv
+  preprocessing_applied:
+  - type: SNV
+    description: Standard Normal Variate
+variation_mode: separate
+train_y: sample_datasets/F04_variations_separate/Y_train.csv
+test_y: sample_datasets/F04_variations_separate/Y_test.csv

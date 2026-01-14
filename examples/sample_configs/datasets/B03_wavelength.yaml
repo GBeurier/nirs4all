@@ -1,0 +1,16 @@
+# Wavelength headers (nm) with absorbance
+#
+# Auto-generated test configuration
+
+name: B03_wavelength
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ;
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/B03_wavelength/Xcal.csv
+train_y: sample_datasets/B03_wavelength/Ycal.csv
+test_x: sample_datasets/B03_wavelength/Xval.csv
+test_y: sample_datasets/B03_wavelength/Yval.csv

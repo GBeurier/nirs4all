@@ -1,0 +1,16 @@
+# Standard folder structure (Xcal, Ycal, Xval, Yval)
+#
+# Auto-generated test configuration
+
+name: C03_standard_folder
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ;
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/C03_standard_folder/Xcal.csv
+train_y: sample_datasets/C03_standard_folder/Ycal.csv
+test_x: sample_datasets/C03_standard_folder/Xval.csv
+test_y: sample_datasets/C03_standard_folder/Yval.csv

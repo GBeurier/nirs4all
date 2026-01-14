@@ -1,0 +1,16 @@
+# Reflectance percentage signal type
+#
+# Auto-generated test configuration
+
+name: B04_reflectance
+task_type: regression
+signal_type: reflectance%
+global_params:
+  delimiter: ;
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/B04_reflectance/Xcal.csv
+train_y: sample_datasets/B04_reflectance/Ycal.csv
+test_x: sample_datasets/B04_reflectance/Xval.csv
+test_y: sample_datasets/B04_reflectance/Yval.csv

@@ -1,0 +1,21 @@
+# Aggregation with outlier exclusion
+#
+# Auto-generated test configuration
+
+name: E05_aggregate_outliers
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ;
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/E05_aggregate_outliers/Xcal.csv
+train_y: sample_datasets/E05_aggregate_outliers/Ycal.csv
+test_x: sample_datasets/E05_aggregate_outliers/Xval.csv
+test_y: sample_datasets/E05_aggregate_outliers/Yval.csv
+train_group: sample_datasets/E05_aggregate_outliers/Mcal.csv
+test_group: sample_datasets/E05_aggregate_outliers/Mval.csv
+aggregate: sample_id
+aggregate_method: mean
+aggregate_exclude_outliers: true

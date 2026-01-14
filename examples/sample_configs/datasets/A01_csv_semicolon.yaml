@@ -1,0 +1,16 @@
+# Standard semicolon-delimited CSV
+#
+# Auto-generated test configuration
+
+name: A01_csv_semicolon
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ;
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/A01_csv_semicolon/Xcal.csv
+train_y: sample_datasets/A01_csv_semicolon/Ycal.csv
+test_x: sample_datasets/A01_csv_semicolon/Xval.csv
+test_y: sample_datasets/A01_csv_semicolon/Yval.csv

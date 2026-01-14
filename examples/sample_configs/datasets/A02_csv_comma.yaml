@@ -1,0 +1,16 @@
+# Comma-delimited CSV
+#
+# Auto-generated test configuration
+
+name: A02_csv_comma
+task_type: regression
+signal_type: absorbance
+global_params:
+  delimiter: ','
+  has_header: true
+  header_unit: nm
+  na_policy: remove
+train_x: sample_datasets/A02_csv_comma/Xcal.csv
+train_y: sample_datasets/A02_csv_comma/Ycal.csv
+test_x: sample_datasets/A02_csv_comma/Xval.csv
+test_y: sample_datasets/A02_csv_comma/Yval.csv
