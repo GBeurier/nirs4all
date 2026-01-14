@@ -183,6 +183,7 @@ class SyntheticNIRSGenerator:
         multi_scan_config: Optional[MultiScanConfig] = None,
         environmental_config: Optional[EnvironmentalEffectsConfig] = None,
         scattering_effects_config: Optional[ScatteringEffectsConfig] = None,
+        custom_params: Optional[Dict[str, Any]] = None,
         random_state: Optional[int] = None,
     ) -> None:
         """
@@ -309,8 +310,13 @@ class SyntheticNIRSGenerator:
         # Precompute component spectra (pure component matrix E)
         self.E = self.library.compute_all(self.wavelengths)
 
-        # Set complexity-dependent parameters
+        # Set complexity-dependent parameters, with optional custom overrides
         self.params = COMPLEXITY_PARAMS[complexity].copy()
+        if custom_params is not None:
+            # Merge custom params, allowing override of complexity defaults
+            for key, value in custom_params.items():
+                if key in self.params:
+                    self.params[key] = value
 
         # Phase 3: Environmental effects simulator
         self.environmental_config = environmental_config
