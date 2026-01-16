@@ -4,6 +4,8 @@
 
 > [Augmentations] Transfer synthesis mechanisms (temperature, machine, noise, etc.) to sample_augmentations operators
 
+> [Predictions] Add datasets, summary, top 50 best scores, etc. in a sub table to allow fast browsing/loading
+
 **RELEASE** 0.6.2: Ready for UI
 
 
@@ -50,6 +52,7 @@ Create the example synth pipelines x synth datasets for testing purpose
 > [Models] extend the scope of custom model fallback (sklearn only for now), to include custom layouts (ie. custom NN without framework and 3D data, spectrograms, etc.)
 > [Pipeline + Optuna] Pipeline as optuna trial. The pp become a choice param. Goal is to stack pp each time score stop progress, select the good ones by feats augmentation and by pp order (1st, 2nd, etc.) and stop once it drops.
 
+> [Augmentation] augmentation to repetitions
 
 **CLI_EXTENSION_PROPOSAL.md**
 > [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
@@ -102,7 +105,6 @@ Create the example synth pipelines x synth datasets for testing purpose
 
 
 **RELEASE** 1.0: Release
-
 
 > [Transfer] Automate model transfer across machines
 

@@ -11,9 +11,10 @@ This guide explains all possible syntaxes for defining pipeline steps in nirs4al
 3. [Basic Step Syntaxes](#basic-step-syntaxes)
 4. [Model Step Syntaxes](#model-step-syntaxes)
 5. [Generator Syntaxes](#generator-syntaxes)
-6. [File Formats](#file-formats)
-7. [Syntax Reference Table](#syntax-reference-table)
-8. [Serialization Rules](#serialization-rules)
+6. [Branching and Merging Keywords](#branching-and-merging-keywords)
+7. [File Formats](#file-formats)
+8. [Syntax Reference Table](#syntax-reference-table)
+9. [Serialization Rules](#serialization-rules)
 
 ---
 
@@ -899,6 +900,242 @@ pipeline = [
 
 ---
 
+## Branching and Merging Keywords
+
+Pipeline branching creates parallel processing paths, and merging combines their outputs.
+
+### `branch` - Create Parallel Pipelines
+
+**Syntax**: Dict with `branch` key containing list or dict of sub-pipelines.
+
+```python
+# List syntax (anonymous branches)
+{"branch": [
+    [SNV()],                    # Branch 0
+    [MSC()],                    # Branch 1
+    [FirstDerivative()],        # Branch 2
+]}
+
+# Dict syntax (named branches)
+{"branch": {
+    "snv": [SNV()],
+    "msc": [MSC()],
+    "derivative": [FirstDerivative()],
+}}
+
+# Generator syntax
+{"branch": {"_or_": [SNV(), MSC(), FirstDerivative()]}}
+```
+
+**Behavior**: Creates N parallel pipeline contexts. Steps after `branch` execute on all branches.
+
+---
+
+### `merge` - Combine Branch Outputs
+
+**Syntax**: Dict with `merge` key for combining branch outputs.
+
+```python
+# Simple string syntax
+{"merge": "features"}      # Concatenate X matrices horizontally
+{"merge": "predictions"}   # Collect OOF predictions for stacking
+{"merge": "all"}           # Both features and predictions
+
+# Dict syntax for fine control
+{"merge": {
+    "features": "all",              # or [0, 2] for specific branches
+    "predictions": [1, 3],          # specific branches by index
+    "include_original": True,       # include pre-branch features
+    "aggregation": "mean",          # mean | median | std | min | max
+    "output_as": "features",        # features | sources | dict
+    "on_missing": "error",          # error | warn | skip
+    "on_shape_mismatch": "error",   # error | allow | pad | truncate
+    "unsafe": False,                # use OOF reconstruction (default)
+}}
+
+# Mixed merge (features from some, predictions from others)
+{"merge": {"features": [0, 1], "predictions": [2]}}
+
+# Per-branch prediction configuration
+{"merge": {
+    "predictions": [
+        {"branch": 0, "select": "best", "metric": "rmse"},
+        {"branch": 1, "select": {"top_k": 2}, "metric": "r2"},
+        {"branch": 2, "select": ["PLS", "Ridge"]},
+        {"branch": 3, "select": "all", "aggregate": "mean"},
+    ]
+}}
+```
+
+**Merge modes:**
+- `"features"` - Concatenate feature matrices from branches
+- `"predictions"` - Collect OOF predictions (for stacking/ensemble)
+- `"all"` - Both features and predictions
+
+**Selection strategies (for predictions):**
+- `"all"` - All models in branch (default)
+- `"best"` - Best model by metric
+- `{"top_k": N}` - Top N models by metric
+- `["model1", "model2"]` - Explicit model names
+
+**Aggregation strategies (for predictions):**
+- `"separate"` - Each model as separate feature (default)
+- `"mean"` - Simple average
+- `"weighted_mean"` - Weighted by validation scores
+- `"proba_mean"` - Average class probabilities (classification)
+
+**Important**: `merge` always exits branch mode and returns to single-path execution.
+
+---
+
+### `source_branch` - Per-Source Preprocessing
+
+**Syntax**: Dict with `source_branch` key for source-specific pipelines.
+
+```python
+# Named sources
+{"source_branch": {
+    "NIR": [SNV(), FirstDerivative()],
+    "Raman": [MSC(), SavitzkyGolay()],
+    "markers": [StandardScaler()],
+}}
+
+# Indexed sources
+{"source_branch": {
+    0: [SNV()],
+    1: [MSC()],
+}}
+
+# Auto mode (empty pipeline per source)
+{"source_branch": "auto"}
+
+# With default pipeline for unlisted sources
+{"source_branch": {
+    "NIR": [SNV()],
+    "_default_": [MinMaxScaler()],
+}}
+
+# Control auto-merge behavior
+{"source_branch": {
+    "NIR": [SNV()],
+    "Raman": [MSC()],
+    "_merge_after_": False,        # Disable auto-merge (default: True)
+    "_merge_strategy_": "concat",  # Merge strategy if merging
+}}
+```
+
+**Behavior**: Applies different preprocessing to each data source. By default, sources are merged after processing.
+
+---
+
+### `merge_sources` - Combine Data Sources
+
+**Syntax**: Dict with `merge_sources` key for combining source features.
+
+```python
+# Simple string syntax
+{"merge_sources": "concat"}   # Horizontal concatenation
+{"merge_sources": "stack"}    # 3D stacking (n, sources, features)
+{"merge_sources": "average"}  # Element-wise average
+
+# Dict syntax for options
+{"merge_sources": {
+    "strategy": "concat",           # concat | stack | dict
+    "sources": "all",               # or ["NIR", "markers"]
+    "on_incompatible": "error",     # error | flatten | pad | truncate
+    "output_name": "merged",
+    "preserve_source_info": True,
+}}
+
+# Weighted merging
+{"merge_sources": {
+    "mode": "concat",
+    "weights": {"NIR": 1.0, "Raman": 0.5}
+}}
+
+# Selective merging
+{"merge_sources": {
+    "sources": ["NIR", "markers"],  # Exclude Raman
+    "mode": "concat"
+}}
+```
+
+**Merge strategies:**
+- `"concat"` - Horizontal concatenation: `shape (n, sum_of_features)`
+- `"stack"` - 3D stacking: `shape (n, n_sources, n_features)` (requires uniform dimensions)
+- `"average"` - Element-wise average: `shape (n, n_features)` (requires identical dimensions)
+- `"dict"` - Keep as dictionary for multi-input models
+
+**Incompatibility handling (for stack/average):**
+- `"error"` - Raise error on shape mismatch (default)
+- `"flatten"` - Fall back to 2D concatenation
+- `"pad"` - Zero-pad shorter sources
+- `"truncate"` - Truncate longer sources
+
+---
+
+### Branching and Merging Examples
+
+**Example: Multi-Preprocessing Fusion**
+```python
+pipeline = [
+    MinMaxScaler(),
+    ShuffleSplit(n_splits=5, random_state=42),
+    {"branch": {
+        "snv": [SNV()],
+        "msc": [MSC()],
+        "derivative": [FirstDerivative()],
+    }},
+    {"merge": "features"},
+    PLSRegression(n_components=10),
+]
+```
+
+**Example: Two-Level Stacking**
+```python
+pipeline = [
+    MinMaxScaler(),
+    ShuffleSplit(n_splits=5, random_state=42),
+    {"branch": {
+        "pls": [SNV(), PLSRegression(5)],
+        "rf": [MSC(), RandomForestRegressor()],
+    }},
+    {"merge": "predictions"},
+    Ridge(alpha=0.1),  # Meta-model
+]
+```
+
+**Example: Multi-Source Pipeline**
+```python
+pipeline = [
+    ShuffleSplit(n_splits=5, random_state=42),
+    {"source_branch": {
+        "NIR": [SNV(), FirstDerivative()],
+        "markers": [StandardScaler()],
+    }},
+    {"merge_sources": "concat"},
+    PLSRegression(n_components=15),
+]
+```
+
+**Example: Nested Branching**
+```python
+pipeline = [
+    MinMaxScaler(),
+    ShuffleSplit(n_splits=5, random_state=42),
+    # Level 1: preprocessing
+    {"branch": {"snv": [SNV()], "msc": [MSC()]}},
+    {"merge": "features"},
+    # Level 2: models
+    {"branch": {"pls": [PLSRegression(5)], "ridge": [Ridge()]}},
+    {"merge": "predictions"},
+    # Final meta-model
+    Ridge(alpha=0.1),
+]
+```
+
+---
+
 ## File Formats
 
 Pipelines can be defined in Python, JSON, or YAML.
@@ -1028,6 +1265,13 @@ pipeline:
 | **Generator + size** | `{"_or_": [...], "size": 2}` | Combinations | C(n, k) pipelines |
 | **Generator + count** | `{"_or_": [...], "count": 5}` | Random sample | 5 pipelines |
 | **Nested generator** | `{"_or_": [...], "size": [2, (1,2)]}` | Sub-pipelines | Complex expansion |
+| **Branch** | `{"branch": [[A], [B]]}` | Parallel paths | Creates N branches |
+| **Branch (named)** | `{"branch": {"a": [A], "b": [B]}}` | Named parallel | Creates named branches |
+| **Merge features** | `{"merge": "features"}` | Combine X | Exits branch mode |
+| **Merge predictions** | `{"merge": "predictions"}` | Stack OOF preds | For stacking |
+| **Merge (dict)** | `{"merge": {"features": [0], "predictions": [1]}}` | Fine control | Mixed merge |
+| **Source branch** | `{"source_branch": {"NIR": [A], "Raman": [B]}}` | Per-source | Source-specific preprocessing |
+| **Merge sources** | `{"merge_sources": "concat"}` | Combine sources | concat \| stack \| average |
 
 **Key principle**: Different syntaxes producing the same object (same class + same non-default params) → **same serialization** → **same hash**.
 
@@ -1521,7 +1765,9 @@ pipeline = [
 - {doc}`operator_catalog` - All built-in nirs4all operators
 - {doc}`cli` - Command-line interface reference
 - {doc}`/user_guide/preprocessing/index` - Preprocessing guide
-- {doc}`/user_guide/pipelines/branching` - Branching and merging guide
+- {doc}`/user_guide/pipelines/branching` - Pipeline branching guide
+- {doc}`/user_guide/pipelines/merging` - Branch and source merging guide
+- {doc}`/user_guide/pipelines/multi_source` - Multi-source data handling
 - {doc}`/developer/architecture` - Pipeline architecture overview
 
 ---
