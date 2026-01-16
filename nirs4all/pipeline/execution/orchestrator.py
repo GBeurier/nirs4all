@@ -23,16 +23,16 @@ logger = get_logger(__name__)
 def _get_default_workspace_path() -> Path:
     """Get the default workspace path.
 
-    Checks NIRS4ALL_WORKSPACE environment variable first, then falls back
-    to ./workspace in the current working directory.
+    Uses the workspace module's get_active_workspace() which checks:
+    1. Explicitly set workspace via set_active_workspace()
+    2. NIRS4ALL_WORKSPACE environment variable
+    3. ./workspace in current working directory
 
     Returns:
         Default workspace path.
     """
-    env_workspace = os.environ.get("NIRS4ALL_WORKSPACE")
-    if env_workspace:
-        return Path(env_workspace)
-    return Path.cwd() / "workspace"
+    from nirs4all.workspace import get_active_workspace
+    return get_active_workspace()
 
 
 class PipelineOrchestrator:
