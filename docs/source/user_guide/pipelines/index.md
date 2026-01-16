@@ -7,6 +7,7 @@ This section covers advanced pipeline patterns and techniques.
 
 writing_pipelines
 branching
+merging
 stacking
 multi_source
 force_group_splitting
@@ -29,7 +30,7 @@ Complete guide to pipeline syntax and patterns.
 {bdg-primary}`Start Here`
 :::
 
-:::{grid-item-card} 🌿 Branching & Merging
+:::{grid-item-card} 🌿 Branching
 :link: branching
 :link-type: doc
 
@@ -37,6 +38,16 @@ Create parallel paths with different preprocessing strategies.
 
 +++
 {bdg-success}`Parallel`
+:::
+
+:::{grid-item-card} 🔀 Merging
+:link: merging
+:link-type: doc
+
+Combine branch outputs: features, predictions, or both for stacking.
+
++++
+{bdg-primary}`Combine`
 :::
 
 :::{grid-item-card} 📚 Stacking

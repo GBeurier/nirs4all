@@ -300,6 +300,7 @@ pipeline = [
 
 ## See Also
 
+- {doc}`merging` - Branch and source merging guide
 - {doc}`writing_pipelines` - Pipeline configuration guide
 - {doc}`/reference/generator_keywords` - Generator syntax reference
 - {doc}`/reference/predictions_api` - Predictions API reference
