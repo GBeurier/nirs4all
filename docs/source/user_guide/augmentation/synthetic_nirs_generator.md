@@ -439,6 +439,59 @@ X, Y, E, metadata = generator.generate(
 batch_ids = metadata["batch_ids"]  # Sample-to-batch mapping
 ```
 
+### With Edge Artifacts
+
+The generator supports simulation of common spectral edge artifacts:
+
+```python
+from nirs4all.data.synthetic import SyntheticNIRSGenerator, EdgeArtifactsConfig
+
+edge_config = EdgeArtifactsConfig(
+    enable_detector_rolloff=True,
+    enable_stray_light=True,
+    enable_truncated_peaks=True,
+    enable_edge_curvature=True,
+    detector_model="ingaas_standard",  # or "pbs", "silicon_ccd", etc.
+    rolloff_severity=0.5,
+    stray_fraction=0.002,
+    left_peak_amplitude=0.05,
+    right_peak_amplitude=0.03,
+)
+
+generator = SyntheticNIRSGenerator(
+    complexity="realistic",
+    edge_artifacts_config=edge_config,
+    random_state=42
+)
+
+X, Y, E = generator.generate(n_samples=1000, include_edge_artifacts=True)
+```
+
+**Edge Artifact Types:**
+- **Detector roll-off**: Wavelength-dependent sensitivity reduction at spectral edges
+- **Stray light**: Scattered light contamination (physics: T_obs = (T_true + s)/(1 + s))
+- **Truncated peaks**: Absorption bands with centers outside measurement range
+- **Edge curvature**: Baseline bending at spectral boundaries
+
+### Fitting Edge Artifacts from Real Data
+
+The `RealDataFitter` can automatically detect edge artifacts:
+
+```python
+from nirs4all.data.synthetic import RealDataFitter
+
+fitter = RealDataFitter()
+params = fitter.fit(X_real, wavelengths=wavelengths, infer_edge_artifacts=True)
+
+# Access inferred characteristics
+if params.edge_artifact_inference.has_edge_artifacts:
+    print(f"Detector model: {params.edge_artifact_inference.detector_model}")
+    print(f"Has truncated peaks: {params.edge_artifact_inference.has_truncated_peaks}")
+
+# Create generator matching real data
+generator = fitter.create_matched_generator(random_state=42)
+```
+
 ---
 
 ## References
@@ -469,9 +522,19 @@ batch_ids = metadata["batch_ids"]  # Sample-to-batch mapping
 ### Compositional Data
 10. **Aitchison, J.** (1986). *The Statistical Analysis of Compositional Data*. Chapman & Hall. ISBN: 978-0412280603
 
+### Edge Artifacts and Instrumental Effects
+11. **Siesler, H. W., Ozaki, Y., Kawata, S., & Heise, H. M.** (2002). *Near-Infrared Spectroscopy: Principles, Instruments, Applications*. Wiley-VCH. ISBN: 978-3527301492
+
+12. **ASTM E1944-98(2017)**. Standard Practice for Describing and Measuring Performance of NIR Instruments.
+
+13. **JASCO** (2020). Advantages of high-sensitivity InGaAs detector for NIR applications. Application Note.
+
+14. **Kessler, W.** (2007). Stray light in spectroscopy: fundamentals and consequences. *Process Control and Quality*, 9(1), 15-22.
+
 ---
 
 ## Version History
 
 - **v1.0.0** (2024): Initial implementation with Beer-Lambert model, Voigt profiles, complexity levels
 - **v1.1.0** (2024): Added global slope effect, SyntheticRealComparator for real data comparison
+- **v1.2.0** (2025): Added edge artifact simulation (detector roll-off, stray light, truncated peaks, edge curvature)

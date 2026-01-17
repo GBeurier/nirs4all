@@ -7,6 +7,8 @@ Subpackages
 .. toctree::
    :maxdepth: 4
 
+   nirs4all.operators.augmentation
+   nirs4all.operators.base
    nirs4all.operators.data
    nirs4all.operators.filters
    nirs4all.operators.models

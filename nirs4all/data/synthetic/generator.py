@@ -40,12 +40,14 @@ from ._constants import (
     DEFAULT_WAVELENGTH_STEP,
 )
 from .instruments import (
+    EdgeArtifactsConfig,
     InstrumentArchetype,
     InstrumentSimulator,
     MultiScanConfig,
     MultiSensorConfig,
     SensorConfig,
     get_instrument_archetype,
+    get_instrument_wavelengths,
 )
 from .measurement_modes import (
     MeasurementMode,
@@ -59,13 +61,11 @@ from .detectors import (
 )
 from .environmental import (
     EnvironmentalEffectsConfig,
-    EnvironmentalEffectsSimulator,
     TemperatureConfig,
     MoistureConfig,
 )
 from .scattering import (
     ScatteringEffectsConfig,
-    ScatteringEffectsSimulator,
     ParticleSizeConfig,
     EMSCConfig,
 )
@@ -103,7 +103,6 @@ class SyntheticNIRSGenerator:
         - Temperature effects on spectral bands (O-H, N-H, C-H shifts)
         - Moisture and water activity effects
         - Particle size effects (EMSC-style scattering)
-        - Scattering coefficient generation (Kubelka-Munk)
 
     Attributes:
         wavelengths: Array of wavelength values in nm.
@@ -113,8 +112,6 @@ class SyntheticNIRSGenerator:
         params: Dictionary of effect parameters based on complexity level.
         instrument: Optional InstrumentArchetype for realistic simulation.
         measurement_mode_simulator: Optional measurement mode simulator.
-        environmental_simulator: Optional Phase 3 environmental effects simulator.
-        scattering_effects_simulator: Optional Phase 3 scattering effects simulator.
 
     Args:
         wavelength_start: Start wavelength in nm.
@@ -166,8 +163,10 @@ class SyntheticNIRSGenerator:
         ComponentLibrary: For managing spectral components.
         InstrumentArchetype: For instrument-specific simulation.
         MeasurementModeSimulator: For measurement mode physics.
-        EnvironmentalEffectsSimulator: For temperature/moisture effects (Phase 3).
-        ScatteringEffectsSimulator: For particle size/scattering effects (Phase 3).
+        nirs4all.operators.augmentation.TemperatureAugmenter: For temperature effects.
+        nirs4all.operators.augmentation.MoistureAugmenter: For moisture effects.
+        nirs4all.operators.augmentation.ParticleSizeAugmenter: For particle size effects.
+        nirs4all.operators.augmentation.EMSCDistortionAugmenter: For EMSC-style distortions.
     """
 
     def __init__(
@@ -175,6 +174,8 @@ class SyntheticNIRSGenerator:
         wavelength_start: float = DEFAULT_WAVELENGTH_START,
         wavelength_end: float = DEFAULT_WAVELENGTH_END,
         wavelength_step: float = DEFAULT_WAVELENGTH_STEP,
+        wavelengths: Optional[np.ndarray] = None,
+        instrument_wavelength_grid: Optional[str] = None,
         component_library: Optional[ComponentLibrary] = None,
         complexity: Literal["simple", "realistic", "complex"] = "realistic",
         instrument: Optional[Union[str, InstrumentArchetype]] = None,
@@ -183,6 +184,7 @@ class SyntheticNIRSGenerator:
         multi_scan_config: Optional[MultiScanConfig] = None,
         environmental_config: Optional[EnvironmentalEffectsConfig] = None,
         scattering_effects_config: Optional[ScatteringEffectsConfig] = None,
+        edge_artifacts_config: Optional[EdgeArtifactsConfig] = None,
         custom_params: Optional[Dict[str, Any]] = None,
         random_state: Optional[int] = None,
     ) -> None:
@@ -190,9 +192,15 @@ class SyntheticNIRSGenerator:
         Initialize the synthetic NIRS generator.
 
         Args:
-            wavelength_start: Start wavelength in nm.
-            wavelength_end: End wavelength in nm.
-            wavelength_step: Wavelength step in nm.
+            wavelength_start: Start wavelength in nm (ignored if wavelengths provided).
+            wavelength_end: End wavelength in nm (ignored if wavelengths provided).
+            wavelength_step: Wavelength step in nm (ignored if wavelengths provided).
+            wavelengths: Custom wavelength array in nm. If provided, overrides
+                wavelength_start/end/step parameters. Useful for matching real
+                instrument wavelength grids.
+            instrument_wavelength_grid: Name of predefined instrument wavelength grid
+                (e.g., 'micronir_onsite', 'foss_xds'). If provided, uses the
+                wavelength grid for that instrument. See get_instrument_wavelengths().
             component_library: Optional ComponentLibrary instance.
                 If None, creates appropriate library based on complexity.
             complexity: Complexity level: 'simple', 'realistic', or 'complex'.
@@ -210,11 +218,28 @@ class SyntheticNIRSGenerator:
                 temperature-induced band shifts and moisture effects.
             scattering_effects_config: Phase 3 configuration for scattering effects
                 (particle size and EMSC-style distortions). If provided, enables
-                simulation of particle-size-dependent scattering.
+                simulation of particle-size-dependent scattering using nirs4all
+                operators (ParticleSizeAugmenter, EMSCDistortionAugmenter).
+            edge_artifacts_config: Configuration for edge artifact effects
+                (detector roll-off, stray light, truncated peaks, edge curvature).
+                If provided, enables simulation of common spectral edge artifacts
+                using nirs4all operators (DetectorRollOffAugmenter, StrayLightAugmenter,
+                EdgeCurvatureAugmenter, TruncatedPeakAugmenter).
             random_state: Random seed for reproducibility.
 
         Raises:
             ValueError: If complexity is not a valid option.
+
+        Example:
+            >>> # Generate spectra matching MicroNIR instrument
+            >>> gen = SyntheticNIRSGenerator(instrument_wavelength_grid="micronir_onsite")
+            >>> X, Y, E = gen.generate(n_samples=500)
+            >>> print(f"Wavelengths: {len(gen.wavelengths)} from {gen.wavelengths[0]:.0f} to {gen.wavelengths[-1]:.0f} nm")
+
+            >>> # Generate with custom wavelength array
+            >>> custom_wl = np.linspace(1000, 2000, 100)
+            >>> gen = SyntheticNIRSGenerator(wavelengths=custom_wl)
+            >>> X, Y, E = gen.generate(n_samples=500)
         """
         if complexity not in COMPLEXITY_PARAMS:
             valid = list(COMPLEXITY_PARAMS.keys())
@@ -223,6 +248,17 @@ class SyntheticNIRSGenerator:
         self.complexity = complexity
         self.rng = np.random.default_rng(random_state)
         self._random_state = random_state
+
+        # Phase 6: Custom wavelength grid support
+        # Priority: wavelengths > instrument_wavelength_grid > instrument > defaults
+        custom_wavelength_grid: Optional[np.ndarray] = None
+
+        if wavelengths is not None:
+            # Direct custom wavelength array provided
+            custom_wavelength_grid = np.asarray(wavelengths)
+        elif instrument_wavelength_grid is not None:
+            # Use predefined instrument wavelength grid
+            custom_wavelength_grid = get_instrument_wavelengths(instrument_wavelength_grid)
 
         # Phase 2: Instrument archetype setup
         self.instrument: Optional[InstrumentArchetype] = None
@@ -237,10 +273,12 @@ class SyntheticNIRSGenerator:
                 self.instrument = instrument
 
             # Use instrument's wavelength range if not explicitly specified
-            if wavelength_start == DEFAULT_WAVELENGTH_START:
-                wavelength_start = self.instrument.wavelength_range[0]
-            if wavelength_end == DEFAULT_WAVELENGTH_END:
-                wavelength_end = self.instrument.wavelength_range[1]
+            # (and no custom wavelength grid provided)
+            if custom_wavelength_grid is None:
+                if wavelength_start == DEFAULT_WAVELENGTH_START:
+                    wavelength_start = self.instrument.wavelength_range[0]
+                if wavelength_end == DEFAULT_WAVELENGTH_END:
+                    wavelength_end = self.instrument.wavelength_range[1]
 
             # Get multi-sensor config from instrument if not provided
             if self.multi_sensor_config is None and self.instrument.multi_sensor is not None:
@@ -255,14 +293,24 @@ class SyntheticNIRSGenerator:
                 self.instrument, random_state=random_state
             )
 
-        self.wavelength_start = wavelength_start
-        self.wavelength_end = wavelength_end
-        self.wavelength_step = wavelength_step
+        # Generate or use provided wavelength grid
+        if custom_wavelength_grid is not None:
+            self.wavelengths = custom_wavelength_grid
+            # Infer start/end/step from custom grid
+            self.wavelength_start = float(self.wavelengths[0])
+            self.wavelength_end = float(self.wavelengths[-1])
+            if len(self.wavelengths) > 1:
+                self.wavelength_step = float(np.mean(np.diff(self.wavelengths)))
+            else:
+                self.wavelength_step = 1.0
+        else:
+            self.wavelength_start = wavelength_start
+            self.wavelength_end = wavelength_end
+            self.wavelength_step = wavelength_step
+            self.wavelengths = np.arange(
+                wavelength_start, wavelength_end + wavelength_step, wavelength_step
+            )
 
-        # Generate wavelength grid
-        self.wavelengths = np.arange(
-            wavelength_start, wavelength_end + wavelength_step, wavelength_step
-        )
         self.n_wavelengths = len(self.wavelengths)
 
         # Phase 2: Measurement mode setup
@@ -318,20 +366,182 @@ class SyntheticNIRSGenerator:
                 if key in self.params:
                     self.params[key] = value
 
-        # Phase 3: Environmental effects simulator
+        # Phase 3: Environmental effects configuration (uses operators)
         self.environmental_config = environmental_config
-        self.environmental_simulator: Optional[EnvironmentalEffectsSimulator] = None
+        self._temperature_op = None
+        self._moisture_op = None
         if environmental_config is not None:
-            self.environmental_simulator = EnvironmentalEffectsSimulator(
-                environmental_config, random_state=random_state
+            self._init_environmental_operators()
+
+        # Phase 3: Scattering effects configuration (uses operators)
+        self.scattering_effects_config = scattering_effects_config
+        self._particle_op = None
+        self._emsc_op = None
+        if scattering_effects_config is not None:
+            self._init_scattering_operators()
+
+        # Phase 6: Edge artifacts configuration (uses operators)
+        self.edge_artifacts_config = edge_artifacts_config
+        self._detector_rolloff_op = None
+        self._stray_light_op = None
+        self._edge_curvature_op = None
+        self._truncated_peak_op = None
+        if edge_artifacts_config is not None:
+            self._init_edge_artifact_operators()
+
+    def _init_environmental_operators(self) -> None:
+        """
+        Initialize environmental effect operators (temperature, moisture).
+
+        Creates TemperatureAugmenter and MoistureAugmenter based on the
+        environmental_config settings.
+        """
+        from nirs4all.operators.augmentation import (
+            TemperatureAugmenter,
+            MoistureAugmenter,
+        )
+
+        # Initialize temperature operator
+        if self.environmental_config.enable_temperature:
+            temp_config = self.environmental_config.temperature
+            if temp_config is not None:
+                # Determine temperature range based on config
+                variation = temp_config.temperature_variation
+                if variation > 0:
+                    temperature_range = (-variation, variation)
+                else:
+                    temperature_range = None
+
+                self._temperature_op = TemperatureAugmenter(
+                    temperature_delta=temp_config.delta_temperature,
+                    temperature_range=temperature_range,
+                    reference_temperature=temp_config.reference_temperature,
+                    enable_shift=temp_config.enable_shift,
+                    enable_intensity=temp_config.enable_intensity,
+                    enable_broadening=temp_config.enable_broadening,
+                    region_specific=temp_config.region_specific,
+                    random_state=self._random_state,
+                )
+
+        # Initialize moisture operator
+        if self.environmental_config.enable_moisture:
+            moisture_config = self.environmental_config.moisture
+            if moisture_config is not None:
+                self._moisture_op = MoistureAugmenter(
+                    water_activity_delta=moisture_config.water_activity - moisture_config.reference_aw,
+                    reference_water_activity=moisture_config.reference_aw,
+                    free_water_fraction=moisture_config.free_water_fraction,
+                    bound_water_shift=moisture_config.bound_water_shift,
+                    moisture_content=moisture_config.moisture_content,
+                    random_state=self._random_state,
+                )
+
+    def _init_scattering_operators(self) -> None:
+        """
+        Initialize scattering effect operators (particle size, EMSC).
+
+        Creates ParticleSizeAugmenter and EMSCDistortionAugmenter based on
+        the scattering_effects_config settings.
+        """
+        from nirs4all.operators.augmentation import (
+            ParticleSizeAugmenter,
+            EMSCDistortionAugmenter,
+        )
+
+        # Initialize particle size operator
+        if self.scattering_effects_config.enable_particle_size:
+            particle_config = self.scattering_effects_config.particle_size
+            if particle_config is not None:
+                dist = particle_config.distribution
+                self._particle_op = ParticleSizeAugmenter(
+                    mean_size_um=dist.mean_size_um,
+                    size_variation_um=dist.std_size_um,
+                    reference_size_um=particle_config.reference_size_um,
+                    wavelength_exponent=particle_config.wavelength_exponent,
+                    size_effect_strength=particle_config.size_effect_strength,
+                    include_path_length=particle_config.include_path_length_effect,
+                    path_length_sensitivity=particle_config.path_length_sensitivity,
+                    random_state=self._random_state,
+                )
+
+        # Initialize EMSC distortion operator
+        if self.scattering_effects_config.enable_emsc:
+            emsc_config = self.scattering_effects_config.emsc
+            if emsc_config is not None:
+                # Convert std to range (approximate 95% CI)
+                mult_half_range = 2.0 * emsc_config.multiplicative_scatter_std
+                add_half_range = 2.0 * emsc_config.additive_scatter_std
+
+                self._emsc_op = EMSCDistortionAugmenter(
+                    multiplicative_range=(1.0 - mult_half_range, 1.0 + mult_half_range),
+                    additive_range=(-add_half_range, add_half_range),
+                    polynomial_order=emsc_config.polynomial_order,
+                    polynomial_strength=emsc_config.wavelength_coef_std,
+                    random_state=self._random_state,
+                )
+
+    def _init_edge_artifact_operators(self) -> None:
+        """
+        Initialize edge artifact operators.
+
+        Creates DetectorRollOffAugmenter, StrayLightAugmenter, EdgeCurvatureAugmenter,
+        and TruncatedPeakAugmenter based on edge_artifacts_config settings.
+        """
+        from nirs4all.operators.augmentation import (
+            DetectorRollOffAugmenter,
+            StrayLightAugmenter,
+            EdgeCurvatureAugmenter,
+            TruncatedPeakAugmenter,
+        )
+
+        config = self.edge_artifacts_config
+
+        # Initialize detector roll-off operator
+        if config.enable_detector_rolloff:
+            self._detector_rolloff_op = DetectorRollOffAugmenter(
+                detector_model=config.detector_model,
+                effect_strength=config.rolloff_severity,
+                random_state=self._random_state,
             )
 
-        # Phase 3: Scattering effects simulator
-        self.scattering_effects_config = scattering_effects_config
-        self.scattering_effects_simulator: Optional[ScatteringEffectsSimulator] = None
-        if scattering_effects_config is not None:
-            self.scattering_effects_simulator = ScatteringEffectsSimulator(
-                scattering_effects_config, random_state=random_state
+        # Initialize stray light operator
+        if config.enable_stray_light:
+            self._stray_light_op = StrayLightAugmenter(
+                stray_light_fraction=config.stray_fraction,
+                random_state=self._random_state,
+            )
+
+        # Initialize edge curvature operator
+        if config.enable_edge_curvature:
+            # Average the left/right severity for overall strength
+            avg_severity = (config.left_curvature_severity + config.right_curvature_severity) / 2.0
+            # Calculate asymmetry if different
+            if config.left_curvature_severity + config.right_curvature_severity > 0:
+                asymmetry = (config.right_curvature_severity - config.left_curvature_severity) / \
+                           (config.left_curvature_severity + config.right_curvature_severity)
+            else:
+                asymmetry = 0.0
+
+            self._edge_curvature_op = EdgeCurvatureAugmenter(
+                curvature_type=config.curvature_type,
+                curvature_strength=avg_severity * 0.1,  # Scale to appropriate range
+                asymmetry=asymmetry,
+                random_state=self._random_state,
+            )
+
+        # Initialize truncated peak operator
+        if config.enable_truncated_peaks:
+            # Determine amplitude range from config values
+            min_amp = min(config.left_peak_amplitude, config.right_peak_amplitude)
+            max_amp = max(config.left_peak_amplitude, config.right_peak_amplitude)
+            if min_amp == max_amp:
+                min_amp = max(0.01, max_amp * 0.5)
+
+            self._truncated_peak_op = TruncatedPeakAugmenter(
+                amplitude_range=(min_amp, max_amp),
+                left_edge=config.left_peak_amplitude > 0,
+                right_edge=config.right_peak_amplitude > 0,
+                random_state=self._random_state,
             )
 
     def generate_concentrations(
@@ -972,6 +1182,7 @@ class SyntheticNIRSGenerator:
         include_multi_scan: bool = True,
         include_environmental_effects: bool = True,
         include_scattering_effects: bool = True,
+        include_edge_artifacts: bool = True,
         temperatures: Optional[np.ndarray] = None,
         return_metadata: bool = False,
     ) -> Union[
@@ -1002,6 +1213,9 @@ class SyntheticNIRSGenerator:
             include_scattering_effects: Whether to apply Phase 3 particle size
                 and EMSC-style scattering effects. Only applies if
                 scattering_effects_config is set.
+            include_edge_artifacts: Whether to apply edge artifact effects
+                (detector roll-off, stray light, edge curvature, truncated peaks).
+                Only applies if edge_artifacts_config is set.
             temperatures: Optional array of temperatures (°C) for each sample.
                 If None and environmental effects are enabled, random temperatures
                 are generated based on the configuration. Shape: (n_samples,).
@@ -1057,6 +1271,7 @@ class SyntheticNIRSGenerator:
             "multi_scan": self.multi_scan_config is not None,
             "environmental_effects": self.environmental_config is not None,
             "scattering_effects": self.scattering_effects_config is not None,
+            "edge_artifacts": self.edge_artifacts_config is not None,
         }
 
         # 1. Generate concentrations
@@ -1131,19 +1346,24 @@ class SyntheticNIRSGenerator:
             }
 
         # 13. Phase 3: Apply environmental effects (temperature, moisture)
-        if include_environmental_effects and self.environmental_simulator is not None:
-            # Generate or use provided temperatures
+        if include_environmental_effects and self.environmental_config is not None:
+            # Generate temperatures for metadata tracking
             if temperatures is None:
                 temp_config = self.environmental_config.temperature
                 if temp_config is not None:
-                    # Generate temperatures around sample_temperature with variation
                     base_temp = temp_config.sample_temperature
                     variation = temp_config.temperature_variation
                     if variation > 0:
                         temperatures = self.rng.normal(base_temp, variation, n_samples)
                     else:
                         temperatures = np.full(n_samples, base_temp)
-            A = self.environmental_simulator.apply(A, self.wavelengths, sample_temperatures=temperatures)
+
+            # Apply temperature and moisture operators
+            if self._temperature_op is not None:
+                A = self._temperature_op.transform(A, wavelengths=self.wavelengths)
+            if self._moisture_op is not None:
+                A = self._moisture_op.transform(A, wavelengths=self.wavelengths)
+
             metadata["environmental_config"] = {
                 "enable_temperature": self.environmental_config.enable_temperature,
                 "enable_moisture": self.environmental_config.enable_moisture,
@@ -1151,14 +1371,38 @@ class SyntheticNIRSGenerator:
             }
 
         # 14. Phase 3: Apply scattering effects (particle size, EMSC)
-        if include_scattering_effects and self.scattering_effects_simulator is not None:
-            A = self.scattering_effects_simulator.apply(A, self.wavelengths)
+        if include_scattering_effects and self.scattering_effects_config is not None:
+            # Apply particle size and EMSC operators
+            if self._particle_op is not None:
+                A = self._particle_op.transform(A, wavelengths=self.wavelengths)
+            if self._emsc_op is not None:
+                A = self._emsc_op.transform(A, wavelengths=self.wavelengths)
+
             metadata["scattering_effects_config"] = {
                 "enable_particle_size": self.scattering_effects_config.enable_particle_size,
                 "enable_emsc": self.scattering_effects_config.enable_emsc,
             }
 
-        # 15. Add artifacts
+        # 15. Phase 6: Apply edge artifacts (detector roll-off, stray light, etc.)
+        if include_edge_artifacts and self.edge_artifacts_config is not None:
+            # Apply edge artifact operators
+            if self._detector_rolloff_op is not None:
+                A = self._detector_rolloff_op.transform(A, wavelengths=self.wavelengths)
+            if self._stray_light_op is not None:
+                A = self._stray_light_op.transform(A, wavelengths=self.wavelengths)
+            if self._edge_curvature_op is not None:
+                A = self._edge_curvature_op.transform(A, wavelengths=self.wavelengths)
+            if self._truncated_peak_op is not None:
+                A = self._truncated_peak_op.transform(A, wavelengths=self.wavelengths)
+
+            metadata["edge_artifacts_config"] = {
+                "enable_detector_rolloff": self.edge_artifacts_config.enable_detector_rolloff,
+                "enable_stray_light": self.edge_artifacts_config.enable_stray_light,
+                "enable_edge_curvature": self.edge_artifacts_config.enable_edge_curvature,
+                "enable_truncated_peaks": self.edge_artifacts_config.enable_truncated_peaks,
+            }
+
+        # 16. Add artifacts
         A = self._add_artifacts(A, metadata)
 
         if return_metadata:
@@ -1166,6 +1410,171 @@ class SyntheticNIRSGenerator:
         else:
             return A, C, self.E.copy()
 
+    def generate_from_concentrations(
+        self,
+        concentrations: np.ndarray,
+        include_batch_effects: bool = False,
+        n_batches: int = 1,
+        include_instrument_effects: bool = True,
+        include_environmental_effects: bool = True,
+        include_scattering_effects: bool = True,
+        include_edge_artifacts: bool = True,
+        temperatures: Optional[np.ndarray] = None,
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """
+        Generate synthetic NIRS spectra from pre-defined concentrations.
+
+        This method allows generating spectra using externally-provided
+        concentrations (e.g., from aggregate components) instead of
+        random sampling.
+
+        Args:
+            concentrations: Concentration matrix (n_samples, n_components).
+                Each row should sum to approximately 1.0.
+            include_batch_effects: Whether to add batch/session effects.
+            n_batches: Number of batches (only if include_batch_effects=True).
+            include_instrument_effects: Whether to apply instrument-specific
+                effects (detector response, noise).
+            include_environmental_effects: Whether to apply temperature
+                and moisture effects.
+            include_scattering_effects: Whether to apply particle size
+                and EMSC-style scattering effects.
+            include_edge_artifacts: Whether to apply edge artifact effects.
+            temperatures: Optional array of temperatures (°C) for each sample.
+
+        Returns:
+            Tuple of (X, metadata) where:
+                - X: Spectra matrix (n_samples, n_wavelengths)
+                - metadata: Dictionary with generation details
+
+        Example:
+            >>> # Generate from aggregate concentrations
+            >>> C = np.array([[0.6, 0.3, 0.1], [0.5, 0.35, 0.15]])
+            >>> generator = SyntheticNIRSGenerator(
+            ...     component_library=ComponentLibrary.from_predefined(
+            ...         ["starch", "protein", "moisture"]
+            ...     )
+            ... )
+            >>> X, meta = generator.generate_from_concentrations(C)
+        """
+        n_samples = concentrations.shape[0]
+        C = concentrations
+
+        # Build metadata
+        metadata: Dict[str, Any] = {
+            "n_samples": n_samples,
+            "n_components": self.library.n_components,
+            "n_wavelengths": self.n_wavelengths,
+            "component_names": self.library.component_names,
+            "wavelengths": self.wavelengths.copy(),
+            "complexity": self.complexity,
+            "concentration_method": "external",
+            "instrument": self.instrument.name if self.instrument else None,
+        }
+
+        # 2. Apply Beer-Lambert law
+        A = self._apply_beer_lambert(C)
+
+        # 3. Apply path length variation
+        A = self._apply_path_length(A)
+
+        # 4. Generate and add baseline
+        baseline = self._generate_baseline(n_samples)
+        A = A + baseline
+
+        # 5. Apply global slope
+        A = self._apply_global_slope(A)
+
+        # 6. Apply scatter effects
+        A = self._apply_scatter(A)
+
+        # 7. Apply batch effects if requested
+        if include_batch_effects and n_batches > 1:
+            samples_per_batch = [n_samples // n_batches] * n_batches
+            samples_per_batch[-1] += n_samples % n_batches
+
+            batch_offsets, batch_gains = self.generate_batch_effects(
+                n_batches, samples_per_batch
+            )
+
+            batch_ids = []
+            idx = 0
+            for batch_id, n_in_batch in enumerate(samples_per_batch):
+                batch_ids.extend([batch_id] * n_in_batch)
+                A[idx : idx + n_in_batch] = (
+                    A[idx : idx + n_in_batch] * batch_gains[batch_id]
+                    + batch_offsets[batch_id]
+                )
+                idx += n_in_batch
+
+            metadata["batch_ids"] = np.array(batch_ids)
+            metadata["batch_offsets"] = batch_offsets
+            metadata["batch_gains"] = batch_gains
+
+        # 8. Apply wavelength shift/stretch
+        A = self._apply_wavelength_shift(A)
+
+        # 9. Apply instrumental response
+        A = self._apply_instrumental_response(A)
+
+        # 10. Apply detector effects or add noise
+        if include_instrument_effects and self.detector_simulator is not None:
+            A = self._apply_detector_effects(A, self.wavelengths)
+        else:
+            A = self._add_noise(A)
+
+        # 11. Apply environmental effects
+        if include_environmental_effects and self.environmental_config is not None:
+            if temperatures is None:
+                temp_config = self.environmental_config.temperature
+                if temp_config is not None:
+                    base_temp = temp_config.sample_temperature
+                    variation = temp_config.temperature_variation
+                    if variation > 0:
+                        temperatures = self.rng.normal(base_temp, variation, n_samples)
+                    else:
+                        temperatures = np.full(n_samples, base_temp)
+
+            # Phase 4: Use operators if enabled
+            if self._use_operators and (self._temperature_op is not None or self._moisture_op is not None):
+                if self._temperature_op is not None:
+                    A = self._temperature_op.transform(A, wavelengths=self.wavelengths)
+                if self._moisture_op is not None:
+                    A = self._moisture_op.transform(A, wavelengths=self.wavelengths)
+            elif self.environmental_simulator is not None:
+                # Legacy: use internal simulator
+                A = self.environmental_simulator.apply(A, self.wavelengths, sample_temperatures=temperatures)
+
+            metadata["temperatures"] = temperatures
+            metadata["use_operators"] = self._use_operators
+
+        # 12. Apply scattering effects
+        if include_scattering_effects and self.scattering_effects_config is not None:
+            # Phase 4: Use operators if enabled
+            if self._use_operators and (self._particle_op is not None or self._emsc_op is not None):
+                if self._particle_op is not None:
+                    A = self._particle_op.transform(A, wavelengths=self.wavelengths)
+                if self._emsc_op is not None:
+                    A = self._emsc_op.transform(A, wavelengths=self.wavelengths)
+            elif self.scattering_effects_simulator is not None:
+                # Legacy: use internal simulator
+                A = self.scattering_effects_simulator.apply(A, self.wavelengths)
+
+        # 13. Apply edge artifacts
+        if include_edge_artifacts and self.edge_artifacts_config is not None:
+            if self._detector_rolloff_op is not None:
+                A = self._detector_rolloff_op.transform(A, wavelengths=self.wavelengths)
+            if self._stray_light_op is not None:
+                A = self._stray_light_op.transform(A, wavelengths=self.wavelengths)
+            if self._edge_curvature_op is not None:
+                A = self._edge_curvature_op.transform(A, wavelengths=self.wavelengths)
+            if self._truncated_peak_op is not None:
+                A = self._truncated_peak_op.transform(A, wavelengths=self.wavelengths)
+
+        # 14. Add artifacts
+        A = self._add_artifacts(A, metadata)
+
+        return A, metadata
 
     def create_dataset(
         self,

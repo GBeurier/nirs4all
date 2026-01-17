@@ -29,10 +29,44 @@ import numpy as np
 
 
 # ============================================================================
-# NIR Spectral Zones in Wavenumber Space
+# Spectral Zones in Wavenumber Space (Vis-NIR: 350-2500 nm)
 # ============================================================================
 
-# NIR zones defined in wavenumber (cm⁻¹) for physically-correct band placement
+# Phase 2 Extension: Added visible-region zones for electronic transitions
+# These cover the full Vis-NIR range commonly used in spectroscopy
+
+# Extended spectral zones defined in wavenumber (cm⁻¹) for physically-correct band placement
+# Includes both visible (electronic transitions) and NIR (vibrational overtones/combinations)
+EXTENDED_SPECTRAL_ZONES: List[Tuple[float, float, str, str]] = [
+    # Visible region - electronic transitions (350-700 nm)
+    (14285, 28571, "visible_electronic", "Electronic transitions, pigments"),  # 350-700 nm
+
+    # Red-edge / Short-wave NIR - electronic tail (700-800 nm)
+    (12500, 14285, "red_edge", "Chlorophyll red edge, electronic tail"),       # 700-800 nm
+
+    # Short-wave NIR: 3rd overtones (800-1111 nm)
+    (9000, 12500, "3rd_overtones", "3rd overtones C-H, O-H, N-H"),             # 800-1111 nm
+
+    # 2nd overtone region (1111-1333 nm)
+    (7500, 9000, "2nd_overtones", "2nd overtones C-H"),                         # 1111-1333 nm
+
+    # 1st overtone region - O-H, N-H (1333-1667 nm)
+    (6000, 7500, "1st_overtones_OH_NH", "1st overtones O-H, N-H"),             # 1333-1667 nm
+
+    # 1st overtone region - C-H (1600-1818 nm)
+    (5500, 6250, "1st_overtones_CH", "1st overtones C-H"),                      # 1600-1818 nm
+
+    # Combination band region - O-H (1818-2000 nm)
+    (5000, 5500, "combination_OH", "O-H combination bands"),                    # 1818-2000 nm
+
+    # Combination band region - N-H (1923-2222 nm)
+    (4500, 5200, "combination_NH", "N-H combination bands"),                    # 1923-2222 nm
+
+    # Combination band region - C-H, C-O (2200-2500 nm)
+    (4000, 4545, "combination_CH", "C-H combination bands"),                    # 2200-2500 nm
+]
+
+# Backward-compatible NIR zones (3-tuple format for existing code)
 # These zones correspond to specific molecular vibration types
 NIR_ZONES_WAVENUMBER: List[Tuple[float, float, str]] = [
     # Short-wave NIR: Electronic transitions and 3rd overtones
@@ -55,6 +89,25 @@ NIR_ZONES_WAVENUMBER: List[Tuple[float, float, str]] = [
 
     # Combination band region - C-H, C-O
     (4000, 4545, "combination_CH"),  # ~2200-2500 nm
+]
+
+# Visible region zones (electronic transitions, pigments)
+# These are separate from vibrational NIR zones
+VISIBLE_ZONES_WAVENUMBER: List[Tuple[float, float, str, str]] = [
+    # UV-Vis transition region
+    (20000, 28571, "uv_vis_transition", "UV-visible transition, aromatic absorptions"),  # 350-500 nm
+
+    # Blue region - Soret bands, carotenoid absorptions
+    (20000, 25000, "blue_absorption", "Soret bands, carotenoid peak absorptions"),       # 400-500 nm
+
+    # Green region - anthocyanins, flavonoids
+    (16667, 20000, "green_absorption", "Anthocyanins, flavonoids"),                       # 500-600 nm
+
+    # Red region - chlorophyll Q bands, hemoglobin
+    (14285, 16667, "red_absorption", "Chlorophyll Q bands, hemoglobin bands"),           # 600-700 nm
+
+    # Red-edge - chlorophyll fluorescence, electronic tail
+    (12500, 14285, "red_edge", "Chlorophyll red edge, electronic transition tail"),      # 700-800 nm
 ]
 
 # Fundamental vibration wavenumbers for common functional groups (cm⁻¹)
@@ -273,6 +326,100 @@ def classify_wavelength_zone(wavelength_nm: float) -> Optional[str]:
         if nu_min <= wavenumber <= nu_max:
             return name
     return None
+
+
+def classify_wavelength_extended(wavelength_nm: float) -> Optional[Tuple[str, str]]:
+    """
+    Classify a wavelength into extended spectral zones (Vis-NIR: 350-2500 nm).
+
+    This function covers both visible (electronic transitions) and NIR
+    (vibrational overtones/combinations) regions.
+
+    Args:
+        wavelength_nm: Wavelength in nm.
+
+    Returns:
+        Tuple of (zone_name, description), or None if outside defined zones.
+
+    Example:
+        >>> classify_wavelength_extended(450)
+        ('blue_absorption', 'Soret bands, carotenoid peak absorptions')
+        >>> classify_wavelength_extended(660)
+        ('red_absorption', 'Chlorophyll Q bands, hemoglobin bands')
+        >>> classify_wavelength_extended(1450)
+        ('1st_overtones_OH_NH', '1st overtones O-H, N-H')
+    """
+    wavenumber = wavelength_to_wavenumber(wavelength_nm)
+
+    # Check extended zones first (includes visible region)
+    for nu_min, nu_max, name, description in EXTENDED_SPECTRAL_ZONES:
+        if nu_min <= wavenumber <= nu_max:
+            return (name, description)
+
+    # Also check visible-specific zones
+    for nu_min, nu_max, name, description in VISIBLE_ZONES_WAVENUMBER:
+        if nu_min <= wavenumber <= nu_max:
+            return (name, description)
+
+    return None
+
+
+def get_all_zones_extended() -> List[Tuple[float, float, str, str]]:
+    """
+    Get all extended spectral zones (Vis-NIR) converted to wavelength space.
+
+    Returns:
+        List of (min_wavelength, max_wavelength, zone_name, description) tuples in nm.
+
+    Example:
+        >>> zones = get_all_zones_extended()
+        >>> for min_wl, max_wl, name, desc in zones:
+        ...     print(f"{name}: {min_wl:.0f}-{max_wl:.0f} nm - {desc}")
+    """
+    zones = []
+    for nu_max, nu_min, name, description in EXTENDED_SPECTRAL_ZONES:
+        wl_min = wavenumber_to_wavelength(nu_max)
+        wl_max = wavenumber_to_wavelength(nu_min)
+        zones.append((wl_min, wl_max, name, description))
+    return zones
+
+
+def is_visible_region(wavelength_nm: float) -> bool:
+    """
+    Check if a wavelength is in the visible region (350-700 nm).
+
+    Args:
+        wavelength_nm: Wavelength in nm.
+
+    Returns:
+        True if wavelength is in visible region.
+
+    Example:
+        >>> is_visible_region(500)
+        True
+        >>> is_visible_region(1450)
+        False
+    """
+    return 350 <= wavelength_nm <= 700
+
+
+def is_nir_region(wavelength_nm: float) -> bool:
+    """
+    Check if a wavelength is in the NIR region (700-2500 nm).
+
+    Args:
+        wavelength_nm: Wavelength in nm.
+
+    Returns:
+        True if wavelength is in NIR region.
+
+    Example:
+        >>> is_nir_region(1450)
+        True
+        >>> is_nir_region(500)
+        False
+    """
+    return 700 <= wavelength_nm <= 2500
 
 
 # ============================================================================
@@ -586,6 +733,8 @@ def estimate_bandwidth_broadening(
 __all__ = [
     # Constants
     "NIR_ZONES_WAVENUMBER",
+    "EXTENDED_SPECTRAL_ZONES",
+    "VISIBLE_ZONES_WAVENUMBER",
     "FUNDAMENTAL_VIBRATIONS",
     # Basic conversions
     "wavenumber_to_wavelength",
@@ -596,6 +745,11 @@ __all__ = [
     "get_zone_wavelength_range",
     "get_all_zones_wavelength",
     "classify_wavelength_zone",
+    # Extended zone functions (Phase 2)
+    "classify_wavelength_extended",
+    "get_all_zones_extended",
+    "is_visible_region",
+    "is_nir_region",
     # Overtone/combination calculations
     "OvertoneResult",
     "CombinationBandResult",

@@ -18,7 +18,8 @@ class TestSyntheticNIRSGeneratorInit:
     def test_default_init(self):
         """Test default initialization."""
         gen = SyntheticNIRSGenerator()
-        assert gen.wavelength_start == 1000
+        # Phase 2: Default wavelength range extended to Vis-NIR (350-2500nm)
+        assert gen.wavelength_start == 350
         assert gen.wavelength_end == 2500
         assert gen.wavelength_step == 2
         assert gen.complexity == "realistic"

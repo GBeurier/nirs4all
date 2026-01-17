@@ -60,6 +60,8 @@ class BuilderState:
     wavelength_start: float = DEFAULT_WAVELENGTH_START
     wavelength_end: float = DEFAULT_WAVELENGTH_END
     wavelength_step: float = DEFAULT_WAVELENGTH_STEP
+    custom_wavelengths: Optional[np.ndarray] = None  # Phase 6: custom wavelength array
+    instrument_wavelength_grid: Optional[str] = None  # Phase 6: predefined instrument grid
     complexity: Literal["simple", "realistic", "complex"] = "simple"
     component_names: Optional[List[str]] = None
     component_library: Optional[ComponentLibrary] = None
@@ -95,6 +97,10 @@ class BuilderState:
 
     # Multi-source configuration
     sources: Optional[List[Any]] = None  # List of SourceConfig or dicts
+
+    # Aggregate configuration (Phase 4)
+    aggregate_name: Optional[str] = None  # Predefined aggregate name
+    aggregate_variability: bool = False  # Sample from variability ranges
 
     # Partition configuration
     train_ratio: float = 0.8
@@ -340,6 +346,72 @@ class SyntheticDatasetBuilder:
 
         return self
 
+    def with_wavelengths(
+        self,
+        wavelengths: Optional[np.ndarray] = None,
+        *,
+        instrument_grid: Optional[str] = None,
+    ) -> SyntheticDatasetBuilder:
+        """
+        Configure custom wavelength grid for spectrum generation.
+
+        This method allows generating spectra at specific wavelengths matching
+        a real instrument's wavelength grid, which is essential for transfer
+        learning and domain adaptation experiments.
+
+        Priority: wavelengths > instrument_grid > wavelength_range (in with_features)
+
+        Args:
+            wavelengths: Custom wavelength array in nm. If provided, overrides
+                the wavelength_range set in with_features().
+            instrument_grid: Name of predefined instrument wavelength grid.
+                Available grids include: 'micronir_onsite', 'foss_xds',
+                'scio', 'neospectra_micro', 'asd_fieldspec', 'bruker_mpa', etc.
+                See ``list_instrument_wavelength_grids()`` for all options.
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            ValueError: If instrument_grid name is not recognized.
+
+        Example:
+            >>> # Use predefined instrument wavelength grid
+            >>> builder.with_wavelengths(instrument_grid="micronir_onsite")
+
+            >>> # Use custom wavelength array
+            >>> custom_wl = np.linspace(1000, 2000, 100)
+            >>> builder.with_wavelengths(wavelengths=custom_wl)
+
+            >>> # Full example
+            >>> from nirs4all.data.synthetic import SyntheticDatasetBuilder
+            >>> dataset = (
+            ...     SyntheticDatasetBuilder(n_samples=500)
+            ...     .with_wavelengths(instrument_grid="micronir_onsite")
+            ...     .with_features(complexity="realistic")
+            ...     .build()
+            ... )
+
+        See Also:
+            get_instrument_wavelengths: Get wavelengths for a specific instrument.
+            list_instrument_wavelength_grids: List all available instrument grids.
+        """
+        if wavelengths is not None and instrument_grid is not None:
+            raise ValueError("Cannot specify both 'wavelengths' and 'instrument_grid'")
+
+        if wavelengths is not None:
+            self.state.custom_wavelengths = np.asarray(wavelengths)
+            self.state.instrument_wavelength_grid = None
+
+        if instrument_grid is not None:
+            # Validate instrument grid name
+            from .instruments import get_instrument_wavelengths
+            _ = get_instrument_wavelengths(instrument_grid)  # Raises ValueError if unknown
+            self.state.instrument_wavelength_grid = instrument_grid
+            self.state.custom_wavelengths = None
+
+        return self
+
     def with_targets(
         self,
         *,
@@ -525,6 +597,69 @@ class SyntheticDatasetBuilder:
             ... ])
         """
         self.state.sources = sources
+        return self
+
+    def with_aggregate(
+        self,
+        name: str,
+        *,
+        variability: bool = False,
+        target_component: Optional[str] = None,
+    ) -> SyntheticDatasetBuilder:
+        """
+        Configure generation from a predefined aggregate component.
+
+        Aggregates are predefined compositions representing common sample types
+        (e.g., "wheat_grain", "milk", "tablet_excipient_base"). Using an aggregate
+        automatically sets up the component library with realistic proportions.
+
+        Args:
+            name: Aggregate name (e.g., "wheat_grain", "milk", "cheese_cheddar").
+            variability: If True, sample compositions from realistic variability
+                ranges instead of using fixed base values. Useful for generating
+                diverse training data.
+            target_component: Optional component to use as regression target.
+                If not specified, uses the first component in the aggregate.
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            ValueError: If aggregate name is not found.
+
+        Example:
+            >>> # Generate wheat samples with protein as target
+            >>> dataset = (
+            ...     SyntheticDatasetBuilder(n_samples=1000, random_state=42)
+            ...     .with_aggregate("wheat_grain", variability=True)
+            ...     .with_targets(component="protein", range=(8, 18))
+            ...     .build()
+            ... )
+
+        See Also:
+            nirs4all.data.synthetic.list_aggregates: List available aggregates.
+            nirs4all.data.synthetic.aggregate_info: Get aggregate details.
+        """
+        from ._aggregates import get_aggregate
+
+        # Validate aggregate exists
+        agg = get_aggregate(name)  # Will raise ValueError if not found
+
+        self.state.aggregate_name = name
+        self.state.aggregate_variability = variability
+
+        # Set component names from aggregate
+        self.state.component_names = list(agg.components.keys())
+
+        # Set target component if specified
+        if target_component is not None:
+            if target_component not in agg.components:
+                raise ValueError(
+                    f"Target component '{target_component}' not in aggregate '{name}'. "
+                    f"Available: {list(agg.components.keys())}"
+                )
+            self.state.target_component = target_component
+
         return self
 
     def with_partitions(
@@ -782,6 +917,8 @@ class SyntheticDatasetBuilder:
             wavelength_start=self.state.wavelength_start,
             wavelength_end=self.state.wavelength_end,
             wavelength_step=self.state.wavelength_step,
+            wavelengths=self.state.custom_wavelengths,
+            instrument_wavelength_grid=self.state.instrument_wavelength_grid,
             component_library=library,
             complexity=self.state.complexity,
             custom_params=self.state.custom_params,
@@ -792,13 +929,17 @@ class SyntheticDatasetBuilder:
 
     def _generate_data(self, generator: SyntheticNIRSGenerator) -> None:
         """Generate raw spectral data using the generator."""
-        X, C, _E, metadata = generator.generate(
-            n_samples=self.state.n_samples,
-            concentration_method=self.state.concentration_method,
-            include_batch_effects=self.state.batch_effects_enabled,
-            n_batches=self.state.n_batches,
-            return_metadata=True,
-        )
+        # Check if using aggregate-based generation
+        if self.state.aggregate_name is not None:
+            X, C, metadata = self._generate_from_aggregate(generator)
+        else:
+            X, C, _E, metadata = generator.generate(
+                n_samples=self.state.n_samples,
+                concentration_method=self.state.concentration_method,
+                include_batch_effects=self.state.batch_effects_enabled,
+                n_batches=self.state.n_batches,
+                return_metadata=True,
+            )
 
         # Store wavelengths and concentrations
         self.state._wavelengths = generator.wavelengths.copy()
@@ -826,6 +967,61 @@ class SyntheticDatasetBuilder:
             n_repetitions=self.state.n_repetitions,
         )
         self.state._sample_metadata = result
+
+    def _generate_from_aggregate(
+        self,
+        generator: SyntheticNIRSGenerator,
+    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+        """
+        Generate spectral data using aggregate-based composition.
+
+        This method samples concentrations from the aggregate's composition
+        (optionally with variability) and uses them to generate spectra.
+
+        Args:
+            generator: Configured SyntheticNIRSGenerator instance.
+
+        Returns:
+            Tuple of (X, C, metadata) where:
+                X: Spectra array (n_samples, n_wavelengths)
+                C: Concentration array (n_samples, n_components)
+                metadata: Generation metadata dict
+        """
+        from ._aggregates import get_aggregate, expand_aggregate
+
+        agg = get_aggregate(self.state.aggregate_name)
+        n_samples = self.state.n_samples
+        component_names = list(agg.components.keys())
+        n_components = len(component_names)
+        rng = np.random.default_rng(self.state.random_state)
+
+        # Generate concentration matrix
+        C = np.zeros((n_samples, n_components))
+
+        for i in range(n_samples):
+            # Get composition (with or without variability)
+            composition = expand_aggregate(
+                self.state.aggregate_name,
+                variability=self.state.aggregate_variability,
+                random_state=rng.integers(0, 2**31) if self.state.aggregate_variability else None,
+            )
+
+            # Map to concentration array in correct order
+            for j, comp_name in enumerate(component_names):
+                C[i, j] = composition.get(comp_name, 0.0)
+
+        # Generate spectra from concentrations
+        X, metadata = generator.generate_from_concentrations(
+            C,
+            include_batch_effects=self.state.batch_effects_enabled,
+            n_batches=self.state.n_batches,
+        )
+
+        # Add aggregate info to metadata
+        metadata["aggregate_name"] = self.state.aggregate_name
+        metadata["aggregate_variability"] = self.state.aggregate_variability
+
+        return X, C, metadata
 
     def _process_targets(
         self,

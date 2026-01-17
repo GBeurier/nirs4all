@@ -5,6 +5,67 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - Wavelength-Aware Operators & Generator Migration - 2026-01-17
+
+### New Features
+
+#### SpectraTransformerMixin Foundation
+- **New `SpectraTransformerMixin` base class**: Enables wavelength-aware transformations while maintaining full sklearn compatibility
+- **Automatic wavelength passing**: Controller detects operators that require wavelengths and extracts them from the dataset
+- **`_requires_wavelengths` class flag**: Operators can declare mandatory or optional wavelength requirements
+- **Dual interface support**: Both `transform(X, wavelengths=...)` and `transform_with_wavelengths(X, wl)` supported
+
+#### Environmental Effect Operators (`nirs4all.operators.augmentation.environmental`)
+- **`TemperatureAugmenter`**: Simulates temperature-induced spectral changes with region-specific effects for O-H, N-H, and C-H bands
+  - Configurable shift, intensity, and broadening effects
+  - Literature-based parameters from Maeda et al. (1995), Segtnan et al. (2001)
+- **`MoistureAugmenter`**: Simulates moisture/water activity effects on spectra
+  - Models free vs. bound water state transitions
+  - Affects 1st overtone (1400-1500nm) and combination (1900-2000nm) water bands
+
+#### Scattering Effect Operators (`nirs4all.operators.augmentation.scattering`)
+- **`ParticleSizeAugmenter`**: Simulates particle size effects on light scattering
+  - Wavelength-dependent baseline (lambda^(-n) relationship)
+  - Configurable path length effects
+- **`EMSCDistortionAugmenter`**: Applies EMSC-style scatter distortions
+  - Multiplicative and additive components
+  - Configurable polynomial order for wavelength-dependent baseline
+
+#### Generator Integration
+- **Operators-first architecture**: Synthetic data generator now uses operators exclusively for environmental and scattering effects
+- **Simplified generator API**: Removed `use_operators` flag - operators are always used when configs are provided
+- **Consistent augmentation**: Same operators used in both data generation and pipeline augmentation
+
+### Improvements
+
+#### Controller Enhancement
+- **`TransformerMixinController`**: Updated to detect `SpectraTransformerMixin` instances and pass wavelengths automatically
+- **Wavelength extraction fallback**: Primary via `dataset.wavelengths_nm()`, fallback to numeric headers
+- **All execution paths updated**: Main transform, batch augmentation, and sequential augmentation paths all support wavelength passing
+
+### Code Cleanup
+
+#### Dead Code Removal
+- Removed `TemperatureEffectSimulator`, `MoistureEffectSimulator`, `EnvironmentalEffectsSimulator` classes
+- Removed `ParticleSizeSimulator`, `EMSCTransformSimulator`, `ScatteringCoefficientGenerator`, `ScatteringEffectsSimulator` classes
+- Removed legacy convenience functions (`apply_temperature_effects`, `apply_moisture_effects`, etc.)
+- Retained configuration dataclasses used by operators
+
+### Documentation
+
+- **Developer guide**: New `docs/_internals/spectra_transformer_mixin.md` with implementation notes
+- **User guide**: Updated augmentation guide with wavelength-aware operators section
+- **API docs**: Added documentation for `operators.augmentation` and `operators.base` packages
+
+### Testing
+
+- **Unit tests**: 23 tests for SpectraTransformerMixin, 42 tests each for environmental and scattering operators
+- **Controller tests**: 21 unit tests for wavelength passing logic
+- **Integration tests**: 7 pipeline tests for spectra transformers, 11 generator parity tests
+- **Configuration tests**: Updated tests for retained configuration classes
+
+---
+
 ## [0.6.2] - Synthetic Data Enhancement & Pipeline Improvements - 2026-01-02
 
 ### ✨ New Features

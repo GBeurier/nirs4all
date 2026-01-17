@@ -92,6 +92,45 @@ def _merge_params(local_params, handler_params, global_params):
     return merged_params
 
 
+# Known loading parameter keys that can appear at root level of config
+_LOADING_PARAM_KEYS = frozenset({
+    'delimiter', 'decimal_separator', 'has_header',
+    'na_policy', 'header_unit', 'categorical_mode'
+})
+
+
+def _get_effective_global_params(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Get effective global params by merging root-level loading params with global_params.
+
+    Root-level params have lowest precedence (global_params overrides them).
+    This allows users to write simpler configs like:
+        {"x_train": "path.csv", "delimiter": ",", "has_header": True}
+    instead of:
+        {"x_train": "path.csv", "global_params": {"delimiter": ",", "has_header": True}}
+
+    Parameters:
+    - config (dict): The full configuration dictionary.
+
+    Returns:
+    - dict or None: Merged params with precedence: global_params > root-level params.
+    """
+    # Extract known loading params from root level
+    root_params = {k: v for k, v in config.items() if k in _LOADING_PARAM_KEYS}
+
+    global_params = config.get('global_params')
+
+    if not root_params and not global_params:
+        return None
+
+    # Merge: root_params (lowest) < global_params (higher)
+    effective = root_params.copy() if root_params else {}
+    if global_params:
+        effective.update(global_params)
+
+    return effective if effective else None
+
+
 def _load_file_with_registry(
     file_path: Union[str, Path],
     header_unit: str = "cm-1",
@@ -335,6 +374,9 @@ def handle_data(config, t_set):
     if not isinstance(config, dict):
         raise ValueError(f"Invalid config type for {t_set}: {type(config)}")
 
+    # Get effective global params (includes root-level loading params)
+    effective_global_params = _get_effective_global_params(config)
+
     # Get paths
     x_path = config.get(f'{t_set}_x')
     y_path = config.get(f'{t_set}_y')
@@ -364,7 +406,7 @@ def handle_data(config, t_set):
         x_header_unit = HeaderUnit.WAVENUMBER.value
 
         # Check for signal_type in config params for pre-loaded arrays
-        x_params = config.get(f'{t_set}_x_params') or config.get('global_params') or {}
+        x_params = config.get(f'{t_set}_x_params') or effective_global_params or {}
         x_signal_type = None
         if 'signal_type' in x_params:
             x_signal_type = normalize_signal_type(x_params['signal_type'])
@@ -392,7 +434,7 @@ def handle_data(config, t_set):
             # Determine params for this source
             if isinstance(x_params_config, list) and i < len(x_params_config):
                 # Per-source params provided
-                source_x_params = _merge_params(x_params_config[i], config.get(f'{t_set}_params'), config.get('global_params'))
+                source_x_params = _merge_params(x_params_config[i], config.get(f'{t_set}_params'), effective_global_params)
             elif isinstance(x_params_config, dict):
                 # Check if dict contains list of units or signal_types for multi-source
                 source_params = x_params_config.copy()
@@ -411,13 +453,13 @@ def handle_data(config, t_set):
                     else:
                         source_params['signal_type'] = None
 
-                source_x_params = _merge_params(source_params, config.get(f'{t_set}_params'), config.get('global_params'))
+                source_x_params = _merge_params(source_params, config.get(f'{t_set}_params'), effective_global_params)
             else:
                 # No params or unsupported format
-                source_x_params = _merge_params(None, config.get(f'{t_set}_params'), config.get('global_params'))
+                source_x_params = _merge_params(None, config.get(f'{t_set}_params'), effective_global_params)
 
-            y_params = _merge_params(config.get(f'{t_set}_y_params'), config.get(f'{t_set}_params'), config.get('global_params'))
-            m_params = _merge_params(config.get(f'{t_set}_group_params'), config.get(f'{t_set}_params'), config.get('global_params'))
+            y_params = _merge_params(config.get(f'{t_set}_y_params'), config.get(f'{t_set}_params'), effective_global_params)
+            m_params = _merge_params(config.get(f'{t_set}_group_params'), config.get(f'{t_set}_params'), effective_global_params)
 
             try:
                 # For multi-source, only the first source should handle Y and metadata extraction
@@ -445,7 +487,7 @@ def handle_data(config, t_set):
         return x_arrays, y_array, m_data, headers_arrays, m_headers, header_units, signal_types
     else:
         # Single source
-        x_params = _merge_params(config.get(f'{t_set}_x_params'), config.get(f'{t_set}_params'), config.get('global_params'))
-        y_params = _merge_params(config.get(f'{t_set}_y_params'), config.get(f'{t_set}_params'), config.get('global_params'))
-        m_params = _merge_params(config.get(f'{t_set}_group_params'), config.get(f'{t_set}_params'), config.get('global_params'))
+        x_params = _merge_params(config.get(f'{t_set}_x_params'), config.get(f'{t_set}_params'), effective_global_params)
+        y_params = _merge_params(config.get(f'{t_set}_y_params'), config.get(f'{t_set}_params'), effective_global_params)
+        m_params = _merge_params(config.get(f'{t_set}_group_params'), config.get(f'{t_set}_params'), effective_global_params)
         return load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path, m_filter, m_params)
