@@ -382,7 +382,7 @@ class SpectroDataset:
         """Get feature headers for a source."""
         return self._feature_accessor.headers(src)
 
-    def header_unit(self, src: int) -> str:
+    def header_unit(self, src: int = 0) -> str:
         """
         Get the unit type of headers for a data source.
 
@@ -394,7 +394,7 @@ class SpectroDataset:
         """
         return self._feature_accessor.header_unit(src)
 
-    def float_headers(self, src: int) -> np.ndarray:
+    def float_headers(self, src: int = 0) -> np.ndarray:
         """
         Get headers as float array (legacy method).
 
@@ -412,7 +412,7 @@ class SpectroDataset:
         """
         return self._feature_accessor.float_headers(src)
 
-    def wavelengths_cm1(self, src: int) -> np.ndarray:
+    def wavelengths_cm1(self, src: int = 0) -> np.ndarray:
         """
         Get wavelengths in cm⁻¹ (wavenumber), converting from nm if needed.
 
@@ -427,7 +427,7 @@ class SpectroDataset:
         """
         return self._feature_accessor.wavelengths_cm1(src)
 
-    def wavelengths_nm(self, src: int) -> np.ndarray:
+    def wavelengths_nm(self, src: int = 0) -> np.ndarray:
         """
         Get wavelengths in nm, converting from cm⁻¹ if needed.
 

@@ -146,6 +146,65 @@ class MultiScanConfig:
 
 
 @dataclass
+class EdgeArtifactsConfig:
+    """
+    Configuration for edge artifact effects in synthetic NIRS spectra.
+
+    Edge artifacts are common in NIR spectra and arise from various sources:
+    - Detector sensitivity roll-off at spectral extremes
+    - Stray light contamination
+    - Truncated absorption peaks at measurement boundaries
+    - Baseline curvature/bending at spectrum edges
+
+    These artifacts are well-documented in the literature:
+    - Workman Jr, J., & Weyer, L. (2012). Practical Guide and Spectral Atlas
+      for Interpretive Near-Infrared Spectroscopy. CRC Press. Chapters 4-5.
+    - Burns, D. A., & Ciurczak, E. W. (2007). Handbook of Near-Infrared
+      Analysis. CRC Press. Chapters on instrumentation.
+    - ASTM E1944-98(2017): Standard Practice for Describing and Measuring
+      Performance of NIR Instruments.
+
+    Attributes:
+        enable_detector_rolloff: Enable detector sensitivity roll-off.
+        enable_stray_light: Enable stray light effects.
+        enable_truncated_peaks: Enable truncated absorption peaks.
+        enable_edge_curvature: Enable baseline curvature at edges.
+        detector_model: Detector model for roll-off ('generic_nir', 'ingaas',
+            'pbs', 'silicon_ccd'). Defaults to 'generic_nir'.
+        rolloff_severity: Severity of detector roll-off (0.0-1.0).
+        stray_fraction: Stray light fraction (0.0-0.02 typical).
+        stray_wavelength_dependent: Whether stray light varies with wavelength.
+        left_peak_amplitude: Amplitude of truncated peak at low wavelength edge.
+        right_peak_amplitude: Amplitude of truncated peak at high wavelength edge.
+        curvature_type: Type of edge curvature ('concave', 'convex', 'asymmetric').
+        left_curvature_severity: Severity of left edge curvature (0.0-1.0).
+        right_curvature_severity: Severity of right edge curvature (0.0-1.0).
+    """
+    # Master switches
+    enable_detector_rolloff: bool = False
+    enable_stray_light: bool = False
+    enable_truncated_peaks: bool = False
+    enable_edge_curvature: bool = False
+
+    # Detector roll-off parameters
+    detector_model: str = "generic_nir"
+    rolloff_severity: float = 0.3
+
+    # Stray light parameters
+    stray_fraction: float = 0.001
+    stray_wavelength_dependent: bool = True
+
+    # Truncated peaks parameters
+    left_peak_amplitude: float = 0.0
+    right_peak_amplitude: float = 0.0
+
+    # Edge curvature parameters
+    curvature_type: str = "concave"  # concave, convex, asymmetric
+    left_curvature_severity: float = 0.0
+    right_curvature_severity: float = 0.0
+
+
+@dataclass
 class InstrumentArchetype:
     """
     Parameterized NIR instrument simulation.
@@ -771,6 +830,122 @@ def get_instruments_by_category() -> Dict[str, List[str]]:
 
 
 # ============================================================================
+# Phase 6: Instrument Wavelength Grids
+# ============================================================================
+
+# Predefined wavelength grids for common NIR instruments.
+# These allow generating synthetic data that exactly matches real instrument wavelengths.
+INSTRUMENT_WAVELENGTHS: Dict[str, np.ndarray] = {
+    # Handheld/portable instruments
+    "micronir_onsite": np.linspace(908, 1676, 125),          # VIAVI MicroNIR OnSite
+    "scio": np.linspace(740, 1070, 331),                     # Consumer Scio scanner
+    "neospectra_micro": np.linspace(1350, 2500, 228),        # Si-Ware NeoSpectra Micro
+    "linksquare": np.linspace(750, 1050, 301),               # LinkSquare portable
+
+    # Benchtop dispersive
+    "foss_xds": np.arange(400, 2498, 2),                     # FOSS XDS II (2nm step)
+    "foss_nirs_ds2500": np.arange(400, 2500, 0.5),           # FOSS NIRS DS2500 (0.5nm step)
+
+    # FT-NIR benchtop (wavenumber-based, converted to wavelength)
+    "bruker_mpa": np.arange(800, 2778, 4),                   # Bruker MPA FT-NIR
+
+    # High-resolution field portable
+    "asd_fieldspec": np.arange(350, 2500, 1),                # ASD FieldSpec (1nm step)
+
+    # Process NIR
+    "abb_ftpa2000": np.arange(1000, 2500, 1),                # ABB FT-NIR process analyzer
+
+    # Embedded/MEMS
+    "texas_dlp_nirscan": np.linspace(900, 1700, 228),        # TI DLP NIRscan Nano
+    "hamamatsu_c14384ma": np.linspace(1350, 2150, 256),      # Hamamatsu micro spectrometer
+
+    # Specialty instruments
+    "buchi_nirflex": np.arange(1000, 2500, 4),               # BUCHI NIRFlex FT-NIR
+    "thermo_antaris": np.arange(833, 2500, 1),               # Thermo Antaris II
+}
+
+
+def get_instrument_wavelengths(instrument: str) -> np.ndarray:
+    """
+    Get the wavelength grid for a known instrument.
+
+    Returns a copy of the predefined wavelength array for the specified
+    instrument, enabling generation of synthetic data that matches real
+    instrument wavelength grids exactly.
+
+    Args:
+        instrument: Instrument identifier (e.g., "micronir_onsite", "foss_xds").
+
+    Returns:
+        NumPy array of wavelengths in nm.
+
+    Raises:
+        ValueError: If the instrument is not recognized.
+
+    Example:
+        >>> wl = get_instrument_wavelengths("micronir_onsite")
+        >>> print(f"MicroNIR: {len(wl)} wavelengths from {wl[0]:.0f} to {wl[-1]:.0f} nm")
+        MicroNIR: 125 wavelengths from 908 to 1676 nm
+
+        >>> # Use with SyntheticNIRSGenerator
+        >>> from nirs4all.data.synthetic import SyntheticNIRSGenerator
+        >>> gen = SyntheticNIRSGenerator(wavelengths=wl)
+    """
+    instrument = instrument.lower().replace("-", "_").replace(" ", "_")
+
+    if instrument not in INSTRUMENT_WAVELENGTHS:
+        available = list(INSTRUMENT_WAVELENGTHS.keys())
+        raise ValueError(
+            f"Unknown instrument: '{instrument}'. "
+            f"Available instruments: {available}"
+        )
+    return INSTRUMENT_WAVELENGTHS[instrument].copy()
+
+
+def list_instrument_wavelength_grids() -> List[str]:
+    """
+    List all available predefined instrument wavelength grids.
+
+    Returns:
+        List of instrument identifiers.
+
+    Example:
+        >>> grids = list_instrument_wavelength_grids()
+        >>> print(grids[:3])
+        ['micronir_onsite', 'scio', 'neospectra_micro']
+    """
+    return list(INSTRUMENT_WAVELENGTHS.keys())
+
+
+def get_instrument_wavelength_info() -> Dict[str, Dict[str, Any]]:
+    """
+    Get detailed information about all instrument wavelength grids.
+
+    Returns:
+        Dictionary mapping instrument names to info dicts containing:
+            - n_wavelengths: Number of wavelength points
+            - wavelength_start: Start wavelength (nm)
+            - wavelength_end: End wavelength (nm)
+            - mean_step: Mean wavelength step (nm)
+
+    Example:
+        >>> info = get_instrument_wavelength_info()
+        >>> print(info["micronir_onsite"])
+        {'n_wavelengths': 125, 'wavelength_start': 908.0, ...}
+    """
+    result = {}
+    for name, wl in INSTRUMENT_WAVELENGTHS.items():
+        wl_arr = np.asarray(wl)
+        result[name] = {
+            "n_wavelengths": len(wl_arr),
+            "wavelength_start": float(wl_arr[0]),
+            "wavelength_end": float(wl_arr[-1]),
+            "mean_step": float(np.mean(np.diff(wl_arr))) if len(wl_arr) > 1 else 0.0,
+        }
+    return result
+
+
+# ============================================================================
 # Instrument Simulation
 # ============================================================================
 
@@ -1166,12 +1341,18 @@ __all__ = [
     "SensorConfig",
     "MultiSensorConfig",
     "MultiScanConfig",
+    "EdgeArtifactsConfig",
     "InstrumentArchetype",
     # Registry
     "INSTRUMENT_ARCHETYPES",
     "get_instrument_archetype",
     "list_instrument_archetypes",
     "get_instruments_by_category",
+    # Phase 6: Instrument wavelength grids
+    "INSTRUMENT_WAVELENGTHS",
+    "get_instrument_wavelengths",
+    "list_instrument_wavelength_grids",
+    "get_instrument_wavelength_info",
     # Simulator
     "InstrumentSimulator",
 ]

@@ -514,9 +514,449 @@ class ScatterSimulationMSC(BaseAugmenter):
 
 ---
 
-## 3. Implementation details and utilities
+## 3. Wavelength-Aware Augmentation (Physics-Based)
 
-### 3.1 Utility functions
+Some augmentation operators require wavelength information to apply physically realistic effects. These operators inherit from `SpectraTransformerMixin` and automatically receive wavelengths from the dataset when used in a pipeline.
+
+### 3.1 Environmental Effects
+
+#### 3.1.1 TemperatureAugmenter
+
+**Class name:** `TemperatureAugmenter`
+
+**Effect:** Simulates temperature-induced spectral changes based on literature values for NIR spectroscopy.
+
+Temperature affects NIR spectra through:
+- Peak position shifts (especially O-H, N-H bands)
+- Intensity changes (hydrogen bonding disruption)
+- Band broadening (thermal motion)
+
+```python
+from nirs4all.operators.augmentation import TemperatureAugmenter
+
+class TemperatureAugmenter(SpectraTransformerMixin):
+    def __init__(
+        self,
+        temperature_delta: float = 5.0,
+        temperature_range: Optional[Tuple[float, float]] = None,
+        reference_temperature: float = 25.0,
+        enable_shift: bool = True,
+        enable_intensity: bool = True,
+        enable_broadening: bool = True,
+        region_specific: bool = True,
+        random_state: Optional[int] = None,
+    ):
+        ...
+```
+
+**Notes:**
+* Region-specific effects for O-H (1400-1520nm, 1900-2000nm), N-H (1490-1560nm), and C-H (1650-1780nm) bands
+* Literature-based parameters from Maeda et al. (1995), Segtnan et al. (2001)
+* Use `temperature_range` for per-sample random variation
+
+**Example:**
+
+```python
+from nirs4all.operators.augmentation import TemperatureAugmenter
+from sklearn.cross_decomposition import PLSRegression
+import nirs4all
+
+# Fixed temperature shift
+pipeline = [
+    TemperatureAugmenter(temperature_delta=10.0),
+    PLSRegression(n_components=10),
+]
+
+# Random temperature variation for robustness training
+pipeline = [
+    TemperatureAugmenter(temperature_range=(-5, 15)),
+    PLSRegression(n_components=10),
+]
+
+result = nirs4all.run(pipeline=pipeline, dataset="my_dataset")
+```
+
+#### 3.1.2 MoistureAugmenter
+
+**Class name:** `MoistureAugmenter`
+
+**Effect:** Simulates moisture/water activity effects on spectra.
+
+Water activity affects NIR spectra through shifts in water bands between free and bound states.
+
+```python
+from nirs4all.operators.augmentation import MoistureAugmenter
+
+class MoistureAugmenter(SpectraTransformerMixin):
+    def __init__(
+        self,
+        water_activity_delta: float = 0.1,
+        water_activity_range: Optional[Tuple[float, float]] = None,
+        free_water_fraction: float = 0.3,
+        bound_water_shift: float = 15.0,
+        random_state: Optional[int] = None,
+    ):
+        ...
+```
+
+**Notes:**
+* Affects 1st overtone (1400-1500nm) and combination (1900-2000nm) water bands
+* Models free vs. bound water state transitions
+* `free_water_fraction` controls the ratio of free to bound water
+
+### 3.2 Scattering Effects
+
+#### 3.2.1 ParticleSizeAugmenter
+
+**Class name:** `ParticleSizeAugmenter`
+
+**Effect:** Simulates particle size effects on light scattering.
+
+Particle size affects NIR spectra through wavelength-dependent baseline scattering, typically following a lambda^(-n) relationship.
+
+```python
+from nirs4all.operators.augmentation import ParticleSizeAugmenter
+
+class ParticleSizeAugmenter(SpectraTransformerMixin):
+    def __init__(
+        self,
+        mean_size_um: float = 50.0,
+        size_variation_um: float = 15.0,
+        size_range_um: Optional[Tuple[float, float]] = None,
+        wavelength_exponent: float = 1.5,
+        size_effect_strength: float = 0.1,
+        include_path_length: bool = True,
+        random_state: Optional[int] = None,
+    ):
+        ...
+```
+
+**Notes:**
+* Higher `wavelength_exponent` = finer particles (Rayleigh scattering ~4, Mie scattering ~1-2)
+* Use `size_range_um` for per-sample random variation
+* Path length effect simulates longer optical paths for smaller particles
+
+#### 3.2.2 EMSCDistortionAugmenter
+
+**Class name:** `EMSCDistortionAugmenter`
+
+**Effect:** Applies EMSC-style scatter distortions.
+
+Simulates the spectral distortions that Extended Multiplicative Scatter Correction (EMSC) is designed to correct:
+
+`x_distorted = a + b*x + c1*lambda + c2*lambda^2 + ...`
+
+```python
+from nirs4all.operators.augmentation import EMSCDistortionAugmenter
+
+class EMSCDistortionAugmenter(SpectraTransformerMixin):
+    def __init__(
+        self,
+        multiplicative_range: Tuple[float, float] = (0.9, 1.1),
+        additive_range: Tuple[float, float] = (-0.05, 0.05),
+        polynomial_order: int = 2,
+        polynomial_strength: float = 0.02,
+        correlation: float = 0.0,
+        random_state: Optional[int] = None,
+    ):
+        ...
+```
+
+**Notes:**
+* `multiplicative_range` controls the gain factor (b)
+* `additive_range` controls the offset (a)
+* `polynomial_order` adds wavelength-dependent baseline curvature
+* `correlation` links additive and multiplicative effects (typical in real scatter)
+
+### 3.3 Combining Environmental and Scattering Augmentation
+
+For maximum robustness in field applications (e.g., handheld NIRS), combine multiple augmentation types:
+
+```python
+from nirs4all.operators.augmentation import (
+    TemperatureAugmenter,
+    MoistureAugmenter,
+    ParticleSizeAugmenter,
+)
+from sklearn.cross_decomposition import PLSRegression
+import nirs4all
+
+# Robust field deployment pipeline
+pipeline = [
+    TemperatureAugmenter(temperature_range=(-10, 20)),
+    MoistureAugmenter(water_activity_range=(0.3, 0.9)),
+    ParticleSizeAugmenter(size_range_um=(20, 100)),
+    PLSRegression(n_components=10),
+]
+
+result = nirs4all.run(pipeline=pipeline, dataset="field_samples")
+```
+
+### 3.4 Edge Artifacts
+
+Edge artifacts are common instrumental and physical phenomena that cause spectral distortions at the boundaries (start and end) of the measured wavelength range. These effects are well-documented in NIR spectroscopy literature and can significantly impact model performance if not accounted for.
+
+**Scientific Background:**
+
+Edge artifacts arise from several sources:
+
+1. **Detector sensitivity roll-off**: NIR detectors (InGaAs, PbS, Silicon CCD) have wavelength-dependent sensitivity curves that typically decrease at the edges of their spectral range, causing increased noise and reduced signal quality.
+
+2. **Stray light contamination**: Scattered light within the spectrometer that reaches the detector without passing through the sample. This effect is often wavelength-dependent and more pronounced at spectral edges.
+
+3. **Truncated absorption peaks**: Real absorption bands whose centers lie outside the measured wavelength range, appearing as rising/falling baselines at the spectral edges.
+
+4. **Baseline curvature**: Instrumental effects causing systematic baseline bending near measurement boundaries.
+
+**References:**
+- Workman Jr, J., & Weyer, L. (2012). *Practical Guide and Spectral Atlas for Interpretive Near-Infrared Spectroscopy*. CRC Press. Chapters 4-5.
+- Burns, D. A., & Ciurczak, E. W. (2007). *Handbook of Near-Infrared Analysis* (3rd ed.). CRC Press.
+- Siesler, H. W., Ozaki, Y., Kawata, S., & Heise, H. M. (2002). *Near-Infrared Spectroscopy: Principles, Instruments, Applications*. Wiley-VCH.
+- ASTM E1944-98(2017): Standard Practice for Describing and Measuring Performance of NIR Instruments.
+
+#### 3.4.1 DetectorRollOffAugmenter
+
+**Class name:** `DetectorRollOffAugmenter`
+
+**Effect:** Simulates detector sensitivity roll-off at spectral edges, causing increased noise and baseline distortion at the boundaries.
+
+```python
+from nirs4all.operators.augmentation import DetectorRollOffAugmenter
+
+class DetectorRollOffAugmenter(SpectraTransformerMixin):
+    def __init__(
+        self,
+        detector_model: str = "generic_nir",
+        effect_strength: float = 1.0,
+        noise_amplification: float = 0.02,
+        include_baseline_distortion: bool = True,
+        random_state: Optional[int] = None,
+    ):
+        ...
+```
+
+**Detector Models:**
+- `"ingaas_standard"`: Standard InGaAs (1000-1600 nm optimal)
+- `"ingaas_extended"`: Extended InGaAs (1100-2200 nm optimal)
+- `"pbs"`: Lead sulfide (1000-2800 nm optimal)
+- `"silicon_ccd"`: Silicon CCD (400-900 nm optimal)
+- `"generic_nir"`: Generic NIR detector
+
+**Notes:**
+* `effect_strength` scales the overall roll-off effect (0-2)
+* `noise_amplification` adds extra noise at low-sensitivity wavelengths
+* Detector response curves based on manufacturer specifications
+
+**Example:**
+```python
+from nirs4all.operators.augmentation import DetectorRollOffAugmenter
+from sklearn.cross_decomposition import PLSRegression
+import nirs4all
+
+# Simulate InGaAs detector edge effects
+pipeline = [
+    DetectorRollOffAugmenter(detector_model="ingaas_standard", effect_strength=1.2),
+    PLSRegression(n_components=10),
+]
+
+result = nirs4all.run(pipeline=pipeline, dataset="my_dataset")
+```
+
+#### 3.4.2 StrayLightAugmenter
+
+**Class name:** `StrayLightAugmenter`
+
+**Effect:** Simulates stray light contamination following the physics: T_observed = (T_true + s) / (1 + s)
+
+Stray light causes non-linear compression of high-absorbance regions and affects the edges where detector sensitivity is lower.
+
+```python
+from nirs4all.operators.augmentation import StrayLightAugmenter
+
+class StrayLightAugmenter(SpectraTransformerMixin):
+    def __init__(
+        self,
+        stray_light_fraction: float = 0.001,
+        edge_enhancement: float = 2.0,
+        edge_width: float = 0.1,
+        include_peak_truncation: bool = True,
+        random_state: Optional[int] = None,
+    ):
+        ...
+```
+
+**Notes:**
+* `stray_light_fraction`: Base stray light level (typical range: 0.0001-0.02)
+* `edge_enhancement`: Factor by which stray light increases at edges
+* Physics-based implementation following Beer-Lambert law deviations
+* Reference: Workman & Weyer (2012), Chapter 5: Stray Light Effects
+
+#### 3.4.3 EdgeCurvatureAugmenter
+
+**Class name:** `EdgeCurvatureAugmenter`
+
+**Effect:** Adds baseline curvature/bending at spectral edges, mimicking instrumental effects and optical path variations.
+
+```python
+from nirs4all.operators.augmentation import EdgeCurvatureAugmenter
+
+class EdgeCurvatureAugmenter(SpectraTransformerMixin):
+    def __init__(
+        self,
+        curvature_strength: float = 0.02,
+        curvature_type: str = "random",
+        asymmetry: float = 0.0,
+        edge_focus: float = 0.7,
+        random_state: Optional[int] = None,
+    ):
+        ...
+```
+
+**Curvature Types:**
+- `"concave"`: Upward curving at edges
+- `"convex"`: Downward curving at edges
+- `"asymmetric"`: Different curvature at left and right edges
+- `"random"`: Randomly selected per sample
+
+**Notes:**
+* `curvature_strength` controls the magnitude of baseline bending (0.01-0.1 typical)
+* `asymmetry` parameter allows different effects at left vs right edges
+* `edge_focus` controls how concentrated the effect is at edges (higher = more edge-focused)
+
+#### 3.4.4 TruncatedPeakAugmenter
+
+**Class name:** `TruncatedPeakAugmenter`
+
+**Effect:** Adds truncated absorption peaks at spectral boundaries, simulating absorption bands whose centers lie outside the measured range.
+
+```python
+from nirs4all.operators.augmentation import TruncatedPeakAugmenter
+
+class TruncatedPeakAugmenter(SpectraTransformerMixin):
+    def __init__(
+        self,
+        peak_probability: float = 0.3,
+        amplitude_range: Tuple[float, float] = (0.01, 0.1),
+        width_range: Tuple[float, float] = (50, 200),
+        left_edge: bool = True,
+        right_edge: bool = True,
+        random_state: Optional[int] = None,
+    ):
+        ...
+```
+
+**Notes:**
+* Models half-Gaussian/half-Voigt peaks entering from outside the wavelength range
+* Common in NIR where O-H and C-H overtone bands may extend beyond measurement limits
+* `amplitude_range` in absorbance units (AU)
+* `width_range` in nm for the peak half-width
+
+#### 3.4.5 EdgeArtifactsAugmenter (Combined)
+
+**Class name:** `EdgeArtifactsAugmenter`
+
+**Effect:** Combines all edge artifact effects in a single augmenter for convenience.
+
+```python
+from nirs4all.operators.augmentation import EdgeArtifactsAugmenter
+
+class EdgeArtifactsAugmenter(SpectraTransformerMixin):
+    def __init__(
+        self,
+        detector_roll_off: bool = True,
+        stray_light: bool = True,
+        edge_curvature: bool = True,
+        truncated_peaks: bool = True,
+        overall_strength: float = 1.0,
+        detector_model: str = "generic_nir",
+        random_state: Optional[int] = None,
+    ):
+        ...
+```
+
+**Example - Robust Pipeline with Edge Artifacts:**
+```python
+from nirs4all.operators.augmentation import (
+    TemperatureAugmenter,
+    ParticleSizeAugmenter,
+    EdgeArtifactsAugmenter,
+)
+from sklearn.cross_decomposition import PLSRegression
+import nirs4all
+
+# Comprehensive augmentation for field robustness
+pipeline = [
+    TemperatureAugmenter(temperature_range=(-5, 15)),
+    ParticleSizeAugmenter(size_range_um=(30, 80)),
+    EdgeArtifactsAugmenter(
+        detector_model="ingaas_standard",
+        overall_strength=0.8,
+    ),
+    PLSRegression(n_components=10),
+]
+
+result = nirs4all.run(pipeline=pipeline, dataset="field_samples")
+```
+
+### 3.5 Edge Artifacts in Synthetic Data Generation
+
+The `SyntheticNIRSGenerator` supports edge artifacts through the `EdgeArtifactsConfig`:
+
+```python
+from nirs4all.data.synthetic import SyntheticNIRSGenerator, EdgeArtifactsConfig
+
+# Configure edge artifacts for synthetic data
+edge_config = EdgeArtifactsConfig(
+    enable_detector_rolloff=True,
+    enable_stray_light=True,
+    enable_truncated_peaks=True,
+    enable_edge_curvature=False,
+    detector_model="ingaas_standard",
+    rolloff_severity=0.5,
+    stray_fraction=0.002,
+    left_peak_amplitude=0.05,
+    right_peak_amplitude=0.03,
+)
+
+generator = SyntheticNIRSGenerator(
+    complexity="realistic",
+    edge_artifacts_config=edge_config,
+    random_state=42,
+)
+
+X, Y, E = generator.generate(n_samples=1000)
+```
+
+### 3.6 Fitting Edge Artifacts from Real Data
+
+The `RealDataFitter` can automatically detect and characterize edge artifacts in real spectra:
+
+```python
+from nirs4all.data.synthetic import RealDataFitter
+
+# Fit edge artifacts from real data
+fitter = RealDataFitter()
+params = fitter.fit(
+    X_real,
+    wavelengths=wavelengths,
+    infer_edge_artifacts=True,
+)
+
+# Access inferred edge artifact characteristics
+print(params.edge_artifact_inference.has_edge_artifacts)
+print(params.edge_artifact_inference.detector_model)
+print(params.edge_artifact_inference.has_truncated_peaks)
+
+# Create generator matching real data edge characteristics
+generator = fitter.create_matched_generator()
+X_synth, Y_synth, E = generator.generate(n_samples=500)
+```
+
+---
+
+## 4. Implementation details and utilities
+
+### 4.1 Utility functions
 
 Create a small internal module for common operations:
 
@@ -544,7 +984,7 @@ Create a small internal module for common operations:
       ...
   ```
 
-### 3.2 Parameter validation
+### 4.2 Parameter validation
 
 Each augmenter should validate ranges in `__init__`:
 
@@ -554,9 +994,9 @@ Each augmenter should validate ranges in `__init__`:
 
 ---
 
-## 4. Integration into `nirs4all` pipelines
+## 5. Integration into `nirs4all` pipelines
 
-* Expose all classes in a dedicated module, e.g. `nirs4all.augmentation.spectral`.
+* Expose all classes in a dedicated module, e.g. `nirs4all.operators.augmentation`.
 
 * Provide **factory functions** or configuration keys to instantiate from JSON/YAML:
 
@@ -577,7 +1017,7 @@ Each augmenter should validate ranges in `__init__`:
 
 ---
 
-## 5. Testing guidelines
+## 6. Testing guidelines
 
 For each augmenter:
 

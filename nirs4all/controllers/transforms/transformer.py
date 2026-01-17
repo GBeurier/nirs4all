@@ -4,6 +4,7 @@ from sklearn.base import TransformerMixin
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.operators.base import SpectraTransformerMixin
 from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
 from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 
@@ -20,6 +21,63 @@ import pickle
 @register_controller
 class TransformerMixinController(OperatorController):
     priority = 10
+
+    @staticmethod
+    def _needs_wavelengths(operator: Any) -> bool:
+        """Check if the operator requires wavelengths.
+
+        Args:
+            operator: The operator to check.
+
+        Returns:
+            True if the operator is a SpectraTransformerMixin with _requires_wavelengths=True.
+        """
+        return (
+            isinstance(operator, SpectraTransformerMixin) and
+            getattr(operator, '_requires_wavelengths', False)
+        )
+
+    @staticmethod
+    def _extract_wavelengths(
+        dataset: 'SpectroDataset',
+        source_index: int,
+        operator_name: str
+    ) -> np.ndarray:
+        """Extract wavelengths from dataset for a given source.
+
+        Attempts to get wavelengths using dataset.wavelengths_nm(). If that fails,
+        falls back to dataset.float_headers() as a legacy fallback.
+
+        Args:
+            dataset: The SpectroDataset to extract wavelengths from.
+            source_index: The source index for multi-source datasets.
+            operator_name: Name of the operator (for error messages).
+
+        Returns:
+            Wavelength array in nm.
+
+        Raises:
+            ValueError: If wavelengths cannot be extracted from the dataset.
+        """
+        try:
+            wavelengths = dataset.wavelengths_nm(source_index)
+            return wavelengths
+        except (ValueError, AttributeError):
+            pass
+
+        # Fall back to inferring from headers
+        try:
+            wavelengths = dataset.float_headers(source_index)
+            if wavelengths is not None and len(wavelengths) > 0:
+                return wavelengths
+        except (ValueError, AttributeError):
+            pass
+
+        raise ValueError(
+            f"Operator {operator_name} requires wavelengths but dataset has no "
+            f"wavelength information for source {source_index}. Ensure the dataset "
+            f"has wavelength headers (nm or cm⁻¹)."
+        )
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
@@ -118,9 +176,17 @@ class TransformerMixinController(OperatorController):
         # across all sources for unique artifact IDs. This ensures each (source, processing)
         # pair gets a unique substep_index even across feature_augmentation sub-operations.
 
+        # Check if operator needs wavelengths (once, outside source loop)
+        needs_wavelengths = self._needs_wavelengths(op)
+
         # Loop through each data source
         for sd_idx, (fit_x, all_x) in enumerate(zip(fit_data, all_data)):
             # print(f"Processing source {sd_idx}: fit shape {fit_x.shape}, all shape {all_x.shape}")
+
+            # Extract wavelengths for this source if needed
+            wavelengths = None
+            if needs_wavelengths:
+                wavelengths = self._extract_wavelengths(dataset, sd_idx, operator_name)
 
             # Get processing names for this source
             processing_ids = dataset.features_processings(sd_idx)
@@ -198,9 +264,15 @@ class TransformerMixinController(OperatorController):
                 else:
                     new_operator_name = f"{operator_name}_{runtime_context.next_op()}"
                     transformer = clone(op)
-                    transformer.fit(fit_2d)
+                    if needs_wavelengths:
+                        transformer.fit(fit_2d, wavelengths=wavelengths)
+                    else:
+                        transformer.fit(fit_2d)
 
-                transformed_2d = transformer.transform(all_2d)
+                if needs_wavelengths:
+                    transformed_2d = transformer.transform(all_2d, wavelengths=wavelengths)
+                else:
+                    transformed_2d = transformer.transform(all_2d)
 
                 # print("  Transformed shape:", transformed_2d.shape)
 
@@ -289,6 +361,10 @@ class TransformerMixinController(OperatorController):
         fitted_transformers = []
         n_targets = len(target_sample_ids)
 
+        # Check if operator needs wavelengths
+        needs_wavelengths = self._needs_wavelengths(operator)
+        wavelengths_cache = {}  # Cache wavelengths per source
+
         # Get data for fitting (if not in predict/explain mode) - once for all samples
         fit_data = None
         fitted_transformers_cache = {}  # Cache fitted transformers per source/processing
@@ -329,11 +405,23 @@ class TransformerMixinController(OperatorController):
         # Pre-fit and cache transformers for each source/processing combination (once!)
         if mode not in ["predict", "explain"] and fit_data:
             for source_idx in range(n_sources):
+                # Extract wavelengths for this source if needed
+                wavelengths = None
+                if needs_wavelengths:
+                    if source_idx not in wavelengths_cache:
+                        wavelengths_cache[source_idx] = self._extract_wavelengths(
+                            dataset, source_idx, operator_name
+                        )
+                    wavelengths = wavelengths_cache[source_idx]
+
                 for proc_idx in range(n_processings):
                     cache_key = (source_idx, proc_idx)
                     transformer = clone(operator)
                     fit_proc_data = fit_data[source_idx][:, proc_idx, :]
-                    transformer.fit(fit_proc_data)
+                    if needs_wavelengths:
+                        transformer.fit(fit_proc_data, wavelengths=wavelengths)
+                    else:
+                        transformer.fit(fit_proc_data)
                     fitted_transformers_cache[cache_key] = transformer
 
                     # Save a single transformer binary per source/processing (not per sample)
@@ -354,6 +442,15 @@ class TransformerMixinController(OperatorController):
         for source_idx in range(n_sources):
             source_transformed = []
             source_data = all_origin_data[source_idx]  # (n_samples, n_processings, n_features)
+
+            # Extract wavelengths for this source if needed (for predict/explain mode)
+            wavelengths = None
+            if needs_wavelengths:
+                if source_idx not in wavelengths_cache:
+                    wavelengths_cache[source_idx] = self._extract_wavelengths(
+                        dataset, source_idx, operator_name
+                    )
+                wavelengths = wavelengths_cache[source_idx]
 
             for proc_idx in range(n_processings):
                 proc_data = source_data[:, proc_idx, :]  # (n_samples, n_features)
@@ -387,7 +484,10 @@ class TransformerMixinController(OperatorController):
                     transformer = fitted_transformers_cache[cache_key]
 
                 # Batch transform all samples at once
-                transformed_data = transformer.transform(proc_data)  # (n_samples, n_features)
+                if needs_wavelengths:
+                    transformed_data = transformer.transform(proc_data, wavelengths=wavelengths)
+                else:
+                    transformed_data = transformer.transform(proc_data)
                 source_transformed.append(transformed_data)
 
             all_transformed.append(source_transformed)
@@ -452,6 +552,10 @@ class TransformerMixinController(OperatorController):
         operator_name = operator.__class__.__name__
         fitted_transformers = []
         fitted_transformers_cache = {}
+        wavelengths_cache = {}  # Cache wavelengths per source
+
+        # Check if operator needs wavelengths
+        needs_wavelengths = self._needs_wavelengths(operator)
 
         # Get data for fitting (if not in predict/explain mode)
         fit_data = None
@@ -481,6 +585,15 @@ class TransformerMixinController(OperatorController):
 
             for source_idx, source_data in enumerate(origin_data):
                 source_2d_list = []
+
+                # Extract wavelengths for this source if needed
+                wavelengths = None
+                if needs_wavelengths:
+                    if source_idx not in wavelengths_cache:
+                        wavelengths_cache[source_idx] = self._extract_wavelengths(
+                            dataset, source_idx, operator_name
+                        )
+                    wavelengths = wavelengths_cache[source_idx]
 
                 for proc_idx in range(source_data.shape[1]):
                     proc_data = source_data[:, proc_idx, :]
@@ -517,7 +630,10 @@ class TransformerMixinController(OperatorController):
                         transformer = clone(operator)
                         if fit_data:
                             fit_proc_data = fit_data[source_idx][:, proc_idx, :]
-                            transformer.fit(fit_proc_data)
+                            if needs_wavelengths:
+                                transformer.fit(fit_proc_data, wavelengths=wavelengths)
+                            else:
+                                transformer.fit(fit_proc_data)
                         fitted_transformers_cache[cache_key] = transformer
 
                         # Save transformer binary once
@@ -531,7 +647,10 @@ class TransformerMixinController(OperatorController):
                             )
                             fitted_transformers.append(artifact)
 
-                    transformed_data = transformer.transform(proc_data)
+                    if needs_wavelengths:
+                        transformed_data = transformer.transform(proc_data, wavelengths=wavelengths)
+                    else:
+                        transformed_data = transformer.transform(proc_data)
                     source_2d_list.append(transformed_data)
 
                 source_3d = np.stack(source_2d_list, axis=1)

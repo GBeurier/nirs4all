@@ -60,6 +60,19 @@ if TYPE_CHECKING:
 # ============================================================================
 
 
+class PreprocessingType(str, Enum):
+    """Detected preprocessing type of spectral data."""
+    RAW_ABSORBANCE = "raw_absorbance"
+    RAW_REFLECTANCE = "raw_reflectance"
+    SECOND_DERIVATIVE = "second_derivative"
+    FIRST_DERIVATIVE = "first_derivative"
+    MEAN_CENTERED = "mean_centered"
+    SNV_CORRECTED = "snv_corrected"
+    MSC_CORRECTED = "msc_corrected"
+    NORMALIZED = "normalized"  # e.g., min-max scaled
+    UNKNOWN = "unknown"
+
+
 class MeasurementModeInference(str, Enum):
     """Inferred measurement mode from spectral analysis."""
     TRANSMITTANCE = "transmittance"
@@ -149,6 +162,84 @@ class ScatteringInference:
     baseline_curvature: float = 0.0
     snv_correctable: bool = False
     msc_correctable: bool = False
+
+
+@dataclass
+class EdgeArtifactInference:
+    """
+    Results of edge artifact inference.
+
+    Detects edge deformation effects in NIR spectra caused by:
+    - Detector sensitivity roll-off at wavelength boundaries
+    - Stray light effects (more pronounced at edges)
+    - Truncated absorption bands outside measurement range
+    - Baseline curvature concentrated at edges
+
+    Attributes:
+        has_edge_artifacts: Whether significant edge artifacts are detected.
+        has_detector_rolloff: Whether detector roll-off effects are present.
+        has_stray_light: Whether stray light effects are detected.
+        has_truncated_peaks: Whether truncated peaks at boundaries are present.
+        has_edge_curvature: Whether edge curvature/bending is detected.
+        left_edge_intensity: Relative intensity change at left edge.
+        right_edge_intensity: Relative intensity change at right edge.
+        edge_noise_ratio: Ratio of edge noise to center noise.
+        detector_model: Suggested detector model based on characteristics.
+        stray_light_fraction: Estimated stray light fraction.
+        curvature_type: Detected curvature type ("smile", "frown", "asymmetric").
+        boundary_peak_amplitudes: Estimated truncated peak amplitudes at edges.
+
+    References:
+        - JASCO (2020). Advantages of high-sensitivity InGaAs detector.
+        - Applied Optics (1975). Resolution and stray light in NIR spectroscopy.
+        - Burns & Ciurczak (2007). Handbook of Near-Infrared Analysis.
+    """
+    has_edge_artifacts: bool = False
+    has_detector_rolloff: bool = False
+    has_stray_light: bool = False
+    has_truncated_peaks: bool = False
+    has_edge_curvature: bool = False
+    left_edge_intensity: float = 0.0
+    right_edge_intensity: float = 0.0
+    edge_noise_ratio: float = 1.0
+    detector_model: str = "generic_nir"
+    stray_light_fraction: float = 0.0
+    curvature_type: str = "none"
+    boundary_peak_amplitudes: Tuple[float, float] = (0.0, 0.0)
+
+
+@dataclass
+class PreprocessingInference:
+    """
+    Results of preprocessing type inference.
+
+    Detects whether spectral data has been preprocessed (derivatives,
+    normalization, centering, etc.) before being provided to the fitter.
+
+    This is crucial for generating synthetic data that matches the real
+    data distribution - synthetic spectra should be generated as raw
+    absorbance and then the same preprocessing applied.
+
+    Attributes:
+        preprocessing_type: Detected preprocessing type.
+        confidence: Confidence score (0-1).
+        is_preprocessed: Whether data appears to be preprocessed.
+        global_mean: Mean value (0 suggests centering/derivatives).
+        global_range: (min, max) value range.
+        zero_crossing_ratio: Ratio of zero crossings (high for derivatives).
+        per_sample_std_variation: Variation in per-sample std (low for SNV).
+        oscillation_frequency: Spectral oscillation frequency (high for 2nd deriv).
+        suggested_inverse: Suggested inverse operation to recover raw data.
+    """
+    preprocessing_type: PreprocessingType = PreprocessingType.RAW_ABSORBANCE
+    confidence: float = 0.0
+    is_preprocessed: bool = False
+    global_mean: float = 0.0
+    global_range: Tuple[float, float] = (0.0, 1.0)
+    zero_crossing_ratio: float = 0.0
+    per_sample_std_variation: float = 0.0
+    oscillation_frequency: float = 0.0
+    suggested_inverse: Optional[str] = None
 
 
 @dataclass
@@ -287,6 +378,17 @@ class SpectralProperties:
     lipid_band_intensity: float = 0.0
     water_band_intensity: float = 0.0
 
+    # Edge artifact indicators
+    left_edge_noise_std: float = 0.0
+    right_edge_noise_std: float = 0.0
+    center_noise_std: float = 0.0
+    left_edge_slope: float = 0.0
+    right_edge_slope: float = 0.0
+    edge_curvature_intensity: float = 0.0
+    edge_curvature_asymmetry: float = 0.0
+    has_boundary_rise_left: bool = False
+    has_boundary_rise_right: bool = False
+
 
 @dataclass
 class FittedParameters:
@@ -401,6 +503,16 @@ class FittedParameters:
     particle_size_config: Dict[str, Any] = field(default_factory=dict)
     emsc_config: Dict[str, Any] = field(default_factory=dict)
 
+    # Edge artifacts (Phase 6)
+    edge_artifact_inference: Optional[EdgeArtifactInference] = field(default=None, repr=False)
+    edge_artifacts_config: Dict[str, Any] = field(default_factory=dict)
+    boundary_components_config: Dict[str, Any] = field(default_factory=dict)
+
+    # Preprocessing detection (Phase 5)
+    preprocessing_inference: Optional[PreprocessingInference] = field(default=None, repr=False)
+    preprocessing_type: str = "raw_absorbance"
+    is_preprocessed: bool = False
+
     # Components (Phase 1)
     detected_components: List[str] = field(default_factory=list)
     suggested_n_components: int = 5
@@ -464,6 +576,12 @@ class FittedParameters:
             "moisture_config": self.moisture_config,
             "particle_size_config": self.particle_size_config,
             "emsc_config": self.emsc_config,
+            # Phase 6: Edge artifacts
+            "edge_artifacts_config": self.edge_artifacts_config,
+            "boundary_components_config": self.boundary_components_config,
+            # Phase 5: Preprocessing detection
+            "preprocessing_type": self.preprocessing_type,
+            "is_preprocessed": self.is_preprocessed,
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -499,6 +617,12 @@ class FittedParameters:
             "moisture_config": self.moisture_config,
             "particle_size_config": self.particle_size_config,
             "emsc_config": self.emsc_config,
+            # Phase 6: Edge artifacts
+            "edge_artifacts_config": self.edge_artifacts_config,
+            "boundary_components_config": self.boundary_components_config,
+            # Phase 5: Preprocessing detection
+            "preprocessing_type": self.preprocessing_type,
+            "is_preprocessed": self.is_preprocessed,
         }
 
     @classmethod
@@ -538,6 +662,9 @@ class FittedParameters:
             moisture_config=data.get("moisture_config", {}),
             particle_size_config=data.get("particle_size_config", {}),
             emsc_config=data.get("emsc_config", {}),
+            # Phase 6: Edge artifacts
+            edge_artifacts_config=data.get("edge_artifacts_config", {}),
+            boundary_components_config=data.get("boundary_components_config", {}),
         )
 
     def save(self, path: str) -> None:
@@ -607,8 +734,20 @@ class FittedParameters:
             f"  Domain: {self.inferred_domain}",
             f"  Detected components: {', '.join(self.detected_components[:5]) or 'None'}",
             f"  Suggested n_components: {self.suggested_n_components}",
-            "=" * 60,
+            "",
+            "Preprocessing Detection:",
+            f"  Type: {self.preprocessing_type}",
+            f"  Is preprocessed: {self.is_preprocessed}",
         ]
+        if self.preprocessing_inference is not None:
+            lines.extend([
+                f"  Confidence: {self.preprocessing_inference.confidence:.2f}",
+                f"  Zero-crossing ratio: {self.preprocessing_inference.zero_crossing_ratio:.3f}",
+                f"  Oscillation frequency: {self.preprocessing_inference.oscillation_frequency:.3f}",
+            ])
+            if self.preprocessing_inference.suggested_inverse:
+                lines.append(f"  Suggested inverse: {self.preprocessing_inference.suggested_inverse}")
+        lines.append("=" * 60)
         return "\n".join(lines)
 
 
@@ -791,6 +930,20 @@ def compute_spectral_properties(
     props.water_band_intensity = _compute_band_intensity(
         props.mean_spectrum, wavelengths, [(1400, 1500), (1900, 2000)]
     )
+
+    # =========================================================================
+    # Edge Artifact Analysis (Phase 6)
+    # =========================================================================
+    edge_props = _analyze_edge_artifacts(X, wavelengths, props.mean_spectrum)
+    props.left_edge_noise_std = edge_props["left_edge_noise_std"]
+    props.right_edge_noise_std = edge_props["right_edge_noise_std"]
+    props.center_noise_std = edge_props["center_noise_std"]
+    props.left_edge_slope = edge_props["left_edge_slope"]
+    props.right_edge_slope = edge_props["right_edge_slope"]
+    props.edge_curvature_intensity = edge_props["edge_curvature_intensity"]
+    props.edge_curvature_asymmetry = edge_props["edge_curvature_asymmetry"]
+    props.has_boundary_rise_left = edge_props["has_boundary_rise_left"]
+    props.has_boundary_rise_right = edge_props["has_boundary_rise_right"]
 
     return props
 
@@ -1024,6 +1177,128 @@ def _compute_band_intensity(
         return 0.0
 
 
+def _analyze_edge_artifacts(
+    X: np.ndarray,
+    wavelengths: np.ndarray,
+    mean_spectrum: np.ndarray,
+) -> Dict[str, Any]:
+    """
+    Analyze edge artifacts in spectral data.
+
+    Detects various edge deformation effects:
+    - Noise amplification at edges (detector roll-off)
+    - Edge curvature (baseline bending, optical aberrations)
+    - Truncated peaks (boundary absorption bands)
+    - Asymmetric edge effects
+
+    Args:
+        X: Spectra matrix (n_samples, n_wavelengths).
+        wavelengths: Wavelength array.
+        mean_spectrum: Mean spectrum.
+
+    Returns:
+        Dictionary with edge artifact properties.
+
+    References:
+        - JASCO (2020). Advantages of high-sensitivity InGaAs detector.
+        - Applied Optics (1975). Resolution and stray light in NIR spectroscopy.
+    """
+    n_wavelengths = len(wavelengths)
+    edge_size = max(10, n_wavelengths // 10)  # 10% of spectrum at each edge
+
+    result = {
+        "left_edge_noise_std": 0.0,
+        "right_edge_noise_std": 0.0,
+        "center_noise_std": 0.0,
+        "left_edge_slope": 0.0,
+        "right_edge_slope": 0.0,
+        "edge_curvature_intensity": 0.0,
+        "edge_curvature_asymmetry": 0.0,
+        "has_boundary_rise_left": False,
+        "has_boundary_rise_right": False,
+    }
+
+    try:
+        # =====================================================================
+        # Noise analysis at edges vs center (detector roll-off indicator)
+        # =====================================================================
+        # Compute noise from first difference
+        first_diff = np.diff(X, axis=1)
+        noise_spectrum = first_diff.std(axis=0) / np.sqrt(2)
+
+        # Left edge noise
+        left_noise = noise_spectrum[:edge_size]
+        result["left_edge_noise_std"] = float(np.mean(left_noise))
+
+        # Right edge noise
+        right_noise = noise_spectrum[-edge_size:]
+        result["right_edge_noise_std"] = float(np.mean(right_noise))
+
+        # Center noise
+        center_start = n_wavelengths // 3
+        center_end = 2 * n_wavelengths // 3
+        center_noise = noise_spectrum[center_start:center_end]
+        result["center_noise_std"] = float(np.mean(center_noise))
+
+        # =====================================================================
+        # Edge slope analysis (truncated peak indicator)
+        # =====================================================================
+        wl_left = wavelengths[:edge_size]
+        wl_right = wavelengths[-edge_size:]
+
+        # Left edge slope (rising slope suggests truncated peak below range)
+        try:
+            left_spectrum = mean_spectrum[:edge_size]
+            left_coeffs = np.polyfit(np.arange(edge_size), left_spectrum, 1)
+            result["left_edge_slope"] = float(left_coeffs[0])
+
+            # Positive slope at left = rising toward edge = boundary peak
+            result["has_boundary_rise_left"] = left_coeffs[0] < -0.001  # Falling toward higher indices
+        except Exception:
+            pass
+
+        # Right edge slope (rising slope suggests truncated peak above range)
+        try:
+            right_spectrum = mean_spectrum[-edge_size:]
+            right_coeffs = np.polyfit(np.arange(edge_size), right_spectrum, 1)
+            result["right_edge_slope"] = float(right_coeffs[0])
+
+            # Positive slope at right = rising toward end = boundary peak
+            result["has_boundary_rise_right"] = right_coeffs[0] > 0.001
+        except Exception:
+            pass
+
+        # =====================================================================
+        # Edge curvature analysis (baseline bending, optical artifacts)
+        # =====================================================================
+        try:
+            # Fit parabola to mean spectrum
+            x_norm = np.linspace(-1, 1, n_wavelengths)
+            coeffs = np.polyfit(x_norm, mean_spectrum, 2)
+
+            # Curvature is the quadratic coefficient
+            curvature = coeffs[0]
+            result["edge_curvature_intensity"] = float(abs(curvature))
+
+            # Asymmetry: compare left and right edge deviations from linear
+            linear_fit = coeffs[1] * x_norm + coeffs[2]
+            residual = mean_spectrum - linear_fit
+
+            left_deviation = np.mean(residual[:edge_size])
+            right_deviation = np.mean(residual[-edge_size:])
+
+            if abs(left_deviation) + abs(right_deviation) > 1e-10:
+                asymmetry = (right_deviation - left_deviation) / (abs(left_deviation) + abs(right_deviation))
+                result["edge_curvature_asymmetry"] = float(asymmetry)
+        except Exception:
+            pass
+
+    except Exception:
+        pass
+
+    return result
+
+
 class RealDataFitter:
     """
     Fit generator parameters to match real dataset properties.
@@ -1067,13 +1342,15 @@ class RealDataFitter:
         infer_measurement_mode: bool = True,
         infer_environmental: bool = True,
         infer_scattering: bool = True,
+        infer_edge_artifacts: bool = True,
+        infer_preprocessing: bool = True,
     ) -> FittedParameters:
         """
         Fit generator parameters to real data.
 
         Analyzes the input data and estimates optimal parameters for
         generating synthetic spectra with similar properties. Includes
-        Phase 1-4 enhanced inference.
+        Phase 1-6 enhanced inference.
 
         Args:
             X: Real spectra matrix (n_samples, n_wavelengths) or SpectroDataset.
@@ -1084,6 +1361,8 @@ class RealDataFitter:
             infer_measurement_mode: Whether to infer measurement mode.
             infer_environmental: Whether to infer environmental effects.
             infer_scattering: Whether to infer scattering parameters.
+            infer_edge_artifacts: Whether to infer edge artifact effects.
+            infer_preprocessing: Whether to detect preprocessing type.
 
         Returns:
             FittedParameters object with estimated parameters.
@@ -1210,6 +1489,20 @@ class RealDataFitter:
             params.scattering_inference = self._infer_scattering(X_array, wavelengths, props)
             params.particle_size_config = self._build_particle_size_config(params.scattering_inference)
             params.emsc_config = self._build_emsc_config(params.scattering_inference)
+
+        # Edge artifacts inference (Phase 6)
+        if infer_edge_artifacts:
+            params.edge_artifact_inference = self._infer_edge_artifacts(X_array, wavelengths, props)
+            params.edge_artifacts_config = self._build_edge_artifacts_config(params.edge_artifact_inference)
+            params.boundary_components_config = self._build_boundary_components_config(
+                params.edge_artifact_inference, wavelengths
+            )
+
+        # Preprocessing detection (Phase 5)
+        if infer_preprocessing:
+            params.preprocessing_inference = self._infer_preprocessing(X_array, wavelengths, props)
+            params.preprocessing_type = params.preprocessing_inference.preprocessing_type.value
+            params.is_preprocessed = params.preprocessing_inference.is_preprocessed
 
         self.fitted_params = params
         return params
@@ -1510,6 +1803,340 @@ class RealDataFitter:
             msc_correctable=msc_correctable,
         )
 
+    def _infer_edge_artifacts(
+        self,
+        X: np.ndarray,
+        wavelengths: np.ndarray,
+        props: SpectralProperties,
+    ) -> EdgeArtifactInference:
+        """
+        Infer edge artifact effects from spectral patterns.
+
+        Detects various edge deformation effects including:
+        - Detector sensitivity roll-off at wavelength boundaries
+        - Stray light effects
+        - Truncated absorption bands outside measurement range
+        - Edge curvature/baseline bending
+
+        Args:
+            X: Spectral data (n_samples, n_wavelengths).
+            wavelengths: Wavelength array.
+            props: Computed spectral properties.
+
+        Returns:
+            EdgeArtifactInference with detected effects and parameters.
+
+        References:
+            - JASCO (2020). Advantages of high-sensitivity InGaAs detector.
+            - Applied Optics (1975). Resolution and stray light in NIR spectroscopy.
+            - Burns & Ciurczak (2007). Handbook of Near-Infrared Analysis.
+        """
+        # =====================================================================
+        # Detector roll-off detection (noise amplification at edges)
+        # =====================================================================
+        center_noise = props.center_noise_std
+        edge_noise_avg = (props.left_edge_noise_std + props.right_edge_noise_std) / 2
+
+        edge_noise_ratio = edge_noise_avg / max(center_noise, 1e-10)
+        has_detector_rolloff = edge_noise_ratio > 1.3  # Edge noise > 30% higher
+
+        # Infer detector model from wavelength range and noise pattern
+        wl_min, wl_max = props.wavelength_range
+        if wl_max <= 1700 and wl_min >= 900:
+            detector_model = "ingaas_standard"
+        elif wl_max > 2200:
+            detector_model = "ingaas_extended" if wl_max < 2600 else "pbs"
+        elif wl_max <= 1100:
+            detector_model = "silicon_ccd"
+        else:
+            detector_model = "generic_nir"
+
+        # =====================================================================
+        # Stray light detection (peak truncation at high absorbance)
+        # =====================================================================
+        # High absorbance values that don't increase further suggest stray light
+        max_abs = props.global_range[1]
+        mean_abs = props.global_mean
+
+        # Stray light causes apparent absorbance ceiling
+        has_stray_light = max_abs > 1.5 and (max_abs - mean_abs) < 0.3 * mean_abs
+
+        # Estimate stray light fraction from absorbance ceiling
+        if has_stray_light and max_abs > 0:
+            # A_obs = -log10((T + s)/(1+s)) ≈ -log10(s) when T→0
+            # So s ≈ 10^(-A_max)
+            stray_light_fraction = min(0.01, 10 ** (-max_abs))
+        else:
+            stray_light_fraction = 0.001  # Default low value
+
+        # =====================================================================
+        # Truncated peak detection (boundary absorption bands)
+        # =====================================================================
+        has_truncated_left = props.has_boundary_rise_left
+        has_truncated_right = props.has_boundary_rise_right
+        has_truncated_peaks = has_truncated_left or has_truncated_right
+
+        # Estimate boundary peak amplitudes from edge slopes
+        left_amp = abs(props.left_edge_slope) * 10 if has_truncated_left else 0.0
+        right_amp = abs(props.right_edge_slope) * 10 if has_truncated_right else 0.0
+        boundary_peak_amplitudes = (
+            min(0.2, left_amp),
+            min(0.2, right_amp)
+        )
+
+        # =====================================================================
+        # Edge curvature detection (baseline bending)
+        # =====================================================================
+        has_edge_curvature = props.edge_curvature_intensity > 0.01
+
+        # Determine curvature type from intensity and asymmetry
+        if has_edge_curvature:
+            asymmetry = props.edge_curvature_asymmetry
+            if abs(asymmetry) < 0.3:
+                # Symmetric curvature
+                if props.edge_curvature_intensity > 0:
+                    # Need to check sign from original data
+                    curvature_type = "smile"  # Default assumption
+                else:
+                    curvature_type = "frown"
+            else:
+                curvature_type = "asymmetric"
+        else:
+            curvature_type = "none"
+
+        # =====================================================================
+        # Overall edge artifact detection
+        # =====================================================================
+        has_edge_artifacts = (
+            has_detector_rolloff or
+            has_stray_light or
+            has_truncated_peaks or
+            has_edge_curvature
+        )
+
+        # Edge intensity changes
+        mean_spectrum = props.mean_spectrum
+        if mean_spectrum is not None and len(mean_spectrum) > 20:
+            edge_size = max(10, len(mean_spectrum) // 10)
+            left_mean = np.mean(mean_spectrum[:edge_size])
+            right_mean = np.mean(mean_spectrum[-edge_size:])
+            center_mean = np.mean(mean_spectrum[edge_size:-edge_size])
+
+            left_edge_intensity = (left_mean - center_mean) / max(abs(center_mean), 1e-10)
+            right_edge_intensity = (right_mean - center_mean) / max(abs(center_mean), 1e-10)
+        else:
+            left_edge_intensity = 0.0
+            right_edge_intensity = 0.0
+
+        return EdgeArtifactInference(
+            has_edge_artifacts=has_edge_artifacts,
+            has_detector_rolloff=has_detector_rolloff,
+            has_stray_light=has_stray_light,
+            has_truncated_peaks=has_truncated_peaks,
+            has_edge_curvature=has_edge_curvature,
+            left_edge_intensity=left_edge_intensity,
+            right_edge_intensity=right_edge_intensity,
+            edge_noise_ratio=edge_noise_ratio,
+            detector_model=detector_model,
+            stray_light_fraction=stray_light_fraction,
+            curvature_type=curvature_type,
+            boundary_peak_amplitudes=boundary_peak_amplitudes,
+        )
+
+    def _infer_preprocessing(
+        self,
+        X: np.ndarray,
+        wavelengths: np.ndarray,
+        props: SpectralProperties,
+    ) -> PreprocessingInference:
+        """
+        Infer preprocessing type from spectral characteristics.
+
+        Detects whether data has been preprocessed (derivatives, normalization,
+        centering, etc.) based on statistical properties.
+
+        Detection heuristics:
+            - Second derivative: oscillatory pattern, zero mean, small range,
+              high zero-crossing ratio
+            - First derivative: moderate zero crossings, zero mean, larger range
+            - Mean-centered: zero mean but no oscillation pattern
+            - SNV: unit variance per sample, zero mean per sample
+            - Raw absorbance: positive values, typical range 0.1-3.0
+
+        Args:
+            X: Spectral data (n_samples, n_wavelengths).
+            wavelengths: Wavelength array.
+            props: Computed spectral properties.
+
+        Returns:
+            PreprocessingInference with detected type and confidence.
+        """
+        min_val, max_val = props.global_range
+        global_mean = props.global_mean
+        global_range = max_val - min_val
+
+        # Compute additional diagnostics
+        # Zero-crossing ratio (high for derivatives)
+        mean_spectrum = X.mean(axis=0)
+        zero_crossings = np.sum(np.diff(np.sign(mean_spectrum)) != 0)
+        zero_crossing_ratio = zero_crossings / max(len(mean_spectrum) - 1, 1)
+
+        # Per-sample std variation (low for SNV)
+        per_sample_stds = X.std(axis=1)
+        std_of_stds = np.std(per_sample_stds) / max(np.mean(per_sample_stds), 1e-10)
+
+        # Per-sample mean (zero for SNV/mean-centered)
+        per_sample_means = X.mean(axis=1)
+        mean_of_means = np.mean(per_sample_means)
+        std_of_means = np.std(per_sample_means)
+
+        # Oscillation frequency from second derivative of mean spectrum
+        if len(mean_spectrum) > 10:
+            second_deriv = np.diff(mean_spectrum, n=2)
+            sign_changes = np.sum(np.diff(np.sign(second_deriv)) != 0)
+            oscillation_freq = sign_changes / max(len(second_deriv) - 1, 1)
+        else:
+            oscillation_freq = 0.0
+
+        # Curvature already computed in props
+        curvature = abs(props.mean_curvature)
+
+        # Score each preprocessing type
+        scores: Dict[str, float] = {
+            "raw_absorbance": 0.0,
+            "raw_reflectance": 0.0,
+            "second_derivative": 0.0,
+            "first_derivative": 0.0,
+            "mean_centered": 0.0,
+            "snv_corrected": 0.0,
+            "normalized": 0.0,
+        }
+
+        # ==================================================================
+        # Second derivative detection
+        # - Very small range (typically ±0.1)
+        # - Zero mean
+        # - High zero-crossing ratio (oscillatory)
+        # - High oscillation frequency
+        # ==================================================================
+        if global_range < 0.3 and abs(global_mean) < 0.05:
+            scores["second_derivative"] += 0.3
+        if zero_crossing_ratio > 0.15:
+            scores["second_derivative"] += 0.3
+        if oscillation_freq > 0.3:
+            scores["second_derivative"] += 0.2
+        if min_val < 0 < max_val and abs(min_val) / max(abs(max_val), 1e-10) > 0.3:
+            scores["second_derivative"] += 0.2
+
+        # ==================================================================
+        # First derivative detection
+        # - Small to moderate range
+        # - Zero mean
+        # - Moderate zero crossings
+        # - Less oscillatory than 2nd derivative
+        # ==================================================================
+        if 0.1 < global_range < 1.0 and abs(global_mean) < 0.1:
+            scores["first_derivative"] += 0.3
+        if 0.05 < zero_crossing_ratio < 0.2:
+            scores["first_derivative"] += 0.2
+        if 0.1 < oscillation_freq < 0.4:
+            scores["first_derivative"] += 0.2
+
+        # ==================================================================
+        # SNV detection
+        # - Per-sample std is ~1 (or very consistent)
+        # - Per-sample mean is ~0
+        # - Low variation in per-sample stats
+        # ==================================================================
+        mean_sample_std = np.mean(per_sample_stds)
+        if 0.5 < mean_sample_std < 2.0 and std_of_stds < 0.2:
+            scores["snv_corrected"] += 0.4
+        if abs(mean_of_means) < 0.1 and std_of_means < 0.2:
+            scores["snv_corrected"] += 0.3
+
+        # ==================================================================
+        # Mean-centered detection
+        # - Global mean near zero
+        # - Not oscillatory (distinguishes from derivatives)
+        # - Values can be negative
+        # ==================================================================
+        if abs(global_mean) < 0.1:
+            scores["mean_centered"] += 0.3
+        if min_val < 0 and zero_crossing_ratio < 0.1:
+            scores["mean_centered"] += 0.2
+        if oscillation_freq < 0.2 and global_range > 0.3:
+            scores["mean_centered"] += 0.2
+
+        # ==================================================================
+        # Normalized (min-max scaled)
+        # - Range is 0-1 (or close)
+        # - All positive
+        # ==================================================================
+        if 0 <= min_val < 0.1 and 0.9 < max_val <= 1.0:
+            scores["normalized"] += 0.6
+        elif 0 <= min_val and global_range < 1.5 and max_val < 2.0:
+            scores["normalized"] += 0.3
+
+        # ==================================================================
+        # Raw absorbance detection
+        # - Positive values
+        # - Typical range 0.1-3.0
+        # - Non-zero mean
+        # ==================================================================
+        if min_val >= 0 and global_mean > 0.2:
+            scores["raw_absorbance"] += 0.3
+        if 0.5 < global_mean < 2.0:
+            scores["raw_absorbance"] += 0.3
+        if 0.5 < global_range < 3.0:
+            scores["raw_absorbance"] += 0.2
+        if zero_crossing_ratio < 0.05:
+            scores["raw_absorbance"] += 0.1
+
+        # ==================================================================
+        # Raw reflectance detection
+        # - Values 0-1 (or 0-100 for percent)
+        # - Non-zero positive mean
+        # ==================================================================
+        if 0 < global_mean < 0.7 and 0 <= min_val and max_val <= 1.0:
+            scores["raw_reflectance"] += 0.4
+        if 0 < min_val < max_val <= 100 and global_mean > 20:
+            # Percent reflectance
+            scores["raw_reflectance"] += 0.4
+
+        # Find best match
+        best_type = max(scores, key=scores.get)
+        best_score = scores[best_type]
+        total_score = sum(scores.values()) + 1e-10
+        confidence = best_score / total_score
+
+        # Determine if preprocessed
+        is_preprocessed = best_type not in ("raw_absorbance", "raw_reflectance")
+
+        # Suggest inverse operation
+        inverse_ops = {
+            "second_derivative": "cumulative_sum_twice (or use SG derivatives in forward pipeline)",
+            "first_derivative": "cumulative_sum (or use SG derivative in forward pipeline)",
+            "mean_centered": "add_global_mean",
+            "snv_corrected": "inverse_snv (scale by original std, add original mean)",
+            "normalized": "inverse_minmax (scale to original range)",
+            "raw_absorbance": None,
+            "raw_reflectance": None,
+        }
+
+        preprocessing_type = PreprocessingType(best_type)
+
+        return PreprocessingInference(
+            preprocessing_type=preprocessing_type,
+            confidence=confidence,
+            is_preprocessed=is_preprocessed,
+            global_mean=global_mean,
+            global_range=(min_val, max_val),
+            zero_crossing_ratio=zero_crossing_ratio,
+            per_sample_std_variation=std_of_stds,
+            oscillation_frequency=oscillation_freq,
+            suggested_inverse=inverse_ops.get(best_type),
+        )
+
     def _build_temperature_config(self, env: Optional[EnvironmentalInference]) -> Dict[str, Any]:
         """Build temperature configuration from inference."""
         if env is None or not env.has_temperature_effects:
@@ -1557,6 +2184,116 @@ class RealDataFitter:
             "include_wavelength_terms": True,
         }
 
+    def _build_edge_artifacts_config(
+        self, edge_inf: Optional["EdgeArtifactInference"]
+    ) -> Dict[str, Any]:
+        """
+        Build edge artifacts configuration from inference.
+
+        Converts inferred edge artifact characteristics into configuration
+        parameters for EdgeArtifactsAugmenter or individual augmenters.
+
+        Args:
+            edge_inf: Inferred edge artifact characteristics.
+
+        Returns:
+            Dictionary with edge artifact configuration parameters.
+        """
+        if edge_inf is None or not edge_inf.has_edge_artifacts:
+            return {}
+
+        config: Dict[str, Any] = {}
+
+        # Detector roll-off configuration
+        if edge_inf.has_detector_rolloff:
+            config["detector_rolloff"] = {
+                "enabled": True,
+                "detector_model": edge_inf.detector_model,
+                "severity": min(1.0, edge_inf.edge_noise_ratio - 1.0) if edge_inf.edge_noise_ratio > 1.0 else 0.3,
+            }
+
+        # Stray light configuration
+        if edge_inf.has_stray_light:
+            config["stray_light"] = {
+                "enabled": True,
+                "stray_fraction": edge_inf.stray_light_fraction,
+                "wavelength_dependent": True,
+            }
+
+        # Edge curvature configuration
+        if edge_inf.has_edge_curvature:
+            config["edge_curvature"] = {
+                "enabled": True,
+                "curvature_type": edge_inf.curvature_type,
+                "left_severity": abs(edge_inf.left_edge_intensity) * 2.0,
+                "right_severity": abs(edge_inf.right_edge_intensity) * 2.0,
+            }
+
+        # Truncated peaks configuration
+        if edge_inf.has_truncated_peaks:
+            left_amp, right_amp = edge_inf.boundary_peak_amplitudes
+            config["truncated_peaks"] = {
+                "enabled": True,
+                "left_amplitude": left_amp,
+                "right_amplitude": right_amp,
+            }
+
+        return config
+
+    def _build_boundary_components_config(
+        self,
+        edge_inf: Optional["EdgeArtifactInference"],
+        wavelengths: np.ndarray,
+    ) -> Dict[str, Any]:
+        """
+        Build boundary components configuration from inference.
+
+        Converts inferred truncated peak characteristics into configuration
+        for ComponentLibrary.add_boundary_component() calls.
+
+        Args:
+            edge_inf: Inferred edge artifact characteristics.
+            wavelengths: Wavelength array for boundary calculation.
+
+        Returns:
+            Dictionary with boundary component configuration parameters.
+        """
+        if edge_inf is None or not edge_inf.has_truncated_peaks:
+            return {}
+
+        wl_min = float(wavelengths.min())
+        wl_max = float(wavelengths.max())
+        wl_range = wl_max - wl_min
+
+        left_amp, right_amp = edge_inf.boundary_peak_amplitudes
+        config: Dict[str, Any] = {"components": []}
+
+        # Left boundary component (peak center below wavelength range)
+        if left_amp > 0.05:
+            # Estimate peak center outside range based on edge slope
+            # Steeper edge = closer peak center
+            offset = wl_range * 0.1 * (1.0 / max(0.1, left_amp))
+            config["components"].append({
+                "name": "boundary_left",
+                "band_center": wl_min - min(offset, wl_range * 0.3),
+                "bandwidth": wl_range * 0.15,
+                "amplitude": left_amp,
+                "edge": "left",
+            })
+
+        # Right boundary component (peak center above wavelength range)
+        if right_amp > 0.05:
+            offset = wl_range * 0.1 * (1.0 / max(0.1, right_amp))
+            config["components"].append({
+                "name": "boundary_right",
+                "band_center": wl_max + min(offset, wl_range * 0.3),
+                "bandwidth": wl_range * 0.15,
+                "amplitude": right_amp,
+                "edge": "right",
+            })
+
+        return config
+
     def create_matched_generator(
         self,
         random_state: Optional[int] = None,
@@ -1598,6 +2335,88 @@ class RealDataFitter:
         )
 
         return generator
+
+    def apply_matching_preprocessing(
+        self,
+        X: np.ndarray,
+        *,
+        window_length: int = 15,
+        polyorder: int = 2,
+    ) -> np.ndarray:
+        """
+        Apply preprocessing to match the detected preprocessing of real data.
+
+        If the real data was detected as preprocessed (e.g., second derivative),
+        this method applies the same preprocessing to synthetic raw absorbance
+        spectra so they match the real data distribution.
+
+        Args:
+            X: Raw absorbance spectra from generator (n_samples, n_wavelengths).
+            window_length: Savitzky-Golay window length for derivatives.
+            polyorder: Polynomial order for Savitzky-Golay filter.
+
+        Returns:
+            Preprocessed spectra matching the real data type.
+
+        Raises:
+            RuntimeError: If fit() hasn't been called.
+
+        Example:
+            >>> fitter = RealDataFitter()
+            >>> params = fitter.fit(X_real, wavelengths=wl)
+            >>> generator = fitter.create_matched_generator()
+            >>> X_raw, _, _ = generator.generate(1000)
+            >>> X_matched = fitter.apply_matching_preprocessing(X_raw)
+        """
+        if self.fitted_params is None or self.fitted_params.preprocessing_inference is None:
+            raise RuntimeError("Must call fit() before apply_matching_preprocessing()")
+
+        prep_type = self.fitted_params.preprocessing_inference.preprocessing_type
+        prep_info = self.fitted_params.preprocessing_inference
+
+        # No preprocessing needed for raw data
+        if prep_type in (PreprocessingType.RAW_ABSORBANCE, PreprocessingType.RAW_REFLECTANCE):
+            return X.copy()
+
+        X_out = X.copy()
+
+        if prep_type == PreprocessingType.SECOND_DERIVATIVE:
+            # Apply Savitzky-Golay second derivative
+            X_out = savgol_filter(X, window_length=window_length, polyorder=polyorder, deriv=2, axis=1)
+
+        elif prep_type == PreprocessingType.FIRST_DERIVATIVE:
+            # Apply Savitzky-Golay first derivative
+            X_out = savgol_filter(X, window_length=window_length, polyorder=polyorder, deriv=1, axis=1)
+
+        elif prep_type == PreprocessingType.MEAN_CENTERED:
+            # Mean center each spectrum
+            X_out = X - X.mean(axis=1, keepdims=True)
+
+        elif prep_type == PreprocessingType.SNV_CORRECTED:
+            # Standard Normal Variate (per sample)
+            means = X.mean(axis=1, keepdims=True)
+            stds = X.std(axis=1, keepdims=True)
+            stds = np.where(stds < 1e-10, 1.0, stds)
+            X_out = (X - means) / stds
+
+        elif prep_type == PreprocessingType.NORMALIZED:
+            # Min-max normalization (per sample)
+            mins = X.min(axis=1, keepdims=True)
+            maxs = X.max(axis=1, keepdims=True)
+            ranges = maxs - mins
+            ranges = np.where(ranges < 1e-10, 1.0, ranges)
+            X_out = (X - mins) / ranges
+
+        # Scale to match the detected range of the real data
+        real_min, real_max = prep_info.global_range
+        synth_min, synth_max = X_out.min(), X_out.max()
+
+        if synth_max - synth_min > 1e-10:
+            # Scale synthetic to match real range
+            X_out = (X_out - synth_min) / (synth_max - synth_min)
+            X_out = X_out * (real_max - real_min) + real_min
+
+        return X_out
 
     def fit_from_path(
         self,
@@ -1867,3 +2686,516 @@ def compare_datasets(
     fitter = RealDataFitter()
     fitter.fit(X_real, wavelengths=wavelengths, name="real")
     return fitter.evaluate_similarity(X_synthetic, wavelengths)
+
+
+# ============================================================================
+# Phase 5: Spectral Fitting Tools (Component Unmixing)
+# ============================================================================
+
+
+@dataclass
+class ComponentFitResult:
+    """
+    Result of fitting spectral components to an observed spectrum.
+
+    Attributes:
+        component_names: Names of components used in fitting.
+        concentrations: Estimated concentration for each component.
+        baseline_coefficients: Polynomial baseline coefficients (if fit_baseline=True).
+        fitted_spectrum: Reconstructed spectrum from fit.
+        residuals: Difference between observed and fitted spectra.
+        r_squared: R² goodness-of-fit metric.
+        rmse: Root mean squared error of fit.
+        wavelengths: Wavelength grid used for fitting.
+    """
+    component_names: List[str]
+    concentrations: np.ndarray
+    baseline_coefficients: Optional[np.ndarray]
+    fitted_spectrum: np.ndarray
+    residuals: np.ndarray
+    r_squared: float
+    rmse: float
+    wavelengths: Optional[np.ndarray] = None
+
+    def to_dict(self) -> Dict[str, float]:
+        """Return concentrations as a dictionary."""
+        return dict(zip(self.component_names, self.concentrations))
+
+    def top_components(self, n: int = 5, threshold: float = 0.0) -> List[Tuple[str, float]]:
+        """
+        Get top N components by concentration.
+
+        Args:
+            n: Maximum number of components to return.
+            threshold: Minimum concentration threshold.
+
+        Returns:
+            List of (component_name, concentration) tuples, sorted descending.
+        """
+        pairs = [(name, float(conc)) for name, conc in zip(self.component_names, self.concentrations) if conc > threshold]
+        pairs.sort(key=lambda x: x[1], reverse=True)
+        return pairs[:n]
+
+    def summary(self) -> str:
+        """Return human-readable summary of fit results."""
+        lines = [
+            "=" * 60,
+            "Component Fit Result",
+            "=" * 60,
+            f"Fit Quality: R² = {self.r_squared:.4f}, RMSE = {self.rmse:.6f}",
+            "",
+            "Top Components (by concentration):",
+        ]
+        for name, conc in self.top_components(10, threshold=0.001):
+            lines.append(f"  {name}: {conc:.4f}")
+
+        if self.baseline_coefficients is not None:
+            lines.append("")
+            lines.append(f"Baseline fitted: order {len(self.baseline_coefficients) - 1}")
+
+        lines.append("=" * 60)
+        return "\n".join(lines)
+
+    def __repr__(self) -> str:
+        top_3 = self.top_components(3)
+        top_str = ", ".join(f"{n}={c:.3f}" for n, c in top_3)
+        return f"ComponentFitResult(R²={self.r_squared:.4f}, top=[{top_str}])"
+
+
+class ComponentFitter:
+    """
+    Fit linear combinations of spectral components to observed spectra.
+
+    Solves: spectrum ≈ Σ(c_i * component_i(λ)) + baseline
+
+    Uses non-negative least squares (NNLS) to ensure positive concentrations,
+    which is physically meaningful for spectroscopic analysis.
+
+    **Preprocessing Support**: If your observed spectra are preprocessed
+    (e.g., second derivative, SNV), use the `preprocessing` parameter to
+    apply the same transformation to component spectra before fitting.
+
+    Example:
+        >>> from nirs4all.data.synthetic import ComponentFitter
+        >>>
+        >>> # Fit with all available components
+        >>> fitter = ComponentFitter(wavelengths=np.arange(1000, 2500, 2))
+        >>> result = fitter.fit(observed_spectrum)
+        >>> print(result.summary())
+        >>>
+        >>> # Fit preprocessed data (e.g., second derivative)
+        >>> fitter = ComponentFitter(
+        ...     component_names=["water", "protein", "lipid"],
+        ...     wavelengths=wavelengths,
+        ...     preprocessing="second_derivative",  # Components will be transformed
+        ... )
+        >>> result = fitter.fit(derivative_spectrum)
+
+    Attributes:
+        component_names: List of component names to fit.
+        wavelengths: Wavelength grid for fitting.
+        fit_baseline: Whether to include polynomial baseline.
+        baseline_order: Polynomial order for baseline (default 2).
+        preprocessing: Preprocessing to apply to components before fitting.
+    """
+
+    def __init__(
+        self,
+        component_names: Optional[List[str]] = None,
+        wavelengths: Optional[np.ndarray] = None,
+        fit_baseline: bool = True,
+        baseline_order: int = 2,
+        preprocessing: Optional[Union[str, PreprocessingType]] = None,
+        sg_window_length: int = 15,
+        sg_polyorder: int = 2,
+    ):
+        """
+        Initialize the component fitter.
+
+        Args:
+            component_names: Components to fit. If None, uses all available components.
+            wavelengths: Wavelength grid (nm). If None, uses default 350-2500nm at 2nm step.
+            fit_baseline: Include polynomial baseline in fit.
+            baseline_order: Polynomial order for baseline (0=constant, 1=linear, 2=quadratic).
+            preprocessing: Preprocessing to apply to component spectra before fitting.
+                Options: "second_derivative", "first_derivative", "snv", "mean_centered",
+                or a PreprocessingType enum value. If None, no preprocessing is applied.
+            sg_window_length: Savitzky-Golay window length for derivative preprocessing.
+            sg_polyorder: Savitzky-Golay polynomial order for derivative preprocessing.
+
+        Example:
+            >>> # Fit raw absorbance data
+            >>> fitter = ComponentFitter(
+            ...     component_names=["water", "protein", "lipid"],
+            ...     wavelengths=np.arange(1000, 2500, 2),
+            ... )
+            >>>
+            >>> # Fit second derivative data
+            >>> fitter = ComponentFitter(
+            ...     component_names=["water", "protein"],
+            ...     wavelengths=wavelengths,
+            ...     preprocessing="second_derivative",
+            ... )
+        """
+        from .components import ComponentLibrary, available_components, get_component
+
+        self.fit_baseline = fit_baseline
+        self.baseline_order = baseline_order
+
+        # Preprocessing configuration
+        if preprocessing is not None:
+            if isinstance(preprocessing, str):
+                preprocessing = PreprocessingType(preprocessing)
+        self.preprocessing = preprocessing
+        self.sg_window_length = sg_window_length
+        self.sg_polyorder = sg_polyorder
+
+        # Set wavelengths (default to standard NIR range)
+        if wavelengths is None:
+            from ._constants import DEFAULT_WAVELENGTH_START, DEFAULT_WAVELENGTH_END, DEFAULT_WAVELENGTH_STEP
+            wavelengths = np.arange(DEFAULT_WAVELENGTH_START, DEFAULT_WAVELENGTH_END + DEFAULT_WAVELENGTH_STEP, DEFAULT_WAVELENGTH_STEP)
+        self.wavelengths = np.asarray(wavelengths)
+
+        # Set component names (default to all available)
+        if component_names is None:
+            component_names = available_components()
+        self.component_names = list(component_names)
+
+        # Build component library
+        self._component_library = ComponentLibrary()
+        for name in self.component_names:
+            try:
+                comp = get_component(name)
+                self._component_library.add_component(comp)
+            except ValueError:
+                # Skip unknown components
+                pass
+
+        # Actual names that were successfully loaded
+        self.component_names = self._component_library.component_names
+
+        # Design matrix (computed lazily)
+        self._design_matrix: Optional[np.ndarray] = None
+        self._n_components: int = len(self.component_names)
+
+    def _apply_preprocessing_to_spectra(self, spectra: np.ndarray) -> np.ndarray:
+        """
+        Apply preprocessing to component spectra.
+
+        Args:
+            spectra: Component spectra, shape (n_components, n_wavelengths).
+
+        Returns:
+            Preprocessed spectra with same shape.
+        """
+        if self.preprocessing is None:
+            return spectra
+
+        if self.preprocessing in (PreprocessingType.RAW_ABSORBANCE, PreprocessingType.RAW_REFLECTANCE):
+            return spectra
+
+        preprocessed = spectra.copy()
+
+        if self.preprocessing == PreprocessingType.SECOND_DERIVATIVE:
+            # Apply Savitzky-Golay second derivative
+            preprocessed = savgol_filter(
+                spectra,
+                window_length=min(self.sg_window_length, spectra.shape[1] - 1) | 1,  # Ensure odd
+                polyorder=self.sg_polyorder,
+                deriv=2,
+                axis=1
+            )
+
+        elif self.preprocessing == PreprocessingType.FIRST_DERIVATIVE:
+            # Apply Savitzky-Golay first derivative
+            preprocessed = savgol_filter(
+                spectra,
+                window_length=min(self.sg_window_length, spectra.shape[1] - 1) | 1,
+                polyorder=self.sg_polyorder,
+                deriv=1,
+                axis=1
+            )
+
+        elif self.preprocessing == PreprocessingType.MEAN_CENTERED:
+            # Mean center each spectrum
+            preprocessed = spectra - spectra.mean(axis=1, keepdims=True)
+
+        elif self.preprocessing == PreprocessingType.SNV_CORRECTED:
+            # Standard Normal Variate (per spectrum)
+            means = spectra.mean(axis=1, keepdims=True)
+            stds = spectra.std(axis=1, keepdims=True)
+            stds = np.where(stds < 1e-10, 1.0, stds)
+            preprocessed = (spectra - means) / stds
+
+        elif self.preprocessing == PreprocessingType.NORMALIZED:
+            # Min-max normalization (per spectrum)
+            mins = spectra.min(axis=1, keepdims=True)
+            maxs = spectra.max(axis=1, keepdims=True)
+            ranges = maxs - mins
+            ranges = np.where(ranges < 1e-10, 1.0, ranges)
+            preprocessed = (spectra - mins) / ranges
+
+        return preprocessed
+
+    def _build_design_matrix(self) -> np.ndarray:
+        """Build the design matrix from component spectra and baseline terms."""
+        # Compute all component spectra: shape (n_components, n_wavelengths)
+        component_spectra = self._component_library.compute_all(self.wavelengths)
+
+        # Apply preprocessing if specified
+        component_spectra = self._apply_preprocessing_to_spectra(component_spectra)
+
+        # Normalize each component spectrum for numerical stability
+        # Store scaling factors to recover original concentrations
+        self._component_scales = np.zeros(component_spectra.shape[0])
+        for i in range(component_spectra.shape[0]):
+            scale = np.abs(component_spectra[i]).max()
+            if scale > 1e-10:
+                self._component_scales[i] = scale
+                component_spectra[i] = component_spectra[i] / scale
+            else:
+                self._component_scales[i] = 1.0
+
+        # Transpose to (n_wavelengths, n_components) for design matrix
+        X = component_spectra.T
+
+        # Add baseline polynomial terms if requested
+        if self.fit_baseline:
+            # Normalize wavelengths to [0, 1] for numerical stability
+            wl_min, wl_max = self.wavelengths.min(), self.wavelengths.max()
+            if wl_max > wl_min:
+                normalized = (self.wavelengths - wl_min) / (wl_max - wl_min)
+            else:
+                normalized = np.zeros_like(self.wavelengths)
+
+            baseline_terms = []
+            for order in range(self.baseline_order + 1):
+                baseline_terms.append(normalized ** order)
+
+            X = np.column_stack([X, np.column_stack(baseline_terms)])
+
+        self._design_matrix = X
+        return X
+
+    def fit(
+        self,
+        spectrum: np.ndarray,
+        method: str = "nnls",
+    ) -> ComponentFitResult:
+        """
+        Fit components to a single spectrum.
+
+        Args:
+            spectrum: Observed spectrum, shape (n_wavelengths,).
+            method: Fitting method.
+                - "nnls": Non-negative least squares (default, physically meaningful).
+                - "lsq": Unconstrained least squares (allows negative concentrations).
+
+        Returns:
+            ComponentFitResult with concentrations, residuals, and fit quality metrics.
+
+        Example:
+            >>> result = fitter.fit(observed_spectrum)
+            >>> print(f"R² = {result.r_squared:.4f}")
+            >>> print(f"Top components: {result.top_components(3)}")
+        """
+        if self._design_matrix is None:
+            self._build_design_matrix()
+
+        X = self._design_matrix
+        y = np.asarray(spectrum).ravel()
+
+        if len(y) != len(self.wavelengths):
+            raise ValueError(f"Spectrum length ({len(y)}) does not match wavelengths ({len(self.wavelengths)})")
+
+        # Solve least squares problem
+        if method == "nnls":
+            from scipy.optimize import nnls
+            coefficients, _ = nnls(X, y)
+        elif method == "lsq":
+            coefficients, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+        else:
+            raise ValueError(f"Unknown method: {method}. Use 'nnls' or 'lsq'.")
+
+        # Split coefficients into component weights and baseline
+        component_weights = coefficients[:self._n_components].copy()
+
+        # Rescale component weights to original scale
+        # (undo the normalization applied during design matrix construction)
+        if hasattr(self, '_component_scales'):
+            component_weights = component_weights / self._component_scales
+
+        baseline_coeffs = coefficients[self._n_components:] if self.fit_baseline else None
+
+        # Compute fitted spectrum and residuals
+        fitted = X @ coefficients
+        residuals = y - fitted
+
+        # Compute fit quality metrics
+        ss_res = np.sum(residuals ** 2)
+        ss_tot = np.sum((y - np.mean(y)) ** 2)
+        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+        rmse = np.sqrt(np.mean(residuals ** 2))
+
+        return ComponentFitResult(
+            component_names=self.component_names,
+            concentrations=component_weights,
+            baseline_coefficients=baseline_coeffs,
+            fitted_spectrum=fitted,
+            residuals=residuals,
+            r_squared=float(r_squared),
+            rmse=float(rmse),
+            wavelengths=self.wavelengths,
+        )
+
+    def fit_batch(
+        self,
+        spectra: np.ndarray,
+        method: str = "nnls",
+        n_jobs: int = -1,
+    ) -> List[ComponentFitResult]:
+        """
+        Fit components to multiple spectra in parallel.
+
+        Args:
+            spectra: Observed spectra, shape (n_samples, n_wavelengths).
+            method: Fitting method ("nnls" or "lsq").
+            n_jobs: Number of parallel jobs (-1 = all cores, 1 = sequential).
+
+        Returns:
+            List of ComponentFitResult objects.
+
+        Example:
+            >>> results = fitter.fit_batch(X_observed, n_jobs=4)
+            >>> mean_r2 = np.mean([r.r_squared for r in results])
+            >>> print(f"Mean R² = {mean_r2:.4f}")
+        """
+        spectra = np.atleast_2d(spectra)
+
+        if spectra.shape[1] != len(self.wavelengths):
+            raise ValueError(f"Spectra width ({spectra.shape[1]}) does not match wavelengths ({len(self.wavelengths)})")
+
+        # Ensure design matrix is built
+        if self._design_matrix is None:
+            self._build_design_matrix()
+
+        if n_jobs == 1:
+            # Sequential execution
+            return [self.fit(spectrum, method=method) for spectrum in spectra]
+        else:
+            # Parallel execution
+            try:
+                from joblib import Parallel, delayed
+                results = Parallel(n_jobs=n_jobs)(
+                    delayed(self.fit)(spectrum, method=method) for spectrum in spectra
+                )
+                return results
+            except ImportError:
+                # Fallback to sequential if joblib not available
+                return [self.fit(spectrum, method=method) for spectrum in spectra]
+
+    def suggest_components(
+        self,
+        spectrum: np.ndarray,
+        top_n: int = 5,
+        threshold: float = 0.01,
+        method: str = "nnls",
+    ) -> List[Tuple[str, float]]:
+        """
+        Suggest which components are likely present in a spectrum.
+
+        Performs a fit and returns the top components by concentration.
+
+        Args:
+            spectrum: Observed spectrum, shape (n_wavelengths,).
+            top_n: Maximum number of components to return.
+            threshold: Minimum concentration threshold.
+            method: Fitting method ("nnls" or "lsq").
+
+        Returns:
+            List of (component_name, estimated_concentration) tuples,
+            sorted by concentration descending.
+
+        Example:
+            >>> suggestions = fitter.suggest_components(unknown_spectrum)
+            >>> print("Likely components:")
+            >>> for name, conc in suggestions:
+            ...     print(f"  {name}: {conc:.3f}")
+        """
+        result = self.fit(spectrum, method=method)
+        return result.top_components(top_n, threshold)
+
+    def get_concentration_matrix(
+        self,
+        spectra: np.ndarray,
+        method: str = "nnls",
+        n_jobs: int = -1,
+    ) -> Tuple[np.ndarray, List[str]]:
+        """
+        Get concentration matrix for batch of spectra.
+
+        Convenience method that extracts just the concentrations.
+
+        Args:
+            spectra: Observed spectra, shape (n_samples, n_wavelengths).
+            method: Fitting method ("nnls" or "lsq").
+            n_jobs: Number of parallel jobs.
+
+        Returns:
+            Tuple of:
+                - concentrations: Array of shape (n_samples, n_components)
+                - component_names: List of component names
+
+        Example:
+            >>> C, names = fitter.get_concentration_matrix(X_observed)
+            >>> water_idx = names.index("water")
+            >>> water_concentrations = C[:, water_idx]
+        """
+        results = self.fit_batch(spectra, method=method, n_jobs=n_jobs)
+        C = np.array([r.concentrations for r in results])
+        return C, self.component_names
+
+
+def fit_components(
+    spectrum: np.ndarray,
+    wavelengths: np.ndarray,
+    component_names: Optional[List[str]] = None,
+    fit_baseline: bool = True,
+    baseline_order: int = 2,
+    method: str = "nnls",
+    preprocessing: Optional[Union[str, PreprocessingType]] = None,
+) -> ComponentFitResult:
+    """
+    Convenience function to fit components to a spectrum.
+
+    Args:
+        spectrum: Observed spectrum.
+        wavelengths: Wavelength grid.
+        component_names: Components to fit (None = all available).
+        fit_baseline: Include polynomial baseline.
+        baseline_order: Polynomial order for baseline.
+        method: Fitting method ("nnls" or "lsq").
+        preprocessing: Preprocessing to apply to components (e.g., "second_derivative").
+            Use this when fitting preprocessed data.
+
+    Returns:
+        ComponentFitResult with fit results.
+
+    Example:
+        >>> # Fit raw absorbance data
+        >>> result = fit_components(spectrum, wavelengths, ["water", "protein", "lipid"])
+        >>>
+        >>> # Fit second derivative data
+        >>> result = fit_components(
+        ...     deriv_spectrum, wavelengths, ["water", "protein"],
+        ...     preprocessing="second_derivative"
+        ... )
+    """
+    fitter = ComponentFitter(
+        component_names=component_names,
+        wavelengths=wavelengths,
+        fit_baseline=fit_baseline,
+        baseline_order=baseline_order,
+        preprocessing=preprocessing,
+    )
+    return fitter.fit(spectrum, method=method)

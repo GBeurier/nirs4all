@@ -510,6 +510,177 @@ def to_csv(
     return builder.export_to_csv(path)
 
 
+def product(
+    template: str,
+    n_samples: int = 1000,
+    *,
+    target: Optional[str] = None,
+    random_state: Optional[int] = None,
+    wavelength_range: Optional[Tuple[float, float]] = None,
+    wavelengths: Optional[np.ndarray] = None,
+    instrument_wavelength_grid: Optional[str] = None,
+    complexity: Literal["simple", "realistic", "complex"] = "realistic",
+    train_ratio: float = 0.8,
+    target_range: Optional[Tuple[float, float]] = None,
+) -> "SpectroDataset":
+    """
+    Generate synthetic NIRS dataset from a product template.
+
+    Product templates define realistic compositions with controlled
+    variability for specific product types (dairy, grain, meat, pharma).
+    This is ideal for generating training data for neural networks.
+
+    Args:
+        template: Product template name (e.g., "milk_variable_fat",
+            "wheat_variable_protein", "tablet_variable_api").
+        n_samples: Number of samples to generate.
+        target: Component to use as regression target.
+            If None, uses template's default target.
+        random_state: Random seed for reproducibility.
+        wavelength_range: Tuple of (start, end) wavelengths in nm.
+        wavelengths: Custom wavelength array.
+        instrument_wavelength_grid: Predefined instrument grid name
+            (e.g., "foss_xds", "micronir_onsite").
+        complexity: Spectral complexity level.
+        train_ratio: Proportion of samples for training partition.
+        target_range: Optional (min, max) to scale target values.
+
+    Returns:
+        SpectroDataset with train/test partitions.
+
+    Example:
+        >>> import nirs4all
+        >>>
+        >>> # Generate dairy samples for fat prediction
+        >>> dataset = nirs4all.generate.product(
+        ...     "milk_variable_fat",
+        ...     n_samples=1000,
+        ...     target="lipid",
+        ...     random_state=42
+        ... )
+        >>>
+        >>> # Generate grain samples matching specific instrument
+        >>> dataset = nirs4all.generate.product(
+        ...     "wheat_variable_protein",
+        ...     n_samples=5000,
+        ...     instrument_wavelength_grid="foss_xds"
+        ... )
+        >>>
+        >>> # List available templates
+        >>> from nirs4all.data.synthetic import list_product_templates
+        >>> print(list_product_templates(category="dairy"))
+
+    See Also:
+        generate.category: Generate from multiple product templates.
+        list_product_templates: List available templates.
+    """
+    from nirs4all.data.synthetic import ProductGenerator
+
+    # Build wavelength kwargs
+    wl_kwargs: Dict[str, Any] = {"complexity": complexity}
+    if wavelength_range is not None:
+        wl_kwargs["wavelength_start"] = wavelength_range[0]
+        wl_kwargs["wavelength_end"] = wavelength_range[1]
+    if wavelengths is not None:
+        wl_kwargs["wavelengths"] = wavelengths
+    if instrument_wavelength_grid is not None:
+        wl_kwargs["instrument_wavelength_grid"] = instrument_wavelength_grid
+
+    generator = ProductGenerator(template, random_state=random_state, **wl_kwargs)
+
+    if target_range is not None:
+        return generator.generate_dataset_for_target(
+            target=target or generator.template.default_target,
+            n_samples=n_samples,
+            target_range=target_range,
+            train_ratio=train_ratio,
+        )
+    else:
+        return generator.generate(
+            n_samples=n_samples,
+            target=target,
+            train_ratio=train_ratio,
+        )
+
+
+def category(
+    templates: List[str],
+    n_samples: int = 1000,
+    *,
+    target: Optional[str] = None,
+    random_state: Optional[int] = None,
+    samples_per_template: Optional[List[int]] = None,
+    wavelength_range: Optional[Tuple[float, float]] = None,
+    instrument_wavelength_grid: Optional[str] = None,
+    complexity: Literal["simple", "realistic", "complex"] = "realistic",
+    train_ratio: float = 0.8,
+    shuffle: bool = True,
+) -> "SpectroDataset":
+    """
+    Generate synthetic NIRS dataset from multiple product templates.
+
+    This creates training datasets that span multiple product types,
+    useful for building robust models that generalize across categories.
+
+    Args:
+        templates: List of product template names.
+        n_samples: Total number of samples to generate.
+        target: Component to use as regression target.
+            Must exist in all templates.
+        random_state: Random seed for reproducibility.
+        samples_per_template: Number of samples per template.
+            If None, divides equally.
+        wavelength_range: Tuple of (start, end) wavelengths in nm.
+        instrument_wavelength_grid: Predefined instrument grid name.
+        complexity: Spectral complexity level.
+        train_ratio: Proportion of samples for training partition.
+        shuffle: Whether to shuffle samples across templates.
+
+    Returns:
+        SpectroDataset combining samples from all templates.
+
+    Example:
+        >>> import nirs4all
+        >>>
+        >>> # Combine dairy products for fat prediction
+        >>> dataset = nirs4all.generate.category(
+        ...     ["milk_variable_fat", "cheese_variable_moisture", "yogurt_variable_fat"],
+        ...     n_samples=3000,
+        ...     target="lipid",
+        ...     random_state=42
+        ... )
+        >>>
+        >>> # Universal protein predictor
+        >>> dataset = nirs4all.generate.category(
+        ...     ["wheat_variable_protein", "soybean", "meat_variable_protein"],
+        ...     n_samples=10000,
+        ...     target="protein"
+        ... )
+
+    See Also:
+        generate.product: Generate from a single product template.
+    """
+    from nirs4all.data.synthetic import CategoryGenerator
+
+    # Build wavelength kwargs
+    wl_kwargs: Dict[str, Any] = {"complexity": complexity}
+    if wavelength_range is not None:
+        wl_kwargs["wavelength_start"] = wavelength_range[0]
+        wl_kwargs["wavelength_end"] = wavelength_range[1]
+    if instrument_wavelength_grid is not None:
+        wl_kwargs["instrument_wavelength_grid"] = instrument_wavelength_grid
+
+    generator = CategoryGenerator(templates, random_state=random_state, **wl_kwargs)
+
+    return generator.generate(
+        n_samples=n_samples,
+        target=target,
+        samples_per_template=samples_per_template,
+        train_ratio=train_ratio,
+        shuffle=shuffle,
+    )
+
+
 def from_template(
     template: Union[str, np.ndarray, "SpectroDataset"],
     n_samples: int = 1000,
@@ -606,6 +777,10 @@ class _GenerateNamespace:
     to_csv = staticmethod(to_csv)
     from_template = staticmethod(from_template)
 
+    # Product-level generation (Phase 7)
+    product = staticmethod(product)
+    category = staticmethod(category)
+
     def __repr__(self) -> str:
         """Return string representation."""
         return (
@@ -614,6 +789,8 @@ class _GenerateNamespace:
             "  generate.regression(...) - Generate regression dataset\n"
             "  generate.classification(...) - Generate classification dataset\n"
             "  generate.multi_source(...) - Generate multi-source dataset\n"
+            "  generate.product(...) - Generate from product template (Phase 7)\n"
+            "  generate.category(...) - Generate from multiple templates (Phase 7)\n"
             "  generate.builder(...) - Get fluent builder for full control\n"
             "  generate.to_folder(...) - Generate and export to folder\n"
             "  generate.to_csv(...) - Generate and export to CSV file\n"
@@ -636,5 +813,8 @@ __all__ = [
     "to_folder",
     "to_csv",
     "from_template",
+    # Phase 7: Product-level generation
+    "product",
+    "category",
     "generate_namespace",
 ]

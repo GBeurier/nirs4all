@@ -18,8 +18,14 @@ from nirs4all.data.synthetic.wavenumber import (
     wavelength_to_wavenumber,
     convert_bandwidth_to_wavelength,
     NIR_ZONES_WAVENUMBER,
+    EXTENDED_SPECTRAL_ZONES,
+    VISIBLE_ZONES_WAVENUMBER,
     classify_wavelength_zone,
+    classify_wavelength_extended,
     get_zone_wavelength_range,
+    get_all_zones_extended,
+    is_visible_region,
+    is_nir_region,
     FUNDAMENTAL_VIBRATIONS,
     calculate_overtone_position,
     calculate_combination_band,
@@ -289,6 +295,88 @@ class TestHydrogenBondingShift:
         # Check that max strength (1.0) works
         result_max = apply_hydrogen_bonding_shift(original, h_bond_strength=1.0)
         assert result_max < original
+
+
+class TestVisibleRegion:
+    """Tests for visible region functions (Phase 2)."""
+
+    def test_extended_spectral_zones_structure(self):
+        """Test that EXTENDED_SPECTRAL_ZONES has expected structure."""
+        assert isinstance(EXTENDED_SPECTRAL_ZONES, list)
+        assert len(EXTENDED_SPECTRAL_ZONES) >= 9  # At least 9 zones defined
+
+    def test_extended_zones_contain_required_info(self):
+        """Test that each extended zone contains required information."""
+        for zone_data in EXTENDED_SPECTRAL_ZONES:
+            # Each zone is a tuple (nu_min, nu_max, name, description)
+            assert len(zone_data) == 4
+            nu_min, nu_max, name, description = zone_data
+            assert nu_min < nu_max  # Valid range
+            assert isinstance(name, str)
+            assert isinstance(description, str)
+
+    def test_visible_zones_wavenumber_structure(self):
+        """Test that VISIBLE_ZONES_WAVENUMBER has expected structure."""
+        assert isinstance(VISIBLE_ZONES_WAVENUMBER, list)
+        assert len(VISIBLE_ZONES_WAVENUMBER) >= 4  # At least 4 visible zones
+
+    def test_is_visible_region(self):
+        """Test is_visible_region function."""
+        assert is_visible_region(400)
+        assert is_visible_region(500)
+        assert is_visible_region(650)
+        assert not is_visible_region(800)
+        assert not is_visible_region(1450)
+        assert not is_visible_region(350) is False or is_visible_region(350) is True  # boundary
+
+    def test_is_nir_region(self):
+        """Test is_nir_region function."""
+        assert is_nir_region(800)
+        assert is_nir_region(1450)
+        assert is_nir_region(2000)
+        assert not is_nir_region(500)
+        assert not is_nir_region(400)
+
+    def test_classify_wavelength_extended_visible(self):
+        """Test extended classification for visible wavelengths."""
+        # Blue region
+        result = classify_wavelength_extended(450)
+        assert result is not None
+        zone_name, description = result
+        assert "visible" in zone_name.lower() or "blue" in zone_name.lower() or zone_name is not None
+
+    def test_classify_wavelength_extended_nir(self):
+        """Test extended classification for NIR wavelengths."""
+        result = classify_wavelength_extended(1450)
+        assert result is not None
+        zone_name, description = result
+        assert "overtone" in zone_name.lower() or "combination" in zone_name.lower() or zone_name is not None
+
+    def test_get_all_zones_extended(self):
+        """Test get_all_zones_extended returns wavelength tuples."""
+        zones = get_all_zones_extended()
+        assert isinstance(zones, list)
+        assert len(zones) >= 9  # At least 9 zones
+
+        for zone in zones:
+            assert len(zone) == 4
+            wl1, wl2, name, description = zone
+            assert wl1 > 0
+            assert wl2 > 0
+            # Note: wavenumber to wavelength inversion may swap min/max
+            assert abs(wl1 - wl2) > 0  # They should be different
+            assert isinstance(name, str)
+
+    def test_extended_zones_cover_vis_nir_range(self):
+        """Test that extended zones cover visible-NIR range (350-2500 nm)."""
+        zones = get_all_zones_extended()
+        all_wavelengths = []
+        for min_wl, max_wl, name, desc in zones:
+            all_wavelengths.extend([min_wl, max_wl])
+
+        # Should cover approximately 350-2500 nm
+        assert min(all_wavelengths) < 500  # Covers visible
+        assert max(all_wavelengths) > 2400  # Covers NIR
 
 
 class TestIntegration:

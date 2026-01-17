@@ -51,6 +51,15 @@ from .components import (
     NIRBand,
     SpectralComponent,
     ComponentLibrary,
+    # Discovery API (Phase 1 enhancement)
+    available_components,
+    get_component,
+    search_components,
+    list_categories,
+    component_info,
+    validate_predefined_components,
+    validate_component_coverage,
+    normalize_component_amplitudes,
 )
 
 # Predefined components constant
@@ -132,6 +141,13 @@ from .fitter import (
     EnvironmentalInference,
     ScatteringInference,
     MeasurementModeInference,
+    # Phase 5: Spectral fitting tools
+    ComponentFitter,
+    ComponentFitResult,
+    fit_components,
+    # Phase 5: Preprocessing detection
+    PreprocessingType,
+    PreprocessingInference,
 )
 
 # ================================================================
@@ -150,6 +166,13 @@ from .wavenumber import (
     classify_wavelength_zone as get_nir_zone,  # Alias for backward compatibility
     get_zone_wavelength_range,
     get_all_zones_wavelength,
+    # Visible-NIR extended zones (Phase 2)
+    EXTENDED_SPECTRAL_ZONES,
+    VISIBLE_ZONES_WAVENUMBER,
+    classify_wavelength_extended,
+    get_all_zones_extended,
+    is_visible_region,
+    is_nir_region,
     # Overtone and combination band calculations
     FUNDAMENTAL_VIBRATIONS,
     calculate_overtone_position,
@@ -188,6 +211,40 @@ from .domains import (
     create_domain_aware_library,
 )
 
+# Aggregate components (Phase 4 - Roadmap Phase 4)
+from ._aggregates import (
+    AggregateComponent,
+    AGGREGATE_COMPONENTS,
+    get_aggregate,
+    list_aggregates,
+    expand_aggregate,
+    aggregate_info,
+    list_domains as list_aggregate_domains,
+    list_categories as list_aggregate_categories,
+    validate_aggregates,
+)
+
+# Product-level generation (Phase 7 - Roadmap Phase 7)
+from .products import (
+    # Enums
+    VariationType,
+    # Dataclasses
+    ComponentVariation,
+    ProductTemplate,
+    # Registry
+    PRODUCT_TEMPLATES,
+    # Generator classes
+    ProductGenerator,
+    CategoryGenerator,
+    # Convenience functions
+    list_product_templates,
+    get_product_template,
+    generate_product_samples,
+    product_template_info,
+    list_product_categories,
+    list_product_domains,
+)
+
 
 # ================================================================
 # Phase 2: Instrument Simulation Enhancement
@@ -203,6 +260,7 @@ from .instruments import (
     SensorConfig,
     MultiSensorConfig,
     MultiScanConfig,
+    EdgeArtifactsConfig,
     InstrumentArchetype,
     # Registry and utilities
     INSTRUMENT_ARCHETYPES,
@@ -211,6 +269,11 @@ from .instruments import (
     get_instruments_by_category,
     # Simulator
     InstrumentSimulator,
+    # Phase 6: Instrument wavelength grids
+    INSTRUMENT_WAVELENGTHS,
+    get_instrument_wavelengths,
+    list_instrument_wavelength_grids,
+    get_instrument_wavelength_info,
 )
 
 # Measurement modes and physics (Phase 2.2)
@@ -254,7 +317,10 @@ from .detectors import (
 # Phase 3: Matrix and Environmental Effects
 # ================================================================
 
-# Environmental effects (Phase 3.1, 3.4)
+# Environmental effects (Phase 3.1, 3.4) - Configuration classes only
+# NOTE: Use nirs4all.operators.augmentation for applying effects:
+#   - TemperatureAugmenter for temperature effects
+#   - MoistureAugmenter for moisture effects
 from .environmental import (
     # Enums
     SpectralRegion,
@@ -265,18 +331,14 @@ from .environmental import (
     EnvironmentalEffectsConfig,
     # Constants
     TEMPERATURE_EFFECT_PARAMS,
-    # Simulators
-    TemperatureEffectSimulator,
-    MoistureEffectSimulator,
-    EnvironmentalEffectsSimulator,
-    # Convenience functions
-    apply_temperature_effects,
-    apply_moisture_effects,
-    simulate_temperature_series,
+    # Utility functions
     get_temperature_effect_regions,
 )
 
-# Scattering effects (Phase 3.2, 3.3)
+# Scattering effects (Phase 3.2, 3.3) - Configuration classes only
+# NOTE: Use nirs4all.operators.augmentation for applying effects:
+#   - ParticleSizeAugmenter for particle size effects
+#   - EMSCDistortionAugmenter for EMSC-style distortions
 from .scattering import (
     # Enums
     ScatteringModel,
@@ -286,17 +348,6 @@ from .scattering import (
     EMSCConfig,
     ScatteringCoefficientConfig,
     ScatteringEffectsConfig,
-    # Simulators
-    ParticleSizeSimulator,
-    EMSCTransformSimulator,
-    ScatteringCoefficientGenerator,
-    ScatteringEffectsSimulator,
-    # Convenience functions
-    apply_particle_size_effects,
-    apply_emsc_distortion,
-    generate_scattering_coefficients,
-    simulate_snv_correctable_scatter,
-    simulate_msc_correctable_scatter,
 )
 
 # ================================================================
@@ -424,6 +475,15 @@ __all__ = [
     "ComponentLibrary",
     "PREDEFINED_COMPONENTS",
     "get_predefined_components",
+    # Discovery API (Phase 1 enhancement)
+    "available_components",
+    "get_component",
+    "search_components",
+    "list_categories",
+    "component_info",
+    "validate_predefined_components",
+    "validate_component_coverage",
+    "normalize_component_amplitudes",
     # Configuration
     "SyntheticDatasetConfig",
     "FeatureConfig",
@@ -480,6 +540,13 @@ __all__ = [
     "EnvironmentalInference",
     "ScatteringInference",
     "MeasurementModeInference",
+    # Phase 5: Spectral fitting tools
+    "ComponentFitter",
+    "ComponentFitResult",
+    "fit_components",
+    # Phase 5: Preprocessing detection
+    "PreprocessingType",
+    "PreprocessingInference",
     # ================================================================
     # Phase 1: Enhanced Component Generation
     # ================================================================
@@ -492,6 +559,14 @@ __all__ = [
     "get_nir_zone",  # Alias for classify_wavelength_zone
     "get_zone_wavelength_range",
     "get_all_zones_wavelength",
+    # Visible-NIR extended zones (Phase 2)
+    "EXTENDED_SPECTRAL_ZONES",
+    "VISIBLE_ZONES_WAVENUMBER",
+    "classify_wavelength_extended",
+    "get_all_zones_extended",
+    "is_visible_region",
+    "is_nir_region",
+    # Overtone/combination calculations
     "FUNDAMENTAL_VIBRATIONS",
     "calculate_overtone_position",
     "calculate_combination_band",
@@ -513,6 +588,29 @@ __all__ = [
     "get_domain_components",
     "get_domains_for_component",
     "create_domain_aware_library",
+    # Aggregate components (Roadmap Phase 4)
+    "AggregateComponent",
+    "AGGREGATE_COMPONENTS",
+    "get_aggregate",
+    "list_aggregates",
+    "expand_aggregate",
+    "aggregate_info",
+    "list_aggregate_domains",
+    "list_aggregate_categories",
+    "validate_aggregates",
+    # Product-level generation (Roadmap Phase 7)
+    "VariationType",
+    "ComponentVariation",
+    "ProductTemplate",
+    "PRODUCT_TEMPLATES",
+    "ProductGenerator",
+    "CategoryGenerator",
+    "list_product_templates",
+    "get_product_template",
+    "generate_product_samples",
+    "product_template_info",
+    "list_product_categories",
+    "list_product_domains",
     # ================================================================
     # Phase 2: Instrument Simulation Enhancement
     # ================================================================
@@ -523,12 +621,18 @@ __all__ = [
     "SensorConfig",
     "MultiSensorConfig",
     "MultiScanConfig",
+    "EdgeArtifactsConfig",
     "InstrumentArchetype",
     "INSTRUMENT_ARCHETYPES",
     "get_instrument_archetype",
     "list_instrument_archetypes",
     "get_instruments_by_category",
     "InstrumentSimulator",
+    # Phase 6: Instrument wavelength grids
+    "INSTRUMENT_WAVELENGTHS",
+    "get_instrument_wavelengths",
+    "list_instrument_wavelength_grids",
+    "get_instrument_wavelength_info",
     # Measurement modes (Phase 2.2)
     "MeasurementMode",
     "TransmittanceConfig",
@@ -555,36 +659,23 @@ __all__ = [
     # ================================================================
     # Phase 3: Matrix and Environmental Effects
     # ================================================================
-    # Environmental effects (Phase 3.1, 3.4)
+    # Environmental effects (Phase 3.1, 3.4) - Configuration classes
+    # Use nirs4all.operators.augmentation for applying effects
     "SpectralRegion",
     "TemperatureEffectParams",
     "TemperatureConfig",
     "MoistureConfig",
     "EnvironmentalEffectsConfig",
     "TEMPERATURE_EFFECT_PARAMS",
-    "TemperatureEffectSimulator",
-    "MoistureEffectSimulator",
-    "EnvironmentalEffectsSimulator",
-    "apply_temperature_effects",
-    "apply_moisture_effects",
-    "simulate_temperature_series",
     "get_temperature_effect_regions",
-    # Scattering effects (Phase 3.2, 3.3)
+    # Scattering effects (Phase 3.2, 3.3) - Configuration classes
+    # Use nirs4all.operators.augmentation for applying effects
     "ScatteringModel",
     "ParticleSizeDistribution",
     "ParticleSizeConfig",
     "EMSCConfig",
     "ScatteringCoefficientConfig",
     "ScatteringEffectsConfig",
-    "ParticleSizeSimulator",
-    "EMSCTransformSimulator",
-    "ScatteringCoefficientGenerator",
-    "ScatteringEffectsSimulator",
-    "apply_particle_size_effects",
-    "apply_emsc_distortion",
-    "generate_scattering_coefficients",
-    "simulate_snv_correctable_scatter",
-    "simulate_msc_correctable_scatter",
     # ================================================================
     # Phase 4: Validation and Infrastructure
     # ================================================================

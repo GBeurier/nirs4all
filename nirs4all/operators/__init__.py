@@ -1,3 +1,5 @@
+from .base import SpectraTransformerMixin
+
 from .augmentation.random import (
     Random_X_Operation,
     Rotate_Translate
@@ -10,6 +12,22 @@ from .augmentation.splines import (
     Spline_Smoothing
 )
 from .augmentation.abc_augmenter import Augmenter, IdentityAugmenter
+from .augmentation.environmental import (
+    TemperatureAugmenter,
+    MoistureAugmenter,
+)
+from .augmentation.scattering import (
+    ParticleSizeAugmenter,
+    EMSCDistortionAugmenter,
+)
+from .augmentation.edge_artifacts import (
+    DetectorRollOffAugmenter,
+    StrayLightAugmenter,
+    EdgeCurvatureAugmenter,
+    TruncatedPeakAugmenter,
+    EdgeArtifactsAugmenter,
+    DETECTOR_MODELS,
+)
 
 from .filters import (
     SampleFilter,
@@ -54,6 +72,9 @@ from .transforms import (
 )
 
 __all__ = [
+    # Base classes
+    "SpectraTransformerMixin",
+
     # Data augmentation
     "Random_X_Operation",
     "Rotate_Translate",
@@ -64,6 +85,19 @@ __all__ = [
     "Spline_Smoothing",
     "Augmenter",
     "IdentityAugmenter",
+    # Environmental effects augmentation
+    "TemperatureAugmenter",
+    "MoistureAugmenter",
+    # Scattering effects augmentation
+    "ParticleSizeAugmenter",
+    "EMSCDistortionAugmenter",
+    # Edge artifacts augmentation
+    "DetectorRollOffAugmenter",
+    "StrayLightAugmenter",
+    "EdgeCurvatureAugmenter",
+    "TruncatedPeakAugmenter",
+    "EdgeArtifactsAugmenter",
+    "DETECTOR_MODELS",
 
     # Sample filtering
     "SampleFilter",
