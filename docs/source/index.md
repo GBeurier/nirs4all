@@ -119,6 +119,7 @@ reference/index
 developer/index
 examples/index
 api/modules
+ai_onboarding
 ```
 
 ## What is Near-Infrared Spectroscopy (NIRS)?
