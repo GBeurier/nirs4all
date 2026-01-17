@@ -94,15 +94,31 @@ Where ν = stretching, δ = bending modes.
 
 ### Predefined Components
 
+The generator includes **111 predefined spectral components** covering diverse application areas. Example components (showing key band assignments):
+
 ```
+# Water & Moisture (2)
 water:        O-H bands at 1450, 1940, 2500 nm
+moisture:     Bound water at 1460, 1930 nm
+
+# Proteins (12): protein, casein, gluten, albumin, collagen, keratin, whey...
 protein:      N-H bands at 1510, 1680, 2050, 2180, 2300 nm
+
+# Lipids (15): lipid, oil, oleic_acid, palmitic_acid, phospholipid, cholesterol...
 lipid:        C-H bands at 1210, 1390, 1720, 2310, 2350 nm
+
+# Carbohydrates (18): starch, cellulose, glucose, maltose, raffinose, trehalose...
 starch:       O-H/C-O bands at 1460, 1580, 2100, 2270 nm
 cellulose:    O-H/C-O bands at 1490, 1780, 2090, 2280, 2340 nm
+
+# Pigments (8): chlorophyll, carotenoid, anthocyanin, lycopene, lutein...
 chlorophyll:  absorption at 1070, 1400, 2270 nm
-oil:          C-H bands at 1165, 1215, 1410, 1725, 2140, 2305 nm
+
+# Also includes: Alcohols (9), Organic Acids (12), Pharmaceuticals (10),
+#                Polymers (10), Solvents (6), Minerals (8), Fibers (2)
 ```
+
+See {doc}`/user_guide/data/synthetic_data` for the complete list of 111 components.
 
 **References:**
 - Workman Jr, J., & Weyer, L. (2012). *Practical Guide and Spectral Atlas for Interpretive Near-Infrared Spectroscopy*. CRC Press.

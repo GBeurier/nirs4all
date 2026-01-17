@@ -684,17 +684,18 @@ The predefined component library has been extended from 31 to **111 components**
 
 | Category | Count | Examples |
 |----------|-------|----------|
-| Carbohydrates | 15 | starch, cellulose, glucose, maltose, raffinose, inulin |
-| Proteins | 10 | protein, casein, gluten, albumin, collagen, keratin |
-| Lipids | 12 | lipid, oil, oleic_acid, linoleic_acid, phospholipid |
-| Alcohols | 8 | ethanol, methanol, glycerol, sorbitol, mannitol |
-| Organic Acids | 10 | acetic_acid, citric_acid, ascorbic_acid, formic_acid |
-| Pharmaceuticals | 10 | aspirin, paracetamol, ibuprofen, metformin |
-| Polymers | 8 | polyethylene, polystyrene, pmma, pet, abs |
-| Minerals | 5 | kaolinite, montmorillonite, silica, talc |
-| Pigments | 7 | chlorophyll, carotenoid, anthocyanin, lycopene |
-| Solvents | 7 | acetone, dmso, ethyl_acetate, toluene |
-| Other | 19 | water, aromatic, alkane, etc. |
+| Water-related | 2 | water, moisture |
+| Proteins & Nitrogen | 12 | protein, casein, gluten, albumin, collagen, keratin, whey, zein |
+| Lipids & Hydrocarbons | 15 | lipid, oil, oleic_acid, linoleic_acid, palmitic_acid, phospholipid, cholesterol |
+| Carbohydrates | 18 | starch, cellulose, glucose, maltose, raffinose, inulin, trehalose, xylose |
+| Alcohols & Polyols | 9 | ethanol, methanol, glycerol, sorbitol, mannitol, xylitol, isopropanol |
+| Organic Acids | 12 | acetic_acid, citric_acid, ascorbic_acid, formic_acid, fumaric_acid, butyric_acid |
+| Pigments & Phenolics | 8 | chlorophyll, carotenoid, anthocyanin, lycopene, lutein, melanin, tannins |
+| Pharmaceuticals | 10 | aspirin, paracetamol, ibuprofen, metformin, omeprazole, amoxicillin |
+| Fibers & Textiles | 2 | polyester, nylon |
+| Polymers & Plastics | 10 | polyethylene, polystyrene, pmma, pet, abs, pvc, polypropylene, ptfe |
+| Solvents | 6 | acetone, dmso, ethyl_acetate, toluene, chloroform, hexane |
+| Soil Minerals | 8 | kaolinite, montmorillonite, silica, talc, goethite, carbonates, gypsum |
 
 ### Listing Components
 
@@ -1749,18 +1750,18 @@ Tips:
 
 ## Predefined Spectral Components
 
-The synthetic generator includes **48 predefined spectral components** with band assignments based on published NIR spectroscopy literature. Each component's absorption bands are modeled using Voigt profiles with accurate wavelength positions, widths, and relative intensities.
+The synthetic generator includes **111 predefined spectral components** with band assignments based on published NIR spectroscopy literature. Each component's absorption bands are modeled using Voigt profiles with accurate wavelength positions, widths, and relative intensities.
 
 ### Available Components
 
-#### Water and Moisture
+#### Water and Moisture (2)
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
 | `water` | Free water (H₂O) | 1450, 1940, 2500 | [1] pp. 34-36 |
 | `moisture` | Bound water in matrices | 1460, 1930 | [2] pp. 358-362 |
 
-#### Proteins and Nitrogen Compounds
+#### Proteins and Nitrogen Compounds (12)
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
@@ -1770,8 +1771,14 @@ The synthetic generator includes **48 predefined spectral components** with band
 | `amino_acid` | Free amino acids | 1520, 2040, 2260 | [3] pp. 215-220 |
 | `casein` | Milk protein | 1510, 1680, 2050, 2180 | [4] pp. 85-88 |
 | `gluten` | Wheat protein complex | 1505, 1680, 2050, 2180, 2290 | [5] pp. 155-160 |
+| `albumin` | Globular protein (egg white, serum) | 1512, 1682, 2055, 2182 | — |
+| `collagen` | Fibrous structural protein | 1508, 1560, 2048, 2175 | — |
+| `keratin` | Structural protein (hair, nails) | 1520, 1685, 2060, 2185 | — |
+| `zein` | Corn protein (prolamin) | 1515, 1676, 2052, 2178 | — |
+| `gelatin` | Denatured collagen | 1505, 2045, 2172 | — |
+| `whey` | Milk serum proteins | 1514, 1680, 2052, 2180 | — |
 
-#### Lipids and Hydrocarbons
+#### Lipids and Hydrocarbons (15)
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
@@ -1782,8 +1789,16 @@ The synthetic generator includes **48 predefined spectral components** with band
 | `waxes` | Cuticular waxes | 1190, 1720, 2310, 2350 | [7] pp. 15-20 |
 | `aromatic` | Benzene derivatives | 1145, 1685, 2150, 2440 | [1] pp. 56-58 |
 | `alkane` | Saturated hydrocarbons | 1190, 1715, 2310, 2360 | [7] pp. 10-15 |
+| `oleic_acid` | Monounsaturated fatty acid (C18:1) | 1162, 1722, 2142, 2308 | — |
+| `linoleic_acid` | Polyunsaturated fatty acid (C18:2) | 1158, 1718, 2138, 2305 | — |
+| `linolenic_acid` | Polyunsaturated fatty acid (C18:3) | 1155, 1715, 2135, 2302 | — |
+| `palmitic_acid` | Saturated fatty acid (C16:0) | 1196, 1732, 2318, 2358 | — |
+| `stearic_acid` | Saturated fatty acid (C18:0) | 1194, 1728, 2315, 2355 | — |
+| `phospholipid` | Lecithin-like membrane lipids | 1205, 1725, 2165, 2305 | — |
+| `cholesterol` | Sterol lipid | 1390, 1708, 2298 | — |
+| `cocoa_butter` | Triglyceride mix | 1210, 1728, 2312, 2352 | — |
 
-#### Carbohydrates
+#### Carbohydrates (18)
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
@@ -1795,17 +1810,32 @@ The synthetic generator includes **48 predefined spectral components** with band
 | `lactose` | Milk sugar | 1450, 1690, 1940, 2100, 2270 | [12] |
 | `hemicellulose` | Xylan/glucomannan | 1470, 1760, 2085, 2250 | [6] pp. 300-303 |
 | `lignin` | Aromatic polymer | 1140, 1420, 1670, 2130, 2270 | [6] pp. 303-305 |
+| `cotton` | Cotton cellulose | 1200, 1494, 1780, 2100, 2280 | [6] pp. 295-298 |
 | `dietary_fiber` | Plant cell wall material | 1490, 1770, 2090, 2275, 2340 | [6], [5] |
+| `maltose` | Malt sugar (glucose disaccharide) | 1445, 1688, 2078, 2268 | — |
+| `raffinose` | Trisaccharide | 1448, 1692, 2082, 2272 | — |
+| `inulin` | Fructose polymer | 1432, 1698, 2068, 2258 | — |
+| `xylose` | Pentose monosaccharide | 1438, 1686, 2072, 2262 | — |
+| `arabinose` | Pentose monosaccharide | 1442, 1684, 2076, 2266 | — |
+| `galactose` | Hexose monosaccharide | 1442, 1692, 2082, 2272 | — |
+| `mannose` | Hexose monosaccharide | 1444, 1688, 2078, 2268 | — |
+| `trehalose` | Non-reducing disaccharide | 1440, 1686, 2076, 2266 | — |
 
-#### Alcohols and Polyols
+#### Alcohols and Polyols (9)
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
 | `ethanol` | C₂H₅OH | 1410, 1580, 1695, 2050, 2290 | [1] pp. 38-40 |
 | `methanol` | CH₃OH | 1400, 1545, 1705, 2040 | [1] pp. 38-40 |
 | `glycerol` | Polyol (fermentation) | 1450, 1580, 1700, 2060, 2280 | [11] |
+| `propanol` | Propyl alcohol | 1415, 1575, 1698, 2055 | — |
+| `butanol` | Butyl alcohol | 1418, 1572, 1702, 2058 | — |
+| `sorbitol` | Sugar alcohol | 1445, 1585, 1695, 2065 | — |
+| `mannitol` | Sugar alcohol | 1448, 1582, 1698, 2068 | — |
+| `xylitol` | Sugar alcohol | 1442, 1578, 1692, 2062 | — |
+| `isopropanol` | Isopropyl alcohol | 1412, 1568, 1690, 2048 | — |
 
-#### Organic Acids
+#### Organic Acids (12)
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
@@ -1814,52 +1844,86 @@ The synthetic generator includes **48 predefined spectral components** with band
 | `lactic_acid` | CH₃CH(OH)COOH | 1430, 1485, 1700, 2020, 2255 | [9] pp. 1128-1130 |
 | `malic_acid` | Fruit acid (apples) | 1440, 1920, 2050, 2255 | [4] pp. 78-80 |
 | `tartaric_acid` | Grape/wine acid | 1435, 1910, 2040, 2260 | [11] |
+| `formic_acid` | HCOOH | 1425, 1695, 1935 | — |
+| `oxalic_acid` | (COOH)₂ | 1435, 1705, 1945 | — |
+| `succinic_acid` | Dicarboxylic acid | 1432, 1705, 1942, 2245 | — |
+| `fumaric_acid` | Unsaturated dicarboxylic | 1428, 1700, 1938, 2135 | — |
+| `propionic_acid` | CH₃CH₂COOH | 1422, 1698, 1938, 2242 | — |
+| `butyric_acid` | Short-chain fatty acid | 1420, 1702, 1940, 2248 | — |
+| `ascorbic_acid` | Vitamin C | 1445, 1565, 1918, 2062 | — |
 
-#### Plant Pigments and Phenolics
+#### Plant Pigments and Phenolics (8)
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
 | `chlorophyll` | Chlorophyll a/b | 1070, 1400, 1730, 2270 | [2] pp. 375-378 |
 | `carotenoid` | β-carotene, xanthophylls | 1050, 1680, 2135, 2280 | [2] pp. 378-380 |
 | `tannins` | Phenolic compounds | 1420, 1670, 2056, 2270 | [6], [11] |
+| `anthocyanin` | Red-purple plant pigment | 1040, 1425, 1672, 2055 | — |
+| `lycopene` | Red carotenoid (tomatoes) | 1055, 1685, 2138, 2282 | — |
+| `lutein` | Yellow carotenoid | 1048, 1415, 1678, 2132 | — |
+| `xanthophyll` | General yellow pigments | 1052, 1418, 1682, 2135 | — |
+| `melanin` | Brown-black pigment | 1100, 1510, 1680, 2055 | — |
 
-#### Pharmaceutical Compounds
+#### Pharmaceutical Compounds (10)
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
 | `caffeine` | C₈H₁₀N₄O₂ | 1130, 1665, 1695, 2010, 2280 | [9] pp. 1130-1132 |
 | `aspirin` | Acetylsalicylic acid | 1145, 1435, 1680, 2020, 2140 | [9] pp. 1125-1128 |
 | `paracetamol` | Acetaminophen | 1140, 1390, 1510, 1670, 2055, 2260 | [9] pp. 1132-1135 |
+| `ibuprofen` | Anti-inflammatory drug | 1148, 1432, 1682, 1722, 2025 | — |
+| `naproxen` | NSAID drug | 1145, 1430, 1678, 2028, 2140 | — |
+| `diclofenac` | NSAID drug | 1142, 1505, 1675, 2032 | — |
+| `metformin` | Diabetes drug | 1485, 1545, 2045, 2168 | — |
+| `omeprazole` | Proton pump inhibitor | 1148, 1498, 1672, 2038 | — |
+| `amoxicillin` | Antibiotic | 1148, 1390, 1512, 1675, 2050 | — |
+| `microcrystalline_cellulose` | Pharmaceutical excipient | 1492, 1782, 2092, 2282 | — |
 
-#### Fibers and Textiles
+#### Fibers and Textiles (2)
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
-| `cotton` | Cotton cellulose | 1200, 1494, 1780, 2100, 2280, 2345 | [6] pp. 295-298 |
 | `polyester` | PET fiber | 1140, 1660, 1720, 2015, 2130, 2255 | [1] pp. 60-62 |
+| `nylon` | Polyamide fiber | 1500, 1720, 2050, 2295 | [1] pp. 60-62 |
 
-#### Polymers and Plastics
+#### Polymers and Plastics (10)
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
 | `polyethylene` | HDPE/LDPE plastic | 1190, 1720, 2310, 2355 | [15] |
 | `polystyrene` | Aromatic polymer | 1145, 1680, 1720, 2170, 2300 | [15] |
 | `natural_rubber` | cis-1,4-polyisoprene | 1160, 1720, 2130, 2250, 2350 | [15] |
-| `nylon` | Polyamide fiber | 1500, 1720, 2050, 2295 | [1] pp. 60-62 |
+| `pmma` | Polymethyl methacrylate (acrylic) | 1190, 1718, 2015, 2298 | — |
+| `pvc` | Polyvinyl chloride | 1188, 1715, 2295 | — |
+| `polypropylene` | PP plastic | 1185, 1392, 1718, 2305, 2348 | — |
+| `pet` | Polyethylene terephthalate | 1138, 1658, 1722, 2018, 2132 | — |
+| `ptfe` | Polytetrafluoroethylene (Teflon) | 2180, 2365 | — |
+| `abs` | Acrylonitrile butadiene styrene | 1145, 1158, 1682, 1718, 2172 | — |
 
-#### Solvents
+#### Solvents (6)
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
 | `acetone` | Ketone (propan-2-one) | 1690, 1710, 2100, 2300 | [1] pp. 42-44 |
+| `dmso` | Dimethyl sulfoxide | 1700, 2020, 2290 | — |
+| `ethyl_acetate` | Ester solvent | 1695, 1720, 2010, 2285 | — |
+| `toluene` | Aromatic solvent | 1142, 1678, 1705, 2145 | — |
+| `chloroform` | Halogenated solvent | 1695, 2250 | — |
+| `hexane` | Alkane solvent | 1192, 1718, 2308, 2358 | — |
 
-#### Soil Minerals
+#### Soil Minerals (8)
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
 | `carbonates` | CaCO₃, MgCO₃ (calcite) | 2330, 2525 | [13] |
 | `gypsum` | CaSO₄·2H₂O | 1740, 1900, 2200 | [13] |
 | `kaolinite` | Clay mineral | 1400, 2160, 2200 | [13] |
+| `montmorillonite` | Smectite clay | 1410, 1910, 2210 | — |
+| `illite` | Mica-like clay | 1405, 2205, 2345 | — |
+| `goethite` | Iron oxyhydroxide | 1420, 1920, 2260 | — |
+| `talc` | Magnesium silicate | 1395, 2315, 2390 | — |
+| `silica` | Silicon dioxide | 1380, 1900, 2220 | — |
 
 ### Component Correlation Groups
 
@@ -1868,25 +1932,25 @@ Components within the same correlation group can be configured to have correlate
 | Group | Components | Application Domain |
 |-------|------------|-----------|
 | 1 | water, moisture | Moisture analysis |
-| 2 | protein, nitrogen_compound, urea, amino_acid, casein, gluten | Nitrogen/protein analysis |
-| 3 | lipid, oil, saturated_fat, unsaturated_fat, waxes | Fat/oil analysis |
-| 4 | starch, cellulose, glucose, fructose, sucrose, hemicellulose, lactose, dietary_fiber, cotton | Carbohydrate analysis |
-| 5 | chlorophyll, carotenoid, lignin, tannins | Plant constituents |
+| 2 | protein, nitrogen_compound, urea, amino_acid, casein, gluten, albumin, collagen, keratin, zein, gelatin, whey | Nitrogen/protein analysis |
+| 3 | lipid, oil, saturated_fat, unsaturated_fat, waxes, oleic_acid, linoleic_acid, linolenic_acid, palmitic_acid, stearic_acid, phospholipid, cholesterol, cocoa_butter | Fat/oil analysis |
+| 4 | starch, cellulose, glucose, fructose, sucrose, hemicellulose, lactose, dietary_fiber, cotton, maltose, raffinose, inulin, xylose, arabinose, galactose, mannose, trehalose, microcrystalline_cellulose | Carbohydrate analysis |
+| 5 | chlorophyll, carotenoid, lignin, tannins, anthocyanin, lycopene, lutein, xanthophyll, melanin | Plant constituents |
 | 6 | aromatic, alkane | Petrochemical |
-| 7 | ethanol, methanol, glycerol | Alcohols/polyols |
-| 8 | acetic_acid, citric_acid, lactic_acid, malic_acid, tartaric_acid | Organic acids |
-| 9 | caffeine, aspirin, paracetamol | Pharmaceuticals |
+| 7 | ethanol, methanol, glycerol, propanol, butanol, sorbitol, mannitol, xylitol, isopropanol | Alcohols/polyols |
+| 8 | acetic_acid, citric_acid, lactic_acid, malic_acid, tartaric_acid, formic_acid, oxalic_acid, succinic_acid, fumaric_acid, propionic_acid, butyric_acid, ascorbic_acid | Organic acids |
+| 9 | caffeine, aspirin, paracetamol, ibuprofen, naproxen, diclofenac, metformin, omeprazole, amoxicillin | Pharmaceuticals |
 | 10 | polyester | Synthetic fibers |
-| 11 | polyethylene, polystyrene, natural_rubber, nylon | Polymers |
-| 12 | acetone | Solvents |
-| 13 | carbonates, gypsum, kaolinite | Soil minerals |
+| 11 | polyethylene, polystyrene, natural_rubber, nylon, pmma, pvc, polypropylene, pet, ptfe, abs | Polymers |
+| 12 | acetone, dmso, ethyl_acetate, toluene, chloroform, hexane | Solvents |
+| 13 | carbonates, gypsum, kaolinite, montmorillonite, illite, goethite, talc, silica | Soil minerals |
 
 ### Usage Example
 
 ```python
 from nirs4all.data.synthetic import ComponentLibrary
 
-# List all available components (48 total)
+# List all available components (111 total)
 library = ComponentLibrary.from_predefined()
 print(f"Available components: {library.component_names}")
 
@@ -1897,23 +1961,31 @@ agri_library = ComponentLibrary.from_predefined([
 
 # Create library with dairy components
 dairy_library = ComponentLibrary.from_predefined([
-    "water", "lactose", "casein", "lipid"
+    "water", "lactose", "casein", "lipid", "whey"
 ])
 
 # Create library with wine/beverage components
 wine_library = ComponentLibrary.from_predefined([
     "water", "ethanol", "glycerol", "glucose", "fructose",
-    "malic_acid", "tartaric_acid", "tannins"
+    "malic_acid", "tartaric_acid", "tannins", "anthocyanin"
 ])
 
 # Create library with soil analysis components
 soil_library = ComponentLibrary.from_predefined([
-    "water", "carbonates", "gypsum", "kaolinite", "cellulose", "lignin"
+    "water", "carbonates", "gypsum", "kaolinite", "montmorillonite",
+    "cellulose", "lignin", "goethite"
 ])
 
 # Create library with polymer/plastic components
 polymer_library = ComponentLibrary.from_predefined([
-    "polyethylene", "polystyrene", "nylon", "polyester"
+    "polyethylene", "polystyrene", "nylon", "polyester",
+    "pmma", "pvc", "polypropylene", "pet", "abs"
+])
+
+# Create library with pharmaceutical components
+pharma_library = ComponentLibrary.from_predefined([
+    "ibuprofen", "microcrystalline_cellulose", "starch",
+    "water", "paracetamol", "aspirin"
 ])
 ```
 

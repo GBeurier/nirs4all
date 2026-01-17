@@ -107,24 +107,43 @@ def get_predefined_components() -> "Dict[str, SpectralComponent]":
     - **Gamma**: Lorentzian width contribution (pressure/collision broadening)
     - **Amplitude**: Relative absorption intensity (normalized within component)
 
-    Available Components:
-        Water-related:
+    Available Components (111 total):
+        Water-related (2):
             - ``water``: H₂O fundamental O-H vibrations [1, pp. 34-36]
             - ``moisture``: Bound water in organic matrices [2, pp. 358-362]
 
-        Proteins and Nitrogen:
+        Proteins and Nitrogen (12):
             - ``protein``: General protein (amide, N-H, C-H) [1, pp. 48-52]
             - ``nitrogen_compound``: Primary/secondary amines [1, pp. 52-54]
             - ``urea``: CO(NH₂)₂ bands [9, p. 1125]
             - ``amino_acid``: Free amino acids [3, pp. 215-220]
+            - ``casein``: Milk protein [4, pp. 85-88]
+            - ``gluten``: Wheat protein complex [5, pp. 155-160]
+            - ``albumin``: Globular protein (egg white, serum)
+            - ``collagen``: Fibrous structural protein
+            - ``keratin``: Structural protein (hair, nails)
+            - ``zein``: Corn protein (prolamin)
+            - ``gelatin``: Denatured collagen
+            - ``whey``: Milk serum proteins
 
-        Lipids and Hydrocarbons:
+        Lipids and Hydrocarbons (15):
             - ``lipid``: Triglycerides (C-H stretching) [1, pp. 44-48]
             - ``oil``: Vegetable/mineral oils [4, pp. 67-72]
             - ``saturated_fat``: Saturated fatty acids [7, pp. 15-20]
             - ``unsaturated_fat``: Mono/polyunsaturated fats [7, pp. 20-25]
+            - ``aromatic``: Benzene derivatives [1, pp. 56-58]
+            - ``alkane``: Saturated hydrocarbons [7, pp. 10-15]
+            - ``waxes``: Cuticular waxes [7, pp. 15-20]
+            - ``oleic_acid``: Monounsaturated fatty acid (C18:1)
+            - ``linoleic_acid``: Polyunsaturated fatty acid (C18:2)
+            - ``linolenic_acid``: Polyunsaturated fatty acid (C18:3)
+            - ``palmitic_acid``: Saturated fatty acid (C16:0)
+            - ``stearic_acid``: Saturated fatty acid (C18:0)
+            - ``phospholipid``: Lecithin-like membrane lipids
+            - ``cholesterol``: Sterol lipid
+            - ``cocoa_butter``: Triglyceride mix
 
-        Carbohydrates:
+        Carbohydrates (18):
             - ``starch``: Amylose/amylopectin [5, pp. 155-160]
             - ``cellulose``: β-1,4-glucan chains [6, pp. 295-300]
             - ``glucose``: D-glucose monosaccharide [2, pp. 368-370]
@@ -132,63 +151,97 @@ def get_predefined_components() -> "Dict[str, SpectralComponent]":
             - ``sucrose``: Disaccharide [2, pp. 370-372]
             - ``hemicellulose``: Xylan/glucomannan [6, pp. 300-303]
             - ``lignin``: Aromatic polymer [6, pp. 303-305]
+            - ``lactose``: Milk sugar [12], [4, pp. 85-88]
+            - ``cotton``: Cotton cellulose [6, pp. 295-298]
+            - ``dietary_fiber``: Plant cell wall [6], [5]
+            - ``maltose``: Malt sugar (glucose-glucose disaccharide)
+            - ``raffinose``: Trisaccharide (galactose-glucose-fructose)
+            - ``inulin``: Fructose polymer (dietary fiber)
+            - ``xylose``: Pentose monosaccharide
+            - ``arabinose``: Pentose monosaccharide
+            - ``galactose``: Hexose monosaccharide
+            - ``mannose``: Hexose monosaccharide
+            - ``trehalose``: Non-reducing disaccharide
 
-        Alcohols:
+        Alcohols and Polyols (9):
             - ``ethanol``: C₂H₅OH [1, pp. 38-40]
             - ``methanol``: CH₃OH [1, pp. 38-40]
+            - ``glycerol``: Polyol from fermentation [11]
+            - ``propanol``: Propyl alcohol
+            - ``butanol``: Butyl alcohol
+            - ``sorbitol``: Sugar alcohol
+            - ``mannitol``: Sugar alcohol
+            - ``xylitol``: Sugar alcohol
+            - ``isopropanol``: Isopropyl alcohol
 
-        Organic Acids:
+        Organic Acids (12):
             - ``acetic_acid``: CH₃COOH [8, pp. 8-10]
             - ``citric_acid``: C₆H₈O₇ [4, pp. 78-80]
             - ``lactic_acid``: CH₃CH(OH)COOH [9, pp. 1128-1130]
+            - ``malic_acid``: Fruit acid [4, pp. 78-80]
+            - ``tartaric_acid``: Grape/wine acid [11]
+            - ``formic_acid``: HCOOH
+            - ``oxalic_acid``: (COOH)₂
+            - ``succinic_acid``: Dicarboxylic acid
+            - ``fumaric_acid``: Unsaturated dicarboxylic acid
+            - ``propionic_acid``: CH₃CH₂COOH
+            - ``butyric_acid``: Short-chain fatty acid
+            - ``ascorbic_acid``: Vitamin C
 
-        Plant Pigments:
+        Plant Pigments and Phenolics (8):
             - ``chlorophyll``: Chlorophyll a/b [2, pp. 375-378]
             - ``carotenoid``: β-carotene, xanthophylls [2, pp. 378-380]
+            - ``tannins``: Phenolic compounds [6], [11]
+            - ``anthocyanin``: Red-purple plant pigment
+            - ``lycopene``: Red carotenoid (tomatoes)
+            - ``lutein``: Yellow carotenoid (xanthophyll)
+            - ``xanthophyll``: General yellow pigments
+            - ``melanin``: Brown-black pigment
 
-        Pharmaceutical:
+        Pharmaceutical (10):
             - ``caffeine``: C₈H₁₀N₄O₂ [9, pp. 1130-1132]
             - ``aspirin``: Acetylsalicylic acid [9, pp. 1125-1128]
             - ``paracetamol``: Acetaminophen [9, pp. 1132-1135]
+            - ``ibuprofen``: Anti-inflammatory drug
+            - ``naproxen``: NSAID drug
+            - ``diclofenac``: NSAID drug
+            - ``metformin``: Diabetes drug
+            - ``omeprazole``: Proton pump inhibitor
+            - ``amoxicillin``: Antibiotic
+            - ``microcrystalline_cellulose``: Pharmaceutical excipient
 
-        Petrochemical:
-            - ``aromatic``: Benzene derivatives [1, pp. 56-58]
-            - ``alkane``: Saturated hydrocarbons [7, pp. 10-15]
-
-        Fibers:
-            - ``cotton``: Cotton cellulose [6, pp. 295-298]
+        Fibers and Textiles (2):
             - ``polyester``: PET fiber [1, pp. 60-62]
+            - ``nylon``: Polyamide fiber [1, pp. 60-62]
 
-        Polymers and Plastics:
+        Polymers and Plastics (10):
             - ``polyethylene``: HDPE/LDPE plastic [15], [1, pp. 58-60]
             - ``polystyrene``: Aromatic polymer [15], [1, pp. 56-58]
             - ``natural_rubber``: cis-1,4-polyisoprene [15]
-            - ``nylon``: Polyamide fiber [1, pp. 60-62]
+            - ``pmma``: Polymethyl methacrylate (acrylic)
+            - ``pvc``: Polyvinyl chloride
+            - ``polypropylene``: PP plastic
+            - ``pet``: Polyethylene terephthalate
+            - ``ptfe``: Polytetrafluoroethylene (Teflon)
+            - ``abs``: Acrylonitrile butadiene styrene
 
-        Dairy:
-            - ``lactose``: Milk sugar [12], [4, pp. 85-88]
-            - ``casein``: Milk protein [4, pp. 85-88]
-
-        Solvents:
+        Solvents (6):
             - ``acetone``: Ketone solvent [1, pp. 42-44]
+            - ``dmso``: Dimethyl sulfoxide
+            - ``ethyl_acetate``: Ester solvent
+            - ``toluene``: Aromatic solvent
+            - ``chloroform``: Halogenated solvent
+            - ``hexane``: Alkane solvent
 
-        Plant Phenolics:
-            - ``tannins``: Phenolic compounds [6], [11]
-            - ``waxes``: Cuticular waxes [7, pp. 15-20]
-
-        Fermentation/Beverages:
-            - ``glycerol``: Polyol from fermentation [11]
-            - ``malic_acid``: Fruit acid [4, pp. 78-80]
-            - ``tartaric_acid``: Grape/wine acid [11]
-
-        Soil Minerals:
+        Soil Minerals (8):
             - ``carbonates``: CaCO₃, MgCO₃ [13]
             - ``gypsum``: CaSO₄·2H₂O [13]
             - ``kaolinite``: Clay mineral [13]
-
-        Agricultural:
-            - ``gluten``: Wheat protein [5, pp. 155-160]
-            - ``dietary_fiber``: Plant cell wall [6], [5]
+            - ``montmorillonite``: Smectite clay
+            - ``illite``: Mica-like clay
+            - ``goethite``: Iron oxyhydroxide
+            - ``talc``: Magnesium silicate
+            - ``silica``: Silicon dioxide
 
     Returns:
         Dictionary mapping component names to SpectralComponent objects.
