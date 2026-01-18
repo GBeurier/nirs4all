@@ -77,6 +77,26 @@ Primary References:
     [15] Lachenal, G. (1995). Polymer Applications. In H. W. Siesler & K. Holland-Moritz
          (Eds.), Infrared and Raman Spectroscopy of Polymers. Marcel Dekker.
          - Polymer (PE, PS, rubber) NIR band assignments
+
+    [16] Okparanma, R. N., & Mouazen, A. M. (2013). Visible and Near-Infrared
+         Spectroscopy Analysis of a Polycyclic Aromatic Hydrocarbon in Soils.
+         The Scientific World Journal, 2013, 160360. DOI: 10.1155/2013/160360
+         - PAH detection wavelengths: 1647, 1712, 1759 nm
+
+    [17] Aske, N., Kallevik, H., & Sjöblom, J. (2001). Determination of Saturate,
+         Aromatic, Resin, and Asphaltenic (SARA) Components in Crude Oils by
+         Near Infrared Spectroscopy. Energy & Fuels, 15(5), 1304-1312.
+         - Crude oil NIR characterization
+
+    [18] Chung, H., & Ku, M. S. (2000). Comparison of Near-Infrared, Infrared,
+         and Raman Spectroscopy for the Analysis of Heavy Petroleum Products.
+         Applied Spectroscopy, 54(2), 239-245.
+         - Heavy petroleum NIR bands
+
+    [19] Felício, C. C., et al. (2021). Application of Near Infrared Spectroscopy
+         in Sub-Surface Monitoring of Petroleum Contaminants. Soil and Sediment
+         Contamination, 32(5), 587-607. DOI: 10.1080/15320383.2022.2095978
+         - TPH bands: 1675, 1712, 2207 nm
 """
 
 from __future__ import annotations
@@ -107,7 +127,7 @@ def get_predefined_components() -> "Dict[str, SpectralComponent]":
     - **Gamma**: Lorentzian width contribution (pressure/collision broadening)
     - **Amplitude**: Relative absorption intensity (normalized within component)
 
-    Available Components (121 total):
+    Available Components (126 total):
         Water-related (2):
             - ``water``: H₂O fundamental O-H vibrations [1, pp. 34-36]
             - ``moisture``: Bound water in organic matrices [2, pp. 358-362]
@@ -126,7 +146,7 @@ def get_predefined_components() -> "Dict[str, SpectralComponent]":
             - ``gelatin``: Denatured collagen
             - ``whey``: Milk serum proteins
 
-        Lipids and Hydrocarbons (15):
+        Lipids and Hydrocarbons (20):
             - ``lipid``: Triglycerides (C-H stretching) [1, pp. 44-48]
             - ``oil``: Vegetable/mineral oils [4, pp. 67-72]
             - ``saturated_fat``: Saturated fatty acids [7, pp. 15-20]
@@ -134,6 +154,11 @@ def get_predefined_components() -> "Dict[str, SpectralComponent]":
             - ``aromatic``: Benzene derivatives [1, pp. 56-58]
             - ``alkane``: Saturated hydrocarbons [7, pp. 10-15]
             - ``waxes``: Cuticular waxes [7, pp. 15-20]
+            - ``crude_oil``: Petroleum crude oil [17], [18]
+            - ``diesel``: Diesel fuel [19]
+            - ``gasoline``: Gasoline/petrol [17]
+            - ``kerosene``: Kerosene/jet fuel [17], [18]
+            - ``pah``: Polycyclic aromatic hydrocarbons [16]
             - ``oleic_acid``: Monounsaturated fatty acid (C18:1)
             - ``linoleic_acid``: Polyunsaturated fatty acid (C18:2)
             - ``linolenic_acid``: Polyunsaturated fatty acid (C18:3)
@@ -1298,6 +1323,169 @@ def get_predefined_components() -> "Dict[str, SpectralComponent]":
                 correlation_group=3,
             ),
             # ================================================================
+            # PETROLEUM AND HYDROCARBONS
+            # ================================================================
+            # Crude oil: Complex mixture of hydrocarbons from petroleum
+            # Refs: [17], [18], [19]
+            # Key bands: ArCH (PAH) at 1647nm, CH2/CH3 at 1712/1759nm, diagnostic at 2310nm
+            "crude_oil": SpectralComponent(
+                name="crude_oil",
+                bands=[
+                    # Aromatic C-H 2nd overtone (PAH content)
+                    # Ref: [17], [18]
+                    NIRBand(center=1145, sigma=16, gamma=2, amplitude=0.30, name="Ar C-H 2nd overtone"),
+                    # Aromatic C-H 1st overtone (ArCH linked to PAH)
+                    # Ref: [16] - key PAH marker at 1647nm
+                    NIRBand(center=1647, sigma=20, gamma=2.5, amplitude=0.55, name="Ar C-H 1st overtone"),
+                    # CH2/CH3 1st overtone (aliphatic hydrocarbons)
+                    # Ref: [19] - TPH marker at 1712nm
+                    NIRBand(center=1712, sigma=22, gamma=2.5, amplitude=0.75, name="CH2/CH3 1st overtone"),
+                    # CH2 1st overtone (saturated chains)
+                    # Ref: [16], [19]
+                    NIRBand(center=1759, sigma=20, gamma=2, amplitude=0.65, name="CH2 1st overtone"),
+                    # C=O stretch + bend combination (asphaltenes)
+                    # Ref: [19]
+                    NIRBand(center=2207, sigma=25, gamma=3, amplitude=0.40, name="C=O combination"),
+                    # CH2 combination (diagnostic petroleum band)
+                    # Ref: [16], [19]
+                    NIRBand(center=2310, sigma=22, gamma=2.5, amplitude=1.0, name="CH2 combination"),
+                    # CH3 combination band
+                    # Ref: [18]
+                    NIRBand(center=2348, sigma=20, gamma=2, amplitude=0.70, name="CH3 combination"),
+                ],
+                correlation_group=6,
+                category="petroleum",
+                references=["Aske2001", "Chung2000", "Felicio2021"],
+                tags=["petrochemical", "petroleum", "environmental", "soil"],
+            ),
+            # Diesel: Middle distillate petroleum fuel
+            # Refs: [19], [17]
+            # Similar to crude but refined, fewer aromatics
+            "diesel": SpectralComponent(
+                name="diesel",
+                bands=[
+                    # Aromatic C-H 2nd overtone (lower aromatic content)
+                    # Ref: [17]
+                    NIRBand(center=1142, sigma=15, gamma=1.8, amplitude=0.22, name="Ar C-H 2nd overtone"),
+                    # Aromatic C-H 1st overtone
+                    # Ref: [19]
+                    NIRBand(center=1675, sigma=18, gamma=2, amplitude=0.38, name="Ar C-H 1st overtone"),
+                    # C-H 1st overtone (dominant aliphatic)
+                    # Ref: [19] - characteristic diesel band
+                    NIRBand(center=1725, sigma=24, gamma=2.5, amplitude=0.85, name="C-H 1st overtone"),
+                    # CH2 1st overtone
+                    # Ref: [19]
+                    NIRBand(center=1762, sigma=20, gamma=2, amplitude=0.72, name="CH2 1st overtone"),
+                    # CH2 combination (diagnostic)
+                    # Ref: [19]
+                    NIRBand(center=2310, sigma=20, gamma=2.5, amplitude=1.0, name="CH2 combination"),
+                    # CH3 combination
+                    # Ref: [17]
+                    NIRBand(center=2355, sigma=18, gamma=2, amplitude=0.65, name="CH3 combination"),
+                ],
+                correlation_group=6,
+                category="petroleum",
+                subcategory="fuels",
+                references=["Felicio2021", "Aske2001"],
+                tags=["petrochemical", "petroleum", "fuel", "environmental"],
+            ),
+            # Gasoline: Light petroleum distillate with high aromatic content
+            # Refs: [17], [18]
+            # Higher aromatic content, octane-related bands
+            "gasoline": SpectralComponent(
+                name="gasoline",
+                bands=[
+                    # C-H 3rd overtone region
+                    # Ref: [17]
+                    NIRBand(center=890, sigma=20, gamma=2, amplitude=0.18, name="C-H 3rd overtone"),
+                    # Aromatic C-H 2nd overtone (higher aromatic content)
+                    # Ref: [17], [18]
+                    NIRBand(center=1140, sigma=16, gamma=2, amplitude=0.35, name="Ar C-H 2nd overtone"),
+                    # C-H 2nd overtone (aliphatic)
+                    # Ref: [17]
+                    NIRBand(center=1195, sigma=18, gamma=2, amplitude=0.32, name="C-H 2nd overtone"),
+                    # Aromatic C-H 1st overtone (strong in gasoline)
+                    # Ref: [17], [18]
+                    NIRBand(center=1665, sigma=18, gamma=2, amplitude=0.58, name="Ar C-H 1st overtone"),
+                    # C-H 1st overtone (iso-octane/heptane)
+                    # Ref: [17]
+                    NIRBand(center=1720, sigma=22, gamma=2.5, amplitude=0.78, name="C-H 1st overtone"),
+                    # Aromatic combination
+                    # Ref: [18]
+                    NIRBand(center=2140, sigma=22, gamma=2, amplitude=0.45, name="Ar C-H combination"),
+                    # CH2/CH3 combination
+                    # Ref: [17]
+                    NIRBand(center=2305, sigma=20, gamma=2, amplitude=1.0, name="CH2/CH3 combination"),
+                ],
+                correlation_group=6,
+                category="petroleum",
+                subcategory="fuels",
+                synonyms=["petrol"],
+                references=["Aske2001", "Chung2000"],
+                tags=["petrochemical", "petroleum", "fuel"],
+            ),
+            # Kerosene: Middle distillate, jet fuel
+            # Refs: [17], [18]
+            # Intermediate between gasoline and diesel
+            "kerosene": SpectralComponent(
+                name="kerosene",
+                bands=[
+                    # Aromatic C-H 2nd overtone
+                    # Ref: [17]
+                    NIRBand(center=1138, sigma=15, gamma=1.8, amplitude=0.28, name="Ar C-H 2nd overtone"),
+                    # C-H 2nd overtone
+                    # Ref: [17]
+                    NIRBand(center=1190, sigma=17, gamma=2, amplitude=0.30, name="C-H 2nd overtone"),
+                    # Aromatic C-H 1st overtone
+                    # Ref: [18]
+                    NIRBand(center=1670, sigma=18, gamma=2, amplitude=0.45, name="Ar C-H 1st overtone"),
+                    # C-H 1st overtone
+                    # Ref: [17], [18]
+                    NIRBand(center=1722, sigma=23, gamma=2.5, amplitude=0.82, name="C-H 1st overtone"),
+                    # CH2 1st overtone
+                    # Ref: [18]
+                    NIRBand(center=1758, sigma=20, gamma=2, amplitude=0.68, name="CH2 1st overtone"),
+                    # CH2 combination
+                    # Ref: [17]
+                    NIRBand(center=2308, sigma=20, gamma=2, amplitude=1.0, name="CH2 combination"),
+                    # CH3 combination
+                    # Ref: [18]
+                    NIRBand(center=2352, sigma=18, gamma=2, amplitude=0.60, name="CH3 combination"),
+                ],
+                correlation_group=6,
+                category="petroleum",
+                subcategory="fuels",
+                synonyms=["jet fuel", "aviation fuel", "paraffin"],
+                references=["Aske2001", "Chung2000"],
+                tags=["petrochemical", "petroleum", "fuel", "aviation"],
+            ),
+            # PAH: Polycyclic Aromatic Hydrocarbons
+            # Refs: [16]
+            # Key environmental pollutant marker
+            "pah": SpectralComponent(
+                name="pah",
+                bands=[
+                    # Aromatic C-H 2nd overtone (condensed rings)
+                    # Ref: [16]
+                    NIRBand(center=1140, sigma=18, gamma=2, amplitude=0.40, name="Ar C-H 2nd overtone"),
+                    # Aromatic C-H 1st overtone (characteristic PAH band)
+                    # Ref: [16] - key marker at 1647nm
+                    NIRBand(center=1647, sigma=22, gamma=2.5, amplitude=1.0, name="Ar C-H 1st overtone"),
+                    # Aromatic combination band
+                    # Ref: [16]
+                    NIRBand(center=2150, sigma=25, gamma=2.5, amplitude=0.55, name="Ar C-H combination"),
+                    # Aromatic ring combination
+                    # Ref: [16]
+                    NIRBand(center=2450, sigma=28, gamma=3, amplitude=0.35, name="Ar ring combination"),
+                ],
+                correlation_group=6,
+                category="petroleum",
+                subcategory="aromatics",
+                synonyms=["polycyclic aromatic hydrocarbons", "polyaromatic hydrocarbons"],
+                references=["Okparanma2013"],
+                tags=["petrochemical", "environmental", "pollutant", "soil"],
+            ),
+            # ================================================================
             # FERMENTATION / BEVERAGES
             # ================================================================
             # Glycerol: Polyol produced during fermentation
@@ -2412,6 +2600,14 @@ _COMPONENT_METADATA = {
     "aromatic": {"category": "lipids", "subcategory": "hydrocarbons", "tags": ["chemical", "petrochemical"]},
     "alkane": {"category": "lipids", "subcategory": "hydrocarbons", "tags": ["chemical", "petrochemical"]},
     "waxes": {"category": "lipids", "subcategory": "waxes", "tags": ["agriculture", "cosmetics"]},
+
+    # Petroleum and hydrocarbons
+    "crude_oil": {"category": "petroleum", "synonyms": ["petroleum", "crude petroleum"], "tags": ["petrochemical", "petroleum", "environmental", "soil"]},
+    "diesel": {"category": "petroleum", "subcategory": "fuels", "synonyms": ["diesel fuel", "diesel oil", "DERV"], "tags": ["petrochemical", "petroleum", "fuel", "environmental"]},
+    "gasoline": {"category": "petroleum", "subcategory": "fuels", "synonyms": ["petrol", "motor spirit", "gas"], "tags": ["petrochemical", "petroleum", "fuel"]},
+    "kerosene": {"category": "petroleum", "subcategory": "fuels", "synonyms": ["jet fuel", "aviation fuel", "paraffin", "Jet A", "JP-8"], "tags": ["petrochemical", "petroleum", "fuel", "aviation"]},
+    "pah": {"category": "petroleum", "subcategory": "aromatics", "synonyms": ["polycyclic aromatic hydrocarbons", "polyaromatic hydrocarbons", "PAHs"], "tags": ["petrochemical", "environmental", "pollutant", "soil"]},
+
     "oleic_acid": {"category": "lipids", "subcategory": "fatty_acids", "formula": "C18H34O2", "cas_number": "112-80-1", "tags": ["food"]},
     "linoleic_acid": {"category": "lipids", "subcategory": "fatty_acids", "formula": "C18H32O2", "cas_number": "60-33-3", "tags": ["food"]},
     "linolenic_acid": {"category": "lipids", "subcategory": "fatty_acids", "formula": "C18H30O2", "cas_number": "463-40-1", "tags": ["food"]},

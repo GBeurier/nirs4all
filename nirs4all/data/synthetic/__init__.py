@@ -224,6 +224,27 @@ from ._aggregates import (
     validate_aggregates,
 )
 
+# Band assignments dictionary (comprehensive NIR band reference)
+from ._bands import (
+    # Core dataclass
+    BandAssignment,
+    # Band dictionary
+    NIR_BANDS,
+    # API functions
+    get_band,
+    list_functional_groups,
+    list_bands,
+    get_bands_in_range,
+    get_bands_by_tag,
+    get_bands_by_overtone,
+    get_bands_by_compound,
+    generate_band_spectrum,
+    band_info,
+    list_all_tags,
+    validate_bands,
+    summary as band_summary,
+)
+
 # Product-level generation (Phase 7 - Roadmap Phase 7)
 from .products import (
     # Enums
@@ -598,6 +619,21 @@ __all__ = [
     "list_aggregate_domains",
     "list_aggregate_categories",
     "validate_aggregates",
+    # Band assignments dictionary
+    "BandAssignment",
+    "NIR_BANDS",
+    "get_band",
+    "list_functional_groups",
+    "list_bands",
+    "get_bands_in_range",
+    "get_bands_by_tag",
+    "get_bands_by_overtone",
+    "get_bands_by_compound",
+    "generate_band_spectrum",
+    "band_info",
+    "list_all_tags",
+    "validate_bands",
+    "band_summary",
     # Product-level generation (Roadmap Phase 7)
     "VariationType",
     "ComponentVariation",

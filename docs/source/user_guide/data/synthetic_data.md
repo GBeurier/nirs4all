@@ -466,7 +466,7 @@ dataset = nirs4all.generate(complexity="complex", n_samples=1000)
 
 ### Predefined Components
 
-The generator includes **111 predefined spectral components** with physically-accurate NIR band assignments based on published spectroscopy literature. Use these directly or as building blocks for custom scenarios.
+The generator includes **116 predefined spectral components** with physically-accurate NIR band assignments based on published spectroscopy literature. Use these directly or as building blocks for custom scenarios.
 
 **Water & Moisture (2):**
 | Component | Key Bands (nm) | Description |
@@ -508,6 +508,15 @@ The generator includes **111 predefined spectral components** with physically-ac
 | `"phospholipid"` | 1205, 1725, 2165, 2305 | Lecithin-like membrane lipids |
 | `"cholesterol"` | 1390, 1708, 2298 | Sterol lipid |
 | `"cocoa_butter"` | 1210, 1728, 2312, 2352 | Triglyceride mix |
+
+**Petroleum & Hydrocarbons (5):**
+| Component | Key Bands (nm) | Description |
+|-----------|----------------|-------------|
+| `"crude_oil"` | 1647, 1712, 1759, 2310, 2348 | Petroleum crude oil (TPH, PAH) |
+| `"diesel"` | 1675, 1725, 1762, 2310, 2355 | Diesel fuel |
+| `"gasoline"` | 1140, 1665, 1720, 2140, 2305 | Gasoline/petrol (high aromatics) |
+| `"kerosene"` | 1138, 1670, 1722, 1758, 2308 | Kerosene/jet fuel |
+| `"pah"` | 1140, 1647, 2150, 2450 | Polycyclic aromatic hydrocarbons |
 
 **Carbohydrates (18):**
 | Component | Key Bands (nm) | Description |
@@ -637,7 +646,7 @@ dataset = nirs4all.generate(
 # List all available components
 from nirs4all.data.synthetic import ComponentLibrary
 library = ComponentLibrary.from_predefined()
-print(library.component_names)  # All 111 component names
+print(library.component_names)  # All 116 component names
 ```
 
 ```{seealso}
