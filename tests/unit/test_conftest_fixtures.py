@@ -361,7 +361,7 @@ class TestFixtureReproducibility:
         # This test runs multiple times with the same fixture
         # The fixture should always return the same data
         X = standard_regression_dataset.x({})
-        assert X.shape == (200, 751)  # Expected shape for 1000-2500nm, step 2
+        assert X.shape == (200, 1076)  # Expected shape for 350-2500nm, step 2
 
         # Check first few values are consistent
         first_sample_sum = X[0].sum()
