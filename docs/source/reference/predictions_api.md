@@ -368,7 +368,81 @@ y_true,y_pred
 - ✅ **Flexible**: Works with aggregated and non-aggregated results
 - ✅ **Type Safe**: Properly typed with Union types
 
+## Prediction Entry Fields
+
+When you call `result.top(n)` or access `result.best`, you get prediction entries (dictionaries) containing metadata about each prediction. Here are the commonly available fields:
+
+### Core Identification Fields
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `model_name` | Custom name or auto-generated model identifier | `"PLS-10"` |
+| `model_classname` | Class name of the model | `"PLSRegression"` |
+| `dataset_name` | Name of the dataset | `"regression"` |
+| `fold_id` | Cross-validation fold identifier | `"fold_0"` |
+| `preprocessings` | Full preprocessing chain applied | `"SNV\|FirstDerivative"` |
+
+### Score Fields
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `train_score` | Score on training set (primary metric) | `0.0234` |
+| `val_score` | Score on validation set (primary metric) | `0.0312` |
+| `test_score` | Score on test set (primary metric) | `0.0298` |
+| `metric` | Name of the primary metric | `"mse"` |
+
+### Data Information Fields
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `n_samples` | Number of samples in the dataset | `100` |
+| `n_features` | Number of features after preprocessing | `256` |
+| `task_type` | Type of task | `"regression"` or `"classification"` |
+
+### Additional Metrics via `display_metrics`
+
+When using `display_metrics` parameter, additional computed metrics are added:
+
+```python
+# Request additional metrics
+for pred in result.top(n=5, display_metrics=['rmse', 'r2', 'mae']):
+    print(f"RMSE: {pred.get('rmse', 0):.4f}")
+    print(f"R²: {pred.get('r2', 0):.4f}")
+    print(f"MAE: {pred.get('mae', 0):.4f}")
+```
+
+### Example: Accessing Preprocessing Chains
+
+A common use case is analyzing which preprocessing combination works best:
+
+```python
+# Get the best prediction
+best = result.best
+
+# Access the preprocessing chain
+print(f"Best preprocessing: {best.get('preprocessings', 'N/A')}")
+print(f"Model: {best.get('model_name', 'N/A')}")
+print(f"Validation score: {best.get('val_score', 0):.6f}")
+
+# Compare top preprocessing chains
+for i, pred in enumerate(result.top(n=5, display_metrics=['rmse', 'r2']), 1):
+    preproc = pred.get('preprocessings', 'N/A')
+    rmse = pred.get('rmse', 0)
+    r2 = pred.get('r2', 0)
+    print(f"{i}. {preproc}: RMSE={rmse:.4f}, R²={r2:.4f}")
+```
+
+```{tip}
+For a comprehensive example of analyzing preprocessing chains with feature augmentation, see the
+**U02_feature_augmentation.py** example in `examples/user/03_preprocessing/`. It demonstrates:
+
+- Using feature augmentation to explore preprocessing combinations
+- Accessing the best preprocessing chain from results
+- Comparing top preprocessing variants with detailed metrics
+```
+
 ## See Also
 
 - {doc}`/reference/pipeline_syntax` - Pipeline syntax reference
 - {doc}`/user_guide/visualization/index` - Visualization and charts
+- {doc}`/examples/user/preprocessing` - Preprocessing examples including feature augmentation
