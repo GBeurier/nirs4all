@@ -6,6 +6,9 @@
 
 > [Predictions] Add datasets, summary, top 50 best scores, etc. in a sub table to allow fast browsing/loading
 
+> [Synthesis] Externalize synthesis module out of data
+
+
 **RELEASE** 0.6.2: Ready for UI
 
 
