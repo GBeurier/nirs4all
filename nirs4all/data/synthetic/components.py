@@ -739,10 +739,11 @@ def available_components() -> List[str]:
 
 def get_component(name: str) -> SpectralComponent:
     """
-    Get a single predefined component by name.
+    Get a single predefined component by name or synonym.
 
     Args:
-        name: Component name (e.g., "water", "protein", "lipid").
+        name: Component name (e.g., "water", "protein", "lipid") or synonym
+            (e.g., "amylose" for "starch").
 
     Returns:
         SpectralComponent object.
@@ -754,14 +755,28 @@ def get_component(name: str) -> SpectralComponent:
         >>> water = get_component("water")
         >>> print(water.category)
         >>> print(len(water.bands))
+        >>>
+        >>> # Using synonyms
+        >>> starch = get_component("amylose")  # Returns starch component
     """
     from ._constants import get_predefined_components
 
     components = get_predefined_components()
-    if name not in components:
-        available = available_components()
-        raise ValueError(f"Unknown component: '{name}'. Use available_components() to list options. Available: {available[:10]}...")
-    return components[name]
+
+    # Direct name match
+    if name in components:
+        return components[name]
+
+    # Check synonyms (case-insensitive)
+    name_lower = name.lower()
+    for comp_name, comp in components.items():
+        if comp.synonyms:
+            for synonym in comp.synonyms:
+                if synonym.lower() == name_lower:
+                    return comp
+
+    available = available_components()
+    raise ValueError(f"Unknown component: '{name}'. Use available_components() to list options. Available: {available[:10]}...")
 
 
 def search_components(

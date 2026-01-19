@@ -622,6 +622,7 @@ def get_predefined_components() -> "Dict[str, SpectralComponent]":
                     NIRBand(center=2270, sigma=25, gamma=2, amplitude=0.4, name="C-O+C-C stretch"),
                 ],
                 correlation_group=4,
+                synonyms=["amylose", "amylopectin", "rice_starch", "corn_starch", "potato_starch"],
             ),
             # Cellulose: β-1,4-linked glucose polymer
             # Refs: [6] pp. 295-300
