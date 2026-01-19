@@ -2775,6 +2775,9 @@ class ComponentFitter:
     (e.g., second derivative, SNV), use the `preprocessing` parameter to
     apply the same transformation to component spectra before fitting.
 
+    **Auto-detection**: Set `auto_detect_preprocessing=True` to automatically
+    detect the preprocessing type from the data (recommended for derivative data).
+
     Example:
         >>> from nirs4all.data.synthetic import ComponentFitter
         >>>
@@ -2790,6 +2793,13 @@ class ComponentFitter:
         ...     preprocessing="second_derivative",  # Components will be transformed
         ... )
         >>> result = fitter.fit(derivative_spectrum)
+        >>>
+        >>> # Auto-detect preprocessing (recommended for unknown data)
+        >>> fitter = ComponentFitter(
+        ...     wavelengths=wavelengths,
+        ...     auto_detect_preprocessing=True,  # Will detect derivative, SNV, etc.
+        ... )
+        >>> result = fitter.fit(unknown_spectrum)
 
     Attributes:
         component_names: List of component names to fit.
@@ -2797,6 +2807,8 @@ class ComponentFitter:
         fit_baseline: Whether to include polynomial baseline.
         baseline_order: Polynomial order for baseline (default 2).
         preprocessing: Preprocessing to apply to components before fitting.
+        auto_detect_preprocessing: If True, detect preprocessing from data.
+        detected_preprocessing: The detected preprocessing type (after first fit).
     """
 
     def __init__(
@@ -2806,6 +2818,7 @@ class ComponentFitter:
         fit_baseline: bool = True,
         baseline_order: int = 2,
         preprocessing: Optional[Union[str, PreprocessingType]] = None,
+        auto_detect_preprocessing: bool = False,
         sg_window_length: int = 15,
         sg_polyorder: int = 2,
     ):
@@ -2820,6 +2833,10 @@ class ComponentFitter:
             preprocessing: Preprocessing to apply to component spectra before fitting.
                 Options: "second_derivative", "first_derivative", "snv", "mean_centered",
                 or a PreprocessingType enum value. If None, no preprocessing is applied.
+            auto_detect_preprocessing: If True, automatically detect preprocessing type
+                from the data on first fit() call. This is useful for derivative data
+                where the preprocessing type is unknown. Takes precedence over
+                `preprocessing` if set.
             sg_window_length: Savitzky-Golay window length for derivative preprocessing.
             sg_polyorder: Savitzky-Golay polynomial order for derivative preprocessing.
 
@@ -2836,11 +2853,19 @@ class ComponentFitter:
             ...     wavelengths=wavelengths,
             ...     preprocessing="second_derivative",
             ... )
+            >>>
+            >>> # Auto-detect preprocessing from data
+            >>> fitter = ComponentFitter(
+            ...     wavelengths=wavelengths,
+            ...     auto_detect_preprocessing=True,
+            ... )
         """
         from .components import ComponentLibrary, available_components, get_component
 
         self.fit_baseline = fit_baseline
         self.baseline_order = baseline_order
+        self.auto_detect_preprocessing = auto_detect_preprocessing
+        self.detected_preprocessing: Optional[PreprocessingType] = None
 
         # Preprocessing configuration
         if preprocessing is not None:
@@ -2937,6 +2962,83 @@ class ComponentFitter:
 
         return preprocessed
 
+    def _detect_preprocessing_from_data(self, spectrum: np.ndarray) -> PreprocessingType:
+        """
+        Detect preprocessing type from spectral data characteristics.
+
+        Uses heuristics similar to RealDataFitter._infer_preprocessing() to detect
+        whether data has been preprocessed (derivatives, SNV, etc.).
+
+        Args:
+            spectrum: Single spectrum or batch of spectra.
+
+        Returns:
+            Detected PreprocessingType.
+        """
+        if spectrum.ndim == 1:
+            data = spectrum
+        else:
+            data = spectrum.mean(axis=0) if spectrum.shape[0] > 1 else spectrum[0]
+
+        min_val = float(np.min(data))
+        max_val = float(np.max(data))
+        mean_val = float(np.mean(data))
+        global_range = max_val - min_val
+
+        # Zero-crossing ratio (high for derivatives)
+        zero_crossings = np.sum(np.diff(np.sign(data)) != 0)
+        zero_crossing_ratio = zero_crossings / max(len(data) - 1, 1)
+
+        # Oscillation frequency from second derivative
+        if len(data) > 10:
+            second_deriv = np.diff(data, n=2)
+            sign_changes = np.sum(np.diff(np.sign(second_deriv)) != 0)
+            oscillation_freq = sign_changes / max(len(second_deriv) - 1, 1)
+        else:
+            oscillation_freq = 0.0
+
+        # Detection heuristics (similar to notebook logic)
+        # Second derivative: very small range, zero mean, high oscillation
+        if (global_range < 0.3 and abs(mean_val) < 0.05 and
+                zero_crossing_ratio > 0.15 and oscillation_freq > 0.3):
+            return PreprocessingType.SECOND_DERIVATIVE
+
+        # First derivative detection:
+        # - Bipolar values (both positive and negative)
+        # - Zero mean or near zero
+        # - Small absolute values (unlike raw absorbance which is always positive)
+        is_bipolar = min_val < 0 < max_val
+        has_significant_negative = abs(min_val) > 0.001  # Has real negative values
+        is_derivative = (
+            is_bipolar and has_significant_negative and abs(mean_val) < 0.1 and
+            (min_val < -0.5 or abs(min_val / max(max_val, 1e-10)) > 0.3)
+        )
+        if is_derivative:
+            return PreprocessingType.FIRST_DERIVATIVE
+
+        # SNV: per-sample std ~1, mean ~0
+        if spectrum.ndim > 1:
+            per_sample_stds = np.std(spectrum, axis=1)
+            mean_sample_std = np.mean(per_sample_stds)
+            std_of_stds = np.std(per_sample_stds) / max(mean_sample_std, 1e-10)
+            if 0.5 < mean_sample_std < 2.0 and std_of_stds < 0.2 and abs(mean_val) < 0.1:
+                return PreprocessingType.SNV_CORRECTED
+
+        # Mean-centered: zero mean, not oscillatory
+        if abs(mean_val) < 0.1 and zero_crossing_ratio < 0.1:
+            return PreprocessingType.MEAN_CENTERED
+
+        # Raw absorbance: positive values, typical range 0.1-3.0
+        if min_val >= 0 and 0.2 < mean_val < 3.0:
+            return PreprocessingType.RAW_ABSORBANCE
+
+        # Raw reflectance: values 0-1
+        if 0 <= min_val and max_val <= 1.2 and 0.1 < mean_val < 0.8:
+            return PreprocessingType.RAW_REFLECTANCE
+
+        # Default to raw absorbance if uncertain
+        return PreprocessingType.RAW_ABSORBANCE
+
     def _build_design_matrix(self) -> np.ndarray:
         """Build the design matrix from component spectra and baseline terms."""
         # Compute all component spectra: shape (n_components, n_wavelengths)
@@ -2999,6 +3101,16 @@ class ComponentFitter:
             >>> print(f"R² = {result.r_squared:.4f}")
             >>> print(f"Top components: {result.top_components(3)}")
         """
+        # Auto-detect preprocessing if enabled and not already set
+        if self.auto_detect_preprocessing and self.detected_preprocessing is None:
+            detected = self._detect_preprocessing_from_data(spectrum)
+            self.detected_preprocessing = detected
+            # Only apply detected preprocessing if no explicit preprocessing was set
+            if self.preprocessing is None:
+                self.preprocessing = detected
+                # Reset design matrix to rebuild with new preprocessing
+                self._design_matrix = None
+
         if self._design_matrix is None:
             self._build_design_matrix()
 
@@ -3164,6 +3276,7 @@ def fit_components(
     baseline_order: int = 2,
     method: str = "nnls",
     preprocessing: Optional[Union[str, PreprocessingType]] = None,
+    auto_detect_preprocessing: bool = False,
 ) -> ComponentFitResult:
     """
     Convenience function to fit components to a spectrum.
@@ -3177,6 +3290,9 @@ def fit_components(
         method: Fitting method ("nnls" or "lsq").
         preprocessing: Preprocessing to apply to components (e.g., "second_derivative").
             Use this when fitting preprocessed data.
+        auto_detect_preprocessing: If True, automatically detect preprocessing type
+            from the data. This is useful for derivative data where the preprocessing
+            type is unknown. Takes precedence over `preprocessing` if set.
 
     Returns:
         ComponentFitResult with fit results.
@@ -3190,6 +3306,12 @@ def fit_components(
         ...     deriv_spectrum, wavelengths, ["water", "protein"],
         ...     preprocessing="second_derivative"
         ... )
+        >>>
+        >>> # Auto-detect preprocessing (recommended for unknown data)
+        >>> result = fit_components(
+        ...     unknown_spectrum, wavelengths,
+        ...     auto_detect_preprocessing=True
+        ... )
     """
     fitter = ComponentFitter(
         component_names=component_names,
@@ -3197,5 +3319,1948 @@ def fit_components(
         fit_baseline=fit_baseline,
         baseline_order=baseline_order,
         preprocessing=preprocessing,
+        auto_detect_preprocessing=auto_detect_preprocessing,
     )
     return fitter.fit(spectrum, method=method)
+
+
+# ============================================================================
+# Optimized Component Fitting (Greedy Selection)
+# ============================================================================
+
+
+# Component category definitions for domain-aware fitting
+COMPONENT_CATEGORIES = {
+    'water_related': ['water', 'moisture'],
+    'proteins': ['protein', 'nitrogen_compound', 'urea', 'amino_acid', 'casein', 'gluten',
+                 'albumin', 'collagen', 'keratin', 'zein', 'gelatin', 'whey'],
+    'lipids': ['lipid', 'oil', 'saturated_fat', 'unsaturated_fat', 'waxes',
+               'oleic_acid', 'linoleic_acid', 'linolenic_acid', 'palmitic_acid',
+               'stearic_acid', 'phospholipid', 'cholesterol', 'cocoa_butter'],
+    'hydrocarbons': ['aromatic', 'alkane'],
+    'petroleum': ['crude_oil', 'diesel', 'gasoline', 'kerosene', 'pah', 'alkane', 'aromatic', 'oil'],
+    'carbohydrates': ['starch', 'cellulose', 'glucose', 'fructose', 'sucrose',
+                      'hemicellulose', 'lignin', 'lactose', 'cotton', 'dietary_fiber',
+                      'maltose', 'raffinose', 'inulin', 'xylose', 'arabinose',
+                      'galactose', 'mannose', 'trehalose'],
+    'alcohols': ['ethanol', 'methanol', 'glycerol', 'propanol', 'butanol',
+                 'sorbitol', 'mannitol', 'xylitol', 'isopropanol'],
+    'organic_acids': ['acetic_acid', 'citric_acid', 'lactic_acid', 'malic_acid',
+                      'tartaric_acid', 'formic_acid', 'oxalic_acid', 'succinic_acid',
+                      'fumaric_acid', 'propionic_acid', 'butyric_acid', 'ascorbic_acid'],
+    'pigments': ['chlorophyll', 'chlorophyll_a', 'chlorophyll_b', 'carotenoid',
+                 'beta_carotene', 'lycopene', 'lutein', 'anthocyanin', 'tannins'],
+    'minerals': ['carbonates', 'gypsum', 'kaolinite', 'montmorillonite', 'illite',
+                 'goethite', 'talc', 'silica'],
+    'pharmaceuticals': ['caffeine', 'aspirin', 'paracetamol', 'ibuprofen', 'naproxen',
+                        'diclofenac', 'metformin', 'omeprazole', 'amoxicillin',
+                        'microcrystalline_cellulose', 'starch', 'cellulose', 'lactose'],
+    'organic_matter': ['lignin', 'cellulose', 'hemicellulose', 'protein', 'lipid'],
+    'polymers': ['polyethylene', 'polystyrene', 'polypropylene', 'pvc', 'pet',
+                 'polyester', 'nylon', 'pmma', 'ptfe', 'abs', 'natural_rubber'],
+}
+
+# Components that can cause overfitting (biological pigments in non-bio samples)
+EXCLUDED_COMPONENTS = {
+    'cytochrome_c', 'myoglobin', 'hemoglobin_oxy', 'hemoglobin_deoxy',
+    'bilirubin', 'melanin', 'pah'
+}
+
+# Universal components that can appear in most samples
+UNIVERSAL_COMPONENTS = {'water', 'moisture'}
+
+
+@dataclass
+class OptimizedFitResult:
+    """
+    Result from optimized greedy component fitting.
+
+    Attributes:
+        component_names: Names of selected components (in order of selection).
+        concentrations: Fitted concentrations for each component.
+        baseline_coefficients: Polynomial baseline coefficients.
+        fitted_spectrum: Reconstructed spectrum from fit.
+        residuals: Fit residuals.
+        r_squared: Coefficient of determination.
+        rmse: Root mean squared error.
+        n_components: Number of components selected.
+        n_priority_components: Number of components from priority categories.
+        baseline_r_squared: R² from baseline-only fit (for comparison).
+        wavelengths: Wavelength grid used for fitting.
+    """
+    component_names: List[str]
+    concentrations: np.ndarray
+    baseline_coefficients: Optional[np.ndarray]
+    fitted_spectrum: np.ndarray
+    residuals: np.ndarray
+    r_squared: float
+    rmse: float
+    n_components: int
+    n_priority_components: int
+    baseline_r_squared: float
+    wavelengths: np.ndarray
+
+    def top_components(
+        self,
+        n: int = 5,
+        threshold: float = 0.001,
+    ) -> List[Tuple[str, float]]:
+        """Get top components by concentration."""
+        if len(self.component_names) == 0:
+            return []
+        sorted_indices = np.argsort(-np.abs(self.concentrations))
+        result = []
+        for idx in sorted_indices[:n]:
+            if np.abs(self.concentrations[idx]) >= threshold:
+                result.append((self.component_names[idx], float(self.concentrations[idx])))
+        return result
+
+    def summary(self) -> str:
+        """Return human-readable summary."""
+        lines = [
+            "=" * 60,
+            "Optimized Component Fit Result",
+            "=" * 60,
+            f"R² = {self.r_squared:.4f} (baseline only: {self.baseline_r_squared:.4f})",
+            f"RMSE = {self.rmse:.6f}",
+            f"Components: {self.n_components} ({self.n_priority_components} from priority)",
+            "",
+            "Selected Components:",
+        ]
+        for name, conc in self.top_components(10, threshold=0.0001):
+            lines.append(f"  {name}: {conc:.4f}")
+        lines.append("=" * 60)
+        return "\n".join(lines)
+
+
+class OptimizedComponentFitter:
+    """
+    Optimize component selection using greedy search with category prioritization.
+
+    Unlike ComponentFitter which fits all components simultaneously with NNLS,
+    this class uses a greedy forward selection approach that:
+
+    1. Starts with baseline-only fit
+    2. Greedily adds components from priority categories (low threshold)
+    3. Fills remaining slots from other categories (higher threshold)
+    4. Applies swap refinement to escape local optima
+
+    This approach produces much better fits for real-world data by:
+    - Avoiding overfitting to spurious components
+    - Respecting domain knowledge (e.g., protein for dairy, starch for grains)
+    - Allowing both positive and negative coefficients (OLS, not NNLS)
+
+    Example:
+        >>> from nirs4all.data.synthetic import OptimizedComponentFitter
+        >>>
+        >>> # Create fitter for grain analysis
+        >>> fitter = OptimizedComponentFitter(
+        ...     wavelengths=wavelengths,
+        ...     priority_categories=['carbohydrates', 'proteins', 'water_related'],
+        ...     max_components=10,
+        ... )
+        >>> result = fitter.fit(spectrum)
+        >>> print(result.summary())
+
+    Attributes:
+        wavelengths: Wavelength grid for fitting.
+        priority_categories: Categories to prioritize in component selection.
+        max_components: Maximum number of components to select.
+        baseline_order: Polynomial order for baseline (default 4).
+        preprocessing: Preprocessing to apply to components.
+        auto_detect_preprocessing: Auto-detect preprocessing from data.
+    """
+
+    def __init__(
+        self,
+        wavelengths: Optional[np.ndarray] = None,
+        priority_categories: Optional[List[str]] = None,
+        max_components: int = 10,
+        baseline_order: int = 4,
+        preprocessing: Optional[Union[str, PreprocessingType]] = None,
+        auto_detect_preprocessing: bool = False,
+        sg_window_length: int = 15,
+        sg_polyorder: int = 3,
+        regularization: float = 1e-6,
+        smooth_sigma_nm: float = 30.0,
+        use_nnls: bool = False,
+    ):
+        """
+        Initialize the optimized component fitter.
+
+        Args:
+            wavelengths: Wavelength grid (nm). If None, uses default NIR range.
+            priority_categories: Categories to prioritize (from COMPONENT_CATEGORIES).
+                E.g., ['carbohydrates', 'proteins'] for grain analysis.
+            max_components: Maximum components to select (default 10).
+            baseline_order: Polynomial baseline order (default 4 for Chebyshev).
+            preprocessing: Preprocessing to apply ('first_derivative', 'second_derivative', etc.).
+            auto_detect_preprocessing: Auto-detect from data if True.
+            sg_window_length: Savitzky-Golay window for derivative preprocessing.
+            sg_polyorder: Savitzky-Golay polynomial order.
+            regularization: Regularization strength for OLS (default 1e-6).
+            smooth_sigma_nm: Gaussian smoothing sigma in nm to broaden component spectra.
+                Set to 0 to disable smoothing. Default 30 nm produces broad, natural bands.
+            use_nnls: Use non-negative least squares instead of OLS. This prevents
+                negative coefficients which can cause oscillations. Default False.
+        """
+        from .components import available_components, get_component
+
+        # Preprocessing configuration
+        if preprocessing is not None and isinstance(preprocessing, str):
+            preprocessing = PreprocessingType(preprocessing)
+        self.preprocessing = preprocessing
+        self.auto_detect_preprocessing = auto_detect_preprocessing
+        self.detected_preprocessing: Optional[PreprocessingType] = None
+        self.sg_window_length = sg_window_length
+        self.sg_polyorder = sg_polyorder
+        self.smooth_sigma_nm = smooth_sigma_nm
+        self.use_nnls = use_nnls
+
+        # Set wavelengths
+        if wavelengths is None:
+            from ._constants import DEFAULT_WAVELENGTH_START, DEFAULT_WAVELENGTH_END, DEFAULT_WAVELENGTH_STEP
+            wavelengths = np.arange(DEFAULT_WAVELENGTH_START, DEFAULT_WAVELENGTH_END + DEFAULT_WAVELENGTH_STEP, DEFAULT_WAVELENGTH_STEP)
+        self.wavelengths = np.asarray(wavelengths)
+
+        self.priority_categories = priority_categories or []
+        self.max_components = max_components
+        self.baseline_order = baseline_order
+        self.regularization = regularization
+
+        # Load all available components (excluding problematic ones)
+        all_names = available_components()
+        self._all_component_names = [n for n in all_names if n not in EXCLUDED_COMPONENTS]
+
+        # Pre-compute component spectra (will be updated with preprocessing)
+        self._component_spectra: Dict[str, np.ndarray] = {}
+        self._baseline_matrix: Optional[np.ndarray] = None
+
+    def _apply_preprocessing_to_spectrum(self, spectrum: np.ndarray) -> np.ndarray:
+        """Apply preprocessing to a single spectrum."""
+        if self.preprocessing is None or self.preprocessing in (
+            PreprocessingType.RAW_ABSORBANCE, PreprocessingType.RAW_REFLECTANCE
+        ):
+            return spectrum
+
+        n_wl = len(spectrum)
+        window = min(self.sg_window_length, n_wl - 1) | 1
+
+        if self.preprocessing == PreprocessingType.SECOND_DERIVATIVE:
+            return savgol_filter(spectrum, window, min(self.sg_polyorder + 1, window - 1), deriv=2)
+        elif self.preprocessing == PreprocessingType.FIRST_DERIVATIVE:
+            return savgol_filter(spectrum, window, min(self.sg_polyorder, window - 1), deriv=1)
+        elif self.preprocessing == PreprocessingType.MEAN_CENTERED:
+            return spectrum - spectrum.mean()
+        elif self.preprocessing == PreprocessingType.SNV_CORRECTED:
+            std = spectrum.std()
+            if std < 1e-10:
+                return spectrum - spectrum.mean()
+            return (spectrum - spectrum.mean()) / std
+
+        return spectrum
+
+    def _detect_preprocessing_from_data(self, spectrum: np.ndarray) -> PreprocessingType:
+        """Detect preprocessing type from data characteristics."""
+        min_val = float(np.min(spectrum))
+        max_val = float(np.max(spectrum))
+        mean_val = float(np.mean(spectrum))
+        global_range = max_val - min_val
+
+        # Zero-crossing ratio
+        zero_crossings = np.sum(np.diff(np.sign(spectrum)) != 0)
+        zero_crossing_ratio = zero_crossings / max(len(spectrum) - 1, 1)
+
+        # Second derivative: very small range, zero mean, high oscillation
+        if global_range < 0.3 and abs(mean_val) < 0.05 and zero_crossing_ratio > 0.15:
+            return PreprocessingType.SECOND_DERIVATIVE
+
+        # First derivative: bipolar values, near-zero mean
+        is_bipolar = min_val < 0 < max_val
+        has_significant_negative = abs(min_val) > 0.001
+        if is_bipolar and has_significant_negative and abs(mean_val) < 0.1:
+            if min_val < -0.5 or abs(min_val / max(max_val, 1e-10)) > 0.3:
+                return PreprocessingType.FIRST_DERIVATIVE
+
+        # Raw absorbance: positive values, typical range
+        if min_val >= 0 and 0.2 < mean_val < 3.0:
+            return PreprocessingType.RAW_ABSORBANCE
+
+        return PreprocessingType.RAW_ABSORBANCE
+
+    def _compute_component_spectra(self) -> Dict[str, np.ndarray]:
+        """
+        Compute all component spectra with preprocessing and smoothing applied.
+
+        Applies Gaussian smoothing to broaden narrow Voigt bands, making them
+        more suitable for fitting real NIRS data which typically has broader features.
+        """
+        from .components import get_component
+        from scipy.ndimage import gaussian_filter1d
+
+        # Determine smoothing kernel size based on wavelength grid
+        wl_spacing = np.median(np.diff(self.wavelengths)) if len(self.wavelengths) > 1 else 1.0
+        smooth_sigma_pts = max(1, int(self.smooth_sigma_nm / wl_spacing)) if self.smooth_sigma_nm > 0 else 0
+
+        spectra = {}
+        for name in self._all_component_names:
+            try:
+                comp = get_component(name)
+                spec = comp.compute(self.wavelengths)
+
+                # Apply Gaussian smoothing to broaden narrow Voigt bands
+                # This makes component spectra more like real broad NIR absorption features
+                if smooth_sigma_pts > 1:
+                    spec = gaussian_filter1d(spec, sigma=smooth_sigma_pts, mode='nearest')
+
+                # Apply preprocessing (derivative, SNV, etc.)
+                spec_prep = self._apply_preprocessing_to_spectrum(spec)
+
+                if np.max(np.abs(spec_prep)) > 1e-10:
+                    spectra[name] = spec_prep
+            except (ValueError, KeyError):
+                pass
+        return spectra
+
+    def _build_baseline_matrix(self) -> np.ndarray:
+        """Build Chebyshev polynomial baseline matrix for numerical stability."""
+        wl_norm = 2 * (self.wavelengths - self.wavelengths.min()) / (self.wavelengths.max() - self.wavelengths.min()) - 1
+
+        baseline_terms = []
+        for order in range(self.baseline_order + 1):
+            if order == 0:
+                baseline_terms.append(np.ones_like(wl_norm))
+            elif order == 1:
+                baseline_terms.append(wl_norm)
+            else:
+                # Chebyshev recurrence: T_n(x) = 2x*T_{n-1}(x) - T_{n-2}(x)
+                baseline_terms.append(2 * wl_norm * baseline_terms[-1] - baseline_terms[-2])
+
+        return np.column_stack(baseline_terms)
+
+    def _fit_with_components(
+        self,
+        target: np.ndarray,
+        component_spectra: Dict[str, np.ndarray],
+        component_names: List[str],
+        baseline_matrix: np.ndarray,
+    ) -> Tuple[float, np.ndarray, np.ndarray]:
+        """
+        Fit target using OLS with baseline + selected component spectra.
+
+        Returns:
+            Tuple of (r_squared, component_quantities, baseline_coefficients)
+        """
+        valid_names = [n for n in component_names if n in component_spectra]
+
+        if not valid_names:
+            A = baseline_matrix
+        else:
+            comp_matrix = np.column_stack([component_spectra[n] for n in valid_names])
+            A = np.hstack([baseline_matrix, comp_matrix])
+
+        # Normalize columns for numerical stability
+        col_norms = np.linalg.norm(A, axis=0)
+        col_norms = np.where(col_norms < 1e-10, 1.0, col_norms)
+        A_norm = A / col_norms
+
+        n_baseline = baseline_matrix.shape[1]
+        n_comp = len(valid_names)
+
+        if self.use_nnls:
+            # Use NNLS for non-negative coefficients (prevents oscillations)
+            # For baseline, we need to allow negative, so split the problem
+            from scipy.optimize import nnls
+
+            try:
+                # First fit baseline with regular OLS
+                baseline_coeffs_norm, _ = np.linalg.lstsq(A_norm[:, :n_baseline], target, rcond=None)[:2]
+
+                # Then fit components with NNLS on residual
+                residual = target - A_norm[:, :n_baseline] @ baseline_coeffs_norm
+                if n_comp > 0:
+                    comp_coeffs_norm, _ = nnls(A_norm[:, n_baseline:], residual)
+                else:
+                    comp_coeffs_norm = np.array([])
+
+                coeffs_norm = np.concatenate([baseline_coeffs_norm, comp_coeffs_norm])
+            except Exception:
+                return 0.0, np.zeros(n_comp), np.zeros(n_baseline)
+        else:
+            # Regularized OLS (allows negative coefficients)
+            try:
+                ATA = A_norm.T @ A_norm + self.regularization * np.eye(A_norm.shape[1])
+                ATb = A_norm.T @ target
+                coeffs_norm = np.linalg.solve(ATA, ATb)
+            except np.linalg.LinAlgError:
+                return 0.0, np.zeros(n_comp), np.zeros(n_baseline)
+
+        coeffs = coeffs_norm / col_norms
+        fitted = A @ coeffs
+
+        # Compute R²
+        ss_res = np.sum((target - fitted) ** 2)
+        ss_tot = np.sum((target - np.mean(target)) ** 2)
+        r2 = 1 - (ss_res / ss_tot) if ss_tot > 1e-10 else 0.0
+        r2 = max(0.0, r2)
+
+        baseline_coeffs = coeffs[:n_baseline]
+        component_quantities = coeffs[n_baseline:] if len(coeffs) > n_baseline else np.zeros(0)
+
+        return r2, component_quantities, baseline_coeffs
+
+    def _greedy_select_from_pool(
+        self,
+        target: np.ndarray,
+        component_spectra: Dict[str, np.ndarray],
+        baseline_matrix: np.ndarray,
+        pool: List[str],
+        current_components: List[str],
+        current_r2: float,
+        max_to_add: int,
+        min_improvement: float,
+    ) -> Tuple[List[str], float, int]:
+        """
+        Greedy forward selection from a component pool.
+
+        Returns:
+            Tuple of (updated_components, new_r2, n_added)
+        """
+        remaining = [c for c in pool if c in component_spectra and c not in current_components]
+        n_added = 0
+
+        for _ in range(max_to_add):
+            if not remaining:
+                break
+
+            best_add = None
+            best_add_r2 = current_r2
+
+            for comp in remaining:
+                test_components = current_components + [comp]
+                r2, _, _ = self._fit_with_components(target, component_spectra, test_components, baseline_matrix)
+
+                if r2 > best_add_r2 + min_improvement:
+                    best_add = comp
+                    best_add_r2 = r2
+
+            if best_add is None:
+                break
+
+            current_components = current_components + [best_add]
+            remaining.remove(best_add)
+            current_r2 = best_add_r2
+            n_added += 1
+
+        return current_components, current_r2, n_added
+
+    def fit(self, spectrum: np.ndarray) -> OptimizedFitResult:
+        """
+        Fit components to a spectrum using greedy category-prioritized selection.
+
+        The algorithm:
+        1. Starts with baseline-only fit
+        2. Greedily adds components from priority categories (very low threshold: 0.0001)
+        3. Fills remaining slots from other categories (higher threshold: 0.005)
+        4. Applies swap refinement (prefers swapping in priority components)
+
+        Args:
+            spectrum: Observed spectrum, shape (n_wavelengths,).
+
+        Returns:
+            OptimizedFitResult with fit results.
+        """
+        target = np.asarray(spectrum).ravel()
+
+        if len(target) != len(self.wavelengths):
+            raise ValueError(f"Spectrum length ({len(target)}) does not match wavelengths ({len(self.wavelengths)})")
+
+        # Auto-detect preprocessing if enabled
+        if self.auto_detect_preprocessing and self.detected_preprocessing is None:
+            detected = self._detect_preprocessing_from_data(target)
+            self.detected_preprocessing = detected
+            if self.preprocessing is None:
+                self.preprocessing = detected
+
+        # Compute component spectra with preprocessing
+        component_spectra = self._compute_component_spectra()
+        baseline_matrix = self._build_baseline_matrix()
+
+        if not component_spectra:
+            # No valid components - return baseline-only fit
+            baseline_r2, _, baseline_coeffs = self._fit_with_components(
+                target, component_spectra, [], baseline_matrix
+            )
+            fitted = baseline_matrix @ baseline_coeffs
+            return OptimizedFitResult(
+                component_names=[],
+                concentrations=np.array([]),
+                baseline_coefficients=baseline_coeffs,
+                fitted_spectrum=fitted,
+                residuals=target - fitted,
+                r_squared=baseline_r2,
+                rmse=float(np.sqrt(np.mean((target - fitted) ** 2))),
+                n_components=0,
+                n_priority_components=0,
+                baseline_r_squared=baseline_r2,
+                wavelengths=self.wavelengths,
+            )
+
+        # Baseline-only R² for comparison
+        baseline_r2, _, _ = self._fit_with_components(target, component_spectra, [], baseline_matrix)
+
+        # Build priority pool from category components
+        priority_pool = []
+        for cat in self.priority_categories:
+            cat_comps = COMPONENT_CATEGORIES.get(cat, [])
+            for comp in cat_comps:
+                if comp in component_spectra and comp not in priority_pool:
+                    priority_pool.append(comp)
+
+        other_pool = [n for n in component_spectra.keys() if n not in priority_pool]
+
+        # Phase 1: Greedy selection from PRIORITY pool (LOW threshold)
+        best_components: List[str] = []
+        best_r2 = baseline_r2
+        priority_slots = min(self.max_components - 2, len(priority_pool), 8)
+
+        if priority_pool:
+            best_components, best_r2, _ = self._greedy_select_from_pool(
+                target, component_spectra, baseline_matrix,
+                priority_pool, best_components, best_r2,
+                max_to_add=priority_slots, min_improvement=0.0001  # Very low threshold
+            )
+
+        n_priority_selected = len(best_components)
+
+        # Phase 2: Fill remaining slots from OTHER pool (HIGH threshold)
+        remaining_slots = self.max_components - len(best_components)
+        if remaining_slots > 0 and other_pool:
+            best_components, best_r2, _ = self._greedy_select_from_pool(
+                target, component_spectra, baseline_matrix,
+                other_pool, best_components, best_r2,
+                max_to_add=remaining_slots, min_improvement=0.005  # Higher threshold
+            )
+
+        # Phase 3: Swap refinement (prefer priority components)
+        all_pool = priority_pool + other_pool
+        improved = True
+        n_swaps = 0
+
+        while improved and n_swaps < 15:
+            improved = False
+            for i, old_comp in enumerate(best_components):
+                for new_comp in all_pool:
+                    if new_comp in best_components:
+                        continue
+                    test_components = best_components.copy()
+                    test_components[i] = new_comp
+                    r2, _, _ = self._fit_with_components(target, component_spectra, test_components, baseline_matrix)
+
+                    # Lower threshold for priority components
+                    threshold = 0.0001 if new_comp in priority_pool else 0.005
+                    if r2 > best_r2 + threshold:
+                        best_components[i] = new_comp
+                        best_r2 = r2
+                        improved = True
+                        n_swaps += 1
+                        break
+                if improved:
+                    break
+
+        # Final fit
+        r2, quantities, baseline_coeffs = self._fit_with_components(
+            target, component_spectra, best_components, baseline_matrix
+        )
+
+        # Reconstruct fitted spectrum
+        baseline_fitted = baseline_matrix @ baseline_coeffs
+        if best_components and len(quantities) > 0:
+            valid_names = [n for n in best_components if n in component_spectra]
+            comp_matrix = np.column_stack([component_spectra[n] for n in valid_names])
+            fitted = baseline_fitted + comp_matrix @ quantities
+        else:
+            fitted = baseline_fitted
+
+        # Count priority components in final selection
+        n_priority_final = sum(1 for c in best_components if c in priority_pool)
+
+        return OptimizedFitResult(
+            component_names=best_components,
+            concentrations=quantities,
+            baseline_coefficients=baseline_coeffs,
+            fitted_spectrum=fitted,
+            residuals=target - fitted,
+            r_squared=r2,
+            rmse=float(np.sqrt(np.mean((target - fitted) ** 2))),
+            n_components=len(best_components),
+            n_priority_components=n_priority_final,
+            baseline_r_squared=baseline_r2,
+            wavelengths=self.wavelengths,
+        )
+
+
+def fit_components_optimized(
+    spectrum: np.ndarray,
+    wavelengths: np.ndarray,
+    priority_categories: Optional[List[str]] = None,
+    max_components: int = 10,
+    baseline_order: int = 4,
+    preprocessing: Optional[Union[str, PreprocessingType]] = None,
+    auto_detect_preprocessing: bool = False,
+    smooth_sigma_nm: float = 30.0,
+    use_nnls: bool = False,
+) -> OptimizedFitResult:
+    """
+    Convenience function for optimized component fitting.
+
+    Uses greedy category-prioritized selection for better fits than NNLS.
+
+    Args:
+        spectrum: Observed spectrum.
+        wavelengths: Wavelength grid.
+        priority_categories: Categories to prioritize (e.g., ['carbohydrates', 'proteins']).
+        max_components: Maximum components to select.
+        baseline_order: Polynomial baseline order.
+        preprocessing: Preprocessing type ('first_derivative', 'second_derivative', etc.).
+        auto_detect_preprocessing: Auto-detect preprocessing from data.
+        smooth_sigma_nm: Gaussian smoothing sigma in nm to broaden component spectra.
+        use_nnls: Use non-negative least squares instead of OLS.
+
+    Returns:
+        OptimizedFitResult with fit results.
+
+    Example:
+        >>> result = fit_components_optimized(
+        ...     spectrum, wavelengths,
+        ...     priority_categories=['carbohydrates', 'proteins'],
+        ...     auto_detect_preprocessing=True,
+        ... )
+        >>> print(f"R² = {result.r_squared:.4f}")
+    """
+    fitter = OptimizedComponentFitter(
+        wavelengths=wavelengths,
+        priority_categories=priority_categories,
+        max_components=max_components,
+        baseline_order=baseline_order,
+        preprocessing=preprocessing,
+        auto_detect_preprocessing=auto_detect_preprocessing,
+        smooth_sigma_nm=smooth_sigma_nm,
+        use_nnls=use_nnls,
+    )
+    return fitter.fit(spectrum)
+
+
+# ============================================================================
+# Real Band Fitting (Using NIR_BANDS dictionary)
+# ============================================================================
+
+
+@dataclass
+class RealBandFitResult:
+    """
+    Result from real band fitting using known NIR band assignments.
+
+    Attributes:
+        band_names: Names of fitted bands (e.g., "O-H/1st", "C-H/combination").
+        band_centers: Fixed center wavelengths from NIR_BANDS.
+        amplitudes: Fitted amplitudes for each band.
+        sigmas: Sigma values (within constrained ranges).
+        baseline_coefficients: Polynomial baseline coefficients.
+        fitted_spectrum: Reconstructed spectrum from fit.
+        residuals: Fit residuals.
+        r_squared: Coefficient of determination.
+        rmse: Root mean squared error.
+        n_bands: Number of bands used.
+        wavelengths: Wavelength grid used for fitting.
+        band_assignments: Original BandAssignment objects.
+    """
+    band_names: List[str]
+    band_centers: np.ndarray
+    amplitudes: np.ndarray
+    sigmas: np.ndarray
+    baseline_coefficients: np.ndarray
+    fitted_spectrum: np.ndarray
+    residuals: np.ndarray
+    r_squared: float
+    rmse: float
+    n_bands: int
+    wavelengths: np.ndarray
+    band_assignments: List[Any] = field(default_factory=list)
+
+    def top_bands(
+        self,
+        n: int = 10,
+        threshold: float = 0.001,
+    ) -> List[Tuple[str, float, float]]:
+        """Get top bands by amplitude. Returns (name, center, amplitude)."""
+        if len(self.band_names) == 0:
+            return []
+        sorted_indices = np.argsort(-np.abs(self.amplitudes))
+        result = []
+        for idx in sorted_indices[:n]:
+            if np.abs(self.amplitudes[idx]) >= threshold:
+                result.append((
+                    self.band_names[idx],
+                    float(self.band_centers[idx]),
+                    float(self.amplitudes[idx])
+                ))
+        return result
+
+    def summary(self) -> str:
+        """Return human-readable summary."""
+        lines = [
+            "=" * 60,
+            "Real Band Fit Result (NIR_BANDS dictionary)",
+            "=" * 60,
+            f"R² = {self.r_squared:.4f}",
+            f"RMSE = {self.rmse:.6f}",
+            f"Bands used: {self.n_bands}",
+            "",
+            "Top Bands:",
+        ]
+        for name, center, amp in self.top_bands(10, threshold=0.0001):
+            lines.append(f"  {center:.0f} nm: {name} (amp={amp:.4f})")
+        lines.append("=" * 60)
+        return "\n".join(lines)
+
+
+class RealBandFitter:
+    """
+    Fit spectra using REAL NIR band assignments from the _bands.py dictionary.
+
+    Unlike pure Gaussian band fitting which optimizes band centers freely,
+    this class uses:
+    - Fixed band centers from known spectroscopic literature assignments
+    - Constrained sigma values based on typical ranges for each band type
+    - Only amplitude optimization (more physically interpretable)
+
+    This provides spectroscopically meaningful decomposition that can be
+    linked back to functional groups (O-H, C-H, N-H, etc.) and overtone levels.
+
+    Example:
+        >>> from nirs4all.data.synthetic import RealBandFitter
+        >>>
+        >>> fitter = RealBandFitter(baseline_order=4, max_bands=40)
+        >>> result = fitter.fit(spectrum, wavelengths)
+        >>> print(result.summary())
+        >>>
+        >>> # See which functional groups contribute
+        >>> for name, center, amp in result.top_bands(10):
+        ...     print(f"{center:.0f} nm: {name} (amplitude={amp:.4f})")
+
+    Attributes:
+        baseline_order: Polynomial baseline order.
+        max_bands: Maximum number of bands to use.
+        target_r2: Target R² for iterative refinement.
+        allow_sigma_variation: Allow sigma to vary within literature ranges.
+        sigma_margin: How much sigma can vary from midpoint (0.3 = ±30%).
+    """
+
+    def __init__(
+        self,
+        baseline_order: int = 4,
+        max_bands: int = 50,
+        target_r2: float = 0.98,
+        allow_sigma_variation: bool = True,
+        sigma_margin: float = 0.3,
+        n_iterations: int = 3,
+    ):
+        """
+        Initialize the real band fitter.
+
+        Args:
+            baseline_order: Polynomial baseline degree (default 4).
+            max_bands: Maximum number of bands to use (default 50).
+            target_r2: Target R² for early stopping (default 0.98).
+            allow_sigma_variation: Allow sigma to vary within range (default True).
+            sigma_margin: How much sigma can vary from midpoint (default ±30%).
+            n_iterations: Number of refinement iterations (default 3).
+        """
+        self.baseline_order = baseline_order
+        self.max_bands = max_bands
+        self.target_r2 = target_r2
+        self.allow_sigma_variation = allow_sigma_variation
+        self.sigma_margin = sigma_margin
+        self.n_iterations = n_iterations
+
+    def _get_candidate_bands(self, wl_min: float, wl_max: float) -> List[Any]:
+        """Get all bands in the wavelength range from NIR_BANDS dictionary."""
+        from ._bands import get_bands_in_range
+        return get_bands_in_range(wl_min, wl_max)
+
+    def _compute_band(
+        self,
+        wl: np.ndarray,
+        center: float,
+        sigma: float,
+        amplitude: float,
+    ) -> np.ndarray:
+        """Compute Gaussian band profile."""
+        return amplitude * np.exp(-0.5 * ((wl - center) / sigma) ** 2)
+
+    def _compute_all_bands(
+        self,
+        wl: np.ndarray,
+        bands: List[Any],
+        amplitudes: np.ndarray,
+        sigmas: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Compute sum of all bands."""
+        result = np.zeros_like(wl, dtype=float)
+        for i, band in enumerate(bands):
+            if sigmas is not None:
+                sigma = sigmas[i]
+            else:
+                sigma = (band.sigma_range[0] + band.sigma_range[1]) / 2
+            result += self._compute_band(wl, band.center, sigma, amplitudes[i])
+        return result
+
+    def _build_baseline(self, wl: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
+        """Build polynomial baseline using Chebyshev polynomials."""
+        wl_norm = 2 * (wl - wl.min()) / (wl.max() - wl.min()) - 1
+
+        result = np.zeros_like(wl)
+        T_prev = np.ones_like(wl_norm)
+        T_curr = wl_norm.copy()
+
+        for i, coeff in enumerate(coeffs):
+            if i == 0:
+                result += coeff * T_prev
+            elif i == 1:
+                result += coeff * T_curr
+            else:
+                T_next = 2 * wl_norm * T_curr - T_prev
+                result += coeff * T_next
+                T_prev = T_curr
+                T_curr = T_next
+
+        return result
+
+    def fit(self, spectrum: np.ndarray, wavelengths: np.ndarray) -> RealBandFitResult:
+        """
+        Fit spectrum using real NIR band positions.
+
+        Args:
+            spectrum: Target spectrum to fit, shape (n_wavelengths,).
+            wavelengths: Wavelengths in nm, shape (n_wavelengths,).
+
+        Returns:
+            RealBandFitResult with fit results and band assignments.
+        """
+        from scipy.optimize import minimize
+
+        spectrum = np.asarray(spectrum).ravel()
+        wavelengths = np.asarray(wavelengths).ravel()
+
+        if len(spectrum) != len(wavelengths):
+            raise ValueError(f"Spectrum and wavelengths length mismatch: {len(spectrum)} vs {len(wavelengths)}")
+
+        wl = wavelengths
+        wl_min, wl_max = wl.min(), wl.max()
+        spec_range = spectrum.max() - spectrum.min()
+        spec_mean = spectrum.mean()
+        n_baseline = self.baseline_order + 1
+
+        # Get candidate bands from NIR_BANDS dictionary
+        all_bands = self._get_candidate_bands(wl_min - 50, wl_max + 50)
+
+        # Filter to bands with centers actually in range
+        candidate_bands = [b for b in all_bands if wl_min <= b.center <= wl_max]
+
+        if not candidate_bands:
+            candidate_bands = all_bands[:self.max_bands]
+
+        if not candidate_bands:
+            # No bands available - return baseline-only fit
+            wl_norm = 2 * (wl - wl.min()) / (wl.max() - wl.min()) - 1
+            baseline_coeffs = np.polyfit(wl_norm, spectrum, self.baseline_order)[::-1]
+            fitted = self._build_baseline(wl, baseline_coeffs)
+            ss_res = np.sum((spectrum - fitted) ** 2)
+            ss_tot = np.sum((spectrum - np.mean(spectrum)) ** 2)
+            r2 = 1 - ss_res / ss_tot if ss_tot > 1e-10 else 0.0
+
+            return RealBandFitResult(
+                band_names=[],
+                band_centers=np.array([]),
+                amplitudes=np.array([]),
+                sigmas=np.array([]),
+                baseline_coefficients=baseline_coeffs,
+                fitted_spectrum=fitted,
+                residuals=spectrum - fitted,
+                r_squared=r2,
+                rmse=float(np.sqrt(np.mean((spectrum - fitted) ** 2))),
+                n_bands=0,
+                wavelengths=wl,
+                band_assignments=[],
+            )
+
+        # Sort by intensity (prefer stronger bands)
+        intensity_order = {'very_strong': 0, 'strong': 1, 'medium': 2, 'weak': 3, 'very_weak': 4}
+        candidate_bands = sorted(
+            candidate_bands,
+            key=lambda b: (intensity_order.get(b.intensity, 5), b.center)
+        )
+
+        # Limit to max_bands
+        candidate_bands = candidate_bands[:self.max_bands]
+        n_bands = len(candidate_bands)
+
+        # Get sigma ranges
+        band_centers = np.array([b.center for b in candidate_bands])
+        band_sigmas_mid = np.array([(b.sigma_range[0] + b.sigma_range[1]) / 2 for b in candidate_bands])
+        band_sigmas_lo = np.array([b.sigma_range[0] for b in candidate_bands])
+        band_sigmas_hi = np.array([b.sigma_range[1] for b in candidate_bands])
+
+        # Initial baseline fit
+        wl_norm = 2 * (wl - wl.min()) / (wl.max() - wl.min()) - 1
+        baseline_init = np.polyfit(wl_norm, spectrum, self.baseline_order)[::-1]
+
+        # Build initial parameters
+        if self.allow_sigma_variation:
+            n_params = n_bands * 2 + n_baseline
+            x0 = np.zeros(n_params)
+            # Initial amplitudes
+            for i, band in enumerate(candidate_bands):
+                idx = np.argmin(np.abs(wl - band.center))
+                x0[i] = max(0, (spectrum[idx] - spec_mean) * 0.3)
+            x0[n_bands:2*n_bands] = band_sigmas_mid
+            x0[2*n_bands:] = baseline_init
+
+            bounds_lo = (
+                [-spec_range * 3] * n_bands +
+                list(band_sigmas_lo * (1 - self.sigma_margin)) +
+                [-spec_range * 10] * n_baseline
+            )
+            bounds_hi = (
+                [spec_range * 3] * n_bands +
+                list(band_sigmas_hi * (1 + self.sigma_margin)) +
+                [spec_range * 10] * n_baseline
+            )
+
+            def model(params):
+                amplitudes = params[:n_bands]
+                sigmas = params[n_bands:2*n_bands]
+                baseline_coeffs = params[2*n_bands:]
+                bands_sum = self._compute_all_bands(wl, candidate_bands, amplitudes, sigmas)
+                baseline = self._build_baseline(wl, baseline_coeffs)
+                return bands_sum + baseline
+        else:
+            n_params = n_bands + n_baseline
+            x0 = np.zeros(n_params)
+            for i, band in enumerate(candidate_bands):
+                idx = np.argmin(np.abs(wl - band.center))
+                x0[i] = max(0, (spectrum[idx] - spec_mean) * 0.3)
+            x0[n_bands:] = baseline_init
+
+            bounds_lo = [-spec_range * 3] * n_bands + [-spec_range * 10] * n_baseline
+            bounds_hi = [spec_range * 3] * n_bands + [spec_range * 10] * n_baseline
+
+            def model(params):
+                amplitudes = params[:n_bands]
+                baseline_coeffs = params[n_bands:]
+                bands_sum = self._compute_all_bands(wl, candidate_bands, amplitudes, band_sigmas_mid)
+                baseline = self._build_baseline(wl, baseline_coeffs)
+                return bands_sum + baseline
+
+        def objective(params):
+            return np.sum((spectrum - model(params)) ** 2)
+
+        # Optimize
+        best_result = None
+        best_r2 = -np.inf
+
+        for iteration in range(self.n_iterations):
+            try:
+                res = minimize(
+                    objective, x0,
+                    method='L-BFGS-B',
+                    bounds=list(zip(bounds_lo, bounds_hi)),
+                    options={'maxiter': 2000, 'ftol': 1e-12}
+                )
+                fitted = model(res.x)
+
+                ss_res = np.sum((spectrum - fitted) ** 2)
+                ss_tot = np.sum((spectrum - np.mean(spectrum)) ** 2)
+                r2 = 1 - ss_res / ss_tot if ss_tot > 1e-10 else 0.0
+
+                if r2 > best_r2:
+                    best_r2 = r2
+                    if self.allow_sigma_variation:
+                        amplitudes = res.x[:n_bands]
+                        sigmas = res.x[n_bands:2*n_bands]
+                        baseline_coeffs = res.x[2*n_bands:]
+                    else:
+                        amplitudes = res.x[:n_bands]
+                        sigmas = band_sigmas_mid
+                        baseline_coeffs = res.x[n_bands:]
+
+                    # Build band names
+                    band_names = []
+                    for band in candidate_bands:
+                        name = f"{band.functional_group}/{band.overtone_level}"
+                        band_names.append(name)
+
+                    best_result = {
+                        'band_names': band_names,
+                        'band_centers': band_centers,
+                        'amplitudes': amplitudes,
+                        'sigmas': sigmas if isinstance(sigmas, np.ndarray) else band_sigmas_mid,
+                        'baseline_coefficients': baseline_coeffs,
+                        'fitted_spectrum': fitted,
+                        'residuals': spectrum - fitted,
+                        'r_squared': r2,
+                        'rmse': float(np.sqrt(np.mean((spectrum - fitted) ** 2))),
+                        'n_bands': n_bands,
+                        'wavelengths': wl,
+                        'band_assignments': candidate_bands,
+                    }
+
+                if r2 >= self.target_r2:
+                    break
+
+                # Perturb for next iteration
+                x0 = res.x + np.random.normal(0, 0.01, len(res.x))
+                x0 = np.clip(x0, bounds_lo, bounds_hi)
+
+            except Exception:
+                continue
+
+        if best_result is None:
+            # Fallback to baseline only
+            fitted = self._build_baseline(wl, baseline_init)
+            ss_res = np.sum((spectrum - fitted) ** 2)
+            ss_tot = np.sum((spectrum - np.mean(spectrum)) ** 2)
+            r2 = 1 - ss_res / ss_tot if ss_tot > 1e-10 else 0.0
+
+            return RealBandFitResult(
+                band_names=[],
+                band_centers=np.array([]),
+                amplitudes=np.array([]),
+                sigmas=np.array([]),
+                baseline_coefficients=baseline_init,
+                fitted_spectrum=fitted,
+                residuals=spectrum - fitted,
+                r_squared=r2,
+                rmse=float(np.sqrt(np.mean((spectrum - fitted) ** 2))),
+                n_bands=0,
+                wavelengths=wl,
+                band_assignments=[],
+            )
+
+        return RealBandFitResult(**best_result)
+
+
+def fit_real_bands(
+    spectrum: np.ndarray,
+    wavelengths: np.ndarray,
+    baseline_order: int = 4,
+    max_bands: int = 50,
+    target_r2: float = 0.98,
+    allow_sigma_variation: bool = True,
+) -> RealBandFitResult:
+    """
+    Convenience function for fitting spectrum using real NIR band assignments.
+
+    Uses known band positions from the NIR_BANDS dictionary for physically
+    meaningful spectral decomposition.
+
+    Args:
+        spectrum: Observed spectrum.
+        wavelengths: Wavelength grid in nm.
+        baseline_order: Polynomial baseline order.
+        max_bands: Maximum number of bands to use.
+        target_r2: Target R² for early stopping.
+        allow_sigma_variation: Allow sigma to vary within constrained ranges.
+
+    Returns:
+        RealBandFitResult with fit results.
+
+    Example:
+        >>> result = fit_real_bands(spectrum, wavelengths)
+        >>> print(f"R² = {result.r_squared:.4f}")
+        >>> for name, center, amp in result.top_bands(5):
+        ...     print(f"{center:.0f} nm: {name}")
+    """
+    fitter = RealBandFitter(
+        baseline_order=baseline_order,
+        max_bands=max_bands,
+        target_r2=target_r2,
+        allow_sigma_variation=allow_sigma_variation,
+    )
+    return fitter.fit(spectrum, wavelengths)
+
+
+# ============================================================================
+# Variance Fitting
+# ============================================================================
+
+
+@dataclass
+class OperatorVarianceParams:
+    """
+    Parameters for operator-based variance modeling.
+
+    Models spectral variation as independent physical sources:
+    - High-frequency noise (detector noise)
+    - Baseline offset/slope/curvature (instrumental drift, scattering)
+    - Multiplicative scatter (sample thickness, optical path variation)
+
+    Attributes:
+        noise_std: Standard deviation of high-frequency noise.
+        offset_std: Standard deviation of baseline offset.
+        slope_std: Standard deviation of baseline slope (per 1000nm).
+        curvature_std: Standard deviation of baseline curvature.
+        mult_scatter_std: Standard deviation of multiplicative scatter.
+    """
+    noise_std: float = 0.001
+    offset_std: float = 0.01
+    slope_std: float = 0.001
+    curvature_std: float = 0.0001
+    mult_scatter_std: float = 0.05
+
+    def to_dict(self) -> Dict[str, float]:
+        """Convert to dictionary."""
+        return {
+            "noise_std": self.noise_std,
+            "offset_std": self.offset_std,
+            "slope_std": self.slope_std,
+            "curvature_std": self.curvature_std,
+            "mult_scatter_std": self.mult_scatter_std,
+        }
+
+
+@dataclass
+class PCAVarianceParams:
+    """
+    Parameters for PCA-based variance modeling.
+
+    Models spectral variation using principal component score distributions.
+
+    Attributes:
+        n_components: Number of PCA components.
+        explained_variance_ratio: Explained variance per component.
+        score_means: Mean of PC scores.
+        score_stds: Std of PC scores.
+        components: PCA loading vectors (n_components, n_wavelengths).
+        mean_spectrum: Mean spectrum from PCA.
+    """
+    n_components: int = 5
+    explained_variance_ratio: Optional[np.ndarray] = None
+    score_means: Optional[np.ndarray] = None
+    score_stds: Optional[np.ndarray] = None
+    components: Optional[np.ndarray] = None
+    mean_spectrum: Optional[np.ndarray] = None
+
+
+@dataclass
+class VarianceFitResult:
+    """
+    Combined result from variance fitting.
+
+    Attributes:
+        operator_params: Operator-based variance parameters.
+        pca_params: PCA-based variance parameters.
+        n_samples: Number of samples used for fitting.
+        wavelengths: Wavelength grid.
+    """
+    operator_params: OperatorVarianceParams
+    pca_params: PCAVarianceParams
+    n_samples: int = 0
+    wavelengths: Optional[np.ndarray] = None
+
+    def summary(self) -> str:
+        """Return human-readable summary."""
+        lines = [
+            "=" * 60,
+            "Variance Fit Result",
+            "=" * 60,
+            "",
+            "Operator-Based Parameters:",
+            f"  Noise std:      {self.operator_params.noise_std:.6f}",
+            f"  Offset std:     {self.operator_params.offset_std:.6f}",
+            f"  Slope std:      {self.operator_params.slope_std:.6f}",
+            f"  Curvature std:  {self.operator_params.curvature_std:.6f}",
+            f"  Mult scatter:   {self.operator_params.mult_scatter_std:.4f}",
+            "",
+            "PCA-Based Parameters:",
+            f"  Components: {self.pca_params.n_components}",
+        ]
+        if self.pca_params.explained_variance_ratio is not None:
+            cum_var = np.cumsum(self.pca_params.explained_variance_ratio)
+            n_95 = np.searchsorted(cum_var, 0.95) + 1
+            lines.append(f"  Variance at 95%: {n_95} components")
+            lines.append(f"  Top 3 explained: {self.pca_params.explained_variance_ratio[:3]}")
+        lines.append("=" * 60)
+        return "\n".join(lines)
+
+
+class VarianceFitter:
+    """
+    Fit variance parameters from real spectra.
+
+    Provides two complementary methods for modeling spectral variation:
+    - Operator-based: Independent physical sources (noise, scatter, baseline)
+    - PCA-based: Correlated variations capturing the covariance structure
+
+    Example:
+        >>> from nirs4all.data.synthetic import VarianceFitter
+        >>>
+        >>> fitter = VarianceFitter()
+        >>> result = fitter.fit(X_real, wavelengths)
+        >>>
+        >>> # Use operator-based params for generation
+        >>> print(f"Noise level: {result.operator_params.noise_std:.6f}")
+        >>>
+        >>> # Generate synthetic variance using PCA
+        >>> X_variance = fitter.generate_pca_variance(n_samples=100, random_state=42)
+    """
+
+    def __init__(self, n_pca_components: int = 10):
+        """
+        Initialize the variance fitter.
+
+        Args:
+            n_pca_components: Number of PCA components to fit.
+        """
+        self.n_pca_components = n_pca_components
+        self._fitted = False
+        self._result: Optional[VarianceFitResult] = None
+
+    def fit(
+        self,
+        X: np.ndarray,
+        wavelengths: Optional[np.ndarray] = None,
+    ) -> VarianceFitResult:
+        """
+        Fit variance parameters from real spectra.
+
+        Args:
+            X: Real spectra matrix (n_samples, n_wavelengths).
+            wavelengths: Wavelength array (nm).
+
+        Returns:
+            VarianceFitResult with both operator and PCA parameters.
+        """
+        n_samples, n_wl = X.shape
+
+        if wavelengths is None:
+            wavelengths = np.arange(n_wl, dtype=float)
+
+        # Fit operator-based variance
+        op_params = self._fit_operator_variance(X, wavelengths)
+
+        # Fit PCA-based variance
+        pca_params = self._fit_pca_variance(X)
+
+        self._result = VarianceFitResult(
+            operator_params=op_params,
+            pca_params=pca_params,
+            n_samples=n_samples,
+            wavelengths=wavelengths.copy(),
+        )
+        self._fitted = True
+
+        return self._result
+
+    def _fit_operator_variance(
+        self,
+        X: np.ndarray,
+        wavelengths: np.ndarray,
+    ) -> OperatorVarianceParams:
+        """
+        Estimate operator-based variance parameters from real spectra.
+
+        Models spectral variation as independent physical sources.
+        """
+        n_samples, n_wl = X.shape
+
+        # High-frequency noise: estimated from 2nd derivative
+        window = min(11, n_wl // 20 * 2 + 1) | 1
+        if window >= 5:
+            deriv2 = savgol_filter(X, window, min(3, window - 2), deriv=2, axis=1)
+            noise_std = float(np.median(np.std(deriv2, axis=1)))
+        else:
+            noise_std = float(np.std(np.diff(X, axis=1)) / np.sqrt(2))
+
+        # Baseline fitting: normalize wavelengths
+        wl_norm = (wavelengths - wavelengths.mean()) / (wavelengths.max() - wavelengths.min())
+
+        baseline_coeffs = []
+        for i in range(n_samples):
+            coeffs = np.polyfit(wl_norm, X[i], 3)
+            baseline_coeffs.append(coeffs)
+        baseline_coeffs = np.array(baseline_coeffs)
+
+        # Extract baseline variation parameters
+        offset_std = float(np.std(baseline_coeffs[:, -1]))  # constant term
+        slope_std = float(np.std(baseline_coeffs[:, -2]))   # linear term
+        curvature_std = float(np.std(baseline_coeffs[:, -3]))  # quadratic term
+
+        # Multiplicative scatter: from sample-to-sample scale variation
+        mean_spectrum = X.mean(axis=0)
+        if np.abs(mean_spectrum).max() > 1e-10:
+            # Estimate multiplicative factor per sample
+            scale_factors = []
+            for i in range(n_samples):
+                # Simple linear regression to find scale factor
+                scale = np.dot(X[i], mean_spectrum) / np.dot(mean_spectrum, mean_spectrum)
+                scale_factors.append(scale)
+            mult_scatter_std = float(np.std(scale_factors))
+        else:
+            mult_scatter_std = 0.05
+
+        return OperatorVarianceParams(
+            noise_std=noise_std,
+            offset_std=offset_std,
+            slope_std=slope_std,
+            curvature_std=curvature_std,
+            mult_scatter_std=mult_scatter_std,
+        )
+
+    def _fit_pca_variance(self, X: np.ndarray) -> PCAVarianceParams:
+        """
+        Fit PCA-based variance parameters from real spectra.
+        """
+        from sklearn.decomposition import PCA
+
+        n_samples = X.shape[0]
+        n_comp = min(self.n_pca_components, n_samples - 1, X.shape[1])
+
+        pca = PCA(n_components=n_comp)
+        scores = pca.fit_transform(X)
+
+        return PCAVarianceParams(
+            n_components=n_comp,
+            explained_variance_ratio=pca.explained_variance_ratio_,
+            score_means=scores.mean(axis=0),
+            score_stds=scores.std(axis=0),
+            components=pca.components_,
+            mean_spectrum=pca.mean_,
+        )
+
+    def generate_operator_variance(
+        self,
+        base_spectrum: np.ndarray,
+        wavelengths: np.ndarray,
+        n_samples: int = 100,
+        random_state: Optional[int] = None,
+    ) -> np.ndarray:
+        """
+        Generate synthetic spectra using operator-based variance.
+
+        Args:
+            base_spectrum: Mean/fitted spectrum to add variance to.
+            wavelengths: Wavelength array.
+            n_samples: Number of samples to generate.
+            random_state: Random seed.
+
+        Returns:
+            Array of synthetic spectra (n_samples, n_wavelengths).
+        """
+        if not self._fitted or self._result is None:
+            raise RuntimeError("Must call fit() before generate_operator_variance()")
+
+        rng = np.random.default_rng(random_state)
+        params = self._result.operator_params
+        n_wl = len(wavelengths)
+
+        # Normalize wavelengths for baseline generation
+        wl_norm = (wavelengths - wavelengths.mean()) / (wavelengths.max() - wavelengths.min())
+
+        X_synth = np.zeros((n_samples, n_wl))
+
+        for i in range(n_samples):
+            spectrum = base_spectrum.copy()
+
+            # Add multiplicative scatter
+            mult_factor = 1.0 + rng.normal(0, params.mult_scatter_std)
+            spectrum = spectrum * mult_factor
+
+            # Add baseline variation
+            offset = rng.normal(0, params.offset_std)
+            slope = rng.normal(0, params.slope_std)
+            curvature = rng.normal(0, params.curvature_std)
+            baseline = offset + slope * wl_norm + curvature * wl_norm**2
+            spectrum = spectrum + baseline
+
+            # Add noise
+            noise = rng.normal(0, params.noise_std, n_wl)
+            spectrum = spectrum + noise
+
+            X_synth[i] = spectrum
+
+        return X_synth
+
+    def generate_pca_variance(
+        self,
+        n_samples: int = 100,
+        n_components: Optional[int] = None,
+        random_state: Optional[int] = None,
+    ) -> np.ndarray:
+        """
+        Generate synthetic spectra using PCA-based variance.
+
+        Args:
+            n_samples: Number of samples to generate.
+            n_components: Number of PCA components to use (None = all).
+            random_state: Random seed.
+
+        Returns:
+            Array of synthetic spectra (n_samples, n_wavelengths).
+        """
+        if not self._fitted or self._result is None:
+            raise RuntimeError("Must call fit() before generate_pca_variance()")
+
+        rng = np.random.default_rng(random_state)
+        pca_params = self._result.pca_params
+
+        if pca_params.components is None or pca_params.mean_spectrum is None:
+            raise RuntimeError("PCA parameters not properly fitted")
+
+        if n_components is None:
+            n_components = pca_params.n_components
+
+        n_components = min(n_components, pca_params.n_components)
+
+        # Generate random scores from fitted distributions
+        scores = np.zeros((n_samples, n_components))
+        for i in range(n_components):
+            mean = pca_params.score_means[i] if pca_params.score_means is not None else 0
+            std = pca_params.score_stds[i] if pca_params.score_stds is not None else 1
+            scores[:, i] = rng.normal(mean, std, n_samples)
+
+        # Reconstruct spectra
+        X_synth = scores @ pca_params.components[:n_components] + pca_params.mean_spectrum
+
+        return X_synth
+
+
+def fit_variance(
+    X: np.ndarray,
+    wavelengths: Optional[np.ndarray] = None,
+    n_pca_components: int = 10,
+) -> VarianceFitResult:
+    """
+    Convenience function to fit variance parameters from real spectra.
+
+    Args:
+        X: Real spectra matrix (n_samples, n_wavelengths).
+        wavelengths: Wavelength array (nm).
+        n_pca_components: Number of PCA components to fit.
+
+    Returns:
+        VarianceFitResult with fitted parameters.
+
+    Example:
+        >>> result = fit_variance(X_real, wavelengths)
+        >>> print(f"Noise level: {result.operator_params.noise_std:.6f}")
+    """
+    fitter = VarianceFitter(n_pca_components=n_pca_components)
+    return fitter.fit(X, wavelengths)
+
+
+# ============================================================================
+# Physical Forward Model Fitting
+# ============================================================================
+
+
+@dataclass
+class InstrumentChain:
+    """
+    Forward instrument chain: canonical grid → dataset grid.
+
+    Applies the complete measurement chain to transform a high-resolution
+    physical spectrum to the observed instrument grid.
+
+    Chain:
+        1. Wavelength warp (shift + stretch)
+        2. ILS convolution (Gaussian smoothing)
+        3. Stray light / gain / offset
+        4. Resample to target grid
+
+    Attributes:
+        wl_shift: Wavelength shift in nm.
+        wl_stretch: Wavelength scale factor.
+        ils_sigma: Instrument line shape Gaussian sigma in nm.
+        stray_light: Stray light fraction.
+        gain: Photometric gain.
+        offset: Photometric offset.
+
+    Example:
+        >>> chain = InstrumentChain(wl_shift=2.0, ils_sigma=5.0)
+        >>> spectrum_obs = chain.apply(spectrum_phys, canonical_wl, target_wl)
+    """
+    wl_shift: float = 0.0
+    wl_stretch: float = 1.0
+    ils_sigma: float = 4.0
+    stray_light: float = 0.001
+    gain: float = 1.0
+    offset: float = 0.0
+
+    def apply(
+        self,
+        spectrum: np.ndarray,
+        canonical_wl: np.ndarray,
+        target_wl: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Apply full instrument chain.
+
+        Args:
+            spectrum: Input spectrum on canonical grid.
+            canonical_wl: Canonical wavelength grid (nm).
+            target_wl: Target wavelength grid (nm).
+
+        Returns:
+            Transformed spectrum on target grid.
+        """
+        # 1. Wavelength warp
+        warped_wl = self.wl_shift + self.wl_stretch * canonical_wl
+
+        # 2. ILS convolution (Gaussian smoothing)
+        wl_step = canonical_wl[1] - canonical_wl[0]
+        sigma_idx = self.ils_sigma / wl_step
+        spectrum_ils = gaussian_filter1d(spectrum, sigma=sigma_idx)
+
+        # 3. Stray light / gain / offset
+        spectrum_phot = self.gain * spectrum_ils + self.offset + self.stray_light
+
+        # 4. Resample to target grid
+        spectrum_resampled = np.interp(target_wl, warped_wl, spectrum_phot)
+
+        return spectrum_resampled
+
+
+@dataclass
+class ForwardModelFitter:
+    """
+    Variable projection fitter for physical forward model.
+
+    Fits a physical mixture model to observed spectra by separating:
+    - Linear params: concentrations, baseline coefficients (solved via NNLS/lsq)
+    - Nonlinear params: wl_shift, ils_sigma, path_length (solved via optimization)
+
+    This approach is numerically stable and physically interpretable.
+
+    Attributes:
+        components: List of SpectralComponent objects.
+        canonical_grid: High-resolution canonical wavelength grid.
+        target_grid: Target wavelength grid (dataset grid).
+        baseline_order: Number of Chebyshev baseline terms.
+        wl_shift_bounds: Bounds for wavelength shift parameter.
+        ils_sigma_bounds: Bounds for ILS sigma parameter.
+        path_length_bounds: Bounds for path length parameter.
+
+    Example:
+        >>> from nirs4all.data.synthetic._constants import get_predefined_components
+        >>> components = [get_predefined_components()[n] for n in ['water', 'protein']]
+        >>> fitter = ForwardModelFitter(
+        ...     components=components,
+        ...     canonical_grid=np.linspace(400, 2500, 4200),
+        ...     target_grid=dataset_wavelengths,
+        ... )
+        >>> result = fitter.fit(spectrum)
+        >>> print(f"R² = {result['r_squared']:.4f}")
+    """
+    components: List["SpectralComponent"]
+    canonical_grid: np.ndarray
+    target_grid: np.ndarray
+    baseline_order: int = 4
+    wl_shift_bounds: Tuple[float, float] = (-5.0, 5.0)
+    ils_sigma_bounds: Tuple[float, float] = (2.0, 15.0)
+    path_length_bounds: Tuple[float, float] = (0.5, 2.0)
+
+    def __post_init__(self):
+        """Pre-compute component spectra on canonical grid."""
+        self.E_canonical = np.zeros((len(self.components), len(self.canonical_grid)))
+        for k, comp in enumerate(self.components):
+            self.E_canonical[k] = comp.compute(self.canonical_grid)
+
+    def _build_design_matrix(self, wl_shift: float, ils_sigma: float) -> np.ndarray:
+        """Build design matrix for NNLS given nonlinear params."""
+        from scipy.optimize import nnls
+
+        chain = InstrumentChain(wl_shift=wl_shift, ils_sigma=ils_sigma)
+
+        E_target = np.zeros((len(self.components), len(self.target_grid)))
+        for k in range(len(self.components)):
+            E_target[k] = chain.apply(
+                self.E_canonical[k], self.canonical_grid, self.target_grid
+            )
+
+        # Add baseline (Chebyshev polynomials)
+        wl_norm = (
+            2
+            * (self.target_grid - self.target_grid.min())
+            / (self.target_grid.max() - self.target_grid.min())
+            - 1
+        )
+        B = np.zeros((self.baseline_order, len(self.target_grid)))
+        for i in range(self.baseline_order):
+            B[i] = np.polynomial.chebyshev.chebval(wl_norm, [0] * i + [1])
+
+        A = np.vstack([E_target, B]).T
+        return A
+
+    def _inner_solve(
+        self, A: np.ndarray, y: np.ndarray, path_length: float
+    ) -> Tuple[np.ndarray, float, np.ndarray]:
+        """Inner NNLS solve for linear parameters."""
+        from scipy.optimize import nnls
+
+        y_scaled = y / path_length
+        x, _ = nnls(A, y_scaled)
+        y_fit = (A @ x) * path_length
+
+        ss_res = np.sum((y - y_fit) ** 2)
+        ss_tot = np.sum((y - y.mean()) ** 2)
+        r_squared = 1 - ss_res / ss_tot if ss_tot > 0 else 0
+
+        return x, r_squared, y_fit
+
+    def _objective(self, nonlin_params: np.ndarray, y: np.ndarray) -> float:
+        """Objective for outer optimization (negative R²)."""
+        wl_shift, ils_sigma, path_length = nonlin_params
+
+        try:
+            A = self._build_design_matrix(wl_shift, ils_sigma)
+            _, r_squared, _ = self._inner_solve(A, y, path_length)
+            return -r_squared
+        except Exception:
+            return 1.0
+
+    def fit(
+        self, y: np.ndarray, initial_guess: Optional[np.ndarray] = None
+    ) -> Dict[str, Any]:
+        """
+        Fit forward model to target spectrum.
+
+        Args:
+            y: Target spectrum.
+            initial_guess: Initial [wl_shift, ils_sigma, path_length].
+
+        Returns:
+            Dict with fitted parameters:
+                - r_squared: Coefficient of determination
+                - fitted: Fitted spectrum
+                - residuals: Fitting residuals
+                - concentrations: Fitted component concentrations
+                - baseline_coeffs: Fitted baseline coefficients
+                - wl_shift, ils_sigma, path_length: Instrument params
+        """
+        from scipy.optimize import minimize
+
+        if initial_guess is None:
+            initial_guess = np.array([0.0, 6.0, 1.0])
+
+        bounds = [
+            self.wl_shift_bounds,
+            self.ils_sigma_bounds,
+            self.path_length_bounds,
+        ]
+
+        result = minimize(
+            self._objective,
+            initial_guess,
+            args=(y,),
+            method="L-BFGS-B",
+            bounds=bounds,
+        )
+
+        wl_shift, ils_sigma, path_length = result.x
+        A = self._build_design_matrix(wl_shift, ils_sigma)
+        x, r_squared, y_fit = self._inner_solve(A, y, path_length)
+
+        n_comp = len(self.components)
+
+        return {
+            "r_squared": r_squared,
+            "fitted": y_fit,
+            "residuals": y - y_fit,
+            "concentrations": x[:n_comp],
+            "baseline_coeffs": x[n_comp:],
+            "wl_shift": wl_shift,
+            "ils_sigma": ils_sigma,
+            "path_length": path_length,
+        }
+
+
+@dataclass
+class DerivativeAwareForwardModelFitter:
+    """
+    Forward model fitter for derivative-preprocessed datasets.
+
+    Key principle: Never fit derivative spectra by adding narrow bands.
+    Instead:
+        1. Fit latent physical model (raw absorbance)
+        2. Apply derivative preprocessing to model output
+        3. Compare in derivative space
+
+    This ensures concentrations remain physically interpretable without
+    oscillatory artifacts from narrow compensating peaks.
+
+    Attributes:
+        components: List of SpectralComponent objects.
+        canonical_grid: High-resolution canonical wavelength grid.
+        target_grid: Target wavelength grid (dataset grid).
+        derivative_order: 1 for first derivative, 2 for second.
+        sg_window: Savitzky-Golay window length.
+        sg_polyorder: Savitzky-Golay polynomial order.
+        baseline_order: Number of Chebyshev baseline terms.
+
+    Example:
+        >>> fitter = DerivativeAwareForwardModelFitter(
+        ...     components=components,
+        ...     canonical_grid=canonical_wl,
+        ...     target_grid=dataset_wl,
+        ...     derivative_order=1,  # First derivative
+        ... )
+        >>> result = fitter.fit(derivative_spectrum)
+        >>> print(f"R² = {result['r_squared']:.4f}")
+    """
+    components: List["SpectralComponent"]
+    canonical_grid: np.ndarray
+    target_grid: np.ndarray
+    derivative_order: int = 1
+    sg_window: int = 15
+    sg_polyorder: int = 2
+    baseline_order: int = 6
+    wl_shift_bounds: Tuple[float, float] = (-5.0, 5.0)
+    ils_sigma_bounds: Tuple[float, float] = (2.0, 15.0)
+    path_length_bounds: Tuple[float, float] = (0.5, 2.0)
+
+    def __post_init__(self):
+        """Pre-compute component spectra on canonical grid."""
+        self.E_canonical = np.zeros((len(self.components), len(self.canonical_grid)))
+        for k, comp in enumerate(self.components):
+            self.E_canonical[k] = comp.compute(self.canonical_grid)
+
+    def _apply_derivative(self, X: np.ndarray) -> np.ndarray:
+        """Apply Savitzky-Golay derivative to spectra."""
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+        result = savgol_filter(
+            X,
+            window_length=self.sg_window,
+            polyorder=self.sg_polyorder,
+            deriv=self.derivative_order,
+            axis=1,
+        )
+        return result.flatten() if X.shape[0] == 1 else result
+
+    def _build_design_matrix_raw(self, wl_shift: float, ils_sigma: float) -> np.ndarray:
+        """Build design matrix in RAW domain (before derivative)."""
+        chain = InstrumentChain(wl_shift=wl_shift, ils_sigma=ils_sigma)
+
+        E_target = np.zeros((len(self.components), len(self.target_grid)))
+        for k in range(len(self.components)):
+            E_target[k] = chain.apply(
+                self.E_canonical[k], self.canonical_grid, self.target_grid
+            )
+
+        wl_norm = (
+            2
+            * (self.target_grid - self.target_grid.min())
+            / (self.target_grid.max() - self.target_grid.min())
+            - 1
+        )
+        B = np.zeros((self.baseline_order, len(self.target_grid)))
+        for i in range(self.baseline_order):
+            B[i] = np.polynomial.chebyshev.chebval(wl_norm, [0] * i + [1])
+
+        return np.vstack([E_target, B]).T
+
+    def _build_design_matrix_derivative(
+        self, wl_shift: float, ils_sigma: float
+    ) -> np.ndarray:
+        """Build design matrix in DERIVATIVE domain."""
+        A_raw = self._build_design_matrix_raw(wl_shift, ils_sigma)
+        A_deriv = self._apply_derivative(A_raw.T).T
+        return A_deriv
+
+    def _inner_solve(
+        self, A_deriv: np.ndarray, y_deriv: np.ndarray, path_length: float
+    ) -> Tuple[np.ndarray, float, np.ndarray]:
+        """Inner bounded solve in derivative space."""
+        from scipy.optimize import lsq_linear
+
+        y_scaled = y_deriv / path_length
+        n_comp = len(self.components)
+
+        # Concentrations >= 0, baseline free
+        lb = np.concatenate(
+            [np.zeros(n_comp), -np.inf * np.ones(A_deriv.shape[1] - n_comp)]
+        )
+        ub = np.concatenate(
+            [np.inf * np.ones(n_comp), np.inf * np.ones(A_deriv.shape[1] - n_comp)]
+        )
+
+        result = lsq_linear(A_deriv, y_scaled, bounds=(lb, ub))
+        x = result.x
+
+        y_fit_scaled = A_deriv @ x
+        y_fit = y_fit_scaled * path_length
+
+        ss_res = np.sum((y_deriv - y_fit) ** 2)
+        ss_tot = np.sum((y_deriv - y_deriv.mean()) ** 2)
+        r_squared = 1 - ss_res / ss_tot if ss_tot > 0 else 0
+
+        return x, r_squared, y_fit
+
+    def _objective(self, nonlin_params: np.ndarray, y_deriv: np.ndarray) -> float:
+        """Objective for outer optimization."""
+        wl_shift, ils_sigma, path_length = nonlin_params
+
+        try:
+            A_deriv = self._build_design_matrix_derivative(wl_shift, ils_sigma)
+            _, r_squared, _ = self._inner_solve(A_deriv, y_deriv, path_length)
+            return -r_squared
+        except Exception:
+            return 1.0
+
+    def fit(
+        self, y_deriv: np.ndarray, initial_guess: Optional[np.ndarray] = None
+    ) -> Dict[str, Any]:
+        """
+        Fit forward model to derivative spectrum.
+
+        Args:
+            y_deriv: Target spectrum (already derivative-preprocessed).
+            initial_guess: Initial [wl_shift, ils_sigma, path_length].
+
+        Returns:
+            Dict with fitted parameters:
+                - r_squared: Coefficient of determination
+                - fitted_deriv: Fitted derivative spectrum
+                - fitted_raw: Reconstructed raw spectrum
+                - residuals_deriv: Fitting residuals
+                - concentrations: Fitted component concentrations
+                - baseline_coeffs: Fitted baseline coefficients
+                - wl_shift, ils_sigma, path_length: Instrument params
+        """
+        from scipy.optimize import minimize
+
+        if initial_guess is None:
+            initial_guess = np.array([0.0, 6.0, 1.0])
+
+        bounds = [
+            self.wl_shift_bounds,
+            self.ils_sigma_bounds,
+            self.path_length_bounds,
+        ]
+
+        result = minimize(
+            self._objective,
+            initial_guess,
+            args=(y_deriv,),
+            method="L-BFGS-B",
+            bounds=bounds,
+        )
+
+        wl_shift, ils_sigma, path_length = result.x
+        A_deriv = self._build_design_matrix_derivative(wl_shift, ils_sigma)
+        x, r_squared, y_fit_deriv = self._inner_solve(A_deriv, y_deriv, path_length)
+
+        # Compute raw spectrum for verification
+        A_raw = self._build_design_matrix_raw(wl_shift, ils_sigma)
+        y_fit_raw = (A_raw @ x) * path_length
+
+        n_comp = len(self.components)
+
+        return {
+            "r_squared": r_squared,
+            "fitted_deriv": y_fit_deriv,
+            "fitted_raw": y_fit_raw,
+            "residuals_deriv": y_deriv - y_fit_deriv,
+            "concentrations": x[:n_comp],
+            "baseline_coeffs": x[n_comp:],
+            "wl_shift": wl_shift,
+            "ils_sigma": ils_sigma,
+            "path_length": path_length,
+        }
+
+
+def multiscale_fit(
+    fitter: ForwardModelFitter,
+    y: np.ndarray,
+    scales: Optional[List[float]] = None,
+) -> Dict[str, Any]:
+    """
+    Multiscale fitting curriculum for raw spectra.
+
+    Fits coarse features first by smoothing the target, then progressively
+    reduces smoothing to capture finer details. This improves optimization
+    stability and avoids local minima.
+
+    Args:
+        fitter: ForwardModelFitter instance.
+        y: Target spectrum.
+        scales: List of Gaussian sigma values for progressive smoothing.
+                Default: [20, 10, 5, 0].
+
+    Returns:
+        Final fit result dict.
+
+    Example:
+        >>> result = multiscale_fit(fitter, spectrum, scales=[20, 10, 5, 0])
+    """
+    if scales is None:
+        scales = [20, 10, 5, 0]
+
+    current_guess = None
+
+    for sigma in scales:
+        if sigma > 0:
+            y_smooth = gaussian_filter1d(y, sigma=sigma)
+        else:
+            y_smooth = y
+
+        result = fitter.fit(y_smooth, initial_guess=current_guess)
+        current_guess = np.array(
+            [result["wl_shift"], result["ils_sigma"], result["path_length"]]
+        )
+
+    return result
+
+
+def multiscale_derivative_fit(
+    fitter: DerivativeAwareForwardModelFitter,
+    y_deriv: np.ndarray,
+    scales: Optional[List[float]] = None,
+) -> Dict[str, Any]:
+    """
+    Multiscale fitting curriculum for derivative spectra.
+
+    Fits coarse features first by smoothing the derivative target, then
+    progressively reduces smoothing. Particularly important for derivative
+    data which can have high-frequency noise.
+
+    Args:
+        fitter: DerivativeAwareForwardModelFitter instance.
+        y_deriv: Target derivative spectrum.
+        scales: List of Gaussian sigma values. Default: [15, 8, 4, 0].
+
+    Returns:
+        Final fit result dict.
+
+    Example:
+        >>> result = multiscale_derivative_fit(fitter, deriv_spectrum)
+    """
+    if scales is None:
+        scales = [15, 8, 4, 0]
+
+    current_guess = None
+
+    for sigma in scales:
+        if sigma > 0:
+            y_smooth = gaussian_filter1d(y_deriv, sigma=sigma)
+        else:
+            y_smooth = y_deriv
+
+        result = fitter.fit(y_smooth, initial_guess=current_guess)
+        current_guess = np.array(
+            [result["wl_shift"], result["ils_sigma"], result["path_length"]]
+        )
+
+    return result

@@ -145,9 +145,32 @@ from .fitter import (
     ComponentFitter,
     ComponentFitResult,
     fit_components,
+    # Phase 5: Optimized spectral fitting (greedy selection)
+    OptimizedComponentFitter,
+    OptimizedFitResult,
+    fit_components_optimized,
+    COMPONENT_CATEGORIES,
+    EXCLUDED_COMPONENTS,
+    UNIVERSAL_COMPONENTS,
     # Phase 5: Preprocessing detection
     PreprocessingType,
     PreprocessingInference,
+    # Phase 5: Real band fitting (NIR_BANDS)
+    RealBandFitter,
+    RealBandFitResult,
+    fit_real_bands,
+    # Phase 5: Variance fitting
+    VarianceFitter,
+    VarianceFitResult,
+    OperatorVarianceParams,
+    PCAVarianceParams,
+    fit_variance,
+    # Physical forward model fitting
+    InstrumentChain,
+    ForwardModelFitter,
+    DerivativeAwareForwardModelFitter,
+    multiscale_fit,
+    multiscale_derivative_fit,
 )
 
 # ================================================================
@@ -565,9 +588,32 @@ __all__ = [
     "ComponentFitter",
     "ComponentFitResult",
     "fit_components",
+    # Phase 5: Optimized spectral fitting (greedy selection)
+    "OptimizedComponentFitter",
+    "OptimizedFitResult",
+    "fit_components_optimized",
+    "COMPONENT_CATEGORIES",
+    "EXCLUDED_COMPONENTS",
+    "UNIVERSAL_COMPONENTS",
     # Phase 5: Preprocessing detection
     "PreprocessingType",
     "PreprocessingInference",
+    # Phase 5: Real band fitting (NIR_BANDS)
+    "RealBandFitter",
+    "RealBandFitResult",
+    "fit_real_bands",
+    # Phase 5: Variance fitting
+    "VarianceFitter",
+    "VarianceFitResult",
+    "OperatorVarianceParams",
+    "PCAVarianceParams",
+    "fit_variance",
+    # Physical forward model fitting
+    "InstrumentChain",
+    "ForwardModelFitter",
+    "DerivativeAwareForwardModelFitter",
+    "multiscale_fit",
+    "multiscale_derivative_fit",
     # ================================================================
     # Phase 1: Enhanced Component Generation
     # ================================================================

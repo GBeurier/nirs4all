@@ -79,6 +79,7 @@ class AggregateComponent:
     description: str
     domain: str
     category: str = ""
+    spectral_category: str = ""  # Primary chemical/spectral category (proteins, lipids, carbohydrates, alcohols, minerals, etc.)
     variability: Dict[str, Tuple[float, float]] = field(default_factory=dict)
     correlations: List[Tuple[str, str, float]] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
@@ -126,6 +127,7 @@ class AggregateComponent:
             f"Description: {self.description}",
             f"Domain: {self.domain}",
             f"Category: {self.category or 'N/A'}",
+            f"Spectral Category: {self.spectral_category or 'N/A'}",
             f"Components ({len(self.components)}):",
         ]
         for comp, weight in sorted(self.components.items(), key=lambda x: -x[1]):
@@ -160,6 +162,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Typical wheat grain composition",
         domain="agriculture",
         category="grain",
+        spectral_category="carbohydrates",
         variability={
             "protein": (0.08, 0.18),  # Feed wheat to high-protein bread wheat
             "moisture": (0.08, 0.15),  # Storage moisture range
@@ -184,6 +187,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Typical corn/maize grain composition",
         domain="agriculture",
         category="grain",
+        spectral_category="carbohydrates",
         variability={
             "protein": (0.06, 0.12),
             "moisture": (0.10, 0.15),
@@ -206,6 +210,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Typical soybean composition",
         domain="agriculture",
         category="legume",
+        spectral_category="proteins",
         variability={
             "protein": (0.32, 0.42),
             "lipid": (0.16, 0.24),
@@ -230,6 +235,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Polished rice grain composition",
         domain="agriculture",
         category="grain",
+        spectral_category="carbohydrates",
         variability={
             "protein": (0.05, 0.10),
             "moisture": (0.10, 0.14),
@@ -251,6 +257,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Typical barley grain composition",
         domain="agriculture",
         category="grain",
+        spectral_category="carbohydrates",
         variability={
             "protein": (0.08, 0.15),
             "moisture": (0.09, 0.13),
@@ -272,6 +279,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Typical oat grain (groats) composition",
         domain="agriculture",
         category="grain",
+        spectral_category="carbohydrates",
         variability={
             "protein": (0.10, 0.18),
             "lipid": (0.05, 0.10),
@@ -297,6 +305,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Typical rye grain composition",
         domain="agriculture",
         category="grain",
+        spectral_category="carbohydrates",
         variability={
             "protein": (0.08, 0.14),
             "moisture": (0.09, 0.14),
@@ -318,6 +327,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Typical sorghum grain composition",
         domain="agriculture",
         category="grain",
+        spectral_category="carbohydrates",
         variability={
             "protein": (0.08, 0.14),
             "lipid": (0.02, 0.05),
@@ -341,6 +351,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Typical rapeseed/canola seed composition (proximate)",
         domain="agriculture",
         category="oilseed",
+        spectral_category="lipids",
         variability={
             "lipid": (0.35, 0.48),
             "protein": (0.16, 0.26),
@@ -366,6 +377,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Typical sunflower seed composition (proximate)",
         domain="agriculture",
         category="oilseed",
+        spectral_category="lipids",
         variability={
             "lipid": (0.42, 0.58),
             "protein": (0.16, 0.26),
@@ -391,6 +403,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Typical chickpea (dry) composition",
         domain="agriculture",
         category="legume",
+        spectral_category="carbohydrates",
         variability={
             "protein": (0.16, 0.24),
             "lipid": (0.04, 0.09),
@@ -416,6 +429,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Typical lentil (dry) composition",
         domain="agriculture",
         category="legume",
+        spectral_category="proteins",
         variability={
             "protein": (0.20, 0.30),
             "moisture": (0.09, 0.14),
@@ -444,6 +458,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Fresh green leaf tissue",
         domain="agriculture",
         category="plant_tissue",
+        spectral_category="pigments",
         variability={
             "water": (0.60, 0.85),
             "chlorophyll": (0.002, 0.010),
@@ -467,6 +482,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Fresh forage grass for animal feed",
         domain="agriculture",
         category="forage",
+        spectral_category="water_related",
         variability={
             "water": (0.65, 0.85),
             "protein": (0.02, 0.06),
@@ -493,6 +509,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Alfalfa hay (dried forage) composition",
         domain="agriculture",
         category="forage",
+        spectral_category="proteins",
         variability={
             "moisture": (0.07, 0.15),
             "protein": (0.14, 0.24),
@@ -519,6 +536,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Maize (corn) silage composition (proximate)",
         domain="agriculture",
         category="forage",
+        spectral_category="water_related",
         variability={
             "water": (0.60, 0.80),
             "starch": (0.05, 0.18),
@@ -543,6 +561,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Whole cow's milk composition",
         domain="food",
         category="dairy",
+        spectral_category="lipids",
         variability={
             "lipid": (0.005, 0.06),  # Skim to whole
             "casein": (0.024, 0.032),
@@ -563,6 +582,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Cheddar cheese composition",
         domain="food",
         category="dairy",
+        spectral_category="lipids",
         variability={
             "moisture": (0.30, 0.42),  # Aged to fresh
             "lipid": (0.28, 0.38),
@@ -588,6 +608,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Plain yogurt composition",
         domain="food",
         category="dairy",
+        spectral_category="water_related",
         variability={
             "lipid": (0.001, 0.10),  # Non-fat to full-fat
             "lactic_acid": (0.005, 0.015),
@@ -607,6 +628,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Butter composition",
         domain="food",
         category="dairy",
+        spectral_category="lipids",
         variability={
             "lipid": (0.75, 0.86),
             "water": (0.14, 0.22),
@@ -629,6 +651,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Cream (high-fat milk fraction) composition",
         domain="food",
         category="dairy",
+        spectral_category="lipids",
         variability={
             "lipid": (0.10, 0.45),
             "water": (0.50, 0.80),
@@ -655,6 +678,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Wheat flour (refined) composition",
         domain="food",
         category="bakery",
+        spectral_category="carbohydrates",
         variability={
             "protein": (0.08, 0.15),
             "moisture": (0.10, 0.14),
@@ -679,6 +703,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Corn (maize) flour composition",
         domain="food",
         category="bakery",
+        spectral_category="carbohydrates",
         variability={
             "protein": (0.05, 0.10),
             "lipid": (0.02, 0.05),
@@ -701,6 +726,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="White bread composition (baked product)",
         domain="food",
         category="bakery",
+        spectral_category="carbohydrates",
         variability={
             "moisture": (0.30, 0.45),
             "protein": (0.06, 0.11),
@@ -729,6 +755,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Olive oil composition (fat-dominated; minor pigments/phenolics)",
         domain="food",
         category="oil",
+        spectral_category="lipids",
         variability={
             "moisture": (0.0005, 0.010),
             "chlorophyll": (0.0002, 0.003),
@@ -751,6 +778,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Honey composition (major sugars + water)",
         domain="food",
         category="sweetener",
+        spectral_category="carbohydrates",
         variability={
             "water": (0.14, 0.22),
             "fructose": (0.34, 0.45),
@@ -777,6 +805,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Lean beef composition",
         domain="food",
         category="meat",
+        spectral_category="proteins",
         variability={
             "lipid": (0.01, 0.35),  # Very lean to heavily marbled
             "water": (0.50, 0.78),
@@ -801,6 +830,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Lean pork composition",
         domain="food",
         category="meat",
+        spectral_category="proteins",
         variability={
             "lipid": (0.02, 0.30),
             "water": (0.55, 0.76),
@@ -824,6 +854,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Chicken breast composition",
         domain="food",
         category="meat",
+        spectral_category="proteins",
         variability={
             "lipid": (0.01, 0.15),
             "protein": (0.18, 0.25),
@@ -843,6 +874,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="White fish (cod-like) composition",
         domain="food",
         category="seafood",
+        spectral_category="proteins",
         variability={
             "lipid": (0.005, 0.03),
             "protein": (0.15, 0.20),
@@ -862,6 +894,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Oily fish (salmon-like) composition",
         domain="food",
         category="seafood",
+        spectral_category="lipids",
         variability={
             "lipid": (0.08, 0.25),
             "water": (0.55, 0.72),
@@ -890,6 +923,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Fresh apple fruit composition",
         domain="food",
         category="fruit",
+        spectral_category="carbohydrates",
         variability={
             "fructose": (0.04, 0.08),
             "water": (0.82, 0.88),
@@ -912,6 +946,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Fresh tomato fruit composition",
         domain="food",
         category="vegetable",
+        spectral_category="water_related",
         variability={
             "water": (0.92, 0.96),
             "lycopene": (0.00003, 0.0003),
@@ -934,6 +969,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Fresh banana fruit composition (ripe; sugar/starch mix)",
         domain="food",
         category="fruit",
+        spectral_category="carbohydrates",
         variability={
             "water": (0.70, 0.80),
             "starch": (0.00, 0.20),  # ripening strongly shifts starch -> sugars
@@ -958,6 +994,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Potato tuber composition (fresh)",
         domain="food",
         category="vegetable",
+        spectral_category="carbohydrates",
         variability={
             "water": (0.75, 0.83),
             "starch": (0.12, 0.22),
@@ -981,6 +1018,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Common tablet excipient mixture (without API)",
         domain="pharmaceutical",
         category="solid_dosage",
+        spectral_category="carbohydrates",
         variability={
             "microcrystalline_cellulose": (0.30, 0.50),
             "starch": (0.20, 0.40),
@@ -1002,6 +1040,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Paracetamol tablet with excipients",
         domain="pharmaceutical",
         category="solid_dosage",
+        spectral_category="pharmaceutical",
         variability={
             "paracetamol": (0.45, 0.55),  # ±10% API content
             "moisture": (0.03, 0.07),
@@ -1021,6 +1060,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Aspirin tablet with excipients",
         domain="pharmaceutical",
         category="solid_dosage",
+        spectral_category="pharmaceutical",
         variability={
             "aspirin": (0.45, 0.55),
             "moisture": (0.02, 0.05),
@@ -1040,6 +1080,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Ibuprofen capsule fill composition",
         domain="pharmaceutical",
         category="solid_dosage",
+        spectral_category="pharmaceutical",
         variability={
             "ibuprofen": (0.35, 0.45),
             "moisture": (0.03, 0.07),
@@ -1066,6 +1107,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Generic immediate-release tablet (low-dose API archetype)",
         domain="pharmaceutical",
         category="solid_dosage",
+        spectral_category="carbohydrates",
         variability={
             "api_generic": (0.005, 0.05),
             "moisture": (0.02, 0.06),
@@ -1092,6 +1134,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Generic immediate-release tablet (medium-dose API archetype)",
         domain="pharmaceutical",
         category="solid_dosage",
+        spectral_category="carbohydrates",
         variability={
             "api_generic": (0.10, 0.30),
             "moisture": (0.02, 0.08),
@@ -1119,6 +1162,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Generic immediate-release tablet (high-load API archetype)",
         domain="pharmaceutical",
         category="solid_dosage",
+        spectral_category="pharmaceutical",
         variability={
             "api_generic": (0.50, 0.80),
             "moisture": (0.01, 0.05),
@@ -1143,6 +1187,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="High-load metformin HCl tablet archetype (API-dominant)",
         domain="pharmaceutical",
         category="solid_dosage",
+        spectral_category="pharmaceutical",
         variability={
             "metformin_hcl": (0.70, 0.85),
             "moisture": (0.01, 0.04),
@@ -1164,6 +1209,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Vitamin C (ascorbic acid) tablet archetype",
         domain="pharmaceutical",
         category="solid_dosage",
+        spectral_category="organic_acids",
         variability={
             "ascorbic_acid": (0.55, 0.75),
             "moisture": (0.01, 0.06),
@@ -1186,6 +1232,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Low-dose antihistamine tablet archetype (loratadine-like)",
         domain="pharmaceutical",
         category="solid_dosage",
+        spectral_category="carbohydrates",
         variability={
             "loratadine": (0.008, 0.03),
             "moisture": (0.02, 0.06),
@@ -1207,6 +1254,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Generic hard-capsule fill (powder blend archetype)",
         domain="pharmaceutical",
         category="solid_dosage",
+        spectral_category="carbohydrates",
         variability={
             "api_generic": (0.10, 0.45),
             "moisture": (0.02, 0.08),
@@ -1226,6 +1274,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Gelatin capsule shell archetype (protein + water + plasticizer)",
         domain="pharmaceutical",
         category="packaging",
+        spectral_category="proteins",
         variability={
             "water": (0.10, 0.18),
             "glycerol": (0.0, 0.03),
@@ -1248,6 +1297,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Antibiotic tablet archetype (amoxicillin-like; medium/high API load)",
         domain="pharmaceutical",
         category="solid_dosage",
+        spectral_category="pharmaceutical",
         variability={
             "amoxicillin_trihydrate": (0.45, 0.70),
             "moisture": (0.01, 0.08),
@@ -1270,6 +1320,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Effervescent tablet archetype (acidulated carbohydrate base)",
         domain="pharmaceutical",
         category="solid_dosage",
+        spectral_category="organic_acids",
         variability={
             "citric_acid": (0.10, 0.30),
             "moisture": (0.02, 0.10),
@@ -1290,6 +1341,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Ethanol-water mixture (70% v/v archetype; sanitizing/solvent)",
         domain="chemistry",
         category="solvent",
+        spectral_category="alcohols",
         variability={
             "ethanol": (0.60, 0.80),
         },
@@ -1306,6 +1358,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Ethanol-water mixture (40% v/v archetype; beverage/solvent range)",
         domain="chemistry",
         category="solvent",
+        spectral_category="alcohols",
         variability={
             "ethanol": (0.30, 0.55),
         },
@@ -1322,6 +1375,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Glycerol-water solution (humectant / viscosity standard archetype)",
         domain="chemistry",
         category="solution",
+        spectral_category="alcohols",
         variability={
             "glycerol": (0.30, 0.70),
         },
@@ -1340,6 +1394,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Concentrated sucrose solution archetype (syrup-like; acidulated)",
         domain="chemistry",
         category="solution",
+        spectral_category="carbohydrates",
         variability={
             "sucrose": (0.50, 0.70),
             "citric_acid": (0.0, 0.02),
@@ -1357,6 +1412,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Microcrystalline cellulose powder archetype (common excipient/lab material)",
         domain="chemistry",
         category="powder",
+        spectral_category="carbohydrates",
         variability={
             "moisture": (0.01, 0.10),
         },
@@ -1373,6 +1429,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Lactose powder archetype (common excipient)",
         domain="chemistry",
         category="powder",
+        spectral_category="carbohydrates",
         variability={
             "moisture": (0.005, 0.06),
         },
@@ -1389,6 +1446,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Starch powder archetype (binder/disintegrant; common carbohydrate)",
         domain="chemistry",
         category="powder",
+        spectral_category="carbohydrates",
         variability={
             "moisture": (0.005, 0.08),
         },
@@ -1405,6 +1463,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Silica powder archetype (mineral; glidant/filler proxy)",
         domain="chemistry",
         category="powder",
+        spectral_category="minerals",
         variability={
             "moisture": (0.0, 0.06),
         },
@@ -1422,6 +1481,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Kaolin/kaolinite-rich mineral powder archetype",
         domain="chemistry",
         category="powder",
+        spectral_category="minerals",
         variability={
             "moisture": (0.0, 0.06),
             "kaolinite": (0.75, 0.98),
@@ -1440,6 +1500,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Montmorillonite-rich clay mineral powder archetype",
         domain="chemistry",
         category="powder",
+        spectral_category="minerals",
         variability={
             "moisture": (0.0, 0.10),
             "montmorillonite": (0.70, 0.95),
@@ -1463,6 +1524,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Typical agricultural topsoil",
         domain="environmental",
         category="soil",
+        spectral_category="minerals",
         variability={
             "moisture": (0.05, 0.30),
             "cellulose": (0.01, 0.10),  # Organic matter variation
@@ -1484,6 +1546,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Clay-rich soil composition",
         domain="environmental",
         category="soil",
+        spectral_category="minerals",
         variability={
             "moisture": (0.10, 0.35),
             "kaolinite": (0.20, 0.40),
@@ -1505,6 +1568,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Sandy soil (high quartz/silica; low clay)",
         domain="environmental",
         category="soil",
+        spectral_category="minerals",
         variability={
             "moisture": (0.02, 0.25),
             "silica": (0.60, 0.88),
@@ -1527,6 +1591,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Organic-rich topsoil (higher organic matter proxies)",
         domain="environmental",
         category="soil",
+        spectral_category="minerals",
         variability={
             "moisture": (0.05, 0.40),
             "cellulose": (0.05, 0.25),
@@ -1548,6 +1613,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="PET (polyethylene terephthalate) plastic",
         domain="industrial",
         category="polymer",
+        spectral_category="polymers",
         variability={
             "moisture": (0.001, 0.01),
         },
@@ -1564,6 +1630,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Polyethylene plastic",
         domain="industrial",
         category="polymer",
+        spectral_category="polymers",
         variability={
             "moisture": (0.0005, 0.005),
         },
@@ -1585,6 +1652,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Softwood composition (cellulose/hemicellulose/lignin)",
         domain="industrial",
         category="lignocellulosic",
+        spectral_category="carbohydrates",
         variability={
             "moisture": (0.03, 0.15),
             "lignin": (0.20, 0.32),
@@ -1605,6 +1673,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Paper/pulp composition (cellulose-dominant with fillers)",
         domain="industrial",
         category="lignocellulosic",
+        spectral_category="carbohydrates",
         variability={
             "moisture": (0.02, 0.10),
             "silica": (0.00, 0.08),
@@ -1633,6 +1702,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Dry red wine composition",
         domain="food",
         category="beverage",
+        spectral_category="alcohols",
         variability={
             "ethanol": (0.10, 0.15),
             "anthocyanin": (0.0001, 0.0005),
@@ -1655,6 +1725,7 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         description="Typical beer composition",
         domain="food",
         category="beverage",
+        spectral_category="alcohols",
         variability={
             "ethanol": (0.03, 0.10),
             "maltose": (0.005, 0.02),
