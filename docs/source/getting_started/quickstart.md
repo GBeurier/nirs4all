@@ -48,13 +48,54 @@ result = nirs4all.run(
 
 ```python
 # Check overall performance
-print(f"Best RMSE: {result.best_score:.4f}")
+print(f"Best RMSE: {result.best_rmse:.4f}")
+print(f"Best R²: {result.best_r2:.4f}")
 print(f"Number of predictions: {result.num_predictions}")
 
 # Get top 3 models
 for pred in result.top(n=3, display_metrics=['rmse', 'r2']):
     print(f"  {pred['model_name']}: RMSE={pred['rmse']:.4f}, R²={pred['r2']:.4f}")
 ```
+
+### Step 4b: Understand Prediction Entries
+
+Each prediction returned by `top()` is a dictionary with detailed information:
+
+```python
+# Get the best prediction
+best = result.best
+
+# Core identification
+print(f"Model: {best['model_name']}")
+print(f"Dataset: {best['dataset_name']}")
+print(f"Fold: {best['fold_id']}")
+print(f"Preprocessing: {best.get('preprocessings', 'none')}")
+
+# Scores by partition (primary metric, always available)
+print(f"Primary metric: {best['metric']}")
+print(f"Train: {best['train_score']:.6f}")
+print(f"Val: {best['val_score']:.6f}")
+print(f"Test: {best['test_score']:.6f}")
+
+# Additional metrics (when using display_metrics)
+print(f"RMSE: {best.get('rmse', 0):.4f}")
+print(f"R²: {best.get('r2', 0):.4f}")
+```
+
+**Key fields in each prediction entry:**
+
+| Field | Description |
+|-------|-------------|
+| `model_name` | Name of the model (e.g., "PLSRegression") |
+| `model_classname` | Class name of the model |
+| `dataset_name` | Dataset name |
+| `fold_id` | Cross-validation fold index |
+| `preprocessings` | Preprocessing steps applied |
+| `metric` | Primary metric name (e.g., 'mse') |
+| `train_score`, `val_score`, `test_score` | Scores by partition (primary metric) |
+| `rmse`, `r2`, `mse`, `mae` | Metrics (when using `display_metrics`) |
+| `n_samples`, `n_features` | Data shape info |
+| `task_type` | 'regression' or 'classification' |
 
 ### Step 5: Export for Production
 
@@ -75,6 +116,13 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 
+# Generate synthetic NIRS data (or use your own dataset path)
+dataset = nirs4all.generate.regression(
+    n_samples=200,
+    target_component=0,
+    random_state=42
+)
+
 # Define pipeline
 pipeline = [
     MinMaxScaler(),                              # Scale features
@@ -86,20 +134,34 @@ pipeline = [
 # Run pipeline
 result = nirs4all.run(
     pipeline=pipeline,
-    dataset="sample_data/regression",
+    dataset=dataset,
     name="MyFirstPipeline",
     verbose=1
 )
 
 # View results
 print(f"\n📊 Results:")
-print(f"   Best RMSE: {result.best_score:.4f}")
+print(f"   Best RMSE: {result.best_rmse:.4f}")
+print(f"   Best R²: {result.best_r2:.4f}")
 print(f"   Total predictions: {result.num_predictions}")
 
-# Top models
+# Top models with detailed metrics
 print("\n🏆 Top 3 Models:")
 for i, pred in enumerate(result.top(n=3, display_metrics=['rmse', 'r2']), 1):
     print(f"   {i}. {pred['model_name']}: RMSE={pred['rmse']:.4f}, R²={pred['r2']:.4f}")
+
+# Explore the best prediction entry
+print("\n📦 Best prediction details:")
+best = result.best
+print(f"   Model: {best['model_name']}")
+print(f"   Dataset: {best['dataset_name']}")
+print(f"   Fold: {best['fold_id']}")
+print(f"   Metric: {best['metric']}")
+
+# Access partition-specific scores (primary metric)
+print(f"   Train: {best['train_score']:.6f}")
+print(f"   Val: {best['val_score']:.6f}")
+print(f"   Test: {best['test_score']:.6f}")
 
 # Export best model
 result.export("exports/my_model.n4a")
@@ -333,9 +395,11 @@ Complete pipeline syntax reference.
 
 1. **Pipelines are lists** of processing steps
 2. **One function** (`nirs4all.run()`) handles everything
-3. **Results are accessible** via `result.best_score`, `result.top()`, etc.
-4. **Export models** with `result.export()` for deployment
-5. **NIRS preprocessing** (SNV, derivatives) improves spectral analysis
+3. **Results are accessible** via `result.best_rmse`, `result.best_r2`, `result.top()`, etc.
+4. **Prediction entries are dicts** with model_name, dataset_name, fold_id, scores, and more
+5. **Detailed scores** are available via `pred['scores']['train'/'val'/'test']['rmse'/'r2'/...]`
+6. **Export models** with `result.export()` for deployment
+7. **NIRS preprocessing** (SNV, derivatives) improves spectral analysis
 
 ## See Also
 

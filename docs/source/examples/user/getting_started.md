@@ -41,6 +41,13 @@ from sklearn.preprocessing import MinMaxScaler
 
 import nirs4all
 
+# Generate synthetic data (or use your own dataset path)
+dataset = nirs4all.generate.regression(
+    n_samples=200,
+    target_component=0,
+    random_state=42
+)
+
 # Define the pipeline as a list of steps
 pipeline = [
     MinMaxScaler(),                              # Feature scaling
@@ -52,13 +59,18 @@ pipeline = [
 # Run with one simple call
 result = nirs4all.run(
     pipeline=pipeline,
-    dataset="sample_data/regression",
+    dataset=dataset,
     name="HelloWorld",
     verbose=1
 )
 
 # Access results
-print(f"Best Score (MSE): {result.best_score:.4f}")
+print(f"Best RMSE: {result.best_rmse:.4f}")
+print(f"Best R²: {result.best_r2:.4f}")
+
+# Explore top predictions
+for pred in result.top(n=3, display_metrics=['rmse', 'r2']):
+    print(f"{pred['model_name']}: RMSE={pred['rmse']:.4f}, R²={pred['r2']:.4f}")
 ```
 
 ### The RunResult Object
@@ -68,15 +80,61 @@ The `result` object provides convenient accessors:
 | Accessor | Description |
 |----------|-------------|
 | `result.best_score` | Best model's primary score (MSE by default) |
+| `result.best_rmse` | Best model's RMSE |
+| `result.best_r2` | Best model's R² |
 | `result.best` | Best prediction entry as a dictionary |
 | `result.top(n)` | Top N predictions ranked by score |
 | `result.predictions` | Full Predictions object for analysis |
+
+### Understanding Prediction Entries
+
+Each prediction returned by `result.top()` or `result.best` is a dictionary with rich information:
+
+```python
+# Get top predictions
+for pred in result.top(n=3, display_metrics=['rmse', 'r2']):
+    # Core identification
+    print(f"Model: {pred['model_name']}")
+    print(f"Dataset: {pred['dataset_name']}")
+    print(f"Fold: {pred['fold_id']}")
+    print(f"Preprocessing: {pred.get('preprocessings', 'none')}")
+
+    # Metrics (available when using display_metrics)
+    print(f"RMSE: {pred['rmse']:.4f}")
+    print(f"R²: {pred['r2']:.4f}")
+
+    # Scores by partition (primary metric)
+    print(f"Train: {pred['train_score']:.6f}")
+    print(f"Val: {pred['val_score']:.6f}")
+    print(f"Test: {pred['test_score']:.6f}")
+
+    # Additional metadata
+    print(f"Samples: {pred['n_samples']}, Features: {pred['n_features']}")
+```
+
+**Key fields in each prediction entry:**
+
+| Field | Description |
+|-------|-------------|
+| `model_name` | Name of the model (e.g., "PLSRegression") |
+| `model_classname` | Class name of the model |
+| `dataset_name` | Dataset used for training |
+| `fold_id` | Cross-validation fold index |
+| `preprocessings` | Preprocessing steps applied |
+| `train_score` | Training score (primary metric) |
+| `val_score` | Validation score (primary metric) |
+| `test_score` | Test score (primary metric) |
+| `rmse`, `r2` | RMSE and R² (when using `display_metrics`) |
+| `n_samples`, `n_features` | Data shape information |
+| `task_type` | 'regression' or 'classification' |
+| `metric` | Primary metric name (e.g., 'mse') |
 
 ### Tips for Beginners
 
 1. **Start simple**: Begin with a basic pipeline and add complexity gradually
 2. **Use verbose=1**: See what's happening during training
-3. **Check top models**: Use `result.top(n=5)` to compare performance
+3. **Check top models**: Use `result.top(n=5, display_metrics=['rmse', 'r2'])` to compare performance
+4. **Explore predictions**: Each prediction entry contains detailed metrics and metadata
 
 ---
 

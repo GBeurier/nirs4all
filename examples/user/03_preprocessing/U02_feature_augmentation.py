@@ -244,6 +244,59 @@ for i, pred in enumerate(result_search.top(20, display_metrics=['rmse']), 1):
 
 
 # =============================================================================
+# Section 5b: Best Preprocessing Chain Analysis
+# =============================================================================
+print("\n" + "-" * 60)
+print("Section 5b: Best Preprocessing Chain Analysis")
+print("-" * 60)
+
+print("""
+Each prediction entry contains the full preprocessing chain that was applied.
+This is crucial for understanding which preprocessing combinations work best.
+""")
+
+# Get the best prediction
+best = result_search.best
+
+print(f"\n🏆 Best Preprocessing Chain:")
+print(f"   Chain: {best.get('preprocessings', 'N/A')}")
+print(f"   Model: {best.get('model_name', 'N/A')}")
+print(f"   Dataset: {best.get('dataset_name', 'N/A')}")
+print(f"   Fold: {best.get('fold_id', 'N/A')}")
+
+# Get detailed metrics
+print(f"\n📊 Performance Metrics:")
+print(f"   Primary metric ({best.get('metric', 'mse')}):")
+print(f"   • Train: {best.get('train_score', float('nan')):.6f}")
+print(f"   • Val:   {best.get('val_score', float('nan')):.6f}")
+print(f"   • Test:  {best.get('test_score', float('nan')):.6f}")
+
+# Get additional metrics using display_metrics
+top_with_metrics = result_search.top(n=1, display_metrics=['rmse', 'r2', 'mae'])
+if top_with_metrics:
+    best_with_metrics = top_with_metrics[0]
+    print(f"\n   Additional metrics:")
+    print(f"   • RMSE: {best_with_metrics.get('rmse', float('nan')):.4f}")
+    print(f"   • R²:   {best_with_metrics.get('r2', float('nan')):.4f}")
+    print(f"   • MAE:  {best_with_metrics.get('mae', float('nan')):.4f}")
+
+# Show sample/feature info
+print(f"\n📋 Data Information:")
+print(f"   • Samples: {best.get('n_samples', 'N/A')}")
+print(f"   • Features: {best.get('n_features', 'N/A')}")
+print(f"   • Task type: {best.get('task_type', 'N/A')}")
+
+# Compare top 3 preprocessing chains
+print(f"\n🔍 Top 3 Preprocessing Chains Comparison:")
+for i, pred in enumerate(result_search.top(n=3, display_metrics=['rmse', 'r2']), 1):
+    preproc = pred.get('preprocessings', 'N/A')
+    rmse = pred.get('rmse', float('nan'))
+    r2 = pred.get('r2', float('nan'))
+    print(f"   {i}. {preproc}")
+    print(f"      RMSE: {rmse:.4f} | R²: {r2:.4f}")
+
+
+# =============================================================================
 # Section 6: Comparing Action Modes
 # =============================================================================
 print("\n" + "-" * 60)
@@ -314,18 +367,26 @@ Feature Augmentation Action Modes:
 │          │ Discard originals              │ Clean final chains      │
 └──────────┴────────────────────────────────┴─────────────────────────┘
 
-Common Patterns:
+Accessing Best Preprocessing Chain:
 
-  # Explore scatter correction options
-  {"feature_augmentation": [SNV, MSC, Detrend], "action": "extend"}
+  # Get the best prediction
+  best = result.best
+  best_chain = best.get('preprocessings')  # e.g., "SNV|FirstDerivative"
 
-  # Add derivatives while keeping baseline
-  {"feature_augmentation": [FirstDerivative], "action": "add"}
+  # Get metrics for the best
+  print(f"RMSE: {best.get('test_score')}")
 
-  # Multi-stage: smoothing → derivative → normalization
-  {"feature_augmentation": [Gaussian], "action": "replace"}
-  {"feature_augmentation": [FirstDerivative], "action": "replace"}
-  {"feature_augmentation": [SNV], "action": "replace"}
+  # Get top N with specific metrics
+  for pred in result.top(n=5, display_metrics=['rmse', 'r2']):
+      print(f"{pred['preprocessings']}: RMSE={pred['rmse']:.4f}")
+
+Prediction Entry Fields:
+  pred['preprocessings']  # Full preprocessing chain string
+  pred['model_name']      # Model name
+  pred['train_score']     # Training score (primary metric)
+  pred['val_score']       # Validation score
+  pred['test_score']      # Test score
+  pred['rmse'], pred['r2'] # When using display_metrics
 
 Next: U03_sample_augmentation.py - Data augmentation techniques
 """)
