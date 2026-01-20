@@ -25,6 +25,7 @@ Submodules
    nirs4all.pipeline.predictor
    nirs4all.pipeline.resolver
    nirs4all.pipeline.retrainer
+   nirs4all.pipeline.run
    nirs4all.pipeline.runner
 
 Module contents
