@@ -622,6 +622,10 @@ class MergeConfig:
     # Disjoint sample branch merge options (Phase 2)
     n_columns: Optional[int] = None  # Force output column count for disjoint prediction merge
     select_by: str = "mse"  # Criterion for selecting top-N models (mse, rmse, mae, r2, order)
+    # Phase 5: Separation branch merge options
+    is_separation_merge: bool = False  # True when using "concat" mode for separation branches
+    # Phase 5: Source merge within merge keyword
+    source_merge: Optional["SourceMergeConfig"] = None  # For {"merge": {"sources": "concat"}}
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -826,6 +830,13 @@ class MergeConfig:
         if self.select_by != "mse":  # Only serialize non-default
             result["select_by"] = self.select_by
 
+        # Phase 5: Separation merge options
+        if self.is_separation_merge:
+            result["is_separation_merge"] = self.is_separation_merge
+
+        if self.source_merge is not None:
+            result["source_merge"] = self.source_merge.to_dict()
+
         return result
 
     @classmethod
@@ -855,6 +866,11 @@ class MergeConfig:
                 for pc in data["prediction_configs"]
             ]
 
+        # Phase 5: Handle source_merge config
+        source_merge = None
+        if "source_merge" in data:
+            source_merge = SourceMergeConfig.from_dict(data["source_merge"])
+
         return cls(
             collect_features=data.get("collect_features", False),
             feature_branches=data.get("feature_branches", "all"),
@@ -871,6 +887,8 @@ class MergeConfig:
             source_names=data.get("source_names"),
             n_columns=data.get("n_columns"),
             select_by=data.get("select_by", "mse"),
+            is_separation_merge=data.get("is_separation_merge", False),
+            source_merge=source_merge,
         )
 
 

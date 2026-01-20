@@ -32,7 +32,8 @@ from .data.sample_augmentation import SampleAugmentationController
 from .data.resampler import ResamplerController
 from .data.concat_transform import ConcatAugmentationController
 from .data.auto_transfer_preproc import AutoTransferPreprocessingController
-from .data.sample_filter import SampleFilterController
+from .data.exclude import ExcludeController
+from .data.tag import TagController
 from .data.branch import BranchController
 
 # Import splitter controllers
@@ -55,7 +56,8 @@ __all__ = [
     'YTransformerMixinController',
     'FeatureAugmentationController',
     'SampleAugmentationController',
-    'SampleFilterController',
+    'ExcludeController',
+    'TagController',
     'ResamplerController',
     'ConcatAugmentationController',
     'AutoTransferPreprocessingController',

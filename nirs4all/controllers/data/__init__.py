@@ -1,6 +1,7 @@
 """Data manipulation controllers.
 
-Controllers for data manipulation operators (branch, merge, source_branch, resampler, augmentation, feature selection, sample filtering, outlier excluder, sample partitioner, metadata partitioner, repetition transformation).
+Controllers for data manipulation operators (branch, merge, resampler, augmentation,
+feature selection, exclusion, tagging, repetition transformation).
 """
 
 from .feature_augmentation import FeatureAugmentationController
@@ -9,29 +10,34 @@ from .resampler import ResamplerController
 from .feature_selection import FeatureSelectionController
 from .concat_transform import ConcatAugmentationController
 from .auto_transfer_preproc import AutoTransferPreprocessingController
-from .sample_filter import SampleFilterController
-from .outlier_excluder import OutlierExcluderController
-from .sample_partitioner import SamplePartitionerController
-from .metadata_partitioner import MetadataPartitionerController
+from .exclude import ExcludeController
+from .tag import TagController
 from .merge import MergeController, MergeConfigParser
-from .source_branch import SourceBranchController, SourceBranchConfigParser
 from .repetition import RepToSourcesController, RepToPPController
+from .branch import BranchController
+from .branch_utils import (
+    parse_value_condition,
+    group_samples_by_value_mapping,
+    validate_disjoint_conditions,
+)
 
 __all__ = [
+    # Controllers
     "FeatureAugmentationController",
     "SampleAugmentationController",
     "ResamplerController",
     "FeatureSelectionController",
     "ConcatAugmentationController",
     "AutoTransferPreprocessingController",
-    "SampleFilterController",
-    "OutlierExcluderController",
-    "SamplePartitionerController",
-    "MetadataPartitionerController",
+    "ExcludeController",
+    "TagController",
     "MergeController",
     "MergeConfigParser",
-    "SourceBranchController",
-    "SourceBranchConfigParser",
     "RepToSourcesController",
     "RepToPPController",
+    "BranchController",
+    # Branch utilities
+    "parse_value_condition",
+    "group_samples_by_value_mapping",
+    "validate_disjoint_conditions",
 ]

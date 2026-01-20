@@ -3,15 +3,19 @@ D04 - Merge Sources: Multi-Source Data Handling
 ================================================
 
 When working with multiple data sources (e.g., NIR + Raman, or multiple
-spectrometers), nirs4all provides ``source_branch`` and ``merge_sources``
+spectrometers), nirs4all provides ``by_source`` branching and source merge
 for per-source processing.
 
 This tutorial covers:
 
 * Multi-source data loading
-* source_branch for per-source preprocessing
-* merge_sources for combining source features
+* by_source branching for per-source preprocessing
+* Source merging with unified merge syntax
 * Hybrid source and regular branching
+
+Syntax:
+  - Branch by source: {"branch": {"by_source": True, "steps": {...}}}
+  - Merge sources: {"merge": {"sources": "concat"}}
 
 Prerequisites
 -------------
@@ -64,10 +68,13 @@ Multi-source scenarios in spectroscopy:
   - Multiple spectrometers (e.g., portable vs. benchtop)
   - Spectral + metadata features
 
-nirs4all handles this with source-aware branching:
+nirs4all handles this with source-aware branching (v2 syntax):
 
-    source_branch  - Apply different pipelines per source
-    merge_sources  - Combine processed sources
+    {"branch": {"by_source": True, "steps": {...}}}  - Per-source processing
+    {"merge": {"sources": "concat"}}                 - Combine processed sources
+
+This is a type of SEPARATION branch: each source is processed independently,
+then samples are reassembled during merge.
 """)
 
 
@@ -112,29 +119,35 @@ print("Example 2: Source Branching Basics")
 print("-" * 60)
 
 print("""
-source_branch applies different preprocessing per data source:
+Use by_source branching to apply different preprocessing per data source:
 
-    {"source_branch": {
-        "NIR": [SNV(), FirstDerivative()],
-        "Raman": [MSC(), SavitzkyGolay()],
-        "markers": [StandardScaler()],
+    {"branch": {
+        "by_source": True,
+        "steps": {
+            "NIR": [SNV(), FirstDerivative()],
+            "Raman": [MSC(), SavitzkyGolay()],
+            "markers": [StandardScaler()],
+        }
     }}
 
-Each source name maps to its pipeline steps.
+Each source name maps to its pipeline steps. Sources not listed get no processing.
 """)
 
-# Simulate multi-source with source_branch configuration
+# Multi-source branching configuration using v2 syntax
 # Note: This requires multi-source dataset support
 pipeline_source_branch = [
     ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"source_branch": {
-        "main": [SNV(), MinMaxScaler()],  # Main spectral source
-        "auxiliary": [MSC(), StandardScaler()],  # Could be another source
+    {"branch": {
+        "by_source": True,
+        "steps": {
+            "main": [SNV(), MinMaxScaler()],  # Main spectral source
+            "auxiliary": [MSC(), StandardScaler()],  # Could be another source
+        }
     }},
     PLSRegression(n_components=5),
 ]
 
-print("Pipeline with source_branch:")
+print("Pipeline with by_source branch:")
 print("  - main source: SNV → MinMaxScaler")
 print("  - auxiliary source: MSC → StandardScaler")
 print("\nNote: Requires multi-source dataset for full functionality")
@@ -148,28 +161,34 @@ print("Example 3: Merge Sources Operations")
 print("-" * 60)
 
 print("""
-After source_branch, merge_sources combines source features:
+After by_source branching, use the unified merge syntax to combine sources:
 
-    {"merge_sources": "concat"}  - Horizontal concatenation
-    {"merge_sources": "stack"}   - 3D stacking for CNNs
-    {"merge_sources": "average"} - Element-wise average (same dims)
+    {"merge": {"sources": "concat"}}  - Horizontal concatenation
+    {"merge": {"sources": "stack"}}   - 3D stacking for CNNs
+    {"merge": {"sources": "dict"}}    - Keep as dict for multi-input models
+
+This is the v2 unified syntax. The merge keyword now handles both
+branch merging AND source merging through the "sources" key.
 """)
 
-# Conceptual pipeline showing merge_sources usage
+# Conceptual pipeline showing source merge with unified syntax
 pipeline_merge_sources = [
     ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"source_branch": {
-        "nir": [SNV(), FirstDerivative()],
-        "raman": [MSC(), SavitzkyGolay(window_length=11, polyorder=2)],
+    {"branch": {
+        "by_source": True,
+        "steps": {
+            "nir": [SNV(), FirstDerivative()],
+            "raman": [MSC(), SavitzkyGolay(window_length=11, polyorder=2)],
+        }
     }},
-    {"merge_sources": "concat"},  # Combine horizontally
+    {"merge": {"sources": "concat"}},  # Combine horizontally (unified syntax)
     PLSRegression(n_components=10),
 ]
 
 print("Merge modes:")
 print("  concat  - shape: (n, p_nir + p_raman)")
 print("  stack   - shape: (n, 2, max_p) - for 2D convolutions")
-print("  average - shape: (n, p) if sources have same dimensions")
+print("  dict    - keep as dict for multi-input neural networks")
 
 
 # =============================================================================
@@ -180,23 +199,26 @@ print("Example 4: Source-Specific Feature Selection")
 print("-" * 60)
 
 print("""
-Each source can have its own feature selection within source_branch.
+Each source can have its own feature selection within the by_source branch.
 This allows tuning dimensionality per source type.
 """)
 
 pipeline_selection = [
     ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"source_branch": {
-        "spectra": [
-            SNV(),
-            VarianceThreshold(threshold=0.01),  # Remove low-variance wavelengths
-        ],
-        "metadata": [
-            StandardScaler(),
-            # No feature selection - keep all metadata
-        ],
+    {"branch": {
+        "by_source": True,
+        "steps": {
+            "spectra": [
+                SNV(),
+                VarianceThreshold(threshold=0.01),  # Remove low-variance wavelengths
+            ],
+            "metadata": [
+                StandardScaler(),
+                # No feature selection - keep all metadata
+            ],
+        }
     }},
-    {"merge_sources": "concat"},
+    {"merge": {"sources": "concat"}},
     PLSRegression(n_components=5),
 ]
 
@@ -215,22 +237,25 @@ print("-" * 60)
 print("""
 Combine source branching with regular branching for complex experiments:
 
-    1. source_branch processes each data source
-    2. merge_sources combines them
-    3. Regular branch tests different models
+    1. by_source branch processes each data source (separation branch)
+    2. merge sources combines them
+    3. Regular branch tests different models (duplication branch)
 """)
 
 pipeline_hybrid = [
     ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
 
-    # First: Per-source preprocessing
-    {"source_branch": {
-        "nir": [SNV()],
-        "raman": [MSC()],
+    # First: Per-source preprocessing (separation branch)
+    {"branch": {
+        "by_source": True,
+        "steps": {
+            "nir": [SNV()],
+            "raman": [MSC()],
+        }
     }},
-    {"merge_sources": "concat"},
+    {"merge": {"sources": "concat"}},
 
-    # Then: Compare models on merged features
+    # Then: Compare models on merged features (duplication branch)
     {"branch": {
         "pls": [PLSRegression(n_components=5)],
         "pls_more": [PLSRegression(n_components=10)],
@@ -238,9 +263,9 @@ pipeline_hybrid = [
 ]
 
 print("Hybrid pipeline:")
-print("  1. source_branch: NIR→SNV, Raman→MSC")
-print("  2. merge_sources: concatenate")
-print("  3. branch: compare PLS components")
+print("  1. by_source branch: NIR→SNV, Raman→MSC")
+print("  2. merge sources: concatenate")
+print("  3. duplication branch: compare PLS components")
 
 
 # =============================================================================
@@ -253,20 +278,25 @@ print("-" * 60)
 print("""
 Weight sources differently during merging:
 
-    {"merge_sources": {"mode": "concat", "weights": {"nir": 1.0, "raman": 0.5}}}
+    {"merge": {"sources": {"mode": "concat", "weights": {"nir": 1.0, "raman": 0.5}}}}
 
 This scales source contributions before combining.
 """)
 
 pipeline_weighted = [
     ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"source_branch": {
-        "nir": [SNV()],
-        "raman": [MSC()],
+    {"branch": {
+        "by_source": True,
+        "steps": {
+            "nir": [SNV()],
+            "raman": [MSC()],
+        }
     }},
-    {"merge_sources": {
-        "mode": "concat",
-        "weights": {"nir": 1.0, "raman": 0.5}  # Weight Raman less
+    {"merge": {
+        "sources": {
+            "mode": "concat",
+            "weights": {"nir": 1.0, "raman": 0.5}  # Weight Raman less
+        }
     }},
     PLSRegression(n_components=5),
 ]
@@ -286,21 +316,26 @@ print("-" * 60)
 print("""
 Select specific sources to include in merge:
 
-    {"merge_sources": {"sources": ["nir", "markers"], "mode": "concat"}}
+    {"merge": {"sources": {"select": ["nir", "markers"], "mode": "concat"}}}
 
 Unselected sources are discarded.
 """)
 
 pipeline_selective = [
     ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"source_branch": {
-        "nir": [SNV()],
-        "raman": [MSC()],
-        "markers": [StandardScaler()],
+    {"branch": {
+        "by_source": True,
+        "steps": {
+            "nir": [SNV()],
+            "raman": [MSC()],
+            "markers": [StandardScaler()],
+        }
     }},
-    {"merge_sources": {
-        "sources": ["nir", "markers"],  # Exclude raman
-        "mode": "concat"
+    {"merge": {
+        "sources": {
+            "select": ["nir", "markers"],  # Exclude raman
+            "mode": "concat"
+        }
     }},
     PLSRegression(n_components=5),
 ]
@@ -321,7 +356,7 @@ print("""
 Complete workflow for multi-instrument fusion:
 
     1. Load multi-source data (NIR portable + NIR benchtop)
-    2. Apply device-specific calibration
+    2. Apply device-specific calibration (by_source branch)
     3. Harmonize preprocessing
     4. Merge and model
 """)
@@ -331,22 +366,25 @@ pipeline_practical = [
     ShuffleSplit(n_splits=5, test_size=0.2, random_state=42),
 
     # Device-specific preprocessing
-    {"source_branch": {
-        "portable": [
-            # Portable needs more aggressive preprocessing
-            SNV(),
-            SavitzkyGolay(window_length=11, polyorder=2),
-            FirstDerivative(),
-        ],
-        "benchtop": [
-            # Benchtop is more stable
-            SNV(),
-            FirstDerivative(),
-        ],
+    {"branch": {
+        "by_source": True,
+        "steps": {
+            "portable": [
+                # Portable needs more aggressive preprocessing
+                SNV(),
+                SavitzkyGolay(window_length=11, polyorder=2),
+                FirstDerivative(),
+            ],
+            "benchtop": [
+                # Benchtop is more stable
+                SNV(),
+                FirstDerivative(),
+            ],
+        }
     }},
 
     # Merge with equal weight
-    {"merge_sources": "concat"},
+    {"merge": {"sources": "concat"}},
 
     # Final model
     PLSRegression(n_components=10),
@@ -355,7 +393,7 @@ pipeline_practical = [
 print("Multi-instrument fusion pipeline:")
 print("  portable: SNV → SavGol → 1st Deriv (aggressive)")
 print("  benchtop: SNV → 1st Deriv (stable)")
-print("  merge: concatenate")
+print("  merge: concatenate sources")
 print("  model: PLS(n=10)")
 
 
@@ -367,12 +405,16 @@ print("Summary")
 print("=" * 60)
 print("""
 What we learned:
-1. source_branch applies per-source preprocessing
-2. merge_sources combines processed sources
-3. Merge modes: concat, stack, average
+1. by_source branching for per-source preprocessing (separation branch)
+2. Unified merge syntax: {"merge": {"sources": "concat"}}
+3. Merge modes: concat, stack, dict
 4. Weighted merging scales source contributions
 5. Selective merging filters sources
 6. Hybrid workflows combine source and regular branching
+
+Syntax Reference (v2):
+  Branch:  {"branch": {"by_source": True, "steps": {...}}}
+  Merge:   {"merge": {"sources": "concat"}}
 
 Use cases:
 - Multi-spectrometer fusion (NIR + Raman)

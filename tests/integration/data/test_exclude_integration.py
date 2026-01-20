@@ -1,10 +1,13 @@
 """
-Integration tests for sample filtering in pipelines.
+Integration tests for sample exclusion infrastructure.
 
-Tests the end-to-end functionality of sample filtering including:
-- Pipeline integration with sample_filter keyword
-- Interaction with other pipeline steps
-- Indexer exclusion tracking
+Tests the end-to-end functionality of sample exclusion including:
+- Filter components (YOutlierFilter, CompositeFilter)
+- Indexer exclusion tracking (mark_excluded, reset_exclusions)
+- Cascade to augmented samples
+
+Note: These tests verify the underlying infrastructure used by
+the ExcludeController (`exclude` keyword) in pipelines.
 """
 
 import numpy as np
@@ -17,8 +20,8 @@ from nirs4all.operators.filters import YOutlierFilter
 from nirs4all.operators.filters.base import CompositeFilter
 
 
-class TestSampleFilteringIntegration:
-    """Integration tests for sample filtering functionality."""
+class TestExclusionIntegration:
+    """Integration tests for sample exclusion functionality."""
 
     @pytest.fixture
     def dataset_with_outliers(self):
@@ -211,8 +214,8 @@ class TestSampleFilteringIntegration:
         assert len(excluded_composite) <= len(excluded_loose)
 
 
-class TestSampleFilteringWithAugmentation:
-    """Tests for filtering with augmented samples."""
+class TestExclusionWithAugmentation:
+    """Tests for exclusion with augmented samples."""
 
     @pytest.fixture
     def dataset_with_augmented(self):

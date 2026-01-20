@@ -47,15 +47,18 @@ class SampleFilter(TransformerMixin, BaseEstimator, ABC):
         ...         return z_scores <= self.threshold  # True = keep
     """
 
-    def __init__(self, reason: Optional[str] = None):
+    def __init__(self, reason: Optional[str] = None, tag_name: Optional[str] = None):
         """
         Initialize the sample filter.
 
         Args:
             reason: String identifier for tracking exclusion reasons in the indexer.
                    If None, defaults to the class name (e.g., "YOutlierFilter").
+            tag_name: Name for the tag column when used with TagController.
+                     If None, defaults to the exclusion_reason property.
         """
         self.reason = reason
+        self.tag_name = tag_name
 
     @property
     def exclusion_reason(self) -> str:
@@ -267,7 +270,8 @@ class CompositeFilter(SampleFilter):
         self,
         filters: Optional[List[SampleFilter]] = None,
         mode: str = "any",
-        reason: Optional[str] = None
+        reason: Optional[str] = None,
+        tag_name: Optional[str] = None
     ):
         """
         Initialize the composite filter.
@@ -279,11 +283,13 @@ class CompositeFilter(SampleFilter):
                  - "any": Exclude if ANY filter flags (logical OR of exclusions)
                  - "all": Exclude only if ALL filters flag (logical AND of exclusions)
             reason: Custom reason string. If None, auto-generates from mode and filters.
+            tag_name: Name for the tag column when used with TagController.
+                     If None, defaults to the exclusion_reason property.
 
         Raises:
             ValueError: If mode is not "any" or "all".
         """
-        super().__init__(reason=reason)
+        super().__init__(reason=reason, tag_name=tag_name)
         self.filters = filters if filters is not None else []
         self.mode = mode
 

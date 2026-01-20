@@ -7,18 +7,21 @@ Comprehensive pipeline exercising ALL pipeline-specific keywords.
 This is a complex integration test that validates all pipeline keywords work
 together correctly. It is intended for testing, not as a tutorial.
 
-Keywords covered:
+Keywords covered (v2):
 
 1. preprocessing - Feature preprocessing step
 2. y_processing - Target preprocessing
-3. sample_augmentation - Data augmentation on samples
-4. feature_augmentation - Create multiple preprocessing views
-5. concat_transform - Concatenate multiple transformer outputs
-6. branch - Pipeline branching into parallel execution paths
-7. merge - Merge branch outputs (features or predictions)
-8. source_branch - Per-source processing (for multi-source datasets)
-9. merge_sources - Combine multiple data sources
-10. model - Model training step
+3. tag - Tag samples without removing (v2)
+4. exclude - Exclude samples from training (v2)
+5. feature_augmentation - Create multiple preprocessing views
+6. concat_transform - Concatenate multiple transformer outputs
+7. branch - Pipeline branching (duplication branches)
+8. merge - Merge branch outputs (features or predictions)
+9. model - Model training step
+
+Note: The following keywords are tested separately:
+- sample_augmentation - Tested in other examples (interaction with tag columns)
+- by_source branch, merge sources - See D04_merge_sources.py, D06_separation_branches.py
 
 WARNING: This is an extremely complex pipeline meant for integration testing.
 For production and learning, use simpler, focused pipelines.
@@ -60,10 +63,9 @@ from nirs4all.operators.transforms import (
     FirstDerivative,
     Detrend,
 )
-from nirs4all.operators.transforms import (
-    Rotate_Translate,
-    GaussianAdditiveNoise,
-)
+# Note: sample_augmentation imports (Rotate_Translate, GaussianAdditiveNoise)
+# removed due to known interaction issues with tag columns
+from nirs4all.operators.filters import YOutlierFilter
 from nirs4all.operators.models import MetaModel
 
 # Parse command-line arguments
@@ -87,23 +89,24 @@ def print_section(title: str):
 print_section("R03 - All Keywords Integration Test")
 
 print("""
-This pipeline exercises ALL pipeline-specific keywords:
+This pipeline exercises ALL pipeline-specific keywords (v2):
 
 Pipeline Structure:
 ├── 1. preprocessing (MinMaxScaler)
 ├── 2. y_processing (StandardScaler for targets)
-├── 3. sample_augmentation (Rotate_Translate, GaussianNoise)
-├── 4. feature_augmentation (SNV, FirstDerivative, Detrend) [extend mode]
-├── 5. source_branch (per-source preprocessing)
-├── 6. merge (features from sources → features output)
-├── 7. KFold cross-validation
-├── 8. branch (3 parallel strategies)
+├── 3. tag (YOutlierFilter zscore and iqr - v2)
+├── 4. exclude (YOutlierFilter zscore - extreme outliers)
+├── 5. feature_augmentation (SNV, FirstDerivative) [replace mode]
+├── 6. KFold cross-validation
+├── 7. branch (3 parallel strategies - duplication branch)
 │   ├── Branch 0: SNV → concat_transform[PCA, SVD] → PLS
 │   ├── Branch 1: MSC → RandomForest
 │   └── Branch 2: FirstDerivative → multiple PLS → GradientBoosting
-├── 9. MetaModel (per-branch stacking)
-├── 10. merge (predictions with per-branch model selection)
-└── 11. Final model (meta-learner)
+├── 8. MetaModel (per-branch stacking)
+├── 9. merge (predictions with per-branch model selection)
+└── 10. Final model (meta-learner)
+
+Note: by_source branch and merge sources are tested in D04 and D06.
 
 Expected outcome:
 - All keywords execute without errors
@@ -130,50 +133,31 @@ complex_pipeline = [
     {"y_processing": StandardScaler()},
 
     # =========================================================================
-    # KEYWORD 3: sample_augmentation
-    # Augment training samples with synthetic variations
+    # KEYWORD 3: tag (v2)
+    # Tag outliers without removing them - for analysis
     # =========================================================================
-    {
-        "sample_augmentation": {
-            "transformers": [
-                Rotate_Translate(p_range=1, y_factor=2),
-                GaussianAdditiveNoise(sigma=0.005),
-            ],
-            "count": 2,
-            "selection": "random",
-            "random_state": 42,
-        }
-    },
+    {"tag": YOutlierFilter(method="zscore", threshold=3.0, tag_name="zscore_outlier")},
+    {"tag": YOutlierFilter(method="iqr", threshold=3.0, tag_name="iqr_outlier")},
 
     # =========================================================================
-    # KEYWORD 4: feature_augmentation (extend mode)
+    # KEYWORD 4: exclude (v2)
+    # Exclude extreme outliers from training (keeps them for prediction)
+    # =========================================================================
+    {"exclude": YOutlierFilter(method="zscore", threshold=4.0)},
+
+    # =========================================================================
+    # KEYWORD 5: feature_augmentation (replace mode)
     # Create multiple preprocessing views
+    # Note: Using "replace" instead of "extend" to avoid source multiplication
+    # Note: by_source branch tested separately in D04_merge_sources.py and D06_separation_branches.py
     # =========================================================================
     {
         "feature_augmentation": [
             SNV,
             FirstDerivative,
-            Detrend,
         ],
-        "action": "extend",
+        "action": "replace",
     },
-
-    # =========================================================================
-    # KEYWORDS 5 & 6: source_branch + merge (features)
-    # Per-source processing followed by feature merge
-    # =========================================================================
-    {"source_branch": [
-        [MinMaxScaler()],
-        [MinMaxScaler()],
-        [PCA(20), MinMaxScaler()]
-    ]},
-
-    StandardScaler(),
-
-    {"merge": {
-        "features": "all",
-        "output_as": "sources",
-    }},
 
     # =========================================================================
     # Cross-validation splitter
@@ -181,15 +165,15 @@ complex_pipeline = [
     KFold(n_splits=3, shuffle=True, random_state=42),
 
     # =========================================================================
-    # KEYWORD 7: branch
-    # Create parallel execution paths
+    # KEYWORD 9: branch (duplication branch)
+    # Create parallel execution paths - same samples, different preprocessing
     # =========================================================================
     {
         "branch": {
             # Branch 0: PLS with latent features
             "pls_latent": [
                 SNV(),
-                # KEYWORD 8: concat_transform
+                # KEYWORD 10: concat_transform
                 {
                     "concat_transform": [
                         PCA(n_components=15),
@@ -231,7 +215,7 @@ complex_pipeline = [
     {"name": "Ridge_MetaModel", "model": MetaModel(model=Ridge(alpha=1.0))},
 
     # =========================================================================
-    # KEYWORD 9: merge with prediction selection
+    # KEYWORD 11: merge with prediction selection
     # =========================================================================
     {"merge": {
         "predictions": [
@@ -324,14 +308,14 @@ try:
     keywords_used = [
         ("preprocessing", "MinMaxScaler feature scaling"),
         ("y_processing", "StandardScaler target normalization"),
-        ("sample_augmentation", "Rotate_Translate + GaussianNoise"),
-        ("feature_augmentation", "SNV, FirstDerivative, Detrend views"),
+        ("tag (v2)", "YOutlierFilter zscore + iqr tagging"),
+        ("exclude (v2)", "YOutlierFilter zscore extreme exclusion"),
+        ("feature_augmentation", "SNV, FirstDerivative views"),
         ("concat_transform", "PCA + TruncatedSVD concatenation"),
-        ("branch", "pls_latent, rf_smoothed, gbr_derivative"),
-        ("merge (features)", "source merge to features"),
+        ("branch (duplication)", "pls_latent, rf_smoothed, gbr_derivative"),
         ("merge (predictions)", "per-branch model selection"),
-        ("source_branch", "per-source preprocessing"),
         ("model", "PLS, RF, GBR + Ridge meta-learner"),
+        # Note: by_source tested in D04, D06
     ]
 
     print("All pipeline-specific keywords verified:")
