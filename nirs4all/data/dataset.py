@@ -1418,6 +1418,167 @@ class SpectroDataset:
         """Get number of feature sources."""
         return self._feature_accessor.num_sources
 
+    # ========== Tag Operations ==========
+
+    def add_tag(self, name: str, dtype: str = "bool") -> None:
+        """
+        Add a new tag column to the dataset.
+
+        Tags are dynamic columns stored in the indexer that can be used for
+        sample classification, filtering, and branching (e.g., outlier flags,
+        cluster IDs, quality scores).
+
+        Args:
+            name: Name for the tag column. Must not conflict with core columns
+                  (sample, partition, group, etc.)
+            dtype: Data type for the tag. Supported: "bool", "str", "int", "float"
+
+        Raises:
+            ValueError: If name conflicts with existing columns or dtype is invalid.
+
+        Example:
+            >>> dataset.add_tag("is_outlier", "bool")
+            >>> dataset.add_tag("cluster_id", "int")
+            >>> dataset.add_tag("quality_score", "float")
+        """
+        self._indexer._store.add_tag_column(name, dtype)
+
+    def set_tag(
+        self,
+        name: str,
+        indices: Union[List[int], np.ndarray],
+        values: Union[Any, List[Any]]
+    ) -> None:
+        """
+        Set tag values for specific sample indices.
+
+        Args:
+            name: Name of the tag column.
+            indices: Sample indices to update.
+            values: Value(s) to set. Single value is applied to all indices,
+                   list must match length of indices.
+
+        Raises:
+            ValueError: If tag doesn't exist or values length mismatch.
+
+        Example:
+            >>> # Mark samples as outliers
+            >>> dataset.set_tag("is_outlier", [0, 1, 2], True)
+            >>> # Assign cluster IDs
+            >>> dataset.set_tag("cluster_id", [0, 1, 2], [1, 1, 2])
+        """
+        indices_list = indices.tolist() if isinstance(indices, np.ndarray) else list(indices)
+        self._indexer._store.set_tags(indices_list, name, values)
+
+    def get_tag(
+        self,
+        name: str,
+        selector: Optional[Selector] = None
+    ) -> np.ndarray:
+        """
+        Get tag values for samples, optionally filtered by selector.
+
+        Args:
+            name: Name of the tag column.
+            selector: Optional filter criteria (partition, group, etc.)
+
+        Returns:
+            np.ndarray: Array of tag values for matching samples.
+
+        Raises:
+            ValueError: If tag doesn't exist.
+
+        Example:
+            >>> # Get all outlier flags
+            >>> outliers = dataset.get_tag("is_outlier")
+            >>> # Get outlier flags for train partition only
+            >>> train_outliers = dataset.get_tag("is_outlier", {"partition": "train"})
+        """
+        condition = None
+        if selector:
+            selector_dict = self._indexer._ensure_selector_dict(selector)
+            condition = self._indexer._query_builder.build(selector_dict, exclude_columns=["processings"])
+
+        values = self._indexer._store.get_tags(name, condition)
+        return np.array(values)
+
+    @property
+    def tags(self) -> List[str]:
+        """
+        Get list of all tag column names.
+
+        Returns:
+            List of tag column names.
+
+        Example:
+            >>> print(dataset.tags)  # ['is_outlier', 'cluster_id']
+        """
+        return self._indexer._store.get_tag_column_names()
+
+    def tag_info(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get metadata about all tag columns.
+
+        Returns:
+            Dict mapping tag name to info dict containing:
+            - dtype: Data type of the tag
+            - non_null_count: Number of non-null values
+            - unique_values: List of unique values (for small cardinality)
+
+        Example:
+            >>> info = dataset.tag_info()
+            >>> print(info["is_outlier"])
+            >>> # {'dtype': 'bool', 'non_null_count': 50, 'unique_values': [True, False]}
+        """
+        result = {}
+        for tag_name in self._indexer._store.get_tag_column_names():
+            dtype = self._indexer._store.get_tag_dtype(tag_name)
+            values = self._indexer._store.get_tags(tag_name)
+
+            # Count non-null values
+            non_null_count = sum(1 for v in values if v is not None)
+
+            # Get unique values (limit to prevent memory issues)
+            unique_vals = list(set(v for v in values if v is not None))
+            if len(unique_vals) > 100:
+                unique_vals = unique_vals[:100]  # Truncate for large cardinality
+
+            result[tag_name] = {
+                "dtype": str(dtype),
+                "non_null_count": non_null_count,
+                "total_count": len(values),
+                "unique_values": unique_vals,
+            }
+
+        return result
+
+    def remove_tag(self, name: str) -> None:
+        """
+        Remove a tag column from the dataset.
+
+        Args:
+            name: Name of the tag column to remove.
+
+        Raises:
+            ValueError: If tag doesn't exist.
+
+        Example:
+            >>> dataset.remove_tag("is_outlier")
+        """
+        self._indexer._store.remove_tag_column(name)
+
+    def has_tag(self, name: str) -> bool:
+        """
+        Check if a tag column exists.
+
+        Args:
+            name: Name of the tag column.
+
+        Returns:
+            True if tag exists.
+        """
+        return self._indexer._store.has_tag_column(name)
+
     # ========== Rich Metadata for Run Manifests ==========
 
     def get_dataset_metadata(self, include_y_stats: bool = True) -> Dict[str, Any]:

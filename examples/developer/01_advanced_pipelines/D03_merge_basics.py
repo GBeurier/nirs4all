@@ -7,10 +7,15 @@ a single pipeline path.
 
 This tutorial covers:
 
-* Feature merging: concatenate features from branches
+* Feature merging: concatenate features from branches (duplication branches)
 * Prediction merging: collect OOF predictions for stacking
 * Mixed merging: combine features and predictions selectively
 * Per-branch selection and aggregation
+* Concat merging: reassemble samples from separation branches
+
+Merge for Branch Types:
+  - **Duplication branches**: Use "features" or "predictions" merge
+  - **Separation branches**: Use "concat" merge to reassemble samples
 
 Prerequisites
 -------------
@@ -19,6 +24,7 @@ Prerequisites
 Next Steps
 ----------
 See D04_merge_sources for multi-source data handling.
+See D06_separation_branches for separation branch examples.
 
 Duration: ~5 minutes
 Difficulty: ★★★★☆
@@ -62,10 +68,13 @@ print("""
 After branching, the pipeline has N parallel contexts. The ``merge`` step
 combines these into a single path for further processing.
 
-Merge modes:
+Merge modes for DUPLICATION branches (same samples, different preprocessing):
   "features"    - Concatenate feature matrices horizontally
   "predictions" - Collect OOF predictions (for stacking)
   {...}         - Mixed selection with dict syntax
+
+Merge mode for SEPARATION branches (different samples per branch):
+  "concat"      - Reassemble samples in original order
 
 Important: ``merge`` ALWAYS exits branch mode.
 """)
@@ -368,6 +377,51 @@ print(f"\nMerge with original: {result_with_original.num_predictions}")
 
 
 # =============================================================================
+# Section 8: Concat Merge for Separation Branches
+# =============================================================================
+print("\n" + "-" * 60)
+print("Example 8: Concat Merge for Separation Branches")
+print("-" * 60)
+
+print("""
+When using SEPARATION branches (by_tag, by_metadata, by_filter), samples
+are split across branches. Use "concat" merge to reassemble them:
+
+     Before merge (separation):     After concat merge:
+     ┌────────────┐
+     │ Branch A   │  samples 0,2,4  ┌────────────────────────────┐
+     ├────────────┤              →  │ All samples in order       │
+     │ Branch B   │  samples 1,3,5  └────────────────────────────┘
+     └────────────┘                        samples 0,1,2,3,4,5
+
+Syntax: {"merge": "concat"}
+
+Important: "concat" merge only works with separation branches.
+It preserves original sample order regardless of which branch processed them.
+""")
+
+# Example concept (not executed as it needs specific dataset with metadata)
+pipeline_concat_concept = [
+    # Assume we have a dataset with "farm" metadata
+    # {"branch": {"by_metadata": "farm", "steps": [SNV()]}},
+    # {"merge": "concat"},  # Reassemble samples from all farms
+    # PLSRegression(n_components=5),
+]
+
+print("""
+Example pipeline with separation branch and concat merge:
+
+  pipeline = [
+      {"branch": {"by_metadata": "farm", "steps": [SNV()]}},
+      {"merge": "concat"},  # Reassemble samples in original order
+      PLSRegression(n_components=5),
+  ]
+
+See D06_separation_branches.py for full working examples.
+""")
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 print("\n" + "=" * 60)
@@ -382,13 +436,16 @@ What we learned:
 5. Aggregation: mean/median/etc. instead of concatenation
 6. Nested branching: multiple branch-merge cycles
 7. include_original: preserve pre-branch features
+8. "concat" merge: reassemble samples from separation branches
 
 Key concepts:
 - merge ALWAYS exits branch mode
 - Prediction merge reconstructs OOF to prevent data leakage
+- Use "concat" for separation branches (by_tag, by_metadata, by_filter)
 - Use dict syntax for fine-grained control
 
 Next: D04_merge_sources.py - Multi-source data handling
+      D06_separation_branches.py - Separation branch examples
 """)
 
 if args.show:

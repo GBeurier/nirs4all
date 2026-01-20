@@ -13,7 +13,9 @@ This reference covers:
 * Basic step formats (class, instance, dict, string)
 * Step wrapper keywords (preprocessing, y_processing, model, etc.)
 * Generator syntax (_or_, _range_, pick, count, etc.)
-* Branching and merging (branch, merge, source_branch, merge_sources)
+* Tagging and exclusion (tag, exclude)
+* Branching types (duplication branches, separation branches)
+* Merging (branch merge, source merge, concat merge)
 * Model configuration and finetuning
 * Data augmentation (feature_augmentation, sample_augmentation)
 * Cross-validation splitters
@@ -38,6 +40,7 @@ from nirs4all.operators.transforms import (
     StandardNormalVariate as SNV, SavitzkyGolay,
     Haar, MultiplicativeScatterCorrection as MSC
 )
+from nirs4all.operators.filters import YOutlierFilter, XOutlierFilter
 
 # =============================================================================
 # SECTION 1: Basic Step Formats
@@ -157,14 +160,53 @@ step_concat_transform = {
 
 
 # =============================================================================
-# SECTION 3: Branching and Merging
+# SECTION 3: Tagging and Exclusion (v2)
 # =============================================================================
 #
-# Branching creates parallel execution paths. Merging combines them.
+# Tag samples for analysis without removing them. Exclude samples to remove
+# from training. Both keywords work with filter operators.
 #
 
-# 3.1 branch - Create parallel branches
-# -------------------------------------
+# 3.1 tag - Tag samples without removing
+# --------------------------------------
+# Tags samples matching the filter. Tagged samples are still used in training.
+# Useful for analysis and visualization of outliers without removing them.
+step_tag_simple = {"tag": YOutlierFilter(method="iqr", threshold=1.5)}
+
+# Creates a tag column (e.g., "y_outlier_iqr") in predictions
+step_tag_named = {"tag": YOutlierFilter(method="zscore", tag_name="zscore_outlier")}
+
+# 3.2 exclude - Remove samples from training
+# ------------------------------------------
+# Excludes samples matching the filter from training.
+# Also creates a tag for analysis. Does NOT apply during prediction.
+step_exclude_simple = {"exclude": YOutlierFilter(method="iqr", threshold=1.5)}
+
+# Multiple filters with mode
+step_exclude_multiple = {
+    "exclude": [
+        YOutlierFilter(method="iqr", threshold=1.5),
+        XOutlierFilter(method="pca_leverage"),
+    ],
+    "mode": "any",  # "any" (default) or "all"
+}
+
+
+# =============================================================================
+# SECTION 4: Branching and Merging (v2)
+# =============================================================================
+#
+# Two types of branches:
+#   - DUPLICATION branches: Same samples, different preprocessing
+#   - SEPARATION branches: Different samples, parallel processing
+#
+# Merging combines branch outputs.
+#
+
+# 4.1 branch - Create DUPLICATION branches (default)
+# --------------------------------------------------
+# All branches process the SAME samples with different preprocessing.
+
 # List syntax: Unnamed branches (accessed by index)
 step_branch_list = {
     "branch": [
@@ -181,15 +223,62 @@ step_branch_dict = {
     }
 }
 
-# 3.2 merge - Combine branch outputs
+# 4.2 SEPARATION branches - Different samples per branch
+# ------------------------------------------------------
+# Samples are routed to branches based on some criterion.
+# Use "concat" merge to reassemble samples.
+
+# by_metadata: Branch by metadata column value
+step_branch_by_metadata = {
+    "branch": {
+        "by_metadata": "instrument",
+        "steps": {
+            "NIR_500": [SNV()],
+            "NIR_700": [MSC()],
+        }
+    }
+}
+
+# by_tag: Branch by tag values (from prior tag/exclude step)
+step_branch_by_tag = {
+    "branch": {
+        "by_tag": "y_outlier_iqr",
+        "steps": {
+            "outlier": [SNV()],    # Samples tagged as outlier
+            "normal": [MSC()],     # Samples not tagged
+        }
+    }
+}
+
+# by_filter: Branch by filter result (pass/fail)
+step_branch_by_filter = {
+    "branch": {
+        "by_filter": YOutlierFilter(method="iqr"),
+        "steps": {
+            "pass": [SNV()],   # Samples passing filter (not outliers)
+            "fail": [MSC()],   # Samples failing filter (outliers)
+        }
+    }
+}
+
+# by_source: Branch by feature source (multi-source datasets)
+step_branch_by_source = {
+    "branch": {
+        "by_source": True,
+        "steps": {
+            "NIR": [SNV(), FirstDerivative()],
+            "markers": [StandardScaler()],
+        }
+    }
+}
+
+# 4.3 merge - Combine branch outputs
 # ----------------------------------
 # Merge ALWAYS exits branch mode (returns to single execution path).
 
-# Merge all features from all branches
-step_merge_features_all = {"merge": "features"}
-
-# Merge predictions for stacking (uses OOF by default)
-step_merge_predictions = {"merge": "predictions"}
+# For DUPLICATION branches:
+step_merge_features_all = {"merge": "features"}      # Concatenate X matrices
+step_merge_predictions = {"merge": "predictions"}    # Collect OOF predictions
 
 # Selective merge with per-branch model selection
 step_merge_selective = {
@@ -203,32 +292,16 @@ step_merge_selective = {
     }
 }
 
-# 3.3 source_branch - Per-source processing (multi-source datasets)
-# -----------------------------------------------------------------
-# Apply different pipelines to different data sources.
-step_source_branch = {
-    "source_branch": [
-        [SNV(), FirstDerivative()],    # Source 0 pipeline
-        [MSC(), SavitzkyGolay()],      # Source 1 pipeline
-    ]
-}
+# For SEPARATION branches:
+step_merge_concat = {"merge": "concat"}  # Reassemble samples in original order
 
-# Or with named sources:
-step_source_branch_named = {
-    "source_branch": {
-        "NIR": [SNV(), FirstDerivative()],
-        "markers": [StandardScaler()],
-    }
-}
-
-# 3.4 merge_sources - Combine multi-source features
-# -------------------------------------------------
-step_merge_sources_concat = {"merge_sources": "concat"}  # Horizontal concatenation
-step_merge_sources_stack = {"merge_sources": "stack"}    # 3D stacking
+# For by_source branches (source merge):
+step_merge_sources = {"merge": {"sources": "concat"}}  # Concatenate source features
+step_merge_sources_stack = {"merge": {"sources": "stack"}}  # 3D stacking for CNNs
 
 
 # =============================================================================
-# SECTION 4: Cross-Validation Splitters
+# SECTION 5: Cross-Validation Splitters
 # =============================================================================
 #
 # Splitters define how data is partitioned for training and validation.
@@ -250,7 +323,7 @@ splitter_dict = {
 
 
 # =============================================================================
-# SECTION 5: Model Configuration
+# SECTION 6: Model Configuration
 # =============================================================================
 #
 # Models can be configured with names, parameters, and finetuning options.
@@ -320,7 +393,7 @@ model_saved_pt = "my_pytorch_model.pt"         # PyTorch format
 
 
 # =============================================================================
-# SECTION 6: Generator Syntax (Overview)
+# SECTION 7: Generator Syntax (Overview)
 # =============================================================================
 #
 # Generators create multiple pipeline variants from a single specification.
@@ -356,7 +429,7 @@ generator_count = {
 
 
 # =============================================================================
-# SECTION 7: Complete Pipeline Examples
+# SECTION 8: Complete Pipeline Examples
 # =============================================================================
 
 # 7.1 Simple regression pipeline
@@ -412,7 +485,7 @@ pipeline_sweep = [
 
 
 # =============================================================================
-# SECTION 8: Syntax Equivalences
+# SECTION 9: Syntax Equivalences
 # =============================================================================
 #
 # These formats are equivalent - they normalize to the same configuration:
@@ -439,8 +512,8 @@ model_equiv_2 = {
 # SUMMARY
 # =============================================================================
 print("""
-R01 - Pipeline Syntax Reference
-===============================
+R01 - Pipeline Syntax Reference (v2)
+====================================
 
 This reference documents all nirs4all pipeline declaration formats:
 
@@ -459,12 +532,24 @@ STEP KEYWORDS:
   sample_augmentation {"sample_augmentation": {...}}
   concat_transform    {"concat_transform": [t1, t2, ...]}
 
-BRANCHING:
-  branch (list)       {"branch": [[...], [...]]}
-  branch (dict)       {"branch": {"name1": [...], "name2": [...]}}
-  merge               {"merge": "features" | "predictions" | {...}}
-  source_branch       {"source_branch": [...]}
-  merge_sources       {"merge_sources": "concat" | "stack"}
+TAGGING & EXCLUSION (v2):
+  tag                 {"tag": Filter()}  # Tag without removing
+  exclude             {"exclude": Filter()}  # Remove from training
+
+BRANCHING (v2):
+  DUPLICATION (same samples, different preprocessing):
+    branch (list)     {"branch": [[...], [...]]}
+    branch (dict)     {"branch": {"name1": [...], ...}}
+    merge features    {"merge": "features"}
+    merge predictions {"merge": "predictions"}
+
+  SEPARATION (different samples, parallel processing):
+    by_metadata       {"branch": {"by_metadata": "col", "steps": {...}}}
+    by_tag            {"branch": {"by_tag": "tag_name", "steps": {...}}}
+    by_filter         {"branch": {"by_filter": Filter(), "steps": {...}}}
+    by_source         {"branch": {"by_source": True, "steps": {...}}}
+    merge concat      {"merge": "concat"}  # Reassemble samples
+    merge sources     {"merge": {"sources": "concat"}}
 
 GENERATORS (see R02):
   _or_                {"_or_": [A, B, C]}

@@ -101,15 +101,69 @@ pipeline = [
 
 #### Special Keywords
 
-| Keyword         | Purpose                     | Example                                               |
-| --------------- | --------------------------- | ----------------------------------------------------- |
-| `model`         | Define model step           | `{"model": PLSRegression(10)}`                        |
-| `y_processing`  | Target scaling              | `{"y_processing": MinMaxScaler()}`                    |
-| `branch`        | Parallel pipelines          | `{"branch": [[SNV(), PLS()], [MSC(), RF()]]}`         |
-| `merge`         | Combine branches (stacking) | `{"merge": "predictions"}`                            |
-| `source_branch` | Per-source preprocessing    | `{"source_branch": {"NIR": [...], "markers": [...]}}` |
-| `_or_`          | Generator (variants)        | `{"_or_": [SNV, MSC, Detrend]}`                       |
-| `_range_`       | Parameter sweep             | `{"_range_": [1, 30, 5], "param": "n_components"}`    |
+| Keyword        | Purpose                     | Example                                                          |
+| -------------- | --------------------------- | ---------------------------------------------------------------- |
+| `model`        | Define model step           | `{"model": PLSRegression(10)}`                                   |
+| `y_processing` | Target scaling              | `{"y_processing": MinMaxScaler()}`                               |
+| `tag`          | Mark samples (non-removal)  | `{"tag": YOutlierFilter()}`                                      |
+| `exclude`      | Exclude samples (training)  | `{"exclude": [YOutlierFilter(), XOutlierFilter()], "mode": "any"}` |
+| `branch`       | Parallel/separation branches| `{"branch": [[SNV(), PLS()], [MSC(), RF()]]}`                    |
+| `merge`        | Combine branches (stacking) | `{"merge": "predictions"}` or `{"merge": "concat"}`              |
+| `_or_`         | Generator (variants)        | `{"_or_": [SNV, MSC, Detrend]}`                                  |
+| `_range_`      | Parameter sweep             | `{"_range_": [1, 30, 5], "param": "n_components"}`               |
+
+#### Tagging and Exclusion (v2)
+
+Mark samples with tags (for analysis) or exclude them from training:
+
+```python
+from nirs4all.operators.filters import YOutlierFilter, XOutlierFilter
+
+# Tag samples without removing (for downstream branching/analysis)
+{"tag": YOutlierFilter(method="iqr")},
+
+# Exclude outliers from training (mode: "any" or "all" for multiple)
+{"exclude": YOutlierFilter(method="iqr")},
+{"exclude": [YOutlierFilter(), XOutlierFilter(method="mahalanobis")], "mode": "any"},
+```
+
+#### Branching (v2)
+
+Two branch modes: **duplication** (parallel pipelines) and **separation** (disjoint sample subsets):
+
+```python
+# Duplication branches - same samples, different pipelines
+{"branch": [
+    [SNV(), PLSRegression(10)],
+    [MSC(), RandomForestRegressor()],
+]},
+
+# Separation branches - disjoint sample groups
+{"branch": {"by_metadata": "site"}},                      # By metadata column
+{"branch": {"by_tag": "y_outlier_iqr", "values": {       # By tag values
+    "clean": False, "outliers": True
+}}},
+{"branch": {"by_source": True, "steps": {                # Per-source preprocessing
+    "NIR": [SNV(), PLSRegression(10)],
+    "markers": [MinMaxScaler(), Ridge()],
+}}},
+```
+
+#### Merging (v2)
+
+Merge strategies for different branch types:
+
+```python
+# For duplication branches (stacking)
+{"merge": "predictions"},   # OOF predictions as features
+{"merge": "features"},      # Transformed features as features
+
+# For separation branches (reassembly)
+{"merge": "concat"},        # Reassemble samples in original order
+
+# For multi-source merging
+{"merge": {"sources": "concat"}},  # Unified source merge syntax
+```
 
 ### Controller Pattern (Registry)
 

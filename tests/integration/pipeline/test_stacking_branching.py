@@ -504,5 +504,207 @@ class TestBranchTypeEnum:
         assert BranchType.UNKNOWN.value == "unknown"
 
 
+class TestV2SeparationBranchDetection:
+    """Tests for v2 BranchController separation branch detection.
+
+    The new unified BranchController sets different context flags:
+    - custom['branch_type'] = 'separation'
+    - custom['separation_type'] = 'by_tag' | 'by_metadata' | 'by_filter' | 'by_source'
+    - custom['sample_partition'] = {'sample_indices': [...], 'n_samples': N, ...}
+    """
+
+    def test_detect_by_tag_separation(self):
+        """Test detection of by_tag separation branch."""
+        context = self._create_mock_context()
+        context.custom['branch_type'] = 'separation'
+        context.custom['separation_type'] = 'by_tag'
+        context.custom['sample_partition'] = {
+            'sample_indices': list(range(50)),
+            'n_samples': 50,
+            'separation_key': 'y_outlier_iqr',
+        }
+
+        branch_type = detect_branch_type(context)
+        assert branch_type == BranchType.SAMPLE_PARTITIONER
+
+    def test_detect_by_metadata_separation(self):
+        """Test detection of by_metadata separation branch."""
+        context = self._create_mock_context()
+        context.custom['branch_type'] = 'separation'
+        context.custom['separation_type'] = 'by_metadata'
+        context.custom['sample_partition'] = {
+            'sample_indices': list(range(30)),
+            'n_samples': 30,
+            'separation_key': 'site',
+        }
+
+        branch_type = detect_branch_type(context)
+        assert branch_type == BranchType.METADATA_PARTITIONER
+
+    def test_detect_by_filter_separation(self):
+        """Test detection of by_filter separation branch."""
+        context = self._create_mock_context()
+        context.custom['branch_type'] = 'separation'
+        context.custom['separation_type'] = 'by_filter'
+        context.custom['sample_partition'] = {
+            'sample_indices': list(range(80)),
+            'n_samples': 80,
+            'separation_key': 'YOutlierFilter',
+        }
+
+        branch_type = detect_branch_type(context)
+        assert branch_type == BranchType.OUTLIER_EXCLUDER
+
+    def test_detect_by_source_separation(self):
+        """Test detection of by_source separation branch."""
+        context = self._create_mock_context()
+        context.custom['branch_type'] = 'separation'
+        context.custom['separation_type'] = 'by_source'
+        context.custom['in_source_branch_mode'] = True
+
+        branch_type = detect_branch_type(context)
+        assert branch_type == BranchType.PREPROCESSING
+
+    def test_is_stacking_compatible_by_tag(self):
+        """Test stacking compatibility with by_tag separation."""
+        context = self._create_mock_context()
+        context.custom['branch_type'] = 'separation'
+        context.custom['separation_type'] = 'by_tag'
+        context.custom['sample_partition'] = {
+            'sample_indices': list(range(50)),
+            'n_samples': 50,
+        }
+
+        # by_tag creates disjoint samples, compatible within partition
+        assert is_stacking_compatible(context) is True
+
+    def test_is_stacking_compatible_by_source(self):
+        """Test stacking compatibility with by_source separation."""
+        context = self._create_mock_context()
+        context.custom['branch_type'] = 'separation'
+        context.custom['separation_type'] = 'by_source'
+
+        # by_source is per-source preprocessing, fully compatible
+        assert is_stacking_compatible(context) is True
+
+    def test_validate_by_metadata_separation(self):
+        """Test validation with by_metadata separation branch."""
+        from nirs4all.controllers.models.stacking import (
+            is_disjoint_branch,
+            get_disjoint_branch_info,
+        )
+
+        context = self._create_mock_context()
+        context.custom['branch_type'] = 'separation'
+        context.custom['separation_type'] = 'by_metadata'
+        context.custom['sample_partition'] = {
+            'sample_indices': list(range(30)),
+            'n_samples': 30,
+            'separation_key': 'site',
+        }
+        context.selector.branch_name = 'site_A'
+
+        # by_metadata should be disjoint
+        assert is_disjoint_branch(context) is True
+
+        # Should return disjoint info
+        info = get_disjoint_branch_info(context)
+        assert info is not None
+        assert info['partition_type'] == 'metadata'
+        assert info['separation_type'] == 'by_metadata'
+        assert info['column'] == 'site'
+        assert info['partition_value'] == 'site_A'
+        assert info['n_samples'] == 30
+
+    def test_validate_by_tag_separation(self):
+        """Test validation with by_tag separation branch."""
+        from nirs4all.controllers.models.stacking import (
+            is_disjoint_branch,
+            get_disjoint_branch_info,
+        )
+
+        context = self._create_mock_context()
+        context.custom['branch_type'] = 'separation'
+        context.custom['separation_type'] = 'by_tag'
+        context.custom['sample_partition'] = {
+            'sample_indices': list(range(20)),
+            'n_samples': 20,
+            'separation_key': 'y_outlier_iqr',
+        }
+        context.selector.branch_name = 'outliers'
+
+        # by_tag should be disjoint
+        assert is_disjoint_branch(context) is True
+
+        # Should return disjoint info
+        info = get_disjoint_branch_info(context)
+        assert info is not None
+        assert info['partition_type'] == 'tag'
+        assert info['separation_type'] == 'by_tag'
+        assert info['tag_name'] == 'y_outlier_iqr'
+        assert info['partition_value'] == 'outliers'
+        assert info['n_samples'] == 20
+
+    def test_validate_by_filter_separation(self):
+        """Test validation with by_filter separation branch."""
+        from nirs4all.controllers.models.stacking import (
+            is_disjoint_branch,
+            get_disjoint_branch_info,
+        )
+
+        context = self._create_mock_context()
+        context.custom['branch_type'] = 'separation'
+        context.custom['separation_type'] = 'by_filter'
+        context.custom['sample_partition'] = {
+            'sample_indices': list(range(80)),
+            'n_samples': 80,
+            'separation_key': 'YOutlierFilter',
+        }
+        context.selector.branch_name = 'passing'
+
+        # by_filter should be disjoint
+        assert is_disjoint_branch(context) is True
+
+        # Should return disjoint info
+        info = get_disjoint_branch_info(context)
+        assert info is not None
+        assert info['partition_type'] == 'filter'
+        assert info['separation_type'] == 'by_filter'
+        assert info['filter_class'] == 'YOutlierFilter'
+        assert info['partition_value'] == 'passing'
+        assert info['n_samples'] == 80
+
+    def test_validate_by_source_not_disjoint(self):
+        """Test that by_source separation is NOT disjoint (all samples, different features)."""
+        from nirs4all.controllers.models.stacking import (
+            is_disjoint_branch,
+            get_disjoint_branch_info,
+        )
+
+        context = self._create_mock_context()
+        context.custom['branch_type'] = 'separation'
+        context.custom['separation_type'] = 'by_source'
+        context.selector.branch_name = 'NIR'
+
+        # by_source is NOT disjoint - all samples, different features
+        assert is_disjoint_branch(context) is False
+
+        # Should return None for non-disjoint
+        info = get_disjoint_branch_info(context)
+        assert info is None
+
+    def _create_mock_context(self):
+        """Create a mock execution context for v2 separation branch testing."""
+        context = MagicMock()
+        context.custom = {}
+        context.selector = MagicMock()
+        context.selector.branch_id = 0
+        context.selector.branch_name = None
+        context.selector.branch_path = [0]
+        context.state = MagicMock()
+        context.state.step_number = 5
+        return context
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

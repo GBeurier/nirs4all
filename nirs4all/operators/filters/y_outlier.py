@@ -69,7 +69,8 @@ class YOutlierFilter(SampleFilter):
         threshold: float = 1.5,
         lower_percentile: float = 1.0,
         upper_percentile: float = 99.0,
-        reason: Optional[str] = None
+        reason: Optional[str] = None,
+        tag_name: Optional[str] = None
     ):
         """
         Initialize the Y outlier filter.
@@ -91,13 +92,15 @@ class YOutlierFilter(SampleFilter):
             upper_percentile: Upper percentile cutoff for percentile method.
                             Samples above this percentile are excluded. Default 99.0.
             reason: Custom exclusion reason. Defaults to filter description.
+            tag_name: Name for the tag column when used with TagController.
+                     If None, defaults to the exclusion_reason property.
 
         Raises:
             ValueError: If method is not one of the supported methods.
             ValueError: If threshold is not positive.
             ValueError: If percentiles are not in valid range.
         """
-        super().__init__(reason=reason)
+        super().__init__(reason=reason, tag_name=tag_name)
         self.method = method
         self.threshold = threshold
         self.lower_percentile = lower_percentile

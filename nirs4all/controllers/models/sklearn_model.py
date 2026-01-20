@@ -270,7 +270,12 @@ class SklearnModelController(BaseModelController):
                 trained_model.set_params(**valid_params)
 
         # Fit the model
-        trained_model.fit(X_train, y_train.ravel())  # Ensure y is 1D for sklearn
+        # Handle y shape: sklearn expects (n_samples,) for single-output, (n_samples, n_outputs) for multi-output
+        if y_train.ndim == 2 and y_train.shape[1] == 1:
+            y_fit = y_train.ravel()  # Single output: flatten to 1D
+        else:
+            y_fit = y_train  # Multi-output: keep as 2D
+        trained_model.fit(X_train, y_fit)
 
         # Reset GPU memory AFTER training as well to free model's training buffers
         if reset_gpu:

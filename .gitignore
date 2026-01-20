@@ -79,3 +79,4 @@ docs/_build
 /tmp
 bench/fck-pls/workspace
 bench/synthetic/workspace
+examples/reports

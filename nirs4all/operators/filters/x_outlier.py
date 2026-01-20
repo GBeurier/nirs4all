@@ -75,7 +75,8 @@ class XOutlierFilter(SampleFilter):
         contamination: float = 0.1,
         random_state: Optional[int] = None,
         support_fraction: Optional[float] = None,
-        reason: Optional[str] = None
+        reason: Optional[str] = None,
+        tag_name: Optional[str] = None
     ):
         """
         Initialize the X outlier filter.
@@ -110,12 +111,14 @@ class XOutlierFilter(SampleFilter):
                              sklearn's default ((n_samples + n_features + 1) / 2n_samples).
                              Set to 0.9 for faster computation with slightly less robustness.
             reason: Custom exclusion reason. Defaults to filter description.
+            tag_name: Name for the tag column when used with TagController.
+                     If None, defaults to the exclusion_reason property.
 
         Raises:
             ValueError: If method is not one of the supported methods.
             ValueError: If contamination is not in valid range.
         """
-        super().__init__(reason=reason)
+        super().__init__(reason=reason, tag_name=tag_name)
         self.method = method
         self.threshold = threshold
         self.n_components = n_components

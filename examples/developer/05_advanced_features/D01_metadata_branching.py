@@ -2,16 +2,22 @@
 D01 - Metadata Branching: Partitioning by Metadata
 ===================================================
 
-metadata_partitioner creates branches based on sample metadata,
+The ``by_metadata`` branch mode creates branches based on sample metadata,
 enabling group-specific processing or stratified analysis.
+
+This is a SEPARATION branch type: different samples go to different branches
+based on their metadata values.
 
 This tutorial covers:
 
-* metadata_partitioner basics
+* by_metadata branch basics
 * Partitioning by categorical metadata
-* Partitioning by numeric ranges
-* Custom partition functions
+* Value mapping for grouping
 * Combining with regular branching
+* Concat merge for reassembly
+
+Syntax:
+  {"branch": {"by_metadata": "column_name", "steps": {...}}}
 
 Prerequisites
 -------------
@@ -20,6 +26,8 @@ Prerequisites
 Next Steps
 ----------
 See D02_concat_transform for feature concatenation.
+See D06_separation_branches for comprehensive separation branch examples.
+See D07_value_mapping for advanced value mapping syntax.
 
 Duration: ~4 minutes
 Difficulty: ★★★★☆
@@ -56,325 +64,324 @@ print("D01 - Metadata Branching: Partitioning by Metadata")
 print("=" * 60)
 
 print("""
-metadata_partitioner creates branches based on sample attributes:
+by_metadata branching creates branches based on sample attributes:
 
   Use cases:
   - Different preprocessing per instrument
   - Separate models per sample type
   - Stratified analysis by metadata field
 
-  Syntax:
-    {"metadata_partitioner": {
-        "column": "instrument",     # Metadata column
-        "branches": {
+  Syntax (v2):
+    {"branch": {
+        "by_metadata": "instrument",  # Metadata column to branch by
+        "steps": {                     # Per-value preprocessing
             "InstrumentA": [SNV()],
             "InstrumentB": [MSC()],
         }
     }}
+    {"merge": "concat"}  # Reassemble samples in original order
+
+This is a SEPARATION branch - different samples go to different branches.
 """)
 
 
 # =============================================================================
-# Section 1: Basic Metadata Partitioning
+# Section 1: Basic Metadata Branching
 # =============================================================================
 print("\n" + "-" * 60)
-print("Example 1: Basic Metadata Partitioning")
+print("Example 1: Basic Metadata Branching")
 print("-" * 60)
 
 print("""
-Partition samples by categorical metadata:
+Branch samples by categorical metadata:
 
-    {"metadata_partitioner": {
-        "column": "variety",
-        "branches": {
+    {"branch": {
+        "by_metadata": "variety",
+        "steps": {
             "variety_A": [preprocessing_for_A],
             "variety_B": [preprocessing_for_B],
         }
     }}
+    {"merge": "concat"}  # Reassemble samples
 
-Samples are routed to their matching branch.
+Samples are routed to their matching branch based on metadata value.
 """)
 
 pipeline_basic = [
     MinMaxScaler(),
     ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"metadata_partitioner": {
-        "column": "variety",
-        "branches": {
+    {"branch": {
+        "by_metadata": "variety",
+        "steps": {
             "variety_A": [SNV()],
             "variety_B": [MSC()],
             "variety_C": [FirstDerivative()],
         }
     }},
+    {"merge": "concat"},  # Reassemble samples from all branches
     PLSRegression(n_components=5),
 ]
 
-print("Pipeline with metadata_partitioner:")
-print("  - Samples partitioned by 'variety' column")
+print("Pipeline with by_metadata branch:")
+print("  - Samples routed by 'variety' column value")
 print("  - Each variety gets different preprocessing")
-print("  - Model trained per partition")
+print("  - Samples reassembled via concat merge")
+print("  - Single model trained on all samples")
 
 
 # =============================================================================
-# Section 2: Default Branch for Unmatched Samples
+# Section 2: Auto-Discovery of Metadata Values
 # =============================================================================
 print("\n" + "-" * 60)
-print("Example 2: Default Branch for Unmatched Samples")
+print("Example 2: Auto-Discovery of Metadata Values")
 print("-" * 60)
 
 print("""
-Handle samples that don't match any specified value:
-
-    {"metadata_partitioner": {
-        "column": "instrument",
-        "branches": {
-            "known_instrument": [specific_preprocessing],
-        },
-        "default": [fallback_preprocessing],  # For unknown instruments
-    }}
-""")
-
-pipeline_default = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"metadata_partitioner": {
-        "column": "instrument",
-        "branches": {
-            "NIR_500": [SNV()],
-            "NIR_700": [MSC()],
-        },
-        "default": [StandardScaler()],  # Fallback for unknown instruments
-    }},
-    PLSRegression(n_components=5),
-]
-
-print("With default branch:")
-print("  - Known instruments get specific preprocessing")
-print("  - Unknown instruments use default preprocessing")
-
-
-# =============================================================================
-# Section 3: Numeric Range Partitioning
-# =============================================================================
-print("\n" + "-" * 60)
-print("Example 3: Numeric Range Partitioning")
-print("-" * 60)
-
-print("""
-Partition by numeric ranges:
-
-    {"metadata_partitioner": {
-        "column": "temperature",
-        "ranges": {
-            "cold": [-50, 10],    # -50 to 10°C
-            "normal": [10, 30],   # 10 to 30°C
-            "hot": [30, 100],     # 30 to 100°C
-        },
-        "branches": {
-            "cold": [cold_preprocessing],
-            "normal": [normal_preprocessing],
-            "hot": [hot_preprocessing],
-        }
-    }}
-""")
-
-pipeline_ranges = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"metadata_partitioner": {
-        "column": "temperature",
-        "ranges": {
-            "low": [0, 20],
-            "medium": [20, 40],
-            "high": [40, 100],
-        },
-        "branches": {
-            "low": [SNV()],
-            "medium": [SNV(), FirstDerivative()],
-            "high": [MSC(), FirstDerivative()],
-        }
-    }},
-    PLSRegression(n_components=5),
-]
-
-print("Numeric range partitioning:")
-print("  - Samples routed by temperature value")
-print("  - Each range gets appropriate preprocessing")
-
-
-# =============================================================================
-# Section 4: Custom Partition Functions
-# =============================================================================
-print("\n" + "-" * 60)
-print("Example 4: Custom Partition Functions")
-print("-" * 60)
-
-print("""
-Use functions for complex partitioning logic:
-
-    def is_outlier(row):
-        return row['concentration'] > 1000
-
-    {"metadata_partitioner": {
-        "function": is_outlier,
-        "branches": {
-            True: [outlier_preprocessing],
-            False: [normal_preprocessing],
-        }
-    }}
-""")
-
-def partition_by_quality(metadata_row):
-    """Partition samples by quality score."""
-    score = metadata_row.get('quality_score', 0)
-    if score >= 90:
-        return 'high_quality'
-    elif score >= 70:
-        return 'medium_quality'
-    else:
-        return 'low_quality'
-
-print("Custom partition function defined:")
-print("  - partition_by_quality(row) returns quality category")
-print("  - Each category routed to appropriate branch")
-
-
-# =============================================================================
-# Section 5: Multi-Column Partitioning
-# =============================================================================
-print("\n" + "-" * 60)
-print("Example 5: Multi-Column Partitioning")
-print("-" * 60)
-
-print("""
-Partition based on multiple metadata columns:
-
-    {"metadata_partitioner": {
-        "columns": ["instrument", "operator"],
-        "branches": {
-            ("NIR_500", "Alice"): [preproc_1],
-            ("NIR_500", "Bob"): [preproc_2],
-            ("NIR_700", "Alice"): [preproc_3],
-        }
-    }}
-""")
-
-pipeline_multi = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"metadata_partitioner": {
-        "columns": ["instrument", "batch"],
-        "branches": {
-            ("Instrument_A", "Batch_1"): [SNV()],
-            ("Instrument_A", "Batch_2"): [SNV(), FirstDerivative()],
-            ("Instrument_B", "Batch_1"): [MSC()],
-        },
-        "default": [StandardScaler()],
-    }},
-    PLSRegression(n_components=5),
-]
-
-print("Multi-column partitioning:")
-print("  - Combinations of instrument + batch")
-print("  - Fine-grained control per subgroup")
-
-
-# =============================================================================
-# Section 6: Combining with Regular Branching
-# =============================================================================
-print("\n" + "-" * 60)
-print("Example 6: Combining with Regular Branching")
-print("-" * 60)
-
-print("""
-Nest metadata_partitioner inside regular branches:
+When no explicit "steps" dict is provided, branches are auto-created
+for each unique metadata value:
 
     {"branch": {
-        "model_A": [
-            {"metadata_partitioner": {...}},
-            ModelA()
-        ],
-        "model_B": [
-            {"metadata_partitioner": {...}},
-            ModelB()
-        ]
+        "by_metadata": "instrument",
+        "steps": [SNV()],  # Same preprocessing for all values
     }}
+
+All unique values of "instrument" column create separate branches.
+Each branch applies the same preprocessing steps.
+""")
+
+pipeline_auto = [
+    MinMaxScaler(),
+    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+    {"branch": {
+        "by_metadata": "instrument",
+        "steps": [SNV()],  # Applied to all instrument branches
+    }},
+    {"merge": "concat"},
+    PLSRegression(n_components=5),
+]
+
+print("Auto-discovery mode:")
+print("  - Branches created for each unique 'instrument' value")
+print("  - Same preprocessing applied to all branches")
+print("  - Useful when you don't know all possible values")
+
+
+# =============================================================================
+# Section 3: Value Mapping for Grouping
+# =============================================================================
+print("\n" + "-" * 60)
+print("Example 3: Value Mapping for Grouping")
+print("-" * 60)
+
+print("""
+Use "values" to group metadata values into named branches:
+
+    {"branch": {
+        "by_metadata": "instrument",
+        "values": {
+            "portable": ["NIR_100", "NIR_200"],    # Group portable devices
+            "benchtop": ["NIR_500", "NIR_700"],    # Group benchtop devices
+        },
+        "steps": {
+            "portable": [SNV(), FirstDerivative()],  # Aggressive preprocessing
+            "benchtop": [SNV()],                     # Minimal preprocessing
+        }
+    }}
+
+Value mapping groups multiple metadata values into logical branches.
+See D07_value_mapping.py for advanced value mapping syntax.
+""")
+
+pipeline_grouped = [
+    MinMaxScaler(),
+    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+    {"branch": {
+        "by_metadata": "instrument",
+        "values": {
+            "portable": ["NIR_100", "NIR_200"],
+            "benchtop": ["NIR_500", "NIR_700"],
+        },
+        "steps": {
+            "portable": [SNV(), FirstDerivative()],
+            "benchtop": [SNV()],
+        }
+    }},
+    {"merge": "concat"},
+    PLSRegression(n_components=5),
+]
+
+print("Value mapping:")
+print("  - Multiple instruments grouped into 'portable' and 'benchtop'")
+print("  - Each group gets appropriate preprocessing")
+
+
+# =============================================================================
+# Section 4: Per-Branch Model Training
+# =============================================================================
+print("\n" + "-" * 60)
+print("Example 4: Per-Branch Model Training")
+print("-" * 60)
+
+print("""
+Models inside branches train on each partition separately:
+
+    {"branch": {
+        "by_metadata": "farm",
+        "steps": [SNV(), PLSRegression(n_components=5)],  # Model in branch
+    }}
+    {"merge": "concat"}  # Collect predictions
+
+Each farm gets its own PLS model trained on its data.
+This is useful when different groups have fundamentally different relationships.
+""")
+
+pipeline_per_branch_model = [
+    MinMaxScaler(),
+    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+    {"branch": {
+        "by_metadata": "farm",
+        "steps": [SNV(), PLSRegression(n_components=5)],  # Separate model per farm
+    }},
+    {"merge": "concat"},  # Collect predictions from all farms
+]
+
+print("Per-branch model training:")
+print("  - Each farm gets its own PLS model")
+print("  - Predictions merged back in sample order")
+
+
+# =============================================================================
+# Section 5: Minimum Samples Per Branch
+# =============================================================================
+print("\n" + "-" * 60)
+print("Example 5: Minimum Samples Per Branch")
+print("-" * 60)
+
+print("""
+Use min_samples to skip branches with too few samples:
+
+    {"branch": {
+        "by_metadata": "variety",
+        "min_samples": 10,  # Skip varieties with < 10 samples
+        "steps": [SNV()],
+    }}
+
+Branches with insufficient samples are skipped to avoid training issues.
+""")
+
+pipeline_min_samples = [
+    MinMaxScaler(),
+    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+    {"branch": {
+        "by_metadata": "variety",
+        "min_samples": 10,  # Skip varieties with fewer than 10 samples
+        "steps": [SNV()],
+    }},
+    {"merge": "concat"},
+    PLSRegression(n_components=5),
+]
+
+print("Minimum samples option:")
+print("  - Varieties with < 10 samples are skipped")
+print("  - Prevents training on tiny partitions")
+
+
+# =============================================================================
+# Section 6: Combining with Duplication Branching
+# =============================================================================
+print("\n" + "-" * 60)
+print("Example 6: Combining with Duplication Branching")
+print("-" * 60)
+
+print("""
+Combine metadata branching (separation) with preprocessing branching (duplication):
+
+    # First: preprocess by metadata (separation)
+    {"branch": {"by_metadata": "instrument", "steps": {...}}}
+    {"merge": "concat"}
+
+    # Then: compare models (duplication)
+    {"branch": {"pls": [PLS()], "ridge": [Ridge()]}}
 """)
 
 pipeline_combined = [
     MinMaxScaler(),
     ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+
+    # First: per-instrument preprocessing (separation branch)
     {"branch": {
-        "pls_path": [
-            {"metadata_partitioner": {
-                "column": "instrument",
-                "branches": {
-                    "NIR_500": [SNV()],
-                    "NIR_700": [MSC()],
-                },
-                "default": [StandardScaler()],
-            }},
-            PLSRegression(n_components=5),
-        ],
-        "simple_path": [
-            SNV(),
-            PLSRegression(n_components=10),
-        ],
+        "by_metadata": "instrument",
+        "steps": {
+            "NIR_500": [SNV()],
+            "NIR_700": [MSC()],
+        }
+    }},
+    {"merge": "concat"},  # Reassemble samples
+
+    # Then: compare models (duplication branch)
+    {"branch": {
+        "pls5": [PLSRegression(n_components=5)],
+        "pls10": [PLSRegression(n_components=10)],
     }},
 ]
 
 print("Combined branching:")
-print("  - pls_path: metadata-aware preprocessing")
-print("  - simple_path: uniform preprocessing")
+print("  1. by_metadata: per-instrument preprocessing (separation)")
+print("  2. concat merge: reassemble samples")
+print("  3. Regular branch: compare PLS components (duplication)")
 
 
 # =============================================================================
-# Section 7: Partition Statistics
+# Section 7: Other Separation Branch Types
 # =============================================================================
 print("\n" + "-" * 60)
-print("Example 7: Partition Statistics")
+print("Example 7: Other Separation Branch Types")
 print("-" * 60)
 
 print("""
-Analyze partition distribution:
+by_metadata is one of several separation branch types:
 
-    result = nirs4all.run(pipeline, dataset)
+  by_tag:       Branch by tag values (from outlier detection, etc.)
+  by_metadata:  Branch by metadata column (this tutorial)
+  by_filter:    Branch by filter result (pass/fail)
+  by_source:    Branch by feature source (for multi-source data)
 
-    # Get partition info from predictions
-    partitions = result.predictions.get_unique_values('metadata_partition')
-    for p in partitions:
-        subset = result.predictions.filter(metadata_partition=p)
-        print(f"{p}: {len(subset)} samples")
+Example - by_tag branching:
+    {"tag": YOutlierFilter()}           # First create a tag
+    {"branch": {"by_tag": "y_outlier_iqr", "steps": {...}}}
+
+Example - by_filter branching:
+    {"branch": {"by_filter": YOutlierFilter(), "steps": {...}}}
 """)
 
 
 # =============================================================================
-# Section 8: Use Cases for Metadata Partitioning
+# Section 8: Use Cases for Metadata Branching
 # =============================================================================
 print("\n" + "-" * 60)
-print("Example 8: Use Cases for Metadata Partitioning")
+print("Example 8: Use Cases for Metadata Branching")
 print("-" * 60)
 
 print("""
 📋 Common Use Cases:
 
 ┌─────────────────────┬─────────────────────────────────────┐
-│ Scenario            │ Partition By                        │
+│ Scenario            │ Branch By                           │
 ├─────────────────────┼─────────────────────────────────────┤
-│ Multi-instrument    │ "instrument" column                 │
+│ Multi-instrument    │ by_metadata: "instrument"           │
 │ calibration         │ Different preprocessing per device  │
 ├─────────────────────┼─────────────────────────────────────┤
-│ Batch correction    │ "batch" or "date" column            │
+│ Batch correction    │ by_metadata: "batch"                │
 │                     │ Batch-specific normalization        │
 ├─────────────────────┼─────────────────────────────────────┤
-│ Sample type         │ "variety" or "material" column      │
+│ Sample type         │ by_metadata: "variety"              │
 │ specific models     │ Type-specific models                │
 ├─────────────────────┼─────────────────────────────────────┤
-│ Quality control     │ "quality_score" ranges              │
-│                     │ Different handling for outliers     │
+│ Farm/site specific  │ by_metadata: "farm"                 │
+│                     │ Site-specific calibration           │
 ├─────────────────────┼─────────────────────────────────────┤
-│ Environmental       │ "temperature", "humidity" ranges    │
-│ compensation        │ Environment-specific corrections    │
+│ Season adjustment   │ by_metadata: "season"               │
+│                     │ Season-specific preprocessing       │
 └─────────────────────┴─────────────────────────────────────┘
 """)
 
@@ -387,27 +394,31 @@ print("Summary")
 print("=" * 60)
 print("""
 What we learned:
-1. metadata_partitioner routes samples by metadata
-2. Categorical partitioning by column values
-3. Numeric range partitioning
-4. Custom functions for complex logic
-5. Multi-column combinations
-6. Default branch for unmatched samples
-7. Combining with regular branching
+1. by_metadata is a SEPARATION branch - different samples to different branches
+2. Auto-discovery: branches created for each unique value
+3. Value mapping: group metadata values into logical branches
+4. Per-branch models: train separate models per partition
+5. min_samples option: skip partitions with too few samples
+6. Combining with duplication branches
 
-Key syntax:
-    {"metadata_partitioner": {
-        "column": "column_name",          # or "columns": [...]
-        "branches": {
-            "value1": [preprocessing1],
-            "value2": [preprocessing2],
-        },
-        "default": [fallback],            # Optional
-        "ranges": {...},                  # For numeric
-        "function": custom_fn,            # For complex logic
+Key syntax (v2):
+    {"branch": {
+        "by_metadata": "column_name",
+        "steps": {...},       # Per-value OR shared preprocessing
+        "values": {...},      # Optional: group values
+        "min_samples": 10,    # Optional: minimum partition size
     }}
+    {"merge": "concat"}       # Reassemble samples in order
+
+Separation branch types:
+    by_tag       - Branch by tag values
+    by_metadata  - Branch by metadata column (this tutorial)
+    by_filter    - Branch by filter result
+    by_source    - Branch by feature source
 
 Next: D02_concat_transform.py - Feature concatenation
+      D06_separation_branches.py - Comprehensive separation branch examples
+      D07_value_mapping.py - Advanced value mapping syntax
 """)
 
 if args.show:
