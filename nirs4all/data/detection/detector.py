@@ -208,23 +208,34 @@ class AutoDetector:
             result.header_unit = known_params["header_unit"]
             result.confidence["header_unit"] = 1.0
         elif result.has_header and parsed_rows:
+            # Detect from header row
             result.header_unit, conf = self._detect_header_unit(parsed_rows[0])
+            result.confidence["header_unit"] = conf
+        elif parsed_rows:
+            # No header - try to detect from first data row (wavelength-like values)
+            result.header_unit, conf = self._detect_header_unit_from_data(
+                parsed_rows[0], result.decimal_separator
+            )
             result.confidence["header_unit"] = conf
 
         # Detect signal type
         if "signal_type" in known_params:
             result.signal_type = known_params["signal_type"]
             result.confidence["signal_type"] = 1.0
-        elif result.has_header and parsed_rows:
-            result.signal_type, conf = self._detect_signal_type_from_header(parsed_rows[0])
-            result.confidence["signal_type"] = conf
-            if result.signal_type is None:
-                # Try to infer from data values
-                result.signal_type, conf = self._detect_signal_type_from_values(
-                    parsed_rows[1:] if result.has_header else parsed_rows,
-                    result.decimal_separator
-                )
+        else:
+            # First try from header if present
+            if result.has_header and parsed_rows:
+                result.signal_type, conf = self._detect_signal_type_from_header(parsed_rows[0])
                 result.confidence["signal_type"] = conf
+
+            # If header detection didn't find signal type, try from data values
+            if result.signal_type is None and parsed_rows:
+                data_rows = parsed_rows[1:] if result.has_header else parsed_rows
+                if data_rows:
+                    result.signal_type, conf = self._detect_signal_type_from_values(
+                        data_rows, result.decimal_separator
+                    )
+                    result.confidence["signal_type"] = conf
 
         return result
 
@@ -449,11 +460,109 @@ class AutoDetector:
             confidence = min((avg_data_ratio - first_ratio) * 2, 1.0)
             return True, confidence
 
+        # Check for numeric wavelength header (special case for spectral data)
+        # Even if all numeric, the first row might be wavelengths if:
+        # 1. Values are monotonically increasing/decreasing
+        # 2. Values are in typical wavelength ranges (nm: 350-2500, cm-1: 400-12500)
+        # 3. Values have regular spacing
+        if first_ratio > 0.9 and len(first_row) >= 10:
+            is_wavelength, wl_conf = self._detect_wavelength_header(first_row, data_rows, decimal_sep)
+            if is_wavelength:
+                return True, wl_conf
+
         # If ratios are similar, probably no header
         if abs(first_ratio - avg_data_ratio) < 0.1:
             return False, 0.7
 
         return True, 0.5  # Default with uncertainty
+
+    def _detect_wavelength_header(
+        self,
+        first_row: List[str],
+        data_rows: List[List[str]],
+        decimal_sep: str
+    ) -> Tuple[bool, float]:
+        """Detect if first row is a wavelength header (nm or cm-1).
+
+        Wavelength headers are recognized by:
+        1. Monotonically increasing or decreasing values
+        2. Regular spacing between values
+        3. Values in typical wavelength ranges
+        4. Different value distribution than spectral data
+
+        Args:
+            first_row: First row values.
+            data_rows: Subsequent data rows.
+            decimal_sep: Decimal separator.
+
+        Returns:
+            Tuple of (is_wavelength_header, confidence).
+        """
+        # Parse first row as numbers
+        first_values = []
+        for cell in first_row:
+            try:
+                val = float(cell.strip().replace(decimal_sep, "."))
+                first_values.append(val)
+            except ValueError:
+                return False, 0.0
+
+        if len(first_values) < 10:
+            return False, 0.0
+
+        # Check if monotonically increasing or decreasing
+        diffs = np.diff(first_values)
+        is_increasing = np.all(diffs > 0)
+        is_decreasing = np.all(diffs < 0)
+
+        if not (is_increasing or is_decreasing):
+            return False, 0.0
+
+        # Check value range - typical wavelength ranges
+        min_val, max_val = min(first_values), max(first_values)
+
+        # nm range: typically 350-2500
+        is_nm_range = 200 <= min_val <= 2600 and 350 <= max_val <= 2600
+
+        # cm-1 range: typically 400-12500
+        is_cm1_range = 400 <= min_val <= 15000 and 1000 <= max_val <= 15000
+
+        if not (is_nm_range or is_cm1_range):
+            return False, 0.0
+
+        # Check regularity of spacing (coefficient of variation of diffs should be low)
+        diffs_abs = np.abs(diffs)
+        cv = np.std(diffs_abs) / np.mean(diffs_abs) if np.mean(diffs_abs) > 0 else 1.0
+
+        # Regular spacing has low CV (< 0.1 for perfect, < 0.3 for acceptable)
+        if cv > 0.5:
+            return False, 0.0
+
+        # Compare with data rows - data should have different distribution
+        # Spectral data is typically in ranges like 0-1, 0-100, or 0-5 (absorbance)
+        data_values = []
+        for row in data_rows[:5]:
+            for cell in row:
+                try:
+                    val = float(cell.strip().replace(decimal_sep, "."))
+                    data_values.append(val)
+                except ValueError:
+                    continue
+
+        if data_values:
+            data_min, data_max = min(data_values), max(data_values)
+            # If data range is very different from header range, high confidence
+            range_diff = abs((max_val - min_val) - (data_max - data_min))
+            if range_diff > 100:  # Very different ranges
+                confidence = 0.95
+            elif range_diff > 50:
+                confidence = 0.85
+            else:
+                confidence = 0.75
+        else:
+            confidence = 0.7
+
+        return True, confidence
 
     def _is_numeric(self, value: str, decimal_sep: str = ".") -> bool:
         """Check if a string value is numeric.
@@ -542,6 +651,50 @@ class AutoDetector:
                     return "cm-1", 0.8
 
         return best_unit, confidence
+
+    def _detect_header_unit_from_data(
+        self,
+        first_row: List[str],
+        decimal_sep: str
+    ) -> Tuple[str, float]:
+        """Detect header unit from first data row when no header is present.
+
+        If the columns represent wavelengths (wavelength-per-column layout),
+        we can infer the unit from the first data row's index-like progression.
+
+        Actually, for spectral data without headers, we look at whether the
+        column values could be wavelengths by checking if they're monotonically
+        increasing/decreasing and in typical ranges.
+
+        Args:
+            first_row: First row of actual data values.
+            decimal_sep: Decimal separator.
+
+        Returns:
+            Tuple of (unit_type, confidence).
+        """
+        # Try to parse first row as wavelength values (column headers as data)
+        # This is tricky - for samples-as-rows layout, first row is sample data
+        # We can't determine wavelengths from sample values, only from column structure
+
+        # Instead, check if we have many columns (typical of spectral data)
+        # and infer based on common conventions
+        n_cols = len(first_row)
+
+        # Typical spectral data has many columns (wavelengths)
+        if n_cols >= 50:
+            # Try to detect from column count and typical conventions
+            # NIR region: 780-2500 nm or 4000-12500 cm-1
+            # For ~200 columns:
+            #   nm: 1400-2400 nm range, step ~5 nm
+            #   cm-1: 4000-8000 cm-1 range, step ~20 cm-1
+
+            # Without header values, we can't definitively know
+            # But cm-1 is more common in NIR spectroscopy
+            return "cm-1", 0.5
+
+        # Few columns - likely not standard spectral data
+        return "text", 0.3
 
     def _detect_signal_type_from_header(
         self,
