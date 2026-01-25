@@ -45,6 +45,11 @@ FILE_PATTERNS = {
         "metadatatest", "metadata_test", "test_metadata", "testMetadata",
         "metadataval", "metadata_val", "val_metadata", "valMetadata"
     ],
+    "folds": [
+        "folds", "fold", "cv_folds", "cvfolds",
+        "cross_validation", "crossvalidation",
+        "cv", "splits"
+    ],
 }
 
 
@@ -195,6 +200,7 @@ class FolderParser(BaseParser):
             "test_group_filter": None,
             "test_group_params": None,
             "test_params": None,
+            "folds": None,
             "global_params": global_params
         }
 
@@ -214,7 +220,7 @@ class FolderParser(BaseParser):
                         continue
 
                     # Check if pattern matches (case-insensitive)
-                    if pattern_lower in file_path.name.lower():
+                    if self._pattern_matches(file_path.name.lower(), pattern_lower):
                         # Check file extension
                         if self._has_supported_extension(file_path):
                             file_posix = file_path.as_posix()
@@ -231,7 +237,81 @@ class FolderParser(BaseParser):
                 )
                 config[key] = matched_files
 
+        # Second pass: detect standalone X, Y, M files (exact stem match)
+        # These have lower priority than specific patterns
+        stem_patterns = {
+            "train_x": ["x"],
+            "train_y": ["y"],
+            "train_group": ["m", "meta", "metadata", "group"],
+        }
+        for key, stems in stem_patterns.items():
+            if config.get(key) is not None:
+                continue  # Already detected by specific patterns
+            for file_path in all_files:
+                if not file_path.is_file():
+                    continue
+                if not self._has_supported_extension(file_path):
+                    continue
+                stem = self._get_stem(file_path.name).lower()
+                if stem in stems:
+                    config[key] = file_path.as_posix()
+                    break
+
         return config, warnings
+
+    def _pattern_matches(self, filename: str, pattern: str) -> bool:
+        """Check if pattern matches filename using word-boundary-aware matching.
+
+        Pattern matches if:
+        - It appears as a substring in the filename
+        - For short patterns (1-2 chars), require word boundary (start of name or after delimiter)
+
+        Args:
+            filename: Lowercase filename to check.
+            pattern: Lowercase pattern to match.
+
+        Returns:
+            True if pattern matches.
+        """
+        if len(pattern) <= 2:
+            # Short patterns need word boundary matching to avoid false positives
+            # Check if filename starts with pattern followed by delimiter or extension
+            delimiters = ['.', '_', '-', ' ']
+            if filename.startswith(pattern):
+                if len(filename) == len(pattern):
+                    return True
+                if filename[len(pattern)] in delimiters:
+                    return True
+            # Check if pattern appears after a delimiter
+            for delim in delimiters:
+                idx = filename.find(delim + pattern)
+                if idx >= 0:
+                    end_idx = idx + len(delim) + len(pattern)
+                    if end_idx >= len(filename) or filename[end_idx] in delimiters:
+                        return True
+            return False
+        else:
+            # Longer patterns use simple substring matching
+            return pattern in filename
+
+    def _get_stem(self, filename: str) -> str:
+        """Get filename stem (without extension).
+
+        Handles compound extensions like .csv.gz.
+
+        Args:
+            filename: Filename to process.
+
+        Returns:
+            Filename stem without extension.
+        """
+        lower = filename.lower()
+        # Handle compound extensions
+        if lower.endswith('.csv.gz') or lower.endswith('.csv.zip'):
+            return filename[:-7]  # Remove .csv.gz or .csv.zip
+        # Handle single extension
+        idx = filename.rfind('.')
+        return filename[:idx] if idx > 0 else filename
 
     def _has_supported_extension(self, path: Path) -> bool:
         """Check if file has a supported extension.
