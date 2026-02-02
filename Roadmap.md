@@ -5,11 +5,15 @@
 > [Augmentations] Transfer synthesis mechanisms (temperature, machine, noise, etc.) to sample_augmentations operators
 
 > [Predictions] Add datasets, summary, top 50 best scores, etc. in a sub table to allow fast browsing/loading
+> [Predictions] Explicit workspace / predict / export / etc. Predictions files should be self sufficient et cleanable easily (keep top X, keep top X per model, remove ....)
 
 > [Synthesis] Externalize synthesis module out of data
 
+> [Datasets] Allow na in features and even realtime replacement depending on model config.
 
-**RELEASE** 0.6.2: Ready for UI
+
+
+**RELEASE** 0.6.3: Ready for UI
 
 
 > [Design] Define all services
