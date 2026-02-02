@@ -74,7 +74,11 @@ class RunResult:
             Dictionary containing best model's metrics, name, and configuration.
             Empty dict if no predictions available.
         """
-        top = self.predictions.top(n=1)
+        # Request common metrics to ensure they're computed and available
+        top = self.predictions.top(
+            n=1,
+            display_metrics=['rmse', 'r2', 'mae', 'accuracy']
+        )
         return top[0] if top else {}
 
     @property
@@ -90,7 +94,8 @@ class RunResult:
     def best_rmse(self) -> float:
         """Get best model's RMSE score.
 
-        Looks for 'rmse' in scores dict, then falls back to computing from y arrays.
+        Looks for 'rmse' as a flat key (from display_metrics), then in scores dict,
+        then falls back to test_score if metric is rmse-like.
 
         Returns:
             RMSE value or NaN if unavailable.
@@ -99,17 +104,23 @@ class RunResult:
         if not best:
             return float('nan')
 
-        # Try scores dict first
+        # Try flat 'rmse' key first (from display_metrics)
+        if 'rmse' in best and best['rmse'] is not None:
+            return float(best['rmse'])
+
+        # Try nested scores dict (legacy format)
         scores = best.get('scores', {})
         if isinstance(scores, dict):
             test_scores = scores.get('test', {})
-            if 'rmse' in test_scores:
-                return test_scores['rmse']
+            if 'rmse' in test_scores and test_scores['rmse'] is not None:
+                return float(test_scores['rmse'])
 
         # Fall back to test_score if metric is rmse-like
         metric = best.get('metric', '')
         if metric in ('rmse', 'mse'):
-            return best.get('test_score', float('nan'))
+            test_score = best.get('test_score')
+            if test_score is not None:
+                return float(test_score)
 
         return float('nan')
 
@@ -117,7 +128,7 @@ class RunResult:
     def best_r2(self) -> float:
         """Get best model's R² score.
 
-        Looks for 'r2' in scores dict.
+        Looks for 'r2' as a flat key (from display_metrics), then in scores dict.
 
         Returns:
             R² value or NaN if unavailable.
@@ -126,17 +137,24 @@ class RunResult:
         if not best:
             return float('nan')
 
+        # Try flat 'r2' key first (from display_metrics)
+        if 'r2' in best and best['r2'] is not None:
+            return float(best['r2'])
+
+        # Try nested scores dict (legacy format)
         scores = best.get('scores', {})
         if isinstance(scores, dict):
             test_scores = scores.get('test', {})
-            if 'r2' in test_scores:
-                return test_scores['r2']
+            if 'r2' in test_scores and test_scores['r2'] is not None:
+                return float(test_scores['r2'])
 
         return float('nan')
 
     @property
     def best_accuracy(self) -> float:
         """Get best model's accuracy score (for classification).
+
+        Looks for 'accuracy' as a flat key (from display_metrics), then in scores dict.
 
         Returns:
             Accuracy value or NaN if unavailable.
@@ -145,16 +163,23 @@ class RunResult:
         if not best:
             return float('nan')
 
+        # Try flat 'accuracy' key first (from display_metrics)
+        if 'accuracy' in best and best['accuracy'] is not None:
+            return float(best['accuracy'])
+
+        # Try nested scores dict (legacy format)
         scores = best.get('scores', {})
         if isinstance(scores, dict):
             test_scores = scores.get('test', {})
-            if 'accuracy' in test_scores:
-                return test_scores['accuracy']
+            if 'accuracy' in test_scores and test_scores['accuracy'] is not None:
+                return float(test_scores['accuracy'])
 
         # Fall back to test_score if metric is accuracy
         metric = best.get('metric', '')
         if metric == 'accuracy':
-            return best.get('test_score', float('nan'))
+            test_score = best.get('test_score')
+            if test_score is not None:
+                return float(test_score)
 
         return float('nan')
 
