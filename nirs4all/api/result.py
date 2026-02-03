@@ -74,11 +74,7 @@ class RunResult:
             Dictionary containing best model's metrics, name, and configuration.
             Empty dict if no predictions available.
         """
-        # Request common metrics to ensure they're computed and available
-        top = self.predictions.top(
-            n=1,
-            display_metrics=['rmse', 'r2', 'mae', 'accuracy']
-        )
+        top = self.predictions.top(n=1)
         return top[0] if top else {}
 
     @property
