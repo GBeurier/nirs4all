@@ -62,6 +62,7 @@ from .base import (
     LoaderError,
     LoaderRegistry,
     LoaderResult,
+    apply_na_policy,
     register_loader,
 )
 
@@ -169,6 +170,7 @@ __all__ = [
     "LoaderResult",
     "LoaderRegistry",
     "ArchiveHandler",
+    "apply_na_policy",
     # Exceptions
     "LoaderError",
     "FileLoadError",

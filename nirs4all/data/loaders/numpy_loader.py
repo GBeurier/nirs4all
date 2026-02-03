@@ -11,10 +11,14 @@ from typing import Any, ClassVar, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from nirs4all.core.exceptions import NAError
+from nirs4all.data.schema.config import NAFillConfig
+
 from .base import (
     FileLoadError,
     FileLoader,
     LoaderResult,
+    apply_na_policy,
     register_loader,
 )
 
@@ -55,6 +59,8 @@ class NumpyLoader(FileLoader):
         key: Optional[str] = None,
         header_unit: str = "index",
         data_type: str = "x",
+        na_policy: str = "auto",
+        na_fill_config: Optional[NAFillConfig] = None,
         **params: Any,
     ) -> LoaderResult:
         """Load data from a NumPy file.
@@ -65,6 +71,8 @@ class NumpyLoader(FileLoader):
             key: For .npz files, the key of the array to load.
             header_unit: Unit type for generated headers.
             data_type: Type of data ('x', 'y', or 'metadata').
+            na_policy: How to handle NA values (any NAPolicy value).
+            na_fill_config: Fill configuration when na_policy='replace'.
             **params: Additional parameters (ignored).
 
         Returns:
@@ -77,12 +85,7 @@ class NumpyLoader(FileLoader):
             "key_used": key,
             "initial_shape": None,
             "final_shape": None,
-            "na_handling": {
-                "strategy": "remove",
-                "na_detected": False,
-                "nb_removed_rows": 0,
-                "removed_rows_indices": [],
-            },
+            "na_handling": {},
             "warnings": [],
             "error": None,
         }
@@ -122,21 +125,34 @@ class NumpyLoader(FileLoader):
                 report["error"] = f"Failed to convert array to DataFrame: {e}"
                 return LoaderResult(report=report, header_unit=header_unit)
 
-            # Handle NA values
-            na_mask = data.isna().any(axis=1)
-            report["na_handling"]["na_detected"] = bool(na_mask.any())
+            # Handle NA values via centralized utility
+            na_mask_before = data.isna().any(axis=1)
 
-            if na_mask.any():
-                report["na_handling"]["nb_removed_rows"] = int(na_mask.sum())
-                report["na_handling"]["removed_rows_indices"] = data.index[na_mask].tolist()
-                data = data[~na_mask].copy()
+            try:
+                data, na_report = apply_na_policy(data, na_policy, na_fill_config)
+            except NAError:
+                report["na_handling"] = {"strategy": "abort", "na_detected": True}
+                na_mask = data.isna().any(axis=1)
+                first_na_row = data.index[na_mask][0]
+                first_na_col = data.loc[first_na_row].isna().idxmax()
+                report["error"] = (
+                    f"NA values detected and na_policy is 'abort'. "
+                    f"First NA in column '{first_na_col}' (row: {first_na_row})."
+                )
+                return LoaderResult(report=report, na_mask=na_mask, header_unit=header_unit)
+
+            report["na_handling"] = na_report
+
+            # Update headers after potential column removal (remove_feature)
+            if na_report.get("removed_features"):
+                headers = data.columns.tolist()
 
             report["final_shape"] = data.shape
 
             return LoaderResult(
                 data=data,
                 report=report,
-                na_mask=na_mask,
+                na_mask=na_mask_before,
                 headers=headers,
                 header_unit=header_unit,
             )

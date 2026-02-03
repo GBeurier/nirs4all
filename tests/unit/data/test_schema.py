@@ -465,3 +465,90 @@ class TestSchemaIntegration:
         # Pydantic might convert to string, but should work
         assert config.train_x is not None
         assert config.train_y is not None
+
+
+class TestNAPolicyEnum:
+    """Test suite for NAPolicy enum — canonical values and structure."""
+
+    def test_exactly_six_members(self):
+        """NAPolicy enum has exactly 6 members."""
+        assert len(NAPolicy) == 6
+
+    def test_canonical_values(self):
+        """NAPolicy enum contains all canonical values."""
+        expected_values = {"auto", "abort", "remove_sample", "remove_feature", "replace", "ignore"}
+        actual_values = {member.value for member in NAPolicy}
+        assert actual_values == expected_values
+
+    def test_no_old_remove_member(self):
+        """NAPolicy does NOT contain the old 'remove' member."""
+        values = {member.value for member in NAPolicy}
+        assert "remove" not in values
+
+    def test_no_old_drop_member(self):
+        """NAPolicy does NOT contain the old 'drop' member."""
+        values = {member.value for member in NAPolicy}
+        assert "drop" not in values
+
+    def test_no_old_keep_member(self):
+        """NAPolicy does NOT contain the old 'keep' member."""
+        values = {member.value for member in NAPolicy}
+        assert "keep" not in values
+
+    def test_no_old_fill_members(self):
+        """NAPolicy does NOT contain old 'fill_mean', 'fill_median', 'fill_zero'."""
+        values = {member.value for member in NAPolicy}
+        assert "fill_mean" not in values
+        assert "fill_median" not in values
+        assert "fill_zero" not in values
+
+    def test_string_comparison(self):
+        """NAPolicy members work as strings."""
+        assert NAPolicy.AUTO == "auto"
+        assert NAPolicy.ABORT == "abort"
+        assert NAPolicy.REMOVE_SAMPLE == "remove_sample"
+        assert NAPolicy.REMOVE_FEATURE == "remove_feature"
+        assert NAPolicy.REPLACE == "replace"
+        assert NAPolicy.IGNORE == "ignore"
+
+
+class TestNAFillConfig:
+    """Test suite for NAFillConfig model."""
+
+    def test_default_values(self):
+        """NAFillConfig defaults to method='value', fill_value=0.0, per_column=True."""
+        from nirs4all.data.schema.config import NAFillConfig, NAFillMethod
+
+        config = NAFillConfig()
+        assert config.method == NAFillMethod.VALUE
+        assert config.fill_value == 0.0
+        assert config.per_column is True
+
+    def test_custom_values(self):
+        """NAFillConfig accepts custom values."""
+        from nirs4all.data.schema.config import NAFillConfig, NAFillMethod
+
+        config = NAFillConfig(method=NAFillMethod.MEAN, fill_value=99.0, per_column=False)
+        assert config.method == NAFillMethod.MEAN
+        assert config.fill_value == 99.0
+        assert config.per_column is False
+
+
+class TestNAError:
+    """Test suite for NAError exception."""
+
+    def test_importable_from_exceptions(self):
+        """NAError is importable from nirs4all.core.exceptions."""
+        from nirs4all.core.exceptions import NAError as ImportedNAError
+        assert ImportedNAError is not None
+
+    def test_is_exception_subclass(self):
+        """NAError is a subclass of Exception."""
+        from nirs4all.core.exceptions import NAError as ImportedNAError
+        assert issubclass(ImportedNAError, Exception)
+
+    def test_can_be_raised_and_caught(self):
+        """NAError can be raised and caught."""
+        from nirs4all.core.exceptions import NAError as ImportedNAError
+        with pytest.raises(ImportedNAError, match="test message"):
+            raise ImportedNAError("test message")

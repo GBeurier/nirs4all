@@ -99,11 +99,11 @@ class TestCSVLoaderLoad:
     def test_load_csv_with_na_remove(self, csv_with_na_file):
         """Test loading CSV with NA values using remove policy."""
         loader = CSVLoader()
-        result = loader.load(csv_with_na_file, na_policy="remove")
+        result = loader.load(csv_with_na_file, na_policy="remove_sample")
 
         assert result.success
         assert result.data.shape == (2, 3)  # One row removed
-        assert result.report["na_handling"]["nb_removed_rows"] == 1
+        assert len(result.report["na_handling"]["removed_samples"]) == 1
 
     def test_load_csv_with_na_abort(self, csv_with_na_file):
         """Test loading CSV with NA values using abort policy."""
@@ -237,10 +237,10 @@ class TestCSVLoaderDataTypes:
 
         try:
             loader = CSVLoader()
-            result = loader.load(path, data_type="x", na_policy="remove")
+            result = loader.load(path, data_type="x", na_policy="remove_sample")
 
             assert result.success
             # Second row should be removed due to 'text' becoming NaN
-            assert result.report["na_handling"]["nb_removed_rows"] == 1
+            assert len(result.report["na_handling"]["removed_samples"]) == 1
         finally:
             path.unlink()

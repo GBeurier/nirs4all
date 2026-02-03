@@ -2,15 +2,11 @@
 
 > [pyproject.toml] Add umap-learn as dependency
 
+> [Synthesis] Externalize synthesis module out of data
 > [Augmentations] Transfer synthesis mechanisms (temperature, machine, noise, etc.) to sample_augmentations operators
 
 > [Predictions] Add datasets, summary, top 50 best scores, etc. in a sub table to allow fast browsing/loading
 > [Predictions] Explicit workspace / predict / export / etc. Predictions files should be self sufficient et cleanable easily (keep top X, keep top X per model, remove ....)
-
-> [Synthesis] Externalize synthesis module out of data
-
-> [Datasets] Allow na in features and even realtime replacement depending on model config.
-
 
 
 **RELEASE** 0.6.3: Ready for UI
@@ -42,9 +38,11 @@ Create the example synth pipelines x synth datasets for testing purpose
 > [PLS] make a pip librairie with torch/jax/numpy implementations of PLS.
 >   - [MB-PLS] test on multi-source/block ---
 >   - [PLS] Implement variable selection methods (CARS and MC-UVE done)
-
-> [transformerMixin] implement in pytorch for full differentiation
 > [FCK-PLS] full torch model
+
+> [transformerMixin] implement in pytorch for full differentiation > learn from data to pred
+
+> [Transfer] Partial layers retraining
 
 > [DAG] Pipeline as DAG
 > [Pipeline] as a GridSearchCVGridSearchCV or FineTuner. Generation as a choices optimization provider.
@@ -61,25 +59,16 @@ Create the example synth pipelines x synth datasets for testing purpose
 
 > [Augmentation] augmentation to repetitions
 
-**CLI_EXTENSION_PROPOSAL.md**
-> [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
-> [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
-
+> [CLI] update / review - (CLI_EXTENSION_PROPOSAL.md)
 
 > [Aggregation] Outlier dedicated exclusion T²
 
 > [Mid Fusion] Multi head models
 > [Late Fusion] avg / w_avg / asymetric ensembling
-> [Transfer] Partial layers retraining
-
-**Bugs**:
->   - [LightGBM] [Warning] No further splits with positive gain, best gain: -inf   >> look if parameters is passed on cloning (maybe there is a hidden bug)
->   - [Charts] check dataviz. Missing histograms
 
 > [onnx] onnx export
 
 > [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
-
 
 > [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators. and more. Both operators and analyzers should be uniformized (inside the pipeline or outside)
 > [Charts] aggregate based on metadata col, convert std indexes (model_name, model_classname, pp, etc.) to enum, keep string only for columns. Add Y as grouping value, add variance, mean, etc. as sort score.
@@ -103,21 +92,17 @@ Create the example synth pipelines x synth datasets for testing purpose
 
 > [Customizable_Feature_Source] Refactor dataset to allow customizable feature source and customizable layouts to allow datasets with more dimensions (images, lidar)
 
-
 > [GLOBAL REVIEW] v1.0 signatures freeze (private pattern _module), Complete tests > Prod coverage (transformations, controllers, predictions, datasets, runner)
+
 > [Profiling] Code Optimization, Improve performances
 
-
-**RELEASE** beta
-
+> [Analysis] t-sne
 
 **RELEASE** 1.0: Release
 
 > [Transfer] Automate model transfer across machines
 
 > [Clustering Controllers]
-
-> [Analysis] t-sne, umap
 
 > [HugginFace deploy]
 

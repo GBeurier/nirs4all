@@ -243,6 +243,11 @@ class ExcludeController(OperatorController):
                 + (f" + {n_cascaded} augmented" if n_cascaded > 0 else "")
             )
 
+        # Update _may_contain_nan flag: if exclusion removed all NaN-containing
+        # samples, downstream controllers can skip the NaN guard entirely.
+        if dataset._may_contain_nan and n_excluded > 0:
+            dataset._may_contain_nan = dataset.has_nan
+
         # Persist filters for reference (not used in prediction, but for audit)
         artifacts = []
         for filter_obj in filters:

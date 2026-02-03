@@ -4,6 +4,7 @@ from sklearn.base import TransformerMixin
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.core.exceptions import NAError
 from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
 from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 
@@ -11,6 +12,7 @@ if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.steps.parser import ParsedStep
 
+import warnings
 import numpy as np
 
 
@@ -253,10 +255,29 @@ class YTransformerMixinController(OperatorController):
         all_y_selector['y'] = current_y_processing
         all_data = dataset.y(all_y_selector, include_excluded=True)
 
+        # --- Pre-transform y NA guard ---
+        had_nan_before = False
+        if dataset._may_contain_nan and all_data is not None and np.any(np.isnan(all_data)):
+            had_nan_before = True
+            raise NAError(
+                f"Y-transform '{operator_name}' received NaN target values. "
+                f"Remove NaN targets upstream (e.g., YOutlierFilter)."
+            )
+
         # Clone, fit, and transform
         fitted_transformer = clone(transformer)
         fitted_transformer.fit(train_data)
         transformed_targets = fitted_transformer.transform(all_data)
+
+        # --- Post-transform y NaN detection ---
+        if not had_nan_before and transformed_targets is not None and np.any(np.isnan(transformed_targets)):
+            n_new_nan = int(np.isnan(transformed_targets).sum())
+            warnings.warn(
+                f"Y-transform '{operator_name}' introduced "
+                f"{n_new_nan} NaN values in targets.",
+                UserWarning,
+            )
+            dataset._may_contain_nan = True
 
         # Add processed targets to dataset with proper ancestry
         dataset.add_processed_targets(
