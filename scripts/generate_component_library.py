@@ -86,7 +86,6 @@ MANUAL_COMPONENTS = [
     {"subcategory":"spectral_augmentation","id":"spline_y_perturbations","label":"Spline Y Perturbations","short":"SplineY","description":"Intensity perturbations via splines"},
     {"subcategory":"spectral_augmentation","id":"spline_x_simplification","label":"Spline X Simplification","short":"SplineXSimpl","description":"Control-point simplification along wavelength axis"},
     {"subcategory":"spectral_augmentation","id":"spline_curve_simplification","label":"Spline Curve Simplification","short":"SplineCurve","description":"Curve simplification for augmentation"},
-    {"subcategory":"spectral_augmentation","id":"identity_augmenter","label":"Identity Augmenter","short":"IdentityAug","description":"Pass-through augmenter for pipelines"},
     {"subcategory":"baseline_correction","id":"baseline","label":"Baseline Removal","short":"Baseline","description":"Polynomial baseline correction (Baseline)"},
     {"subcategory":"baseline_correction","id":"detrend","label":"Detrend","short":"Detrend","description":"Remove linear or constant trends (Detrend)"},
     {"subcategory":"scatter_correction","id":"multiplicative_scatter_correction","label":"MSC","short":"MSC","description":"Multiplicative scatter correction (MSC)"},
@@ -150,8 +149,6 @@ CLASS_PATHS: dict[str, str] = {
     "spline_y_perturbations": "nirs4all.operators.augmentation.splines.Spline_Y_Perturbations",
     "spline_x_simplification": "nirs4all.operators.augmentation.splines.Spline_X_Simplification",
     "spline_curve_simplification": "nirs4all.operators.augmentation.splines.Spline_Curve_Simplification",
-    "identity_augmenter": "nirs4all.operators.augmentation.abc_augmenter.IdentityAugmenter",
-
     # Baseline / preprocessing
     "baseline": "nirs4all.operators.transforms.signal.Baseline",
     "detrend": "nirs4all.operators.transforms.signal.Detrend",

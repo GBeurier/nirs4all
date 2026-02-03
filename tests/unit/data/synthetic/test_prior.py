@@ -5,7 +5,7 @@ Unit tests for Phase 4 prior module - conditional prior sampling.
 import pytest
 import numpy as np
 
-from nirs4all.data.synthetic.prior import (
+from nirs4all.synthesis.prior import (
     MatrixType,
     NIRSPriorConfig,
     PriorSampler,
@@ -96,7 +96,7 @@ class TestPriorSampler:
         instruments = [sampler.sample_instrument("benchtop") for _ in range(50)]
 
         # Should return valid instrument names
-        from nirs4all.data.synthetic import INSTRUMENT_ARCHETYPES
+        from nirs4all.synthesis import INSTRUMENT_ARCHETYPES
         for inst in instruments:
             assert inst in INSTRUMENT_ARCHETYPES
 

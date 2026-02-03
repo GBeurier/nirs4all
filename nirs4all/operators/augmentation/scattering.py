@@ -110,7 +110,7 @@ class ParticleSizeAugmenter(SpectraTransformerMixin):
         self.path_length_sensitivity = path_length_sensitivity
         self.random_state = random_state
 
-    def transform_with_wavelengths(
+    def _transform_impl(
         self, X: np.ndarray, wavelengths: np.ndarray
     ) -> np.ndarray:
         """
@@ -307,7 +307,7 @@ class EMSCDistortionAugmenter(SpectraTransformerMixin):
         self.correlation = correlation
         self.random_state = random_state
 
-    def transform_with_wavelengths(
+    def _transform_impl(
         self, X: np.ndarray, wavelengths: np.ndarray
     ) -> np.ndarray:
         """

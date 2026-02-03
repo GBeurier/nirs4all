@@ -5,7 +5,7 @@ Unit tests for SyntheticNIRSGenerator class.
 import pytest
 import numpy as np
 
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticNIRSGenerator,
     ComponentLibrary,
     COMPLEXITY_PARAMS,

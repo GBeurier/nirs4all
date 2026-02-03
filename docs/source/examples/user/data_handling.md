@@ -434,7 +434,7 @@ result = nirs4all.run(
 For maximum control over synthetic data generation:
 
 ```python
-from nirs4all.data.synthetic import SyntheticDatasetBuilder
+from nirs4all.synthesis import SyntheticDatasetBuilder
 
 # Full control over generation
 builder = SyntheticDatasetBuilder(

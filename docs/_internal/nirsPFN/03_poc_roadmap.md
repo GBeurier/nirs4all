@@ -297,7 +297,7 @@ We train with **contrastive learning** - no labels needed:
 ### 2.2 Training Data Generator
 
 ```python
-# nirs4all/data/synthetic/encoder_training.py
+# nirs4all/synthesis/encoder_training.py
 
 import numpy as np
 from .builder import SyntheticDatasetBuilder
@@ -374,7 +374,7 @@ class InfoNCELoss(torch.nn.Module):
 
 
 def train_encoder(num_epochs=100, batch_size=256, device="cuda"):
-    from nirs4all.data.synthetic.encoder_training import EncoderTrainingDataGenerator
+    from nirs4all.synthesis.encoder_training import EncoderTrainingDataGenerator
     from nirs4all.operators.transforms.nirs_encoder import NIRSEncoderV2
 
     data_gen = EncoderTrainingDataGenerator(batch_size=batch_size)

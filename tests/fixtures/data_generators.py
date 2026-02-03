@@ -12,7 +12,7 @@ Migration Guide:
     X, y = gen.generate_regression_data(n_samples=100)
 
     # New approach (recommended)
-    from nirs4all.data.synthetic import SyntheticDatasetBuilder
+    from nirs4all.synthesis import SyntheticDatasetBuilder
     builder = SyntheticDatasetBuilder(n_samples=100, random_state=42)
     X, y = builder.build_arrays()
 
@@ -38,7 +38,7 @@ Available fixtures in tests/conftest.py:
     - synthetic_dataset_folder: Temporary folder with CSV files
 
 See Also:
-    - nirs4all.data.synthetic: New synthetic data module
+    - nirs4all.synthesis: New synthetic data module
     - nirs4all.generate: Top-level generation API
     - tests/conftest.py: Pytest fixtures documentation
 """
@@ -48,7 +48,7 @@ import warnings
 # Emit deprecation warning on module import
 warnings.warn(
     "tests.fixtures.data_generators is deprecated and will be removed in v1.0. "
-    "Use nirs4all.data.synthetic or pytest fixtures from tests/conftest.py instead. "
+    "Use nirs4all.synthesis or pytest fixtures from tests/conftest.py instead. "
     "See module docstring for migration guide.",
     DeprecationWarning,
     stacklevel=2

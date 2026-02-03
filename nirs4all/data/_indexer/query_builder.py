@@ -5,10 +5,16 @@ This module provides the QueryBuilder class that handles conversion of
 user-friendly selector dictionaries into optimized Polars expressions.
 """
 
-from typing import Dict, Any, Optional
+import re
+from typing import Dict, Any, Optional, Callable, Union
 import polars as pl
 
 from nirs4all.data.types import Selector
+
+
+# Regex patterns for condition parsing
+_COMPARISON_PATTERN = re.compile(r'^([<>]=?|[!=]=?)\s*(-?\d+\.?\d*)$')
+_RANGE_PATTERN = re.compile(r'^(-?\d+\.?\d*)?\.\.(-?\d+\.?\d*)?$')
 
 
 class QueryBuilder:
@@ -200,3 +206,184 @@ class QueryBuilder:
             return pl.lit(True)
         # Include samples where excluded is False OR null (not set)
         return (pl.col("excluded") == False) | pl.col("excluded").is_null()  # noqa: E712
+
+    # ==================== Tag Filtering Methods ====================
+
+    def build_tag_filter(
+        self,
+        tag_name: str,
+        condition: Any
+    ) -> pl.Expr:
+        """
+        Build a filter expression for a tag column.
+
+        Args:
+            tag_name: Name of the tag column.
+            condition: Filter condition. Supported formats:
+                - Boolean: `True`, `False` - exact match
+                - Comparison string: `"> 0.8"`, `"<= 50"`, `"== 1"`, `"!= 0"`
+                - Range string: `"0..50"` (inclusive), `"50.."` (open end), `"..50"` (open start)
+                - List of values: `["a", "b", "c"]` - matches any value in list
+                - Callable: `lambda x: x > 0.8` - custom predicate (use sparingly)
+
+        Returns:
+            pl.Expr: Polars expression for filtering.
+
+        Raises:
+            ValueError: If condition format is not recognized.
+
+        Examples:
+            >>> # Boolean filter
+            >>> expr = builder.build_tag_filter("is_outlier", True)
+            >>>
+            >>> # Comparison filter
+            >>> expr = builder.build_tag_filter("quality_score", "> 0.8")
+            >>>
+            >>> # Range filter
+            >>> expr = builder.build_tag_filter("cluster_id", "1..5")
+            >>>
+            >>> # List membership
+            >>> expr = builder.build_tag_filter("category", ["A", "B", "C"])
+        """
+        return self._parse_tag_condition(tag_name, condition)
+
+    def _parse_tag_condition(
+        self,
+        tag_name: str,
+        condition: Any
+    ) -> pl.Expr:
+        """
+        Parse a tag condition into a Polars expression.
+
+        Args:
+            tag_name: Name of the tag column.
+            condition: Condition to parse.
+
+        Returns:
+            pl.Expr: Polars filter expression.
+
+        Raises:
+            ValueError: If condition format is not recognized.
+        """
+        col = pl.col(tag_name)
+
+        # Boolean exact match
+        if isinstance(condition, bool):
+            return col == condition
+
+        # Numeric exact match
+        if isinstance(condition, (int, float)):
+            return col == condition
+
+        # List membership
+        if isinstance(condition, list):
+            return col.is_in(condition)
+
+        # String conditions: comparison or range
+        if isinstance(condition, str):
+            return self._parse_string_condition(tag_name, condition)
+
+        # Callable (lambda function)
+        if callable(condition):
+            # Note: This uses map_elements which can be slow
+            # We need to infer return type - assume Boolean for filters
+            return col.map_elements(condition, return_dtype=pl.Boolean)
+
+        # None - check for null
+        if condition is None:
+            return col.is_null()
+
+        raise ValueError(
+            f"Unknown condition format for tag '{tag_name}': {type(condition).__name__}. "
+            f"Supported: bool, int, float, str, list, callable, None"
+        )
+
+    def _parse_string_condition(
+        self,
+        tag_name: str,
+        condition: str
+    ) -> pl.Expr:
+        """
+        Parse string condition into Polars expression.
+
+        Supports:
+        - Comparison: "> 0.8", "<= 50", "== 1", "!= 0"
+        - Range: "0..50", "50..", "..50"
+        - String exact match (fallback)
+
+        Args:
+            tag_name: Name of the tag column.
+            condition: String condition.
+
+        Returns:
+            pl.Expr: Polars filter expression.
+        """
+        col = pl.col(tag_name)
+        condition = condition.strip()
+
+        # Try comparison pattern first: "> 0.8", "<= 50", etc.
+        match = _COMPARISON_PATTERN.match(condition)
+        if match:
+            operator, value_str = match.groups()
+            value = float(value_str) if '.' in value_str else int(value_str)
+            return self._build_comparison_expr(col, operator, value)
+
+        # Try range pattern: "0..50", "50..", "..50"
+        match = _RANGE_PATTERN.match(condition)
+        if match:
+            start_str, end_str = match.groups()
+            return self._build_range_expr(col, start_str, end_str)
+
+        # Fallback: exact string match
+        return col == condition
+
+    def _build_comparison_expr(
+        self,
+        col: pl.Expr,
+        operator: str,
+        value: Union[int, float]
+    ) -> pl.Expr:
+        """Build comparison expression."""
+        if operator == '>':
+            return col > value
+        elif operator == '>=':
+            return col >= value
+        elif operator == '<':
+            return col < value
+        elif operator == '<=':
+            return col <= value
+        elif operator == '==' or operator == '=':
+            return col == value
+        elif operator == '!=' or operator == '<>':
+            return col != value
+        else:
+            raise ValueError(f"Unknown comparison operator: {operator}")
+
+    def _build_range_expr(
+        self,
+        col: pl.Expr,
+        start_str: Optional[str],
+        end_str: Optional[str]
+    ) -> pl.Expr:
+        """
+        Build range expression for "start..end" syntax.
+
+        Both bounds are inclusive when specified.
+        Open-ended ranges: "50.." means >= 50, "..50" means <= 50
+        """
+        if start_str and end_str:
+            # Closed range: start..end (inclusive)
+            start = float(start_str) if '.' in start_str else int(start_str)
+            end = float(end_str) if '.' in end_str else int(end_str)
+            return (col >= start) & (col <= end)
+        elif start_str:
+            # Open end: start.. (>= start)
+            start = float(start_str) if '.' in start_str else int(start_str)
+            return col >= start
+        elif end_str:
+            # Open start: ..end (<= end)
+            end = float(end_str) if '.' in end_str else int(end_str)
+            return col <= end
+        else:
+            # Empty range ".." - match all (shouldn't normally happen)
+            return pl.lit(True)

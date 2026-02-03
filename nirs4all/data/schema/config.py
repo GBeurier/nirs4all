@@ -88,11 +88,32 @@ class PartitionType(str, Enum):
 
 
 class NAPolicy(str, Enum):
-    """Policy for handling NA/missing values."""
+    """Policy for handling NA/missing values during data loading and pipeline execution."""
 
-    AUTO = "auto"
-    REMOVE = "remove"
-    ABORT = "abort"
+    AUTO = "auto"                    # Default → abort (fail-safe)
+    ABORT = "abort"                  # Raise error on any NaN
+    REMOVE_SAMPLE = "remove_sample"  # Drop rows containing NaN
+    REMOVE_FEATURE = "remove_feature"  # Drop columns containing NaN
+    REPLACE = "replace"              # Replace NaN (configurable method)
+    IGNORE = "ignore"                # Keep NaN as-is for downstream handling
+
+
+class NAFillMethod(str, Enum):
+    """Method for filling NA values when using REPLACE policy."""
+
+    VALUE = "value"              # Fill with a constant
+    MEAN = "mean"                # Fill with column mean
+    MEDIAN = "median"            # Fill with column median
+    FORWARD_FILL = "forward_fill"  # Forward-fill (spectral interpolation)
+    BACKWARD_FILL = "backward_fill"  # Backward-fill
+
+
+class NAFillConfig(BaseModel):
+    """Configuration for NA replacement when na_policy='replace'."""
+
+    method: NAFillMethod = NAFillMethod.VALUE
+    fill_value: float = 0.0
+    per_column: bool = True
 
 
 class CategoricalMode(str, Enum):
@@ -189,7 +210,12 @@ class LoadingParams(BaseModel):
 
     na_policy: Optional[Union[NAPolicy, str]] = Field(
         default=None,
-        description="How to handle NA values: 'remove' or 'abort'. Default: 'remove'"
+        description="How to handle NA values: 'auto', 'abort', 'remove_sample', 'remove_feature', 'replace', 'ignore'"
+    )
+
+    na_fill_config: Optional[NAFillConfig] = Field(
+        default=None,
+        description="Configuration for NA replacement when na_policy='replace'"
     )
 
     categorical_mode: Optional[Union[CategoricalMode, str]] = Field(

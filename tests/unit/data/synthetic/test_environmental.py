@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from nirs4all.data.synthetic.environmental import (
+from nirs4all.synthesis.environmental import (
     SpectralRegion,
     TemperatureEffectParams,
     TemperatureConfig,

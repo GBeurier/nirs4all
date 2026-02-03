@@ -54,6 +54,8 @@ class DataSelector(MutableMapping):
         branch_path: List of branch indices for nested branching (e.g., [0, 2] for
             branch 2 inside branch 0). Empty list means pre-branch/shared artifacts.
         branch_name: Optional human-readable branch name for tracking
+        tag_filters: Dict of tag column names to filter conditions. Used to filter
+            samples based on tag values computed by TagController.
 
     Example:
         >>> selector = DataSelector(partition="train", processing=[["raw"]])
@@ -72,6 +74,7 @@ class DataSelector(MutableMapping):
     branch_id: Optional[int] = None
     branch_path: List[int] = field(default_factory=list)
     branch_name: Optional[str] = None
+    tag_filters: Dict[str, Any] = field(default_factory=dict)
     _extra: Dict[str, Any] = field(default_factory=dict, repr=False)
 
     def __iter__(self) -> Iterator[str]:
@@ -131,7 +134,8 @@ class DataSelector(MutableMapping):
             y=self.y,
             branch_id=self.branch_id,
             branch_path=list(self.branch_path),
-            branch_name=self.branch_name
+            branch_name=self.branch_name,
+            tag_filters=deepcopy(self.tag_filters)
         )
         new_selector._extra = deepcopy(self._extra)
         return new_selector
@@ -236,6 +240,34 @@ class DataSelector(MutableMapping):
         else:
             new_selector.branch_path = []
 
+        return new_selector
+
+    def with_tag_filter(self, tag_name: str, condition: Any) -> "DataSelector":
+        """
+        Create new selector with an additional tag filter.
+
+        Tag filters are used to filter samples based on tag column values.
+        Multiple tag filters can be combined by calling this method multiple times.
+
+        Args:
+            tag_name: Name of the tag column to filter on
+            condition: Filter condition. Supported formats:
+                      - Boolean: `True`, `False` - exact match
+                      - Comparison string: `"> 0.8"`, `"<= 50"`, `"== 1"`, `"!= 0"`
+                      - Range string: `"0..50"` (inclusive), `"50.."` (open end), `"..50"` (open start)
+                      - List of values: `["a", "b", "c"]` - matches any value in list
+                      - Callable: `lambda x: x > 0.8` - custom predicate
+
+        Returns:
+            New DataSelector with added tag filter
+
+        Example:
+            >>> selector = DataSelector(partition="train")
+            >>> selector = selector.with_tag_filter("is_outlier", False)  # Keep non-outliers
+            >>> selector = selector.with_tag_filter("cluster_id", [1, 2])  # Only clusters 1 and 2
+        """
+        new_selector = self.copy()
+        new_selector.tag_filters[tag_name] = condition
         return new_selector
 
 

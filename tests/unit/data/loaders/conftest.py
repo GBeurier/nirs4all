@@ -6,7 +6,7 @@ the loader's ability to handle different file configurations.
 
 This module provides specialized fixtures for testing data loaders with
 different CSV format variations. It uses the synthetic data generator
-from nirs4all.data.synthetic to create consistent, reproducible test data.
+from nirs4all.synthesis to create consistent, reproducible test data.
 
 Fixture Naming Convention:
     csv_{format}_format: Individual format fixtures
@@ -16,7 +16,7 @@ Fixture Naming Convention:
 
 See Also:
     tests/conftest.py: Core fixtures including base_synthetic_data
-    nirs4all.data.synthetic.CSVVariationGenerator: CSV variation generator
+    nirs4all.synthesis.CSVVariationGenerator: CSV variation generator
 """
 
 from pathlib import Path
@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nirs4all.data.synthetic import SyntheticDatasetBuilder, CSVVariationGenerator
+from nirs4all.synthesis import SyntheticDatasetBuilder, CSVVariationGenerator
 
 
 # =============================================================================

@@ -13,7 +13,7 @@ Tests for:
 import numpy as np
 import pytest
 
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     VariationType,
     ComponentVariation,
     ProductTemplate,
@@ -267,7 +267,7 @@ class TestPredefinedTemplates:
 
     def test_all_templates_valid(self):
         """Test that all templates have valid component names."""
-        from nirs4all.data.synthetic import available_components
+        from nirs4all.synthesis import available_components
 
         available = set(available_components())
 

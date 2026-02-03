@@ -590,9 +590,11 @@ class AutoTransferPreprocessingController(OperatorController):
             processing_ids = list(dataset.features_processings(sd_idx))
 
             # Get data for this source
+            # IMPORTANT: Include excluded samples in all_data to maintain consistent array shapes
+            # when replacing features. Excluded samples are filtered at query time, not transform time.
             train_context = context.with_partition("train")
-            train_data = dataset.x(train_context.selector, "3d", concat_source=False)
-            all_data = dataset.x(context.selector, "3d", concat_source=False)
+            train_data = dataset.x(train_context.selector, "3d", concat_source=False, include_excluded=False)
+            all_data = dataset.x(context.selector, "3d", concat_source=False, include_excluded=True)
 
             if isinstance(train_data, list):
                 train_data = train_data[sd_idx]
@@ -689,9 +691,11 @@ class AutoTransferPreprocessingController(OperatorController):
 
         for sd_idx in source_indices:
             # Get data for this source
+            # IMPORTANT: Include excluded samples in all_data to maintain consistent array shapes
+            # when replacing features. Excluded samples are filtered at query time, not transform time.
             train_context = context.with_partition("train")
-            train_data = dataset.x(train_context.selector, "3d", concat_source=False)
-            all_data = dataset.x(context.selector, "3d", concat_source=False)
+            train_data = dataset.x(train_context.selector, "3d", concat_source=False, include_excluded=False)
+            all_data = dataset.x(context.selector, "3d", concat_source=False, include_excluded=True)
 
             if isinstance(train_data, list):
                 train_data = train_data[sd_idx]

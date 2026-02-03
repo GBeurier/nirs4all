@@ -13,8 +13,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from nirs4all.data.synthetic.instruments import DetectorType
-from nirs4all.data.synthetic.detectors import (
+from nirs4all.synthesis.instruments import DetectorType
+from nirs4all.synthesis.detectors import (
     DetectorSpectralResponse,
     NoiseModelConfig,
     DetectorConfig,

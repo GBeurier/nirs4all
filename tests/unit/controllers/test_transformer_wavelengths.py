@@ -22,12 +22,13 @@ class MockSpectraTransformer(SpectraTransformerMixin):
         self.fit_called = False
         self.transform_called = False
 
-    def fit(self, X, y=None, **fit_params):
+    def fit(self, X, y=None, **kwargs):
         self.fit_called = True
-        self.fit_wavelengths = fit_params.get('wavelengths')
+        self.fit_wavelengths = kwargs.get('wavelengths')
+        super().fit(X, y, **kwargs)
         return self
 
-    def transform_with_wavelengths(self, X, wavelengths):
+    def _transform_impl(self, X, wavelengths):
         self.transform_called = True
         self.transform_wavelengths = wavelengths
         return X * 2
@@ -42,11 +43,12 @@ class MockOptionalWavelengthsTransformer(SpectraTransformerMixin):
         self.fit_wavelengths = None
         self.transform_wavelengths = None
 
-    def fit(self, X, y=None, **fit_params):
-        self.fit_wavelengths = fit_params.get('wavelengths')
+    def fit(self, X, y=None, **kwargs):
+        self.fit_wavelengths = kwargs.get('wavelengths')
+        super().fit(X, y, **kwargs)
         return self
 
-    def transform_with_wavelengths(self, X, wavelengths):
+    def _transform_impl(self, X, wavelengths):
         self.transform_wavelengths = wavelengths
         return X
 
@@ -79,6 +81,18 @@ class TestNeedsWavelengths:
         """Test that SpectraTransformerMixin with _requires_wavelengths=False returns False."""
         transformer = MockOptionalWavelengthsTransformer()
         assert TransformerMixinController._needs_wavelengths(transformer) is False
+
+    def test_spectra_transformer_with_optional_string(self):
+        """Test that SpectraTransformerMixin with _requires_wavelengths='optional' returns truthy."""
+
+        class OptionalTransformer(SpectraTransformerMixin):
+            _requires_wavelengths = "optional"
+
+            def _transform_impl(self, X, wavelengths):
+                return X
+
+        transformer = OptionalTransformer()
+        assert TransformerMixinController._needs_wavelengths(transformer)
 
     def test_standard_transformer(self):
         """Test that standard TransformerMixin returns False."""

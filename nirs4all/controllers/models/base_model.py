@@ -22,6 +22,7 @@ import multiprocessing
 
 from nirs4all.controllers.controller import OperatorController
 from ...optimization.optuna import OptunaManager
+from nirs4all.core.exceptions import NAError
 from nirs4all.data.predictions import Predictions
 from nirs4all.data.ensemble_utils import EnsembleUtils
 from nirs4all.core.task_type import TaskType
@@ -535,6 +536,46 @@ class BaseModelController(OperatorController, ABC):
                 dataset.set_task_type(task_type_str)
 
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled = self.get_xy(dataset, context)
+
+        # --- NA guard for model inputs ---
+        if dataset._may_contain_nan:
+            # Extract na_policy from step configuration
+            na_policy = None
+            model_fill_value = 0
+            if isinstance(step, dict):
+                na_policy = step.get("na_policy")
+                model_fill_value = step.get("fill_value", 0)
+
+            # Check X for NaN
+            for X_arr, label in [(X_train, "X_train"), (X_test, "X_test")]:
+                if X_arr is not None and X_arr.size > 0 and np.any(np.isnan(X_arr)):
+                    allow_nan = getattr(operator, '_tags', {}).get('allow_nan', False)
+                    if allow_nan:
+                        pass  # Model natively handles NaN
+                    elif na_policy == "replace":
+                        if label == "X_train":
+                            X_train = np.where(np.isnan(X_train), model_fill_value, X_train)
+                        else:
+                            X_test = np.where(np.isnan(X_test), model_fill_value, X_test)
+                    elif na_policy == "ignore":
+                        pass  # NaN samples handled downstream
+                    else:
+                        raise NAError(
+                            f"Model '{operator.__class__.__name__}' received NaN in {label}. "
+                            f"Set na_policy on this step or handle NAs upstream."
+                        )
+
+            # Check y for NaN (always an error — NaN targets must be removed upstream)
+            if y_train is not None and y_train.size > 0 and np.any(np.isnan(y_train)):
+                raise NAError(
+                    f"Model '{operator.__class__.__name__}' received NaN target values in y_train. "
+                    f"Remove NaN targets upstream (e.g., YOutlierFilter)."
+                )
+            if mode == "train" and y_test is not None and y_test.size > 0 and np.any(np.isnan(y_test)):
+                raise NAError(
+                    f"Model '{operator.__class__.__name__}' received NaN target values in y_test. "
+                    f"Remove NaN targets upstream (e.g., YOutlierFilter)."
+                )
 
         # Get actual sample IDs for train and test partitions (for stacking/OOF reconstruction)
         train_sample_ids, test_sample_ids = self._get_partition_sample_indices(dataset, context, mode)

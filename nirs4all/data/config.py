@@ -363,6 +363,9 @@ class DatasetConfigs:
             if m_test is not None:
                 dataset.add_metadata(m_test, headers=m_test_headers)
 
+        # Set NaN tracking flag based on loaded data
+        dataset._may_contain_nan = dataset.has_nan
+
         return dataset
 
     def get_dataset(self, config, name) -> SpectroDataset:

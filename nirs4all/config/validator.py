@@ -238,7 +238,7 @@ DATASET_SCHEMA = {
                 "delimiter": {"type": "string"},
                 "decimal_separator": {"type": "string"},
                 "has_header": {"type": "boolean"},
-                "na_policy": {"type": "string", "enum": ["drop", "fill", "error"]}
+                "na_policy": {"type": "string", "enum": ["auto", "abort", "remove_sample", "remove_feature", "replace", "ignore"]}
             }
         },
         "train_x_params": {"type": "object", "description": "Override parameters for train_x loading"},

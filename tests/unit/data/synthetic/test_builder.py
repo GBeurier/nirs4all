@@ -5,7 +5,7 @@ Unit tests for SyntheticDatasetBuilder class.
 import pytest
 import numpy as np
 
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticDatasetBuilder,
     SyntheticDatasetConfig,
     FeatureConfig,

@@ -36,8 +36,8 @@ from scipy.signal import find_peaks, savgol_filter
 
 # nirs4all imports
 from nirs4all.data import DatasetConfigs
-from nirs4all.data.synthetic.components import list_categories, get_component
-from nirs4all.data.synthetic.fitter import OptimizedComponentFitter, COMPONENT_CATEGORIES
+from nirs4all.synthesis.components import list_categories, get_component
+from nirs4all.synthesis.fitter import OptimizedComponentFitter, COMPONENT_CATEGORIES
 
 # =============================================================================
 # CONSTANTS

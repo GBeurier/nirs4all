@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from nirs4all.data.synthetic.wavenumber import (
+from nirs4all.synthesis.wavenumber import (
     wavenumber_to_wavelength,
     wavelength_to_wavenumber,
     convert_bandwidth_to_wavelength,

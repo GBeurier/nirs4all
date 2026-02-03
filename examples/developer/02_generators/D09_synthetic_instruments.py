@@ -30,7 +30,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # NIRS4All imports
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticNIRSGenerator,
     # Instrument simulation (Phase 2)
     InstrumentCategory,
@@ -294,7 +294,7 @@ sample_wl = np.linspace(1000, 2000, 500)
 sample_spectra = np.random.default_rng(42).normal(0.5, 0.1, (10, 500))
 
 # Import the full config class
-from nirs4all.data.synthetic.measurement_modes import MeasurementModeConfig
+from nirs4all.synthesis.measurement_modes import MeasurementModeConfig
 
 # Transmittance mode
 trans_config = MeasurementModeConfig(

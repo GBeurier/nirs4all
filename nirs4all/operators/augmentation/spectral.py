@@ -4,7 +4,7 @@ from scipy.ndimage import convolve1d
 from sklearn.base import BaseEstimator, TransformerMixin
 from typing import Optional, Union, Tuple, List
 
-from .abc_augmenter import Augmenter
+from nirs4all.operators.base import SpectraTransformerMixin
 
 # --- Utility Functions ---
 
@@ -36,31 +36,38 @@ def _safe_interp(x_new: np.ndarray, x_old: np.ndarray, y_old: np.ndarray) -> np.
 
 # --- 2.1 Additive / Multiplicative Noise ---
 
-class GaussianAdditiveNoise(Augmenter):
+class GaussianAdditiveNoise(TransformerMixin, BaseEstimator):
     """
     Adds Gaussian noise to the spectra.
     X_aug = X + noise
 
     Vectorized implementation using batch convolution.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 sigma: float = 0.01, smoothing_kernel_width: int = 1):
-        super().__init__(apply_on, random_state, copy=copy)
+    _supports_variation_scope = True
+
+    def __init__(self, sigma: float = 0.01, smoothing_kernel_width: int = 1,
+                 random_state=None, variation_scope: str = "sample"):
         self.sigma = sigma
         self.smoothing_kernel_width = smoothing_kernel_width
+        self.random_state = random_state
+        self.variation_scope = variation_scope
 
-    def augment(self, X, apply_on="samples"):
-        n_samples, n_features = X.shape
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        return self
 
-        # Generate noise
-        if apply_on == "global":
+    def transform(self, X, **kwargs):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
+
+        if self.variation_scope == "batch":
             # Global std dev
             scale = np.std(X) * self.sigma
-            noise = self.random_gen.normal(0, scale, size=X.shape)
-        else:
+            noise_pattern = rng.normal(0, scale, size=(1, X.shape[1]))
+            noise = np.tile(noise_pattern, (X.shape[0], 1))
+        else:  # "sample" (default)
             # Per-sample std dev
             stds = np.std(X, axis=1, keepdims=True)
-            noise = self.random_gen.normal(0, 1, size=X.shape) * stds * self.sigma
+            noise = rng.normal(0, 1, size=X.shape) * stds * self.sigma
 
         # Smooth noise if requested - vectorized batch processing
         if self.smoothing_kernel_width > 1:
@@ -72,92 +79,104 @@ class GaussianAdditiveNoise(Augmenter):
         return X + noise
 
 
-class MultiplicativeNoise(Augmenter):
+class MultiplicativeNoise(TransformerMixin, BaseEstimator):
     """
     Multiplies spectra by a random gain factor.
     X_aug = (1 + epsilon) * X
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 sigma_gain: float = 0.05, per_wavelength: bool = False):
-        super().__init__(apply_on, random_state, copy=copy)
+    _supports_variation_scope = True
+
+    def __init__(self, sigma_gain: float = 0.05, per_wavelength: bool = False,
+                 random_state=None, variation_scope: str = "sample"):
         self.sigma_gain = sigma_gain
         self.per_wavelength = per_wavelength
+        self.random_state = random_state
+        self.variation_scope = variation_scope
 
-    def augment(self, X, apply_on="samples"):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        return self
+
+    def transform(self, X, **kwargs):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
         if self.per_wavelength:
-            epsilon = self.random_gen.normal(0, self.sigma_gain, size=X.shape)
+            epsilon = rng.normal(0, self.sigma_gain, size=X.shape)
         else:
-            if apply_on == "global":
-                 # One gain for all? Or one gain per sample?
-                 # Usually multiplicative noise is per sample or per wavelength.
-                 # If apply_on="global", maybe one gain for the whole dataset?
-                 # Let's stick to per-sample gain as default behavior for "samples"
-                 # and single gain for "global" (though less useful).
-                 epsilon = self.random_gen.normal(0, self.sigma_gain)
-            else:
-                epsilon = self.random_gen.normal(0, self.sigma_gain, size=(n_samples, 1))
+            if self.variation_scope == "batch":
+                epsilon = rng.normal(0, self.sigma_gain)
+            else:  # "sample" (default)
+                epsilon = rng.normal(0, self.sigma_gain, size=(n_samples, 1))
 
         return X * (1 + epsilon)
 
 
 # --- 2.2 Baseline Shifts and Drifts ---
 
-class LinearBaselineDrift(Augmenter):
+class LinearBaselineDrift(SpectraTransformerMixin):
     """
     Adds a linear baseline drift.
     X_aug = X + a + b * lambda
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 offset_range: Tuple[float, float] = (-0.1, 0.1),
+    _requires_wavelengths = "optional"
+
+    def __init__(self, offset_range: Tuple[float, float] = (-0.1, 0.1),
                  slope_range: Tuple[float, float] = (-0.001, 0.001),
-                 lambda_axis: Optional[np.ndarray] = None):
-        super().__init__(apply_on, random_state, copy=copy)
+                 random_state=None):
         self.offset_range = offset_range
         self.slope_range = slope_range
-        self.lambda_axis = lambda_axis
+        self.random_state = random_state
 
-    def augment(self, X, apply_on="samples"):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        super().fit(X, y, **kwargs)
+        return self
+
+    def _transform_impl(self, X, wavelengths):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
-        if self.lambda_axis is None:
-            lambdas = np.arange(n_features)
-        else:
-            lambdas = self.lambda_axis
+        lambdas = wavelengths if wavelengths is not None else np.arange(n_features)
 
         # Center lambdas to avoid correlation between slope and offset
         lambdas_centered = lambdas - np.mean(lambdas)
 
-        offsets = self.random_gen.uniform(self.offset_range[0], self.offset_range[1], size=(n_samples, 1))
-        slopes = self.random_gen.uniform(self.slope_range[0], self.slope_range[1], size=(n_samples, 1))
+        offsets = rng.uniform(self.offset_range[0], self.offset_range[1], size=(n_samples, 1))
+        slopes = rng.uniform(self.slope_range[0], self.slope_range[1], size=(n_samples, 1))
 
         drift = offsets + slopes * lambdas_centered.reshape(1, -1)
         return X + drift
 
 
-class PolynomialBaselineDrift(Augmenter):
+class PolynomialBaselineDrift(SpectraTransformerMixin):
     """
     Adds a polynomial baseline drift.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 degree: int = 3,
+    _requires_wavelengths = "optional"
+
+    def __init__(self, degree: int = 3,
                  coeff_ranges: Optional[List[Tuple[float, float]]] = None,
-                 lambda_axis: Optional[np.ndarray] = None):
-        super().__init__(apply_on, random_state, copy=copy)
+                 random_state=None):
         self.degree = degree
         self.coeff_ranges = coeff_ranges
-        self.lambda_axis = lambda_axis
+        self.random_state = random_state
 
-    def augment(self, X, apply_on="samples"):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        super().fit(X, y, **kwargs)
+        return self
+
+    def _transform_impl(self, X, wavelengths):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
-        if self.lambda_axis is None:
-            lambdas = np.linspace(-1, 1, n_features) # Normalized for stability
-        else:
+        if wavelengths is not None:
             # Normalize lambda axis to [-1, 1] for polynomial stability
-            l_min, l_max = np.min(self.lambda_axis), np.max(self.lambda_axis)
-            lambdas = 2 * (self.lambda_axis - l_min) / (l_max - l_min) - 1
+            l_min, l_max = np.min(wavelengths), np.max(wavelengths)
+            lambdas = 2 * (wavelengths - l_min) / (l_max - l_min) - 1
+        else:
+            lambdas = np.linspace(-1, 1, n_features)  # Normalized for stability
 
         drift = np.zeros_like(X)
 
@@ -168,7 +187,7 @@ class PolynomialBaselineDrift(Augmenter):
             ranges = [(-0.1 / (i+1), 0.1 / (i+1)) for i in range(self.degree + 1)]
 
         for i in range(self.degree + 1):
-            coeffs = self.random_gen.uniform(ranges[i][0], ranges[i][1], size=(n_samples, 1))
+            coeffs = rng.uniform(ranges[i][0], ranges[i][1], size=(n_samples, 1))
             term = coeffs * (lambdas.reshape(1, -1) ** i)
             drift += term
 
@@ -177,29 +196,35 @@ class PolynomialBaselineDrift(Augmenter):
 
 # --- 2.3 Wavelength Axis Distortions ---
 
-class WavelengthShift(Augmenter):
+class WavelengthShift(SpectraTransformerMixin):
     """
     Shifts the wavelength axis.
 
     Vectorized implementation using batch interpolation.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 shift_range: Tuple[float, float] = (-2.0, 2.0),
-                 lambda_axis: Optional[np.ndarray] = None):
-        super().__init__(apply_on, random_state, copy=copy)
-        self.shift_range = shift_range
-        self.lambda_axis = lambda_axis
+    _requires_wavelengths = "optional"
 
-    def augment(self, X, apply_on="samples"):
+    def __init__(self, shift_range: Tuple[float, float] = (-2.0, 2.0),
+                 random_state=None):
+        self.shift_range = shift_range
+        self.random_state = random_state
+
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        super().fit(X, y, **kwargs)
+        return self
+
+    def _transform_impl(self, X, wavelengths):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
-        if self.lambda_axis is None:
-            lambdas = np.arange(n_features, dtype=float)
+        if wavelengths is not None:
+            lambdas = wavelengths.astype(float)
         else:
-            lambdas = self.lambda_axis.astype(float)
+            lambdas = np.arange(n_features, dtype=float)
 
         # Generate all shifts at once
-        shifts = self.random_gen.uniform(self.shift_range[0], self.shift_range[1], size=n_samples)
+        shifts = rng.uniform(self.shift_range[0], self.shift_range[1], size=n_samples)
 
         # Vectorized interpolation using broadcasting
         # Create query coordinates for all samples at once
@@ -216,31 +241,37 @@ class WavelengthShift(Augmenter):
         return X_aug
 
 
-class WavelengthStretch(Augmenter):
+class WavelengthStretch(SpectraTransformerMixin):
     """
     Stretches or compresses the wavelength axis.
 
     Vectorized implementation using batch interpolation.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 stretch_range: Tuple[float, float] = (0.99, 1.01),
-                 lambda_axis: Optional[np.ndarray] = None):
-        super().__init__(apply_on, random_state, copy=copy)
-        self.stretch_range = stretch_range
-        self.lambda_axis = lambda_axis
+    _requires_wavelengths = "optional"
 
-    def augment(self, X, apply_on="samples"):
+    def __init__(self, stretch_range: Tuple[float, float] = (0.99, 1.01),
+                 random_state=None):
+        self.stretch_range = stretch_range
+        self.random_state = random_state
+
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        super().fit(X, y, **kwargs)
+        return self
+
+    def _transform_impl(self, X, wavelengths):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
-        if self.lambda_axis is None:
-            lambdas = np.arange(n_features, dtype=float)
+        if wavelengths is not None:
+            lambdas = wavelengths.astype(float)
         else:
-            lambdas = self.lambda_axis.astype(float)
+            lambdas = np.arange(n_features, dtype=float)
 
         center_lambda = np.mean(lambdas)
 
         # Generate all stretch factors at once
-        factors = self.random_gen.uniform(self.stretch_range[0], self.stretch_range[1], size=n_samples)
+        factors = rng.uniform(self.stretch_range[0], self.stretch_range[1], size=n_samples)
 
         # Vectorized computation of query coordinates
         # l_query = center + (lambda - center) / factor
@@ -255,28 +286,34 @@ class WavelengthStretch(Augmenter):
         return X_aug
 
 
-class LocalWavelengthWarp(Augmenter):
+class LocalWavelengthWarp(SpectraTransformerMixin):
     """
     Applies a non-linear warp to the wavelength axis.
 
     Optimized implementation with pre-computed control points.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 n_control_points: int = 5,
+    _requires_wavelengths = "optional"
+
+    def __init__(self, n_control_points: int = 5,
                  max_shift: float = 1.0,
-                 lambda_axis: Optional[np.ndarray] = None):
-        super().__init__(apply_on, random_state, copy=copy)
+                 random_state=None):
         self.n_control_points = n_control_points
         self.max_shift = max_shift
-        self.lambda_axis = lambda_axis
+        self.random_state = random_state
 
-    def augment(self, X, apply_on="samples"):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        super().fit(X, y, **kwargs)
+        return self
+
+    def _transform_impl(self, X, wavelengths):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
-        if self.lambda_axis is None:
-            lambdas = np.arange(n_features, dtype=float)
+        if wavelengths is not None:
+            lambdas = wavelengths.astype(float)
         else:
-            lambdas = self.lambda_axis.astype(float)
+            lambdas = np.arange(n_features, dtype=float)
 
         X_aug = np.empty_like(X)
 
@@ -284,7 +321,7 @@ class LocalWavelengthWarp(Augmenter):
         ctrl_x = np.linspace(lambdas[0], lambdas[-1], self.n_control_points)
 
         # Generate all random shifts at once for all samples
-        all_ctrl_shifts = self.random_gen.uniform(
+        all_ctrl_shifts = rng.uniform(
             -self.max_shift, self.max_shift,
             size=(n_samples, self.n_control_points)
         )
@@ -306,34 +343,40 @@ class LocalWavelengthWarp(Augmenter):
         return X_aug
 
 
-class SmoothMagnitudeWarp(Augmenter):
+class SmoothMagnitudeWarp(SpectraTransformerMixin):
     """
     Multiplies the spectrum by a smooth curve.
 
     Optimized implementation with pre-computed control points.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 n_control_points: int = 5,
+    _requires_wavelengths = "optional"
+
+    def __init__(self, n_control_points: int = 5,
                  gain_range: Tuple[float, float] = (0.9, 1.1),
-                 lambda_axis: Optional[np.ndarray] = None):
-        super().__init__(apply_on, random_state, copy=copy)
+                 random_state=None):
         self.n_control_points = n_control_points
         self.gain_range = gain_range
-        self.lambda_axis = lambda_axis
+        self.random_state = random_state
 
-    def augment(self, X, apply_on="samples"):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        super().fit(X, y, **kwargs)
+        return self
+
+    def _transform_impl(self, X, wavelengths):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
-        if self.lambda_axis is None:
-            lambdas = np.arange(n_features, dtype=float)
+        if wavelengths is not None:
+            lambdas = wavelengths.astype(float)
         else:
-            lambdas = self.lambda_axis.astype(float)
+            lambdas = np.arange(n_features, dtype=float)
 
         X_aug = np.empty_like(X)
         ctrl_x = np.linspace(lambdas[0], lambdas[-1], self.n_control_points)
 
         # Generate all random gains at once for all samples
-        all_ctrl_gains = self.random_gen.uniform(
+        all_ctrl_gains = rng.uniform(
             self.gain_range[0], self.gain_range[1],
             size=(n_samples, self.n_control_points)
         )
@@ -350,36 +393,44 @@ class SmoothMagnitudeWarp(Augmenter):
         return X_aug
 
 
-class BandPerturbation(Augmenter):
+class BandPerturbation(TransformerMixin, BaseEstimator):
     """
     Perturbs specific bands of the spectrum.
 
     Optimized with pre-generated random parameters.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 n_bands: int = 3,
+    _supports_variation_scope = True
+
+    def __init__(self, n_bands: int = 3,
                  bandwidth_range: Tuple[int, int] = (5, 20),
                  gain_range: Tuple[float, float] = (0.9, 1.1),
-                 offset_range: Tuple[float, float] = (-0.01, 0.01)):
-        super().__init__(apply_on, random_state, copy=copy)
+                 offset_range: Tuple[float, float] = (-0.01, 0.01),
+                 random_state=None, variation_scope: str = "sample"):
         self.n_bands = n_bands
         self.bandwidth_range = bandwidth_range
         self.gain_range = gain_range
         self.offset_range = offset_range
+        self.random_state = random_state
+        self.variation_scope = variation_scope
 
-    def augment(self, X, apply_on="samples"):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        return self
+
+    def transform(self, X, **kwargs):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
         X_aug = X.copy()
 
         # Pre-generate all random parameters for all samples and bands
-        centers = self.random_gen.integers(0, n_features, size=(n_samples, self.n_bands))
-        widths = self.random_gen.integers(
+        centers = rng.integers(0, n_features, size=(n_samples, self.n_bands))
+        widths = rng.integers(
             self.bandwidth_range[0], self.bandwidth_range[1], size=(n_samples, self.n_bands)
         )
-        gains = self.random_gen.uniform(
+        gains = rng.uniform(
             self.gain_range[0], self.gain_range[1], size=(n_samples, self.n_bands)
         )
-        offsets = self.random_gen.uniform(
+        offsets = rng.uniform(
             self.offset_range[0], self.offset_range[1], size=(n_samples, self.n_bands)
         )
 
@@ -400,7 +451,7 @@ class BandPerturbation(Augmenter):
 
 # --- 2.5 Resolution / Smoothing Jitter ---
 
-class GaussianSmoothingJitter(Augmenter):
+class GaussianSmoothingJitter(TransformerMixin, BaseEstimator):
     """
     Applies Gaussian smoothing with random sigma.
 
@@ -408,19 +459,23 @@ class GaussianSmoothingJitter(Augmenter):
     Note: Due to per-sample kernel requirements, this still uses a loop
     but with pre-generated random values.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 sigma_range: Tuple[float, float] = (0.5, 2.0),
-                 kernel_width: int = 11):
-        super().__init__(apply_on, random_state, copy=copy)
+    def __init__(self, sigma_range: Tuple[float, float] = (0.5, 2.0),
+                 kernel_width: int = 11, random_state=None):
         self.sigma_range = sigma_range
         self.kernel_width = kernel_width
+        self.random_state = random_state
 
-    def augment(self, X, apply_on="samples"):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        return self
+
+    def transform(self, X, **kwargs):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
         X_aug = np.empty_like(X)
 
         # Pre-generate all sigma values
-        sigmas = self.random_gen.uniform(self.sigma_range[0], self.sigma_range[1], size=n_samples)
+        sigmas = rng.uniform(self.sigma_range[0], self.sigma_range[1], size=n_samples)
 
         for i in range(n_samples):
             kernel = _get_gaussian_kernel(sigmas[i], self.kernel_width)
@@ -429,23 +484,26 @@ class GaussianSmoothingJitter(Augmenter):
         return X_aug
 
 
-class UnsharpSpectralMask(Augmenter):
+class UnsharpSpectralMask(TransformerMixin, BaseEstimator):
     """
     Applies unsharp masking (sharpening).
     X_aug = X + k * (X - smooth(X))
 
     Vectorized implementation using batch convolution.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 amount_range: Tuple[float, float] = (0.1, 0.5),
-                 sigma: float = 1.0,
-                 kernel_width: int = 11):
-        super().__init__(apply_on, random_state, copy=copy)
+    def __init__(self, amount_range: Tuple[float, float] = (0.1, 0.5),
+                 sigma: float = 1.0, kernel_width: int = 11, random_state=None):
         self.amount_range = amount_range
         self.sigma = sigma
         self.kernel_width = kernel_width
+        self.random_state = random_state
 
-    def augment(self, X, apply_on="samples"):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        return self
+
+    def transform(self, X, **kwargs):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
         # Pre-compute kernel once
@@ -455,7 +513,7 @@ class UnsharpSpectralMask(Augmenter):
         smoothed = _convolve_1d_batch(X, kernel)
 
         # Generate all amounts at once
-        amounts = self.random_gen.uniform(
+        amounts = rng.uniform(
             self.amount_range[0], self.amount_range[1], size=(n_samples, 1)
         )
 
@@ -467,34 +525,38 @@ class UnsharpSpectralMask(Augmenter):
 
 # --- 2.6 Spectral Masking and Dropout ---
 
-class BandMasking(Augmenter):
+class BandMasking(TransformerMixin, BaseEstimator):
     """
     Masks out bands of the spectrum.
 
     Optimized with pre-generated random parameters.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 n_bands_range: Tuple[int, int] = (1, 3),
+    def __init__(self, n_bands_range: Tuple[int, int] = (1, 3),
                  bandwidth_range: Tuple[int, int] = (5, 20),
-                 mode: str = "interp"):  # "zero" or "interp"
-        super().__init__(apply_on, random_state, copy=copy)
+                 mode: str = "interp", random_state=None):  # "zero" or "interp"
         self.n_bands_range = n_bands_range
         self.bandwidth_range = bandwidth_range
         self.mode = mode
+        self.random_state = random_state
 
-    def augment(self, X, apply_on="samples"):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        return self
+
+    def transform(self, X, **kwargs):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
         X_aug = X.copy()
 
         # Pre-generate number of bands per sample
-        n_bands_per_sample = self.random_gen.integers(
+        n_bands_per_sample = rng.integers(
             self.n_bands_range[0], self.n_bands_range[1] + 1, size=n_samples
         )
         max_bands = self.n_bands_range[1]
 
         # Pre-generate all random parameters for max possible bands
-        centers = self.random_gen.integers(0, n_features, size=(n_samples, max_bands))
-        widths = self.random_gen.integers(
+        centers = rng.integers(0, n_features, size=(n_samples, max_bands))
+        widths = rng.integers(
             self.bandwidth_range[0], self.bandwidth_range[1], size=(n_samples, max_bands)
         )
 
@@ -524,25 +586,29 @@ class BandMasking(Augmenter):
         return X_aug
 
 
-class ChannelDropout(Augmenter):
+class ChannelDropout(TransformerMixin, BaseEstimator):
     """
     Drops individual wavelengths (sets to zero or interpolates).
 
     Optimized with vectorized mask generation.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 dropout_prob: float = 0.01,
-                 mode: str = "interp"):
-        super().__init__(apply_on, random_state, copy=copy)
+    def __init__(self, dropout_prob: float = 0.01,
+                 mode: str = "interp", random_state=None):
         self.dropout_prob = dropout_prob
         self.mode = mode
+        self.random_state = random_state
 
-    def augment(self, X, apply_on="samples"):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        return self
+
+    def transform(self, X, **kwargs):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
         X_aug = X.copy()
 
         # Vectorized mask generation
-        mask = self.random_gen.random(size=X.shape) < self.dropout_prob
+        mask = rng.random(size=X.shape) < self.dropout_prob
 
         if self.mode == "zero":
             X_aug[mask] = 0
@@ -564,32 +630,40 @@ class ChannelDropout(Augmenter):
 
 # --- 2.7 Rare Structured Artefacts ---
 
-class SpikeNoise(Augmenter):
+class SpikeNoise(TransformerMixin, BaseEstimator):
     """
     Adds spikes to the spectrum.
 
     Optimized with pre-generated random parameters.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 n_spikes_range: Tuple[int, int] = (1, 3),
-                 amplitude_range: Tuple[float, float] = (-0.5, 0.5)):
-        super().__init__(apply_on, random_state, copy=copy)
+    _supports_variation_scope = True
+
+    def __init__(self, n_spikes_range: Tuple[int, int] = (1, 3),
+                 amplitude_range: Tuple[float, float] = (-0.5, 0.5),
+                 random_state=None, variation_scope: str = "sample"):
         self.n_spikes_range = n_spikes_range
         self.amplitude_range = amplitude_range
+        self.random_state = random_state
+        self.variation_scope = variation_scope
 
-    def augment(self, X, apply_on="samples"):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        return self
+
+    def transform(self, X, **kwargs):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
         X_aug = X.copy()
 
         # Pre-generate number of spikes per sample
-        n_spikes_per_sample = self.random_gen.integers(
+        n_spikes_per_sample = rng.integers(
             self.n_spikes_range[0], self.n_spikes_range[1] + 1, size=n_samples
         )
         max_spikes = self.n_spikes_range[1]
 
         # Pre-generate all spike parameters for maximum possible spikes
-        all_indices = self.random_gen.integers(0, n_features, size=(n_samples, max_spikes))
-        all_amplitudes = self.random_gen.uniform(
+        all_indices = rng.integers(0, n_features, size=(n_samples, max_spikes))
+        all_amplitudes = rng.uniform(
             self.amplitude_range[0], self.amplitude_range[1], size=(n_samples, max_spikes)
         )
 
@@ -604,26 +678,30 @@ class SpikeNoise(Augmenter):
         return X_aug
 
 
-class LocalClipping(Augmenter):
+class LocalClipping(TransformerMixin, BaseEstimator):
     """
     Clips values in a local region to simulate saturation.
 
     Optimized with pre-generated random parameters.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 n_regions: int = 1,
-                 width_range: Tuple[int, int] = (5, 20)):
-        super().__init__(apply_on, random_state, copy=copy)
+    def __init__(self, n_regions: int = 1,
+                 width_range: Tuple[int, int] = (5, 20), random_state=None):
         self.n_regions = n_regions
         self.width_range = width_range
+        self.random_state = random_state
 
-    def augment(self, X, apply_on="samples"):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        return self
+
+    def transform(self, X, **kwargs):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
         X_aug = X.copy()
 
         # Pre-generate all random parameters
-        centers = self.random_gen.integers(0, n_features, size=(n_samples, self.n_regions))
-        widths = self.random_gen.integers(
+        centers = rng.integers(0, n_features, size=(n_samples, self.n_regions))
+        widths = rng.integers(
             self.width_range[0], self.width_range[1], size=(n_samples, self.n_regions)
         )
 
@@ -648,49 +726,53 @@ class LocalClipping(Augmenter):
 
 # --- 2.8 Sample Combinations ---
 
-class MixupAugmenter(Augmenter):
+class MixupAugmenter(TransformerMixin, BaseEstimator):
     """
     Mixup augmentation.
     Note: This modifies both X and y.
     Standard transform() only returns X.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 alpha: float = 0.2):
-        super().__init__(apply_on, random_state, copy=copy)
+    def __init__(self, alpha: float = 0.2, random_state=None):
         self.alpha = alpha
+        self.random_state = random_state
 
-    def augment(self, X, apply_on="samples"):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
+        return self
+
+    def transform(self, X, **kwargs):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         # Without y, we can only mix X.
-        # If y is needed, this class needs to be used differently than standard Augmenter.
+        # If y is needed, this class needs to be used differently.
         # For now, implementing X mixing.
         n_samples = X.shape[0]
-        indices = self.random_gen.permutation(n_samples)
+        indices = rng.permutation(n_samples)
 
-        lam = self.random_gen.beta(self.alpha, self.alpha, size=(n_samples, 1))
+        lam = rng.beta(self.alpha, self.alpha, size=(n_samples, 1))
 
         X_aug = lam * X + (1 - lam) * X[indices]
         return X_aug
 
 
-class LocalMixupAugmenter(Augmenter):
+class LocalMixupAugmenter(TransformerMixin, BaseEstimator):
     """
     Mixup with nearest neighbors.
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 alpha: float = 0.2, k_neighbors: int = 5):
-        super().__init__(apply_on, random_state, copy=copy)
+    def __init__(self, alpha: float = 0.2, k_neighbors: int = 5, random_state=None):
         self.alpha = alpha
         self.k_neighbors = k_neighbors
-        self.X_fit_ = None
+        self.random_state = random_state
 
-    def fit(self, X, y=None):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
         self.X_fit_ = X
         return self
 
-    def augment(self, X, apply_on="samples"):
+    def transform(self, X, **kwargs):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         # If fit was called, use X_fit_ to find neighbors.
         # If not, use X itself.
-        reference_X = self.X_fit_ if self.X_fit_ is not None else X
+        reference_X = self.X_fit_ if hasattr(self, 'X_fit_') and self.X_fit_ is not None else X
 
         from sklearn.neighbors import NearestNeighbors
         nn = NearestNeighbors(n_neighbors=self.k_neighbors + 1).fit(reference_X)
@@ -701,10 +783,10 @@ class LocalMixupAugmenter(Augmenter):
 
         for i in range(n_samples):
             # Pick a random neighbor (excluding self which is usually index 0 in results)
-            neighbor_idx = self.random_gen.choice(indices[i, 1:])
+            neighbor_idx = rng.choice(indices[i, 1:])
             neighbor = reference_X[neighbor_idx]
 
-            lam = self.random_gen.beta(self.alpha, self.alpha)
+            lam = rng.beta(self.alpha, self.alpha)
             X_aug[i] = lam * X[i] + (1 - lam) * neighbor
 
         return X_aug
@@ -712,42 +794,34 @@ class LocalMixupAugmenter(Augmenter):
 
 # --- 2.9 Scattering-based Simulation ---
 
-class ScatterSimulationMSC(Augmenter):
+class ScatterSimulationMSC(SpectraTransformerMixin):
     """
     Simulates scatter variation: x_aug = a + b * x
     """
-    def __init__(self, apply_on="samples", random_state=None, *, copy=True,
-                 reference_mode: str = "self", # "self", "global_mean"
+    _requires_wavelengths = "optional"
+
+    def __init__(self, reference_mode: str = "self",  # "self", "global_mean"
                  a_range: Tuple[float, float] = (-0.1, 0.1),
-                 b_range: Tuple[float, float] = (0.9, 1.1)):
-        super().__init__(apply_on, random_state, copy=copy)
+                 b_range: Tuple[float, float] = (0.9, 1.1),
+                 random_state=None):
         self.reference_mode = reference_mode
         self.a_range = a_range
         self.b_range = b_range
-        self.global_mean_ = None
+        self.random_state = random_state
 
-    def fit(self, X, y=None):
+    def fit(self, X, y=None, **kwargs):
+        self._rng = np.random.default_rng(self.random_state)
         if self.reference_mode == "global_mean":
             self.global_mean_ = np.mean(X, axis=0)
+        super().fit(X, y, **kwargs)
         return self
 
-    def augment(self, X, apply_on="samples"):
+    def _transform_impl(self, X, wavelengths):
+        rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples = X.shape[0]
 
-        a = self.random_gen.uniform(self.a_range[0], self.a_range[1], size=(n_samples, 1))
-        b = self.random_gen.uniform(self.b_range[0], self.b_range[1], size=(n_samples, 1))
-
-        if self.reference_mode == "global_mean" and self.global_mean_ is not None:
-            # This mode is tricky. Usually MSC corrects X to match Ref.
-            # Here we want to simulate scatter, so we take Ref and apply scatter?
-            # Or take X (which is assumed to be Ref-like) and apply scatter?
-            # "Simulate scatter variation by perturbing a, b in x ~ a + b * x_ref"
-            # If X is the input, and we want to add scatter, we can treat X as the "ideal" and add scatter.
-            # So X_aug = a + b * X.
-            # This is same as "self" mode effectively if we treat X as reference.
-            # If reference_mode is global_mean, maybe we assume X is close to mean and we want to deviate it?
-            # Let's stick to X_aug = a + b * X for simplicity as it matches the formula structure.
-            pass
+        a = rng.uniform(self.a_range[0], self.a_range[1], size=(n_samples, 1))
+        b = rng.uniform(self.b_range[0], self.b_range[1], size=(n_samples, 1))
 
         # Apply: X_aug = a + b * X
         return a + b * X

@@ -24,7 +24,7 @@ class TestCanonicalForwardModel:
 
     def test_init_with_components(self):
         """Test initialization with component names."""
-        from nirs4all.data.synthetic.reconstruction.forward import CanonicalForwardModel
+        from nirs4all.synthesis.reconstruction.forward import CanonicalForwardModel
 
         grid = np.linspace(1000, 2500, 300)
         model = CanonicalForwardModel(
@@ -39,7 +39,7 @@ class TestCanonicalForwardModel:
 
     def test_init_empty_components(self):
         """Test initialization with no components."""
-        from nirs4all.data.synthetic.reconstruction.forward import CanonicalForwardModel
+        from nirs4all.synthesis.reconstruction.forward import CanonicalForwardModel
 
         grid = np.linspace(1000, 2500, 300)
         model = CanonicalForwardModel(
@@ -53,7 +53,7 @@ class TestCanonicalForwardModel:
 
     def test_compute_absorption(self):
         """Test absorption computation."""
-        from nirs4all.data.synthetic.reconstruction.forward import CanonicalForwardModel
+        from nirs4all.synthesis.reconstruction.forward import CanonicalForwardModel
 
         grid = np.linspace(1000, 2500, 300)
         model = CanonicalForwardModel(
@@ -73,7 +73,7 @@ class TestCanonicalForwardModel:
 
     def test_get_design_matrix(self):
         """Test design matrix construction."""
-        from nirs4all.data.synthetic.reconstruction.forward import CanonicalForwardModel
+        from nirs4all.synthesis.reconstruction.forward import CanonicalForwardModel
 
         grid = np.linspace(1000, 2500, 300)
         model = CanonicalForwardModel(
@@ -94,7 +94,7 @@ class TestInstrumentModel:
 
     def test_apply_no_transform(self):
         """Test identity transform."""
-        from nirs4all.data.synthetic.reconstruction.forward import InstrumentModel
+        from nirs4all.synthesis.reconstruction.forward import InstrumentModel
 
         canonical_grid = np.linspace(1000, 2500, 300)
         target_grid = np.linspace(1100, 2400, 200)
@@ -113,7 +113,7 @@ class TestInstrumentModel:
 
     def test_apply_with_shift(self):
         """Test wavelength shift."""
-        from nirs4all.data.synthetic.reconstruction.forward import InstrumentModel
+        from nirs4all.synthesis.reconstruction.forward import InstrumentModel
 
         canonical_grid = np.linspace(1000, 2500, 300)
         target_grid = canonical_grid.copy()
@@ -137,7 +137,7 @@ class TestInstrumentModel:
 
     def test_apply_with_ils(self):
         """Test ILS convolution smoothing."""
-        from nirs4all.data.synthetic.reconstruction.forward import InstrumentModel
+        from nirs4all.synthesis.reconstruction.forward import InstrumentModel
 
         canonical_grid = np.linspace(1000, 2500, 300)
         target_grid = canonical_grid.copy()
@@ -165,7 +165,7 @@ class TestDomainTransform:
 
     def test_absorbance_passthrough(self):
         """Test absorbance domain is passthrough."""
-        from nirs4all.data.synthetic.reconstruction.forward import DomainTransform
+        from nirs4all.synthesis.reconstruction.forward import DomainTransform
 
         transform = DomainTransform(domain="absorbance")
 
@@ -176,7 +176,7 @@ class TestDomainTransform:
 
     def test_transmittance(self):
         """Test transmittance transform."""
-        from nirs4all.data.synthetic.reconstruction.forward import DomainTransform
+        from nirs4all.synthesis.reconstruction.forward import DomainTransform
 
         transform = DomainTransform(domain="transmittance")
 
@@ -189,7 +189,7 @@ class TestDomainTransform:
 
     def test_reflectance_km(self):
         """Test Kubelka-Munk reflectance transform."""
-        from nirs4all.data.synthetic.reconstruction.forward import DomainTransform
+        from nirs4all.synthesis.reconstruction.forward import DomainTransform
 
         transform = DomainTransform(domain="reflectance")
 
@@ -209,7 +209,7 @@ class TestPreprocessingOperator:
 
     def test_none_preprocessing(self):
         """Test no preprocessing."""
-        from nirs4all.data.synthetic.reconstruction.forward import PreprocessingOperator
+        from nirs4all.synthesis.reconstruction.forward import PreprocessingOperator
 
         op = PreprocessingOperator(preprocessing_type="none")
         spectrum = np.array([1.0, 2.0, 3.0, 2.0, 1.0])
@@ -219,7 +219,7 @@ class TestPreprocessingOperator:
 
     def test_first_derivative(self):
         """Test first derivative preprocessing."""
-        from nirs4all.data.synthetic.reconstruction.forward import PreprocessingOperator
+        from nirs4all.synthesis.reconstruction.forward import PreprocessingOperator
 
         op = PreprocessingOperator(
             preprocessing_type="first_derivative",
@@ -237,7 +237,7 @@ class TestPreprocessingOperator:
 
     def test_snv(self):
         """Test SNV preprocessing."""
-        from nirs4all.data.synthetic.reconstruction.forward import PreprocessingOperator
+        from nirs4all.synthesis.reconstruction.forward import PreprocessingOperator
 
         op = PreprocessingOperator(preprocessing_type="snv")
 
@@ -254,7 +254,7 @@ class TestForwardChain:
 
     def test_create_factory(self):
         """Test factory method."""
-        from nirs4all.data.synthetic.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
 
         canonical_grid = np.linspace(1000, 2500, 300)
         target_grid = np.linspace(1100, 2400, 200)
@@ -272,7 +272,7 @@ class TestForwardChain:
 
     def test_forward(self):
         """Test full forward chain."""
-        from nirs4all.data.synthetic.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
 
         canonical_grid = np.linspace(1000, 2500, 300)
         target_grid = np.linspace(1100, 2400, 200)
@@ -303,7 +303,7 @@ class TestPrototypeSelector:
 
     def test_select_basic(self):
         """Test basic prototype selection."""
-        from nirs4all.data.synthetic.reconstruction.calibration import PrototypeSelector
+        from nirs4all.synthesis.reconstruction.calibration import PrototypeSelector
 
         selector = PrototypeSelector(n_prototypes=3)
 
@@ -318,7 +318,7 @@ class TestPrototypeSelector:
 
     def test_select_includes_median(self):
         """Test that median-like sample is included."""
-        from nirs4all.data.synthetic.reconstruction.calibration import PrototypeSelector
+        from nirs4all.synthesis.reconstruction.calibration import PrototypeSelector
 
         selector = PrototypeSelector(n_prototypes=5, include_median=True)
 
@@ -338,8 +338,8 @@ class TestGlobalCalibrator:
 
     def test_calibrate_simple(self):
         """Test basic calibration."""
-        from nirs4all.data.synthetic.reconstruction.calibration import GlobalCalibrator
-        from nirs4all.data.synthetic.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.calibration import GlobalCalibrator
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
 
         canonical_grid = np.linspace(1000, 2500, 200)
         target_grid = np.linspace(1100, 2400, 150)
@@ -375,11 +375,11 @@ class TestVariableProjectionSolver:
 
     def test_fit_simple(self):
         """Test basic fitting."""
-        from nirs4all.data.synthetic.reconstruction.inversion import (
+        from nirs4all.synthesis.reconstruction.inversion import (
             VariableProjectionSolver,
             MultiscaleSchedule,
         )
-        from nirs4all.data.synthetic.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
 
         canonical_grid = np.linspace(1000, 2500, 200)
         target_grid = np.linspace(1100, 2400, 150)
@@ -408,7 +408,7 @@ class TestVariableProjectionSolver:
 
     def test_inversion_result_to_dict(self):
         """Test InversionResult serialization."""
-        from nirs4all.data.synthetic.reconstruction.inversion import InversionResult
+        from nirs4all.synthesis.reconstruction.inversion import InversionResult
 
         result = InversionResult(
             concentrations=np.array([1.0, 2.0]),
@@ -427,7 +427,7 @@ class TestMultiscaleSchedule:
 
     def test_default_schedule(self):
         """Test default schedule configuration."""
-        from nirs4all.data.synthetic.reconstruction.inversion import MultiscaleSchedule
+        from nirs4all.synthesis.reconstruction.inversion import MultiscaleSchedule
 
         schedule = MultiscaleSchedule()
 
@@ -436,7 +436,7 @@ class TestMultiscaleSchedule:
 
     def test_quick_schedule(self):
         """Test quick schedule."""
-        from nirs4all.data.synthetic.reconstruction.inversion import MultiscaleSchedule
+        from nirs4all.synthesis.reconstruction.inversion import MultiscaleSchedule
 
         schedule = MultiscaleSchedule.quick()
 
@@ -444,7 +444,7 @@ class TestMultiscaleSchedule:
 
     def test_thorough_schedule(self):
         """Test thorough schedule."""
-        from nirs4all.data.synthetic.reconstruction.inversion import MultiscaleSchedule
+        from nirs4all.synthesis.reconstruction.inversion import MultiscaleSchedule
 
         schedule = MultiscaleSchedule.thorough()
 
@@ -461,7 +461,7 @@ class TestParameterDistributionFitter:
 
     def test_fit_positive_params(self):
         """Test fitting positive parameters."""
-        from nirs4all.data.synthetic.reconstruction.distributions import (
+        from nirs4all.synthesis.reconstruction.distributions import (
             ParameterDistributionFitter,
         )
 
@@ -480,7 +480,7 @@ class TestParameterDistributionFitter:
 
     def test_fit_gaussian_params(self):
         """Test fitting Gaussian parameters."""
-        from nirs4all.data.synthetic.reconstruction.distributions import (
+        from nirs4all.synthesis.reconstruction.distributions import (
             ParameterDistributionFitter,
         )
 
@@ -503,7 +503,7 @@ class TestParameterSampler:
 
     def test_sample_basic(self):
         """Test basic sampling."""
-        from nirs4all.data.synthetic.reconstruction.distributions import (
+        from nirs4all.synthesis.reconstruction.distributions import (
             ParameterDistributionFitter,
             ParameterSampler,
         )
@@ -525,7 +525,7 @@ class TestParameterSampler:
 
     def test_sample_correlations(self):
         """Test that correlations are preserved."""
-        from nirs4all.data.synthetic.reconstruction.distributions import (
+        from nirs4all.synthesis.reconstruction.distributions import (
             ParameterDistributionFitter,
             ParameterSampler,
         )
@@ -562,9 +562,9 @@ class TestReconstructionGenerator:
 
     def test_generate_basic(self):
         """Test basic generation."""
-        from nirs4all.data.synthetic.reconstruction.generator import ReconstructionGenerator
-        from nirs4all.data.synthetic.reconstruction.forward import ForwardChain
-        from nirs4all.data.synthetic.reconstruction.distributions import (
+        from nirs4all.synthesis.reconstruction.generator import ReconstructionGenerator
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.distributions import (
             ParameterDistributionFitter,
             ParameterSampler,
         )
@@ -611,8 +611,8 @@ class TestReconstructionValidator:
 
     def test_validate_reconstruction(self):
         """Test reconstruction validation."""
-        from nirs4all.data.synthetic.reconstruction.validation import ReconstructionValidator
-        from nirs4all.data.synthetic.reconstruction.inversion import InversionResult
+        from nirs4all.synthesis.reconstruction.validation import ReconstructionValidator
+        from nirs4all.synthesis.reconstruction.inversion import InversionResult
 
         validator = ReconstructionValidator()
 
@@ -636,7 +636,7 @@ class TestReconstructionValidator:
 
     def test_validate_synthetic(self):
         """Test synthetic validation."""
-        from nirs4all.data.synthetic.reconstruction.validation import ReconstructionValidator
+        from nirs4all.synthesis.reconstruction.validation import ReconstructionValidator
 
         validator = ReconstructionValidator()
 
@@ -662,7 +662,7 @@ class TestDatasetConfig:
 
     def test_from_data_absorbance(self):
         """Test auto-detection of absorbance data."""
-        from nirs4all.data.synthetic.reconstruction.pipeline import DatasetConfig
+        from nirs4all.synthesis.reconstruction.pipeline import DatasetConfig
 
         # Create absorbance-like data (positive, range 0-2)
         X = np.random.rand(50, 100) * 1.5 + 0.3
@@ -675,7 +675,7 @@ class TestDatasetConfig:
 
     def test_from_data_derivative(self):
         """Test auto-detection of derivative data."""
-        from nirs4all.data.synthetic.reconstruction.pipeline import DatasetConfig
+        from nirs4all.synthesis.reconstruction.pipeline import DatasetConfig
 
         # Create derivative-like data (zero mean, bipolar)
         X = np.random.randn(50, 100) * 0.1
@@ -691,7 +691,7 @@ class TestReconstructionPipeline:
 
     def test_component_selection(self):
         """Test domain-based component selection."""
-        from nirs4all.data.synthetic.reconstruction.pipeline import (
+        from nirs4all.synthesis.reconstruction.pipeline import (
             DatasetConfig,
             ReconstructionPipeline,
         )
@@ -721,11 +721,11 @@ class TestIntegration:
 
     def test_full_workflow_synthetic_data(self):
         """Test full workflow on synthetic data."""
-        from nirs4all.data.synthetic.reconstruction.pipeline import (
+        from nirs4all.synthesis.reconstruction.pipeline import (
             DatasetConfig,
             ReconstructionPipeline,
         )
-        from nirs4all.data.synthetic.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
 
         # Generate synthetic "real" data
         canonical_grid = np.linspace(950, 2550, 320)
@@ -787,7 +787,7 @@ class TestEnvironmentalEffectsModel:
 
     def test_init_defaults(self):
         """Test default initialization."""
-        from nirs4all.data.synthetic.reconstruction.environmental import (
+        from nirs4all.synthesis.reconstruction.environmental import (
             EnvironmentalEffectsModel,
         )
 
@@ -801,7 +801,7 @@ class TestEnvironmentalEffectsModel:
 
     def test_apply_no_effect(self):
         """Test that disabled model passes through unchanged."""
-        from nirs4all.data.synthetic.reconstruction.environmental import (
+        from nirs4all.synthesis.reconstruction.environmental import (
             EnvironmentalEffectsModel,
         )
 
@@ -815,7 +815,7 @@ class TestEnvironmentalEffectsModel:
 
     def test_apply_temperature_effect(self):
         """Test temperature effect changes spectrum."""
-        from nirs4all.data.synthetic.reconstruction.environmental import (
+        from nirs4all.synthesis.reconstruction.environmental import (
             EnvironmentalEffectsModel,
         )
 
@@ -835,7 +835,7 @@ class TestEnvironmentalEffectsModel:
 
     def test_apply_scattering_effect(self):
         """Test scattering baseline effect."""
-        from nirs4all.data.synthetic.reconstruction.environmental import (
+        from nirs4all.synthesis.reconstruction.environmental import (
             EnvironmentalEffectsModel,
         )
 
@@ -859,7 +859,7 @@ class TestEnvironmentalEffectsModel:
 
     def test_apply_water_activity_effect(self):
         """Test water activity effect on water bands."""
-        from nirs4all.data.synthetic.reconstruction.environmental import (
+        from nirs4all.synthesis.reconstruction.environmental import (
             EnvironmentalEffectsModel,
         )
 
@@ -877,7 +877,7 @@ class TestEnvironmentalEffectsModel:
 
     def test_to_dict(self):
         """Test serialization to dictionary."""
-        from nirs4all.data.synthetic.reconstruction.environmental import (
+        from nirs4all.synthesis.reconstruction.environmental import (
             EnvironmentalEffectsModel,
         )
 
@@ -901,7 +901,7 @@ class TestEnvironmentalParameterConfig:
 
     def test_default_config(self):
         """Test default parameter configuration."""
-        from nirs4all.data.synthetic.reconstruction.environmental import (
+        from nirs4all.synthesis.reconstruction.environmental import (
             EnvironmentalParameterConfig,
         )
 
@@ -918,7 +918,7 @@ class TestForwardChainWithEnvironmental:
 
     def test_create_with_environmental(self):
         """Test factory creates environmental model when requested."""
-        from nirs4all.data.synthetic.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
 
         canonical_grid = np.linspace(1000, 2500, 300)
         target_grid = np.linspace(1100, 2400, 200)
@@ -937,7 +937,7 @@ class TestForwardChainWithEnvironmental:
 
     def test_create_without_environmental(self):
         """Test factory does not create environmental model by default."""
-        from nirs4all.data.synthetic.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
 
         canonical_grid = np.linspace(1000, 2500, 300)
         target_grid = np.linspace(1100, 2400, 200)
@@ -955,8 +955,8 @@ class TestForwardChainWithEnvironmental:
 
     def test_forward_with_environmental(self):
         """Test forward model applies environmental effects."""
-        from nirs4all.data.synthetic.reconstruction.forward import ForwardChain
-        from nirs4all.data.synthetic.reconstruction.environmental import (
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.environmental import (
             EnvironmentalEffectsModel,
         )
 
@@ -1001,7 +1001,7 @@ class TestInversionWithEnvironmental:
 
     def test_inversion_result_environmental_fields(self):
         """Test InversionResult has environmental fields."""
-        from nirs4all.data.synthetic.reconstruction.inversion import InversionResult
+        from nirs4all.synthesis.reconstruction.inversion import InversionResult
 
         result = InversionResult(
             concentrations=np.array([1.0]),
@@ -1021,11 +1021,11 @@ class TestInversionWithEnvironmental:
 
     def test_solver_fit_environmental(self):
         """Test solver with environmental fitting enabled."""
-        from nirs4all.data.synthetic.reconstruction.inversion import (
+        from nirs4all.synthesis.reconstruction.inversion import (
             VariableProjectionSolver,
             MultiscaleSchedule,
         )
-        from nirs4all.data.synthetic.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
 
         canonical_grid = np.linspace(1000, 2500, 200)
         target_grid = np.linspace(1100, 2400, 150)
@@ -1067,7 +1067,7 @@ class TestGeneratorWithEnvironmental:
 
     def test_generation_result_environmental_fields(self):
         """Test GenerationResult has environmental fields."""
-        from nirs4all.data.synthetic.reconstruction.generator import GenerationResult
+        from nirs4all.synthesis.reconstruction.generator import GenerationResult
 
         result = GenerationResult(
             X=np.zeros((10, 100)),
@@ -1089,9 +1089,9 @@ class TestGeneratorWithEnvironmental:
 
     def test_generate_with_environmental(self):
         """Test generation with environmental parameters."""
-        from nirs4all.data.synthetic.reconstruction.generator import ReconstructionGenerator
-        from nirs4all.data.synthetic.reconstruction.forward import ForwardChain
-        from nirs4all.data.synthetic.reconstruction.distributions import (
+        from nirs4all.synthesis.reconstruction.generator import ReconstructionGenerator
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.distributions import (
             ParameterDistributionFitter,
             ParameterSampler,
         )
@@ -1146,7 +1146,7 @@ class TestPipelineWithEnvironmental:
 
     def test_pipeline_with_environmental_flag(self):
         """Test pipeline accepts environmental fitting flag."""
-        from nirs4all.data.synthetic.reconstruction.pipeline import (
+        from nirs4all.synthesis.reconstruction.pipeline import (
             DatasetConfig,
             ReconstructionPipeline,
         )

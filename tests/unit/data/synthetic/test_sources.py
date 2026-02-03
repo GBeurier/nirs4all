@@ -5,7 +5,7 @@ Unit tests for MultiSourceGenerator class.
 import pytest
 import numpy as np
 
-from nirs4all.data.synthetic.sources import (
+from nirs4all.synthesis.sources import (
     MultiSourceGenerator,
     SourceConfig,
     MultiSourceResult,

@@ -5,7 +5,7 @@ This guide covers the internals of the synthetic NIRS data generator for develop
 ## Architecture Overview
 
 ```
-nirs4all/data/synthetic/
+nirs4all/synthesis/
 ├── __init__.py           # Public API exports
 ├── generator.py          # SyntheticNIRSGenerator (core engine)
 ├── builder.py            # SyntheticDatasetBuilder (fluent API)
@@ -55,7 +55,7 @@ Where:
 Absorption bands are modeled using **Voigt profiles** (convolution of Gaussian and Lorentzian):
 
 ```python
-from nirs4all.data.synthetic import NIRBand
+from nirs4all.synthesis import NIRBand
 
 band = NIRBand(
     center=1450,    # Peak center in nm
@@ -73,7 +73,7 @@ band = NIRBand(
 The main generation engine:
 
 ```python
-from nirs4all.data.synthetic import SyntheticNIRSGenerator
+from nirs4all.synthesis import SyntheticNIRSGenerator
 
 generator = SyntheticNIRSGenerator(
     wavelength_start=1000,
@@ -104,7 +104,7 @@ X, C, E, metadata = generator.generate(
 Manages collections of spectral components:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     ComponentLibrary,
     SpectralComponent,
     NIRBand
@@ -185,7 +185,7 @@ C = generator.generate_concentrations(
 ### Creating Custom Components
 
 ```python
-from nirs4all.data.synthetic import SpectralComponent, NIRBand
+from nirs4all.synthesis import SpectralComponent, NIRBand
 
 # Define a pharmaceutical compound
 aspirin = SpectralComponent(
@@ -214,7 +214,7 @@ generator = SyntheticNIRSGenerator(
 The generator supports configurable noise through complexity parameters:
 
 ```python
-from nirs4all.data.synthetic._constants import COMPLEXITY_PARAMS
+from nirs4all.synthesis._constants import COMPLEXITY_PARAMS
 
 # Default complexity parameters
 print(COMPLEXITY_PARAMS["realistic"])
@@ -238,7 +238,7 @@ class CustomNoiseGenerator(SyntheticNIRSGenerator):
 ### Custom Target Transformations
 
 ```python
-from nirs4all.data.synthetic import TargetGenerator
+from nirs4all.synthesis import TargetGenerator
 
 class CustomTargetGenerator(TargetGenerator):
     def custom_transform(self, concentrations, **kwargs):
@@ -289,7 +289,7 @@ The module defines 7 NIR spectral zones in wavenumber space:
 22 fundamental vibrations are defined (in cm⁻¹):
 
 ```python
-from nirs4all.data.synthetic import FUNDAMENTAL_VIBRATIONS
+from nirs4all.synthesis import FUNDAMENTAL_VIBRATIONS
 
 # O-H vibrations
 print(FUNDAMENTAL_VIBRATIONS["O-H_stretch_free"])    # 3650 cm⁻¹
@@ -308,7 +308,7 @@ print(FUNDAMENTAL_VIBRATIONS["N-H_stretch_primary"])   # 3400 cm⁻¹
 Calculate overtone positions with anharmonicity correction:
 
 ```python
-from nirs4all.data.synthetic import calculate_overtone_position
+from nirs4all.synthesis import calculate_overtone_position
 
 # Calculate O-H 1st overtone (n=2 in spectroscopic convention)
 result = calculate_overtone_position("O-H_stretch_free", 2)
@@ -330,7 +330,7 @@ result = calculate_overtone_position(3400, 2, anharmonicity=0.022)
 Calculate combination band positions:
 
 ```python
-from nirs4all.data.synthetic import calculate_combination_band
+from nirs4all.synthesis import calculate_combination_band
 
 # O-H stretch + bend combination
 result = calculate_combination_band(["O-H_stretch_free", "O-H_bend"])
@@ -346,7 +346,7 @@ print(f"C-H combination: {result.wavelength_nm:.1f} nm")
 Model hydrogen bonding effects on band positions:
 
 ```python
-from nirs4all.data.synthetic import apply_hydrogen_bonding_shift
+from nirs4all.synthesis import apply_hydrogen_bonding_shift
 
 # Free O-H stretch
 free_oh = 3650  # cm⁻¹
@@ -361,7 +361,7 @@ print(f"H-bonded O-H: {bonded_oh:.0f} cm⁻¹")  # ~3400 cm⁻¹
 Classify wavelengths into NIR zones:
 
 ```python
-from nirs4all.data.synthetic import classify_wavelength_zone
+from nirs4all.synthesis import classify_wavelength_zone
 
 zone = classify_wavelength_zone(1450)  # O-H 1st overtone region
 print(f"1450 nm is in: {zone}")
@@ -379,7 +379,7 @@ The `procedural` module enables programmatic generation of chemically-plausible 
 10 functional group types are defined:
 
 ```python
-from nirs4all.data.synthetic import FunctionalGroupType
+from nirs4all.synthesis import FunctionalGroupType
 
 print(list(FunctionalGroupType))
 # [HYDROXYL, AMINE, METHYL, METHYLENE, AROMATIC_CH,
@@ -389,7 +389,7 @@ print(list(FunctionalGroupType))
 Each functional group has physical properties defined:
 
 ```python
-from nirs4all.data.synthetic import FUNCTIONAL_GROUP_PROPERTIES
+from nirs4all.synthesis import FUNCTIONAL_GROUP_PROPERTIES
 
 props = FUNCTIONAL_GROUP_PROPERTIES[FunctionalGroupType.HYDROXYL]
 print(f"Fundamental: {props['fundamental_cm']} cm⁻¹")
@@ -401,7 +401,7 @@ print(f"Typical amplitude: {props['typical_amplitude']}")
 ### Procedural Configuration
 
 ```python
-from nirs4all.data.synthetic import ProceduralComponentConfig
+from nirs4all.synthesis import ProceduralComponentConfig
 
 config = ProceduralComponentConfig(
     # Band generation
@@ -437,7 +437,7 @@ config = ProceduralComponentConfig(
 ### Generating Components
 
 ```python
-from nirs4all.data.synthetic import ProceduralComponentGenerator
+from nirs4all.synthesis import ProceduralComponentGenerator
 
 generator = ProceduralComponentGenerator(random_state=42)
 
@@ -499,7 +499,7 @@ for i in range(5):
 ### Integration with ComponentLibrary
 
 ```python
-from nirs4all.data.synthetic import ComponentLibrary
+from nirs4all.synthesis import ComponentLibrary
 
 # Create library with procedural + predefined components
 library = ComponentLibrary(random_state=42)
@@ -528,7 +528,7 @@ The `domains` module provides domain-aware configuration for synthetic data gene
 ### Domain Categories
 
 ```python
-from nirs4all.data.synthetic import DomainCategory
+from nirs4all.synthesis import DomainCategory
 
 print(list(DomainCategory))
 # [AGRICULTURE, FOOD, PHARMACEUTICAL, PETROCHEMICAL,
@@ -550,7 +550,7 @@ print(list(DomainCategory))
 ### Getting Domain Configuration
 
 ```python
-from nirs4all.data.synthetic import get_domain_config, list_domains
+from nirs4all.synthesis import get_domain_config, list_domains
 
 # List all domains
 all_domains = list_domains()
@@ -574,7 +574,7 @@ print(f"Measurement mode: {grain.measurement_mode}")
 Each domain includes:
 
 ```python
-from nirs4all.data.synthetic import DomainConfig
+from nirs4all.synthesis import DomainConfig
 
 # DomainConfig fields:
 # - name: Display name
@@ -596,7 +596,7 @@ from nirs4all.data.synthetic import DomainConfig
 Domains include realistic concentration priors:
 
 ```python
-from nirs4all.data.synthetic import ConcentrationPrior
+from nirs4all.synthesis import ConcentrationPrior
 import numpy as np
 
 # Get grain domain priors
@@ -619,7 +619,7 @@ print(f"Sampled starch mean: {concentrations.get('starch', []).mean():.2f}")
 The `create_domain_aware_library` function samples components and concentrations based on domain priors:
 
 ```python
-from nirs4all.data.synthetic import create_domain_aware_library
+from nirs4all.synthesis import create_domain_aware_library
 
 # Returns (component_names, concentration_matrix)
 components, concentrations = create_domain_aware_library(
@@ -636,7 +636,7 @@ print(f"Concentrations shape: {concentrations.shape}")
 To use domain configurations with `SyntheticNIRSGenerator`, create a `ComponentLibrary` from the domain's typical components:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticNIRSGenerator,
     ComponentLibrary,
     get_domain_config,
@@ -665,7 +665,7 @@ print(f"Generated {X.shape[0]} spectra for grain analysis")
 ### Getting Domain Components
 
 ```python
-from nirs4all.data.synthetic import get_domain_components, get_domains_for_component
+from nirs4all.synthesis import get_domain_components, get_domains_for_component
 
 # Get typical components for a domain
 components = get_domain_components("food_dairy")
@@ -700,7 +700,7 @@ The predefined component library has been extended from 31 to **111 components**
 ### Listing Components
 
 ```python
-from nirs4all.data.synthetic._constants import get_predefined_components
+from nirs4all.synthesis._constants import get_predefined_components
 
 components = get_predefined_components()
 print(f"Total components: {len(components)}")
@@ -713,7 +713,7 @@ for name in sorted(components.keys()):
 ### Using Extended Components
 
 ```python
-from nirs4all.data.synthetic import ComponentLibrary
+from nirs4all.synthesis import ComponentLibrary
 
 # Pharmaceutical formulation
 pharma = ComponentLibrary.from_predefined([
@@ -745,7 +745,7 @@ Phase 2 introduces realistic instrument simulation with 19 predefined instrument
 The module provides pre-configured models of real NIR instruments:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     get_instrument_archetype,
     list_instrument_archetypes,
     get_instruments_by_category,
@@ -785,7 +785,7 @@ print(f"SNR: {foss_xds.snr}")
 Each archetype includes complete optical and electronic specifications:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     InstrumentArchetype,
     InstrumentCategory,
     DetectorType,
@@ -818,7 +818,7 @@ custom = InstrumentArchetype(
 Many NIR instruments use multiple detectors to cover wide wavelength ranges, then stitch the signals together:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     MultiSensorConfig,
     SensorConfig,
     DetectorType,
@@ -865,7 +865,7 @@ multi_sensor = MultiSensorConfig(
 Real instruments take multiple scans and average them to reduce noise:
 
 ```python
-from nirs4all.data.synthetic import MultiScanConfig
+from nirs4all.synthesis import MultiScanConfig
 
 multi_scan = MultiScanConfig(
     enabled=True,
@@ -890,7 +890,7 @@ multi_scan = MultiScanConfig(
 ### Using Instruments with the Generator
 
 ```python
-from nirs4all.data.synthetic import SyntheticNIRSGenerator
+from nirs4all.synthesis import SyntheticNIRSGenerator
 
 # Generate with a predefined instrument
 gen = SyntheticNIRSGenerator(
@@ -919,7 +919,7 @@ gen = SyntheticNIRSGenerator(
 For fine-grained control, use the simulator directly:
 
 ```python
-from nirs4all.data.synthetic import InstrumentSimulator, get_instrument_archetype
+from nirs4all.synthesis import InstrumentSimulator, get_instrument_archetype
 import numpy as np
 
 # Get archetype and create simulator
@@ -944,7 +944,7 @@ print(f"Output range: {output_wl.min():.0f}-{output_wl.max():.0f} nm")
 The module includes realistic detector spectral response curves:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     get_detector_response,
     list_detector_types,
     DetectorType,
@@ -985,7 +985,7 @@ responsivity = ingaas.get_response_at(wavelengths)
 Each detector type has characteristic noise properties:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     DetectorSimulator,
     DetectorConfig,
     NoiseModelConfig,
@@ -1019,7 +1019,7 @@ processed = simulator.apply(spectra, wavelengths, add_noise=True)
 Different sampling geometries produce different spectral characteristics:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     MeasurementModeSimulator,
     MeasurementModeConfig,
     MeasurementMode,
@@ -1083,7 +1083,7 @@ Phase 3 introduces simulation of environmental and matrix effects that affect NI
 Temperature affects NIR spectra through peak shifts, intensity changes, and band broadening. The `environmental.py` module provides comprehensive temperature simulation:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     TemperatureEffectSimulator,
     TemperatureConfig,
     TemperatureEffectParams,
@@ -1133,7 +1133,7 @@ The module defines 8 spectral regions with distinct temperature responses:
 #### Custom Temperature Parameters
 
 ```python
-from nirs4all.data.synthetic import TemperatureEffectParams, SpectralRegion
+from nirs4all.synthesis import TemperatureEffectParams, SpectralRegion
 
 # Define custom parameters for a specific region
 custom_params = TemperatureEffectParams(
@@ -1156,7 +1156,7 @@ temp_config = TemperatureConfig(
 Water content and activity affect hydrogen bonding, which in turn modifies water-related bands:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     MoistureEffectSimulator,
     MoistureConfig,
 )
@@ -1191,7 +1191,7 @@ modified_spectra = moisture_sim.apply(spectra, wavelengths)
 The `EnvironmentalEffectsSimulator` combines all environmental effects:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     EnvironmentalEffectsSimulator,
     EnvironmentalEffectsConfig,
     TemperatureConfig,
@@ -1230,7 +1230,7 @@ The `scattering.py` module simulates light scattering effects, which are critica
 Particle size strongly affects NIR spectra through scattering:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     ParticleSizeSimulator,
     ParticleSizeConfig,
     ParticleSizeDistribution,
@@ -1277,7 +1277,7 @@ modified_spectra = ps_simulator.apply(spectra, wavelengths, particle_sizes=sizes
 Extended Multiplicative Scatter Correction (EMSC) models are used to simulate realistic scattering distortions:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     EMSCTransformSimulator,
     EMSCConfig,
 )
@@ -1319,7 +1319,7 @@ Where:
 For Kubelka-Munk reflectance simulation, generate realistic scattering coefficients:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     ScatteringCoefficientGenerator,
     ScatteringCoefficientConfig,
 )
@@ -1354,7 +1354,7 @@ S_lambda = generator.generate(wavelengths)
 The `ScatteringEffectsSimulator` combines all scattering-related effects:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     ScatteringEffectsSimulator,
     ScatteringEffectsConfig,
     ParticleSizeConfig,
@@ -1391,7 +1391,7 @@ modified_spectra = scatter_simulator.apply(
 Phase 3 effects are integrated into the main `SyntheticNIRSGenerator`:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticNIRSGenerator,
     EnvironmentalEffectsConfig,
     ScatteringEffectsConfig,
@@ -1436,7 +1436,7 @@ X, C, E = generator.generate(
 The `MetadataGenerator` creates realistic sample metadata:
 
 ```python
-from nirs4all.data.synthetic import MetadataGenerator
+from nirs4all.synthesis import MetadataGenerator
 
 metadata_gen = MetadataGenerator(random_state=42)
 
@@ -1460,7 +1460,7 @@ print(result.repetition_counts)   # [3, 2, 4, ...]
 The `TargetGenerator` creates separable classes:
 
 ```python
-from nirs4all.data.synthetic import TargetGenerator, ClassSeparationConfig
+from nirs4all.synthesis import TargetGenerator, ClassSeparationConfig
 
 target_gen = TargetGenerator(random_state=42)
 
@@ -1488,7 +1488,7 @@ non-linear models to predict well. It implements three strategies:
 ### Architecture
 
 ```python
-from nirs4all.data.synthetic.targets import (
+from nirs4all.synthesis.targets import (
     NonLinearTargetProcessor,
     NonLinearTargetConfig
 )
@@ -1576,7 +1576,7 @@ class CustomTargetProcessor(NonLinearTargetProcessor):
 Generate datasets with multiple data types:
 
 ```python
-from nirs4all.data.synthetic import MultiSourceGenerator, SourceConfig
+from nirs4all.synthesis import MultiSourceGenerator, SourceConfig
 
 generator = MultiSourceGenerator(random_state=42)
 
@@ -1618,7 +1618,7 @@ X_all = result.get_combined_features()
 Export synthetic data to various formats:
 
 ```python
-from nirs4all.data.synthetic import DatasetExporter, CSVVariationGenerator
+from nirs4all.synthesis import DatasetExporter, CSVVariationGenerator
 
 exporter = DatasetExporter()
 
@@ -1657,7 +1657,7 @@ variations = csv_gen.generate_variations(
 Analyze real data and generate similar synthetic data:
 
 ```python
-from nirs4all.data.synthetic import RealDataFitter, compute_spectral_properties
+from nirs4all.synthesis import RealDataFitter, compute_spectral_properties
 
 # Compute properties of real data
 props = compute_spectral_properties(
@@ -1686,7 +1686,7 @@ X_synth = fitter.generate(n_samples=1000, random_state=42)
 Validate generated data quality:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     validate_spectra,
     validate_wavelengths,
     validate_concentrations,
@@ -1948,7 +1948,7 @@ Components within the same correlation group can be configured to have correlate
 ### Usage Example
 
 ```python
-from nirs4all.data.synthetic import ComponentLibrary
+from nirs4all.synthesis import ComponentLibrary
 
 # List all available components (111 total)
 library = ComponentLibrary.from_predefined()
@@ -2026,5 +2026,5 @@ The predefined spectral components are based on established NIR spectroscopy lit
 ## See Also
 
 - {doc}`/user_guide/data/synthetic_data` - User guide
-- {doc}`/api/nirs4all.data.synthetic` - API reference
+- {doc}`/api/nirs4all.synthesis` - API reference
 - {doc}`testing` - Testing guide with synthetic fixtures

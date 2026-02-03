@@ -114,28 +114,7 @@ print(f"   • {2 if HAS_XGBOOST else 1} classifier(s)")
 
 
 # =============================================================================
-# Section 2: Define Dataset
-# =============================================================================
-print("\n" + "-" * 60)
-print("Dataset Configuration")
-print("-" * 60)
-
-# Using the binary classification dataset
-dataset_config = {
-    'folder': 'sample_data/binary/',
-    'params': {
-        'has_header': False,
-        'delimiter': ';',
-        'decimal_separator': '.'
-    }
-}
-
-print("   Using: sample_data/binary/")
-print("   Format: CSV with semicolon delimiter, no header")
-
-
-# =============================================================================
-# Section 3: Train the Pipeline
+# Section 2: Train the Pipeline
 # =============================================================================
 print("\n" + "-" * 60)
 print("Training Pipeline")
@@ -143,7 +122,7 @@ print("-" * 60)
 
 result = nirs4all.run(
     pipeline=pipeline,
-    dataset=dataset_config,
+    dataset="sample_data/binary",
     name="BasicClassification",
     verbose=1,
     save_artifacts=True,
@@ -155,7 +134,7 @@ print(f"   Generated {result.num_predictions} predictions")
 
 
 # =============================================================================
-# Section 4: Display Results
+# Section 3: Display Results
 # =============================================================================
 print("\n" + "-" * 60)
 print("Top 5 Models by Accuracy")
@@ -177,7 +156,7 @@ for i, pred in enumerate(predictions.top(5, rank_metric='accuracy', display_metr
 
 
 # =============================================================================
-# Section 5: Visualize Results
+# Section 4: Visualize Results
 # =============================================================================
 print("\n" + "-" * 60)
 print("Creating Visualizations")

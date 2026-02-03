@@ -69,6 +69,9 @@ def create_synthetic_dataset(config: Dict) -> SpectroDataset:
     if len(y_test) > 0:
         dataset.add_targets(y_test)
 
+    # Set NaN tracking flag based on loaded data
+    dataset._may_contain_nan = dataset.has_nan
+
     return dataset
 
 
@@ -95,7 +98,7 @@ def _merge_params(local_params, handler_params, global_params):
 # Known loading parameter keys that can appear at root level of config
 _LOADING_PARAM_KEYS = frozenset({
     'delimiter', 'decimal_separator', 'has_header',
-    'na_policy', 'header_unit', 'categorical_mode'
+    'na_policy', 'na_fill_config', 'header_unit', 'categorical_mode'
 })
 
 
@@ -294,16 +297,16 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
                 m_params_copy['categorical_mode'] = 'preserve'  # Keep original types for metadata
             if 'data_type' not in m_params_copy:
                 m_params_copy['data_type'] = 'metadata'
-            # Use 'remove' policy but we'll ignore the removed rows for metadata
+            # Use 'remove_sample' policy but we'll ignore the removed rows for metadata
             # (we want to keep all metadata rows even if some columns have NAs)
             if 'na_policy' not in m_params_copy:
-                m_params_copy['na_policy'] = 'remove'
+                m_params_copy['na_policy'] = 'remove_sample'
 
             m_df_temp, m_report, m_na_mask, m_headers, _ = _load_file_with_registry(m_path, **m_params_copy)
 
             # For metadata, we want to keep ALL rows including those with NAs
             # So we reload the data without NA row removal if rows were removed
-            if m_report.get('na_handling', {}).get('nb_removed_rows', 0) > 0:
+            if len(m_report.get('na_handling', {}).get('removed_samples', [])) > 0:
                 # Rows were removed - reload with explicit na_filter=False to keep everything
                 m_params_no_na_removal = m_params_copy.copy()
                 # We can't directly disable NA removal in load_csv, so we use pandas directly

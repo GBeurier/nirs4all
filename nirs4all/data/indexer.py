@@ -84,14 +84,40 @@ class Indexer:
 
     def _apply_filters(self, selector: Selector) -> pl.DataFrame:
         """Apply selector filters and return filtered DataFrame."""
-        selector = self._ensure_selector_dict(selector)
-        condition = self._query_builder.build(selector, exclude_columns=["processings"])
+        condition = self._build_filter_condition(selector)
         return self._store.query(condition)
 
     def _build_filter_condition(self, selector: Selector) -> pl.Expr:
-        """Build a Polars filter expression from selector."""
-        selector = self._ensure_selector_dict(selector)
-        return self._query_builder.build(selector, exclude_columns=["processings"])
+        """
+        Build a Polars filter expression from selector.
+
+        This method combines:
+        1. Standard selector filters (partition, group, branch, etc.)
+        2. Tag filters from DataSelector.tag_filters (if present)
+
+        Args:
+            selector: Filter criteria. Can be dict, DataSelector, or ExecutionContext.
+
+        Returns:
+            pl.Expr: Combined Polars filter expression.
+        """
+        # Extract tag_filters before converting to dict (preserves DataSelector object info)
+        tag_filters = {}
+        if hasattr(selector, 'tag_filters') and selector.tag_filters:
+            tag_filters = selector.tag_filters
+
+        selector_dict = self._ensure_selector_dict(selector)
+
+        # Build base condition from selector dict
+        condition = self._query_builder.build(selector_dict, exclude_columns=["processings", "tag_filters"])
+
+        # Apply tag filters if present
+        for tag_name, tag_condition in tag_filters.items():
+            if self._store.has_tag_column(tag_name):
+                tag_expr = self._query_builder.build_tag_filter(tag_name, tag_condition)
+                condition = condition & tag_expr
+
+        return condition
 
     def x_indices(self, selector: Selector, include_augmented: bool = True, include_excluded: bool = False) -> np.ndarray:
         """

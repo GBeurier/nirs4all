@@ -295,7 +295,7 @@ class ConfigValidator:
         # Validate na_policy
         na_policy = params.get("na_policy")
         if na_policy is not None:
-            valid_policies = ["auto", "remove", "abort"]
+            valid_policies = ["auto", "abort", "remove_sample", "remove_feature", "replace", "ignore"]
             if isinstance(na_policy, str) and na_policy.lower() not in valid_policies:
                 errors.append(ValidationError(
                     code="INVALID_NA_POLICY",

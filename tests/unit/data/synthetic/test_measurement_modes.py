@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from nirs4all.data.synthetic.measurement_modes import (
+from nirs4all.synthesis.measurement_modes import (
     MeasurementMode,
     TransmittanceConfig,
     ReflectanceConfig,

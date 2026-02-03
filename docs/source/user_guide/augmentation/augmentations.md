@@ -10,23 +10,35 @@ All operators are designed as **sklearn-style transformers** and must be safe to
 
 ### 1.1 Input / output conventions
 
-- Input spectra: `X` as `np.ndarray` or `ArrayLike` of shape `(n_samples, n_wavelengths)`.
-- Optional wavelength axis: `lambda_axis` (1D array of shape `(n_wavelengths,)`), passed via:
-  - `__init__(..., lambda_axis: Optional[np.ndarray] = None)`, or
-  - a config object / dataset wrapper (depending on `nirs4all`’s existing patterns).
-- Output: **same shape** as input, `(n_samples, n_wavelengths)`.
-- No change of sample order; no change of dtype beyond standard float conversions.
+- Input: `X` (2D array of shape `(n_samples, n_wavelengths)`)
+- Output: `X_transformed` (same shape)
+- Wavelength handling: Wavelength-aware operators use `SpectraTransformerMixin` and receive wavelengths automatically from the controller
+- Random state: `random_state` (int or None) for reproducibility, using `numpy.random.default_rng`
 
 ### 1.2 Base class and randomness
 
-All augmenters should:
+Base class patterns:
 
-- Inherit from:
-  ```python
-  class BaseAugmenter(BaseEstimator, TransformerMixin):
-      def __init__(self, random_state: Optional[int | np.random.Generator] = None, ...):
-          ...
-    ```
+```python
+# For wavelength-aware operators:
+from nirs4all.operators.base import SpectraTransformerMixin
+
+class MyAugmenter(SpectraTransformerMixin):
+    _requires_wavelengths = "optional"  # or True
+
+    def _transform_impl(self, X, wavelengths):
+        # wavelengths may be None if _requires_wavelengths = "optional"
+        return X_transformed
+
+# For plain operators:
+from sklearn.base import TransformerMixin, BaseEstimator
+
+class MyAugmenter(TransformerMixin, BaseEstimator):
+    def transform(self, X, **kwargs):
+        return X_transformed
+```
+
+All augmenters should:
 
 * Use a local RNG:
 
@@ -77,7 +89,7 @@ Below: one class per family, with a **minimal required behavior** and **recommen
 **Constructor:**
 
 ```python
-class GaussianAdditiveNoise(BaseAugmenter):
+class GaussianAdditiveNoise(TransformerMixin, BaseEstimator):
     def __init__(
         self,
         sigma: float = 0.01,
@@ -102,7 +114,7 @@ class GaussianAdditiveNoise(BaseAugmenter):
 **Constructor:**
 
 ```python
-class MultiplicativeNoise(BaseAugmenter):
+class MultiplicativeNoise(TransformerMixin, BaseEstimator):
     def __init__(
         self,
         sigma_gain: float = 0.01,
@@ -131,12 +143,13 @@ class MultiplicativeNoise(BaseAugmenter):
 **Constructor:**
 
 ```python
-class LinearBaselineDrift(BaseAugmenter):
+class LinearBaselineDrift(SpectraTransformerMixin):
+    _requires_wavelengths = "optional"
+
     def __init__(
         self,
         offset_range: tuple[float, float] = (-0.02, 0.02),
         slope_range: tuple[float, float] = (-0.0005, 0.0005),
-        lambda_axis: Optional[np.ndarray] = None,
         random_state: Optional[int | np.random.Generator] = None,
     ):
         ...
@@ -144,7 +157,7 @@ class LinearBaselineDrift(BaseAugmenter):
 
 **Notes:**
 
-* If `lambda_axis` is `None`, use indices [0..n_wavelengths-1] as surrogate λ.
+* Wavelengths are received automatically from the controller. If unavailable, indices [0..n_wavelengths-1] are used as surrogate λ.
 * `a_i` and `b_i` drawn independently per sample.
 
 #### 2.2.2 Polynomial Baseline Drift
@@ -155,12 +168,13 @@ class LinearBaselineDrift(BaseAugmenter):
 Add a low-frequency polynomial to each spectrum.
 
 ```python
-class PolynomialBaselineDrift(BaseAugmenter):
+class PolynomialBaselineDrift(SpectraTransformerMixin):
+    _requires_wavelengths = "optional"
+
     def __init__(
         self,
         degree: int = 2,
         coeff_ranges: dict[int, tuple[float, float]] | None = None,
-        lambda_axis: Optional[np.ndarray] = None,
         random_state: Optional[int | np.random.Generator] = None,
     ):
         ...
@@ -187,11 +201,12 @@ Use a robust interpolation method (e.g. `np.interp` for 1D).
 Shift λ by `δλ`, then interpolate back on original axis.
 
 ```python
-class WavelengthShift(BaseAugmenter):
+class WavelengthShift(SpectraTransformerMixin):
+    _requires_wavelengths = "optional"
+
     def __init__(
         self,
         shift_range: tuple[float, float] = (-2.0, 2.0),  # nm
-        lambda_axis: Optional[np.ndarray] = None,
         random_state: Optional[int | np.random.Generator] = None,
     ):
         ...
@@ -205,11 +220,12 @@ class WavelengthShift(BaseAugmenter):
 λ' = λ₀ + (1 + α) * (λ - λ₀), α small; then interpolation.
 
 ```python
-class WavelengthStretch(BaseAugmenter):
+class WavelengthStretch(SpectraTransformerMixin):
+    _requires_wavelengths = "optional"
+
     def __init__(
         self,
         stretch_range: tuple[float, float] = (-0.005, 0.005),  # relative
-        lambda_axis: Optional[np.ndarray] = None,
         random_state: Optional[int | np.random.Generator] = None,
     ):
         ...
@@ -223,12 +239,13 @@ class WavelengthStretch(BaseAugmenter):
 Apply a smooth monotone warp using random control points.
 
 ```python
-class LocalWavelengthWarp(BaseAugmenter):
+class LocalWavelengthWarp(SpectraTransformerMixin):
+    _requires_wavelengths = "optional"
+
     def __init__(
         self,
         n_control_points: int = 5,
         max_shift_nm: float = 1.0,
-        lambda_axis: Optional[np.ndarray] = None,
         random_state: Optional[int | np.random.Generator] = None,
     ):
         ...
@@ -252,12 +269,13 @@ class LocalWavelengthWarp(BaseAugmenter):
 Multiply by a smooth gain curve `f(λ)` with `f(λ) ≈ 1`.
 
 ```python
-class SmoothMagnitudeWarp(BaseAugmenter):
+class SmoothMagnitudeWarp(SpectraTransformerMixin):
+    _requires_wavelengths = "optional"
+
     def __init__(
         self,
         n_control_points: int = 5,
         gain_range: tuple[float, float] = (0.95, 1.05),
-        lambda_axis: Optional[np.ndarray] = None,
         random_state: Optional[int | np.random.Generator] = None,
     ):
         ...
@@ -277,13 +295,14 @@ class SmoothMagnitudeWarp(BaseAugmenter):
 Multiply or offset intensity within specific λ bands (e.g. water bands).
 
 ```python
-class BandPerturbation(BaseAugmenter):
+class BandPerturbation(SpectraTransformerMixin):
+    _requires_wavelengths = "optional"
+
     def __init__(
         self,
         bands: list[tuple[float, float]],  # list of (λ_min, λ_max)
         gain_range: tuple[float, float] = (0.9, 1.1),
         offset_range: tuple[float, float] = (-0.01, 0.01),
-        lambda_axis: Optional[np.ndarray] = None,
         random_state: Optional[int | np.random.Generator] = None,
     ):
         ...
@@ -305,7 +324,7 @@ class BandPerturbation(BaseAugmenter):
 Convolve each spectrum with a Gaussian of random σ within a range.
 
 ```python
-class GaussianSmoothingJitter(BaseAugmenter):
+class GaussianSmoothingJitter(TransformerMixin, BaseEstimator):
     def __init__(
         self,
         sigma_range: tuple[float, float] = (0.5, 1.5),
@@ -327,7 +346,7 @@ class GaussianSmoothingJitter(BaseAugmenter):
 `X_aug = X + k * (X - smooth(X))`, small `k`.
 
 ```python
-class UnsharpSpectralMask(BaseAugmenter):
+class UnsharpSpectralMask(TransformerMixin, BaseEstimator):
     def __init__(
         self,
         amount_range: tuple[float, float] = (0.0, 0.2),
@@ -350,7 +369,7 @@ class UnsharpSpectralMask(BaseAugmenter):
 Randomly mask short contiguous bands (set to 0 or interpolate).
 
 ```python
-class BandMasking(BaseAugmenter):
+class BandMasking(TransformerMixin, BaseEstimator):
     def __init__(
         self,
         max_mask_width: int = 10,
@@ -374,7 +393,7 @@ class BandMasking(BaseAugmenter):
 Drop individual wavelengths.
 
 ```python
-class ChannelDropout(BaseAugmenter):
+class ChannelDropout(TransformerMixin, BaseEstimator):
     def __init__(
         self,
         dropout_prob: float = 0.01,
@@ -396,7 +415,7 @@ class ChannelDropout(BaseAugmenter):
 Add a small number of narrow spikes.
 
 ```python
-class SpikeNoise(BaseAugmenter):
+class SpikeNoise(TransformerMixin, BaseEstimator):
     def __init__(
         self,
         n_spikes_range: tuple[int, int] = (0, 3),
@@ -420,7 +439,7 @@ class SpikeNoise(BaseAugmenter):
 Clip segments locally to mimic saturation.
 
 ```python
-class LocalClipping(BaseAugmenter):
+class LocalClipping(TransformerMixin, BaseEstimator):
     def __init__(
         self,
         clip_prob: float = 0.1,
@@ -494,7 +513,9 @@ Precompute nearest neighbors in `fit`, then sample j among neighbors of i in `tr
 Simulate scatter variation by perturbing `a, b` in `x ≈ a + b * x_ref`.
 
 ```python
-class ScatterSimulationMSC(BaseAugmenter):
+class ScatterSimulationMSC(SpectraTransformerMixin):
+    _requires_wavelengths = "optional"
+
     def __init__(
         self,
         offset_range: tuple[float, float] = (-0.02, 0.02),
@@ -903,7 +924,7 @@ result = nirs4all.run(pipeline=pipeline, dataset="field_samples")
 The `SyntheticNIRSGenerator` supports edge artifacts through the `EdgeArtifactsConfig`:
 
 ```python
-from nirs4all.data.synthetic import SyntheticNIRSGenerator, EdgeArtifactsConfig
+from nirs4all.synthesis import SyntheticNIRSGenerator, EdgeArtifactsConfig
 
 # Configure edge artifacts for synthetic data
 edge_config = EdgeArtifactsConfig(
@@ -932,7 +953,7 @@ X, Y, E = generator.generate(n_samples=1000)
 The `RealDataFitter` can automatically detect and characterize edge artifacts in real spectra:
 
 ```python
-from nirs4all.data.synthetic import RealDataFitter
+from nirs4all.synthesis import RealDataFitter
 
 # Fit edge artifacts from real data
 fitter = RealDataFitter()
@@ -1025,7 +1046,7 @@ For each augmenter:
 2. **Determinism:** fixed `random_state` ⇒ identical outputs.
 3. **Amplitude sanity:** output values stay in reasonable bounds for typical NIRS ranges.
 4. **No NaN / inf:** unless explicitly requested (should not be).
-5. **Lambda-axis usage:** when `lambda_axis` is provided, warps must be consistent with nm values.
+5. **Wavelength handling:** wavelength-aware operators receive wavelengths automatically from the controller via kwargs.
 
 Once implemented, add small end-to-end tests combining several augmenters in a pipeline to ensure they compose correctly.
 

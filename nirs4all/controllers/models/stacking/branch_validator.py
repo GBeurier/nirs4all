@@ -218,7 +218,13 @@ class BranchValidator:
         branch_name = getattr(selector, 'branch_name', None)
         branch_path = getattr(selector, 'branch_path', None) or []
 
-        # Detect branch type from custom context
+        # Detect NEW unified branch patterns (v2 BranchController)
+        if custom.get('branch_type') == 'separation':
+            return self._extract_separation_branch_info(
+                custom, branch_id, branch_name, branch_path
+            )
+
+        # Detect LEGACY branch type from custom context (for backward compatibility)
         if custom.get('metadata_partitioner_active'):
             branch_type = BranchType.METADATA_PARTITIONER
             partition_info = custom.get('metadata_partition', {})
@@ -315,6 +321,126 @@ class BranchValidator:
             branch_name=branch_name,
             branch_path=list(branch_path),
             nesting_depth=len(branch_path) if branch_path else 0
+        )
+
+    def _extract_separation_branch_info(
+        self,
+        custom: Dict[str, Any],
+        branch_id: Optional[int],
+        branch_name: Optional[str],
+        branch_path: List[int]
+    ) -> BranchInfo:
+        """Extract branch info from new unified separation branch patterns.
+
+        The new BranchController (v2) sets:
+        - custom['branch_type'] = 'separation'
+        - custom['separation_type'] = 'by_tag' | 'by_metadata' | 'by_filter' | 'by_source'
+        - custom['sample_partition'] = {'sample_indices': [...], 'n_samples': N, ...}
+
+        Args:
+            custom: Context custom dict.
+            branch_id: Branch ID from selector.
+            branch_name: Branch name from selector.
+            branch_path: Branch path from selector.
+
+        Returns:
+            BranchInfo with detected branch type and metadata.
+        """
+        separation_type = custom.get('separation_type', 'unknown')
+        sample_partition = custom.get('sample_partition', {})
+        sample_indices = sample_partition.get('sample_indices', [])
+        n_samples = sample_partition.get('n_samples', len(sample_indices))
+
+        # Map separation types to BranchType categories
+        if separation_type == 'by_metadata':
+            branch_type = BranchType.METADATA_PARTITIONER
+            partition_info = {
+                'column': sample_partition.get('separation_key'),
+                'partition_value': branch_name,
+                'separation_type': separation_type,
+            }
+            return BranchInfo(
+                branch_type=branch_type,
+                branch_id=branch_id,
+                branch_name=branch_name,
+                branch_path=list(branch_path),
+                partition_info=partition_info,
+                sample_indices=sample_indices,
+                n_samples=n_samples,
+                is_nested=len(branch_path) > 1,
+                nesting_depth=len(branch_path)
+            )
+
+        if separation_type == 'by_tag':
+            # by_tag creates disjoint sample partitions, similar to sample_partitioner
+            branch_type = BranchType.SAMPLE_PARTITIONER
+            partition_info = {
+                'partition_type': branch_name,
+                'tag_name': sample_partition.get('separation_key'),
+                'separation_type': separation_type,
+            }
+            return BranchInfo(
+                branch_type=branch_type,
+                branch_id=branch_id,
+                branch_name=branch_name,
+                branch_path=list(branch_path),
+                partition_info=partition_info,
+                sample_indices=sample_indices,
+                n_samples=n_samples,
+                is_nested=len(branch_path) > 1,
+                nesting_depth=len(branch_path)
+            )
+
+        if separation_type == 'by_filter':
+            # by_filter creates pass/fail branches, similar to outlier_excluder
+            # but with disjoint samples (each sample in exactly one branch)
+            branch_type = BranchType.OUTLIER_EXCLUDER
+            exclusion_info = {
+                'filter_class': sample_partition.get('separation_key'),
+                'branch_name': branch_name,
+                'separation_type': separation_type,
+            }
+            return BranchInfo(
+                branch_type=branch_type,
+                branch_id=branch_id,
+                branch_name=branch_name,
+                branch_path=list(branch_path),
+                exclusion_info=exclusion_info,
+                sample_indices=sample_indices,
+                n_samples=n_samples,
+                is_nested=len(branch_path) > 1,
+                nesting_depth=len(branch_path)
+            )
+
+        if separation_type == 'by_source':
+            # by_source is per-source preprocessing (all samples, different features)
+            # This is similar to PREPROCESSING but for multi-source
+            branch_type = BranchType.PREPROCESSING
+            return BranchInfo(
+                branch_type=branch_type,
+                branch_id=branch_id,
+                branch_name=branch_name,
+                branch_path=list(branch_path),
+                is_nested=len(branch_path) > 1,
+                nesting_depth=len(branch_path)
+            )
+
+        # Unknown separation type - treat as sample partitioner
+        branch_type = BranchType.SAMPLE_PARTITIONER
+        partition_info = {
+            'partition_type': branch_name,
+            'separation_type': separation_type,
+        }
+        return BranchInfo(
+            branch_type=branch_type,
+            branch_id=branch_id,
+            branch_name=branch_name,
+            branch_path=list(branch_path),
+            partition_info=partition_info,
+            sample_indices=sample_indices,
+            n_samples=n_samples,
+            is_nested=len(branch_path) > 1,
+            nesting_depth=len(branch_path)
         )
 
     def _looks_like_generator_syntax(
@@ -737,6 +863,21 @@ def detect_branch_type(context: 'ExecutionContext') -> BranchType:
     """
     custom = context.custom
 
+    # NEW: Detect unified separation branch patterns (v2 BranchController)
+    if custom.get('branch_type') == 'separation':
+        separation_type = custom.get('separation_type', '')
+        if separation_type == 'by_metadata':
+            return BranchType.METADATA_PARTITIONER
+        if separation_type == 'by_tag':
+            return BranchType.SAMPLE_PARTITIONER
+        if separation_type == 'by_filter':
+            return BranchType.OUTLIER_EXCLUDER
+        if separation_type == 'by_source':
+            return BranchType.PREPROCESSING
+        # Unknown separation type defaults to sample_partitioner
+        return BranchType.SAMPLE_PARTITIONER
+
+    # LEGACY: Detect old controller patterns (for backward compatibility)
     if custom.get('metadata_partitioner_active'):
         return BranchType.METADATA_PARTITIONER
     if custom.get('sample_partitioner_active'):
@@ -796,11 +937,12 @@ def is_disjoint_branch(context: 'ExecutionContext') -> bool:
     where all branches see all samples.
 
     Disjoint branch types:
-        - METADATA_PARTITIONER: Branches by metadata column value
-        - SAMPLE_PARTITIONER: Branches by outlier status
+        - METADATA_PARTITIONER: Branches by metadata column value (by_metadata)
+        - SAMPLE_PARTITIONER: Branches by tag or outlier status (by_tag)
+        - OUTLIER_EXCLUDER: Branches by filter result (by_filter)
 
     Copy branch types:
-        - PREPROCESSING: All branches see all samples
+        - PREPROCESSING: All branches see all samples (duplication or by_source)
         - GENERATOR: All branches see all samples (model variants)
 
     Args:
@@ -809,20 +951,30 @@ def is_disjoint_branch(context: 'ExecutionContext') -> bool:
     Returns:
         True if current context represents a disjoint sample branch.
     """
-    branch_type = detect_branch_type(context)
-
-    # Disjoint branch types
-    if branch_type in (BranchType.METADATA_PARTITIONER, BranchType.SAMPLE_PARTITIONER):
-        return True
-
-    # Check for explicit markers in context.custom
     custom = context.custom
 
+    # NEW: Detect unified separation branch patterns (v2 BranchController)
+    if custom.get('branch_type') == 'separation':
+        separation_type = custom.get('separation_type', '')
+        # by_source is NOT disjoint (all samples, different features per source)
+        if separation_type == 'by_source':
+            return False
+        # Other separation types ARE disjoint
+        if separation_type in ('by_tag', 'by_metadata', 'by_filter'):
+            return True
+
+    branch_type = detect_branch_type(context)
+
+    # Disjoint branch types (includes OUTLIER_EXCLUDER for by_filter)
+    if branch_type in (BranchType.METADATA_PARTITIONER, BranchType.SAMPLE_PARTITIONER, BranchType.OUTLIER_EXCLUDER):
+        return True
+
+    # Check for explicit markers in context.custom (legacy)
     # metadata_partition indicates disjoint samples by metadata column
     if custom.get('metadata_partition') is not None:
         return True
 
-    # sample_partition indicates disjoint samples by filter (outliers/inliers)
+    # sample_partition indicates disjoint samples by filter/tag
     if custom.get('sample_partition') is not None:
         return True
 
@@ -838,18 +990,55 @@ def get_disjoint_branch_info(context: 'ExecutionContext') -> Optional[Dict[str, 
     Returns:
         Dict with partition info, or None if not a disjoint branch.
         Keys may include:
-            - partition_type: "metadata" or "sample"
+            - partition_type: "metadata", "sample", "tag", or "filter"
             - column: Metadata column name (for metadata partitioner)
             - partition_value: Value(s) for this partition
             - sample_indices: List of sample indices in this partition
             - n_samples: Number of samples in this partition
+            - separation_type: New v2 separation type ("by_tag", "by_metadata", "by_filter")
     """
     if not is_disjoint_branch(context):
         return None
 
     custom = context.custom
 
-    # Check for metadata_partition
+    # NEW: Handle v2 BranchController separation patterns
+    if custom.get('branch_type') == 'separation':
+        separation_type = custom.get('separation_type', '')
+        sample_partition = custom.get('sample_partition', {})
+        branch_name = getattr(context.selector, 'branch_name', None)
+
+        if separation_type == 'by_metadata':
+            return {
+                'partition_type': 'metadata',
+                'separation_type': separation_type,
+                'column': sample_partition.get('separation_key'),
+                'partition_value': branch_name,
+                'sample_indices': sample_partition.get('sample_indices', []),
+                'n_samples': sample_partition.get('n_samples', 0),
+            }
+
+        if separation_type == 'by_tag':
+            return {
+                'partition_type': 'tag',
+                'separation_type': separation_type,
+                'tag_name': sample_partition.get('separation_key'),
+                'partition_value': branch_name,
+                'sample_indices': sample_partition.get('sample_indices', []),
+                'n_samples': sample_partition.get('n_samples', 0),
+            }
+
+        if separation_type == 'by_filter':
+            return {
+                'partition_type': 'filter',
+                'separation_type': separation_type,
+                'filter_class': sample_partition.get('separation_key'),
+                'partition_value': branch_name,
+                'sample_indices': sample_partition.get('sample_indices', []),
+                'n_samples': sample_partition.get('n_samples', 0),
+            }
+
+    # LEGACY: Check for metadata_partition (old metadata_partitioner controller)
     metadata_partition = custom.get('metadata_partition')
     if metadata_partition is not None:
         return {
@@ -863,7 +1052,7 @@ def get_disjoint_branch_info(context: 'ExecutionContext') -> Optional[Dict[str, 
             'n_train_samples': metadata_partition.get('n_train_samples', 0),
         }
 
-    # Check for sample_partition
+    # LEGACY: Check for sample_partition (old sample_partitioner/outlier_excluder)
     sample_partition = custom.get('sample_partition')
     if sample_partition is not None:
         return {
