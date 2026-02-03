@@ -1188,7 +1188,7 @@ def run_full_benchmark(
 Generate synthetic datasets with controlled properties using nirs4all.
 """
 
-from nirs4all.data.synthetic import SyntheticDataGenerator
+from nirs4all.synthesis import SyntheticDataGenerator
 
 def generate_benchmark_datasets():
     """Generate suite of synthetic datasets for benchmarking."""

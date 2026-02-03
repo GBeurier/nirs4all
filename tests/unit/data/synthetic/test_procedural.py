@@ -13,13 +13,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from nirs4all.data.synthetic.procedural import (
+from nirs4all.synthesis.procedural import (
     FunctionalGroupType,
     FUNCTIONAL_GROUP_PROPERTIES,
     ProceduralComponentConfig,
     ProceduralComponentGenerator,
 )
-from nirs4all.data.synthetic.components import SpectralComponent, NIRBand
+from nirs4all.synthesis.components import SpectralComponent, NIRBand
 
 
 class TestFunctionalGroupType:

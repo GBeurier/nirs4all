@@ -72,7 +72,8 @@ class HighLeverageFilter(SampleFilter):
         absolute_threshold: Optional[float] = None,
         n_components: Optional[int] = None,
         center: bool = True,
-        reason: Optional[str] = None
+        reason: Optional[str] = None,
+        tag_name: Optional[str] = None
     ):
         """
         Initialize the high leverage filter.
@@ -95,13 +96,15 @@ class HighLeverageFilter(SampleFilter):
             center: Whether to center the data before computing leverage.
                    Default True (recommended).
             reason: Custom exclusion reason. Defaults to filter description.
+            tag_name: Name for the tag column when used with TagController.
+                     If None, defaults to the exclusion_reason property.
 
         Raises:
             ValueError: If method is not valid.
             ValueError: If threshold_multiplier is not positive.
             ValueError: If absolute_threshold is not in (0, 1).
         """
-        super().__init__(reason=reason)
+        super().__init__(reason=reason, tag_name=tag_name)
         self.method = method
         self.threshold_multiplier = threshold_multiplier
         self.absolute_threshold = absolute_threshold

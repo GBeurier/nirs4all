@@ -5,7 +5,7 @@ Unit tests for Phase 4 validation module - spectral realism scorecard.
 import pytest
 import numpy as np
 
-from nirs4all.data.synthetic.validation import (
+from nirs4all.synthesis.validation import (
     # Existing validation
     ValidationError,
     validate_spectra,

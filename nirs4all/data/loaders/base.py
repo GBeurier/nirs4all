@@ -11,12 +11,145 @@ Phase 2 Implementation - Dataset Configuration Roadmap
 import gzip
 import io
 import tarfile
+import warnings
 import zipfile
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 
+import numpy as np
 import pandas as pd
+
+from nirs4all.core.exceptions import NAError
+from nirs4all.data.schema.config import NAFillConfig, NAFillMethod
+
+
+_VALID_NA_POLICIES = {"auto", "abort", "remove_sample", "remove_feature", "replace", "ignore"}
+
+
+def apply_na_policy(
+    data: pd.DataFrame,
+    na_policy: str,
+    na_fill_config: Optional[NAFillConfig] = None,
+) -> Tuple[pd.DataFrame, dict]:
+    """Apply NA policy to loaded data.
+
+    Args:
+        data: The loaded DataFrame, possibly containing NaN.
+        na_policy: One of the canonical NAPolicy values:
+            'auto', 'abort', 'remove_sample', 'remove_feature', 'replace', 'ignore'.
+        na_fill_config: Fill configuration when na_policy='replace'.
+
+    Returns:
+        Tuple of (processed DataFrame, na_handling report dict).
+
+    Raises:
+        NAError: When na_policy='abort' and NaN is detected.
+        ValueError: When na_policy is not a recognized value.
+    """
+    if na_policy not in _VALID_NA_POLICIES:
+        raise ValueError(
+            f"Invalid na_policy '{na_policy}'. "
+            f"Must be one of: {sorted(_VALID_NA_POLICIES)}"
+        )
+
+    # Resolve 'auto' to 'abort'
+    if na_policy == "auto":
+        na_policy = "abort"
+
+    # Build base report
+    na_mask = data.isna()
+    na_any_row = na_mask.any(axis=1)
+    na_any_col = na_mask.any(axis=0)
+
+    report: dict = {
+        "strategy": na_policy,
+        "na_detected": bool(na_any_row.any()),
+        "na_count": int(na_mask.sum().sum()),
+        "na_samples": int(na_any_row.sum()),
+        "na_features": int(na_any_col.sum()),
+        "removed_samples": [],
+        "removed_features": [],
+        "fill_method": None,
+        "na_preserved": False,
+    }
+
+    # If no NaN detected, return data unchanged for all policies
+    if not report["na_detected"]:
+        return data, report
+
+    # --- abort ---
+    if na_policy == "abort":
+        first_na_row = data.index[na_any_row][0]
+        first_na_col = data.loc[first_na_row].isna().idxmax()
+        raise NAError(
+            f"NA values detected and na_policy is 'abort'. "
+            f"First NA in column '{first_na_col}' (row: {first_na_row})."
+        )
+
+    # --- remove_sample ---
+    if na_policy == "remove_sample":
+        removed_indices = data.index[na_any_row].tolist()
+        report["removed_samples"] = removed_indices
+        data = data[~na_any_row].copy()
+        return data, report
+
+    # --- remove_feature ---
+    if na_policy == "remove_feature":
+        removed_cols = data.columns[na_any_col].tolist()
+        report["removed_features"] = removed_cols
+        total_cols = len(data.columns)
+        data = data.drop(columns=removed_cols)
+        # Warn if more than 10% of features removed
+        if total_cols > 0 and len(removed_cols) / total_cols > 0.10:
+            warnings.warn(
+                f"remove_feature policy removed {len(removed_cols)}/{total_cols} "
+                f"columns ({len(removed_cols)/total_cols:.1%}), which exceeds 10%.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return data, report
+
+    # --- replace ---
+    if na_policy == "replace":
+        if na_fill_config is None:
+            na_fill_config = NAFillConfig()
+
+        method = na_fill_config.method
+        report["fill_method"] = method.value if hasattr(method, "value") else str(method)
+
+        if method == NAFillMethod.VALUE:
+            data = data.fillna(na_fill_config.fill_value)
+
+        elif method == NAFillMethod.MEAN:
+            if na_fill_config.per_column:
+                data = data.fillna(data.mean())
+            else:
+                global_mean = data.values[~np.isnan(data.values.astype(float))].mean()
+                data = data.fillna(global_mean)
+
+        elif method == NAFillMethod.MEDIAN:
+            if na_fill_config.per_column:
+                data = data.fillna(data.median())
+            else:
+                global_median = float(np.nanmedian(data.values.astype(float)))
+                data = data.fillna(global_median)
+
+        elif method == NAFillMethod.FORWARD_FILL:
+            data = data.ffill(axis=1)
+
+        elif method == NAFillMethod.BACKWARD_FILL:
+            data = data.bfill(axis=1)
+
+        return data, report
+
+    # --- ignore ---
+    if na_policy == "ignore":
+        report["na_preserved"] = True
+        return data, report
+
+    # Should never reach here due to validation at the top
+    raise ValueError(f"Unhandled na_policy: {na_policy}")  # pragma: no cover
 
 
 class LoaderError(Exception):

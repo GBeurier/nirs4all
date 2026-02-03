@@ -27,7 +27,7 @@ import numpy as np
 if TYPE_CHECKING:
     from pathlib import Path
     from nirs4all.data.dataset import SpectroDataset
-    from nirs4all.data.synthetic import SyntheticDatasetBuilder
+    from nirs4all.synthesis import SyntheticDatasetBuilder
 
 
 def generate(
@@ -94,7 +94,7 @@ def generate(
         generate.classification: Convenience function for classification datasets.
         generate.builder: Access the full builder API.
     """
-    from nirs4all.data.synthetic import SyntheticDatasetBuilder
+    from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
         n_samples=n_samples,
@@ -179,7 +179,7 @@ def regression(
         ...     random_state=42
         ... )
     """
-    from nirs4all.data.synthetic import SyntheticDatasetBuilder
+    from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
         n_samples=n_samples,
@@ -251,7 +251,7 @@ def classification(
         ...     random_state=42
         ... )
     """
-    from nirs4all.data.synthetic import SyntheticDatasetBuilder
+    from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
         n_samples=n_samples,
@@ -311,7 +311,7 @@ def builder(
         ...     .build()
         ... )
     """
-    from nirs4all.data.synthetic import SyntheticDatasetBuilder
+    from nirs4all.synthesis import SyntheticDatasetBuilder
 
     return SyntheticDatasetBuilder(
         n_samples=n_samples,
@@ -377,7 +377,7 @@ def multi_source(
         ...     ]
         ... )
     """
-    from nirs4all.data.synthetic import generate_multi_source as _generate_multi_source
+    from nirs4all.synthesis import generate_multi_source as _generate_multi_source
 
     if sources is None:
         # Default: NIR + markers
@@ -438,7 +438,7 @@ def to_folder(
         ...     random_state=42
         ... )
     """
-    from nirs4all.data.synthetic import SyntheticDatasetBuilder
+    from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
         n_samples=n_samples,
@@ -490,7 +490,7 @@ def to_csv(
         >>> import nirs4all
         >>> path = nirs4all.generate.to_csv("data.csv", n_samples=500)
     """
-    from nirs4all.data.synthetic import SyntheticDatasetBuilder
+    from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
         n_samples=n_samples,
@@ -567,14 +567,14 @@ def product(
         ... )
         >>>
         >>> # List available templates
-        >>> from nirs4all.data.synthetic import list_product_templates
+        >>> from nirs4all.synthesis import list_product_templates
         >>> print(list_product_templates(category="dairy"))
 
     See Also:
         generate.category: Generate from multiple product templates.
         list_product_templates: List available templates.
     """
-    from nirs4all.data.synthetic import ProductGenerator
+    from nirs4all.synthesis import ProductGenerator
 
     # Build wavelength kwargs
     wl_kwargs: Dict[str, Any] = {"complexity": complexity}
@@ -660,7 +660,7 @@ def category(
     See Also:
         generate.product: Generate from a single product template.
     """
-    from nirs4all.data.synthetic import CategoryGenerator
+    from nirs4all.synthesis import CategoryGenerator
 
     # Build wavelength kwargs
     wl_kwargs: Dict[str, Any] = {"complexity": complexity}
@@ -724,7 +724,7 @@ def from_template(
         ...     wavelengths=wavelengths
         ... )
     """
-    from nirs4all.data.synthetic import SyntheticDatasetBuilder, RealDataFitter
+    from nirs4all.synthesis import SyntheticDatasetBuilder, RealDataFitter
 
     builder = SyntheticDatasetBuilder(
         n_samples=n_samples,

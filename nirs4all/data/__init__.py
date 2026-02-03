@@ -3,18 +3,12 @@ SpectroDataset - A specialized dataset API for spectroscopy data.
 
 This module provides zero-copy, multi-source aware dataset management
 with transparent versioning and fine-grained indexing capabilities.
-
-Submodules:
-    synthetic: Synthetic NIRS spectra generation tools.
 """
 
 from .dataset import SpectroDataset
 from .config import DatasetConfigs
 from .predictions import Predictions, PredictionResult, PredictionResultsList
 from ..visualization.predictions import PredictionAnalyzer
-
-# Synthetic data generation submodule
-from . import synthetic
 
 # Provide backward-compatible imports for feature components
 from ._features import (
@@ -80,8 +74,6 @@ __all__ = [
     "PredictionResult",
     "PredictionResultsList",
     "PredictionAnalyzer",
-    # Synthetic data generation
-    "synthetic",
     "FeatureSource",
     "FeatureLayout",
     "HeaderUnit",

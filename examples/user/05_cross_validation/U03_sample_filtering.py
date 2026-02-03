@@ -1,15 +1,15 @@
 """
-U03 - Sample Filtering: Outlier Detection and Quality Control
+U03 - Sample Exclusion: Outlier Detection and Quality Control
 ==============================================================
 
-Filter out outliers and poor-quality samples.
+Exclude outliers and poor-quality samples from training.
 
 This tutorial covers:
 
 * Y-based outlier filtering (IQR, Z-score, MAD)
 * X-based outlier filtering (PCA, Mahalanobis)
 * Spectral quality checks
-* Pipeline integration
+* Pipeline integration with the ``exclude`` keyword
 * Composite filters
 
 Prerequisites
@@ -19,6 +19,7 @@ Complete :ref:`U01_cv_strategies` first.
 Next Steps
 ----------
 See :ref:`U04_aggregation` for prediction aggregation.
+See :ref:`U05_tagging_analysis` for tagging without exclusion.
 
 Duration: ~5 minutes
 Difficulty: ★★★☆☆
@@ -46,14 +47,14 @@ args = parser.parse_args()
 
 
 # =============================================================================
-# Section 1: Why Sample Filtering?
+# Section 1: Why Sample Exclusion?
 # =============================================================================
 print("\n" + "=" * 60)
-print("U03 - Sample Filtering")
+print("U03 - Sample Exclusion")
 print("=" * 60)
 
 print("""
-Sample filtering removes outliers and poor-quality samples:
+Sample exclusion removes outliers and poor-quality samples from training:
 
   📊 Y-BASED FILTERING (target outliers)
      IQR      - Interquartile Range method (robust)
@@ -132,21 +133,24 @@ print("Section 3: Pipeline Integration")
 print("-" * 60)
 
 print("""
-Use sample_filter keyword to integrate filtering into pipelines.
-Filtering happens before model training, on training data only.
+Use the ``exclude`` keyword to integrate filtering into pipelines.
+Exclusion happens before model training, on training data only.
+
+The ``exclude`` keyword:
+  - Fits the filter on training data
+  - Marks matching samples as excluded (they won't be used for training)
+  - Creates a tag (e.g., "excluded_y_outlier_iqr") for analysis
+  - Does NOT apply during prediction (all prediction samples are used)
 """)
 
 pipeline_filtered = [
-    # Show Y distribution before filtering
+    # Show Y distribution before exclusion
     "chart_y",
 
-    # Apply filtering
-    {"sample_filter": {
-        "filters": [YOutlierFilter(method="iqr", threshold=1.5)],
-        "report": True,  # Print filtering report
-    }},
+    # Apply exclusion - simple syntax with single filter
+    {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},
 
-    # Show Y distribution after filtering
+    # Show Y distribution after exclusion
     "chart_y",
 
     StandardNormalVariate(),
@@ -174,8 +178,11 @@ print("-" * 60)
 
 print("""
 Combine multiple filters with different modes:
-  "any" - Exclude if ANY filter flags the sample (stricter)
+  "any" - Exclude if ANY filter flags the sample (stricter, default)
   "all" - Exclude only if ALL filters agree (lenient)
+
+With ``exclude``, you can pass a list of filters:
+  {"exclude": [Filter1(), Filter2()], "mode": "any"}
 """)
 
 # Create filters
@@ -246,11 +253,8 @@ Use exclusion_chart and chart options to visualize filtered samples.
 """)
 
 pipeline_visual = [
-    # Apply filtering
-    {"sample_filter": {
-        "filters": [YOutlierFilter(method="iqr", threshold=1.5)],
-        "report": True,
-    }},
+    # Apply exclusion
+    {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},
 
     # Exclusion chart: PCA-based visualization of excluded samples
     {"exclusion_chart": {"color_by": "status"}},   # Color by included/excluded
@@ -294,11 +298,9 @@ pipeline_no_filter = [
     {"model": PLSRegression(n_components=10)},
 ]
 
-# With filtering
+# With exclusion
 pipeline_with_filter = [
-    {"sample_filter": {
-        "filters": [YOutlierFilter(method="iqr", threshold=1.5)],
-    }},
+    {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},
     StandardNormalVariate(),
     KFold(n_splits=3),
     {"model": PLSRegression(n_components=10)},
@@ -329,7 +331,7 @@ print("\n" + "=" * 60)
 print("Summary")
 print("=" * 60)
 print("""
-Sample Filtering Options:
+Sample Exclusion Options:
 
   Y-BASED FILTERS:
     YOutlierFilter(method="iqr", threshold=1.5)
@@ -337,12 +339,15 @@ Sample Filtering Options:
     YOutlierFilter(method="mad", threshold=3.5)
     YOutlierFilter(method="percentile", lower_percentile=5, upper_percentile=95)
 
-  PIPELINE INTEGRATION:
-    {"sample_filter": {
-        "filters": [YOutlierFilter(method="iqr", threshold=1.5)],
-        "mode": "any",    # "any" or "all"
-        "report": True,   # Print filtering report
-    }}
+  PIPELINE INTEGRATION (exclude keyword):
+    # Single filter - simple syntax
+    {"exclude": YOutlierFilter(method="iqr", threshold=1.5)}
+
+    # Multiple filters with mode
+    {"exclude": [Filter1(), Filter2()], "mode": "any"}
+
+    Note: exclude always removes samples from training.
+    Use {"tag": Filter()} if you only want to tag without removing.
 
   COMPOSITE FILTERS:
     CompositeFilter(
@@ -356,10 +361,11 @@ Sample Filtering Options:
 
 Best Practices:
   1. Start with conservative thresholds
-  2. Use dry_run to preview effects
-  3. Combine Y and X filters for thorough cleaning
-  4. Document exclusion reasons
-  5. Compare model performance with/without filtering
+  2. Combine Y and X filters for thorough cleaning
+  3. Document exclusion reasons via filter's tag_name parameter
+  4. Compare model performance with/without exclusion
+  5. Use {"tag": ...} to analyze outliers without removing them
 
 Next: U04_aggregation.py - Aggregate predictions across folds
+      U05_tagging_analysis.py - Tag samples without exclusion
 """)

@@ -16,7 +16,6 @@ Subpackages
    nirs4all.data.schema
    nirs4all.data.selection
    nirs4all.data.serialization
-   nirs4all.data.synthetic
 
 Submodules
 ----------

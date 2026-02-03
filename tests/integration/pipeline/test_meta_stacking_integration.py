@@ -4,8 +4,6 @@ Integration tests for meta-model stacking pipelines (Phase 6).
 Tests end-to-end scenarios:
 - Basic stacking pipeline with PipelineRunner
 - Stacking with preprocessing branches
-- Stacking with sample_partitioner
-- Stacking with outlier_excluder
 - Mixed base models (sklearn + various estimators)
 - Classification stacking with use_proba
 - Save/reload/predict consistency
@@ -301,41 +299,6 @@ class TestStackingWithPartitioner:
 
         runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_2_dataset)
-
-        meta_preds = filter_by_model_name(predictions, "MetaModel")
-        assert len(meta_preds) > 0
-
-
-class TestStackingWithExcluder:
-    """Test stacking with outlier_excluder."""
-
-    def test_stacking_respects_excluded_samples(self, regression_dataset, temp_workspace):
-        """Test that meta-model training respects excluded samples.
-
-        Uses outlier_excluder to exclude outliers from training, then
-        tests that stacking works correctly with the reduced sample set.
-        """
-        pipeline = [
-            MinMaxScaler(),
-            KFold(n_splits=2, shuffle=True, random_state=42),
-            # Exclude outliers using IQR method (does not create separate branches)
-            {"branch": {
-                "by": "outlier_excluder",
-                "strategies": [{"method": "y_outlier", "threshold": 1.5}],
-            }},
-            PLSRegression(n_components=3),  # Use fewer components for potentially smaller dataset
-            # Use DROP_INCOMPLETE strategy since outlier_excluder may exclude some samples
-            {"model": MetaModel(
-                model=Ridge(alpha=1.0),
-                stacking_config=StackingConfig(
-                    coverage_strategy=CoverageStrategy.DROP_INCOMPLETE,
-                    min_coverage_ratio=0.5,  # Allow lower coverage for reduced data
-                ),
-            )},
-        ]
-
-        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
-        predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
         meta_preds = filter_by_model_name(predictions, "MetaModel")
         assert len(meta_preds) > 0

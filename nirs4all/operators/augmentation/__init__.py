@@ -32,7 +32,6 @@ Edge Artifacts (require wavelengths):
     - EdgeArtifactsAugmenter: Combined edge artifacts augmenter
 """
 
-from .abc_augmenter import Augmenter, IdentityAugmenter
 from .random import Random_X_Operation, Rotate_Translate
 from .splines import (
     Spline_Curve_Simplification,
@@ -58,11 +57,15 @@ from .edge_artifacts import (
     EdgeArtifactsAugmenter,
     DETECTOR_MODELS,
 )
+from .synthesis import (
+    PathLengthAugmenter,
+    BatchEffectAugmenter,
+    InstrumentalBroadeningAugmenter,
+    HeteroscedasticNoiseAugmenter,
+    DeadBandAugmenter,
+)
 
 __all__ = [
-    # Base classes
-    "Augmenter",
-    "IdentityAugmenter",
     # Random augmentations
     "Random_X_Operation",
     "Rotate_Translate",
@@ -86,4 +89,10 @@ __all__ = [
     "TruncatedPeakAugmenter",
     "EdgeArtifactsAugmenter",
     "DETECTOR_MODELS",
+    # Synthesis-derived augmentations
+    "PathLengthAugmenter",
+    "BatchEffectAugmenter",
+    "InstrumentalBroadeningAugmenter",
+    "HeteroscedasticNoiseAugmenter",
+    "DeadBandAugmenter",
 ]

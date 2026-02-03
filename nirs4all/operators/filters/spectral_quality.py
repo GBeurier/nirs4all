@@ -67,7 +67,8 @@ class SpectralQualityFilter(SampleFilter):
         max_value: Optional[float] = None,
         min_value: Optional[float] = None,
         check_inf: bool = True,
-        reason: Optional[str] = None
+        reason: Optional[str] = None,
+        tag_name: Optional[str] = None
     ):
         """
         Initialize the spectral quality filter.
@@ -91,12 +92,14 @@ class SpectralQualityFilter(SampleFilter):
             check_inf: Whether to check for infinite values. If True, samples
                       containing Inf are excluded. Default True.
             reason: Custom exclusion reason. Defaults to filter description.
+            tag_name: Name for the tag column when used with TagController.
+                     If None, defaults to the exclusion_reason property.
 
         Raises:
             ValueError: If ratio parameters are not in valid range.
             ValueError: If min_variance is negative.
         """
-        super().__init__(reason=reason)
+        super().__init__(reason=reason, tag_name=tag_name)
         self.max_nan_ratio = max_nan_ratio
         self.max_zero_ratio = max_zero_ratio
         self.min_variance = min_variance

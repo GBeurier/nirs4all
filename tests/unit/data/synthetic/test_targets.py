@@ -5,7 +5,7 @@ Unit tests for TargetGenerator class.
 import pytest
 import numpy as np
 
-from nirs4all.data.synthetic.targets import (
+from nirs4all.synthesis.targets import (
     TargetGenerator,
     ClassSeparationConfig,
     generate_regression_targets,

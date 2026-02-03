@@ -5,6 +5,77 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - Operator Refactoring & Controller-Managed Variation - 2026-02-03
+
+### ⚠ BREAKING CHANGES
+
+#### Augmenter Base Class Removed
+- **`Augmenter` base class deleted** (`abc_augmenter.py` removed entirely)
+- **`IdentityAugmenter` deleted** — remove from all configs
+- All augmentation operators now inherit from `TransformerMixin + BaseEstimator` or `SpectraTransformerMixin`
+- **Migration**: Replace `Augmenter` subclasses with `TransformerMixin, BaseEstimator` or `SpectraTransformerMixin`
+
+#### Operator API Changes
+- **`apply_on` parameter removed** from all augmentation operators — replaced by step-level `variation_scope`
+- **`copy` parameter removed** from all augmentation operators
+- **`lambda_axis` parameter removed** from all augmentation operators — wavelengths are now auto-injected by the controller
+- **`augment()` method removed** — use standard `transform()` instead
+- **`transform_with_wavelengths()` removed** — use `transform(X, wavelengths=wl)` or let the controller handle it
+
+#### SpectraTransformerMixin Simplified
+- `transform_with_wavelengths(X, wavelengths)` replaced by `_transform_impl(X, wavelengths)` (internal abstract method)
+- Public API is now standard `transform(X, **kwargs)` — wavelengths passed via kwargs
+- `_requires_wavelengths` attribute: `True`, `False`, or `"optional"`
+- `_validate_wavelengths()` helper for wavelength validation
+
+#### Synthesis Module Moved
+- **`nirs4all.data.synthetic`** → **`nirs4all.synthesis`** — update all imports
+- Generator now delegates to operators for path length, instrumental broadening, and noise effects
+
+### New Features
+
+#### Controller-Managed Variation (`variation_scope`)
+- New `variation_scope` parameter at the `sample_augmentation` step level: `"sample"` (default), `"batch"`
+- Per-transformer override via dict spec: `{"transformer": ..., "variation_scope": "batch"}`
+- Hybrid performance model: operators with `_supports_variation_scope = True` handle variation internally; others get per-sample cloning from controller
+
+#### New Augmentation Operators
+- **`PathLengthAugmenter`**: Multiplicative path length variation
+- **`BatchEffectAugmenter`**: Wavelength-dependent batch effects (offset + gain)
+- **`InstrumentalBroadeningAugmenter`**: Gaussian convolution broadening (FWHM-based)
+- **`HeteroscedasticNoiseAugmenter`**: Signal-dependent noise
+- **`DeadBandAugmenter`**: Random dead band (non-responsive region) simulation
+
+#### Webapp Updates
+- 39 augmentation nodes in the node registry (was 8)
+- New subcategories: spectral-noise, spectral-baseline, spectral-wavelength, spectral-smoothing, spectral-masking, spectral-mixing, environmental, scattering, edge-artifacts, synthesis
+- `variation_scope` parameter added to SampleAugmentation container
+- Removed `apply_on`, `copy` from all webapp node definitions
+
+### Configuration Migration
+
+**Before:**
+```yaml
+sample_augmentation:
+  transformers:
+    - GaussianAdditiveNoise(apply_on="samples", sigma=0.01)
+    - LinearBaselineDrift(apply_on="global", lambda_axis=[...])
+  count: 5
+```
+
+**After:**
+```yaml
+sample_augmentation:
+  variation_scope: "sample"
+  transformers:
+    - GaussianAdditiveNoise(sigma=0.01)
+    - transformer: LinearBaselineDrift()
+      variation_scope: "batch"
+  count: 5
+```
+
+---
+
 ## [0.6.3] - Wavelength-Aware Operators & Generator Migration - 2026-01-17
 
 ### New Features

@@ -7,7 +7,7 @@ Uses session-scoped fixtures where possible for faster test execution.
 import pytest
 import numpy as np
 
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticNIRSGenerator,
     ComponentLibrary,
     NIRBand,

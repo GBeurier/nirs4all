@@ -80,7 +80,8 @@ class MetadataFilter(SampleFilter):
         values_to_exclude: Optional[List[Any]] = None,
         values_to_keep: Optional[List[Any]] = None,
         exclude_missing: bool = True,
-        reason: Optional[str] = None
+        reason: Optional[str] = None,
+        tag_name: Optional[str] = None
     ):
         """
         Initialize the metadata filter.
@@ -99,12 +100,14 @@ class MetadataFilter(SampleFilter):
             exclude_missing: Whether to exclude samples with missing/None values.
                             Default True.
             reason: Custom exclusion reason. Defaults to filter description.
+            tag_name: Name for the tag column when used with TagController.
+                     If None, defaults to the exclusion_reason property.
 
         Raises:
             ValueError: If column is not provided.
             ValueError: If none or multiple of condition/values_to_exclude/values_to_keep are set.
         """
-        super().__init__(reason=reason)
+        super().__init__(reason=reason, tag_name=tag_name)
         self.column = column
         self.condition = condition
         self.values_to_exclude = values_to_exclude

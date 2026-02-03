@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from nirs4all.data.synthetic.scattering import (
+from nirs4all.synthesis.scattering import (
     ScatteringModel,
     ParticleSizeDistribution,
     ParticleSizeConfig,

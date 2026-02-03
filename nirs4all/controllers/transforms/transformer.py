@@ -4,6 +4,7 @@ from sklearn.base import TransformerMixin
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.core.exceptions import NAError
 from nirs4all.operators.base import SpectraTransformerMixin
 from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
 from nirs4all.pipeline.storage.artifacts.types import ArtifactType
@@ -12,10 +13,14 @@ if TYPE_CHECKING:
     from nirs4all.spectra.spectra_dataset import SpectroDataset
     from nirs4all.pipeline.steps.parser import ParsedStep
 
+import warnings
 import numpy as np
 from sklearn.base import clone
 import pickle
-## TODO add parrallel support for multi-source datasets and multi-processing datasets
+
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @register_controller
@@ -24,13 +29,14 @@ class TransformerMixinController(OperatorController):
 
     @staticmethod
     def _needs_wavelengths(operator: Any) -> bool:
-        """Check if the operator requires wavelengths.
+        """Check if the operator needs wavelengths passed.
 
         Args:
             operator: The operator to check.
 
         Returns:
-            True if the operator is a SpectraTransformerMixin with _requires_wavelengths=True.
+            True if the operator is a SpectraTransformerMixin with
+            _requires_wavelengths set to True or "optional".
         """
         return (
             isinstance(operator, SpectraTransformerMixin) and
@@ -131,10 +137,14 @@ class TransformerMixinController(OperatorController):
         """
         op = step_info.operator
 
-        # Extract fit_on_all option from step configuration
+        # Extract step-level options from step configuration
         fit_on_all = False
+        na_policy = None
+        fill_value = 0
         if isinstance(step_info.original_step, dict):
             fit_on_all = step_info.original_step.get("fit_on_all", False)
+            na_policy = step_info.original_step.get("na_policy")
+            fill_value = step_info.original_step.get("fill_value", 0)
 
         # Check if we're in sample augmentation mode
         if context.metadata.augment_sample and mode not in ["predict", "explain"]:
@@ -215,7 +225,23 @@ class TransformerMixinController(OperatorController):
                 fit_2d = fit_x[:, processing_idx, :]      # Data for fitting
                 all_2d = all_x[:, processing_idx, :]      # All data to transform
 
-                # print(f" Processing {processing_name} (idx {processing_idx}): fit {fit_2d.shape}, all {all_2d.shape}")
+                # --- Pre-transform NA guard ---
+                had_nan_before = False
+                if dataset._may_contain_nan and np.any(np.isnan(all_2d)):
+                    had_nan_before = True
+                    allow_nan = getattr(op, '_tags', {}).get('allow_nan', False)
+                    if allow_nan:
+                        pass  # Operator natively handles NaN
+                    elif na_policy == "replace":
+                        all_2d = np.where(np.isnan(all_2d), fill_value, all_2d)
+                        fit_2d = np.where(np.isnan(fit_2d), fill_value, fit_2d)
+                    elif na_policy == "ignore":
+                        pass  # NaN samples will be handled below after transform
+                    else:
+                        raise NAError(
+                            f"Transform '{operator_name}' received NaN input. "
+                            f"Set na_policy on this step or handle NAs upstream."
+                        )
 
                 if mode == "predict" or mode == "explain":
                     transformer = None
@@ -274,7 +300,16 @@ class TransformerMixinController(OperatorController):
                 else:
                     transformed_2d = transformer.transform(all_2d)
 
-                # print("  Transformed shape:", transformed_2d.shape)
+                # --- Post-transform NaN detection ---
+                if not had_nan_before and np.any(np.isnan(transformed_2d)):
+                    n_new_nan = int(np.isnan(transformed_2d).sum())
+                    m_samples = int(np.isnan(transformed_2d).any(axis=1).sum())
+                    warnings.warn(
+                        f"Transform '{operator_name}' introduced "
+                        f"{n_new_nan} NaN values in {m_samples} samples.",
+                        UserWarning,
+                    )
+                    dataset._may_contain_nan = True
 
                 # Store results
                 source_transformed_features.append(transformed_2d)

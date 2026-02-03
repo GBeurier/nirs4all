@@ -608,7 +608,7 @@ class SyntheticDatasetBuilder:
     features, targets, metadata, and export options.
 
     Example:
-        >>> from nirs4all.data.synthetic import SyntheticDatasetBuilder
+        >>> from nirs4all.synthesis import SyntheticDatasetBuilder
         >>>
         >>> dataset = (
         ...     SyntheticDatasetBuilder(n_samples=1000, random_state=42)
@@ -964,7 +964,7 @@ class RealDataFitter:
     the generator to produce similar synthetic data.
 
     Example:
-        >>> from nirs4all.data.synthetic import RealDataFitter
+        >>> from nirs4all.synthesis import RealDataFitter
         >>> from nirs4all.data import DatasetConfigs
         >>>
         >>> # Load real data
@@ -1188,7 +1188,7 @@ class CSVVariationGenerator:
 # tests/conftest.py (additions)
 
 import pytest
-from nirs4all.data.synthetic import SyntheticDatasetBuilder
+from nirs4all.synthesis import SyntheticDatasetBuilder
 
 @pytest.fixture(scope="session")
 def synthetic_regression_dataset():
@@ -1240,7 +1240,7 @@ def synthetic_dataset_path(tmp_path):
 @pytest.fixture(scope="session")
 def synthetic_data_generator():
     """Provide access to the generator for custom configurations."""
-    from nirs4all.data.synthetic import SyntheticDatasetBuilder
+    from nirs4all.synthesis import SyntheticDatasetBuilder
     return SyntheticDatasetBuilder
 
 
@@ -1255,8 +1255,8 @@ def synthetic_data_generator():
 ])
 def csv_variation_path(request, tmp_path):
     """Parametrized fixture for various CSV formats."""
-    from nirs4all.data.synthetic import CSVVariationGenerator
-    from nirs4all.data.synthetic import SyntheticDatasetBuilder
+    from nirs4all.synthesis import CSVVariationGenerator
+    from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(n_samples=50, random_state=42)
     X, y = builder.build_arrays()
@@ -1353,7 +1353,7 @@ class TestCSVLoaderWithSyntheticData:
 
 **Goal**: Move and restructure generator code into nirs4all
 
-1. Create `nirs4all/data/synthetic/` module structure
+1. Create `nirs4all/synthesis/` module structure
 2. Move core classes from `bench/synthetic/`:
    - `generator.py` → `generator.py`
    - Component classes → `components.py`
@@ -1416,7 +1416,7 @@ class TestCSVLoaderWithSyntheticData:
 
 ```
 Week 1-2: Core Module
-├── Move code to nirs4all/data/synthetic/
+├── Move code to nirs4all/synthesis/
 ├── Refactor for production quality
 ├── Add type hints and docstrings
 └── Unit tests (80% coverage)

@@ -67,13 +67,16 @@ Generate multiple views of the same data through different preprocessing:
 ## Quick Example
 
 ```python
-from nirs4all.operators.augmentation import SampleAugmenter
+from nirs4all.operators.augmentation import GaussianAdditiveNoise, WavelengthShift
 
 pipeline = [
-    {"sample_augmentation": SampleAugmenter(
-        noise_level=0.01,
-        n_augmented=3
-    )},
+    {"sample_augmentation": {
+        "transformers": [
+            GaussianAdditiveNoise(sigma=0.01),
+            WavelengthShift(shift_range=(-2.0, 2.0)),
+        ],
+        "count": 3,
+    }},
     # ... rest of pipeline
 ]
 ```

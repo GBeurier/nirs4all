@@ -108,11 +108,11 @@ class TestExcelLoaderLoad:
     def test_load_xlsx_with_na(self, xlsx_with_na):
         """Test that NA values are handled."""
         loader = ExcelLoader()
-        result = loader.load(xlsx_with_na)
+        result = loader.load(xlsx_with_na, na_policy="remove_sample")
 
         assert result.success
         assert result.data.shape == (2, 2)  # One row removed
-        assert result.report["na_handling"]["nb_removed_rows"] == 1
+        assert len(result.report["na_handling"]["removed_samples"]) == 1
 
     def test_load_with_usecols(self, simple_xlsx_file):
         """Test loading specific columns."""

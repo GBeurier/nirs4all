@@ -108,11 +108,11 @@ class TestParquetLoaderLoad:
     def test_load_parquet_with_na(self, parquet_with_na):
         """Test that NA values are handled."""
         loader = ParquetLoader()
-        result = loader.load(parquet_with_na)
+        result = loader.load(parquet_with_na, na_policy="remove_sample")
 
         assert result.success
         assert result.data.shape == (2, 2)  # One row removed
-        assert result.report["na_handling"]["nb_removed_rows"] == 1
+        assert len(result.report["na_handling"]["removed_samples"]) == 1
 
     def test_load_nonexistent_file(self):
         """Test loading a file that doesn't exist."""

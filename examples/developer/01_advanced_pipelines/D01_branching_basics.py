@@ -7,12 +7,17 @@ each with its own preprocessing context while sharing common upstream state.
 
 This tutorial covers:
 
-* Basic branching with list syntax
+* Basic branching with list syntax (duplication branches)
 * Named branches with dictionary syntax
 * Generator-based branching with ``_or_``
 * Multi-step branches with Y processing
 * In-branch model training
 * Branch comparison visualization
+* Introduction to separation branches (by_tag, by_metadata, by_source)
+
+Branch Types:
+  - **Duplication branches**: Same samples, different preprocessing (default)
+  - **Separation branches**: Different samples, parallel processing (by_tag, by_metadata, by_filter, by_source)
 
 Prerequisites
 -------------
@@ -21,6 +26,7 @@ Prerequisites
 Next Steps
 ----------
 After this example, see :ref:`D02_branching_advanced` for statistics and HTML reports.
+See :ref:`D06_separation_branches` for full separation branch documentation.
 
 Duration: ~5 minutes
 Difficulty: ★★★☆☆
@@ -253,10 +259,56 @@ print(f"Branches: {result_in_branch.predictions.get_unique_values('branch_name')
 
 
 # =============================================================================
-# Section 6: Branch Comparison Visualization
+# Section 6: Introduction to Separation Branches
 # =============================================================================
 print("\n" + "-" * 60)
-print("Example 6: Branch Comparison Visualization")
+print("Example 6: Introduction to Separation Branches")
+print("-" * 60)
+
+print("""
+All examples so far use "duplication branches" - each branch processes
+the SAME samples with different preprocessing.
+
+There's another type: "separation branches" - each branch processes
+DIFFERENT samples based on some criterion:
+
+  by_tag:      Branch by tag values (from outlier detection, etc.)
+  by_metadata: Branch by metadata column (e.g., instrument, farm)
+  by_filter:   Branch by filter result (pass/fail)
+  by_source:   Branch by feature source (for multi-source datasets)
+
+Example: Branch by metadata column
+""")
+
+# Simple example of separation branching by metadata
+pipeline_separation = [
+    MinMaxScaler(),
+    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+    # This branches by the "farm" metadata column
+    # Each unique farm value creates a separate branch
+    {"branch": {
+        "by_metadata": "farm",  # Each farm gets its own branch
+        "steps": [SNV()],       # Same preprocessing for all
+    }},
+    PLSRegression(n_components=5),  # Trains separate model per farm
+]
+
+print("""Pipeline structure:
+  1. MinMaxScaler (shared)
+  2. ShuffleSplit
+  3. Branch by metadata "farm": Samples with farm=A go to branch A, etc.
+  4. PLSRegression (trains once per farm)
+
+Note: Separation branches require "concat" merge to reassemble predictions.
+See D06_separation_branches.py for complete examples.
+""")
+
+
+# =============================================================================
+# Section 7: Branch Comparison Visualization
+# =============================================================================
+print("\n" + "-" * 60)
+print("Example 7: Branch Comparison Visualization")
 print("-" * 60)
 
 print("""
@@ -322,6 +374,14 @@ What we learned:
 4. Generator syntax: {"_or_": [options]} for dynamic branches
 5. Branches can contain multiple steps and Y processing
 6. Models inside branches train independently
+7. Two branch types: duplication (same samples) vs separation (different samples)
+
+Branch Types Summary:
+  DUPLICATION (default):    {"branch": [[SNV()], [MSC()]]}
+  SEPARATION by_tag:        {"branch": {"by_tag": "outlier", ...}}
+  SEPARATION by_metadata:   {"branch": {"by_metadata": "farm", ...}}
+  SEPARATION by_filter:     {"branch": {"by_filter": Filter(), ...}}
+  SEPARATION by_source:     {"branch": {"by_source": True, ...}}
 
 Key benefits:
 - Single dataset load, no redundant I/O
@@ -329,6 +389,7 @@ Key benefits:
 - Easy comparison with visualization tools
 
 Next: D02_branching_advanced.py - BranchAnalyzer and statistical comparison
+      D06_separation_branches.py - Full separation branch documentation
 """)
 
 if args.show:

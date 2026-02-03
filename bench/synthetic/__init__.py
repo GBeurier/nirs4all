@@ -2,7 +2,7 @@
 Synthetic NIRS Spectra Generation Module.
 
 .. deprecated:: 0.6.0
-    This module has moved to :mod:`nirs4all.data.synthetic`.
+    This module has moved to :mod:`nirs4all.synthesis`.
     This location is kept for backward compatibility but will be removed in v1.0.
 
     Please update your imports::
@@ -11,7 +11,7 @@ Synthetic NIRS Spectra Generation Module.
         from bench.synthetic import SyntheticNIRSGenerator
 
         # New
-        from nirs4all.data.synthetic import SyntheticNIRSGenerator
+        from nirs4all.synthesis import SyntheticNIRSGenerator
 
         # Or use the top-level generate API (Phase 2)
         import nirs4all
@@ -42,14 +42,14 @@ import warnings
 # Emit deprecation warning on import
 warnings.warn(
     "The 'bench.synthetic' module is deprecated and will be removed in v1.0. "
-    "Please use 'nirs4all.data.synthetic' instead. "
+    "Please use 'nirs4all.synthesis' instead. "
     "See the documentation for migration instructions.",
     DeprecationWarning,
     stacklevel=2,
 )
 
 # Re-export from new location for backward compatibility
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticNIRSGenerator,
     ComponentLibrary,
     NIRBand,
@@ -76,7 +76,7 @@ from .comparator import (
 )
 
 __all__ = [
-    # Generator (from nirs4all.data.synthetic)
+    # Generator (from nirs4all.synthesis)
     "SyntheticNIRSGenerator",
     "ComponentLibrary",
     "NIRBand",

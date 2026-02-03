@@ -5,7 +5,11 @@ import gzip
 import zipfile
 from pathlib import Path
 import numpy as np
-from typing import Union
+from typing import Optional, Union
+
+from nirs4all.core.exceptions import NAError
+from nirs4all.data.schema.config import NAFillConfig
+from nirs4all.data.loaders.base import apply_na_policy
 
 
 # =============================================================================
@@ -237,15 +241,16 @@ def _determine_csv_parameters(csv_content: str,  # csv_content is not used anymo
 # =============================================================================
 # Main function: load_csv
 # =============================================================================
-def load_csv(path, na_policy='auto', data_type='x', categorical_mode='auto', header_unit='cm-1', **user_params):
+def load_csv(path, na_policy='auto', na_fill_config=None, data_type='x', categorical_mode='auto', header_unit='cm-1', **user_params):
     """
     Loads a CSV file using specified or default parameters, cleans data,
     handles NA values, and performs type conversions.
 
     Args:
         path (str or Path): Path to the CSV file (.csv, .gz, .zip).
-        na_policy (str): 'remove' or 'abort' (or 'auto' which acts like 'remove').
-            This policy applies to row removal if NAs are found.
+        na_policy (str): Any NAPolicy value ('auto', 'abort', 'remove_sample',
+            'remove_feature', 'replace', 'ignore').
+        na_fill_config (NAFillConfig or None): Fill configuration when na_policy='replace'.
         data_type (str): 'x' or 'y'. Influences type conversion.
         categorical_mode (str): How to handle string columns in 'y' data:
             - 'auto': Convert string columns to numerical categories.
@@ -259,37 +264,27 @@ def load_csv(path, na_policy='auto', data_type='x', categorical_mode='auto', hea
 
     Returns:
         (Union[pandas.DataFrame, None], dict, Union[pandas.Series, None], Union[List[str], None], str):
-            - DataFrame with processed data (before NA row removal).
+            - DataFrame with processed data.
             - Report dictionary.
-            - Boolean Series indicating rows with NAs (aligned with the returned DataFrame).
+            - Boolean Series indicating rows with NAs.
             - List of column headers (or None if no headers).
             - Header unit string.
             None if an error occurs before this stage.
     """
-    if na_policy == 'auto':
-        na_policy = 'remove'
-
-    if na_policy not in ['remove', 'abort']:
-        raise ValueError("Invalid NA policy - only 'remove' or 'abort' (or 'auto') are supported.")
     if categorical_mode not in ['auto', 'preserve', 'none']:
         raise ValueError("Invalid categorical mode - only 'auto', 'preserve', or 'none' are supported.")
 
     report = {
         'file_path': str(path),
         'detection_params': None,
-        'delimiter': None,  # For backward compatibility
-        'decimal_separator': None,  # If needed
-        'has_header': None,  # If needed
+        'delimiter': None,
+        'decimal_separator': None,
+        'has_header': None,
         'initial_shape': None,
         'final_shape': None,
-        'na_handling': {
-            'strategy': na_policy,
-            'na_detected': False,
-            'nb_removed_rows': 0,
-            'removed_rows_indices': []
-        },
-        'categorical_info': {},  # Store category mappings
-        'warnings': [],  # Store warnings about ambiguous detections
+        'na_handling': {},
+        'categorical_info': {},
+        'warnings': [],
         'error': None
     }
 
@@ -446,51 +441,34 @@ def load_csv(path, na_policy='auto', data_type='x', categorical_mode='auto', hea
                 data[col] = pd.to_numeric(data[col], errors='coerce')
             # report['categorical_info'] remains empty for data_type 'x' as it was cleared/initialized above
 
-        # --- 6) Identify rows with NA values (POST type conversion) ---
-        # This mask reflects NAs *after* all above conversions.
-        # This is the mask that should be returned as the third element for potential synchronization by the caller.
-        na_mask_after_conversions = data.isna().any(axis=1)
-        report['na_handling']['na_detected_in_rows'] = bool(na_mask_after_conversions.any())
+        # --- 6) Handle NA values via centralized utility ---
+        na_mask_before = data.isna().any(axis=1)
 
-        # --- Handle NA policy internally for load_csv ---
-        # This affects the 'data' DataFrame that will be returned by this function.
-        if report['na_handling']['na_detected_in_rows']: # Check if there are any NAs to handle
-            if na_policy == 'abort':
-                # Find first NA for error reporting
-                first_na_row_label_in_current_data = data.index[na_mask_after_conversions][0]
-                first_na_col_name = data.loc[first_na_row_label_in_current_data].isna().idxmax()
-                error_msg = (f"NA values detected after processing and na_policy is 'abort'. "
-                            f"First NA found in column '{first_na_col_name}' (row label: {first_na_row_label_in_current_data}) "
-                            f"in file {path}.")
-                report['error'] = error_msg
-                report['na_handling']['na_detected'] = True
-                # Return None for data, and the na_mask_after_conversions (though caller might not use if error)
-                return None, report, na_mask_after_conversions, None
+        try:
+            data, na_report = apply_na_policy(data, na_policy, na_fill_config)
+        except NAError:
+            report['na_handling'] = {
+                'strategy': 'abort',
+                'na_detected': True,
+            }
+            na_mask = data.isna().any(axis=1)
+            first_na_row = data.index[na_mask][0]
+            first_na_col = data.loc[first_na_row].isna().idxmax()
+            report['error'] = (
+                f"NA values detected and na_policy is 'abort'. "
+                f"First NA in column '{first_na_col}' (row: {first_na_row})."
+            )
+            return None, report, na_mask, None, header_unit
 
-            elif na_policy == 'remove':
-                # Update report fields about the rows that are about to be removed
-                report['na_handling']['na_detected'] = True  # NAs were found and are being handled by removal
-                report['na_handling']['nb_removed_rows'] = int(na_mask_after_conversions.sum())
-                report['na_handling']['removed_rows_indices'] = data.index[na_mask_after_conversions].tolist()
-
-                # Actually modify the 'data' DataFrame
-                data = data[~na_mask_after_conversions].copy() # Use .copy() to avoid SettingWithCopyWarning
-
-        # If na_policy == 'remove' but no NAs were detected, report fields remain at their initialized values (0, [], False)
+        report['na_handling'] = na_report
 
         # --- 7) Final preparation of return values ---
-        # 'final_shape' should reflect the shape of the data being returned.
         report['final_shape'] = data.shape
         report['final_column_names'] = data.columns.tolist()
 
-        # Return the 'data' (possibly with rows removed by this function if na_policy='remove')
-        # and 'na_mask_after_conversions' (which is the mask *before* this function's internal NA removal).
-        # data_array = data.to_numpy().astype(np.float32)
-
-        # Extract headers (column names)
         headers = data.columns.tolist() if not data.empty else []
 
-        return data, report, na_mask_after_conversions, headers, header_unit
+        return data, report, na_mask_before, headers, header_unit
 
     except FileNotFoundError as e:
         report['error'] = str(e)

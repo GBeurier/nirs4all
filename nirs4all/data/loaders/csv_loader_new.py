@@ -13,11 +13,15 @@ from typing import Any, ClassVar, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from nirs4all.core.exceptions import NAError
+from nirs4all.data.schema.config import NAFillConfig
+
 from .base import (
     ArchiveHandler,
     FileLoadError,
     FileLoader,
     LoaderResult,
+    apply_na_policy,
     register_loader,
 )
 
@@ -247,7 +251,7 @@ class CSVLoader(FileLoader):
         decimal_separator: Decimal separator (default: '.')
         has_header: Whether first row is header (default: True)
         header_unit: Unit for headers ('cm-1', 'nm', etc.)
-        na_policy: How to handle NA values ('remove' or 'abort')
+        na_policy: How to handle NA values ('remove_sample' or 'abort')
         categorical_mode: How to handle categorical data ('auto', 'preserve', 'none')
         data_type: Type of data being loaded ('x', 'y', or 'metadata')
         encoding: File encoding (default: 'utf-8')
@@ -294,6 +298,7 @@ class CSVLoader(FileLoader):
         self,
         path: Path,
         na_policy: str = "auto",
+        na_fill_config: Optional[NAFillConfig] = None,
         data_type: str = "x",
         categorical_mode: str = "auto",
         header_unit: str = "cm-1",
@@ -305,7 +310,8 @@ class CSVLoader(FileLoader):
 
         Args:
             path: Path to the CSV file.
-            na_policy: How to handle NA values ('remove', 'abort', or 'auto').
+            na_policy: How to handle NA values (any NAPolicy value).
+            na_fill_config: Fill configuration when na_policy='replace'.
             data_type: Type of data ('x', 'y', or 'metadata').
             categorical_mode: How to handle categorical columns.
             header_unit: Unit type for headers.
@@ -316,11 +322,6 @@ class CSVLoader(FileLoader):
         Returns:
             LoaderResult with the loaded data.
         """
-        if na_policy == "auto":
-            na_policy = "remove"
-
-        if na_policy not in ["remove", "abort"]:
-            raise ValueError("Invalid NA policy - only 'remove' or 'abort' (or 'auto') are supported.")
         if categorical_mode not in ["auto", "preserve", "none"]:
             raise ValueError("Invalid categorical mode - only 'auto', 'preserve', or 'none' are supported.")
 
@@ -332,12 +333,7 @@ class CSVLoader(FileLoader):
             "has_header": None,
             "initial_shape": None,
             "final_shape": None,
-            "na_handling": {
-                "strategy": na_policy,
-                "na_detected": False,
-                "nb_removed_rows": 0,
-                "removed_rows_indices": [],
-            },
+            "na_handling": {},
             "categorical_info": {},
             "warnings": [],
             "error": None,
@@ -456,31 +452,43 @@ class CSVLoader(FileLoader):
                 for col in data.columns:
                     data[col] = pd.to_numeric(data[col], errors="coerce")
 
-            # Handle NA values
-            na_mask = data.isna().any(axis=1)
-            report["na_handling"]["na_detected_in_rows"] = bool(na_mask.any())
+            # Handle NA values via centralized utility
+            na_mask_before = data.isna().any(axis=1)
 
-            if report["na_handling"]["na_detected_in_rows"]:
-                if na_policy == "abort":
-                    first_na_row = data.index[na_mask][0]
-                    first_na_col = data.loc[first_na_row].isna().idxmax()
-                    error_msg = (
-                        f"NA values detected and na_policy is 'abort'. "
-                        f"First NA in column '{first_na_col}' (row: {first_na_row})."
-                    )
-                    report["error"] = error_msg
-                    report["na_handling"]["na_detected"] = True
-                    return LoaderResult(report=report, na_mask=na_mask, header_unit=header_unit)
+            try:
+                data, na_report = apply_na_policy(data, na_policy, na_fill_config)
+            except NAError:
+                # For abort policy, set error in report and return
+                report["na_handling"] = {
+                    "strategy": "abort",
+                    "na_detected": True,
+                }
+                na_mask = data.isna().any(axis=1)
+                first_na_row = data.index[na_mask][0]
+                first_na_col = data.loc[first_na_row].isna().idxmax()
+                report["error"] = (
+                    f"NA values detected and na_policy is 'abort'. "
+                    f"First NA in column '{first_na_col}' (row: {first_na_row})."
+                )
+                return LoaderResult(report=report, na_mask=na_mask, header_unit=header_unit)
 
-                elif na_policy == "remove":
-                    report["na_handling"]["na_detected"] = True
-                    report["na_handling"]["nb_removed_rows"] = int(na_mask.sum())
-                    report["na_handling"]["removed_rows_indices"] = data.index[na_mask].tolist()
-                    data = data[~na_mask].copy()
+            report["na_handling"] = na_report
+
+            # Update na_mask based on policy
+            if na_report["strategy"] == "remove_sample":
+                na_mask = na_mask_before
+            elif na_report["strategy"] in ("replace", "ignore"):
+                na_mask = na_mask_before
+            elif na_report["strategy"] == "remove_feature":
+                na_mask = data.isna().any(axis=1)
+            else:
+                na_mask = na_mask_before
+
+            # Update headers after potential column removal (remove_feature)
+            headers = data.columns.tolist() if not data.empty else []
 
             report["final_shape"] = data.shape
             report["final_column_names"] = data.columns.tolist()
-            headers = data.columns.tolist() if not data.empty else []
 
             return LoaderResult(
                 data=data,
@@ -540,6 +548,7 @@ class CSVLoader(FileLoader):
 def load_csv(
     path,
     na_policy: str = "auto",
+    na_fill_config: Optional[NAFillConfig] = None,
     data_type: str = "x",
     categorical_mode: str = "auto",
     header_unit: str = "cm-1",
@@ -552,6 +561,7 @@ def load_csv(
     Args:
         path: Path to the CSV file.
         na_policy: How to handle NA values.
+        na_fill_config: Fill configuration when na_policy='replace'.
         data_type: Type of data being loaded.
         categorical_mode: How to handle categorical columns.
         header_unit: Unit type for headers.
@@ -564,6 +574,7 @@ def load_csv(
     result = loader.load(
         Path(path),
         na_policy=na_policy,
+        na_fill_config=na_fill_config,
         data_type=data_type,
         categorical_mode=categorical_mode,
         header_unit=header_unit,

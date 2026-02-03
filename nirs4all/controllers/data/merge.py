@@ -602,10 +602,10 @@ class MergeConfigParser:
 
     @classmethod
     def _parse_simple_string(cls, mode_str: str) -> MergeConfig:
-        """Parse simple string mode: "features", "predictions", or "all".
+        """Parse simple string mode: "features", "predictions", "all", or "concat".
 
         Args:
-            mode_str: One of "features", "predictions", "all"
+            mode_str: One of "features", "predictions", "all", "concat"
 
         Returns:
             MergeConfig for the specified mode.
@@ -621,10 +621,15 @@ class MergeConfigParser:
             return MergeConfig(collect_predictions=True, output_as="features")
         elif mode_str == "all":
             return MergeConfig(collect_features=True, collect_predictions=True, output_as="features")
+        elif mode_str == "concat":
+            # Phase 5: concat mode for separation branches
+            # Reassembles samples from separation branches in original order
+            # This is the appropriate merge for by_tag, by_metadata, by_filter separation branches
+            return MergeConfig(collect_features=True, output_as="features", is_separation_merge=True)
         else:
             raise ValueError(
                 f"Unknown merge mode: '{mode_str}'. "
-                f"Expected 'features', 'predictions', or 'all'."
+                f"Expected 'features', 'predictions', 'all', or 'concat'."
             )
 
     @classmethod
@@ -634,6 +639,8 @@ class MergeConfigParser:
         Handles:
             - {"features": ...}: Feature collection config
             - {"predictions": ...}: Prediction collection config
+            - {"sources": "concat"|"stack"|"dict"}: Source merge (Phase 5)
+            - {"concat": True}: Separation branch merge (Phase 5)
             - Global options: include_original, on_missing, unsafe, output_as
             - Per-branch prediction configs
 
@@ -644,6 +651,26 @@ class MergeConfigParser:
             MergeConfig for the specified configuration.
         """
         config = MergeConfig()
+
+        # Phase 5: Check for source merge configuration
+        # {"merge": {"sources": "concat"|"stack"|"dict"}} or
+        # {"merge": {"sources": {"strategy": "stack", ...}}}
+        if "sources" in config_dict:
+            source_spec = config_dict["sources"]
+            config.source_merge = cls._parse_source_merge_spec(source_spec)
+            # Source merge can be standalone or combined with other merge modes
+            # If standalone, we're done
+            has_other_keys = any(
+                k in config_dict for k in ("features", "predictions", "concat")
+            )
+            if not has_other_keys:
+                return config
+
+        # Phase 5: Check for separation branch merge (concat mode)
+        # {"merge": {"concat": True}} or {"merge": "concat"}
+        if config_dict.get("concat") is True:
+            config.collect_features = True
+            config.is_separation_merge = True
 
         # Parse features configuration
         if "features" in config_dict:
@@ -669,14 +696,47 @@ class MergeConfigParser:
         config.n_columns = config_dict.get("n_columns")
         config.select_by = config_dict.get("select_by", "mse")
 
-        # Validate at least one collection mode is enabled
-        if not config.collect_features and not config.collect_predictions:
+        # Validate at least one collection mode is enabled (unless source merge)
+        if (not config.collect_features and not config.collect_predictions
+                and config.source_merge is None):
             raise ValueError(
-                "Merge config must specify at least one of 'features' or 'predictions'. "
+                "Merge config must specify at least one of 'features', 'predictions', or 'sources'. "
                 f"Got keys: {list(config_dict.keys())}"
             )
 
         return config
+
+    @classmethod
+    def _parse_source_merge_spec(
+        cls, source_spec: Union[str, Dict[str, Any]]
+    ) -> SourceMergeConfig:
+        """Parse source merge specification.
+
+        Args:
+            source_spec: Source merge configuration:
+                - "concat": Simple concatenation
+                - "stack": Stack along source axis
+                - "dict": Keep as dictionary
+                - {"strategy": "stack", "sources": [...], ...}: Full config
+
+        Returns:
+            SourceMergeConfig for the specified configuration.
+        """
+        if isinstance(source_spec, str):
+            return SourceMergeConfig(strategy=source_spec)
+        elif isinstance(source_spec, dict):
+            return SourceMergeConfig(
+                strategy=source_spec.get("strategy", "concat"),
+                sources=source_spec.get("sources", "all"),
+                on_incompatible=source_spec.get("on_incompatible", "error"),
+                output_name=source_spec.get("output_name", "merged"),
+                preserve_source_info=source_spec.get("preserve_source_info", True),
+            )
+        else:
+            raise ValueError(
+                f"Invalid source merge specification: {source_spec}. "
+                f"Expected string ('concat', 'stack', 'dict') or dict with 'strategy' key."
+            )
 
     @classmethod
     def _parse_branch_spec(
@@ -984,6 +1044,21 @@ class MergeController(OperatorController):
         raw_config = step_info.original_step.get("merge")
         config = MergeConfigParser.parse(raw_config)
 
+        # Phase 5: Handle source merge within merge keyword
+        # {"merge": {"sources": "concat"|"stack"|"dict"}}
+        if config.source_merge is not None:
+            return self._execute_source_merge_from_config(
+                step_info=step_info,
+                dataset=dataset,
+                context=context,
+                runtime_context=runtime_context,
+                source=source,
+                mode=mode,
+                source_merge_config=config.source_merge,
+                loaded_binaries=loaded_binaries,
+                prediction_store=prediction_store,
+            )
+
         # Check for source_branch mode (different from regular branch mode)
         in_source_branch_mode = context.custom.get("in_source_branch_mode", False)
         source_branch_contexts = context.custom.get("source_branch_contexts", [])
@@ -1031,6 +1106,17 @@ class MergeController(OperatorController):
 
         n_branches = len(branch_contexts)
         logger.info(f"Merge step: mode={config.get_merge_mode().value}, branches={n_branches}")
+
+        # Phase 5: Detect branch type from context
+        # Branch type is set by BranchController when using separation modes
+        branch_type = context.custom.get("branch_type", "duplication")
+
+        # Phase 5: Validate merge strategy matches branch type
+        self._validate_branch_type_merge_strategy(
+            config=config,
+            branch_type=branch_type,
+            branch_contexts=branch_contexts,
+        )
 
         # Phase 2: Detect disjoint sample branches
         # Disjoint branches (from metadata_partitioner or sample_partitioner) require
@@ -4679,6 +4765,217 @@ class MergeController(OperatorController):
         )
 
         return context.copy(), StepOutput(metadata=metadata)
+
+    # =========================================================================
+    # Phase 5: Branch Type Validation and Source Merge from Config
+    # =========================================================================
+
+    def _validate_branch_type_merge_strategy(
+        self,
+        config: MergeConfig,
+        branch_type: str,
+        branch_contexts: List[Dict[str, Any]],
+    ) -> None:
+        """Validate that merge strategy matches branch type.
+
+        Phase 5 addition: Auto-detect branch type and validate the merge
+        strategy is appropriate for the branch type.
+
+        Args:
+            config: Merge configuration
+            branch_type: Branch type from context ("duplication" or "separation")
+            branch_contexts: List of branch context dictionaries
+
+        Warns:
+            If using features/predictions merge with separation branches without
+            explicit concat mode.
+            If using concat mode with duplication branches.
+        """
+        is_separation = branch_type == "separation"
+
+        # Also check branch contexts for sample_indices (indicates separation)
+        if not is_separation:
+            for bc in branch_contexts:
+                if bc.get("sample_indices") is not None:
+                    is_separation = True
+                    break
+
+        # Check if using concat mode (explicit separation merge)
+        using_concat = config.is_separation_merge
+
+        if is_separation and not using_concat:
+            # User is using separation branches but not concat mode
+            # This is typically handled by disjoint branch detection
+            # but let's log a helpful message
+            logger.debug(
+                "Separation branch detected. Using disjoint branch merge logic."
+            )
+        elif not is_separation and using_concat:
+            # User explicitly requested concat merge but branches are duplication
+            logger.warning(
+                "⚠️ 'concat' merge mode requested but branches use duplication mode "
+                "(all branches have same samples). Using regular feature merge instead. "
+                "Use 'concat' only with separation branches (by_tag, by_metadata, by_filter, by_source)."
+            )
+            # Fall through to regular merge - will work but may not be what user expects
+
+    def _execute_source_merge_from_config(
+        self,
+        step_info: "ParsedStep",
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        runtime_context: "RuntimeContext",
+        source: int,
+        mode: str,
+        source_merge_config: SourceMergeConfig,
+        loaded_binaries: Optional[List[Tuple[str, Any]]],
+        prediction_store: Optional[Any],
+    ) -> Tuple["ExecutionContext", StepOutput]:
+        """Execute source merge using SourceMergeConfig from merge keyword.
+
+        Phase 5: Handles {"merge": {"sources": "concat"|"stack"|"dict"}} syntax
+        by delegating to the source merge implementation.
+
+        Args:
+            step_info: Parsed step containing merge configuration
+            dataset: Dataset to operate on
+            context: Pipeline execution context
+            runtime_context: Runtime infrastructure context
+            source: Data source index
+            mode: Execution mode ("train" or "predict")
+            source_merge_config: Source merge configuration
+            loaded_binaries: Pre-loaded binary objects for prediction mode
+            prediction_store: External prediction store for model predictions
+
+        Returns:
+            Tuple of (updated_context, StepOutput)
+        """
+        # Validate multi-source dataset
+        n_sources = dataset.n_sources
+
+        if n_sources == 0:
+            raise ValueError(
+                "merge with sources requires a dataset with feature sources. "
+                "No sources found in dataset. "
+                "[Error: MERGE-E024]"
+            )
+
+        if n_sources == 1:
+            # Single source - warn but don't fail
+            logger.warning(
+                "merge with sources called on single-source dataset. "
+                "This is a no-op - the dataset already has unified features. "
+                "Consider removing this step. [Warning: MERGE-E024]"
+            )
+            return context.copy(), StepOutput(metadata={
+                "source_merge": "no-op",
+                "n_sources": 1,
+                "reason": "single_source_dataset",
+            })
+
+        # Get source names for logging and selection
+        source_names = self._get_source_names(dataset, n_sources)
+
+        logger.info(
+            f"Source merge (via merge keyword): strategy={source_merge_config.strategy}, "
+            f"sources={source_merge_config.sources}, n_sources={n_sources}"
+        )
+
+        # Resolve source indices
+        try:
+            source_indices = source_merge_config.get_source_indices(source_names)
+        except ValueError as e:
+            raise ValueError(str(e))
+
+        if len(source_indices) < 2:
+            logger.warning(
+                f"Only {len(source_indices)} source(s) selected for merge. "
+                "Merge requires at least 2 sources to be meaningful."
+            )
+
+        # Collect features from each source
+        source_features, source_info = self._collect_source_features(
+            dataset=dataset,
+            context=context,
+            source_indices=source_indices,
+            source_names=source_names,
+        )
+
+        if not source_features:
+            raise ValueError(
+                "No features collected from any source. "
+                "[Error: MERGE-E030]"
+            )
+
+        # Apply merge strategy
+        strategy = source_merge_config.get_strategy()
+
+        if strategy == SourceMergeStrategy.CONCAT:
+            merged_features, merge_info = self._merge_sources_concat(
+                source_features=source_features,
+                source_indices=source_indices,
+                source_names=source_names,
+            )
+        elif strategy == SourceMergeStrategy.STACK:
+            merged_features, merge_info = self._merge_sources_stack(
+                source_features=source_features,
+                source_indices=source_indices,
+                source_names=source_names,
+                on_incompatible=source_merge_config.get_incompatible_strategy(),
+            )
+        elif strategy == SourceMergeStrategy.DICT:
+            merged_features, merge_info = self._merge_sources_dict(
+                source_features=source_features,
+                source_indices=source_indices,
+                source_names=source_names,
+            )
+        else:
+            raise ValueError(f"Unknown merge strategy: {strategy}")
+
+        # Store merged features in dataset
+        if strategy == SourceMergeStrategy.DICT:
+            # Dict strategy - store reference in context for downstream use
+            result_context = context.copy()
+            result_context.custom["merged_sources_dict"] = merged_features
+            result_context.custom["source_merge_applied"] = True
+
+            logger.info(
+                f"Source merge (dict) completed: {len(merged_features)} sources preserved"
+            )
+        else:
+            # Array strategies (concat/stack) - update dataset
+            processing_name = source_merge_config.output_name
+
+            # Store as merged features
+            if isinstance(merged_features, np.ndarray):
+                dataset.add_merged_features(
+                    features=merged_features,
+                    processing_name=processing_name,
+                    source=0  # Primary source for merged features
+                )
+
+            result_context = context.copy()
+            result_context.custom["source_merge_applied"] = True
+
+            if merged_features is not None:
+                shape_str = str(merged_features.shape) if hasattr(merged_features, 'shape') else 'dict'
+                logger.info(
+                    f"Source merge ({source_merge_config.strategy}) completed: shape={shape_str}"
+                )
+
+        # Build metadata
+        metadata = {
+            "merge_sources_strategy": source_merge_config.strategy,
+            "sources_used": [source_names[i] for i in source_indices],
+            "source_indices": source_indices,
+            "n_sources_merged": len(source_indices),
+            "output_name": source_merge_config.output_name,
+            # Store config for prediction mode
+            "source_merge_config": source_merge_config.to_dict(),
+            **merge_info,
+        }
+
+        return result_context, StepOutput(metadata=metadata)
 
 
 # =============================================================================

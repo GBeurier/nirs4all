@@ -51,7 +51,7 @@ class StepParser:
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
 
     # Reserved keywords that are not operators
-    RESERVED_KEYWORDS = ["params", "metadata", "steps", "name", "finetune_params", "train_params", "fit_on_all", "force_layout"]
+    RESERVED_KEYWORDS = ["params", "metadata", "steps", "name", "finetune_params", "train_params", "fit_on_all", "force_layout", "na_policy", "fill_value"]
 
     # Valid layout values for force_layout
     VALID_LAYOUTS = {"2d", "2d_interleaved", "3d", "3d_transpose"}

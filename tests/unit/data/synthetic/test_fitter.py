@@ -15,7 +15,7 @@ class TestSpectralProperties:
 
     def test_default_values(self):
         """Test default initialization."""
-        from nirs4all.data.synthetic import SpectralProperties
+        from nirs4all.synthesis import SpectralProperties
 
         props = SpectralProperties()
         assert props.name == "dataset"
@@ -25,7 +25,7 @@ class TestSpectralProperties:
 
     def test_with_values(self):
         """Test initialization with values."""
-        from nirs4all.data.synthetic import SpectralProperties
+        from nirs4all.synthesis import SpectralProperties
 
         props = SpectralProperties(
             name="test",
@@ -42,7 +42,7 @@ class TestFittedParameters:
 
     def test_default_values(self):
         """Test default initialization."""
-        from nirs4all.data.synthetic import FittedParameters
+        from nirs4all.synthesis import FittedParameters
 
         params = FittedParameters()
         assert params.wavelength_start == 1000.0
@@ -51,7 +51,7 @@ class TestFittedParameters:
 
     def test_to_generator_kwargs(self):
         """Test conversion to generator kwargs."""
-        from nirs4all.data.synthetic import FittedParameters
+        from nirs4all.synthesis import FittedParameters
 
         params = FittedParameters(
             wavelength_start=1100,
@@ -68,7 +68,7 @@ class TestFittedParameters:
 
     def test_to_dict(self):
         """Test conversion to dictionary."""
-        from nirs4all.data.synthetic import FittedParameters
+        from nirs4all.synthesis import FittedParameters
 
         params = FittedParameters(
             global_slope_mean=0.05,
@@ -82,7 +82,7 @@ class TestFittedParameters:
 
     def test_from_dict(self):
         """Test creation from dictionary."""
-        from nirs4all.data.synthetic import FittedParameters
+        from nirs4all.synthesis import FittedParameters
 
         data = {
             "wavelength_start": 1050,
@@ -97,7 +97,7 @@ class TestFittedParameters:
 
     def test_save_and_load(self, tmp_path):
         """Test saving and loading parameters."""
-        from nirs4all.data.synthetic import FittedParameters
+        from nirs4all.synthesis import FittedParameters
 
         params = FittedParameters(
             wavelength_start=1100,
@@ -143,7 +143,7 @@ class TestComputeSpectralProperties:
 
     def test_basic_properties(self, synthetic_spectra):
         """Test computation of basic properties."""
-        from nirs4all.data.synthetic import compute_spectral_properties
+        from nirs4all.synthesis import compute_spectral_properties
 
         X, wavelengths = synthetic_spectra
         props = compute_spectral_properties(X, wavelengths, name="test")
@@ -157,7 +157,7 @@ class TestComputeSpectralProperties:
 
     def test_slope_analysis(self, synthetic_spectra):
         """Test slope computation."""
-        from nirs4all.data.synthetic import compute_spectral_properties
+        from nirs4all.synthesis import compute_spectral_properties
 
         X, wavelengths = synthetic_spectra
         props = compute_spectral_properties(X, wavelengths)
@@ -169,7 +169,7 @@ class TestComputeSpectralProperties:
 
     def test_noise_estimation(self, synthetic_spectra):
         """Test noise estimation."""
-        from nirs4all.data.synthetic import compute_spectral_properties
+        from nirs4all.synthesis import compute_spectral_properties
 
         X, wavelengths = synthetic_spectra
         props = compute_spectral_properties(X, wavelengths)
@@ -180,7 +180,7 @@ class TestComputeSpectralProperties:
 
     def test_pca_analysis(self, synthetic_spectra):
         """Test PCA analysis."""
-        from nirs4all.data.synthetic import compute_spectral_properties
+        from nirs4all.synthesis import compute_spectral_properties
 
         X, wavelengths = synthetic_spectra
         props = compute_spectral_properties(X, wavelengths)
@@ -192,7 +192,7 @@ class TestComputeSpectralProperties:
 
     def test_without_wavelengths(self, synthetic_spectra):
         """Test with default wavelengths."""
-        from nirs4all.data.synthetic import compute_spectral_properties
+        from nirs4all.synthesis import compute_spectral_properties
 
         X, _ = synthetic_spectra
         props = compute_spectral_properties(X)
@@ -207,7 +207,7 @@ class TestRealDataFitter:
     @pytest.fixture
     def realistic_spectra(self):
         """Create realistic-looking spectra for fitting tests."""
-        from nirs4all.data.synthetic import SyntheticNIRSGenerator
+        from nirs4all.synthesis import SyntheticNIRSGenerator
 
         # Use the generator to create realistic spectra
         generator = SyntheticNIRSGenerator(
@@ -223,7 +223,7 @@ class TestRealDataFitter:
 
     def test_init(self):
         """Test initialization."""
-        from nirs4all.data.synthetic import RealDataFitter
+        from nirs4all.synthesis import RealDataFitter
 
         fitter = RealDataFitter()
         assert fitter.source_properties is None
@@ -231,7 +231,7 @@ class TestRealDataFitter:
 
     def test_fit_array(self, realistic_spectra):
         """Test fitting from numpy array."""
-        from nirs4all.data.synthetic import RealDataFitter
+        from nirs4all.synthesis import RealDataFitter
 
         X, wavelengths = realistic_spectra
         fitter = RealDataFitter()
@@ -247,7 +247,7 @@ class TestRealDataFitter:
 
     def test_fit_estimates_parameters(self, realistic_spectra):
         """Test that fitting estimates reasonable parameters."""
-        from nirs4all.data.synthetic import RealDataFitter
+        from nirs4all.synthesis import RealDataFitter
 
         X, wavelengths = realistic_spectra
         fitter = RealDataFitter()
@@ -261,7 +261,7 @@ class TestRealDataFitter:
 
     def test_fit_validates_input(self):
         """Test input validation."""
-        from nirs4all.data.synthetic import RealDataFitter
+        from nirs4all.synthesis import RealDataFitter
 
         fitter = RealDataFitter()
 
@@ -275,7 +275,7 @@ class TestRealDataFitter:
 
     def test_evaluate_similarity(self, realistic_spectra):
         """Test similarity evaluation."""
-        from nirs4all.data.synthetic import RealDataFitter, SyntheticNIRSGenerator
+        from nirs4all.synthesis import RealDataFitter, SyntheticNIRSGenerator
 
         X_real, wavelengths = realistic_spectra
         fitter = RealDataFitter()
@@ -297,7 +297,7 @@ class TestRealDataFitter:
 
     def test_evaluate_similarity_requires_fit(self):
         """Test that evaluate requires prior fit."""
-        from nirs4all.data.synthetic import RealDataFitter
+        from nirs4all.synthesis import RealDataFitter
 
         fitter = RealDataFitter()
 
@@ -306,7 +306,7 @@ class TestRealDataFitter:
 
     def test_get_tuning_recommendations(self, realistic_spectra):
         """Test tuning recommendations."""
-        from nirs4all.data.synthetic import RealDataFitter
+        from nirs4all.synthesis import RealDataFitter
 
         X, wavelengths = realistic_spectra
         fitter = RealDataFitter()
@@ -319,7 +319,7 @@ class TestRealDataFitter:
 
     def test_get_recommendations_requires_fit(self):
         """Test that recommendations require prior fit."""
-        from nirs4all.data.synthetic import RealDataFitter
+        from nirs4all.synthesis import RealDataFitter
 
         fitter = RealDataFitter()
         recs = fitter.get_tuning_recommendations()
@@ -331,7 +331,7 @@ class TestFitToRealData:
 
     def test_convenience_function(self):
         """Test the convenience function."""
-        from nirs4all.data.synthetic import fit_to_real_data
+        from nirs4all.synthesis import fit_to_real_data
 
         rng = np.random.default_rng(42)
         X = rng.random((50, 100))
@@ -348,7 +348,7 @@ class TestCompareDatasets:
 
     def test_convenience_function(self):
         """Test the comparison function."""
-        from nirs4all.data.synthetic import compare_datasets
+        from nirs4all.synthesis import compare_datasets
 
         rng = np.random.default_rng(42)
         X_real = rng.random((50, 100))
@@ -365,7 +365,7 @@ class TestBuilderFitTo:
 
     def test_fit_to_array(self):
         """Test fitting builder to array."""
-        from nirs4all.data.synthetic import SyntheticDatasetBuilder
+        from nirs4all.synthesis import SyntheticDatasetBuilder
 
         rng = np.random.default_rng(42)
         X_template = rng.random((50, 100))
@@ -380,7 +380,7 @@ class TestBuilderFitTo:
 
     def test_fit_to_chains(self):
         """Test that fit_to returns self for chaining."""
-        from nirs4all.data.synthetic import SyntheticDatasetBuilder
+        from nirs4all.synthesis import SyntheticDatasetBuilder
 
         X_template = np.random.random((50, 100))
         wavelengths = np.linspace(1000, 2000, 100)
@@ -445,7 +445,7 @@ class TestComponentFitResult:
 
     def test_basic_creation(self):
         """Test basic dataclass creation."""
-        from nirs4all.data.synthetic import ComponentFitResult
+        from nirs4all.synthesis import ComponentFitResult
 
         result = ComponentFitResult(
             component_names=["water", "protein"],
@@ -463,7 +463,7 @@ class TestComponentFitResult:
 
     def test_to_dict(self):
         """Test to_dict conversion."""
-        from nirs4all.data.synthetic import ComponentFitResult
+        from nirs4all.synthesis import ComponentFitResult
 
         result = ComponentFitResult(
             component_names=["water", "protein"],
@@ -481,7 +481,7 @@ class TestComponentFitResult:
 
     def test_top_components(self):
         """Test top_components method."""
-        from nirs4all.data.synthetic import ComponentFitResult
+        from nirs4all.synthesis import ComponentFitResult
 
         result = ComponentFitResult(
             component_names=["water", "protein", "lipid", "starch"],
@@ -504,7 +504,7 @@ class TestComponentFitResult:
 
     def test_summary(self):
         """Test summary string generation."""
-        from nirs4all.data.synthetic import ComponentFitResult
+        from nirs4all.synthesis import ComponentFitResult
 
         result = ComponentFitResult(
             component_names=["water", "protein"],
@@ -533,7 +533,7 @@ class TestComponentFitter:
     @pytest.fixture
     def synthetic_spectrum(self, wavelengths):
         """Generate a synthetic spectrum for testing."""
-        from nirs4all.data.synthetic import SyntheticNIRSGenerator
+        from nirs4all.synthesis import SyntheticNIRSGenerator
 
         gen = SyntheticNIRSGenerator(
             wavelength_start=1000,
@@ -547,7 +547,7 @@ class TestComponentFitter:
 
     def test_init_default(self):
         """Test default initialization."""
-        from nirs4all.data.synthetic import ComponentFitter
+        from nirs4all.synthesis import ComponentFitter
 
         fitter = ComponentFitter()
 
@@ -558,7 +558,7 @@ class TestComponentFitter:
 
     def test_init_with_components(self, wavelengths):
         """Test initialization with specific components."""
-        from nirs4all.data.synthetic import ComponentFitter
+        from nirs4all.synthesis import ComponentFitter
 
         fitter = ComponentFitter(
             component_names=["water", "protein", "lipid"],
@@ -570,7 +570,7 @@ class TestComponentFitter:
 
     def test_init_with_wavelengths(self):
         """Test initialization with custom wavelengths."""
-        from nirs4all.data.synthetic import ComponentFitter
+        from nirs4all.synthesis import ComponentFitter
 
         custom_wl = np.linspace(1000, 2000, 50)
         fitter = ComponentFitter(wavelengths=custom_wl)
@@ -580,7 +580,7 @@ class TestComponentFitter:
 
     def test_fit_single_spectrum(self, synthetic_spectrum):
         """Test fitting a single spectrum."""
-        from nirs4all.data.synthetic import ComponentFitter
+        from nirs4all.synthesis import ComponentFitter
 
         spectrum, wavelengths = synthetic_spectrum
 
@@ -599,7 +599,7 @@ class TestComponentFitter:
 
     def test_fit_nnls(self, synthetic_spectrum):
         """Test NNLS fitting produces non-negative concentrations."""
-        from nirs4all.data.synthetic import ComponentFitter
+        from nirs4all.synthesis import ComponentFitter
 
         spectrum, wavelengths = synthetic_spectrum
 
@@ -615,7 +615,7 @@ class TestComponentFitter:
 
     def test_fit_lsq(self, synthetic_spectrum):
         """Test unconstrained least squares fitting."""
-        from nirs4all.data.synthetic import ComponentFitter
+        from nirs4all.synthesis import ComponentFitter
 
         spectrum, wavelengths = synthetic_spectrum
 
@@ -631,7 +631,7 @@ class TestComponentFitter:
 
     def test_fit_wrong_length(self, wavelengths):
         """Test that wrong spectrum length raises error."""
-        from nirs4all.data.synthetic import ComponentFitter
+        from nirs4all.synthesis import ComponentFitter
 
         fitter = ComponentFitter(wavelengths=wavelengths)
 
@@ -641,7 +641,7 @@ class TestComponentFitter:
 
     def test_fit_batch(self, wavelengths):
         """Test batch fitting."""
-        from nirs4all.data.synthetic import ComponentFitter, SyntheticNIRSGenerator
+        from nirs4all.synthesis import ComponentFitter, SyntheticNIRSGenerator
 
         gen = SyntheticNIRSGenerator(
             wavelength_start=1000,
@@ -664,7 +664,7 @@ class TestComponentFitter:
 
     def test_suggest_components(self, synthetic_spectrum):
         """Test component suggestion."""
-        from nirs4all.data.synthetic import ComponentFitter
+        from nirs4all.synthesis import ComponentFitter
 
         spectrum, wavelengths = synthetic_spectrum
 
@@ -678,7 +678,7 @@ class TestComponentFitter:
 
     def test_get_concentration_matrix(self, wavelengths):
         """Test concentration matrix extraction."""
-        from nirs4all.data.synthetic import ComponentFitter, SyntheticNIRSGenerator
+        from nirs4all.synthesis import ComponentFitter, SyntheticNIRSGenerator
 
         gen = SyntheticNIRSGenerator(
             wavelength_start=1000,
@@ -705,7 +705,7 @@ class TestFitComponentsConvenience:
 
     def test_convenience_function(self):
         """Test the convenience function."""
-        from nirs4all.data.synthetic import fit_components, SyntheticNIRSGenerator
+        from nirs4all.synthesis import fit_components, SyntheticNIRSGenerator
 
         wavelengths = np.arange(1000, 2500, 2)
         gen = SyntheticNIRSGenerator(
@@ -732,7 +732,7 @@ class TestPreprocessingInference:
 
     def test_preprocessing_inference_dataclass(self):
         """Test PreprocessingInference dataclass."""
-        from nirs4all.data.synthetic import PreprocessingInference, PreprocessingType
+        from nirs4all.synthesis import PreprocessingInference, PreprocessingType
 
         inference = PreprocessingInference()
         assert inference.preprocessing_type == PreprocessingType.RAW_ABSORBANCE
@@ -741,7 +741,7 @@ class TestPreprocessingInference:
 
     def test_detect_second_derivative(self):
         """Test detection of second derivative data."""
-        from nirs4all.data.synthetic import RealDataFitter, PreprocessingType
+        from nirs4all.synthesis import RealDataFitter, PreprocessingType
 
         np.random.seed(42)
         n_samples, n_wl = 100, 200
@@ -761,7 +761,7 @@ class TestPreprocessingInference:
 
     def test_detect_raw_absorbance(self):
         """Test detection of raw absorbance data."""
-        from nirs4all.data.synthetic import RealDataFitter, PreprocessingType
+        from nirs4all.synthesis import RealDataFitter, PreprocessingType
 
         np.random.seed(42)
         n_samples, n_wl = 100, 200
@@ -781,7 +781,7 @@ class TestPreprocessingInference:
 
     def test_detect_snv(self):
         """Test detection of SNV-corrected data."""
-        from nirs4all.data.synthetic import RealDataFitter, PreprocessingType
+        from nirs4all.synthesis import RealDataFitter, PreprocessingType
 
         np.random.seed(42)
         n_samples, n_wl = 100, 200
@@ -799,7 +799,7 @@ class TestPreprocessingInference:
 
     def test_apply_matching_preprocessing(self):
         """Test apply_matching_preprocessing method."""
-        from nirs4all.data.synthetic import RealDataFitter, SyntheticNIRSGenerator
+        from nirs4all.synthesis import RealDataFitter, SyntheticNIRSGenerator
 
         np.random.seed(42)
         n_samples, n_wl = 50, 100
@@ -833,7 +833,7 @@ class TestPreprocessingInference:
 
     def test_fitted_parameters_includes_preprocessing(self):
         """Test that FittedParameters includes preprocessing fields."""
-        from nirs4all.data.synthetic import FittedParameters
+        from nirs4all.synthesis import FittedParameters
 
         params = FittedParameters()
         assert hasattr(params, "preprocessing_type")
@@ -844,7 +844,7 @@ class TestPreprocessingInference:
 
     def test_summary_includes_preprocessing(self):
         """Test that summary() includes preprocessing info."""
-        from nirs4all.data.synthetic import RealDataFitter
+        from nirs4all.synthesis import RealDataFitter
 
         np.random.seed(42)
         X = np.sin(np.linspace(0, 10 * np.pi, 200)) * 0.02

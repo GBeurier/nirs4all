@@ -49,7 +49,7 @@ args = parser.parse_args()
 
 
 # =============================================================================
-# Section 1: Train a Pipeline with Multiple Models
+# Section 1: Build Pipeline with Multiple Models
 # =============================================================================
 print("\n" + "=" * 60)
 print("U04 - Comprehensive Visualization Tutorial")
@@ -80,7 +80,7 @@ pipeline = [
     {"model": ElasticNet(alpha=0.1), "name": "ElasticNet"},
 ]
 
-print("\n📋 Training pipeline with 5 models...")
+print("\n📋 Training pipeline with 5 models on 2 datasets...")
 
 # Train on multiple datasets for more visualization options
 result = nirs4all.run(
