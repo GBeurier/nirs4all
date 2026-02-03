@@ -5,7 +5,7 @@ Unit tests for Phase 4 benchmarks module.
 import pytest
 import numpy as np
 
-from nirs4all.data.synthetic.benchmarks import (
+from nirs4all.synthesis.benchmarks import (
     BenchmarkDomain,
     BenchmarkDatasetInfo,
     BENCHMARK_DATASETS,

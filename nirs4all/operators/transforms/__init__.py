@@ -29,8 +29,13 @@ from ..augmentation.spectral import (
     LocalMixupAugmenter,
     ScatterSimulationMSC,
 )
-from ..augmentation.abc_augmenter import Augmenter, IdentityAugmenter
-
+from ..augmentation.synthesis import (
+    PathLengthAugmenter,
+    BatchEffectAugmenter,
+    InstrumentalBroadeningAugmenter,
+    HeteroscedasticNoiseAugmenter,
+    DeadBandAugmenter,
+)
 from .nirs import (
     Haar,
     MultiplicativeScatterCorrection,
@@ -122,8 +127,6 @@ __all__ = [
     "Spline_Curve_Simplification",
     "Rotate_Translate",
     "Random_X_Operation",
-    "Augmenter",
-    "IdentityAugmenter",
     "GaussianAdditiveNoise",
     "MultiplicativeNoise",
     "LinearBaselineDrift",
@@ -142,6 +145,12 @@ __all__ = [
     "MixupAugmenter",
     "LocalMixupAugmenter",
     "ScatterSimulationMSC",
+    # Synthesis-derived augmentations
+    "PathLengthAugmenter",
+    "BatchEffectAugmenter",
+    "InstrumentalBroadeningAugmenter",
+    "HeteroscedasticNoiseAugmenter",
+    "DeadBandAugmenter",
 
     # Sklearn aliases
     "IdentityTransformer",  # sklearn.preprocessing.FunctionTransformer alias

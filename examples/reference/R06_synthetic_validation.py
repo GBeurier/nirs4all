@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 
 # NIRS4All imports
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     # Validation
     compute_spectral_realism_scorecard,
     quick_realism_check,

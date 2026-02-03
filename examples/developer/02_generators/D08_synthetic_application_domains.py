@@ -37,7 +37,7 @@ import matplotlib.pyplot as plt
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     # Domain utilities
     DomainCategory,
     get_domain_config,
@@ -297,7 +297,7 @@ print("\n" + "-" * 60)
 print("Section 9: Extended Component Library (111 Components)")
 print("-" * 60)
 
-from nirs4all.data.synthetic._constants import get_predefined_components
+from nirs4all.synthesis._constants import get_predefined_components
 
 components = get_predefined_components()
 print(f"\n📊 Total predefined components: {len(components)}")

@@ -150,7 +150,7 @@ class TemperatureAugmenter(SpectraTransformerMixin):
         self.region_specific = region_specific
         self.random_state = random_state
 
-    def transform_with_wavelengths(
+    def _transform_impl(
         self, X: np.ndarray, wavelengths: np.ndarray
     ) -> np.ndarray:
         """
@@ -389,7 +389,7 @@ class MoistureAugmenter(SpectraTransformerMixin):
         self.enable_intensity = enable_intensity
         self.random_state = random_state
 
-    def transform_with_wavelengths(
+    def _transform_impl(
         self, X: np.ndarray, wavelengths: np.ndarray
     ) -> np.ndarray:
         """

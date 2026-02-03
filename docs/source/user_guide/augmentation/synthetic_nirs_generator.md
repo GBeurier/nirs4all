@@ -444,7 +444,7 @@ batch_ids = metadata["batch_ids"]  # Sample-to-batch mapping
 The generator supports simulation of common spectral edge artifacts:
 
 ```python
-from nirs4all.data.synthetic import SyntheticNIRSGenerator, EdgeArtifactsConfig
+from nirs4all.synthesis import SyntheticNIRSGenerator, EdgeArtifactsConfig
 
 edge_config = EdgeArtifactsConfig(
     enable_detector_rolloff=True,
@@ -478,7 +478,7 @@ X, Y, E = generator.generate(n_samples=1000, include_edge_artifacts=True)
 The `RealDataFitter` can automatically detect edge artifacts:
 
 ```python
-from nirs4all.data.synthetic import RealDataFitter
+from nirs4all.synthesis import RealDataFitter
 
 fitter = RealDataFitter()
 params = fitter.fit(X_real, wavelengths=wavelengths, infer_edge_artifacts=True)

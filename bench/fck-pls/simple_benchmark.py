@@ -3,7 +3,7 @@ from sklearn.cross_decomposition import PLSRegression
 
 
 import nirs4all
-from nirs4all.data.synthetic import SyntheticNIRSGenerator, ComponentLibrary, SyntheticDatasetBuilder
+from nirs4all.synthesis import SyntheticNIRSGenerator, ComponentLibrary, SyntheticDatasetBuilder
 from nirs4all.operators.transforms import (
     StandardNormalVariate as SNV,
     MultiplicativeScatterCorrection as MSC,

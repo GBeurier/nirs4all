@@ -5,7 +5,7 @@ Unit tests for MetadataGenerator class.
 import pytest
 import numpy as np
 
-from nirs4all.data.synthetic.metadata import (
+from nirs4all.synthesis.metadata import (
     MetadataGenerator,
     MetadataGenerationResult,
     generate_sample_metadata,

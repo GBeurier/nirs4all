@@ -204,7 +204,7 @@ synthetic = nirs4all.generate.like(real_dataset, n_samples=5000)
 
 **Proposed API**:
 ```python
-from nirs4all.data.synthetic import compare_datasets
+from nirs4all.synthesis import compare_datasets
 
 report = compare_datasets(
     real=real_dataset,
@@ -228,7 +228,7 @@ report.plot()     # Visual comparison
 
 **Proposed API**:
 ```python
-from nirs4all.data.synthetic import evaluate_transfer
+from nirs4all.synthesis import evaluate_transfer
 
 result = evaluate_transfer(
     synthetic_train=synthetic_data,
@@ -253,7 +253,7 @@ print(f"Transfer efficiency: {result.efficiency:.1%}")
 
 **Proposed API**:
 ```python
-from nirs4all.data.synthetic import adversarial_validation
+from nirs4all.synthesis import adversarial_validation
 
 result = adversarial_validation(
     real=real_dataset,
@@ -278,7 +278,7 @@ print(f"Top distinguishing features: {result.feature_importance[:5]}")
 
 **Proposed API**:
 ```python
-from nirs4all.data.synthetic import run_benchmark
+from nirs4all.synthesis import run_benchmark
 
 results = run_benchmark(
     datasets=['corn', 'tecator', 'shootout2002', 'diesel'],
@@ -341,20 +341,20 @@ results.plot_summary()
 ## Appendix: Existing Relevant Code
 
 ### Generation
-- `nirs4all/data/synthetic/generator.py` - Core generator
-- `nirs4all/data/synthetic/components.py` - Spectral components
-- `nirs4all/data/synthetic/builder.py` - Fluent API
-- `nirs4all/data/synthetic/targets.py` - Target generation
+- `nirs4all/synthesis/generator.py` - Core generator
+- `nirs4all/synthesis/components.py` - Spectral components
+- `nirs4all/synthesis/builder.py` - Fluent API
+- `nirs4all/synthesis/targets.py` - Target generation
 
 ### Fitting & Inference
-- `nirs4all/data/synthetic/fitter.py` - Parameter inference from real data
-- `nirs4all/data/synthetic/validation.py` - Realism metrics
+- `nirs4all/synthesis/fitter.py` - Parameter inference from real data
+- `nirs4all/synthesis/validation.py` - Realism metrics
 
 ### Effects & Augmentation
 - `nirs4all/operators/augmentation/` - All augmentation operators
-- `nirs4all/data/synthetic/instruments.py` - Instrument simulation
-- `nirs4all/data/synthetic/environmental.py` - Environmental effects
-- `nirs4all/data/synthetic/scattering.py` - Scattering effects
+- `nirs4all/synthesis/instruments.py` - Instrument simulation
+- `nirs4all/synthesis/environmental.py` - Environmental effects
+- `nirs4all/synthesis/scattering.py` - Scattering effects
 
 ### Benchmarks
-- `nirs4all/data/synthetic/benchmarks.py` - Benchmark dataset registry
+- `nirs4all/synthesis/benchmarks.py` - Benchmark dataset registry

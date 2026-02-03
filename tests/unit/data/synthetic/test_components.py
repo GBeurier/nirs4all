@@ -5,7 +5,7 @@ Unit tests for NIRBand, SpectralComponent, and ComponentLibrary classes.
 import pytest
 import numpy as np
 
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     NIRBand,
     SpectralComponent,
     ComponentLibrary,

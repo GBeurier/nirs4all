@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from nirs4all.data.synthetic import SyntheticDatasetBuilder, DatasetExporter, ExportConfig
+from nirs4all.synthesis import SyntheticDatasetBuilder, DatasetExporter, ExportConfig
 
 
 @dataclass

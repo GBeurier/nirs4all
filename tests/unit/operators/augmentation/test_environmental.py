@@ -258,7 +258,8 @@ class TestTemperatureAugmenterSklearnCompatibility:
         """Test that fit returns self."""
         aug = TemperatureAugmenter()
         X = np.random.rand(10, 100)
-        result = aug.fit(X)
+        wavelengths = np.linspace(1100, 2500, 100)
+        result = aug.fit(X, wavelengths=wavelengths)
         assert result is aug
 
     def test_get_params(self):
@@ -498,7 +499,8 @@ class TestMoistureAugmenterSklearnCompatibility:
         """Test that fit returns self."""
         aug = MoistureAugmenter()
         X = np.random.rand(10, 100)
-        result = aug.fit(X)
+        wavelengths = np.linspace(1100, 2500, 100)
+        result = aug.fit(X, wavelengths=wavelengths)
         assert result is aug
 
     def test_get_params(self):

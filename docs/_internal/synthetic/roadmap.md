@@ -176,7 +176,7 @@ subject to: w_k >= 0 (concentrations must be positive)
 ### New Module Structure
 
 ```
-nirs4all/data/synthetic/
+nirs4all/synthesis/
 ├── fitting/
 │   ├── __init__.py
 │   ├── component_fitter.py    # Stage 1: sparse mixture fitting
@@ -188,7 +188,7 @@ nirs4all/data/synthetic/
 ### API Design
 
 ```python
-from nirs4all.data.synthetic.fitting import HierarchicalFitter
+from nirs4all.synthesis.fitting import HierarchicalFitter
 
 # Fit synthetic generator to real dataset
 fitter = HierarchicalFitter(component_library="all")  # Use all 100+ components

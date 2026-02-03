@@ -4,6 +4,7 @@ import numpy as np  # noqa: F401
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.controllers.transforms.transformer import TransformerMixinController
 from nirs4all.core.logging import get_logger
 from nirs4all.controllers.data.balancing import BalancingCalculator
 from nirs4all.data.binning import BinningCalculator  # noqa: F401 - used in _execute_balanced
@@ -162,20 +163,33 @@ class SampleAugmentationController(OperatorController):
             raise ValueError("sample_augmentation requires at least one transformer")
 
         # Deserialize transformers (they may be stored as serialized class paths)
-        transformers = [deserialize_component(t) for t in transformers_raw]
+        # For dict-style specs, extract the transformer object and keep the spec for variation_scope parsing
+        transformers = []
+        for t in transformers_raw:
+            if isinstance(t, dict) and "transformer" in t:
+                transformers.append(deserialize_component(t["transformer"]))
+            else:
+                transformers.append(deserialize_component(t))
+
+        # Parse variation_scope per transformer (parallel to transformers list)
+        variation_scopes = [
+            self._parse_variation_scope(config, transformer_spec=raw)
+            for raw in transformers_raw
+        ]
 
         # Determine mode
         is_balanced = "balance" in config
 
         if is_balanced:
-            return self._execute_balanced(config, transformers, dataset, context, runtime_context, loaded_binaries)
+            return self._execute_balanced(config, transformers, variation_scopes, dataset, context, runtime_context, loaded_binaries)
         else:
-            return self._execute_standard(config, transformers, dataset, context, runtime_context, loaded_binaries)
+            return self._execute_standard(config, transformers, variation_scopes, dataset, context, runtime_context, loaded_binaries)
 
     def _execute_standard(
         self,
         config: Dict,
         transformers: List,
+        variation_scopes: List[str],
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
         runtime_context: 'RuntimeContext',
@@ -212,7 +226,7 @@ class SampleAugmentationController(OperatorController):
 
         # Emit ONE run_step per transformer
         self._emit_augmentation_steps(
-            transformer_to_samples, transformers, context, dataset, runtime_context, loaded_binaries
+            transformer_to_samples, transformers, variation_scopes, context, dataset, runtime_context, loaded_binaries
         )
 
         return context, []
@@ -221,6 +235,7 @@ class SampleAugmentationController(OperatorController):
         self,
         config: Dict,
         transformers: List,
+        variation_scopes: List[str],
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
         runtime_context: 'RuntimeContext',
@@ -354,9 +369,9 @@ class SampleAugmentationController(OperatorController):
         # Invert map: transformer_idx → list of sample_ids
         transformer_to_samples = self._invert_transformer_map(transformer_map, len(transformers))
 
-        # Emit ONE run_step per transformer-
+        # Emit ONE run_step per transformer
         self._emit_augmentation_steps(
-            transformer_to_samples, transformers, context, dataset, runtime_context, loaded_binaries
+            transformer_to_samples, transformers, variation_scopes, context, dataset, runtime_context, loaded_binaries
         )
 
         return context, []
@@ -388,6 +403,7 @@ class SampleAugmentationController(OperatorController):
         self,
         transformer_to_samples: Dict[int, List[int]],
         transformers: List,
+        variation_scopes: List[str],
         context: 'ExecutionContext',
         dataset: 'SpectroDataset',
         runtime_context: 'RuntimeContext',
@@ -419,55 +435,130 @@ class SampleAugmentationController(OperatorController):
 
         if use_parallel:
             self._emit_augmentation_steps_parallel(
-                active_transformers, transformers, context, dataset, runtime_context, loaded_binaries
+                active_transformers, transformers, variation_scopes, context, dataset, runtime_context, loaded_binaries
             )
         else:
             self._emit_augmentation_steps_sequential(
-                active_transformers, transformers, context, dataset, runtime_context, loaded_binaries
+                active_transformers, transformers, variation_scopes, context, dataset, runtime_context, loaded_binaries
             )
 
     def _emit_augmentation_steps_sequential(
         self,
         active_transformers: List[Tuple[int, List[int]]],
         transformers: List,
+        variation_scopes: List[str],
         context: 'ExecutionContext',
         dataset: 'SpectroDataset',
         runtime_context: 'RuntimeContext',
         loaded_binaries: Optional[Any]
     ):
-        """Sequential execution of transformers (original implementation)."""
+        """Sequential execution of transformers with variation_scope support.
+
+        For operators with ``_supports_variation_scope``:
+            Sets ``variation_scope`` on a cloned operator and delegates to
+            step_runner in a single call with all target samples.
+
+        For operators without internal support and scope=="sample":
+            Executes step_runner once per sample, each with a cloned
+            transformer carrying a unique random seed.
+
+        For operators without internal support and scope=="batch" (or default):
+            Single step_runner call with all samples (original behavior).
+        """
+        from sklearn.base import clone
+
         for trans_idx, sample_ids in active_transformers:
             transformer = transformers[trans_idx]
+            scope = variation_scopes[trans_idx]
 
-            # Create context for this transformer's augmentation
-            local_context = context.with_metadata(
-                augment_sample=True,
-                target_samples=sample_ids
-            ).with_partition("train")
+            if self._supports_internal_variation(transformer):
+                # Performance path: operator handles variation_scope internally
+                transformer_to_use = clone(transformer)
+                transformer_to_use.set_params(variation_scope=scope)
 
-            # ONE run_step per transformer - it handles all target samples
-            if runtime_context.step_runner:
-                runtime_context.substep_number += 1
-                _ = runtime_context.step_runner.execute(
-                    transformer,
-                    dataset,
-                    local_context,
-                    runtime_context,
-                    loaded_binaries=loaded_binaries,
-                    prediction_store=None
-                )
+                local_context = context.with_metadata(
+                    augment_sample=True,
+                    target_samples=sample_ids
+                ).with_partition("train")
+
+                if runtime_context.step_runner:
+                    runtime_context.substep_number += 1
+                    _ = runtime_context.step_runner.execute(
+                        transformer_to_use,
+                        dataset,
+                        local_context,
+                        runtime_context,
+                        loaded_binaries=loaded_binaries,
+                        prediction_store=None
+                    )
+
+            elif scope == "sample":
+                # Per-sample execution: each sample gets a uniquely seeded clone
+                base_seed = getattr(transformer, 'random_state', None)
+                for i, sample_id in enumerate(sample_ids):
+                    cloned = clone(transformer)
+                    if base_seed is not None:
+                        cloned.set_params(random_state=base_seed + i)
+
+                    local_context = context.with_metadata(
+                        augment_sample=True,
+                        target_samples=[sample_id]
+                    ).with_partition("train")
+
+                    if runtime_context.step_runner:
+                        runtime_context.substep_number += 1
+                        _ = runtime_context.step_runner.execute(
+                            cloned,
+                            dataset,
+                            local_context,
+                            runtime_context,
+                            loaded_binaries=loaded_binaries,
+                            prediction_store=None
+                        )
+
+            else:
+                # Batch scope (default for non-stochastic or explicit batch):
+                # single step_runner call with all samples
+                local_context = context.with_metadata(
+                    augment_sample=True,
+                    target_samples=sample_ids
+                ).with_partition("train")
+
+                if runtime_context.step_runner:
+                    runtime_context.substep_number += 1
+                    _ = runtime_context.step_runner.execute(
+                        transformer,
+                        dataset,
+                        local_context,
+                        runtime_context,
+                        loaded_binaries=loaded_binaries,
+                        prediction_store=None
+                    )
 
     def _emit_augmentation_steps_parallel(
         self,
         active_transformers: List[Tuple[int, List[int]]],
         transformers: List,
+        variation_scopes: List[str],
         context: 'ExecutionContext',
         dataset: 'SpectroDataset',
         runtime_context: 'RuntimeContext',
         loaded_binaries: Optional[Any]
     ):
         """
-        Parallel execution of transformers using joblib.
+        Parallel execution of transformers using ThreadPoolExecutor.
+
+        Supports variation_scope:
+        - Operators with ``_supports_variation_scope``: sets scope on clone,
+          single fit, single batch transform (performance path).
+        - Operators without internal support and scope=="batch": single clone,
+          single fit, single batch transform (same as previous behavior).
+        - Operators without internal support and scope=="sample": per-sample
+          clones with unique random seeds, individual transforms.
+
+        Wavelength-aware operators (SpectraTransformerMixin subclasses) receive
+        wavelengths via kwargs on both fit() and transform() calls. Wavelengths
+        are cached per source to avoid redundant lookups.
 
         Flow:
         1. Fetch train data once (for fitting) and all origin data (for transform)
@@ -502,64 +593,153 @@ class SampleAugmentationController(OperatorController):
         # Create sample_id to index mapping for efficient lookup
         sample_id_to_idx = {sid: idx for idx, sid in enumerate(all_sample_ids_list)}
 
-        # Pre-fit all transformer × source × processing combinations
-        # This can be done in parallel too, but keep it simple for now
+        # --- Wavelength caching ---
+        _MISSING = object()  # Sentinel for "no wavelengths needed/available"
+        wavelengths_cache = {}  # source_idx -> wavelengths array or _MISSING
+
+        def get_wavelengths(source_idx, operator):
+            """Get wavelengths for a source, with caching."""
+            if source_idx in wavelengths_cache:
+                wl = wavelengths_cache[source_idx]
+                return None if wl is _MISSING else wl
+
+            if not TransformerMixinController._needs_wavelengths(operator):
+                wavelengths_cache[source_idx] = _MISSING
+                return None
+
+            try:
+                wl = TransformerMixinController._extract_wavelengths(
+                    dataset, source_idx, operator.__class__.__name__
+                )
+                wavelengths_cache[source_idx] = wl
+                return wl
+            except (ValueError, AttributeError):
+                req = getattr(operator, '_requires_wavelengths', False)
+                if req is True:
+                    raise
+                wavelengths_cache[source_idx] = _MISSING
+                return None
+
+        # Pre-fit all transformer x source x processing combinations
         all_fitted = {}  # (trans_idx, source_idx, proc_idx) -> fitted transformer
         for trans_idx, _ in active_transformers:
             transformer = transformers[trans_idx]
-            # Check if transformer is actual object or string reference
+            scope = variation_scopes[trans_idx]
             if isinstance(transformer, str):
                 raise ValueError(f"Transformer at index {trans_idx} is a string '{transformer}' instead of an object. "
                                  "Ensure transformers are instantiated before passing to sample_augmentation.")
             for source_idx in range(n_sources):
                 for proc_idx in range(n_processings):
                     cloned = clone(transformer)
+                    if self._supports_internal_variation(transformer):
+                        cloned.set_params(variation_scope=scope)
                     train_proc = train_data[source_idx][:, proc_idx, :]
-                    cloned.fit(train_proc)
+
+                    wl = get_wavelengths(source_idx, cloned)
+                    if wl is not None:
+                        cloned.fit(train_proc, wavelengths=wl)
+                    else:
+                        cloned.fit(train_proc)
+
                     all_fitted[(trans_idx, source_idx, proc_idx)] = cloned
 
         def process_transformer(args):
             """Process a single transformer and return augmented data + index info."""
             trans_idx, sample_ids = args
             transformer = transformers[trans_idx]
+            scope = variation_scopes[trans_idx]
             operator_name = transformer.__class__.__name__
 
             # Get indices for this transformer's samples
             local_indices = [sample_id_to_idx[sid] for sid in sample_ids]
 
-            # Transform all samples for this transformer
-            transformed_per_source = []
-            for source_idx in range(n_sources):
-                source_origin = all_origin_data[source_idx]  # (all_samples, procs, feats)
-                local_source_data = source_origin[local_indices]  # (n_local, procs, feats)
+            if self._supports_internal_variation(transformer) or scope == "batch":
+                # Performance path (internal variation support) or batch scope:
+                # single fit already done, single batch transform
+                transformed_per_source = []
+                for source_idx in range(n_sources):
+                    source_origin = all_origin_data[source_idx]
+                    local_source_data = source_origin[local_indices]
 
-                transformed_procs = []
-                for proc_idx in range(n_processings):
-                    proc_data = local_source_data[:, proc_idx, :]  # (n_local, feats)
-                    fitted = all_fitted[(trans_idx, source_idx, proc_idx)]
-                    transformed = fitted.transform(proc_data)  # (n_local, feats)
-                    transformed_procs.append(transformed)
+                    transformed_procs = []
+                    for proc_idx in range(n_processings):
+                        proc_data = local_source_data[:, proc_idx, :]
+                        fitted = all_fitted[(trans_idx, source_idx, proc_idx)]
 
-                # Stack processings: (n_local, n_processings, n_features)
-                source_3d = np.stack(transformed_procs, axis=1)
-                transformed_per_source.append(source_3d)
+                        wl = get_wavelengths(source_idx, fitted)
+                        if wl is not None:
+                            transformed = fitted.transform(proc_data, wavelengths=wl)
+                        else:
+                            transformed = fitted.transform(proc_data)
 
-            # Prepare output data
-            # For multi-source, return list of arrays (one per source)
-            # For single source, return single array
-            if n_sources == 1:
-                batch_data = transformed_per_source[0]  # (n_local, n_procs, n_feats)
+                        transformed_procs.append(transformed)
+
+                    source_3d = np.stack(transformed_procs, axis=1)
+                    transformed_per_source.append(source_3d)
+
+                if n_sources == 1:
+                    batch_data = transformed_per_source[0]
+                else:
+                    batch_data = transformed_per_source
+
+                indexes_list = [
+                    {"partition": "train", "origin": sid, "augmentation": operator_name}
+                    for sid in sample_ids
+                ]
+                return batch_data, indexes_list
+
             else:
-                # For multi-source, return list of arrays
-                batch_data = transformed_per_source  # List of (n_local, n_procs, n_feats)
+                # scope == "sample" without internal support:
+                # Per-sample clones with unique seeds
+                base_seed = getattr(transformer, 'random_state', None)
+                per_sample_sources = [[] for _ in range(n_sources)]
 
-            # Build index dictionaries
-            indexes_list = [
-                {"partition": "train", "origin": sid, "augmentation": operator_name}
-                for sid in sample_ids
-            ]
+                for i, sample_id in enumerate(sample_ids):
+                    local_idx = sample_id_to_idx[sample_id]
+                    sample_seed = (base_seed + i) if base_seed is not None else None
 
-            return batch_data, indexes_list
+                    for source_idx in range(n_sources):
+                        source_origin = all_origin_data[source_idx]
+                        sample_data = source_origin[local_idx:local_idx + 1]  # (1, procs, feats)
+
+                        transformed_procs = []
+                        for proc_idx in range(n_processings):
+                            sample_proc_data = sample_data[:, proc_idx, :]  # (1, feats)
+                            cloned = clone(transformer)
+                            if sample_seed is not None:
+                                cloned.set_params(random_state=sample_seed)
+                            # Fit on train data (reuse train_data from outer scope)
+                            train_proc = train_data[source_idx][:, proc_idx, :]
+
+                            wl = get_wavelengths(source_idx, cloned)
+                            if wl is not None:
+                                cloned.fit(train_proc, wavelengths=wl)
+                                transformed = cloned.transform(sample_proc_data, wavelengths=wl)
+                            else:
+                                cloned.fit(train_proc)
+                                transformed = cloned.transform(sample_proc_data)
+
+                            transformed_procs.append(transformed)
+
+                        sample_3d = np.stack(transformed_procs, axis=1)  # (1, procs, feats)
+                        per_sample_sources[source_idx].append(sample_3d)
+
+                # Concatenate per-sample results for each source
+                transformed_per_source = []
+                for source_idx in range(n_sources):
+                    source_3d = np.concatenate(per_sample_sources[source_idx], axis=0)
+                    transformed_per_source.append(source_3d)
+
+                if n_sources == 1:
+                    batch_data = transformed_per_source[0]
+                else:
+                    batch_data = transformed_per_source
+
+                indexes_list = [
+                    {"partition": "train", "origin": sid, "augmentation": operator_name}
+                    for sid in sample_ids
+                ]
+                return batch_data, indexes_list
 
         # Execute in parallel using ThreadPoolExecutor (no pickling issues)
         all_batch_data = []
@@ -594,6 +774,43 @@ class SampleAugmentationController(OperatorController):
 
         # Single batch insert for ALL augmented samples from ALL transformers
         dataset.add_samples_batch(data=combined_data, indexes_list=all_indexes)
+
+    def _parse_variation_scope(self, config: Dict, transformer_spec=None) -> str:
+        """Get variation_scope for a transformer, with inheritance.
+
+        Resolution order:
+        1. Per-transformer override (dict spec with 'variation_scope' key)
+        2. Step-level default from config
+        3. Global default: "sample"
+
+        Args:
+            config: The sample_augmentation step config dict.
+            transformer_spec: Original transformer specification (may be a dict
+                with 'transformer' and 'variation_scope' keys).
+
+        Returns:
+            The resolved variation_scope string ("sample" or "batch").
+        """
+        step_scope = config.get("variation_scope", "sample")
+        if isinstance(transformer_spec, dict):
+            return transformer_spec.get("variation_scope", step_scope)
+        return step_scope
+
+    def _supports_internal_variation(self, transformer) -> bool:
+        """Check if transformer can handle variation_scope internally.
+
+        Operators with ``_supports_variation_scope = True`` accept a
+        ``variation_scope`` parameter and produce the correct per-sample
+        or per-batch noise pattern themselves, avoiding the need for
+        per-sample cloning in the controller.
+
+        Args:
+            transformer: The transformer instance to check.
+
+        Returns:
+            True if the transformer handles variation_scope internally.
+        """
+        return getattr(transformer, '_supports_variation_scope', False)
 
     def _cycle_transformers(
         self,

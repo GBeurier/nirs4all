@@ -100,7 +100,7 @@ dataset = nirs4all.generate.multi_source(
 For full control, use the fluent builder interface:
 
 ```python
-from nirs4all.data.synthetic import SyntheticDatasetBuilder
+from nirs4all.synthesis import SyntheticDatasetBuilder
 
 dataset = (
     SyntheticDatasetBuilder(n_samples=1000, random_state=42)
@@ -242,7 +242,7 @@ Real NIR spectra are affected by environmental conditions and sample matrix prop
 Temperature variations cause peak shifts, intensity changes, and band broadening:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticDatasetBuilder,
     EnvironmentalEffectsConfig,
     TemperatureConfig,
@@ -273,7 +273,7 @@ dataset = (
 Water content and activity affect hydrogen bonding and water band shapes:
 
 ```python
-from nirs4all.data.synthetic import MoistureConfig
+from nirs4all.synthesis import MoistureConfig
 
 dataset = (
     SyntheticDatasetBuilder(n_samples=1000, random_state=42)
@@ -294,7 +294,7 @@ dataset = (
 Particle size affects scattering in diffuse reflectance measurements:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     ScatteringEffectsConfig,
     ParticleSizeConfig,
     ParticleSizeDistribution,
@@ -321,7 +321,7 @@ dataset = (
 Combine environmental and scattering effects for maximum realism:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticNIRSGenerator,
     EnvironmentalEffectsConfig,
     ScatteringEffectsConfig,
@@ -370,7 +370,7 @@ Phase 4 introduces tools to validate synthetic data quality and benchmark agains
 Evaluate how realistic your synthetic data is compared to real reference data using 6 quantitative metrics:
 
 ```python
-from nirs4all.data.synthetic import compute_spectral_realism_scorecard
+from nirs4all.synthesis import compute_spectral_realism_scorecard
 
 # Compare synthetic data to real reference data
 score = compute_spectral_realism_scorecard(
@@ -390,7 +390,7 @@ print(f"Adversarial AUC: {score.adversarial_auc:.3f}")  # Lower is better (harde
 Access metadata and properties for standard NIR benchmark datasets to create matching synthetic data:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     list_benchmark_datasets,
     get_benchmark_info,
     create_synthetic_matching_benchmark
@@ -413,7 +413,7 @@ X, C, E = create_synthetic_matching_benchmark("corn", n_samples=1000)
 Generate realistic configurations based on domain knowledge (hierarchical sampling):
 
 ```python
-from nirs4all.data.synthetic import sample_prior
+from nirs4all.synthesis import sample_prior
 
 # Sample a random realistic configuration
 config = sample_prior(random_state=42)
@@ -429,7 +429,7 @@ food_config = sample_prior(domain="food")
 Accelerate generation of large datasets using JAX or CuPy (automatically detected):
 
 ```python
-from nirs4all.data.synthetic import AcceleratedGenerator
+from nirs4all.synthesis import AcceleratedGenerator
 
 # Automatically uses GPU if available (JAX/CuPy)
 gen = AcceleratedGenerator(random_state=42)
@@ -644,7 +644,7 @@ dataset = nirs4all.generate(
 )
 
 # List all available components
-from nirs4all.data.synthetic import ComponentLibrary
+from nirs4all.synthesis import ComponentLibrary
 library = ComponentLibrary.from_predefined()
 print(library.component_names)  # All 116 component names
 ```
@@ -690,7 +690,7 @@ dataset = nirs4all.generate.builder(n_samples=1000)
 ```python
 # Generate and save to folder
 path = nirs4all.generate.to_folder(
-    "data/synthetic",
+    "synthesis",
     n_samples=1000,
     train_ratio=0.8,
     format="standard",          # Creates Xcal, Ycal, Xval, Yval files
@@ -714,7 +714,7 @@ dataset = DatasetConfigs(path)
 
 ```python
 path = nirs4all.generate.to_csv(
-    "data/synthetic.csv",
+    "synthesis.csv",
     n_samples=500,
     random_state=42
 )
@@ -752,7 +752,7 @@ The fitter analyzes:
 Create custom spectral components for specific applications:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticNIRSGenerator,
     ComponentLibrary,
     SpectralComponent,
@@ -900,6 +900,6 @@ for preproc in [MinMaxScaler(), StandardScaler(), SNV(), MSC(), FirstDerivative(
 
 - {doc}`/developer/synthetic` - Developer guide for extending the generator
 - {doc}`/api/nirs4all.api.generate` - API reference
-- {doc}`/api/nirs4all.data.synthetic` - Low-level classes reference
+- {doc}`/api/nirs4all.synthesis` - Low-level classes reference
 - {doc}`loading_data` - Loading real datasets
 - {doc}`/getting_started/concepts` - Understanding SpectroDataset

@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from nirs4all.data.synthetic.domains import (
+from nirs4all.synthesis.domains import (
     DomainCategory,
     ConcentrationPrior,
     DomainConfig,

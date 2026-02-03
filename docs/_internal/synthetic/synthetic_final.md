@@ -1,6 +1,6 @@
 # Synthetic NIRS Generator: Notebook vs nirs4all API
 
-A comprehensive analysis comparing the `generator_final.ipynb` approach with the `nirs4all.data.synthetic` module capabilities.
+A comprehensive analysis comparing the `generator_final.ipynb` approach with the `nirs4all.synthesis` module capabilities.
 
 ---
 
@@ -93,8 +93,8 @@ For each dataset:
 
 **Used:**
 - `nirs4all.data.DatasetConfigs` for loading datasets
-- `nirs4all.data.synthetic._constants.py` for predefined components
-- `nirs4all.data.synthetic._bands.py` for band assignments
+- `nirs4all.synthesis._constants.py` for predefined components
+- `nirs4all.synthesis._bands.py` for band assignments
 
 **NOT Used:**
 - `SyntheticNIRSGenerator` class
@@ -113,7 +113,7 @@ For each dataset:
 The `SyntheticNIRSGenerator` implements physics-based spectral generation:
 
 ```python
-from nirs4all.data.synthetic import SyntheticNIRSGenerator
+from nirs4all.synthesis import SyntheticNIRSGenerator
 
 generator = SyntheticNIRSGenerator(
     wavelength_range=(1000, 2500),
@@ -132,7 +132,7 @@ A_i(λ) = L_i × Σ_k c_ik × ε_k(λ) + baseline_i(λ) + scatter_i(λ) + noise_
 ### Fluent Builder Pattern
 
 ```python
-from nirs4all.data.synthetic import SyntheticDatasetBuilder
+from nirs4all.synthesis import SyntheticDatasetBuilder
 
 dataset = (
     SyntheticDatasetBuilder(n_samples=1000)
@@ -245,7 +245,7 @@ stray_aug = StrayLightAugmenter(
 ### Instrument Simulation (20+ Archetypes)
 
 ```python
-from nirs4all.data.synthetic import get_instrument_config
+from nirs4all.synthesis import get_instrument_config
 
 # Available instruments
 instruments = [
@@ -271,7 +271,7 @@ config = get_instrument_config("bruker_matrix_f")
 ### Wavenumber-Based Band Placement
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     calculate_overtone_position,
     calculate_combination_band,
     apply_hydrogen_bonding_shift,
@@ -289,7 +289,7 @@ position_nm = calculate_overtone_position(
 ### Procedural Component Generation
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     ProceduralComponentGenerator,
     ProceduralComponentConfig
 )
@@ -309,7 +309,7 @@ library = generator.generate_library(n_components=50, config=config)
 ### Domain-Aware Generation
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     get_domain_config,
     create_domain_aware_library
 )
@@ -330,7 +330,7 @@ library = create_domain_aware_library("food_dairy")
 ### Validation & Benchmarking
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     compute_spectral_realism_scorecard,
     validate_against_benchmark,
     RealDataFitter
@@ -565,7 +565,7 @@ The notebook uses simple Gaussians. nirs4all uses Voigt profiles:
 
 ```python
 # Voigt = Gaussian (thermal) * Lorentzian (pressure)
-from nirs4all.data.synthetic import NIRBand
+from nirs4all.synthesis import NIRBand
 
 band = NIRBand(
     center=1450,
@@ -585,7 +585,7 @@ band = NIRBand(
 The notebook uses ad-hoc band positions. nirs4all calculates from fundamentals:
 
 ```python
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     calculate_overtone_position,
     calculate_combination_band,
     FUNDAMENTAL_VIBRATIONS
@@ -612,7 +612,7 @@ combination_nm = calculate_combination_band(
 The notebook manually assigns components per dataset. nirs4all has domain knowledge:
 
 ```python
-from nirs4all.data.synthetic import get_domain_config
+from nirs4all.synthesis import get_domain_config
 
 # Automatic component selection for dairy
 config = get_domain_config("food_dairy")
@@ -628,7 +628,7 @@ print(config.concentration_ranges)
 The notebook generates hundreds of samples. nirs4all scales to millions:
 
 ```python
-from nirs4all.data.synthetic import SyntheticNIRSGenerator
+from nirs4all.synthesis import SyntheticNIRSGenerator
 
 # Generate 100k samples efficiently
 generator = SyntheticNIRSGenerator(use_gpu=True)
@@ -856,7 +856,7 @@ datasets = {
 }
 
 # Cell 1.2: Spectral characterization
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     compute_spectral_realism_scorecard,
     compute_derivative_statistics,
     compute_peak_density,
@@ -871,7 +871,7 @@ for name, ds in datasets.items():
     }
 
 # Cell 1.3: Domain inference
-from nirs4all.data.synthetic import RealDataFitter
+from nirs4all.synthesis import RealDataFitter
 
 fitter = RealDataFitter(ds.X, ds.wavelengths_nm)
 inferred_domain = fitter.infer_domain()
@@ -883,7 +883,7 @@ inferred_components = fitter.infer_components()
 
 ```python
 # Cell 2.1: Domain-aware library
-from nirs4all.data.synthetic import create_domain_aware_library
+from nirs4all.synthesis import create_domain_aware_library
 
 library = create_domain_aware_library("food_dairy")
 
@@ -897,7 +897,7 @@ X_synthetic, y_synthetic = generator.generate(n_samples=1000)
 
 # Cell 2.3: Compare component decomposition
 # Use nirs4all's component fitter on real data
-from nirs4all.data.synthetic import ComponentFitter
+from nirs4all.synthesis import ComponentFitter
 
 comp_fitter = ComponentFitter(ds.X, ds.wavelengths_nm, library)
 component_contributions = comp_fitter.fit()
@@ -950,7 +950,7 @@ X_realistic = physical_augmentations.transform(X_synthetic, ds.wavelengths_nm)
 
 ```python
 # Cell 4.1: Different instrument archetypes
-from nirs4all.data.synthetic import get_instrument_config
+from nirs4all.synthesis import get_instrument_config
 
 instruments = [
     "bruker_matrix_f",      # FT-NIR
@@ -970,7 +970,7 @@ for instr in instruments:
 
 ```python
 # Cell 5.1: Realism scorecard
-from nirs4all.data.synthetic import compute_spectral_realism_scorecard
+from nirs4all.synthesis import compute_spectral_realism_scorecard
 
 scores = compute_spectral_realism_scorecard(
     X_synthetic=X_realistic,

@@ -46,7 +46,7 @@ This initiative integrates and enhances the synthetic NIRS spectra generator int
 
 | Feature | Priority | Phase | Status |
 |---------|----------|-------|--------|
-| Move generator to `nirs4all/data/synthetic/` | P0 | 1 | ✅ Complete |
+| Move generator to `nirs4all/synthesis/` | P0 | 1 | ✅ Complete |
 | `nirs4all.generate()` API function | P0 | 2 | ✅ Complete |
 | `SyntheticDatasetBuilder` fluent interface | P0 | 2 | ✅ Complete |
 | Metadata generation (sample_id, groups, repetitions) | P0 | 3 | ✅ Complete |
@@ -204,7 +204,7 @@ result = nirs4all.run(
 ### Core Generator (Phase 1)
 
 ```python
-from nirs4all.data.synthetic import SyntheticNIRSGenerator
+from nirs4all.synthesis import SyntheticNIRSGenerator
 
 # Basic generation
 generator = SyntheticNIRSGenerator(random_state=42)
@@ -214,19 +214,19 @@ X, Y, E = generator.generate(n_samples=1000)
 dataset = generator.create_dataset(n_train=800, n_test=200)
 
 # Use predefined components
-from nirs4all.data.synthetic import ComponentLibrary
+from nirs4all.synthesis import ComponentLibrary
 library = ComponentLibrary.from_predefined(["water", "protein", "lipid"])
 generator = SyntheticNIRSGenerator(component_library=library, random_state=42)
 
 # Configuration classes
-from nirs4all.data.synthetic import SyntheticDatasetConfig, FeatureConfig
+from nirs4all.synthesis import SyntheticDatasetConfig, FeatureConfig
 config = SyntheticDatasetConfig(n_samples=1000, complexity="realistic")
 ```
 
 ### Builder Pattern (Phase 2)
 
 ```python
-from nirs4all.data.synthetic import SyntheticDatasetBuilder
+from nirs4all.synthesis import SyntheticDatasetBuilder
 
 dataset = (
     SyntheticDatasetBuilder(n_samples=1000, random_state=42)
@@ -311,7 +311,7 @@ builder.export("output/folder")      # Export to folder
 builder.export_to_csv("output.csv")  # Export to single CSV
 
 # Use fitter directly for analysis
-from nirs4all.data.synthetic import RealDataFitter
+from nirs4all.synthesis import RealDataFitter
 
 fitter = RealDataFitter()
 params = fitter.fit(X_real, wavelengths=wavelengths)
@@ -360,12 +360,12 @@ result = nirs4all.run(
 
 ### 1. Module Location
 
-**Decision**: Place in `nirs4all/data/synthetic/`
+**Decision**: Place in `nirs4all/synthesis/`
 
 **Rationale**:
 - Consistent with data module structure
 - Close to `SpectroDataset` and loaders
-- Natural import path: `from nirs4all.data.synthetic import ...`
+- Natural import path: `from nirs4all.synthesis import ...`
 
 ### 2. API Style
 
@@ -400,7 +400,7 @@ result = nirs4all.run(
 
 | Question | Decision | Rationale |
 |----------|----------|-----------|
-| Where to place module? | `nirs4all/data/synthetic/` | Consistent with data module structure |
+| Where to place module? | `nirs4all/synthesis/` | Consistent with data module structure |
 | How to expose API? | `nirs4all.generate()` | ML-standard naming (like sklearn's make_*) |
 | Keep old generator? | Yes, with deprecation warnings | Backward compatibility |
 | Default complexity level | `"simple"` for unit tests, `"realistic"` for integration tests | Balance speed (unit) vs realism (integration), max 5s overhead |
@@ -437,7 +437,7 @@ nirs4all/
 
 tests/
 ├── conftest.py                 # +synthetic fixtures
-└── unit/data/synthetic/        # NEW: Unit tests
+└── unit/synthesis/        # NEW: Unit tests
     ├── __init__.py
     ├── test_generator.py
     ├── test_builder.py

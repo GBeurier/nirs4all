@@ -48,7 +48,7 @@ from nirs4all.data import DatasetConfigs
 
 # Use nirs4all's component fitter for robust spectral analysis
 try:
-    from nirs4all.data.synthetic.fitter import OptimizedComponentFitter, COMPONENT_CATEGORIES
+    from nirs4all.synthesis.fitter import OptimizedComponentFitter, COMPONENT_CATEGORIES
 
     NIRS4ALL_FITTER_AVAILABLE = True
 except ImportError:

@@ -77,19 +77,19 @@ def pytest_unconfigure(config):
 
 def _get_builder():
     """Lazy import of SyntheticDatasetBuilder."""
-    from nirs4all.data.synthetic import SyntheticDatasetBuilder
+    from nirs4all.synthesis import SyntheticDatasetBuilder
     return SyntheticDatasetBuilder
 
 
 def _get_generator():
     """Lazy import of SyntheticNIRSGenerator."""
-    from nirs4all.data.synthetic import SyntheticNIRSGenerator
+    from nirs4all.synthesis import SyntheticNIRSGenerator
     return SyntheticNIRSGenerator
 
 
 def _get_csv_variation_generator():
     """Lazy import of CSVVariationGenerator."""
-    from nirs4all.data.synthetic import CSVVariationGenerator
+    from nirs4all.synthesis import CSVVariationGenerator
     return CSVVariationGenerator
 
 

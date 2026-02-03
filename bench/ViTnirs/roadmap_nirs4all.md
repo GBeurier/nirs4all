@@ -301,7 +301,7 @@ Leverage the comprehensive synthetic generator. **For pretraining, we generate X
 
 ```python
 import nirs4all
-from nirs4all.data.synthetic import SyntheticDatasetBuilder
+from nirs4all.synthesis import SyntheticDatasetBuilder
 
 # Quick generation (no targets needed for self-supervised pretraining)
 synth_dataset = nirs4all.generate(
@@ -336,7 +336,7 @@ synth_dataset = (
 
 **Multi-instrument simulation (critical for generalization):**
 ```python
-from nirs4all.data.synthetic import InstrumentSimulator, MeasurementModeSimulator
+from nirs4all.synthesis import InstrumentSimulator, MeasurementModeSimulator
 
 # Simulate heterogeneous instruments
 instrument_sim = InstrumentSimulator(

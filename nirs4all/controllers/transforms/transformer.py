@@ -29,13 +29,14 @@ class TransformerMixinController(OperatorController):
 
     @staticmethod
     def _needs_wavelengths(operator: Any) -> bool:
-        """Check if the operator requires wavelengths.
+        """Check if the operator needs wavelengths passed.
 
         Args:
             operator: The operator to check.
 
         Returns:
-            True if the operator is a SpectraTransformerMixin with _requires_wavelengths=True.
+            True if the operator is a SpectraTransformerMixin with
+            _requires_wavelengths set to True or "optional".
         """
         return (
             isinstance(operator, SpectraTransformerMixin) and
