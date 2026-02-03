@@ -80,6 +80,11 @@ class SpectroDataset:
         self._aggregate_exclude_outliers: bool = False
         self._aggregate_outlier_threshold: float = 0.95
 
+        # NaN tracking flag — set to True when the dataset may contain NaN
+        # (e.g., loaded with na_policy="ignore" or after a transform introduces NaN).
+        # Controllers check this flag to decide whether to run the runtime NaN guard.
+        self._may_contain_nan: bool = False
+
         # Initialize internal blocks
         _features_block = Features()
         _targets_block = Targets()
@@ -572,6 +577,123 @@ class SpectroDataset:
         for src in range(self._feature_accessor.num_sources):
             self._ensure_signal_type_initialized(src)
         return self._signal_types[:self._feature_accessor.num_sources]
+
+    # ========== NaN Tracking ==========
+
+    @property
+    def has_nan(self) -> bool:
+        """Check whether any source X array or the target y array contains NaN.
+
+        Iterates over all feature sources and all processings within each source,
+        then checks the target array. Returns ``True`` as soon as any NaN is found.
+
+        Returns:
+            True if any X or y data contains NaN, False otherwise.
+
+        Example:
+            >>> if dataset.has_nan:
+            ...     print("Dataset contains NaN values")
+        """
+        # Check feature arrays across all sources
+        for source in self._features.sources:
+            arr = source._storage.array  # 3D: (samples, processings, features)
+            if arr.size > 0 and np.isnan(arr).any():
+                return True
+
+        # Check target arrays
+        for processing_name, y_arr in self._targets._data.items():
+            if y_arr is not None and y_arr.size > 0:
+                try:
+                    if np.isnan(y_arr).any():
+                        return True
+                except (TypeError, ValueError):
+                    # Non-numeric target arrays (e.g., string labels) cannot contain NaN
+                    pass
+
+        return False
+
+    @property
+    def nan_summary(self) -> Dict[str, Any]:
+        """Return per-source NaN statistics for features and targets.
+
+        Provides a detailed breakdown of NaN presence across all feature sources
+        and the target array. Useful for diagnostics before deciding on a NaN
+        handling strategy.
+
+        Returns:
+            Dict with keys:
+                - ``sources``: list of per-source dicts, each containing:
+                    - ``source``: source index
+                    - ``nan_cells``: total number of NaN cells in the source
+                    - ``nan_samples``: number of samples with at least one NaN
+                    - ``nan_features``: number of features with at least one NaN
+                    - ``total_samples``: total number of samples
+                    - ``total_features``: total number of features
+                - ``y_nan``: number of NaN values in the primary target array
+                - ``has_nan``: overall boolean (True if any NaN exists)
+
+        Example:
+            >>> summary = dataset.nan_summary
+            >>> for src in summary["sources"]:
+            ...     if src["nan_cells"] > 0:
+            ...         print(f"Source {src['source']}: {src['nan_cells']} NaN cells")
+        """
+        sources_info: List[Dict[str, Any]] = []
+        any_nan = False
+
+        for src_idx, source in enumerate(self._features.sources):
+            arr = source._storage.array  # 3D: (samples, processings, features)
+            n_samples = arr.shape[0]
+            n_features = arr.shape[2] if arr.ndim == 3 else (arr.shape[1] if arr.ndim == 2 else 0)
+
+            if arr.size == 0:
+                sources_info.append({
+                    "source": src_idx,
+                    "nan_cells": 0,
+                    "nan_samples": 0,
+                    "nan_features": 0,
+                    "total_samples": n_samples,
+                    "total_features": n_features,
+                })
+                continue
+
+            nan_mask = np.isnan(arr)
+            nan_cells = int(nan_mask.sum())
+
+            # A sample has NaN if any cell across all processings and features is NaN
+            nan_samples = int(nan_mask.any(axis=(1, 2)).sum()) if arr.ndim == 3 else int(nan_mask.any(axis=1).sum())
+
+            # A feature has NaN if any cell across all samples and processings is NaN
+            nan_features = int(nan_mask.any(axis=(0, 1)).sum()) if arr.ndim == 3 else int(nan_mask.any(axis=0).sum())
+
+            if nan_cells > 0:
+                any_nan = True
+
+            sources_info.append({
+                "source": src_idx,
+                "nan_cells": nan_cells,
+                "nan_samples": nan_samples,
+                "nan_features": nan_features,
+                "total_samples": n_samples,
+                "total_features": n_features,
+            })
+
+        # Check targets
+        y_nan = 0
+        y_arr = self._targets._data.get("numeric")
+        if y_arr is not None and y_arr.size > 0:
+            try:
+                y_nan = int(np.isnan(y_arr).sum())
+                if y_nan > 0:
+                    any_nan = True
+            except (TypeError, ValueError):
+                pass
+
+        return {
+            "sources": sources_info,
+            "y_nan": y_nan,
+            "has_nan": any_nan,
+        }
 
     # ========== Aggregation Settings ==========
 

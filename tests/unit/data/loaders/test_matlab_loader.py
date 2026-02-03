@@ -110,11 +110,11 @@ class TestMatlabLoaderLoad:
     def test_load_mat_with_nan(self, mat_with_nan):
         """Test that NaN values are handled."""
         loader = MatlabLoader()
-        result = loader.load(mat_with_nan)
+        result = loader.load(mat_with_nan, na_policy="remove_sample")
 
         assert result.success
         assert result.data.shape == (1, 2)  # One row removed
-        assert result.report["na_handling"]["nb_removed_rows"] == 1
+        assert len(result.report["na_handling"]["removed_samples"]) == 1
 
     def test_load_1d_array(self, mat_1d_array):
         """Test that 1D arrays are reshaped to 2D."""
