@@ -291,7 +291,7 @@ The modified controller must maintain backward compatibility:
 
 **Location**: `nirs4all/operators/augmentation/environmental.py`
 
-Migrate temperature effects from `nirs4all/data/synthetic/environmental.py`:
+Migrate temperature effects from `nirs4all/synthesis/environmental.py`:
 
 ```python
 from nirs4all.operators.base import SpectraTransformerMixin
@@ -449,7 +449,7 @@ class MoistureAugmenter(SpectraTransformerMixin, Augmenter):
 
 ### 3.3 ParticleSizeAugmenter
 
-Migrate from `nirs4all/data/synthetic/scattering.py`:
+Migrate from `nirs4all/synthesis/scattering.py`:
 
 ```python
 class ParticleSizeAugmenter(SpectraTransformerMixin, Augmenter):
@@ -578,7 +578,7 @@ class EMSCDistortionAugmenter(SpectraTransformerMixin, Augmenter):
 
 Modify `SyntheticNIRSGenerator` to optionally use the new operators internally:
 
-**Location**: `nirs4all/data/synthetic/generator.py`
+**Location**: `nirs4all/synthesis/generator.py`
 
 ```python
 class SyntheticNIRSGenerator:
@@ -716,9 +716,9 @@ def test_temperature_effect_parity():
 
 | File | Action | Status | Description |
 |------|--------|--------|-------------|
-| `nirs4all/data/synthetic/generator.py` | Modify | ✅ | Add `use_operators` flag and operator initialization |
+| `nirs4all/synthesis/generator.py` | Modify | ✅ | Add `use_operators` flag and operator initialization |
 | `nirs4all/operators/augmentation/__init__.py` | Create | ✅ | Package exports for augmentation operators |
-| `tests/unit/data/synthetic/test_generator_operators.py` | Create | ✅ | Unit tests for operator mode (20 tests) |
+| `tests/unit/synthesis/test_generator_operators.py` | Create | ✅ | Unit tests for operator mode (20 tests) |
 | `tests/integration/test_generator_operator_parity.py` | Create | ✅ | Regression/parity tests (11 tests) |
 
 ### Implementation Notes - Phase 4
@@ -776,7 +776,7 @@ def test_temperature_effect_parity():
 
 The following legacy code was removed since the codebase now uses operators exclusively:
 
-**Removed from `nirs4all/data/synthetic/environmental.py`**:
+**Removed from `nirs4all/synthesis/environmental.py`**:
 - `TemperatureEffectSimulator` class
 - `MoistureEffectSimulator` class
 - `EnvironmentalEffectsSimulator` class
@@ -784,14 +784,14 @@ The following legacy code was removed since the codebase now uses operators excl
 - `apply_moisture_effects()` convenience function
 - `simulate_temperature_series()` convenience function
 
-**Kept in `nirs4all/data/synthetic/environmental.py`**:
+**Kept in `nirs4all/synthesis/environmental.py`**:
 - `SpectralRegion` enum
 - `TemperatureEffectParams` dataclass
 - `TemperatureConfig`, `MoistureConfig`, `EnvironmentalEffectsConfig` configuration classes
 - `TEMPERATURE_EFFECT_PARAMS` constants (referenced by operators)
 - `get_temperature_effect_regions()` utility function
 
-**Removed from `nirs4all/data/synthetic/scattering.py`**:
+**Removed from `nirs4all/synthesis/scattering.py`**:
 - `ParticleSizeSimulator` class
 - `EMSCTransformSimulator` class
 - `ScatteringCoefficientGenerator` class
@@ -802,19 +802,19 @@ The following legacy code was removed since the codebase now uses operators excl
 - `simulate_snv_correctable_scatter()` convenience function
 - `simulate_msc_correctable_scatter()` convenience function
 
-**Kept in `nirs4all/data/synthetic/scattering.py`**:
+**Kept in `nirs4all/synthesis/scattering.py`**:
 - `ScatteringModel` enum
 - `ParticleSizeDistribution`, `ParticleSizeConfig`, `EMSCConfig`, `ScatteringCoefficientConfig`, `ScatteringEffectsConfig` configuration classes
 
 ### 5.2 Generator Updates
 
-**Removed from `nirs4all/data/synthetic/generator.py`**:
+**Removed from `nirs4all/synthesis/generator.py`**:
 - `use_operators` parameter (operators are now always used)
 - `_use_operators` flag and conditional execution paths
 - `self.environmental_simulator` and `self.scattering_effects_simulator` attributes
 - Legacy code paths that used internal simulators
 
-**Updated in `nirs4all/data/synthetic/generator.py`**:
+**Updated in `nirs4all/synthesis/generator.py`**:
 - `_init_operators()` split into `_init_environmental_operators()` and `_init_scattering_operators()`
 - Operators are initialized automatically when environmental or scattering configs are provided
 - Simplified `generate()` method now always uses operators
@@ -823,12 +823,12 @@ The following legacy code was removed since the codebase now uses operators excl
 ### 5.3 Test Updates
 
 **Deleted test files** (tested legacy code):
-- `tests/unit/data/synthetic/test_generator_operators.py` (tested `use_operators` flag)
+- `tests/unit/synthesis/test_generator_operators.py` (tested `use_operators` flag)
 - `tests/integration/test_generator_operator_parity.py` (compared legacy vs operator modes)
 
 **Replaced test files** (test configuration classes only):
-- `tests/unit/data/synthetic/test_environmental.py` - Now tests configuration classes only (15 tests)
-- `tests/unit/data/synthetic/test_scattering.py` - Now tests configuration classes only (14 tests)
+- `tests/unit/synthesis/test_environmental.py` - Now tests configuration classes only (15 tests)
+- `tests/unit/synthesis/test_scattering.py` - Now tests configuration classes only (14 tests)
 
 **Updated example files**:
 - `examples/reference/R05_synthetic_environmental.py` - Updated to use operators directly
@@ -837,12 +837,12 @@ The following legacy code was removed since the codebase now uses operators excl
 
 | File | Action | Status | Description |
 |------|--------|--------|-------------|
-| `nirs4all/data/synthetic/environmental.py` | Modify | ✅ | Removed simulator classes and convenience functions |
-| `nirs4all/data/synthetic/scattering.py` | Modify | ✅ | Removed simulator classes and convenience functions |
-| `nirs4all/data/synthetic/generator.py` | Modify | ✅ | Removed legacy code paths, always use operators |
-| `nirs4all/data/synthetic/__init__.py` | Modify | ✅ | Updated exports to remove deleted classes |
-| `tests/unit/data/synthetic/test_environmental.py` | Replace | ✅ | New tests for configuration classes only |
-| `tests/unit/data/synthetic/test_scattering.py` | Replace | ✅ | New tests for configuration classes only |
+| `nirs4all/synthesis/environmental.py` | Modify | ✅ | Removed simulator classes and convenience functions |
+| `nirs4all/synthesis/scattering.py` | Modify | ✅ | Removed simulator classes and convenience functions |
+| `nirs4all/synthesis/generator.py` | Modify | ✅ | Removed legacy code paths, always use operators |
+| `nirs4all/synthesis/__init__.py` | Modify | ✅ | Updated exports to remove deleted classes |
+| `tests/unit/synthesis/test_environmental.py` | Replace | ✅ | New tests for configuration classes only |
+| `tests/unit/synthesis/test_scattering.py` | Replace | ✅ | New tests for configuration classes only |
 | `examples/reference/R05_synthetic_environmental.py` | Modify | ✅ | Updated to use operators directly |
 
 ### Implementation Notes - Phase 5

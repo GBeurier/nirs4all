@@ -15044,42 +15044,6 @@
       "classPath": "nirs4all.operators.transforms.nirs.SavitzkyGolay"
     },
     {
-      "id": "identity_augmenter",
-      "label": "Identity Augmenter",
-      "shortName": "IdentityAug",
-      "subcategoryId": "spectral_augmentation",
-      "description": "Pass-through augmenter for pipelines",
-      "nodeType": "regular",
-      "allowedChildren": [],
-      "defaultParams": {
-        "apply_on": "samples",
-        "random_state": null,
-        "copy": true
-      },
-      "editableParams": [
-        {
-          "name": "apply_on",
-          "type": "string",
-          "description": "",
-          "default": "samples"
-        },
-        {
-          "name": "random_state",
-          "type": "string",
-          "description": "",
-          "default": null
-        },
-        {
-          "name": "copy",
-          "type": "boolean",
-          "description": "",
-          "default": true
-        }
-      ],
-      "generationMode": "in-place",
-      "classPath": "nirs4all.operators.augmentation.abc_augmenter.IdentityAugmenter"
-    },
-    {
       "id": "random_x_operation",
       "label": "Random X Operation",
       "shortName": "RandomX",

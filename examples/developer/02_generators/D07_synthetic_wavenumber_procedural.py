@@ -40,7 +40,7 @@ import matplotlib.pyplot as plt
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     # Wavenumber utilities
     wavenumber_to_wavelength,
     wavelength_to_wavenumber,

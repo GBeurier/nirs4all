@@ -15,6 +15,7 @@ Subpackages
    nirs4all.core
    nirs4all.data
    nirs4all.operators
+   nirs4all.synthesis
    nirs4all.pipeline
    nirs4all.sklearn
    nirs4all.utils

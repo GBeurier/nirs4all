@@ -5,7 +5,7 @@ Unit tests for validation utilities.
 import pytest
 import numpy as np
 
-from nirs4all.data.synthetic.validation import (
+from nirs4all.synthesis.validation import (
     ValidationError,
     validate_spectra,
     validate_concentrations,

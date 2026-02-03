@@ -4,7 +4,7 @@ Unit tests for configuration dataclasses.
 
 import pytest
 
-from nirs4all.data.synthetic.config import (
+from nirs4all.synthesis.config import (
     SyntheticDatasetConfig,
     FeatureConfig,
     TargetConfig,

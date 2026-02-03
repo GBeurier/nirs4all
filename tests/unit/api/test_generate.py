@@ -296,7 +296,7 @@ class TestGenerateBuilder:
     def test_builder_returns_builder(self):
         """Test that builder() returns a SyntheticDatasetBuilder."""
         import nirs4all
-        from nirs4all.data.synthetic import SyntheticDatasetBuilder
+        from nirs4all.synthesis import SyntheticDatasetBuilder
 
         builder = nirs4all.generate.builder(n_samples=100, random_state=42)
 

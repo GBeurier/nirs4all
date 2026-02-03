@@ -11,7 +11,6 @@ from .augmentation.splines import (
     Spline_X_Perturbations,
     Spline_Smoothing
 )
-from .augmentation.abc_augmenter import Augmenter, IdentityAugmenter
 from .augmentation.environmental import (
     TemperatureAugmenter,
     MoistureAugmenter,
@@ -27,6 +26,13 @@ from .augmentation.edge_artifacts import (
     TruncatedPeakAugmenter,
     EdgeArtifactsAugmenter,
     DETECTOR_MODELS,
+)
+from .augmentation.synthesis import (
+    PathLengthAugmenter,
+    BatchEffectAugmenter,
+    InstrumentalBroadeningAugmenter,
+    HeteroscedasticNoiseAugmenter,
+    DeadBandAugmenter,
 )
 
 from .filters import (
@@ -83,8 +89,6 @@ __all__ = [
     "Spline_Y_Perturbations",
     "Spline_X_Perturbations",
     "Spline_Smoothing",
-    "Augmenter",
-    "IdentityAugmenter",
     # Environmental effects augmentation
     "TemperatureAugmenter",
     "MoistureAugmenter",
@@ -98,6 +102,12 @@ __all__ = [
     "TruncatedPeakAugmenter",
     "EdgeArtifactsAugmenter",
     "DETECTOR_MODELS",
+    # Synthesis-derived augmentations
+    "PathLengthAugmenter",
+    "BatchEffectAugmenter",
+    "InstrumentalBroadeningAugmenter",
+    "HeteroscedasticNoiseAugmenter",
+    "DeadBandAugmenter",
 
     # Sample filtering
     "SampleFilter",

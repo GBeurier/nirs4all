@@ -806,7 +806,8 @@ class TestEdgeArtifactsSklearnCompatibility:
         """Test that fit returns self."""
         aug = AugmenterClass()
         X = np.random.rand(10, 100)
-        result = aug.fit(X)
+        wavelengths = np.linspace(1100, 2500, 100)
+        result = aug.fit(X, wavelengths=wavelengths)
         assert result is aug
 
     @pytest.mark.parametrize("AugmenterClass", [

@@ -4,7 +4,7 @@ This document provides a comprehensive inventory of the transformations, noises,
 
 ## Executive Summary
 
-The synthetic generator (`nirs4all.data.synthetic`) implements ~35 distinct spectral transformations organized into:
+The synthetic generator (`nirs4all.synthesis`) implements ~35 distinct spectral transformations organized into:
 - **Scattering effects** (5 classes) - NOT yet TransformerMixin
 - **Environmental effects** (3 classes) - NOT yet TransformerMixin
 - **Augmentation operators** (20+ classes) - Already TransformerMixin-compliant
@@ -95,7 +95,7 @@ These are **fully TransformerMixin-compliant** and usable in nirs4all pipelines.
 
 ## 2. Scattering Effects (NOT Integrated)
 
-**Location:** `nirs4all/data/synthetic/scattering.py`
+**Location:** `nirs4all/synthesis/scattering.py`
 
 These are standalone classes used internally by the generator. They are **NOT TransformerMixin** and cannot be used in pipelines.
 
@@ -160,7 +160,7 @@ These are simple wrappers that could be converted to TransformerMixin:
 
 ## 3. Environmental Effects (NOT Integrated)
 
-**Location:** `nirs4all/data/synthetic/environmental.py`
+**Location:** `nirs4all/synthesis/environmental.py`
 
 These simulate temperature and moisture effects on spectra. They are **NOT TransformerMixin** and cannot be used in pipelines.
 
@@ -219,7 +219,7 @@ The simulator uses literature-based parameters for different NIR regions:
 
 ## 4. Instrument Effects (Partially Integrable)
 
-**Location:** `nirs4all/data/synthetic/instruments.py`
+**Location:** `nirs4all/synthesis/instruments.py`
 
 These simulate instrument-specific effects. Complex simulators are NOT suitable for TransformerMixin, but some simple effects can be extracted.
 

@@ -164,7 +164,7 @@ class DetectorRollOffAugmenter(SpectraTransformerMixin):
         self.include_baseline_distortion = include_baseline_distortion
         self.random_state = random_state
 
-    def transform_with_wavelengths(
+    def _transform_impl(
         self, X: np.ndarray, wavelengths: np.ndarray
     ) -> np.ndarray:
         """
@@ -334,7 +334,7 @@ class StrayLightAugmenter(SpectraTransformerMixin):
         self.include_peak_truncation = include_peak_truncation
         self.random_state = random_state
 
-    def transform_with_wavelengths(
+    def _transform_impl(
         self, X: np.ndarray, wavelengths: np.ndarray
     ) -> np.ndarray:
         """
@@ -497,7 +497,7 @@ class EdgeCurvatureAugmenter(SpectraTransformerMixin):
         self.edge_focus = edge_focus
         self.random_state = random_state
 
-    def transform_with_wavelengths(
+    def _transform_impl(
         self, X: np.ndarray, wavelengths: np.ndarray
     ) -> np.ndarray:
         """
@@ -656,7 +656,7 @@ class TruncatedPeakAugmenter(SpectraTransformerMixin):
         self.right_edge = right_edge
         self.random_state = random_state
 
-    def transform_with_wavelengths(
+    def _transform_impl(
         self, X: np.ndarray, wavelengths: np.ndarray
     ) -> np.ndarray:
         """
@@ -831,7 +831,7 @@ class EdgeArtifactsAugmenter(SpectraTransformerMixin):
                 random_state=int(rng.integers(0, 2**31)),
             )
 
-    def transform_with_wavelengths(
+    def _transform_impl(
         self, X: np.ndarray, wavelengths: np.ndarray
     ) -> np.ndarray:
         """

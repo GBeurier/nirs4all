@@ -37,7 +37,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticNIRSGenerator,
     SyntheticDatasetBuilder,
     DatasetExporter,

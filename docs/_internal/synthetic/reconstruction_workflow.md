@@ -1,6 +1,6 @@
 # Physical Signal-Chain Reconstruction Workflow
 
-This document describes the physically realistic signal-chain reconstruction and variance modeling workflow for NIR spectra in the `nirs4all.data.synthetic.reconstruction` module.
+This document describes the physically realistic signal-chain reconstruction and variance modeling workflow for NIR spectra in the `nirs4all.synthesis.reconstruction` module.
 
 ## Overview
 
@@ -16,7 +16,7 @@ The reconstruction workflow enables:
 Detect or specify dataset properties:
 
 ```python
-from nirs4all.data.synthetic.reconstruction import DatasetConfig
+from nirs4all.synthesis.reconstruction import DatasetConfig
 
 # Auto-detect from data
 config = DatasetConfig.from_data(X, wavelengths, name="my_dataset")
@@ -35,7 +35,7 @@ config = DatasetConfig(
 Calibrate global instrument parameters using prototype spectra:
 
 ```python
-from nirs4all.data.synthetic.reconstruction import (
+from nirs4all.synthesis.reconstruction import (
     ForwardChain,
     PrototypeSelector,
     GlobalCalibrator,
@@ -68,7 +68,7 @@ print(f"ILS sigma: {calib_result.ils_sigma:.2f} nm")
 Fit physical parameters for each sample using variable projection:
 
 ```python
-from nirs4all.data.synthetic.reconstruction import (
+from nirs4all.synthesis.reconstruction import (
     VariableProjectionSolver,
     MultiscaleSchedule,
 )
@@ -94,7 +94,7 @@ results = solver.fit_batch(X, chain, schedule)
 Model variance in parameter space:
 
 ```python
-from nirs4all.data.synthetic.reconstruction import (
+from nirs4all.synthesis.reconstruction import (
     ParameterDistributionFitter,
     ParameterSampler,
 )
@@ -131,7 +131,7 @@ sampler = ParameterSampler(dist_result, use_correlations=True)
 Sample parameters and run forward model:
 
 ```python
-from nirs4all.data.synthetic.reconstruction import ReconstructionGenerator
+from nirs4all.synthesis.reconstruction import ReconstructionGenerator
 
 generator = ReconstructionGenerator(
     noise_level=0.001,
@@ -155,7 +155,7 @@ print(f"Temperature range: [{gen_result.temperature_deltas.min():.1f}, {gen_resu
 Compare synthetic vs real data:
 
 ```python
-from nirs4all.data.synthetic.reconstruction import ReconstructionValidator
+from nirs4all.synthesis.reconstruction import ReconstructionValidator
 
 validator = ReconstructionValidator()
 validation = validator.validate(results, X_real, X_synthetic)
@@ -168,7 +168,7 @@ print(validation.summary())
 The `ReconstructionPipeline` class orchestrates all steps:
 
 ```python
-from nirs4all.data.synthetic.reconstruction import (
+from nirs4all.synthesis.reconstruction import (
     DatasetConfig,
     ReconstructionPipeline,
 )
@@ -201,7 +201,7 @@ print(f"Validation score: {result.validation.overall_score}/100")
 For quick usage:
 
 ```python
-from nirs4all.data.synthetic.reconstruction import reconstruct_and_generate
+from nirs4all.synthesis.reconstruction import reconstruct_and_generate
 
 X_synthetic, result = reconstruct_and_generate(
     X=X_real,
@@ -217,7 +217,7 @@ X_synthetic, result = reconstruct_and_generate(
 The `EnvironmentalEffectsModel` captures physical effects that cause spectral variations:
 
 ```python
-from nirs4all.data.synthetic.reconstruction import EnvironmentalEffectsModel
+from nirs4all.synthesis.reconstruction import EnvironmentalEffectsModel
 
 env_model = EnvironmentalEffectsModel(
     temperature_delta=5.0,      # °C deviation from 25°C reference
@@ -242,7 +242,7 @@ modified = env_model.apply(absorption, wavelengths)
 ## Module Architecture
 
 ```
-nirs4all/data/synthetic/reconstruction/
+nirs4all/synthesis/reconstruction/
 ├── __init__.py          # Module exports
 ├── forward.py           # Forward model components
 │   ├── CanonicalForwardModel    # Physical model on canonical grid

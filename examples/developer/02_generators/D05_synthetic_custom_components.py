@@ -29,7 +29,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # NIRS4All imports
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticNIRSGenerator,
     ComponentLibrary,
     SpectralComponent,

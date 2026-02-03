@@ -5,7 +5,7 @@ Unit tests for Phase 4 accelerated generation module.
 import pytest
 import numpy as np
 
-from nirs4all.data.synthetic.accelerated import (
+from nirs4all.synthesis.accelerated import (
     AcceleratorBackend,
     AcceleratedArrays,
     AcceleratedGenerator,

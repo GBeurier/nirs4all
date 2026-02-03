@@ -36,7 +36,7 @@ class WavelengthRecordingTransformer(SpectraTransformerMixin):
         WavelengthRecordingTransformer._fit_wavelengths_record = fit_params.get('wavelengths')
         return self
 
-    def transform_with_wavelengths(self, X, wavelengths):
+    def _transform_impl(self, X, wavelengths):
         WavelengthRecordingTransformer._transform_wavelengths_record = wavelengths
         return X * self.scale
 
@@ -70,7 +70,7 @@ class WavelengthDependentScaler(SpectraTransformerMixin):
         self.target_wavelength = target_wavelength
         self.boost_factor = boost_factor
 
-    def transform_with_wavelengths(self, X, wavelengths):
+    def _transform_impl(self, X, wavelengths):
         """Boost signal intensity near the target wavelength."""
         X_out = X.copy()
 
@@ -93,7 +93,7 @@ class OptionalWavelengthTransformer(SpectraTransformerMixin):
         self.scale = scale
         self.wavelengths_used = None
 
-    def transform_with_wavelengths(self, X, wavelengths):
+    def _transform_impl(self, X, wavelengths):
         self.wavelengths_used = wavelengths
         return X * self.scale
 

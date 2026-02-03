@@ -11,22 +11,34 @@ from nirs4all.operators.base import SpectraTransformerMixin
 class MockSpectraTransformer(SpectraTransformerMixin):
     """Mock transformer that doubles the spectra."""
 
-    def transform_with_wavelengths(self, X, wavelengths):
+    def _transform_impl(self, X, wavelengths):
         return X * 2
 
 
 class MockOptionalWavelengthsTransformer(SpectraTransformerMixin):
     """Mock transformer that doesn't require wavelengths."""
 
+    _requires_wavelengths = "optional"
+
+    def __init__(self, scale: float = 1.0):
+        self.scale = scale
+
+    def _transform_impl(self, X, wavelengths):
+        if wavelengths is not None:
+            # Use wavelengths if provided
+            return X * self.scale * (wavelengths.mean() / 1000)
+        return X * self.scale
+
+
+class MockDisabledWavelengthsTransformer(SpectraTransformerMixin):
+    """Mock transformer that ignores wavelengths."""
+
     _requires_wavelengths = False
 
     def __init__(self, scale: float = 1.0):
         self.scale = scale
 
-    def transform_with_wavelengths(self, X, wavelengths):
-        if wavelengths is not None:
-            # Use wavelengths if provided
-            return X * self.scale * (wavelengths.mean() / 1000)
+    def _transform_impl(self, X, wavelengths):
         return X * self.scale
 
 
@@ -37,7 +49,7 @@ class MockWavelengthDependentTransformer(SpectraTransformerMixin):
         self.region_start = region_start
         self.region_end = region_end
 
-    def transform_with_wavelengths(self, X, wavelengths):
+    def _transform_impl(self, X, wavelengths):
         X_out = X.copy()
         mask = (wavelengths >= self.region_start) & (wavelengths <= self.region_end)
         X_out[:, mask] = X_out[:, mask] * 1.5
@@ -47,8 +59,8 @@ class MockWavelengthDependentTransformer(SpectraTransformerMixin):
 class TestSpectraTransformerMixinAbstract:
     """Tests for abstract method behavior."""
 
-    def test_transform_with_wavelengths_is_abstract(self):
-        """Test that transform_with_wavelengths raises NotImplementedError when not overridden."""
+    def test_transform_impl_is_abstract(self):
+        """Test that _transform_impl raises NotImplementedError when not overridden."""
 
         class IncompleteTransformer(SpectraTransformerMixin):
             pass
@@ -57,13 +69,12 @@ class TestSpectraTransformerMixinAbstract:
         X = np.random.rand(10, 100)
         wavelengths = np.linspace(1100, 2500, 100)
 
-        with pytest.raises(NotImplementedError, match="must implement transform_with_wavelengths"):
+        with pytest.raises(NotImplementedError, match="must implement _transform_impl"):
             transformer.transform(X, wavelengths=wavelengths)
 
-    def test_abstract_method_has_pass_body(self):
-        """Test that the abstract method exists and returns None when called via super."""
-        # The abstract method should have a pass body as a fallback
-        assert hasattr(SpectraTransformerMixin, "transform_with_wavelengths")
+    def test_abstract_method_exists(self):
+        """Test that the abstract method exists."""
+        assert hasattr(SpectraTransformerMixin, "_transform_impl")
 
 
 class TestSpectraTransformerMixinFit:
@@ -73,7 +84,8 @@ class TestSpectraTransformerMixinFit:
         """Test that fit returns self."""
         transformer = MockSpectraTransformer()
         X = np.random.rand(10, 100)
-        result = transformer.fit(X)
+        wavelengths = np.linspace(1100, 2500, 100)
+        result = transformer.fit(X, wavelengths=wavelengths)
         assert result is transformer
 
     def test_fit_with_y(self):
@@ -81,16 +93,38 @@ class TestSpectraTransformerMixinFit:
         transformer = MockSpectraTransformer()
         X = np.random.rand(10, 100)
         y = np.random.rand(10)
-        result = transformer.fit(X, y)
+        wavelengths = np.linspace(1100, 2500, 100)
+        result = transformer.fit(X, y, wavelengths=wavelengths)
         assert result is transformer
 
-    def test_fit_with_fit_params(self):
-        """Test that fit accepts additional fit_params."""
+    def test_fit_with_wavelengths(self):
+        """Test that fit accepts wavelengths keyword argument and caches them."""
         transformer = MockSpectraTransformer()
         X = np.random.rand(10, 100)
         wavelengths = np.linspace(1100, 2500, 100)
         result = transformer.fit(X, wavelengths=wavelengths)
         assert result is transformer
+        np.testing.assert_array_equal(transformer._wavelengths, wavelengths)
+
+    def test_fit_caches_wavelengths_for_transform(self):
+        """Test that wavelengths cached in fit are used in transform."""
+        transformer = MockSpectraTransformer()
+        X = np.random.rand(10, 100)
+        wavelengths = np.linspace(1100, 2500, 100)
+
+        transformer.fit(X, wavelengths=wavelengths)
+        # transform without passing wavelengths -- should use cached
+        X_transformed = transformer.transform(X)
+        np.testing.assert_array_almost_equal(X_transformed, X * 2)
+
+    def test_fit_validates_wavelength_length(self):
+        """Test that fit validates wavelength length against features."""
+        transformer = MockSpectraTransformer()
+        X = np.random.rand(10, 100)
+        wavelengths = np.linspace(1100, 2500, 50)  # Wrong length
+
+        with pytest.raises(ValueError, match="wavelengths length"):
+            transformer.fit(X, wavelengths=wavelengths)
 
 
 class TestSpectraTransformerMixinTransform:
@@ -134,6 +168,15 @@ class TestSpectraTransformerMixinTransform:
 
         assert "MockSpectraTransformer" in str(exc_info.value)
 
+    def test_transform_validates_wavelength_length(self):
+        """Test that transform validates wavelength length against features."""
+        transformer = MockSpectraTransformer()
+        X = np.random.rand(10, 100)
+        wavelengths = np.linspace(1100, 2500, 50)  # Wrong length
+
+        with pytest.raises(ValueError, match="wavelengths length"):
+            transformer.transform(X, wavelengths=wavelengths)
+
 
 class TestSpectraTransformerMixinOptionalWavelengths:
     """Tests for operators with optional wavelengths."""
@@ -158,10 +201,24 @@ class TestSpectraTransformerMixinOptionalWavelengths:
         expected = X * 2.0 * 1.5  # scale * (mean / 1000)
         np.testing.assert_array_almost_equal(X_transformed, expected)
 
+    def test_requires_wavelengths_flag_optional(self):
+        """Test that _requires_wavelengths can be set to 'optional'."""
+        transformer = MockOptionalWavelengthsTransformer()
+        assert transformer._requires_wavelengths == "optional"
+
     def test_requires_wavelengths_flag_false(self):
         """Test that _requires_wavelengths can be set to False."""
-        transformer = MockOptionalWavelengthsTransformer()
+        transformer = MockDisabledWavelengthsTransformer()
         assert transformer._requires_wavelengths is False
+
+    def test_disabled_wavelengths_without_providing(self):
+        """Test that disabled wavelength operators work without wavelengths."""
+        transformer = MockDisabledWavelengthsTransformer(scale=2.0)
+        X = np.random.rand(10, 100)
+
+        X_transformed = transformer.transform(X)
+
+        np.testing.assert_array_almost_equal(X_transformed, X * 2.0)
 
 
 class TestSpectraTransformerMixinWavelengthDependent:
@@ -182,16 +239,14 @@ class TestSpectraTransformerMixinWavelengthDependent:
         np.testing.assert_array_almost_equal(X_transformed[:, mask], 1.5)
         np.testing.assert_array_almost_equal(X_transformed[:, ~mask], 1.0)
 
-    def test_wavelength_array_length_matches_features(self):
+    def test_wavelength_array_length_validation(self):
         """Test that wavelength array length must match feature count."""
         transformer = MockSpectraTransformer()
         X = np.random.rand(10, 100)
         wavelengths = np.linspace(1100, 2500, 50)  # Wrong length
 
-        # This should work at the mixin level (validation is in transform_with_wavelengths)
-        # But our mock doesn't validate, so it passes
-        X_transformed = transformer.transform(X, wavelengths=wavelengths)
-        assert X_transformed.shape == X.shape
+        with pytest.raises(ValueError, match="wavelengths length"):
+            transformer.transform(X, wavelengths=wavelengths)
 
 
 class TestSpectraTransformerMixinSklearnCompatibility:
@@ -204,7 +259,17 @@ class TestSpectraTransformerMixinSklearnCompatibility:
         wavelengths = np.linspace(1100, 2500, 100)
 
         # fit_transform should work
-        X_transformed = transformer.fit(X).transform(X, wavelengths=wavelengths)
+        X_transformed = transformer.fit(X, wavelengths=wavelengths).transform(X, wavelengths=wavelengths)
+        np.testing.assert_array_almost_equal(X_transformed, X * 2)
+
+    def test_fit_then_transform_without_wavelengths(self):
+        """Test that fit caches wavelengths for subsequent transform calls."""
+        transformer = MockSpectraTransformer()
+        X = np.random.rand(10, 100)
+        wavelengths = np.linspace(1100, 2500, 100)
+
+        transformer.fit(X, wavelengths=wavelengths)
+        X_transformed = transformer.transform(X)  # No wavelengths -- uses cached
         np.testing.assert_array_almost_equal(X_transformed, X * 2)
 
     def test_more_tags(self):
@@ -220,6 +285,13 @@ class TestSpectraTransformerMixinSklearnCompatibility:
     def test_more_tags_optional_wavelengths(self):
         """Test _more_tags for operators with optional wavelengths."""
         transformer = MockOptionalWavelengthsTransformer()
+        tags = transformer._more_tags()
+
+        assert tags["requires_wavelengths"] == "optional"
+
+    def test_more_tags_disabled_wavelengths(self):
+        """Test _more_tags for operators with disabled wavelengths."""
+        transformer = MockDisabledWavelengthsTransformer()
         tags = transformer._more_tags()
 
         assert tags["requires_wavelengths"] is False

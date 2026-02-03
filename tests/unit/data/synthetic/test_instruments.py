@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from nirs4all.data.synthetic.instruments import (
+from nirs4all.synthesis.instruments import (
     InstrumentCategory,
     DetectorType,
     MonochromatorType,

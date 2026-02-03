@@ -72,10 +72,10 @@ This roadmap outlines the implementation plan for enhancing the nirs4all synthet
 
 | Component | Module | Status |
 |-----------|--------|--------|
-| NIRBand (Voigt profile) | `nirs4all.data.synthetic.components` | ✅ Unit tested |
-| SpectralComponent | `nirs4all.data.synthetic.components` | ✅ Unit tested |
-| ComponentLibrary | `nirs4all.data.synthetic.components` | ✅ Unit tested |
-| 111 predefined components | `nirs4all.data.synthetic._constants` | ✅ Extended (Phase 1) |
+| NIRBand (Voigt profile) | `nirs4all.synthesis.components` | ✅ Unit tested |
+| SpectralComponent | `nirs4all.synthesis.components` | ✅ Unit tested |
+| ComponentLibrary | `nirs4all.synthesis.components` | ✅ Unit tested |
+| 111 predefined components | `nirs4all.synthesis._constants` | ✅ Extended (Phase 1) |
 | Random component generation | `ComponentLibrary.add_random_component()` | ✅ Basic tests |
 | Beer-Lambert mixing | `SyntheticNIRSGenerator._apply_beer_lambert()` | ✅ Unit tested |
 | Path length variation | `SyntheticNIRSGenerator._apply_path_length()` | ✅ Unit tested |
@@ -89,12 +89,12 @@ This roadmap outlines the implementation plan for enhancing the nirs4all synthet
 | Classification targets | `targets.ClassSeparationConfig` | ✅ Unit tested |
 | Non-linear targets | `targets.NonLinearTargetProcessor` | ✅ Integration tested |
 | Multi-regime landscapes | `targets.NonLinearTargetProcessor` | ✅ Integration tested |
-| **Wavenumber utilities** | `nirs4all.data.synthetic.wavenumber` | ✅ **Phase 1** |
-| **Procedural generator** | `nirs4all.data.synthetic.procedural` | ✅ **Phase 1** |
-| **Application domains** | `nirs4all.data.synthetic.domains` | ✅ **Phase 1** |
-| **Instrument archetypes** | `nirs4all.data.synthetic.instruments` | ✅ **Phase 2** |
-| **Measurement modes** | `nirs4all.data.synthetic.measurement_modes` | ✅ **Phase 2** |
-| **Detector models** | `nirs4all.data.synthetic.detectors` | ✅ **Phase 2** |
+| **Wavenumber utilities** | `nirs4all.synthesis.wavenumber` | ✅ **Phase 1** |
+| **Procedural generator** | `nirs4all.synthesis.procedural` | ✅ **Phase 1** |
+| **Application domains** | `nirs4all.synthesis.domains` | ✅ **Phase 1** |
+| **Instrument archetypes** | `nirs4all.synthesis.instruments` | ✅ **Phase 2** |
+| **Measurement modes** | `nirs4all.synthesis.measurement_modes` | ✅ **Phase 2** |
+| **Detector models** | `nirs4all.synthesis.detectors` | ✅ **Phase 2** |
 
 ### Critical Gaps ❌ (Remaining)
 
@@ -126,12 +126,12 @@ Phase 1 has been fully implemented with the following deliverables:
 | Procedural generator | `procedural.py` | ~790 | ✅ Complete |
 | Application domains | `domains.py` | ~880 | ✅ Complete |
 | Extended components | `_constants.py` | Extended | ✅ 111 components |
-| Unit tests | `tests/unit/data/synthetic/` | 3 files | ✅ Complete |
+| Unit tests | `tests/unit/synthesis/` | 3 files | ✅ Complete |
 
 ### 1.1 Wavenumber-Based Band Placement ✅
 
 **Priority**: 🔴 Critical
-**Location**: `nirs4all/data/synthetic/wavenumber.py` ✅ **IMPLEMENTED**
+**Location**: `nirs4all/synthesis/wavenumber.py` ✅ **IMPLEMENTED**
 
 #### Implementation Notes
 
@@ -165,7 +165,7 @@ $$\lambda_{nm} = \frac{10^7}{\tilde{\nu}_{cm^{-1}}}$$
 #### Code Structure
 
 ```python
-# nirs4all/data/synthetic/wavenumber.py (new file)
+# nirs4all/synthesis/wavenumber.py (new file)
 
 NIR_ZONES_WAVENUMBER = [
     (9000, 12500),   # 800-1100 nm: 3rd overtones, electronic
@@ -209,7 +209,7 @@ def convert_bandwidth_to_wavelength(
 ### 1.2 Procedural Component Generator ✅
 
 **Priority**: 🔴 Critical
-**Location**: `nirs4all/data/synthetic/procedural.py` ✅ **IMPLEMENTED**
+**Location**: `nirs4all/synthesis/procedural.py` ✅ **IMPLEMENTED**
 
 #### Implementation Notes
 
@@ -245,7 +245,7 @@ The current library has only 31 predefined components. To generate diverse synth
 #### Code Structure
 
 ```python
-# nirs4all/data/synthetic/procedural.py
+# nirs4all/synthesis/procedural.py
 
 @dataclass
 class ProceduralComponentConfig:
@@ -328,7 +328,7 @@ class ProceduralComponentGenerator:
 ### 1.3 Application Domain Priors ✅
 
 **Priority**: 🟡 Moderate
-**Location**: `nirs4all/data/synthetic/domains.py` ✅ **IMPLEMENTED**
+**Location**: `nirs4all/synthesis/domains.py` ✅ **IMPLEMENTED**
 
 #### Implementation Notes
 
@@ -364,7 +364,7 @@ Different application domains (agriculture, pharmaceutical, food, etc.) have cha
 #### Domain Configurations
 
 ```python
-# nirs4all/data/synthetic/domains.py
+# nirs4all/synthesis/domains.py
 
 APPLICATION_DOMAINS = {
     "agriculture": {
@@ -421,7 +421,7 @@ APPLICATION_DOMAINS = {
 ### 1.4 Extended Component Library ✅
 
 **Priority**: 🟡 Moderate
-**Location**: `nirs4all/data/synthetic/_constants.py` ✅ **EXTENDED**
+**Location**: `nirs4all/synthesis/_constants.py` ✅ **EXTENDED**
 
 #### Implementation Notes
 
@@ -493,7 +493,7 @@ Phase 2 has been fully implemented with the following deliverables:
 | Instrument archetypes | `instruments.py` | ~1177 | ✅ Complete |
 | Measurement modes | `measurement_modes.py` | ~690 | ✅ Complete |
 | Detector models | `detectors.py` | ~500 | ✅ Complete |
-| Unit tests | `tests/unit/data/synthetic/` | 3 files | ✅ Complete (81 tests) |
+| Unit tests | `tests/unit/synthesis/` | 3 files | ✅ Complete (81 tests) |
 | Developer example | `D09_synthetic_instruments.py` | ~500 | ✅ Complete |
 
 ### Key Features Implemented
@@ -512,7 +512,7 @@ Phase 2 has been fully implemented with the following deliverables:
 ### 2.1 Instrument Archetype System ✅
 
 **Priority**: 🔴 Critical
-**Location**: `nirs4all/data/synthetic/instruments.py` ✅ **IMPLEMENTED**
+**Location**: `nirs4all/synthesis/instruments.py` ✅ **IMPLEMENTED**
 
 #### Implementation Notes
 
@@ -554,7 +554,7 @@ The `instruments.py` module provides comprehensive instrument simulation:
 ### 2.2 Measurement Mode Simulation ✅
 
 **Priority**: 🔴 Critical
-**Location**: `nirs4all/data/synthetic/measurement_modes.py` ✅ **IMPLEMENTED**
+**Location**: `nirs4all/synthesis/measurement_modes.py` ✅ **IMPLEMENTED**
 
 #### Implementation Notes
 
@@ -589,7 +589,7 @@ The `measurement_modes.py` module provides complete measurement mode simulation:
 ### 2.3 Detector Models ✅
 
 **Priority**: 🟡 Moderate
-**Location**: `nirs4all/data/synthetic/detectors.py` ✅ **IMPLEMENTED**
+**Location**: `nirs4all/synthesis/detectors.py` ✅ **IMPLEMENTED**
 
 #### Implementation Notes
 
@@ -658,7 +658,7 @@ Phase 3 has been fully implemented with the following deliverables:
 ### 3.1 Temperature Effects ✅
 
 **Priority**: 🔴 Critical
-**Location**: `nirs4all/data/synthetic/environmental.py` ✅ **IMPLEMENTED**
+**Location**: `nirs4all/synthesis/environmental.py` ✅ **IMPLEMENTED**
 
 #### Implementation Notes
 
@@ -694,7 +694,7 @@ Temperature affects NIR spectra through:
 #### Code Structure
 
 ```python
-# nirs4all/data/synthetic/environmental.py
+# nirs4all/synthesis/environmental.py
 
 @dataclass
 class TemperatureConfig:
@@ -773,7 +773,7 @@ class TemperatureEffectSimulator:
 ### 3.2 Particle Size Effects (EMSC-Style) ✅
 
 **Priority**: 🔴 Critical
-**Location**: `nirs4all/data/synthetic/scattering.py` ✅ **IMPLEMENTED**
+**Location**: `nirs4all/synthesis/scattering.py` ✅ **IMPLEMENTED**
 
 #### Implementation Notes
 
@@ -800,7 +800,7 @@ The `scattering.py` module provides comprehensive particle size simulation:
 #### Code Structure
 
 ```python
-# nirs4all/data/synthetic/scattering.py
+# nirs4all/synthesis/scattering.py
 
 @dataclass
 class ParticleSizeConfig:
@@ -864,7 +864,7 @@ class ParticleSizeSimulator:
 ### 3.3 Scattering Coefficient Generation ✅
 
 **Priority**: 🟡 Moderate
-**Location**: `nirs4all/data/synthetic/scattering.py` ✅ **IMPLEMENTED**
+**Location**: `nirs4all/synthesis/scattering.py` ✅ **IMPLEMENTED**
 
 #### Implementation Notes
 
@@ -924,7 +924,7 @@ def generate_scattering_coefficient(
 ### 3.4 Moisture/Water Activity Effects ✅
 
 **Priority**: 🟡 Moderate
-**Location**: `nirs4all/data/synthetic/environmental.py` ✅ **IMPLEMENTED**
+**Location**: `nirs4all/synthesis/environmental.py` ✅ **IMPLEMENTED**
 
 #### Implementation Notes
 
@@ -963,7 +963,7 @@ The `environmental.py` module provides moisture/water activity simulation:
 ### 4.1 Spectral Realism Scorecard ✅
 
 **Priority**: 🔴 Critical
-**Location**: `nirs4all/data/synthetic/validation.py` ✅ **IMPLEMENTED**
+**Location**: `nirs4all/synthesis/validation.py` ✅ **IMPLEMENTED**
 
 #### Rationale
 
@@ -984,7 +984,7 @@ Quantitative metrics are needed to assess whether synthetic spectra are realisti
 #### Code Structure
 
 ```python
-# nirs4all/data/synthetic/validation.py
+# nirs4all/synthesis/validation.py
 
 @dataclass
 class SpectralRealismScore:
@@ -1065,7 +1065,7 @@ def compute_adversarial_validation_auc(
 ### 4.2 Benchmark Dataset Collection ✅
 
 **Priority**: 🟡 Moderate
-**Location**: `nirs4all/data/synthetic/benchmarks.py` ✅ **IMPLEMENTED**
+**Location**: `nirs4all/synthesis/benchmarks.py` ✅ **IMPLEMENTED**
 
 #### Rationale
 
@@ -1101,7 +1101,7 @@ Real benchmark datasets are needed to validate that synthetic data is realistic 
 ### 4.3 Conditional Prior Sampling ✅
 
 **Priority**: 🟡 Moderate
-**Location**: `nirs4all/data/synthetic/prior.py` ✅ **IMPLEMENTED**
+**Location**: `nirs4all/synthesis/prior.py` ✅ **IMPLEMENTED**
 
 #### Rationale
 
@@ -1146,7 +1146,7 @@ Domain (agriculture, pharma, food, ...)
 #### Code Structure
 
 ```python
-# nirs4all/data/synthetic/prior.py
+# nirs4all/synthesis/prior.py
 
 @dataclass
 class NIRSPriorConfig:
@@ -1206,7 +1206,7 @@ class PriorSampler:
 ### 4.4 GPU-Accelerated Generation (Optional) ✅
 
 **Priority**: 🟢 Nice to Have
-**Location**: `nirs4all/data/synthetic/accelerated.py` ✅ **IMPLEMENTED**
+**Location**: `nirs4all/synthesis/accelerated.py` ✅ **IMPLEMENTED**
 
 #### Rationale
 
@@ -1233,10 +1233,10 @@ For generating large training datasets, GPU acceleration can significantly speed
 
 ### New File Structure
 
-After all phases are complete, the `nirs4all/data/synthetic/` directory will have the following structure:
+After all phases are complete, the `nirs4all/synthesis/` directory will have the following structure:
 
 ```
-nirs4all/data/synthetic/
+nirs4all/synthesis/
 ├── __init__.py                 # Public API exports
 ├── _constants.py               # Predefined components (expanded to 100+)
 ├── builder.py                  # SyntheticDatasetBuilder (existing)
@@ -1298,7 +1298,7 @@ nirs4all/data/synthetic/
 
 ### Public API Exports
 
-Update `nirs4all/data/synthetic/__init__.py` to export new classes:
+Update `nirs4all/synthesis/__init__.py` to export new classes:
 
 ```python
 # Core (existing)
@@ -1378,14 +1378,14 @@ For users who want to adopt new features:
 
 ```python
 # Before (still works)
-from nirs4all.data.synthetic import SyntheticNIRSGenerator, ComponentLibrary
+from nirs4all.synthesis import SyntheticNIRSGenerator, ComponentLibrary
 
 library = ComponentLibrary.from_predefined(["water", "protein"])
 generator = SyntheticNIRSGenerator(component_library=library)
 X, C, E = generator.generate(n_samples=100)
 
 # After (using new features)
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticNIRSGenerator,
     ProceduralComponentGenerator,
     InstrumentSimulator,
@@ -1413,7 +1413,7 @@ X, C, E = generator.generate(n_samples=100)
 ### Test Organization
 
 ```
-tests/unit/data/synthetic/
+tests/unit/synthesis/
 ├── test_components.py          # Existing
 ├── test_generator.py           # Existing
 ├── test_targets.py             # Existing
@@ -1640,7 +1640,7 @@ No new major dependencies required. Uses existing:
 Example: Generate realistic synthetic NIR data for pharmaceutical tablet analysis.
 Uses all enhancement phases.
 """
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticNIRSGenerator,
     ProceduralComponentGenerator,
     ProceduralComponentConfig,
@@ -1669,7 +1669,7 @@ config = ProceduralComponentConfig(
 api_components = [proc_gen.generate(config) for _ in range(5)]
 
 # Add predefined excipients
-from nirs4all.data.synthetic import ComponentLibrary
+from nirs4all.synthesis import ComponentLibrary
 library = ComponentLibrary.from_predefined(["starch", "cellulose", "water"])
 for comp in api_components:
     library.add_component(comp)
@@ -1738,7 +1738,7 @@ X_prior, C_prior, E_prior = generator.generate(n_samples=500)
 """
 Generate data for multiple application domains.
 """
-from nirs4all.data.synthetic import (
+from nirs4all.synthesis import (
     SyntheticNIRSGenerator,
     APPLICATION_DOMAINS,
     get_domain_config,

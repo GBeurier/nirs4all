@@ -41,7 +41,7 @@ from sklearn.preprocessing import StandardScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.data.synthetic import SyntheticDatasetBuilder
+from nirs4all.synthesis import SyntheticDatasetBuilder
 from nirs4all.data import DatasetConfigs
 
 # Add examples directory to path for example_utils

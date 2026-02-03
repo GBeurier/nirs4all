@@ -8,7 +8,7 @@
 | **Date** | January 2026 |
 | **Status** | Phases 1-7 Complete |
 | **Author** | nirs4all Development Team |
-| **Scope** | `nirs4all/data/synthetic/_constants.py` and related modules |
+| **Scope** | `nirs4all/synthesis/_constants.py` and related modules |
 
 ---
 
@@ -355,7 +355,7 @@ components/
 **Proposed Functions:**
 
 ```python
-# nirs4all/data/synthetic/components.py
+# nirs4all/synthesis/components.py
 
 def available_components() -> List[str]:
     """Return list of all available component names."""
@@ -438,7 +438,7 @@ def component_info(name: str) -> str:
 **Concept**: Pre-defined mixtures representing common sample types.
 
 ```python
-# nirs4all/data/synthetic/_aggregates.py
+# nirs4all/synthesis/_aggregates.py
 
 @dataclass
 class AggregateComponent:
@@ -635,7 +635,7 @@ def expand_aggregate(
 **Concept**: Fit combinations of known components to match observed spectra.
 
 ```python
-# nirs4all/data/synthetic/fitter.py (new section)
+# nirs4all/synthesis/fitter.py (new section)
 
 class ComponentFitter:
     """
@@ -854,7 +854,7 @@ class FitResult:
 **Proposed API**:
 
 ```python
-# nirs4all/data/synthetic/generator.py (modification)
+# nirs4all/synthesis/generator.py (modification)
 
 class SyntheticNIRSGenerator:
     def __init__(
@@ -924,7 +924,7 @@ def generate(
 **Instrument Integration**:
 
 ```python
-# nirs4all/data/synthetic/instruments.py (addition)
+# nirs4all/synthesis/instruments.py (addition)
 
 # Predefined wavelength grids for common instruments
 INSTRUMENT_WAVELENGTHS = {
@@ -965,7 +965,7 @@ class SyntheticNIRSGenerator:
 **Builder API Extension**:
 
 ```python
-# nirs4all/data/synthetic/builder.py (addition)
+# nirs4all/synthesis/builder.py (addition)
 
 class SyntheticDatasetBuilder:
     def with_wavelengths(
@@ -1051,7 +1051,7 @@ def _compute_component_at_wavelengths(
 **Core Concept: ProductTemplate**
 
 ```python
-# nirs4all/data/synthetic/products.py (new file)
+# nirs4all/synthesis/products.py (new file)
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional, Union, Callable
@@ -1807,7 +1807,7 @@ dataset = nirs4all.generate.product(
 
 
 # Example 4: Create custom high-variability template
-from nirs4all.data.synthetic.products import (
+from nirs4all.synthesis.products import (
     ProductTemplate, ComponentVariation, VariationType, ProductGenerator
 )
 
@@ -1862,7 +1862,7 @@ dataset = gen.generate_dataset_for_target(
 ### 5.1 Component Validation
 
 ```python
-# nirs4all/data/synthetic/validation.py (addition)
+# nirs4all/synthesis/validation.py (addition)
 
 def validate_predefined_components() -> List[str]:
     """
@@ -1949,7 +1949,7 @@ def validate_component_coverage(
 ### 5.2 Integration Tests
 
 ```python
-# tests/unit/data/synthetic/test_constants_validation.py
+# tests/unit/synthesis/test_constants_validation.py
 
 class TestComponentValidation:
     """Tests for component library validation."""
@@ -2008,10 +2008,10 @@ class TestComponentValidation:
 6. Write tests for validation
 
 **Files Modified:**
-- `nirs4all/data/synthetic/components.py`
-- `nirs4all/data/synthetic/_constants.py`
-- `nirs4all/data/synthetic/validation.py`
-- `tests/unit/data/synthetic/test_constants_validation.py`
+- `nirs4all/synthesis/components.py`
+- `nirs4all/synthesis/_constants.py`
+- `nirs4all/synthesis/validation.py`
+- `tests/unit/synthesis/test_constants_validation.py`
 
 **Risk**: Low (metadata additions are backward-compatible)
 
@@ -2026,10 +2026,10 @@ class TestComponentValidation:
 6. Update unit tests
 
 **Files Modified:**
-- `nirs4all/data/synthetic/_constants.py`
-- `nirs4all/data/synthetic/wavenumber.py`
-- `tests/unit/data/synthetic/test_wavenumber.py`
-- `tests/unit/data/synthetic/test_components.py`
+- `nirs4all/synthesis/_constants.py`
+- `nirs4all/synthesis/wavenumber.py`
+- `tests/unit/synthesis/test_wavenumber.py`
+- `tests/unit/synthesis/test_components.py`
 
 **Risk**: Medium (may affect downstream code expecting 1000-2500nm)
 
@@ -2043,8 +2043,8 @@ class TestComponentValidation:
 5. Write unit tests
 
 **Files Modified:**
-- `nirs4all/data/synthetic/components.py`
-- `nirs4all/data/synthetic/__init__.py`
+- `nirs4all/synthesis/components.py`
+- `nirs4all/synthesis/__init__.py`
 - `docs/source/api/synthetic.rst`
 
 **Risk**: Low (new functionality, no breaking changes)
@@ -2059,9 +2059,9 @@ class TestComponentValidation:
 5. Write documentation and examples
 
 **Files Modified:**
-- `nirs4all/data/synthetic/_aggregates.py` (new)
-- `nirs4all/data/synthetic/builder.py`
-- `nirs4all/data/synthetic/__init__.py`
+- `nirs4all/synthesis/_aggregates.py` (new)
+- `nirs4all/synthesis/builder.py`
+- `nirs4all/synthesis/__init__.py`
 
 **Risk**: Low (new functionality)
 
@@ -2077,8 +2077,8 @@ class TestComponentValidation:
 7. Write documentation and tutorial
 
 **Files Modified:**
-- `nirs4all/data/synthetic/fitter.py`
-- `nirs4all/data/synthetic/__init__.py`
+- `nirs4all/synthesis/fitter.py`
+- `nirs4all/synthesis/__init__.py`
 - `docs/source/tutorials/spectral_fitting.rst` (new)
 
 **Risk**: Medium (computational complexity, edge cases)
@@ -2099,13 +2099,13 @@ class TestComponentValidation:
 9. Write documentation with examples
 
 **Files Modified:**
-- `nirs4all/data/synthetic/generator.py`
-- `nirs4all/data/synthetic/instruments.py`
-- `nirs4all/data/synthetic/builder.py`
-- `nirs4all/data/synthetic/components.py` (interpolation logic)
+- `nirs4all/synthesis/generator.py`
+- `nirs4all/synthesis/instruments.py`
+- `nirs4all/synthesis/builder.py`
+- `nirs4all/synthesis/components.py` (interpolation logic)
 - `nirs4all/api/generate.py`
-- `nirs4all/data/synthetic/__init__.py`
-- `tests/unit/data/synthetic/test_custom_wavelengths.py` (new)
+- `nirs4all/synthesis/__init__.py`
+- `tests/unit/synthesis/test_custom_wavelengths.py` (new)
 
 **Known Instrument Grids to Include:**
 - MicroNIR OnSite (908-1676nm, 125 channels)
@@ -2122,7 +2122,7 @@ class TestComponentValidation:
 **Goal**: High-level API to generate diverse, realistic product samples with controlled variability for training neural networks.
 
 **Tasks:**
-1. Create `nirs4all/data/synthetic/products.py` module
+1. Create `nirs4all/synthesis/products.py` module
 2. Implement `VariationType` enum (FIXED, UNIFORM, NORMAL, LOGNORMAL, CORRELATED, COMPUTED)
 3. Implement `ComponentVariation` dataclass
 4. Implement `ProductTemplate` dataclass with variability specification
@@ -2146,14 +2146,14 @@ class TestComponentValidation:
 12. Add examples in `examples/developer/synthetic_nn_training.py`
 
 **Files Created:**
-- `nirs4all/data/synthetic/products.py` (new)
-- `tests/unit/data/synthetic/test_products.py` (new)
+- `nirs4all/synthesis/products.py` (new)
+- `tests/unit/synthesis/test_products.py` (new)
 - `docs/source/tutorials/synthetic_for_nn.rst` (new)
 - `examples/developer/synthetic_nn_training.py` (new)
 
 **Files Modified:**
 - `nirs4all/api/generate.py`
-- `nirs4all/data/synthetic/__init__.py`
+- `nirs4all/synthesis/__init__.py`
 
 **Key Features for NN Training:**
 - **Plasticity**: Wide variability ranges to train robust models

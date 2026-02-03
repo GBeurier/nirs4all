@@ -13,14 +13,14 @@ class TestInstrumentWavelengths:
 
     def test_instrument_wavelengths_dict_exists(self):
         """Test INSTRUMENT_WAVELENGTHS dictionary exists and has entries."""
-        from nirs4all.data.synthetic import INSTRUMENT_WAVELENGTHS
+        from nirs4all.synthesis import INSTRUMENT_WAVELENGTHS
 
         assert isinstance(INSTRUMENT_WAVELENGTHS, dict)
         assert len(INSTRUMENT_WAVELENGTHS) > 0
 
     def test_instrument_wavelengths_are_arrays(self):
         """Test all instrument wavelengths are numpy arrays."""
-        from nirs4all.data.synthetic import INSTRUMENT_WAVELENGTHS
+        from nirs4all.synthesis import INSTRUMENT_WAVELENGTHS
 
         for name, wl in INSTRUMENT_WAVELENGTHS.items():
             assert isinstance(wl, np.ndarray), f"{name} is not a numpy array"
@@ -29,7 +29,7 @@ class TestInstrumentWavelengths:
 
     def test_get_instrument_wavelengths(self):
         """Test get_instrument_wavelengths function."""
-        from nirs4all.data.synthetic import get_instrument_wavelengths
+        from nirs4all.synthesis import get_instrument_wavelengths
 
         wl = get_instrument_wavelengths("micronir_onsite")
 
@@ -40,7 +40,7 @@ class TestInstrumentWavelengths:
 
     def test_get_instrument_wavelengths_copy(self):
         """Test that get_instrument_wavelengths returns a copy."""
-        from nirs4all.data.synthetic import get_instrument_wavelengths
+        from nirs4all.synthesis import get_instrument_wavelengths
 
         wl1 = get_instrument_wavelengths("micronir_onsite")
         wl2 = get_instrument_wavelengths("micronir_onsite")
@@ -53,14 +53,14 @@ class TestInstrumentWavelengths:
 
     def test_get_instrument_wavelengths_unknown(self):
         """Test get_instrument_wavelengths raises for unknown instrument."""
-        from nirs4all.data.synthetic import get_instrument_wavelengths
+        from nirs4all.synthesis import get_instrument_wavelengths
 
         with pytest.raises(ValueError, match="Unknown instrument"):
             get_instrument_wavelengths("nonexistent_instrument")
 
     def test_list_instrument_wavelength_grids(self):
         """Test list_instrument_wavelength_grids function."""
-        from nirs4all.data.synthetic import list_instrument_wavelength_grids
+        from nirs4all.synthesis import list_instrument_wavelength_grids
 
         grids = list_instrument_wavelength_grids()
 
@@ -70,7 +70,7 @@ class TestInstrumentWavelengths:
 
     def test_get_instrument_wavelength_info(self):
         """Test get_instrument_wavelength_info function."""
-        from nirs4all.data.synthetic import get_instrument_wavelength_info
+        from nirs4all.synthesis import get_instrument_wavelength_info
 
         info = get_instrument_wavelength_info()
 
@@ -89,7 +89,7 @@ class TestSyntheticNIRSGeneratorWavelengths:
 
     def test_default_wavelengths(self):
         """Test default wavelength grid is used when none specified."""
-        from nirs4all.data.synthetic import SyntheticNIRSGenerator
+        from nirs4all.synthesis import SyntheticNIRSGenerator
 
         gen = SyntheticNIRSGenerator(random_state=42)
 
@@ -100,7 +100,7 @@ class TestSyntheticNIRSGeneratorWavelengths:
 
     def test_custom_wavelengths_array(self):
         """Test custom wavelengths array parameter."""
-        from nirs4all.data.synthetic import SyntheticNIRSGenerator
+        from nirs4all.synthesis import SyntheticNIRSGenerator
 
         custom_wl = np.linspace(1000, 2000, 100)
 
@@ -116,7 +116,7 @@ class TestSyntheticNIRSGeneratorWavelengths:
 
     def test_instrument_wavelength_grid(self):
         """Test instrument_wavelength_grid parameter."""
-        from nirs4all.data.synthetic import SyntheticNIRSGenerator
+        from nirs4all.synthesis import SyntheticNIRSGenerator
 
         gen = SyntheticNIRSGenerator(
             instrument_wavelength_grid="micronir_onsite",
@@ -128,7 +128,7 @@ class TestSyntheticNIRSGeneratorWavelengths:
 
     def test_generate_with_custom_wavelengths(self):
         """Test spectrum generation with custom wavelengths."""
-        from nirs4all.data.synthetic import SyntheticNIRSGenerator
+        from nirs4all.synthesis import SyntheticNIRSGenerator
 
         custom_wl = np.linspace(1000, 2000, 50)
 
@@ -145,7 +145,7 @@ class TestSyntheticNIRSGeneratorWavelengths:
 
     def test_generate_with_instrument_grid(self):
         """Test spectrum generation with instrument wavelength grid."""
-        from nirs4all.data.synthetic import SyntheticNIRSGenerator
+        from nirs4all.synthesis import SyntheticNIRSGenerator
 
         gen = SyntheticNIRSGenerator(
             instrument_wavelength_grid="micronir_onsite",
@@ -159,7 +159,7 @@ class TestSyntheticNIRSGeneratorWavelengths:
 
     def test_wavelengths_override_range(self):
         """Test that custom wavelengths override wavelength_start/end/step."""
-        from nirs4all.data.synthetic import SyntheticNIRSGenerator
+        from nirs4all.synthesis import SyntheticNIRSGenerator
 
         custom_wl = np.linspace(1000, 2000, 100)
 
@@ -176,7 +176,7 @@ class TestSyntheticNIRSGeneratorWavelengths:
 
     def test_instrument_grid_unknown(self):
         """Test that unknown instrument grid raises error."""
-        from nirs4all.data.synthetic import SyntheticNIRSGenerator
+        from nirs4all.synthesis import SyntheticNIRSGenerator
 
         with pytest.raises(ValueError, match="Unknown instrument"):
             SyntheticNIRSGenerator(
@@ -190,7 +190,7 @@ class TestSyntheticDatasetBuilderWavelengths:
 
     def test_with_wavelengths_array(self):
         """Test with_wavelengths with array parameter."""
-        from nirs4all.data.synthetic import SyntheticDatasetBuilder
+        from nirs4all.synthesis import SyntheticDatasetBuilder
 
         custom_wl = np.linspace(1000, 2000, 100)
 
@@ -203,7 +203,7 @@ class TestSyntheticDatasetBuilderWavelengths:
 
     def test_with_wavelengths_instrument_grid(self):
         """Test with_wavelengths with instrument_grid parameter."""
-        from nirs4all.data.synthetic import SyntheticDatasetBuilder
+        from nirs4all.synthesis import SyntheticDatasetBuilder
 
         builder = (
             SyntheticDatasetBuilder(n_samples=50, random_state=42)
@@ -215,7 +215,7 @@ class TestSyntheticDatasetBuilderWavelengths:
 
     def test_with_wavelengths_both_raises(self):
         """Test that specifying both wavelengths and instrument_grid raises."""
-        from nirs4all.data.synthetic import SyntheticDatasetBuilder
+        from nirs4all.synthesis import SyntheticDatasetBuilder
 
         custom_wl = np.linspace(1000, 2000, 100)
 
@@ -229,7 +229,7 @@ class TestSyntheticDatasetBuilderWavelengths:
 
     def test_with_wavelengths_unknown_instrument(self):
         """Test that unknown instrument grid raises error."""
-        from nirs4all.data.synthetic import SyntheticDatasetBuilder
+        from nirs4all.synthesis import SyntheticDatasetBuilder
 
         builder = SyntheticDatasetBuilder(n_samples=50, random_state=42)
 
@@ -238,7 +238,7 @@ class TestSyntheticDatasetBuilderWavelengths:
 
     def test_build_with_custom_wavelengths(self):
         """Test building dataset with custom wavelengths."""
-        from nirs4all.data.synthetic import SyntheticDatasetBuilder
+        from nirs4all.synthesis import SyntheticDatasetBuilder
 
         custom_wl = np.linspace(1000, 2000, 50)
 
@@ -253,7 +253,7 @@ class TestSyntheticDatasetBuilderWavelengths:
 
     def test_build_with_instrument_grid(self):
         """Test building dataset with instrument wavelength grid."""
-        from nirs4all.data.synthetic import SyntheticDatasetBuilder
+        from nirs4all.synthesis import SyntheticDatasetBuilder
 
         X, y = (
             SyntheticDatasetBuilder(n_samples=20, random_state=42)
@@ -267,7 +267,7 @@ class TestSyntheticDatasetBuilderWavelengths:
 
     def test_chaining_with_wavelengths(self):
         """Test that with_wavelengths can be chained with other methods."""
-        from nirs4all.data.synthetic import SyntheticDatasetBuilder
+        from nirs4all.synthesis import SyntheticDatasetBuilder
 
         custom_wl = np.linspace(1000, 2000, 50)
 
@@ -289,7 +289,7 @@ class TestWavelengthInterpolation:
 
     def test_nonuniform_wavelength_grid(self):
         """Test generation with non-uniform wavelength grid."""
-        from nirs4all.data.synthetic import SyntheticNIRSGenerator
+        from nirs4all.synthesis import SyntheticNIRSGenerator
 
         # Create non-uniform grid (like some real instruments)
         wl1 = np.linspace(1000, 1500, 30)
@@ -308,7 +308,7 @@ class TestWavelengthInterpolation:
 
     def test_sparse_wavelength_grid(self):
         """Test generation with very sparse wavelength grid."""
-        from nirs4all.data.synthetic import SyntheticNIRSGenerator
+        from nirs4all.synthesis import SyntheticNIRSGenerator
 
         # Very sparse grid (like some handheld devices)
         custom_wl = np.linspace(900, 1700, 20)
@@ -327,7 +327,7 @@ class TestWavelengthInterpolation:
 
     def test_high_resolution_wavelength_grid(self):
         """Test generation with high resolution wavelength grid."""
-        from nirs4all.data.synthetic import SyntheticNIRSGenerator
+        from nirs4all.synthesis import SyntheticNIRSGenerator
 
         # High resolution grid (0.5 nm step)
         custom_wl = np.arange(1000, 2000, 0.5)

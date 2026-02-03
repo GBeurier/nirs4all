@@ -15,7 +15,7 @@ class TestExportConfig:
 
     def test_default_config(self):
         """Test default configuration values."""
-        from nirs4all.data.synthetic import ExportConfig
+        from nirs4all.synthesis import ExportConfig
 
         config = ExportConfig()
         assert config.format == "standard"
@@ -28,7 +28,7 @@ class TestExportConfig:
 
     def test_custom_config(self):
         """Test custom configuration values."""
-        from nirs4all.data.synthetic import ExportConfig
+        from nirs4all.synthesis import ExportConfig
 
         config = ExportConfig(
             format="single",
@@ -56,7 +56,7 @@ class TestDatasetExporter:
 
     def test_init_default(self):
         """Test default initialization."""
-        from nirs4all.data.synthetic import DatasetExporter
+        from nirs4all.synthesis import DatasetExporter
 
         exporter = DatasetExporter()
         assert exporter.config.format == "standard"
@@ -64,7 +64,7 @@ class TestDatasetExporter:
 
     def test_init_with_config(self):
         """Test initialization with custom config."""
-        from nirs4all.data.synthetic import DatasetExporter, ExportConfig
+        from nirs4all.synthesis import DatasetExporter, ExportConfig
 
         config = ExportConfig(separator=",", float_precision=4)
         exporter = DatasetExporter(config)
@@ -73,7 +73,7 @@ class TestDatasetExporter:
 
     def test_to_folder_standard(self, tmp_path, sample_data):
         """Test export to standard folder structure."""
-        from nirs4all.data.synthetic import DatasetExporter
+        from nirs4all.synthesis import DatasetExporter
 
         X, y, wavelengths = sample_data
         exporter = DatasetExporter()
@@ -100,7 +100,7 @@ class TestDatasetExporter:
 
     def test_to_folder_single_format(self, tmp_path, sample_data):
         """Test export to single file format."""
-        from nirs4all.data.synthetic import DatasetExporter
+        from nirs4all.synthesis import DatasetExporter
 
         X, y, wavelengths = sample_data
         exporter = DatasetExporter()
@@ -125,7 +125,7 @@ class TestDatasetExporter:
 
     def test_to_folder_fragmented(self, tmp_path, sample_data):
         """Test export to fragmented format."""
-        from nirs4all.data.synthetic import DatasetExporter
+        from nirs4all.synthesis import DatasetExporter
 
         X, y, wavelengths = sample_data
         exporter = DatasetExporter()
@@ -149,7 +149,7 @@ class TestDatasetExporter:
 
     def test_to_csv(self, tmp_path, sample_data):
         """Test export to single CSV file."""
-        from nirs4all.data.synthetic import DatasetExporter
+        from nirs4all.synthesis import DatasetExporter
 
         X, y, wavelengths = sample_data
         exporter = DatasetExporter()
@@ -169,7 +169,7 @@ class TestDatasetExporter:
 
     def test_to_csv_without_targets(self, tmp_path, sample_data):
         """Test export to CSV without target column."""
-        from nirs4all.data.synthetic import DatasetExporter
+        from nirs4all.synthesis import DatasetExporter
 
         X, y, wavelengths = sample_data
         exporter = DatasetExporter()
@@ -187,7 +187,7 @@ class TestDatasetExporter:
 
     def test_to_numpy(self, tmp_path, sample_data):
         """Test export to numpy format."""
-        from nirs4all.data.synthetic import DatasetExporter
+        from nirs4all.synthesis import DatasetExporter
 
         X, y, wavelengths = sample_data
         exporter = DatasetExporter()
@@ -211,7 +211,7 @@ class TestDatasetExporter:
 
     def test_to_folder_validates_inputs(self, tmp_path):
         """Test that exporter validates input shapes."""
-        from nirs4all.data.synthetic import DatasetExporter
+        from nirs4all.synthesis import DatasetExporter
 
         X = np.random.random((100, 50))
         y = np.random.random(50)  # Wrong size
@@ -223,7 +223,7 @@ class TestDatasetExporter:
 
     def test_multitarget_export(self, tmp_path):
         """Test export with multiple target columns."""
-        from nirs4all.data.synthetic import DatasetExporter
+        from nirs4all.synthesis import DatasetExporter
 
         X = np.random.random((100, 50))
         y = np.random.random((100, 3))  # 3 targets
@@ -254,7 +254,7 @@ class TestCSVVariationGenerator:
 
     def test_generate_all_variations(self, tmp_path, sample_data):
         """Test generating all CSV variations."""
-        from nirs4all.data.synthetic import CSVVariationGenerator
+        from nirs4all.synthesis import CSVVariationGenerator
 
         X, y, wavelengths = sample_data
         generator = CSVVariationGenerator()
@@ -283,7 +283,7 @@ class TestCSVVariationGenerator:
 
     def test_semicolon_delimiter(self, tmp_path, sample_data):
         """Test semicolon delimiter export."""
-        from nirs4all.data.synthetic import CSVVariationGenerator
+        from nirs4all.synthesis import CSVVariationGenerator
 
         X, y, wavelengths = sample_data
         generator = CSVVariationGenerator()
@@ -300,7 +300,7 @@ class TestCSVVariationGenerator:
 
     def test_comma_delimiter(self, tmp_path, sample_data):
         """Test comma delimiter export."""
-        from nirs4all.data.synthetic import CSVVariationGenerator
+        from nirs4all.synthesis import CSVVariationGenerator
 
         X, y, wavelengths = sample_data
         generator = CSVVariationGenerator()
@@ -317,7 +317,7 @@ class TestCSVVariationGenerator:
 
     def test_tab_delimiter(self, tmp_path, sample_data):
         """Test tab delimiter export."""
-        from nirs4all.data.synthetic import CSVVariationGenerator
+        from nirs4all.synthesis import CSVVariationGenerator
 
         X, y, wavelengths = sample_data
         generator = CSVVariationGenerator()
@@ -333,7 +333,7 @@ class TestCSVVariationGenerator:
 
     def test_without_headers(self, tmp_path, sample_data):
         """Test export without headers."""
-        from nirs4all.data.synthetic import CSVVariationGenerator
+        from nirs4all.synthesis import CSVVariationGenerator
 
         X, y, _ = sample_data
         generator = CSVVariationGenerator()
@@ -349,7 +349,7 @@ class TestCSVVariationGenerator:
 
     def test_precision_levels(self, tmp_path, sample_data):
         """Test different precision levels."""
-        from nirs4all.data.synthetic import CSVVariationGenerator
+        from nirs4all.synthesis import CSVVariationGenerator
 
         X, y, wavelengths = sample_data
         generator = CSVVariationGenerator()
@@ -390,7 +390,7 @@ class TestExportFunctions:
 
     def test_export_to_folder(self, tmp_path, sample_data):
         """Test export_to_folder convenience function."""
-        from nirs4all.data.synthetic import export_to_folder
+        from nirs4all.synthesis import export_to_folder
 
         X, y, wavelengths = sample_data
 
@@ -407,7 +407,7 @@ class TestExportFunctions:
 
     def test_export_to_csv(self, tmp_path, sample_data):
         """Test export_to_csv convenience function."""
-        from nirs4all.data.synthetic import export_to_csv
+        from nirs4all.synthesis import export_to_csv
 
         X, y, wavelengths = sample_data
 
@@ -425,7 +425,7 @@ class TestBuilderExport:
 
     def test_builder_export(self, tmp_path):
         """Test export method on builder."""
-        from nirs4all.data.synthetic import SyntheticDatasetBuilder
+        from nirs4all.synthesis import SyntheticDatasetBuilder
 
         builder = SyntheticDatasetBuilder(n_samples=100, random_state=42)
         builder.with_features(complexity="simple")
@@ -438,7 +438,7 @@ class TestBuilderExport:
 
     def test_builder_export_to_csv(self, tmp_path):
         """Test export_to_csv method on builder."""
-        from nirs4all.data.synthetic import SyntheticDatasetBuilder
+        from nirs4all.synthesis import SyntheticDatasetBuilder
 
         builder = SyntheticDatasetBuilder(n_samples=100, random_state=42)
         builder.with_features(complexity="simple")
