@@ -170,9 +170,9 @@ class TestRunnerInitialization:
         """Test that workspace directories are created."""
         runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
 
-        assert (temp_workspace / "runs").exists()
+        # DuckDB storage: workspace path exists, store.duckdb created on first run
+        assert temp_workspace.exists()
         assert (temp_workspace / "exports").exists()
-        assert (temp_workspace / "library").exists()
 
     def test_random_state_initialization(self):
         """Test that random state is properly initialized."""
@@ -194,9 +194,8 @@ class TestRunnerInitialization:
         runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         assert runner.pipeline_uid is None
-        assert runner.current_run_dir is None
-        assert runner.saver is None
-        assert runner.manifest_manager is None
+        assert runner.saver is None  # Legacy: kept for predict/explain modes
+        assert runner.manifest_manager is None  # Legacy: kept for predict/explain modes
         assert runner.artifact_loader is None
         assert runner.target_model is None
         assert runner._capture_model is False
@@ -451,10 +450,9 @@ class TestRunMethod:
 
         assert run_predictions.num_predictions > 0
 
-        # Verify files were created
-        runs_dir = temp_workspace / "runs"
-        assert runs_dir.exists()
-        assert len(list(runs_dir.iterdir())) > 0
+        # DuckDB storage: verify store.duckdb was created
+        store_file = temp_workspace / "store.duckdb"
+        assert store_file.exists(), "store.duckdb should exist when saving artifacts"
 
     def test_run_keep_datasets_true(self, test_data_manager, temp_workspace):
         """Test that raw_data and pp_data are populated when keep_datasets=True."""
@@ -548,22 +546,12 @@ class TestWorkspaceManagement:
         runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         assert runner.workspace_path.exists()
-        assert (runner.workspace_path / "runs").exists()
 
     def test_custom_workspace_path(self, temp_workspace):
         """Test custom workspace path."""
         runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
 
         assert runner.workspace_path == temp_workspace
-        assert (temp_workspace / "runs").exists()
-
-    def test_runs_directory_creation(self, temp_workspace):
-        """Test that runs directory is created."""
-        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
-
-        runs_dir = temp_workspace / "runs"
-        assert runs_dir.exists()
-        assert runs_dir.is_dir()
 
     def test_exports_directory_creation(self, temp_workspace):
         """Test that exports directory is created."""
@@ -572,15 +560,15 @@ class TestWorkspaceManagement:
         exports_dir = temp_workspace / "exports"
         assert exports_dir.exists()
 
-    def test_library_directory_creation(self, temp_workspace):
-        """Test that library directory is created."""
+    def test_exports_directory_creation_workspace(self, temp_workspace):
+        """Test that exports directory is created."""
         runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
 
-        library_dir = temp_workspace / "library"
-        assert library_dir.exists()
+        exports_dir = temp_workspace / "exports"
+        assert exports_dir.exists()
 
-    def test_current_run_dir_set_during_run(self, test_data_manager, temp_workspace):
-        """Test that current_run_dir is set during run."""
+    def test_store_created_during_run(self, test_data_manager, temp_workspace):
+        """Test that store.duckdb is created during run."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
             save_artifacts=False, save_charts=False,
@@ -593,9 +581,9 @@ class TestWorkspaceManagement:
 
         runner.run(pipeline, dataset_path)
 
-        # After run, current_run_dir should be set
-        assert runner.current_run_dir is not None
-        assert runner.current_run_dir.exists()
+        # After run, store.duckdb should exist
+        store_file = temp_workspace / "store.duckdb"
+        assert store_file.exists()
 
 
 # ============================================================================
@@ -734,11 +722,10 @@ class TestIntegration:
         assert run_predictions.num_predictions > 0
         assert len(datasets_predictions) == 1
         assert runner.pipeline_uid is not None
-        assert runner.current_run_dir is not None
-        assert runner.current_run_dir.exists()
 
-        # Check that files were saved
-        assert (runner.current_run_dir / runner.pipeline_uid).exists()
+        # DuckDB storage: verify store.duckdb was created
+        store_file = temp_workspace / "store.duckdb"
+        assert store_file.exists()
 
         # Check that data was captured
         assert len(runner.raw_data) > 0

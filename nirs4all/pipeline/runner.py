@@ -6,9 +6,7 @@ PipelineOrchestrator and provides prediction/explanation capabilities via
 Predictor and Explainer classes.
 """
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
-
-import os
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -17,11 +15,13 @@ from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
-from nirs4all.pipeline.config.context import ExecutionContext
 from nirs4all.pipeline.execution.orchestrator import PipelineOrchestrator
 from nirs4all.pipeline.predictor import Predictor
 from nirs4all.pipeline.explainer import Explainer
-from nirs4all.pipeline.retrainer import Retrainer, RetrainMode, StepMode, ExtractedPipeline
+from nirs4all.pipeline.retrainer import Retrainer, StepMode, ExtractedPipeline
+
+if TYPE_CHECKING:
+    from nirs4all.pipeline.storage.library import PipelineLibrary
 
 
 def _get_default_workspace_path() -> Path:
@@ -48,13 +48,12 @@ def init_global_random_state(seed: Optional[int] = None):
     Args:
         seed: Random seed value. If None, uses default seed of 42 for TensorFlow and PyTorch.
     """
-    import numpy as np
     import random
-    import os
 
     if seed is not None:
         np.random.seed(seed)
         random.seed(seed)
+        import os
         os.environ['PYTHONHASHSEED'] = str(seed)
 
     try:
@@ -238,9 +237,7 @@ class PipelineRunner:
         self.substep_number: int = -1
         self.operation_count: int = 0
 
-        # Runtime components (set by executor during execution)
-        self.saver: Any = None  # SimulationSaver
-        self.manifest_manager: Any = None  # ManifestManager
+        # Runtime components (set during execution)
         self.artifact_loader: Any = None  # ArtifactLoader for predict/explain modes
         self.pipeline_uid: Optional[str] = None  # Current pipeline UID
         self.target_model: Optional[Dict] = None  # Target model for predict/explain modes
@@ -289,16 +286,11 @@ class PipelineRunner:
             self.pp_data = self.orchestrator.pp_data
         self._figure_refs = self.orchestrator._figure_refs
 
-        # Sync runtime components from last executed pipeline
-        if self.orchestrator.last_saver is not None:
-            self.saver = self.orchestrator.last_saver
+        # Sync pipeline UID from last executed pipeline
         if self.orchestrator.last_pipeline_uid is not None:
             self.pipeline_uid = self.orchestrator.last_pipeline_uid
-        if self.orchestrator.last_manifest_manager is not None:
-            self.manifest_manager = self.orchestrator.last_manifest_manager
 
         # Sync execution state from last executor (via orchestrator)
-        # Note: These values come from the last executed pipeline
         if hasattr(self.orchestrator, 'last_executor'):
             if self.orchestrator.last_executor:
                 self.step_number = self.orchestrator.last_executor.step_number
@@ -383,52 +375,23 @@ class PipelineRunner:
             plots_visible=plots_visible
         )
 
-    def export_best_for_dataset(
-        self,
-        dataset_name: str,
-        mode: str = "predictions"
-    ) -> Optional[Path]:
-        """Export best results for a dataset to exports/ folder.
-
-        Args:
-            dataset_name: Name of the dataset to export
-            mode: Export mode ('predictions' or other)
-
-        Returns:
-            Path to exported file, or None if export failed
-        """
-        saver = self.saver or getattr(self.predictor, 'saver', None) or getattr(self.explainer, 'saver', None)
-        if saver is None:
-            raise ValueError("No saver configured. Run a pipeline first.")
-
-        return saver.export_best_for_dataset(
-            dataset_name,
-            self.workspace_path,
-            self.orchestrator.runs_dir,
-            mode
-        )
-
     @property
-    def current_run_dir(self) -> Optional[Path]:
-        """Get current run directory.
+    def store(self) -> Any:
+        """Get the WorkspaceStore from the orchestrator.
 
         Returns:
-            Path to current run directory, or None if not set
+            WorkspaceStore instance for DuckDB-backed persistence
         """
-        if self.saver and hasattr(self.saver, 'base_path'):
-            return self.saver.base_path
-        # Fallback for predictor/explainer modes
-        saver = getattr(self.predictor, 'saver', None) or getattr(self.explainer, 'saver', None)
-        return getattr(saver, 'base_path', None) if saver else None
+        return self.orchestrator.store
 
     @property
     def runs_dir(self) -> Path:
-        """Get runs directory.
+        """Get runs directory (legacy compatibility).
 
         Returns:
-            Path to runs directory in workspace
+            Path to workspace root (runs are now in DuckDB, not filesystem)
         """
-        return self.orchestrator.runs_dir
+        return self.workspace_path
 
     @property
     def last_aggregate(self) -> Optional[str]:
@@ -463,7 +426,7 @@ class PipelineRunner:
         """Get aggregate exclude_outliers setting from the last executed dataset.
 
         Returns:
-            True if T² outlier exclusion was enabled, False otherwise.
+            True if T-squared outlier exclusion was enabled, False otherwise.
         """
         return self._last_aggregate_exclude_outliers
 
@@ -505,11 +468,6 @@ class PipelineRunner:
         Supported formats:
             - 'n4a': Full bundle (ZIP archive with artifacts and metadata)
             - 'n4a.py': Portable Python script with embedded artifacts
-
-        Phase 6 Feature:
-            This method enables exporting trained pipelines as standalone
-            bundles that can be loaded and used for prediction without
-            the original workspace structure.
 
         Args:
             source: Prediction source to export. Can be:
@@ -570,11 +528,6 @@ class PipelineRunner:
         artifacts and metadata, this method exports just the model binary.
         This is useful when you want a lightweight model file that can be
         loaded directly into other pipelines or used with external tools.
-
-        The output format is determined by the file extension or can be
-        specified explicitly. The model can then be reloaded using:
-        - Direct path in pipeline config: {"model": "path/to/model.joblib"}
-        - As prediction source: runner.predict("path/to/model.joblib", data)
 
         Args:
             source: Prediction source to export from. Can be:
@@ -696,39 +649,19 @@ class PipelineRunner:
         - transfer: Use existing preprocessing artifacts, train new model
         - finetune: Continue training existing model with new data
 
-        Phase 7 Feature:
-            This method enables retraining pipelines without having to
-            reconstruct the pipeline configuration manually. It uses the
-            resolved prediction source (from Phase 3/4) to extract the
-            pipeline structure and optionally reuse preprocessing artifacts.
-
         Args:
-            source: Prediction source to retrain from. Can be:
-                - prediction dict: From a previous run's Predictions object
-                - folder path: Path to a pipeline directory
-                - Run object: Best prediction from a Run
-                - artifact_id: Direct artifact reference
-                - bundle: Exported prediction bundle (.n4a)
+            source: Prediction source to retrain from.
             dataset: New dataset to train on. Supports same formats as run()
-            mode: Retrain mode:
-                - 'full': Train everything from scratch (same pipeline structure)
-                - 'transfer': Use existing preprocessing, train new model
-                - 'finetune': Continue training existing model
+            mode: Retrain mode ('full', 'transfer', 'finetune')
             dataset_name: Name for the dataset if array-based
             new_model: Optional new model for transfer mode (replaces original)
             epochs: Optional epochs for fine-tuning
             step_modes: Optional per-step mode overrides for fine-grained control
             verbose: Verbosity level
-            **kwargs: Additional parameters:
-                - learning_rate: Learning rate for fine-tuning
-                - freeze_layers: List of layers to freeze during fine-tuning
+            **kwargs: Additional parameters
 
         Returns:
             Tuple of (run_predictions, datasets_predictions)
-
-        Raises:
-            ValueError: If mode is invalid or source cannot be resolved
-            FileNotFoundError: If source references files that don't exist
 
         Example:
             >>> runner = PipelineRunner()
@@ -737,27 +670,6 @@ class PipelineRunner:
             >>>
             >>> # Full retrain on new data
             >>> new_preds, _ = runner.retrain(best_pred, new_data, mode='full')
-            >>>
-            >>> # Transfer: use preprocessing from old model, train new one
-            >>> new_preds, _ = runner.retrain(
-            ...     best_pred, new_data, mode='transfer',
-            ...     new_model=XGBRegressor()
-            ... )
-            >>>
-            >>> # Finetune: continue training existing model
-            >>> new_preds, _ = runner.retrain(
-            ...     best_pred, new_data, mode='finetune', epochs=10
-            ... )
-            >>>
-            >>> # Fine-grained control: specify per-step modes
-            >>> from nirs4all.pipeline import StepMode
-            >>> step_modes = [
-            ...     StepMode(step_index=1, mode='predict'),  # Use existing
-            ...     StepMode(step_index=2, mode='train'),    # Retrain
-            ... ]
-            >>> new_preds, _ = runner.retrain(
-            ...     best_pred, new_data, mode='full', step_modes=step_modes
-            ... )
         """
         return self.retrainer.retrain(
             source=source,
@@ -781,25 +693,12 @@ class PipelineRunner:
         ExtractedPipeline object that can be inspected, modified, and then
         executed with runner.run().
 
-        Phase 7 Feature:
-            This method enables extracting and modifying trained pipelines
-            without retraining from scratch.
-
         Args:
-            source: Prediction source to extract. Can be:
-                - prediction dict: From a previous run's Predictions object
-                - folder path: Path to a pipeline directory
-                - Run object: Best prediction from a Run
-                - artifact_id: Direct artifact reference
-                - bundle: Exported prediction bundle (.n4a)
+            source: Prediction source to extract.
 
         Returns:
-            ExtractedPipeline object with:
-                - steps: List of pipeline steps (can be modified)
-                - trace: Original execution trace (read-only)
-                - artifact_provider: Provider for original artifacts
-                - model_step_index: Index of the model step
-                - preprocessing_chain: Summary of preprocessing
+            ExtractedPipeline object with steps, trace, artifact_provider,
+            model_step_index, and preprocessing_chain.
 
         Example:
             >>> runner = PipelineRunner()
@@ -809,13 +708,5 @@ class PipelineRunner:
             >>> # Extract for inspection
             >>> extracted = runner.extract(best_pred)
             >>> print(f"Steps: {len(extracted.steps)}")
-            >>> print(f"Preprocessing: {extracted.preprocessing_chain}")
-            >>>
-            >>> # Modify and run
-            >>> from sklearn.ensemble import RandomForestRegressor
-            >>> extracted.set_model(RandomForestRegressor())
-            >>> new_preds, _ = runner.run(extracted.steps, new_data)
         """
         return self.retrainer.extract(source, verbose=self.verbose)
-
-

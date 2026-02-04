@@ -224,16 +224,9 @@ class FeatureSelectionController(OperatorController):
                 source_processing_names.append(processing_name)
                 source_selectors.append(selector)
 
-                # Persist fitted selector using serializer
+                # Persist fitted selector
                 if mode == "train":
-                    artifact = runtime_context.saver.persist_artifact(
-                        step_number=runtime_context.step_number,
-                        name=new_operator_name,
-                        obj=selector,
-                        format_hint='sklearn',
-                        branch_id=context.selector.branch_id,
-                        branch_name=context.selector.branch_name
-                    )
+                    artifact = (selector, new_operator_name, "sklearn")
                     fitted_selectors.append(artifact)
 
             # Determine new headers based on selected indices

@@ -19,7 +19,7 @@ Usage:
     >>> from nirs4all.pipeline.trace import TraceBasedExtractor, ExecutionTrace
     >>>
     >>> # Load trace from manifest
-    >>> trace = manifest_manager.load_execution_trace(pipeline_uid, trace_id)
+    >>> trace = ExecutionTrace.from_dict(trace_dict)
     >>>
     >>> # Extract minimal pipeline
     >>> extractor = TraceBasedExtractor()
@@ -255,7 +255,7 @@ class TraceBasedExtractor:
 
     Example:
         >>> extractor = TraceBasedExtractor()
-        >>> trace = manifest_manager.load_execution_trace(pipeline_uid, trace_id)
+        >>> trace = ExecutionTrace.from_dict(trace_dict)
         >>> minimal = extractor.extract(trace, full_pipeline_steps)
         >>> print(f"Minimal pipeline has {minimal.get_step_count()} steps")
     """

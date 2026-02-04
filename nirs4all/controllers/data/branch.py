@@ -807,13 +807,8 @@ class BranchController(OperatorController):
 
         # Persist filter for prediction mode
         all_artifacts = []
-        if mode == "train" and runtime_context.saver is not None:
-            artifact = runtime_context.saver.persist_artifact(
-                step_number=runtime_context.step_number,
-                name=f"branch_filter_{runtime_context.next_op()}",
-                obj=filter_obj,
-                format_hint='sklearn',
-            )
+        if mode == "train":
+            artifact = (filter_obj, f"branch_filter_{runtime_context.next_op()}", "sklearn")
             all_artifacts.append(artifact)
 
         result_context, output = self._execute_separation_branches(

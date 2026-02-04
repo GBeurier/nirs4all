@@ -65,7 +65,7 @@ def mock_predictions():
 def mock_runner():
     """Create a mock PipelineRunner."""
     runner = Mock()
-    runner.current_run_dir = Path('/tmp/runs/run_001')
+    runner.workspace_path = Path('/tmp/workspace')
     runner.export.return_value = Path('/tmp/exports/model.n4a')
     runner.export_model.return_value = Path('/tmp/exports/model.joblib')
     return runner
@@ -153,8 +153,8 @@ class TestRunResult:
         assert result.best_accuracy == 0.88
 
     def test_artifacts_path(self, run_result):
-        """Test artifacts_path returns runner's current_run_dir."""
-        assert run_result.artifacts_path == Path('/tmp/runs/run_001')
+        """Test artifacts_path returns runner's workspace_path."""
+        assert run_result.artifacts_path == Path('/tmp/workspace')
 
     def test_artifacts_path_no_runner(self, mock_predictions):
         """Test artifacts_path returns None when no runner."""

@@ -108,7 +108,7 @@ nitpick_ignore = [
     ('py:class', 'PipelineLibrary'),
     ('py:class', 'ExecutionTrace'),
     ('py:class', 'BundleLoader'),
-    ('py:class', 'ArtifactRegistry'),
+    ('py:class', 'WorkspaceStore'),
     # nirs4all.api module re-exports
     ('py:class', 'RunResult'),
     # nirs4all.operators.models module re-exports

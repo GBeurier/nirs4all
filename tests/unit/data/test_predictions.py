@@ -31,8 +31,8 @@ class TestPredictions:
         """Test Predictions initialization."""
         predictions = Predictions()
         assert predictions is not None
-        # Test that storage is initialized
-        assert predictions._storage is not None
+        # Test that buffer is initialized
+        assert predictions._buffer is not None
 
     def test_add_single_prediction(self, base_prediction_params):
         """Test adding a single prediction."""
@@ -217,7 +217,7 @@ class TestPredictions:
         """Test operations on empty predictions."""
         predictions = Predictions()
 
-        assert len(predictions.top(1, metric="test_score")) == 0
+        assert len(predictions.top(1, rank_metric="test_score")) == 0
         assert len(predictions.filter_predictions(partition="test")) == 0
 
     def test_catalog_unique_models(self, base_prediction_params):

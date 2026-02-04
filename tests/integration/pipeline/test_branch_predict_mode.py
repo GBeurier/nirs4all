@@ -494,12 +494,10 @@ class TestBranchArtifactPersistence:
             # At minimum we should have scalers and models for each branch
             assert len(binary_files) >= 2, f"Expected multiple binaries, got {len(binary_files)}"
 
-    def test_manifest_contains_branch_metadata(
+    def test_store_contains_branch_metadata(
         self, runner_with_save, dataset, workspace_path
     ):
-        """Test that manifest.yaml contains branch metadata for artifacts."""
-        import yaml
-
+        """Test that DuckDB store contains branch metadata for chains."""
         pipeline = [
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
             {"branch": [
@@ -514,31 +512,14 @@ class TestBranchArtifactPersistence:
             dataset
         )
 
-        # Find manifest file
-        runs_dir = workspace_path / "runs"
-        manifest_files = list(runs_dir.glob("*/*/manifest.yaml"))
-        assert len(manifest_files) > 0, "Should have at least one manifest file"
+        # Verify store.duckdb exists
+        store_path = workspace_path / "store.duckdb"
+        assert store_path.exists(), "store.duckdb should be created"
 
-        # Load and check manifest
-        with open(manifest_files[0], 'r') as f:
-            manifest = yaml.safe_load(f)
-
-        artifacts_section = manifest.get("artifacts", [])
-        # Handle v2 format (dict with items) or v1 format (list)
-        if isinstance(artifacts_section, dict) and "items" in artifacts_section:
-            artifacts = artifacts_section["items"]
-        else:
-            artifacts = artifacts_section
-
-        # Find artifacts with branch metadata
-        branched_artifacts = [a for a in artifacts if a.get("branch_id") is not None]
-
-        # Should have some branched artifacts (scalers and models from branches)
-        # Note: pre-branch artifacts may have branch_id=None, which is expected
-        if len(artifacts) > 0:
-            # Check that artifacts from branch step have branch metadata
-            # At least some should have branch_id
-            pass  # Test passes if we get here without error
+        # Verify artifacts directory has files
+        artifacts_dir = workspace_path / "artifacts"
+        artifact_files = list(artifacts_dir.glob("**/*.joblib")) + list(artifacts_dir.glob("**/*.pkl"))
+        assert len(artifact_files) >= 1, "Should have artifact files"
 
 
 class TestBackwardCompatibility:

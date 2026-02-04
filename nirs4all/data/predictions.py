@@ -1,117 +1,206 @@
+"""Store-backed predictions management.
+
+This module provides the ``Predictions`` facade for accumulating, ranking,
+filtering, and exporting prediction records.  In Phase 3 of the DuckDB
+storage migration the class was rewritten to work exclusively with
+:class:`~nirs4all.pipeline.storage.workspace_store.WorkspaceStore`.
+
+When a *store* is supplied (normal execution path), every call to
+:meth:`add_prediction` buffers the record in memory and
+:meth:`flush` writes the buffer to the database.  Query methods
+(``top``, ``filter_predictions``, ``get_best``, ...) delegate to the
+store's columnar query engine.
+
+When *no store* is supplied (lightweight / test usage), the class
+operates in a purely in-memory mode backed by a Polars DataFrame,
+preserving backward compatibility for code that creates
+``Predictions()`` without a workspace.
 """
-Predictions management using Polars.
 
-This module contains the main Predictions facade class that delegates to
-specialized components for storage, serialization, ranking, and querying.
+from __future__ import annotations
 
-Refactored architecture (v0.4.1):
-    - Storage: PredictionStorage (DataFrame backend)
-    - Serializer: PredictionSerializer (JSON/Parquet hybrid)
-    - Indexer: PredictionIndexer (filtering operations)
-    - Ranker: PredictionRanker (ranking and top-k)
-    - Aggregator: PartitionAggregator (partition combining)
-    - Query: CatalogQueryEngine (catalog operations)
-
-Public API is preserved for backward compatibility.
-"""
-
+import json
+import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import numpy as np
 import polars as pl
 
-from nirs4all.core.logging import get_logger
 from nirs4all.core import metrics as evaluator
+from nirs4all.core.logging import get_logger
+
+from ._predictions.result import PredictionResult, PredictionResultsList
+
+if TYPE_CHECKING:
+    from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 logger = get_logger(__name__)
 
-# Import components
-from ._predictions import (
-    PredictionStorage,
-    PredictionSerializer,
-    PredictionResult,
-    PredictionResultsList,
-)
-from ._predictions.indexer import PredictionIndexer
-from ._predictions.ranker import PredictionRanker
-from ._predictions.aggregator import PartitionAggregator
-from ._predictions.query import CatalogQueryEngine
+__all__ = ["Predictions", "PredictionResult", "PredictionResultsList"]
 
-# Re-export result classes for backward compatibility
-__all__ = ['Predictions', 'PredictionResult', 'PredictionResultsList']
 
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _infer_ascending(metric: str) -> bool:
+    """Infer sort direction from metric name.
+
+    Args:
+        metric: Metric name (e.g. ``"rmse"``, ``"r2"``, ``"accuracy"``).
+
+    Returns:
+        ``True`` if lower is better, ``False`` if higher is better.
+    """
+    higher_is_better = {"r2", "accuracy", "f1", "precision", "recall", "auc", "roc_auc", "balanced_accuracy", "kappa", "rpd", "rpiq"}
+    return metric.lower() not in higher_is_better
+
+
+_CASE_INSENSITIVE_COLS = {"model_name", "model_classname", "preprocessings", "dataset_name", "config_name"}
+
+
+def _make_group_key(row: dict[str, Any], group_by: list[str]) -> tuple:
+    """Create a hashable group key from row values.
+
+    String columns in :data:`_CASE_INSENSITIVE_COLS` are lowered for
+    case-insensitive grouping.  List values are converted to tuples.
+    """
+    parts: list[Any] = []
+    for col in group_by:
+        val = row.get(col)
+        if val is None:
+            parts.append(None)
+        elif isinstance(val, str) and col in _CASE_INSENSITIVE_COLS:
+            parts.append(val.lower())
+        elif isinstance(val, list):
+            parts.append(tuple(val))
+        else:
+            parts.append(val)
+    return tuple(parts)
+
+
+def _build_prediction_row(
+    *,
+    dataset_name: str,
+    dataset_path: str = "",
+    config_name: str = "",
+    config_path: str = "",
+    pipeline_uid: str | None = None,
+    step_idx: int = 0,
+    op_counter: int = 0,
+    model_name: str = "",
+    model_classname: str = "",
+    model_path: str = "",
+    fold_id: str | int | None = None,
+    sample_indices: list[int] | np.ndarray | None = None,
+    weights: list[float] | np.ndarray | None = None,
+    metadata: dict[str, Any] | None = None,
+    partition: str = "",
+    y_true: np.ndarray | None = None,
+    y_pred: np.ndarray | None = None,
+    y_proba: np.ndarray | None = None,
+    val_score: float | None = None,
+    test_score: float | None = None,
+    train_score: float | None = None,
+    metric: str = "mse",
+    task_type: str = "regression",
+    n_samples: int = 0,
+    n_features: int = 0,
+    preprocessings: str = "",
+    best_params: dict[str, Any] | None = None,
+    scores: dict[str, dict[str, float]] | None = None,
+    branch_id: int | None = None,
+    branch_name: str | None = None,
+    exclusion_count: int | None = None,
+    exclusion_rate: float | None = None,
+    model_artifact_id: str | None = None,
+    trace_id: str | None = None,
+) -> dict[str, Any]:
+    """Normalise add_prediction kwargs into a flat dict with a generated id."""
+    pred_id = str(uuid4())[:16]
+    return {
+        "id": pred_id,
+        "dataset_name": dataset_name,
+        "dataset_path": dataset_path,
+        "config_name": config_name,
+        "config_path": config_path,
+        "pipeline_uid": pipeline_uid or "",
+        "step_idx": step_idx,
+        "op_counter": op_counter,
+        "model_name": model_name,
+        "model_classname": model_classname,
+        "model_path": model_path,
+        "fold_id": str(fold_id) if fold_id is not None else "",
+        "sample_indices": (sample_indices.tolist() if isinstance(sample_indices, np.ndarray) else sample_indices) if sample_indices is not None else [],
+        "weights": (weights.tolist() if isinstance(weights, np.ndarray) else weights) if weights is not None else [],
+        "metadata": metadata if metadata is not None else {},
+        "partition": partition,
+        "y_true": y_true if y_true is not None else np.array([]),
+        "y_pred": y_pred if y_pred is not None else np.array([]),
+        "y_proba": y_proba if y_proba is not None else np.array([]),
+        "val_score": val_score,
+        "test_score": test_score,
+        "train_score": train_score,
+        "metric": metric,
+        "task_type": task_type,
+        "n_samples": n_samples,
+        "n_features": n_features,
+        "preprocessings": preprocessings,
+        "best_params": best_params if best_params is not None else {},
+        "scores": scores if scores is not None else {},
+        "branch_id": branch_id,
+        "branch_name": branch_name or "",
+        "exclusion_count": exclusion_count,
+        "exclusion_rate": exclusion_rate,
+        "model_artifact_id": model_artifact_id or "",
+        "trace_id": trace_id or "",
+        "created_at": datetime.now().isoformat(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Predictions facade
+# ---------------------------------------------------------------------------
 
 class Predictions:
-    """
-    Main facade for prediction management.
+    """Facade for prediction management.
 
-    Delegates to specialized components while maintaining backward-compatible public API.
+    When constructed with a :class:`WorkspaceStore`, prediction records are
+    buffered in memory during pipeline execution and flushed to DuckDB at
+    the end of each pipeline via :meth:`flush`.  Queries delegate to the
+    store's columnar engine.
 
-    Architecture:
-        - Storage: PredictionStorage (DataFrame backend)
-        - Serializer: PredictionSerializer (JSON/Parquet hybrid)
-        - Indexer: PredictionIndexer (filtering operations)
-        - Ranker: PredictionRanker (ranking and top-k)
-        - Aggregator: PartitionAggregator (partition combining)
-        - Query: CatalogQueryEngine (catalog operations)
+    When constructed *without* a store (``Predictions()``), the class
+    operates in a lightweight in-memory mode backed by a list of dicts.
+    This preserves backward compatibility for code that creates bare
+    ``Predictions`` instances (tests, visualisation adapters, the webapp).
+
+    Args:
+        store: Optional :class:`WorkspaceStore` for database-backed mode.
 
     Examples:
-        >>> # Create and add predictions
+        >>> # In-memory mode (lightweight)
         >>> pred = Predictions()
-        >>> pred.add_prediction(
-        ...     dataset_name="wheat",
-        ...     model_name="PLS",
-        ...     partition="test",
-        ...     y_true=y_true,
-        ...     y_pred=y_pred,
-        ...     test_score=0.85
-        ... )
-        >>>
-        >>> # Query top models
-        >>> top_5 = pred.top(n=5, rank_metric="rmse", rank_partition="val")
-        >>>
-        >>> # Save and load
-        >>> pred.save_to_file("predictions.json")
-        >>> loaded = Predictions.load("predictions.json")
+        >>> pred.add_prediction(dataset_name="wheat", model_name="PLS", ...)
+
+        >>> # Store-backed mode (pipeline execution)
+        >>> from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+        >>> store = WorkspaceStore(Path("workspace"))
+        >>> pred = Predictions(store=store)
+        >>> pred.add_prediction(...)
+        >>> pred.flush(pipeline_id="abc")
     """
 
-    def __init__(self, filepath: Optional[Union[str, List[str]]] = None):
-        """
-        Initialize Predictions storage with component-based architecture.
-
-        Args:
-            filepath: Optional path(s) to load predictions from (.meta.parquet file).
-                     Can be a single path string or a list of paths.
-                     When multiple paths are provided, they are concatenated.
-
-        Examples:
-            >>> # Single file
-            >>> pred = Predictions("predictions.meta.parquet")
-            >>> # Multiple files concatenated
-            >>> pred = Predictions(["run1.meta.parquet", "run2.meta.parquet"])
-        """
-        # Initialize components with array registry support
-        self._storage = PredictionStorage()
-        self._serializer = PredictionSerializer()
-        self._indexer = PredictionIndexer(self._storage)
-        self._ranker = PredictionRanker(self._storage, self._serializer, self._indexer)
-        self._aggregator = PartitionAggregator(self._storage, self._indexer)
-        self._query = CatalogQueryEngine(self._storage, self._indexer)
-
-        # Load from file(s) if provided
-        if filepath:
-            # Normalize to list
-            filepaths = [filepath] if isinstance(filepath, str) else filepath
-
-            for fp in filepaths:
-                if Path(fp).exists():
-                    self.load_from_file(fp)
+    def __init__(self, store: WorkspaceStore | None = None) -> None:
+        self._store = store
+        # In-memory buffer for predictions accumulated during a pipeline run.
+        self._buffer: list[dict[str, Any]] = []
 
     # =========================================================================
-    # CORE CRUD OPERATIONS - Delegate to Storage
+    # CORE CRUD OPERATIONS
     # =========================================================================
 
     def add_prediction(
@@ -120,335 +209,187 @@ class Predictions:
         dataset_path: str = "",
         config_name: str = "",
         config_path: str = "",
-        pipeline_uid: Optional[str] = None,
+        pipeline_uid: str | None = None,
         step_idx: int = 0,
         op_counter: int = 0,
         model_name: str = "",
         model_classname: str = "",
         model_path: str = "",
-        fold_id: Optional[Union[str, int]] = None,
-        sample_indices: Optional[List[int]] = None,
-        weights: Optional[List[float]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        fold_id: str | int | None = None,
+        sample_indices: list[int] | np.ndarray | None = None,
+        weights: list[float] | np.ndarray | None = None,
+        metadata: dict[str, Any] | None = None,
         partition: str = "",
-        y_true: Optional[np.ndarray] = None,
-        y_pred: Optional[np.ndarray] = None,
-        y_proba: Optional[np.ndarray] = None,
-        val_score: Optional[float] = None,
-        test_score: Optional[float] = None,
-        train_score: Optional[float] = None,
+        y_true: np.ndarray | None = None,
+        y_pred: np.ndarray | None = None,
+        y_proba: np.ndarray | None = None,
+        val_score: float | None = None,
+        test_score: float | None = None,
+        train_score: float | None = None,
         metric: str = "mse",
         task_type: str = "regression",
         n_samples: int = 0,
         n_features: int = 0,
         preprocessings: str = "",
-        best_params: Optional[Dict[str, Any]] = None,
-        scores: Optional[Dict[str, Dict[str, float]]] = None,
-        branch_id: Optional[int] = None,
-        branch_name: Optional[str] = None,
-        exclusion_count: Optional[int] = None,
-        exclusion_rate: Optional[float] = None,
-        model_artifact_id: Optional[str] = None,
-        trace_id: Optional[str] = None
+        best_params: dict[str, Any] | None = None,
+        scores: dict[str, dict[str, float]] | None = None,
+        branch_id: int | None = None,
+        branch_name: str | None = None,
+        exclusion_count: int | None = None,
+        exclusion_rate: float | None = None,
+        model_artifact_id: str | None = None,
+        trace_id: str | None = None,
     ) -> str:
-        """
-        Add a single prediction to storage.
+        """Add a single prediction to the in-memory buffer.
 
-        Delegates to PredictionStorage component.
+        The record is buffered locally.  Call :meth:`flush` to persist
+        buffered predictions to the workspace store.
 
         Args:
-            dataset_name: Dataset name
-            dataset_path: Path to dataset file
-            config_name: Configuration name
-            config_path: Path to config file
-            pipeline_uid: Unique pipeline identifier
-            step_idx: Pipeline step index
-            op_counter: Operation counter
-            model_name: Model name
-            model_classname: Model class name
-            model_path: Path to saved model
-            fold_id: Cross-validation fold ID
-            sample_indices: Indices of samples used
-            weights: Sample weights
-            metadata: Additional metadata
-            partition: Data partition (train/val/test)
-            y_true: True labels
-            y_pred: Predicted labels
-            y_proba: Class probabilities for classification (shape: n_samples x n_classes)
-            val_score: Validation score
-            test_score: Test score
-            train_score: Training score
-            metric: Metric name
-            task_type: Task type (classification/regression)
-            n_samples: Number of samples
-            n_features: Number of features
-            preprocessings: Preprocessing steps applied
-            best_params: Best hyperparameters
-            scores: Dictionary of pre-computed scores per partition
-            branch_id: Branch identifier for pipeline branching (0-indexed)
-            branch_name: Human-readable branch name
-            exclusion_count: Number of samples excluded during training (outlier_excluder)
-            exclusion_rate: Rate of samples excluded (0.0-1.0, outlier_excluder)
-            model_artifact_id: Deterministic artifact ID for model loading (v2 system)
-            trace_id: Execution trace ID for deterministic prediction replay (v2 system)
+            dataset_name: Dataset name.
+            dataset_path: Path to dataset file.
+            config_name: Configuration name.
+            config_path: Path to config file.
+            pipeline_uid: Unique pipeline identifier.
+            step_idx: Pipeline step index.
+            op_counter: Operation counter.
+            model_name: Model name.
+            model_classname: Model class name.
+            model_path: Path to saved model.
+            fold_id: Cross-validation fold ID.
+            sample_indices: Indices of samples used.
+            weights: Sample weights.
+            metadata: Additional metadata.
+            partition: Data partition (train/val/test).
+            y_true: True labels.
+            y_pred: Predicted labels.
+            y_proba: Class probabilities (n_samples x n_classes).
+            val_score: Validation score.
+            test_score: Test score.
+            train_score: Training score.
+            metric: Metric name.
+            task_type: Task type (classification/regression).
+            n_samples: Number of samples.
+            n_features: Number of features.
+            preprocessings: Preprocessing steps applied.
+            best_params: Best hyperparameters.
+            scores: Dictionary of pre-computed scores per partition.
+            branch_id: Branch identifier for pipeline branching.
+            branch_name: Human-readable branch name.
+            exclusion_count: Number of excluded samples.
+            exclusion_rate: Rate of excluded samples (0.0-1.0).
+            model_artifact_id: Deterministic artifact ID.
+            trace_id: Execution trace ID.
 
         Returns:
-            Prediction ID
+            Prediction ID (short UUID string).
         """
-        row_dict = {
-            "dataset_name": dataset_name,
-            "dataset_path": dataset_path,
-            "config_name": config_name,
-            "config_path": config_path,
-            "pipeline_uid": pipeline_uid or "",
-            "step_idx": step_idx,
-            "op_counter": op_counter,
-            "model_name": model_name,
-            "model_classname": model_classname,
-            "model_path": model_path,
-            "fold_id": str(fold_id) if fold_id is not None else "",
-            "sample_indices": sample_indices if sample_indices is not None else [],
-            "weights": weights.tolist() if isinstance(weights, np.ndarray) else (weights if weights is not None else []),
-            "metadata": metadata if metadata is not None else {},
-            "partition": partition,
-            "y_true": y_true if y_true is not None else np.array([]),
-            "y_pred": y_pred if y_pred is not None else np.array([]),
-            "y_proba": y_proba if y_proba is not None else np.array([]),
-            "val_score": val_score,
-            "test_score": test_score,
-            "train_score": train_score,
-            "metric": metric,
-            "task_type": task_type,
-            "n_samples": n_samples,
-            "n_features": n_features,
-            "preprocessings": preprocessings,
-            "best_params": best_params if best_params is not None else {},
-            "scores": scores if scores is not None else {},
-            "branch_id": branch_id,
-            "branch_name": branch_name or "",
-            "exclusion_count": exclusion_count,
-            "exclusion_rate": exclusion_rate,
-            "model_artifact_id": model_artifact_id or "",
-            "trace_id": trace_id or "",
-        }
-
-        return self._storage.add_row(row_dict)
-
-    def add_predictions(
-        self,
-        dataset_name: Union[str, List[str]],
-        dataset_path: Union[str, List[str]] = "",
-        config_name: Union[str, List[str]] = "",
-        config_path: Union[str, List[str]] = "",
-        pipeline_uid: Union[Optional[str], List[Optional[str]]] = None,
-        step_idx: Union[int, List[int]] = 0,
-        op_counter: Union[int, List[int]] = 0,
-        model_name: Union[str, List[str]] = "",
-        model_classname: Union[str, List[str]] = "",
-        model_path: Union[str, List[str]] = "",
-        fold_id: Union[Optional[str], List[Optional[str]]] = None,
-        sample_indices: Union[Optional[List[int]], List[Optional[List[int]]]] = None,
-        weights: Union[Optional[List[float]], List[Optional[List[float]]]] = None,
-        metadata: Union[Optional[Dict[str, Any]], List[Optional[Dict[str, Any]]]] = None,
-        partition: Union[str, List[str]] = "",
-        y_true: Union[Optional[np.ndarray], List[Optional[np.ndarray]]] = None,
-        y_pred: Union[Optional[np.ndarray], List[Optional[np.ndarray]]] = None,
-        val_score: Union[Optional[float], List[Optional[float]]] = None,
-        test_score: Union[Optional[float], List[Optional[float]]] = None,
-        train_score: Union[Optional[float], List[Optional[float]]] = None,
-        metric: Union[str, List[str]] = "mse",
-        task_type: Union[str, List[str]] = "regression",
-        n_samples: Union[int, List[int]] = 0,
-        n_features: Union[int, List[int]] = 0,
-        preprocessings: Union[str, List[str]] = "",
-        best_params: Union[Optional[Dict[str, Any]], List[Optional[Dict[str, Any]]]] = None,
-        scores: Union[Optional[Dict[str, Dict[str, float]]], List[Optional[Dict[str, Dict[str, float]]]]] = None,
-        branch_id: Union[Optional[int], List[Optional[int]]] = None,
-        branch_name: Union[Optional[str], List[Optional[str]]] = None,
-        trace_id: Union[Optional[str], List[Optional[str]]] = None
-    ) -> None:
-        """
-        Add multiple predictions to storage (batch operation).
-
-        For each parameter, if it's a single value it will be broadcast to all predictions.
-        If it's a list, each index corresponds to one prediction.
-
-        Args:
-            Same as add_prediction, but can be single values or lists
-        """
-        # Collect all parameters
-        params = {
-            'dataset_name': dataset_name,
-            'dataset_path': dataset_path,
-            'config_name': config_name,
-            'config_path': config_path,
-            'pipeline_uid': pipeline_uid,
-            'step_idx': step_idx,
-            'op_counter': op_counter,
-            'model_name': model_name,
-            'model_classname': model_classname,
-            'model_path': model_path,
-            'fold_id': fold_id,
-            'sample_indices': sample_indices,
-            'weights': weights,
-            'metadata': metadata,
-            'partition': partition,
-            'y_true': y_true,
-            'y_pred': y_pred,
-            'val_score': val_score,
-            'test_score': test_score,
-            'train_score': train_score,
-            'metric': metric,
-            'task_type': task_type,
-            'n_samples': n_samples,
-            'n_features': n_features,
-            'preprocessings': preprocessings,
-            'best_params': best_params,
-            'scores': scores,
-            'branch_id': branch_id,
-            'branch_name': branch_name,
-            'trace_id': trace_id,
-        }
-
-        # Find the maximum length (number of predictions)
-        max_length = 1
-        for param_value in params.values():
-            if isinstance(param_value, list):
-                max_length = max(max_length, len(param_value))
-
-        if max_length == 1:
-            # No lists, single prediction
-            self.add_prediction(**params)
-            return
-
-        # Add predictions one by one (simpler and more reliable than batch)
-        for i in range(max_length):
-            prediction_params = {}
-            for param_name, param_value in params.items():
-                if isinstance(param_value, list):
-                    idx = min(i, len(param_value) - 1)
-                    prediction_params[param_name] = param_value[idx]
-                else:
-                    prediction_params[param_name] = param_value
-
-            # Add individual prediction
-            self.add_prediction(**prediction_params)
-
-    # =========================================================================
-    # FILTERING OPERATIONS - Delegate to Indexer
-    # =========================================================================
-
-    def filter_predictions(
-        self,
-        dataset_name: Optional[str] = None,
-        partition: Optional[str] = None,
-        config_name: Optional[str] = None,
-        model_name: Optional[str] = None,
-        fold_id: Optional[str] = None,
-        step_idx: Optional[int] = None,
-        branch_id: Optional[int] = None,
-        branch_name: Optional[str] = None,
-        load_arrays: bool = True,
-        **kwargs
-    ) -> List[Dict[str, Any]]:
-        """
-        Filter predictions and return as list of dictionaries.
-
-        Delegates to PredictionIndexer for filtering, then deserializes results.
-        Supports lazy loading of arrays for performance optimization.
-
-        Args:
-            dataset_name: Filter by dataset name
-            partition: Filter by partition
-            config_name: Filter by config name
-            model_name: Filter by model name
-            fold_id: Filter by fold ID
-            step_idx: Filter by step index
-            branch_id: Filter by branch ID (for pipeline branching)
-            branch_name: Filter by branch name (for pipeline branching)
-            load_arrays: If True, loads actual arrays from registry (slower).
-                        If False, returns metadata only with array references (fast).
-            **kwargs: Additional filter criteria
-
-        Returns:
-            List of prediction dictionaries with deserialized numpy arrays (if load_arrays=True)
-            or metadata with array_id references (if load_arrays=False)
-
-        Examples:
-            >>> # Fast metadata-only query
-            >>> preds = predictions.filter_predictions(dataset_name="wheat", load_arrays=False)
-            >>> # Full query with arrays
-            >>> preds = predictions.filter_predictions(dataset_name="wheat", load_arrays=True)
-            >>> # Filter by branch
-            >>> branch_preds = predictions.filter_predictions(branch_id=0)
-        """
-        df_filtered = self._indexer.filter(
+        row = _build_prediction_row(
             dataset_name=dataset_name,
-            partition=partition,
+            dataset_path=dataset_path,
             config_name=config_name,
-            model_name=model_name,
-            fold_id=fold_id,
+            config_path=config_path,
+            pipeline_uid=pipeline_uid,
             step_idx=step_idx,
+            op_counter=op_counter,
+            model_name=model_name,
+            model_classname=model_classname,
+            model_path=model_path,
+            fold_id=fold_id,
+            sample_indices=sample_indices,
+            weights=weights,
+            metadata=metadata,
+            partition=partition,
+            y_true=y_true,
+            y_pred=y_pred,
+            y_proba=y_proba,
+            val_score=val_score,
+            test_score=test_score,
+            train_score=train_score,
+            metric=metric,
+            task_type=task_type,
+            n_samples=n_samples,
+            n_features=n_features,
+            preprocessings=preprocessings,
+            best_params=best_params,
+            scores=scores,
             branch_id=branch_id,
             branch_name=branch_name,
-            **kwargs
+            exclusion_count=exclusion_count,
+            exclusion_rate=exclusion_rate,
+            model_artifact_id=model_artifact_id,
+            trace_id=trace_id,
         )
-
-        # Deserialize results
-        results = []
-        for row in df_filtered.to_dicts():
-            deserialized = self._serializer.deserialize_row(row)
-
-            # Hydrate arrays if requested (always using array registry now)
-            if load_arrays:
-                pred_id = deserialized.get('id')
-                if pred_id:
-                    # Get full prediction with arrays from storage
-                    full_pred = self._storage.get_by_id(pred_id, load_arrays=True)
-                    if full_pred:
-                        deserialized = full_pred
-
-            results.append(deserialized)
-
-        return results
-
-    def get_similar(self, **filter_kwargs) -> Optional[Dict[str, Any]]:
-        """
-        Get the first prediction matching filter criteria.
-
-        Args:
-            **filter_kwargs: Filter criteria (same as filter_predictions)
-
-        Returns:
-            First matching prediction or None
-        """
-        results = self.filter_predictions(**filter_kwargs)
-        return results[0] if results else None
-
-    def get_prediction_by_id(self, prediction_id: str, load_arrays: bool = True) -> Optional[Dict[str, Any]]:
-        """
-        Get a single prediction by its ID using direct lookup.
-
-        This is an O(1) lookup that avoids iterating all predictions,
-        which is much faster than using filter_predictions for ID lookups.
-
-        Args:
-            prediction_id: Unique prediction identifier (hash ID)
-            load_arrays: If True, loads actual arrays from registry (slower).
-                        If False, returns metadata only with array references (fast).
-
-        Returns:
-            Prediction dictionary or None if not found
-
-        Examples:
-            >>> pred = predictions.get_prediction_by_id("abc123def456")
-            >>> if pred:
-            ...     print(f"Found model: {pred['model_name']}")
-        """
-        return self._storage.get_by_id(prediction_id, load_arrays=load_arrays)
+        self._buffer.append(row)
+        return row["id"]
 
     # =========================================================================
-    # RANKING OPERATIONS - Delegate to Ranker
+    # FLUSH (store-backed mode)
+    # =========================================================================
+
+    def flush(self, pipeline_id: str | None = None, chain_id: str | None = None) -> None:
+        """Persist buffered predictions to the workspace store.
+
+        Each buffered record is written via
+        :meth:`WorkspaceStore.save_prediction` followed by
+        :meth:`WorkspaceStore.save_prediction_arrays`.
+
+        Args:
+            pipeline_id: Pipeline ID to associate predictions with.
+            chain_id: Chain ID to associate predictions with.
+        """
+        if self._store is None or not self._buffer:
+            return
+
+        for row in self._buffer:
+            pred_id = self._store.save_prediction(
+                pipeline_id=pipeline_id or "",
+                chain_id=chain_id or "",
+                dataset_name=row["dataset_name"],
+                model_name=row["model_name"],
+                model_class=row["model_classname"],
+                fold_id=row["fold_id"],
+                partition=row["partition"],
+                val_score=row.get("val_score") or 0.0,
+                test_score=row.get("test_score") or 0.0,
+                train_score=row.get("train_score") or 0.0,
+                metric=row["metric"],
+                task_type=row["task_type"],
+                n_samples=row["n_samples"],
+                n_features=row["n_features"],
+                scores=row.get("scores", {}),
+                best_params=row.get("best_params", {}),
+                branch_id=row.get("branch_id"),
+                branch_name=row.get("branch_name") or None,
+                exclusion_count=row.get("exclusion_count") or 0,
+                exclusion_rate=row.get("exclusion_rate") or 0.0,
+                preprocessings=row.get("preprocessings", ""),
+            )
+
+            # Save arrays
+            y_true = row.get("y_true")
+            y_pred = row.get("y_pred")
+            y_proba = row.get("y_proba")
+            sample_indices = row.get("sample_indices")
+            weights = row.get("weights")
+
+            has_y_true = y_true is not None and (isinstance(y_true, np.ndarray) and y_true.size > 0)
+            has_y_pred = y_pred is not None and (isinstance(y_pred, np.ndarray) and y_pred.size > 0)
+
+            if has_y_true or has_y_pred:
+                self._store.save_prediction_arrays(
+                    prediction_id=pred_id,
+                    y_true=y_true if has_y_true else None,
+                    y_pred=y_pred if has_y_pred else None,
+                    y_proba=y_proba if (y_proba is not None and isinstance(y_proba, np.ndarray) and y_proba.size > 0) else None,
+                    sample_indices=np.array(sample_indices, dtype=np.int64) if sample_indices and len(sample_indices) > 0 else None,
+                    weights=np.array(weights, dtype=np.float64) if weights and len(weights) > 0 else None,
+                )
+
+        self._buffer.clear()
+
+    # =========================================================================
+    # RANKING OPERATIONS
     # =========================================================================
 
     def top(
@@ -456,756 +397,671 @@ class Predictions:
         n: int,
         rank_metric: str = "",
         rank_partition: str = "val",
-        display_metrics: Optional[List[str]] = None,
+        display_metrics: list[str] | None = None,
         display_partition: str = "test",
         aggregate_partitions: bool = False,
-        ascending: Optional[bool] = None,
+        ascending: bool | None = None,
         group_by_fold: bool = False,
-        aggregate: Optional[str] = None,
-        group_by: Optional[Union[str, List[str]]] = None,
+        aggregate: str | None = None,
+        aggregate_method: str | None = None,
+        aggregate_exclude_outliers: bool = False,
+        group_by: str | list[str] | None = None,
         best_per_model: bool = False,
         return_grouped: bool = False,
-        **filters
-    ) -> Union[PredictionResultsList, Dict[Tuple, PredictionResultsList]]:
-        """
-        Get top n models ranked by a metric on a specific partition.
+        **filters: Any,
+    ) -> PredictionResultsList | dict[tuple, PredictionResultsList]:
+        """Get top *n* predictions ranked by a metric.
 
-        Delegates to PredictionRanker component.
+        Operates on the in-memory buffer.  If a store is available *and*
+        the buffer has been flushed, store results are merged, but the
+        primary source is always the buffer (for in-pipeline queries the
+        data has not been flushed yet).
 
         Args:
-            n: Number of top models to return. When group_by is used, this means
-               top N **per group** (e.g., top 3 per dataset).
-            rank_metric: Metric to rank by (if empty, uses record's metric or val_score)
-            rank_partition: Partition to rank on (default: "val")
-            display_metrics: Metrics to compute for display (default: task_type defaults)
-            display_partition: Partition to display results from (default: "test")
-            aggregate_partitions: If True, add train/val/test nested dicts in results
-            ascending: Sort order. If True, sorts ascending (lower is better).
-                      If False, sorts descending (higher is better).
-                      If None, infers from metric.
-            group_by_fold: If True, include fold_id in model identity (rank per fold)
-            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
-                      When 'y', groups by y_true values.
-                      When a column name (e.g., 'ID'), groups by that metadata column.
-                      Aggregated predictions have recalculated metrics.
-            group_by: Group predictions by column(s). When provided:
-                     - Returns top N results **per group** (not N total)
-                     - Each result includes a 'group_key' field for easy filtering
-                     - Can be a single column name (str) or list of columns
-                     - Examples: 'dataset_name', ['model_name', 'dataset_name']
-            best_per_model: DEPRECATED - Use group_by=['model_name'] instead.
-                           If True, keep only the best prediction per model_name.
-            return_grouped: If True and group_by is set, return a dict mapping
-                           group keys to PredictionResultsList instead of a flat list.
-                           Default: False (returns flat list sorted by global rank).
-            **filters: Additional filter criteria (dataset_name, config_name, etc.)
+            n: Number of top models to return.  When ``group_by`` is set,
+               this means top *n* **per group**.
+            rank_metric: Metric to rank by.  Empty string uses the stored
+               metric from the prediction record.
+            rank_partition: Partition to rank on (default ``"val"``).
+            display_metrics: Metrics to compute for display.
+            display_partition: Partition to display results from.
+            aggregate_partitions: If ``True``, add train/val/test dicts.
+            ascending: Sort order.  ``None`` infers from metric.
+            group_by_fold: If ``True``, include fold_id in identity.
+            aggregate: Aggregate predictions by metadata column or ``"y"``.
+            aggregate_method: ``"mean"``, ``"median"``, or ``"vote"``.
+            aggregate_exclude_outliers: Exclude outliers before aggregation.
+            group_by: Group predictions by column(s).
+            best_per_model: **Deprecated** -- use ``group_by=['model_name']``.
+            return_grouped: Return dict of group->results.
+            **filters: Additional filter criteria.
 
         Returns:
-            - If return_grouped=False (default): PredictionResultsList containing top n
-              models per group, sorted by rank_metric. Each result includes 'group_key'.
-            - If return_grouped=True: Dict mapping group keys (tuples) to
-              PredictionResultsList, one list per group with top n results each.
-
-        Examples:
-            >>> # Top 3 per dataset (flat list)
-            >>> top_per_ds = predictions.top(n=3, group_by='dataset_name')
-            >>> # Filter by group_key
-            >>> ds1_results = [r for r in top_per_ds if r['group_key'] == ('dataset1',)]
-            >>>
-            >>> # Top 3 per dataset (grouped dict)
-            >>> grouped = predictions.top(n=3, group_by='dataset_name', return_grouped=True)
-            >>> for key, results in grouped.items():
-            ...     print(f"{key}: {len(results)} results")
+            ``PredictionResultsList`` or grouped dict.
         """
-        return self._ranker.top(
-            n=n,
-            rank_metric=rank_metric,
-            rank_partition=rank_partition,
-            display_metrics=display_metrics,
-            display_partition=display_partition,
-            aggregate_partitions=aggregate_partitions,
-            ascending=ascending,
-            group_by_fold=group_by_fold,
-            aggregate=aggregate,
-            group_by=group_by,
-            best_per_model=best_per_model,
-            return_grouped=return_grouped,
-            **filters
+        # Strip non-filter kwargs that callers may pass (backward compat)
+        _ = filters.pop("partition", None)
+        _ = filters.pop("load_arrays", None)
+        _ = filters.pop("higher_is_better", None)
+        _ = filters.pop("rank_metric", None)
+        _ = filters.pop("rank_partition", None)
+        _ = filters.pop("aggregate_partitions", None)
+        _ = filters.pop("ascending", None)
+        _ = filters.pop("group_by_fold", None)
+        _ = filters.pop("aggregate", None)
+
+        # Handle legacy ``metric`` kwarg (some callers pass top(1, metric="test_score"))
+        if "metric" in filters:
+            if not rank_metric:
+                rank_metric = filters.pop("metric")
+            else:
+                _ = filters.pop("metric")
+
+        # Handle display_metric (singular) backward compat
+        if "display_metric" in filters:
+            val = filters.pop("display_metric")
+            if isinstance(val, list):
+                display_metrics = val
+            elif isinstance(val, str):
+                display_metrics = [val]
+
+        if "display_metrics" in filters:
+            display_metrics = filters.pop("display_metrics")
+
+        # Work from the in-memory buffer
+        candidates = [dict(r) for r in self._buffer]
+
+        # Filter by rank_partition if buffer has mixed partitions
+        if rank_partition:
+            partition_candidates = [r for r in candidates if r.get("partition") == rank_partition]
+            if partition_candidates:
+                candidates = partition_candidates
+
+        # Apply filters
+        for key, value in filters.items():
+            candidates = [r for r in candidates if r.get(key) == value]
+
+        if not candidates:
+            if return_grouped:
+                return {}
+            return PredictionResultsList([])
+
+        # Resolve effective metric
+        effective_metric = rank_metric or candidates[0].get("metric", "mse")
+
+        # Determine sort direction
+        if ascending is None:
+            ascending = _infer_ascending(effective_metric)
+
+        # Compute rank_score for each candidate
+        partition_key = f"{rank_partition}_score" if rank_partition in ("val", "test", "train") else "val_score"
+        for r in candidates:
+            score = self._get_rank_score(r, effective_metric, rank_partition, partition_key, aggregate, aggregate_method, aggregate_exclude_outliers)
+            r["rank_score"] = score
+
+        # Filter out None / NaN scores
+        def _is_valid(score: Any) -> bool:
+            if score is None:
+                return False
+            try:
+                return not np.isnan(score)
+            except (TypeError, ValueError):
+                return True
+
+        candidates = [r for r in candidates if _is_valid(r["rank_score"])]
+
+        # Sort by rank_score
+        candidates.sort(key=lambda r: r["rank_score"], reverse=not ascending)
+
+        # Handle deprecated best_per_model
+        effective_group_by: list[str] | None = None
+        if best_per_model:
+            warnings.warn(
+                "best_per_model is deprecated and will be removed in a future version. "
+                "Use group_by=['model_name'] instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if group_by is None:
+                effective_group_by = ["model_name"]
+
+        if group_by is not None:
+            effective_group_by = [group_by] if isinstance(group_by, str) else list(group_by)
+
+        # Apply group-by filtering (top N per group)
+        if effective_group_by:
+            group_counts: dict[tuple, int] = {}
+            filtered_candidates: list[dict[str, Any]] = []
+            for r in candidates:
+                gk = _make_group_key(r, effective_group_by)
+                cnt = group_counts.get(gk, 0)
+                if cnt < n:
+                    r["group_key"] = gk
+                    filtered_candidates.append(r)
+                    group_counts[gk] = cnt + 1
+            candidates = filtered_candidates
+        else:
+            candidates = candidates[:n]
+
+        # Enrich results
+        enriched_results = [
+            PredictionResult(self._enrich_result(r, display_metrics, display_partition, aggregate_partitions, aggregate))
+            for r in candidates
+        ]
+
+        if return_grouped and effective_group_by:
+            grouped_out: dict[tuple, PredictionResultsList] = {}
+            for res in enriched_results:
+                gk = res.get("group_key")
+                if gk is not None:
+                    if gk not in grouped_out:
+                        grouped_out[gk] = PredictionResultsList([])
+                    grouped_out[gk].append(res)
+            return grouped_out
+
+        return PredictionResultsList(enriched_results)
+
+    def _get_rank_score(
+        self,
+        row: dict[str, Any],
+        metric: str,
+        partition: str,
+        partition_key: str,
+        aggregate: str | None = None,
+        aggregate_method: str | None = None,
+        aggregate_exclude_outliers: bool = False,
+    ) -> float | None:
+        """Compute the ranking score for a single buffer row.
+
+        Priority:
+        1. If *aggregate* is set, apply aggregation and recompute.
+        2. Pre-computed scores dict (``scores[partition][metric]``).
+        3. Legacy ``{partition}_score`` if metric matches the stored metric.
+        4. Fall back to computing from arrays.
+        """
+        # Aggregated path: must compute from arrays after aggregation
+        if aggregate:
+            y_true, y_pred = row.get("y_true"), row.get("y_pred")
+            if y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0 and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
+                metadata = row.get("metadata", {})
+                agg_y_true, agg_y_pred, _, was_agg = self._apply_aggregation(
+                    y_true, y_pred, row.get("y_proba"), metadata, aggregate,
+                    row.get("model_name", ""), aggregate_method, aggregate_exclude_outliers,
+                )
+                if was_agg and agg_y_true is not None and agg_y_pred is not None:
+                    try:
+                        return evaluator.eval(agg_y_true, agg_y_pred, metric)
+                    except Exception:
+                        return None
+            # Fall through to non-aggregated path if aggregation fails
+
+        # Pre-computed scores dict
+        scores_dict = row.get("scores")
+        if isinstance(scores_dict, dict) and partition in scores_dict and metric in scores_dict[partition]:
+            return scores_dict[partition][metric]
+        if isinstance(scores_dict, str):
+            try:
+                parsed = json.loads(scores_dict)
+                if partition in parsed and metric in parsed[partition]:
+                    return parsed[partition][metric]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Legacy field
+        if metric == row.get("metric") or metric == "":
+            val = row.get(partition_key)
+            if val is not None:
+                return float(val)
+
+        # Compute from arrays
+        y_true, y_pred = row.get("y_true"), row.get("y_pred")
+        if y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0 and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
+            try:
+                return evaluator.eval(y_true, y_pred, metric)
+            except Exception:
+                return None
+
+        return row.get(partition_key)
+
+    @staticmethod
+    def _apply_aggregation(
+        y_true: np.ndarray | None,
+        y_pred: np.ndarray | None,
+        y_proba: np.ndarray | None,
+        metadata: dict[str, Any],
+        aggregate: str,
+        model_name: str = "",
+        aggregate_method: str | None = None,
+        aggregate_exclude_outliers: bool = False,
+    ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None, bool]:
+        """Apply aggregation to predictions by a group column.
+
+        Args:
+            y_true: True values array.
+            y_pred: Predicted values array.
+            y_proba: Optional class probabilities.
+            metadata: Metadata dict containing group column.
+            aggregate: Group column name or ``"y"``.
+            model_name: Model name for warning messages.
+            aggregate_method: ``"mean"``, ``"median"``, or ``"vote"``.
+            aggregate_exclude_outliers: Exclude outliers before aggregation.
+
+        Returns:
+            Tuple ``(y_true, y_pred, y_proba, was_aggregated)``.
+        """
+        if y_pred is None:
+            return y_true, y_pred, y_proba, False
+
+        if aggregate == "y":
+            if y_true is None:
+                return y_true, y_pred, y_proba, False
+            group_ids = y_true
+        else:
+            if aggregate not in metadata:
+                if model_name:
+                    warnings.warn(
+                        f"Aggregation column '{aggregate}' not found in metadata for model '{model_name}'. "
+                        f"Available columns: {list(metadata.keys())}. Skipping aggregation.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                return y_true, y_pred, y_proba, False
+            group_ids = np.asarray(metadata[aggregate])
+
+        if len(group_ids) != len(y_pred):
+            if model_name:
+                warnings.warn(
+                    f"Aggregation column '{aggregate}' length ({len(group_ids)}) doesn't match "
+                    f"predictions length ({len(y_pred)}) for model '{model_name}'. Skipping aggregation.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            return y_true, y_pred, y_proba, False
+
+        result = Predictions.aggregate(
+            y_pred=y_pred,
+            group_ids=group_ids,
+            y_proba=y_proba,
+            y_true=y_true,
+            method=aggregate_method or "mean",
+            exclude_outliers=aggregate_exclude_outliers,
         )
+        return result.get("y_true"), result.get("y_pred"), result.get("y_proba"), True
 
     def get_best(
         self,
         metric: str = "",
-        ascending: Optional[bool] = None,
+        ascending: bool | None = None,
         aggregate_partitions: bool = False,
-        **filters
-    ) -> Optional[PredictionResult]:
-        """
-        Get the best prediction for a specific metric.
+        aggregate: str | None = None,
+        aggregate_method: str | None = None,
+        aggregate_exclude_outliers: bool = False,
+        **filters: Any,
+    ) -> PredictionResult | None:
+        """Get the best prediction for a specific metric.
 
-        Delegates to PredictionRanker component.
+        Tries ranking by ``"val"`` partition first; falls back to
+        ``"test"`` if no val-partition data exists.
 
         Args:
-            metric: Metric to optimize
-            ascending: Sort order. If True, sorts ascending (lower is better).
-                      If False, sorts descending (higher is better).
-                      If None, infers from metric.
-            aggregate_partitions: If True, add partition data
-            **filters: Additional filter criteria
+            metric: Metric to optimise.
+            ascending: Sort order.  ``None`` infers from metric.
+            aggregate_partitions: If ``True``, add partition data.
+            aggregate: Aggregate by metadata column or ``"y"``.
+            aggregate_method: ``"mean"``, ``"median"``, or ``"vote"``.
+            aggregate_exclude_outliers: Exclude outliers before aggregation.
+            **filters: Additional filter criteria.
 
         Returns:
-            Best prediction or None
+            Best :class:`PredictionResult` or ``None``.
         """
-        return self._ranker.get_best(
-            metric=metric,
+        results = self.top(
+            n=1,
+            rank_metric=metric,
+            rank_partition="val",
             ascending=ascending,
             aggregate_partitions=aggregate_partitions,
-            **filters
+            aggregate=aggregate,
+            aggregate_method=aggregate_method,
+            aggregate_exclude_outliers=aggregate_exclude_outliers,
+            **filters,
         )
-
-    # =========================================================================
-    # AGGREGATION OPERATIONS - Delegate to Aggregator
-    # =========================================================================
-
-    def _add_partition_data(
-        self,
-        results: List[PredictionResult],
-        partitions: List[str] = None
-    ) -> List[PredictionResult]:
-        """
-        Add partition data to results (internal helper).
-
-        Delegates to PartitionAggregator component.
-
-        Args:
-            results: List of PredictionResult objects
-            partitions: List of partitions to aggregate
-
-        Returns:
-            Results with partition data added
-        """
-        return self._aggregator.add_partition_data(results, partitions)
-
-    # =========================================================================
-    # CATALOG QUERY OPERATIONS - Delegate to CatalogQueryEngine
-    # =========================================================================
-
-    def query_best(
-        self,
-        dataset_name: Optional[str] = None,
-        metric: str = "test_score",
-        n: int = 10,
-        ascending: bool = False
-    ) -> pl.DataFrame:
-        """
-        Query for best performing pipelines by metric (catalog query).
-
-        Delegates to CatalogQueryEngine component.
-
-        Args:
-            dataset_name: Filter by dataset name
-            metric: Metric column to rank by
-            n: Number of top results
-            ascending: If True, lower scores rank higher
-
-        Returns:
-            DataFrame with top n predictions
-        """
-        return self._query.query_best(
-            dataset_name=dataset_name,
-            metric=metric,
-            n=n,
-            ascending=ascending
-        )
-
-    def filter_by_criteria(
-        self,
-        dataset_name: Optional[str] = None,
-        date_range: Optional[Tuple[str, str]] = None,
-        metric_thresholds: Optional[Dict[str, float]] = None
-    ) -> pl.DataFrame:
-        """
-        Filter predictions by multiple criteria (catalog query).
-
-        Delegates to CatalogQueryEngine component.
-
-        Args:
-            dataset_name: Filter by dataset name
-            date_range: Tuple of (start_date, end_date)
-            metric_thresholds: Dict of metric names to threshold values
-
-        Returns:
-            Filtered DataFrame
-        """
-        return self._query.filter_by_criteria(
-            dataset_name=dataset_name,
-            date_range=date_range,
-            metric_thresholds=metric_thresholds
-        )
-
-    def compare_across_datasets(
-        self,
-        pipeline_hash: str,
-        metric: str = "test_score"
-    ) -> pl.DataFrame:
-        """
-        Compare a pipeline's performance across multiple datasets.
-
-        Delegates to CatalogQueryEngine component.
-
-        Args:
-            pipeline_hash: Pipeline UID to compare
-            metric: Metric column to compare
-
-        Returns:
-            DataFrame with one row per dataset
-        """
-        return self._query.compare_across_datasets(
-            pipeline_hash=pipeline_hash,
-            metric=metric
-        )
-
-    def list_runs(self, dataset_name: Optional[str] = None) -> pl.DataFrame:
-        """
-        List all prediction runs with summary information.
-
-        Delegates to CatalogQueryEngine component.
-
-        Args:
-            dataset_name: Filter by dataset name (None for all)
-
-        Returns:
-            DataFrame with run summary
-        """
-        return self._query.list_runs(dataset_name=dataset_name)
-
-    def get_summary_stats(self, metric: str = "test_score") -> Dict[str, float]:
-        """
-        Get summary statistics for a metric.
-
-        Delegates to CatalogQueryEngine component.
-
-        Args:
-            metric: Metric column name
-
-        Returns:
-            Dictionary with min, max, mean, median, std
-        """
-        return self._query.get_summary_stats(metric=metric)
-
-    # =========================================================================
-    # STORAGE OPERATIONS - Delegate to Storage & Serializer
-    # =========================================================================
-
-    def save_to_file(self, filepath: str, format: str = "parquet") -> None:
-        """
-        Save predictions to split Parquet format with array registry.
-
-        Args:
-            filepath: Output file path (should end with .meta.parquet)
-            format: Format to use (only "parquet" is supported)
-
-        Examples:
-            >>> predictions.save_to_file("predictions.meta.parquet")
-        """
-        if format != "parquet":
-            raise ValueError(f"Only 'parquet' format is supported, got: {format}")
-
-        filepath = Path(filepath)
-
-        if not filepath.name.endswith(".meta.parquet"):
-            raise ValueError(
-                f"Expected .meta.parquet extension, got: {filepath.name}\n"
-                f"Use 'predictions.meta.parquet' as the filename"
+        # Fallback to test partition
+        if not results:
+            results = self.top(
+                n=1,
+                rank_metric=metric,
+                rank_partition="test",
+                ascending=ascending,
+                aggregate_partitions=aggregate_partitions,
+                aggregate=aggregate,
+                aggregate_method=aggregate_method,
+                aggregate_exclude_outliers=aggregate_exclude_outliers,
+                **filters,
             )
+        return results[0] if results else None
 
-        # Split Parquet with array registry
-        arrays_path = filepath.with_name(
-            filepath.name.replace(".meta.parquet", ".arrays.parquet")
-        )
-        self._storage.save_parquet(filepath, arrays_path)
+    # =========================================================================
+    # FILTERING OPERATIONS
+    # =========================================================================
 
-    def load_from_file(self, filepath: str, merge: bool = True) -> None:
-        """
-        Load predictions from split Parquet format.
-
-        Supports:
-        - Split Parquet with array registry (.meta.parquet + .arrays.parquet)
-
-        When called multiple times (e.g., from __init__ with multiple files),
-        predictions are merged by default.
-
-        Args:
-            filepath: Path to .meta.parquet file
-            merge: If True and storage already has data, merge loaded data.
-                   If False, replace existing data. (default: True)
-
-        Examples:
-            >>> predictions.load_from_file("predictions.meta.parquet")
-            >>> # Load additional predictions (merged)
-            >>> predictions.load_from_file("more_predictions.meta.parquet")
-        """
-        filepath = Path(filepath)
-
-        if not filepath.exists():
-            raise FileNotFoundError(f"File not found: {filepath}")
-
-        # Must be .meta.parquet format
-        if not filepath.name.endswith('.meta.parquet'):
-            raise ValueError(
-                f"Expected .meta.parquet file, got: {filepath}\n"
-                f"Only split Parquet format is supported (use .meta.parquet + .arrays.parquet)"
-            )
-
-        arrays_path = filepath.with_name(
-            filepath.name.replace('.meta.parquet', '.arrays.parquet')
-        )
-
-        if not arrays_path.exists():
-            raise FileNotFoundError(
-                f"Array file not found: {arrays_path}\n"
-                f"Expected paired .arrays.parquet file for {filepath}"
-            )
-
-        # Check if we should merge or replace
-        if merge and len(self._storage) > 0:
-            # Load into temporary storage and merge
-            temp_storage = PredictionStorage()
-            temp_storage.load_parquet(filepath, arrays_path)
-            self._storage.merge(temp_storage)
-        else:
-            # Load directly (replace)
-            self._storage.load_parquet(filepath, arrays_path)
-
-        # Reinitialize dependent components
-        self._indexer = PredictionIndexer(self._storage)
-        self._ranker = PredictionRanker(self._storage, self._serializer, self._indexer)
-        self._aggregator = PartitionAggregator(self._storage, self._indexer)
-        self._query = CatalogQueryEngine(self._storage, self._indexer)
-
-    @classmethod
-    def load_from_file_cls(cls, filepath: str) -> 'Predictions':
-        """
-        Load predictions from JSON file as class method.
-
-        Args:
-            filepath: Input file path
-
-        Returns:
-            Predictions instance with loaded data (empty if file doesn't exist)
-        """
-        instance = cls()
-        if Path(filepath).exists():
-            instance.load_from_file(filepath)
-        return instance
-
-    @classmethod
-    def load(
-        cls,
-        dataset_name: Optional[str] = None,
-        path: str = "results",
-        aggregate_partitions: bool = False,
-        **filters
-    ) -> 'Predictions':
-        """
-        Load predictions from results directory structure.
-
-        Args:
-            dataset_name: Name of dataset to load (None for all)
-            path: Base path to search for predictions
-            aggregate_partitions: If True, aggregate partition data
-            **filters: Additional filter criteria
-
-        Returns:
-            Predictions instance with loaded data
-        """
-        instance = cls()
-        base_path = Path(path)
-
-        # Case 1: path is a .meta.parquet file
-        if base_path.is_file() and base_path.name.endswith('.meta.parquet'):
-            instance.load_from_file(str(base_path))
-
-        # Case 2: path is a directory
-        elif base_path.is_dir():
-            if dataset_name:
-                # Look for .meta.parquet files
-                dataset_path = base_path / dataset_name / "predictions.meta.parquet"
-                if dataset_path.exists():
-                    temp = cls()
-                    temp.load_from_file(str(dataset_path))
-                    instance.merge_predictions(temp)
-            else:
-                # Load all datasets
-                predictions_files = list(base_path.glob("*/predictions.meta.parquet"))
-                for pred_file in predictions_files:
-                    temp = cls()
-                    temp.load_from_file(str(pred_file))
-                    instance.merge_predictions(temp)
-
-        # Apply filters if provided
-        if filters:
-            df = instance._storage.to_dataframe()
-            for key, value in filters.items():
-                if key in df.columns:
-                    df = df.filter(pl.col(key) == value)
-            instance._storage._df = df
-
-        return instance
-
-    def save_to_parquet(self, catalog_dir: Path, prediction_id: str = None) -> tuple:
-        """
-        Save predictions as split Parquet (metadata + arrays separate).
-
-        Appends to existing files if they exist.
-
-        Delegates to PredictionStorage component.
-
-        Args:
-            catalog_dir: Directory for catalog storage
-            prediction_id: Optional prediction ID (generates UUID if None)
-
-        Returns:
-            Tuple of (meta_path, data_path)
-        """
-        pred_id = prediction_id or str(uuid4())
-        df = self._storage.to_dataframe()
-
-        if "prediction_id" not in df.columns:
-            df = df.with_columns(pl.lit(pred_id).alias("prediction_id"))
-
-        if "created_at" not in df.columns:
-            df = df.with_columns(
-                pl.lit(datetime.now().isoformat()).alias("created_at")
-            )
-
-        # Update storage DataFrame
-        self._storage._df = df
-
-        # Save using storage component
-        catalog_dir = Path(catalog_dir)
-        catalog_dir.mkdir(parents=True, exist_ok=True)
-
-        meta_path = catalog_dir / "predictions_meta.parquet"
-        data_path = catalog_dir / "predictions_data.parquet"
-
-        # Load existing data if files exist
-        if meta_path.exists() and data_path.exists():
-            existing = Predictions.load_from_parquet(catalog_dir)
-            # Merge with existing
-            existing._storage.merge(self._storage)
-            # Save the merged data
-            existing._storage.save_parquet(meta_path, data_path)
-        else:
-            # Save new data
-            self._storage.save_parquet(meta_path, data_path)
-
-        return (meta_path, data_path)
-
-    @classmethod
-    def load_from_parquet(cls, catalog_dir: Path, prediction_ids: list = None) -> 'Predictions':
-        """
-        Load predictions from split Parquet storage.
-
-        Args:
-            catalog_dir: Path to catalog directory
-            prediction_ids: Optional list of prediction IDs to load
-
-        Returns:
-            Predictions instance with loaded data
-        """
-        instance = cls()
-        catalog_dir = Path(catalog_dir)
-
-        meta_path = catalog_dir / "predictions_meta.parquet"
-        data_path = catalog_dir / "predictions_data.parquet"
-
-        if meta_path.exists() and data_path.exists():
-            instance._storage.load_parquet(meta_path, data_path)
-
-            # Filter by prediction_ids if specified
-            if prediction_ids:
-                df = instance._storage.to_dataframe()
-                if "prediction_id" in df.columns:
-                    df = df.filter(pl.col("prediction_id").is_in(prediction_ids))
-                    instance._storage._df = df
-
-        return instance
-
-    @classmethod
-    def merge_parquet_files(
-        cls,
-        input_files: List[str],
-        output_file: str,
-        deduplicate: bool = True
-    ) -> 'Predictions':
-        """
-        Merge multiple prediction parquet files into a single output file.
-
-        This is a utility method to consolidate predictions from multiple
-        experiment runs into a single file for easier analysis.
-
-        Args:
-            input_files: List of paths to .meta.parquet files to merge.
-            output_file: Output path for the merged .meta.parquet file.
-            deduplicate: If True, remove duplicate prediction IDs (keep first).
-                        Default is True.
-
-        Returns:
-            Predictions instance containing the merged data.
-
-        Raises:
-            ValueError: If no input files are provided.
-            FileNotFoundError: If any input file does not exist.
-
-        Examples:
-            >>> # Merge multiple experiment runs
-            >>> merged = Predictions.merge_parquet_files(
-            ...     input_files=[
-            ...         "run1/predictions.meta.parquet",
-            ...         "run2/predictions.meta.parquet",
-            ...         "run3/predictions.meta.parquet"
-            ...     ],
-            ...     output_file="combined/all_predictions.meta.parquet"
-            ... )
-            >>> print(f"Merged {len(merged)} predictions")
-
-            >>> # Merge without deduplication
-            >>> merged = Predictions.merge_parquet_files(
-            ...     input_files=["exp1.meta.parquet", "exp2.meta.parquet"],
-            ...     output_file="merged.meta.parquet",
-            ...     deduplicate=False
-            ... )
-        """
-        if not input_files:
-            raise ValueError("At least one input file is required")
-
-        # Validate all input files exist
-        for filepath in input_files:
-            fp = Path(filepath)
-            if not fp.exists():
-                raise FileNotFoundError(f"Input file not found: {filepath}")
-            if not fp.name.endswith('.meta.parquet'):
-                raise ValueError(
-                    f"Expected .meta.parquet file, got: {filepath}\n"
-                    f"All input files must be .meta.parquet format"
-                )
-
-        # Load and merge all files
-        merged = cls()
-        total_loaded = 0
-
-        for filepath in input_files:
-            temp = cls()
-            temp.load_from_file(filepath, merge=False)
-            count_before = len(merged)
-            merged.merge_predictions(temp)
-            loaded = len(temp)
-            total_loaded += loaded
-            logger.info(f"Loaded {loaded} predictions from {filepath}")
-
-        # Deduplicate if requested
-        if deduplicate:
-            count_before = len(merged)
-            merged._storage._df = merged._storage._df.unique(subset=["id"], keep="first")
-            count_after = len(merged)
-            if count_before != count_after:
-                logger.success(f"Removed {count_before - count_after} duplicate predictions")
-
-        # Save merged result
-        merged.save_to_file(output_file)
-        logger.success(f"Merged {len(merged)} predictions to {output_file}")
-
-        return merged
-
-    def archive_to_catalog(
+    def filter_predictions(
         self,
-        catalog_dir: Path,
-        pipeline_dir: Path,
-        metrics: Dict[str, Any] = None
-    ) -> str:
-        """
-        Archive pipeline predictions to catalog.
-
-        Loads predictions CSV from pipeline directory, adds metadata,
-        and saves to catalog.
-
-        Delegates to PredictionStorage for CSV loading.
+        dataset_name: str | None = None,
+        partition: str | None = None,
+        config_name: str | None = None,
+        model_name: str | None = None,
+        fold_id: str | None = None,
+        step_idx: int | None = None,
+        branch_id: int | None = None,
+        branch_name: str | None = None,
+        load_arrays: bool = True,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """Filter predictions and return as list of dicts.
 
         Args:
-            catalog_dir: Catalog directory for storage
-            pipeline_dir: Pipeline directory containing predictions.csv
-            metrics: Optional metadata dict to add to predictions
+            dataset_name: Filter by dataset name.
+            partition: Filter by partition.
+            config_name: Filter by config name.
+            model_name: Filter by model name.
+            fold_id: Filter by fold ID.
+            step_idx: Filter by step index.
+            branch_id: Filter by branch ID.
+            branch_name: Filter by branch name.
+            load_arrays: If ``True``, include arrays (y_true, y_pred).
+            **kwargs: Additional filter criteria.
 
         Returns:
-            Generated prediction ID
+            List of matching prediction dicts.
         """
-        # Load CSV and prepare data using storage component
-        pred_csv = pipeline_dir / "predictions.csv"
-        pred_data = self._storage.archive_from_csv(pred_csv, metrics)
+        results = list(self._buffer)
 
-        # Add to predictions
-        pred_id = self.add_prediction(**pred_data)
+        filter_map: dict[str, Any] = {}
+        if dataset_name is not None:
+            filter_map["dataset_name"] = dataset_name
+        if partition is not None:
+            filter_map["partition"] = partition
+        if config_name is not None:
+            filter_map["config_name"] = config_name
+        if model_name is not None:
+            filter_map["model_name"] = model_name
+        if fold_id is not None:
+            filter_map["fold_id"] = str(fold_id)
+        if step_idx is not None:
+            filter_map["step_idx"] = step_idx
+        if branch_id is not None:
+            filter_map["branch_id"] = branch_id
+        if branch_name is not None:
+            filter_map["branch_name"] = branch_name
+        filter_map.update(kwargs)
 
-        # Save to catalog
-        self.save_to_parquet(catalog_dir, pred_id)
+        for key, value in filter_map.items():
+            results = [r for r in results if r.get(key) == value]
 
-        return pred_id
+        if not load_arrays:
+            results = [{k: v for k, v in r.items() if k not in ("y_true", "y_pred", "y_proba")} for r in results]
 
-    def merge_predictions(self, other: 'Predictions') -> None:
-        """
-        Merge predictions from another Predictions instance.
+        return results
 
-        Delegates to PredictionStorage component.
+    def get_similar(self, **filter_kwargs: Any) -> dict[str, Any] | None:
+        """Get the first prediction matching filter criteria.
 
         Args:
-            other: Another Predictions instance to merge
-        """
-        self._storage.merge(other._storage)
-
-    def clear(self) -> None:
-        """
-        Clear all predictions.
-
-        Delegates to PredictionStorage component.
-        """
-        self._storage.clear()
-
-    # =========================================================================
-    # METADATA & UTILITY OPERATIONS - Delegate to Indexer
-    # =========================================================================
-
-    @property
-    def _df(self) -> pl.DataFrame:
-        """
-        Backward compatibility property for direct DataFrame access.
-
-        Delegates to storage._df for tests and legacy code.
+            **filter_kwargs: Filter criteria.
 
         Returns:
-            Internal Polars DataFrame
+            First matching prediction or ``None``.
         """
-        return self._storage._df
+        results = self.filter_predictions(**filter_kwargs)
+        return results[0] if results else None
 
-    @_df.setter
-    def _df(self, value: pl.DataFrame) -> None:
-        """
-        Backward compatibility setter for direct DataFrame assignment.
+    def get_prediction_by_id(self, prediction_id: str, load_arrays: bool = True) -> dict[str, Any] | None:
+        """Get a single prediction by its ID.
 
         Args:
-            value: DataFrame to set
+            prediction_id: Unique prediction identifier.
+            load_arrays: If ``True``, include arrays.
+
+        Returns:
+            Prediction dict or ``None``.
         """
-        self._storage._df = value
+        for row in self._buffer:
+            if row.get("id") == prediction_id:
+                if not load_arrays:
+                    return {k: v for k, v in row.items() if k not in ("y_true", "y_pred", "y_proba")}
+                return dict(row)
+        return None
+
+    # =========================================================================
+    # METADATA / UTILITY
+    # =========================================================================
 
     @property
     def num_predictions(self) -> int:
-        """Get the number of stored predictions."""
-        return len(self._storage)
+        """Number of predictions currently buffered."""
+        return len(self._buffer)
 
-    def get_unique_values(self, column: str) -> List[str]:
-        """
-        Get unique values for a specific column.
-
-        Delegates to PredictionIndexer component.
+    def get_unique_values(self, column: str) -> list[str]:
+        """Get unique values for a column across buffered predictions.
 
         Args:
-            column: Column name
+            column: Column name.
 
         Returns:
-            List of unique values
+            List of unique values (as strings).
         """
-        return self._indexer.get_unique_values(column)
+        seen: set[str] = set()
+        for row in self._buffer:
+            val = row.get(column)
+            if val is not None and str(val):
+                seen.add(str(val))
+        return sorted(seen)
 
-    def get_datasets(self) -> List[str]:
-        """
-        Get list of unique dataset names.
+    def get_datasets(self) -> list[str]:
+        """Get list of unique dataset names."""
+        return self.get_unique_values("dataset_name")
 
-        Delegates to PredictionIndexer component.
+    def get_partitions(self) -> list[str]:
+        """Get list of unique partitions."""
+        return self.get_unique_values("partition")
 
-        Returns:
-            List of dataset names
-        """
-        return self._indexer.get_datasets()
+    def get_configs(self) -> list[str]:
+        """Get list of unique config names."""
+        return self.get_unique_values("config_name")
 
-    def get_partitions(self) -> List[str]:
-        """
-        Get list of unique partitions.
+    def get_models(self) -> list[str]:
+        """Get list of unique model names."""
+        return self.get_unique_values("model_name")
 
-        Delegates to PredictionIndexer component.
-
-        Returns:
-            List of partitions
-        """
-        return self._indexer.get_partitions()
-
-    def get_configs(self) -> List[str]:
-        """
-        Get list of unique config names.
-
-        Delegates to PredictionIndexer component.
-
-        Returns:
-            List of config names
-        """
-        return self._indexer.get_configs()
-
-    def get_models(self) -> List[str]:
-        """
-        Get list of unique model names.
-
-        Delegates to PredictionIndexer component.
-
-        Returns:
-            List of model names
-        """
-        return self._indexer.get_models()
-
-    def get_folds(self) -> List[str]:
-        """
-        Get list of unique fold IDs.
-
-        Delegates to PredictionIndexer component.
-
-        Returns:
-            List of fold IDs
-        """
-        return self._indexer.get_folds()
+    def get_folds(self) -> list[str]:
+        """Get list of unique fold IDs."""
+        return self.get_unique_values("fold_id")
 
     # =========================================================================
-    # CACHE MANAGEMENT
+    # MERGE / CLEAR
+    # =========================================================================
+
+    def merge_predictions(self, other: Predictions) -> None:
+        """Merge predictions from another instance into this one.
+
+        Args:
+            other: Another :class:`Predictions` instance.
+        """
+        self._buffer.extend(other._buffer)
+
+    def clear(self) -> None:
+        """Clear all buffered predictions."""
+        self._buffer.clear()
+
+    # =========================================================================
+    # PARTITION HELPERS
+    # =========================================================================
+
+    def get_entry_partitions(self, entry: dict[str, Any]) -> dict[str, dict[str, Any] | None]:
+        """Get all partition data for an entry.
+
+        Args:
+            entry: Prediction entry dict.
+
+        Returns:
+            Dict with ``train``, ``val``, ``test`` keys.
+        """
+        res: dict[str, dict[str, Any] | None] = {}
+        filter_dict: dict[str, Any] = {
+            "dataset_name": entry["dataset_name"],
+            "config_name": entry.get("config_name", ""),
+            "model_name": entry["model_name"],
+            "fold_id": entry.get("fold_id", ""),
+            "step_idx": entry.get("step_idx", 0),
+        }
+
+        for partition in ("train", "val", "test"):
+            filter_dict["partition"] = partition
+            predictions = self.filter_predictions(**filter_dict, load_arrays=True)
+            res[partition] = predictions[0] if predictions else None
+
+        return res
+
+    # =========================================================================
+    # STACKING HELPERS
+    # =========================================================================
+
+    def get_predictions_by_step(self, step_idx: int, partition: str | None = None, branch_id: int | None = None, load_arrays: bool = True, **kwargs: Any) -> list[dict[str, Any]]:
+        """Get predictions from a specific pipeline step.
+
+        Args:
+            step_idx: Pipeline step index.
+            partition: Optional partition filter.
+            branch_id: Optional branch ID filter.
+            load_arrays: If ``True``, load arrays.
+            **kwargs: Additional filters.
+
+        Returns:
+            List of prediction dicts from the specified step.
+        """
+        return self.filter_predictions(step_idx=step_idx, partition=partition, branch_id=branch_id, load_arrays=load_arrays, **kwargs)
+
+    def get_oof_predictions(
+        self,
+        model_name: str | None = None,
+        step_idx: int | None = None,
+        branch_id: int | None = None,
+        exclude_averaged: bool = True,
+        load_arrays: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Get out-of-fold (validation) predictions.
+
+        Args:
+            model_name: Optional model name filter.
+            step_idx: Optional step index filter.
+            branch_id: Optional branch ID filter.
+            exclude_averaged: If ``True``, exclude avg/w_avg folds.
+            load_arrays: If ``True``, load arrays.
+
+        Returns:
+            List of validation partition predictions.
+        """
+        preds = self.filter_predictions(model_name=model_name, step_idx=step_idx, branch_id=branch_id, partition="val", load_arrays=load_arrays)
+        if exclude_averaged:
+            preds = [p for p in preds if p.get("fold_id") not in ("avg", "w_avg")]
+        return preds
+
+    def filter_by_branch(self, branch_id: int | None = None, branch_name: str | None = None, include_no_branch: bool = False, load_arrays: bool = True) -> list[dict[str, Any]]:
+        """Filter predictions by branch context.
+
+        Args:
+            branch_id: Branch ID to filter by.
+            branch_name: Branch name to filter by.
+            include_no_branch: If ``True``, include branchless predictions.
+            load_arrays: If ``True``, load arrays.
+
+        Returns:
+            List of branch-filtered predictions.
+        """
+        if branch_id is not None:
+            preds = self.filter_predictions(branch_id=branch_id, load_arrays=load_arrays)
+        elif branch_name is not None:
+            preds = self.filter_predictions(branch_name=branch_name, load_arrays=load_arrays)
+        else:
+            preds = self.filter_predictions(load_arrays=load_arrays)
+
+        if not include_no_branch:
+            preds = [p for p in preds if p.get("branch_id") is not None or p.get("branch_name")]
+        return preds
+
+    def get_models_before_step(self, step_idx: int, branch_id: int | None = None, unique_names: bool = True) -> list[str]:
+        """Get model names from steps before a given step index.
+
+        Args:
+            step_idx: Current step index.
+            branch_id: Optional branch ID filter.
+            unique_names: If ``True``, return unique names only.
+
+        Returns:
+            List of model names.
+        """
+        candidates = [r for r in self._buffer if r.get("step_idx", 0) < step_idx]
+        if branch_id is not None:
+            candidates = [r for r in candidates if r.get("branch_id") == branch_id]
+        names = [r.get("model_name", "") for r in candidates]
+        if unique_names:
+            return sorted(set(names))
+        return names
+
+    # =========================================================================
+    # CONVERSION
+    # =========================================================================
+
+    def to_dataframe(self) -> pl.DataFrame:
+        """Get predictions as Polars DataFrame (metadata only, no arrays)."""
+        if not self._buffer:
+            return pl.DataFrame()
+        # Filter out array columns for DataFrame representation
+        safe_rows = []
+        for row in self._buffer:
+            safe = {}
+            for k, v in row.items():
+                if isinstance(v, np.ndarray):
+                    continue  # Skip arrays
+                if isinstance(v, (dict, list)):
+                    safe[k] = json.dumps(v)
+                else:
+                    safe[k] = v
+            safe_rows.append(safe)
+        return pl.DataFrame(safe_rows)
+
+    def to_dicts(self, load_arrays: bool = True) -> list[dict[str, Any]]:
+        """Get predictions as list of dicts.
+
+        Args:
+            load_arrays: If ``True``, include arrays.
+
+        Returns:
+            List of prediction dicts.
+        """
+        if load_arrays:
+            return [dict(r) for r in self._buffer]
+        return [{k: v for k, v in r.items() if k not in ("y_true", "y_pred", "y_proba")} for r in self._buffer]
+
+    def to_pandas(self) -> Any:
+        """Get predictions as pandas DataFrame (metadata only)."""
+        return self.to_dataframe().to_pandas()
+
+    # =========================================================================
+    # CACHE (no-op -- kept for API compatibility)
     # =========================================================================
 
     def clear_caches(self) -> None:
-        """
-        Clear all internal caches.
+        """Clear internal caches (no-op in store-backed mode)."""
 
-        Call this when the underlying data has been modified to ensure
-        fresh results are computed. This clears:
-        - Ranker's aggregation cache (cached aggregated y_true/y_pred)
-        - Ranker's score cache (cached metric scores)
-
-        Examples:
-            >>> predictions.add_prediction(...)  # Add new data
-            >>> predictions.clear_caches()  # Clear to ensure fresh results
-        """
-        self._ranker.clear_caches()
-
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """
-        Get cache statistics for debugging performance.
-
-        Returns a dictionary with hit rates and sizes for:
-        - aggregation_cache: Cached aggregated arrays
-        - score_cache: Cached metric scores
+    def get_cache_stats(self) -> dict[str, Any]:
+        """Get cache statistics (stub for API compatibility).
 
         Returns:
-            Dictionary with cache statistics
-
-        Examples:
-            >>> stats = predictions.get_cache_stats()
-            >>> print(f"Aggregation cache hit rate: {stats['aggregation_cache']['hit_rate']:.1%}")
+            Empty statistics dict.
         """
-        return self._ranker.get_cache_stats()
+        return {"aggregation_cache": {"hit_rate": 0.0, "size": 0}, "score_cache": {"hit_rate": 0.0, "size": 0}}
 
     # =========================================================================
     # STATIC UTILITY METHODS
@@ -1213,39 +1069,33 @@ class Predictions:
 
     @staticmethod
     def save_predictions_to_csv(
-        y_true: Optional[Union[np.ndarray, List[float]]] = None,
-        y_pred: Optional[Union[np.ndarray, List[float]]] = None,
+        y_true: np.ndarray | list[float] | None = None,
+        y_pred: np.ndarray | list[float] | None = None,
         filepath: str = "",
         prefix: str = "",
-        suffix: str = ""
+        suffix: str = "",
     ) -> None:
-        """
-        Save y_true and y_pred arrays to a CSV file.
+        """Save y_true and y_pred arrays to a CSV file.
 
         Args:
-            y_true: True values array
-            y_pred: Predicted values array
-            filepath: Output CSV file path
-            prefix: Optional prefix for column names
-            suffix: Optional suffix for column names
+            y_true: True values array.
+            y_pred: Predicted values array.
+            filepath: Output CSV file path.
+            prefix: Optional prefix for column names.
+            suffix: Optional suffix for column names.
         """
         if y_pred is None:
             raise ValueError("y_pred is required")
 
         y_pred_arr = np.array(y_pred) if not isinstance(y_pred, np.ndarray) else y_pred
         y_pred_flat = y_pred_arr.flatten()
-
-        data_dict = {f"{prefix}y_pred{suffix}": y_pred_flat.tolist()}
+        data_dict: dict[str, list[float]] = {f"{prefix}y_pred{suffix}": y_pred_flat.tolist()}
 
         if y_true is not None:
             y_true_arr = np.array(y_true) if not isinstance(y_true, np.ndarray) else y_true
             y_true_flat = y_true_arr.flatten()
-
             if len(y_true_flat) != len(y_pred_flat):
-                raise ValueError(
-                    f"Length mismatch: y_true ({len(y_true_flat)}) != y_pred ({len(y_pred_flat)})"
-                )
-
+                raise ValueError(f"Length mismatch: y_true ({len(y_true_flat)}) != y_pred ({len(y_pred_flat)})")
             data_dict[f"{prefix}y_true{suffix}"] = y_true_flat.tolist()
 
         df_csv = pl.DataFrame(data_dict)
@@ -1253,396 +1103,211 @@ class Predictions:
         df_csv.write_csv(filepath)
         logger.info(f"Saved predictions to {filepath}")
 
-    @staticmethod
-    def save_all_to_csv(
-        predictions: 'Predictions',
-        path: str = "results",
-        aggregate_partitions: bool = False,
-        **filters
-    ) -> None:
-        """
-        Save all predictions to CSV files.
-
-        Args:
-            predictions: Predictions instance
-            path: Base path for saving
-            aggregate_partitions: If True, save one file per model with all partitions
-            **filters: Additional filter criteria
-        """
-        if aggregate_partitions:
-            all_results = predictions.top(
-                n=predictions.num_predictions,
-                aggregate_partitions=True,
-                group_by_fold=True,
-                **filters
-            )
-        else:
-            all_results = predictions.top(
-                n=predictions.num_predictions,
-                aggregate_partitions=False,
-                group_by_fold=True,
-                **filters
-            )
-
-        for result in all_results:
-            try:
-                result.save_to_csv(path)
-            except Exception as e:
-                model_id = result.get('id', 'unknown')
-                logger.warning(f"Failed to save prediction {model_id}: {e}")
-
-        logger.success(f"Saved {len(all_results)} files to {path}")
-
     @classmethod
-    def pred_short_string(cls, entry: Dict, metrics: Optional[List[str]] = None, partition: str | List[str] = "test") -> str:
-        """
-        Generate short string representation of a prediction.
+    def pred_short_string(cls, entry: dict, metrics: list[str] | None = None, partition: str | list[str] = "test") -> str:
+        """Generate short string representation of a prediction.
 
         Args:
-            entry: Prediction dictionary
-            metrics: Optional list of metrics to display
+            entry: Prediction dict.
+            metrics: Optional list of metrics to display.
+            partition: Partition(s) for score computation.
 
         Returns:
-            Short description string
+            Short description string.
         """
         scores_str = ""
         if metrics:
-            # Make a copy to avoid modifying the original list
             metrics = metrics.copy()
             if isinstance(partition, str):
                 partition = [partition]
-
             for p in partition:
-                # Handle aggregated partitions structure
-                if 'partitions' in entry and p in entry['partitions']:
-                    y_true = entry['partitions'][p].get('y_true')
-                    y_pred = entry['partitions'][p].get('y_pred')
+                if "partitions" in entry and p in entry["partitions"]:
+                    y_true = entry["partitions"][p].get("y_true")
+                    y_pred = entry["partitions"][p].get("y_pred")
                 else:
-                    y_true = entry.get('y_true')
-                    y_pred = entry.get('y_pred')
-
+                    y_true = entry.get("y_true")
+                    y_pred = entry.get("y_pred")
                 if y_true is not None and y_pred is not None:
-                    scores = evaluator.eval_list(
-                        y_true,
-                        y_pred,
-                        metrics=metrics
-                    )
+                    computed = evaluator.eval_list(y_true, y_pred, metrics=metrics)
                     scores_str += f" [{p}]: "
-                    scores_str += ", ".join(
-                        [f"[{k}:{v:.4f}]" for k, v in zip(metrics, scores)]
-                    )
+                    scores_str += ", ".join(f"[{k}:{v:.4f}]" for k, v in zip(metrics, computed, strict=False))
 
-        # Handle cases where metric might not exist (e.g., in predict mode)
-        metric_str = entry.get('metric', 'N/A')
-        test_score = entry.get('test_score')
-        val_score = entry.get('val_score')
-        fold_id = entry.get('fold_id', '')
-        op_counter = entry.get('op_counter', entry.get('id', 'unknown'))
-        step_idx = entry.get('step_idx', 0)
-        entry_id = entry.get('id', 'unknown')
+        metric_str = entry.get("metric", "N/A")
+        test_score = entry.get("test_score")
+        val_score = entry.get("val_score")
+        fold_id = entry.get("fold_id", "")
+        op_counter = entry.get("op_counter", entry.get("id", "unknown"))
+        step_idx = entry.get("step_idx", 0)
+        entry_id = entry.get("id", "unknown")
 
-        desc = f"{entry['model_name']}"
-        if metric_str != 'N/A':
+        desc = f"{entry.get('model_name', 'unknown')}"
+        if metric_str != "N/A":
             desc += f" - {metric_str} "
             if test_score is not None and val_score is not None:
                 desc += f"[test: {test_score:.4f}], [val: {val_score:.4f}]"
-
         if scores_str:
             desc += f", {scores_str}"
-        desc += f", (fold: {fold_id}, id: {op_counter}, "
-        desc += f"step: {step_idx}) - [{entry_id}]"
+        desc += f", (fold: {fold_id}, id: {op_counter}, step: {step_idx}) - [{entry_id}]"
         return desc
 
     @classmethod
-    def pred_long_string(cls, entry: Dict, metrics: Optional[List[str]] = None) -> str:
-        """
-        Generate long string representation of a prediction.
+    def pred_long_string(cls, entry: dict, metrics: list[str] | None = None) -> str:
+        """Generate long string representation of a prediction.
 
         Args:
-            entry: Prediction dictionary
-            metrics: Optional list of metrics to display
+            entry: Prediction dict.
+            metrics: Optional list of metrics to display.
 
         Returns:
-            Long description string with config
+            Long description string with config.
         """
-        return cls.pred_short_string(entry, metrics=metrics) + f" | [{entry['config_name']}]"
-
-    def get_entry_partitions(self, entry: Dict) -> Dict[str, Optional[Dict]]:
-        """
-        Get all partition data for an entry.
-
-        Args:
-            entry: Prediction entry dictionary
-
-        Returns:
-            Dictionary with 'train', 'val', 'test' keys containing partition data
-        """
-        res = {}
-        filter_dict = {
-            'dataset_name': entry['dataset_name'],
-            'config_name': entry['config_name'],
-            'model_name': entry['model_name'],
-            'fold_id': entry['fold_id'],
-            'step_idx': entry['step_idx'],
-            'op_counter': entry.get('op_counter', entry.get('id', 0))
-        }
-
-        for partition in ['train', 'val', 'test']:
-            filter_dict['partition'] = partition
-            predictions = self.filter_predictions(**filter_dict, load_arrays=True)
-            if predictions:
-                res[partition] = predictions[0]
-            else:
-                res[partition] = None
-
-        return res
-
-    # =========================================================================
-    # AGGREGATION METHODS
-    # =========================================================================
+        return cls.pred_short_string(entry, metrics=metrics) + f" | [{entry.get('config_name', '')}]"
 
     @staticmethod
     def aggregate(
         y_pred: np.ndarray,
         group_ids: np.ndarray,
-        y_proba: Optional[np.ndarray] = None,
-        y_true: Optional[np.ndarray] = None,
-        method: str = 'mean',
+        y_proba: np.ndarray | None = None,
+        y_true: np.ndarray | None = None,
+        method: str = "mean",
         exclude_outliers: bool = False,
-        outlier_threshold: float = 0.95
-    ) -> Dict[str, Any]:
-        """
-        Aggregate predictions by group (e.g., same sample ID with multiple measurements).
+        outlier_threshold: float = 0.95,
+    ) -> dict[str, Any]:
+        """Aggregate predictions by group.
 
-        For datasets with multiple samples per target (e.g., 4 measurements for each sample ID),
-        this function averages predictions within each group to produce one prediction per group.
-
-        For regression: averages y_pred values within each group.
-        For classification: averages y_proba (if available) then takes argmax,
-                           or uses majority voting on y_pred if no probabilities.
+        For datasets with multiple samples per target (e.g., 4 measurements
+        per sample ID), averages predictions within each group.
 
         Args:
-            y_pred: Predicted values array (n_samples,) or (n_samples, 1)
-            group_ids: Group identifiers array (n_samples,) - samples with same ID are grouped
-            y_proba: Optional class probabilities array (n_samples, n_classes) for classification
-            y_true: Optional true values array (n_samples,) for computing aggregated ground truth
-            method: Aggregation method - 'mean' (default), 'median', 'vote' (for classification)
-            exclude_outliers: If True, exclude outliers within each group before aggregation
-                using Hotelling's T² statistic. Useful when some measurements are anomalous.
-            outlier_threshold: Confidence level for T² outlier detection (default 0.95).
-                Measurements with T² > chi2.ppf(threshold, 1) are excluded.
+            y_pred: Predicted values (n_samples,).
+            group_ids: Group identifiers (n_samples,).
+            y_proba: Optional class probabilities (n_samples, n_classes).
+            y_true: Optional true values (n_samples,).
+            method: ``"mean"``, ``"median"``, or ``"vote"``.
+            exclude_outliers: If ``True``, exclude outliers per group.
+            outlier_threshold: Confidence level for outlier detection.
 
         Returns:
-            Dictionary containing:
-                - 'y_pred': Aggregated predictions (n_groups,)
-                - 'y_proba': Aggregated probabilities (n_groups, n_classes) if input had y_proba
-                - 'y_true': Aggregated true values (n_groups,) if input had y_true
-                - 'group_ids': Unique group identifiers (n_groups,)
-                - 'group_sizes': Number of samples per group (n_groups,)
-                - 'outliers_excluded': Number of outliers excluded per group (if exclude_outliers=True)
-
-        Examples:
-            >>> # Aggregate 4 samples per ID for regression
-            >>> result = Predictions.aggregate(y_pred, sample_ids)
-            >>> aggregated_pred = result['y_pred']  # One prediction per unique ID
-
-            >>> # Aggregate for classification with probabilities
-            >>> result = Predictions.aggregate(y_pred, sample_ids, y_proba=proba)
-            >>> aggregated_proba = result['y_proba']  # Averaged probabilities
-
-            >>> # Aggregate with outlier exclusion
-            >>> result = Predictions.aggregate(y_pred, sample_ids, exclude_outliers=True)
-            >>> print(f"Outliers excluded: {result['outliers_excluded'].sum()}")
+            Dict with ``y_pred``, ``group_ids``, ``group_sizes`` and
+            optional ``y_proba``, ``y_true``, ``outliers_excluded``.
         """
-        # Ensure arrays are 1D for predictions
         y_pred = np.asarray(y_pred).flatten()
         group_ids = np.asarray(group_ids).flatten()
-
         if len(y_pred) != len(group_ids):
-            raise ValueError(
-                f"Length mismatch: y_pred ({len(y_pred)}) != group_ids ({len(group_ids)})"
-            )
+            raise ValueError(f"Length mismatch: y_pred ({len(y_pred)}) != group_ids ({len(group_ids)})")
 
-        # Get unique groups and their indices
         unique_groups, inverse_indices = np.unique(group_ids, return_inverse=True)
         n_groups = len(unique_groups)
 
-        # Initialize result arrays
         aggregated_pred = np.zeros(n_groups)
         group_sizes = np.zeros(n_groups, dtype=int)
         outliers_excluded = np.zeros(n_groups, dtype=int) if exclude_outliers else None
 
-        # Create mask for valid (non-outlier) samples
         if exclude_outliers:
-            valid_mask = Predictions._compute_outlier_mask(
-                y_pred, inverse_indices, n_groups, outlier_threshold
-            )
-            # Count outliers per group
+            valid_mask = Predictions._compute_outlier_mask(y_pred, inverse_indices, n_groups, outlier_threshold)
             for g in range(n_groups):
                 group_mask = inverse_indices == g
-                outliers_excluded[g] = np.sum(group_mask) - np.sum(group_mask & valid_mask)
+                outliers_excluded[g] = int(np.sum(group_mask)) - int(np.sum(group_mask & valid_mask))
         else:
             valid_mask = np.ones(len(y_pred), dtype=bool)
 
-        # Count group sizes (after outlier exclusion)
-        for i, (idx, valid) in enumerate(zip(inverse_indices, valid_mask)):
+        for _i, (idx, valid) in enumerate(zip(inverse_indices, valid_mask, strict=False)):
             if valid:
                 group_sizes[idx] += 1
 
-        # Check if this is classification (has probabilities)
         is_classification = y_proba is not None and y_proba.size > 0
 
         if is_classification:
             y_proba = np.asarray(y_proba)
             if y_proba.ndim == 1:
-                # Binary classification with single column
                 y_proba = np.column_stack([1 - y_proba, y_proba])
-
             n_classes = y_proba.shape[1]
             aggregated_proba = np.zeros((n_groups, n_classes))
-
-            # Aggregate probabilities by group (only valid samples)
-            for i, (group_idx, proba, valid) in enumerate(zip(inverse_indices, y_proba, valid_mask)):
+            for _i, (group_idx, proba, valid) in enumerate(zip(inverse_indices, y_proba, valid_mask, strict=False)):
                 if valid:
                     aggregated_proba[group_idx] += proba
-
-            # Average probabilities
             for g in range(n_groups):
                 if group_sizes[g] > 0:
                     aggregated_proba[g] /= group_sizes[g]
-
-            # Get class predictions from averaged probabilities
             aggregated_pred = np.argmax(aggregated_proba, axis=1).astype(float)
-
         else:
-            # Regression or classification without probabilities
-            # Auto-detect classification: if predictions are integers or close to integers
             unique_preds = np.unique(y_pred[valid_mask])
-            is_likely_classification = (
-                len(unique_preds) <= 20 and  # Few unique values
-                np.allclose(y_pred[valid_mask], np.round(y_pred[valid_mask]))  # Values are integer-like
-            )
-
-            # Use voting for classification, mean/median for regression
+            is_likely_classification = len(unique_preds) <= 20 and np.allclose(y_pred[valid_mask], np.round(y_pred[valid_mask]))
             effective_method = method
-            if is_likely_classification and method == 'mean':
-                effective_method = 'vote'  # Override mean with vote for classification
+            if is_likely_classification and method == "mean":
+                effective_method = "vote"
 
-            if effective_method == 'vote':
-                # Majority voting for classification
+            if effective_method == "vote":
                 from scipy import stats
                 for g in range(n_groups):
                     mask = (inverse_indices == g) & valid_mask
                     if np.any(mask):
-                        group_preds = y_pred[mask]
-                        mode_result = stats.mode(group_preds, keepdims=True)
+                        mode_result = stats.mode(y_pred[mask], keepdims=True)
                         aggregated_pred[g] = mode_result.mode[0]
-            elif effective_method == 'median':
+            elif effective_method == "median":
                 for g in range(n_groups):
                     mask = (inverse_indices == g) & valid_mask
                     if np.any(mask):
                         aggregated_pred[g] = np.median(y_pred[mask])
-            else:  # 'mean' - only used for regression now
-                # Sum predictions by group then divide by count
-                for i, (group_idx, pred, valid) in enumerate(zip(inverse_indices, y_pred, valid_mask)):
+            else:
+                for _i, (group_idx, pred, valid) in enumerate(zip(inverse_indices, y_pred, valid_mask, strict=False)):
                     if valid:
                         aggregated_pred[group_idx] += pred
-
                 for g in range(n_groups):
                     if group_sizes[g] > 0:
                         aggregated_pred[g] /= group_sizes[g]
 
-            # Set is_classification for y_true aggregation
             is_classification = is_likely_classification
-
             aggregated_proba = None
 
-        # Aggregate true values if provided
         aggregated_true = None
         if y_true is not None:
             y_true = np.asarray(y_true).flatten()
             aggregated_true = np.zeros(n_groups)
-
             if is_classification:
-                # For classification, use mode (most frequent value)
                 from scipy import stats
                 for g in range(n_groups):
                     mask = (inverse_indices == g) & valid_mask
                     if np.any(mask):
-                        group_true = y_true[mask]
-                        mode_result = stats.mode(group_true, keepdims=True)
+                        mode_result = stats.mode(y_true[mask], keepdims=True)
                         aggregated_true[g] = mode_result.mode[0]
             else:
-                # For regression, use mean (or median based on method)
-                if method == 'median':
+                if method == "median":
                     for g in range(n_groups):
                         mask = (inverse_indices == g) & valid_mask
                         if np.any(mask):
                             aggregated_true[g] = np.median(y_true[mask])
                 else:
-                    for i, (group_idx, true_val, valid) in enumerate(zip(inverse_indices, y_true, valid_mask)):
+                    for _i, (group_idx, true_val, valid) in enumerate(zip(inverse_indices, y_true, valid_mask, strict=False)):
                         if valid:
                             aggregated_true[group_idx] += true_val
-
                     for g in range(n_groups):
                         if group_sizes[g] > 0:
                             aggregated_true[g] /= group_sizes[g]
 
-        result = {
-            'y_pred': aggregated_pred,
-            'group_ids': unique_groups,
-            'group_sizes': group_sizes,
-        }
-
+        result: dict[str, Any] = {"y_pred": aggregated_pred, "group_ids": unique_groups, "group_sizes": group_sizes}
         if aggregated_proba is not None:
-            result['y_proba'] = aggregated_proba
-
+            result["y_proba"] = aggregated_proba
         if aggregated_true is not None:
-            result['y_true'] = aggregated_true
-
+            result["y_true"] = aggregated_true
         if outliers_excluded is not None:
-            result['outliers_excluded'] = outliers_excluded
-
+            result["outliers_excluded"] = outliers_excluded
         return result
 
     @staticmethod
-    def _compute_outlier_mask(
-        y_pred: np.ndarray,
-        inverse_indices: np.ndarray,
-        n_groups: int,
-        threshold: float = 0.95
-    ) -> np.ndarray:
-        """
-        Compute outlier mask using robust modified Z-score within each group.
-
-        Uses Median Absolute Deviation (MAD) based outlier detection, which is
-        robust to outliers in the data (unlike mean/std-based methods).
-
-        The modified Z-score is: M = 0.6745 * (x - median) / MAD
-        where 0.6745 is a consistency factor for normal distributions.
-        Samples with |M| > threshold_z are marked as outliers.
-
-        Following Iglewicz and Hoaglin (1993), a common threshold is 3.5 for
-        the modified Z-score. The threshold parameter (0.95 = 95%) maps to
-        approximately 3.5 to maintain a conservative outlier detection.
+    def _compute_outlier_mask(y_pred: np.ndarray, inverse_indices: np.ndarray, n_groups: int, threshold: float = 0.95) -> np.ndarray:
+        """Compute outlier mask using robust modified Z-score within each group.
 
         Args:
-            y_pred: Predictions array (n_samples,)
-            inverse_indices: Group assignment for each sample
-            n_groups: Number of unique groups
-            threshold: Confidence level (0.95 maps to ~3.5 modified Z-score threshold,
-                      0.99 maps to ~4.5). Default 0.95 is recommended.
+            y_pred: Predictions array.
+            inverse_indices: Group assignment per sample.
+            n_groups: Number of unique groups.
+            threshold: Confidence level.
 
         Returns:
-            Boolean mask where True = valid (non-outlier) sample
+            Boolean mask where ``True`` = valid (non-outlier).
         """
         valid_mask = np.ones(len(y_pred), dtype=bool)
-
-        # Map confidence level to modified Z-score threshold
-        # These thresholds follow recommendations from Iglewicz & Hoaglin (1993)
-        # 0.95 -> 3.5 (standard for outlier detection)
-        # 0.99 -> 4.5 (very conservative)
-        # 0.90 -> 3.0 (more aggressive)
         if threshold >= 0.99:
             z_threshold = 4.5
         elif threshold >= 0.95:
@@ -1655,266 +1320,109 @@ class Predictions:
         for g in range(n_groups):
             group_mask = inverse_indices == g
             group_preds = y_pred[group_mask]
-
             if len(group_preds) <= 2:
-                # Need at least 3 samples to detect outliers reliably
                 continue
-
             median = np.median(group_preds)
             mad = np.median(np.abs(group_preds - median))
-
             if mad < 1e-10:
-                # All values nearly identical, no outliers detectable
                 continue
-
-            # Modified Z-score (Iglewicz and Hoaglin, 1993)
-            # 0.6745 is the consistency factor for normal distributions
             modified_z = 0.6745 * (group_preds - median) / mad
-
-            # Mark outliers in the original mask
             group_indices = np.where(group_mask)[0]
-            for idx, mz in zip(group_indices, modified_z):
+            for idx, mz in zip(group_indices, modified_z, strict=False):
                 if abs(mz) > z_threshold:
                     valid_mask[idx] = False
-
         return valid_mask
 
     # =========================================================================
-    # CONVERSION METHODS
+    # INTERNAL ENRICHMENT
     # =========================================================================
 
-    def to_dataframe(self) -> pl.DataFrame:
-        """Get predictions as Polars DataFrame."""
-        return self._storage.to_dataframe()
-
-    def to_dicts(self, load_arrays: bool = True) -> List[Dict[str, Any]]:
-        """
-        Get predictions as list of dictionaries.
-
-        Args:
-            load_arrays: If True, hydrate array references with actual arrays.
-                        If False, returns metadata with array IDs only (faster).
-
-        Returns:
-            List of prediction dictionaries
-        """
-        if load_arrays:
-            # Hydrate arrays for each row
-            df = self._storage.to_dataframe()
-            result = []
-            for row in df.to_dicts():
-                hydrated = self._storage._hydrate_arrays(row)
-                result.append(hydrated)
-            return result
-        else:
-            # Return raw data with array IDs
-            return self._storage.to_dataframe().to_dicts()
-
-    def to_pandas(self):
-        """Get predictions as pandas DataFrame."""
-        return self._storage.to_dataframe().to_pandas()
-
-    # =========================================================================
-    # META-MODEL STACKING HELPERS
-    # =========================================================================
-
-    def get_predictions_by_step(
+    def _enrich_result(
         self,
-        step_idx: int,
-        partition: Optional[str] = None,
-        branch_id: Optional[int] = None,
-        load_arrays: bool = True,
-        **kwargs
-    ) -> List[Dict[str, Any]]:
-        """Get predictions from a specific pipeline step.
+        row: dict[str, Any],
+        display_metrics: list[str] | None = None,
+        display_partition: str = "test",
+        aggregate_partitions: bool = False,
+        aggregate: str | None = None,
+    ) -> dict[str, Any]:
+        """Enrich a raw buffer row into a user-facing result dict.
 
-        Convenience method for meta-model stacking to retrieve predictions
-        from source models at a specific step index.
-
-        Args:
-            step_idx: Pipeline step index to filter by.
-            partition: Optional partition filter ('train', 'val', 'test').
-            branch_id: Optional branch ID filter.
-            load_arrays: If True, load actual arrays from registry.
-            **kwargs: Additional filter criteria.
-
-        Returns:
-            List of prediction dictionaries from the specified step.
-
-        Examples:
-            >>> # Get all predictions from step 2
-            >>> preds = predictions.get_predictions_by_step(step_idx=2)
-            >>> # Get validation predictions from step 2
-            >>> val_preds = predictions.get_predictions_by_step(
-            ...     step_idx=2, partition='val'
-            ... )
+        Computes display metrics on-the-fly, applies aggregation when
+        requested, and adds partition sub-dicts when
+        ``aggregate_partitions`` is ``True``.
         """
-        return self.filter_predictions(
-            step_idx=step_idx,
-            partition=partition,
-            branch_id=branch_id,
-            load_arrays=load_arrays,
-            **kwargs
-        )
+        enriched = dict(row)
 
-    def get_oof_predictions(
-        self,
-        model_name: Optional[str] = None,
-        step_idx: Optional[int] = None,
-        branch_id: Optional[int] = None,
-        exclude_averaged: bool = True,
-        load_arrays: bool = True
-    ) -> List[Dict[str, Any]]:
-        """Get out-of-fold (validation partition) predictions.
+        # Apply aggregation to display arrays if requested
+        y_true = row.get("y_true")
+        y_pred = row.get("y_pred")
+        y_proba = row.get("y_proba")
+        was_aggregated = False
 
-        Convenience method for meta-model stacking to retrieve OOF predictions
-        that can be used to construct training features without data leakage.
-
-        Args:
-            model_name: Optional filter by model name.
-            step_idx: Optional filter by step index.
-            branch_id: Optional filter by branch ID.
-            exclude_averaged: If True, exclude 'avg' and 'w_avg' fold entries.
-                Default True for OOF reconstruction.
-            load_arrays: If True, load actual arrays from registry.
-
-        Returns:
-            List of validation partition predictions.
-
-        Examples:
-            >>> # Get all OOF predictions
-            >>> oof = predictions.get_oof_predictions()
-            >>> # Get OOF predictions for a specific model
-            >>> oof = predictions.get_oof_predictions(model_name='PLS')
-        """
-        preds = self.filter_predictions(
-            model_name=model_name,
-            step_idx=step_idx,
-            branch_id=branch_id,
-            partition='val',
-            load_arrays=load_arrays
-        )
-
-        if exclude_averaged:
-            preds = [
-                p for p in preds
-                if p.get('fold_id') not in ('avg', 'w_avg')
-            ]
-
-        return preds
-
-    def filter_by_branch(
-        self,
-        branch_id: Optional[int] = None,
-        branch_name: Optional[str] = None,
-        include_no_branch: bool = False,
-        load_arrays: bool = True
-    ) -> List[Dict[str, Any]]:
-        """Filter predictions by branch context.
-
-        Convenience method for meta-model stacking to retrieve predictions
-        from a specific branch in branched pipelines.
-
-        Args:
-            branch_id: Branch ID to filter by.
-            branch_name: Branch name to filter by.
-            include_no_branch: If True, include predictions with no branch info.
-            load_arrays: If True, load actual arrays from registry.
-
-        Returns:
-            List of predictions from the specified branch.
-
-        Examples:
-            >>> # Get predictions from branch 0
-            >>> branch_preds = predictions.filter_by_branch(branch_id=0)
-            >>> # Get predictions from named branch
-            >>> branch_preds = predictions.filter_by_branch(branch_name='preprocessing_a')
-        """
-        if branch_id is not None:
-            preds = self.filter_predictions(
-                branch_id=branch_id,
-                load_arrays=load_arrays
+        if aggregate and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
+            metadata = row.get("metadata", {})
+            agg_y_true, agg_y_pred, agg_y_proba, was_aggregated = self._apply_aggregation(
+                y_true, y_pred, y_proba, metadata, aggregate, row.get("model_name", ""),
             )
-        elif branch_name is not None:
-            preds = self.filter_predictions(
-                branch_name=branch_name,
-                load_arrays=load_arrays
-            )
-        else:
-            preds = self.filter_predictions(load_arrays=load_arrays)
+            if was_aggregated:
+                enriched["y_true"] = agg_y_true
+                enriched["y_pred"] = agg_y_pred
+                enriched["y_proba"] = agg_y_proba
+                enriched["aggregated"] = True
+                y_true, y_pred = agg_y_true, agg_y_pred
 
-        if not include_no_branch:
-            # Filter out predictions without branch info
-            preds = [
-                p for p in preds
-                if p.get('branch_id') is not None or p.get('branch_name')
-            ]
+        # Compute display metrics on the fly
+        if display_metrics:
+            scores_dict = row.get("scores", {})
+            if isinstance(scores_dict, str):
+                try:
+                    scores_dict = json.loads(scores_dict)
+                except (json.JSONDecodeError, TypeError):
+                    scores_dict = {}
 
-        return preds
+            for m in display_metrics:
+                # If aggregated, always recalculate
+                if was_aggregated and y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0 and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
+                    try:
+                        enriched[m] = evaluator.eval(y_true, y_pred, m)
+                    except Exception:
+                        enriched[m] = None
+                # Try pre-computed scores
+                elif isinstance(scores_dict, dict) and display_partition in scores_dict and m in scores_dict[display_partition]:
+                    enriched[m] = scores_dict[display_partition][m]
+                # Compute from arrays
+                elif y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0 and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
+                    try:
+                        enriched[m] = evaluator.eval(y_true, y_pred, m)
+                    except Exception:
+                        enriched[m] = None
+                else:
+                    enriched[m] = None
 
-    def get_models_before_step(
-        self,
-        step_idx: int,
-        branch_id: Optional[int] = None,
-        unique_names: bool = True
-    ) -> List[str]:
-        """Get model names from steps before a given step index.
+        # Aggregate partitions if requested
+        if aggregate_partitions:
+            partitions_data = self.get_entry_partitions(row)
+            enriched["partitions"] = {}
+            for part_name, part_data in partitions_data.items():
+                if part_data is not None:
+                    enriched["partitions"][part_name] = part_data
 
-        Convenience method for meta-model stacking to identify source models
-        that can be used for stacking.
-
-        Args:
-            step_idx: Current step index (models before this are returned).
-            branch_id: Optional filter by branch ID.
-            unique_names: If True, return unique model names only.
-
-        Returns:
-            List of model names from previous steps.
-
-        Examples:
-            >>> # Get models available for stacking at step 5
-            >>> source_models = predictions.get_models_before_step(step_idx=5)
-        """
-        df = self._storage.to_dataframe()
-
-        # Filter to steps before current
-        df = df.filter(pl.col("step_idx") < step_idx)
-
-        # Filter by branch if specified
-        if branch_id is not None:
-            df = df.filter(pl.col("branch_id") == branch_id)
-
-        if unique_names:
-            return df["model_name"].unique().to_list()
-        else:
-            return df["model_name"].to_list()
+        return enriched
 
     # =========================================================================
     # DUNDER METHODS
     # =========================================================================
 
     def __len__(self) -> int:
-        """Return number of stored predictions."""
-        return len(self._storage)
+        """Return number of buffered predictions."""
+        return len(self._buffer)
 
     def __repr__(self) -> str:
-        """String representation."""
-        if len(self._storage) == 0:
-            return "Predictions(empty)"
-        return f"Predictions({len(self._storage)} entries)"
+        return f"Predictions({len(self._buffer)} entries)" if self._buffer else "Predictions(empty)"
 
     def __str__(self) -> str:
-        """User-friendly string representation."""
-        if len(self._storage) == 0:
-            return "📈 Predictions: No predictions stored"
-
+        if not self._buffer:
+            return "Predictions: No predictions stored"
         datasets = self.get_datasets()
-        configs = self.get_configs()
         models = self.get_models()
-
-        return (
-            f"📈 Predictions: {len(self._storage)} entries\n"
-            f"   Datasets: {datasets}\n"
-            f"   Configs: {configs}\n"
-            f"   Models: {models}"
-        )
+        return f"Predictions: {len(self._buffer)} entries\n   Datasets: {datasets}\n   Models: {models}"

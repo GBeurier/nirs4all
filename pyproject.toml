@@ -60,6 +60,7 @@ dependencies = [
     # Data processing
     "polars>=0.20.0",
     "pyarrow>=14.0.0",
+    "duckdb>=1.0.0",
     "h5py>=3.8.0",
 
     # Signal processing

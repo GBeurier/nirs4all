@@ -1855,8 +1855,8 @@ class BaseModelController(OperatorController, ABC):
         result = {
             'dataset_name': dataset.name,
             'dataset_path': dataset.name,
-            'config_name': runner.saver.pipeline_id,
-            'config_path': f"{dataset.name}/{runner.saver.pipeline_id}",
+            'config_name': getattr(runner, 'pipeline_name', None) or "unknown",
+            'config_path': f"{dataset.name}/{getattr(runner, 'pipeline_name', None) or 'unknown'}",
             'pipeline_uid': getattr(runner, 'pipeline_uid', None),
             'trace_id': trace_id,  # Phase 2: Link to execution trace
             'step_idx': context.state.step_number,  # Use step_number (int) not step_id (str)
@@ -2017,7 +2017,7 @@ class BaseModelController(OperatorController, ABC):
         # Use artifact registry if available (V3 system)
         if runtime_context.artifact_registry is not None:
             registry = runtime_context.artifact_registry
-            pipeline_id = runtime_context.saver.pipeline_id if runtime_context.saver else "unknown"
+            pipeline_id = runtime_context.pipeline_name or "unknown"
             step_index = runtime_context.step_number
 
             # Use branch_path or convert branch_id to branch_path

@@ -265,9 +265,9 @@ class TestCriticalBehavior:
 
     def test_file_saving_creates_required_structure(self, tmp_path, baseline_test_data):
         """
-        CRITICAL: File saving must create proper directory structure.
+        CRITICAL: File saving must create proper storage structure.
 
-        When save_artifacts=True, all required directories and files must be created.
+        When save_artifacts=True, DuckDB store and artifact directories must be created.
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
@@ -282,18 +282,11 @@ class TestCriticalBehavior:
         runner.run(pipeline, dataset_path)
 
         # CRITICAL ASSERTIONS: Required structure must exist
-        assert (tmp_path / "runs").exists()
+        assert (tmp_path / "store.duckdb").exists(), "DuckDB store must exist"
         assert (tmp_path / "exports").exists()
-        assert (tmp_path / "library").exists()
 
-        # At least one run directory should exist
-        run_dirs = list((tmp_path / "runs").iterdir())
-        assert len(run_dirs) > 0
-
-        # Pipeline artifacts should exist
+        # Pipeline UID should be set
         assert runner.pipeline_uid is not None
-        pipeline_dir = runner.current_run_dir / runner.pipeline_uid
-        assert pipeline_dir.exists()
 
     def test_numpy_array_input_produces_predictions(self, tmp_path):
         """

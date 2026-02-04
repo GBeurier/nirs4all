@@ -18,11 +18,9 @@ nirs4all supports two bundle formats:
 ### `.n4a` Format (Full Bundle)
 
 A ZIP archive containing:
-- `manifest.json`: Bundle metadata and version info
-- `pipeline.json`: Minimal pipeline configuration
-- `trace.json`: Execution trace for deterministic replay
-- `artifacts/`: Directory with model and transformer binaries
-- `fold_weights.json`: CV fold weights (if applicable)
+- `manifest.json`: Bundle metadata (chain_id, model_class, preprocessings, etc.)
+- `chain.json`: Chain steps with fold and shared artifact references
+- `artifacts/`: Directory with serialized model and transformer binaries
 
 **Best for**: Deployment with nirs4all, archival, full reproducibility
 
@@ -81,95 +79,92 @@ The `.n4a` bundle stores the complete execution trace, enabling accurate replay 
 ### Export to .n4a Bundle
 
 ```python
-from nirs4all.pipeline import PipelineRunner
-
-runner = PipelineRunner(save_artifacts=True, verbose=0)
+import nirs4all
 
 # Train your pipeline
-predictions, _ = runner.run(pipeline_config, dataset_config)
-best_pred = predictions.top(n=1, rank_partition="test")[0]
-
-# Export to .n4a bundle
-bundle_path = runner.export(
-    source=best_pred,
-    output_path="exports/wheat_model.n4a",
-    format="n4a"
+result = nirs4all.run(
+    pipeline=[MinMaxScaler(), PLSRegression(10)],
+    dataset="sample_data/regression",
 )
-print(f"Bundle created: {bundle_path}")
+
+# Export best model to .n4a bundle
+result.export("exports/wheat_model.n4a")
+
+# Export a specific prediction's model
+result.export("exports/specific_model.n4a", prediction_id="abc123")
 ```
 
 ### Export to Portable Script
 
 ```python
 # Export to portable Python script
-script_path = runner.export(
-    source=best_pred,
-    output_path="exports/wheat_predictor.n4a.py",
-    format="n4a.py"
-)
-print(f"Script created: {script_path}")
+result.export("exports/wheat_predictor.n4a.py", format="n4a.py")
 ```
 
 ## Export Options
 
-The `export()` method accepts the following parameters:
+The `result.export()` method accepts the following parameters:
 
 ```python
-runner.export(
-    source=best_pred,                  # Prediction source (dict, path, or model_id)
-    output_path="exports/model.n4a",   # Output path
+result.export(
+    path="exports/model.n4a",          # Output path
+    prediction_id=None,                 # Specific prediction (default: best)
     format="n4a",                       # Format: "n4a" or "n4a.py"
-    include_metadata=True,              # Include full metadata in bundle
-    compress=True                       # Compress artifacts (n4a only)
 )
 ```
 
 **Parameters:**
-- `source`: Prediction source - accepts prediction dict, folder path, or model ID
-- `output_path`: Path for the output bundle file
+- `path`: Path for the output bundle file
+- `prediction_id`: Export a specific prediction's chain (default: best model)
 - `format`: Bundle format, either `"n4a"` (default) or `"n4a.py"`
-- `include_metadata`: Whether to include full metadata in the bundle (default: `True`)
-- `compress`: Whether to compress artifacts using ZIP deflate (default: `True`)
 
-## Lightweight Model Export
+### Store-Level Export
 
-For cases where you only need the model binary (without preprocessing artifacts), use `export_model()`:
+For advanced export operations, use `WorkspaceStore` directly:
 
 ```python
-# Export just the model artifact
-model_path = runner.export_model(
-    source=best_pred,
-    output_path="exports/pls_model.joblib",
-    fold=0  # Optional: specific fold (default: fold 0)
-)
+from nirs4all.pipeline.storage import WorkspaceStore
 
-# Later, use in new pipeline
-new_pipeline = [
-    MinMaxScaler(),
-    {"model": "exports/pls_model.joblib"}  # Load model from path
-]
+store = WorkspaceStore(workspace_path)
+
+# Export a chain by ID
+store.export_chain(chain_id, Path("model.n4a"))
+
+# Export pipeline config as JSON
+store.export_pipeline_config(pipeline_id, Path("config.json"))
+
+# Export run metadata as YAML
+store.export_run(run_id, Path("run_summary.yaml"))
+
+# Export filtered predictions as Parquet
+store.export_predictions_parquet(Path("results.parquet"), dataset_name="wheat")
 ```
 
-**Supported formats:**
-- `.joblib`: Joblib serialization (recommended for sklearn)
-- `.pkl`: Pickle serialization
-- `.h5`, `.keras`: Keras models
-- `.pt`: PyTorch models
+## Lightweight Artifact Access
+
+For cases where you need direct access to individual artifacts from a chain:
+
+```python
+from nirs4all.pipeline.storage import WorkspaceStore
+
+store = WorkspaceStore(workspace_path)
+
+# Load a specific artifact by ID
+artifact = store.load_artifact(artifact_id)
+
+# Get the filesystem path of an artifact
+path = store.get_artifact_path(artifact_id)
+```
 
 ## Using Exported Bundles
 
 ### Predict from .n4a Bundle
 
 ```python
-from nirs4all.pipeline import PipelineRunner
-from nirs4all.data import DatasetConfigs
+import nirs4all
 
-runner = PipelineRunner()
-new_data = DatasetConfigs({'X_test': 'path/to/new_spectra.csv'})
-
-# Predict directly from bundle
-y_pred, _ = runner.predict("exports/wheat_model.n4a", new_data)
-print(f"Predictions: {y_pred[:5]}")
+# Predict directly from bundle (no workspace needed)
+preds = nirs4all.predict("exports/wheat_model.n4a", new_data)
 ```
 
 ### Use Portable Script
@@ -218,17 +213,17 @@ y_pred = loader.predict(X_new)
 
 ## Export Sources
 
-Export accepts the same source types as predict:
+Export works from `RunResult` or directly from `WorkspaceStore`:
 
 ```python
-# From prediction dict
-runner.export(best_prediction, "model.n4a")
+# From RunResult (most common)
+result.export("model.n4a")
 
-# From folder path (pipeline run directory)
-runner.export("runs/2024-12-14_wheat/pipeline_abc123/", "model.n4a")
+# From store chain ID
+store.export_chain("chain_abc123", Path("model.n4a"))
 
 # From bundle path (re-export)
-runner.export("old_model.n4a", "model_v2.n4a")
+preds = nirs4all.predict("old_model.n4a", data)
 ```
 
 ## Bundle Inspection
@@ -248,9 +243,10 @@ with zipfile.ZipFile("exports/model.n4a", 'r') as zf:
 
     # Read manifest
     manifest = json.loads(zf.read('manifest.json'))
-    print(f"\nPipeline UID: {manifest['pipeline_uid']}")
-    print(f"Created: {manifest['created_at']}")
-    print(f"Preprocessing: {manifest['preprocessing_chain']}")
+    print(f"\nChain ID: {manifest['chain_id']}")
+    print(f"Model: {manifest['model_class']}")
+    print(f"Preprocessing: {manifest['preprocessings']}")
+    print(f"Exported at: {manifest['exported_at']}")
 ```
 
 ## Batch Export
@@ -258,13 +254,14 @@ with zipfile.ZipFile("exports/model.n4a", 'r') as zf:
 Export multiple models from a training run:
 
 ```python
-# Get top 3 models
-top_models = predictions.top(n=3, rank_partition="test")
+# Get top 3 predictions
+top_preds = result.top(3)
 
 # Export each
-for i, pred in enumerate(top_models, 1):
-    model_name = pred['model_name'].replace(" ", "_").lower()
-    runner.export(pred, f"exports/rank_{i}_{model_name}.n4a")
+for i, row in enumerate(top_preds.iter_rows(named=True), 1):
+    pred_id = row["prediction_id"]
+    model = row["model_class"].split(".")[-1]
+    result.export(f"exports/rank_{i}_{model}.n4a", prediction_id=pred_id)
 ```
 
 ## Deployment Patterns
@@ -325,13 +322,10 @@ async def predict(spectra: list[list[float]]):
 Bundles can be used as a starting point for retraining on new data:
 
 ```python
-# Load bundle and retrain on new data
-retrained_preds, _ = runner.retrain(
-    source="exports/wheat_model.n4a",
-    dataset=new_training_data,
-    mode='transfer',  # Use existing preprocessing, train new model
-    dataset_name='new_calibration'
-)
+import nirs4all
+
+# Retrain from exported bundle
+result = nirs4all.retrain("exports/wheat_model.n4a", new_data, mode="transfer")
 ```
 
 **Retrain modes:**

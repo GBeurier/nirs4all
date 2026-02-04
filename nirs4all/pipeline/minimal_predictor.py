@@ -496,14 +496,12 @@ class MinimalPredictor:
     3. Running controllers in predict mode
 
     Attributes:
-        artifact_loader: ArtifactLoader for loading artifacts
-        run_dir: Path to run directory
-        saver: Optional SimulationSaver for outputs
-        manifest_manager: Optional ManifestManager
-        verbose: Verbosity level
+        artifact_loader: ArtifactLoader for loading artifacts.
+        workspace_path: Path to workspace root directory.
+        verbose: Verbosity level.
 
     Example:
-        >>> predictor = MinimalPredictor(artifact_loader, run_dir)
+        >>> predictor = MinimalPredictor(artifact_loader, workspace_path)
         >>> y_pred, predictions = predictor.predict(minimal_pipeline, dataset)
     """
 
@@ -511,23 +509,19 @@ class MinimalPredictor:
         self,
         artifact_loader: Any,  # ArtifactLoader
         run_dir: Union[str, Path],
-        saver: Any = None,
-        manifest_manager: Any = None,
-        verbose: int = 0
+        verbose: int = 0,
+        **_kwargs: Any,
     ):
         """Initialize minimal predictor.
 
         Args:
-            artifact_loader: ArtifactLoader for loading artifacts
-            run_dir: Path to run directory
-            saver: Optional SimulationSaver for outputs
-            manifest_manager: Optional ManifestManager
-            verbose: Verbosity level
+            artifact_loader: ArtifactLoader for loading artifacts.
+            run_dir: Path to workspace root directory.
+            verbose: Verbosity level.
+            **_kwargs: Ignored (backward compatibility).
         """
         self.artifact_loader = artifact_loader
-        self.run_dir = Path(run_dir)
-        self.saver = saver
-        self.manifest_manager = manifest_manager
+        self.workspace_path = Path(run_dir)
         self.verbose = verbose
 
     def _get_substep_from_artifact(self, artifact_id: str) -> Optional[int]:
@@ -602,8 +596,9 @@ class MinimalPredictor:
         )
 
         # Build executor
-        executor = (ExecutorBuilder()
-            .with_run_directory(self.run_dir)
+        executor = (
+            ExecutorBuilder()
+            .with_workspace(self.workspace_path)
             .with_verbose(self.verbose)
             .with_mode("predict")
             .with_save_artifacts(False)
@@ -612,18 +607,15 @@ class MinimalPredictor:
             .with_show_spinner(False)
             .with_plots_visible(False)
             .with_artifact_loader(self.artifact_loader)
-            .with_saver(self.saver)
-            .with_manifest_manager(self.manifest_manager)
-            .build())
+            .build()
+        )
 
         # Create RuntimeContext with artifact_provider
         runtime_context = RuntimeContext(
-            saver=self.saver,
-            manifest_manager=self.manifest_manager,
             artifact_loader=self.artifact_loader,
             artifact_provider=artifact_provider,
             step_runner=executor.step_runner,
-            target_model=target_model
+            target_model=target_model,
         )
 
         # Extract step configs from minimal pipeline

@@ -82,7 +82,7 @@ class PredictionDataAssembler:
             Dictionary ready for storage in prediction database
         """
         pipeline_uid = getattr(runner, 'pipeline_uid', None)
-        pipeline_name = runner.saver.pipeline_id
+        pipeline_name = getattr(runner, 'pipeline_name', None) or "unknown"
         dataset_name = dataset.name
 
         # Get trace_id from runtime context (Phase 2)

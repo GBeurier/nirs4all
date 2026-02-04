@@ -278,8 +278,11 @@ class TestSerialization:
             step_info, simple_dataset, context, mock_runtime_context, mode="train"
         )
 
-        # Should have created artifact
-        assert mock_runtime_context.saver.persist_artifact.called
+        # Should have created artifact (returned as tuple: (obj, name, format_hint))
+        assert len(artifacts) > 0
+        for artifact in artifacts:
+            assert isinstance(artifact, tuple), "Artifact should be a (obj, name, format_hint) tuple"
+            assert len(artifact) == 3
 
     def test_predict_mode_loads_binaries(self, simple_dataset, mock_runtime_context):
         """Test that predict mode loads pre-fitted transformers via artifact_provider."""

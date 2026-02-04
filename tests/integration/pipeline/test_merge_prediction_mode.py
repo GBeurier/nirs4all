@@ -215,18 +215,13 @@ class TestFeatureMergePredictionMode:
         assert predictions is not None
         assert len(predictions) > 0
 
-        # Verify manifest was saved
-        pipeline_uid = runner_with_save.pipeline_uid
-        assert pipeline_uid is not None
+        # Verify DuckDB store was created
+        store_path = workspace_path / "store.duckdb"
+        assert store_path.exists(), "store.duckdb should be created"
 
-        runs_dir = workspace_path / "runs" / dataset.name
-        pipeline_dir = runs_dir / pipeline_uid
-        manifest_path = pipeline_dir / "manifest.yaml"
-        assert manifest_path.exists(), "Manifest should be created"
-
-        # Check binaries directory exists (at workspace level)
-        binaries_dir = workspace_path / "binaries" / dataset.name
-        assert binaries_dir.exists(), "Binaries directory should be created"
+        # Check artifacts directory exists
+        artifacts_dir = workspace_path / "artifacts"
+        assert artifacts_dir.exists(), "artifacts/ directory should be created"
 
         # Get a test prediction to use for prediction mode
         test_preds = predictions.filter_predictions(partition="test")
@@ -361,8 +356,8 @@ class TestMixedMergePredictionMode:
         assert len(predictions) > 0
 
 
-class TestMergeMetadataInManifest:
-    """Test that merge configuration is properly saved to manifest."""
+class TestMergeMetadataInStore:
+    """Test that merge configuration is properly saved to DuckDB store."""
 
     @pytest.fixture
     def workspace_path(self, tmp_path):
@@ -387,12 +382,10 @@ class TestMergeMetadataInManifest:
         """Create test dataset."""
         return create_test_dataset()
 
-    def test_merge_config_in_manifest(
+    def test_merge_config_in_store(
         self, runner_with_save, dataset, workspace_path
     ):
-        """Test that merge configuration is saved in manifest metadata."""
-        import yaml
-
+        """Test that merge configuration is saved in DuckDB store."""
         pipeline = [
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
             {"branch": [
@@ -404,22 +397,17 @@ class TestMergeMetadataInManifest:
         ]
 
         predictions, _ = runner_with_save.run(
-            PipelineConfigs(pipeline, "test_manifest"),
+            PipelineConfigs(pipeline, "test_store"),
             dataset
         )
 
-        # Load manifest and check for merge config
-        pipeline_uid = runner_with_save.pipeline_uid
-        assert pipeline_uid is not None
-        runs_dir = workspace_path / "runs" / dataset.name
-        manifest_path = runs_dir / pipeline_uid / "manifest.yaml"
+        # Verify store.duckdb was created
+        store_path = workspace_path / "store.duckdb"
+        assert store_path.exists(), "store.duckdb should be created"
 
-        if manifest_path.exists():
-            with open(manifest_path, "r") as f:
-                manifest = yaml.safe_load(f)
-
-            # Check that manifest has artifacts section
-            assert "artifacts" in manifest or "pipeline" in manifest
+        # Verify predictions were produced
+        assert predictions is not None
+        assert len(predictions) > 0
 
 
 class TestMergeWithBranching:

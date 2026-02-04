@@ -4,14 +4,29 @@ This guide covers internal implementation details and extension points for the n
 
 ## Architecture Overview
 
+The storage system has two layers:
+
+1. **WorkspaceStore** (`nirs4all.pipeline.storage.workspace_store`) -- DuckDB-backed central store for all structured data and artifact management.
+2. **Artifacts subpackage** (`nirs4all.pipeline.storage.artifacts/`) -- Low-level artifact utilities (types, serialization, operator chains) used by WorkspaceStore and the execution engine.
+
 ```
-nirs4all/pipeline/storage/artifacts/
-├── __init__.py           # Public API exports
-├── types.py              # ArtifactType, ArtifactRecord, MetaModelConfig
-├── registry.py           # ArtifactRegistry (registration, deduplication)
-├── loader.py             # ArtifactLoader (loading, caching)
-├── graph.py              # DependencyGraph (topological sorting)
-└── utils.py              # ID generation, hashing, filename utilities
+nirs4all/pipeline/storage/
+├── __init__.py               # Public API exports (WorkspaceStore, ChainBuilder, etc.)
+├── workspace_store.py        # DuckDB-backed central store
+├── store_schema.py           # DuckDB table schema creation
+├── store_queries.py          # SQL query constants
+├── store_protocol.py         # StoreProtocol abstract interface
+├── chain_builder.py          # ChainBuilder (ExecutionTrace -> chain dict)
+├── chain_replay.py           # Standalone replay_chain() function
+├── library.py                # PipelineLibrary (template management)
+└── artifacts/
+    ├── __init__.py            # Subpackage exports
+    ├── types.py               # ArtifactType enum
+    ├── artifact_registry.py   # ArtifactRegistry (used by execution engine)
+    ├── artifact_loader.py     # ArtifactLoader (loading, caching)
+    ├── artifact_persistence.py # Low-level persist/load functions
+    ├── operator_chain.py      # OperatorChain (execution path tracking)
+    └── utils.py               # Hashing, filename, ID utilities
 ```
 
 ## Adding New Artifact Types
@@ -47,34 +62,38 @@ def _detect_artifact_type(obj: Any) -> str:
 
 ### Step 3: Update Pipeline Controllers
 
-Ensure the relevant controller uses the new type:
+Ensure the relevant controller returns the artifact in `StepOutput`:
 
 ```python
-record = registry.register(
-    obj=fitted_selector,
-    artifact_id=artifact_id,
-    artifact_type=ArtifactType.FEATURE_SELECTOR,
+return context, StepOutput(
+    artifacts={"feature_selector": fitted_selector}
 )
 ```
+
+The execution engine will call `store.save_artifact()` with the appropriate type.
 
 ### Step 4: Add Unit Tests
 
 ```python
-def test_feature_selector_type():
-    """Test FEATURE_SELECTOR type serialization."""
-    assert ArtifactType.FEATURE_SELECTOR.value == "feature_selector"
+def test_feature_selector_artifact_roundtrip(tmp_path):
+    """Test FEATURE_SELECTOR artifact save/load via WorkspaceStore."""
+    from sklearn.feature_selection import SelectKBest
+    from nirs4all.pipeline.storage import WorkspaceStore
 
-    record = ArtifactRecord(
-        artifact_id="0001:0:all",
-        content_hash="sha256:abc123",
-        path="feature_selector_SelectKBest_abc123.pkl",
-        pipeline_id="0001",
-        artifact_type=ArtifactType.FEATURE_SELECTOR,
-        class_name="SelectKBest"
+    store = WorkspaceStore(tmp_path / "workspace")
+    selector = SelectKBest(k=5)
+    selector.fit([[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]], [0, 1])
+
+    artifact_id = store.save_artifact(
+        obj=selector,
+        operator_class="sklearn.feature_selection.SelectKBest",
+        artifact_type="feature_selector",
+        format="joblib"
     )
 
-    d = record.to_dict()
-    assert d["artifact_type"] == "feature_selector"
+    loaded = store.load_artifact(artifact_id)
+    assert isinstance(loaded, SelectKBest)
+    store.close()
 ```
 
 ## Custom Serialization Formats
@@ -155,30 +174,6 @@ class DependencyGraph:
         return result
 ```
 
-### Cycle Detection
-
-The registry prevents cycles when registering dependencies:
-
-```python
-def register(self, ..., depends_on: List[str] = None):
-    """Register artifact with dependency validation."""
-    if depends_on:
-        # Check all dependencies exist
-        for dep_id in depends_on:
-            if not self.resolve(dep_id):
-                raise ValueError(f"Unknown dependency: {dep_id}")
-
-        # Check for cycles
-        temp_graph = self._graph.copy()
-        for dep_id in depends_on:
-            temp_graph.add_edge(artifact_id, dep_id)
-
-        try:
-            temp_graph.topological_sort()
-        except ValueError:
-            raise ValueError(f"Cycle detected when adding {artifact_id}")
-```
-
 ## LRU Cache Implementation
 
 ```python
@@ -215,54 +210,38 @@ class LRUCache:
 ### Unit Test Structure
 
 ```python
-# tests/unit/pipeline/storage/artifacts/test_registry.py
+# tests/unit/pipeline/storage/test_workspace_store.py
 
 import pytest
 from pathlib import Path
-from nirs4all.pipeline.storage.artifacts import (
-    ArtifactRegistry,
-    ArtifactType,
-)
+from nirs4all.pipeline.storage import WorkspaceStore
 
 @pytest.fixture
-def temp_workspace(tmp_path):
-    """Create temporary workspace structure."""
-    binaries = tmp_path / "workspace" / "binaries" / "test_dataset"
-    binaries.mkdir(parents=True)
-    return tmp_path / "workspace"
+def store(tmp_path):
+    """Create a WorkspaceStore for testing."""
+    s = WorkspaceStore(tmp_path / "workspace")
+    yield s
+    s.close()
 
-@pytest.fixture
-def registry(temp_workspace):
-    """Create registry for testing."""
-    return ArtifactRegistry(temp_workspace, "test_dataset")
+class TestWorkspaceStore:
+    def test_run_lifecycle(self, store):
+        """Test basic run lifecycle."""
+        run_id = store.begin_run("test", config={}, datasets=[])
+        store.complete_run(run_id, summary={"total": 1})
 
-class TestArtifactRegistry:
-    def test_register_model(self, registry):
-        """Test basic model registration."""
-        from sklearn.linear_model import LinearRegression
-        model = LinearRegression().fit([[1], [2]], [1, 2])
+        run = store.get_run(run_id)
+        assert run is not None
+        assert run["status"] == "completed"
 
-        record = registry.register(
-            obj=model,
-            artifact_id="0001:0:all",
-            artifact_type=ArtifactType.MODEL
-        )
-
-        assert record.artifact_id == "0001:0:all"
-        assert record.artifact_type == ArtifactType.MODEL
-        assert record.class_name == "LinearRegression"
-        assert record.content_hash.startswith("sha256:")
-
-    def test_deduplication(self, registry):
-        """Test that identical objects share same file."""
+    def test_artifact_deduplication(self, store):
+        """Test that identical objects share the same file."""
         from sklearn.preprocessing import StandardScaler
-        scaler = StandardScaler().fit([[1, 2], [3, 4]])
+        scaler = StandardScaler()
 
-        record1 = registry.register(scaler, "0001:0:all", ArtifactType.TRANSFORMER)
-        record2 = registry.register(scaler, "0002:0:all", ArtifactType.TRANSFORMER)
+        id1 = store.save_artifact(scaler, "StandardScaler", "transformer", "joblib")
+        id2 = store.save_artifact(scaler, "StandardScaler", "transformer", "joblib")
 
-        assert record1.content_hash == record2.content_hash
-        assert record1.path == record2.path
+        assert id1 == id2  # Content-addressed deduplication
 ```
 
 ### Integration Test Structure
@@ -271,168 +250,81 @@ class TestArtifactRegistry:
 # tests/integration/artifacts/test_artifact_flow.py
 
 class TestArtifactFlow:
-    """Integration tests for training → prediction artifact flow."""
+    """Integration tests for training -> prediction artifact flow."""
 
-    @pytest.fixture
-    def sample_pipeline(self):
-        return [
-            {"ShuffleSplit": {"n_splits": 2, "test_size": 0.2}},
-            {"MinMaxScaler": {}},
-            {"PLSRegression": {"n_components": 3}},
-        ]
-
-    def test_train_and_predict(self, temp_workspace, sample_pipeline, sample_data):
-        """Test artifacts from training can be loaded for prediction."""
+    def test_train_creates_store_with_artifacts(self, workspace_path, dataset):
+        """Test that training creates store.duckdb and artifacts."""
         runner = PipelineRunner(
-            workspace=temp_workspace,
-            save_artifacts=True
+            workspace_path=workspace_path,
+            save_artifacts=True,
+            verbose=0,
         )
+        predictions, _ = runner.run(PipelineConfigs(pipeline), dataset)
 
-        predictions, outputs = runner.run(sample_pipeline, sample_data)
-        manifest = outputs.manifest
-
-        loader = ArtifactLoader(temp_workspace, sample_data["dataset"])
-        loader.import_from_manifest(manifest)
-
-        for artifact_id in loader.list_artifact_ids():
-            obj = loader.load_by_id(artifact_id)
-            assert obj is not None
+        assert (workspace_path / "store.duckdb").exists()
+        artifacts = list((workspace_path / "artifacts").rglob("*.joblib"))
+        assert len(artifacts) >= 1
 ```
 
 ## Debugging Tips
 
-### Inspecting Artifacts
+### Inspecting the Store
 
 ```python
-from nirs4all.pipeline.storage.artifacts import ArtifactRegistry
+from nirs4all.pipeline.storage import WorkspaceStore
 
-registry = ArtifactRegistry(workspace_path, dataset)
+store = WorkspaceStore(workspace_path)
 
-for artifact_id, record in registry._records.items():
-    print(f"{artifact_id}: {record.class_name} ({record.artifact_type.value})")
-    print(f"  Hash: {record.short_hash}")
-    print(f"  Dependencies: {record.depends_on}")
+# List all runs
+runs = store.list_runs()
+print(runs)
+
+# Get top predictions
+top = store.top_predictions(n=5, metric="val_score")
+print(top)
+
+# Inspect a chain
+chain = store.get_chain(chain_id)
+print(f"Model: {chain['model_class']}")
+print(f"Steps: {len(chain['steps'])}")
+print(f"Fold artifacts: {chain['fold_artifacts']}")
+
+store.close()
 ```
 
-### Cache Statistics
+### DuckDB Direct Queries
+
+For advanced debugging, query the DuckDB store directly:
 
 ```python
-loader = ArtifactLoader(workspace, dataset)
-loader.import_from_manifest(manifest)
+import duckdb
 
-# Load some artifacts...
-loader.load_by_id("0001:0:all")
-loader.load_by_id("0001:0:all")  # Cache hit
+conn = duckdb.connect(str(workspace_path / "store.duckdb"))
 
-info = loader.get_cache_info()
-print(f"Cache size: {info['size']}/{info['max_size']}")
-print(f"Hit rate: {info['hit_rate']:.1%}")
+# Count records
+print(conn.execute("SELECT COUNT(*) FROM predictions").fetchone())
+
+# Inspect artifacts
+print(conn.execute(
+    "SELECT artifact_id, operator_class, ref_count, size_bytes FROM artifacts"
+).fetchall())
+
+conn.close()
 ```
 
-### Orphan Detection
+### Cleanup Diagnostics
 
 ```python
-registry = ArtifactRegistry(workspace, dataset)
+store = WorkspaceStore(workspace_path)
 
-orphans = registry.find_orphaned_artifacts()
-print(f"Orphaned files: {len(orphans)}")
+# Check for unreferenced artifacts
+orphan_count = store.gc_artifacts()
+print(f"Removed {orphan_count} orphaned artifacts")
 
-stats = registry.get_stats()
-print(f"Files on disk: {stats['files_on_disk']}")
-print(f"Deduplication: {stats['deduplication_ratio']:.1%}")
-```
+# Reclaim disk space
+store.vacuum()
 
-## CLI Implementation
-
-The artifacts CLI commands are in `nirs4all/cli/commands/artifacts.py`:
-
-```python
-import click
-from pathlib import Path
-from nirs4all.pipeline.storage.artifacts import ArtifactRegistry
-
-@click.group(name="artifacts")
-def artifacts_cli():
-    """Manage pipeline artifacts."""
-    pass
-
-@artifacts_cli.command()
-@click.option("--dataset", required=True, help="Dataset name")
-@click.option("--workspace", default="workspace", help="Workspace path")
-def stats(dataset: str, workspace: str):
-    """Show artifact storage statistics."""
-    registry = ArtifactRegistry(Path(workspace), dataset)
-    stats = registry.get_stats()
-
-    click.echo(f"Files on disk:     {stats['files_on_disk']}")
-    click.echo(f"Registered refs:   {stats['registered_refs']}")
-    click.echo(f"Deduplication:     {stats['deduplication_ratio']:.1%}")
-
-@artifacts_cli.command(name="cleanup")
-@click.option("--dataset", required=True)
-@click.option("--workspace", default="workspace")
-@click.option("--force", is_flag=True, help="Actually delete files")
-def cleanup(dataset: str, workspace: str, force: bool):
-    """Delete orphaned artifacts."""
-    registry = ArtifactRegistry(Path(workspace), dataset)
-    deleted, bytes_freed = registry.delete_orphaned_artifacts(dry_run=not force)
-
-    if force:
-        click.echo(f"Deleted {len(deleted)} files, freed {bytes_freed / 1024:.1f} KB")
-    else:
-        click.echo(f"Would delete {len(deleted)} files")
-        click.echo("Run with --force to delete")
-```
-
-## ArtifactRecord Reference
-
-```python
-@dataclass
-class ArtifactRecord:
-    """Complete artifact metadata."""
-
-    # Identification
-    artifact_id: str
-    content_hash: str
-
-    # Location
-    path: str
-
-    # Context
-    pipeline_id: str
-    branch_path: List[int] = field(default_factory=list)
-    step_index: int = 0
-    fold_id: Optional[int] = None
-
-    # Classification
-    artifact_type: ArtifactType = ArtifactType.MODEL
-    class_name: str = ""
-
-    # Dependencies
-    depends_on: List[str] = field(default_factory=list)
-
-    # Meta-model config (for stacking)
-    meta_config: Optional[MetaModelConfig] = None
-
-    # Serialization
-    format: str = "joblib"
-    format_version: str = ""
-    nirs4all_version: str = ""
-
-    # Metadata
-    size_bytes: int = 0
-    created_at: str = ""
-    params: Dict[str, Any] = field(default_factory=dict)
-
-    # Computed properties
-    @property
-    def is_branch_specific(self) -> bool: ...
-    @property
-    def is_fold_specific(self) -> bool: ...
-    @property
-    def is_meta_model(self) -> bool: ...
-    @property
-    def short_hash(self) -> str: ...
+store.close()
 ```
 
 ## See Also

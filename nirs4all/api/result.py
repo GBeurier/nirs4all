@@ -15,15 +15,17 @@ Phase 1 Implementation (v0.6.0):
     - ExplainResult: Full implementation with values, feature attributions
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline import PipelineRunner
     from nirs4all.data.predictions import Predictions
+    from nirs4all.pipeline import PipelineRunner
 
 
 @dataclass
@@ -60,14 +62,14 @@ class RunResult:
         >>> result.export("exports/best_model.n4a")
     """
 
-    predictions: "Predictions"
-    per_dataset: Dict[str, Any]
-    _runner: Optional["PipelineRunner"] = field(default=None, repr=False)
+    predictions: Predictions
+    per_dataset: dict[str, Any]
+    _runner: PipelineRunner | None = field(default=None, repr=False)
 
     # --- Primary accessors ---
 
     @property
-    def best(self) -> Dict[str, Any]:
+    def best(self) -> dict[str, Any]:
         """Get best prediction entry by default ranking.
 
         Returns:
@@ -182,14 +184,14 @@ class RunResult:
     # --- Metadata accessors ---
 
     @property
-    def artifacts_path(self) -> Optional[Path]:
-        """Get path to run artifacts directory.
+    def artifacts_path(self) -> Path | None:
+        """Get path to workspace artifacts directory.
 
         Returns:
-            Path to the current run directory, or None if not available.
+            Path to the workspace directory, or None if not available.
         """
-        if self._runner and hasattr(self._runner, 'current_run_dir'):
-            return self._runner.current_run_dir
+        if self._runner and hasattr(self._runner, 'workspace_path'):
+            return self._runner.workspace_path
         return None
 
     @property
@@ -203,7 +205,7 @@ class RunResult:
 
     # --- Query methods ---
 
-    def top(self, n: int = 5, **kwargs) -> Union[List[Dict[str, Any]], Dict[tuple, List[Dict[str, Any]]]]:
+    def top(self, n: int = 5, **kwargs) -> list[dict[str, Any]] | dict[tuple, list[dict[str, Any]]]:
         """Get top N predictions by ranking.
 
         Args:
@@ -248,7 +250,7 @@ class RunResult:
         """
         return self.predictions.top(n=n, **kwargs)
 
-    def filter(self, **kwargs) -> List[Dict[str, Any]]:
+    def filter(self, **kwargs) -> list[dict[str, Any]]:
         """Filter predictions by criteria.
 
         Args:
@@ -267,7 +269,7 @@ class RunResult:
         """
         return self.predictions.filter_predictions(**kwargs)
 
-    def get_datasets(self) -> List[str]:
+    def get_datasets(self) -> list[str]:
         """Get list of unique dataset names.
 
         Returns:
@@ -275,7 +277,7 @@ class RunResult:
         """
         return self.predictions.get_datasets()
 
-    def get_models(self) -> List[str]:
+    def get_models(self) -> list[str]:
         """Get list of unique model names.
 
         Returns:
@@ -287,16 +289,31 @@ class RunResult:
 
     def export(
         self,
-        output_path: Union[str, Path],
+        output_path: str | Path,
         format: str = "n4a",
-        source: Optional[Dict[str, Any]] = None
+        source: dict[str, Any] | None = None,
+        chain_id: str | None = None,
     ) -> Path:
         """Export a model to bundle.
+
+        Two export paths are supported:
+
+        **Store-based** (preferred) -- pass ``chain_id`` to export
+        directly from the DuckDB workspace:
+
+        >>> result.export("model.n4a", chain_id="abc123")
+
+        **Resolver-based** (legacy) -- exports via ``PipelineRunner.export``:
+
+        >>> result.export("model.n4a")  # uses best prediction
 
         Args:
             output_path: Path for the exported bundle file.
             format: Export format ('n4a' or 'n4a.py').
             source: Prediction dict to export. If None, exports best model.
+            chain_id: Chain identifier for store-based export.
+                When provided, ``source`` is ignored and the chain is
+                exported directly from the DuckDB store.
 
         Returns:
             Path to the exported bundle file.
@@ -308,6 +325,16 @@ class RunResult:
         if self._runner is None:
             raise RuntimeError("Cannot export: runner reference not available")
 
+        # Store-based export path
+        if chain_id is not None:
+            store = self._runner.store
+            if store is None:
+                raise RuntimeError(
+                    "Cannot export from chain_id: no WorkspaceStore available on runner"
+                )
+            return store.export_chain(chain_id, Path(output_path), format=format)
+
+        # Legacy resolver-based path
         if source is None:
             source = self.best
             if not source:
@@ -321,10 +348,10 @@ class RunResult:
 
     def export_model(
         self,
-        output_path: Union[str, Path],
-        source: Optional[Dict[str, Any]] = None,
-        format: Optional[str] = None,
-        fold: Optional[int] = None
+        output_path: str | Path,
+        source: dict[str, Any] | None = None,
+        format: str | None = None,
+        fold: int | None = None
     ) -> Path:
         """Export only the model artifact (lightweight).
 
@@ -405,7 +432,7 @@ class RunResult:
         check_empty: bool = True,
         raise_on_failure: bool = True,
         nan_threshold: float = 0.0
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Validate the run result for common issues.
 
         Checks for NaN values in metrics, empty predictions, and other issues
@@ -499,7 +526,7 @@ class RunResult:
 
         if raise_on_failure and not valid:
             raise ValueError(
-                f"RunResult validation failed:\n" +
+                "RunResult validation failed:\n" +
                 "\n".join(f"  - {issue}" for issue in issues)
             )
 
@@ -537,10 +564,10 @@ class PredictResult:
     """
 
     y_pred: np.ndarray
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    sample_indices: Optional[np.ndarray] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    sample_indices: np.ndarray | None = None
     model_name: str = ""
-    preprocessing_steps: List[str] = field(default_factory=list)
+    preprocessing_steps: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         """Ensure y_pred is a numpy array."""
@@ -578,7 +605,7 @@ class PredictResult:
         """
         return self.y_pred
 
-    def to_list(self) -> List[float]:
+    def to_list(self) -> list[float]:
         """Get predictions as Python list.
 
         Returns:
@@ -602,8 +629,8 @@ class PredictResult:
         """
         try:
             import pandas as pd
-        except ImportError:
-            raise ImportError("pandas is required for to_dataframe()")
+        except ImportError as err:
+            raise ImportError("pandas is required for to_dataframe()") from err
 
         data = {}
 
@@ -676,9 +703,9 @@ class ExplainResult:
     """
 
     shap_values: Any  # shap.Explanation or np.ndarray
-    feature_names: Optional[List[str]] = None
-    base_value: Optional[Union[float, np.ndarray]] = None
-    visualizations: Dict[str, Path] = field(default_factory=dict)
+    feature_names: list[str] | None = None
+    base_value: float | np.ndarray | None = None
+    visualizations: dict[str, Path] = field(default_factory=dict)
     explainer_type: str = "auto"
     model_name: str = ""
     n_samples: int = 0
@@ -723,7 +750,7 @@ class ExplainResult:
         return np.mean(np.abs(vals), axis=0)
 
     @property
-    def top_features(self) -> List[str]:
+    def top_features(self) -> list[str]:
         """Get feature names sorted by importance (descending).
 
         Returns:
@@ -739,9 +766,9 @@ class ExplainResult:
 
     def get_feature_importance(
         self,
-        top_n: Optional[int] = None,
+        top_n: int | None = None,
         normalize: bool = False
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Get feature importance ranking.
 
         Args:
@@ -771,7 +798,7 @@ class ExplainResult:
     def get_sample_explanation(
         self,
         idx: int
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Get SHAP explanation for a single sample.
 
         Args:
@@ -807,15 +834,12 @@ class ExplainResult:
         """
         try:
             import pandas as pd
-        except ImportError:
-            raise ImportError("pandas is required for to_dataframe()")
+        except ImportError as err:
+            raise ImportError("pandas is required for to_dataframe()") from err
 
         vals = self.values
 
-        if include_feature_names and self.feature_names:
-            columns = self.feature_names
-        else:
-            columns = [f"feature_{i}" for i in range(vals.shape[-1])]
+        columns = self.feature_names if include_feature_names and self.feature_names else [f"feature_{i}" for i in range(vals.shape[-1])]
 
         if vals.ndim == 1:
             vals = vals.reshape(1, -1)
