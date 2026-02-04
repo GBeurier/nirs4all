@@ -15,12 +15,13 @@ Submodules
 .. toctree::
    :maxdepth: 4
 
-   nirs4all.pipeline.storage.io
-   nirs4all.pipeline.storage.io_exporter
-   nirs4all.pipeline.storage.io_resolver
-   nirs4all.pipeline.storage.io_writer
+   nirs4all.pipeline.storage.workspace_store
+   nirs4all.pipeline.storage.chain_builder
+   nirs4all.pipeline.storage.chain_replay
    nirs4all.pipeline.storage.library
-   nirs4all.pipeline.storage.manifest_manager
+   nirs4all.pipeline.storage.store_protocol
+   nirs4all.pipeline.storage.store_schema
+   nirs4all.pipeline.storage.store_queries
 
 Module contents
 ---------------

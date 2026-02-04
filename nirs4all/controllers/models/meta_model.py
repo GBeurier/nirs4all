@@ -1641,7 +1641,7 @@ class MetaModelController(SklearnModelController):
             branch_path = getattr(context.selector, 'branch_path', [])
 
             # Look for meta-model artifact at this step
-            pipeline_id = getattr(runtime_context.saver, 'pipeline_id', None) if runtime_context.saver else None
+            pipeline_id = runtime_context.pipeline_name
             if pipeline_id:
                 artifacts = registry.get_artifacts_for_step(
                     pipeline_id=pipeline_id,
@@ -1848,7 +1848,7 @@ class MetaModelController(SklearnModelController):
         serializer = MetaModelSerializer()
 
         # Generate artifact ID using V3 chain-based approach
-        pipeline_id = runtime_context.saver.pipeline_id if runtime_context.saver else "unknown"
+        pipeline_id = runtime_context.pipeline_name or "unknown"
         step_index = runtime_context.step_number
         bp = branch_path or ([branch_id] if branch_id is not None else [])
 
@@ -1943,34 +1943,29 @@ class MetaModelController(SklearnModelController):
 
             return record
 
-        # Fallback to legacy persistence with extended metadata
-        artifact_meta = runtime_context.saver.persist_artifact(
-            step_number=runtime_context.step_number,
-            name=f"{model_id}.pkl",
-            obj=model,
-            format_hint='sklearn',
-            branch_id=branch_id,
-            branch_name=branch_name
-        )
-
-        # Record artifact in execution trace for legacy path (Phase 2)
-        legacy_artifact_id = f"{pipeline_id}:{step_index}:{fold_id if fold_id is not None else 'all'}"
+        # Fallback: return artifact metadata dict (no artifact_registry available)
         artifact_name = custom_name or meta_operator.name
+        artifact_meta = {
+            "name": f"{model_id}.pkl",
+            "step_number": runtime_context.step_number,
+            "format_hint": "sklearn",
+            "branch_id": branch_id,
+            "branch_name": branch_name,
+            "meta_config": meta_artifact.to_dict(),
+        }
+
+        # Record artifact in execution trace for fallback path (Phase 2)
+        fallback_artifact_id = f"{pipeline_id}:{step_index}:{fold_id if fold_id is not None else 'all'}"
         runtime_context.record_step_artifact(
-            artifact_id=legacy_artifact_id,
+            artifact_id=fallback_artifact_id,
             is_primary=(fold_id is None),
             fold_id=fold_id,
             metadata={
                 "class_name": model.__class__.__name__,
                 "custom_name": artifact_name,
                 "is_meta_model": True,
-                "legacy": True
             }
         )
-
-        # Store meta_config in the artifact metadata for later retrieval
-        if hasattr(artifact_meta, '__setitem__'):
-            artifact_meta['meta_config'] = meta_artifact.to_dict()
 
         return artifact_meta
 
@@ -1999,7 +1994,7 @@ class MetaModelController(SklearnModelController):
             return artifact_ids
 
         registry = runtime_context.artifact_registry
-        pipeline_id = runtime_context.saver.pipeline_id if runtime_context.saver else None
+        pipeline_id = runtime_context.pipeline_name
 
         if not pipeline_id:
             return artifact_ids

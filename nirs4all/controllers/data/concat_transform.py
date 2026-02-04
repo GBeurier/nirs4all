@@ -481,17 +481,8 @@ class ConcatAugmentationController(OperatorController):
         transformed = fitted.transform(all_data)
 
         artifact = None
-        if mode == "train" and runtime_context.saver is not None:
-            branch_id = context.selector.branch_id if context else None
-            branch_name = context.selector.branch_name if context else None
-            artifact = runtime_context.saver.persist_artifact(
-                step_number=runtime_context.step_number,
-                name=binary_key,
-                obj=fitted,
-                format_hint='sklearn',
-                branch_id=branch_id,
-                branch_name=branch_name
-            )
+        if mode == "train":
+            artifact = (fitted, binary_key, "sklearn")
 
         return transformed, artifact
 
@@ -554,17 +545,8 @@ class ConcatAugmentationController(OperatorController):
             current_train = fitted.transform(current_train)
             current_all = fitted.transform(current_all)
 
-            if mode == "train" and runtime_context.saver is not None:
-                branch_id = context.selector.branch_id if context else None
-                branch_name = context.selector.branch_name if context else None
-                artifact = runtime_context.saver.persist_artifact(
-                    step_number=runtime_context.step_number,
-                    name=binary_key,
-                    obj=fitted,
-                    format_hint='sklearn',
-                    branch_id=branch_id,
-                    branch_name=branch_name
-                )
+            if mode == "train":
+                artifact = (fitted, binary_key, "sklearn")
                 artifacts.append(artifact)
 
         return current_all, artifacts

@@ -4,7 +4,6 @@ import json
 import numpy as np
 import pytest
 from nirs4all.data.predictions import Predictions
-from nirs4all.data._predictions.ranker import PredictionRanker
 from nirs4all.core import metrics as evaluator
 
 @pytest.fixture

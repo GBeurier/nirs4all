@@ -63,9 +63,8 @@ class TestStateInitialization:
         runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         assert runner.pipeline_uid is None
-        assert runner.current_run_dir is None
-        assert runner.saver is None
-        assert runner.manifest_manager is None
+        assert runner.saver is None  # Legacy: kept for predict/explain modes
+        assert runner.manifest_manager is None  # Legacy: kept for predict/explain modes
         assert runner.artifact_loader is None
         assert runner.target_model is None
 
@@ -184,40 +183,27 @@ class TestStateTransitions:
         assert runner_with_workspace.pipeline_uid is not None
         assert isinstance(runner_with_workspace.pipeline_uid, str)
 
-    def test_current_run_dir_set_during_run(self, runner_with_workspace, test_data):
-        """Test that current_run_dir is set during run."""
+    def test_store_duckdb_created_during_run(self, runner_with_workspace, test_data):
+        """Test that store.duckdb is created during run."""
         dataset_path = str(test_data.get_temp_directory() / "regression")
         pipeline = [{"model": LinearRegression()}]
 
-        assert runner_with_workspace.current_run_dir is None
-
         runner_with_workspace.run(pipeline, dataset_path)
 
-        assert runner_with_workspace.current_run_dir is not None
-        assert isinstance(runner_with_workspace.current_run_dir, Path)
-        assert runner_with_workspace.current_run_dir.exists()
+        store_file = runner_with_workspace.workspace_path / "store.duckdb"
+        assert store_file.exists(), "store.duckdb should be created during run"
 
-    def test_saver_initialized_during_run(self, runner_with_workspace, test_data):
-        """Test that saver is initialized during run."""
+    def test_pipeline_uid_set_after_run(self, runner_with_workspace, test_data):
+        """Test that pipeline_uid is set after run completes."""
         dataset_path = str(test_data.get_temp_directory() / "regression")
         pipeline = [{"model": LinearRegression()}]
 
-        assert runner_with_workspace.saver is None
+        assert runner_with_workspace.pipeline_uid is None
 
         runner_with_workspace.run(pipeline, dataset_path)
 
-        assert runner_with_workspace.saver is not None
-
-    def test_manifest_manager_initialized_during_run(self, runner_with_workspace, test_data):
-        """Test that manifest_manager is initialized during run."""
-        dataset_path = str(test_data.get_temp_directory() / "regression")
-        pipeline = [{"model": LinearRegression()}]
-
-        assert runner_with_workspace.manifest_manager is None
-
-        runner_with_workspace.run(pipeline, dataset_path)
-
-        assert runner_with_workspace.manifest_manager is not None
+        assert runner_with_workspace.pipeline_uid is not None
+        assert isinstance(runner_with_workspace.pipeline_uid, str)
 
 
 class TestDataCapture:

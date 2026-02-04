@@ -8,8 +8,8 @@ This tutorial covers:
 
 * Session context manager for multiple runs
 * Workspace structure and navigation
-* Global predictions database
-* Library management for trained models
+* DuckDB-backed prediction storage
+* Library management for pipeline templates
 
 Prerequisites
 -------------
@@ -67,10 +67,10 @@ Sessions and workspace management help you:
 
   📁 WORKSPACE STRUCTURE
      workspace/
-     ├── runs/           # All experimental runs
+     ├── store.duckdb    # All structured data (runs, predictions, etc.)
+     ├── artifacts/      # Content-addressed binary artifacts
      ├── exports/        # Exported best results
-     ├── library/        # Saved models/templates
-     └── dataset.json    # Global predictions database
+     └── library/        # Saved pipeline templates
 """)
 
 
@@ -370,12 +370,10 @@ Session and Workspace Workflow:
 
 Workspace Structure:
   workspace/
-  ├── runs/           # All runs organized by date
-  │   └── <date>/
-  │       └── <pipeline_id>/
-  ├── exports/        # Exported best results
-  ├── library/        # Saved templates and models
-  └── <dataset>.json  # Global predictions database
+  ├── store.duckdb    # All structured data (runs, predictions, etc.)
+  ├── artifacts/      # Content-addressed binary artifacts
+  ├── exports/        # Exported best results (.n4a bundles)
+  └── library/        # Saved pipeline templates (.json)
 
 Next: U04_sklearn_integration.py - sklearn Pipeline compatibility
 """)

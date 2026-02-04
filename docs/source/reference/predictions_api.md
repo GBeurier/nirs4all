@@ -1,448 +1,267 @@
-# PredictionResultsList Reference
+# Predictions API Reference
 
-The `PredictionResultsList` class is a specialized list container that wraps lists of `PredictionResult` objects returned by the `top()` method of the `Predictions` class. It provides additional functionality while maintaining full compatibility with standard Python list operations.
+This page is the API reference for the prediction-related classes. For conceptual guidance and practical workflows, see the [Predictions User Guide](/user_guide/predictions/index.md).
 
-## Quick Reference
+## Module-Level Functions
 
-### Get Top Predictions
-
-```python
-# Get top predictions (returns PredictionResultsList)
-top_models = predictions.top(n=5, rank_metric="mse", aggregate_partitions=True)
-```
-
-### Save All Predictions to CSV
+### nirs4all.predict()
 
 ```python
-top_models.save(path="results", filename="top_5_models.csv")
+nirs4all.predict(
+    model=None,          # Path to .n4a bundle, prediction dict, or Path
+    data=None,           # numpy array, tuple, dict, path, or SpectroDataset
+    *,
+    chain_id=None,       # Chain ID for store-based prediction (alternative to model)
+    workspace_path=None, # Workspace root (required with chain_id outside a session)
+    name="prediction_dataset",
+    all_predictions=False,
+    session=None,
+    verbose=0,
+    **runner_kwargs,
+) -> PredictResult
 ```
 
-### Get Prediction by ID
+Two prediction paths:
+
+- **Store-based** (preferred): pass `chain_id` to replay a stored chain directly from the workspace.
+- **Model-based**: pass `model` (bundle path, prediction dict, or config path).
+
+`model` and `chain_id` are mutually exclusive.
+
+See: {doc}`/user_guide/predictions/making_predictions`
+
+### nirs4all.run()
 
 ```python
-prediction = top_models.get("abc123")
-if prediction:
-    print(f"Found: {prediction.model_name}")
+nirs4all.run(
+    pipeline,            # List of steps, dict, path, or PipelineConfigs
+    dataset,             # Path, arrays, dict, SpectroDataset, or DatasetConfigs
+    *,
+    name="",
+    session=None,
+    verbose=1,
+    save_artifacts=True,
+    save_charts=True,
+    plots_visible=False,
+    random_state=None,
+    **runner_kwargs,
+) -> RunResult
 ```
 
-### Print Summary Report
+See: {doc}`/user_guide/predictions/analyzing_results`
+
+### nirs4all.retrain()
 
 ```python
-print(top_models[0].summary())
+nirs4all.retrain(
+    source,              # Prediction dict, path to .n4a bundle, or config path
+    data,                # New dataset
+    *,
+    mode="full",         # "full", "transfer", or "finetune"
+    name="retrain_dataset",
+    new_model=None,
+    epochs=None,
+    session=None,
+    verbose=1,
+    save_artifacts=True,
+    **kwargs,
+) -> RunResult
 ```
 
-**Output:**
-```
-|----------|---------|----------|--------|--------|--------|--------|
-|          | Nsample | Nfeature | R²     | RMSE   | MSE    | MAE    |
-|----------|---------|----------|--------|--------|--------|--------|
-| Cros Val | 50      | 100      | 0.966  | 0.195  | 0.038  | 0.160  |
-| Train    | 50      | 100      | 0.944  | 0.231  | 0.053  | 0.191  |
-| Test     | 50      | 100      | 0.962  | 0.176  | 0.031  | 0.141  |
-|----------|---------|----------|--------|--------|--------|--------|
-```
+See: {doc}`/user_guide/predictions/advanced_predictions`
 
-### Standard List Operations
+### nirs4all.explain()
 
 ```python
-len(top_models)           # Length
-top_models[0]             # Indexing
-top_models[:3]            # Slicing
-for model in top_models:  # Iteration
-    ...
+nirs4all.explain(
+    model,               # Prediction dict, path to .n4a bundle, or config path
+    data,                # Data to explain
+    *,
+    name="explain_dataset",
+    session=None,
+    verbose=1,
+    plots_visible=True,
+    n_samples=None,
+    explainer_type="auto",
+    **shap_params,
+) -> ExplainResult
 ```
 
-## Key Features
+See: {doc}`/user_guide/predictions/advanced_predictions`
 
-### Extended Functionality
+---
 
-- **`save(path, filename)`**: Save all predictions to a single structured CSV file
-- **`get(id)`**: Fast retrieval of predictions by their unique ID
-- Standard list operations: indexing, slicing, iteration, length, etc.
+## Result Classes
 
-### Enhanced PredictionResult
+### RunResult
 
-- **`summary()`**: Generate a formatted tab report with metrics for train/val/test partitions
-- **`save_to_csv(path_or_file, filename)`**: Save individual prediction to CSV
-- **`eval_score(metrics)`**: Calculate metrics for the prediction
+Returned by `nirs4all.run()` and `nirs4all.retrain()`.
 
-## Usage Examples
+**Properties:**
 
-### Basic Usage
-
-```python
-from nirs4all.data import Predictions
-
-predictions = Predictions()
-
-# Get top 5 models using top() method
-top_models = predictions.top(
-    n=5,
-    rank_metric="mse",
-    rank_partition="val",
-    display_partition="test",
-    aggregate_partitions=True
-)
-
-# Type: PredictionResultsList (extends list)
-print(type(top_models))  # <class 'PredictionResultsList'>
-print(len(top_models))   # 5
-```
-
-### Saving to CSV
-
-The `save()` method creates a structured CSV:
-
-```text
-Line 1: dataset_name
-Line 2: model_classname + model_id
-Line 3: fold_id
-Line 4: partition
-Line 5: column headers (y_true_partition, y_pred_partition, ...)
-Lines 6+: prediction data
-```
-
-**Example:**
-
-```python
-top_models.save(
-    path="results",
-    filename="top_5_models.csv"
-)
-```
-
-For aggregated results, the CSV has columns like:
-- `y_true_train_fold0`, `y_pred_train_fold0`
-- `y_true_val_fold0`, `y_pred_val_fold0`
-- `y_true_test`, `y_pred_test`
-
-### Common Workflows
-
-#### Analyze Top Models
-
-```python
-# Get top 10 models
-top_10 = predictions.top(
-    n=10,
-    rank_metric="mse",
-    aggregate_partitions=True
-)
-
-# Save all to CSV
-top_10.save(path="results/analysis")
-
-# Print summaries
-for i, model in enumerate(top_10, 1):
-    print(f"\n{'='*80}")
-    print(f"MODEL {i}: {model.model_name} (ID: {model.id})")
-    print(f"{'='*80}")
-    print(model.summary())
-```
-
-#### Export Best Model Details
-
-```python
-# Get best model
-best = predictions.top(n=1, rank_metric="rmse")[0]
-
-# Print summary
-print("BEST MODEL PERFORMANCE:")
-print(best.summary())
-
-# Save individual prediction
-best.save_to_csv("results/best_model.csv")
-
-# Access details
-print(f"Model: {best.model_name}")
-print(f"Dataset: {best.dataset_name}")
-print(f"Fold: {best.fold_id}")
-print(f"Score: {best.get('rank_score')}")
-```
-
-#### Compare Multiple Models
-
-```python
-# Get top 5 models
-top_5 = predictions.top(n=5, rank_metric="r2", ascending=False)
-
-# Save all predictions to single file
-top_5.save(filename="top_5_comparison.csv")
-
-# Compare metrics
-for model in top_5:
-    scores = model.eval_score(metrics=["rmse", "mae", "r2"])
-    print(f"{model.model_name}: {scores}")
-```
-
-#### Group By: Top N Per Group
-
-The `group_by` parameter allows you to get top N results **per group** instead of N total.
-This is useful when comparing models across multiple datasets or configurations.
-
-```python
-# Get top 3 models PER DATASET (flat list, sorted by global rank)
-top_per_dataset = predictions.top(
-    n=3,
-    rank_metric="rmse",
-    group_by="dataset_name"
-)
-
-# Each result includes 'group_key' for easy filtering
-for pred in top_per_dataset:
-    dataset = pred['group_key'][0]  # group_key is a tuple
-    print(f"{dataset}: {pred.model_name} - RMSE: {pred.get('rmse', 0):.4f}")
-
-# Filter results for a specific dataset
-wheat_results = [r for r in top_per_dataset if r['group_key'] == ('wheat',)]
-```
-
-**Grouped dict output** with `return_grouped=True`:
-
-```python
-# Get top 3 models per dataset as a dictionary
-grouped = predictions.top(
-    n=3,
-    rank_metric="rmse",
-    group_by="dataset_name",
-    return_grouped=True
-)
-
-# Result: {('dataset1',): [...], ('dataset2',): [...]}
-for group_key, results in grouped.items():
-    print(f"\n{group_key[0]}: {len(results)} best models")
-    for i, pred in enumerate(results, 1):
-        print(f"  {i}. {pred.model_name}: RMSE={pred.get('rmse', 0):.4f}")
-```
-
-**Multi-column grouping**:
-
-```python
-# Top 2 per (dataset, model_class) combination
-per_combo = predictions.top(
-    n=2,
-    rank_metric="rmse",
-    group_by=["dataset_name", "model_classname"]
-)
-# Each result has group_key like ('wheat', 'PLSRegression')
-```
-
-## Complete Workflow Example
-
-```python
-from nirs4all.data import Predictions
-
-# Load existing predictions
-predictions = Predictions.load(
-    dataset_name="my_dataset",
-    path="results"
-)
-
-# Get top 10 models ranked by MSE on validation set
-top_models = predictions.top(
-    n=10,
-    rank_metric="mse",
-    rank_partition="val",
-    display_partition="test",
-    aggregate_partitions=True,  # Include train/val/test data
-    ascending=True  # Lower MSE is better
-)
-
-# Save all predictions to CSV
-top_models.save(
-    path="results/analysis",
-    filename="top_10_models.csv"
-)
-
-# Print summary for best model
-print("=" * 80)
-print("BEST MODEL SUMMARY")
-print("=" * 80)
-print(top_models[0].summary())
-
-# Access specific prediction by ID
-best_id = top_models[0].id
-best_prediction = top_models.get(best_id)
-
-# Iterate through predictions
-for i, prediction in enumerate(top_models, 1):
-    print(f"\n{i}. {prediction.model_name} (ID: {prediction.id})")
-    print(f"   Fold: {prediction.fold_id}")
-    print(f"   Rank Score: {prediction.get('rank_score'):.4f}")
-
-    # Save individual prediction
-    prediction.save_to_csv(f"results/individual/model_{i}.csv")
-```
-
-## API Reference
-
-### PredictionResultsList
-
-```python
-class PredictionResultsList(list):
-    def save(self, path: str = "results", filename: Optional[str] = None) -> None
-    def get(self, prediction_id: str) -> Optional[PredictionResult]
-```
+| Property | Type | Description |
+|----------|------|-------------|
+| `best` | dict | Best prediction entry (ranked by validation score) |
+| `best_score` | float | Best model's primary test score |
+| `best_rmse` | float | Best model's RMSE (NaN if unavailable) |
+| `best_r2` | float | Best model's R2 (NaN if unavailable) |
+| `best_accuracy` | float | Best model's accuracy (NaN if unavailable) |
+| `num_predictions` | int | Total number of predictions |
+| `artifacts_path` | Path or None | Path to run artifacts directory |
 
 **Methods:**
 
-- `__init__(predictions=None)`: Initialize with optional list of predictions
-- `save(path="results", filename=None)`: Save all predictions to structured CSV
-- `get(prediction_id)`: Retrieve prediction by ID (returns `PredictionResult` or `None`)
-- All standard list methods: `append()`, `extend()`, `pop()`, `remove()`, etc.
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `top(n, **kwargs)` | PredictionResultsList | Top N predictions by ranking |
+| `filter(**kwargs)` | list[dict] | Filter predictions by criteria |
+| `get_datasets()` | list[str] | Unique dataset names |
+| `get_models()` | list[str] | Unique model names |
+| `export(output_path, format="n4a", source=None, chain_id=None)` | Path | Export model to bundle |
+| `export_model(output_path, source=None, format=None, fold=None)` | Path | Export model artifact only |
+| `summary()` | str | Multi-line summary string |
+| `validate(...)` | dict | Check for common issues |
 
-### PredictionResult
+**top() keyword arguments:**
 
-```python
-class PredictionResult(dict):
-    def summary(self) -> str
-    def save_to_csv(self, path_or_file: str = "results", filename: Optional[str] = None) -> None
-    def eval_score(self, metrics: Optional[List[str]] = None) -> Dict[str, Any]
+- `rank_metric`: Metric to rank by (default: stored metric)
+- `rank_partition`: Partition to rank on (default: `"val"`)
+- `display_metrics`: List of additional metrics to compute for display
+- `display_partition`: Partition for display metrics (default: `"test"`)
+- `ascending`: Sort order (None infers from metric)
+- `group_by`: Group results by column(s) -- returns top N per group
+- `return_grouped`: If True with group_by, return dict of group to results
+- `aggregate`: Aggregate predictions by metadata column or `"y"`
+- `aggregate_method`: `"mean"`, `"median"`, or `"vote"`
 
-    @property
-    def id(self) -> str
-    @property
-    def dataset_name(self) -> str
-    @property
-    def model_name(self) -> str
-    @property
-    def model_classname(self) -> str
-    @property
-    def fold_id(self) -> str
-    @property
-    def config_name(self) -> str
-    @property
-    def step_idx(self) -> int
-    @property
-    def op_counter(self) -> int
-```
+### PredictResult
 
-## Notes
+Returned by `nirs4all.predict()`.
 
-### Aggregated vs Non-Aggregated Results
+**Attributes:**
 
-**Aggregated results** (when `aggregate_partitions=True`):
-- Contains nested dictionaries for `train`, `val`, `test` partitions
-- Each partition has `y_true`, `y_pred`, and score fields
-- Summary shows metrics for all partitions
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `y_pred` | numpy.ndarray | Predicted values |
+| `metadata` | dict | Additional prediction metadata |
+| `sample_indices` | numpy.ndarray or None | Indices of predicted samples |
+| `model_name` | str | Name of the model used |
+| `preprocessing_steps` | list[str] | Preprocessing steps applied |
 
-**Non-aggregated results** (single partition):
-- Contains `y_true`, `y_pred` at the root level
-- Summary shows metrics for that partition only
+**Properties:**
 
-### CSV File Structure
+| Property | Type | Description |
+|----------|------|-------------|
+| `values` | numpy.ndarray | Alias for y_pred |
+| `shape` | tuple | Shape of prediction array |
+| `is_multioutput` | bool | True if multi-output prediction |
 
-**With aggregation:**
-```text
-dataset_name
-model_classname_id
-fold_id
-partition
-y_true_train_foldX,y_pred_train_foldX,y_true_val_foldX,y_pred_val_foldX,y_true_test,y_pred_test
-0.5,0.52,0.6,0.58,0.55,0.54
-...
-```
+**Methods:**
 
-**Without aggregation:**
-```text
-dataset_name
-model_classname_id
-fold_id
-partition
-y_true,y_pred
-0.5,0.52
-...
-```
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `to_numpy()` | numpy.ndarray | Predictions as numpy array |
+| `to_list()` | list[float] | Predictions as Python list |
+| `to_dataframe(include_indices=True)` | pandas.DataFrame | Predictions as DataFrame |
+| `flatten()` | numpy.ndarray | Flattened 1D predictions |
 
-### Implementation Details
+### ExplainResult
 
-- **Type:** `PredictionResultsList` extends Python's built-in `list` class
-- **Compatibility:** Fully compatible with all list operations and duck typing
-- **Performance:** `get()` method uses linear search (O(n)), suitable for small result sets
-- **Dependencies:** Uses `TabReportManager` for summary generation
-- **Return Type:** `top()` returns `PredictionResultsList` instead of plain list
+Returned by `nirs4all.explain()`.
 
-## Key Points
+**Attributes:**
 
-- ✅ **Backward Compatible**: All existing code continues to work
-- ✅ **List Compatible**: Standard list operations work normally
-- ✅ **Flexible**: Works with aggregated and non-aggregated results
-- ✅ **Type Safe**: Properly typed with Union types
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `shap_values` | Any | SHAP values (Explanation or ndarray) |
+| `feature_names` | list[str] or None | Feature names |
+| `base_value` | float or ndarray or None | Baseline prediction |
+| `visualizations` | dict[str, Path] | Generated plot files |
+| `explainer_type` | str | SHAP explainer type used |
+| `model_name` | str | Explained model name |
+| `n_samples` | int | Number of samples explained |
 
-## Prediction Entry Fields
+**Properties:**
 
-When you call `result.top(n)` or access `result.best`, you get prediction entries (dictionaries) containing metadata about each prediction. Here are the commonly available fields:
+| Property | Type | Description |
+|----------|------|-------------|
+| `values` | numpy.ndarray | Raw SHAP values array |
+| `shape` | tuple | Shape of SHAP values |
+| `mean_abs_shap` | numpy.ndarray | Mean absolute SHAP per feature |
+| `top_features` | list[str] | Features sorted by importance (descending) |
 
-### Core Identification Fields
+**Methods:**
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| `model_name` | Custom name or auto-generated model identifier | `"PLS-10"` |
-| `model_classname` | Class name of the model | `"PLSRegression"` |
-| `dataset_name` | Name of the dataset | `"regression"` |
-| `fold_id` | Cross-validation fold identifier | `"fold_0"` |
-| `preprocessings` | Full preprocessing chain applied | `"SNV\|FirstDerivative"` |
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `get_feature_importance(top_n=None, normalize=False)` | dict[str, float] | Feature importance ranking |
+| `get_sample_explanation(idx)` | dict[str, float] | SHAP values for one sample |
+| `to_dataframe(include_feature_names=True)` | pandas.DataFrame | SHAP values as DataFrame |
 
-### Score Fields
+---
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| `train_score` | Score on training set (primary metric) | `0.0234` |
-| `val_score` | Score on validation set (primary metric) | `0.0312` |
-| `test_score` | Score on test set (primary metric) | `0.0298` |
-| `metric` | Name of the primary metric | `"mse"` |
+## PredictionResultsList
 
-### Data Information Fields
+Returned by `RunResult.top()` and `Predictions.top()`. Extends Python's built-in `list` with additional methods.
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| `n_samples` | Number of samples in the dataset | `100` |
-| `n_features` | Number of features after preprocessing | `256` |
-| `task_type` | Type of task | `"regression"` or `"classification"` |
+**Methods:**
 
-### Additional Metrics via `display_metrics`
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `save(path="results", filename=None)` | None | Save all predictions to structured CSV |
+| `get(prediction_id)` | PredictionResult or None | Retrieve prediction by ID |
 
-When using `display_metrics` parameter, additional computed metrics are added:
+Supports all standard list operations: indexing, slicing, iteration, `len()`, etc.
 
-```python
-# Request additional metrics
-for pred in result.top(n=5, display_metrics=['rmse', 'r2', 'mae']):
-    print(f"RMSE: {pred.get('rmse', 0):.4f}")
-    print(f"R²: {pred.get('r2', 0):.4f}")
-    print(f"MAE: {pred.get('mae', 0):.4f}")
-```
+## PredictionResult
 
-### Example: Accessing Preprocessing Chains
+A dict subclass representing a single prediction. Returned as elements of `PredictionResultsList`.
 
-A common use case is analyzing which preprocessing combination works best:
+**Properties:**
 
-```python
-# Get the best prediction
-best = result.best
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | str | Prediction identifier |
+| `dataset_name` | str | Dataset name |
+| `model_name` | str | Model name |
+| `fold_id` | str | Fold identifier |
+| `config_name` | str | Configuration name |
+| `step_idx` | int | Pipeline step index |
+| `op_counter` | int | Operation counter |
 
-# Access the preprocessing chain
-print(f"Best preprocessing: {best.get('preprocessings', 'N/A')}")
-print(f"Model: {best.get('model_name', 'N/A')}")
-print(f"Validation score: {best.get('val_score', 0):.6f}")
+Additional fields are accessible via dict access (e.g., `pred["model_classname"]`, `pred.get("preprocessings")`).
 
-# Compare top preprocessing chains
-for i, pred in enumerate(result.top(n=5, display_metrics=['rmse', 'r2']), 1):
-    preproc = pred.get('preprocessings', 'N/A')
-    rmse = pred.get('rmse', 0)
-    r2 = pred.get('r2', 0)
-    print(f"{i}. {preproc}: RMSE={rmse:.4f}, R²={r2:.4f}")
-```
+**Methods:**
 
-```{tip}
-For a comprehensive example of analyzing preprocessing chains with feature augmentation, see the
-**U02_feature_augmentation.py** example in `examples/user/03_preprocessing/`. It demonstrates:
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `summary()` | str | Formatted metric table (train/val/test) |
+| `save_to_csv(path_or_file, filename=None)` | None | Save to CSV file |
+| `eval_score(metrics=None)` | dict | Compute metrics for this prediction |
 
-- Using feature augmentation to explore preprocessing combinations
-- Accessing the best preprocessing chain from results
-- Comparing top preprocessing variants with detailed metrics
-```
+---
+
+## WorkspaceStore (Prediction Queries)
+
+For store-level queries across runs. See full API in the storage reference.
+
+**Prediction query methods:**
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `get_prediction(id, load_arrays=False)` | dict or None | Single prediction record |
+| `query_predictions(**filters)` | polars.DataFrame | Filtered prediction records |
+| `top_predictions(n, metric, ascending, partition, dataset_name, group_by)` | polars.DataFrame | Top-N ranked predictions |
+| `export_predictions_parquet(output_path, **filters)` | Path | Export to Parquet file |
+
+**Filter arguments for query_predictions:**
+
+- `dataset_name`, `model_class`, `partition`, `fold_id`, `branch_id`, `pipeline_id`, `run_id`, `limit`, `offset`
 
 ## See Also
 
-- {doc}`/reference/pipeline_syntax` - Pipeline syntax reference
-- {doc}`/user_guide/visualization/index` - Visualization and charts
-- {doc}`/examples/user/preprocessing` - Preprocessing examples including feature augmentation
+- {doc}`/user_guide/predictions/index` -- Predictions user guide (overview)
+- {doc}`/user_guide/predictions/making_predictions` -- Practical prediction workflows
+- {doc}`/user_guide/predictions/analyzing_results` -- Querying and visualization
+- {doc}`/user_guide/predictions/exporting_models` -- Export formats
+- {doc}`/user_guide/predictions/advanced_predictions` -- Transfer, retrain, SHAP

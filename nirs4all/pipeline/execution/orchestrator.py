@@ -1,20 +1,17 @@
 """Pipeline orchestrator for coordinating multiple pipeline executions."""
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 
+from nirs4all.core.logging import get_logger
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
-from nirs4all.pipeline.execution.executor import PipelineExecutor
-from nirs4all.pipeline.storage.io import SimulationSaver
-from nirs4all.pipeline.storage.manifest_manager import ManifestManager
-from nirs4all.core.logging import get_logger
+from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
+from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 from nirs4all.visualization.reports import TabReportManager
 
 logger = get_logger(__name__)
@@ -39,14 +36,14 @@ class PipelineOrchestrator:
     """Orchestrates execution of multiple pipelines across multiple datasets.
 
     High-level coordinator that manages:
-    - Workspace initialization
+    - Workspace initialization via WorkspaceStore
     - Global predictions aggregation
     - Best results reporting
     - Dataset/pipeline normalization
 
     Attributes:
         workspace_path: Root workspace directory
-        runs_dir: Directory for storing runs
+        store: WorkspaceStore for DuckDB-backed persistence
         verbose: Verbosity level
         mode: Execution mode (train/predict/explain)
         save_artifacts: Whether to save binary artifacts
@@ -58,7 +55,7 @@ class PipelineOrchestrator:
 
     def __init__(
         self,
-        workspace_path: Optional[Union[str, Path]] = None,
+        workspace_path: str | Path | None = None,
         verbose: int = 0,
         mode: str = "train",
         save_artifacts: bool = True,
@@ -68,7 +65,7 @@ class PipelineOrchestrator:
         show_spinner: bool = True,
         keep_datasets: bool = True,
         plots_visible: bool = False
-    ):
+    ) -> None:
         """Initialize pipeline orchestrator.
 
         Args:
@@ -87,12 +84,12 @@ class PipelineOrchestrator:
         if workspace_path is None:
             workspace_path = _get_default_workspace_path()
         self.workspace_path = Path(workspace_path)
-        self.runs_dir = self.workspace_path / "runs"
-        self.runs_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create other workspace directories
-        (self.workspace_path / "exports").mkdir(exist_ok=True)
-        (self.workspace_path / "library").mkdir(exist_ok=True)
+        # Create WorkspaceStore for DuckDB-backed persistence
+        self.store = WorkspaceStore(self.workspace_path)
+
+        # Create exports directory for on-demand exports
+        (self.workspace_path / "exports").mkdir(parents=True, exist_ok=True)
 
         # Configuration
         self.verbose = verbose
@@ -106,33 +103,35 @@ class PipelineOrchestrator:
         self.plots_visible = plots_visible
 
         # Dataset snapshots (if keep_datasets is True)
-        self.raw_data: Dict[str, np.ndarray] = {}
-        self.pp_data: Dict[str, Dict[str, np.ndarray]] = {}
+        self.raw_data: dict[str, np.ndarray] = {}
+        self.pp_data: dict[str, dict[str, np.ndarray]] = {}
 
         # Figure references to prevent garbage collection
-        self._figure_refs: List[Any] = []
+        self._figure_refs: list[Any] = []
+
+        # Legacy compatibility: runs_dir for predictor/explainer modes
+        self.runs_dir = self.workspace_path
 
         # Store last executed pipeline info for post-run operations and syncing
-        self.last_saver: Any = None
-        self.last_pipeline_uid: Optional[str] = None
-        self.last_manifest_manager: Any = None
+        self.last_pipeline_uid: str | None = None
         self.last_executor: Any = None  # For syncing step_number, substep_number, operation_count
-        self.last_aggregate_column: Optional[str] = None  # Last dataset's aggregate setting
-        self.last_aggregate_method: Optional[str] = None  # Last dataset's aggregate method
+        self.last_aggregate_column: str | None = None  # Last dataset's aggregate setting
+        self.last_aggregate_method: str | None = None  # Last dataset's aggregate method
         self.last_aggregate_exclude_outliers: bool = False  # Last dataset's exclude outliers setting
         self.last_execution_trace: Any = None  # ExecutionTrace from last run for post-run visualization
+        self.last_run_id: str | None = None  # Last WorkspaceStore run UUID
 
     def execute(
         self,
-        pipeline: Union[PipelineConfigs, List[Any], Dict, str],
-        dataset: Union[DatasetConfigs, SpectroDataset, List[SpectroDataset], np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        pipeline: PipelineConfigs | list[Any] | dict | str,
+        dataset: DatasetConfigs | SpectroDataset | list[SpectroDataset] | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         pipeline_name: str = "",
         dataset_name: str = "dataset",
         max_generation_count: int = 10000,
         artifact_loader: Any = None,
-        target_model: Optional[Dict[str, Any]] = None,
+        target_model: dict[str, Any] | None = None,
         explainer: Any = None
-    ) -> Tuple[Predictions, Dict[str, Any]]:
+    ) -> tuple[Predictions, dict[str, Any]]:
         """Execute pipeline configurations on dataset configurations.
 
         Args:
@@ -175,157 +174,164 @@ class PipelineOrchestrator:
         run_predictions = Predictions()
         current_run = 0
 
-        # Execute for each dataset
-        for dataset_idx, (config, name) in enumerate(dataset_configs.configs):
-            # Create run directory: workspace/runs/<dataset>/
-            # All pipelines for a dataset go in the same folder regardless of date
-            current_run_dir = self.runs_dir / name
-            current_run_dir.mkdir(parents=True, exist_ok=True)
-
-            # Create artifact registry for this dataset (v2 artifact system)
-            artifact_registry = None
-            if self.mode == "train":
-                artifact_registry = ArtifactRegistry(
-                    workspace=self.workspace_path,
-                    dataset=name,
-                    manifest_manager=None  # Set per-pipeline below
-                )
-                artifact_registry.start_run()
-
-            # Build executor using ExecutorBuilder
-            executor = (ExecutorBuilder()
-                .with_run_directory(current_run_dir)
-                .with_workspace(self.workspace_path)
-                .with_verbose(self.verbose)
-                .with_mode(self.mode)
-                .with_save_artifacts(self.save_artifacts)
-                .with_save_charts(self.save_charts)
-                .with_continue_on_error(self.continue_on_error)
-                .with_show_spinner(self.show_spinner)
-                .with_plots_visible(self.plots_visible)
-                .with_artifact_loader(artifact_loader)
-                .with_artifact_registry(artifact_registry)
-                .build())
-
-            # Get components from executor for compatibility
-            saver = executor.saver
-            manifest_manager = executor.manifest_manager
-
-            # Update artifact registry with manifest manager
-            if artifact_registry is not None:
-                artifact_registry.manifest_manager = manifest_manager
-
-            # Store saver for post-run operations (e.g., export_best_for_dataset)
-            self.last_saver = saver
-            self.last_executor = executor
-
-            # Load global predictions from workspace root (dataset_name.meta.parquet)
-            dataset_prediction_path = self.workspace_path / f"{name}.meta.parquet"
-            global_dataset_predictions = Predictions.load_from_file_cls(dataset_prediction_path)
-            run_dataset_predictions = Predictions()
-
-            # Execute each pipeline configuration on this dataset
-            for i, (steps, config_name, gen_choices) in enumerate(zip(
-                pipeline_configs.steps,
-                pipeline_configs.names,
-                pipeline_configs.generator_choices
-            )):
-                current_run += 1
-                logger.info(f"Run {current_run}/{total_runs}: pipeline '{config_name}' on dataset '{name}'")
-
-                dataset = dataset_configs.get_dataset(config, name)
-
-                # Capture raw data BEFORE any preprocessing happens
-                if self.keep_datasets and name not in self.raw_data:
-                    self.raw_data[name] = dataset.x({}, layout="2d")
-
-                if self.verbose > 0:
-                    print(dataset)
-
-                # Initialize execution context via executor
-                context = executor.initialize_context(dataset)
-
-                # Create RuntimeContext with artifact_registry
-                runtime_context = RuntimeContext(
-                    saver=saver,
-                    manifest_manager=manifest_manager,
-                    artifact_loader=artifact_loader,
-                    artifact_registry=artifact_registry,
-                    step_runner=executor.step_runner,
-                    target_model=target_model,
-                    explainer=explainer
-                )
-
-                # Execute pipeline with cleanup on failure
-                config_predictions = Predictions()
-                try:
-                    executor.execute(
-                        steps=steps,
-                        config_name=config_name,
-                        dataset=dataset,
-                        context=context,
-                        runtime_context=runtime_context,
-                        prediction_store=config_predictions,
-                        generator_choices=gen_choices
-                    )
-                except Exception as e:
-                    # Cleanup artifacts from failed run
-                    if artifact_registry is not None:
-                        artifact_registry.cleanup_failed_run()
-                    raise
-
-                # Capture last pipeline_uid and manifest_manager for syncing back to runner
-                if runtime_context.pipeline_uid:
-                    self.last_pipeline_uid = runtime_context.pipeline_uid
-                    self.last_manifest_manager = manifest_manager
-
-                # Capture execution trace for post-run visualization
-                self.last_execution_trace = runtime_context.get_execution_trace()
-
-                # Capture preprocessed data AFTER preprocessing
-                if self.keep_datasets:
-                    if name not in self.pp_data:
-                        self.pp_data[name] = {}
-                    self.pp_data[name][dataset.short_preprocessings_str()] = dataset.x({}, layout="2d")
-
-                # Merge new predictions into stores
-                if config_predictions.num_predictions > 0:
-                    global_dataset_predictions.merge_predictions(config_predictions)
-                    run_dataset_predictions.merge_predictions(config_predictions)
-                    run_predictions.merge_predictions(config_predictions)
-
-            # Mark run as completed successfully
-            if artifact_registry is not None:
-                artifact_registry.end_run()
-
-            # Store last aggregate column for visualization integration
-            self.last_aggregate_column = dataset.aggregate
-            self.last_aggregate_method = dataset.aggregate_method
-            self.last_aggregate_exclude_outliers = dataset.aggregate_exclude_outliers
-
-            # Print best results for this dataset
-            self._print_best_predictions(
-                run_dataset_predictions,
-                global_dataset_predictions,
-                dataset,
-                name,
-                dataset_prediction_path,
-                saver
+        # Begin run in store
+        run_id = None
+        if self.mode == "train":
+            dataset_meta = []
+            for _config, name in dataset_configs.configs:
+                dataset_meta.append({"name": name})
+            run_id = self.store.begin_run(
+                name=pipeline_name or "run",
+                config={"n_pipelines": n_pipelines, "n_datasets": n_datasets},
+                datasets=dataset_meta,
             )
+            self.last_run_id = run_id
 
-            # Store dataset prediction info
-            datasets_predictions[name] = {
-                "global_predictions": global_dataset_predictions,
-                "run_predictions": run_dataset_predictions,
-                "dataset": dataset,
-                "dataset_name": name
-            }
+        # Execute for each dataset
+        try:
+            for _dataset_idx, (config, name) in enumerate(dataset_configs.configs):
+                # Create artifact registry for this dataset (v2 artifact system)
+                artifact_registry = None
+                if self.mode == "train":
+                    artifact_registry = ArtifactRegistry(
+                        workspace=self.workspace_path,
+                        dataset=name,
+                    )
+                    artifact_registry.start_run()
+
+                # Build executor using ExecutorBuilder
+                executor = (ExecutorBuilder()
+                    .with_workspace(self.workspace_path)
+                    .with_verbose(self.verbose)
+                    .with_mode(self.mode)
+                    .with_save_artifacts(self.save_artifacts)
+                    .with_save_charts(self.save_charts)
+                    .with_continue_on_error(self.continue_on_error)
+                    .with_show_spinner(self.show_spinner)
+                    .with_plots_visible(self.plots_visible)
+                    .with_artifact_loader(artifact_loader)
+                    .with_artifact_registry(artifact_registry)
+                    .with_store(self.store)
+                    .build())
+
+                self.last_executor = executor
+
+                # Predictions accumulate in-memory; store-backed via flush()
+                run_dataset_predictions = Predictions()
+
+                # Execute each pipeline configuration on this dataset
+                for _i, (steps, config_name, gen_choices) in enumerate(zip(
+                    pipeline_configs.steps,
+                    pipeline_configs.names,
+                    pipeline_configs.generator_choices,
+                    strict=False,
+                )):
+                    current_run += 1
+                    logger.info(f"Run {current_run}/{total_runs}: pipeline '{config_name}' on dataset '{name}'")
+
+                    dataset = dataset_configs.get_dataset(config, name)
+
+                    # Capture raw data BEFORE any preprocessing happens
+                    if self.keep_datasets and name not in self.raw_data:
+                        self.raw_data[name] = dataset.x({}, layout="2d")
+
+                    if self.verbose > 0:
+                        print(dataset)
+
+                    # Initialize execution context via executor
+                    context = executor.initialize_context(dataset)
+
+                    # Create RuntimeContext with store
+                    runtime_context = RuntimeContext(
+                        store=self.store,
+                        artifact_loader=artifact_loader,
+                        artifact_registry=artifact_registry,
+                        step_runner=executor.step_runner,
+                        target_model=target_model,
+                        explainer=explainer,
+                        run_id=run_id,
+                    )
+
+                    # Execute pipeline with cleanup on failure
+                    config_predictions = Predictions()
+                    try:
+                        executor.execute(
+                            steps=steps,
+                            config_name=config_name,
+                            dataset=dataset,
+                            context=context,
+                            runtime_context=runtime_context,
+                            prediction_store=config_predictions,
+                            generator_choices=gen_choices
+                        )
+                    except Exception:
+                        # Cleanup artifacts from failed run
+                        if artifact_registry is not None:
+                            artifact_registry.cleanup_failed_run()
+                        raise
+
+                    # Capture last pipeline_uid for syncing back to runner
+                    if runtime_context.pipeline_uid:
+                        self.last_pipeline_uid = runtime_context.pipeline_uid
+
+                    # Capture execution trace for post-run visualization
+                    self.last_execution_trace = runtime_context.get_execution_trace()
+
+                    # Capture preprocessed data AFTER preprocessing
+                    if self.keep_datasets:
+                        if name not in self.pp_data:
+                            self.pp_data[name] = {}
+                        self.pp_data[name][dataset.short_preprocessings_str()] = dataset.x({}, layout="2d")
+
+                    # Merge new predictions into run-level stores
+                    if config_predictions.num_predictions > 0:
+                        run_dataset_predictions.merge_predictions(config_predictions)
+                        run_predictions.merge_predictions(config_predictions)
+
+                # Mark run as completed successfully
+                if artifact_registry is not None:
+                    artifact_registry.end_run()
+
+                # Store last aggregate column for visualization integration
+                self.last_aggregate_column = dataset.aggregate
+                self.last_aggregate_method = dataset.aggregate_method
+                self.last_aggregate_exclude_outliers = dataset.aggregate_exclude_outliers
+
+                # Print best results for this dataset
+                self._print_best_predictions(
+                    run_dataset_predictions,
+                    dataset,
+                    name,
+                )
+
+                # Store dataset prediction info
+                datasets_predictions[name] = {
+                    "run_predictions": run_dataset_predictions,
+                    "dataset": dataset,
+                    "dataset_name": name
+                }
+
+            # Complete run in store
+            if run_id and self.mode == "train":
+                summary = {"total_pipelines": total_runs}
+                if run_predictions.num_predictions > 0:
+                    best = run_predictions.get_best(ascending=None)
+                    if best:
+                        summary["best_score"] = best.get("test_score")
+                        summary["best_metric"] = best.get("metric")
+                self.store.complete_run(run_id, summary)
+
+        except Exception as e:
+            # Fail run in store
+            if run_id and self.mode == "train":
+                self.store.fail_run(run_id, str(e))
+            raise
 
         return run_predictions, datasets_predictions
 
     def _normalize_pipeline(
         self,
-        pipeline: Union[PipelineConfigs, List[Any], Dict, str],
+        pipeline: PipelineConfigs | list[Any] | dict | str,
         name: str = "",
         max_generation_count: int = 10000
     ) -> PipelineConfigs:
@@ -341,7 +347,7 @@ class PipelineOrchestrator:
 
     def _normalize_dataset(
         self,
-        dataset: Union[DatasetConfigs, SpectroDataset, List[SpectroDataset], np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        dataset: DatasetConfigs | SpectroDataset | list[SpectroDataset] | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         dataset_name: str = "array_dataset"
     ) -> DatasetConfigs:
         """Normalize dataset input to DatasetConfigs."""
@@ -355,7 +361,7 @@ class PipelineOrchestrator:
         # Simplified normalization - delegate to DatasetConfigs
         return DatasetConfigs(dataset) if not isinstance(dataset, (SpectroDataset, np.ndarray, tuple)) else self._wrap_dataset(dataset, dataset_name)
 
-    def _wrap_dataset(self, dataset: Union[SpectroDataset, np.ndarray, Tuple], dataset_name: str) -> DatasetConfigs:
+    def _wrap_dataset(self, dataset: SpectroDataset | np.ndarray | tuple, dataset_name: str) -> DatasetConfigs:
         """Wrap SpectroDataset or arrays in DatasetConfigs."""
         if isinstance(dataset, SpectroDataset):
             configs = DatasetConfigs.__new__(DatasetConfigs)
@@ -407,7 +413,7 @@ class PipelineOrchestrator:
         configs._config_aggregate_exclude_outliers = [None]  # No config-level exclude outliers
         return configs
 
-    def _wrap_dataset_list(self, datasets: List[SpectroDataset]) -> DatasetConfigs:
+    def _wrap_dataset_list(self, datasets: list[SpectroDataset]) -> DatasetConfigs:
         """Wrap a list of SpectroDataset instances in DatasetConfigs."""
         configs = DatasetConfigs.__new__(DatasetConfigs)
         configs.configs = []
@@ -437,7 +443,7 @@ class PipelineOrchestrator:
 
         return configs
 
-    def _split_and_add_data(self, dataset: SpectroDataset, X: np.ndarray, y: Optional[np.ndarray], partition_info: Dict) -> None:
+    def _split_and_add_data(self, dataset: SpectroDataset, X: np.ndarray, y: np.ndarray | None, partition_info: dict) -> None:
         """Split data according to partition_info and add to dataset.
 
         partition_info can be:
@@ -454,9 +460,7 @@ class PipelineOrchestrator:
             if isinstance(partition_spec, int):
                 # Integer means "first N samples"
                 partition_indices[partition_name] = slice(0, partition_spec)
-            elif isinstance(partition_spec, slice):
-                partition_indices[partition_name] = partition_spec
-            elif isinstance(partition_spec, (list, np.ndarray)):
+            elif isinstance(partition_spec, (slice, list, np.ndarray)):
                 partition_indices[partition_name] = partition_spec
             else:
                 raise ValueError(f"Invalid partition spec for '{partition_name}': {partition_spec}")
@@ -480,10 +484,7 @@ class PipelineOrchestrator:
         # Add samples for each partition
         for partition_name, indices_spec in partition_indices.items():
             # Get the actual data slice
-            if isinstance(indices_spec, slice):
-                X_partition = X[indices_spec]
-                y_partition = y[indices_spec] if y is not None else None
-            elif isinstance(indices_spec, (list, np.ndarray)):
+            if isinstance(indices_spec, (slice, list, np.ndarray)):
                 X_partition = X[indices_spec]
                 y_partition = y[indices_spec] if y is not None else None
             else:
@@ -495,7 +496,7 @@ class PipelineOrchestrator:
                 if y_partition is not None and len(y_partition) > 0:
                     dataset.add_targets(y_partition)
 
-    def _extract_dataset_cache(self, dataset: SpectroDataset) -> Tuple:
+    def _extract_dataset_cache(self, dataset: SpectroDataset) -> tuple:
         """Extract cache tuple from a SpectroDataset.
 
         Returns a 14-tuple matching the format expected by DatasetConfigs:
@@ -507,7 +508,7 @@ class PipelineOrchestrator:
             y_train = dataset.y({"partition": "train"})
             m_train = None
             train_signal_type = dataset.signal_type(0) if dataset.n_sources > 0 else None
-        except:
+        except Exception:
             x_train = y_train = m_train = None
             train_signal_type = None
 
@@ -516,7 +517,7 @@ class PipelineOrchestrator:
             y_test = dataset.y({"partition": "test"})
             m_test = None
             test_signal_type = dataset.signal_type(0) if dataset.n_sources > 0 else None
-        except:
+        except Exception:
             x_test = y_test = m_test = None
             test_signal_type = None
 
@@ -527,16 +528,13 @@ class PipelineOrchestrator:
     def _print_best_predictions(
         self,
         run_dataset_predictions: Predictions,
-        global_dataset_predictions: Predictions,
         dataset: SpectroDataset,
         name: str,
-        dataset_prediction_path: Path,
-        saver: SimulationSaver
-    ):
-        """Print and save best predictions for a dataset.
+    ) -> None:
+        """Print best predictions for a dataset.
 
-        Saves best prediction as 'best_<pipeline_folder_name>.csv' in the run directory.
-        Replaces existing best if the new score is better.
+        Reports best predictions to the logger.  Persistence is handled
+        by :meth:`Predictions.flush` / :class:`WorkspaceStore`.
         """
         if run_dataset_predictions.num_predictions > 0:
             # Use None for ascending to let ranker infer from metric
@@ -567,50 +565,5 @@ class PipelineOrchestrator:
                     aggregate_exclude_outliers=aggregate_exclude_outliers
                 )
                 logger.info(tab_report)
-                if tab_report_csv_file:
-                    filename = f"Report_best_{best['config_name']}_{best['model_name']}_{best['id']}.csv"
-                    saver.save_file(filename, tab_report_csv_file)
-
-            if self.save_artifacts:
-                # Only save predictions if there's actual prediction data
-                if best.get("y_pred") is not None and len(best["y_pred"]) > 0:
-                    # Get the pipeline folder name from config_name (e.g., "0001_pls_baseline_abc123")
-                    pipeline_folder = best.get('config_name', 'unknown')
-                    prediction_name = f"best_{pipeline_folder}.csv"
-                    prediction_path = saver.base_path / prediction_name
-
-                    # Check if we should replace existing best prediction
-                    should_save = True
-                    existing_best_files = list(saver.base_path.glob("best_*.csv"))
-
-                    if existing_best_files:
-                        # There's already a best prediction - check if new one is better
-                        # Compare using test_score (lower is better for regression metrics like RMSE)
-                        current_score = best.get('test_score')
-                        if current_score is not None:
-                            # Get best from global predictions to compare properly
-                            global_best = global_dataset_predictions.get_best(ascending=None)
-                            global_best_score = global_best.get('test_score') if global_best else None
-
-                            if global_best_score is not None:
-                                # Determine if lower is better based on task type
-                                is_regression = best.get('task', 'regression') == 'regression'
-                                if is_regression:
-                                    # Lower score is better (RMSE, MAE, etc.)
-                                    should_save = current_score <= global_best_score
-                                else:
-                                    # Higher score is better (accuracy, F1, etc.)
-                                    should_save = current_score >= global_best_score
-
-                        if should_save:
-                            # Remove old best prediction files
-                            for old_file in existing_best_files:
-                                old_file.unlink()
-
-                    if should_save:
-                        Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], prediction_path)
-
-        if global_dataset_predictions.num_predictions > 0:
-            global_dataset_predictions.save_to_file(dataset_prediction_path)
 
         logger.info("=" * 120)

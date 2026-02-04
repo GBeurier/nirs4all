@@ -4,201 +4,168 @@ This guide covers the artifact storage system and workspace structure in nirs4al
 
 ## Overview
 
-The artifacts system (V3) provides:
+The storage system is centered on a DuckDB-backed `WorkspaceStore` that provides:
 
-- **Deterministic artifact IDs** based on operator chains for complete execution path tracking
-- **Content-addressed storage** with deduplication across pipelines
-- **Dependency tracking** for stacking and transfer learning
-- **LRU caching** for efficient artifact loading
+- **Single database** -- all structured data in `store.duckdb` (runs, pipelines, chains, predictions, logs)
+- **Content-addressed artifacts** -- binary deduplication via SHA-256 hashing in flat `artifacts/` directory
+- **Chain-based replay** -- in-workspace prediction by replaying stored chains
+- **Export on demand** -- no files written during training except `store.duckdb` and artifact binaries
 
 ## Workspace Structure
 
 ```
 workspace/
-├── runs/                          # Experimental runs
-│   └── {dataset}/                 # Dataset-centric organization
-│       ├── _binaries/             # Shared artifacts (deduplicated)
-│       ├── 0001_hash/             # Pipeline 1
-│       └── 0002_name_hash/        # Pipeline 2 (with custom name)
-│
-├── binaries/                      # Centralized artifact storage (V3)
-│   └── {dataset}/                 # Per-dataset binaries
-│
-├── exports/                       # Best results (fast access)
-│   ├── {dataset}/                 # Full exports
-│   └── best_predictions/          # Predictions only
-│
-├── library/                       # Reusable pipelines
-│   ├── templates/                 # Config only
-│   └── trained/                   # With binaries
-│       ├── filtered/              # Config + metrics
-│       ├── pipeline/              # Full pipeline
-│       └── fullrun/               # Everything + data
-│
-└── catalog/                       # Prediction index
-    ├── predictions_meta.parquet   # Metadata (fast queries)
-    └── predictions_data.parquet   # Arrays (on-demand)
+├── store.duckdb                   # All structured data (7 tables)
+├── artifacts/                     # Flat content-addressed binary storage
+│   ├── ab/abc123def456.joblib     # Sharded by first 2 chars of hash
+│   └── cd/cde789012345.joblib
+├── exports/                       # User-triggered exports (on demand)
+│   ├── wheat_model.n4a            # Bundle exports
+│   └── results.parquet            # Prediction exports
+└── library/                       # Reusable pipeline templates
+    └── templates/
+        └── baseline_pls.json
 ```
 
-## Artifact Types
+## DuckDB Tables
 
-| Type | Description |
-|------|-------------|
-| `MODEL` | Trained ML models (sklearn, TensorFlow, PyTorch, JAX) |
-| `TRANSFORMER` | Fitted preprocessors (scalers, feature extractors) |
-| `SPLITTER` | Train/test split configuration |
-| `ENCODER` | Label encoders, y-scalers |
-| `META_MODEL` | Stacking meta-models with source dependencies |
+| Table | Purpose |
+|-------|---------|
+| `runs` | Experiment sessions (name, config, datasets, status) |
+| `pipelines` | Individual pipeline executions within a run |
+| `chains` | Preprocessing-to-model step sequences with artifact references |
+| `predictions` | Per-fold, per-partition prediction scores and metadata |
+| `prediction_arrays` | Dense arrays (y_true, y_pred, y_proba) |
+| `artifacts` | Content-addressed artifact registry with ref_count |
+| `logs` | Structured execution logs per pipeline step |
 
-## V3 Artifact ID Format
+## Using the WorkspaceStore
 
-Format: `{pipeline_id}${chain_hash}:{fold_id}`
-
-Examples:
-- `0001_pls$a1b2c3d4e5f6:all` - Shared artifact
-- `0001_pls$7f8e9d0c1b2a:0` - Fold 0 artifact
-- `0001_pls$3c4d5e6f7a8b:1` - Fold 1 artifact
-
-The chain hash is computed from the operator chain path (e.g., `s1.MinMaxScaler>s3.PLS[br=0]`), ensuring deterministic identification across branching, multi-source, and stacking scenarios.
-
-## Using the ArtifactRegistry
-
-The `ArtifactRegistry` is the central class for artifact management:
+The `WorkspaceStore` is the central class for all workspace persistence:
 
 ```python
 from pathlib import Path
-from nirs4all.pipeline.storage.artifacts import ArtifactRegistry, ArtifactType
+from nirs4all.pipeline.storage import WorkspaceStore
 
-# Initialize registry
-registry = ArtifactRegistry(
-    workspace=Path("./workspace"),
-    dataset="wheat_sample1",
-    pipeline_id="0001_pls_abc123"
-)
+# Initialize (creates store.duckdb and artifacts/ if they don't exist)
+store = WorkspaceStore(Path("./workspace"))
 
-# Register an artifact with V3 chain-based ID
-record = registry.register_with_chain(
+# Run lifecycle
+run_id = store.begin_run("experiment_1", config={...}, datasets=[...])
+pipeline_id = store.begin_pipeline(run_id, name="0001_pls", ...)
+chain_id = store.save_chain(pipeline_id, steps=[...], ...)
+pred_id = store.save_prediction(pipeline_id, chain_id, ...)
+store.complete_pipeline(pipeline_id, best_val=0.95, ...)
+store.complete_run(run_id, summary={"total_pipelines": 5})
+
+# Queries (return polars.DataFrame)
+top = store.top_predictions(n=5, metric="val_score")
+preds = store.query_predictions(dataset_name="wheat", partition="val")
+runs = store.list_runs(status="completed")
+
+# Chain replay (in-workspace prediction)
+y_pred = store.replay_chain(chain_id, X_new)
+
+# Export (on demand)
+store.export_chain(chain_id, Path("model.n4a"))
+
+# Cleanup
+store.delete_run(run_id)
+store.gc_artifacts()
+store.close()
+```
+
+## Artifact Storage
+
+### Saving Artifacts
+
+Artifacts are persisted through the `WorkspaceStore.save_artifact()` method:
+
+```python
+# Save a fitted model
+artifact_id = store.save_artifact(
     obj=trained_model,
-    chain="s1.MinMaxScaler>s3.PLSRegression",
-    artifact_type=ArtifactType.MODEL,
-    step_index=3,
-    fold_id=0,
-    params={"n_components": 10}
+    operator_class="sklearn.cross_decomposition.PLSRegression",
+    artifact_type="model",
+    format="joblib"
 )
 
-print(f"Saved: {record.artifact_id}")
-# Output: 0001_pls_abc123$a1b2c3d4e5f6:0
+# Save a fitted transformer
+artifact_id = store.save_artifact(
+    obj=fitted_scaler,
+    operator_class="sklearn.preprocessing.StandardScaler",
+    artifact_type="transformer",
+    format="joblib"
+)
 ```
 
-### Key Methods
+### Content-Addressed Deduplication
+
+When an artifact is saved, its binary content is SHA-256 hashed. If an identical artifact already exists (same content hash), the existing entry is reused and its `ref_count` incremented. This provides automatic deduplication across pipelines and runs.
 
 ```python
-# Generate ID from chain
-artifact_id = registry.generate_id(chain, fold_id=0)
-
-# Resolve ID to record
-record = registry.resolve(artifact_id)
-
-# Get by chain path (V3)
-record = registry.get_by_chain("s1.MinMaxScaler>s3.PLS", fold_id=0)
-
-# Get artifacts for a step
-records = registry.get_artifacts_for_step(
-    pipeline_id="0001",
-    step_index=3,
-    branch_path=[0],
-    fold_id=None
-)
-
-# Get fold models for CV averaging
-fold_records = registry.get_fold_models(
-    pipeline_id="0001",
-    step_index=3
-)
+# Same fitted scaler saved twice -> same artifact_id returned
+id1 = store.save_artifact(scaler, "StandardScaler", "transformer", "joblib")
+id2 = store.save_artifact(scaler, "StandardScaler", "transformer", "joblib")
+assert id1 == id2  # Content-addressed deduplication
 ```
 
-## Using the ArtifactLoader
-
-The `ArtifactLoader` provides efficient loading with caching:
+### Loading Artifacts
 
 ```python
-from nirs4all.pipeline.storage.artifacts import ArtifactLoader
+# Load by artifact ID
+model = store.load_artifact(artifact_id)
 
-# Create from manifest
-loader = ArtifactLoader.from_manifest(manifest, results_dir)
-
-# Load by ID (uses LRU cache)
-model = loader.load_by_id("0001_pls$abc123:0")
-
-# Load by chain path
-model = loader.load_by_chain("s1.MinMaxScaler>s3.PLS", fold_id=0)
-
-# Load all artifacts for a step
-artifacts = loader.load_for_step(
-    step_index=3,
-    branch_path=[0],
-    fold_id=0
-)
-for artifact_id, obj in artifacts:
-    print(f"Loaded: {artifact_id}")
-
-# Load fold models for ensemble
-fold_models = loader.load_fold_models(step_index=3)
-for fold_id, model in fold_models:
-    print(f"Fold {fold_id}: {model}")
+# Get filesystem path (for external tools or bundle building)
+path = store.get_artifact_path(artifact_id)
 ```
 
-### Meta-Model Loading (Stacking)
+## Chain Management
+
+A **chain** captures the complete, ordered sequence of steps (transformers and model) executed during training, with references to fitted artifacts for each fold. Chains are the unit of export and replay.
+
+### Building Chains from Execution Traces
+
+The `ChainBuilder` converts an `ExecutionTrace` into the chain dict format:
 
 ```python
-# Load meta-model with all source models
-meta_model, sources, feature_cols = loader.load_meta_model_with_sources(
-    artifact_id="0001_pls$abc123:all",
-    validate_branch=True
-)
+from nirs4all.pipeline.storage import ChainBuilder
 
-# sources is [(source_id, source_model), ...]
-# feature_cols is ["PLSRegression_pred", "RandomForest_pred", ...]
+builder = ChainBuilder(trace, artifact_registry)
+chain_data = builder.build()
+chain_id = store.save_chain(pipeline_id=pipeline_id, **chain_data)
 ```
 
-### Cache Management
+### Chain Replay
+
+Replay a stored chain on new data to produce predictions:
 
 ```python
-# Get cache statistics
-info = loader.get_cache_info()
-print(f"Cache hit rate: {info['hit_rate']:.2%}")
+# In-workspace prediction
+y_pred = store.replay_chain(chain_id, X_new)
 
-# Preload artifacts
-loader.preload_artifacts(artifact_ids=["0001:3:0", "0001:3:1"])
-
-# Clear cache
-loader.clear_cache()
-
-# Resize cache
-loader.set_cache_size(200)
+# With wavelength-aware operators
+y_pred = store.replay_chain(chain_id, X_new, wavelengths=wavelengths)
 ```
+
+The replay loads each step's artifact, applies transformations in order, and averages predictions across fold models.
 
 ## Library Management
 
 ### Save Pipeline Templates
 
 ```python
-from nirs4all.workspace import LibraryManager
+from nirs4all.pipeline.storage import PipelineLibrary
 
-library = LibraryManager(workspace / "library")
+library = PipelineLibrary(workspace_path)
 
-# Save config-only template
+# Save config-only template with category and tags
 library.save_template(
     pipeline_config=pipeline_dict,
     name="baseline_pls",
-    description="PLS baseline with SNV preprocessing"
-)
-
-# Save full trained pipeline
-library.save_pipeline_full(
-    run_dir=runs_dir / "wheat_sample1",
-    pipeline_dir=runs_dir / "wheat_sample1" / "0042_x9y8z7",
-    name="wheat_quality_v1"
+    category="regression",
+    description="PLS baseline with SNV preprocessing",
+    tags=["nirs", "pls"],
 )
 ```
 
@@ -206,7 +173,7 @@ library.save_pipeline_full(
 
 ```python
 # List templates
-templates = library.list_templates()
+templates = library.list_templates(category="regression")
 for t in templates:
     print(f"{t['name']}: {t['description']}")
 
@@ -221,35 +188,51 @@ predictions = runner.run(config, new_dataset)
 ## Cleanup Utilities
 
 ```python
-# Find orphaned artifacts
-orphans = registry.find_orphaned_artifacts()
-print(f"Found {len(orphans)} orphaned files")
+# Garbage-collect unreferenced artifacts (ref_count = 0)
+removed = store.gc_artifacts()
+print(f"Removed {removed} orphaned artifact files")
 
-# Delete orphans (dry run first)
-deleted, freed = registry.delete_orphaned_artifacts(dry_run=True)
-print(f"Would delete {len(deleted)} files, freeing {freed / 1024:.1f} KB")
+# Delete a run and all descendant data
+rows_deleted = store.delete_run(run_id)
+print(f"Deleted {rows_deleted} rows")
 
-# Actually delete
-deleted, freed = registry.delete_orphaned_artifacts(dry_run=False)
+# Reclaim disk space after large deletions
+store.vacuum()
+```
 
-# Get storage statistics
-stats = registry.get_stats()
-print(f"Total artifacts: {stats['total_artifacts']}")
-print(f"Unique files: {stats['unique_files']}")
-print(f"Deduplication ratio: {stats['deduplication_ratio']:.1%}")
+## Export Operations
+
+All exports are user-triggered (on demand):
+
+```python
+# Export chain as .n4a bundle (self-contained ZIP)
+store.export_chain(chain_id, Path("exports/model.n4a"))
+
+# Export pipeline configuration as JSON
+store.export_pipeline_config(pipeline_id, Path("exports/config.json"))
+
+# Export run metadata as YAML
+store.export_run(run_id, Path("exports/run.yaml"))
+
+# Export predictions as Parquet
+store.export_predictions_parquet(
+    Path("exports/results.parquet"),
+    dataset_name="wheat",
+    partition="val"
+)
 ```
 
 ## Best Practices
 
-1. **Use chain-based registration** (`register_with_chain`) for new code to ensure deterministic artifact IDs.
+1. **Let the store handle deduplication** -- identical artifacts (same content hash) automatically share the same file via `ref_count` tracking.
 
-2. **Let the registry handle deduplication** - identical artifacts (same content hash) automatically share the same file.
+2. **Use chain replay for in-workspace prediction** -- `store.replay_chain()` loads artifacts and applies transformations without exporting to `.n4a` bundles.
 
-3. **Use the loader's cache** - the LRU cache significantly improves performance when loading the same artifacts multiple times.
+3. **Export on demand** -- the workspace only produces `store.duckdb` and `artifacts/` during training. Use the export methods to create shareable files.
 
-4. **Track dependencies for meta-models** - always register source models before the meta-model to enable proper dependency resolution.
+4. **Clean up periodically** -- use `gc_artifacts()` after deleting runs or pipelines to reclaim disk space from unreferenced artifact files.
 
-5. **Clean up periodically** - use `find_orphaned_artifacts()` and `delete_orphaned_artifacts()` to reclaim disk space.
+5. **Close the store when done** -- call `store.close()` to release the DuckDB connection.
 
 ## See Also
 

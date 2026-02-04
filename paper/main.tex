@@ -655,15 +655,13 @@ The \code{depends\_on} field tracks stacking dependencies, enabling reconstructi
 The library system enables pipeline reuse:
 
 \begin{lstlisting}
-from nirs4all.workspace import LibraryManager
+from nirs4all.pipeline.storage.library import PipelineLibrary
 
-library = LibraryManager(workspace / "library")
+library = PipelineLibrary(workspace_path)
 
 # Save template (config only, no binaries)
-library.save_template(pipeline_config, "baseline_pls")
-
-# Save full pipeline with trained models
-library.save_pipeline_full(run_dir, "wheat_quality_v1")
+library.save_template(pipeline_config, "baseline_pls",
+                       category="regression")
 
 # Load and reuse
 config = library.load_template("baseline_pls")

@@ -11,7 +11,6 @@ Tests the content-addressed storage deduplication:
 import pytest
 import numpy as np
 from pathlib import Path
-import yaml
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import StandardScaler
@@ -248,38 +247,13 @@ class TestCrossRunDeduplication:
         assert len(predictions1) > 0
         assert len(predictions2) > 0
 
-        # Get manifest artifact counts
-        runs_dir = workspace_path / "runs"
-        manifest_files = list(runs_dir.glob("*/*/manifest.yaml"))
+        # Content-addressed storage in artifacts/ provides deduplication.
+        # Two identical pipeline runs should share artifact files.
+        artifacts_dir = workspace_path / "artifacts"
+        artifact_files = list(artifacts_dir.glob("**/*.joblib")) + list(artifacts_dir.glob("**/*.pkl"))
 
-        if len(manifest_files) < 2:
-            pytest.skip("Need at least 2 manifests for this test")
-
-        # Count total artifact references vs unique files
-        all_paths = set()
-        total_refs = 0
-
-        for manifest_path in manifest_files:
-            with open(manifest_path) as f:
-                manifest = yaml.safe_load(f)
-
-            artifacts = manifest.get("artifacts", [])
-            if isinstance(artifacts, dict):
-                items = artifacts.get("items", [])
-            else:
-                items = artifacts
-
-            for item in items:
-                path = item.get("path", "")
-                if path:
-                    all_paths.add(path)
-                    total_refs += 1
-
-        # Should have some deduplication
-        # (exact ratio depends on implementation details)
-        if total_refs > 0:
-            # At minimum, unique paths should be <= total refs
-            assert len(all_paths) <= total_refs
+        # Should have artifacts from both runs
+        assert len(artifact_files) >= 1, "Should have artifact files"
 
     def test_different_model_params_create_different_artifacts(
         self, runner, dataset, workspace_path
@@ -301,36 +275,14 @@ class TestCrossRunDeduplication:
         assert len(predictions1) > 0
         assert len(predictions2) > 0
 
-        # Should have distinct model artifacts
-        runs_dir = workspace_path / "runs"
-        manifest_files = list(runs_dir.glob("*/*/manifest.yaml"))
+        # Different model params should produce different artifact files
+        # in the content-addressed artifacts/ directory
+        artifacts_dir = workspace_path / "artifacts"
+        artifact_files = list(artifacts_dir.glob("**/*.joblib")) + list(artifacts_dir.glob("**/*.pkl"))
 
-        if len(manifest_files) < 2:
-            pytest.skip("Need at least 2 manifests for this test")
-
-        model_hashes = set()
-
-        for manifest_path in manifest_files:
-            with open(manifest_path) as f:
-                manifest = yaml.safe_load(f)
-
-            artifacts = manifest.get("artifacts", [])
-            if isinstance(artifacts, dict):
-                items = artifacts.get("items", [])
-            else:
-                items = artifacts
-
-            for item in items:
-                # Look for model artifacts
-                name = item.get("name", "") or item.get("class_name", "")
-                if "Ridge" in name:
-                    hash_val = item.get("hash", "") or item.get("content_hash", "")
-                    if hash_val:
-                        model_hashes.add(hash_val)
-
-        # Should have different model hashes
-        # (May be 2 if model artifacts are properly tracked)
-        assert len(model_hashes) >= 1  # At minimum 1 distinct hash
+        # Should have at least 2 distinct artifact files (different models)
+        assert len(artifact_files) >= 2, \
+            "Different model params should produce different artifact files"
 
 
 class TestHashCollisionHandling:

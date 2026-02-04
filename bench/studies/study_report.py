@@ -45,7 +45,6 @@ from matplotlib.figure import Figure
 # NIRS4All imports
 from nirs4all.data.predictions import Predictions
 from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.workspace import LibraryManager
 from nirs4all.utils.header_units import get_x_values_and_label
 
 
@@ -1717,18 +1716,17 @@ All files are packaged in a ZIP archive for easy sharing.
                                 # Found the pipeline directory
                                 print(f"      📂 Found pipeline: {pipe_dir.name}")
 
-                                # Use LibraryManager to export full pipeline
-                                library = LibraryManager(pipeline_dir)
+                                # Copy full pipeline directory to export
+                                exported_path = pipeline_dir / "best_model"
                                 try:
-                                    exported_path = library.save_pipeline_full(
-                                        run_dir=run_dir,
-                                        pipeline_dir=pipe_dir,
-                                        name="best_model",
-                                        description=f"Best {best_pred.get('model_name')} - {rank_metric}={best_pred.get('rank_score', 'N/A'):.4f}"
-                                    )
-                                    print(f"      ✅ Exported pipeline to: {exported_path.name}")
+                                    shutil.copytree(pipe_dir, exported_path, dirs_exist_ok=True)
+                                    # Also copy binaries from run_dir if present
+                                    binaries_src = run_dir / "_binaries"
+                                    if binaries_src.exists():
+                                        shutil.copytree(binaries_src, exported_path / "_binaries", dirs_exist_ok=True)
+                                    print(f"      Exported pipeline to: {exported_path.name}")
                                 except Exception as e:
-                                    print(f"      ⚠️ Could not export pipeline: {e}")
+                                    print(f"      Could not export pipeline: {e}")
                                 break
                         else:
                             continue

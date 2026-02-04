@@ -7,7 +7,7 @@ to various bundle formats (.n4a, .n4a.py) for deployment, sharing, or archival.
 Bundle Formats:
     .n4a: Full nirs4all bundle (ZIP archive) containing:
         - manifest.json: Bundle metadata and version info
-        - pipeline.json: Minimal pipeline configuration
+        - pipeline.json: Minimal pipeline configuration / chain.json
         - trace.json: Execution trace for deterministic replay
         - artifacts/: Directory with artifact binaries
         - fold_weights.json: CV fold weights (if applicable)
@@ -17,16 +17,26 @@ Bundle Formats:
         - Standalone predict() function
         - No nirs4all dependency (only numpy, joblib required)
 
+Supports two export paths:
+
+1. **Store-based** (preferred): ``export_from_chain(chain_id, output_path)``
+   loads the chain from ``WorkspaceStore`` and packages it into a bundle.
+
+2. **Resolver-based** (legacy): ``export(source, output_path)``
+   resolves from a prediction dict / folder / bundle and packages artifacts.
+
 Example:
     >>> from nirs4all.pipeline.bundle import BundleGenerator
     >>>
+    >>> # Store-based export (preferred)
     >>> generator = BundleGenerator(workspace_path)
+    >>> bundle_path = generator.export_from_chain("abc123", "exports/model.n4a")
+    >>>
+    >>> # Legacy resolver-based export
     >>> bundle_path = generator.export(best_prediction, "exports/model.n4a")
-    >>> print(f"Bundle saved to: {bundle_path}")
 """
 
 import base64
-import hashlib
 import json
 import logging
 import zipfile
@@ -83,17 +93,163 @@ class BundleGenerator:
     def __init__(
         self,
         workspace_path: Union[str, Path],
-        verbose: int = 0
+        verbose: int = 0,
+        store: Optional[Any] = None,
     ):
         """Initialize bundle generator.
 
         Args:
-            workspace_path: Path to workspace root
-            verbose: Verbosity level (0=quiet, 1=info, 2=debug)
+            workspace_path: Path to workspace root.
+            verbose: Verbosity level (0=quiet, 1=info, 2=debug).
+            store: Optional WorkspaceStore instance.  When provided, the
+                ``export_from_chain`` method becomes available.
         """
         self.workspace_path = Path(workspace_path)
         self.resolver = PredictionResolver(workspace_path)
         self.verbose = verbose
+        self.store = store
+
+    # -----------------------------------------------------------------
+    # Store-based export (preferred path)
+    # -----------------------------------------------------------------
+
+    def export_from_chain(
+        self,
+        chain_id: str,
+        output_path: Union[str, Path],
+        fmt: Union[str, "BundleFormat"] = "n4a",
+    ) -> Path:
+        """Export a chain from WorkspaceStore as a standalone bundle.
+
+        This is the preferred export path.  It reads the chain directly
+        from the DuckDB store, collects all referenced artifacts, and
+        packages them into the requested format.
+
+        Args:
+            chain_id: Chain identifier stored in WorkspaceStore.
+            output_path: Destination file path.
+            fmt: Export format (``"n4a"`` or ``"n4a.py"``).
+
+        Returns:
+            Path to the created bundle file.
+
+        Raises:
+            RuntimeError: If no store was provided at construction time.
+            KeyError: If the chain does not exist.
+        """
+        if self.store is None:
+            raise RuntimeError(
+                "BundleGenerator requires a WorkspaceStore to export from "
+                "chain_id.  Pass store= to the constructor."
+            )
+
+        output_path = Path(output_path)
+
+        # Normalise format
+        if isinstance(fmt, str):
+            fmt_lower = fmt.lower().lstrip(".")
+            if fmt_lower == "n4a":
+                fmt = BundleFormat.N4A
+            elif fmt_lower in ("n4a.py",):
+                fmt = BundleFormat.N4A_PY
+            else:
+                raise ValueError(f"Unsupported bundle format: {fmt}")
+
+        if fmt == BundleFormat.N4A:
+            return self.store.export_chain(chain_id, output_path, format="n4a")
+
+        if fmt == BundleFormat.N4A_PY:
+            return self._export_chain_as_py(chain_id, output_path)
+
+        raise ValueError(f"Unsupported bundle format: {fmt}")
+
+    def _export_chain_as_py(
+        self,
+        chain_id: str,
+        output_path: Path,
+    ) -> Path:
+        """Export a chain as a portable Python script.
+
+        Args:
+            chain_id: Chain identifier in WorkspaceStore.
+            output_path: Destination file path.
+
+        Returns:
+            Path to the created script.
+        """
+        chain = self.store.get_chain(chain_id)
+        if chain is None:
+            raise KeyError(f"Chain not found: {chain_id}")
+
+        output_path = Path(output_path)
+        if not str(output_path).endswith(".n4a.py"):
+            output_path = Path(str(output_path) + ".n4a.py")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Collect artifacts
+        artifacts_data: Dict[str, str] = {}
+        step_info: Dict[int, Dict[str, str]] = {}
+
+        fold_artifacts = chain.get("fold_artifacts") or {}
+        shared_artifacts = chain.get("shared_artifacts") or {}
+        model_step_idx = chain["model_step_idx"]
+
+        # Shared (preprocessing) artifacts
+        for str_idx, artifact_id in shared_artifacts.items():
+            if not artifact_id:
+                continue
+            idx = int(str_idx)
+            obj = self.store.load_artifact(artifact_id)
+            encoded = self._encode_artifact(obj)
+            artifacts_data[f"step_{idx}"] = encoded
+            step_info[idx] = {
+                "operator_type": "transform",
+                "operator_class": type(obj).__name__,
+            }
+
+        # Fold (model) artifacts
+        for fold_id, artifact_id in fold_artifacts.items():
+            if not artifact_id:
+                continue
+            obj = self.store.load_artifact(artifact_id)
+            encoded = self._encode_artifact(obj)
+            artifacts_data[f"step_{model_step_idx}_fold{fold_id}"] = encoded
+            if model_step_idx not in step_info:
+                step_info[model_step_idx] = {
+                    "operator_type": "model",
+                    "operator_class": type(obj).__name__,
+                }
+
+        import nirs4all as _nirs4all
+
+        script = self._build_portable_script_template(
+            artifacts_data=artifacts_data,
+            step_info=step_info,
+            fold_weights="{}",
+            model_step_index=model_step_idx,
+            preprocessing_chain=chain.get("model_class", ""),
+            pipeline_uid=chain_id,
+            nirs4all_version=getattr(_nirs4all, "__version__", "unknown"),
+            created_at=datetime.now(timezone.utc).isoformat(),
+            include_metadata=True,
+        )
+
+        output_path.write_text(script, encoding="utf-8")
+        return output_path
+
+    @staticmethod
+    def _encode_artifact(obj: Any) -> str:
+        """Serialize an artifact to base64 string."""
+        import io as _io
+        import joblib
+
+        buf = _io.BytesIO()
+        joblib.dump(obj, buf)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+
+    # -----------------------------------------------------------------
+    # Resolver-based export (legacy path)
+    # -----------------------------------------------------------------
 
     def export(
         self,

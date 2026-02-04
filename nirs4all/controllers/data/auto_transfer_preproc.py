@@ -303,16 +303,8 @@ class AutoTransferPreprocessingController(OperatorController):
             "ranking": [r.to_dict() for r in results.top_k(min(5, len(results.ranking)))],
         }
 
-        if runtime_context.saver is not None:
-            artifact = runtime_context.saver.persist_artifact(
-                step_number=runtime_context.step_number,
-                name="transfer_preprocessing_recommendation",
-                obj=recommendation_data,
-                format_hint="json",
-                branch_id=context.selector.branch_id,
-                branch_name=context.selector.branch_name,
-            )
-            artifacts.append(artifact)
+        artifact = (recommendation_data, "transfer_preprocessing_recommendation", "json")
+        artifacts.append(artifact)
 
         # Store full results in context metadata for later use
         context = context.with_metadata(
@@ -622,16 +614,9 @@ class AutoTransferPreprocessingController(OperatorController):
                     current_all = transform.transform(current_all)
 
                     # Save artifact in train mode
-                    if mode == "train" and runtime_context.saver is not None:
+                    if mode == "train":
                         binary_key = f"transfer_pp_{sd_idx}_{proc_name}_{comp_idx}_{comp_name}"
-                        artifact = runtime_context.saver.persist_artifact(
-                            step_number=runtime_context.step_number,
-                            name=binary_key,
-                            obj=transform,
-                            format_hint="sklearn",
-                            branch_id=context.selector.branch_id,
-                            branch_name=context.selector.branch_name,
-                        )
+                        artifact = (transform, binary_key, "sklearn")
                         artifacts.append(artifact)
 
                 # Update dataset with transformed features
@@ -724,16 +709,9 @@ class AutoTransferPreprocessingController(OperatorController):
                     current_all = transform.transform(current_all)
 
                     # Save artifact in train mode
-                    if mode == "train" and runtime_context.saver is not None:
+                    if mode == "train":
                         binary_key = f"transfer_aug_{sd_idx}_{pp_name}_{comp_idx}_{comp_name}"
-                        artifact = runtime_context.saver.persist_artifact(
-                            step_number=runtime_context.step_number,
-                            name=binary_key,
-                            obj=transform,
-                            format_hint="sklearn",
-                            branch_id=context.selector.branch_id,
-                            branch_name=context.selector.branch_name,
-                        )
+                        artifact = (transform, binary_key, "sklearn")
                         artifacts.append(artifact)
 
                 # Add as new processing

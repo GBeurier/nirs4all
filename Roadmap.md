@@ -1,15 +1,12 @@
 ## ROADMAP
 
-> [pyproject.toml] Add umap-learn as dependency
-
-> [Synthesis] Externalize synthesis module out of data
-> [Augmentations] Transfer synthesis mechanisms (temperature, machine, noise, etc.) to sample_augmentations operators
+> [pyproject.toml] Add umap-learn as dependency - duckdb
 
 > [Predictions] Add datasets, summary, top 50 best scores, etc. in a sub table to allow fast browsing/loading
 > [Predictions] Explicit workspace / predict / export / etc. Predictions files should be self sufficient et cleanable easily (keep top X, keep top X per model, remove ....)
 
 
-**RELEASE** 0.6.3: Ready for UI
+**RELEASE** 0.7.1: Ready for UI
 
 
 > [Design] Define all services

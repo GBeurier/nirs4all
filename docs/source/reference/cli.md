@@ -245,16 +245,13 @@ Full runs: 1
 All CLI commands can also be used programmatically:
 
 ```python
-from nirs4all.workspace import WorkspaceManager
-from nirs4all.data.predictions import Predictions
+from nirs4all.pipeline.storage import WorkspaceStore
 
 # Initialize workspace
-workspace = WorkspaceManager("my_workspace")
-workspace.initialize_workspace()
+store = WorkspaceStore("my_workspace")
 
-# Query catalog
-pred = Predictions.load_from_parquet("my_workspace/catalog")
-best = pred.query_best(metric="test_score", n=10)
+# Query best predictions
+top = store.top_predictions(n=10, metric="test_score")
 ```
 
 See `examples/workspace_integration_example.py` for a complete example.

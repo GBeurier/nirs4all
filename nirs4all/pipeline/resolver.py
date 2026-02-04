@@ -35,6 +35,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import yaml
+
 from nirs4all.pipeline.config.context import (
     ArtifactProvider,
     MapArtifactProvider,
@@ -42,10 +44,116 @@ from nirs4all.pipeline.config.context import (
 )
 from nirs4all.pipeline.trace import ExecutionTrace
 from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
-from nirs4all.pipeline.storage.manifest_manager import ManifestManager
 
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Lightweight manifest helpers (replace ManifestManager dependency)
+# ---------------------------------------------------------------------------
+
+def _load_manifest(run_dir: Path, pipeline_uid: str) -> Dict[str, Any]:
+    """Load a manifest YAML file from disk.
+
+    Args:
+        run_dir: Parent run directory.
+        pipeline_uid: Pipeline identifier (directory name under *run_dir*).
+
+    Returns:
+        Parsed manifest dictionary.
+
+    Raises:
+        FileNotFoundError: If the manifest file does not exist.
+    """
+    manifest_path = run_dir / pipeline_uid / "manifest.yaml"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Manifest not found: {manifest_path}")
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def _load_execution_trace(run_dir: Path, pipeline_uid: str, trace_id: str) -> Optional[ExecutionTrace]:
+    """Load a specific execution trace from a pipeline manifest.
+
+    Args:
+        run_dir: Parent run directory.
+        pipeline_uid: Pipeline identifier.
+        trace_id: Trace identifier to load.
+
+    Returns:
+        ExecutionTrace instance or ``None`` if not found.
+    """
+    try:
+        manifest = _load_manifest(run_dir, pipeline_uid)
+    except FileNotFoundError:
+        return None
+    traces = manifest.get("execution_traces", {})
+    trace_dict = traces.get(trace_id)
+    if trace_dict is None:
+        return None
+    return ExecutionTrace.from_dict(trace_dict)
+
+
+def _get_latest_execution_trace(run_dir: Path, pipeline_uid: str) -> Optional[ExecutionTrace]:
+    """Return the most recent execution trace for a pipeline.
+
+    Args:
+        run_dir: Parent run directory.
+        pipeline_uid: Pipeline identifier.
+
+    Returns:
+        Most recent ExecutionTrace or ``None``.
+    """
+    try:
+        manifest = _load_manifest(run_dir, pipeline_uid)
+    except FileNotFoundError:
+        return None
+    traces = manifest.get("execution_traces", {})
+    if not traces:
+        return None
+    sorted_traces = sorted(
+        traces.items(),
+        key=lambda x: x[1].get("created_at", ""),
+        reverse=True,
+    )
+    if sorted_traces:
+        return ExecutionTrace.from_dict(sorted_traces[0][1])
+    return None
+
+
+def _list_pipelines(run_dir: Path) -> List[str]:
+    """List numbered pipeline directories under *run_dir*.
+
+    Args:
+        run_dir: Directory to scan.
+
+    Returns:
+        Sorted list of pipeline directory names.
+    """
+    if not run_dir.exists():
+        return []
+    return sorted(
+        d.name for d in run_dir.iterdir()
+        if d.is_dir() and d.name[:4].isdigit()
+    )
+
+
+def _list_execution_traces(run_dir: Path, pipeline_uid: str) -> List[str]:
+    """List execution trace IDs in a pipeline manifest.
+
+    Args:
+        run_dir: Parent run directory.
+        pipeline_uid: Pipeline identifier.
+
+    Returns:
+        List of trace ID strings.
+    """
+    try:
+        manifest = _load_manifest(run_dir, pipeline_uid)
+    except FileNotFoundError:
+        return []
+    return list(manifest.get("execution_traces", {}).keys())
 
 
 class SourceType(str, Enum):
@@ -418,8 +526,7 @@ class PredictionResolver:
         # If trace_id specified, find the candidate with matching trace
         for pipeline_dir in candidates:
             try:
-                manifest_manager = ManifestManager(pipeline_dir.parent)
-                manifest = manifest_manager.load_manifest(pipeline_uid)
+                manifest = _load_manifest(pipeline_dir.parent, pipeline_uid)
                 traces = manifest.get("execution_traces", {})
                 if trace_id in traces:
                     return pipeline_dir
@@ -491,9 +598,8 @@ class PredictionResolver:
         result.run_dir = run_dir
 
         # Load manifest
-        manifest_manager = ManifestManager(run_dir)
         try:
-            manifest = manifest_manager.load_manifest(pipeline_uid)
+            manifest = _load_manifest(run_dir, pipeline_uid)
         except FileNotFoundError:
             raise FileNotFoundError(
                 f"Manifest not found for pipeline: {pipeline_uid}\n"
@@ -505,7 +611,7 @@ class PredictionResolver:
         # Try to load execution trace (Phase 2+)
         trace_id = prediction.get("trace_id")
         if trace_id:
-            trace = manifest_manager.load_execution_trace(pipeline_uid, trace_id)
+            trace = _load_execution_trace(run_dir, pipeline_uid, trace_id)
             if trace:
                 result.trace = trace
                 result.model_step_index = trace.model_step_index
@@ -587,7 +693,7 @@ class PredictionResolver:
         else:
             # Look for newest pipeline in folder (this is a run dir)
             run_dir = folder_path
-            pipelines = ManifestManager(run_dir).list_pipelines()
+            pipelines = _list_pipelines(run_dir)
             if not pipelines:
                 raise ValueError(f"No pipelines found in folder: {folder}")
             pipeline_uid = pipelines[-1]  # Most recent
@@ -596,12 +702,11 @@ class PredictionResolver:
         result.pipeline_uid = pipeline_uid
 
         # Load manifest
-        manifest_manager = ManifestManager(run_dir)
-        manifest = manifest_manager.load_manifest(pipeline_uid)
+        manifest = _load_manifest(run_dir, pipeline_uid)
         result.manifest = manifest
 
         # Try to load latest execution trace
-        trace = manifest_manager.get_latest_execution_trace(pipeline_uid)
+        trace = _get_latest_execution_trace(run_dir, pipeline_uid)
         if trace:
             result.trace = trace
             result.model_step_index = trace.model_step_index
@@ -716,8 +821,7 @@ class PredictionResolver:
         result.model_step_index = step_index
 
         # Load manifest
-        manifest_manager = ManifestManager(run_dir)
-        manifest = manifest_manager.load_manifest(pipeline_uid)
+        manifest = _load_manifest(run_dir, pipeline_uid)
         result.manifest = manifest
 
         # Load artifact loader
@@ -832,11 +936,10 @@ class PredictionResolver:
         result.pipeline_uid = pipeline_uid
 
         # Load manifest and trace
-        manifest_manager = ManifestManager(run_dir)
-        manifest = manifest_manager.load_manifest(pipeline_uid)
+        manifest = _load_manifest(run_dir, pipeline_uid)
         result.manifest = manifest
 
-        trace = manifest_manager.load_execution_trace(pipeline_uid, trace_id)
+        trace = _load_execution_trace(run_dir, pipeline_uid, trace_id)
         if trace is None:
             raise ValueError(f"Trace not found: {trace_id} in pipeline {pipeline_uid}")
 
@@ -972,9 +1075,8 @@ class PredictionResolver:
             if not run_dir.is_dir():
                 continue
 
-            manifest_manager = ManifestManager(run_dir)
-            for pipeline_uid in manifest_manager.list_pipelines():
-                trace_ids = manifest_manager.list_execution_traces(pipeline_uid)
+            for pipeline_uid in _list_pipelines(run_dir):
+                trace_ids = _list_execution_traces(run_dir, pipeline_uid)
                 if trace_id in trace_ids:
                     return pipeline_uid, run_dir
 

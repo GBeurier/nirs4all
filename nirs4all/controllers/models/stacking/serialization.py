@@ -503,10 +503,8 @@ class MetaModelSerializer:
         if context is not None:
             # Try to get from custom context
             runtime_context = context.custom.get('_runtime_context')
-            if runtime_context is not None and hasattr(runtime_context, 'saver'):
-                saver = runtime_context.saver
-                if saver is not None:
-                    pipeline_id = getattr(saver, 'pipeline_id', 'pipeline')
+            if runtime_context is not None:
+                pipeline_id = getattr(runtime_context, 'pipeline_name', None) or 'pipeline'
 
         # Try to look up actual artifact ID from registry (V3 approach)
         if runtime_context is not None and runtime_context.artifact_registry is not None:

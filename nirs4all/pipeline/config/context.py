@@ -26,7 +26,7 @@ Example:
 """
 
 from dataclasses import dataclass, field, replace as dataclass_replace, fields
-from typing import Any, Dict, List, Optional, Iterator, Protocol, Tuple, Union
+from typing import Any, Dict, List, Optional, Iterator, Tuple
 from copy import deepcopy
 from collections.abc import MutableMapping
 from abc import ABC, abstractmethod
@@ -1051,24 +1051,30 @@ class RuntimeContext:
     It replaces the "God Object" pattern of passing the runner everywhere.
 
     Attributes:
-        saver: SimulationSaver for file operations
-        manifest_manager: ManifestManager for pipeline tracking
-        artifact_loader: ArtifactLoader for predict/explain modes
-        artifact_provider: ArtifactProvider for controller-agnostic artifact injection (Phase 3)
-        artifact_registry: ArtifactRegistry for artifact management (v2 system)
-        pipeline_uid: Current pipeline unique identifier
-        step_runner: StepRunner for executing sub-steps
-        operation_count: Counter for operation IDs
-        substep_number: Current substep number
-        trace_recorder: TraceRecorder for recording execution traces (Phase 2)
-        retrain_config: RetrainConfig for retrain mode control (Phase 7)
+        store: WorkspaceStore for DuckDB-backed persistence.
+        artifact_loader: ArtifactLoader for predict/explain modes.
+        artifact_provider: ArtifactProvider for controller-agnostic artifact injection.
+        artifact_registry: ArtifactRegistry for artifact management.
+        pipeline_uid: Current pipeline unique identifier.
+        pipeline_id: WorkspaceStore pipeline identifier (UUID).
+        pipeline_name: Human-readable pipeline name (e.g., "0001_abc123").
+        run_id: WorkspaceStore run identifier (UUID).
+        save_artifacts: Whether to persist binary artifacts to storage.
+        step_runner: StepRunner for executing sub-steps.
+        operation_count: Counter for operation IDs.
+        substep_number: Current substep number.
+        trace_recorder: TraceRecorder for recording execution traces.
+        retrain_config: RetrainConfig for retrain mode control.
     """
-    saver: Any = None
-    manifest_manager: Any = None
+    store: Any = None  # WorkspaceStore for DuckDB-backed persistence
     artifact_loader: Any = None
     artifact_provider: Optional["ArtifactProvider"] = None  # Phase 3: controller-agnostic artifact injection
     artifact_registry: Any = None
     pipeline_uid: Optional[str] = None
+    pipeline_id: Optional[str] = None  # WorkspaceStore pipeline UUID
+    pipeline_name: Optional[str] = None  # Human-readable pipeline name (replaces saver.pipeline_id)
+    run_id: Optional[str] = None  # WorkspaceStore run UUID
+    save_artifacts: bool = True  # Whether to persist binary artifacts
     step_runner: Any = None
     step_number: int = 0
     operation_count: int = 0
@@ -1079,6 +1085,10 @@ class RuntimeContext:
     explainer: Any = None
     trace_recorder: Any = None  # TraceRecorder instance for execution trace recording
     retrain_config: Any = None  # Phase 7: RetrainConfig for retrain mode control
+
+    def __deepcopy__(self, memo):
+        """Return self on deepcopy -- RuntimeContext is shared infrastructure, not data."""
+        return self
 
     def next_op(self) -> int:
         """Get the next operation ID."""

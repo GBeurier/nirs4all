@@ -17,9 +17,9 @@ To ensure clean separation of concerns and testability, controllers **do not sav
 ### Artifacts (Internal Binary Storage)
 
 **Purpose:** Deduplicated storage of trained models and transformers
-**Location:** `results/artifacts/objects/<hash[:2]>/<hash>.<ext>`
+**Location:** `workspace/artifacts/<hash[:2]>/<hash>.<ext>`
 **Method:** Return `StepOutput(artifacts={...})`
-**Respects save_artifacts flag:** ✅ YES
+**Respects save_artifacts flag:** Yes
 
 **What gets stored as artifacts:**
 - Trained models (sklearn, keras, pytorch, catboost, lightgbm)
@@ -30,7 +30,7 @@ To ensure clean separation of concerns and testability, controllers **do not sav
 **Benefits:**
 - Automatic deduplication (identical objects stored once)
 - Content-addressed (SHA256) for integrity
-- Referenced in manifest.yaml for pipeline replay
+- Referenced in DuckDB `artifacts` table with `ref_count` tracking
 - Space-efficient (e.g., 25% reduction in tests)
 
 **Example:**
@@ -41,15 +41,15 @@ from nirs4all.pipeline.execution.result import StepOutput
 return context, StepOutput(
     artifacts={"model": trained_model}
 )
-# Executor saves to: results/artifacts/objects/ab/abc123...joblib
+# Executor saves to: workspace/artifacts/ab/abc123...joblib
 ```
 
 ### Outputs (Human-Readable Files)
 
 **Purpose:** User-accessible files for viewing and sharing
-**Location:** `results/outputs/<dataset>_<pipeline>/<filename>`
+**Location:** `workspace/exports/<dataset>_<pipeline>/<filename>`
 **Method:** Return `StepOutput(outputs=[...])`
-**Respects save_charts flag:** ✅ YES
+**Respects save_charts flag:** Yes
 
 **What gets stored as outputs:**
 - Charts (PNG images)
@@ -74,36 +74,32 @@ img_png_binary = ...
 return context, StepOutput(
     outputs=[(img_png_binary, "2D_Chart", "png")]
 )
-# Executor saves to: results/outputs/regression_Q1_47be36/2D_Chart.png
+# Executor saves to: workspace/exports/regression_Q1_47be36/2D_Chart.png
 ```
 
 ## Directory Structure
 
 ```
-results/
+workspace/
+├── store.duckdb                  # All structured data (runs, pipelines, chains,
+│                                 #   predictions, artifacts registry, logs)
 ├── artifacts/                    # Binary artifacts (models, transformers)
-│   └── objects/
-│       ├── ab/
-│       │   └── abc123...joblib   # Content-addressed storage
-│       └── cd/
-│           └── cdef456...pkl
+│   ├── ab/
+│   │   └── abc123...joblib       # Content-addressed storage
+│   └── cd/
+│       └── cdef456...pkl
 │
-├── outputs/                      # Human-readable outputs
+├── exports/                      # User-triggered exports & human-readable outputs
 │   ├── regression_Q1_47be36/
-│   │   ├── 2D_Chart.png         # ← Easy to find!
+│   │   ├── 2D_Chart.png         # Charts
 │   │   ├── Y_distribution_train_test.png
 │   │   └── fold_visualization_3folds_train.png
-│   └── classification_Q1_c3abeb/
-│       ├── 2D_Chart.png
-│       └── fold_visualization_traintest_split_train.png
+│   ├── model.n4a                # Bundle exports
+│   └── results.parquet          # Prediction exports
 │
-├── pipelines/                    # Pipeline manifests
-│   └── <uid>/
-│       └── manifest.yaml         # References artifacts by hash
-│
-└── datasets/                     # Dataset indexes
-    └── <dataset-name>/
-        └── index.yaml
+└── library/                      # Reusable pipeline templates
+    └── templates/
+        └── baseline_pls.json
 ```
 
 ## save_artifacts / save_charts Flag Behavior
@@ -125,14 +121,14 @@ runner = PipelineRunner(save_artifacts=False, save_charts=False)
 ```
 
 When `save_artifacts=False`:
-- ✅ **Executor** skips saving artifacts
-- ✅ Pipeline can still run and generate predictions
-- ❌ Models won't be reloadable for predict mode
+- **Executor** skips saving artifacts to DuckDB and artifacts/ directory
+- Pipeline can still run and generate predictions
+- Models won't be reloadable for predict mode or chain replay
 
 When `save_charts=False`:
-- ✅ **Executor** skips saving outputs (charts, reports)
-- ✅ Pipeline runs faster
-- ✅ No chart files created
+- **Executor** skips saving outputs (charts, reports)
+- Pipeline runs faster
+- No chart files created
 
 ## Code Examples
 
@@ -189,10 +185,10 @@ Controllers return `StepOutput`:
 ### Charts and Reports (Outputs)
 
 ```bash
-# All outputs organized by pipeline
-results/outputs/
+# All outputs organized by pipeline in the exports directory
+workspace/exports/
 ├── regression_Q1_47be36/
-│   ├── 2D_Chart.png              # ← Your charts are here!
+│   ├── 2D_Chart.png              # Your charts are here
 │   ├── 3D_Chart.png
 │   ├── Y_distribution_train_test.png
 │   └── fold_visualization_3folds_train.png
@@ -201,20 +197,20 @@ results/outputs/
 ### Models and Transformers (Artifacts)
 
 ```bash
-# Check the manifest for artifact references
-results/pipelines/<uid>/manifest.yaml
+# Artifact references are in store.duckdb (artifacts and chains tables)
+workspace/store.duckdb
 
-# Artifacts are in content-addressed storage
-results/artifacts/objects/ab/abc123...joblib  # Model file
-results/artifacts/objects/cd/cdef456...pkl    # Scaler file
+# Binary artifacts are in content-addressed storage
+workspace/artifacts/ab/abc123...joblib  # Model file
+workspace/artifacts/cd/cdef456...pkl    # Scaler file
 ```
 
 ## Best Practices
 
-1. **For human viewing** (charts, reports) → Return in `outputs` list
-2. **For pipeline replay** (models, transformers) → Return in `artifacts` dict
-3. **Disable saving for tests** → Set `save_artifacts=False, save_charts=False`
-4. **Check outputs directory** → `results/outputs/<dataset>_<pipeline>/`
+1. **For human viewing** (charts, reports) -- Return in `outputs` list
+2. **For pipeline replay** (models, transformers) -- Return in `artifacts` dict
+3. **Disable saving for tests** -- Set `save_artifacts=False, save_charts=False`
+4. **Check exports directory** -- `workspace/exports/<dataset>_<pipeline>/`
 
 ## Implementation Details
 
@@ -251,7 +247,7 @@ for name, artifact in step_result.artifacts.items():
 A: Charts are outputs meant for human viewing, not pipeline replay. They don't need deduplication or content-addressing.
 
 **Q: Where did my charts go after the refactoring?**
-A: Check `results/outputs/<dataset>_<pipeline>/` instead of the old artifact storage.
+A: Check `workspace/exports/<dataset>_<pipeline>/`.
 
 **Q: Can I disable chart saving?**
 A: Yes! Set `save_artifacts=False, save_charts=False` when creating `PipelineRunner`.
@@ -260,18 +256,19 @@ A: Yes! Set `save_artifacts=False, save_charts=False` when creating `PipelineRun
 A: Each pipeline gets its own outputs directory, so charts won't conflict.
 
 **Q: Can I extract artifacts to readable locations?**
-A: Models are binary - not human-readable. Use the manifest or prediction system to load them.
+A: Models are binary -- not human-readable. Use `WorkspaceStore.replay_chain()` or export to `.n4a` bundle to load them.
 
 ## Summary
 
 | Feature | Artifacts | Outputs |
 |---------|-----------|---------|
 | **Purpose** | Internal binary objects | Human-readable files |
-| **Location** | `artifacts/objects/` | `outputs/<dataset>_<pipeline>/` |
+| **Location** | `artifacts/<hash[:2]>/` | `exports/<dataset>_<pipeline>/` |
+| **Registry** | DuckDB `artifacts` table | On-disk files |
 | **Names** | Hash-based | Human-readable |
-| **Deduplication** | ✅ Yes | ❌ No |
-| **Easy to find** | ❌ No | ✅ Yes |
+| **Deduplication** | Yes (content-addressed) | No |
+| **Easy to find** | No (use store queries) | Yes |
 | **Respects save flag** | save_artifacts | save_charts |
 | **Examples** | Models, transformers | Charts, reports |
 
-The new system provides the best of both worlds: efficient storage for internal objects and easy access for human outputs!
+This system provides the best of both worlds: efficient storage for internal objects and easy access for human outputs.

@@ -2,301 +2,246 @@
 
 ## Overview
 
-nirs4all uses a structured workspace approach to organize pipelines, trained models, predictions, and exports. The system employs content-addressed storage with automatic deduplication for efficient artifact management.
+nirs4all uses a DuckDB-backed workspace for all structured data. Binary artifacts (fitted models, transformers) are stored in a flat content-addressed directory alongside the database.
 
 ## Workspace Structure
 
 ```
 workspace/
-├── runs/
-│   └── YYYY-MM-DD_dataset/                 # Run directory per dataset
-│       ├── 0001_name_hash/                 # Sequential pipeline directories
-│       │   ├── manifest.yaml               # Pipeline metadata & artifact registry
-│       │   ├── pipeline.json               # Pipeline configuration
-│       │   ├── Report_best_<pipeline>_<model>_<id>.csv  # Report (no date prefix!)
-│       │   └── folds_*.csv
-│       ├── 0002_name_hash/
-│       ├── _binaries/                      # Shared binary artifacts (models, scalers)
-│       │   ├── PLSRegression_a3f2e1.joblib
-│       │   ├── StandardScaler_b4c9d2.joblib
-│       │   └── LogisticRegression_c5e8f3.pkl
-│       └── Best_prediction_<pipeline>_<model>_<id>.csv  # Best prediction (run root)
-├── exports/                                # Best results per dataset (ONE CALL!)
-│   └── dataset_name/                       # Organized by dataset
-│       ├── YYYY-MM-DD_<model>_predictions.csv      # Includes run date
-│       ├── YYYY-MM-DD_<model>_pipeline.json
-│       ├── YYYY-MM-DD_<model>_summary.json
-│       └── YYYY-MM-DD_<model>_chart.png            # Charts if available
-├── library/                                # Reusable pipeline templates and models
-│   ├── templates/
-│   │   └── pls_baseline.json
-│   └── trained/
-│       ├── filtered/                       # Config + metrics only
-│       │   └── model_name/
-│       │       ├── pipeline.json
-│       │       └── library_metadata.json   # Includes n_features!
-│       ├── pipeline/                       # Full trained models
-│       │   └── model_name/
-│       │       ├── pipeline.json
-│       │       ├── library_metadata.json   # Includes n_features!
-│       │       └── _binaries/
-│       └── fullrun/                        # Complete experiments
-│           └── experiment_name/
-└── dataset_name.json                       # Global predictions database per dataset
+├── store.duckdb                        # All structured data (7 tables)
+├── artifacts/                           # Flat content-addressed binary storage
+│   ├── ab/abc123def456.joblib
+│   └── cd/cde789012345.joblib
+└── exports/                             # User-triggered exports (on demand)
 ```
 
-## Pipeline Organization
+## DuckDB Schema
 
-### Sequential Numbering
-Pipelines are automatically numbered sequentially within each run directory:
-- Format: `<sequence>_<name>_<hash>`
-- Example: `0001_pls_baseline_a3f2e1`
-- Hash represents the pipeline configuration fingerprint (no duplication)
+### runs
+```sql
+CREATE TABLE runs (
+    run_id VARCHAR PRIMARY KEY,
+    name VARCHAR NOT NULL,
+    status VARCHAR DEFAULT 'running',
+    config JSON,
+    datasets JSON,
+    summary JSON,
+    error VARCHAR,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    completed_at TIMESTAMPTZ
+);
+```
 
-### Manifest System
-Each pipeline directory contains a `manifest.yaml` with:
-- Pipeline metadata (UID, name, dataset, creation time)
-- Artifact registry (models, scalers, transformers)
-- Prediction results and metrics
-- Execution history and parameters
+### pipelines
+```sql
+CREATE TABLE pipelines (
+    pipeline_id VARCHAR PRIMARY KEY,
+    run_id VARCHAR NOT NULL,
+    name VARCHAR NOT NULL,
+    status VARCHAR DEFAULT 'running',
+    expanded_config JSON,
+    generator_choices JSON,
+    dataset_name VARCHAR NOT NULL,
+    dataset_hash VARCHAR,
+    best_val DOUBLE,
+    best_test DOUBLE,
+    metric VARCHAR,
+    duration_ms INTEGER,
+    error VARCHAR,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    completed_at TIMESTAMPTZ
+);
+```
+
+### chains
+```sql
+CREATE TABLE chains (
+    chain_id VARCHAR PRIMARY KEY,
+    pipeline_id VARCHAR NOT NULL,
+    steps JSON NOT NULL,
+    model_step_idx INTEGER NOT NULL,
+    model_class VARCHAR NOT NULL,
+    preprocessings VARCHAR,
+    fold_strategy VARCHAR,
+    fold_artifacts JSON,
+    shared_artifacts JSON,
+    branch_path JSON,
+    source_index INTEGER,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+### predictions
+```sql
+CREATE TABLE predictions (
+    prediction_id VARCHAR PRIMARY KEY,
+    pipeline_id VARCHAR NOT NULL,
+    chain_id VARCHAR,
+    dataset_name VARCHAR NOT NULL,
+    model_name VARCHAR NOT NULL,
+    model_class VARCHAR NOT NULL,
+    fold_id VARCHAR,
+    partition VARCHAR NOT NULL,
+    val_score DOUBLE,
+    test_score DOUBLE,
+    train_score DOUBLE,
+    metric VARCHAR,
+    task_type VARCHAR,
+    n_samples INTEGER,
+    n_features INTEGER,
+    scores JSON,
+    best_params JSON,
+    preprocessings VARCHAR,
+    branch_id INTEGER,
+    branch_name VARCHAR,
+    exclusion_count INTEGER DEFAULT 0,
+    exclusion_rate DOUBLE DEFAULT 0.0,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+### prediction_arrays
+```sql
+CREATE TABLE prediction_arrays (
+    prediction_id VARCHAR PRIMARY KEY,
+    y_true DOUBLE[],
+    y_pred DOUBLE[],
+    y_proba DOUBLE[],
+    sample_indices DOUBLE[],
+    weights DOUBLE[]
+);
+```
+
+### artifacts
+```sql
+CREATE TABLE artifacts (
+    artifact_id VARCHAR PRIMARY KEY,
+    artifact_path VARCHAR NOT NULL,
+    content_hash VARCHAR NOT NULL UNIQUE,
+    operator_class VARCHAR,
+    artifact_type VARCHAR,
+    format VARCHAR,
+    size_bytes BIGINT,
+    ref_count INTEGER DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+### logs
+```sql
+CREATE TABLE logs (
+    log_id VARCHAR PRIMARY KEY,
+    pipeline_id VARCHAR NOT NULL,
+    step_idx INTEGER NOT NULL,
+    operator_class VARCHAR,
+    event VARCHAR NOT NULL,
+    duration_ms INTEGER,
+    message VARCHAR,
+    details JSON,
+    level VARCHAR DEFAULT 'info',
+    timestamp TIMESTAMPTZ DEFAULT now()
+);
+```
+
+## Key Indexes
+
+```sql
+CREATE INDEX idx_predictions_val_score ON predictions(val_score);
+CREATE INDEX idx_predictions_dataset ON predictions(dataset_name);
+CREATE INDEX idx_predictions_pipeline ON predictions(pipeline_id);
+CREATE INDEX idx_pipelines_run ON pipelines(run_id);
+CREATE INDEX idx_chains_pipeline ON chains(pipeline_id);
+CREATE INDEX idx_logs_pipeline ON logs(pipeline_id);
+CREATE INDEX idx_artifacts_hash ON artifacts(content_hash);
+```
 
 ## Serialization System
 
-### Content-Addressed Storage
-Binary artifacts (models, scalers, arrays) are stored using content-addressed storage:
+### Content-Addressed Artifact Storage
 
-**Key Features:**
-- **Deduplication**: Identical objects share the same file (detected via SHA-256 hash)
-- **Flat structure**: Files stored directly in `_binaries/` (no subdirectory sharding)
-- **Meaningful names**: `ClassName_hash.ext` format (e.g., `PLSRegression_a3f2e1.joblib`)
-- **Format detection**: Automatic selection of optimal serialization (joblib, pickle, numpy)
+Binary artifacts are stored using content-addressed storage with SHA-256 hashing:
 
-**Example:**
-```python
-from nirs4all.utils.serializer import persist, load
-
-# Persist object
-artifact_meta = persist(model, artifacts_dir, "my_model")
-# Creates: _binaries/PLSRegression_a3f2e1.joblib
-
-# Load object
-loaded_model = load(artifact_meta, results_dir)
-```
+1. Serialize object to bytes (joblib or pickle)
+2. Compute SHA-256 hash of the bytes
+3. Check if artifact with same hash exists in store
+4. If exists: increment ref_count, return existing artifact_id
+5. If new: write to `artifacts/{hash[:2]}/{hash}.{ext}`, insert row
 
 ### Supported Formats
+
 | Type | Format | Extension |
 |------|--------|-----------|
 | scikit-learn models | joblib | `.joblib` |
 | Generic Python objects | pickle | `.pkl` |
-| NumPy arrays | numpy | `.npy` |
-| Pandas DataFrames | pickle | `.pkl` |
+| Cloud-pickled objects | cloudpickle | `.pkl` |
 
-### Deduplication Strategy
-1. Compute SHA-256 hash of serialized object
-2. Check if artifact with same hash exists
-3. If exists: reuse existing file, update metadata only
-4. If new: create new file with `ClassName_hash.ext` naming
+### Deduplication
 
-## Global Predictions Database
+Identical objects share the same artifact file. The `ref_count` column tracks how many chains reference each artifact. When a chain is deleted, ref_counts are decremented. `gc_artifacts()` removes files with `ref_count == 0`.
 
-Each dataset maintains a JSON database at the workspace root:
+## Chain Structure
 
-**File**: `workspace/dataset_name.json`
-
-**Structure:**
-```json
-[
-  {
-    "pipeline_uid": "0001_pls_baseline_a3f2e1",
-    "dataset": "dataset_name",
-    "task": "regression",
-    "metrics": {
-      "r2": 0.89,
-      "rmse": 0.23
-    },
-    "timestamp": "2024-10-25T14:30:00",
-    "run_dir": "runs/2024-10-25_dataset"
-  }
-]
-```
-
-**Usage:**
-- Query best performing pipelines across all runs
-- Compare performance across different configurations
-- Track model evolution over time
-- Filter by metrics, task type, or date range
-
-## Library Management
-
-### Library Metadata Structure
-
-Each saved pipeline in the library includes a `library_metadata.json` file with compatibility information:
+A chain captures the complete preprocessing-to-model path:
 
 ```json
 {
-  "name": "best_model",
-  "description": "Best performing model for deployment",
-  "saved_at": "2025-10-25T14:30:00",
-  "type": "pipeline",  // "template", "filtered", "pipeline", or "fullrun"
-  "source": "workspace/runs/2025-10-25_dataset/0001_name_hash",
-  "n_features": 2151   // Extracted automatically for compatibility!
+    "chain_id": "abc123",
+    "steps": [
+        {"step_idx": 0, "operator_class": "MinMaxScaler", "params": {}, "artifact_id": "art_001", "stateless": false},
+        {"step_idx": 1, "operator_class": "SNV", "params": {}, "artifact_id": null, "stateless": true},
+        {"step_idx": 2, "operator_class": "PLSRegression", "params": {"n_components": 10}, "artifact_id": null, "stateless": false}
+    ],
+    "model_step_idx": 2,
+    "fold_artifacts": {"fold_0": "art_002", "fold_1": "art_003"},
+    "shared_artifacts": {"0": "art_001"}
 }
 ```
 
-### LibraryManager API
+## Export Formats
+
+Exports are produced on demand from the store:
+
+| Operation | Method | Output |
+|-----------|--------|--------|
+| Export chain | `store.export_chain(chain_id, path)` | `.n4a` ZIP bundle |
+| Export config | `store.export_pipeline_config(pipeline_id, path)` | `.json` file |
+| Export run | `store.export_run(run_id, path)` | `.yaml` file |
+| Export predictions | `store.export_predictions_parquet(path, **filters)` | `.parquet` file |
+
+## API: WorkspaceStore
+
+See [Storage API Reference](../source/reference/storage.md) for the complete API.
+
+### Key Methods
 
 ```python
-from nirs4all.workspace import LibraryManager
+from nirs4all.pipeline.storage import WorkspaceStore
 
-library = LibraryManager(library_dir)
+store = WorkspaceStore(workspace_path)
 
-# Save template (config only)
-library.save_template(pipeline_config, "my_template", "Description")
+# Run lifecycle
+run_id = store.begin_run(name, config, datasets)
+pipeline_id = store.begin_pipeline(run_id, name, config, ...)
+chain_id = store.save_chain(pipeline_id, steps, ...)
+pred_id = store.save_prediction(pipeline_id, chain_id, ...)
+store.save_prediction_arrays(pred_id, y_true, y_pred)
+store.complete_pipeline(pipeline_id, best_val, best_test, metric, duration_ms)
+store.complete_run(run_id, summary)
 
-# Save filtered (config + metrics, includes n_features)
-library.save_filtered(pipeline_dir, "my_filtered", "Description")
+# Queries (return polars.DataFrame)
+store.list_runs(status="completed")
+store.top_predictions(n=10, metric="val_score")
+store.query_predictions(dataset_name="wheat", partition="val")
 
-# Save full pipeline (config + binaries, includes n_features)
-library.save_pipeline_full(run_dir, pipeline_dir, "my_model", "Description")
+# Chain replay
+y_pred = store.replay_chain(chain_id, X_new)
 
-# Save complete run
-library.save_fullrun(run_dir, "my_experiment", "Description")
+# Export
+store.export_chain(chain_id, Path("model.n4a"))
 
-# List and load
-templates = library.list_templates()
-pipelines = library.list_pipelines()  # Each includes n_features!
+# Cleanup
+store.delete_run(run_id)
+store.gc_artifacts()
+store.vacuum()
+store.close()
 ```
-
-### Export API
-
-```python
-from nirs4all.pipeline import PipelineRunner
-
-runner = PipelineRunner(workspace_path="workspace")
-
-# Export best results for a dataset (ONE CALL!)
-export_dir = runner.export_best_for_dataset(
-    dataset_name="my_dataset",
-    mode="predictions"  // "predictions", "template", "trained", or "full"
-)
-
-# Creates:
-# exports/my_dataset/
-#   ├── YYYY-MM-DD_<model>_predictions.csv
-#   ├── YYYY-MM-DD_<model>_pipeline.json
-#   ├── YYYY-MM-DD_<model>_summary.json
-#   └── YYYY-MM-DD_<model>_*.png  (charts if available)
-```
-
-## For Developers
-
-### Filename Conventions
-
-**In Pipeline Directories:**
-- `Report_best_<pipeline_id>_<model>_<pred_id>.csv` - Performance report
-- `folds_*.csv` - Cross-validation fold information
-- `pipeline.json` - Pipeline configuration
-- No date/time prefixes (redundant with run directory name)
-
-**In Run Root:**
-- `Best_prediction_<pipeline_id>_<model>_<pred_id>.csv` - Best prediction for run
-
-**In Exports (with run date):**
-- `YYYY-MM-DD_<model>_predictions.csv` - Exported predictions
-- `YYYY-MM-DD_<model>_pipeline.json` - Pipeline configuration
-- `YYYY-MM-DD_<model>_summary.json` - Metadata summary
-
-### Serializer Module (`nirs4all.utils.serializer`)
-
-**Core Functions:**
-```python
-persist(obj, artifacts_dir, custom_name=None) -> ArtifactMeta
-load(artifact_meta, results_dir) -> Any
-compute_hash(obj) -> str
-detect_framework(obj) -> str
-is_serializable(obj) -> bool
-```
-
-**ArtifactMeta Structure:**
-```python
-{
-    "hash": "sha256:abc123...",      # Content hash
-    "name": "custom_name",            # User-provided name
-    "path": "ClassName_hash.ext",     # Relative path in _binaries/
-    "format": "joblib|pickle|numpy",  # Serialization format
-    "size": 12345,                    # File size in bytes
-    "saved_at": "2024-10-25T14:30:00",
-    "step": 0                         # Pipeline step index
-}
-```
-
-### Binary Loader (`nirs4all.pipeline.binary_loader`)
-
-Lazy loading of artifacts with caching:
-
-```python
-from nirs4all.pipeline.binary_loader import BinaryLoader
-
-# Initialize from manifest
-loader = BinaryLoader.from_manifest(manifest, results_dir)
-
-# Load artifacts for specific pipeline step
-binaries = loader.get_step_binaries("0")  # Returns [(name, obj), ...]
-
-# Cache management
-loader.clear_cache()
-info = loader.get_cache_info()  # Get cache statistics
-```
-
-### Backward Compatibility
-
-The serializer supports loading old sharded artifacts:
-```python
-# Old format: artifacts/objects/ab/abc123.joblib
-# New format: _binaries/ClassName_abc123.joblib
-
-# load() automatically detects and handles both formats
-```
-
-## Best Practices
-
-**For Users:**
-- Use descriptive custom names when creating pipelines
-- **Export best results with ONE CALL**: `runner.export_best_for_dataset('dataset_name')`
-- Library automatically extracts n_features for compatibility checking
-- Leverage the global predictions database for performance queries
-- Organize exports by dataset (automatic with new API)
-
-**Simple Export Workflow:**
-```python
-from nirs4all.pipeline import PipelineRunner
-from nirs4all.workspace import LibraryManager
-
-# After running pipelines
-runner = PipelineRunner(workspace_path="workspace")
-# ... run pipelines ...
-
-# Export best results (ONE CALL!) - creates exports/dataset_name/
-runner.export_best_for_dataset('my_dataset', mode='predictions')
-
-# Save to library with automatic n_features extraction
-library = LibraryManager(workspace_path / "library")
-library.save_pipeline_full(run_dir, pipeline_dir, "best_model")
-# -> Automatically extracts and stores n_features in library_metadata.json!
-```
-
-**For Developers:**
-- Always use `persist()` for saving binary artifacts (automatic deduplication)
-- Use `BinaryLoader` for lazy loading (better memory efficiency)
-- Use `PipelineRunner.export_best_for_dataset()` for user-facing exports
-- `LibraryManager._extract_n_features()` handles n_features extraction automatically
-- Implement `__repr__` and `__eq__` for custom objects (better deduplication)
-- Check `is_serializable()` before attempting to persist complex objects
-
-## Migration Notes
-
-If upgrading from older versions:
-1. Old artifacts in `artifacts/objects/<hash[:2]>/<hash>` are still loadable
-2. New artifacts use flat structure in `_binaries/`
-3. Global predictions moved from `runs/<date>/predictions.json` to `workspace/<dataset>.json`
-4. Pipeline outputs no longer nested in `outputs/` subdirectory

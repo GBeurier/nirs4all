@@ -12,8 +12,7 @@ import json
 import warnings
 import numpy as np
 import pytest
-from nirs4all.data.predictions import Predictions
-from nirs4all.data._predictions.ranker import PredictionRanker
+from nirs4all.data.predictions import Predictions, _make_group_key
 
 
 @pytest.fixture
@@ -400,62 +399,50 @@ class TestDeprecatedBestPerModel:
 
 
 class TestMakeGroupKey:
-    """Test the _make_group_key helper method."""
+    """Test the _make_group_key helper function."""
 
-    def test_case_insensitive_model_name(self, base_prediction_params):
+    def test_case_insensitive_model_name(self):
         """Verify model_name is compared case-insensitively."""
-        predictions = Predictions()
-        ranker = predictions._ranker
-
         row1 = {"model_name": "PLS_5", "model_classname": "PLSRegression"}
         row2 = {"model_name": "pls_5", "model_classname": "PLSRegression"}
 
-        key1 = ranker._make_group_key(row1, ["model_name"])
-        key2 = ranker._make_group_key(row2, ["model_name"])
+        key1 = _make_group_key(row1, ["model_name"])
+        key2 = _make_group_key(row2, ["model_name"])
 
         assert key1 == key2
 
-    def test_none_value_handling(self, base_prediction_params):
+    def test_none_value_handling(self):
         """Verify None values are handled correctly in group keys."""
-        predictions = Predictions()
-        ranker = predictions._ranker
-
         row1 = {"model_name": "PLS_5", "preprocessings": None}
         row2 = {"model_name": "PLS_5", "preprocessings": None}
         row3 = {"model_name": "PLS_5", "preprocessings": "snv"}
 
-        key1 = ranker._make_group_key(row1, ["model_name", "preprocessings"])
-        key2 = ranker._make_group_key(row2, ["model_name", "preprocessings"])
-        key3 = ranker._make_group_key(row3, ["model_name", "preprocessings"])
+        key1 = _make_group_key(row1, ["model_name", "preprocessings"])
+        key2 = _make_group_key(row2, ["model_name", "preprocessings"])
+        key3 = _make_group_key(row3, ["model_name", "preprocessings"])
 
         assert key1 == key2  # Both have None preprocessings
         assert key1 != key3  # Different preprocessings
 
-    def test_numeric_column_handling(self, base_prediction_params):
+    def test_numeric_column_handling(self):
         """Verify numeric columns are handled correctly."""
-        predictions = Predictions()
-        ranker = predictions._ranker
-
         row1 = {"model_name": "PLS_5", "fold_id": 0}
         row2 = {"model_name": "PLS_5", "fold_id": 0}
         row3 = {"model_name": "PLS_5", "fold_id": 1}
 
-        key1 = ranker._make_group_key(row1, ["model_name", "fold_id"])
-        key2 = ranker._make_group_key(row2, ["model_name", "fold_id"])
-        key3 = ranker._make_group_key(row3, ["model_name", "fold_id"])
+        key1 = _make_group_key(row1, ["model_name", "fold_id"])
+        key2 = _make_group_key(row2, ["model_name", "fold_id"])
+        key3 = _make_group_key(row3, ["model_name", "fold_id"])
 
         assert key1 == key2  # Same fold_id
         assert key1 != key3  # Different fold_id
 
-    def test_list_to_tuple_conversion(self, base_prediction_params):
+    def test_list_to_tuple_conversion(self):
         """Verify list values are converted to tuples for hashability."""
-        predictions = Predictions()
-        ranker = predictions._ranker
-
         row = {"model_name": "PLS_5", "some_list": [1, 2, 3]}
 
         # Should not raise error (list is converted to tuple)
-        key = ranker._make_group_key(row, ["model_name", "some_list"])
+        key = _make_group_key(row, ["model_name", "some_list"])
         assert isinstance(key, tuple)
 
 

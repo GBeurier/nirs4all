@@ -1,14 +1,12 @@
 """
 Workspace management CLI commands for nirs4all.
 
-Provides commands for workspace initialization, run management, catalog queries,
-and library operations.
+Provides commands for workspace initialization, run management, and
+library operations.
 """
 
-import argparse
 import sys
 from pathlib import Path
-from typing import Optional
 
 from nirs4all.core.logging import get_logger
 
@@ -17,209 +15,135 @@ logger = get_logger(__name__)
 
 def workspace_init(args):
     """Initialize a new workspace."""
-    from nirs4all.workspace import WorkspaceManager
+    from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
     workspace_path = Path(args.path)
-    ws = WorkspaceManager(workspace_path)
-    ws.initialize_workspace()
+
+    # WorkspaceStore creates the DuckDB database and workspace directories
+    store = WorkspaceStore(workspace_path)
+    store.close()
+
+    # Also create standard directories
+    (workspace_path / "exports").mkdir(parents=True, exist_ok=True)
+    (workspace_path / "library").mkdir(parents=True, exist_ok=True)
 
     logger.success(f"Workspace initialized at: {workspace_path}")
-    logger.info("  Created directories:")
-    logger.info("    - runs/")
-    logger.info("    - exports/full_pipelines/")
-    logger.info("    - exports/best_predictions/")
-    logger.info("    - library/templates/")
-    logger.info("    - library/trained/filtered/")
-    logger.info("    - library/trained/pipeline/")
-    logger.info("    - library/trained/fullrun/")
-    logger.info("    - catalog/")
+    logger.info("  Created:")
+    logger.info("    - nirs4all.duckdb (workspace database)")
+    logger.info("    - exports/")
+    logger.info("    - library/")
 
 
 def workspace_list_runs(args):
     """List all runs in workspace."""
-    from nirs4all.workspace import WorkspaceManager
+    from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
     workspace_path = Path(args.workspace)
-    ws = WorkspaceManager(workspace_path)
+    store = WorkspaceStore(workspace_path)
 
-    runs = ws.list_runs()
+    runs = store.list_runs()
 
-    if not runs:
+    if runs.height == 0:
         logger.info("No runs found in workspace.")
         return
 
-    logger.info(f"Found {len(runs)} run(s):\n")
-    for run_info in runs:
-        logger.info(f"  {run_info['name']}")
-        logger.info(f"    Dataset: {run_info['dataset']}")
-        logger.info(f"    Date: {run_info['date']}")
-        if run_info.get('custom_name'):
-            logger.info(f"    Custom name: {run_info['custom_name']}")
+    logger.info(f"Found {runs.height} run(s):\n")
+    for row in runs.to_dicts():
+        logger.info(f"  {row.get('name', 'unknown')}")
+        logger.info(f"    Status: {row.get('status', 'unknown')}")
+        logger.info(f"    Created: {row.get('created_at', 'unknown')}")
         logger.info("")
 
 
 def workspace_query_best(args):
-    """Query best pipelines from catalog."""
-    from nirs4all.data.predictions import Predictions
+    """Query best predictions from workspace store."""
+    from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
     workspace_path = Path(args.workspace)
-    catalog_dir = workspace_path / "catalog"
+    store = WorkspaceStore(workspace_path)
 
-    if not catalog_dir.exists():
-        logger.error(f"Catalog not found at {catalog_dir}")
-        logger.info("Run pipelines and archive predictions first.")
-        sys.exit(1)
-
-    meta_file = catalog_dir / "predictions_meta.parquet"
-    if not meta_file.exists():
-        logger.error("No predictions in catalog.")
-        logger.info("Archive pipeline predictions using Predictions.archive_to_catalog()")
-        sys.exit(1)
-
-    # Load predictions from catalog
+    # Query top predictions
     try:
-        preds = Predictions.load_from_parquet(catalog_dir)
-        logger.success(f"Loaded {preds._df.height} predictions from catalog\n")
+        top_df = store.top_predictions(
+            n=args.n,
+            dataset_name=args.dataset,
+            metric=args.metric,
+        )
+        if top_df.height == 0:
+            logger.info("No predictions found matching criteria.")
+            return
+
+        logger.info(f"Top {args.n} predictions by {args.metric}:")
+        logger.info(f"{'=' * 80}\n")
+
+        df = top_df.to_pandas()
+        logger.info(df.to_string(index=False))
     except Exception as e:
-        logger.error(f"Error loading catalog: {e}")
+        logger.error(f"Error querying predictions: {e}")
         sys.exit(1)
-
-    # Query best
-    best = preds.query_best(
-        dataset_name=args.dataset,
-        metric=args.metric,
-        n=args.n,
-        ascending=args.ascending
-    )
-
-    if best.height == 0:
-        logger.info("No predictions found matching criteria.")
-        return
-
-    # Display results
-    logger.info(f"Top {args.n} pipelines by {args.metric}:")
-    logger.info(f"{'='*80}\n")
-
-    # Convert to pandas for nice display
-    df = best.to_pandas()
-    logger.info(df.to_string(index=False))
 
 
 def workspace_query_filter(args):
     """Filter predictions by criteria."""
-    from nirs4all.data.predictions import Predictions
+    from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
     workspace_path = Path(args.workspace)
-    catalog_dir = workspace_path / "catalog"
+    store = WorkspaceStore(workspace_path)
 
-    if not catalog_dir.exists():
-        logger.error(f"Catalog not found at {catalog_dir}")
+    try:
+        filtered = store.query_predictions(
+            dataset_name=args.dataset,
+        )
+
+        logger.info(f"Found {filtered.height} predictions matching criteria\n")
+
+        if filtered.height > 0:
+            df = filtered.to_pandas()
+            logger.info(df.to_string(index=False))
+    except Exception as e:
+        logger.error(f"Error filtering predictions: {e}")
         sys.exit(1)
-
-    # Load predictions
-    preds = Predictions.load_from_parquet(catalog_dir)
-
-    # Build metric thresholds
-    thresholds = {}
-    if args.test_score:
-        thresholds['test_score'] = args.test_score
-    if args.train_score:
-        thresholds['train_score'] = args.train_score
-    if args.val_score:
-        thresholds['val_score'] = args.val_score
-
-    # Apply filters
-    filtered = preds.filter_by_criteria(
-        dataset_name=args.dataset,
-        metric_thresholds=thresholds if thresholds else None
-    )
-
-    logger.info(f"Found {filtered.height} predictions matching criteria\n")
-
-    if filtered.height > 0:
-        df = filtered.to_pandas()
-        logger.info(df.to_string(index=False))
 
 
 def workspace_stats(args):
-    """Show catalog statistics."""
-    from nirs4all.data.predictions import Predictions
+    """Show workspace statistics."""
+    from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
     workspace_path = Path(args.workspace)
-    catalog_dir = workspace_path / "catalog"
+    store = WorkspaceStore(workspace_path)
 
-    if not catalog_dir.exists():
-        logger.error(f"Catalog not found at {catalog_dir}")
+    logger.info("Workspace Statistics")
+    logger.info(f"{'=' * 60}\n")
+
+    try:
+        all_preds = store.query_predictions()
+        logger.info(f"Total predictions: {all_preds.height}")
+
+        if all_preds.height > 0 and "dataset_name" in all_preds.columns:
+            datasets = all_preds["dataset_name"].unique().to_list()
+            logger.info(f"Datasets: {len(datasets)}")
+            for ds in datasets:
+                count = all_preds.filter(all_preds["dataset_name"] == ds).height
+                logger.info(f"  - {ds}: {count} predictions")
+
+        runs = store.list_runs()
+        logger.info(f"\nRuns: {runs.height}")
+    except Exception as e:
+        logger.error(f"Error getting statistics: {e}")
         sys.exit(1)
-
-    # Load predictions
-    preds = Predictions.load_from_parquet(catalog_dir)
-
-    logger.info("Catalog Statistics")
-    logger.info(f"{'='*60}\n")
-    logger.info(f"Total predictions: {preds._df.height}")
-
-    # Datasets
-    if 'dataset_name' in preds._df.columns:
-        datasets = preds._df['dataset_name'].unique().to_list()
-        logger.info(f"Datasets: {len(datasets)}")
-        for ds in datasets:
-            count = preds._df.filter(preds._df['dataset_name'] == ds).height
-            logger.info(f"  - {ds}: {count} predictions")
-
-    logger.info("")
-
-    # Metric statistics
-    metric = args.metric
-    if metric in preds._df.columns:
-        stats = preds.get_summary_stats(metric=metric)
-        logger.info(f"{metric} statistics:")
-        logger.info(f"  Min:    {stats['min']:.4f}")
-        logger.info(f"  Max:    {stats['max']:.4f}")
-        logger.info(f"  Mean:   {stats['mean']:.4f}")
-        logger.info(f"  Median: {stats['median']:.4f}")
-        logger.info(f"  Std:    {stats['std']:.4f}")
 
 
 def workspace_list_library(args):
     """List items in library."""
-    from nirs4all.workspace import LibraryManager
+    from nirs4all.pipeline.storage.library import PipelineLibrary
 
     workspace_path = Path(args.workspace)
-    library_dir = workspace_path / "library"
+    library = PipelineLibrary(workspace_path)
 
-    if not library_dir.exists():
-        logger.error(f"Library not found at {library_dir}")
-        sys.exit(1)
-
-    library = LibraryManager(library_dir)
-
-    # List templates
     templates = library.list_templates()
     logger.info(f"Templates: {len(templates)}")
     for t in templates:
         logger.info(f"  - {t['name']}: {t.get('description', 'No description')}")
-    logger.info("")
-
-    # List filtered
-    filtered = library.list_filtered()
-    logger.info(f"Filtered pipelines: {len(filtered)}")
-    for f in filtered:
-        logger.info(f"  - {f['name']}: {f.get('description', 'No description')}")
-    logger.info("")
-
-    # List full pipelines
-    pipelines = library.list_pipelines()
-    logger.info(f"Full pipelines: {len(pipelines)}")
-    for p in pipelines:
-        logger.info(f"  - {p['name']}: {p.get('description', 'No description')}")
-    logger.info("")
-
-    # List full runs
-    fullruns = library.list_fullruns()
-    logger.info(f"Full runs: {len(fullruns)}")
-    for r in fullruns:
-        logger.info(f"  - {r['name']}: {r.get('description', 'No description')}")
 
 
 def add_workspace_commands(subparsers):
@@ -260,7 +184,7 @@ def add_workspace_commands(subparsers):
     # workspace query-best
     query_best_parser = workspace_subparsers.add_parser(
         'query-best',
-        help='Query best pipelines from catalog'
+        help='Query best predictions from workspace'
     )
     query_best_parser.add_argument(
         '--workspace',
@@ -328,7 +252,7 @@ def add_workspace_commands(subparsers):
     # workspace stats
     stats_parser = workspace_subparsers.add_parser(
         'stats',
-        help='Show catalog statistics'
+        help='Show workspace statistics'
     )
     stats_parser.add_argument(
         '--workspace',

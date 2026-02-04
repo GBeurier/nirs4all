@@ -1,14 +1,6 @@
 nirs4all.workspace package
 ==========================
 
-Submodules
-----------
-
-.. toctree::
-   :maxdepth: 4
-
-   nirs4all.workspace.library_manager
-
 Module contents
 ---------------
 

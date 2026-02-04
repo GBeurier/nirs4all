@@ -41,7 +41,6 @@ from nirs4all.pipeline.trace import (
     StepExecutionMode,
 )
 from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
-from nirs4all.pipeline.storage.manifest_manager import ManifestManager
 from nirs4all.pipeline.resolver import PredictionResolver, ResolvedPrediction
 
 
@@ -462,10 +461,6 @@ class Retrainer:
         Returns:
             Tuple of (predictions, dataset_predictions_dict)
         """
-        from nirs4all.pipeline.execution.builder import ExecutorBuilder
-        from nirs4all.pipeline.storage.io import SimulationSaver
-        from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
-
         if verbose > 0:
             logger.starting("Transfer mode: reusing preprocessing, training new model")
 
@@ -583,7 +578,7 @@ class Retrainer:
         config: RetrainConfig,
         dataset_configs: DatasetConfigs,
         verbose: int,
-        pipeline_name: str
+        pipeline_name: str,
     ) -> Tuple[Predictions, Dict[str, Any]]:
         """Execute pipeline with retrain-aware artifact provider.
 
@@ -592,68 +587,54 @@ class Retrainer:
         steps that should use existing artifacts.
 
         Args:
-            steps: Pipeline steps to execute
-            config: Retrain configuration
-            dataset_configs: Dataset configuration
-            verbose: Verbosity level
-            pipeline_name: Name for the retrain pipeline
+            steps: Pipeline steps to execute.
+            config: Retrain configuration.
+            dataset_configs: Dataset configuration.
+            verbose: Verbosity level.
+            pipeline_name: Name for the retrain pipeline.
 
         Returns:
-            Tuple of (predictions, dataset_predictions_dict)
+            Tuple of (predictions, dataset_predictions_dict).
         """
-        from datetime import datetime
         from nirs4all.pipeline.execution.builder import ExecutorBuilder
-        from nirs4all.pipeline.storage.io import SimulationSaver
         from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
-        from nirs4all.pipeline.trace import TraceRecorder
+
+        store = self.runner.store
+
+        # Begin a run in the store
+        dataset_meta = [{"name": name} for _config, name in dataset_configs.configs]
+        run_id = store.begin_run(
+            name=pipeline_name,
+            config={"retrain_mode": str(config.mode)},
+            datasets=dataset_meta,
+        )
 
         run_predictions = Predictions()
-        datasets_predictions = {}
+        datasets_predictions: Dict[str, Any] = {}
 
         for data_config, name in dataset_configs.configs:
-            # Create run directory
-            date_str = datetime.now().strftime("%Y-%m-%d")
-            current_run_dir = self.runner.runs_dir / f"{date_str}_{name}"
-            current_run_dir.mkdir(parents=True, exist_ok=True)
-
-            # Create components
-            saver = SimulationSaver(current_run_dir, save_artifacts=self.runner.save_artifacts, save_charts=self.runner.save_charts)
-            manifest_manager = ManifestManager(current_run_dir)
-
-            # Create pipeline in manifest system
-            pipeline_config = {"steps": steps}
-            pipeline_hash = hash(str(steps)) % (2**32)  # Simple hash for identification
-            pipeline_uid, pipeline_dir = manifest_manager.create_pipeline(
-                name=pipeline_name,
-                dataset=name,
-                pipeline_config=pipeline_config,
-                pipeline_hash=f"{pipeline_hash:08x}"
-            )
-
-            # Register with saver
-            saver.register(pipeline_uid)
-
             # Create artifact registry for new artifacts
             artifact_registry = ArtifactRegistry(
                 workspace=self.runner.workspace_path,
                 dataset=name,
-                manifest_manager=manifest_manager
             )
             artifact_registry.start_run()
 
             # Build executor
-            executor = (ExecutorBuilder()
-                .with_run_directory(current_run_dir)
+            executor = (
+                ExecutorBuilder()
                 .with_workspace(self.runner.workspace_path)
                 .with_verbose(verbose)
-                .with_mode("train")  # Retrain is a train mode
+                .with_mode("train")
                 .with_save_artifacts(self.runner.save_artifacts)
                 .with_save_charts(self.runner.save_charts)
                 .with_continue_on_error(self.runner.continue_on_error)
                 .with_show_spinner(self.runner.show_spinner)
                 .with_plots_visible(self.runner.plots_visible)
                 .with_artifact_registry(artifact_registry)
-                .build())
+                .with_store(store)
+                .build()
+            )
 
             # Get dataset
             dataset = dataset_configs.get_dataset(data_config, name)
@@ -662,14 +643,12 @@ class Retrainer:
             context = executor.initialize_context(dataset)
 
             # Set mode based on retrain config
-            # For transfer/finetune, we use a hybrid mode
             if config.mode in (RetrainMode.TRANSFER, RetrainMode.FINETUNE):
                 context.state.mode = "retrain"
 
             # Create retrain artifact provider
             base_provider = self._resolved.artifact_provider
             if base_provider is None and self._resolved.run_dir:
-                # Create provider from manifest
                 manifest = self._resolved.manifest
                 loader = ArtifactLoader.from_manifest(manifest, self._resolved.run_dir)
                 base_provider = LoaderArtifactProvider(loader=loader, trace=self._resolved.trace)
@@ -679,21 +658,18 @@ class Retrainer:
                 retrain_provider = RetrainArtifactProvider(
                     base_provider=base_provider,
                     retrain_config=config,
-                    trace=self._resolved.trace
+                    trace=self._resolved.trace,
                 )
 
-            # Create runtime context with retrain provider
+            # Create runtime context with retrain provider and store
             runtime_context = RuntimeContext(
-                saver=saver,
-                manifest_manager=manifest_manager,
-                artifact_loader=None,  # Not needed, using provider
+                store=store,
                 artifact_provider=retrain_provider,
                 artifact_registry=artifact_registry,
-                step_runner=executor.step_runner
+                step_runner=executor.step_runner,
+                run_id=run_id,
+                retrain_config=config,
             )
-
-            # Store retrain config in runtime context for controllers
-            runtime_context.retrain_config = config  # type: ignore
 
             # Execute pipeline
             config_predictions = Predictions()
@@ -705,12 +681,10 @@ class Retrainer:
                     dataset=dataset,
                     context=context,
                     runtime_context=runtime_context,
-                    prediction_store=config_predictions
+                    prediction_store=config_predictions,
                 )
-
                 artifact_registry.end_run()
-
-            except Exception as e:
+            except Exception:
                 artifact_registry.cleanup_failed_run()
                 raise
 
@@ -718,7 +692,7 @@ class Retrainer:
             datasets_predictions[name] = {
                 "run_predictions": config_predictions,
                 "dataset": dataset,
-                "dataset_name": name
+                "dataset_name": name,
             }
 
         return run_predictions, datasets_predictions

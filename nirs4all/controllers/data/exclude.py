@@ -252,14 +252,7 @@ class ExcludeController(OperatorController):
         artifacts = []
         for filter_obj in filters:
             operator_name = f"exclude_{filter_obj.exclusion_reason}_{runtime_context.next_op()}"
-            artifact = runtime_context.saver.persist_artifact(
-                step_number=runtime_context.step_number,
-                name=operator_name,
-                obj=filter_obj,
-                format_hint='sklearn',
-                branch_id=context.selector.branch_id,
-                branch_name=context.selector.branch_name
-            )
+            artifact = (filter_obj, operator_name, "sklearn")
             artifacts.append(artifact)
 
         return context, artifacts

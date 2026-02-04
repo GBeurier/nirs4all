@@ -197,14 +197,12 @@ The prediction ranking system is spread across multiple modules:
 ```
 nirs4all/
 ├── data/
-│   ├── predictions.py              # Main Predictions facade class
+│   ├── predictions.py              # Main Predictions facade class (ranking, storage, queries via WorkspaceStore)
 │   └── _predictions/
-│       ├── ranker.py               # PredictionRanker - core ranking logic
-│       ├── aggregator.py           # PartitionAggregator - partition data combining
-│       ├── storage.py              # PredictionStorage - DataFrame backend
-│       ├── indexer.py              # PredictionIndexer - filtering
-│       ├── result.py               # PredictionResult, PredictionResultsList
-│       └── serializer.py           # JSON/Parquet serialization
+│       └── result.py               # PredictionResult, PredictionResultsList
+├── pipeline/
+│   └── storage/
+│       └── workspace_store.py      # WorkspaceStore - DuckDB-backed storage (predictions, ranking, artifacts)
 └── visualization/
     ├── predictions.py              # PredictionAnalyzer - orchestrator
     └── charts/

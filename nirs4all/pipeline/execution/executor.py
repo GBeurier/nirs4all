@@ -1,14 +1,13 @@
 """Pipeline executor for executing a single pipeline on a single dataset."""
 import hashlib
 import json
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+import time
+from typing import Any, Dict, List, Optional
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.config.context import ExecutionContext
-from nirs4all.pipeline.storage.manifest_manager import ManifestManager
 from nirs4all.pipeline.steps.step_runner import StepRunner
 from nirs4all.pipeline.trace import TraceRecorder
 
@@ -21,12 +20,12 @@ class PipelineExecutor:
     Handles:
     - Step-by-step execution
     - Context propagation
-    - Artifact management for one pipeline run
+    - Artifact management via WorkspaceStore
     - Predictions accumulation for this pipeline
 
     Attributes:
         step_runner: Executes individual steps
-        manifest_manager: Manages pipeline manifests
+        store: WorkspaceStore for DuckDB-backed persistence
         verbose: Verbosity level
         mode: Execution mode (train/predict/explain)
         continue_on_error: Whether to continue on step failures
@@ -36,32 +35,32 @@ class PipelineExecutor:
     def __init__(
         self,
         step_runner: StepRunner,
-        manifest_manager: Optional[ManifestManager] = None,
         verbose: int = 0,
         mode: str = "train",
         continue_on_error: bool = False,
-        saver: Any = None,
+        store: Any = None,
+        save_artifacts: bool = True,
         artifact_loader: Any = None,
         artifact_registry: Any = None
-    ):
+    ) -> None:
         """Initialize pipeline executor.
 
         Args:
             step_runner: Step runner for executing individual steps
-            manifest_manager: Optional manifest manager
             verbose: Verbosity level
             mode: Execution mode (train/predict/explain)
             continue_on_error: Whether to continue on step failures
-            saver: Simulation saver for file operations
+            store: WorkspaceStore for DuckDB-backed persistence
+            save_artifacts: Whether to save binary artifacts
             artifact_loader: Artifact loader for predict/explain modes
             artifact_registry: Artifact registry for v2 artifact management
         """
         self.step_runner = step_runner
-        self.manifest_manager = manifest_manager
         self.verbose = verbose
         self.mode = mode
         self.continue_on_error = continue_on_error
-        self.saver = saver
+        self.store = store
+        self.save_artifacts = save_artifacts
         self.artifact_loader = artifact_loader
         self.artifact_registry = artifact_registry
 
@@ -139,39 +138,47 @@ class PipelineExecutor:
 
         # Compute pipeline hash for identification
         pipeline_hash = self._compute_pipeline_hash(steps)
+        start_time = time.monotonic()
 
-        # Create pipeline in manifest system (if in train mode)
+        # Begin pipeline in store (if in train mode)
+        pipeline_id = None
         pipeline_uid = None
-        if self.mode == "train" and self.manifest_manager:
-            pipeline_config = {"steps": steps}
-            pipeline_uid, pipeline_dir = self.manifest_manager.create_pipeline(
-                name=config_name,
-                dataset=dataset.name,
-                pipeline_config=pipeline_config,
-                pipeline_hash=pipeline_hash,
-                generator_choices=generator_choices
-            )
+        store = runtime_context.store if runtime_context else self.store
 
-            # Register with saver
-            if self.saver:
-                self.saver.register(pipeline_uid)
+        if self.mode == "train" and store:
+            run_id = runtime_context.run_id if runtime_context else None
+            if run_id:
+                pipeline_id = store.begin_pipeline(
+                    run_id=run_id,
+                    name=config_name,
+                    expanded_config=steps,
+                    generator_choices=generator_choices or [],
+                    dataset_name=dataset.name,
+                    dataset_hash=pipeline_hash,
+                )
+                # Use pipeline_id as pipeline_uid for backward compatibility
+                pipeline_uid = pipeline_id
 
-            # Set pipeline_uid on runtime_context
-            if runtime_context:
-                runtime_context.pipeline_uid = pipeline_uid
+                # Set on runtime_context
+                if runtime_context:
+                    runtime_context.pipeline_uid = pipeline_uid
+                    runtime_context.pipeline_id = pipeline_id
+                    runtime_context.pipeline_name = config_name
         else:
             # For predict/explain modes, use temporary UID
             pipeline_uid = f"temp_{pipeline_hash}"
 
-        # Save pipeline configuration
-        if self.mode != "predict" and self.mode != "explain" and self.saver:
-            self.saver.save_json("pipeline.json", steps)
+        # Always set pipeline_name on runtime context for controllers
+        if runtime_context:
+            if not runtime_context.pipeline_name:
+                runtime_context.pipeline_name = config_name
+            runtime_context.save_artifacts = self.save_artifacts
 
         # Initialize prediction store if not provided
         if prediction_store is None:
             prediction_store = Predictions()
 
-        # Initialize trace recorder for execution trace recording (Phase 2)
+        # Initialize trace recorder for execution trace recording
         trace_recorder = None
         if self.mode == "train" and runtime_context:
             trace_recorder = TraceRecorder(
@@ -192,17 +199,36 @@ class PipelineExecutor:
                 all_artifacts
             )
 
-            # Save final pipeline configuration
-            if self.mode != "predict" and self.mode != "explain" and self.saver:
-                self.saver.save_json("pipeline.json", steps)
-
-            # Finalize and save execution trace
-            if trace_recorder is not None and self.manifest_manager and pipeline_uid:
+            # Build chain from trace and save to store
+            if trace_recorder is not None and store and pipeline_id:
+                from nirs4all.pipeline.storage.chain_builder import ChainBuilder
                 trace = trace_recorder.finalize(
                     preprocessing_chain=dataset.short_preprocessings_str(),
                     metadata={"n_steps": len(steps), "n_artifacts": len(all_artifacts)}
                 )
-                self.manifest_manager.save_execution_trace(pipeline_uid, trace)
+                chain_builder = ChainBuilder(trace, self.artifact_registry)
+                chain_data = chain_builder.build()
+                store.save_chain(pipeline_id=pipeline_id, **chain_data)
+
+            # Complete pipeline in store
+            if self.mode == "train" and store and pipeline_id:
+                duration_ms = int((time.monotonic() - start_time) * 1000)
+                best_val = 0.0
+                best_test = 0.0
+                metric = ""
+                if prediction_store.num_predictions > 0:
+                    pipeline_best = prediction_store.get_best(ascending=None)
+                    if pipeline_best:
+                        best_val = pipeline_best.get("val_score", 0.0) or 0.0
+                        best_test = pipeline_best.get("test_score", 0.0) or 0.0
+                        metric = pipeline_best.get("metric", "") or ""
+                store.complete_pipeline(
+                    pipeline_id=pipeline_id,
+                    best_val=best_val,
+                    best_test=best_test,
+                    metric=metric,
+                    duration_ms=duration_ms,
+                )
 
             # Print best result if predictions were generated
             if prediction_store.num_predictions > 0:
@@ -219,6 +245,9 @@ class PipelineExecutor:
                 )
 
         except Exception as e:
+            # Fail pipeline in store
+            if self.mode == "train" and store and pipeline_id:
+                store.fail_pipeline(pipeline_id, str(e))
             logger.error(
                 f"Pipeline {config_name} on dataset {dataset.name} "
                 f"failed: {str(e)}"
@@ -252,8 +281,6 @@ class PipelineExecutor:
         Returns:
             Updated execution context
         """
-        from nirs4all.pipeline.execution.result import ArtifactMeta
-
         for step in steps:
             self.step_number += 1
             self.substep_number = 0
@@ -275,7 +302,7 @@ class PipelineExecutor:
             if self.mode in ("predict", "explain") and self.artifact_loader:
                 loaded_binaries = self.artifact_loader.get_step_binaries(self.step_number)
                 if self.verbose > 1 and loaded_binaries:
-                    print(f"🔍 Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
+                    print(f"Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
 
             # Check if we're in branch mode and this is NOT a branch step
             branch_contexts = context.custom.get("branch_contexts", [])
@@ -332,8 +359,6 @@ class PipelineExecutor:
         Returns:
             Updated context with updated branch contexts
         """
-        from nirs4all.pipeline.execution.result import ArtifactMeta
-
         branch_contexts = context.custom.get("branch_contexts", [])
 
         if not branch_contexts:
@@ -459,21 +484,12 @@ class PipelineExecutor:
                 # Process artifacts
                 processed_artifacts = self._process_step_artifacts(
                     step_result.artifacts,
+                    runtime_context=runtime_context,
                     branch_id=branch_id,
                     branch_name=branch_name
                 )
                 if all_artifacts is not None:
                     all_artifacts.extend(processed_artifacts)
-
-                # Append artifacts to manifest
-                if (self.mode == "train" and
-                    self.manifest_manager and
-                    runtime_context.pipeline_uid and
-                    processed_artifacts):
-                    self.manifest_manager.append_artifacts(
-                        runtime_context.pipeline_uid,
-                        processed_artifacts
-                    )
 
                 # Update branch context
                 updated_branch_contexts.append({
@@ -532,8 +548,6 @@ class PipelineExecutor:
         Returns:
             Updated context
         """
-        from nirs4all.pipeline.execution.result import ArtifactMeta
-
         # Extract operator info for trace recording
         operator_type, operator_class, operator_config = self._extract_step_info(step)
 
@@ -572,25 +586,28 @@ class PipelineExecutor:
             if runtime_context:
                 self._record_dataset_shapes(dataset, step_result.updated_context, runtime_context, is_input=False)
 
-            # Process artifacts (persist if needed)
-            processed_artifacts = self._process_step_artifacts(step_result.artifacts)
+            # Process artifacts (persist via store if needed)
+            processed_artifacts = self._process_step_artifacts(
+                step_result.artifacts,
+                runtime_context=runtime_context
+            )
             if all_artifacts is not None:
                 all_artifacts.extend(processed_artifacts)
 
-            # Process outputs (save files)
-            for output in step_result.outputs:
-                if isinstance(output, dict):
-                    # Legacy: already saved
-                    pass
-                elif isinstance(output, tuple) and len(output) >= 3:
-                    # New: (data, name, type)
-                    data, name, type_hint = output
-                    if self.saver:
-                        self.saver.save_output(
-                            step_number=self.step_number,
-                            name=name,
-                            data=data,
-                            extension=f".{type_hint}" if not type_hint.startswith('.') else type_hint
+            # Log step outputs to store (charts, reports)
+            store = runtime_context.store if runtime_context else self.store
+            pipeline_id = runtime_context.pipeline_id if runtime_context else None
+            if store and pipeline_id:
+                for output in step_result.outputs:
+                    if isinstance(output, tuple) and len(output) >= 3:
+                        data, name, type_hint = output
+                        store.log_step(
+                            pipeline_id=pipeline_id,
+                            step_idx=self.step_number,
+                            operator_class=operator_class,
+                            event="output",
+                            message=f"Output: {name}.{type_hint}",
+                            details={"name": name, "type": type_hint},
                         )
 
             # Update context
@@ -599,17 +616,6 @@ class PipelineExecutor:
             # Sync operation_count back from runtime_context
             if runtime_context:
                 self.operation_count = runtime_context.operation_count
-
-            # Append artifacts to manifest if in train mode
-            if (self.mode == "train" and
-                self.manifest_manager and
-                runtime_context.pipeline_uid and
-                processed_artifacts):
-                self.manifest_manager.append_artifacts(
-                    runtime_context.pipeline_uid,
-                    processed_artifacts
-                )
-                logger.debug(f"Appended {len(processed_artifacts)} artifacts to manifest")
 
             # Record step end in execution trace
             if runtime_context:
@@ -631,13 +637,15 @@ class PipelineExecutor:
     def _process_step_artifacts(
         self,
         artifacts: List[Any],
+        runtime_context: Any = None,
         branch_id: Optional[int] = None,
         branch_name: Optional[str] = None
     ) -> List[Any]:
-        """Process and persist step artifacts.
+        """Process and persist step artifacts via WorkspaceStore.
 
         Args:
             artifacts: Raw artifacts from step execution
+            runtime_context: Runtime context with store reference
             branch_id: Optional branch ID for artifact naming
             branch_name: Optional branch name for metadata
 
@@ -646,6 +654,8 @@ class PipelineExecutor:
         """
         from nirs4all.pipeline.execution.result import ArtifactMeta
         from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord
+
+        store = runtime_context.store if runtime_context else self.store
 
         processed_artifacts = []
         for artifact in artifacts:
@@ -671,15 +681,21 @@ class PipelineExecutor:
                 if branch_id is not None:
                     name = f"{name}_b{branch_id}"
 
-                if self.saver:
-                    meta = self.saver.persist_artifact(
-                        step_number=self.step_number,
-                        name=name,
+                if store and self.save_artifacts:
+                    # Persist via WorkspaceStore
+                    artifact_id = store.save_artifact(
                         obj=obj,
-                        format_hint=format_hint,
-                        branch_id=branch_id,
-                        branch_name=branch_name
+                        operator_class=name,
+                        artifact_type="step_artifact",
+                        format=format_hint or "joblib",
                     )
+                    meta = {
+                        "artifact_id": artifact_id,
+                        "name": name,
+                        "step_number": self.step_number,
+                        "branch_id": branch_id,
+                        "branch_name": branch_name,
+                    }
                     processed_artifacts.append(meta)
 
         return processed_artifacts
@@ -901,8 +917,8 @@ class PipelineExecutor:
                     names = [self._extract_operator_class_name(t) for t in transformers[:2]]
                     names = [n for n in names if n not in ('dict', 'list')]
                     if names:
-                        return f"{', '.join(names)} ×{count}"
-                return f"[{len(transformers)} aug] ×{count}"
+                        return f"{', '.join(names)} x{count}"
+                return f"[{len(transformers)} aug] x{count}"
 
             # For concat_transform with operations
             if 'operations' in value:
@@ -938,7 +954,7 @@ class PipelineExecutor:
             is_input: True to record input shapes, False for output shapes
         """
         try:
-            # Get 2D layout shape (samples × features)
+            # Get 2D layout shape (samples x features)
             X_2d = dataset.x(context.selector, layout="2d", include_excluded=False)
             if isinstance(X_2d, list):
                 # Multi-source with concat
@@ -946,7 +962,7 @@ class PipelineExecutor:
             else:
                 layout_shape = X_2d.shape
 
-            # Get 3D per-source shapes (samples × processings × features)
+            # Get 3D per-source shapes (samples x processings x features)
             X_3d = dataset.x(context.selector, layout="3d", concat_source=False, include_excluded=False)
             if not isinstance(X_3d, list):
                 X_3d = [X_3d]
@@ -1020,8 +1036,6 @@ class PipelineExecutor:
             The artifact_provider in runtime_context should be a MinimalArtifactProvider
             that provides artifacts by step index from the MinimalPipeline.
         """
-        from nirs4all.pipeline.execution.result import ArtifactMeta
-
         logger.info(f"Executing minimal pipeline: {len(steps)} steps")
 
         # Reset state
@@ -1031,11 +1045,6 @@ class PipelineExecutor:
 
         if prediction_store is None:
             prediction_store = Predictions()
-
-        # Get step indices from minimal pipeline for validation
-        minimal_step_indices = set()
-        if hasattr(minimal_pipeline, 'get_step_indices'):
-            minimal_step_indices = set(minimal_pipeline.get_step_indices())
 
         # Get target branch_path from the model step
         # All steps need to use this branch for filtering artifacts
@@ -1140,4 +1149,3 @@ class PipelineExecutor:
                 )
 
         logger.success(f"Minimal pipeline completed: {prediction_store.num_predictions} predictions")
-

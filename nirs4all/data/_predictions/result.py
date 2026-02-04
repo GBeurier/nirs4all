@@ -5,16 +5,19 @@ This module provides PredictionResult and PredictionResultsList classes
 that extend standard Python dict/list with prediction-specific functionality.
 """
 
+from __future__ import annotations
+
 import csv
 import io
 import json
-from typing import Dict, Any, List, Optional, Union
 from pathlib import Path
+from typing import Any
+
 import numpy as np
 import polars as pl
 
-from nirs4all.core.logging import get_logger
 from nirs4all.core import metrics as evaluator
+from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -81,7 +84,7 @@ class PredictionResult(dict):
         """Get config name."""
         return self.get("config_name", "unknown")
 
-    def save_to_csv(self, path_or_file: str = "results", filename: Optional[str] = None) -> None:
+    def save_to_csv(self, path_or_file: str = "results", filename: str | None = None) -> None:
         """
         Save prediction result to CSV file.
 
@@ -194,7 +197,7 @@ class PredictionResult(dict):
         else:
             logger.warning("No prediction data found to save")
 
-    def eval_score(self, metrics: Optional[List[str]] = None) -> Dict[str, Any]:
+    def eval_score(self, metrics: list[str] | None = None) -> dict[str, Any]:
         """
         Evaluate scores for this prediction using specified metrics.
 
@@ -283,7 +286,7 @@ class PredictionResult(dict):
         try:
             from nirs4all.visualization.reports import TabReportManager
         except ImportError:
-            return f"{WARNING}TabReportManager not available"
+            return "WARNING: TabReportManager not available"
 
         # Check if this is an aggregated result (has train/val/test keys)
         has_partitions = all(k in self for k in ["train", "val", "test"])
@@ -343,7 +346,7 @@ class PredictionResultsList(list):
         3
     """
 
-    def __init__(self, predictions: Optional[List[Union[Dict[str, Any], PredictionResult]]] = None):
+    def __init__(self, predictions: list[dict[str, Any] | PredictionResult] | None = None):
         """
         Initialize with optional list of PredictionResult objects.
 
@@ -352,7 +355,7 @@ class PredictionResultsList(list):
         """
         super().__init__(predictions or [])
 
-    def save(self, path: str = "results", filename: Optional[str] = None) -> None:
+    def save(self, path: str = "results", filename: str | None = None) -> None:
         """
         Save all predictions to a single CSV file with structured headers.
 
@@ -484,7 +487,7 @@ class PredictionResultsList(list):
         output.close()
         logger.info(f"Saved {len(self)} predictions to {filepath}")
 
-    def get(self, prediction_id: str) -> Optional[PredictionResult]:
+    def get(self, prediction_id: str) -> PredictionResult | None:
         """
         Get a prediction by its ID.
 

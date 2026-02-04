@@ -276,16 +276,9 @@ class ResamplerController(OperatorController):
                 source_processing_names.append(processing_name)
                 source_resamplers.append(resampler)
 
-                # Persist fitted resampler using new serializer
+                # Persist fitted resampler
                 if mode == "train":
-                    artifact = runtime_context.saver.persist_artifact(
-                        step_number=runtime_context.step_number,
-                        name=new_operator_name,
-                        obj=resampler,
-                        format_hint='sklearn',
-                        branch_id=context.selector.branch_id,
-                        branch_name=context.selector.branch_name
-                    )
+                    artifact = (resampler, new_operator_name, "sklearn")
                     fitted_resamplers.append(artifact)
 
             # Determine final wavelengths for headers
@@ -323,16 +316,16 @@ class ResamplerController(OperatorController):
             # Resampler always outputs wavelengths in cm-1
             dataset._features.sources[sd_idx].set_headers(new_headers, unit="cm-1")  # noqa: SLF001
 
-            if runtime_context.saver.save_artifacts:
+            if runtime_context.save_artifacts and runtime_context.store is not None:
                 logger.debug(f"Exporting resampled features for dataset '{dataset.name}', source {sd_idx} to CSV...")
                 logger.debug(dataset.features_processings(sd_idx))
                 train_context = context.with_partition("train")
                 train_x_full = dataset.x(train_context.selector, "2d", concat_source=True)
                 test_context = context.with_partition("test")
                 test_x_full = dataset.x(test_context.selector, "2d", concat_source=True)
-                # save train and test features to CSV for debugging, create folder if needed
+                # save train and test features to CSV for debugging
                 import os
-                root_path = runtime_context.saver.base_path
+                root_path = runtime_context.store.workspace_path
                 os.makedirs(f"{root_path}/{dataset.name}", exist_ok=True)
                 np.savetxt(f"{root_path}/{dataset.name}/Export_X_train.csv", train_x_full, delimiter=",")
                 np.savetxt(f"{root_path}/{dataset.name}/Export_X_test.csv", test_x_full, delimiter=",")

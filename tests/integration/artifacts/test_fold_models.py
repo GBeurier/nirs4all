@@ -11,7 +11,6 @@ Tests per-fold model saving and loading:
 import pytest
 import numpy as np
 from pathlib import Path
-import yaml
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold, RepeatedKFold
 from sklearn.preprocessing import StandardScaler
@@ -295,30 +294,13 @@ class TestCVPipelineFoldArtifacts:
 
         assert len(predictions) > 0
 
-        # Check manifest for multiple model artifacts
-        runs_dir = workspace_path / "runs"
-        manifest_files = list(runs_dir.glob("*/*/manifest.yaml"))
+        # Check that artifacts were saved to content-addressed directory
+        artifacts_dir = workspace_path / "artifacts"
+        artifact_files = list(artifacts_dir.glob("**/*.joblib")) + list(artifacts_dir.glob("**/*.pkl"))
 
-        if len(manifest_files) == 0:
-            pytest.skip("No manifest files found")
-
-        with open(manifest_files[0]) as f:
-            manifest = yaml.safe_load(f)
-
-        artifacts = manifest.get("artifacts", [])
-        if isinstance(artifacts, dict):
-            items = artifacts.get("items", [])
-        else:
-            items = artifacts
-
-        # Count model artifacts
-        model_artifacts = [
-            a for a in items
-            if "Ridge" in (a.get("name", "") or a.get("class_name", ""))
-        ]
-
-        # Should have multiple model artifacts (one per fold or aggregated)
-        assert len(model_artifacts) >= 1
+        # Should have at least one artifact file (model artifacts)
+        assert len(artifact_files) >= 1, \
+            "Should have at least one artifact file for model"
 
     def test_repeated_kfold_creates_many_artifacts(
         self, runner, dataset, workspace_path

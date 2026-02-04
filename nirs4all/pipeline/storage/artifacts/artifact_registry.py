@@ -14,8 +14,7 @@ V3 Key Changes:
 - Chain hash-based artifact IDs for deterministic identification
 - Unified handling of branching, multi-source, stacking, and bundles
 
-The registry works with centralized storage at workspace/binaries/<dataset>/
-and coordinates with ManifestManager for manifest updates.
+The registry works with centralized storage at workspace/binaries/<dataset>/.
 """
 
 import logging
@@ -232,20 +231,17 @@ class ArtifactRegistry:
         self,
         workspace: Path,
         dataset: str,
-        manifest_manager: Optional[Any] = None,
-        pipeline_id: str = ""
+        pipeline_id: str = "",
     ):
         """Initialize artifact registry.
 
         Args:
-            workspace: Workspace root path
-            dataset: Dataset name for this registry
-            manifest_manager: Optional ManifestManager for manifest updates
-            pipeline_id: Pipeline identifier for V3 ID generation
+            workspace: Workspace root path.
+            dataset: Dataset name for this registry.
+            pipeline_id: Pipeline identifier for V3 ID generation.
         """
         self.workspace = Path(workspace)
         self.dataset = dataset
-        self.manifest_manager = manifest_manager
         self.pipeline_id = pipeline_id
 
         # Centralized binaries directory - created lazily when artifacts are saved

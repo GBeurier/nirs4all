@@ -735,7 +735,7 @@ class TransformerMixinController(OperatorController):
         # Use artifact registry (V3 system)
         if runtime_context.artifact_registry is not None:
             registry = runtime_context.artifact_registry
-            pipeline_id = runtime_context.saver.pipeline_id if runtime_context.saver else "unknown"
+            pipeline_id = runtime_context.pipeline_name or "unknown"
             step_index = runtime_context.step_number
             branch_path = context.selector.branch_path or []
 

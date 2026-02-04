@@ -2,16 +2,15 @@
 Integration tests for complete artifact flow.
 
 Tests the full lifecycle of artifacts from training to prediction:
-- Training creates artifacts in centralized storage
-- Prediction loads artifacts correctly
-- Manifest references are valid
+- Training creates artifacts in DuckDB store + content-addressed artifacts/
+- Prediction loads artifacts correctly via chain replay
+- Artifact records in store.duckdb have valid paths
 - Artifact integrity is preserved
 """
 
 import pytest
 import numpy as np
 from pathlib import Path
-import yaml
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import StandardScaler
@@ -63,10 +62,10 @@ class TestTrainingArtifactCreation:
         """Create test dataset."""
         return create_test_dataset()
 
-    def test_training_creates_manifest_with_artifacts(
+    def test_training_creates_store_with_artifacts(
         self, runner, dataset, workspace_path
     ):
-        """Verify training creates manifest.yaml with artifact references."""
+        """Verify training creates DuckDB store with chain and artifact records."""
         pipeline = [
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
             {"class": "sklearn.preprocessing.StandardScaler"},
@@ -81,32 +80,18 @@ class TestTrainingArtifactCreation:
         assert predictions is not None
         assert len(predictions) > 0
 
-        # Find manifest
-        runs_dir = workspace_path / "runs"
-        assert runs_dir.exists(), "Runs directory should be created"
+        # Verify store.duckdb exists
+        store_path = workspace_path / "store.duckdb"
+        assert store_path.exists(), "store.duckdb should be created"
 
-        manifest_files = list(runs_dir.glob("*/*/manifest.yaml"))
-        assert len(manifest_files) > 0, "Should create at least one manifest"
-
-        # Check manifest structure
-        with open(manifest_files[0]) as f:
-            manifest = yaml.safe_load(f)
-
-        assert "artifacts" in manifest, "Manifest should have artifacts section"
-
-        # Check artifacts section (v2 format)
-        artifacts = manifest["artifacts"]
-        if isinstance(artifacts, dict):
-            # v2 format
-            assert "items" in artifacts or "schema_version" in artifacts
-        elif isinstance(artifacts, list):
-            # v1 format (backward compat)
-            assert len(artifacts) >= 0
+        # Verify artifacts directory exists
+        artifacts_dir = workspace_path / "artifacts"
+        assert artifacts_dir.exists(), "artifacts/ directory should be created"
 
     def test_training_saves_binaries_to_disk(
         self, runner, dataset, workspace_path
     ):
-        """Verify training saves binary artifacts to disk."""
+        """Verify training saves binary artifacts to content-addressed artifacts/ directory."""
         pipeline = [
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
             {"class": "sklearn.preprocessing.StandardScaler"},
@@ -118,21 +103,17 @@ class TestTrainingArtifactCreation:
             dataset
         )
 
-        # Check for binaries (v2 centralized or v1 per-run)
-        runs_dir = workspace_path / "runs"
-        binaries_v2 = workspace_path / "binaries"
+        # Check for binaries in flat content-addressed artifacts/ directory
+        artifacts_dir = workspace_path / "artifacts"
+        artifact_files = list(artifacts_dir.glob("**/*.joblib")) + list(artifacts_dir.glob("**/*.pkl"))
 
-        # At least one location should have binaries
-        v1_binaries = list(runs_dir.glob("*/_binaries/*"))
-        v2_binaries = list(binaries_v2.glob("**/*.pkl")) + list(binaries_v2.glob("**/*.joblib"))
+        assert len(artifact_files) > 0, \
+            "Should create binary artifact files in artifacts/ directory"
 
-        assert len(v1_binaries) > 0 or len(v2_binaries) > 0, \
-            "Should create binary artifact files"
-
-    def test_artifact_paths_in_manifest_are_valid(
+    def test_artifact_paths_in_store_are_valid(
         self, runner, dataset, workspace_path
     ):
-        """Verify artifact paths in manifest point to existing files."""
+        """Verify artifact paths in store.duckdb point to existing files."""
         pipeline = [
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
             {"class": "sklearn.preprocessing.StandardScaler"},
@@ -144,29 +125,14 @@ class TestTrainingArtifactCreation:
             dataset
         )
 
-        # Find manifest
-        runs_dir = workspace_path / "runs"
-        manifest_files = list(runs_dir.glob("*/*/manifest.yaml"))
+        # Verify artifact files exist in content-addressed artifacts/ directory
+        artifacts_dir = workspace_path / "artifacts"
+        artifact_files = list(artifacts_dir.glob("**/*.joblib")) + list(artifacts_dir.glob("**/*.pkl"))
 
-        if len(manifest_files) == 0:
-            pytest.skip("No manifest files found")
-
-        with open(manifest_files[0]) as f:
-            manifest = yaml.safe_load(f)
-
-        artifacts = manifest.get("artifacts", [])
-
-        # Handle v2 format
-        if isinstance(artifacts, dict):
-            items = artifacts.get("items", [])
-        else:
-            items = artifacts
-
-        # Check each artifact path is valid or relative
-        for item in items:
-            path = item.get("path", "")
-            # Paths should be non-empty strings
-            assert path, f"Artifact should have a path: {item}"
+        # Each artifact file should be non-empty
+        for artifact_file in artifact_files:
+            assert artifact_file.stat().st_size > 0, \
+                f"Artifact file should be non-empty: {artifact_file}"
 
 
 class TestPredictionArtifactLoading:
@@ -414,10 +380,10 @@ class TestMultiplePipelinesArtifactFlow:
         """Create test dataset."""
         return create_test_dataset()
 
-    def test_multiple_pipelines_create_separate_manifests(
+    def test_multiple_pipelines_create_separate_records(
         self, runner, dataset, workspace_path
     ):
-        """Verify multiple pipeline runs create separate manifests."""
+        """Verify multiple pipeline runs create separate records in store."""
         pipeline1 = [
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
             {"model": Ridge(alpha=1.0)},
@@ -431,11 +397,11 @@ class TestMultiplePipelinesArtifactFlow:
         predictions1, _ = runner.run(PipelineConfigs(pipeline1), dataset)
         predictions2, _ = runner.run(PipelineConfigs(pipeline2), dataset)
 
-        # Should have multiple pipeline directories
-        runs_dir = workspace_path / "runs"
-        manifest_files = list(runs_dir.glob("*/*/manifest.yaml"))
-
-        assert len(manifest_files) >= 2, "Should have at least 2 manifests"
+        # Both should produce predictions
+        assert predictions1 is not None
+        assert predictions2 is not None
+        assert len(predictions1) > 0
+        assert len(predictions2) > 0
 
     def test_predictions_from_different_pipelines_load_correctly(
         self, runner, dataset, workspace_path

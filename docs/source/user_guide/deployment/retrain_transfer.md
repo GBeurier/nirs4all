@@ -26,27 +26,20 @@ The retrain feature allows you to:
 Train everything from scratch using the same pipeline structure:
 
 ```python
-from nirs4all.pipeline import PipelineRunner
-from nirs4all.data import DatasetConfigs
-
-runner = PipelineRunner(save_artifacts=True, verbose=0)
+import nirs4all
 
 # Train initial model
-predictions, _ = runner.run(pipeline_config, dataset_config)
-best_pred = predictions.top(n=1, rank_partition="test")[0]
-
-# Full retrain on new data
-new_data = DatasetConfigs(['path/to/new_calibration'])
-
-retrained_preds, _ = runner.retrain(
-    source=best_pred,
-    dataset=new_data,
-    mode='full',
-    dataset_name='new_calibration',
-    verbose=0
+result = nirs4all.run(
+    pipeline=[MinMaxScaler(), PLSRegression(10)],
+    dataset="sample_data/regression",
 )
 
-print(f"Retrained RMSE: {retrained_preds.top(n=1)[0]['rmse']:.4f}")
+# Export model
+result.export("model.n4a")
+
+# Full retrain on new data
+new_result = nirs4all.retrain("model.n4a", new_data, mode="full")
+print(f"Retrained RMSE: {new_result.best_rmse:.4f}")
 ```
 
 ### Transfer Mode
@@ -55,13 +48,7 @@ Reuse preprocessing artifacts (scalers, SNV, etc.) while training a new model:
 
 ```python
 # Transfer: reuse preprocessing, train new model
-transfer_preds, _ = runner.retrain(
-    source=best_pred,
-    dataset=new_data,
-    mode='transfer',
-    dataset_name='transfer_test',
-    verbose=0
-)
+transfer_result = nirs4all.retrain("model.n4a", new_data, mode="transfer")
 ```
 
 This is useful when:
@@ -78,13 +65,10 @@ from sklearn.ensemble import GradientBoostingRegressor
 
 new_model = GradientBoostingRegressor(n_estimators=100, random_state=42)
 
-transfer_preds, _ = runner.retrain(
-    source=best_pred,
-    dataset=new_data,
-    mode='transfer',
+transfer_result = nirs4all.retrain(
+    "model.n4a", new_data,
+    mode="transfer",
     new_model=new_model,
-    dataset_name='transfer_new_model',
-    verbose=0
 )
 ```
 
@@ -94,13 +78,10 @@ Continue training an existing model (most effective with neural networks):
 
 ```python
 # Finetune: continue training with additional epochs
-finetune_preds, _ = runner.retrain(
-    source=best_pred,
-    dataset=new_data,
-    mode='finetune',
+finetune_result = nirs4all.retrain(
+    "model.n4a", new_data,
+    mode="finetune",
     epochs=10,
-    dataset_name='finetune_test',
-    verbose=0
 )
 ```
 
@@ -108,20 +89,16 @@ finetune_preds, _ = runner.retrain(
 
 ## Retrain Sources
 
-The `retrain()` method accepts various sources:
+The `nirs4all.retrain()` function accepts various sources:
 
 ```python
-# From prediction dict
-runner.retrain(best_prediction, new_data, mode='full')
-
-# From folder path
-runner.retrain("runs/2024-12-14_wheat/pipeline_abc123/", new_data, mode='transfer')
+import nirs4all
 
 # From bundle file
-runner.retrain("exports/wheat_model.n4a", new_data, mode='transfer')
+nirs4all.retrain("exports/wheat_model.n4a", new_data, mode="transfer")
 
-# From model ID
-runner.retrain(model_id, new_data, mode='full')
+# From chain ID (requires workspace)
+nirs4all.retrain(chain_id="abc123", data=new_data, mode="finetune")
 ```
 
 ## Extract and Modify
@@ -316,8 +293,8 @@ finetune_preds, _ = runner.retrain(
 
 ```python
 # Error: Artifact not found
-# Solution: Ensure original model was trained with save_artifacts=True
-runner = PipelineRunner(save_artifacts=True, verbose=0)
+# Solution: Artifacts are stored automatically in store.duckdb + artifacts/
+# Ensure the workspace path is correct and artifacts/ directory is intact
 ```
 
 ### Feature Mismatch
@@ -334,7 +311,7 @@ print(f"New data features: {new_data.shape[1]}")
 ```python
 # Finetune with sklearn model = just retraining
 # Use transfer or full mode instead for sklearn models
-runner.retrain(source, data, mode='transfer')  # Better for sklearn
+nirs4all.retrain("model.n4a", data, mode="transfer")  # Better for sklearn
 ```
 
 ## See Also

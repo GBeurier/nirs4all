@@ -2,15 +2,12 @@
 Workspace management for nirs4all.
 
 Provides:
-- Library management for saving and loading pipeline templates and trained models.
 - Active workspace path management for run output storage.
 """
 
 import os
 from pathlib import Path
 from typing import Optional
-
-from .library_manager import LibraryManager
 
 
 # Global active workspace path
@@ -66,7 +63,6 @@ def reset_active_workspace() -> None:
 
 
 __all__ = [
-    "LibraryManager",
     "get_active_workspace",
     "set_active_workspace",
     "reset_active_workspace",
