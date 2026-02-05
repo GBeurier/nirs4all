@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.0] - Operator Refactoring & Controller-Managed Variation - 2026-02-03
+## [0.7.0] - Operator Refactoring & Controller-Managed Variation - 2026-02-05
+
+> **⚠️ Documentation Notice:** Due to the extensive scope of this release, some documentation may be temporarily incomplete or out of sync. Updates are in progress.
 
 ### ⚠ BREAKING CHANGES
 
@@ -51,6 +53,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New subcategories: spectral-noise, spectral-baseline, spectral-wavelength, spectral-smoothing, spectral-masking, spectral-mixing, environmental, scattering, edge-artifacts, synthesis
 - `variation_scope` parameter added to SampleAugmentation container
 - Removed `apply_on`, `copy` from all webapp node definitions
+
+### Improvements
+
+#### Feature Selection Enhancement
+- **`FlexiblePCA` and `FlexibleSVD` classes**: New flexible dimensionality reduction with enhanced documentation
+- Enhanced feature selection module documentation
+
+#### Storage & Infrastructure
+- **DuckDB storage migration**: Refactored artifact storage from `binaries/` to `artifacts/` directory
+- Updated tests to support DuckDB storage and new directory structure
+- Removed deprecated directory checks in test suite
+
+#### Testing
+- Added integration tests for bundle export and prediction with special operator types
+- Comprehensive test coverage for new storage structure
+- Updated test assertions for `store.duckdb` persistence
+
+#### Misc
+- Changed file permissions for CI example scripts
+- Removed obsolete tests: `test_catalog_export.py`, `test_library_manager.py`, `test_query_reporting.py`
 
 ### Configuration Migration
 

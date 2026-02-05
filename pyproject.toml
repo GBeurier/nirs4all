@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nirs4all"
-version = "0.6.2"
+version = "0.7.0"
 description = "A comprehensive Python library for Near-Infrared Spectroscopy (NIRS) data analysis with ML/DL pipelines."
 authors = [
     { name = "Gregory Beurier", email = "beurier@cirad.fr" },
@@ -62,6 +62,7 @@ dependencies = [
     "pyarrow>=14.0.0",
     "duckdb>=1.0.0",
     "h5py>=3.8.0",
+    "umap-learn",
 
     # Signal processing
     "PyWavelets>=1.4.0",
