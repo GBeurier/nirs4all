@@ -1,20 +1,27 @@
 """
-Feature selection operators for NIRS spectral data.
+Feature selection and dimensionality reduction operators for NIRS spectral data.
 
-This module provides wavelength/variable selection methods commonly used
-in chemometrics for NIRS data:
+This module provides wavelength/variable selection and dimensionality reduction
+methods commonly used in chemometrics for NIRS data:
+
+Feature Selection:
 - CARS (Competitive Adaptive Reweighted Sampling)
 - MC-UVE (Monte-Carlo Uninformative Variable Elimination)
+
+Dimensionality Reduction:
+- FlexiblePCA: PCA with flexible component specification (count or variance ratio)
+- FlexibleSVD: SVD with flexible component specification (count or variance ratio)
 
 These selectors identify informative wavelengths and reduce feature
 dimensionality while preserving predictive performance.
 """
 
 import numpy as np
-from typing import Optional, Literal
+from typing import Optional, Literal, Union
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_array, check_is_fitted
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.decomposition import PCA, TruncatedSVD
 import warnings
 
 
@@ -656,3 +663,484 @@ class MCUVE(TransformerMixin, BaseEstimator):
             return (f"MCUVE(n_components={self.n_components}, "
                     f"n_in={self.n_features_in_}, n_out={self.n_features_out_})")
         return f"MCUVE(n_components={self.n_components}, unfitted)"
+
+
+class FlexiblePCA(TransformerMixin, BaseEstimator):
+    """
+    PCA with flexible component specification.
+
+    This transformer wraps sklearn's PCA with a convenient interface for specifying
+    the number of components either as an integer count or as a variance ratio.
+
+    - If n_components >= 1: interpreted as the exact number of components to keep
+    - If 0 < n_components < 1: interpreted as the minimum variance ratio to explain
+
+    This is useful for NIRS data where you may want to retain either a fixed
+    number of spectral features or a percentage of the variance.
+
+    Parameters
+    ----------
+    n_components : int or float, default=0.95
+        Number of components to keep:
+        - If int >= 1: exact number of components
+        - If float in (0, 1): minimum variance ratio to explain
+        Default is 0.95 (95% of variance).
+
+    whiten : bool, default=False
+        If True, whiten the output (each component has unit variance).
+
+    svd_solver : {'auto', 'full', 'arpack', 'randomized'}, default='auto'
+        SVD solver to use.
+
+    random_state : int or None, default=None
+        Random seed for reproducibility.
+
+    copy : bool, default=True
+        If False, try in-place transformation.
+
+    Attributes
+    ----------
+    n_features_in_ : int
+        Number of features in input data.
+    n_features_out_ : int
+        Number of output components.
+    components_ : ndarray of shape (n_components, n_features)
+        Principal axes in feature space.
+    explained_variance_ : ndarray of shape (n_components,)
+        Variance explained by each component.
+    explained_variance_ratio_ : ndarray of shape (n_components,)
+        Percentage of variance explained by each component.
+    cumulative_variance_ratio_ : ndarray of shape (n_components,)
+        Cumulative variance ratio.
+    mean_ : ndarray of shape (n_features,)
+        Per-feature empirical mean, estimated from training data.
+    pca_ : PCA
+        The underlying fitted sklearn PCA object.
+
+    Examples
+    --------
+    >>> from nirs4all.operators.transforms import FlexiblePCA
+    >>> import numpy as np
+    >>>
+    >>> # Spectral data with 200 wavelengths
+    >>> X = np.random.randn(100, 200)
+    >>>
+    >>> # Keep 95% of variance
+    >>> pca = FlexiblePCA(n_components=0.95)
+    >>> X_reduced = pca.fit_transform(X)
+    >>> print(f"Reduced to {X_reduced.shape[1]} components")
+    >>>
+    >>> # Keep exactly 10 components
+    >>> pca = FlexiblePCA(n_components=10)
+    >>> X_reduced = pca.fit_transform(X)
+    >>> print(f"Reduced to {X_reduced.shape[1]} components")
+
+    Notes
+    -----
+    - For variance ratio mode, the number of components is determined by
+      finding the minimum number that explains at least n_components of variance.
+    - The fitted PCA object is accessible via the pca_ attribute.
+    """
+
+    def __init__(
+        self,
+        n_components: Union[int, float] = 0.95,
+        whiten: bool = False,
+        svd_solver: Literal['auto', 'full', 'arpack', 'randomized'] = 'auto',
+        random_state: Optional[int] = None,
+        copy: bool = True
+    ):
+        self.n_components = n_components
+        self.whiten = whiten
+        self.svd_solver = svd_solver
+        self.random_state = random_state
+        self.copy = copy
+
+    def _reset(self):
+        """Reset fitted state."""
+        attrs = ['pca_', 'n_features_in_', 'n_features_out_', 'components_',
+                 'explained_variance_', 'explained_variance_ratio_',
+                 'cumulative_variance_ratio_', 'mean_']
+        for attr in attrs:
+            if hasattr(self, attr):
+                delattr(self, attr)
+
+    def fit(self, X, y=None):
+        """
+        Fit the PCA transformer.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data.
+        y : None
+            Ignored.
+
+        Returns
+        -------
+        self : FlexiblePCA
+            Fitted transformer.
+        """
+        self._reset()
+
+        X = check_array(X, dtype=np.float64, copy=self.copy)
+        n_samples, n_features = X.shape
+        self.n_features_in_ = n_features
+
+        # Determine actual number of components
+        if isinstance(self.n_components, float) and 0 < self.n_components < 1:
+            # Variance ratio mode: fit full PCA first to determine components
+            pca_full = PCA(svd_solver=self.svd_solver, random_state=self.random_state)
+            pca_full.fit(X)
+
+            cumsum = np.cumsum(pca_full.explained_variance_ratio_)
+            n_comp = int(np.searchsorted(cumsum, self.n_components) + 1)
+            n_comp = min(n_comp, n_features, n_samples)
+
+            # Now fit with determined number of components
+            self.pca_ = PCA(
+                n_components=n_comp,
+                whiten=self.whiten,
+                svd_solver=self.svd_solver,
+                random_state=self.random_state
+            )
+        else:
+            # Integer mode: use exact number
+            n_comp = int(self.n_components)
+            n_comp = min(n_comp, n_features, n_samples)
+
+            self.pca_ = PCA(
+                n_components=n_comp,
+                whiten=self.whiten,
+                svd_solver=self.svd_solver,
+                random_state=self.random_state
+            )
+
+        self.pca_.fit(X)
+
+        # Copy attributes from underlying PCA
+        self.n_features_out_ = self.pca_.n_components_
+        self.components_ = self.pca_.components_
+        self.explained_variance_ = self.pca_.explained_variance_
+        self.explained_variance_ratio_ = self.pca_.explained_variance_ratio_
+        self.cumulative_variance_ratio_ = np.cumsum(self.explained_variance_ratio_)
+        self.mean_ = self.pca_.mean_
+
+        return self
+
+    def transform(self, X):
+        """
+        Apply dimensionality reduction to X.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Data to transform.
+
+        Returns
+        -------
+        X_transformed : ndarray of shape (n_samples, n_components)
+            Transformed data.
+        """
+        check_is_fitted(self, 'pca_')
+        X = check_array(X, dtype=np.float64, copy=self.copy)
+
+        if X.shape[1] != self.n_features_in_:
+            raise ValueError(
+                f"X has {X.shape[1]} features but FlexiblePCA was fitted with {self.n_features_in_}"
+            )
+
+        return self.pca_.transform(X)
+
+    def inverse_transform(self, X):
+        """
+        Transform data back to its original space.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_components)
+            Transformed data.
+
+        Returns
+        -------
+        X_original : ndarray of shape (n_samples, n_features)
+            Original data (approximation).
+        """
+        check_is_fitted(self, 'pca_')
+        return self.pca_.inverse_transform(X)
+
+    def get_feature_names_out(self, input_features=None):
+        """
+        Get output feature names.
+
+        Parameters
+        ----------
+        input_features : array-like of str or None, default=None
+            Ignored.
+
+        Returns
+        -------
+        feature_names_out : ndarray of str
+            Feature names ['pc0', 'pc1', ...].
+        """
+        check_is_fitted(self, 'n_features_out_')
+        return np.array([f"pc{i}" for i in range(self.n_features_out_)])
+
+    def _more_tags(self):
+        return {"allow_nan": False}
+
+    def __repr__(self):
+        """String representation."""
+        if hasattr(self, 'n_features_out_'):
+            var_explained = self.cumulative_variance_ratio_[-1] * 100
+            return (f"FlexiblePCA(n_components={self.n_components}, "
+                    f"n_out={self.n_features_out_}, var={var_explained:.1f}%)")
+        return f"FlexiblePCA(n_components={self.n_components}, unfitted)"
+
+
+class FlexibleSVD(TransformerMixin, BaseEstimator):
+    """
+    Truncated SVD with flexible component specification.
+
+    This transformer wraps sklearn's TruncatedSVD with a convenient interface
+    for specifying the number of components either as an integer count or as
+    a variance ratio.
+
+    - If n_components >= 1: interpreted as the exact number of components to keep
+    - If 0 < n_components < 1: interpreted as the minimum variance ratio to explain
+
+    Unlike PCA, TruncatedSVD does not center the data before computing the SVD,
+    making it suitable for sparse matrices and data that should not be centered.
+
+    Parameters
+    ----------
+    n_components : int or float, default=0.95
+        Number of components to keep:
+        - If int >= 1: exact number of components
+        - If float in (0, 1): minimum variance ratio to explain
+        Default is 0.95 (95% of variance).
+
+    algorithm : {'arpack', 'randomized'}, default='randomized'
+        SVD solver to use.
+
+    n_iter : int, default=5
+        Number of iterations for randomized SVD solver.
+
+    random_state : int or None, default=None
+        Random seed for reproducibility.
+
+    copy : bool, default=True
+        If False, try in-place transformation.
+
+    Attributes
+    ----------
+    n_features_in_ : int
+        Number of features in input data.
+    n_features_out_ : int
+        Number of output components.
+    components_ : ndarray of shape (n_components, n_features)
+        Components with maximum variance.
+    explained_variance_ : ndarray of shape (n_components,)
+        Variance explained by each component.
+    explained_variance_ratio_ : ndarray of shape (n_components,)
+        Percentage of variance explained by each component.
+    cumulative_variance_ratio_ : ndarray of shape (n_components,)
+        Cumulative variance ratio.
+    singular_values_ : ndarray of shape (n_components,)
+        Singular values corresponding to each component.
+    svd_ : TruncatedSVD
+        The underlying fitted sklearn TruncatedSVD object.
+
+    Examples
+    --------
+    >>> from nirs4all.operators.transforms import FlexibleSVD
+    >>> import numpy as np
+    >>>
+    >>> # Spectral data with 200 wavelengths
+    >>> X = np.random.randn(100, 200)
+    >>>
+    >>> # Keep 95% of variance
+    >>> svd = FlexibleSVD(n_components=0.95)
+    >>> X_reduced = svd.fit_transform(X)
+    >>> print(f"Reduced to {X_reduced.shape[1]} components")
+    >>>
+    >>> # Keep exactly 10 components
+    >>> svd = FlexibleSVD(n_components=10)
+    >>> X_reduced = svd.fit_transform(X)
+    >>> print(f"Reduced to {X_reduced.shape[1]} components")
+
+    Notes
+    -----
+    - For variance ratio mode, an initial SVD with more components is computed
+      to estimate the total variance, then the optimal number is determined.
+    - TruncatedSVD is recommended over PCA for sparse data or when centering
+      is not desired.
+    - The fitted SVD object is accessible via the svd_ attribute.
+    """
+
+    def __init__(
+        self,
+        n_components: Union[int, float] = 0.95,
+        algorithm: Literal['arpack', 'randomized'] = 'randomized',
+        n_iter: int = 5,
+        random_state: Optional[int] = None,
+        copy: bool = True
+    ):
+        self.n_components = n_components
+        self.algorithm = algorithm
+        self.n_iter = n_iter
+        self.random_state = random_state
+        self.copy = copy
+
+    def _reset(self):
+        """Reset fitted state."""
+        attrs = ['svd_', 'n_features_in_', 'n_features_out_', 'components_',
+                 'explained_variance_', 'explained_variance_ratio_',
+                 'cumulative_variance_ratio_', 'singular_values_']
+        for attr in attrs:
+            if hasattr(self, attr):
+                delattr(self, attr)
+
+    def fit(self, X, y=None):
+        """
+        Fit the SVD transformer.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data.
+        y : None
+            Ignored.
+
+        Returns
+        -------
+        self : FlexibleSVD
+            Fitted transformer.
+        """
+        self._reset()
+
+        X = check_array(X, dtype=np.float64, copy=self.copy, accept_sparse=['csr', 'csc'])
+        n_samples, n_features = X.shape
+        self.n_features_in_ = n_features
+
+        # Maximum possible components for TruncatedSVD
+        max_components = min(n_samples, n_features) - 1
+
+        # Determine actual number of components
+        if isinstance(self.n_components, float) and 0 < self.n_components < 1:
+            # Variance ratio mode: fit with more components first to estimate variance
+            # Use a reasonable upper bound for initial estimation
+            n_components_init = min(max_components, max(50, int(n_features * 0.5)))
+
+            svd_init = TruncatedSVD(
+                n_components=n_components_init,
+                algorithm=self.algorithm,
+                n_iter=self.n_iter,
+                random_state=self.random_state
+            )
+            svd_init.fit(X)
+
+            # Find minimum components for target variance
+            cumsum = np.cumsum(svd_init.explained_variance_ratio_)
+            n_comp = int(np.searchsorted(cumsum, self.n_components) + 1)
+            n_comp = min(n_comp, max_components)
+
+            # Fit final SVD with determined number of components
+            self.svd_ = TruncatedSVD(
+                n_components=n_comp,
+                algorithm=self.algorithm,
+                n_iter=self.n_iter,
+                random_state=self.random_state
+            )
+        else:
+            # Integer mode: use exact number
+            n_comp = int(self.n_components)
+            n_comp = min(n_comp, max_components)
+
+            self.svd_ = TruncatedSVD(
+                n_components=n_comp,
+                algorithm=self.algorithm,
+                n_iter=self.n_iter,
+                random_state=self.random_state
+            )
+
+        self.svd_.fit(X)
+
+        # Copy attributes from underlying SVD
+        self.n_features_out_ = self.svd_.n_components  # type: ignore[attr-defined]
+        self.components_ = self.svd_.components_
+        self.explained_variance_ = self.svd_.explained_variance_
+        self.explained_variance_ratio_ = self.svd_.explained_variance_ratio_
+        self.cumulative_variance_ratio_ = np.cumsum(self.explained_variance_ratio_)
+        self.singular_values_ = self.svd_.singular_values_
+
+        return self
+
+    def transform(self, X):
+        """
+        Apply dimensionality reduction to X.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Data to transform.
+
+        Returns
+        -------
+        X_transformed : ndarray of shape (n_samples, n_components)
+            Transformed data.
+        """
+        check_is_fitted(self, 'svd_')
+        X = check_array(X, dtype=np.float64, copy=self.copy, accept_sparse=['csr', 'csc'])
+
+        if X.shape[1] != self.n_features_in_:
+            raise ValueError(
+                f"X has {X.shape[1]} features but FlexibleSVD was fitted with {self.n_features_in_}"
+            )
+
+        return self.svd_.transform(X)
+
+    def inverse_transform(self, X):
+        """
+        Transform data back to its original space.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_components)
+            Transformed data.
+
+        Returns
+        -------
+        X_original : ndarray of shape (n_samples, n_features)
+            Original data (approximation).
+        """
+        check_is_fitted(self, 'svd_')
+        return self.svd_.inverse_transform(X)
+
+    def get_feature_names_out(self, input_features=None):
+        """
+        Get output feature names.
+
+        Parameters
+        ----------
+        input_features : array-like of str or None, default=None
+            Ignored.
+
+        Returns
+        -------
+        feature_names_out : ndarray of str
+            Feature names ['svd0', 'svd1', ...].
+        """
+        check_is_fitted(self, 'n_features_out_')
+        return np.array([f"svd{i}" for i in range(self.n_features_out_)])
+
+    def _more_tags(self):
+        return {"allow_nan": False}
+
+    def __repr__(self):
+        """String representation."""
+        if hasattr(self, 'n_features_out_'):
+            var_explained = self.cumulative_variance_ratio_[-1] * 100
+            return (f"FlexibleSVD(n_components={self.n_components}, "
+                    f"n_out={self.n_features_out_}, var={var_explained:.1f}%)")
+        return f"FlexibleSVD(n_components={self.n_components}, unfitted)"

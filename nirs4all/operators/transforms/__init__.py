@@ -96,7 +96,7 @@ from .signal_conversion import (
 )
 from .features import CropTransformer, ResampleTransformer, FlattenPreprocessing
 from .resampler import Resampler
-from .feature_selection import CARS, MCUVE
+from .feature_selection import CARS, MCUVE, FlexiblePCA, FlexibleSVD
 from .presets import (
     id_preprocessing,
     savgol_only,
@@ -227,6 +227,10 @@ __all__ = [
     # Feature selection
     "CARS",
     "MCUVE",
+
+    # Dimensionality reduction
+    "FlexiblePCA",
+    "FlexibleSVD",
 
     # Targets / discretizers
     "IntegerKBinsDiscretizer",
