@@ -425,3 +425,210 @@ class TestMultiplePreprocessingRetrain:
         )
 
         assert retrain_preds.num_predictions > 0
+
+
+class TestBundleWithSpecialOperators:
+    """Integration tests for bundle export/predict with special operator types.
+
+    Critical regression tests: These test the exact scenarios that can cause
+    y_processing (target scaling) to be incorrectly applied to X (features)
+    during bundle prediction, which would crash with dimension mismatch.
+    """
+
+    @pytest.fixture
+    def test_data_manager(self):
+        """Create test data manager."""
+        manager = TestDataManager()
+        manager.create_regression_dataset("bundle_special_ops")
+        yield manager
+        manager.cleanup()
+
+    def test_bundle_export_predict_with_y_processing(self, test_data_manager, tmp_path):
+        """Test complete bundle export/predict cycle with y_processing.
+
+        This is a critical regression test for the bug where y_processing
+        MinMaxScaler (fitted on y with 1 feature) was incorrectly applied
+        to X (with many features), causing ValueError.
+        """
+        dataset_folder = str(test_data_manager.get_temp_directory() / "bundle_special_ops")
+
+        # Train pipeline WITH y_processing
+        pipeline = [
+            MinMaxScaler(),
+            {"y_processing": MinMaxScaler()},  # Critical: y_processing
+            SavitzkyGolay(),
+            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            {"model": PLSRegression(n_components=5)},
+        ]
+
+        pipeline_config = PipelineConfigs(pipeline, "y_processing_bundle_test")
+        dataset_config = DatasetConfigs(dataset_folder)
+
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        best_pred = predictions.top(n=1, rank_partition="test")[0]
+
+        # Export to bundle
+        bundle_path = tmp_path / "y_processing_test.n4a"
+        runner.export(best_pred, bundle_path, format='n4a')
+
+        # Create new prediction dataset
+        predict_dataset = DatasetConfigs({
+            'X_test': f'{dataset_folder}/Xval.csv.gz'
+        })
+
+        # Predict from bundle - this was where the bug occurred
+        bundle_predictions, _ = runner.predict(
+            prediction_obj=str(bundle_path),
+            dataset=predict_dataset,
+            verbose=0
+        )
+
+        # Verify predictions work
+        assert bundle_predictions is not None
+        assert len(bundle_predictions) > 0
+        assert np.isfinite(bundle_predictions).all()
+
+    def test_bundle_export_predict_with_feature_augmentation(self, test_data_manager, tmp_path):
+        """Test complete bundle export/predict cycle with feature_augmentation."""
+        dataset_folder = str(test_data_manager.get_temp_directory() / "bundle_special_ops")
+
+        # Train pipeline WITH feature_augmentation
+        pipeline = [
+            MinMaxScaler(),
+            {"feature_augmentation": [StandardNormalVariate(), SavitzkyGolay()]},
+            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            {"model": PLSRegression(n_components=5)},
+        ]
+
+        pipeline_config = PipelineConfigs(pipeline, "feature_aug_bundle_test")
+        dataset_config = DatasetConfigs(dataset_folder)
+
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        best_pred = predictions.top(n=1, rank_partition="test")[0]
+
+        # Export to bundle
+        bundle_path = tmp_path / "feature_aug_test.n4a"
+        runner.export(best_pred, bundle_path, format='n4a')
+
+        # Create new prediction dataset
+        predict_dataset = DatasetConfigs({
+            'X_test': f'{dataset_folder}/Xval.csv.gz'
+        })
+
+        # Predict from bundle
+        bundle_predictions, _ = runner.predict(
+            prediction_obj=str(bundle_path),
+            dataset=predict_dataset,
+            verbose=0
+        )
+
+        # Verify predictions
+        assert bundle_predictions is not None
+        assert len(bundle_predictions) > 0
+        assert np.isfinite(bundle_predictions).all()
+
+    def test_bundle_export_predict_complex_pipeline(self, test_data_manager, tmp_path):
+        """Test bundle with multiple special operators."""
+        dataset_folder = str(test_data_manager.get_temp_directory() / "bundle_special_ops")
+
+        # Train pipeline with BOTH y_processing AND feature_augmentation
+        pipeline = [
+            MinMaxScaler(),
+            {"y_processing": MinMaxScaler()},
+            {"feature_augmentation": [StandardNormalVariate(), SavitzkyGolay()]},
+            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            {"model": PLSRegression(n_components=5)},
+        ]
+
+        pipeline_config = PipelineConfigs(pipeline, "complex_bundle_test")
+        dataset_config = DatasetConfigs(dataset_folder)
+
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        best_pred = predictions.top(n=1, rank_partition="test")[0]
+
+        # Export to bundle
+        bundle_path = tmp_path / "complex_test.n4a"
+        runner.export(best_pred, bundle_path, format='n4a')
+
+        # Create new prediction dataset
+        predict_dataset = DatasetConfigs({
+            'X_test': f'{dataset_folder}/Xval.csv.gz'
+        })
+
+        # Predict from bundle
+        bundle_predictions, _ = runner.predict(
+            prediction_obj=str(bundle_path),
+            dataset=predict_dataset,
+            verbose=0
+        )
+
+        # Verify predictions
+        assert bundle_predictions is not None
+        assert len(bundle_predictions) > 0
+        assert np.isfinite(bundle_predictions).all()
+
+    def test_bundle_predictions_match_original(self, test_data_manager, tmp_path):
+        """Verify bundle predictions are consistent with original predictions.
+
+        Note: When using cross-validation, the original prediction may come from
+        a single fold while the bundle uses weighted ensemble of all folds.
+        We verify predictions are correlated and within reasonable tolerance.
+        """
+        dataset_folder = str(test_data_manager.get_temp_directory() / "bundle_special_ops")
+
+        pipeline = [
+            MinMaxScaler(),
+            {"y_processing": MinMaxScaler()},
+            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            {"model": PLSRegression(n_components=5)},
+        ]
+
+        pipeline_config = PipelineConfigs(pipeline, "match_test")
+        dataset_config = DatasetConfigs(dataset_folder)
+
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        best_pred = predictions.top(n=1, rank_partition="test")[0]
+
+        # Export to bundle
+        bundle_path = tmp_path / "match_test.n4a"
+        runner.export(best_pred, bundle_path, format='n4a')
+
+        # Predict from both original and bundle
+        predict_dataset = DatasetConfigs({
+            'X_test': f'{dataset_folder}/Xval.csv.gz'
+        })
+
+        original_predictions, _ = runner.predict(
+            prediction_obj=best_pred,
+            dataset=predict_dataset,
+            verbose=0
+        )
+
+        bundle_predictions, _ = runner.predict(
+            prediction_obj=str(bundle_path),
+            dataset=predict_dataset,
+            verbose=0
+        )
+
+        orig = np.asarray(original_predictions).flatten()
+        bund = np.asarray(bundle_predictions).flatten()
+
+        # Predictions should be highly correlated (>0.99)
+        correlation = np.corrcoef(orig, bund)[0, 1]
+        assert correlation > 0.99, f"Predictions should be highly correlated, got r={correlation:.4f}"
+
+        # Predictions should be close (within 5% relative tolerance)
+        # Note: Slight differences can occur due to CV ensemble vs single fold
+        np.testing.assert_allclose(
+            orig, bund,
+            rtol=0.05,  # 5% relative tolerance
+            err_msg="Bundle predictions differ too much from original"
+        )
