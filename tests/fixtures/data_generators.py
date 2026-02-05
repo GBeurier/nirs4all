@@ -378,32 +378,35 @@ class TestDataManager:
 
     def _save_dataset(self, path: Path, X_train: np.ndarray, y_train: np.ndarray,
                       X_val: np.ndarray, y_val: np.ndarray):
-        """Save dataset in standard NIRS4ALL format."""
-        # Save training data (using semicolon separator and no headers to match NIRS4ALL default)
-        pd.DataFrame(X_train).to_csv(path / "Xcal.csv.gz", index=False, header=False,
+        """Save dataset in standard NIRS4ALL format.
+
+        Saves with headers, which is the expected format for the loader (has_header=True by default).
+        """
+        # Save training data with headers (loader expects has_header=True by default)
+        pd.DataFrame(X_train).to_csv(path / "Xcal.csv.gz", index=False, header=True,
                                      compression='gzip', sep=';')
-        pd.DataFrame(y_train).to_csv(path / "Ycal.csv.gz", index=False, header=False,
+        pd.DataFrame(y_train).to_csv(path / "Ycal.csv.gz", index=False, header=True,
                                      compression='gzip', sep=';')
 
-        # Save validation data
-        pd.DataFrame(X_val).to_csv(path / "Xval.csv.gz", index=False, header=False,
+        # Save validation data with headers
+        pd.DataFrame(X_val).to_csv(path / "Xval.csv.gz", index=False, header=True,
                                    compression='gzip', sep=';')
-        pd.DataFrame(y_val).to_csv(path / "Yval.csv.gz", index=False, header=False,
+        pd.DataFrame(y_val).to_csv(path / "Yval.csv.gz", index=False, header=True,
                                    compression='gzip', sep=';')
 
     def _save_multi_target_dataset(self, path: Path, X_train: np.ndarray, y_train: np.ndarray,
                                    X_val: np.ndarray, y_val: np.ndarray):
-        """Save multi-target dataset."""
-        # Save training data (using semicolon separator and no headers to match NIRS4ALL default)
-        pd.DataFrame(X_train).to_csv(path / "Xcal.csv.gz", index=False, header=False,
+        """Save multi-target dataset with headers."""
+        # Save training data with headers (loader expects has_header=True by default)
+        pd.DataFrame(X_train).to_csv(path / "Xcal.csv.gz", index=False, header=True,
                                      compression='gzip', sep=';')
-        pd.DataFrame(y_train).to_csv(path / "Ycal.csv.gz", index=False, header=False,
+        pd.DataFrame(y_train).to_csv(path / "Ycal.csv.gz", index=False, header=True,
                                      compression='gzip', sep=';')
 
-        # Save validation data
-        pd.DataFrame(X_val).to_csv(path / "Xval.csv.gz", index=False, header=False,
+        # Save validation data with headers
+        pd.DataFrame(X_val).to_csv(path / "Xval.csv.gz", index=False, header=True,
                                    compression='gzip', sep=';')
-        pd.DataFrame(y_val).to_csv(path / "Yval.csv.gz", index=False, header=False,
+        pd.DataFrame(y_val).to_csv(path / "Yval.csv.gz", index=False, header=True,
                                    compression='gzip', sep=';')
 
     def _save_multi_source_dataset(self, path: Path, X_train_list: list, y_train: np.ndarray,

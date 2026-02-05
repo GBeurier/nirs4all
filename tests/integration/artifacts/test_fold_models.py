@@ -144,15 +144,15 @@ class TestFoldModelLoading:
     def workspace_path(self, tmp_path):
         """Create temporary workspace."""
         workspace = tmp_path / "workspace"
-        binaries_dir = workspace / "binaries" / "test_dataset"
-        binaries_dir.mkdir(parents=True)
+        artifacts_dir = workspace / "artifacts"
+        artifacts_dir.mkdir(parents=True)
         return workspace
 
     def test_load_fold_models_from_loader(self, workspace_path):
         """Test loading fold models using ArtifactLoader."""
         from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
 
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Create and persist fold models
         items = []
@@ -162,7 +162,7 @@ class TestFoldModelLoading:
             y = X.ravel() * 2
             model.fit(X, y)
 
-            meta = persist(model, binaries_dir, f"model_fold{fold_id}")
+            meta = persist(model, artifacts_dir, f"model_fold{fold_id}")
             chain_path = "s3.Ridge"
             artifact_id = make_v3_id("0001", 3, fold_id, "Ridge")
             items.append({
@@ -204,7 +204,7 @@ class TestFoldModelLoading:
         """Fold models trained on different data should predict differently."""
         from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
 
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Create fold models with different training data
         items = []
@@ -215,7 +215,7 @@ class TestFoldModelLoading:
             y = X.ravel() * (fold_id + 1)  # Different slopes
             model.fit(X, y)
 
-            meta = persist(model, binaries_dir, f"model_fold{fold_id}")
+            meta = persist(model, artifacts_dir, f"model_fold{fold_id}")
             chain_path = "s3.Ridge"
             artifact_id = make_v3_id("0001", 3, fold_id, "Ridge")
             items.append({
@@ -328,15 +328,15 @@ class TestFoldModelEnsembleLoading:
     def workspace_path(self, tmp_path):
         """Create temporary workspace."""
         workspace = tmp_path / "workspace"
-        binaries_dir = workspace / "binaries" / "test_dataset"
-        binaries_dir.mkdir(parents=True)
+        artifacts_dir = workspace / "artifacts"
+        artifacts_dir.mkdir(parents=True)
         return workspace
 
     def test_ensemble_prediction_with_fold_models(self, workspace_path):
         """Test averaging predictions from multiple fold models."""
         from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
 
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Create fold models
         n_folds = 5
@@ -349,7 +349,7 @@ class TestFoldModelEnsembleLoading:
             y = X @ np.random.randn(10)
             model.fit(X, y)
 
-            meta = persist(model, binaries_dir, f"model_fold{fold_id}")
+            meta = persist(model, artifacts_dir, f"model_fold{fold_id}")
             items.append({
                 "artifact_id": f"0001:2:{fold_id}",
                 "content_hash": meta["hash"],
@@ -393,7 +393,7 @@ class TestFoldModelEnsembleLoading:
         """Fold models should be returned sorted by fold_id."""
         from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
 
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Create models in non-sequential order
         fold_order = [3, 1, 4, 0, 2]
@@ -402,7 +402,7 @@ class TestFoldModelEnsembleLoading:
         for fold_id in fold_order:
             model = Ridge()
             model.fit(np.array([[0], [1]]), np.array([0, 1]))
-            meta = persist(model, binaries_dir, f"model_{fold_id}")
+            meta = persist(model, artifacts_dir, f"model_{fold_id}")
             items.append({
                 "artifact_id": f"0001:2:{fold_id}",
                 "content_hash": meta["hash"],

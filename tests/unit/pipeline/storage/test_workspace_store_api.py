@@ -801,6 +801,7 @@ class TestMethodInventory:
         "save_artifact",
         "load_artifact",
         "get_artifact_path",
+        "register_existing_artifact",
         # Logging
         "log_step",
         # Queries -- Runs
@@ -876,5 +877,5 @@ class TestMethodInventory:
             assert "return" in hints, f"{method_name} missing return type annotation"
 
     def test_total_method_count(self):
-        """The expected method count matches the design doc (34 methods)."""
-        assert len(self.EXPECTED_METHODS) == 34
+        """The expected method count matches the design doc (35 methods)."""
+        assert len(self.EXPECTED_METHODS) == 35

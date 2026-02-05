@@ -127,7 +127,19 @@ class GroupedSplitterWrapper(BaseCrossValidator):
             Unique group labels in order.
         """
         groups = np.asarray(groups)
-        unique_groups = np.unique(groups)
+
+        # Handle tuple-based groups (from multi-column grouping) by using
+        # a dictionary-based approach instead of np.unique, which fails
+        # with tuples containing mixed types (e.g., (str, int))
+        group_to_indices: dict = {}
+        for idx, g in enumerate(groups):
+            # Convert tuple/array to hashable key
+            key = tuple(g) if hasattr(g, '__iter__') and not isinstance(g, str) else g
+            if key not in group_to_indices:
+                group_to_indices[key] = []
+            group_to_indices[key].append(idx)
+
+        unique_groups = list(group_to_indices.keys())
         n_groups = len(unique_groups)
 
         # Compute group representatives for X
@@ -135,17 +147,17 @@ class GroupedSplitterWrapper(BaseCrossValidator):
         group_indices = []
 
         for i, g in enumerate(unique_groups):
-            mask = groups == g
-            indices = np.where(mask)[0].tolist()
+            indices = group_to_indices[g]
             group_indices.append(indices)
 
-            # Aggregate X
+            # Aggregate X from indices
+            X_group = X[indices]
             if self.aggregation == "mean":
-                X_rep[i] = X[mask].mean(axis=0)
+                X_rep[i] = X_group.mean(axis=0)
             elif self.aggregation == "median":
-                X_rep[i] = np.median(X[mask], axis=0)
+                X_rep[i] = np.median(X_group, axis=0)
             elif self.aggregation == "first":
-                X_rep[i] = X[mask][0]
+                X_rep[i] = X_group[0]
 
         # Compute group representatives for y
         y_rep = None
@@ -156,8 +168,8 @@ class GroupedSplitterWrapper(BaseCrossValidator):
             y_agg = self.y_aggregation or self._infer_y_aggregation()
 
             for i, g in enumerate(unique_groups):
-                mask = groups == g
-                y_group = y[mask]
+                indices = group_to_indices[g]
+                y_group = y[indices]
 
                 if y_agg == "mean":
                     y_rep[i] = y_group.mean()
@@ -172,7 +184,7 @@ class GroupedSplitterWrapper(BaseCrossValidator):
                 elif y_agg == "first":
                     y_rep[i] = y_group[0]
 
-        return X_rep, y_rep, group_indices, unique_groups
+        return X_rep, y_rep, group_indices, np.array(unique_groups, dtype=object)
 
     def _infer_y_aggregation(self):
         """Infer y aggregation method from splitter type.

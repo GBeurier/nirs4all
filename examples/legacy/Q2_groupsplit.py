@@ -14,10 +14,10 @@ Two approaches for group-aware splitting in nirs4all:
    - Use `group` parameter with GroupKFold, StratifiedGroupKFold, etc.
    - Syntax: {"split": GroupKFold(n_splits=3), "group": "Sample_ID"}
 
-2. Universal force_group (see Q2B_force_group.py):
-   - Use `force_group` with ANY splitter (KFold, ShuffleSplit, StratifiedKFold)
-   - Syntax: {"split": KFold(n_splits=3), "force_group": "Sample_ID"}
-   - More flexible, works with all sklearn splitters
+2. Universal repetition (see Q2B_force_group.py):
+   - Use `repetition` in DatasetConfigs for automatic group support
+   - Syntax: DatasetConfigs(path, repetition="Sample_ID")
+   - Then ANY splitter respects groups automatically
 """
 
 import argparse
@@ -79,6 +79,6 @@ runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plot
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 print("\n" + "=" * 70)
-print("TIP: For more flexibility, see Q2B_force_group.py which shows how to")
-print("use force_group with ANY splitter (KFold, ShuffleSplit, etc.)")
+print("TIP: For universal group support, see Q2B_force_group.py which shows how to")
+print("use repetition in DatasetConfigs with ANY splitter (KFold, ShuffleSplit, etc.)")
 print("=" * 70)

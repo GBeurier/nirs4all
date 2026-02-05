@@ -68,10 +68,10 @@ class DatasetSpec:
     sources: Optional[List[Dict[str, Any]]] = None
     # Partition
     partition_method: Optional[str] = None
-    # Aggregation
-    aggregation: bool = False
-    aggregate_column: Optional[str] = None
-    aggregate_method: str = "mean"
+    # Repetition (was: Aggregation)
+    repetition: bool = False
+    repetition_column: Optional[str] = None
+    repetition_method: str = "mean"
     # Variations
     variations: bool = False
     variation_mode: Optional[str] = None
@@ -563,10 +563,10 @@ class TestDatasetGenerator:
         if spec.partition_method:
             self._add_partition_config(config, spec)
 
-        # Aggregation
-        if spec.aggregation and spec.aggregate_column:
-            config["aggregate"] = spec.aggregate_column
-            config["aggregate_method"] = spec.aggregate_method
+        # Repetition
+        if spec.repetition and spec.repetition_column:
+            config["repetition"] = spec.repetition_column
+            config["repetition_method"] = spec.repetition_method
 
         # Folds
         if spec.custom_folds:
@@ -930,29 +930,29 @@ class TestDatasetGenerator:
             include_metadata=True,
         ))
 
-        # E04: Mean aggregation by sample_id
+        # E04: Mean repetition by sample_id
         self.specs.append(DatasetSpec(
             name="E04_aggregate_mean",
             category="E",
             description="Mean aggregation by sample_id",
             structure="standard",
-            aggregation=True,
-            aggregate_column="sample_id",
-            aggregate_method="mean",
+            repetition=True,
+            repetition_column="sample_id",
+            repetition_method="mean",
             include_metadata=True,
         ))
 
-        # E05: Aggregation with outlier exclusion
+        # E05: Repetition with outlier exclusion
         self.specs.append(DatasetSpec(
             name="E05_aggregate_outliers",
             category="E",
             description="Aggregation with outlier exclusion",
             structure="standard",
-            aggregation=True,
-            aggregate_column="sample_id",
-            aggregate_method="mean",
+            repetition=True,
+            repetition_column="sample_id",
+            repetition_method="mean",
             include_metadata=True,
-            extra_config={"aggregate_exclude_outliers": True},
+            extra_config={"repetition_exclude_outliers": True},
         ))
 
     def _register_category_f(self) -> None:

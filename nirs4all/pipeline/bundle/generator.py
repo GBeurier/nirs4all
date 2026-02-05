@@ -105,7 +105,7 @@ class BundleGenerator:
                 ``export_from_chain`` method becomes available.
         """
         self.workspace_path = Path(workspace_path)
-        self.resolver = PredictionResolver(workspace_path)
+        self.resolver = PredictionResolver(workspace_path, store=store)
         self.verbose = verbose
         self.store = store
 
@@ -195,17 +195,22 @@ class BundleGenerator:
         model_step_idx = chain["model_step_idx"]
 
         # Shared (preprocessing) artifacts
-        for str_idx, artifact_id in shared_artifacts.items():
-            if not artifact_id:
+        for str_idx, artifact_ids_val in shared_artifacts.items():
+            if not artifact_ids_val:
                 continue
             idx = int(str_idx)
-            obj = self.store.load_artifact(artifact_id)
-            encoded = self._encode_artifact(obj)
-            artifacts_data[f"step_{idx}"] = encoded
-            step_info[idx] = {
-                "operator_type": "transform",
-                "operator_class": type(obj).__name__,
-            }
+            # shared_artifacts values are lists of artifact IDs
+            aid_list = artifact_ids_val if isinstance(artifact_ids_val, list) else [artifact_ids_val]
+            for sub_idx, artifact_id in enumerate(aid_list):
+                obj = self.store.load_artifact(artifact_id)
+                encoded = self._encode_artifact(obj)
+                key = f"step_{idx}" if len(aid_list) == 1 else f"step_{idx}_sub{sub_idx}"
+                artifacts_data[key] = encoded
+                if idx not in step_info:
+                    step_info[idx] = {
+                        "operator_type": "transform",
+                        "operator_class": type(obj).__name__,
+                    }
 
         # Fold (model) artifacts
         for fold_id, artifact_id in fold_artifacts.items():
@@ -562,16 +567,14 @@ class BundleGenerator:
         if not resolved.artifact_provider:
             return count
 
-        # Get all artifact IDs from trace or minimal pipeline
-        artifact_ids = []
-        if resolved.trace:
-            artifact_ids = resolved.trace.get_artifact_ids()
-
         # For each step, write artifacts
         step_indices = set()
         if resolved.trace:
             for step in resolved.trace.steps:
                 step_indices.add(step.step_index)
+        elif hasattr(resolved.artifact_provider, 'artifact_map'):
+            # Store-resolved predictions have no trace; get steps from artifact_map
+            step_indices = set(resolved.artifact_provider.artifact_map.keys())
 
         for step_index in sorted(step_indices):
             artifacts = resolved.artifact_provider.get_artifacts_for_step(step_index)

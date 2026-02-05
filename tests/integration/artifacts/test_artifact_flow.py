@@ -235,17 +235,17 @@ class TestArtifactLoaderIntegration:
 
     @pytest.fixture
     def workspace_path(self, tmp_path):
-        """Create temporary workspace with binaries."""
+        """Create temporary workspace with artifacts."""
         workspace = tmp_path / "workspace"
-        binaries_dir = workspace / "binaries" / "test_dataset"
-        binaries_dir.mkdir(parents=True)
+        artifacts_dir = workspace / "artifacts"
+        artifacts_dir.mkdir(parents=True)
         return workspace
 
     def test_loader_loads_from_manifest(self, workspace_path):
         """Test ArtifactLoader imports from manifest correctly."""
         from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
 
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        binaries_dir = workspace_path / "artifacts"
 
         # Create a real artifact
         scaler = StandardScaler()
@@ -310,7 +310,7 @@ class TestArtifactLoaderIntegration:
         """Test that artifacts are cached after first load."""
         from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
 
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        binaries_dir = workspace_path / "artifacts"
 
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1], [2]]))

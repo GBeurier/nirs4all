@@ -461,6 +461,6 @@ class TestNestedBranchEdgeCases:
         # Get all branch IDs
         branch_ids = sorted([b for b in predictions.get_unique_values("branch_id") if b is not None])
 
-        # Should be sequential: [0, 1, 2, 3]
-        expected_ids = list(range(len(branch_ids)))
+        # Should be sequential: ['0', '1', '2', '3'] (get_unique_values returns strings)
+        expected_ids = [str(i) for i in range(len(branch_ids))]
         assert branch_ids == expected_ids, f"Branch IDs should be sequential: {branch_ids} vs {expected_ids}"

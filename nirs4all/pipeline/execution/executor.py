@@ -207,8 +207,26 @@ class PipelineExecutor:
                     metadata={"n_steps": len(steps), "n_artifacts": len(all_artifacts)}
                 )
                 chain_builder = ChainBuilder(trace, self.artifact_registry)
-                chain_data = chain_builder.build()
-                store.save_chain(pipeline_id=pipeline_id, **chain_data)
+                for chain_data in chain_builder.build_all():
+                    store.save_chain(pipeline_id=pipeline_id, **chain_data)
+
+                # Flush ArtifactRegistry records to WorkspaceStore so that
+                # chain replay and export can load artifacts via the store.
+                if self.artifact_registry is not None:
+                    for record in self.artifact_registry.get_all_records():
+                        store.register_existing_artifact(
+                            artifact_id=record.artifact_id,
+                            path=record.path,
+                            content_hash=record.content_hash,
+                            operator_class=record.class_name,
+                            artifact_type=record.artifact_type.value,
+                            format=record.format,
+                            size_bytes=record.size_bytes,
+                        )
+
+            # Flush predictions to store so they can be looked up by ID
+            if self.mode == "train" and store and pipeline_id and prediction_store.num_predictions > 0:
+                self._flush_predictions_to_store(store, pipeline_id, prediction_store)
 
             # Complete pipeline in store
             if self.mode == "train" and store and pipeline_id:
@@ -255,6 +273,64 @@ class PipelineExecutor:
             import traceback
             traceback.print_exc()
             raise
+
+    def _flush_predictions_to_store(self, store: Any, pipeline_id: str, prediction_store: Predictions) -> None:
+        """Flush in-memory predictions to the DuckDB store.
+
+        Maps each prediction to its corresponding chain via step_idx → model_step_idx,
+        preserving the Predictions object's short ID as the store prediction_id.
+        """
+        import polars as pl
+
+        chains_df = store.get_chains_for_pipeline(pipeline_id)
+        if chains_df.is_empty():
+            return
+
+        # Build step_idx → chain_id mapping
+        step_to_chain: dict[int, str] = {}
+        for row in chains_df.iter_rows(named=True):
+            step_to_chain[row["model_step_idx"]] = row["chain_id"]
+
+        for pred in prediction_store.to_dicts(load_arrays=True):
+            step_idx = pred.get("step_idx", 0)
+            chain_id = step_to_chain.get(step_idx, chains_df["chain_id"][0])
+
+            store_pred_id = store.save_prediction(
+                pipeline_id=pipeline_id,
+                chain_id=chain_id,
+                dataset_name=pred.get("dataset_name", ""),
+                model_name=pred.get("model_name", ""),
+                model_class=pred.get("model_classname", ""),
+                fold_id=str(pred.get("fold_id", "")),
+                partition=pred.get("partition", ""),
+                val_score=pred.get("val_score") or 0.0,
+                test_score=pred.get("test_score") or 0.0,
+                train_score=pred.get("train_score") or 0.0,
+                metric=pred.get("metric", ""),
+                task_type=pred.get("task_type", "regression"),
+                n_samples=pred.get("n_samples", 0),
+                n_features=pred.get("n_features", 0),
+                scores=pred.get("scores", {}),
+                best_params=pred.get("best_params", {}),
+                branch_id=pred.get("branch_id"),
+                branch_name=pred.get("branch_name"),
+                exclusion_count=pred.get("exclusion_count", 0) or 0,
+                exclusion_rate=pred.get("exclusion_rate", 0.0) or 0.0,
+                preprocessings=pred.get("preprocessings", ""),
+                prediction_id=pred.get("id"),
+            )
+
+            # Store arrays
+            y_true = pred.get("y_true")
+            y_pred = pred.get("y_pred")
+            if y_true is not None or y_pred is not None:
+                import numpy as np
+                store.save_prediction_arrays(
+                    prediction_id=store_pred_id,
+                    y_true=np.asarray(y_true) if y_true is not None and len(y_true) > 0 else None,
+                    y_pred=np.asarray(y_pred) if y_pred is not None and len(y_pred) > 0 else None,
+                    y_proba=np.asarray(pred["y_proba"]) if pred.get("y_proba") is not None and len(pred.get("y_proba", [])) > 0 else None,
+                )
 
     def _execute_steps(
         self,
@@ -594,20 +670,29 @@ class PipelineExecutor:
             if all_artifacts is not None:
                 all_artifacts.extend(processed_artifacts)
 
-            # Log step outputs to store (charts, reports)
+            # Save step outputs to disk and log to store
             store = runtime_context.store if runtime_context else self.store
             pipeline_id = runtime_context.pipeline_id if runtime_context else None
             if store and pipeline_id:
                 for output in step_result.outputs:
                     if isinstance(output, tuple) and len(output) >= 3:
                         data, name, type_hint = output
+                        # Write output file to workspace/outputs/
+                        outputs_dir = store.workspace_path / "outputs"
+                        outputs_dir.mkdir(parents=True, exist_ok=True)
+                        filename = f"{name}.{type_hint}"
+                        output_path = outputs_dir / filename
+                        if isinstance(data, bytes):
+                            output_path.write_bytes(data)
+                        elif isinstance(data, str):
+                            output_path.write_text(data)
                         store.log_step(
                             pipeline_id=pipeline_id,
                             step_idx=self.step_number,
                             operator_class=operator_class,
                             event="output",
-                            message=f"Output: {name}.{type_hint}",
-                            details={"name": name, "type": type_hint},
+                            message=f"Output: {filename}",
+                            details={"name": name, "type": type_hint, "path": str(output_path)},
                         )
 
             # Update context

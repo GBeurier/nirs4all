@@ -213,18 +213,20 @@ def get_short_hash(content_hash: str, length: int = 12) -> str:
 
 
 def get_binaries_path(workspace: Path, dataset: str) -> Path:
-    """Get the centralized binaries directory for a dataset.
+    """Get the centralized artifacts directory.
 
-    New architecture stores artifacts at workspace/binaries/<dataset>/
+    All artifacts are stored at workspace/artifacts/ using content-addressed
+    filenames for deduplication.  The *dataset* parameter is accepted for
+    backward-compatible call-sites but is no longer used in the path.
 
     Args:
         workspace: Workspace root path
-        dataset: Dataset name
+        dataset: Dataset name (unused — kept for API compatibility)
 
     Returns:
-        Path to binaries directory
+        Path to artifacts directory
     """
-    return workspace / "binaries" / dataset
+    return workspace / "artifacts"
 
 
 def validate_artifact_id(artifact_id: str) -> bool:

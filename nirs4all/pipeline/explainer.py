@@ -144,8 +144,8 @@ class Explainer:
             # Create RuntimeContext with artifact_provider for V3 loading
             from nirs4all.pipeline.config.context import RuntimeContext
 
-            artifact_provider = None
-            if self.artifact_loader:
+            artifact_provider = self._resolved_artifact_provider
+            if artifact_provider is None and self.artifact_loader:
                 artifact_provider = LoaderArtifactProvider(loader=self.artifact_loader)
 
             runtime_context = RuntimeContext(
@@ -255,6 +255,7 @@ class Explainer:
         resolver = PredictionResolver(
             workspace_path=self.runner.workspace_path,
             runs_dir=self.runner.workspace_path,
+            store=self.runner.store,
         )
         resolved = resolver.resolve(selection_obj, verbose=verbose)
 
@@ -278,7 +279,10 @@ class Explainer:
         self.pipeline_uid = pipeline_uid
         self.config_path = pipeline_uid
 
-        # Create artifact loader from resolved artifact provider
+        # Store the resolved artifact provider for use in explain
+        self._resolved_artifact_provider = resolved.artifact_provider
+
+        # Create artifact loader from resolved artifact provider (for LoaderArtifactProvider)
         self.artifact_loader = None
         if resolved.artifact_provider and hasattr(resolved.artifact_provider, "artifact_loader"):
             self.artifact_loader = resolved.artifact_provider.artifact_loader

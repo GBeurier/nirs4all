@@ -16,6 +16,6 @@ test_x: sample_datasets/E05_aggregate_outliers/Xval.csv
 test_y: sample_datasets/E05_aggregate_outliers/Yval.csv
 train_group: sample_datasets/E05_aggregate_outliers/Mcal.csv
 test_group: sample_datasets/E05_aggregate_outliers/Mval.csv
-aggregate: sample_id
-aggregate_method: mean
-aggregate_exclude_outliers: true
+repetition: sample_id
+repetition_method: mean
+repetition_exclude_outliers: true

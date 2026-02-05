@@ -33,9 +33,9 @@ task_type: regression
 # When using multi-source, you can specify signal_type per source in train_x_params
 signal_type: absorbance
 
-# Aggregation by sample ID
-aggregate: sample_id
-aggregate_method: mean
+# Repetition by sample ID
+repetition: sample_id
+repetition_method: mean
 
 # Global loading parameters
 global_params:

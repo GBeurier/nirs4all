@@ -139,6 +139,7 @@ class WorkspaceStoreProtocol(Protocol):
         exclusion_count: int,
         exclusion_rate: float,
         preprocessings: str = "",
+        prediction_id: str | None = None,
     ) -> str:
         """Store a prediction record and return its identifier."""
         ...

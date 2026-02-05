@@ -474,25 +474,14 @@ class TestBranchArtifactPersistence:
             dataset
         )
 
-        # Check that binaries directory exists
-        runs_dir = workspace_path / "runs"
-        assert runs_dir.exists(), "Runs directory should exist"
+        # Check that artifacts directory exists (DuckDB storage uses flat artifacts dir)
+        artifacts_dir = workspace_path / "artifacts"
+        assert artifacts_dir.exists(), "Artifacts directory should exist"
 
-        # Find the run directory
-        run_dirs = list(runs_dir.glob("*"))
-        assert len(run_dirs) > 0, "Should have at least one run directory"
-
-        # v2 uses workspace/binaries/<dataset>/ instead of run_dir/_binaries
-        binaries_dir = workspace_path / "binaries" / "test_branch_predict"
-        if not binaries_dir.exists():
-            # Fallback to legacy location
-            binaries_dir = run_dirs[0] / "_binaries"
-
-        if binaries_dir.exists():
-            # Should have multiple binary files for different branches
-            binary_files = list(binaries_dir.rglob("*.pkl")) + list(binaries_dir.rglob("*.joblib"))
-            # At minimum we should have scalers and models for each branch
-            assert len(binary_files) >= 2, f"Expected multiple binaries, got {len(binary_files)}"
+        # Should have multiple artifact files for different branches
+        binary_files = list(artifacts_dir.rglob("*.pkl")) + list(artifacts_dir.rglob("*.joblib"))
+        # At minimum we should have scalers and models for each branch
+        assert len(binary_files) >= 2, f"Expected multiple binaries, got {len(binary_files)}"
 
     def test_store_contains_branch_metadata(
         self, runner_with_save, dataset, workspace_path

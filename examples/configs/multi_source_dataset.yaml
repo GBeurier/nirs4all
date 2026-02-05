@@ -35,5 +35,5 @@ metadata:
 task_type: regression
 
 # Aggregation (if samples have replicates)
-aggregate: sample_id
-aggregate_method: mean
+repetition: sample_id
+repetition_method: mean

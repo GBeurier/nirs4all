@@ -78,8 +78,8 @@ class TestFoldFileLoadingIntegration:
         )
 
         # Find the saved fold file
-        runs_dir = Path(temp_workspace) / "runs"
-        fold_files = list(runs_dir.rglob("folds_*.csv"))
+        outputs_dir = Path(temp_workspace) / "outputs"
+        fold_files = list(outputs_dir.rglob("folds_*.csv"))
 
         assert len(fold_files) >= 1, "No fold file was saved"
         fold_file_path = fold_files[0]

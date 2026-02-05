@@ -26,10 +26,10 @@ from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
 
 @pytest.fixture
 def workspace_path(tmp_path):
-    """Create temporary workspace directory with binaries subdirectory."""
+    """Create temporary workspace directory with artifacts subdirectory."""
     workspace = tmp_path / "workspace"
-    binaries_dir = workspace / "binaries" / "test_dataset"
-    binaries_dir.mkdir(parents=True)
+    artifacts_dir = workspace / "artifacts"
+    artifacts_dir.mkdir(parents=True)
     return workspace
 
 
@@ -164,7 +164,7 @@ class TestArtifactLoaderBasics:
 
         assert loader.workspace == workspace_path
         assert loader.dataset == "test_dataset"
-        assert loader.binaries_dir == workspace_path / "binaries" / "test_dataset"
+        assert loader.binaries_dir == workspace_path / "artifacts"
 
     def test_loader_empty_manifest(self, workspace_path):
         """Test loader with empty manifest."""
@@ -283,10 +283,10 @@ class TestArtifactLoaderStepLoading:
     def test_load_for_step_basic(self, workspace_path, results_dir):
         """Test loading artifacts for a specific step."""
         # Create actual artifact file
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1], [2]]))
-        artifact_meta = persist(scaler, binaries_dir, "scaler")
+        artifact_meta = persist(scaler, artifacts_dir, "scaler")
 
         manifest = {
             "dataset": "test_dataset",
@@ -319,16 +319,16 @@ class TestArtifactLoaderStepLoading:
 
     def test_load_for_step_with_branch(self, workspace_path, results_dir):
         """Test loading artifacts for a specific step and branch."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Create two scalers for different branches
         scaler0 = StandardScaler()
         scaler0.fit(np.array([[0], [1]]))
-        meta0 = persist(scaler0, binaries_dir, "scaler_b0")
+        meta0 = persist(scaler0, artifacts_dir, "scaler_b0")
 
         scaler1 = StandardScaler()
         scaler1.fit(np.array([[2], [3]]))
-        meta1 = persist(scaler1, binaries_dir, "scaler_b1")
+        meta1 = persist(scaler1, artifacts_dir, "scaler_b1")
 
         manifest = {
             "dataset": "test_dataset",
@@ -374,14 +374,14 @@ class TestArtifactLoaderFoldModels:
 
     def test_load_fold_models(self, workspace_path, results_dir):
         """Test loading all fold models for CV averaging."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Create models for 3 folds
         models = []
         for i in range(3):
             model = Ridge(alpha=1.0)
             model.fit(np.array([[0], [1], [2]]), np.array([0, 1, 2]))
-            meta = persist(model, binaries_dir, f"model_fold{i}")
+            meta = persist(model, artifacts_dir, f"model_fold{i}")
             models.append(meta)
 
         manifest = {
@@ -423,16 +423,16 @@ class TestArtifactLoaderDependencies:
 
     def test_load_with_dependencies(self, workspace_path, results_dir):
         """Test loading artifact with all its dependencies."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Create scaler and model
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1], [2]]))
-        scaler_meta = persist(scaler, binaries_dir, "scaler")
+        scaler_meta = persist(scaler, artifacts_dir, "scaler")
 
         model = Ridge(alpha=1.0)
         model.fit(np.array([[0], [1], [2]]), np.array([0, 1, 2]))
-        model_meta = persist(model, binaries_dir, "model")
+        model_meta = persist(model, artifacts_dir, "model")
 
         manifest = {
             "dataset": "test_dataset",
@@ -483,11 +483,11 @@ class TestArtifactLoaderCaching:
 
     def test_cache_hit(self, workspace_path, results_dir):
         """Test that second load hits cache."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1]]))
-        meta = persist(scaler, binaries_dir, "scaler")
+        meta = persist(scaler, artifacts_dir, "scaler")
 
         manifest = {
             "dataset": "test_dataset",
@@ -525,11 +525,11 @@ class TestArtifactLoaderCaching:
 
     def test_clear_cache(self, workspace_path, results_dir):
         """Test cache clearing."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1]]))
-        meta = persist(scaler, binaries_dir, "scaler")
+        meta = persist(scaler, artifacts_dir, "scaler")
 
         manifest = {
             "dataset": "test_dataset",
@@ -562,14 +562,14 @@ class TestArtifactLoaderCaching:
 
     def test_lru_eviction(self, workspace_path, results_dir):
         """Test LRU cache evicts oldest items when full."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Create multiple scalers
         items = []
         for i in range(5):
             scaler = StandardScaler()
             scaler.fit(np.array([[i], [i+1]]))
-            meta = persist(scaler, binaries_dir, f"scaler_{i}")
+            meta = persist(scaler, artifacts_dir, f"scaler_{i}")
             items.append({
                 "artifact_id": f"0001:{i}:all",
                 "content_hash": meta["hash"],
@@ -602,13 +602,13 @@ class TestArtifactLoaderCaching:
 
     def test_set_cache_size(self, workspace_path, results_dir):
         """Test dynamically changing cache size."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         items = []
         for i in range(5):
             scaler = StandardScaler()
             scaler.fit(np.array([[i], [i+1]]))
-            meta = persist(scaler, binaries_dir, f"scaler_{i}")
+            meta = persist(scaler, artifacts_dir, f"scaler_{i}")
             items.append({
                 "artifact_id": f"0001:{i}:all",
                 "content_hash": meta["hash"],
@@ -642,13 +642,13 @@ class TestArtifactLoaderCaching:
 
     def test_preload_artifacts(self, workspace_path, results_dir):
         """Test preloading artifacts into cache."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         items = []
         for i in range(3):
             scaler = StandardScaler()
             scaler.fit(np.array([[i], [i+1]]))
-            meta = persist(scaler, binaries_dir, f"scaler_{i}")
+            meta = persist(scaler, artifacts_dir, f"scaler_{i}")
             items.append({
                 "artifact_id": f"0001:{i}:all",
                 "content_hash": meta["hash"],
@@ -682,13 +682,13 @@ class TestArtifactLoaderCaching:
 
     def test_preload_specific_artifacts(self, workspace_path, results_dir):
         """Test preloading specific artifacts."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         items = []
         for i in range(3):
             scaler = StandardScaler()
             scaler.fit(np.array([[i], [i+1]]))
-            meta = persist(scaler, binaries_dir, f"scaler_{i}")
+            meta = persist(scaler, artifacts_dir, f"scaler_{i}")
             items.append({
                 "artifact_id": f"0001:{i}:all",
                 "content_hash": meta["hash"],
@@ -720,11 +720,11 @@ class TestArtifactLoaderLegacyCompatibility:
 
     def test_get_step_binaries_legacy_method(self, workspace_path, results_dir):
         """Test legacy get_step_binaries method."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1]]))
-        meta = persist(scaler, binaries_dir, "scaler")
+        meta = persist(scaler, artifacts_dir, "scaler")
 
         manifest = {
             "dataset": "test_dataset",
@@ -824,23 +824,23 @@ class TestMetaModelLoading:
 
     def test_load_meta_model_with_sources(self, workspace_path, results_dir):
         """Test loading meta-model with its source models."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Create source models
         from sklearn.linear_model import LinearRegression
         lr = LinearRegression()
         lr.fit(np.array([[0], [1], [2]]), np.array([0, 1, 2]))
-        lr_meta = persist(lr, binaries_dir, "lr_model")
+        lr_meta = persist(lr, artifacts_dir, "lr_model")
 
         from sklearn.ensemble import RandomForestRegressor
         rf = RandomForestRegressor(n_estimators=10, random_state=42)
         rf.fit(np.array([[0], [1], [2]]), np.array([0, 1, 2]))
-        rf_meta = persist(rf, binaries_dir, "rf_model")
+        rf_meta = persist(rf, artifacts_dir, "rf_model")
 
         # Create meta-model
         meta = Ridge(alpha=1.0)
         meta.fit(np.array([[0, 0], [1, 1], [2, 2]]), np.array([0, 1, 2]))
-        meta_meta = persist(meta, binaries_dir, "meta_model")
+        meta_meta = persist(meta, artifacts_dir, "meta_model")
 
         manifest = {
             "dataset": "test_dataset",
@@ -909,11 +909,11 @@ class TestMetaModelLoading:
 
     def test_load_meta_model_non_meta_fails(self, workspace_path, results_dir):
         """Test that loading non-meta-model as meta fails."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         model = Ridge()
         model.fit(np.array([[0], [1]]), np.array([0, 1]))
-        meta = persist(model, binaries_dir, "model")
+        meta = persist(model, artifacts_dir, "model")
 
         manifest = {
             "dataset": "test_dataset",
@@ -941,17 +941,17 @@ class TestMetaModelLoading:
 
     def test_load_meta_model_branch_validation(self, workspace_path, results_dir):
         """Test that branch context validation works for meta-models."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Create source model with different branch
         source = Ridge()
         source.fit(np.array([[0], [1]]), np.array([0, 1]))
-        source_meta = persist(source, binaries_dir, "source")
+        source_meta = persist(source, artifacts_dir, "source")
 
         # Create meta-model
         meta = Ridge()
         meta.fit(np.array([[0], [1]]), np.array([0, 1]))
-        meta_meta = persist(meta, binaries_dir, "meta")
+        meta_meta = persist(meta, artifacts_dir, "meta")
 
         manifest = {
             "dataset": "test_dataset",
@@ -1000,17 +1000,17 @@ class TestMetaModelLoading:
 
     def test_load_meta_model_shared_source_valid(self, workspace_path, results_dir):
         """Test that meta-model can use shared (pre-branch) sources."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Create shared source model (no branch)
         source = Ridge()
         source.fit(np.array([[0], [1]]), np.array([0, 1]))
-        source_meta = persist(source, binaries_dir, "source")
+        source_meta = persist(source, artifacts_dir, "source")
 
         # Create meta-model in a branch
         meta = Ridge()
         meta.fit(np.array([[0], [1]]), np.array([0, 1]))
-        meta_meta = persist(meta, binaries_dir, "meta")
+        meta_meta = persist(meta, artifacts_dir, "meta")
 
         manifest = {
             "dataset": "test_dataset",
@@ -1061,16 +1061,16 @@ class TestMetaModelLoading:
 
     def test_load_meta_model_for_prediction(self, workspace_path, results_dir):
         """Test load_meta_model_for_prediction convenience method."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Create source and meta models
         source = Ridge()
         source.fit(np.array([[0], [1]]), np.array([0, 1]))
-        source_meta = persist(source, binaries_dir, "source")
+        source_meta = persist(source, artifacts_dir, "source")
 
         meta = Ridge()
         meta.fit(np.array([[0], [1]]), np.array([0, 1]))
-        meta_meta = persist(meta, binaries_dir, "meta")
+        meta_meta = persist(meta, artifacts_dir, "meta")
 
         manifest = {
             "dataset": "test_dataset",

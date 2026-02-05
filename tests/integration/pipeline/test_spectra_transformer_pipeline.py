@@ -299,12 +299,18 @@ class TestEnvironmentalAugmentersPipeline:
         yield manager
         manager.cleanup()
 
-    def test_temperature_augmenter_in_pipeline(self, test_data_manager):
+    @pytest.fixture
+    def dataset_config(self, test_data_manager):
+        """Create dataset config with header_unit set to index for stable wavelengths."""
+        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
+        return DatasetConfigs({
+            "folder": dataset_folder,
+            "global_params": {"header_unit": "index"}
+        })
+
+    def test_temperature_augmenter_in_pipeline(self, dataset_config):
         """Test TemperatureAugmenter in a complete pipeline."""
         from nirs4all.operators import TemperatureAugmenter
-
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_folder)
 
         pipeline = [
             TemperatureAugmenter(temperature_range=(-5, 10), random_state=42),
@@ -318,12 +324,9 @@ class TestEnvironmentalAugmentersPipeline:
         # Verify pipeline ran successfully
         assert predictions.num_predictions > 0
 
-    def test_moisture_augmenter_in_pipeline(self, test_data_manager):
+    def test_moisture_augmenter_in_pipeline(self, dataset_config):
         """Test MoistureAugmenter in a complete pipeline."""
         from nirs4all.operators import MoistureAugmenter
-
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_folder)
 
         pipeline = [
             MoistureAugmenter(water_activity_range=(-0.2, 0.2), random_state=42),
@@ -337,12 +340,9 @@ class TestEnvironmentalAugmentersPipeline:
         # Verify pipeline ran successfully
         assert predictions.num_predictions > 0
 
-    def test_particle_size_augmenter_in_pipeline(self, test_data_manager):
+    def test_particle_size_augmenter_in_pipeline(self, dataset_config):
         """Test ParticleSizeAugmenter in a complete pipeline."""
         from nirs4all.operators import ParticleSizeAugmenter
-
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_folder)
 
         pipeline = [
             ParticleSizeAugmenter(size_range_um=(20, 100), random_state=42),
@@ -356,12 +356,9 @@ class TestEnvironmentalAugmentersPipeline:
         # Verify pipeline ran successfully
         assert predictions.num_predictions > 0
 
-    def test_emsc_distortion_augmenter_in_pipeline(self, test_data_manager):
+    def test_emsc_distortion_augmenter_in_pipeline(self, dataset_config):
         """Test EMSCDistortionAugmenter in a complete pipeline."""
         from nirs4all.operators import EMSCDistortionAugmenter
-
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_folder)
 
         pipeline = [
             EMSCDistortionAugmenter(polynomial_order=2, random_state=42),
@@ -375,16 +372,13 @@ class TestEnvironmentalAugmentersPipeline:
         # Verify pipeline ran successfully
         assert predictions.num_predictions > 0
 
-    def test_combined_environmental_augmenters(self, test_data_manager):
+    def test_combined_environmental_augmenters(self, dataset_config):
         """Test multiple environmental augmenters in sequence."""
         from nirs4all.operators import (
             TemperatureAugmenter,
             MoistureAugmenter,
             ParticleSizeAugmenter,
         )
-
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_folder)
 
         pipeline = [
             TemperatureAugmenter(temperature_delta=5.0, random_state=42),
@@ -400,13 +394,10 @@ class TestEnvironmentalAugmentersPipeline:
         # Verify pipeline ran successfully
         assert predictions.num_predictions > 0
 
-    def test_environmental_augmenters_with_preprocessing(self, test_data_manager):
+    def test_environmental_augmenters_with_preprocessing(self, dataset_config):
         """Test environmental augmenters combined with standard preprocessing."""
         from nirs4all.operators import TemperatureAugmenter, EMSCDistortionAugmenter
         from nirs4all.operators.transforms import StandardNormalVariate
-
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_folder)
 
         pipeline = [
             # Apply environmental augmentation first
@@ -424,12 +415,9 @@ class TestEnvironmentalAugmentersPipeline:
         # Verify pipeline ran successfully
         assert predictions.num_predictions > 0
 
-    def test_environmental_augmenters_with_standard_scaler(self, test_data_manager):
+    def test_environmental_augmenters_with_standard_scaler(self, dataset_config):
         """Test environmental augmenters with sklearn StandardScaler."""
         from nirs4all.operators import ParticleSizeAugmenter
-
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_folder)
 
         pipeline = [
             StandardScaler(),  # Standard sklearn transformer

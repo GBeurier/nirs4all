@@ -1,13 +1,13 @@
 """
-U04 - Aggregation: Handling Repeated Measurements
-==================================================
+U04 - Repetition: Handling Repeated Measurements
+=================================================
 
 Aggregate predictions when multiple spectra represent one sample.
 
 This tutorial covers:
 
-* Setting aggregate column in DatasetConfigs
-* Raw vs aggregated metrics
+* Setting repetition column in DatasetConfigs
+* Raw vs repetition-aggregated metrics
 * Visualization with aggregation
 * Overriding aggregation for specific plots
 
@@ -65,7 +65,7 @@ When multiple spectra represent the same physical sample:
      - Each spectrum gets a prediction
      - Want ONE prediction per physical sample
 
-  📈 SOLUTION: AGGREGATION
+  📈 SOLUTION: REPETITION AGGREGATION
      - Average predictions for same sample
      - Reduces measurement noise
      - More reliable final predictions
@@ -148,17 +148,17 @@ print(f"   Test:  {n_test} samples × {n_reps} reps = {n_test * n_reps} spectra"
 
 
 # =============================================================================
-# Section 3: Running with Aggregation
+# Section 3: Running with Repetition
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 3: Running with Aggregation")
+print("Section 3: Running with Repetition")
 print("-" * 60)
 
 print("""
-Set aggregate="column_name" in DatasetConfigs to enable aggregation.
+Set repetition="column_name" in DatasetConfigs to enable aggregation.
 """)
 
-# Dataset config with aggregation
+# Dataset config with repetition
 dataset_config = DatasetConfigs(
     {
         "train_x": str(Path(data_path) / "Xcal.csv.gz"),
@@ -174,7 +174,7 @@ dataset_config = DatasetConfigs(
         "test_y_params": {"has_header": False},
         "test_m_params": {"has_header": True},
     },
-    aggregate="sample_id"  # <-- Key setting!
+    repetition="sample_id"  # <-- Key setting!
 )
 
 # Pipeline
@@ -198,7 +198,7 @@ runner = PipelineRunner(
 
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
-print(f"\nAggregate setting used: '{runner.last_aggregate}'")
+print(f"\nRepetition setting: '{runner.last_aggregate}'")
 
 
 # =============================================================================
@@ -215,7 +215,7 @@ Both raw and aggregated metrics are available:
 """)
 
 # Get best model with raw metrics
-best_raw = predictions.top(1, rank_metric='rmse', aggregate='')[0]
+best_raw = predictions.top(1, rank_metric='rmse', by_repetition=False)[0]
 model_name = best_raw.get('model_name', 'Unknown')
 
 print(f"\nBest model: {model_name}")
@@ -227,11 +227,11 @@ print(f"\nRaw metrics (per spectrum):")
 print(f"   Val RMSE:  {val_rmse_raw:.4f}" if not np.isnan(val_rmse_raw) else "   Val RMSE:  N/A")
 print(f"   Test RMSE: {test_rmse_raw:.4f}" if not np.isnan(test_rmse_raw) else "   Test RMSE: N/A")
 
-# Get same model with aggregated metrics
-best_agg = predictions.top(1, rank_metric='rmse', aggregate='sample_id')[0]
+# Get same model with repetition-aggregated metrics
+best_agg = predictions.top(1, rank_metric='rmse', by_repetition='sample_id')[0]
 val_rmse_agg = best_agg.get('val_score', np.nan)
 test_rmse_agg = best_agg.get('test_score', np.nan)
-print(f"\nAggregated metrics (per sample):")
+print(f"\nRepetition-aggregated metrics (per sample):")
 print(f"   Val RMSE:  {val_rmse_agg:.4f}" if not np.isnan(val_rmse_agg) else "   Val RMSE:  N/A")
 print(f"   Test RMSE: {test_rmse_agg:.4f}" if not np.isnan(test_rmse_agg) else "   Test RMSE: N/A")
 
@@ -249,10 +249,10 @@ print("""
 Pass default_aggregate to PredictionAnalyzer for automatic aggregation.
 """)
 
-# Create analyzer with default aggregation
+# Create analyzer with default aggregation (uses repetition column)
 analyzer = PredictionAnalyzer(
     predictions,
-    default_aggregate=runner.last_aggregate  # Uses sample_id
+    default_aggregate=runner.last_aggregate  # Uses sample_id from repetition
 )
 
 print(f"Analyzer default_aggregate: '{analyzer.default_aggregate}'")
@@ -273,14 +273,14 @@ if args.plots:
 
 
 # =============================================================================
-# Section 6: When to Use Aggregation
+# Section 6: When to Use Repetition
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 6: When to Use Aggregation")
+print("Section 6: When to Use Repetition")
 print("-" * 60)
 
 print("""
-Use aggregation when:
+Use repetition when:
   ✓ Multiple spectra per physical sample (repetitions)
   ✓ Technical replicates with same target value
   ✓ Need one final prediction per sample
@@ -299,16 +299,16 @@ print("\n" + "=" * 60)
 print("Summary")
 print("=" * 60)
 print("""
-Aggregation Configuration:
+Repetition Configuration:
 
   1. DATASET CONFIG:
      dataset_config = DatasetConfigs(
          "path/to/data",
-         aggregate="sample_id"  # Metadata column with sample ID
+         repetition="sample_id"  # Metadata column with sample ID
      )
 
   2. ACCESS AFTER RUN:
-     runner.last_aggregate  # Returns the aggregate column name
+     runner.last_aggregate  # Returns the repetition column name
 
   3. VISUALIZATION:
      analyzer = PredictionAnalyzer(
@@ -320,12 +320,15 @@ Aggregation Configuration:
      analyzer.plot_histogram(aggregate='')  # Disable for this plot
      analyzer.plot_histogram(aggregate='sample_id')  # Force aggregation
 
+  5. TOP MODELS (uses by_repetition):
+     predictions.top(5, by_repetition='sample_id')  # Aggregate for ranking
+
 Result Output:
   - Raw metrics: Evaluated on individual spectra
   - Aggregated metrics (*): Averaged predictions per sample
   - Both shown in TabReport output
 
-Benefits of Aggregation:
+Benefits of Repetition Aggregation:
   ✓ Noise reduction through averaging
   ✓ One prediction per sample (practical)
   ✓ More robust metrics

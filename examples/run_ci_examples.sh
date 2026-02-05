@@ -243,6 +243,8 @@ user_examples=(
     "user/07_explainability/U01_shap_basics.py"
     "user/07_explainability/U02_shap_sklearn.py"
     "user/07_explainability/U03_feature_selection.py"
+    "user/05_cross_validation/U05_tagging_analysis.py"
+    "user/05_cross_validation/U06_exclusion_strategies.py"
 )
 
 developer_examples=(
@@ -277,6 +279,8 @@ developer_examples=(
     "developer/05_advanced_features/D03_repetition_transform.py"
     "developer/06_internals/D01_session_workflow.py"
     "developer/06_internals/D02_custom_controllers.py"
+    "developer/01_advanced_pipelines/D06_separation_branches.py"
+    "developer/01_advanced_pipelines/D07_value_mapping.py"
 )
 
 reference_examples=(

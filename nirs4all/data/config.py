@@ -8,6 +8,7 @@ name resolution, loader calls, and caching to avoid reloading the same dataset.
 import copy
 import json
 import hashlib
+import warnings
 from pathlib import Path
 from tabnanny import verbose
 from typing import List, Union, Dict, Any, Optional
@@ -28,6 +29,7 @@ class DatasetConfigs:
         configurations: Union[Dict[str, Any], List[Dict[str, Any]], str, List[str]],
         task_type: Union[str, List[str]] = "auto",
         signal_type: Union[SignalTypeInput, List[SignalTypeInput], None] = None,
+        repetition: Union[str, List[Optional[str]], None] = None,
         aggregate: Union[str, bool, List[Union[str, bool, None]], None] = None,
         aggregate_method: Union[str, List[str], None] = None,
         aggregate_exclude_outliers: Union[bool, List[bool], None] = None
@@ -62,7 +64,16 @@ class DatasetConfigs:
                 Valid values: 'absorbance', 'reflectance', 'reflectance%',
                 'transmittance', 'transmittance%', 'auto', etc.
 
-            aggregate: Sample aggregation setting for prediction aggregation.
+            repetition: Column name identifying sample repetitions (multiple spectral
+                measurements of the same physical sample).
+                - None (default): No repetition grouping
+                - str: Metadata column name (e.g., 'Sample_ID', 'ID')
+                - list: Per-dataset settings (must match number of datasets)
+                When set, splits will automatically group by this column to prevent
+                data leakage. This is the preferred way to handle repeated measurements.
+
+            aggregate: DEPRECATED - Use 'repetition' instead.
+                Sample aggregation setting for prediction aggregation.
                 When set, predictions from multiple spectra of the same biological
                 sample will be aggregated automatically during scoring and reporting.
                 - None (default): No aggregation
@@ -110,6 +121,7 @@ class DatasetConfigs:
         self._config_aggregates: List[Optional[Union[str, bool]]] = []  # aggregate from config dicts
         self._config_aggregate_methods: List[Optional[str]] = []  # aggregate_method from config dicts
         self._config_aggregate_exclude_outliers: List[Optional[bool]] = []  # aggregate_exclude_outliers from config dicts
+        self._config_repetitions: List[Optional[str]] = []  # repetition from config dicts
         for config in user_configs:
             parsed_config, dataset_name = parse_config(config)
             if parsed_config is not None:
@@ -119,17 +131,49 @@ class DatasetConfigs:
                 config_aggregate = None
                 config_aggregate_method = None
                 config_aggregate_exclude_outliers = None
+                config_repetition = None
                 if isinstance(parsed_config, dict):
                     config_task_type = parsed_config.get("task_type")
                     config_aggregate = parsed_config.get("aggregate")
                     config_aggregate_method = parsed_config.get("aggregate_method")
                     config_aggregate_exclude_outliers = parsed_config.get("aggregate_exclude_outliers")
+                    config_repetition = parsed_config.get("repetition")
+                    # If repetition not in config but aggregate is a string, use it as repetition
+                    if config_repetition is None and isinstance(config_aggregate, str):
+                        config_repetition = config_aggregate
                 self._config_task_types.append(config_task_type)
                 self._config_aggregates.append(config_aggregate)
                 self._config_aggregate_methods.append(config_aggregate_method)
                 self._config_aggregate_exclude_outliers.append(config_aggregate_exclude_outliers)
+                self._config_repetitions.append(config_repetition)
             else:
                 logger.error(f"Skipping invalid dataset config: {config}")
+
+        # Handle repetition and aggregate (backward compatibility)
+        # If aggregate is provided but repetition is not, use aggregate as repetition
+        if aggregate is not None and repetition is None:
+            # Issue deprecation warning for aggregate usage
+            if isinstance(aggregate, str):
+                warnings.warn(
+                    "The 'aggregate' parameter is deprecated for specifying repetition grouping. "
+                    "Use 'repetition' instead: DatasetConfigs(..., repetition='{}').".format(aggregate),
+                    DeprecationWarning,
+                    stacklevel=2
+                )
+                # Use aggregate as repetition if it's a string column name
+                repetition = aggregate
+            elif isinstance(aggregate, list):
+                # Check if any element is a string that could be a repetition column
+                has_string_aggregates = any(isinstance(a, str) for a in aggregate if a is not None)
+                if has_string_aggregates:
+                    warnings.warn(
+                        "The 'aggregate' parameter is deprecated for specifying repetition grouping. "
+                        "Use 'repetition' instead.",
+                        DeprecationWarning,
+                        stacklevel=2
+                    )
+                    # Convert string aggregates to repetition values
+                    repetition = [a if isinstance(a, str) else None for a in aggregate]
 
         self.cache: Dict[str, Any] = {}
 
@@ -231,12 +275,33 @@ class DatasetConfigs:
                 for i, val in enumerate(aggregate_exclude_outliers)
             ]
 
+        # Normalize repetition to a list matching configs length
+        # Priority: constructor parameter > config dict > None
+        if repetition is None:
+            # Use config-level repetition if available
+            self._repetitions: List[Optional[str]] = list(self._config_repetitions)
+        elif isinstance(repetition, str):
+            # Constructor parameter overrides config for all datasets
+            self._repetitions = [repetition] * len(self.configs)
+        else:
+            # List of per-dataset repetition settings
+            if len(repetition) != len(self.configs):
+                raise ValueError(
+                    f"repetition list length ({len(repetition)}) must match "
+                    f"number of datasets ({len(self.configs)})"
+                )
+            # Per-dataset: constructor parameter overrides config when not None
+            self._repetitions = [
+                rep if rep is not None else self._config_repetitions[i]
+                for i, rep in enumerate(repetition)
+            ]
+
     def iter_datasets(self):
         for idx, (config, name) in enumerate(self.configs):
             dataset = self._get_dataset_with_types(
                 config, name, self._task_types[idx], self._signal_type_overrides[idx],
                 self._aggregates[idx], self._aggregate_methods[idx],
-                self._aggregate_exclude_outliers[idx]
+                self._aggregate_exclude_outliers[idx], self._repetitions[idx]
             )
             yield dataset
 
@@ -248,7 +313,8 @@ class DatasetConfigs:
         signal_type_override: Optional[SignalType],
         aggregate: Optional[Union[str, bool]] = None,
         aggregate_method: Optional[str] = None,
-        aggregate_exclude_outliers: bool = False
+        aggregate_exclude_outliers: bool = False,
+        repetition: Optional[str] = None
     ) -> SpectroDataset:
         """Internal method to get dataset with specific task and signal types.
 
@@ -260,6 +326,7 @@ class DatasetConfigs:
             aggregate: Aggregation setting (None, True, or column name)
             aggregate_method: Aggregation method ('mean', 'median', 'vote')
             aggregate_exclude_outliers: Whether to exclude outliers using T² before aggregation
+            repetition: Column name identifying sample repetitions
         """
         dataset = self._load_dataset(config, name)
 
@@ -272,6 +339,10 @@ class DatasetConfigs:
         if signal_type_override is not None and signal_type_override != SignalType.AUTO:
             for src in range(dataset.n_sources):
                 dataset.set_signal_type(signal_type_override, src=src, forced=True)
+
+        # Apply repetition setting if specified
+        if repetition is not None:
+            dataset.set_repetition(repetition)
 
         # Apply aggregation settings if specified
         if aggregate is not None:
@@ -380,7 +451,7 @@ class DatasetConfigs:
                 return self._get_dataset_with_types(
                     config, name, self._task_types[idx], self._signal_type_overrides[idx],
                     self._aggregates[idx], self._aggregate_methods[idx],
-                    self._aggregate_exclude_outliers[idx]
+                    self._aggregate_exclude_outliers[idx], self._repetitions[idx]
                 )
         # Fallback: load without forced types
         return self._load_dataset(config, name)
@@ -392,8 +463,28 @@ class DatasetConfigs:
         return self._get_dataset_with_types(
             config, name, self._task_types[index], self._signal_type_overrides[index],
             self._aggregates[index], self._aggregate_methods[index],
-            self._aggregate_exclude_outliers[index]
+            self._aggregate_exclude_outliers[index], self._repetitions[index]
         )
+
+    @property
+    def repetition(self) -> Optional[str]:
+        """Get the repetition column name for the first dataset.
+
+        For multi-dataset configurations, use repetitions property instead.
+
+        Returns:
+            Column name identifying sample repetitions, or None.
+        """
+        return self._repetitions[0] if self._repetitions else None
+
+    @property
+    def repetitions(self) -> List[Optional[str]]:
+        """Get repetition column names for all datasets.
+
+        Returns:
+            List of column names (or None) for each dataset.
+        """
+        return self._repetitions
 
     def get_datasets(self) -> List[SpectroDataset]:
         return list(self.iter_datasets())

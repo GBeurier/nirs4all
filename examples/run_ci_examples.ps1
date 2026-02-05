@@ -205,6 +205,8 @@ $UserExamples = @(
     "user/05_cross_validation/U02_group_splitting.py"
     "user/05_cross_validation/U03_sample_filtering.py"
     "user/05_cross_validation/U04_aggregation.py"
+    "user/05_cross_validation/U05_tagging_analysis.py"
+    "user/05_cross_validation/U06_exclusion_strategies.py"
     "user/06_deployment/U01_save_load_predict.py"
     "user/06_deployment/U02_export_bundle.py"
     "user/06_deployment/U03_workspace_management.py"

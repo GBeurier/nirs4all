@@ -530,7 +530,8 @@ class MapArtifactProvider(ArtifactProvider):
         self,
         artifact_map: Dict[int, List[Tuple[str, Any]]],
         fold_weights: Optional[Dict[int, float]] = None,
-        primary_artifacts: Optional[Dict[int, str]] = None
+        primary_artifacts: Optional[Dict[int, str]] = None,
+        source_artifact_map: Optional[Dict[Tuple[int, int], List[Tuple[str, Any]]]] = None,
     ):
         """Initialize map-based artifact provider.
 
@@ -538,10 +539,13 @@ class MapArtifactProvider(ArtifactProvider):
             artifact_map: Mapping of step_index -> list of (artifact_id, object)
             fold_weights: Optional fold weights for CV models
             primary_artifacts: Optional mapping of step_index -> primary artifact_id
+            source_artifact_map: Optional mapping of (step_index, source_index) ->
+                list of (artifact_id, object) for multi-source steps.
         """
         self.artifact_map = artifact_map
         self.fold_weights = fold_weights or {}
         self.primary_artifacts = primary_artifacts or {}
+        self.source_artifact_map: Dict[Tuple[int, int], List[Tuple[str, Any]]] = source_artifact_map or {}
 
     def get_artifact(self, step_index: int, fold_id: Optional[int] = None) -> Optional[Any]:
         """Get a single artifact for a step.
@@ -561,11 +565,13 @@ class MapArtifactProvider(ArtifactProvider):
             return None
 
         if fold_id is not None:
-            # Look for fold-specific artifact
+            # Look for fold-specific artifact by parsing the trailing
+            # fold number from the artifact ID.  Supports both legacy
+            # IDs ("pipeline:step:fold") and V3 chain-based IDs
+            # ("chain$hash:fold").
             for artifact_id, obj in artifacts:
-                # Check if artifact_id contains fold info (e.g., "0001:2:0")
                 parts = artifact_id.split(":")
-                if len(parts) >= 3:
+                if len(parts) >= 2:
                     try:
                         artifact_fold = int(parts[-1])
                         if artifact_fold == fold_id:
@@ -598,12 +604,15 @@ class MapArtifactProvider(ArtifactProvider):
             step_index: 1-based step index
             branch_path: Optional branch path filter (not used in map provider)
             branch_id: Optional branch ID filter (not used in map provider)
-            source_index: Optional source/dataset index filter (not used in map provider)
+            source_index: Optional source/dataset index filter for multi-source
             substep_index: Optional substep index filter (not used in map provider)
 
         Returns:
             List of (artifact_id, artifact_object) tuples
         """
+        # Use per-source map when available for multi-source steps
+        if source_index is not None and (step_index, source_index) in self.source_artifact_map:
+            return self.source_artifact_map[(step_index, source_index)]
         return self.artifact_map.get(step_index, [])
 
     def get_fold_artifacts(
@@ -625,7 +634,7 @@ class MapArtifactProvider(ArtifactProvider):
 
         for artifact_id, obj in artifacts:
             parts = artifact_id.split(":")
-            if len(parts) >= 3:
+            if len(parts) >= 2:
                 fold_part = parts[-1]
                 if fold_part != "all":
                     try:

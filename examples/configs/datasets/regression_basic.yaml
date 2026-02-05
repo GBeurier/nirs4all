@@ -25,11 +25,11 @@ task_type: regression
 # Options: absorbance, reflectance, reflectance%, transmittance, transmittance%, auto
 signal_type: absorbance
 
-# Aggregation settings for repeated measurements
-# Set to a metadata column name to aggregate predictions by sample
-# aggregate: sample_id
-# aggregate_method: mean
-# aggregate_exclude_outliers: false
+# Repetition settings for repeated measurements
+# Set to a metadata column name to group predictions by sample
+# repetition: sample_id
+# repetition_method: mean
+# repetition_exclude_outliers: false
 
 # Global loading parameters (applied to all files unless overridden)
 global_params:

@@ -130,6 +130,91 @@ def predictions_with_metadata_for_aggregation(base_prediction_params):
     return predictions
 
 
+class TestRankingWithRepetition:
+    """Test ranking with by_repetition parameter (new name for aggregate)."""
+
+    def test_by_repetition_with_column_name(self, predictions_with_metadata_for_aggregation):
+        """Verify by_repetition with explicit column name works."""
+        predictions = predictions_with_metadata_for_aggregation
+
+        # Should work without deprecation warning
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            results = predictions.top(
+                n=2,
+                rank_metric="rmse",
+                rank_partition="val",
+                by_repetition="ID"  # New parameter name
+            )
+
+            # No deprecation warning for new parameter
+            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
+            assert len(deprecation_warnings) == 0
+
+        assert len(results) == 2
+        assert results[0]["model_name"] == "good_model"
+        assert results[0].get("aggregated", False) is True
+
+    def test_by_repetition_true_with_context(self, predictions_with_metadata_for_aggregation):
+        """Verify by_repetition=True uses context from set_repetition_column."""
+        predictions = predictions_with_metadata_for_aggregation
+
+        # Set context
+        predictions.set_repetition_column("ID")
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            results = predictions.top(
+                n=2,
+                rank_metric="rmse",
+                rank_partition="val",
+                by_repetition=True  # Should use "ID" from context
+            )
+
+            # No warnings - context was set
+            all_warnings = [x for x in w]
+            assert len(all_warnings) == 0
+
+        assert len(results) == 2
+        assert results[0].get("aggregated", False) is True
+
+    def test_by_repetition_true_warns_without_context(self, predictions_with_metadata_for_aggregation):
+        """Verify by_repetition=True warns when no context is set."""
+        predictions = predictions_with_metadata_for_aggregation
+        # Don't set context
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            results = predictions.top(
+                n=2,
+                rank_metric="rmse",
+                rank_partition="val",
+                by_repetition=True  # No context set
+            )
+
+            # Should warn about missing context
+            user_warnings = [x for x in w if issubclass(x.category, UserWarning)]
+            assert len(user_warnings) >= 1
+            assert "by_repetition=True" in str(user_warnings[0].message)
+
+        # Results returned without aggregation
+        assert len(results) >= 1
+
+    def test_repetition_column_property(self, predictions_with_metadata_for_aggregation):
+        """Verify repetition_column property works."""
+        predictions = predictions_with_metadata_for_aggregation
+
+        # Initially None
+        assert predictions.repetition_column is None
+
+        # Set column
+        predictions.set_repetition_column("ID")
+        assert predictions.repetition_column == "ID"
+
+
 class TestRankingWithAggregation:
     """Test ranking uses aggregated scores when aggregate is provided."""
 
@@ -348,8 +433,28 @@ class TestGroupByFiltering:
             assert count <= 2
 
 
-class TestDeprecatedBestPerModel:
-    """Test deprecated best_per_model parameter."""
+class TestDeprecatedParameters:
+    """Test deprecated parameter handling."""
+
+    def test_aggregate_emits_deprecation_warning(self, predictions_with_metadata_for_aggregation):
+        """Verify aggregate parameter emits deprecation warning."""
+        predictions = predictions_with_metadata_for_aggregation
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            predictions.top(
+                n=2,
+                rank_metric="rmse",
+                rank_partition="val",
+                aggregate="ID"  # Deprecated
+            )
+
+            # Check for deprecation warning
+            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
+            assert len(deprecation_warnings) >= 1
+            assert "aggregate" in str(deprecation_warnings[0].message)
+            assert "by_repetition" in str(deprecation_warnings[0].message)
 
     def test_best_per_model_emits_deprecation_warning(self, predictions_with_multiple_models):
         """Verify best_per_model emits deprecation warning."""
@@ -369,6 +474,33 @@ class TestDeprecatedBestPerModel:
             deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
             assert len(deprecation_warnings) >= 1
             assert "best_per_model" in str(deprecation_warnings[0].message)
+
+    def test_best_per_model_same_as_group_by_model_name(self, predictions_with_multiple_models):
+        """Verify best_per_model=True gives same result as group_by=['model_name'] with n=1."""
+        predictions = predictions_with_multiple_models
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+
+            # best_per_model=True should behave like group_by=['model_name'] with n=1
+            results_deprecated = predictions.top(
+                n=1,  # n=1 per group
+                rank_metric="rmse",
+                rank_partition="val",
+                best_per_model=True
+            )
+
+        results_new = predictions.top(
+            n=1,  # n=1 per group
+            rank_metric="rmse",
+            rank_partition="val",
+            group_by=["model_name"]
+        )
+
+        assert len(results_deprecated) == len(results_new)
+        for r1, r2 in zip(results_deprecated, results_new):
+            assert r1["model_name"] == r2["model_name"]
+            assert r1["rank_score"] == r2["rank_score"]
 
     def test_best_per_model_same_as_group_by_model_name(self, predictions_with_multiple_models):
         """Verify best_per_model=True gives same result as group_by=['model_name'] with n=1."""

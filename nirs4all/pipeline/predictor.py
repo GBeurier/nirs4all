@@ -125,6 +125,7 @@ class Predictor:
         resolver = PredictionResolver(
             workspace_path=self.runner.workspace_path,
             runs_dir=self.runner.workspace_path,
+            store=self.runner.store,
         )
         self._resolved = resolver.resolve(prediction_obj, verbose=verbose)
 
@@ -316,13 +317,23 @@ class Predictor:
             dataset_obj = dataset_config.get_dataset(config, name)
             config_predictions = Predictions()
 
+            selector = DataSelector(
+                partition=None,
+                processing=[["raw"]] * dataset_obj.features_sources(),
+                layout="2d",
+                concat_source=True,
+            )
+
+            # Apply branch filtering from target model
+            target_branch_id = self.target_model.get("branch_id") if self.target_model else None
+            target_branch_name = self.target_model.get("branch_name") if self.target_model else None
+            target_branch_path = self.target_model.get("branch_path") if self.target_model else None
+            if target_branch_id is not None or target_branch_name:
+                bp = target_branch_path or ([target_branch_id] if target_branch_id is not None else None)
+                selector = selector.with_branch(branch_id=target_branch_id, branch_name=target_branch_name, branch_path=bp)
+
             context = ExecutionContext(
-                selector=DataSelector(
-                    partition=None,
-                    processing=[["raw"]] * dataset_obj.features_sources(),
-                    layout="2d",
-                    concat_source=True,
-                ),
+                selector=selector,
                 state=PipelineState(y_processing="numeric", step_number=0, mode="predict"),
                 metadata=StepMetadata(),
             )

@@ -1,10 +1,13 @@
 ## ROADMAP
 
+### PRIORITY: Repetition as a Core Concept
+
+---
+
 > [pyproject.toml] Add umap-learn as dependency - duckdb
 
 > [Predictions] Add datasets, summary, top 50 best scores, etc. in a sub table to allow fast browsing/loading
 > [Predictions] Explicit workspace / predict / export / etc. Predictions files should be self sufficient et cleanable easily (keep top X, keep top X per model, remove ....)
-
 
 **RELEASE** 0.7.1: Ready for UI
 
@@ -54,11 +57,9 @@ Create the example synth pipelines x synth datasets for testing purpose
 > [Models] extend the scope of custom model fallback (sklearn only for now), to include custom layouts (ie. custom NN without framework and 3D data, spectrograms, etc.)
 > [Pipeline + Optuna] Pipeline as optuna trial. The pp become a choice param. Goal is to stack pp each time score stop progress, select the good ones by feats augmentation and by pp order (1st, 2nd, etc.) and stop once it drops.
 
-> [Augmentation] augmentation to repetitions
-
 > [CLI] update / review - (CLI_EXTENSION_PROPOSAL.md)
 
-> [Aggregation] Outlier dedicated exclusion T²
+> [Aggregation] Outlier dedicated exclusion T² (MAD already implemented, add Hotelling T²)
 
 > [Mid Fusion] Multi head models
 > [Late Fusion] avg / w_avg / asymetric ensembling

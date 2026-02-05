@@ -365,7 +365,7 @@ class ArtifactRegistry:
             path = existing_path
             logger.debug(f"Deduplication: reusing {path} for {artifact_id}")
         else:
-            # Generate new filename and save
+            # Generate new filename and save with sharding
             extension = _format_to_extension(format_name)
             class_name = obj.__class__.__name__
             filename = generate_filename(
@@ -374,11 +374,15 @@ class ArtifactRegistry:
                 content_hash,
                 extension
             )
-            path = filename
+            # Use content hash first 2 chars as shard directory
+            hash_for_shard = content_hash[7:] if content_hash.startswith("sha256:") else content_hash
+            shard = hash_for_shard[:2]
+            path = f"{shard}/{filename}"
 
-            # Write to binaries directory (create lazily if needed)
-            self.binaries_dir.mkdir(parents=True, exist_ok=True)
-            artifact_path = self.binaries_dir / filename
+            # Write to binaries shard directory (create lazily if needed)
+            shard_dir = self.binaries_dir / shard
+            shard_dir.mkdir(parents=True, exist_ok=True)
+            artifact_path = shard_dir / filename
             if not artifact_path.exists():
                 artifact_path.write_bytes(content)
                 logger.debug(f"Saved artifact: {artifact_path}")
@@ -581,7 +585,7 @@ class ArtifactRegistry:
             path = existing_path
             logger.debug(f"Deduplication: reusing {path} for {artifact_id}")
         else:
-            # Generate new filename and save
+            # Generate new filename and save with sharding
             extension = _format_to_extension(format_name)
             class_name = obj.__class__.__name__
             filename = generate_filename(
@@ -590,11 +594,15 @@ class ArtifactRegistry:
                 content_hash,
                 extension
             )
-            path = filename
+            # Use content hash first 2 chars as shard directory
+            hash_for_shard = content_hash[7:] if content_hash.startswith("sha256:") else content_hash
+            shard = hash_for_shard[:2]
+            path = f"{shard}/{filename}"
 
-            # Write to binaries directory (create lazily if needed)
-            self.binaries_dir.mkdir(parents=True, exist_ok=True)
-            artifact_path = self.binaries_dir / filename
+            # Write to binaries shard directory (create lazily if needed)
+            shard_dir = self.binaries_dir / shard
+            shard_dir.mkdir(parents=True, exist_ok=True)
+            artifact_path = shard_dir / filename
             if not artifact_path.exists():
                 artifact_path.write_bytes(content)
                 logger.debug(f"Saved artifact: {artifact_path}")
@@ -1125,18 +1133,28 @@ class ArtifactRegistry:
         files_deleted = 0
         bytes_freed = 0
 
-        for filepath in self.binaries_dir.iterdir():
-            if filepath.is_file():
-                size = filepath.stat().st_size
-                filepath.unlink()
-                files_deleted += 1
-                bytes_freed += size
-                logger.info(f"Purged artifact: {filepath.name}")
+        def delete_files_recursive(directory: Path) -> None:
+            nonlocal files_deleted, bytes_freed
+            for filepath in list(directory.iterdir()):
+                if filepath.is_file():
+                    size = filepath.stat().st_size
+                    filepath.unlink()
+                    files_deleted += 1
+                    bytes_freed += size
+                    logger.info(f"Purged artifact: {filepath.name}")
+                elif filepath.is_dir():
+                    delete_files_recursive(filepath)
+                    # Remove empty shard directory
+                    if not any(filepath.iterdir()):
+                        filepath.rmdir()
+
+        delete_files_recursive(self.binaries_dir)
 
         # Clear in-memory state
         self._artifacts.clear()
         self._by_content_hash.clear()
         self._by_path.clear()
+        self._by_chain_path.clear()
         self.dependency_graph.clear()
         self._current_run_artifacts.clear()
 
@@ -1205,12 +1223,13 @@ class ArtifactRegistry:
         """Find existing artifact path by content hash.
 
         Checks both in-memory registry and filesystem for deduplication.
+        Searches in 2-char shard directories.
 
         Args:
             content_hash: Content hash to look up
 
         Returns:
-            Existing path or None
+            Existing path (shard/filename) or None
         """
         # Check in-memory registry first
         if content_hash in self._by_content_hash:
@@ -1219,12 +1238,16 @@ class ArtifactRegistry:
             if record:
                 return record.path
 
-        # Check filesystem for existing files with this hash
+        # Check filesystem for existing files with this hash in shard directory
         short_hash = get_short_hash(content_hash)
-        for filepath in self.binaries_dir.glob(f"*_{short_hash}.*"):
-            # Verify it's actually the same content
-            # (short hash collision is unlikely but possible)
-            return filepath.name
+        hash_for_shard = content_hash[7:] if content_hash.startswith("sha256:") else content_hash
+        shard = hash_for_shard[:2]
+        shard_dir = self.binaries_dir / shard
+        if shard_dir.exists():
+            for filepath in shard_dir.glob(f"*_{short_hash}.*"):
+                # Verify it's actually the same content
+                # (short hash collision is unlikely but possible)
+                return f"{shard}/{filepath.name}"
 
         return None
 
@@ -1254,14 +1277,22 @@ class ArtifactRegistry:
             type_name = record.artifact_type.value
             by_type[type_name] = by_type.get(type_name, 0) + 1
 
-        # Scan filesystem for actual disk usage
+        # Scan filesystem for actual disk usage (including shard directories)
         disk_usage = 0
         file_count = 0
-        if self.binaries_dir.exists():
-            for f in self.binaries_dir.iterdir():
+
+        def scan_directory(directory: Path) -> None:
+            nonlocal disk_usage, file_count
+            if not directory.exists():
+                return
+            for f in directory.iterdir():
                 if f.is_file():
                     disk_usage += f.stat().st_size
                     file_count += 1
+                elif f.is_dir():
+                    scan_directory(f)
+
+        scan_directory(self.binaries_dir)
 
         # Find orphaned artifacts
         orphaned = self.find_orphaned_artifacts(scan_all_manifests=scan_all_manifests)
