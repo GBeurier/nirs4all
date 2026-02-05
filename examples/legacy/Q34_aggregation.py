@@ -1,16 +1,16 @@
 """
-Q34 Example - Sample Aggregation
-================================
-Demonstrates the dataset-level aggregation feature for handling multiple
+Q34 Example - Sample Repetition Handling
+========================================
+Demonstrates the dataset-level repetition feature for handling multiple
 spectral measurements per physical sample.
 
 Features:
-- Setting aggregate column via DatasetConfigs
+- Setting repetition column via DatasetConfigs
 - Automatic propagation to TabReport (raw + aggregated scores)
-- Using default_aggregate in PredictionAnalyzer for visualizations
-- Both raw and aggregated metrics in pipeline output
+- Using default repetition in PredictionAnalyzer for visualizations
+- Both raw and repetition-aggregated metrics in pipeline output
 
-When aggregation is enabled:
+When repetition is enabled:
 1. Models are trained on all individual spectra (maximizing data)
 2. Performance is evaluated on both raw and aggregated predictions
 3. Aggregated rows (marked with *) show metrics after averaging
@@ -110,8 +110,8 @@ def create_synthetic_data_files(n_samples=50, n_wavelengths=100, n_reps=4, rando
 # Part 1: Create synthetic dataset with repeated measurements
 # ============================================================================
 
-print("=" * 80)
-print("Q34 Example - Sample Aggregation")
+print("="  * 80)
+print("Q34 Example - Sample Repetition Handling")
 print("=" * 80)
 
 print("\n1. Creating synthetic dataset with repeated measurements...")
@@ -131,7 +131,7 @@ print(f"   - Data saved to: {data_path}")
 # Part 2: Run pipeline WITH aggregation
 # ============================================================================
 
-print("\n2. Running pipeline with aggregation by 'sample_id'...")
+print("\n2. Running pipeline with repetition='sample_id'...")
 
 # Define dataset config using dict format with explicit paths and params
 # This ensures proper header handling for synthetic data
@@ -150,7 +150,7 @@ dataset_config = DatasetConfigs(
         "test_y_params": {"has_header": False},
         "test_m_params": {"has_header": True},
     },
-    aggregate="sample_id"  # <-- Key setting: aggregate by sample_id
+    repetition="sample_id"  # <-- Key setting: group by sample_id
 )
 
 # Simple pipeline
@@ -193,7 +193,7 @@ print("\n4. Creating PredictionAnalyzer with default_aggregate...")
 # Pass the aggregate setting to the analyzer
 analyzer = PredictionAnalyzer(
     predictions,
-    default_aggregate=runner.last_aggregate  # <-- Uses aggregate from dataset
+    default_aggregate=runner.last_aggregate  # <-- Uses repetition column for visualization
 )
 
 print(f"   - analyzer.default_aggregate = '{analyzer.default_aggregate}'")
@@ -204,12 +204,12 @@ print("   - All visualization methods will now use aggregation by default")
 # Part 5: Visualize results (with automatic aggregation)
 # ============================================================================
 
-print("\n5. Creating visualizations (all using aggregated predictions)...")
+print("\n5. Creating visualizations (all using repetition-aggregated predictions)...")
 
 # Top-K comparison - uses aggregation automatically
 fig1 = analyzer.plot_top_k(k=4, rank_metric='rmse')
 fig1.suptitle("Top Models (Aggregated by sample_id)", y=1.02)
-print("   - plot_top_k(): Aggregated scores shown")
+print("   - plot_top_k(): Repetition-aggregated scores shown")
 
 # Heatmap - uses aggregation automatically
 fig2 = analyzer.plot_heatmap(
@@ -218,7 +218,7 @@ fig2 = analyzer.plot_heatmap(
     rank_metric="rmse",
     display_metric="rmse"
 )
-print("   - plot_heatmap(): Aggregated scores shown")
+print("   - plot_heatmap(): Repetition-aggregated scores shown")
 
 
 # ============================================================================
@@ -233,13 +233,13 @@ print("   - plot_histogram(aggregate=''): Raw (non-aggregated) scores")
 
 
 # ============================================================================
-# Part 7: Compare raw vs aggregated metrics
+# Part 7: Compare raw vs repetition-aggregated metrics
 # ============================================================================
 
-print("\n7. Comparing raw vs aggregated metrics for top model...")
+print("\n7. Comparing raw vs repetition-aggregated metrics for top model...")
 
 # Get best model (raw metrics - no aggregation)
-best_raw = predictions.top(1, rank_metric='rmse', aggregate='')[0]
+best_raw = predictions.top(1, rank_metric='rmse', by_repetition=False)[0]
 print(f"\n   Best model: {best_raw.get('model_name', 'Unknown')}")
 print(f"   Preprocessings: {best_raw.get('preprocessings', 'N/A')}")
 
@@ -250,11 +250,11 @@ print(f"\n   Raw metrics (individual spectra):")
 print(f"   - Val RMSE:  {val_rmse_raw:.4f}" if not np.isnan(val_rmse_raw) else "   - Val RMSE:  N/A")
 print(f"   - Test RMSE: {test_rmse_raw:.4f}" if not np.isnan(test_rmse_raw) else "   - Test RMSE: N/A")
 
-# Get same model with aggregated metrics
-best_agg = predictions.top(1, rank_metric='rmse', aggregate='sample_id')[0]
+# Get same model with repetition-aggregated metrics
+best_agg = predictions.top(1, rank_metric='rmse', by_repetition='sample_id')[0]
 val_rmse_agg = best_agg.get('val_score', np.nan)
 test_rmse_agg = best_agg.get('test_score', np.nan)
-print(f"\n   Aggregated metrics (averaged per sample):")
+print(f"\n   Repetition-aggregated metrics (averaged per sample):")
 print(f"   - Val RMSE:  {val_rmse_agg:.4f}" if not np.isnan(val_rmse_agg) else "   - Val RMSE:  N/A")
 print(f"   - Test RMSE: {test_rmse_agg:.4f}" if not np.isnan(test_rmse_agg) else "   - Test RMSE: N/A")
 
@@ -271,7 +271,7 @@ print("Summary")
 print("=" * 80)
 print("""
 Key takeaways:
-1. Set aggregate='column_name' in DatasetConfigs to enable aggregation
+1. Set repetition='column_name' in DatasetConfigs to enable grouping
 2. TabReport shows both raw and aggregated (*) metrics automatically
 3. Use runner.last_aggregate to get the aggregate setting after run()
 4. Pass default_aggregate to PredictionAnalyzer for automatic aggregation

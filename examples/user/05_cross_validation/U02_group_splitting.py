@@ -8,7 +8,7 @@ This tutorial covers:
 
 * Why group splitting matters
 * GroupKFold and StratifiedGroupKFold
-* force_group for any splitter
+* Automatic group-awareness via repetition
 * Visualizing group assignments
 
 Prerequisites
@@ -40,6 +40,7 @@ from sklearn.model_selection import (
 
 # NIRS4All imports
 import nirs4all
+from nirs4all.data import DatasetConfigs
 from nirs4all.operators.transforms import StandardNormalVariate
 
 # Parse command-line arguments
@@ -155,62 +156,59 @@ print("Note: Groups respected AND class proportions preserved!")
 
 
 # =============================================================================
-# Section 4: force_group - Universal Group Support
+# Section 4: Automatic Group Support via repetition
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 4: force_group - Universal Group Support")
+print("Section 4: Automatic Group Support via repetition")
 print("-" * 60)
 
 print("""
-force_group makes ANY sklearn splitter group-aware!
+With repetition defined in DatasetConfigs, ANY splitter becomes group-aware!
 Works with KFold, ShuffleSplit, StratifiedKFold, etc.
 
 How it works:
-  1. Aggregates samples into "virtual groups"
-  2. Passes virtual samples to the splitter
-  3. Maps indices back to original samples
+  1. Define repetition column once in DatasetConfigs
+  2. All splitters automatically respect repetition groups
+  3. Use group_by for additional grouping columns
 """)
 
-# KFold with force_group
-pipeline_force_kfold = [
+# KFold with repetition - automatic group awareness
+pipeline_auto_group = [
     "fold_Sample_ID",
 
-    # KFold doesn't natively support groups
-    # force_group makes it work!
-    {"split": KFold(n_splits=3, shuffle=True, random_state=42),
-     "force_group": "Sample_ID"},
+    # KFold automatically respects repetition groups!
+    KFold(n_splits=3, shuffle=True, random_state=42),
 
     "fold_Sample_ID",
     {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
 ]
 
-result_force = nirs4all.run(
-    pipeline=pipeline_force_kfold,
-    dataset="sample_data/classification",
-    name="ForceGroup_KFold",
+result_auto = nirs4all.run(
+    pipeline=pipeline_auto_group,
+    dataset=DatasetConfigs("sample_data/classification", repetition="Sample_ID"),
+    name="AutoGroup_KFold",
     verbose=1,
     plots_visible=args.plots
 )
 
-accuracy = (1 - result_force.best_rmse) * 100 if not np.isnan(result_force.best_rmse) else float('nan')
-print(f"\nKFold + force_group - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nKFold + force_group - (see detailed metrics)")
+accuracy = (1 - result_auto.best_rmse) * 100 if not np.isnan(result_auto.best_rmse) else float('nan')
+print(f"\nKFold + repetition - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nKFold + repetition - (see detailed metrics)")
 
 
 # =============================================================================
-# Section 5: force_group with ShuffleSplit
+# Section 5: ShuffleSplit with repetition
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 5: force_group with ShuffleSplit")
+print("Section 5: ShuffleSplit with repetition")
 print("-" * 60)
 
 print("""
 ShuffleSplit explicitly ignores groups in sklearn.
-force_group fixes this!
+With repetition defined, nirs4all automatically makes it group-aware!
 """)
 
 pipeline_shuffle_group = [
-    {"split": ShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
-     "force_group": "Sample_ID"},
+    ShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
 
     "fold_chart",
     {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
@@ -218,47 +216,46 @@ pipeline_shuffle_group = [
 
 result_shuffle_group = nirs4all.run(
     pipeline=pipeline_shuffle_group,
-    dataset="sample_data/classification",
-    name="ForceGroup_Shuffle",
+    dataset=DatasetConfigs("sample_data/classification", repetition="Sample_ID"),
+    name="AutoGroup_Shuffle",
     verbose=1,
     plots_visible=args.plots
 )
 
 accuracy = (1 - result_shuffle_group.best_rmse) * 100 if not np.isnan(result_shuffle_group.best_rmse) else float('nan')
-print(f"\nShuffleSplit + force_group - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nShuffleSplit + force_group - (see detailed metrics)")
+print(f"\nShuffleSplit + repetition - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nShuffleSplit + repetition - (see detailed metrics)")
 
 
 # =============================================================================
-# Section 6: force_group with StratifiedKFold
+# Section 6: StratifiedKFold with repetition
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 6: force_group with StratifiedKFold")
+print("Section 6: StratifiedKFold with repetition")
 print("-" * 60)
 
 print("""
-Combine stratification with group awareness using force_group.
+Combine stratification with group awareness using repetition.
 Use y_aggregation to specify how to aggregate targets within groups.
 """)
 
-pipeline_strat_force = [
+pipeline_strat_auto = [
     {"split": StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
-     "force_group": "Sample_ID",
      "y_aggregation": "mode"},  # Use mode for classification targets
 
     "fold_chart",
     {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
 ]
 
-result_strat_force = nirs4all.run(
-    pipeline=pipeline_strat_force,
-    dataset="sample_data/classification",
-    name="ForceGroup_Stratified",
+result_strat_auto = nirs4all.run(
+    pipeline=pipeline_strat_auto,
+    dataset=DatasetConfigs("sample_data/classification", repetition="Sample_ID"),
+    name="AutoGroup_Stratified",
     verbose=1,
     plots_visible=args.plots
 )
 
-accuracy = (1 - result_strat_force.best_rmse) * 100 if not np.isnan(result_strat_force.best_rmse) else float('nan')
-print(f"\nStratifiedKFold + force_group - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nStratifiedKFold + force_group - (see detailed metrics)")
+accuracy = (1 - result_strat_auto.best_rmse) * 100 if not np.isnan(result_strat_auto.best_rmse) else float('nan')
+print(f"\nStratifiedKFold + repetition - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nStratifiedKFold + repetition - (see detailed metrics)")
 
 
 # =============================================================================
@@ -287,17 +284,16 @@ result_no_group = nirs4all.run(
     verbose=0
 )
 
-# WITH group splitting
+# WITH group splitting via repetition
 pipeline_with_group = [
     StandardNormalVariate(),
-    {"split": KFold(n_splits=3, shuffle=True, random_state=42),
-     "force_group": "Sample_ID"},
+    KFold(n_splits=3, shuffle=True, random_state=42),
     {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
 ]
 
 result_with_group = nirs4all.run(
     pipeline=pipeline_with_group,
-    dataset="sample_data/classification",
+    dataset=DatasetConfigs("sample_data/classification", repetition="Sample_ID"),
     name="WithGroup",
     verbose=0
 )
@@ -322,21 +318,25 @@ print("=" * 60)
 print("""
 Group Splitting Methods:
 
-  NATIVE GROUP SPLITTERS (use "group" parameter):
+  RECOMMENDED: Use repetition in DatasetConfigs (auto-groups all splitters):
+    DatasetConfigs("path", repetition="Sample_ID")
+    # Then ANY splitter respects groups automatically:
+    KFold(n_splits=3)
+    ShuffleSplit(n_splits=5)
+    StratifiedKFold(n_splits=3)
+
+  NATIVE GROUP SPLITTERS (still work with explicit "group" parameter):
     {"split": GroupKFold(n_splits=3), "group": "Sample_ID"}
     {"split": StratifiedGroupKFold(n_splits=3), "group": "Sample_ID"}
 
-  UNIVERSAL force_group (works with ANY splitter):
-    {"split": KFold(n_splits=3), "force_group": "Sample_ID"}
-    {"split": ShuffleSplit(n_splits=5), "force_group": "Sample_ID"}
-    {"split": StratifiedKFold(n_splits=3), "force_group": "Sample_ID",
-     "y_aggregation": "mode"}
+  ADDITIONAL GROUPING (combine with repetition):
+    {"split": KFold(n_splits=3), "group_by": ["Year", "Location"]}
+    # Groups by (Sample_ID, Year, Location) tuples
 
-Group Column Options:
-  "Sample_ID"    - Metadata column name
-  "y"            - Group by target values (stratification)
+  OPT-OUT of repetition grouping:
+    {"split": KFold(n_splits=3), "ignore_repetition": True}
 
-y_aggregation Options (for force_group with stratified):
+y_aggregation Options (for stratified splitters):
   "mode"   - Most common value (classification)
   "mean"   - Average value (regression)
 

@@ -80,6 +80,10 @@ class SpectroDataset:
         self._aggregate_exclude_outliers: bool = False
         self._aggregate_outlier_threshold: float = 0.95
 
+        # Repetition column - identifies sample repetitions (multiple spectra per sample)
+        # This is the primary way to specify grouping for splits and score aggregation
+        self._repetition: Optional[str] = None
+
         # NaN tracking flag — set to True when the dataset may contain NaN
         # (e.g., loaded with na_policy="ignore" or after a transform introduces NaN).
         # Controllers check this flag to decide whether to run the runtime NaN guard.
@@ -698,6 +702,126 @@ class SpectroDataset:
     # ========== Aggregation Settings ==========
 
     @property
+    def repetition(self) -> Optional[str]:
+        """
+        Get the column name identifying sample repetitions.
+
+        Repetition is a fundamental NIRS concept: multiple spectral measurements
+        of the same physical sample. This column is used for:
+        - Automatic grouping in cross-validation splits (prevent data leakage)
+        - Score aggregation (combine predictions per physical sample)
+
+        Returns:
+            Column name (metadata column), or None if not set.
+
+        Example:
+            >>> dataset.repetition
+            'Sample_ID'  # Splits will automatically group by this column
+        """
+        return self._repetition
+
+    def set_repetition(self, column: Optional[str]) -> None:
+        """
+        Set the column name identifying sample repetitions.
+
+        When set, cross-validation splits will automatically group by this column
+        to prevent data leakage (same physical sample in train and validation).
+
+        Args:
+            column: Metadata column name identifying repetitions (e.g., 'Sample_ID'),
+                   or None to disable repetition grouping.
+
+        Example:
+            >>> dataset.set_repetition('Sample_ID')
+        """
+        if column is not None and column not in self.metadata_columns:
+            # Only warn if metadata has been loaded
+            if self._metadata.num_rows > 0:
+                from nirs4all.core.logging import get_logger
+                logger = get_logger(__name__)
+                logger.warning(
+                    f"Repetition column '{column}' not found in metadata. "
+                    f"Available columns: {self.metadata_columns}"
+                )
+        self._repetition = column
+
+    @property
+    def repetition_groups(self) -> Dict[Any, List[int]]:
+        """
+        Get sample groups by repetition column.
+
+        Returns a mapping from each unique repetition value (sample ID) to
+        the list of row indices that share that value (repetitions).
+
+        Returns:
+            Dict mapping group keys (sample IDs) to lists of row indices.
+            Empty dict if no repetition column is set.
+
+        Example:
+            >>> dataset.set_repetition('Sample_ID')
+            >>> groups = dataset.repetition_groups
+            >>> # {'sample_001': [0, 1, 2, 3], 'sample_002': [4, 5, 6, 7], ...}
+        """
+        if not self._repetition:
+            return {}
+        return self._get_sample_groups(self._repetition)
+
+    @property
+    def repetition_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about repetition counts.
+
+        Provides summary statistics about how many repetitions (spectral
+        measurements) exist per unique sample.
+
+        Returns:
+            Dict with keys:
+                - n_groups: Number of unique samples
+                - min: Minimum repetitions per sample
+                - max: Maximum repetitions per sample
+                - mean: Average repetitions per sample
+                - std: Standard deviation of repetition counts
+                - is_variable: True if samples have different numbers of repetitions
+            Empty dict with zeros if no repetition column is set.
+
+        Example:
+            >>> stats = dataset.repetition_stats
+            >>> print(f"{stats['n_groups']} samples with {stats['mean']:.1f} reps each")
+            >>> if stats['is_variable']:
+            ...     print(f"Warning: variable counts ({stats['min']}-{stats['max']})")
+        """
+        if not self._repetition:
+            return {
+                "n_groups": 0,
+                "min": 0,
+                "max": 0,
+                "mean": 0.0,
+                "std": 0.0,
+                "is_variable": False
+            }
+
+        groups = self.repetition_groups
+        if not groups:
+            return {
+                "n_groups": 0,
+                "min": 0,
+                "max": 0,
+                "mean": 0.0,
+                "std": 0.0,
+                "is_variable": False
+            }
+
+        counts = [len(v) for v in groups.values()]
+        return {
+            "n_groups": len(groups),
+            "min": min(counts),
+            "max": max(counts),
+            "mean": float(np.mean(counts)),
+            "std": float(np.std(counts)),
+            "is_variable": len(set(counts)) > 1
+        }
+
+    @property
     def aggregate(self) -> Optional[str]:
         """
         Get the aggregation setting for sample-level prediction aggregation.
@@ -1292,6 +1416,9 @@ class SpectroDataset:
         # Reset signal types for new sources
         self._signal_types = [SignalType.AUTO] * n_sources
         self._signal_type_forced = [False] * n_sources
+
+        # Preserve repetition setting
+        # (self._repetition remains unchanged as it refers to a metadata column)
 
         # Clear folds (CV needs to be re-run on new sample count)
         self._folds = []

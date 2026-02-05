@@ -171,6 +171,7 @@ class SourceType(str, Enum):
     """
 
     PREDICTION = "prediction"
+    PREDICTION_ID = "prediction_id"
     FOLDER = "folder"
     RUN = "run"
     ARTIFACT_ID = "artifact_id"
@@ -290,16 +291,19 @@ class PredictionResolver:
     def __init__(
         self,
         workspace_path: Union[str, Path],
-        runs_dir: Optional[Union[str, Path]] = None
+        runs_dir: Optional[Union[str, Path]] = None,
+        store: Optional[Any] = None,
     ):
         """Initialize prediction resolver.
 
         Args:
             workspace_path: Root workspace directory
             runs_dir: Optional runs directory override (default: workspace/runs)
+            store: Optional WorkspaceStore for DuckDB-backed resolution
         """
         self.workspace_path = Path(workspace_path)
         self.runs_dir = Path(runs_dir) if runs_dir else self.workspace_path / "runs"
+        self.store = store
 
     def resolve(
         self,
@@ -330,6 +334,14 @@ class PredictionResolver:
             # Type narrowing: we know source is dict at this point
             assert isinstance(source, dict)
             return self._resolve_from_prediction(source, verbose)
+        elif source_type == SourceType.PREDICTION_ID:
+            # String prediction ID — look up the full prediction dict from the store
+            assert isinstance(source, str) and self.store is not None
+            prediction_dict = self.store.get_prediction(source)
+            # Map store column names to expected prediction dict keys
+            if "pipeline_id" in prediction_dict and "pipeline_uid" not in prediction_dict:
+                prediction_dict["pipeline_uid"] = prediction_dict["pipeline_id"]
+            return self._resolve_from_prediction(prediction_dict, verbose)
         elif source_type == SourceType.FOLDER:
             # Type narrowing: we know source is str or Path at this point
             assert isinstance(source, (str, Path))
@@ -413,9 +425,19 @@ class PredictionResolver:
             if run_path.is_dir():
                 return SourceType.FOLDER
 
-            # Could be a pipeline_uid
-            if self._find_pipeline_dir(source_str):
+            # Could be a pipeline_uid (filesystem only)
+            if self.store is None and self._find_pipeline_dir(source_str):
                 return SourceType.FOLDER
+
+            # When store is available, check if the string is a prediction ID
+            if self.store is not None:
+                pred = self.store.get_prediction(source_str)
+                if pred is not None:
+                    return SourceType.PREDICTION_ID
+
+                # Or a pipeline_id -- treat as prediction-style source
+                if self.store.get_pipeline(source_str) is not None:
+                    return SourceType.PREDICTION
 
         # Run object (duck typing)
         if hasattr(source, "predictions") and hasattr(source, "best"):
@@ -563,6 +585,12 @@ class PredictionResolver:
         Returns:
             ResolvedPrediction with components for replay
         """
+        # Try store-based resolution first (DuckDB)
+        if self.store is not None:
+            resolved = self._resolve_from_store(prediction, verbose)
+            if resolved is not None:
+                return resolved
+
         result = ResolvedPrediction(source_type=SourceType.PREDICTION)
 
         # Extract target model metadata
@@ -1053,6 +1081,253 @@ class PredictionResolver:
             return 'catboost'
 
         return 'unknown'
+
+    # =========================================================================
+    # Store-based resolution (DuckDB)
+    # =========================================================================
+
+    def _resolve_from_store(
+        self,
+        prediction: Dict[str, Any],
+        verbose: int = 0,
+    ) -> Optional[ResolvedPrediction]:
+        """Try to resolve a prediction using the WorkspaceStore.
+
+        Looks up the pipeline and chain data in the DuckDB store and
+        builds a :class:`ResolvedPrediction` with a :class:`MapArtifactProvider`
+        backed by store-loaded artifacts.
+
+        Args:
+            prediction: Prediction dictionary with pipeline_uid.
+            verbose: Verbosity level.
+
+        Returns:
+            A :class:`ResolvedPrediction` if the pipeline/chain exist in the
+            store, or ``None`` if resolution should fall through to the
+            filesystem path.
+        """
+        pipeline_uid = prediction.get("pipeline_uid")
+        if not pipeline_uid or self.store is None:
+            return None
+
+        # Look up pipeline in store
+        pipeline = self.store.get_pipeline(pipeline_uid)
+        if pipeline is None:
+            return None
+
+        # Get chains for this pipeline
+        chains_df = self.store.get_chains_for_pipeline(pipeline_uid)
+        if chains_df.is_empty():
+            return None
+
+        # Pick the matching chain
+        chain_id = self._pick_chain_for_prediction(chains_df, prediction)
+        chain = self.store.get_chain(chain_id)
+        if chain is None:
+            return None
+
+        if verbose > 0:
+            logger.info(f"Resolved pipeline {pipeline_uid} via store (chain {chain_id})")
+
+        result = ResolvedPrediction(source_type=SourceType.PREDICTION)
+        result.pipeline_uid = pipeline_uid
+        result.model_step_index = chain["model_step_idx"]
+
+        # Build artifact map from the target chain, plus source model chains
+        # (chains with a lower model_step_idx) needed for meta-model stacking.
+        # Chains at the same model_step_idx but different branch_path are NOT
+        # loaded to avoid mixing branch-specific preprocessing artifacts.
+        target_step_idx = chain["model_step_idx"]
+        artifact_map, source_artifact_map = self._build_artifact_map_from_chain(chain)
+        for cid in chains_df["chain_id"].to_list():
+            if cid == chain_id:
+                continue
+            c = self.store.get_chain(cid)
+            if c is not None and c["model_step_idx"] < target_step_idx:
+                partial_map, partial_source_map = self._build_artifact_map_from_chain(c)
+                for step_idx, entries in partial_map.items():
+                    if step_idx not in artifact_map:
+                        artifact_map[step_idx] = []
+                    artifact_map[step_idx].extend(entries)
+                for key, entries in partial_source_map.items():
+                    if key not in source_artifact_map:
+                        source_artifact_map[key] = []
+                    source_artifact_map[key].extend(entries)
+
+        # Derive fold weights from the target chain
+        fold_artifacts = chain.get("fold_artifacts") or {}
+        fold_weights = {i: 1.0 for i in range(len(fold_artifacts))}
+        result.fold_weights = fold_weights
+        if len(fold_weights) > 1:
+            result.fold_strategy = FoldStrategy.WEIGHTED_AVERAGE
+
+        result.artifact_provider = MapArtifactProvider(
+            artifact_map=artifact_map,
+            fold_weights=fold_weights,
+            source_artifact_map=source_artifact_map,
+        )
+
+        # Minimal pipeline from expanded_config, trimmed to the target model step.
+        # model_step_idx is 1-based; expanded_config is a 0-based list.
+        # Include all steps up to and including the model step so that
+        # step numbering matches artifact_map keys.
+        expanded_config = pipeline.get("expanded_config", [])
+        if not isinstance(expanded_config, list):
+            expanded_config = [expanded_config]
+        model_step_idx = chain["model_step_idx"]
+        if model_step_idx and model_step_idx <= len(expanded_config):
+            result.minimal_pipeline = expanded_config[:model_step_idx]
+        else:
+            result.minimal_pipeline = expanded_config
+
+        # Target model metadata
+        result.target_model = {
+            k: v for k, v in prediction.items()
+            if k not in ("y_pred", "y_true", "X")
+        }
+
+        # Extract fold weights from prediction if available
+        pred_fold_weights = prediction.get("fold_weights")
+        if pred_fold_weights:
+            result.fold_weights = {int(k): v for k, v in pred_fold_weights.items()}
+            result.fold_strategy = FoldStrategy.WEIGHTED_AVERAGE
+
+        return result
+
+    def _build_artifact_map_from_chain(
+        self,
+        chain: Dict[str, Any],
+    ) -> Tuple[Dict[int, List[Tuple[str, Any]]], Dict[Tuple[int, int], List[Tuple[str, Any]]]]:
+        """Build an artifact map from a store chain.
+
+        Loads shared (preprocessing) and fold (model) artifacts from the
+        store and organises them into the format expected by
+        :class:`MapArtifactProvider`.
+
+        Args:
+            chain: Chain dictionary from ``store.get_chain()``.
+
+        Returns:
+            Tuple of (artifact_map, source_artifact_map) where:
+            - artifact_map maps step_index → list of (artifact_id, object)
+            - source_artifact_map maps (step_index, source_index) → list of
+              (artifact_id, object) for multi-source steps
+        """
+        artifact_map: Dict[int, List[Tuple[str, Any]]] = {}
+        source_artifact_map: Dict[Tuple[int, int], List[Tuple[str, Any]]] = {}
+        shared_artifacts = chain.get("shared_artifacts") or {}
+        fold_artifacts = chain.get("fold_artifacts") or {}
+        model_step_idx = chain["model_step_idx"]
+
+        # Extract per-source metadata (embedded by ChainBuilder)
+        source_map_meta = shared_artifacts.get("_source_map") if isinstance(shared_artifacts, dict) else None
+
+        # Load shared artifacts (preprocessing transforms)
+        for step_idx_str, artifact_ids_val in shared_artifacts.items():
+            if step_idx_str.startswith("_"):
+                continue  # Skip metadata keys like _source_map
+            step_idx = int(step_idx_str)
+            # shared_artifacts values are lists of artifact IDs
+            aid_list = artifact_ids_val if isinstance(artifact_ids_val, list) else [artifact_ids_val]
+            loaded: List[Tuple[str, Any]] = []
+            for artifact_id in aid_list:
+                try:
+                    obj = self.store.load_artifact(artifact_id)
+                    loaded.append((artifact_id, obj))
+                except (KeyError, FileNotFoundError) as e:
+                    logger.warning(f"Failed to load shared artifact {artifact_id}: {e}")
+            if loaded:
+                artifact_map[step_idx] = loaded
+
+        # Build per-source artifact map from _source_map metadata
+        if source_map_meta:
+            for step_idx_str, sources in source_map_meta.items():
+                step_idx = int(step_idx_str)
+                loaded_at_step = {aid: obj for aid, obj in artifact_map.get(step_idx, [])}
+                for source_idx_str, aid_list in sources.items():
+                    source_idx = int(source_idx_str)
+                    entries = [(aid, loaded_at_step[aid]) for aid in aid_list if aid in loaded_at_step]
+                    if entries:
+                        source_artifact_map[(step_idx, source_idx)] = entries
+
+        # Load fold artifacts (model) — append to existing entries at this step
+        if fold_artifacts:
+            fold_list: List[Tuple[str, Any]] = []
+            for fold_id, artifact_id in fold_artifacts.items():
+                try:
+                    obj = self.store.load_artifact(artifact_id)
+                    fold_list.append((artifact_id, obj))
+                except (KeyError, FileNotFoundError) as e:
+                    logger.warning(f"Failed to load fold artifact {artifact_id}: {e}")
+            if fold_list:
+                if model_step_idx in artifact_map:
+                    artifact_map[model_step_idx].extend(fold_list)
+                else:
+                    artifact_map[model_step_idx] = fold_list
+
+        return artifact_map, source_artifact_map
+
+    def _pick_chain_for_prediction(
+        self,
+        chains_df: Any,
+        prediction: Dict[str, Any],
+    ) -> str:
+        """Select the chain that matches a prediction.
+
+        Tries to match on ``model_class`` and ``preprocessings``.  Falls
+        back to the first chain if no unique match is found.
+
+        Args:
+            chains_df: Polars DataFrame of chains (from
+                ``store.get_chains_for_pipeline``).
+            prediction: Prediction dictionary.
+
+        Returns:
+            The ``chain_id`` of the best-matching chain.
+        """
+        import polars as pl
+
+        if len(chains_df) == 1:
+            return chains_df["chain_id"][0]
+
+        # Direct chain_id from store prediction (most reliable)
+        chain_id = prediction.get("chain_id")
+        if chain_id:
+            matched = chains_df.filter(pl.col("chain_id") == chain_id)
+            if len(matched) == 1:
+                return matched["chain_id"][0]
+
+        # Try to match by branch_id → branch_path
+        branch_id = prediction.get("branch_id")
+        if branch_id is not None and "branch_path" in chains_df.columns:
+            expected_bp = json.dumps([branch_id])
+            matched = chains_df.filter(pl.col("branch_path") == expected_bp)
+            if len(matched) == 1:
+                return matched["chain_id"][0]
+
+        # Try to match by model step index
+        step_idx = prediction.get("step_idx")
+        if step_idx is not None:
+            matched = chains_df.filter(pl.col("model_step_idx") == int(step_idx))
+            if len(matched) == 1:
+                return matched["chain_id"][0]
+
+        # Try to match by model_class (narrows if different model types)
+        model_classname = prediction.get("model_classname") or prediction.get("model_class", "")
+        if model_classname:
+            matched = chains_df.filter(pl.col("model_class") == model_classname)
+            if len(matched) == 1:
+                return matched["chain_id"][0]
+
+        # Try to match by preprocessings
+        preprocessings = prediction.get("preprocessings", "")
+        if preprocessings:
+            matched = chains_df.filter(pl.col("preprocessings") == preprocessings)
+            if len(matched) == 1:
+                return matched["chain_id"][0]
+
+        # Default: first chain
+        return chains_df["chain_id"][0]
 
     def _find_trace_location(self, trace_id: str) -> Tuple[str, Path]:
         """Find the pipeline and run directory containing a trace.

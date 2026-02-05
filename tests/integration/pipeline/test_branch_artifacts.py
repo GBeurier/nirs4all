@@ -397,7 +397,7 @@ class TestArtifactLoaderBranchSupport:
         """Create temporary workspace directory."""
         workspace = tmp_path / "workspace"
         workspace.mkdir(parents=True)
-        (workspace / "binaries" / "test_dataset").mkdir(parents=True)
+        (workspace / "artifacts").mkdir(parents=True)
         return workspace
 
     def test_artifact_loader_handles_branch_artifacts(self, workspace_path):

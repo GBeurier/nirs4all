@@ -504,7 +504,8 @@ class PipelineRunner:
 
         generator = BundleGenerator(
             workspace_path=self.workspace_path,
-            verbose=self.verbose
+            verbose=self.verbose,
+            store=self.store,
         )
 
         return generator.export(
@@ -571,7 +572,8 @@ class PipelineRunner:
         # Resolve the prediction source
         resolver = PredictionResolver(
             workspace_path=self.workspace_path,
-            runs_dir=self.runs_dir
+            runs_dir=self.runs_dir,
+            store=self.store,
         )
         resolved = resolver.resolve(source, verbose=self.verbose)
 

@@ -415,9 +415,9 @@ class WorkspaceStore:
             fold_artifacts: Mapping from fold identifier (string) to the
                 artifact ID of the model trained on that fold.
                 Example: ``{"fold_0": "art_abc123", "fold_1": "art_def456"}``.
-            shared_artifacts: Mapping from step index (string) to the
-                artifact ID of shared (non-fold-specific) fitted objects.
-                Example: ``{"0": "art_scaler_abc"}``.
+            shared_artifacts: Mapping from step index (string) to a list
+                of artifact IDs of shared (non-fold-specific) fitted objects.
+                Example: ``{"0": ["art_scaler_abc"], "3": ["art_snv", "art_sg"]}``.
             branch_path: For branching pipelines, the path of branch
                 indices leading to this chain.  ``None`` for non-branching
                 pipelines.
@@ -491,6 +491,7 @@ class WorkspaceStore:
         exclusion_count: int,
         exclusion_rate: float,
         preprocessings: str = "",
+        prediction_id: str | None = None,
     ) -> str:
         """Store a single prediction record.
 
@@ -531,7 +532,8 @@ class WorkspaceStore:
             A unique prediction identifier (UUID-based string).
         """
         conn = self._ensure_open()
-        prediction_id = str(uuid4())
+        if prediction_id is None:
+            prediction_id = str(uuid4())
         conn.execute(INSERT_PREDICTION, [
             prediction_id, pipeline_id, chain_id, dataset_name, model_name,
             model_class, fold_id, partition, val_score, test_score, train_score,
@@ -650,6 +652,50 @@ class WorkspaceStore:
         conn.execute(INSERT_ARTIFACT, [
             artifact_id, relative_path, content_hash, operator_class,
             artifact_type, format, len(data),
+        ])
+        return artifact_id
+
+    def register_existing_artifact(
+        self,
+        artifact_id: str,
+        path: str,
+        content_hash: str,
+        operator_class: str,
+        artifact_type: str,
+        format: str,
+        size_bytes: int,
+    ) -> str:
+        """Register an artifact that was already saved to disk.
+
+        This is used to bridge the ArtifactRegistry (which persists files
+        during pipeline execution) with the DuckDB ``artifacts`` table so
+        that :meth:`load_artifact` and chain replay can find them.
+
+        If an artifact with the same *artifact_id* already exists the call
+        is silently ignored (idempotent).
+
+        Args:
+            artifact_id: Artifact identifier (may be V3 format).
+            path: Relative path within the ``artifacts/`` directory.
+            content_hash: SHA-256 hex digest of the serialised content.
+            operator_class: Class name of the operator that produced it.
+            artifact_type: Category label (``"model"``, ``"transformer"``, …).
+            format: Serialisation format (``"joblib"``, ``"cloudpickle"``, …).
+            size_bytes: Size of the serialised content in bytes.
+
+        Returns:
+            The *artifact_id* that was registered.
+        """
+        conn = self._ensure_open()
+
+        # Skip if already registered
+        existing = self._fetch_one(GET_ARTIFACT, [artifact_id])
+        if existing is not None:
+            return artifact_id
+
+        conn.execute(INSERT_ARTIFACT, [
+            artifact_id, path, content_hash, operator_class,
+            artifact_type, format, size_bytes,
         ])
         return artifact_id
 
@@ -1072,15 +1118,19 @@ class WorkspaceStore:
         for aid in fold_artifacts.values():
             if aid:
                 artifact_ids.add(aid)
-        for aid in shared_artifacts.values():
-            if aid:
-                artifact_ids.add(aid)
+        for v in shared_artifacts.values():
+            if isinstance(v, list):
+                for aid in v:
+                    if aid:
+                        artifact_ids.add(aid)
+            elif v:
+                artifact_ids.add(v)
 
         # Build manifest
         manifest = {
             "chain_id": chain_id,
             "model_class": chain["model_class"],
-            "model_step_idx": chain["model_step_idx"],
+            "model_step_index": chain["model_step_idx"],
             "preprocessings": chain["preprocessings"],
             "fold_strategy": chain["fold_strategy"],
             "exported_at": datetime.now(UTC).isoformat(),
@@ -1424,8 +1474,13 @@ class WorkspaceStore:
 
             str_idx = str(idx)
             if str_idx in shared_artifacts:
-                transformer = self.load_artifact(shared_artifacts[str_idx])
-                X_current = transformer.transform(X_current)
+                artifact_ids = shared_artifacts[str_idx]
+                # shared_artifacts values are lists of artifact IDs
+                if isinstance(artifact_ids, str):
+                    artifact_ids = [artifact_ids]
+                for artifact_id in artifact_ids:
+                    transformer = self.load_artifact(artifact_id)
+                    X_current = transformer.transform(X_current)
             elif step.get("stateless", False):
                 # Stateless step -- skip (no artifact needed)
                 pass
@@ -1447,7 +1502,11 @@ class WorkspaceStore:
                     ids.add(v)
         if shared_artifacts:
             for v in shared_artifacts.values():
-                if v:
+                if isinstance(v, list):
+                    for aid in v:
+                        if aid:
+                            ids.add(aid)
+                elif v:
                     ids.add(v)
         return ids
 

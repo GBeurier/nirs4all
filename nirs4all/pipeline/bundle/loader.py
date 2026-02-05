@@ -442,12 +442,16 @@ class BundleLoader:
                     key = self._filename_to_key(filename)
                     self._artifact_index[key] = filename
 
+        # Extract step_info from pipeline_config when no trace available
+        # This is critical for identifying y_processing vs regular preprocessing
+        step_info = self._extract_step_info_from_config()
+
         # Create artifact provider with trace for full functionality
         self.artifact_provider = BundleArtifactProvider(
             bundle_path=self.bundle_path,
             artifact_index=self._artifact_index,
             fold_weights=self.fold_weights,
-            step_info={},  # Step info is now inferred from trace
+            step_info=step_info,
             trace=self.trace
         )
 
@@ -483,6 +487,55 @@ class BundleLoader:
             return f"step_{step_idx}"
 
         return name
+
+    def _extract_step_info_from_config(self) -> Dict[int, Dict[str, Any]]:
+        """Extract operator type info from pipeline_config.
+
+        When no trace is available, this method parses the pipeline_config
+        to determine the operator_type for each step. This is critical for
+        correctly handling y_processing (target scaling) vs regular preprocessing.
+
+        Returns:
+            Dict mapping step_index (1-based) to step info dict with operator_type.
+        """
+        step_info: Dict[int, Dict[str, Any]] = {}
+
+        if not self.pipeline_config:
+            return step_info
+
+        steps = self.pipeline_config.get("steps", [])
+
+        for idx, step in enumerate(steps):
+            step_index = idx + 1  # 1-based indexing
+
+            if not isinstance(step, dict):
+                continue
+
+            # Determine operator_type from step dict keys
+            if "y_processing" in step:
+                step_info[step_index] = {"operator_type": "y_processing"}
+            elif "feature_augmentation" in step:
+                step_info[step_index] = {"operator_type": "feature_augmentation"}
+            elif "model" in step:
+                step_info[step_index] = {"operator_type": "model"}
+            elif "meta_model" in step:
+                step_info[step_index] = {"operator_type": "meta_model"}
+            elif "branch" in step:
+                step_info[step_index] = {"operator_type": "branch"}
+            elif "merge" in step:
+                step_info[step_index] = {"operator_type": "merge"}
+            elif "class" in step:
+                # Splitter or other sklearn object - check class name
+                class_name = step.get("class", "")
+                if "Split" in class_name or "Fold" in class_name:
+                    step_info[step_index] = {"operator_type": "splitter"}
+                else:
+                    step_info[step_index] = {"operator_type": "transform"}
+            elif "step" in step:
+                # Regular preprocessing step
+                step_info[step_index] = {"operator_type": "transform"}
+
+        return step_info
 
     def predict(
         self,
@@ -826,10 +879,10 @@ class BundleLoader:
         for step_idx in sorted(step_indices):
             is_model = (step_idx == model_step)
 
-            # Check operator type from step_info
+            # Check operator type from artifact provider
             op_type = None
-            if step_idx in self.step_info:
-                op_type = self.step_info[step_idx].get("operator_type")
+            if self.artifact_provider:
+                op_type = self.artifact_provider.get_step_operator_type(step_idx)
 
             # Handle y_processing - skip but track for inverse_transform
             if op_type == "y_processing":

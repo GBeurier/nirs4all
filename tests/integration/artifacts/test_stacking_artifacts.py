@@ -164,27 +164,27 @@ class TestMetaModelLoading:
     def workspace_path(self, tmp_path):
         """Create temporary workspace."""
         workspace = tmp_path / "workspace"
-        binaries_dir = workspace / "binaries" / "test_dataset"
-        binaries_dir.mkdir(parents=True)
+        artifacts_dir = workspace / "artifacts"
+        artifacts_dir.mkdir(parents=True)
         return workspace
 
     def test_load_meta_model_with_sources(self, workspace_path):
         """Test loading meta-model with its source models."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Create source models
         lr = LinearRegression()
         lr.fit(np.array([[0], [1], [2]]), np.array([0, 1, 2]))
-        lr_meta = persist(lr, binaries_dir, "lr_model")
+        lr_meta = persist(lr, artifacts_dir, "lr_model")
 
         rf = RandomForestRegressor(n_estimators=10, random_state=42)
         rf.fit(np.array([[0], [1], [2]]), np.array([0, 1, 2]))
-        rf_meta = persist(rf, binaries_dir, "rf_model")
+        rf_meta = persist(rf, artifacts_dir, "rf_model")
 
         # Create meta-model
         meta = Ridge()
         meta.fit(np.array([[0, 0], [1, 1], [2, 2]]), np.array([0, 1, 2]))
-        meta_meta = persist(meta, binaries_dir, "meta_model")
+        meta_meta = persist(meta, artifacts_dir, "meta_model")
 
         manifest = {
             "dataset": "test_dataset",
@@ -256,7 +256,7 @@ class TestMetaModelLoading:
 
     def test_load_meta_model_feature_order_preserved(self, workspace_path):
         """Feature column order should match source model order."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Create models
         models_info = []
@@ -267,13 +267,13 @@ class TestMetaModelLoading:
         ]):
             model = cls() if cls != RandomForestRegressor else cls(n_estimators=5)
             model.fit(np.array([[0], [1]]), np.array([0, 1]))
-            meta = persist(model, binaries_dir, name)
+            meta = persist(model, artifacts_dir, name)
             models_info.append((f"0001:{i}:all", meta, cls.__name__))
 
         # Meta-model
         meta = Ridge()
         meta.fit(np.array([[0, 0, 0], [1, 1, 1]]), np.array([0, 1]))
-        meta_meta = persist(meta, binaries_dir, "meta")
+        meta_meta = persist(meta, artifacts_dir, "meta")
 
         items = [
             {
@@ -340,23 +340,23 @@ class TestMetaModelWithBranches:
     def workspace_path(self, tmp_path):
         """Create temporary workspace."""
         workspace = tmp_path / "workspace"
-        binaries_dir = workspace / "binaries" / "test_dataset"
-        binaries_dir.mkdir(parents=True)
+        artifacts_dir = workspace / "artifacts"
+        artifacts_dir.mkdir(parents=True)
         return workspace
 
     def test_meta_model_uses_shared_pre_branch_sources(self, workspace_path):
         """Meta-model in branch can use shared (pre-branch) sources."""
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        artifacts_dir = workspace_path / "artifacts"
 
         # Shared source (no branch)
         source = LinearRegression()
         source.fit(np.array([[0], [1]]), np.array([0, 1]))
-        source_meta = persist(source, binaries_dir, "source")
+        source_meta = persist(source, artifacts_dir, "source")
 
         # Meta-model in branch
         meta = Ridge()
         meta.fit(np.array([[0], [1]]), np.array([0, 1]))
-        meta_meta = persist(meta, binaries_dir, "meta")
+        meta_meta = persist(meta, artifacts_dir, "meta")
 
         manifest = {
             "dataset": "test_dataset",

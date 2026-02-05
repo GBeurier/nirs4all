@@ -378,8 +378,8 @@ class TestDatasetPurge:
                 artifact_type=ArtifactType.TRANSFORMER
             )
 
-        # Verify files exist
-        file_count = sum(1 for _ in registry.binaries_dir.iterdir() if _.is_file())
+        # Verify files exist (artifacts are stored in sharded subdirectories)
+        file_count = sum(1 for _ in registry.binaries_dir.rglob("*") if _.is_file())
         assert file_count >= 1
 
         # Purge
@@ -389,7 +389,7 @@ class TestDatasetPurge:
         assert bytes_freed > 0
 
         # All files should be deleted
-        remaining = list(f for f in registry.binaries_dir.iterdir() if f.is_file())
+        remaining = list(f for f in registry.binaries_dir.rglob("*") if f.is_file())
         assert len(remaining) == 0
 
         # Registry should be empty

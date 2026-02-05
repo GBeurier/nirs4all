@@ -67,6 +67,7 @@ from nirs4all.operators.transforms import (
 # removed due to known interaction issues with tag columns
 from nirs4all.operators.filters import YOutlierFilter
 from nirs4all.operators.models import MetaModel
+from nirs4all.operators.models.meta import StackingConfig
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description="R03 All Keywords Integration Test")
@@ -212,7 +213,16 @@ complex_pipeline = [
     # =========================================================================
     # MetaModel inside branch mode (branch-aware stacking)
     # =========================================================================
-    {"name": "Ridge_MetaModel", "model": MetaModel(model=Ridge(alpha=1.0))},
+    {
+        "name": "Ridge_MetaModel",
+        "model": MetaModel(
+            model=Ridge(alpha=1.0),
+            stacking_config=StackingConfig(
+                coverage_strategy="drop_incomplete",
+                min_coverage_ratio=0.95,
+            ),
+        ),
+    },
 
     # =========================================================================
     # KEYWORD 11: merge with prediction selection

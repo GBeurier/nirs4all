@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import inspect
 import warnings
-from typing import Any, Dict, Tuple, TYPE_CHECKING, List, Union
+from typing import Any, Dict, Tuple, TYPE_CHECKING, List, Union, Optional
 import copy
+import numpy as np
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
@@ -27,6 +28,105 @@ _NATIVE_GROUP_SPLITTERS = frozenset({
     "SPXYGFold",
     "BinnedStratifiedGroupKFold",
 })
+
+
+def compute_effective_groups(
+    dataset: "SpectroDataset",
+    group_by: Optional[Union[str, List[str]]] = None,
+    ignore_repetition: bool = False,
+    context: Optional[Any] = None,
+    include_augmented: bool = False
+) -> Optional[np.ndarray]:
+    """Compute final group labels for splitting.
+
+    Combines repetition column (if defined and not ignored) with
+    additional group_by columns into tuple-based group identifiers.
+    This ensures that all spectra from the same physical sample
+    (and optionally the same metadata groups) stay together in folds.
+
+    Parameters
+    ----------
+    dataset : SpectroDataset
+        The dataset containing metadata columns for grouping.
+    group_by : str or List[str], optional
+        Additional column(s) to group by. Combined with repetition
+        column if repetition is defined and not ignored.
+    ignore_repetition : bool, default=False
+        If True, ignore the dataset's repetition column and only use
+        group_by columns for grouping. Use for specific experiments
+        where you want to split within repetitions.
+    context : Any, optional
+        Execution context for selecting samples (e.g., partition filter).
+        If None, uses all samples.
+    include_augmented : bool, default=False
+        If True, include augmented samples. Typically False for splitting
+        to avoid data leakage.
+
+    Returns
+    -------
+    np.ndarray or None
+        Array of group labels (one per sample), or None if no grouping needed.
+        - For single column: array of column values
+        - For multiple columns: array of tuples (e.g., (Sample_ID, Year))
+
+    Examples
+    --------
+    >>> # Repetition only (auto from dataset)
+    >>> groups = compute_effective_groups(dataset)
+    >>> # groups = ['S1', 'S1', 'S2', 'S2', ...]
+
+    >>> # Repetition + additional grouping
+    >>> groups = compute_effective_groups(dataset, group_by=['Year'])
+    >>> # groups = [('S1', 2020), ('S1', 2020), ('S2', 2021), ...]
+
+    >>> # Explicit grouping without repetition
+    >>> groups = compute_effective_groups(dataset, group_by='Batch', ignore_repetition=True)
+    >>> # groups = ['B1', 'B1', 'B2', 'B2', ...]
+    """
+    columns_to_use: List[str] = []
+
+    # Add repetition column first (unless ignored)
+    if not ignore_repetition and dataset.repetition:
+        columns_to_use.append(dataset.repetition)
+
+    # Add group_by columns (deduplicate if already in repetition)
+    if group_by:
+        if isinstance(group_by, str):
+            if group_by not in columns_to_use:
+                columns_to_use.append(group_by)
+        else:
+            for col in group_by:
+                if col not in columns_to_use:
+                    columns_to_use.append(col)
+
+    if not columns_to_use:
+        return None
+
+    # Validate columns exist in metadata
+    available_columns = dataset.metadata_columns
+    for col in columns_to_use:
+        if col not in available_columns:
+            raise ValueError(
+                f"Grouping column '{col}' not found in metadata.\n"
+                f"Available columns: {available_columns}"
+            )
+
+    # Extract column values
+    if len(columns_to_use) == 1:
+        # Single column: return simple array
+        return dataset.metadata_column(
+            columns_to_use[0],
+            context,
+            include_augmented=include_augmented
+        )
+    else:
+        # Multiple columns: create tuple identifiers
+        arrays = [
+            dataset.metadata_column(col, context, include_augmented=include_augmented)
+            for col in columns_to_use
+        ]
+        # Create array of tuples for multi-column grouping
+        return np.array([tuple(row) for row in zip(*arrays)], dtype=object)
 
 
 def _is_native_group_splitter(splitter: Any) -> bool:
@@ -170,15 +270,31 @@ class CrossValidatorController(OperatorController):
 
         op = step_info.operator
 
-        # Extract force_group and aggregation parameters from step dict
+        # Extract grouping parameters from step dict
         force_group = None
+        group_by = None
+        ignore_repetition = False
         aggregation = "mean"
         y_aggregation = None
 
         if isinstance(step_info.original_step, dict):
             force_group = step_info.original_step.get("force_group")
+            group_by = step_info.original_step.get("group_by")
+            ignore_repetition = step_info.original_step.get("ignore_repetition", False)
             aggregation = step_info.original_step.get("aggregation", "mean")
             y_aggregation = step_info.original_step.get("y_aggregation")
+
+            # Deprecate force_group in favor of repetition
+            if force_group is not None:
+                warnings.warn(
+                    "⚠️ 'force_group' is deprecated and will be removed in a future version.\n"
+                    "💡 Use the 'repetition' parameter in DatasetConfigs instead for automatic grouping:\n"
+                    "   DatasetConfigs(folder, repetition='Sample_ID')\n"
+                    "Or use 'group_by' for additional grouping columns:\n"
+                    "   {'split': KFold(5), 'group_by': ['Year', 'Location']}",
+                    DeprecationWarning,
+                    stacklevel=2
+                )
 
         # In predict/explain mode, skip fold splitting entirely
         if mode == "predict" or mode == "explain":
@@ -228,6 +344,7 @@ class CrossValidatorController(OperatorController):
         force_group_column = None
         force_group_is_y = False  # Track if force_group uses y-binning
         n_bins = 5  # Default bins for y-binning
+        use_effective_groups = False  # Track if we should use compute_effective_groups
 
         if force_group is not None:
             if not isinstance(force_group, str):
@@ -246,7 +363,22 @@ class CrossValidatorController(OperatorController):
                             f"n_bins must be an integer >= 2, got {n_bins}"
                         )
             else:
-                force_group_column = force_group
+                # Legacy force_group with column name:
+                # If dataset has no repetition, treat force_group as group_by
+                # If dataset has repetition, combine both (unless ignore_repetition)
+                if not dataset.repetition:
+                    # No repetition defined - use force_group column directly
+                    force_group_column = force_group
+                else:
+                    # Repetition exists - force_group should be combined with it
+                    # Treat force_group as an additional group_by column
+                    if group_by is None:
+                        group_by = [force_group]
+                    elif isinstance(group_by, str):
+                        group_by = [group_by, force_group]
+                    elif force_group not in group_by:
+                        group_by = list(group_by) + [force_group]
+                    use_effective_groups = True
 
             # Validate aggregation parameter
             valid_aggregations = ("mean", "median", "first")
@@ -262,12 +394,15 @@ class CrossValidatorController(OperatorController):
                     f"y_aggregation must be one of {valid_y_aggregations}, got '{y_aggregation}'"
                 )
 
-            # Wrap the splitter with GroupedSplitterWrapper
-            op = GroupedSplitterWrapper(
-                splitter=op,
-                aggregation=aggregation,
-                y_aggregation=y_aggregation
-            )
+        # Check if we should compute effective groups (from repetition + group_by)
+        # This is the new Phase 2 behavior
+        has_repetition_or_group_by = (
+            (dataset.repetition and not ignore_repetition) or
+            group_by is not None
+        )
+
+        if has_repetition_or_group_by and not force_group_is_y and not force_group_column:
+            use_effective_groups = True
 
         local_context = context.with_partition("train")
         needs_y, needs_g = _needs(op)
@@ -282,13 +417,12 @@ class CrossValidatorController(OperatorController):
         )
 
         y = None
-        if needs_y or force_group_column is not None or force_group_is_y:
+        if needs_y or force_group_column is not None or force_group_is_y or use_effective_groups:
             # Get y for splitters that need it, or for force_group (wrapper may need it)
             y = dataset.y(local_context, include_augmented=False)
 
         # Get groups from metadata if available
-        # For force_group: always extract groups (wrapper requires them)
-        # For native group splitters: extract if needs_g is True
+        # Priority: force_group_is_y > force_group_column > use_effective_groups > group (legacy)
         groups = None
         effective_group_column = force_group_column or group_column
 
@@ -302,8 +436,24 @@ class CrossValidatorController(OperatorController):
             # Bin y values into n_bins quantile bins for group-aware splitting
             # Each bin becomes a "group" that won't be split across train/test
             groups = self._bin_y_for_groups(y, n_bins)
+
+        elif use_effective_groups:
+            # NEW Phase 2: Use compute_effective_groups to combine repetition + group_by
+            # This is the primary path for automatic grouping
+            groups = compute_effective_groups(
+                dataset=dataset,
+                group_by=group_by,
+                ignore_repetition=ignore_repetition,
+                context=local_context,
+                include_augmented=False
+            )
+            if groups is not None and len(groups) != X.shape[0]:
+                raise ValueError(
+                    f"Effective groups array length ({len(groups)}) doesn't match X rows ({X.shape[0]})"
+                )
+
         elif force_group_column is not None:
-            # force_group: always extract groups for the wrapper
+            # Legacy force_group: extract groups from specified column
             if not hasattr(dataset, 'metadata_columns') or not dataset.metadata_columns:
                 raise ValueError(
                     f"force_group='{force_group_column}' specified but dataset has no metadata columns."
@@ -323,12 +473,12 @@ class CrossValidatorController(OperatorController):
                 raise ValueError(
                     f"Failed to extract groups from force_group column '{force_group_column}': {e}"
                 ) from e
+
         elif needs_g and (group_column is not None or _is_native_group_splitter(op)):
+            # Legacy 'group' parameter for native group splitters
             # Only extract groups if:
             # 1. Explicit group column specified (user requested grouping), OR
             # 2. Splitter is a native group splitter (GroupKFold, etc.) that requires groups
-            # Note: Many sklearn splitters (KFold, ShuffleSplit, etc.) have 'groups' parameter
-            # for API compatibility, but don't require it. We should NOT auto-assign groups for those.
             if group_column is not None:
                 # Explicit group column specified - validate and extract
                 if not hasattr(dataset, 'metadata_columns') or not dataset.metadata_columns:
@@ -372,12 +522,30 @@ class CrossValidatorController(OperatorController):
             # Leave groups=None and let the splitter handle it
             # (will work for splitters that don't require groups, will fail for those that do)
 
+        # Wrap splitter with GroupedSplitterWrapper if groups exist and splitter
+        # is NOT a native group splitter (e.g., GroupKFold, StratifiedGroupKFold)
+        # Native group splitters handle groups directly via the groups parameter
+        requires_wrapper = groups is not None and not _is_native_group_splitter(op)
+
+        if requires_wrapper:
+            logger.debug(
+                f"Wrapping {op.__class__.__name__} with GroupedSplitterWrapper "
+                f"(groups from: {'repetition' if dataset.repetition else 'group_by'})"
+            )
+            op = GroupedSplitterWrapper(
+                splitter=op,
+                aggregation=aggregation,
+                y_aggregation=y_aggregation
+            )
+            # Update needs_y and needs_g for the wrapped splitter
+            needs_y, needs_g = _needs(op)
+
         n_samples = X.shape[0]
 
         # Build kwargs for split()
         kwargs: Dict[str, Any] = {}
-        if needs_y or force_group_column is not None or force_group_is_y:
-            # Provide y for splitters that need it, or for force_group wrapper
+        if needs_y or force_group_column is not None or force_group_is_y or use_effective_groups:
+            # Provide y for splitters that need it, or for force_group/effective_groups wrapper
             if needs_y and y is None:
                 raise ValueError(
                     f"{op.__class__.__name__} requires y but dataset.y returned None"
@@ -393,7 +561,7 @@ class CrossValidatorController(OperatorController):
         if groups is not None:
             # Provide groups for:
             # 1. Native group splitters (needs_g is True)
-            # 2. force_group wrapped splitters (wrapper needs groups)
+            # 2. force_group/effective_groups wrapped splitters (wrapper needs groups)
             kwargs["groups"] = groups
 
         # Train mode: perform actual fold splitting
@@ -424,6 +592,11 @@ class CrossValidatorController(OperatorController):
         # Store the folds in the dataset (using sample IDs, not positional indices)
         dataset.set_folds(sample_id_folds)
 
+        # Leakage warning: Check if groups are split across train/val folds
+        # This only applies when groups exist and is a safety check
+        if groups is not None and len(sample_id_folds) > 0:
+            self._check_group_leakage(groups, folds, base_sample_ids, dataset.repetition)
+
         # Generate binary output with fold information (using sample IDs)
         headers = [f"fold_{i}" for i in range(len(sample_id_folds))]
         binary = ",".join(headers).encode("utf-8") + b"\n"
@@ -439,7 +612,7 @@ class CrossValidatorController(OperatorController):
             binary += ",".join(row_values).encode("utf-8") + b"\n"
 
         # Filename includes group column if used
-        # For force_group, use the inner splitter's name
+        # For force_group or effective_groups, use the inner splitter's name
         if force_group_column is not None or force_group_is_y:
             inner_splitter = op.splitter  # GroupedSplitterWrapper stores inner splitter
             folds_name = f"folds_{inner_splitter.__class__.__name__}"
@@ -451,6 +624,45 @@ class CrossValidatorController(OperatorController):
                 folds_name += f"_{aggregation}"
             if hasattr(inner_splitter, "random_state"):
                 seed = getattr(inner_splitter, "random_state")
+                if seed is not None:
+                    folds_name += f"_seed{seed}"
+        elif use_effective_groups and requires_wrapper:
+            # Phase 2: effective groups from repetition + group_by
+            inner_splitter = op.splitter  # GroupedSplitterWrapper stores inner splitter
+            folds_name = f"folds_{inner_splitter.__class__.__name__}"
+            # Build group info string
+            group_info_parts = []
+            if dataset.repetition and not ignore_repetition:
+                group_info_parts.append(f"rep-{dataset.repetition}")
+            if group_by:
+                if isinstance(group_by, str):
+                    group_info_parts.append(group_by)
+                else:
+                    group_info_parts.extend(group_by)
+            if group_info_parts:
+                folds_name += f"_groups-{'+'.join(group_info_parts)}"
+            if aggregation != "mean":
+                folds_name += f"_{aggregation}"
+            if hasattr(inner_splitter, "random_state"):
+                seed = getattr(inner_splitter, "random_state")
+                if seed is not None:
+                    folds_name += f"_seed{seed}"
+        elif use_effective_groups:
+            # Native group splitter with effective groups (no wrapper)
+            folds_name = f"folds_{op.__class__.__name__}"
+            # Build group info string
+            group_info_parts = []
+            if dataset.repetition and not ignore_repetition:
+                group_info_parts.append(f"rep-{dataset.repetition}")
+            if group_by:
+                if isinstance(group_by, str):
+                    group_info_parts.append(group_by)
+                else:
+                    group_info_parts.extend(group_by)
+            if group_info_parts:
+                folds_name += f"_groups-{'+'.join(group_info_parts)}"
+            if hasattr(op, "random_state"):
+                seed = getattr(op, "random_state")
                 if seed is not None:
                     folds_name += f"_seed{seed}"
         else:
@@ -558,4 +770,59 @@ class CrossValidatorController(OperatorController):
             groups = np.clip(groups, 0, n_bins - 1)  # Handle edge case of y == y_max
 
             return groups
+
+    def _check_group_leakage(
+        self,
+        groups: np.ndarray,
+        folds: list[tuple[np.ndarray, np.ndarray]],
+        base_sample_ids: np.ndarray,
+        repetition_col: str | None = None,
+    ) -> None:
+        """Check for group leakage across train/val splits and issue warning if detected.
+
+        Group leakage occurs when the same group (e.g., same physical sample)
+        appears in both training and validation sets within a fold. This can
+        happen if the splitter doesn't properly respect groups.
+
+        Parameters
+        ----------
+        groups : np.ndarray
+            Array of group labels (one per sample).
+        folds : list of (train_idx, val_idx) tuples
+            The fold indices (positional, not sample IDs).
+        base_sample_ids : np.ndarray
+            Array mapping positional indices to sample IDs.
+        repetition_col : str, optional
+            Name of repetition column for warning message.
+        """
+        leaked_folds = []
+
+        for fold_idx, (train_idx, val_idx) in enumerate(folds):
+            if len(val_idx) == 0:
+                continue
+
+            # Get groups for train and val samples
+            train_groups = set(groups[train_idx])
+            val_groups = set(groups[val_idx])
+
+            # Check for overlap
+            overlap = train_groups & val_groups
+            if overlap:
+                leaked_folds.append((fold_idx, len(overlap)))
+
+        if leaked_folds:
+            col_name = repetition_col or "grouping column"
+            fold_info = ", ".join(f"fold {f}: {n} groups" for f, n in leaked_folds[:3])
+            if len(leaked_folds) > 3:
+                fold_info += f", ... ({len(leaked_folds)} folds total)"
+
+            warnings.warn(
+                f"⚠️ Group leakage detected: same groups appear in both train and validation sets.\n"
+                f"   Affected folds: {fold_info}\n"
+                f"   This may indicate that the splitter is not respecting {col_name} grouping.\n"
+                f"   Consider using a group-aware splitter (GroupKFold, StratifiedGroupKFold) "
+                f"or check your grouping configuration.",
+                UserWarning,
+                stacklevel=3,
+            )
 

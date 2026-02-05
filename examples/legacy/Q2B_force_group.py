@@ -1,19 +1,20 @@
 """
-Q2B Force Group Example - Universal Group Support for Any Splitter
-===================================================================
-Demonstrates the `force_group` mechanism that enables ANY sklearn-compatible
-splitter (KFold, ShuffleSplit, StratifiedKFold, etc.) to work with grouped samples.
+Q2B Repetition-Based Group Example - Universal Group Support for Any Splitter
+==============================================================================
+Demonstrates how the `repetition` parameter in DatasetConfigs enables ANY
+sklearn-compatible splitter (KFold, ShuffleSplit, StratifiedKFold, etc.)
+to work with grouped samples automatically.
 
-The force_group parameter:
-1. Aggregates samples by group into "virtual samples"
-2. Passes virtual samples to the splitter
-3. Maps fold indices back to original sample indices
-4. Ensures all samples from the same group stay together in train/test
+The repetition parameter:
+1. Declares which column identifies sample repetitions
+2. All splitters automatically respect repetition groups
+3. Ensures all samples from the same group stay together in train/test
+4. No need to specify grouping at each split step
 
 Key benefits:
 - Universal compatibility: Any sklearn splitter works with groups
 - Prevents data leakage: Groups are never split across train/test
-- Stratification support: Use force_group="y" for continuous target stratification
+- Single declaration: Set once in DatasetConfigs, works everywhere
 
 Compare with Q2_groupsplit.py which shows native group splitters (GroupKFold, etc.)
 """
@@ -35,101 +36,92 @@ parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
 
 # =============================================================================
-# Example 1: force_group with KFold
+# Example 1: KFold with repetition
 # =============================================================================
-# KFold doesn't natively support groups, but force_group makes it work!
+# KFold doesn't natively support groups, but repetition makes it work!
 
 print("\n" + "=" * 70)
-print("Example 1: force_group with KFold (non-group-aware splitter)")
+print("Example 1: KFold with repetition (non-group-aware splitter)")
 print("=" * 70)
 
 data_path = 'sample_data/classification'
 
 pipeline_kfold = [
     "fold_Sample_ID",  # Visualize samples grouped by Sample_ID before split
-    {
-        "split": KFold(n_splits=3, shuffle=True, random_state=42),
-        "force_group": "Sample_ID"  # Wrap KFold with group-awareness
-    },
+    KFold(n_splits=3, shuffle=True, random_state=42),  # Auto-groups via repetition!
     "fold_Sample_ID",  # Visualize after split - groups are respected!
     "fold_chart",
 ]
 
-pipeline_config = PipelineConfigs(pipeline_kfold, "force_group_kfold")
-dataset_config = DatasetConfigs(data_path)
+pipeline_config = PipelineConfigs(pipeline_kfold, "repetition_kfold")
+dataset_config = DatasetConfigs(data_path, repetition="Sample_ID")  # Wrap KFold with group-awareness
 runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
-print("Force_group with KFold completed - groups respected in all folds!")
+print("Repetition with KFold completed - groups respected in all folds!")
 
 # =============================================================================
-# Example 2: force_group with ShuffleSplit
+# Example 2: ShuffleSplit with repetition
 # =============================================================================
 # ShuffleSplit explicitly ignores the 'groups' parameter in sklearn
-# force_group fixes this!
+# repetition fixes this!
 
 print("\n" + "=" * 70)
-print("Example 2: force_group with ShuffleSplit")
+print("Example 2: ShuffleSplit with repetition")
 print("=" * 70)
 
 pipeline_shuffle = [
-    {
-        "split": ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-        "force_group": "Sample_ID"
-    },
+    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),  # Auto-groups via repetition!
     "fold_chart",
 ]
 
-pipeline_config = PipelineConfigs(pipeline_shuffle, "force_group_shuffle")
-dataset_config = DatasetConfigs(data_path)
+pipeline_config = PipelineConfigs(pipeline_shuffle, "repetition_shuffle")
+dataset_config = DatasetConfigs(data_path, repetition="Sample_ID")
 runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
-print("Force_group with ShuffleSplit completed - groups respected!")
+print("Repetition with ShuffleSplit completed - groups respected!")
 
 # =============================================================================
-# Example 3: force_group with StratifiedKFold (classification)
+# Example 3: StratifiedKFold with repetition (classification)
 # =============================================================================
 # Combines stratification (balanced class distribution) with group-awareness!
 
 print("\n" + "=" * 70)
-print("Example 3: force_group with StratifiedKFold (stratified + grouped)")
+print("Example 3: StratifiedKFold with repetition (stratified + grouped)")
 print("=" * 70)
 
 pipeline_stratified = [
-    {
-        "split": StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
-        "force_group": "Sample_ID",
-        "y_aggregation": "mode"  # Use mode for classification targets
-    },
+    {"split": StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
+     "y_aggregation": "mode"},  # Use mode for classification targets
     "fold_chart",
 ]
 
-pipeline_config = PipelineConfigs(pipeline_stratified, "force_group_stratified")
-dataset_config = DatasetConfigs(data_path)
+pipeline_config = PipelineConfigs(pipeline_stratified, "repetition_stratified")
+dataset_config = DatasetConfigs(data_path, repetition="Sample_ID")
 runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
-print("Force_group with StratifiedKFold completed - balanced class distribution per fold!")
+print("Repetition with StratifiedKFold completed - balanced class distribution per fold!")
 
 # =============================================================================
-# Comparison: force_group vs native GroupKFold
+# Comparison: repetition vs native GroupKFold
 # =============================================================================
 print("\n" + "=" * 70)
-print("Comparison: force_group (KFold) vs native GroupKFold")
+print("Comparison: repetition (KFold) vs native GroupKFold")
 print("=" * 70)
 
-# Using force_group with KFold
-pipeline_force = [
+# Using repetition with KFold
+pipeline_rep = [
     "fold_Sample_ID",
-    {"split": KFold(n_splits=3), "force_group": "Sample_ID"},
+    KFold(n_splits=3),  # Auto-groups via repetition!
     "fold_Sample_ID",
 ]
 
-pipeline_config = PipelineConfigs(pipeline_force, "force_group_comparison")
-dataset_config = DatasetConfigs('sample_data/classification')
+pipeline_config = PipelineConfigs(pipeline_rep, "repetition_comparison")
+dataset_config = DatasetConfigs('sample_data/classification', repetition="Sample_ID")
 runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
-predictions_force, _ = runner.run(pipeline_config, dataset_config)
+predictions_rep, _ = runner.run(pipeline_config, dataset_config)
 
 # Using native GroupKFold
 pipeline_native = [

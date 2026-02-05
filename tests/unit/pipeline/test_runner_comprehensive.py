@@ -194,8 +194,6 @@ class TestRunnerInitialization:
         runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         assert runner.pipeline_uid is None
-        assert runner.saver is None  # Legacy: kept for predict/explain modes
-        assert runner.manifest_manager is None  # Legacy: kept for predict/explain modes
         assert runner.artifact_loader is None
         assert runner.target_model is None
         assert runner._capture_model is False

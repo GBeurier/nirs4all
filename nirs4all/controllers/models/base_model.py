@@ -529,6 +529,16 @@ class BaseModelController(OperatorController, ABC):
         model_config = self._extract_model_config(step, operator)
         self.verbose = model_config.get('train_params', {}).get('verbose', 0)
 
+        # Skip non-target model steps during prediction: when a pipeline has
+        # multiple model steps, only the target model should be executed.
+        if mode in ("predict", "explain") and runtime_context.artifact_provider is not None:
+            target_step = None
+            if hasattr(runtime_context, 'target_model') and runtime_context.target_model:
+                target_step = runtime_context.target_model.get("step_idx")
+            if target_step is not None and runtime_context.step_number != int(target_step):
+                if not runtime_context.artifact_provider.has_artifacts_for_step(runtime_context.step_number):
+                    return context, []
+
         # In predict/explain mode, restore task_type from target_model if not set
         if mode in ("predict", "explain") and dataset.task_type is None:
             if hasattr(runtime_context, 'target_model') and runtime_context.target_model:

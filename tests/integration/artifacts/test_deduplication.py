@@ -83,9 +83,9 @@ class TestRegistryDeduplication:
         # Should reference same file
         assert record1.path == record2.path
 
-        # Should only have one file on disk
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
-        files = list(binaries_dir.glob("*.pkl")) + list(binaries_dir.glob("*.joblib"))
+        # Should only have one file on disk (artifacts are sharded)
+        binaries_dir = workspace_path / "artifacts"
+        files = list(binaries_dir.rglob("*.pkl")) + list(binaries_dir.rglob("*.joblib"))
         assert len(files) == 1
 
     def test_different_objects_create_different_files(
@@ -119,9 +119,9 @@ class TestRegistryDeduplication:
         # Should have different paths
         assert record1.path != record2.path
 
-        # Should have two files
-        binaries_dir = workspace_path / "binaries" / "test_dataset"
-        files = list(binaries_dir.glob("*.pkl")) + list(binaries_dir.glob("*.joblib"))
+        # Should have two files (artifacts are sharded)
+        binaries_dir = workspace_path / "artifacts"
+        files = list(binaries_dir.rglob("*.pkl")) + list(binaries_dir.rglob("*.joblib"))
         assert len(files) == 2
 
     def test_deduplication_across_pipelines(self, registry, workspace_path):

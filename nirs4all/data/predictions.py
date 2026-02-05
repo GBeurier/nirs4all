@@ -46,6 +46,15 @@ __all__ = ["Predictions", "PredictionResult", "PredictionResultsList"]
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _json_default(obj: Any) -> Any:
+    """Handle numpy scalars for json.dumps."""
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 def _infer_ascending(metric: str) -> bool:
     """Infer sort direction from metric name.
 
@@ -198,6 +207,37 @@ class Predictions:
         self._store = store
         # In-memory buffer for predictions accumulated during a pipeline run.
         self._buffer: list[dict[str, Any]] = []
+        # Dataset repetition column for by_repetition=True resolution
+        self._dataset_repetition: str | None = None
+
+    # =========================================================================
+    # DATASET CONTEXT
+    # =========================================================================
+
+    def set_repetition_column(self, column: str | None) -> None:
+        """Set the dataset repetition column for by_repetition=True resolution.
+
+        This is typically called automatically when a SpectroDataset with a
+        defined repetition column is used in pipeline execution.
+
+        Args:
+            column: Metadata column name identifying repetitions, or None.
+
+        Example:
+            >>> predictions.set_repetition_column("Sample_ID")
+            >>> # Now by_repetition=True will use "Sample_ID" column
+            >>> predictions.top(5, by_repetition=True)
+        """
+        self._dataset_repetition = column
+
+    @property
+    def repetition_column(self) -> str | None:
+        """Get the dataset repetition column if set.
+
+        Returns:
+            The repetition column name from dataset context, or None.
+        """
+        return self._dataset_repetition
 
     # =========================================================================
     # CORE CRUD OPERATIONS
@@ -402,12 +442,16 @@ class Predictions:
         aggregate_partitions: bool = False,
         ascending: bool | None = None,
         group_by_fold: bool = False,
-        aggregate: str | None = None,
-        aggregate_method: str | None = None,
-        aggregate_exclude_outliers: bool = False,
+        by_repetition: bool | str | None = None,
+        repetition_method: str | None = None,
+        repetition_exclude_outliers: bool = False,
         group_by: str | list[str] | None = None,
         best_per_model: bool = False,
         return_grouped: bool = False,
+        # Deprecated aliases (kept for backward compatibility)
+        aggregate: str | None = None,
+        aggregate_method: str | None = None,
+        aggregate_exclude_outliers: bool = False,
         **filters: Any,
     ) -> PredictionResultsList | dict[tuple, PredictionResultsList]:
         """Get top *n* predictions ranked by a metric.
@@ -428,17 +472,75 @@ class Predictions:
             aggregate_partitions: If ``True``, add train/val/test dicts.
             ascending: Sort order.  ``None`` infers from metric.
             group_by_fold: If ``True``, include fold_id in identity.
-            aggregate: Aggregate predictions by metadata column or ``"y"``.
-            aggregate_method: ``"mean"``, ``"median"``, or ``"vote"``.
-            aggregate_exclude_outliers: Exclude outliers before aggregation.
-            group_by: Group predictions by column(s).
+            by_repetition: Aggregate predictions by repetition column.
+                - ``True``: Uses ``dataset.repetition`` from context
+                  (requires :meth:`set_repetition_column` to be called).
+                - ``str``: Explicit column name or ``"y"`` for target grouping.
+                - ``False``/``None`` (default): No aggregation.
+            repetition_method: Aggregation method for repetitions.
+                ``"mean"`` (default), ``"median"``, or ``"vote"``.
+            repetition_exclude_outliers: If ``True``, exclude outlier
+                measurements before aggregating within each group.
+            group_by: Group predictions by column(s) for ranking.
             best_per_model: **Deprecated** -- use ``group_by=['model_name']``.
             return_grouped: Return dict of group->results.
+            aggregate: **Deprecated** -- use ``by_repetition`` instead.
+            aggregate_method: **Deprecated** -- use ``repetition_method`` instead.
+            aggregate_exclude_outliers: **Deprecated** -- use
+                ``repetition_exclude_outliers`` instead.
             **filters: Additional filter criteria.
 
         Returns:
             ``PredictionResultsList`` or grouped dict.
         """
+        # Handle deprecated parameter aliases
+        effective_by_repetition = by_repetition
+        effective_repetition_method = repetition_method
+        effective_repetition_exclude_outliers = repetition_exclude_outliers
+
+        if aggregate is not None:
+            warnings.warn(
+                "'aggregate' is deprecated and will be removed in a future version. "
+                "Use 'by_repetition' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if effective_by_repetition is None:
+                effective_by_repetition = aggregate
+
+        if aggregate_method is not None:
+            warnings.warn(
+                "'aggregate_method' is deprecated and will be removed in a future version. "
+                "Use 'repetition_method' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if effective_repetition_method is None:
+                effective_repetition_method = aggregate_method
+
+        if aggregate_exclude_outliers:
+            warnings.warn(
+                "'aggregate_exclude_outliers' is deprecated and will be removed in a future version. "
+                "Use 'repetition_exclude_outliers' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if not effective_repetition_exclude_outliers:
+                effective_repetition_exclude_outliers = aggregate_exclude_outliers
+
+        # Resolve by_repetition=True from dataset context
+        if effective_by_repetition is True:
+            if self._dataset_repetition is None:
+                warnings.warn(
+                    "by_repetition=True specified but no repetition column available from dataset context. "
+                    "Use set_repetition_column() or pass an explicit column name. "
+                    "Skipping aggregation.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                effective_by_repetition = None
+            else:
+                effective_by_repetition = self._dataset_repetition
         # Strip non-filter kwargs that callers may pass (backward compat)
         _ = filters.pop("partition", None)
         _ = filters.pop("load_arrays", None)
@@ -496,7 +598,7 @@ class Predictions:
         # Compute rank_score for each candidate
         partition_key = f"{rank_partition}_score" if rank_partition in ("val", "test", "train") else "val_score"
         for r in candidates:
-            score = self._get_rank_score(r, effective_metric, rank_partition, partition_key, aggregate, aggregate_method, aggregate_exclude_outliers)
+            score = self._get_rank_score(r, effective_metric, rank_partition, partition_key, effective_by_repetition, effective_repetition_method, effective_repetition_exclude_outliers)
             r["rank_score"] = score
 
         # Filter out None / NaN scores
@@ -545,7 +647,7 @@ class Predictions:
 
         # Enrich results
         enriched_results = [
-            PredictionResult(self._enrich_result(r, display_metrics, display_partition, aggregate_partitions, aggregate))
+            PredictionResult(self._enrich_result(r, display_metrics, display_partition, aggregate_partitions, effective_by_repetition))
             for r in candidates
         ]
 
@@ -567,26 +669,26 @@ class Predictions:
         metric: str,
         partition: str,
         partition_key: str,
-        aggregate: str | None = None,
-        aggregate_method: str | None = None,
-        aggregate_exclude_outliers: bool = False,
+        by_repetition: str | None = None,
+        repetition_method: str | None = None,
+        repetition_exclude_outliers: bool = False,
     ) -> float | None:
         """Compute the ranking score for a single buffer row.
 
         Priority:
-        1. If *aggregate* is set, apply aggregation and recompute.
+        1. If *by_repetition* is set, apply aggregation and recompute.
         2. Pre-computed scores dict (``scores[partition][metric]``).
         3. Legacy ``{partition}_score`` if metric matches the stored metric.
         4. Fall back to computing from arrays.
         """
         # Aggregated path: must compute from arrays after aggregation
-        if aggregate:
+        if by_repetition:
             y_true, y_pred = row.get("y_true"), row.get("y_pred")
             if y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0 and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
                 metadata = row.get("metadata", {})
                 agg_y_true, agg_y_pred, _, was_agg = self._apply_aggregation(
-                    y_true, y_pred, row.get("y_proba"), metadata, aggregate,
-                    row.get("model_name", ""), aggregate_method, aggregate_exclude_outliers,
+                    y_true, y_pred, row.get("y_proba"), metadata, by_repetition,
+                    row.get("model_name", ""), repetition_method, repetition_exclude_outliers,
                 )
                 if was_agg and agg_y_true is not None and agg_y_pred is not None:
                     try:
@@ -629,10 +731,10 @@ class Predictions:
         y_pred: np.ndarray | None,
         y_proba: np.ndarray | None,
         metadata: dict[str, Any],
-        aggregate: str,
+        by_repetition: str,
         model_name: str = "",
-        aggregate_method: str | None = None,
-        aggregate_exclude_outliers: bool = False,
+        repetition_method: str | None = None,
+        repetition_exclude_outliers: bool = False,
     ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None, bool]:
         """Apply aggregation to predictions by a group column.
 
@@ -641,10 +743,10 @@ class Predictions:
             y_pred: Predicted values array.
             y_proba: Optional class probabilities.
             metadata: Metadata dict containing group column.
-            aggregate: Group column name or ``"y"``.
+            by_repetition: Group column name or ``"y"``.
             model_name: Model name for warning messages.
-            aggregate_method: ``"mean"``, ``"median"``, or ``"vote"``.
-            aggregate_exclude_outliers: Exclude outliers before aggregation.
+            repetition_method: ``"mean"``, ``"median"``, or ``"vote"``.
+            repetition_exclude_outliers: Exclude outliers before aggregation.
 
         Returns:
             Tuple ``(y_true, y_pred, y_proba, was_aggregated)``.
@@ -652,26 +754,26 @@ class Predictions:
         if y_pred is None:
             return y_true, y_pred, y_proba, False
 
-        if aggregate == "y":
+        if by_repetition == "y":
             if y_true is None:
                 return y_true, y_pred, y_proba, False
             group_ids = y_true
         else:
-            if aggregate not in metadata:
+            if by_repetition not in metadata:
                 if model_name:
                     warnings.warn(
-                        f"Aggregation column '{aggregate}' not found in metadata for model '{model_name}'. "
+                        f"Aggregation column '{by_repetition}' not found in metadata for model '{model_name}'. "
                         f"Available columns: {list(metadata.keys())}. Skipping aggregation.",
                         UserWarning,
                         stacklevel=2,
                     )
                 return y_true, y_pred, y_proba, False
-            group_ids = np.asarray(metadata[aggregate])
+            group_ids = np.asarray(metadata[by_repetition])
 
         if len(group_ids) != len(y_pred):
             if model_name:
                 warnings.warn(
-                    f"Aggregation column '{aggregate}' length ({len(group_ids)}) doesn't match "
+                    f"Aggregation column '{by_repetition}' length ({len(group_ids)}) doesn't match "
                     f"predictions length ({len(y_pred)}) for model '{model_name}'. Skipping aggregation.",
                     UserWarning,
                     stacklevel=2,
@@ -683,8 +785,8 @@ class Predictions:
             group_ids=group_ids,
             y_proba=y_proba,
             y_true=y_true,
-            method=aggregate_method or "mean",
-            exclude_outliers=aggregate_exclude_outliers,
+            method=repetition_method or "mean",
+            exclude_outliers=repetition_exclude_outliers,
         )
         return result.get("y_true"), result.get("y_pred"), result.get("y_proba"), True
 
@@ -693,6 +795,10 @@ class Predictions:
         metric: str = "",
         ascending: bool | None = None,
         aggregate_partitions: bool = False,
+        by_repetition: bool | str | None = None,
+        repetition_method: str | None = None,
+        repetition_exclude_outliers: bool = False,
+        # Deprecated aliases (kept for backward compatibility)
         aggregate: str | None = None,
         aggregate_method: str | None = None,
         aggregate_exclude_outliers: bool = False,
@@ -707,9 +813,16 @@ class Predictions:
             metric: Metric to optimise.
             ascending: Sort order.  ``None`` infers from metric.
             aggregate_partitions: If ``True``, add partition data.
-            aggregate: Aggregate by metadata column or ``"y"``.
-            aggregate_method: ``"mean"``, ``"median"``, or ``"vote"``.
-            aggregate_exclude_outliers: Exclude outliers before aggregation.
+            by_repetition: Aggregate predictions by repetition column.
+                - ``True``: Uses ``dataset.repetition`` from context.
+                - ``str``: Explicit column name or ``"y"`` for target grouping.
+                - ``False``/``None`` (default): No aggregation.
+            repetition_method: Aggregation method (``"mean"``, ``"median"``, ``"vote"``).
+            repetition_exclude_outliers: Exclude outliers before aggregation.
+            aggregate: **Deprecated** -- use ``by_repetition`` instead.
+            aggregate_method: **Deprecated** -- use ``repetition_method`` instead.
+            aggregate_exclude_outliers: **Deprecated** -- use
+                ``repetition_exclude_outliers`` instead.
             **filters: Additional filter criteria.
 
         Returns:
@@ -721,6 +834,9 @@ class Predictions:
             rank_partition="val",
             ascending=ascending,
             aggregate_partitions=aggregate_partitions,
+            by_repetition=by_repetition,
+            repetition_method=repetition_method,
+            repetition_exclude_outliers=repetition_exclude_outliers,
             aggregate=aggregate,
             aggregate_method=aggregate_method,
             aggregate_exclude_outliers=aggregate_exclude_outliers,
@@ -734,6 +850,9 @@ class Predictions:
                 rank_partition="test",
                 ascending=ascending,
                 aggregate_partitions=aggregate_partitions,
+                by_repetition=by_repetition,
+                repetition_method=repetition_method,
+                repetition_exclude_outliers=repetition_exclude_outliers,
                 aggregate=aggregate,
                 aggregate_method=aggregate_method,
                 aggregate_exclude_outliers=aggregate_exclude_outliers,
@@ -791,7 +910,8 @@ class Predictions:
         if step_idx is not None:
             filter_map["step_idx"] = step_idx
         if branch_id is not None:
-            filter_map["branch_id"] = branch_id
+            # Accept both int and string since get_unique_values returns strings
+            filter_map["branch_id"] = int(branch_id) if isinstance(branch_id, str) and branch_id.isdigit() else branch_id
         if branch_name is not None:
             filter_map["branch_name"] = branch_name
         filter_map.update(kwargs)
@@ -885,10 +1005,16 @@ class Predictions:
     def merge_predictions(self, other: Predictions) -> None:
         """Merge predictions from another instance into this one.
 
+        Also inherits the repetition column from the other instance if
+        this instance doesn't have one set.
+
         Args:
             other: Another :class:`Predictions` instance.
         """
         self._buffer.extend(other._buffer)
+        # Inherit repetition column if not already set
+        if self._dataset_repetition is None and other._dataset_repetition is not None:
+            self._dataset_repetition = other._dataset_repetition
 
     def clear(self) -> None:
         """Clear all buffered predictions."""
@@ -1025,7 +1151,7 @@ class Predictions:
                 if isinstance(v, np.ndarray):
                     continue  # Skip arrays
                 if isinstance(v, (dict, list)):
-                    safe[k] = json.dumps(v)
+                    safe[k] = json.dumps(v, default=_json_default)
                 else:
                     safe[k] = v
             safe_rows.append(safe)
@@ -1343,7 +1469,7 @@ class Predictions:
         display_metrics: list[str] | None = None,
         display_partition: str = "test",
         aggregate_partitions: bool = False,
-        aggregate: str | None = None,
+        by_repetition: str | None = None,
     ) -> dict[str, Any]:
         """Enrich a raw buffer row into a user-facing result dict.
 
@@ -1359,10 +1485,10 @@ class Predictions:
         y_proba = row.get("y_proba")
         was_aggregated = False
 
-        if aggregate and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
+        if by_repetition and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
             metadata = row.get("metadata", {})
             agg_y_true, agg_y_pred, agg_y_proba, was_aggregated = self._apply_aggregation(
-                y_true, y_pred, y_proba, metadata, aggregate, row.get("model_name", ""),
+                y_true, y_pred, y_proba, metadata, by_repetition, row.get("model_name", ""),
             )
             if was_aggregated:
                 enriched["y_true"] = agg_y_true

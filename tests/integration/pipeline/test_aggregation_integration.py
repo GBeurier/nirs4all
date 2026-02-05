@@ -29,10 +29,32 @@ class TestAggregationIntegration:
     """Test aggregation settings propagation through pipeline."""
 
     @pytest.fixture
-    def test_data_manager(self):
-        """Create test data manager with datasets."""
-        manager = TestDataManager()
+    def test_data_manager(self, tmp_path):
+        """Create test data manager with datasets including metadata."""
+        manager = TestDataManager(base_temp_dir=str(tmp_path))
         manager.create_regression_dataset("regression")
+
+        # Add metadata file with sample_id column for aggregation tests
+        regression_path = manager.get_temp_directory() / "regression"
+
+        # Read actual X files to get correct row counts
+        # TestDataManager now saves with headers, so use header=0
+        X_train = pd.read_csv(regression_path / "Xcal.csv.gz", compression='gzip', sep=';', header=0)
+        X_val = pd.read_csv(regression_path / "Xval.csv.gz", compression='gzip', sep=';', header=0)
+        n_train = X_train.shape[0]
+        n_val = X_val.shape[0]
+
+        # Create metadata with sample_id (use repeated IDs to test aggregation grouping)
+        train_sample_ids = [f"S{i // 4:04d}" for i in range(n_train)]
+        val_sample_ids = [f"V{i // 4:04d}" for i in range(n_val)]
+
+        pd.DataFrame({"sample_id": train_sample_ids}).to_csv(
+            regression_path / "Mcal.csv.gz", index=False, compression='gzip', sep=';'
+        )
+        pd.DataFrame({"sample_id": val_sample_ids}).to_csv(
+            regression_path / "Mval.csv.gz", index=False, compression='gzip', sep=';'
+        )
+
         yield manager
         manager.cleanup()
 

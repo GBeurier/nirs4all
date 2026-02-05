@@ -164,11 +164,11 @@ for dataset_name, dataset_prediction in predictions_per_dataset.items():
         print("-" * 80)
 
         print(f"\nTop {best_model_count} models based on validation {rank_metric.upper()}:")
-        top_models_val = dataset_predictions.top(best_model_count, rank_metric, rank_partition='val', display_metrics=display_metrics, aggregate=AGGREGATION_KEY)
+        top_models_val = dataset_predictions.top(best_model_count, rank_metric, rank_partition='val', display_metrics=display_metrics, by_repetition=AGGREGATION_KEY)
         for idx, prediction in enumerate(top_models_val):
             print(f"{idx + 1}. {Predictions.pred_short_string(prediction, metrics=display_metrics)} - {prediction['preprocessings']}")
 
         print(f"\nTop {best_model_count} models based on test {rank_metric.upper()}:")
-        top_models_test = dataset_predictions.top(best_model_count, rank_metric, rank_partition='test', display_metrics=display_metrics, aggregate=AGGREGATION_KEY)
+        top_models_test = dataset_predictions.top(best_model_count, rank_metric, rank_partition='test', display_metrics=display_metrics, by_repetition=AGGREGATION_KEY)
         for idx, prediction in enumerate(top_models_test):
             print(f"{idx + 1}. {Predictions.pred_short_string(prediction, metrics=display_metrics)} - {prediction['preprocessings']}")

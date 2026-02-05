@@ -254,6 +254,9 @@ class PipelineOrchestrator:
 
                     # Execute pipeline with cleanup on failure
                     config_predictions = Predictions()
+                    # Pass dataset repetition context for by_repetition=True resolution
+                    if dataset.repetition:
+                        config_predictions.set_repetition_column(dataset.repetition)
                     try:
                         executor.execute(
                             steps=steps,
@@ -376,6 +379,8 @@ class PipelineOrchestrator:
             configs._config_aggregates = [None]  # No config-level aggregate
             configs._config_aggregate_methods = [None]  # No config-level aggregate method
             configs._config_aggregate_exclude_outliers = [None]  # No config-level exclude outliers
+            configs._config_repetitions = [None]  # No config-level repetition
+            configs._repetitions = [None]  # No repetition for wrapped datasets
             return configs
 
         # Handle numpy arrays and tuples
@@ -411,6 +416,8 @@ class PipelineOrchestrator:
         configs._config_aggregates = [None]  # No config-level aggregate
         configs._config_aggregate_methods = [None]  # No config-level aggregate method
         configs._config_aggregate_exclude_outliers = [None]  # No config-level exclude outliers
+        configs._config_repetitions = [None]  # No config-level repetition
+        configs._repetitions = [None]  # No repetition for wrapped datasets
         return configs
 
     def _wrap_dataset_list(self, datasets: list[SpectroDataset]) -> DatasetConfigs:
@@ -427,6 +434,8 @@ class PipelineOrchestrator:
         configs._config_aggregates = []
         configs._config_aggregate_methods = []
         configs._config_aggregate_exclude_outliers = []
+        configs._config_repetitions = []
+        configs._repetitions = []
 
         for ds in datasets:
             configs.configs.append(({"_preloaded_dataset": ds}, ds.name))
@@ -440,6 +449,8 @@ class PipelineOrchestrator:
             configs._config_aggregates.append(None)
             configs._config_aggregate_methods.append(None)
             configs._config_aggregate_exclude_outliers.append(None)
+            configs._config_repetitions.append(None)
+            configs._repetitions.append(None)
 
         return configs
 
