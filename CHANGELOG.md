@@ -5,11 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.0] - Operator Refactoring & Controller-Managed Variation - 2026-02-05
+## [0.7.0] - Major Architecture & Operator Overhaul - 2026-02-05
 
 > **⚠️ Documentation Notice:** Due to the extensive scope of this release, some documentation may be temporarily incomplete or out of sync. Updates are in progress.
 
 ### ⚠ BREAKING CHANGES
+
+#### Synthesis Module Relocated
+- **`nirs4all.data.synthetic`** → **`nirs4all.synthesis`** — update all imports
+- Generator now delegates to operators for path length, instrumental broadening, and noise effects
 
 #### Augmenter Base Class Removed
 - **`Augmenter` base class deleted** (`abc_augmenter.py` removed entirely)
@@ -30,16 +34,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `_requires_wavelengths` attribute: `True`, `False`, or `"optional"`
 - `_validate_wavelengths()` helper for wavelength validation
 
-#### Synthesis Module Moved
-- **`nirs4all.data.synthetic`** → **`nirs4all.synthesis`** — update all imports
-- Generator now delegates to operators for path length, instrumental broadening, and noise effects
+### ✨ New Features
 
-### New Features
+#### NA Handling System
+- **Centralized NA policy**: New `apply_na_policy` utility for consistent NA handling across all loaders
+- **NA policies**: `remove_sample`, `remove_feature`, `replace`, `ignore`, `abort`
+- **`NAFillConfig`**: Configurable NA replacement strategies (mean, median, constant, interpolate)
+- **Enhanced error reporting**: Detailed messages for NA detection including affected rows/columns
+- **Loader support**: MatlabLoader, NumpyLoader, ParquetLoader all support new NA policies
 
 #### Controller-Managed Variation (`variation_scope`)
 - New `variation_scope` parameter at the `sample_augmentation` step level: `"sample"` (default), `"batch"`
 - Per-transformer override via dict spec: `{"transformer": ..., "variation_scope": "batch"}`
 - Hybrid performance model: operators with `_supports_variation_scope = True` handle variation internally; others get per-sample cloning from controller
+
+#### SpectraTransformerMixin Foundation
+- **New `SpectraTransformerMixin` base class**: Enables wavelength-aware transformations with full sklearn compatibility
+- **Automatic wavelength passing**: Controller detects operators that require wavelengths and extracts them from the dataset
+- **`_requires_wavelengths` class flag**: Operators can declare mandatory or optional wavelength requirements
 
 #### New Augmentation Operators
 - **`PathLengthAugmenter`**: Multiplicative path length variation
@@ -48,31 +60,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`HeteroscedasticNoiseAugmenter`**: Signal-dependent noise
 - **`DeadBandAugmenter`**: Random dead band (non-responsive region) simulation
 
-#### Webapp Updates
-- 39 augmentation nodes in the node registry (was 8)
-- New subcategories: spectral-noise, spectral-baseline, spectral-wavelength, spectral-smoothing, spectral-masking, spectral-mixing, environmental, scattering, edge-artifacts, synthesis
-- `variation_scope` parameter added to SampleAugmentation container
-- Removed `apply_on`, `copy` from all webapp node definitions
+#### Environmental Effect Operators (`nirs4all.operators.augmentation.environmental`)
+- **`TemperatureAugmenter`**: Simulates temperature-induced spectral changes with region-specific effects for O-H, N-H, and C-H bands
+- **`MoistureAugmenter`**: Simulates moisture/water activity effects on spectra
 
-### Improvements
+#### Scattering Effect Operators (`nirs4all.operators.augmentation.scattering`)
+- **`ParticleSizeAugmenter`**: Simulates particle size effects on light scattering
+- **`EMSCDistortionAugmenter`**: Applies EMSC-style scatter distortions
+
+#### Spectral Components Expansion
+- **111 predefined spectral components** (expanded from 48): Added petroleum/hydrocarbon components (crude oil, diesel, gasoline, kerosene, PAH)
+- Enhanced metadata with synonyms and tags for better categorization
+
+#### Run Management System
+- **New `Run` module**: Manage experiment sessions with run configurations and status transitions
+- **`RunConfig`, `RunSummary`, `TemplateInfo`, `DatasetInfo`**: Data classes for run-related data
+- **Manifest management**: Create, update, serialize run manifests with checkpoints
 
 #### Feature Selection Enhancement
-- **`FlexiblePCA` and `FlexibleSVD` classes**: New flexible dimensionality reduction with enhanced documentation
+- **`FlexiblePCA` and `FlexibleSVD` classes**: New flexible dimensionality reduction
 - Enhanced feature selection module documentation
+
+#### AutoDetector Improvements
+- **Improved header detection**: Handle cases with and without headers
+- **Wavelength header detection**: Based on value characteristics and spacing
+- **Signal type detection**: Check both header and data values
+- **Word-boundary-aware pattern matching**: For filename detection in FolderParser
+
+### 🔧 Improvements
 
 #### Storage & Infrastructure
 - **DuckDB storage migration**: Refactored artifact storage from `binaries/` to `artifacts/` directory
-- Updated tests to support DuckDB storage and new directory structure
-- Removed deprecated directory checks in test suite
+- **Centralized workspace path**: `get_active_workspace()` function for consistent path management
 
-#### Testing
-- Added integration tests for bundle export and prediction with special operator types
-- Comprehensive test coverage for new storage structure
-- Updated test assertions for `store.duckdb` persistence
+#### RunResult Enhancements
+- Simplified metrics retrieval (removed unnecessary parameters)
+- Enhanced prediction metrics handling
 
-#### Misc
-- Changed file permissions for CI example scripts
+#### Documentation Structure
+- New modules: `branch_utils`, `exclude`, reconstruction submodules
+- Enhanced augmentation module with new submodules: `edge_artifacts`, `random`, `spectral`, `splines`
+- Pipeline documentation with branching and merging keywords
+
+#### Tag System
+- Unit tests for QueryBuilder tag filtering (boolean, numeric, range, list membership, callable, null handling)
+- Tag serialization in IndexStore
+- SpectroDataset tag operations (add, set, get, remove)
+
+### 📚 Documentation
+
+- **Pipeline samples**: 10 new pipeline samples (JSON/YAML) demonstrating branching, stacking, filtering, model tuning
+- **Filtering guide**: Comprehensive documentation for non-destructive filtering system
+- **Merging guide**: Detailed examples for feature and prediction merging strategies
+- **ViT-NIRS roadmap**: Integration strategy for Universal Spectral Embedding project
+- **Academic paper**: LaTeX document for nirs4all framework
+
+### 🧪 Testing
+
+- **Reconstruction module tests**: Forward model, calibration, inversion, distributions, generator, validation
+- **Scattering operators tests**: ParticleSizeAugmenter, EMSCDistortionAugmenter
+- **SpectraTransformerMixin tests**: 23 tests for base class behavior
+- **Environmental operators tests**: With environmental parameter handling
+- **Bundle export tests**: Integration tests for special operator types
+- **DuckDB storage tests**: Updated assertions for `store.duckdb` persistence
 - Removed obsolete tests: `test_catalog_export.py`, `test_library_manager.py`, `test_query_reporting.py`
+
+### 🐛 Bug Fixes
+
+- CI example scripts file permissions
+- Fixture reproducibility for standard regression dataset
 
 ### Configuration Migration
 
