@@ -1770,6 +1770,9 @@ class WorkspaceStore:
            (fold keys that are NOT ``"final"``/``"avg"``/``"w_avg"``)
            have their ref counts decremented.  Shared (preprocessing)
            artifacts are kept because they are needed by the refit chain.
+        3. **Prediction safety**: artifacts still needed to replay an
+           existing prediction entry are preserved, even if they are
+           otherwise transient.
 
         Prediction records in DuckDB are **never** deleted -- they are
         lightweight metadata useful for analysis.
@@ -1791,11 +1794,46 @@ class WorkspaceStore:
         Returns:
             Number of artifact files removed from disk.
         """
+        def _iter_shared_artifact_refs(shared_artifacts: dict | None):
+            """Yield concrete shared artifact IDs (skip metadata keys)."""
+            if not isinstance(shared_artifacts, dict):
+                return
+            for key, value in shared_artifacts.items():
+                if str(key).startswith("_"):
+                    # Metadata key, e.g. "_source_map"
+                    continue
+                if isinstance(value, list):
+                    for artifact_id in value:
+                        if artifact_id:
+                            yield artifact_id
+                elif isinstance(value, str):
+                    if value:
+                        yield value
+
+        def _fold_is_protected(
+            fold_key: str,
+            protected_fold_ids: set[str],
+        ) -> bool:
+            """Check whether a fold key is required for prediction replay."""
+            if "__all_folds__" in protected_fold_ids:
+                return True
+
+            if fold_key in protected_fold_ids:
+                return True
+
+            # Accept both "0"/"final" and "fold_0"/"fold_final" styles.
+            if fold_key.startswith("fold_"):
+                return fold_key[5:] in protected_fold_ids
+            return f"fold_{fold_key}" in protected_fold_ids
+
         with self._lock:
             conn = self._ensure_open()
 
             # Permanent fold IDs whose model artifacts should never be cleaned
-            permanent_fold_ids = frozenset({"final", "avg", "w_avg"})
+            permanent_fold_ids = frozenset({
+                "final", "avg", "w_avg",
+                "fold_final", "fold_avg", "fold_w_avg",
+            })
 
             # Get all pipelines for this run and dataset
             all_pipelines = conn.execute(
@@ -1805,40 +1843,106 @@ class WorkspaceStore:
 
             winning_set = set(winning_pipeline_ids)
 
+            # Preload chains for each pipeline once; reuse for prediction-aware
+            # protection and cleanup decrements.
+            chains_by_pipeline: dict[str, list[tuple[str, Any, Any]]] = {}
+            chain_lookup: dict[str, tuple[dict, dict]] = {}
+
             for (pipeline_id,) in all_pipelines:
-                # Get chains for this pipeline
-                chains = conn.execute(
+                rows = conn.execute(
                     "SELECT chain_id, fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id = $1",
                     [pipeline_id],
                 ).fetchall()
+                chains_by_pipeline[pipeline_id] = rows
+
+                for chain_id, fold_artifacts_raw, shared_artifacts_raw in rows:
+                    fold_artifacts = (
+                        _from_json(fold_artifacts_raw)
+                        if isinstance(fold_artifacts_raw, str)
+                        else fold_artifacts_raw
+                    ) or {}
+                    shared_artifacts = (
+                        _from_json(shared_artifacts_raw)
+                        if isinstance(shared_artifacts_raw, str)
+                        else shared_artifacts_raw
+                    ) or {}
+                    chain_lookup[chain_id] = (fold_artifacts, shared_artifacts)
+
+            # Build replay-protection map from persisted predictions:
+            # chain_id -> set of fold identifiers required for replay.
+            protected_folds_by_chain: dict[str, set[str]] = {}
+            prediction_refs = conn.execute(
+                """
+                SELECT p.chain_id, p.fold_id
+                FROM predictions p
+                JOIN pipelines pl ON p.pipeline_id = pl.pipeline_id
+                WHERE pl.run_id = $1
+                  AND p.dataset_name = $2
+                  AND p.chain_id IS NOT NULL
+                """,
+                [run_id, dataset_name],
+            ).fetchall()
+
+            for chain_id, fold_id in prediction_refs:
+                if chain_id not in chain_lookup:
+                    continue
+
+                requested = protected_folds_by_chain.setdefault(chain_id, set())
+                fold_value = "" if fold_id is None else str(fold_id)
+
+                # Averaged/empty fold IDs depend on CV fold artifacts.
+                if fold_value in {"", "None", "avg", "w_avg"}:
+                    requested.add("__all_folds__")
+                else:
+                    requested.add(fold_value)
+
+            for (pipeline_id,) in all_pipelines:
+                chains = chains_by_pipeline.get(pipeline_id, [])
 
                 is_winner = pipeline_id in winning_set
 
-                for _chain_id, fold_artifacts_raw, shared_artifacts_raw in chains:
-                    fold_artifacts = _from_json(fold_artifacts_raw) if isinstance(fold_artifacts_raw, str) else fold_artifacts_raw
-                    shared_artifacts = _from_json(shared_artifacts_raw) if isinstance(shared_artifacts_raw, str) else shared_artifacts_raw
+                for chain_id, fold_artifacts_raw, shared_artifacts_raw in chains:
+                    fold_artifacts = (
+                        _from_json(fold_artifacts_raw)
+                        if isinstance(fold_artifacts_raw, str)
+                        else fold_artifacts_raw
+                    ) or {}
+                    shared_artifacts = (
+                        _from_json(shared_artifacts_raw)
+                        if isinstance(shared_artifacts_raw, str)
+                        else shared_artifacts_raw
+                    ) or {}
+
+                    protected_fold_ids = protected_folds_by_chain.get(chain_id, set())
+                    protect_shared = chain_id in protected_folds_by_chain
 
                     if is_winner:
                         # Winning pipeline: only decrement CV fold model artifacts
                         if fold_artifacts:
                             for fold_key, artifact_id in fold_artifacts.items():
-                                if artifact_id and fold_key not in permanent_fold_ids:
-                                    conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
+                                if not artifact_id:
+                                    continue
+                                if fold_key in permanent_fold_ids:
+                                    continue
+                                if _fold_is_protected(str(fold_key), protected_fold_ids):
+                                    continue
+                                conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
                         # Keep shared artifacts (preprocessing) -- needed by refit chain
                     else:
-                        # Losing pipeline: decrement all artifacts
+                        # Losing pipeline: decrement artifacts unless replay-protected
                         if fold_artifacts:
-                            for artifact_id in fold_artifacts.values():
-                                if artifact_id:
-                                    conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
+                            for fold_key, artifact_id in fold_artifacts.items():
+                                if not artifact_id:
+                                    continue
+                                if _fold_is_protected(str(fold_key), protected_fold_ids):
+                                    continue
+                                conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
+
                         if shared_artifacts:
-                            for v in (shared_artifacts or {}).values():
-                                if isinstance(v, list):
-                                    for artifact_id in v:
-                                        if artifact_id:
-                                            conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
-                                elif v:
-                                    conn.execute(DECREMENT_ARTIFACT_REF, [v])
+                            for artifact_id in _iter_shared_artifact_refs(shared_artifacts):
+                                if protect_shared:
+                                    continue
+                                conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
 
         # Run garbage collection to remove orphaned files
         return self.gc_artifacts()
@@ -1856,15 +1960,33 @@ class WorkspaceStore:
         with self._lock:
             conn = self._ensure_open()
             orphans = conn.execute(GC_ARTIFACTS).fetchall()
+
+            # Keep files that are still referenced by at least one live row.
+            live_paths = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT DISTINCT artifact_path FROM artifacts WHERE ref_count > 0"
+                ).fetchall()
+            }
+
+            removed_paths: set[str] = set()
             count = 0
             for _artifact_id, artifact_path in orphans:
+                if artifact_path in live_paths:
+                    # Same content-addressed file still used by another artifact row.
+                    continue
+                if artifact_path in removed_paths:
+                    continue
+
                 path = self._artifacts_dir / artifact_path
                 if path.exists():
                     path.unlink()
                     # Remove empty parent directory
                     with contextlib.suppress(OSError):
                         path.parent.rmdir()
+                removed_paths.add(artifact_path)
                 count += 1
+
             conn.execute(DELETE_GC_ARTIFACTS)
             return count
 

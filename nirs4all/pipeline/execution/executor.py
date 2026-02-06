@@ -286,14 +286,60 @@ class PipelineExecutor:
         if chains_df.is_empty():
             return
 
-        # Build step_idx → chain_id mapping
-        step_to_chain: dict[int, str] = {}
-        for row in chains_df.iter_rows(named=True):
-            step_to_chain[row["model_step_idx"]] = row["chain_id"]
+        # Build row cache for disambiguating chains that share the same model_step_idx
+        chain_rows = list(chains_df.iter_rows(named=True))
+
+        def _parse_branch_path(value: Any) -> list[int]:
+            if isinstance(value, list):
+                return [int(v) for v in value]
+            if isinstance(value, str) and value:
+                try:
+                    decoded = json.loads(value)
+                    if isinstance(decoded, list):
+                        return [int(v) for v in decoded]
+                except (TypeError, ValueError):
+                    return []
+            return []
+
+        def _select_chain_id(pred: dict[str, Any]) -> str:
+            """Select the best matching chain for a persisted prediction entry."""
+            step_idx = int(pred.get("step_idx", 0) or 0)
+            candidates = [row for row in chain_rows if int(row.get("model_step_idx", 0) or 0) == step_idx]
+            if not candidates:
+                candidates = chain_rows
+
+            branch_id = pred.get("branch_id")
+            if branch_id is not None:
+                branch_candidates = []
+                for row in candidates:
+                    branch_path = _parse_branch_path(row.get("branch_path"))
+                    if branch_path and int(branch_path[0]) == int(branch_id):
+                        branch_candidates.append(row)
+                if branch_candidates:
+                    candidates = branch_candidates
+
+            model_classname = pred.get("model_classname") or pred.get("model_class")
+            if model_classname:
+                class_candidates = [
+                    row for row in candidates
+                    if str(row.get("model_class") or "") == str(model_classname)
+                ]
+                if class_candidates:
+                    candidates = class_candidates
+
+            preprocessings = pred.get("preprocessings")
+            if preprocessings:
+                preproc_candidates = [
+                    row for row in candidates
+                    if str(row.get("preprocessings") or "") == str(preprocessings)
+                ]
+                if preproc_candidates:
+                    candidates = preproc_candidates
+
+            return str(candidates[0]["chain_id"])
 
         for pred in prediction_store.to_dicts(load_arrays=True):
-            step_idx = pred.get("step_idx", 0)
-            chain_id = step_to_chain.get(step_idx, chains_df["chain_id"][0])
+            chain_id = _select_chain_id(pred)
 
             store_pred_id = store.save_prediction(
                 pipeline_id=pipeline_id,
@@ -318,6 +364,7 @@ class PipelineExecutor:
                 exclusion_rate=pred.get("exclusion_rate", 0.0) or 0.0,
                 preprocessings=pred.get("preprocessings", ""),
                 prediction_id=pred.get("id"),
+                refit_context=pred.get("refit_context"),
             )
 
             # Store arrays

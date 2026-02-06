@@ -80,3 +80,5 @@ docs/_build
 bench/fck-pls/workspace
 bench/synthetic/workspace
 examples/reports
+fake_workspace/
+store.duckdb
