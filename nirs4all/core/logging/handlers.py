@@ -56,7 +56,10 @@ class ThrottledHandler(logging.Handler):
 
         if not is_progress:
             # Non-progress messages pass through immediately
-            self.base_handler.emit(record)
+            try:
+                self.base_handler.emit(record)
+            except Exception:
+                self.handleError(record)
             return
 
         # Throttle progress messages
@@ -83,7 +86,10 @@ class ThrottledHandler(logging.Handler):
 
             if should_emit:
                 self._last_progress_time = current_time
-                self.base_handler.emit(record)
+                try:
+                    self.base_handler.emit(record)
+                except Exception:
+                    self.handleError(record)
 
     def reset(self) -> None:
         """Reset throttle state for a new operation."""

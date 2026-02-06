@@ -124,6 +124,47 @@ CREATE TABLE IF NOT EXISTS logs (
 """
 
 # =========================================================================
+# View DDL
+# =========================================================================
+
+VIEW_DDL: str = """
+CREATE VIEW IF NOT EXISTS v_aggregated_predictions AS
+SELECT
+    pl.run_id,
+    c.pipeline_id,
+    c.chain_id,
+    c.model_class,
+    c.model_step_idx,
+    c.preprocessings,
+    c.branch_path,
+    c.source_index,
+    p.model_name,
+    p.metric,
+    p.dataset_name,
+    COUNT(DISTINCT p.fold_id) AS fold_count,
+    COUNT(DISTINCT p.partition) AS partition_count,
+    LIST(DISTINCT p.partition ORDER BY p.partition) AS partitions,
+    MIN(p.val_score) AS min_val_score,
+    MAX(p.val_score) AS max_val_score,
+    AVG(p.val_score) AS avg_val_score,
+    MIN(p.test_score) AS min_test_score,
+    MAX(p.test_score) AS max_test_score,
+    AVG(p.test_score) AS avg_test_score,
+    MIN(p.train_score) AS min_train_score,
+    MAX(p.train_score) AS max_train_score,
+    AVG(p.train_score) AS avg_train_score,
+    LIST(p.prediction_id ORDER BY p.partition, p.fold_id) AS prediction_ids,
+    LIST(p.fold_id ORDER BY p.partition, p.fold_id) AS fold_ids
+FROM predictions p
+JOIN chains c ON p.chain_id = c.chain_id
+JOIN pipelines pl ON c.pipeline_id = pl.pipeline_id
+GROUP BY
+    pl.run_id, c.pipeline_id, c.chain_id, c.model_class,
+    c.model_step_idx, c.preprocessings, c.branch_path,
+    c.source_index, p.model_name, p.metric, p.dataset_name;
+"""
+
+# =========================================================================
 # Index DDL
 # =========================================================================
 
@@ -156,7 +197,7 @@ TABLE_NAMES: list[str] = [
 
 
 def create_schema(conn: duckdb.DuckDBPyConnection) -> None:
-    """Create all tables and indexes in the given DuckDB connection.
+    """Create all tables, views, and indexes in the given DuckDB connection.
 
     Safe to call multiple times -- every DDL statement uses
     ``IF NOT EXISTS``.
@@ -170,6 +211,11 @@ def create_schema(conn: duckdb.DuckDBPyConnection) -> None:
             conn.execute(statement)
 
     for statement in INDEX_DDL.strip().split(";"):
+        statement = statement.strip()
+        if statement:
+            conn.execute(statement)
+
+    for statement in VIEW_DDL.strip().split(";"):
         statement = statement.strip()
         if statement:
             conn.execute(statement)

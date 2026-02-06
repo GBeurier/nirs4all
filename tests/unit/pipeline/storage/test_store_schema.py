@@ -14,6 +14,7 @@ from nirs4all.pipeline.storage.store_schema import (
     INDEX_DDL,
     SCHEMA_DDL,
     TABLE_NAMES,
+    VIEW_DDL,
     create_schema,
 )
 
@@ -39,7 +40,7 @@ class TestSchemaCreation:
 
         result = conn.execute(
             "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'main' ORDER BY table_name"
+            "WHERE table_schema = 'main' AND table_type = 'BASE TABLE' ORDER BY table_name"
         ).fetchall()
         actual_tables = sorted([row[0] for row in result])
         expected_tables = sorted(TABLE_NAMES)
@@ -52,9 +53,20 @@ class TestSchemaCreation:
 
         result = conn.execute(
             "SELECT COUNT(*) FROM information_schema.tables "
-            "WHERE table_schema = 'main'"
+            "WHERE table_schema = 'main' AND table_type = 'BASE TABLE'"
         ).fetchone()
         assert result[0] == 7
+
+    def test_aggregated_predictions_view_created(self, conn):
+        """The v_aggregated_predictions VIEW is created."""
+        create_schema(conn)
+
+        result = conn.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'main' AND table_type = 'VIEW'"
+        ).fetchall()
+        view_names = [row[0] for row in result]
+        assert 'v_aggregated_predictions' in view_names
 
     def test_runs_table_columns(self, conn):
         """The runs table has the expected columns."""
@@ -131,7 +143,7 @@ class TestSchemaIdempotent:
 
         result = conn.execute(
             "SELECT COUNT(*) FROM information_schema.tables "
-            "WHERE table_schema = 'main'"
+            "WHERE table_schema = 'main' AND table_type = 'BASE TABLE'"
         ).fetchone()
         assert result[0] == 7
 
@@ -283,3 +295,7 @@ class TestDDLStrings:
     def test_table_names_list(self):
         """TABLE_NAMES has exactly 7 entries."""
         assert len(TABLE_NAMES) == 7
+
+    def test_view_ddl_contains_aggregated_predictions(self):
+        """VIEW_DDL defines the aggregated predictions view."""
+        assert "CREATE VIEW IF NOT EXISTS v_aggregated_predictions" in VIEW_DDL

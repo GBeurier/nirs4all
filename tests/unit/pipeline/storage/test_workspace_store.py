@@ -939,18 +939,27 @@ class TestSchemaCreationViaStore:
     """Create store from scratch; verify all tables exist."""
 
     def test_schema_creation(self, tmp_path):
-        """WorkspaceStore constructor creates all 7 tables."""
+        """WorkspaceStore constructor creates all 7 tables and the aggregation VIEW."""
         store = _make_store(tmp_path)
         conn = store._ensure_open()
 
         result = conn.execute(
             "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'main' ORDER BY table_name"
+            "WHERE table_schema = 'main' AND table_type = 'BASE TABLE' "
+            "ORDER BY table_name"
         ).fetchall()
         tables = sorted([row[0] for row in result])
 
         from nirs4all.pipeline.storage.store_schema import TABLE_NAMES
         assert tables == sorted(TABLE_NAMES)
+
+        # Verify aggregation VIEW also exists
+        views = conn.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'main' AND table_type = 'VIEW'"
+        ).fetchall()
+        view_names = [row[0] for row in views]
+        assert "v_aggregated_predictions" in view_names
 
         store.close()
 
