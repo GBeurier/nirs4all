@@ -26,10 +26,25 @@ Example:
 """
 
 from dataclasses import dataclass, field, replace as dataclass_replace, fields
+from enum import Enum
 from typing import Any, Dict, List, Optional, Iterator, Tuple
 from copy import deepcopy
 from collections.abc import MutableMapping
 from abc import ABC, abstractmethod
+
+
+class ExecutionPhase(Enum):
+    """Phase of pipeline execution.
+
+    Distinguishes between cross-validation passes and the final refit
+    (full-training-set) pass so that controllers can adapt their behaviour.
+
+    Attributes:
+        CV: Cross-validation pass (default).
+        REFIT: Final refit on full training data after CV.
+    """
+    CV = "cv"
+    REFIT = "refit"
 
 
 @dataclass
@@ -480,6 +495,26 @@ class ArtifactProvider(ABC):
             return artifacts[0][1]
         return None
 
+    def get_refit_artifact(
+        self,
+        step_index: int,
+        branch_path: Optional[List[int]] = None,
+    ) -> Optional[Any]:
+        """Get the refit ("final") artifact for a step, if one exists.
+
+        After a successful refit pass, the winning model is stored with
+        fold_id="final".  This method returns that single model when
+        available, allowing predict-mode dispatch to skip fold iteration.
+
+        Args:
+            step_index: 1-based step index.
+            branch_path: Optional branch path filter.
+
+        Returns:
+            The refit model object, or ``None`` if no refit artifact exists.
+        """
+        return None  # Default: no refit artifact
+
     def get_artifact_by_chain(self, chain_path: str) -> Optional[Any]:
         """Get artifact by V3 chain path (optional V3 method).
 
@@ -656,6 +691,30 @@ class MapArtifactProvider(ArtifactProvider):
         """
         return step_index in self.artifact_map and len(self.artifact_map[step_index]) > 0
 
+    def get_refit_artifact(
+        self,
+        step_index: int,
+        branch_path: Optional[List[int]] = None,
+    ) -> Optional[Any]:
+        """Get the refit ("final") artifact for a step.
+
+        Scans the artifact IDs for this step looking for one whose trailing
+        component is ``"final"`` (the convention used by the refit pass).
+
+        Args:
+            step_index: 1-based step index.
+            branch_path: Optional branch path filter (not used in map provider).
+
+        Returns:
+            The refit model object, or ``None`` if not found.
+        """
+        artifacts = self.artifact_map.get(step_index, [])
+        for artifact_id, obj in artifacts:
+            parts = artifact_id.split(":")
+            if len(parts) >= 2 and parts[-1] == "final":
+                return obj
+        return None
+
     def get_fold_weights(self) -> Dict[int, float]:
         """Get fold weights for CV ensemble averaging.
 
@@ -829,6 +888,35 @@ class LoaderArtifactProvider(ArtifactProvider):
 
         # Fallback: use loader's step check
         return self.loader.has_binaries_for_step(step_index)
+
+    def get_refit_artifact(
+        self,
+        step_index: int,
+        branch_path: Optional[List[int]] = None,
+    ) -> Optional[Any]:
+        """Get the refit ("final") artifact for a step.
+
+        Checks the execution trace for a fold artifact keyed ``"final"``.
+
+        Args:
+            step_index: 1-based step index.
+            branch_path: Optional branch path filter.
+
+        Returns:
+            The refit model object, or ``None`` if not found.
+        """
+        if self.trace is not None:
+            step = self.trace.get_step(step_index)
+            if step and step.artifacts and step.artifacts.fold_artifact_ids:
+                # fold_artifact_ids maps fold_id -> artifact_id;
+                # the refit pass stores the key as the string "final"
+                artifact_id = step.artifacts.fold_artifact_ids.get("final")
+                if artifact_id:
+                    try:
+                        return self.loader.load_by_id(artifact_id)
+                    except (KeyError, FileNotFoundError):
+                        pass
+        return None
 
     def get_artifact_by_chain(self, chain_path: str) -> Optional[Any]:
         """Get artifact by V3 chain path.
@@ -1074,6 +1162,7 @@ class RuntimeContext:
         substep_number: Current substep number.
         trace_recorder: TraceRecorder for recording execution traces.
         retrain_config: RetrainConfig for retrain mode control.
+        phase: Current execution phase (CV or REFIT). Defaults to CV.
     """
     store: Any = None  # WorkspaceStore for DuckDB-backed persistence
     artifact_loader: Any = None
@@ -1094,6 +1183,7 @@ class RuntimeContext:
     explainer: Any = None
     trace_recorder: Any = None  # TraceRecorder instance for execution trace recording
     retrain_config: Any = None  # Phase 7: RetrainConfig for retrain mode control
+    phase: ExecutionPhase = ExecutionPhase.CV  # Current execution phase (CV or REFIT)
 
     def __deepcopy__(self, memo):
         """Return self on deepcopy -- RuntimeContext is shared infrastructure, not data."""

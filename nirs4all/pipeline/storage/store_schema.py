@@ -13,6 +13,16 @@ from __future__ import annotations
 import duckdb
 
 # =========================================================================
+# Refit context constants
+# =========================================================================
+
+REFIT_CONTEXT_STANDALONE: str = "standalone"
+"""Refit context for a standalone refit (single model, no stacking)."""
+
+REFIT_CONTEXT_STACKING: str = "stacking"
+"""Refit context for a stacking-context refit (base model inside a stack)."""
+
+# =========================================================================
 # Table DDL
 # =========================================================================
 
@@ -85,6 +95,7 @@ CREATE TABLE IF NOT EXISTS predictions (
     branch_name VARCHAR,
     exclusion_count INTEGER DEFAULT 0,
     exclusion_rate DOUBLE DEFAULT 0.0,
+    refit_context VARCHAR DEFAULT NULL,
     created_at TIMESTAMP DEFAULT current_timestamp
 );
 
@@ -106,6 +117,9 @@ CREATE TABLE IF NOT EXISTS artifacts (
     format VARCHAR DEFAULT 'joblib',
     size_bytes BIGINT,
     ref_count INTEGER DEFAULT 1,
+    chain_path_hash VARCHAR,
+    input_data_hash VARCHAR,
+    dataset_hash VARCHAR,
     created_at TIMESTAMP DEFAULT current_timestamp
 );
 
@@ -158,6 +172,7 @@ SELECT
 FROM predictions p
 JOIN chains c ON p.chain_id = c.chain_id
 JOIN pipelines pl ON c.pipeline_id = pl.pipeline_id
+WHERE p.refit_context IS NULL
 GROUP BY
     pl.run_id, c.pipeline_id, c.chain_id, c.model_class,
     c.model_step_idx, c.preprocessings, c.branch_path,
@@ -179,6 +194,8 @@ CREATE INDEX IF NOT EXISTS idx_predictions_val_score ON predictions(val_score);
 CREATE INDEX IF NOT EXISTS idx_predictions_partition ON predictions(partition);
 CREATE INDEX IF NOT EXISTS idx_logs_pipeline_id ON logs(pipeline_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_content_hash ON artifacts(content_hash);
+CREATE INDEX IF NOT EXISTS idx_artifacts_cache_key ON artifacts(chain_path_hash, input_data_hash);
+CREATE INDEX IF NOT EXISTS idx_artifacts_dataset_hash ON artifacts(dataset_hash);
 """
 
 # =========================================================================
@@ -210,12 +227,52 @@ def create_schema(conn: duckdb.DuckDBPyConnection) -> None:
         if statement:
             conn.execute(statement)
 
+    _migrate_schema(conn)
+
     for statement in INDEX_DDL.strip().split(";"):
         statement = statement.strip()
         if statement:
             conn.execute(statement)
 
+    # Drop and recreate views to pick up schema changes
+    conn.execute("DROP VIEW IF EXISTS v_aggregated_predictions")
     for statement in VIEW_DDL.strip().split(";"):
         statement = statement.strip()
         if statement:
             conn.execute(statement)
+
+
+def _migrate_schema(conn: duckdb.DuckDBPyConnection) -> None:
+    """Apply incremental schema migrations to existing databases.
+
+    Adds columns that may be missing from older database versions.
+    Each migration is idempotent (checks before applying).
+
+    Args:
+        conn: An open DuckDB connection with tables already created.
+    """
+    # Migration: add refit_context column to predictions table
+    existing_columns = {
+        row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'predictions'"
+        ).fetchall()
+    }
+    if "refit_context" not in existing_columns:
+        conn.execute("ALTER TABLE predictions ADD COLUMN refit_context VARCHAR DEFAULT NULL")
+
+    # Migration: add cross-run cache columns to artifacts table
+    artifact_columns = {
+        row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'artifacts'"
+        ).fetchall()
+    }
+    if "chain_path_hash" not in artifact_columns:
+        conn.execute("ALTER TABLE artifacts ADD COLUMN chain_path_hash VARCHAR")
+    if "input_data_hash" not in artifact_columns:
+        conn.execute("ALTER TABLE artifacts ADD COLUMN input_data_hash VARCHAR")
+    if "dataset_hash" not in artifact_columns:
+        conn.execute("ALTER TABLE artifacts ADD COLUMN dataset_hash VARCHAR")

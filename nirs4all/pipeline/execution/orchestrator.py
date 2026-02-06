@@ -10,6 +10,7 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
+from nirs4all.pipeline.execution.step_cache import StepCache
 from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 from nirs4all.visualization.reports import TabReportManager
@@ -130,7 +131,8 @@ class PipelineOrchestrator:
         max_generation_count: int = 10000,
         artifact_loader: Any = None,
         target_model: dict[str, Any] | None = None,
-        explainer: Any = None
+        explainer: Any = None,
+        refit: bool | dict[str, Any] | None = True,
     ) -> tuple[Predictions, dict[str, Any]]:
         """Execute pipeline configurations on dataset configurations.
 
@@ -143,6 +145,10 @@ class PipelineOrchestrator:
             artifact_loader: ArtifactLoader for predict/explain modes
             target_model: Target model for predict/explain modes
             explainer: Explainer instance for explain mode
+            refit: Refit configuration.
+                - ``True``: Enable refit (retrain winning model on full training set, default).
+                - ``False`` or ``None``: Disable refit (legacy behavior).
+                - ``dict``: Refit options (reserved for future use).
 
         Returns:
             Tuple of (run_predictions, dataset_predictions)
@@ -190,7 +196,11 @@ class PipelineOrchestrator:
         # Execute for each dataset
         try:
             for _dataset_idx, (config, name) in enumerate(dataset_configs.configs):
-                # Create artifact registry for this dataset (v2 artifact system)
+                # Create artifact registry for this dataset.
+                # Lifecycle: Registry is created once per dataset, shared by all
+                # pipeline variant (CV) executions, and will be available to the
+                # refit pass.  It is destroyed (end_run) at the end of the dataset
+                # loop iteration.
                 artifact_registry = None
                 if self.mode == "train":
                     artifact_registry = ArtifactRegistry(
@@ -198,6 +208,12 @@ class PipelineOrchestrator:
                         dataset=name,
                     )
                     artifact_registry.start_run()
+
+                # Create step cache for this dataset.
+                # Lifecycle: same as artifact_registry -- created once per
+                # dataset, shared across all pipeline variants and the refit
+                # pass, then discarded at the end of the dataset loop.
+                step_cache = StepCache()
 
                 # Build executor using ExecutorBuilder
                 executor = (ExecutorBuilder()
@@ -290,6 +306,33 @@ class PipelineOrchestrator:
                     if config_predictions.num_predictions > 0:
                         run_dataset_predictions.merge_predictions(config_predictions)
                         run_predictions.merge_predictions(config_predictions)
+
+                # --- Pass 2: Refit (optional) ---
+                # After all variants have been executed for this dataset,
+                # retrain the winning model on the full training set.
+                refit_enabled = refit is True or (isinstance(refit, dict) and refit)
+                if refit_enabled and self.mode == "train" and run_id and run_dataset_predictions.num_predictions > 0:
+                    self._execute_refit_pass(
+                        run_id=run_id,
+                        dataset=dataset,
+                        executor=executor,
+                        artifact_registry=artifact_registry,
+                        run_dataset_predictions=run_dataset_predictions,
+                        run_predictions=run_predictions,
+                        artifact_loader=artifact_loader,
+                        target_model=target_model,
+                        explainer=explainer,
+                    )
+
+                # Log step cache statistics
+                cache_stats = step_cache.stats()
+                if cache_stats["hit_count"] > 0 or cache_stats["miss_count"] > 0:
+                    logger.info(
+                        f"Step cache: {cache_stats['hit_count']} hits, "
+                        f"{cache_stats['miss_count']} misses "
+                        f"({cache_stats['hit_rate']:.0%} hit rate), "
+                        f"{cache_stats['size_mb']:.1f} MB used"
+                    )
 
                 # Mark run as completed successfully
                 if artifact_registry is not None:
@@ -535,6 +578,133 @@ class PipelineOrchestrator:
         # Return 14-tuple with signal_type included
         return (x_train, y_train, m_train, None, None, None, train_signal_type,
                 x_test, y_test, m_test, None, None, None, test_signal_type)
+
+    def _execute_refit_pass(
+        self,
+        run_id: str,
+        dataset: SpectroDataset,
+        executor: Any,
+        artifact_registry: ArtifactRegistry | None,
+        run_dataset_predictions: Predictions,
+        run_predictions: Predictions,
+        artifact_loader: Any = None,
+        target_model: dict[str, Any] | None = None,
+        explainer: Any = None,
+    ) -> None:
+        """Execute the refit pass after all CV variants have completed.
+
+        Extracts the winning configuration from the store, analyzes its
+        topology, and dispatches to the appropriate refit strategy.
+
+        For non-stacking pipelines, uses ``execute_simple_refit`` which
+        replaces the CV splitter with a single full-training-data fold
+        and re-executes the winning pipeline.
+
+        Args:
+            run_id: Store run identifier.
+            dataset: The dataset used for CV (will be deep-copied by refit).
+            executor: PipelineExecutor instance.
+            artifact_registry: Shared artifact registry from CV pass.
+            run_dataset_predictions: Per-dataset prediction accumulator.
+            run_predictions: Global prediction accumulator.
+            artifact_loader: Optional artifact loader.
+            target_model: Optional target model dict.
+            explainer: Optional explainer instance.
+        """
+        from nirs4all.pipeline.analysis.topology import analyze_topology
+        from nirs4all.pipeline.config.context import RuntimeContext
+        from nirs4all.pipeline.execution.refit import execute_simple_refit, extract_winning_config
+        from nirs4all.pipeline.execution.refit.stacking_refit import (
+            execute_competing_branches_refit,
+            execute_separation_refit,
+            execute_stacking_refit,
+        )
+
+        try:
+            refit_config = extract_winning_config(self.store, run_id)
+        except ValueError as e:
+            logger.warning(f"Cannot perform refit: {e}")
+            return
+
+        # Analyze topology to determine refit strategy
+        topology = analyze_topology(refit_config.expanded_steps)
+
+        # Create a RuntimeContext for the refit pass
+        runtime_context = RuntimeContext(
+            store=self.store,
+            artifact_loader=artifact_loader,
+            artifact_registry=artifact_registry,
+            step_runner=executor.step_runner,
+            target_model=target_model,
+            explainer=explainer,
+            run_id=run_id,
+        )
+
+        if topology.has_stacking or topology.has_mixed_merge:
+            refit_result = execute_stacking_refit(
+                refit_config=refit_config,
+                dataset=dataset,
+                context=None,
+                runtime_context=runtime_context,
+                artifact_registry=artifact_registry,
+                executor=executor,
+                prediction_store=run_dataset_predictions,
+                topology=topology,
+            )
+        elif topology.has_branches_without_merge:
+            refit_result = execute_competing_branches_refit(
+                refit_config=refit_config,
+                dataset=dataset,
+                context=None,
+                runtime_context=runtime_context,
+                artifact_registry=artifact_registry,
+                executor=executor,
+                prediction_store=run_dataset_predictions,
+                topology=topology,
+            )
+        elif topology.has_separation_branch:
+            refit_result = execute_separation_refit(
+                refit_config=refit_config,
+                dataset=dataset,
+                context=None,
+                runtime_context=runtime_context,
+                artifact_registry=artifact_registry,
+                executor=executor,
+                prediction_store=run_dataset_predictions,
+                topology=topology,
+            )
+        else:
+            refit_result = execute_simple_refit(
+                refit_config=refit_config,
+                dataset=dataset,
+                context=None,  # executor.initialize_context is called inside
+                runtime_context=runtime_context,
+                artifact_registry=artifact_registry,
+                executor=executor,
+                prediction_store=run_dataset_predictions,
+            )
+
+        if refit_result.success:
+            # Also merge refit predictions into the global run predictions
+            if refit_result.predictions_count > 0:
+                logger.info(
+                    f"Refit completed: {refit_result.predictions_count} "
+                    f"prediction(s) added with fold_id='final'"
+                )
+
+            # Clean up transient CV fold artifacts now that the refit model exists
+            try:
+                removed = self.store.cleanup_transient_artifacts(
+                    run_id=run_id,
+                    dataset_name=dataset.name,
+                    winning_pipeline_ids=[refit_config.pipeline_id],
+                )
+                if removed > 0:
+                    logger.info(f"Cleaned up {removed} transient artifact file(s)")
+            except Exception as e:
+                logger.warning(f"Transient artifact cleanup failed (non-fatal): {e}")
+        else:
+            logger.warning("Refit pass did not complete successfully")
 
     def _print_best_predictions(
         self,

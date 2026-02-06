@@ -127,6 +127,7 @@ def _build_prediction_row(
     exclusion_rate: float | None = None,
     model_artifact_id: str | None = None,
     trace_id: str | None = None,
+    refit_context: str | None = None,
 ) -> dict[str, Any]:
     """Normalise add_prediction kwargs into a flat dict with a generated id."""
     pred_id = str(uuid4())[:16]
@@ -166,6 +167,7 @@ def _build_prediction_row(
         "exclusion_rate": exclusion_rate,
         "model_artifact_id": model_artifact_id or "",
         "trace_id": trace_id or "",
+        "refit_context": refit_context,
         "created_at": datetime.now().isoformat(),
     }
 
@@ -279,6 +281,7 @@ class Predictions:
         exclusion_rate: float | None = None,
         model_artifact_id: str | None = None,
         trace_id: str | None = None,
+        refit_context: str | None = None,
     ) -> str:
         """Add a single prediction to the in-memory buffer.
 
@@ -296,7 +299,8 @@ class Predictions:
             model_name: Model name.
             model_classname: Model class name.
             model_path: Path to saved model.
-            fold_id: Cross-validation fold ID.
+            fold_id: Cross-validation fold ID (e.g. ``0``, ``"avg"``,
+                ``"final"`` for refit).
             sample_indices: Indices of samples used.
             weights: Sample weights.
             metadata: Additional metadata.
@@ -320,6 +324,9 @@ class Predictions:
             exclusion_rate: Rate of excluded samples (0.0-1.0).
             model_artifact_id: Deterministic artifact ID.
             trace_id: Execution trace ID.
+            refit_context: Refit context label. ``None`` for CV entries,
+                ``"standalone"`` for standalone refit,
+                ``"stacking"`` for stacking-context refit.
 
         Returns:
             Prediction ID (short UUID string).
@@ -359,6 +366,7 @@ class Predictions:
             exclusion_rate=exclusion_rate,
             model_artifact_id=model_artifact_id,
             trace_id=trace_id,
+            refit_context=refit_context,
         )
         self._buffer.append(row)
         return row["id"]
@@ -404,6 +412,7 @@ class Predictions:
                 exclusion_count=row.get("exclusion_count") or 0,
                 exclusion_rate=row.get("exclusion_rate") or 0.0,
                 preprocessings=row.get("preprocessings", ""),
+                refit_context=row.get("refit_context"),
             )
 
             # Save arrays

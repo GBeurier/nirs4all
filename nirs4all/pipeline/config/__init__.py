@@ -7,6 +7,7 @@ execution context, and configuration expansion logic.
 from .pipeline_config import PipelineConfigs
 from .context import (
     ExecutionContext,
+    ExecutionPhase,
     DataSelector,
     PipelineState,
     StepMetadata,
@@ -21,6 +22,7 @@ from .generator import expand_spec, count_combinations
 __all__ = [
     'PipelineConfigs',
     'ExecutionContext',
+    'ExecutionPhase',
     'DataSelector',
     'PipelineState',
     'StepMetadata',

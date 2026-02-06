@@ -253,6 +253,7 @@ class ArtifactRegistry:
         self._by_content_hash: Dict[str, str] = {}  # hash -> artifact_id
         self._by_path: Dict[str, str] = {}  # path -> artifact_id
         self._by_chain_path: Dict[str, str] = {}  # chain_path -> artifact_id (V3)
+        self._by_chain_and_data: Dict[Tuple[str, str], str] = {}  # (chain_path_hash, input_data_hash) -> artifact_id
 
         # Dependency tracking
         self.dependency_graph = DependencyGraph()
@@ -302,7 +303,8 @@ class ArtifactRegistry:
         meta_config: Optional[MetaModelConfig] = None,
         format_hint: Optional[str] = None,
         custom_name: Optional[str] = None,
-        pipeline_id: Optional[str] = None
+        pipeline_id: Optional[str] = None,
+        input_data_hash: Optional[str] = None
     ) -> ArtifactRecord:
         """Register and persist an artifact using V3 chain-based identification.
 
@@ -323,6 +325,9 @@ class ArtifactRegistry:
             meta_config: Meta-model configuration (for stacking)
             format_hint: Optional serialization format hint
             custom_name: User-defined name for the artifact
+            input_data_hash: Optional hash of the input data for cache-key lookups.
+                When provided, enables lookup by (chain_path, data_hash) pairs
+                via get_by_chain_and_data().
 
         Returns:
             ArtifactRecord with full metadata
@@ -419,6 +424,11 @@ class ArtifactRegistry:
         self._by_path[path] = artifact_id
         self._by_chain_path[chain_path] = artifact_id  # V3 chain lookup
 
+        # Populate cache-key index for (chain_path, input_data_hash) lookups
+        if input_data_hash:
+            chain_path_hash = compute_chain_hash(chain_path)
+            self._by_chain_and_data[(chain_path_hash, input_data_hash)] = artifact_id
+
         # Track dependencies
         if depends_on:
             self.dependency_graph.add_dependencies(artifact_id, depends_on)
@@ -452,6 +462,34 @@ class ArtifactRegistry:
             record = self._artifacts.get(artifact_id)
             if record and (fold_id is None or record.fold_id == fold_id):
                 return record
+        return None
+
+    def get_by_chain_and_data(
+        self,
+        chain: Union[OperatorChain, str],
+        data_hash: str
+    ) -> Optional[ArtifactRecord]:
+        """Get artifact by (chain_path, data_hash) cache-key pair.
+
+        Enables cache lookups to find an artifact produced by a specific
+        operator chain on specific input data.
+
+        Args:
+            chain: OperatorChain or chain path string.
+            data_hash: Hash of the input data.
+
+        Returns:
+            ArtifactRecord if a matching artifact exists, None otherwise.
+        """
+        if isinstance(chain, OperatorChain):
+            chain_path = chain.to_path()
+        else:
+            chain_path = chain
+
+        chain_path_hash = compute_chain_hash(chain_path)
+        artifact_id = self._by_chain_and_data.get((chain_path_hash, data_hash))
+        if artifact_id:
+            return self._artifacts.get(artifact_id)
         return None
 
     def get_chain_prefix(
@@ -1068,6 +1106,9 @@ class ArtifactRegistry:
                 # Remove from indexes
                 self._by_content_hash.pop(record.content_hash, None)
                 self._by_path.pop(record.path, None)
+                if record.chain_path:
+                    self._by_chain_path.pop(record.chain_path, None)
+                self._remove_from_chain_and_data_index(artifact_id)
                 self.dependency_graph.remove_artifact(artifact_id)
 
                 # Optionally delete file if not referenced elsewhere
@@ -1098,6 +1139,9 @@ class ArtifactRegistry:
             if record:
                 self._by_content_hash.pop(record.content_hash, None)
                 self._by_path.pop(record.path, None)
+                if record.chain_path:
+                    self._by_chain_path.pop(record.chain_path, None)
+                self._remove_from_chain_and_data_index(artifact_id)
                 self.dependency_graph.remove_artifact(artifact_id)
                 count += 1
 
@@ -1155,6 +1199,7 @@ class ArtifactRegistry:
         self._by_content_hash.clear()
         self._by_path.clear()
         self._by_chain_path.clear()
+        self._by_chain_and_data.clear()
         self.dependency_graph.clear()
         self._current_run_artifacts.clear()
 
@@ -1174,8 +1219,79 @@ class ArtifactRegistry:
         self._current_run_artifacts.clear()
 
     # =========================================================================
+    # Cross-run cache persistence
+    # =========================================================================
+
+    def persist_cache_keys_to_store(
+        self,
+        store: Any,
+        dataset_hash: str,
+    ) -> int:
+        """Push in-memory cache keys to the DuckDB workspace store.
+
+        For each entry in the ``_by_chain_and_data`` index, calls
+        :meth:`WorkspaceStore.update_artifact_cache_key` to persist the
+        cache key so it survives across runs.
+
+        Args:
+            store: A :class:`WorkspaceStore` instance.
+            dataset_hash: Content hash of the source dataset, used for
+                cache invalidation.
+
+        Returns:
+            Number of cache keys persisted.
+        """
+        count = 0
+        for (chain_path_hash, input_data_hash), artifact_id in self._by_chain_and_data.items():
+            store.update_artifact_cache_key(
+                artifact_id,
+                chain_path_hash,
+                input_data_hash,
+                dataset_hash,
+            )
+            count += 1
+        return count
+
+    def load_cached_from_store(
+        self,
+        store: Any,
+        chain_path_hash: str,
+        input_data_hash: str,
+    ) -> Optional[str]:
+        """Query the workspace store for a cached artifact.
+
+        Checks the DuckDB ``artifacts`` table for a previously cached
+        artifact matching the given cache key.  This enables cross-run
+        cache hits for preprocessing steps that were already computed
+        in a prior run.
+
+        Args:
+            store: A :class:`WorkspaceStore` instance.
+            chain_path_hash: Hash identifying the chain of steps.
+            input_data_hash: Hash of the input data.
+
+        Returns:
+            The artifact identifier if a cached entry exists, or
+            ``None`` on cache miss.
+        """
+        return store.find_cached_artifact(chain_path_hash, input_data_hash)
+
+    # =========================================================================
     # Private Helpers
     # =========================================================================
+
+    def _remove_from_chain_and_data_index(self, artifact_id: str) -> None:
+        """Remove an artifact from the (chain_path, data_hash) cache-key index.
+
+        Args:
+            artifact_id: Artifact ID to remove from the index.
+        """
+        keys_to_remove = [
+            key for key, aid in self._by_chain_and_data.items()
+            if aid == artifact_id
+        ]
+        for key in keys_to_remove:
+            del self._by_chain_and_data[key]
 
     def _validate_meta_model_dependencies(
         self,

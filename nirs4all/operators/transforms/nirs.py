@@ -43,6 +43,8 @@ class Wavelet(TransformerMixin, BaseEstimator):
 
     """
 
+    _stateless = True
+
     def __init__(self, wavelet: str = "haar", mode: str = "periodization", *, copy: bool = True):
         self.copy = copy
         self.wavelet = wavelet
@@ -162,6 +164,8 @@ class SavitzkyGolay(TransformerMixin, BaseEstimator):
     transform(X, copy=None)
         Applies the Savitzky-Golay filter to the data X.
     """
+
+    _stateless = True
 
     def __init__(
         self,
@@ -452,6 +456,8 @@ class AreaNormalization(TransformerMixin, BaseEstimator):
         Whether to copy input data.
     """
 
+    _stateless = True
+
     def __init__(self, method: str = 'sum', *, copy: bool = True):
         self.copy = copy
         self.method = method
@@ -678,6 +684,8 @@ class FirstDerivative(TransformerMixin, BaseEstimator):
     copy : bool, default=True
         Whether to copy input.
     """
+
+    _stateless = True
 
     def __init__(self, delta: float = 1.0, edge_order: int = 2, *, copy: bool = True):
         self.copy = copy
@@ -1261,6 +1269,8 @@ class SecondDerivative(TransformerMixin, BaseEstimator):
         Whether to copy input.
     """
 
+    _stateless = True
+
     def __init__(self, delta: float = 1.0, edge_order: int = 2, *, copy: bool = True):
         self.copy = copy
         self.delta = delta
@@ -1345,6 +1355,8 @@ class ReflectanceToAbsorbance(TransformerMixin, BaseEstimator):
     >>> A = transformer.fit_transform(R)
     >>> # A ≈ [[0.301, 0.602, 1.0], [0.097, 0.398, 0.699]]
     """
+
+    _stateless = True
 
     def __init__(self, min_value: float = 1e-8, percent: bool = False, *, copy: bool = True):
         self.copy = copy

@@ -55,6 +55,8 @@ class ToAbsorbance(TransformerMixin, BaseEstimator):
     >>> # A ≈ [[0.301, 0.398, 0.523], [0.222, 0.301, 0.398]]
     """
 
+    _stateless = True
+
     def __init__(
         self,
         source_type: SignalTypeInput = "reflectance",
@@ -174,6 +176,8 @@ class FromAbsorbance(TransformerMixin, BaseEstimator):
     >>> # R ≈ [[0.5, 0.4], [0.6, 0.5]]
     """
 
+    _stateless = True
+
     def __init__(self, target_type: SignalTypeInput = "reflectance"):
         self.target_type = target_type
 
@@ -231,6 +235,8 @@ class PercentToFraction(TransformerMixin, BaseEstimator):
     >>> # X_frac = [[0.5, 0.6], [0.7, 0.8]]
     """
 
+    _stateless = True
+
     def fit(self, X, y=None):
         """Fit the transformer."""
         return self
@@ -257,6 +263,8 @@ class FractionToPercent(TransformerMixin, BaseEstimator):
     >>> X_pct = transformer.fit_transform(X_frac)
     >>> # X_pct = [[50, 60], [70, 80]]
     """
+
+    _stateless = True
 
     def fit(self, X, y=None):
         """Fit the transformer."""
@@ -296,6 +304,8 @@ class KubelkaMunk(TransformerMixin, BaseEstimator):
     >>> F_R = transformer.fit_transform(R)
     >>> # F_R[0,0] = (1-0.5)² / (2*0.5) = 0.25 / 1 = 0.25
     """
+
+    _stateless = True
 
     def __init__(
         self,
@@ -379,6 +389,8 @@ class SignalTypeConverter(TransformerMixin, BaseEstimator):
     >>> R_pct = np.array([[50, 40], [60, 50]])
     >>> A = converter.fit_transform(R_pct)
     """
+
+    _stateless = True
 
     def __init__(
         self,

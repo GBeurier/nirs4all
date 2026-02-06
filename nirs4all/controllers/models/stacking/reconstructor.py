@@ -742,6 +742,12 @@ class TrainingSetReconstructor:
 
         n_folds = len(val_predictions)
 
+        # Use accumulation to handle RepeatedKFold where samples appear
+        # in multiple validation folds. Instead of overwriting, we sum
+        # predictions and divide by count to get the average.
+        oof_preds_sum = np.zeros(n_samples)
+        oof_preds_count = np.zeros(n_samples, dtype=int)
+
         for pred in val_predictions:
             sample_indices = pred.get('sample_indices', [])
             if sample_indices is None:
@@ -767,12 +773,17 @@ class TrainingSetReconstructor:
             if hasattr(sample_indices, 'tolist'):
                 sample_indices = sample_indices.tolist()
 
-            # Place predictions at correct positions
+            # Accumulate predictions at correct positions
             for i, sample_idx in enumerate(sample_indices):
                 if i < len(y_vals):
                     pos = id_to_pos.get(int(sample_idx))
                     if pos is not None:
-                        oof_preds[pos] = y_vals[i]
+                        oof_preds_sum[pos] += y_vals[i]
+                        oof_preds_count[pos] += 1
+
+        # Average accumulated predictions; positions with no predictions stay NaN
+        mask = oof_preds_count > 0
+        oof_preds[mask] = oof_preds_sum[mask] / oof_preds_count[mask]
 
         return oof_preds, n_folds
 
@@ -1299,6 +1310,15 @@ class TrainingSetReconstructor:
             use_proba=use_proba
         )
 
+        # Use accumulation to handle RepeatedKFold where samples appear
+        # in multiple validation folds. Instead of overwriting, we sum
+        # predictions and divide by count to get the average.
+        if n_features == 1:
+            oof_preds_sum = np.zeros(n_samples)
+        else:
+            oof_preds_sum = np.zeros((n_samples, n_features))
+        oof_preds_count = np.zeros(n_samples, dtype=int)
+
         for pred in val_predictions:
             sample_indices = pred.get('sample_indices', [])
             if sample_indices is None:
@@ -1311,18 +1331,26 @@ class TrainingSetReconstructor:
             if hasattr(sample_indices, 'tolist'):
                 sample_indices = sample_indices.tolist()
 
-            # Place features at correct positions
+            # Accumulate features at correct positions
             for i, sample_idx in enumerate(sample_indices):
                 if i < len(features):
                     pos = id_to_pos.get(int(sample_idx))
                     if pos is not None:
                         if n_features == 1:
-                            oof_preds[pos] = features[i] if features.ndim == 1 else features[i, 0]
+                            oof_preds_sum[pos] += features[i] if features.ndim == 1 else features[i, 0]
                         else:
                             if features.ndim == 1:
-                                oof_preds[pos, 0] = features[i]
+                                oof_preds_sum[pos, 0] += features[i]
                             else:
-                                oof_preds[pos, :] = features[i, :]
+                                oof_preds_sum[pos, :] += features[i, :]
+                        oof_preds_count[pos] += 1
+
+        # Average accumulated predictions; positions with no predictions stay NaN
+        mask = oof_preds_count > 0
+        if n_features == 1:
+            oof_preds[mask] = oof_preds_sum[mask] / oof_preds_count[mask]
+        else:
+            oof_preds[mask, :] = oof_preds_sum[mask, :] / oof_preds_count[mask, np.newaxis]
 
         return oof_preds, n_folds
 

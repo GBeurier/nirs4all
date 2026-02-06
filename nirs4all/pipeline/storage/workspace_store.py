@@ -58,6 +58,7 @@ from nirs4all.pipeline.storage.store_queries import (
     DELETE_RUN,
     FAIL_PIPELINE,
     FAIL_RUN,
+    FIND_CACHED_ARTIFACT,
     GC_ARTIFACTS,
     GET_ARTIFACT,
     GET_ARTIFACT_BY_HASH,
@@ -72,12 +73,15 @@ from nirs4all.pipeline.storage.store_queries import (
     GET_RUN_LOG_SUMMARY,
     INCREMENT_ARTIFACT_REF,
     INSERT_ARTIFACT,
+    INSERT_ARTIFACT_WITH_CACHE_KEY,
     INSERT_CHAIN,
     INSERT_LOG,
     INSERT_PIPELINE,
     INSERT_PREDICTION,
     INSERT_PREDICTION_ARRAYS,
     INSERT_RUN,
+    INVALIDATE_DATASET_CACHE,
+    UPDATE_ARTIFACT_CACHE_KEY,
     build_aggregated_query,
     build_chain_predictions_query,
     build_prediction_query,
@@ -530,6 +534,7 @@ class WorkspaceStore:
         exclusion_rate: float,
         preprocessings: str = "",
         prediction_id: str | None = None,
+        refit_context: str | None = None,
     ) -> str:
         """Store a single prediction record.
 
@@ -547,7 +552,8 @@ class WorkspaceStore:
             dataset_name: Name of the dataset.
             model_name: Short model name (e.g. ``"PLSRegression"``).
             model_class: Fully qualified model class name.
-            fold_id: Fold identifier (e.g. ``"fold_0"``, ``"avg"``).
+            fold_id: Fold identifier (e.g. ``"fold_0"``, ``"avg"``,
+                ``"final"`` for refit).
             partition: Data partition (``"train"``, ``"val"``, ``"test"``).
             val_score: Validation score (primary ranking metric).
             test_score: Test score (for reporting).
@@ -565,6 +571,10 @@ class WorkspaceStore:
             exclusion_rate: Fraction of samples excluded (0.0 -- 1.0).
             preprocessings: Short display string for the preprocessing
                 chain applied before this model.
+            prediction_id: Optional explicit prediction ID.
+            refit_context: Refit context label. ``None`` for CV entries,
+                ``"standalone"`` for standalone refit,
+                ``"stacking"`` for stacking-context refit.
 
         Returns:
             A unique prediction identifier (UUID-based string).
@@ -579,7 +589,7 @@ class WorkspaceStore:
                 metric, task_type, n_samples, n_features,
                 _to_json(scores), _to_json(best_params),
                 preprocessings, branch_id, branch_name,
-                exclusion_count, exclusion_rate,
+                exclusion_count, exclusion_rate, refit_context,
             ])
             return prediction_id
 
@@ -781,6 +791,156 @@ class WorkspaceStore:
         if row is None:
             raise KeyError(f"Unknown artifact: {artifact_id}")
         return self._artifacts_dir / row["artifact_path"]
+
+    # =====================================================================
+    # Cross-run artifact caching
+    # =====================================================================
+
+    def save_artifact_with_cache_key(
+        self,
+        obj: Any,
+        operator_class: str,
+        artifact_type: str,
+        format: str,
+        chain_path_hash: str,
+        input_data_hash: str,
+        dataset_hash: str,
+    ) -> str:
+        """Persist a binary artifact with cross-run cache key metadata.
+
+        Behaves like :meth:`save_artifact` but also stores a
+        ``(chain_path_hash, input_data_hash)`` cache key alongside the
+        artifact record.  This enables :meth:`find_cached_artifact` to
+        locate previously computed artifacts across runs.
+
+        Args:
+            obj: The Python object to persist.
+            operator_class: Fully qualified class name of the operator.
+            artifact_type: Category label (``"model"``, ``"transformer"``,
+                etc.).
+            format: Serialisation format hint.
+            chain_path_hash: Hash identifying the chain of preprocessing
+                steps up to (and including) this step.
+            input_data_hash: Hash of the input data fed to this step.
+            dataset_hash: Content hash of the source dataset, used for
+                cache invalidation when the dataset changes.
+
+        Returns:
+            A unique artifact identifier.
+        """
+        data = _serialize_artifact(obj, format)
+        content_hash = hashlib.sha256(data).hexdigest()
+
+        with self._lock:
+            conn = self._ensure_open()
+
+            existing = self._fetch_one(GET_ARTIFACT_BY_HASH, [content_hash])
+            if existing is not None:
+                conn.execute(INCREMENT_ARTIFACT_REF, [existing["artifact_id"]])
+                # Update cache key on the existing record
+                conn.execute(UPDATE_ARTIFACT_CACHE_KEY, [
+                    existing["artifact_id"],
+                    chain_path_hash,
+                    input_data_hash,
+                    dataset_hash,
+                ])
+                return existing["artifact_id"]
+
+            artifact_id = str(uuid4())
+            ext = _format_to_ext(format)
+            shard = content_hash[:2]
+            relative_path = f"{shard}/{content_hash}.{ext}"
+            absolute_path = self._artifacts_dir / shard / f"{content_hash}.{ext}"
+            absolute_path.parent.mkdir(parents=True, exist_ok=True)
+            absolute_path.write_bytes(data)
+
+            conn.execute(INSERT_ARTIFACT_WITH_CACHE_KEY, [
+                artifact_id, relative_path, content_hash, operator_class,
+                artifact_type, format, len(data),
+                chain_path_hash, input_data_hash, dataset_hash,
+            ])
+            return artifact_id
+
+    def update_artifact_cache_key(
+        self,
+        artifact_id: str,
+        chain_path_hash: str,
+        input_data_hash: str,
+        dataset_hash: str,
+    ) -> None:
+        """Attach cross-run cache key metadata to an existing artifact.
+
+        This is used to retrofit cache keys onto artifacts that were
+        saved with :meth:`save_artifact` (without cache keys) during
+        pipeline execution.
+
+        Args:
+            artifact_id: Identifier of the artifact to update.
+            chain_path_hash: Hash identifying the chain of steps.
+            input_data_hash: Hash of the input data.
+            dataset_hash: Content hash of the source dataset.
+        """
+        with self._lock:
+            conn = self._ensure_open()
+            conn.execute(UPDATE_ARTIFACT_CACHE_KEY, [
+                artifact_id, chain_path_hash, input_data_hash, dataset_hash,
+            ])
+
+    def find_cached_artifact(
+        self,
+        chain_path_hash: str,
+        input_data_hash: str,
+    ) -> str | None:
+        """Look up a previously cached artifact by its cache key.
+
+        Searches the ``artifacts`` table for a record matching the
+        composite key ``(chain_path_hash, input_data_hash)`` with a
+        positive reference count.
+
+        Args:
+            chain_path_hash: Hash identifying the chain of steps.
+            input_data_hash: Hash of the input data.
+
+        Returns:
+            The artifact identifier if a cached entry exists, or
+            ``None`` on cache miss.
+        """
+        row = self._fetch_one(FIND_CACHED_ARTIFACT, [chain_path_hash, input_data_hash])
+        if row is None:
+            return None
+        return row["artifact_id"]
+
+    def invalidate_dataset_cache(self, dataset_hash: str) -> int:
+        """Invalidate all cached artifacts for a dataset.
+
+        Clears the ``chain_path_hash`` and ``input_data_hash`` fields on
+        every artifact whose ``dataset_hash`` matches the given value.
+        The artifact files and records remain intact -- only the cache
+        keys are removed, preventing future cache hits.
+
+        This should be called when the dataset content has changed (e.g.
+        the source file was modified) to ensure stale cached results are
+        not reused.
+
+        Args:
+            dataset_hash: Content hash of the dataset whose cached
+                artifacts should be invalidated.
+
+        Returns:
+            Number of artifact records that were invalidated.
+        """
+        with self._lock:
+            conn = self._ensure_open()
+            # Count matching rows before invalidation
+            count_row = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM artifacts "
+                "WHERE dataset_hash = $1 AND chain_path_hash IS NOT NULL",
+                [dataset_hash],
+            ).fetchone()
+            count = count_row[0] if count_row else 0
+            if count > 0:
+                conn.execute(INVALIDATE_DATASET_CACHE, [dataset_hash])
+            return count
 
     # =====================================================================
     # Structured logging
@@ -1306,9 +1466,21 @@ class WorkspaceStore:
         artifact_ids: set[str] = set()
         fold_artifacts = chain.get("fold_artifacts") or {}
         shared_artifacts = chain.get("shared_artifacts") or {}
-        for aid in fold_artifacts.values():
-            if aid:
-                artifact_ids.add(aid)
+
+        # Detect refit model: if "final" exists in fold_artifacts, export
+        # only the single refit model instead of all CV fold models.
+        has_refit = "final" in fold_artifacts
+        if has_refit:
+            # Only include the "final" model artifact
+            export_fold_artifacts = {"final": fold_artifacts["final"]}
+            if fold_artifacts["final"]:
+                artifact_ids.add(fold_artifacts["final"])
+        else:
+            export_fold_artifacts = fold_artifacts
+            for aid in fold_artifacts.values():
+                if aid:
+                    artifact_ids.add(aid)
+
         for v in shared_artifacts.values():
             if isinstance(v, list):
                 for aid in v:
@@ -1318,12 +1490,14 @@ class WorkspaceStore:
                 artifact_ids.add(v)
 
         # Build manifest
+        fold_strategy = "single_refit" if has_refit else chain["fold_strategy"]
         manifest = {
             "chain_id": chain_id,
             "model_class": chain["model_class"],
             "model_step_index": chain["model_step_idx"],
             "preprocessings": chain["preprocessings"],
-            "fold_strategy": chain["fold_strategy"],
+            "fold_strategy": fold_strategy,
+            "has_refit": has_refit,
             "exported_at": datetime.now(UTC).isoformat(),
         }
 
@@ -1333,7 +1507,7 @@ class WorkspaceStore:
             zf.writestr("chain.json", json.dumps({
                 "steps": chain["steps"],
                 "model_step_idx": chain["model_step_idx"],
-                "fold_artifacts": fold_artifacts,
+                "fold_artifacts": export_fold_artifacts,
                 "shared_artifacts": shared_artifacts,
             }, indent=2))
 
@@ -1574,6 +1748,101 @@ class WorkspaceStore:
             conn.execute(DELETE_PREDICTION, [prediction_id])
             return True
 
+    def cleanup_transient_artifacts(
+        self,
+        run_id: str,
+        dataset_name: str,
+        winning_pipeline_ids: list[str],
+    ) -> int:
+        """Clean up transient fold artifacts after successful refit.
+
+        After a refit pass produces ``fold_id="final"`` artifacts, the
+        per-fold model artifacts from the CV pass become redundant.  This
+        method decrements reference counts on those transient artifacts
+        and garbage-collects any that become orphaned.
+
+        Specifically, for every pipeline in the run that targets the
+        given dataset:
+
+        1. **Losing pipelines** (not in *winning_pipeline_ids*): all
+           fold *and* shared artifacts have their ref counts decremented.
+        2. **Winning pipeline**: only fold-specific model artifacts
+           (fold keys that are NOT ``"final"``/``"avg"``/``"w_avg"``)
+           have their ref counts decremented.  Shared (preprocessing)
+           artifacts are kept because they are needed by the refit chain.
+
+        Prediction records in DuckDB are **never** deleted -- they are
+        lightweight metadata useful for analysis.
+
+        Chain records are **never** deleted -- only the binary files
+        behind the decremented artifact IDs may be garbage-collected.
+
+        Content-addressed deduplication is respected: if the same binary
+        file backs both a transient and a permanent artifact record,
+        its ``ref_count`` will still be positive after cleanup.
+
+        Args:
+            run_id: Run identifier.
+            dataset_name: Dataset name to scope the cleanup to.
+            winning_pipeline_ids: Pipeline IDs that produced the refit
+                model(s).  Artifacts from these pipelines' shared
+                preprocessing chains are preserved.
+
+        Returns:
+            Number of artifact files removed from disk.
+        """
+        with self._lock:
+            conn = self._ensure_open()
+
+            # Permanent fold IDs whose model artifacts should never be cleaned
+            permanent_fold_ids = frozenset({"final", "avg", "w_avg"})
+
+            # Get all pipelines for this run and dataset
+            all_pipelines = conn.execute(
+                "SELECT pipeline_id FROM pipelines WHERE run_id = $1 AND dataset_name = $2",
+                [run_id, dataset_name],
+            ).fetchall()
+
+            winning_set = set(winning_pipeline_ids)
+
+            for (pipeline_id,) in all_pipelines:
+                # Get chains for this pipeline
+                chains = conn.execute(
+                    "SELECT chain_id, fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id = $1",
+                    [pipeline_id],
+                ).fetchall()
+
+                is_winner = pipeline_id in winning_set
+
+                for _chain_id, fold_artifacts_raw, shared_artifacts_raw in chains:
+                    fold_artifacts = _from_json(fold_artifacts_raw) if isinstance(fold_artifacts_raw, str) else fold_artifacts_raw
+                    shared_artifacts = _from_json(shared_artifacts_raw) if isinstance(shared_artifacts_raw, str) else shared_artifacts_raw
+
+                    if is_winner:
+                        # Winning pipeline: only decrement CV fold model artifacts
+                        if fold_artifacts:
+                            for fold_key, artifact_id in fold_artifacts.items():
+                                if artifact_id and fold_key not in permanent_fold_ids:
+                                    conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
+                        # Keep shared artifacts (preprocessing) -- needed by refit chain
+                    else:
+                        # Losing pipeline: decrement all artifacts
+                        if fold_artifacts:
+                            for artifact_id in fold_artifacts.values():
+                                if artifact_id:
+                                    conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
+                        if shared_artifacts:
+                            for v in (shared_artifacts or {}).values():
+                                if isinstance(v, list):
+                                    for artifact_id in v:
+                                        if artifact_id:
+                                            conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
+                                elif v:
+                                    conn.execute(DECREMENT_ARTIFACT_REF, [v])
+
+        # Run garbage collection to remove orphaned files
+        return self.gc_artifacts()
+
     def gc_artifacts(self) -> int:
         """Garbage-collect unreferenced artifacts.
 
@@ -1658,7 +1927,12 @@ class WorkspaceStore:
             idx = step["step_idx"]
 
             if idx == model_step_idx:
-                # Model step: load all fold models, predict, average
+                # Refit model: single "final" artifact, direct prediction
+                if "final" in fold_artifacts and fold_artifacts["final"]:
+                    model = self.load_artifact(fold_artifacts["final"])
+                    return model.predict(X_current)
+
+                # Legacy: load all fold models, predict, average
                 fold_preds = []
                 for _fold_id, artifact_id in fold_artifacts.items():
                     model = self.load_artifact(artifact_id)

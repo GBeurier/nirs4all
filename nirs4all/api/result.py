@@ -17,15 +17,203 @@ Phase 1 Implementation (v0.6.0):
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from nirs4all.core.logging import get_logger
+
 if TYPE_CHECKING:
     from nirs4all.data.predictions import Predictions
     from nirs4all.pipeline import PipelineRunner
+    from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
+    from nirs4all.pipeline.execution.refit.model_selector import PerModelSelection
+
+logger = get_logger(__name__)
+
+
+@dataclass
+class ModelRefitResult:
+    """Per-model refit result metadata.
+
+    Captures the refit outcome for a single model node in the pipeline.
+    For Phase 2 (non-stacking), there is only one model node, so
+    ``RunResult.models`` will contain exactly one entry.
+
+    Attributes:
+        model_name: Name of the model (e.g. ``"PLSRegression"``).
+        final_entry: The refit prediction entry (``fold_id="final"``).
+        cv_entry: The best CV prediction entry for this model.
+        final_score: Test score from the refit model.
+        cv_score: Best validation score from CV.
+        metric: Metric name used for evaluation.
+    """
+
+    model_name: str = ""
+    final_entry: dict[str, Any] = field(default_factory=dict)
+    cv_entry: dict[str, Any] = field(default_factory=dict)
+    final_score: float | None = None
+    cv_score: float | None = None
+    metric: str = ""
+
+
+class LazyModelRefitResult:
+    """Lazy per-model refit result that triggers refit on first access.
+
+    Wraps a :class:`PerModelSelection` and defers the actual refit
+    execution until a property requiring the result (e.g. ``.score``,
+    ``.final_entry``, ``.export()``) is accessed.
+
+    After the first access, the result is cached so subsequent accesses
+    return instantly.
+
+    If the underlying resources (artifact registry, step cache) have
+    been destroyed by the time of access, the lazy refit re-executes
+    from scratch.
+
+    Attributes:
+        model_name: Name of the model.
+        selection: The PerModelSelection metadata from the CV phase.
+    """
+
+    def __init__(
+        self,
+        model_name: str,
+        selection: PerModelSelection,
+        refit_config: RefitConfig,
+        dataset: Any,
+        context: Any,
+        runtime_context: Any,
+        artifact_registry: Any,
+        executor: Any,
+        prediction_store: Any,
+    ) -> None:
+        self.model_name = model_name
+        self.selection = selection
+        self._refit_config = refit_config
+        self._dataset = dataset
+        self._context = context
+        self._runtime_context = runtime_context
+        self._artifact_registry = artifact_registry
+        self._executor = executor
+        self._prediction_store = prediction_store
+        self._result: ModelRefitResult | None = None
+        self._lock = threading.Lock()
+
+    def _execute_refit(self) -> ModelRefitResult:
+        """Execute the refit and return a ModelRefitResult.
+
+        Thread-safe: uses a lock to prevent concurrent refits.
+        """
+        with self._lock:
+            if self._result is not None:
+                return self._result
+
+            from nirs4all.pipeline.execution.refit.executor import execute_simple_refit
+
+            # Build a RefitConfig from the selection metadata
+            from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
+
+            refit_config = RefitConfig(
+                expanded_steps=self.selection.expanded_steps,
+                best_params=self.selection.best_params,
+                variant_index=self.selection.variant_index,
+                metric=self._refit_config.metric,
+                best_score=self.selection.best_score,
+            )
+
+            # Create a fresh prediction store for capturing refit predictions
+            from nirs4all.data.predictions import Predictions
+
+            refit_predictions = Predictions()
+
+            try:
+                refit_result = execute_simple_refit(
+                    refit_config=refit_config,
+                    dataset=self._dataset,
+                    context=self._context,
+                    runtime_context=self._runtime_context,
+                    artifact_registry=self._artifact_registry,
+                    executor=self._executor,
+                    prediction_store=refit_predictions,
+                )
+            except Exception:
+                logger.warning(
+                    f"Lazy refit for model '{self.model_name}' failed. "
+                    f"Resources may have been destroyed."
+                )
+                # Return a minimal result with just the CV info
+                self._result = ModelRefitResult(
+                    model_name=self.model_name,
+                    cv_score=self.selection.best_score,
+                    metric=self._refit_config.metric,
+                )
+                return self._result
+
+            # Build ModelRefitResult from the refit output
+            final_entry = {}
+            for entry in refit_predictions._buffer:
+                if entry.get("fold_id") == "final":
+                    final_entry = entry
+                    break
+
+            self._result = ModelRefitResult(
+                model_name=self.model_name,
+                final_entry=final_entry,
+                cv_entry={},
+                final_score=refit_result.test_score,
+                cv_score=self.selection.best_score,
+                metric=refit_result.metric,
+            )
+            return self._result
+
+    def _ensure_result(self) -> ModelRefitResult:
+        """Ensure the refit has been executed and return the result."""
+        if self._result is None:
+            return self._execute_refit()
+        return self._result
+
+    @property
+    def score(self) -> float | None:
+        """Get the refit model's test score (triggers refit on first access)."""
+        return self._ensure_result().final_score
+
+    @property
+    def final_score(self) -> float | None:
+        """Get the refit model's test score (triggers refit on first access)."""
+        return self._ensure_result().final_score
+
+    @property
+    def final_entry(self) -> dict[str, Any]:
+        """Get the refit prediction entry (triggers refit on first access)."""
+        return self._ensure_result().final_entry
+
+    @property
+    def cv_entry(self) -> dict[str, Any]:
+        """Get the best CV prediction entry."""
+        return self._ensure_result().cv_entry
+
+    @property
+    def cv_score(self) -> float | None:
+        """Get the best CV validation score (does not trigger refit)."""
+        return self.selection.best_score
+
+    @property
+    def metric(self) -> str:
+        """Get the metric name (does not trigger refit)."""
+        return self._refit_config.metric
+
+    @property
+    def is_resolved(self) -> bool:
+        """Check if the refit has already been executed."""
+        return self._result is not None
+
+    def __repr__(self) -> str:
+        status = "resolved" if self.is_resolved else "pending"
+        return f"LazyModelRefitResult(model='{self.model_name}', status={status})"
 
 
 @dataclass
@@ -41,10 +229,15 @@ class RunResult:
 
     Properties:
         best: Best prediction entry by default ranking.
-        best_score: Best model's primary test score.
+        best_score: Best model's primary test score (CV selection metric).
         best_rmse: Best model's RMSE (regression).
         best_r2: Best model's R² (regression).
         best_accuracy: Best model's accuracy (classification).
+        final: Refit model prediction entry (``fold_id="final"``), or ``None``.
+        final_score: Refit model test score, or ``None`` if no refit.
+        cv_best: Best CV prediction entry.
+        cv_best_score: Best CV validation score.
+        models: Per-model refit results (for Phase 2, one entry).
         artifacts_path: Path to run artifacts directory.
         num_predictions: Total number of predictions stored.
 
@@ -65,6 +258,16 @@ class RunResult:
     predictions: Predictions
     per_dataset: dict[str, Any]
     _runner: PipelineRunner | None = field(default=None, repr=False)
+
+    # Lazy refit dependencies (set by the orchestrator when per-model
+    # selections are available so that ``models`` returns lazy results)
+    _per_model_selections: dict[str, PerModelSelection] | None = field(default=None, repr=False)
+    _refit_config: RefitConfig | None = field(default=None, repr=False)
+    _refit_dataset: Any = field(default=None, repr=False)
+    _refit_context: Any = field(default=None, repr=False)
+    _refit_runtime_context: Any = field(default=None, repr=False)
+    _refit_artifact_registry: Any = field(default=None, repr=False)
+    _refit_executor: Any = field(default=None, repr=False)
 
     # --- Primary accessors ---
 
@@ -180,6 +383,143 @@ class RunResult:
                 return float(test_score)
 
         return float('nan')
+
+    # --- Refit accessors ---
+
+    @property
+    def final(self) -> dict[str, Any] | None:
+        """Get the refit model prediction entry (``fold_id="final"``).
+
+        Returns:
+            Prediction dict for the refit model, or ``None`` if refit
+            was not performed or no refit entries exist.
+        """
+        entries = self.predictions.filter_predictions(fold_id="final")
+        if entries:
+            return entries[0]
+        return None
+
+    @property
+    def final_score(self) -> float | None:
+        """Get the refit model's test score.
+
+        Returns:
+            Test score from the refit entry, or ``None`` if refit was
+            not performed.
+        """
+        entry = self.final
+        if entry is None:
+            return None
+        score = entry.get("test_score")
+        if score is not None:
+            return float(score)
+        return None
+
+    @property
+    def cv_best(self) -> dict[str, Any]:
+        """Get the best CV prediction entry (excludes refit entries).
+
+        This is the prediction entry that won the cross-validation
+        selection phase.  Refit entries (``fold_id="final"``) are
+        excluded from ranking.
+
+        Returns:
+            Best CV prediction dict, or empty dict if no CV predictions.
+        """
+        # Filter out refit entries from the buffer to get pure CV ranking
+        cv_entries = [
+            entry for entry in self.predictions._buffer
+            if entry.get("fold_id") != "final" and entry.get("refit_context") is None
+        ]
+        if not cv_entries:
+            # Fall back to best overall (legacy behavior)
+            return self.best
+        # Rank CV entries: use the same logic as top()
+        # Find the best by val_score (infer ascending from metric)
+        from nirs4all.data.predictions import _infer_ascending
+        metric = cv_entries[0].get("metric", "rmse")
+        ascending = _infer_ascending(metric)
+
+        # Filter to 'val' or 'w_avg' fold_id entries for ranking
+        rankable = [e for e in cv_entries if e.get("fold_id") in ("avg", "w_avg")]
+        if not rankable:
+            # Fall back to fold entries with val_score
+            rankable = [e for e in cv_entries if e.get("val_score") is not None]
+        if not rankable:
+            return self.best
+
+        ranked = sorted(rankable, key=lambda e: e.get("val_score") or float("inf"), reverse=not ascending)
+        return ranked[0] if ranked else self.best
+
+    @property
+    def cv_best_score(self) -> float:
+        """Get the best CV validation score.
+
+        Returns:
+            The val_score from the best CV entry, or NaN if unavailable.
+        """
+        entry = self.cv_best
+        if not entry:
+            return float("nan")
+        score = entry.get("val_score")
+        if score is not None:
+            return float(score)
+        return float("nan")
+
+    @property
+    def models(self) -> dict[str, ModelRefitResult | LazyModelRefitResult]:
+        """Get per-model refit results.
+
+        When per-model selections are available (set by the orchestrator),
+        returns :class:`LazyModelRefitResult` instances that defer the
+        actual refit until a property requiring the result is accessed.
+
+        When per-model selections are not available, falls back to
+        the eager approach using already-executed refit entries.
+
+        Returns:
+            Dictionary mapping model name to :class:`ModelRefitResult`
+            or :class:`LazyModelRefitResult`.
+        """
+        # Lazy path: per-model selections were stored by the orchestrator
+        if self._per_model_selections is not None and self._refit_config is not None:
+            result: dict[str, ModelRefitResult | LazyModelRefitResult] = {}
+            for model_name, selection in self._per_model_selections.items():
+                result[model_name] = LazyModelRefitResult(
+                    model_name=model_name,
+                    selection=selection,
+                    refit_config=self._refit_config,
+                    dataset=self._refit_dataset,
+                    context=self._refit_context,
+                    runtime_context=self._refit_runtime_context,
+                    artifact_registry=self._refit_artifact_registry,
+                    executor=self._refit_executor,
+                    prediction_store=self.predictions,
+                )
+            return result
+
+        # Eager fallback: use already-executed refit entries
+        final_entry = self.final
+        if final_entry is None:
+            return {}
+
+        model_name = final_entry.get("model_name", "unknown")
+        cv_entry = self.cv_best
+        metric = final_entry.get("metric", "")
+
+        final_score_val = final_entry.get("test_score")
+        cv_score_val = cv_entry.get("val_score") if cv_entry else None
+
+        return {
+            model_name: ModelRefitResult(
+                model_name=model_name,
+                final_entry=final_entry,
+                cv_entry=cv_entry,
+                final_score=float(final_score_val) if final_score_val is not None else None,
+                cv_score=float(cv_score_val) if cv_score_val is not None else None,
+                metric=metric,
+            )
+        }
 
     # --- Metadata accessors ---
 
@@ -336,7 +676,8 @@ class RunResult:
 
         # Legacy resolver-based path
         if source is None:
-            source = self.best
+            # Prefer the refit entry when available (single model)
+            source = self.final or self.best
             if not source:
                 raise ValueError("No predictions available to export")
 

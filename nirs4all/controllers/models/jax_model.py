@@ -440,6 +440,40 @@ class JaxModelController(BaseModelController):
         # The state is created fresh in _train_model
         return model
 
+    def _apply_warm_start(
+        self,
+        model: Any,
+        source_model: Any,
+        runtime_context: Any,
+    ) -> Any:
+        """Apply warm-start for JAX/Flax models.
+
+        JAX/Flax models use immutable parameters managed via TrainState.
+        If the source model is a JaxModelWrapper containing trained state,
+        its parameters are transferred to the new model definition.
+
+        Args:
+            model: Fresh Flax module definition.
+            source_model: Trained fold model (JaxModelWrapper or Flax module).
+            runtime_context: Runtime context.
+
+        Returns:
+            The model with warm-start state attached (stored as
+            ``_warm_start_params`` attribute for pickup by ``_train_model``).
+        """
+        if not JAX_AVAILABLE:
+            return model
+
+        # Check if source is a JaxModelWrapper with stored params
+        from .jax_wrapper import JaxModelWrapper
+        if isinstance(source_model, JaxModelWrapper):
+            if hasattr(source_model, 'params') and source_model.params is not None:
+                # Attach warm-start params to the model for _train_model to pick up
+                model._warm_start_params = source_model.params
+                return model
+
+        return model
+
     def process_hyperparameters(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Process hyperparameters for JAX model tuning."""
         # JAX implementation is simple, no complex nesting needed yet

@@ -829,8 +829,14 @@ class TestMethodInventory:
         # Deletion & cleanup
         "delete_run",
         "delete_prediction",
+        "cleanup_transient_artifacts",
         "gc_artifacts",
         "vacuum",
+        # Cross-run cache
+        "save_artifact_with_cache_key",
+        "update_artifact_cache_key",
+        "find_cached_artifact",
+        "invalidate_dataset_cache",
         # Chain replay
         "replay_chain",
         # Resource management
@@ -882,4 +888,4 @@ class TestMethodInventory:
 
     def test_total_method_count(self):
         """The expected method count matches the design doc (35 methods)."""
-        assert len(self.EXPECTED_METHODS) == 39
+        assert len(self.EXPECTED_METHODS) == 44

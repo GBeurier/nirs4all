@@ -206,6 +206,7 @@ def run(
     save_charts: bool = True,
     plots_visible: bool = False,
     random_state: Optional[int] = None,
+    refit: Union[bool, Dict[str, Any], None] = True,
     # All other PipelineRunner options
     **runner_kwargs: Any
 ) -> RunResult:
@@ -254,6 +255,13 @@ def run(
 
         random_state: Random seed for reproducibility.
             Default: None (no seeding)
+
+        refit: Refit configuration. After cross-validation selects the
+            winning pipeline variant, retrain it on the full training
+            set to produce a single final model.
+            - ``True``: Enable refit (default).
+            - ``False`` or ``None``: Disable refit.
+            - ``dict``: Refit options (reserved for future use).
 
         **runner_kwargs: Additional PipelineRunner parameters. See
             PipelineRunner.__init__ for full list. Common options:
@@ -396,7 +404,8 @@ def run(
             predictions, per_dataset = runner.run(
                 pipeline=pipeline_arg,
                 dataset=dataset_arg,
-                pipeline_name=pipeline_name
+                pipeline_name=pipeline_name,
+                refit=refit,
             )
 
             # Merge predictions from this run

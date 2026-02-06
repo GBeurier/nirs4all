@@ -69,6 +69,9 @@ class SpectroDataset:
         self._folds: List[Tuple[List[int], List[int]]] = []
         self.name = name
 
+        # Cached content hash — invalidated on any feature mutation
+        self._content_hash_cache: Optional[str] = None
+
         # Signal type per source (for multi-source support)
         self._signal_types: List[SignalType] = []
         self._signal_type_forced: List[bool] = []
@@ -184,6 +187,7 @@ class SpectroDataset:
             header_unit: Unit type for headers ("cm-1", "nm", "none", "text", "index")
         """
         self._feature_accessor.add_samples(data, indexes, headers, header_unit)
+        self._invalidate_content_hash()
 
     def add_samples_batch(self,
                           data: Union[np.ndarray, List[np.ndarray]],
@@ -207,6 +211,7 @@ class SpectroDataset:
             >>> dataset.add_samples_batch(data, indexes)
         """
         self._feature_accessor.add_samples_batch(data, indexes_list)
+        self._invalidate_content_hash()
 
     def add_features(self,
                      features: InputFeatures,
@@ -214,6 +219,7 @@ class SpectroDataset:
                      source: int = -1) -> None:
         """Add processed feature versions to existing data."""
         self._feature_accessor.add_features(features, processings, source)
+        self._invalidate_content_hash()
 
     def replace_features(self,
                          source_processings: ProcessingList,
@@ -222,6 +228,7 @@ class SpectroDataset:
                          source: int = -1) -> None:
         """Replace existing processed features with new versions."""
         self._feature_accessor.replace_features(source_processings, features, processings, source)
+        self._invalidate_content_hash()
 
     def update_features(self,
                         source_processings: ProcessingList,
@@ -230,6 +237,7 @@ class SpectroDataset:
                         source: int = -1) -> None:
         """Update existing processed features."""
         self._feature_accessor.update_features(source_processings, features, processings, source)
+        self._invalidate_content_hash()
 
     def add_merged_features(
         self,
@@ -302,6 +310,7 @@ class SpectroDataset:
             processings=processings,
             source=source
         )
+        self._invalidate_content_hash()
 
     def keep_sources(self, source_indices: Union[int, List[int]]) -> None:
         """Keep only specified sources, removing all others.
@@ -321,6 +330,7 @@ class SpectroDataset:
             >>> dataset.keep_sources(0)
         """
         self._feature_accessor.keep_sources(source_indices)
+        self._invalidate_content_hash()
 
     def get_merged_features(
         self,
@@ -381,7 +391,9 @@ class SpectroDataset:
                         selector: Optional[Selector] = None,
                         count: Union[int, List[int]] = 1) -> List[int]:
         """Create augmented versions of existing samples."""
-        return self._feature_accessor.augment_samples(data, processings, augmentation_id, selector, count)
+        result = self._feature_accessor.augment_samples(data, processings, augmentation_id, selector, count)
+        self._invalidate_content_hash()
+        return result
 
     def features_processings(self, src: int) -> List[str]:
         """Get processing names for a source."""
@@ -1423,6 +1435,9 @@ class SpectroDataset:
         # Clear folds (CV needs to be re-run on new sample count)
         self._folds = []
 
+        # Invalidate content hash since features were rebuilt
+        self._invalidate_content_hash()
+
     def short_preprocessings_str(self) -> str:
         """Get shortened processing string for display."""
         processings_list = self._features.sources[0].processing_ids
@@ -1460,6 +1475,51 @@ class SpectroDataset:
     def is_multi_source(self) -> bool:
         """Check if dataset has multiple feature sources."""
         return self._feature_accessor.is_multi_source
+
+    # ========== Content Hashing ==========
+
+    def _invalidate_content_hash(self) -> None:
+        """Invalidate the cached content hash after a feature mutation."""
+        self._content_hash_cache = None
+
+    def content_hash(self, source_index: Optional[int] = None) -> str:
+        """Compute a deterministic content hash of the feature data.
+
+        The hash covers the raw array bytes of the requested source(s).
+        Results are cached per-instance and automatically invalidated
+        whenever features are mutated.
+
+        Args:
+            source_index: If given, hash only that source's features.
+                If ``None`` (default), hash all sources concatenated.
+
+        Returns:
+            Hex digest string.
+        """
+        from nirs4all.utils.hashing import compute_data_hash
+
+        # Per-source requests are not cached (uncommon, cheap enough)
+        if source_index is not None:
+            arr = self._features.sources[source_index]._storage.array
+            return compute_data_hash(arr)
+
+        if self._content_hash_cache is not None:
+            return self._content_hash_cache
+
+        # Hash all sources by concatenating their bytes
+        import hashlib
+        try:
+            import xxhash
+            hasher = xxhash.xxh128()
+        except ImportError:
+            hasher = hashlib.sha256()
+
+        for source in self._features.sources:
+            arr = np.ascontiguousarray(source._storage.array)
+            hasher.update(arr.data.tobytes())
+
+        self._content_hash_cache = hasher.hexdigest()
+        return self._content_hash_cache
 
     # ========== PRIMARY API: Target Methods ==========
 

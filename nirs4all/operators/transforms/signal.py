@@ -138,6 +138,8 @@ class Detrend(TransformerMixin, BaseEstimator):
         Whether to make a copy of the input data. Default is True.
     """
 
+    _stateless = True
+
     def __init__(self, bp=0, *, copy=True):
         self.copy = copy
         self.bp = bp
@@ -234,6 +236,8 @@ def gaussian(spectra, order=2, sigma=1):
 
 
 class Gaussian(TransformerMixin, BaseEstimator):
+    _stateless = True
+
     def __init__(self, order=2, sigma=1, *, copy=True):
         """
         Initialize Gaussian filter.
