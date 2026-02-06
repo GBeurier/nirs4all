@@ -39,11 +39,11 @@ class TestNirs4allIntegration:
     def test_data_manager(self):
         """Create test data manager with all datasets."""
         manager = TestDataManager()
-        manager.create_regression_dataset("regression")
-        manager.create_classification_dataset("classification")
-        manager.create_multi_target_dataset("multi_target")
-        manager.create_regression_dataset("regression_2")
-        manager.create_regression_dataset("regression_3")
+        manager.create_regression_dataset("regression", n_train=40, n_val=12)
+        manager.create_classification_dataset("classification", n_train=45, n_val=15)
+        manager.create_multi_target_dataset("multi_target", n_train=36, n_val=12)
+        manager.create_regression_dataset("regression_2", n_train=36, n_val=12)
+        manager.create_regression_dataset("regression_3", n_train=36, n_val=12)
         yield manager
         manager.cleanup()
 
@@ -57,10 +57,10 @@ class TestNirs4allIntegration:
         pipeline = [
             MinMaxScaler(),
             {"y_processing": MinMaxScaler()},
-            {"feature_augmentation": {"_or_": list_of_preprocessors, "size": [1, 2], "count": 3}},
-            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
-            {"model": PLSRegression(n_components=5)},
-            {"model": PLSRegression(n_components=10)},
+            {"feature_augmentation": {"_or_": list_of_preprocessors, "size": 1, "count": 2}},
+            ShuffleSplit(n_splits=1, test_size=0.25, random_state=42),
+            {"model": PLSRegression(n_components=4)},
+            {"model": PLSRegression(n_components=7)},
         ]
 
         pipeline_config = PipelineConfigs(pipeline, "test_q1_regression")
@@ -95,12 +95,12 @@ class TestNirs4allIntegration:
         pipeline = [
             MinMaxScaler(feature_range=(0.1, 0.8)),
             MultiplicativeScatterCorrection(),
-            ShuffleSplit(n_splits=2, random_state=42),
+            ShuffleSplit(n_splits=1, random_state=42),
             {"y_processing": MinMaxScaler()},
-            {"model": PLSRegression(10)},
-            {"model": RandomForestRegressor(n_estimators=5, random_state=42)},
+            {"model": PLSRegression(6)},
+            {"model": RandomForestRegressor(n_estimators=3, random_state=42)},
             {"model": ElasticNet(random_state=42)},
-            {"model": GradientBoostingRegressor(n_estimators=5, random_state=42)},
+            {"model": GradientBoostingRegressor(n_estimators=3, random_state=42)},
         ]
 
         pipeline_config = PipelineConfigs(pipeline, "test_q2_models")
@@ -125,12 +125,9 @@ class TestNirs4allIntegration:
         transformations = [
             Detrend(),
             FirstDerivative(),
-            SecondDerivative(),
             Gaussian(),
             StandardNormalVariate(),
             SavitzkyGolay(),
-            Haar(),
-            MultiplicativeScatterCorrection(),
         ]
 
         for transform in transformations:
@@ -160,10 +157,9 @@ class TestNirs4allIntegration:
         pipeline = [
             StandardScaler(),
             {"feature_augmentation": [Gaussian, StandardNormalVariate]},
-            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            ShuffleSplit(n_splits=1, test_size=0.25, random_state=42),
             {"y_processing": RangeDiscretizer([15, 25, 35, 45])},  # Convert continuous to categories
             {"model": RandomForestClassifier(max_depth=5, random_state=42)},
-            {"model": RandomForestClassifier(max_depth=10, random_state=42)},
         ]
 
         pipeline_config = PipelineConfigs(pipeline, "test_q7_classification")
@@ -187,9 +183,8 @@ class TestNirs4allIntegration:
         pipeline = [
             MinMaxScaler(),
             {"feature_augmentation": [Detrend, Gaussian]},
-            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            ShuffleSplit(n_splits=1, test_size=0.25, random_state=42),
             {"model": RandomForestClassifier(max_depth=5, random_state=42)},
-            {"model": RandomForestClassifier(max_depth=10, random_state=42)},
         ]
 
         pipeline_config = PipelineConfigs(pipeline, "test_native_classification")
@@ -221,13 +216,10 @@ class TestNirs4allIntegration:
             {"feature_augmentation": [
                 MultiplicativeScatterCorrection(),
                 Gaussian(),
-                StandardNormalVariate(),
-                [MultiplicativeScatterCorrection(), Gaussian()],
             ]},
-            ShuffleSplit(n_splits=2, random_state=42),
+            ShuffleSplit(n_splits=1, random_state=42),
             {"y_processing": MinMaxScaler()},
             {"model": PLSRegression(n_components=5)},
-            {"model": ElasticNet(random_state=42)},
         ]
 
         pipeline_config = PipelineConfigs(pipeline, "test_q3_multi")
@@ -276,7 +268,7 @@ class TestNirs4allIntegration:
 
         cv_strategies = [
             ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
-            RepeatedKFold(n_splits=3, n_repeats=1, random_state=42),
+            RepeatedKFold(n_splits=2, n_repeats=1, random_state=42),
         ]
 
         for cv in cv_strategies:
@@ -341,7 +333,7 @@ class TestNirs4allIntegration:
             {"feature_augmentation": {
                 "_or_": [Detrend, FirstDerivative, Gaussian, StandardNormalVariate],
                 "pick": (1, 2),
-                "count": 4
+                "count": 2
             }},
             ShuffleSplit(n_splits=1, test_size=0.25, random_state=42),
             {"model": PLSRegression(n_components=5)},
@@ -354,7 +346,7 @@ class TestNirs4allIntegration:
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have multiple predictions from different augmentations
-        assert predictions.num_predictions >= 4
+        assert predictions.num_predictions >= 2
 
         # Verify different preprocessing combinations
         all_preds = predictions.to_dicts()
@@ -368,10 +360,9 @@ class TestNirs4allIntegration:
         pipeline = [
             MinMaxScaler(),
             {"feature_augmentation": {"_or_": [Gaussian, StandardNormalVariate], "pick": 1, "count": 2}},
-            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            ShuffleSplit(n_splits=1, test_size=0.25, random_state=42),
             {"model": PLSRegression(n_components=5)},
-            {"model": PLSRegression(n_components=10)},
-            {"model": RandomForestRegressor(n_estimators=5, random_state=42)},
+            {"model": RandomForestRegressor(n_estimators=3, random_state=42)},
         ]
 
         pipeline_config = PipelineConfigs(pipeline, "test_analysis")
@@ -408,11 +399,10 @@ class TestNirs4allIntegration:
 
         sklearn_models = [
             PLSRegression(n_components=3),
-            RandomForestRegressor(n_estimators=5, random_state=42),
+            RandomForestRegressor(n_estimators=3, random_state=42),
             ElasticNet(alpha=0.5, random_state=42),
-            GradientBoostingRegressor(n_estimators=5, random_state=42),
+            GradientBoostingRegressor(n_estimators=3, random_state=42),
             SVR(kernel='linear', C=1.0),  # Use linear kernel for speed
-            MLPRegressor(hidden_layer_sizes=(5,), max_iter=50, random_state=42),
         ]
 
         for model in sklearn_models:

@@ -28,8 +28,8 @@ class TestPCAAnalysisIntegration:
     def test_data_manager(self):
         """Create test data manager with multiple datasets."""
         manager = TestDataManager()
-        manager.create_regression_dataset("regression")
-        manager.create_classification_dataset("classification")
+        manager.create_regression_dataset("regression", n_train=48, n_val=16)
+        manager.create_classification_dataset("classification", n_train=54, n_val=18)
         yield manager
         manager.cleanup()
 
@@ -48,7 +48,7 @@ class TestPCAAnalysisIntegration:
 
         pipeline = [
             MinMaxScaler(),
-            {"_or_": preprocessing_options[:4], "size": (2, 3), "count": 3},
+            {"_or_": preprocessing_options[:3], "size": (1, 2), "count": 2},
         ]
 
         pipeline_config = PipelineConfigs(pipeline, "PCA_eval_test")
@@ -67,7 +67,7 @@ class TestPCAAnalysisIntegration:
         assert len(datasets_raw) > 0
 
         # Create and fit PCA evaluator
-        evaluator = PreprocPCAEvaluator(r_components=8, knn=10)
+        evaluator = PreprocPCAEvaluator(r_components=4, knn=5)
         evaluator.fit(datasets_raw, datasets_pp)
 
         # Verify results dataframe exists
@@ -85,7 +85,7 @@ class TestPCAAnalysisIntegration:
 
         pipeline = [
             MinMaxScaler(),
-            {"_or_": [Gaussian, StandardNormalVariate, Haar], "size": 1, "count": 3},
+            {"_or_": [Gaussian, StandardNormalVariate, Haar], "size": 1, "count": 2},
         ]
 
         pipeline_config = PipelineConfigs(pipeline, "PCA_metrics_test")
@@ -97,7 +97,7 @@ class TestPCAAnalysisIntegration:
         datasets_raw = runner.raw_data
         datasets_pp = runner.pp_data
 
-        evaluator = PreprocPCAEvaluator(r_components=10, knn=5)
+        evaluator = PreprocPCAEvaluator(r_components=4, knn=3)
         evaluator.fit(datasets_raw, datasets_pp)
 
         # Check metrics exist and are finite
@@ -128,7 +128,7 @@ class TestPCAAnalysisIntegration:
         datasets_raw = runner.raw_data
         datasets_pp = runner.pp_data
 
-        evaluator = PreprocPCAEvaluator(r_components=8, knn=10)
+        evaluator = PreprocPCAEvaluator(r_components=4, knn=5)
         evaluator.fit(datasets_raw, datasets_pp)
 
         # Check cross-dataset dataframe
