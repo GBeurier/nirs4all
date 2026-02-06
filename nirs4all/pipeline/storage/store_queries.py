@@ -270,6 +270,177 @@ WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = $1)
 # Dynamic query builders
 # =========================================================================
 
+# ---- Aggregated predictions (from v_aggregated_predictions VIEW) --------
+
+QUERY_AGGREGATED_PREDICTIONS_BASE = "SELECT * FROM v_aggregated_predictions"
+
+GET_CHAIN_PREDICTIONS = """
+SELECT * FROM predictions WHERE chain_id = $1
+"""
+
+GET_PREDICTION_ARRAYS = """
+SELECT y_true, y_pred, y_proba, sample_indices, weights
+FROM prediction_arrays WHERE prediction_id = $1
+"""
+
+
+def build_aggregated_query(
+    *,
+    run_id: str | None = None,
+    pipeline_id: str | None = None,
+    chain_id: str | None = None,
+    dataset_name: str | None = None,
+    model_class: str | None = None,
+    metric: str | None = None,
+) -> tuple[str, list[object]]:
+    """Build a query against the ``v_aggregated_predictions`` VIEW.
+
+    All filters are optional and combined with ``AND``.
+
+    Returns:
+        ``(sql, params)`` ready for ``conn.execute(sql, params)``.
+    """
+    conditions: list[str] = []
+    params: list[object] = []
+    idx = 1
+
+    for col, val in [
+        ("run_id", run_id),
+        ("pipeline_id", pipeline_id),
+        ("chain_id", chain_id),
+        ("dataset_name", dataset_name),
+        ("model_class", model_class),
+        ("metric", metric),
+    ]:
+        if val is None:
+            continue
+        if isinstance(val, str) and "%" in val:
+            conditions.append(f"{col} LIKE ${idx}")
+        else:
+            conditions.append(f"{col} = ${idx}")
+        params.append(val)
+        idx += 1
+
+    where = ""
+    if conditions:
+        where = " WHERE " + " AND ".join(conditions)
+
+    sql = QUERY_AGGREGATED_PREDICTIONS_BASE + where
+    return sql, params
+
+
+def build_chain_predictions_query(
+    *,
+    chain_id: str,
+    partition: str | None = None,
+    fold_id: str | None = None,
+) -> tuple[str, list[object]]:
+    """Build a drill-down query for individual predictions of a chain.
+
+    Args:
+        chain_id: Required chain identifier.
+        partition: Optional partition filter (``"train"``, ``"val"``, ``"test"``).
+        fold_id: Optional fold identifier filter.
+
+    Returns:
+        ``(sql, params)`` ready for ``conn.execute(sql, params)``.
+    """
+    conditions: list[str] = ["chain_id = $1"]
+    params: list[object] = [chain_id]
+    idx = 2
+
+    if partition is not None:
+        conditions.append(f"partition = ${idx}")
+        params.append(partition)
+        idx += 1
+
+    if fold_id is not None:
+        conditions.append(f"fold_id = ${idx}")
+        params.append(fold_id)
+        idx += 1
+
+    where = " WHERE " + " AND ".join(conditions)
+    sql = f"SELECT * FROM predictions{where} ORDER BY partition, fold_id"
+    return sql, params
+
+
+def build_top_aggregated_query(
+    *,
+    metric: str,
+    n: int = 10,
+    score_column: str = "avg_val_score",
+    ascending: bool = True,
+    run_id: str | None = None,
+    pipeline_id: str | None = None,
+    dataset_name: str | None = None,
+    model_class: str | None = None,
+) -> tuple[str, list[object]]:
+    """Build a ranking query on the aggregated predictions VIEW.
+
+    Args:
+        metric: Metric name to filter by.
+        n: Number of top results to return.
+        score_column: Column to sort by (e.g. ``"avg_val_score"``,
+            ``"avg_test_score"``).
+        ascending: Sort direction.  ``True`` for lower-is-better metrics.
+        run_id: Optional run filter.
+        pipeline_id: Optional pipeline filter.
+        dataset_name: Optional dataset filter.
+        model_class: Optional model class filter.
+
+    Returns:
+        ``(sql, params)`` ready for ``conn.execute(sql, params)``.
+
+    Raises:
+        ValueError: If *score_column* is not a valid aggregation column.
+    """
+    valid_score_columns = frozenset({
+        "min_val_score", "max_val_score", "avg_val_score",
+        "min_test_score", "max_test_score", "avg_test_score",
+        "min_train_score", "max_train_score", "avg_train_score",
+    })
+    if score_column not in valid_score_columns:
+        raise ValueError(f"Invalid score column: {score_column!r}")
+
+    conditions: list[str] = []
+    params: list[object] = []
+    idx = 1
+
+    # Always filter by metric
+    conditions.append(f"metric = ${idx}")
+    params.append(metric)
+    idx += 1
+
+    for col, val in [
+        ("run_id", run_id),
+        ("pipeline_id", pipeline_id),
+        ("dataset_name", dataset_name),
+        ("model_class", model_class),
+    ]:
+        if val is None:
+            continue
+        conditions.append(f"{col} = ${idx}")
+        params.append(val)
+        idx += 1
+
+    where = " WHERE " + " AND ".join(conditions)
+    direction = "ASC" if ascending else "DESC"
+    nulls = "NULLS LAST"
+
+    sql = (
+        f"SELECT * FROM v_aggregated_predictions{where} "
+        f"ORDER BY {score_column} {direction} {nulls} "
+        f"LIMIT ${idx}"
+    )
+    params.append(n)
+
+    return sql, params
+
+
+# =========================================================================
+# Legacy dynamic query builders
+# =========================================================================
+
 def build_filter_clause(
     filters: dict[str, object],
 ) -> tuple[str, list[object]]:

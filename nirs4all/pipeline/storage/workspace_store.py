@@ -65,6 +65,7 @@ from nirs4all.pipeline.storage.store_queries import (
     GET_PIPELINE,
     GET_PIPELINE_LOG,
     GET_PREDICTION,
+    GET_PREDICTION_ARRAYS,
     GET_PREDICTION_WITH_ARRAYS,
     GET_RUN,
     GET_RUN_LOG_SUMMARY,
@@ -76,7 +77,10 @@ from nirs4all.pipeline.storage.store_queries import (
     INSERT_PREDICTION,
     INSERT_PREDICTION_ARRAYS,
     INSERT_RUN,
+    build_aggregated_query,
+    build_chain_predictions_query,
     build_prediction_query,
+    build_top_aggregated_query,
     build_top_predictions_query,
 )
 from nirs4all.pipeline.storage.store_schema import create_schema
@@ -123,6 +127,28 @@ def _deserialize_artifact(data: bytes, fmt: str) -> Any:
 def _format_to_ext(fmt: str) -> str:
     """Map serialisation format to file extension."""
     return {"joblib": "joblib", "pickle": "pkl", "cloudpickle": "pkl"}.get(fmt, "bin")
+
+
+# ---- Metric direction heuristics ----------------------------------------
+
+_HIGHER_IS_BETTER_METRICS: frozenset[str] = frozenset({
+    "r2", "accuracy", "f1", "precision", "recall",
+    "auc", "roc_auc", "balanced_accuracy", "kappa",
+    "rpd", "rpiq",
+})
+
+
+def _infer_metric_ascending(metric: str) -> bool:
+    """Infer sort direction from a metric name.
+
+    Args:
+        metric: Metric name (e.g. ``"rmse"``, ``"r2"``).
+
+    Returns:
+        ``True`` if lower is better (ascending sort),
+        ``False`` if higher is better (descending sort).
+    """
+    return metric.lower() not in _HIGHER_IS_BETTER_METRICS
 
 
 class WorkspaceStore:
@@ -1037,6 +1063,155 @@ class WorkspaceStore:
         if "_rn" in df.columns:
             df = df.drop("_rn")
         return df
+
+    # =====================================================================
+    # Queries -- Aggregated Predictions
+    # =====================================================================
+
+    def query_aggregated_predictions(
+        self,
+        run_id: str | None = None,
+        pipeline_id: str | None = None,
+        chain_id: str | None = None,
+        dataset_name: str | None = None,
+        model_class: str | None = None,
+        metric: str | None = None,
+    ) -> pl.DataFrame:
+        """Query the aggregated predictions VIEW with optional filters.
+
+        Returns one row per ``(chain_id, metric, dataset_name)``
+        combination, with fold/partition counts, score aggregates
+        (min/max/avg per partition type), and lists of prediction IDs
+        and fold IDs.
+
+        All filter arguments are optional and combined with ``AND``.
+
+        Args:
+            run_id: Filter by parent run.
+            pipeline_id: Filter by parent pipeline.
+            chain_id: Filter by chain.
+            dataset_name: Filter by dataset name.
+            model_class: Filter by model class (supports SQL ``LIKE``).
+            metric: Filter by metric name.
+
+        Returns:
+            A :class:`polars.DataFrame` with one row per aggregated
+            prediction entry.
+        """
+        sql, params = build_aggregated_query(
+            run_id=run_id,
+            pipeline_id=pipeline_id,
+            chain_id=chain_id,
+            dataset_name=dataset_name,
+            model_class=model_class,
+            metric=metric,
+        )
+        return self._fetch_pl(sql, params)
+
+    def get_chain_predictions(
+        self,
+        chain_id: str,
+        partition: str | None = None,
+        fold_id: str | None = None,
+    ) -> pl.DataFrame:
+        """Get individual prediction rows for a chain.
+
+        Used for drill-down from the aggregated view to partition-level
+        and fold-level prediction details.
+
+        Args:
+            chain_id: Chain identifier (required).
+            partition: Optional partition filter (``"train"``, ``"val"``,
+                ``"test"``).
+            fold_id: Optional fold identifier filter.
+
+        Returns:
+            A :class:`polars.DataFrame` with one row per matching
+            prediction, ordered by ``(partition, fold_id)``.
+        """
+        sql, params = build_chain_predictions_query(
+            chain_id=chain_id,
+            partition=partition,
+            fold_id=fold_id,
+        )
+        return self._fetch_pl(sql, params)
+
+    def get_prediction_arrays(
+        self,
+        prediction_id: str,
+    ) -> dict[str, Any] | None:
+        """Retrieve arrays (y_true, y_pred, etc.) for a single prediction.
+
+        Args:
+            prediction_id: Prediction identifier.
+
+        Returns:
+            A dictionary with array fields as :class:`numpy.ndarray`
+            objects, or ``None`` if no arrays exist for this prediction.
+        """
+        row = self._fetch_one(GET_PREDICTION_ARRAYS, [prediction_id])
+        if row is None:
+            return None
+
+        result: dict[str, Any] = {}
+        for field in ("y_true", "y_pred", "y_proba", "weights"):
+            val = row.get(field)
+            if val is not None:
+                result[field] = np.array(val, dtype=np.float64)
+            else:
+                result[field] = None
+
+        val = row.get("sample_indices")
+        if val is not None:
+            result["sample_indices"] = np.array(val, dtype=np.int64)
+        else:
+            result["sample_indices"] = None
+
+        return result
+
+    def query_top_aggregated_predictions(
+        self,
+        metric: str,
+        n: int = 10,
+        score_column: str = "avg_val_score",
+        ascending: bool | None = None,
+        **filters: Any,
+    ) -> pl.DataFrame:
+        """Query aggregated predictions ranked by best score for a metric.
+
+        Uses metric-direction heuristics (lower-is-better for error
+        metrics like RMSE, higher-is-better for score metrics like R²)
+        when *ascending* is not explicitly provided.
+
+        Args:
+            metric: Metric name (e.g. ``"rmse"``, ``"r2"``).
+            n: Number of top results to return.
+            score_column: Aggregation column to sort by (default
+                ``"avg_val_score"``).
+            ascending: Sort direction.  If ``None`` (default), inferred
+                from *metric* using standard heuristics.
+            **filters: Additional filters passed to the query builder
+                (``run_id``, ``pipeline_id``, ``dataset_name``,
+                ``model_class``).
+
+        Returns:
+            A :class:`polars.DataFrame` with the top *n* aggregated
+            predictions.
+        """
+        if ascending is None:
+            ascending = _infer_metric_ascending(metric)
+
+        sql, params = build_top_aggregated_query(
+            metric=metric,
+            n=n,
+            score_column=score_column,
+            ascending=ascending,
+            run_id=filters.get("run_id"),
+            pipeline_id=filters.get("pipeline_id"),
+            dataset_name=filters.get("dataset_name"),
+            model_class=filters.get("model_class"),
+        )
+        return self._fetch_pl(sql, params)
 
     # =====================================================================
     # Queries -- Logs
