@@ -24,6 +24,7 @@ import contextlib
 import hashlib
 import io
 import json
+import threading
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -188,6 +189,7 @@ class WorkspaceStore:
     def __init__(self, workspace_path: Path) -> None:
         self._workspace_path = Path(workspace_path)
         self._workspace_path.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
 
         db_path = self._workspace_path / "store.duckdb"
         self._conn: duckdb.DuckDBPyConnection | None = duckdb.connect(str(db_path))
@@ -219,23 +221,25 @@ class WorkspaceStore:
 
     def _fetch_one(self, sql: str, params: list[object] | None = None) -> dict | None:
         """Execute *sql* and return the first row as a dict, or ``None``."""
-        conn = self._ensure_open()
-        result = conn.execute(sql, params or [])
-        row = result.fetchone()
-        if row is None:
-            return None
-        columns = [desc[0] for desc in result.description]
-        return dict(zip(columns, row, strict=False))
+        with self._lock:
+            conn = self._ensure_open()
+            result = conn.execute(sql, params or [])
+            row = result.fetchone()
+            if row is None:
+                return None
+            columns = [desc[0] for desc in result.description]
+            return dict(zip(columns, row, strict=False))
 
     def _fetch_pl(self, sql: str, params: list[object] | None = None) -> pl.DataFrame:
         """Execute *sql* and return results as a Polars DataFrame."""
-        conn = self._ensure_open()
-        result = conn.execute(sql, params or [])
-        try:
-            return result.pl()
-        except Exception:
-            # Empty result sets may fail .pl(); return empty frame
-            return pl.DataFrame()
+        with self._lock:
+            conn = self._ensure_open()
+            result = conn.execute(sql, params or [])
+            try:
+                return result.pl()
+            except Exception:
+                # Empty result sets may fail .pl(); return empty frame
+                return pl.DataFrame()
 
     # ------------------------------------------------------------------
     # Context manager
@@ -247,9 +251,10 @@ class WorkspaceStore:
         Safe to call multiple times.  After closing, all other methods
         will raise ``RuntimeError``.
         """
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        with self._lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
 
     # =====================================================================
     # Run lifecycle
@@ -280,10 +285,11 @@ class WorkspaceStore:
         Returns:
             A unique run identifier (UUID-based string).
         """
-        conn = self._ensure_open()
-        run_id = str(uuid4())
-        conn.execute(INSERT_RUN, [run_id, name, _to_json(config), _to_json(datasets)])
-        return run_id
+        with self._lock:
+            conn = self._ensure_open()
+            run_id = str(uuid4())
+            conn.execute(INSERT_RUN, [run_id, name, _to_json(config), _to_json(datasets)])
+            return run_id
 
     def complete_run(self, run_id: str, summary: dict) -> None:
         """Mark a run as successfully completed.
@@ -296,8 +302,9 @@ class WorkspaceStore:
             summary: Free-form summary dictionary persisted alongside the
                 run record.
         """
-        conn = self._ensure_open()
-        conn.execute(COMPLETE_RUN, [run_id, _to_json(summary)])
+        with self._lock:
+            conn = self._ensure_open()
+            conn.execute(COMPLETE_RUN, [run_id, _to_json(summary)])
 
     def fail_run(self, run_id: str, error: str) -> None:
         """Mark a run as failed.
@@ -310,8 +317,9 @@ class WorkspaceStore:
             run_id: Identifier returned by :meth:`begin_run`.
             error: Human-readable error description or traceback excerpt.
         """
-        conn = self._ensure_open()
-        conn.execute(FAIL_RUN, [run_id, error])
+        with self._lock:
+            conn = self._ensure_open()
+            conn.execute(FAIL_RUN, [run_id, error])
 
     # =====================================================================
     # Pipeline lifecycle
@@ -348,14 +356,15 @@ class WorkspaceStore:
         Returns:
             A unique pipeline identifier (UUID-based string).
         """
-        conn = self._ensure_open()
-        pipeline_id = str(uuid4())
-        conn.execute(INSERT_PIPELINE, [
-            pipeline_id, run_id, name,
-            _to_json(expanded_config), _to_json(generator_choices),
-            dataset_name, dataset_hash,
-        ])
-        return pipeline_id
+        with self._lock:
+            conn = self._ensure_open()
+            pipeline_id = str(uuid4())
+            conn.execute(INSERT_PIPELINE, [
+                pipeline_id, run_id, name,
+                _to_json(expanded_config), _to_json(generator_choices),
+                dataset_name, dataset_hash,
+            ])
+            return pipeline_id
 
     def complete_pipeline(
         self,
@@ -375,8 +384,9 @@ class WorkspaceStore:
             metric: Name of the metric used for ranking (e.g. ``"rmse"``).
             duration_ms: Total execution time in milliseconds.
         """
-        conn = self._ensure_open()
-        conn.execute(COMPLETE_PIPELINE, [pipeline_id, best_val, best_test, metric, duration_ms])
+        with self._lock:
+            conn = self._ensure_open()
+            conn.execute(COMPLETE_PIPELINE, [pipeline_id, best_val, best_test, metric, duration_ms])
 
     def fail_pipeline(self, pipeline_id: str, error: str) -> None:
         """Mark a pipeline execution as failed and roll back its data.
@@ -389,10 +399,11 @@ class WorkspaceStore:
             pipeline_id: Identifier returned by :meth:`begin_pipeline`.
             error: Human-readable error description.
         """
-        conn = self._ensure_open()
-        # Decrement artifact ref counts for chains being deleted
-        self._decrement_artifact_refs_for_pipeline(pipeline_id)
-        conn.execute(FAIL_PIPELINE, [pipeline_id, error])
+        with self._lock:
+            conn = self._ensure_open()
+            # Decrement artifact ref counts for chains being deleted
+            self._decrement_artifact_refs_for_pipeline(pipeline_id)
+            conn.execute(FAIL_PIPELINE, [pipeline_id, error])
 
     # =====================================================================
     # Chain management
@@ -454,15 +465,16 @@ class WorkspaceStore:
         Returns:
             A unique chain identifier (UUID-based string).
         """
-        conn = self._ensure_open()
-        chain_id = str(uuid4())
-        conn.execute(INSERT_CHAIN, [
-            chain_id, pipeline_id, _to_json(steps), model_step_idx,
-            model_class, preprocessings, fold_strategy,
-            _to_json(fold_artifacts), _to_json(shared_artifacts),
-            _to_json(branch_path), source_index,
-        ])
-        return chain_id
+        with self._lock:
+            conn = self._ensure_open()
+            chain_id = str(uuid4())
+            conn.execute(INSERT_CHAIN, [
+                chain_id, pipeline_id, _to_json(steps), model_step_idx,
+                model_class, preprocessings, fold_strategy,
+                _to_json(fold_artifacts), _to_json(shared_artifacts),
+                _to_json(branch_path), source_index,
+            ])
+            return chain_id
 
     def get_chain(self, chain_id: str) -> dict | None:
         """Retrieve a chain by its identifier.
@@ -557,18 +569,19 @@ class WorkspaceStore:
         Returns:
             A unique prediction identifier (UUID-based string).
         """
-        conn = self._ensure_open()
-        if prediction_id is None:
-            prediction_id = str(uuid4())
-        conn.execute(INSERT_PREDICTION, [
-            prediction_id, pipeline_id, chain_id, dataset_name, model_name,
-            model_class, fold_id, partition, val_score, test_score, train_score,
-            metric, task_type, n_samples, n_features,
-            _to_json(scores), _to_json(best_params),
-            preprocessings, branch_id, branch_name,
-            exclusion_count, exclusion_rate,
-        ])
-        return prediction_id
+        with self._lock:
+            conn = self._ensure_open()
+            if prediction_id is None:
+                prediction_id = str(uuid4())
+            conn.execute(INSERT_PREDICTION, [
+                prediction_id, pipeline_id, chain_id, dataset_name, model_name,
+                model_class, fold_id, partition, val_score, test_score, train_score,
+                metric, task_type, n_samples, n_features,
+                _to_json(scores), _to_json(best_params),
+                preprocessings, branch_id, branch_name,
+                exclusion_count, exclusion_rate,
+            ])
+            return prediction_id
 
     def save_prediction_arrays(
         self,
@@ -600,8 +613,6 @@ class WorkspaceStore:
                 this partition/fold.
             weights: Per-sample weights, if applicable.
         """
-        conn = self._ensure_open()
-
         def _to_list(arr: np.ndarray | None) -> list | None:
             if arr is None:
                 return None
@@ -612,14 +623,16 @@ class WorkspaceStore:
                 return None
             return arr.flatten().astype(int).tolist()
 
-        conn.execute(INSERT_PREDICTION_ARRAYS, [
-            prediction_id,
-            _to_list(y_true),
-            _to_list(y_pred),
-            _to_list(y_proba),
-            _to_int_list(sample_indices),
-            _to_list(weights),
-        ])
+        with self._lock:
+            conn = self._ensure_open()
+            conn.execute(INSERT_PREDICTION_ARRAYS, [
+                prediction_id,
+                _to_list(y_true),
+                _to_list(y_pred),
+                _to_list(y_proba),
+                _to_int_list(sample_indices),
+                _to_list(weights),
+            ])
 
     # =====================================================================
     # Artifact storage
@@ -654,32 +667,33 @@ class WorkspaceStore:
             the *same* identifier is returned (content-addressed
             deduplication).
         """
-        conn = self._ensure_open()
-
-        # Serialize
+        # Serialize outside the lock (CPU-bound, no DB access)
         data = _serialize_artifact(obj, format)
         content_hash = hashlib.sha256(data).hexdigest()
 
-        # Check for existing artifact with same hash
-        existing = self._fetch_one(GET_ARTIFACT_BY_HASH, [content_hash])
-        if existing is not None:
-            conn.execute(INCREMENT_ARTIFACT_REF, [existing["artifact_id"]])
-            return existing["artifact_id"]
+        with self._lock:
+            conn = self._ensure_open()
 
-        # New artifact
-        artifact_id = str(uuid4())
-        ext = _format_to_ext(format)
-        shard = content_hash[:2]
-        relative_path = f"{shard}/{content_hash}.{ext}"
-        absolute_path = self._artifacts_dir / shard / f"{content_hash}.{ext}"
-        absolute_path.parent.mkdir(parents=True, exist_ok=True)
-        absolute_path.write_bytes(data)
+            # Check for existing artifact with same hash
+            existing = self._fetch_one(GET_ARTIFACT_BY_HASH, [content_hash])
+            if existing is not None:
+                conn.execute(INCREMENT_ARTIFACT_REF, [existing["artifact_id"]])
+                return existing["artifact_id"]
 
-        conn.execute(INSERT_ARTIFACT, [
-            artifact_id, relative_path, content_hash, operator_class,
-            artifact_type, format, len(data),
-        ])
-        return artifact_id
+            # New artifact
+            artifact_id = str(uuid4())
+            ext = _format_to_ext(format)
+            shard = content_hash[:2]
+            relative_path = f"{shard}/{content_hash}.{ext}"
+            absolute_path = self._artifacts_dir / shard / f"{content_hash}.{ext}"
+            absolute_path.parent.mkdir(parents=True, exist_ok=True)
+            absolute_path.write_bytes(data)
+
+            conn.execute(INSERT_ARTIFACT, [
+                artifact_id, relative_path, content_hash, operator_class,
+                artifact_type, format, len(data),
+            ])
+            return artifact_id
 
     def register_existing_artifact(
         self,
@@ -712,18 +726,19 @@ class WorkspaceStore:
         Returns:
             The *artifact_id* that was registered.
         """
-        conn = self._ensure_open()
+        with self._lock:
+            conn = self._ensure_open()
 
-        # Skip if already registered
-        existing = self._fetch_one(GET_ARTIFACT, [artifact_id])
-        if existing is not None:
+            # Skip if already registered
+            existing = self._fetch_one(GET_ARTIFACT, [artifact_id])
+            if existing is not None:
+                return artifact_id
+
+            conn.execute(INSERT_ARTIFACT, [
+                artifact_id, path, content_hash, operator_class,
+                artifact_type, format, size_bytes,
+            ])
             return artifact_id
-
-        conn.execute(INSERT_ARTIFACT, [
-            artifact_id, path, content_hash, operator_class,
-            artifact_type, format, size_bytes,
-        ])
-        return artifact_id
 
     def load_artifact(self, artifact_id: str) -> Any:
         """Load a binary artifact from disk.
@@ -802,12 +817,13 @@ class WorkspaceStore:
             level: Log level (``"debug"``, ``"info"``, ``"warning"``,
                 ``"error"``).
         """
-        conn = self._ensure_open()
-        log_id = str(uuid4())
-        conn.execute(INSERT_LOG, [
-            log_id, pipeline_id, step_idx, operator_class, event,
-            duration_ms, message, _to_json(details), level,
-        ])
+        with self._lock:
+            conn = self._ensure_open()
+            log_id = str(uuid4())
+            conn.execute(INSERT_LOG, [
+                log_id, pipeline_id, step_idx, operator_class, event,
+                duration_ms, message, _to_json(details), level,
+            ])
 
     # =====================================================================
     # Queries -- Runs
@@ -1488,55 +1504,56 @@ class WorkspaceStore:
         Returns:
             Total number of database rows deleted across all tables.
         """
-        conn = self._ensure_open()
+        with self._lock:
+            conn = self._ensure_open()
 
-        # Count rows that will be deleted
-        total = 0
-        for table, column in [
-            ("logs", "pipeline_id"),
-            ("prediction_arrays", "prediction_id"),
-            ("predictions", "pipeline_id"),
-            ("chains", "pipeline_id"),
-            ("pipelines", "run_id"),
-        ]:
-            if table in ("logs", "prediction_arrays", "predictions", "chains"):
-                # These cascade through pipelines, so count via join
-                if table == "prediction_arrays":
-                    sql = (
-                        f"SELECT COUNT(*) AS cnt FROM {table} WHERE prediction_id IN "
-                        f"(SELECT prediction_id FROM predictions WHERE pipeline_id IN "
-                        f"(SELECT pipeline_id FROM pipelines WHERE run_id = $1))"
-                    )
-                elif table in ("logs", "predictions", "chains"):
-                    sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = $1)"
+            # Count rows that will be deleted
+            total = 0
+            for table, column in [
+                ("logs", "pipeline_id"),
+                ("prediction_arrays", "prediction_id"),
+                ("predictions", "pipeline_id"),
+                ("chains", "pipeline_id"),
+                ("pipelines", "run_id"),
+            ]:
+                if table in ("logs", "prediction_arrays", "predictions", "chains"):
+                    # These cascade through pipelines, so count via join
+                    if table == "prediction_arrays":
+                        sql = (
+                            f"SELECT COUNT(*) AS cnt FROM {table} WHERE prediction_id IN "
+                            f"(SELECT prediction_id FROM predictions WHERE pipeline_id IN "
+                            f"(SELECT pipeline_id FROM pipelines WHERE run_id = $1))"
+                        )
+                    elif table in ("logs", "predictions", "chains"):
+                        sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = $1)"
+                    else:
+                        sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE {column} = $1"
                 else:
                     sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE {column} = $1"
-            else:
-                sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE {column} = $1"
-            result = conn.execute(sql, [run_id]).fetchone()
-            total += result[0] if result else 0
+                result = conn.execute(sql, [run_id]).fetchone()
+                total += result[0] if result else 0
 
-        # Count the run itself
-        run_exists = conn.execute("SELECT COUNT(*) FROM runs WHERE run_id = $1", [run_id]).fetchone()
-        if run_exists and run_exists[0] > 0:
-            total += 1
+            # Count the run itself
+            run_exists = conn.execute("SELECT COUNT(*) FROM runs WHERE run_id = $1", [run_id]).fetchone()
+            if run_exists and run_exists[0] > 0:
+                total += 1
 
-        if delete_artifacts:
-            self._decrement_artifact_refs_for_run(run_id)
+            if delete_artifacts:
+                self._decrement_artifact_refs_for_run(run_id)
 
-        # Manual cascade (DuckDB does not support ON DELETE CASCADE).
-        # Delete in reverse dependency order.
-        conn.execute(CASCADE_DELETE_RUN_PREDICTION_ARRAYS, [run_id])
-        conn.execute(CASCADE_DELETE_RUN_LOGS, [run_id])
-        conn.execute(CASCADE_DELETE_RUN_PREDICTIONS, [run_id])
-        conn.execute(CASCADE_DELETE_RUN_CHAINS, [run_id])
-        conn.execute(CASCADE_DELETE_RUN_PIPELINES, [run_id])
-        conn.execute(DELETE_RUN, [run_id])
+            # Manual cascade (DuckDB does not support ON DELETE CASCADE).
+            # Delete in reverse dependency order.
+            conn.execute(CASCADE_DELETE_RUN_PREDICTION_ARRAYS, [run_id])
+            conn.execute(CASCADE_DELETE_RUN_LOGS, [run_id])
+            conn.execute(CASCADE_DELETE_RUN_PREDICTIONS, [run_id])
+            conn.execute(CASCADE_DELETE_RUN_CHAINS, [run_id])
+            conn.execute(CASCADE_DELETE_RUN_PIPELINES, [run_id])
+            conn.execute(DELETE_RUN, [run_id])
 
-        if delete_artifacts:
-            self.gc_artifacts()
+            if delete_artifacts:
+                self.gc_artifacts()
 
-        return total
+            return total
 
     def delete_prediction(self, prediction_id: str) -> bool:
         """Delete a single prediction and its associated arrays.
@@ -1548,13 +1565,14 @@ class WorkspaceStore:
             ``True`` if the prediction existed and was deleted,
             ``False`` otherwise.
         """
-        conn = self._ensure_open()
-        existing = self._fetch_one(GET_PREDICTION, [prediction_id])
-        if existing is None:
-            return False
-        conn.execute(DELETE_PREDICTION_ARRAYS, [prediction_id])
-        conn.execute(DELETE_PREDICTION, [prediction_id])
-        return True
+        with self._lock:
+            conn = self._ensure_open()
+            existing = self._fetch_one(GET_PREDICTION, [prediction_id])
+            if existing is None:
+                return False
+            conn.execute(DELETE_PREDICTION_ARRAYS, [prediction_id])
+            conn.execute(DELETE_PREDICTION, [prediction_id])
+            return True
 
     def gc_artifacts(self) -> int:
         """Garbage-collect unreferenced artifacts.
@@ -1566,19 +1584,20 @@ class WorkspaceStore:
         Returns:
             Number of artifact files removed.
         """
-        conn = self._ensure_open()
-        orphans = conn.execute(GC_ARTIFACTS).fetchall()
-        count = 0
-        for _artifact_id, artifact_path in orphans:
-            path = self._artifacts_dir / artifact_path
-            if path.exists():
-                path.unlink()
-                # Remove empty parent directory
-                with contextlib.suppress(OSError):
-                    path.parent.rmdir()
-            count += 1
-        conn.execute(DELETE_GC_ARTIFACTS)
-        return count
+        with self._lock:
+            conn = self._ensure_open()
+            orphans = conn.execute(GC_ARTIFACTS).fetchall()
+            count = 0
+            for _artifact_id, artifact_path in orphans:
+                path = self._artifacts_dir / artifact_path
+                if path.exists():
+                    path.unlink()
+                    # Remove empty parent directory
+                    with contextlib.suppress(OSError):
+                        path.parent.rmdir()
+                count += 1
+            conn.execute(DELETE_GC_ARTIFACTS)
+            return count
 
     def vacuum(self) -> None:
         """Reclaim unused space in the DuckDB database file.
@@ -1586,8 +1605,9 @@ class WorkspaceStore:
         Equivalent to ``VACUUM`` in SQL.  Call after large deletions
         to reduce the on-disk size of ``store.duckdb``.
         """
-        conn = self._ensure_open()
-        conn.execute("VACUUM")
+        with self._lock:
+            conn = self._ensure_open()
+            conn.execute("VACUUM")
 
     # =====================================================================
     # Chain replay
@@ -1687,29 +1707,31 @@ class WorkspaceStore:
 
     def _decrement_artifact_refs_for_pipeline(self, pipeline_id: str) -> None:
         """Decrement ref counts for all artifacts referenced by chains in a pipeline."""
-        conn = self._ensure_open()
-        result = conn.execute("SELECT fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id = $1", [pipeline_id])
-        desc = result.description
-        chains = result.fetchall()
-        if not chains or not desc:
-            return
-        columns = [d[0] for d in desc]
-        for chain_row in chains:
-            row_dict = dict(zip(columns, chain_row, strict=False))
-            for aid in self._collect_artifact_ids_from_chain_row(row_dict):
-                conn.execute(DECREMENT_ARTIFACT_REF, [aid])
+        with self._lock:
+            conn = self._ensure_open()
+            result = conn.execute("SELECT fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id = $1", [pipeline_id])
+            desc = result.description
+            chains = result.fetchall()
+            if not chains or not desc:
+                return
+            columns = [d[0] for d in desc]
+            for chain_row in chains:
+                row_dict = dict(zip(columns, chain_row, strict=False))
+                for aid in self._collect_artifact_ids_from_chain_row(row_dict):
+                    conn.execute(DECREMENT_ARTIFACT_REF, [aid])
 
     def _decrement_artifact_refs_for_run(self, run_id: str) -> None:
         """Decrement ref counts for all artifacts referenced by chains in a run."""
-        conn = self._ensure_open()
-        sql = "SELECT fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = $1)"
-        result = conn.execute(sql, [run_id])
-        desc = result.description
-        chains = result.fetchall()
-        if not chains or not desc:
-            return
-        columns = [d[0] for d in desc]
-        for chain_row in chains:
-            row_dict = dict(zip(columns, chain_row, strict=False))
-            for aid in self._collect_artifact_ids_from_chain_row(row_dict):
-                conn.execute(DECREMENT_ARTIFACT_REF, [aid])
+        with self._lock:
+            conn = self._ensure_open()
+            sql = "SELECT fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = $1)"
+            result = conn.execute(sql, [run_id])
+            desc = result.description
+            chains = result.fetchall()
+            if not chains or not desc:
+                return
+            columns = [d[0] for d in desc]
+            for chain_row in chains:
+                row_dict = dict(zip(columns, chain_row, strict=False))
+                for aid in self._collect_artifact_ids_from_chain_row(row_dict):
+                    conn.execute(DECREMENT_ARTIFACT_REF, [aid])
