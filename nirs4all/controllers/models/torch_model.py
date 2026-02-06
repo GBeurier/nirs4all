@@ -429,6 +429,36 @@ class PyTorchModelController(BaseModelController):
         cloned.apply(weight_reset)
         return cloned
 
+    def _apply_warm_start(
+        self,
+        model: Any,
+        source_model: Any,
+        runtime_context: Any,
+    ) -> Any:
+        """Apply warm-start by copying PyTorch state dict from source model.
+
+        Args:
+            model: Fresh model to warm-start.
+            source_model: Trained fold model with weights to transfer.
+            runtime_context: Runtime context.
+
+        Returns:
+            Model with weights from source_model.
+        """
+        if not PYTORCH_AVAILABLE:
+            return model
+
+        nn = _get_nn()
+        if isinstance(source_model, nn.Module) and isinstance(model, nn.Module):
+            try:
+                model.load_state_dict(source_model.state_dict())
+            except (RuntimeError, KeyError):
+                logger.warning(
+                    "Warm-start weight transfer failed (architecture mismatch). "
+                    "Training from scratch."
+                )
+        return model
+
     def process_hyperparameters(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Process hyperparameters for PyTorch model tuning."""
         torch_params = {}

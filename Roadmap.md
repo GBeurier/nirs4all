@@ -4,10 +4,8 @@
 
 ---
 
-> [pyproject.toml] Add umap-learn as dependency - duckdb
-
-> [Predictions] Add datasets, summary, top 50 best scores, etc. in a sub table to allow fast browsing/loading
-> [Predictions] Explicit workspace / predict / export / etc. Predictions files should be self sufficient et cleanable easily (keep top X, keep top X per model, remove ....)
+> Add average window and mean of neighbor in NA replace. Average col is good, avg row is useless
+> Model retrain on full train design
 
 **RELEASE** 0.7.1: Ready for UI
 

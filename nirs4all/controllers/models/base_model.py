@@ -30,6 +30,7 @@ from .utilities import ModelControllerUtils as ModelUtils
 from nirs4all.core import metrics as evaluator
 from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
+from nirs4all.pipeline.config.context import ExecutionPhase
 
 logger = get_logger(__name__)
 from nirs4all.pipeline.storage.artifacts.types import ArtifactType
@@ -785,8 +786,31 @@ class BaseModelController(OperatorController, ABC):
         # In predict/explain mode, skip fold iteration entirely
         # Just load the model and predict on X_test (which contains all prediction samples)
         if mode in ("predict", "explain"):
-            # For prediction, we run once per fold to match training fold structure
-            # but we predict on X_test (all samples) not X_train
+            # Check for a single refit ("final") model first.  When a refit
+            # model exists we dispatch a single prediction call instead of
+            # iterating through all CV fold models.
+            has_refit_model = False
+            if runtime_context.artifact_provider is not None:
+                step_index = runtime_context.step_number
+                refit_model = runtime_context.artifact_provider.get_refit_artifact(step_index)
+                if refit_model is not None:
+                    has_refit_model = True
+
+            if has_refit_model:
+                # Single refit model dispatch -- predict once with fold_idx=None
+                model, model_id, score, model_name, prediction_data = self.launch_training(
+                    dataset, model_config, context, runtime_context, prediction_store,
+                    X_train, y_train, X_test, y_test, X_test,
+                    y_train_unscaled, y_test_unscaled, y_test_unscaled,
+                    train_indices=None, val_indices=None,
+                    fold_idx=None, best_params=best_params,
+                    loaded_binaries=loaded_binaries, mode=mode,
+                    test_sample_ids=test_sample_ids
+                )
+                self._add_all_predictions(prediction_store, [prediction_data], None, mode=mode)
+                return binaries
+
+            # No refit model -- iterate through all fold models
             n_folds = len(folds) if folds else 1
             all_fold_predictions = []
 
@@ -938,6 +962,88 @@ class BaseModelController(OperatorController, ABC):
         """
         return params
 
+    def _resolve_warm_start_fold(
+        self,
+        runtime_context: 'RuntimeContext',
+        warm_start_fold: str,
+    ) -> Optional[int]:
+        """Resolve the warm-start fold specification to a concrete fold index.
+
+        Args:
+            runtime_context: Runtime context with artifact provider.
+            warm_start_fold: Fold specification string:
+                ``"best"`` = best validation score fold,
+                ``"last"`` = last fold,
+                ``"fold_N"`` = specific fold N.
+
+        Returns:
+            Fold index (int), or ``None`` if resolution fails.
+        """
+        if runtime_context.artifact_provider is None:
+            return None
+
+        step_index = runtime_context.step_number
+        branch_path = None
+
+        fold_artifacts = runtime_context.artifact_provider.get_fold_artifacts(
+            step_index, branch_path=branch_path
+        )
+        if not fold_artifacts:
+            return None
+
+        fold_ids = [fid for fid, _ in fold_artifacts]
+
+        if warm_start_fold == "last":
+            return fold_ids[-1] if fold_ids else None
+
+        if warm_start_fold.startswith("fold_"):
+            try:
+                target = int(warm_start_fold.split("_", 1)[1])
+                return target if target in fold_ids else None
+            except (ValueError, IndexError):
+                return None
+
+        # Default: "best" -- return fold 0 as a heuristic (the best fold
+        # is typically stored first or requires score lookup which is not
+        # available here; fold 0 is the simplest safe default).
+        return fold_ids[0] if fold_ids else None
+
+    def _apply_warm_start(
+        self,
+        model: Any,
+        source_model: Any,
+        runtime_context: 'RuntimeContext',
+    ) -> Any:
+        """Apply warm-start weights from a source model to the target model.
+
+        For sklearn models with ``warm_start`` support, sets the attribute.
+        For deep learning models, subclasses override this method to perform
+        framework-specific weight transfer.
+
+        Args:
+            model: The fresh model to warm-start.
+            source_model: The trained fold model whose weights to transfer.
+            runtime_context: Runtime context.
+
+        Returns:
+            The model with warm-start weights applied.
+        """
+        # sklearn: set warm_start attribute if supported
+        if hasattr(model, 'warm_start'):
+            model.warm_start = True
+            # Copy fitted state from source model
+            for attr in dir(source_model):
+                if attr.endswith('_') and not attr.startswith('__'):
+                    try:
+                        setattr(model, attr, getattr(source_model, attr))
+                    except (AttributeError, TypeError):
+                        pass
+            return model
+
+        # For non-sklearn models without warm_start attribute, do nothing.
+        # DL controllers override this method for framework-specific logic.
+        return model
+
     def launch_training(
         self,
         dataset, model_config, context, runtime_context, prediction_store,
@@ -1007,13 +1113,17 @@ class BaseModelController(OperatorController, ABC):
                             model = artifact_obj
                             break
                 else:
-                    # Get primary artifact (for non-CV or single model case)
-                    # Use get_artifacts_for_step which supports branch_path
-                    step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                    # Try refit ("final") artifact first, then fall back to
+                    # primary/first artifact for non-CV or single model case.
+                    model = runtime_context.artifact_provider.get_refit_artifact(
                         step_index, branch_path=branch_path
                     )
-                    if step_artifacts:
-                        model = step_artifacts[0][1]
+                    if model is None:
+                        step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                            step_index, branch_path=branch_path
+                        )
+                        if step_artifacts:
+                            model = step_artifacts[0][1]
 
                 if model is not None:
                     logging.debug(f"MODEL: loaded model type={type(model).__name__}")
@@ -1045,6 +1155,27 @@ class BaseModelController(OperatorController, ABC):
                 else:
                     base_model = self._get_model_instance(dataset, model_config)
                 model = self._clone_model(base_model)
+
+            # === 2b. WARM-START (REFIT PHASE ONLY) ===
+            if runtime_context.phase == ExecutionPhase.REFIT:
+                resolved_params = model_config.get('refit_params', {}) or {}
+                if resolved_params.get('warm_start', False):
+                    warm_start_fold = resolved_params.get('warm_start_fold', 'best')
+                    fold_index = self._resolve_warm_start_fold(runtime_context, warm_start_fold)
+                    if fold_index is not None and runtime_context.artifact_provider is not None:
+                        step_index = runtime_context.step_number
+                        fold_artifacts = runtime_context.artifact_provider.get_fold_artifacts(step_index)
+                        source_model = None
+                        for fid, artifact_obj in fold_artifacts:
+                            if fid == fold_index:
+                                source_model = artifact_obj
+                                break
+                        if source_model is not None:
+                            model = self._apply_warm_start(model, source_model, runtime_context)
+                            logger.info(
+                                f"Warm-started refit model from fold {fold_index} "
+                                f"(strategy: {warm_start_fold})"
+                            )
 
             # === 3. TRAIN MODEL ===
             X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context or {})

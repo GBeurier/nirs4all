@@ -407,6 +407,8 @@ class BundleLoader:
 
     def _load_bundle(self) -> None:
         """Load bundle metadata and build artifact index."""
+        self._chain_data: Dict[str, Any] = {}
+
         with zipfile.ZipFile(self.bundle_path, 'r') as zf:
             # Load manifest.json
             if 'manifest.json' in zf.namelist():
@@ -420,6 +422,11 @@ class BundleLoader:
             if 'pipeline.json' in zf.namelist():
                 with zf.open('pipeline.json') as f:
                     self.pipeline_config = json.load(f)
+
+            # Load chain.json (store-based export format)
+            if 'chain.json' in zf.namelist():
+                with zf.open('chain.json') as f:
+                    self._chain_data = json.load(f)
 
             # Load trace.json (if present)
             if 'trace.json' in zf.namelist():
@@ -711,7 +718,11 @@ class BundleLoader:
         step_idx: int,
         branch_path: Optional[List[int]] = None
     ) -> np.ndarray:
-        """Predict from a model step (handles CV ensemble).
+        """Predict from a model step (handles CV ensemble and single refit model).
+
+        When a refit model (``fold_id="final"``) is available, it is used
+        directly for prediction in a single forward pass.  Otherwise,
+        falls back to CV fold ensemble (K passes + averaging).
 
         Args:
             X: Input features
@@ -721,6 +732,11 @@ class BundleLoader:
         Returns:
             Predictions
         """
+        # Check for single refit model first (fold_id="final")
+        refit_model = self._get_refit_model(step_idx)
+        if refit_model is not None:
+            return refit_model.predict(X)
+
         fold_artifacts = self.artifact_provider.get_fold_artifacts(step_idx, branch_path)
 
         if fold_artifacts:
@@ -743,6 +759,39 @@ class BundleLoader:
                 raise RuntimeError(f"No artifacts for model step {step_idx}")
             _, model = artifacts[0]
             return model.predict(X)
+
+    def _get_refit_model(self, step_idx: int) -> Optional[Any]:
+        """Load the single refit model if available.
+
+        Checks for a ``fold_id="final"`` artifact in the bundle's
+        artifact index.
+
+        Args:
+            step_idx: Model step index.
+
+        Returns:
+            The refit model object, or ``None`` if no refit model exists.
+        """
+        # Check artifact index for "step_X_foldfinal" key
+        refit_key = f"step_{step_idx}_foldfinal"
+        if refit_key in self._artifact_index:
+            return self.artifact_provider._load_artifact(refit_key)
+
+        # Check chain data for "final" in fold_artifacts
+        if self._chain_data:
+            fold_artifacts = self._chain_data.get("fold_artifacts", {})
+            if "final" in fold_artifacts:
+                # The artifact is in the bundle; try to load by filename
+                # The artifact filename is based on the content hash
+                artifact_id = fold_artifacts["final"]
+                # Search artifact index for any key containing this artifact
+                for key, filename in self._artifact_index.items():
+                    if key.startswith(f"step_{step_idx}"):
+                        model = self.artifact_provider._load_artifact(key)
+                        if model is not None:
+                            return model
+
+        return None
 
     def _transform_step(
         self,

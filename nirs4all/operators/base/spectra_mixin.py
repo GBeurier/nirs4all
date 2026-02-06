@@ -7,7 +7,7 @@ from the dataset when available and when the operator declares it needs them.
 """
 
 from abc import abstractmethod
-from typing import Union
+from typing import ClassVar, Union
 
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -28,6 +28,12 @@ class SpectraTransformerMixin(TransformerMixin, BaseEstimator):
     - ``False``: wavelengths ignored
     - ``"optional"``: use if provided, fallback to ``None`` otherwise
 
+    Set ``_stateless`` to ``True`` for operators whose fit() does not learn
+    any data-dependent state.  The controller uses this flag to skip fitting
+    on cache hit without requiring a data-hash match (only chain-path match
+    is needed since the fitted state is always identical regardless of
+    training data).
+
     Subclasses must implement ``_transform_impl()`` instead of ``transform()``.
 
     Parameters
@@ -38,6 +44,10 @@ class SpectraTransformerMixin(TransformerMixin, BaseEstimator):
     ----------
     _requires_wavelengths : Union[bool, str]
         Class-level flag indicating whether this operator requires wavelengths.
+    _stateless : bool
+        Class-level flag. ``True`` if fit() produces no data-dependent state
+        (output depends only on input data and fixed parameters). Defaults
+        to ``False``.
 
     Examples
     --------
@@ -67,6 +77,7 @@ class SpectraTransformerMixin(TransformerMixin, BaseEstimator):
     """
 
     _requires_wavelengths: Union[bool, str] = True
+    _stateless: ClassVar[bool] = False
 
     def fit(self, X, y=None, **kwargs):
         """

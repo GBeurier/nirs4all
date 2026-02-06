@@ -47,6 +47,8 @@ class StandardNormalVariate(TransformerMixin, BaseEstimator):
     >>> X_transformed = snv.fit_transform(X)
     """
 
+    _stateless = True
+
     def __init__(self, axis=1, with_mean=True, with_std=True, ddof=0, copy=True):
         self.axis = axis
         self.with_mean = with_mean
@@ -164,6 +166,8 @@ class LocalStandardNormalVariate(TransformerMixin, BaseEstimator):
     - std_w==0 → divide by 1 to avoid NaN.
     """
 
+    _stateless = True
+
     def __init__(self, window=11, pad_mode="reflect", constant_values=0.0, copy=True):
         self.window = window
         self.pad_mode = pad_mode
@@ -249,6 +253,8 @@ class RobustStandardNormalVariate(TransformerMixin, BaseEstimator):
     -----
     - MAD==0 → divide by 1 to avoid NaN.
     """
+
+    _stateless = True
 
     def __init__(self, axis=1, with_center=True, with_scale=True, k=1.4826, copy=True):
         self.axis = axis
@@ -490,6 +496,8 @@ def norml(spectra, feature_range=(-1, 1)):
 
 
 class Derivate(TransformerMixin, BaseEstimator):
+    _stateless = True
+
     def __init__(self, order=1, delta=1, copy=True):
         self.copy = copy
         self.order = order

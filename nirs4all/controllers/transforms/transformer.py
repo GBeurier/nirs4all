@@ -289,11 +289,24 @@ class TransformerMixinController(OperatorController):
                         )
                 else:
                     new_operator_name = f"{operator_name}_{runtime_context.next_op()}"
-                    transformer = clone(op)
-                    if needs_wavelengths:
-                        transformer.fit(fit_2d, wavelengths=wavelengths)
+
+                    # --- Check-before-fit: reuse cached fitted transformer ---
+                    cached_transformer = self._try_cache_lookup(
+                        runtime_context=runtime_context,
+                        context=context,
+                        dataset=dataset,
+                        operator_name=operator_name,
+                        source_index=sd_idx,
+                        operator=op,
+                    )
+                    if cached_transformer is not None:
+                        transformer = cached_transformer
                     else:
-                        transformer.fit(fit_2d)
+                        transformer = clone(op)
+                        if needs_wavelengths:
+                            transformer.fit(fit_2d, wavelengths=wavelengths)
+                        else:
+                            transformer.fit(fit_2d)
 
                 if needs_wavelengths:
                     transformed_2d = transformer.transform(all_2d, wavelengths=wavelengths)
@@ -319,13 +332,20 @@ class TransformerMixinController(OperatorController):
 
                 # Persist fitted transformer using artifact registry
                 if mode == "train":
+                    if cached_transformer is not None:
+                        input_data_hash = None
+                    elif self._is_stateless(op):
+                        input_data_hash = self._compute_operator_params_hash(op)
+                    else:
+                        input_data_hash = dataset.content_hash()
                     artifact = self._persist_transformer(
                         runtime_context=runtime_context,
                         transformer=transformer,
                         name=new_operator_name,
                         context=context,
                         source_index=sd_idx,
-                        processing_index=runtime_context.next_processing_index()
+                        processing_index=runtime_context.next_processing_index(),
+                        input_data_hash=input_data_hash,
                     )
                     fitted_transformers.append(artifact)
 
@@ -707,6 +727,140 @@ class TransformerMixinController(OperatorController):
 
         return context, fitted_transformers
 
+    @staticmethod
+    def _is_stateless(operator: Any) -> bool:
+        """Check if the operator is stateless (fit produces no data-dependent state).
+
+        An operator is stateless when its output depends only on the input data
+        and fixed constructor parameters, not on any state learned during fit().
+        For such operators, the cache can skip the data hash entirely and use
+        only the chain path hash + operator params hash.
+
+        Args:
+            operator: The operator to check.
+
+        Returns:
+            True if the operator declares ``_stateless = True``.
+        """
+        return getattr(operator, '_stateless', False) is True
+
+    @staticmethod
+    def _compute_operator_params_hash(operator: Any) -> str:
+        """Compute a deterministic hash of an operator's constructor parameters.
+
+        Uses sklearn's ``get_params(deep=False)`` to obtain the parameter
+        dict, then hashes a sorted canonical string representation.
+
+        Args:
+            operator: A sklearn-compatible estimator.
+
+        Returns:
+            Hex string hash of the operator parameters.
+        """
+        import hashlib
+        params = {}
+        if hasattr(operator, 'get_params'):
+            params = operator.get_params(deep=False)
+        # Build a canonical sorted string of (key, repr(value)) pairs
+        canonical = ";".join(f"{k}={repr(v)}" for k, v in sorted(params.items()))
+        return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+    def _try_cache_lookup(
+        self,
+        runtime_context: 'RuntimeContext',
+        context: ExecutionContext,
+        dataset: 'SpectroDataset',
+        operator_name: str,
+        source_index: int,
+        operator: Any = None,
+    ) -> Optional[Any]:
+        """Check the artifact registry for a previously fitted transformer with the same chain and data.
+
+        Builds the chain path that ``_persist_transformer`` would produce
+        and queries the registry's (chain_path, data_hash) index.  If a
+        matching artifact is found, the fitted transformer is loaded and
+        returned.
+
+        For stateless operators (``_stateless = True``), the lookup uses
+        ``(chain_path_hash, operator_params_hash)`` instead of
+        ``(chain_path_hash, data_hash)`` since the fitted state is always
+        identical regardless of training data.
+
+        Args:
+            runtime_context: Runtime context with artifact registry.
+            context: Execution context with branch information.
+            dataset: Current dataset (used to compute content hash).
+            operator_name: Class name of the operator.
+            source_index: Source index for multi-source transformers.
+            operator: The operator instance (used for stateless param hashing).
+
+        Returns:
+            The loaded fitted transformer if a cache hit occurs, or ``None``.
+        """
+        registry = runtime_context.artifact_registry
+        if registry is None:
+            return None
+
+        # Build the chain path that _persist_transformer would create
+        # (mirrors the logic there, without actually registering)
+        step_index = runtime_context.step_number
+        branch_path = context.selector.branch_path or []
+
+        # Peek at the processing counter without incrementing
+        substep_index = runtime_context.processing_counter
+
+        from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorNode, OperatorChain
+
+        if runtime_context.trace_recorder is not None:
+            current_chain = runtime_context.trace_recorder.current_chain()
+        else:
+            pipeline_id = runtime_context.pipeline_name or "unknown"
+            current_chain = OperatorChain(pipeline_id=pipeline_id)
+
+        transformer_node = OperatorNode(
+            step_index=step_index,
+            operator_class=operator_name,
+            branch_path=branch_path,
+            source_index=source_index,
+            fold_id=None,
+            substep_index=substep_index,
+        )
+
+        artifact_chain = current_chain.append(transformer_node)
+        chain_path = artifact_chain.to_path()
+
+        # For stateless operators, use params hash instead of data hash
+        stateless = operator is not None and self._is_stateless(operator)
+        if stateless:
+            lookup_hash = self._compute_operator_params_hash(operator)
+        else:
+            lookup_hash = dataset.content_hash()
+
+        # Lookup
+        record = registry.get_by_chain_and_data(chain_path, lookup_hash)
+        if record is None:
+            return None
+
+        # Verify the record is for the same operator class
+        if record.class_name != operator_name:
+            return None
+
+        # Load the fitted transformer
+        try:
+            transformer = registry.load_artifact(record)
+        except Exception as exc:
+            logger.debug("Cache hit but failed to load artifact %s: %s", record.artifact_id, exc)
+            return None
+
+        cache_type = "stateless params" if stateless else "data hash"
+        logger.info(
+            "Cache hit: reusing fitted %s from chain %s (%s match)",
+            operator_name,
+            chain_path,
+            cache_type,
+        )
+        return transformer
+
     def _persist_transformer(
         self,
         runtime_context: 'RuntimeContext',
@@ -714,7 +868,8 @@ class TransformerMixinController(OperatorController):
         name: str,
         context: ExecutionContext,
         source_index: Optional[int] = None,
-        processing_index: Optional[int] = None
+        processing_index: Optional[int] = None,
+        input_data_hash: Optional[str] = None,
     ) -> Any:
         """Persist fitted transformer using V3 chain-based artifact registry.
 
@@ -728,6 +883,9 @@ class TransformerMixinController(OperatorController):
             context: Execution context with branch information.
             source_index: Source index for multi-source transformers.
             processing_index: Index of processing within source (for multi-processing steps).
+            input_data_hash: Optional hash of the input data for cache-key lookups.
+                When provided, enables check-before-fit cache hits on subsequent
+                pipelines that share the same preprocessing prefix.
 
         Returns:
             ArtifactRecord with V3 chain-based metadata.
@@ -785,6 +943,12 @@ class TransformerMixinController(OperatorController):
                 chain_path=chain_path,
                 source_index=source_index,
             )
+
+            # Populate cache-key index for check-before-fit lookups
+            if input_data_hash:
+                from nirs4all.pipeline.storage.artifacts.operator_chain import compute_chain_hash
+                chain_path_hash = compute_chain_hash(chain_path)
+                registry._by_chain_and_data[(chain_path_hash, input_data_hash)] = artifact_id
 
             # Record artifact in execution trace with V3 chain info
             runtime_context.record_step_artifact(

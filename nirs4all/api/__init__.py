@@ -39,7 +39,7 @@ For more examples, see the examples/Q40_new_api.py file.
 """
 
 # Result classes (Phase 1)
-from .result import RunResult, PredictResult, ExplainResult
+from .result import RunResult, PredictResult, ExplainResult, ModelRefitResult, LazyModelRefitResult
 
 # Session (Phase 3 - full implementation)
 from .session import Session, session, load_session
@@ -69,4 +69,6 @@ __all__ = [
     "RunResult",
     "PredictResult",
     "ExplainResult",
+    "ModelRefitResult",
+    "LazyModelRefitResult",
 ]

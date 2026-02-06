@@ -560,6 +560,36 @@ class TensorFlowModelController(BaseModelController):
         # Return as is (will be handled by ModelFactory)
         return model
 
+    def _apply_warm_start(
+        self,
+        model: Any,
+        source_model: Any,
+        runtime_context: Any,
+    ) -> Any:
+        """Apply warm-start by copying TensorFlow/Keras weights from source model.
+
+        Args:
+            model: Fresh model to warm-start.
+            source_model: Trained fold model with weights to transfer.
+            runtime_context: Runtime context.
+
+        Returns:
+            Model with weights from source_model.
+        """
+        if not TENSORFLOW_AVAILABLE:
+            return model
+
+        keras = _get_keras()
+        if isinstance(source_model, (keras.Model, keras.Sequential)) and isinstance(model, (keras.Model, keras.Sequential)):
+            try:
+                model.set_weights(source_model.get_weights())
+            except ValueError:
+                logger.warning(
+                    "Warm-start weight transfer failed (architecture mismatch). "
+                    "Training from scratch."
+                )
+        return model
+
     # Remove the _extract_model_config override - use base class implementation
     # The base class correctly returns {'model_instance': operator, 'train_params': {...}}
     # and ModelFactory now handles 'model_instance' key properly

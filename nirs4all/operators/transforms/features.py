@@ -5,6 +5,8 @@ from typing import List, Optional, Union
 
 
 class CropTransformer(BaseEstimator, TransformerMixin):
+    _stateless = True
+
     def __init__(self, start: int = 0, end: int = None):
         self.start = start
         self.end = end
@@ -21,6 +23,8 @@ class CropTransformer(BaseEstimator, TransformerMixin):
 
 
 class ResampleTransformer(BaseEstimator, TransformerMixin):
+    _stateless = True
+
     def __init__(self, num_samples: int):
         self.num_samples = num_samples
 
@@ -75,6 +79,8 @@ class FlattenPreprocessing(BaseEstimator, TransformerMixin):
         - If input is already 2D, it is returned unchanged.
         - The transformer is stateless (fit does nothing).
     """
+
+    _stateless = True
 
     def __init__(
         self,

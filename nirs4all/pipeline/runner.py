@@ -252,7 +252,8 @@ class PipelineRunner:
         dataset: Union[DatasetConfigs, SpectroDataset, List[SpectroDataset], np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
         pipeline_name: str = "",
         dataset_name: str = "dataset",
-        max_generation_count: int = 10000
+        max_generation_count: int = 10000,
+        refit: Union[bool, Dict[str, Any], None] = True,
     ) -> Tuple[Predictions, Dict[str, Any]]:
         """Execute pipeline on dataset(s).
 
@@ -265,6 +266,10 @@ class PipelineRunner:
             pipeline_name: Optional pipeline name for identification
             dataset_name: Name for array-based datasets
             max_generation_count: Max pipeline combinations to generate
+            refit: Refit configuration.
+                - ``True``: Enable refit (retrain winning model on full training set, default).
+                - ``False`` or ``None``: Disable refit.
+                - ``dict``: Refit options (reserved for future use).
 
         Returns:
             Tuple of (run_predictions, datasets_predictions)
@@ -277,7 +282,8 @@ class PipelineRunner:
             max_generation_count=max_generation_count,
             artifact_loader=self.artifact_loader,
             target_model=self.target_model,
-            explainer=self.explainer
+            explainer=self.explainer,
+            refit=refit,
         )
 
         # Sync state

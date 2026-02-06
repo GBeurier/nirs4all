@@ -520,6 +520,38 @@ class SklearnModelController(BaseModelController):
         except ImportError:
             raise RuntimeError("sklearn is required to clone sklearn models")
 
+    def _apply_warm_start(
+        self,
+        model: Any,
+        source_model: Any,
+        runtime_context: Any,
+    ) -> Any:
+        """Apply warm-start for sklearn models.
+
+        If the model supports the ``warm_start`` parameter (e.g.,
+        GradientBoostingRegressor, RandomForestRegressor), sets it to True
+        and copies the fitted state from the source model.
+
+        Args:
+            model: Fresh sklearn model to warm-start.
+            source_model: Trained fold model with fitted state.
+            runtime_context: Runtime context.
+
+        Returns:
+            Model with warm_start enabled and fitted state copied.
+        """
+        if hasattr(model, 'warm_start'):
+            model.warm_start = True
+            # Copy fitted attributes from source_model
+            for attr in dir(source_model):
+                if attr.endswith('_') and not attr.startswith('__'):
+                    try:
+                        setattr(model, attr, getattr(source_model, attr))
+                    except (AttributeError, TypeError):
+                        pass
+            return model
+        return model
+
     def _sample_hyperparameters(self, trial, finetune_params: Dict[str, Any]) -> Dict[str, Any]:
         """Sample hyperparameters specific to sklearn models.
 

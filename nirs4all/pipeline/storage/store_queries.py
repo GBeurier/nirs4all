@@ -16,7 +16,7 @@ _PREDICTION_COLUMNS: frozenset[str] = frozenset({
     "metric", "task_type", "n_samples", "n_features",
     "scores", "best_params", "preprocessings",
     "branch_id", "branch_name",
-    "exclusion_count", "exclusion_rate", "created_at",
+    "exclusion_count", "exclusion_rate", "refit_context", "created_at",
 })
 
 # =========================================================================
@@ -116,9 +116,10 @@ INSERT INTO predictions
     (prediction_id, pipeline_id, chain_id, dataset_name, model_name,
      model_class, fold_id, partition, val_score, test_score, train_score,
      metric, task_type, n_samples, n_features, scores, best_params,
-     preprocessings, branch_id, branch_name, exclusion_count, exclusion_rate)
+     preprocessings, branch_id, branch_name, exclusion_count, exclusion_rate,
+     refit_context)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-        $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+        $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
 """
 
 INSERT_PREDICTION_ARRAYS = """
@@ -146,6 +147,32 @@ INSERT INTO artifacts
     (artifact_id, artifact_path, content_hash, operator_class,
      artifact_type, format, size_bytes, ref_count)
 VALUES ($1, $2, $3, $4, $5, $6, $7, 1)
+"""
+
+INSERT_ARTIFACT_WITH_CACHE_KEY = """
+INSERT INTO artifacts
+    (artifact_id, artifact_path, content_hash, operator_class,
+     artifact_type, format, size_bytes, ref_count,
+     chain_path_hash, input_data_hash, dataset_hash)
+VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8, $9, $10)
+"""
+
+UPDATE_ARTIFACT_CACHE_KEY = """
+UPDATE artifacts
+SET chain_path_hash = $2, input_data_hash = $3, dataset_hash = $4
+WHERE artifact_id = $1
+"""
+
+FIND_CACHED_ARTIFACT = """
+SELECT artifact_id FROM artifacts
+WHERE chain_path_hash = $1 AND input_data_hash = $2 AND ref_count > 0
+LIMIT 1
+"""
+
+INVALIDATE_DATASET_CACHE = """
+UPDATE artifacts
+SET chain_path_hash = NULL, input_data_hash = NULL
+WHERE dataset_hash = $1
 """
 
 INCREMENT_ARTIFACT_REF = """
