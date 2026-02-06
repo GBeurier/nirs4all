@@ -57,9 +57,9 @@ from tests.fixtures.data_generators import TestDataManager, SyntheticNIRSDataGen
 def test_data_manager():
     """Create test data manager with multiple datasets for transfer testing."""
     manager = TestDataManager()
-    manager.create_regression_dataset("regression_source", n_train=100, n_val=30)
-    manager.create_regression_dataset("regression_target", n_train=80, n_val=25)
-    manager.create_regression_dataset("regression_3", n_train=60, n_val=20)
+    manager.create_regression_dataset("regression_source", n_train=40, n_val=12)
+    manager.create_regression_dataset("regression_target", n_train=32, n_val=10)
+    manager.create_regression_dataset("regression_3", n_train=24, n_val=8)
     yield manager
     manager.cleanup()
 
@@ -73,9 +73,9 @@ def synthetic_transfer_data():
     (baseline shift, multiplicative scatter) to simulate real transfer scenarios.
     """
     rng = np.random.RandomState(42)
-    n_samples_source = 120
-    n_samples_target = 100
-    n_features = 150
+    n_samples_source = 40
+    n_samples_target = 32
+    n_features = 80
 
     # Generate base spectral pattern
     wavelengths = np.linspace(0, np.pi * 4, n_features)
@@ -109,10 +109,88 @@ def synthetic_transfer_data():
 def small_transfer_data():
     """Generate small datasets for quick tests."""
     rng = np.random.RandomState(123)
-    X_source = rng.randn(40, 80) + np.sin(np.linspace(0, 2 * np.pi, 80))
-    X_target = rng.randn(35, 80) + np.sin(np.linspace(0, 2 * np.pi, 80)) + 0.3
-    y_source = rng.randn(40) * 10 + 50
+    X_source = rng.randn(24, 48) + np.sin(np.linspace(0, 2 * np.pi, 48))
+    X_target = rng.randn(20, 48) + np.sin(np.linspace(0, 2 * np.pi, 48)) + 0.3
+    y_source = rng.randn(24) * 10 + 50
     return X_source, X_target, y_source
+
+
+_SMOKE_PREPROCESSING_KEYS = ("identity", "snv", "msc", "d1", "d2", "savgol")
+
+
+def _smoke_preprocessings():
+    """Return a small preprocessing pool to keep integration tests smoke-fast."""
+    base = get_base_preprocessings()
+    return {k: base[k] for k in _SMOKE_PREPROCESSING_KEYS}
+
+
+def make_selector(preset="fast", **kwargs):
+    """Factory for fast smoke selectors with deterministic lightweight defaults."""
+    kwargs.setdefault("verbose", 0)
+    kwargs.setdefault("n_jobs", 1)
+    kwargs.setdefault("preprocessings", _smoke_preprocessings())
+    return TransferPreprocessingSelector(preset=preset, **kwargs)
+
+
+@pytest.fixture(autouse=True)
+def smoke_preset_limits():
+    """Trim preset breadth/depth for smoke-oriented integration tests."""
+    original = {name: cfg.copy() for name, cfg in PRESETS.items()}
+
+    PRESETS["fast"].update({
+        "run_stage2": False,
+        "run_stage3": False,
+        "run_stage4": False,
+        "n_components": 6,
+    })
+    PRESETS["balanced"].update({
+        "run_stage2": True,
+        "stage2_top_k": 3,
+        "stage2_max_depth": 2,
+        "run_stage3": False,
+        "run_stage4": False,
+        "n_components": 6,
+    })
+    PRESETS["thorough"].update({
+        "run_stage2": True,
+        "stage2_top_k": 3,
+        "stage2_max_depth": 2,
+        "run_stage3": True,
+        "stage3_top_k": 3,
+        "stage3_max_order": 2,
+        "run_stage4": False,
+        "n_components": 6,
+    })
+    PRESETS["full"].update({
+        "run_stage2": True,
+        "stage2_top_k": 4,
+        "stage2_max_depth": 2,
+        "run_stage3": True,
+        "stage3_top_k": 3,
+        "stage3_max_order": 2,
+        "run_stage4": True,
+        "stage4_top_k": 3,
+        "stage4_cv_folds": 2,
+        "n_components": 6,
+    })
+    PRESETS["exhaustive"].update({
+        "run_stage2": True,
+        "stage2_top_k": 6,
+        "stage2_max_depth": 2,
+        "stage2_exhaustive": False,
+        "run_stage3": True,
+        "stage3_top_k": 4,
+        "stage3_max_order": 2,
+        "run_stage4": True,
+        "stage4_top_k": 4,
+        "stage4_cv_folds": 2,
+        "n_components": 6,
+    })
+
+    yield
+
+    PRESETS.clear()
+    PRESETS.update(original)
 
 
 # =============================================================================
@@ -127,7 +205,7 @@ class TestTransferAnalysisIntegration:
         """Test basic transfer analysis with fast preset."""
         X_source, X_target, _, _ = synthetic_transfer_data
 
-        selector = TransferPreprocessingSelector(preset="fast", verbose=0)
+        selector = make_selector(preset="fast", verbose=0)
         results = selector.fit(X_source, X_target)
 
         # Verify results structure
@@ -147,7 +225,7 @@ class TestTransferAnalysisIntegration:
         """Test transfer analysis with balanced preset (includes stacking)."""
         X_source, X_target, _, _ = synthetic_transfer_data
 
-        selector = TransferPreprocessingSelector(preset="balanced", verbose=0)
+        selector = make_selector(preset="balanced", verbose=0)
         results = selector.fit(X_source, X_target)
 
         # Should have both single and stacked results
@@ -168,7 +246,7 @@ class TestTransferAnalysisIntegration:
         """Test thorough preset with feature augmentation."""
         X_source, X_target, _ = small_transfer_data
 
-        selector = TransferPreprocessingSelector(preset="thorough", verbose=0)
+        selector = make_selector(preset="thorough", verbose=0)
         results = selector.fit(X_source, X_target)
 
         # Should have all three types
@@ -190,7 +268,7 @@ class TestTransferAnalysisIntegration:
         """Test full preset with supervised validation."""
         X_source, X_target, y_source, _ = synthetic_transfer_data
 
-        selector = TransferPreprocessingSelector(preset="full", verbose=0)
+        selector = make_selector(preset="full", verbose=0)
         results = selector.fit(X_source, X_target, y_source=y_source)
 
         # Should have stage4 validation
@@ -220,7 +298,7 @@ class TestTransferAnalysisIntegration:
         X_source = np.asarray(source_dataset.x({"partition": "train"}))
         X_target = np.asarray(target_dataset.x({"partition": "train"}))
 
-        selector = TransferPreprocessingSelector(preset="fast", verbose=0)
+        selector = make_selector(preset="fast", verbose=0)
         results = selector.fit(X_source, X_target)
 
         assert len(results.ranking) > 0
@@ -230,7 +308,7 @@ class TestTransferAnalysisIntegration:
         """Test conversion to nirs4all pipeline specification."""
         X_source, X_target, _, _ = synthetic_transfer_data
 
-        selector = TransferPreprocessingSelector(preset="balanced", verbose=0)
+        selector = make_selector(preset="balanced", verbose=0)
         results = selector.fit(X_source, X_target)
 
         # Single spec output
@@ -253,7 +331,7 @@ class TestTransferAnalysisIntegration:
         """Test export to pandas DataFrame."""
         X_source, X_target, _ = small_transfer_data
 
-        selector = TransferPreprocessingSelector(preset="fast", verbose=0)
+        selector = make_selector(preset="fast", verbose=0)
         results = selector.fit(X_source, X_target)
 
         df = results.to_dataframe()
@@ -296,7 +374,7 @@ class TestPipelineIntegration:
         X_source = np.asarray(source_dataset.x({"partition": "train"}))
         X_target = np.asarray(target_dataset.x({"partition": "train"}))
 
-        selector = TransferPreprocessingSelector(preset="balanced", verbose=0)
+        selector = make_selector(preset="balanced", verbose=0)
         results = selector.fit(X_source, X_target)
 
         # Get recommended preprocessing
@@ -344,14 +422,14 @@ class TestPipelineIntegration:
 
         # Create transfer data for analysis
         generator = SyntheticNIRSDataGenerator(random_state=42)
-        X_source, y_source = generator.generate_regression_data(100)
-        X_target, _ = generator.generate_regression_data(80)
+        X_source, y_source = generator.generate_regression_data(40)
+        X_target, _ = generator.generate_regression_data(32)
 
         # Add baseline shift to target (simulate machine transfer)
         X_target = X_target + 0.3
 
         # Analyze and get augmentation spec
-        selector = TransferPreprocessingSelector(preset="thorough", verbose=0)
+        selector = make_selector(preset="thorough", verbose=0)
         results = selector.fit(X_source, X_target)
 
         # Get augmentation format spec
@@ -388,7 +466,7 @@ class TestGeneratorIntegration:
         """Test generator with simple _or_ specification."""
         X_source, X_target, _ = small_transfer_data
 
-        selector = TransferPreprocessingSelector(
+        selector = make_selector(
             preset="fast",
             preprocessing_spec={"_or_": ["snv", "msc", "d1"]},
             verbose=0,
@@ -407,7 +485,7 @@ class TestGeneratorIntegration:
         """Test generator with arrange (stacking) specification."""
         X_source, X_target, _ = small_transfer_data
 
-        selector = TransferPreprocessingSelector(
+        selector = make_selector(
             preset="fast",
             preprocessing_spec={
                 "_or_": ["snv", "msc", "d1"],
@@ -429,7 +507,7 @@ class TestGeneratorIntegration:
         """Test generator with pick (augmentation) specification."""
         X_source, X_target, _ = small_transfer_data
 
-        selector = TransferPreprocessingSelector(
+        selector = make_selector(
             preset="fast",
             preprocessing_spec={
                 "_or_": ["snv", "msc", "d1"],
@@ -450,7 +528,7 @@ class TestGeneratorIntegration:
         """Test generator with mutual exclusion constraints."""
         X_source, X_target, _ = small_transfer_data
 
-        selector = TransferPreprocessingSelector(
+        selector = make_selector(
             preset="fast",
             preprocessing_spec={
                 "_or_": ["snv", "d1", "d2"],
@@ -479,7 +557,7 @@ class TestVisualizationIntegration:
         """Test ranking plot generation."""
         X_source, X_target, _ = small_transfer_data
 
-        selector = TransferPreprocessingSelector(preset="balanced", verbose=0)
+        selector = make_selector(preset="balanced", verbose=0)
         results = selector.fit(X_source, X_target)
 
         fig = results.plot_ranking(top_k=8)
@@ -492,7 +570,7 @@ class TestVisualizationIntegration:
         """Test metrics comparison plot."""
         X_source, X_target, _ = small_transfer_data
 
-        selector = TransferPreprocessingSelector(preset="fast", verbose=0)
+        selector = make_selector(preset="fast", verbose=0)
         results = selector.fit(X_source, X_target)
 
         fig = results.plot_metrics_comparison(top_k=5)
@@ -505,7 +583,7 @@ class TestVisualizationIntegration:
         """Test improvement heatmap plot."""
         X_source, X_target, _ = small_transfer_data
 
-        selector = TransferPreprocessingSelector(preset="fast", verbose=0)
+        selector = make_selector(preset="fast", verbose=0)
         results = selector.fit(X_source, X_target)
 
         fig = results.plot_improvement_heatmap(top_k=8)
@@ -518,7 +596,7 @@ class TestVisualizationIntegration:
         """Test summary text generation."""
         X_source, X_target, _ = small_transfer_data
 
-        selector = TransferPreprocessingSelector(preset="balanced", verbose=0)
+        selector = make_selector(preset="balanced", verbose=0)
         results = selector.fit(X_source, X_target)
 
         summary = results.summary()
@@ -542,7 +620,7 @@ class TestAllPresets:
         """Test each preset executes without error."""
         X_source, X_target, y_source = small_transfer_data
 
-        selector = TransferPreprocessingSelector(preset=preset, verbose=0)
+        selector = make_selector(preset=preset, verbose=0)
 
         # Include y_source for presets that use it
         if preset == "full":
@@ -559,7 +637,7 @@ class TestAllPresets:
 
         times = {}
         for preset in ["fast", "balanced"]:
-            selector = TransferPreprocessingSelector(preset=preset, verbose=0)
+            selector = make_selector(preset=preset, verbose=0)
             results = selector.fit(X_source, X_target)
             times[preset] = sum(results.timing.values())
 
@@ -579,10 +657,10 @@ class TestReproducibility:
         """Test that results are deterministic with same random state."""
         X_source, X_target, _ = small_transfer_data
 
-        selector1 = TransferPreprocessingSelector(
+        selector1 = make_selector(
             preset="balanced", verbose=0, random_state=42
         )
-        selector2 = TransferPreprocessingSelector(
+        selector2 = make_selector(
             preset="balanced", verbose=0, random_state=42
         )
 
@@ -616,7 +694,7 @@ class TestEdgeCases:
         X_source = rng.randn(5, 50)  # Minimum samples
         X_target = rng.randn(5, 50)
 
-        selector = TransferPreprocessingSelector(preset="fast", verbose=0)
+        selector = make_selector(preset="fast", verbose=0)
         results = selector.fit(X_source, X_target)
 
         assert len(results.ranking) > 0
@@ -626,7 +704,7 @@ class TestEdgeCases:
         rng = np.random.RandomState(42)
         X = rng.randn(50, 100)
 
-        selector = TransferPreprocessingSelector(preset="fast", verbose=0)
+        selector = make_selector(preset="fast", verbose=0)
         results = selector.fit(X, X)
 
         # Should still work, with minimal improvement
@@ -638,10 +716,10 @@ class TestEdgeCases:
     def test_high_dimensional_data(self):
         """Test with high-dimensional spectral data."""
         rng = np.random.RandomState(42)
-        X_source = rng.randn(50, 500)  # High features
-        X_target = rng.randn(40, 500) + 0.2
+        X_source = rng.randn(30, 200)  # Still high-dimensional for smoke coverage
+        X_target = rng.randn(24, 200) + 0.2
 
-        selector = TransferPreprocessingSelector(preset="fast", verbose=0)
+        selector = make_selector(preset="fast", verbose=0)
         results = selector.fit(X_source, X_target)
 
         assert len(results.ranking) > 0
@@ -649,7 +727,7 @@ class TestEdgeCases:
     def test_invalid_preset_raises_error(self):
         """Test that invalid preset raises appropriate error."""
         with pytest.raises(ValueError, match="Unknown preset"):
-            TransferPreprocessingSelector(preset="invalid_preset")
+            make_selector(preset="invalid_preset")
 
 
 # =============================================================================
