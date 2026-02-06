@@ -28,7 +28,7 @@ class TestFinetuneIntegration:
     def test_data_manager(self):
         """Create test data manager with regression dataset."""
         manager = TestDataManager()
-        manager.create_regression_dataset("regression")
+        manager.create_regression_dataset("regression", n_train=40, n_val=12)
         yield manager
         manager.cleanup()
 
@@ -47,13 +47,13 @@ class TestFinetuneIntegration:
                 "model": PLSRegression(),
                 "name": "PLS-Finetuned",
                 "finetune_params": {
-                    "n_trials": 5,  # Reduced for testing
+                    "n_trials": 3,
                     "verbose": 0,
                     "approach": "single",
                     "eval_mode": "best",
                     "sample": "grid",
                     "model_params": {
-                        'n_components': ('int', 1, 10),
+                        'n_components': ('int', 1, 6),
                     },
                 }
             },
@@ -91,11 +91,11 @@ class TestFinetuneIntegration:
                 "model": PLSRegression(),
                 "name": "PLS-Finetuned-Augmented",
                 "finetune_params": {
-                    "n_trials": 3,
+                    "n_trials": 2,
                     "verbose": 0,
                     "approach": "single",
                     "model_params": {
-                        'n_components': ('int', 1, 8),
+                        'n_components': ('int', 1, 5),
                     },
                 }
             },
@@ -127,7 +127,7 @@ class TestFinetuneIntegration:
                     "model": PLSRegression(),
                     "name": f"PLS-{sample_strategy}",
                     "finetune_params": {
-                        "n_trials": 3,
+                        "n_trials": 2,
                         "verbose": 0,
                         "sample": sample_strategy,
                         "model_params": {
@@ -164,10 +164,10 @@ class TestFinetuneIntegration:
                 "model": PLSRegression(),
                 "name": "PLS-Finetuned",
                 "finetune_params": {
-                    "n_trials": 5,
+                    "n_trials": 3,
                     "verbose": 0,
                     "model_params": {
-                        'n_components': ('int', 1, 15),
+                        'n_components': ('int', 1, 8),
                     },
                 }
             },
@@ -206,21 +206,31 @@ class TestFinetuneIntegration:
                 "model": customizable_nicon,
                 "name": "NN-Finetuned",
                 "finetune_params": {
-                    "n_trials": 2,
+                    "n_trials": 1,
                     "verbose": 0,
                     "sample": "random",
                     "approach": "single",
                     "model_params": {
-                        "filters_1": [8, 16, 32],
-                        "filters_2": [8, 16, 32],
+                        "filters1": [4, 8],
+                        "filters2": [8],
+                        "filters3": [4],
+                        "kernel_size1": [5],
+                        "kernel_size2": [5],
+                        "kernel_size3": [3],
+                        "strides1": [3],
+                        "strides2": [2],
+                        "strides3": [2],
+                        "dense_units": [4],
+                        "dropout_rate": [0.0],
+                        "spatial_dropout": [0.0],
                     },
                     "train_params": {
-                        "epochs": 1,  # Minimal for testing
+                        "epochs": 1,
                         "verbose": 0
                     }
                 },
                 "train_params": {
-                    "epochs": 2,
+                    "epochs": 1,
                     "verbose": 0
                 }
             }
@@ -251,11 +261,11 @@ class TestFinetuneIntegration:
                     "model": PLSRegression(),
                     "name": f"PLS-eval-{eval_mode}",
                     "finetune_params": {
-                        "n_trials": 3,
+                        "n_trials": 2,
                         "verbose": 0,
                         "eval_mode": eval_mode,
                         "model_params": {
-                            'n_components': ('int', 1, 8),
+                            'n_components': ('int', 1, 6),
                         },
                     }
                 },

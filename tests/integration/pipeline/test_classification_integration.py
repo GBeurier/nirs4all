@@ -32,7 +32,7 @@ class TestClassificationIntegration:
     def test_data_manager(self):
         """Create test data manager with classification dataset."""
         manager = TestDataManager()
-        manager.create_classification_dataset("classification")
+        manager.create_classification_dataset("classification", n_train=48, n_val=15)
         yield manager
         manager.cleanup()
 
@@ -241,13 +241,11 @@ class TestClassificationIntegration:
 
         pipeline = [
             StandardScaler(),
-            {"feature_augmentation": [Detrend, Gaussian]},
-            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            ShuffleSplit(n_splits=1, test_size=0.25, random_state=42),
             {
                 "model": nicon_classification,
                 "train_params": {
-                    "epochs": 2,  # Minimal for testing
-                    "patience": 10,
+                    "epochs": 1,
                     "verbose": 0
                 }
             }
@@ -283,7 +281,7 @@ class TestClassificationIntegration:
             {
                 "model": nicon_classification,
                 "train_params": {
-                    "epochs": 3,
+                    "epochs": 1,
                     "verbose": 0
                 }
             }

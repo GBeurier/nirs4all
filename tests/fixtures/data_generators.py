@@ -78,8 +78,8 @@ class SyntheticNIRSDataGenerator:
         self.random_state = random_state
         np.random.seed(random_state)
 
-        # Standard NIRS wavelength range simulation
-        self.n_wavelengths = 200  # Reduced for faster testing
+        # Keep enough spectral resolution for TensorFlow smoke models (nicon family).
+        self.n_wavelengths = 200
         self.wavelengths = np.linspace(1000, 2500, self.n_wavelengths)
 
     def _generate_base_spectrum(self, pattern_type: str = "gaussian") -> np.ndarray:
@@ -302,7 +302,7 @@ class TestDataManager:
         self.generator = SyntheticNIRSDataGenerator()
 
     def create_regression_dataset(self, name: str = "regression",
-                                  n_train: int = 80, n_val: int = 20) -> Path:
+                                  n_train: int = 56, n_val: int = 16) -> Path:
         """Create a regression dataset in NIRS4ALL format."""
         dataset_path = self.temp_path / name
         dataset_path.mkdir(exist_ok=True)
@@ -320,7 +320,7 @@ class TestDataManager:
         return dataset_path
 
     def create_classification_dataset(self, name: str = "classification",
-                                      n_train: int = 90, n_val: int = 30,
+                                      n_train: int = 72, n_val: int = 24,
                                       n_classes: int = 3) -> Path:
         """Create a classification dataset in NIRS4ALL format."""
         dataset_path = self.temp_path / name
@@ -339,7 +339,7 @@ class TestDataManager:
         return dataset_path
 
     def create_multi_target_dataset(self, name: str = "multi_target",
-                                    n_train: int = 80, n_val: int = 20,
+                                    n_train: int = 56, n_val: int = 16,
                                     n_targets: int = 3) -> Path:
         """Create a multi-target regression dataset in NIRS4ALL format."""
         dataset_path = self.temp_path / name
@@ -358,7 +358,7 @@ class TestDataManager:
         return dataset_path
 
     def create_multi_source_dataset(self, name: str = "multi_source",
-                                    n_train: int = 80, n_val: int = 20,
+                                    n_train: int = 56, n_val: int = 16,
                                     n_sources: int = 3) -> Path:
         """Create a multi-source regression dataset in NIRS4ALL format."""
         dataset_path = self.temp_path / name

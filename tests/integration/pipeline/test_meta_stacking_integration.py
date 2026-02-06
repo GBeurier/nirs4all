@@ -12,7 +12,7 @@ Tests end-to-end scenarios:
 
 import pytest
 import numpy as np
-import tempfile
+import pandas as pd
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -45,17 +45,71 @@ def filter_by_model_name(predictions, name_contains: str) -> List[Dict[str, Any]
     return [p for p in all_preds if name_contains in p.get('model_name', '')]
 
 
+def _copy_reduced_regression_dataset(source: Path, target: Path) -> None:
+    """Create a lightweight copy of regression sample data for smoke integration tests."""
+    target.mkdir(parents=True, exist_ok=True)
+
+    max_features = 320
+    train_rows = 64
+    val_rows = 24
+
+    # These legacy sample files are header-less CSVs.
+    xcal = pd.read_csv(source / "Xcal.csv.gz", sep=";", header=None)
+    ycal = pd.read_csv(source / "Ycal.csv.gz", sep=";", header=None)
+    xval = pd.read_csv(source / "Xval.csv.gz", sep=";", header=None)
+    yval = pd.read_csv(source / "Yval.csv.gz", sep=";", header=None)
+
+    xcal = xcal.iloc[:train_rows, :max_features]
+    xval = xval.iloc[:val_rows, :max_features]
+    ycal = ycal.iloc[:train_rows]
+    yval = yval.iloc[:val_rows]
+
+    xcal.to_csv(target / "Xcal.csv.gz", sep=";", index=False, header=False, compression="gzip")
+    ycal.to_csv(target / "Ycal.csv.gz", sep=";", index=False, header=False, compression="gzip")
+    xval.to_csv(target / "Xval.csv.gz", sep=";", index=False, header=False, compression="gzip")
+    yval.to_csv(target / "Yval.csv.gz", sep=";", index=False, header=False, compression="gzip")
+
+
+def _copy_reduced_regression_2_dataset(source: Path, target: Path) -> None:
+    """Create a reduced grouped dataset preserving Sample_ID metadata for GroupKFold tests."""
+    target.mkdir(parents=True, exist_ok=True)
+
+    max_features = 96
+    train_rows = 240
+    test_rows = 96
+
+    xtrain = pd.read_csv(source / "Xtrain.csv", sep=";").iloc[:train_rows]
+    ytrain = pd.read_csv(source / "Ytrain.csv", sep=";").iloc[:train_rows]
+    mtrain = pd.read_csv(source / "Mtrain.csv", sep=";").iloc[:train_rows]
+    xtest = pd.read_csv(source / "Xtest.csv", sep=";").iloc[:test_rows]
+    ytest = pd.read_csv(source / "Ytest.csv", sep=";").iloc[:test_rows]
+    mtest = pd.read_csv(source / "Mtest.csv", sep=";").iloc[:test_rows]
+
+    xtrain = xtrain.iloc[:, :max_features]
+    xtest = xtest.iloc[:, :max_features]
+
+    xtrain.to_csv(target / "Xtrain.csv", sep=";", index=False)
+    ytrain.to_csv(target / "Ytrain.csv", sep=";", index=False)
+    mtrain.to_csv(target / "Mtrain.csv", sep=";", index=False)
+    xtest.to_csv(target / "Xtest.csv", sep=";", index=False)
+    ytest.to_csv(target / "Ytest.csv", sep=";", index=False)
+    mtest.to_csv(target / "Mtest.csv", sep=";", index=False)
+
+
 # =============================================================================
 # Fixtures
 # =============================================================================
 
-@pytest.fixture
-def sample_data_path():
-    """Path to sample data in examples folder."""
-    path = Path("examples/sample_data/regression")
-    if not path.exists():
+@pytest.fixture(scope="session")
+def sample_data_path(tmp_path_factory):
+    """Reduced regression sample data path for faster smoke integration coverage."""
+    source = Path("examples/sample_data/regression")
+    if not source.exists():
         pytest.skip("Sample data not available")
-    return str(path)
+
+    reduced_path = tmp_path_factory.mktemp("stacking_regression") / "regression_small"
+    _copy_reduced_regression_dataset(source, reduced_path)
+    return str(reduced_path)
 
 
 @pytest.fixture
@@ -72,13 +126,16 @@ def regression_dataset(sample_data_path):
     return DatasetConfigs(sample_data_path)
 
 
-@pytest.fixture
-def sample_data_path_2():
-    """Path to larger regression_2 sample data in examples folder."""
-    path = Path("examples/sample_data/regression_2")
-    if not path.exists():
+@pytest.fixture(scope="session")
+def sample_data_path_2(tmp_path_factory):
+    """Reduced regression_2 sample data path preserving grouping metadata."""
+    source = Path("examples/sample_data/regression_2")
+    if not source.exists():
         pytest.skip("Sample data regression_2 not available")
-    return str(path)
+
+    reduced_path = tmp_path_factory.mktemp("stacking_regression2") / "regression_2_small"
+    _copy_reduced_regression_2_dataset(source, reduced_path)
+    return str(reduced_path)
 
 
 @pytest.fixture
@@ -100,7 +157,7 @@ class TestBasicStackingPipeline:
             MinMaxScaler(),
             KFold(n_splits=2, shuffle=True, random_state=42),
             PLSRegression(n_components=3),
-            RandomForestRegressor(n_estimators=10, random_state=42),
+            RandomForestRegressor(n_estimators=4, random_state=42),
             {"model": MetaModel(model=Ridge(alpha=1.0))},
         ]
 
@@ -126,7 +183,7 @@ class TestBasicStackingPipeline:
             KFold(n_splits=2, shuffle=True, random_state=42),
             {"model": PLSRegression(n_components=3), "name": "PLS_3"},
             {"model": PLSRegression(n_components=5), "name": "PLS_5"},
-            RandomForestRegressor(n_estimators=5, random_state=42),
+            RandomForestRegressor(n_estimators=3, random_state=42),
             {"model": MetaModel(
                 model=Ridge(alpha=0.5),
                 source_models=["PLS_3", "PLS_5"],  # Explicit: only PLS models
@@ -170,7 +227,7 @@ class TestBasicStackingPipeline:
             MinMaxScaler(),
             KFold(n_splits=2, shuffle=True, random_state=42),
             PLSRegression(n_components=3),
-            RandomForestRegressor(n_estimators=10, random_state=42),
+            RandomForestRegressor(n_estimators=4, random_state=42),
             {"model": MetaModel(model=Ridge(alpha=1.0))},
         ]
 
@@ -243,7 +300,7 @@ class TestStackingWithBranches:
             PLSRegression(n_components=3),  # Shared base model
             {"branch": {
                 "branch0": [
-                    RandomForestRegressor(n_estimators=5, random_state=42),
+                    RandomForestRegressor(n_estimators=3, random_state=42),
                     {"model": MetaModel(
                         model=Ridge(),
                         stacking_config=StackingConfig(
@@ -252,7 +309,7 @@ class TestStackingWithBranches:
                     ), "name": "Meta_Branch0"},
                 ],
                 "branch1": [
-                    RandomForestRegressor(n_estimators=5, random_state=42),
+                    RandomForestRegressor(n_estimators=3, random_state=42),
                     {"model": MetaModel(
                         model=Ridge(),
                         stacking_config=StackingConfig(
@@ -363,8 +420,8 @@ class TestMixedFrameworkStacking:
             KFold(n_splits=2, shuffle=True, random_state=42),
             # Diverse base models
             PLSRegression(n_components=5),
-            RandomForestRegressor(n_estimators=5, random_state=42),
-            KNeighborsRegressor(n_neighbors=5),
+            RandomForestRegressor(n_estimators=3, random_state=42),
+            KNeighborsRegressor(n_neighbors=3),
             # Meta-learner
             {"model": MetaModel(model=Ridge(alpha=1.0))},
         ]

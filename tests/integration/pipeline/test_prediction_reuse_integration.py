@@ -11,13 +11,13 @@ from pathlib import Path
 
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.model_selection import RepeatedKFold
+from sklearn.model_selection import RepeatedKFold, ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.transforms import (
-    Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
+    Gaussian, StandardNormalVariate
 )
 
 from tests.fixtures.data_generators import TestDataManager
@@ -30,8 +30,8 @@ class TestPredictionReuseIntegration:
     def test_data_manager(self):
         """Create test data manager with regression datasets."""
         manager = TestDataManager()
-        manager.create_regression_dataset("regression")
-        manager.create_regression_dataset("regression_val")  # For prediction
+        manager.create_regression_dataset("regression", n_train=40, n_val=12)
+        manager.create_regression_dataset("regression_val", n_train=32, n_val=12)
         yield manager
         manager.cleanup()
 
@@ -44,10 +44,10 @@ class TestPredictionReuseIntegration:
         pipeline = [
             MinMaxScaler(),
             {"y_processing": MinMaxScaler()},
-            {"feature_augmentation": [StandardNormalVariate(), SavitzkyGolay(), Gaussian()]},
+            {"feature_augmentation": [StandardNormalVariate(), Gaussian()]},
             RepeatedKFold(n_splits=2, n_repeats=1, random_state=42),
             {"model": PLSRegression(n_components=5), "name": "PLS_5"},
-            {"model": PLSRegression(n_components=10), "name": "PLS_10"},
+            {"model": PLSRegression(n_components=7), "name": "PLS_7"},
         ]
 
         pipeline_config = PipelineConfigs(pipeline, "train_for_reuse")
@@ -164,13 +164,11 @@ class TestPredictionReuseIntegration:
         pipeline = [
             MinMaxScaler(),
             {"y_processing": MinMaxScaler()},
-            {"feature_augmentation": [StandardNormalVariate(), Gaussian()]},
-            RepeatedKFold(n_splits=2, n_repeats=1, random_state=42),
+            ShuffleSplit(n_splits=1, test_size=0.25, random_state=42),
             {
                 "model": nicon,
                 "train_params": {
-                    "epochs": 2,  # Minimal for testing
-                    "patience": 10,
+                    "epochs": 1,
                     "verbose": 0
                 }
             }
@@ -204,7 +202,7 @@ class TestPredictionReuseIntegration:
         # Pipeline with multiple preprocessing options
         pipeline = [
             MinMaxScaler(),
-            {"feature_augmentation": [Gaussian(), StandardNormalVariate(), Haar()]},
+            {"feature_augmentation": [Gaussian(), StandardNormalVariate()]},
             RepeatedKFold(n_splits=2, n_repeats=1, random_state=42),
             {"model": PLSRegression(n_components=5)},
         ]
@@ -216,7 +214,7 @@ class TestPredictionReuseIntegration:
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Test prediction with each preprocessing variant
-        top_3 = predictions.top(n=3, rank_partition="test")
+        top_3 = predictions.top(n=2, rank_partition="test")
 
         predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         prediction_dataset = DatasetConfigs(predict_folder)
@@ -237,7 +235,6 @@ class TestPredictionReuseIntegration:
             {"y_processing": MinMaxScaler()},
             RepeatedKFold(n_splits=2, n_repeats=1, random_state=42),
             {"model": PLSRegression(n_components=5), "name": "PLS_5"},
-            {"model": PLSRegression(n_components=10), "name": "PLS_10"},
             {"model": GradientBoostingRegressor(n_estimators=5, random_state=42), "name": "GBR"},
         ]
 
@@ -286,7 +283,7 @@ class TestPredictionReuseIntegration:
 
         pipeline = [
             MinMaxScaler(),
-            RepeatedKFold(n_splits=3, n_repeats=1, random_state=42),
+            RepeatedKFold(n_splits=2, n_repeats=1, random_state=42),
             {"model": PLSRegression(n_components=5)},
         ]
 

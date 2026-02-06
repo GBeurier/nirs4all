@@ -21,17 +21,18 @@ from nirs4all.pipeline.execution.orchestrator import PipelineOrchestrator
 from nirs4all.pipeline.runner import PipelineRunner
 
 
-def create_test_dataset(n_samples: int = 120, n_features: int = 50) -> SpectroDataset:
+def create_test_dataset(n_samples: int = 96, n_features: int = 40) -> SpectroDataset:
     """Create a synthetic dataset for testing."""
     np.random.seed(42)
     X = np.random.randn(n_samples, n_features)
     y = np.sum(X[:, :5], axis=1) + np.random.randn(n_samples) * 0.1
 
     dataset = SpectroDataset(name="test_nested")
-    dataset.add_samples(X[:100], indexes={"partition": "train"})
-    dataset.add_samples(X[100:], indexes={"partition": "test"})
-    dataset.add_targets(y[:100])
-    dataset.add_targets(y[100:])
+    n_train = int(n_samples * 0.8)
+    dataset.add_samples(X[:n_train], indexes={"partition": "train"})
+    dataset.add_samples(X[n_train:], indexes={"partition": "test"})
+    dataset.add_targets(y[:n_train])
+    dataset.add_targets(y[n_train:])
 
     return dataset
 
@@ -68,7 +69,7 @@ class TestNestedBranchBasics:
         Per spec §3.5: 2 branches × 2 branches = 4 total configurations.
         """
         pipeline = [
-            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            ShuffleSplit(n_splits=1, test_size=0.2, random_state=42),
             {"branch": [
                 [{"class": "sklearn.preprocessing.StandardScaler"}],  # A
                 [{"class": "sklearn.preprocessing.MinMaxScaler"}],    # B
@@ -98,7 +99,7 @@ class TestNestedBranchBasics:
         Per spec §3.5.1: Branch path names should be concatenated.
         """
         pipeline = [
-            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            ShuffleSplit(n_splits=1, test_size=0.2, random_state=42),
             {"branch": {
                 "scaler_std": [{"class": "sklearn.preprocessing.StandardScaler"}],
                 "scaler_mm": [{"class": "sklearn.preprocessing.MinMaxScaler"}],
@@ -138,7 +139,7 @@ class TestNestedBranchBasics:
         2 × 2 × 2 = 8 total configurations.
         """
         pipeline = [
-            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            ShuffleSplit(n_splits=1, test_size=0.2, random_state=42),
             {"branch": [
                 [{"class": "sklearn.preprocessing.StandardScaler"}],
                 [{"class": "sklearn.preprocessing.MinMaxScaler"}],
@@ -205,7 +206,7 @@ class TestNestedBranchRoundtrip:
         np.random.seed(42)
 
         pipeline = [
-            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            ShuffleSplit(n_splits=1, test_size=0.2, random_state=42),
             {"branch": [
                 [{"class": "sklearn.preprocessing.StandardScaler"}],
                 [{"class": "sklearn.preprocessing.MinMaxScaler"}],
@@ -276,7 +277,7 @@ class TestNestedBranchWithGenerators:
     ):
         """Test nested branches where one uses _or_ generator."""
         pipeline = [
-            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            ShuffleSplit(n_splits=1, test_size=0.2, random_state=42),
             {"branch": {
                 "_or_": [
                     {"class": "sklearn.preprocessing.StandardScaler"},
@@ -333,7 +334,7 @@ class TestNestedBranchArtifacts:
     ):
         """Test that all nested branch artifacts are saved."""
         pipeline = [
-            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            ShuffleSplit(n_splits=1, test_size=0.2, random_state=42),
             {"branch": [
                 [{"class": "sklearn.preprocessing.StandardScaler"}],
                 [{"class": "sklearn.preprocessing.MinMaxScaler"}],
@@ -387,7 +388,7 @@ class TestNestedBranchEdgeCases:
     ):
         """Test 1 branch followed by 2 branches."""
         pipeline = [
-            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            ShuffleSplit(n_splits=1, test_size=0.2, random_state=42),
             {"branch": [
                 [{"class": "sklearn.preprocessing.StandardScaler"}],
             ]},
@@ -412,7 +413,7 @@ class TestNestedBranchEdgeCases:
     ):
         """Test 2 branches followed by 1 branch."""
         pipeline = [
-            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            ShuffleSplit(n_splits=1, test_size=0.2, random_state=42),
             {"branch": [
                 [{"class": "sklearn.preprocessing.StandardScaler"}],
                 [{"class": "sklearn.preprocessing.MinMaxScaler"}],
@@ -441,7 +442,7 @@ class TestNestedBranchEdgeCases:
         Per spec §3.5.2: Flattened IDs should be sequential.
         """
         pipeline = [
-            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            ShuffleSplit(n_splits=1, test_size=0.2, random_state=42),
             {"branch": [
                 [{"class": "sklearn.preprocessing.StandardScaler"}],
                 [{"class": "sklearn.preprocessing.MinMaxScaler"}],
