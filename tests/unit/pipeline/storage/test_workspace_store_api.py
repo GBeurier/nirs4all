@@ -811,8 +811,12 @@ class TestMethodInventory:
         "get_pipeline",
         "list_pipelines",
         # Queries -- Predictions
+        "get_chain_predictions",
         "get_prediction",
+        "get_prediction_arrays",
+        "query_aggregated_predictions",
         "query_predictions",
+        "query_top_aggregated_predictions",
         "top_predictions",
         # Queries -- Logs
         "get_pipeline_log",
@@ -878,4 +882,4 @@ class TestMethodInventory:
 
     def test_total_method_count(self):
         """The expected method count matches the design doc (35 methods)."""
-        assert len(self.EXPECTED_METHODS) == 35
+        assert len(self.EXPECTED_METHODS) == 39
