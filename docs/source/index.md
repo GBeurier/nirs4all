@@ -57,6 +57,22 @@ Architecture, internals, and contribution guidelines.
 
 ::::
 
+::::{grid} 1
+:gutter: 3
+
+:::{grid-item-card} 🧠 Understanding NIRS4ALL
+:link: onboarding/index
+:link-type: doc
+:class-card: sd-bg-light
+
+Deep dive into architecture, mental models, and design philosophy.
+
++++
+{bdg-info}`Architecture` {bdg-success}`Concepts`
+:::
+
+::::
+
 ---
 
 ## Quick Start
@@ -117,6 +133,7 @@ getting_started/index
 user_guide/index
 reference/index
 developer/index
+onboarding/index
 examples/index
 api/modules
 ai_onboarding

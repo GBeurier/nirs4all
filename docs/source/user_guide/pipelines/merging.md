@@ -624,3 +624,10 @@ Your dataset has only one source. Use `branch` instead for single-source data.
 - {doc}`/reference/pipeline_syntax` - Complete pipeline syntax reference
 - [D03_merge_basics.py](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/01_advanced_pipelines/D03_merge_basics.py) - Feature and prediction merge examples
 - [D04_merge_sources.py](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/01_advanced_pipelines/D04_merge_sources.py) - Multi-source merge examples
+
+```{seealso}
+**Related Examples:**
+- [D03: Merge Basics](../../../examples/developer/01_advanced_pipelines/D03_merge_basics.py) - Feature and prediction merging strategies
+- [D04: Merge Sources](../../../examples/developer/01_advanced_pipelines/D04_merge_sources.py) - Multi-source branching and merging
+- [D01: Branching Basics](../../../examples/developer/01_advanced_pipelines/D01_branching_basics.py) - Branching that leads to merging
+```

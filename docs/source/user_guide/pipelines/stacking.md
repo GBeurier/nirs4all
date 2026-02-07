@@ -409,3 +409,10 @@ class BranchScope(Enum):
 - {doc}`branching` - Pipeline branching for preprocessing variations
 - {doc}`writing_pipelines` - General pipeline usage
 - {doc}`/reference/pipeline_syntax` - Complete pipeline syntax reference
+
+```{seealso}
+**Related Examples:**
+- [U03: Stacking Ensembles](../../../examples/user/04_models/U03_stacking_ensembles.py) - StackingRegressor, VotingRegressor, meta-learners
+- [D05: Meta Stacking](../../../examples/developer/01_advanced_pipelines/D05_meta_stacking.py) - Advanced stacking with MetaModel and StackingConfig
+- [D03: Merge Basics](../../../examples/developer/01_advanced_pipelines/D03_merge_basics.py) - Prediction merging for stacking
+```

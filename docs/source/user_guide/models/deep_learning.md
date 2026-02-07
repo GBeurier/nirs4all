@@ -416,3 +416,10 @@ pip install tensorflow[and-cuda]
 - [D12_tensorflow_models.py](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/03_deep_learning/D12_tensorflow_models.py) - TensorFlow examples
 - [D10_pytorch_models.py](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/03_deep_learning/D10_pytorch_models.py) - PyTorch examples
 - [D11_jax_models.py](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/03_deep_learning/D11_jax_models.py) - JAX examples
+
+```{seealso}
+**Related Examples:**
+- [D01: PyTorch Models](../../../examples/developer/03_deep_learning/D01_pytorch_models.py) - PyTorch integration with @framework
+- [D02: JAX Models](../../../examples/developer/03_deep_learning/D02_jax_models.py) - JAX/Flax integration with JIT
+- [D03: TensorFlow Models](../../../examples/developer/03_deep_learning/D03_tensorflow_models.py) - TensorFlow/Keras models
+```

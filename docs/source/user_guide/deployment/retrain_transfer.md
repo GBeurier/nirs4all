@@ -320,3 +320,9 @@ nirs4all.retrain("model.n4a", data, mode="transfer")  # Better for sklearn
 - {doc}`export_bundles` - Export models for deployment
 - {doc}`/user_guide/troubleshooting/migration` - Upgrade from older versions
 - {doc}`/reference/pipeline_syntax` - Pipeline syntax reference
+
+```{seealso}
+**Related Examples:**
+- [D01: Transfer Analysis](../../../examples/developer/04_transfer_learning/D01_transfer_analysis.py) - TransferPreprocessingSelector
+- [D02: Retrain Modes](../../../examples/developer/04_transfer_learning/D02_retrain_modes.py) - full, transfer, finetune modes
+```

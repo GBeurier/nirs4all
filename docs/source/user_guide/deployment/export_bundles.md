@@ -372,3 +372,9 @@ result = nirs4all.retrain("exports/wheat_model.n4a", new_data, mode="transfer")
 **Example files:**
 - `examples/user/06_deployment/U22_export_bundle.py` - Complete export examples
 - `examples/user/06_deployment/U21_save_load_predict.py` - Basic prediction workflows
+
+```{seealso}
+**Related Examples:**
+- [U02: Export Bundle](../../../examples/user/06_deployment/U02_export_bundle.py) - Export to .n4a and .n4a.py bundles
+- [U01: Save, Load, Predict](../../../examples/user/06_deployment/U01_save_load_predict.py) - Basic prediction workflow
+```
