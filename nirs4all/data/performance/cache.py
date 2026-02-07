@@ -90,6 +90,7 @@ class DataCache:
         max_entries: int = 100,
         ttl_seconds: Optional[float] = None,
         eviction_policy: str = "lfu",
+        on_evict: Optional[Callable[[Any], None]] = None,
     ):
         """Initialize cache.
 
@@ -100,11 +101,15 @@ class DataCache:
             eviction_policy: ``"lfu"`` (least-frequently-used, default) or
                 ``"lru"`` (least-recently-used).  LRU evicts by oldest
                 ``timestamp`` only; LFU sorts by ``(hit_count, timestamp)``.
+            on_evict: Optional callback invoked with the evicted entry's data
+                before it is removed.  Used by StepCache to release
+                SharedBlocks CoW references.
         """
         self.max_size_bytes = int(max_size_mb * 1024 * 1024)
         self.max_entries = max_entries
         self.ttl_seconds = ttl_seconds
         self.eviction_policy = eviction_policy
+        self._on_evict = on_evict
 
         self._cache: Dict[str, CacheEntry] = {}
         self._lock = threading.RLock()
@@ -278,6 +283,8 @@ class DataCache:
         entry = self._cache.pop(key, None)
         if entry:
             self._total_size -= entry.size_bytes
+            if self._on_evict is not None:
+                self._on_evict(entry.data)
 
     def _evict_if_needed(self, new_size: int) -> None:
         """Evict entries if needed (internal, assumes lock held)."""

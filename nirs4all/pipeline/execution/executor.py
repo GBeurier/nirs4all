@@ -682,6 +682,23 @@ class PipelineExecutor:
         Returns:
             Updated context
         """
+        # Handle subpipelines in training mode: iterate substeps individually
+        # so each operator gets its own step cache check. This enables prefix
+        # sharing across generator variants (e.g., _cartesian_ combinations that
+        # share the same first transform get a cache hit on the second variant).
+        # In predict/explain mode, delegate to StepRunner for target_sub_index handling.
+        if isinstance(step, list) and self.mode == "train":
+            for substep_idx, substep in enumerate(step):
+                if runtime_context:
+                    runtime_context.substep_number = substep_idx
+                context = self._execute_single_step(
+                    substep, dataset, context, runtime_context,
+                    loaded_binaries, prediction_store, all_artifacts
+                )
+            if runtime_context:
+                runtime_context.substep_number = -1
+            return context
+
         # Extract operator info for trace recording
         operator_type, operator_class, operator_config = self._extract_step_info(step)
 
@@ -709,12 +726,16 @@ class PipelineExecutor:
         if step_cache is not None and self.mode == "train" and self._is_step_cacheable(step):
             step_cacheable = True
             step_hash = self._step_cache_key_hash(step)
-            pre_step_data_hash = dataset.content_hash()
+
+            t_hash = time.monotonic()
+            pre_step_data_hash = self._step_cache_data_hash(dataset)
+            step_cache.record_hash_time(time.monotonic() - t_hash)
+
             selector = context.selector if isinstance(context, ExecutionContext) else None
 
             cached_state = step_cache.get(step_hash, pre_step_data_hash, selector)
             if cached_state is not None:
-                # Cache hit: restore and skip execution
+                # Cache hit: restore and skip execution (CoW — near-free)
                 step_cache.restore(cached_state, dataset)
                 if cached_state.processing_names:
                     context = context.with_processing(cached_state.processing_names)
@@ -1205,8 +1226,11 @@ class PipelineExecutor:
         """Check if a step supports step-level caching.
 
         Parses the step and routes to the controller to check
-        ``supports_step_cache()``.  Returns False for subpipelines
-        and skipped steps.
+        ``supports_step_cache()``.
+
+        For subpipelines (nested lists), cacheability is determined
+        recursively: a subpipeline is cacheable only if every effective
+        substep (non-skip step) is cacheable.
         """
         try:
             from nirs4all.pipeline.steps.parser import StepType
@@ -1214,7 +1238,19 @@ class PipelineExecutor:
             if parsed.metadata.get("skip", False):
                 return False
             if parsed.step_type == StepType.SUBPIPELINE:
-                return False
+                substeps = parsed.metadata.get("steps", [])
+                if not isinstance(substeps, list) or not substeps:
+                    return False
+
+                has_effective_substep = False
+                for substep in substeps:
+                    sub_parsed = self.step_runner.parser.parse(substep)
+                    if sub_parsed.metadata.get("skip", False):
+                        continue
+                    has_effective_substep = True
+                    if not self._is_step_cacheable(substep):
+                        return False
+                return has_effective_substep
             controller = self.step_runner.router.route(parsed, step)
             return controller.supports_step_cache()
         except Exception:
@@ -1224,6 +1260,47 @@ class PipelineExecutor:
         """Compute a hash of the step configuration for cache keying."""
         step_json = json.dumps(step, sort_keys=True, default=str).encode()
         return hashlib.md5(step_json).hexdigest()[:16]
+
+    def _step_cache_data_hash(self, dataset: SpectroDataset) -> str:
+        """Compute a cache input hash that includes features and index state.
+
+        Feature bytes alone are not sufficient for safe reuse: preprocessing
+        fit subsets can change when index state changes (e.g. excluded samples,
+        partition/group/branch assignments, tag columns) even if feature arrays
+        are unchanged.
+
+        Returns:
+            Stable hash string used as the StepCache data-hash component.
+        """
+        feature_hash = dataset.content_hash()
+        index_hash = self._index_state_hash(dataset)
+        return f"{feature_hash}:{index_hash}"
+
+    @staticmethod
+    def _index_state_hash(dataset: SpectroDataset) -> str:
+        """Hash the dataset index table to detect selection-state mutations."""
+        try:
+            index_df = dataset._indexer.df
+            columns = sorted(index_df.columns)
+            if not columns:
+                return "no-index-cols"
+
+            # Hash all index rows with fixed seeds for deterministic output.
+            row_hashes = index_df.select(columns).hash_rows(
+                seed=0,
+                seed_1=1,
+                seed_2=2,
+                seed_3=3,
+            )
+            arr = row_hashes.to_numpy()
+
+            hasher = hashlib.sha256()
+            hasher.update(str(arr.shape[0]).encode())
+            hasher.update(arr.tobytes())
+            return hasher.hexdigest()[:16]
+        except Exception:
+            # Conservative fallback: keep caching available based on feature hash.
+            return "index-unavailable"
 
     def _compute_pipeline_hash(self, steps: List[Any]) -> str:
         """Compute MD5 hash of pipeline configuration.
