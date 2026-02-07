@@ -1942,8 +1942,8 @@ class SpectroDataset:
                 meta["file_size"] = path_obj.stat().st_size
 
         # Content hash (if stored or compute from features)
-        if hasattr(self, '_content_hash') and self._content_hash:
-            meta["hash"] = self._content_hash
+        if self._content_hash_cache:
+            meta["hash"] = self._content_hash_cache
         elif self._features.sources and meta["n_samples"] > 0:
             # Compute quick hash from sample of features
             try:
@@ -2033,10 +2033,14 @@ class SpectroDataset:
         """
         Set the content hash for version tracking.
 
+        The value is stored in the canonical ``_content_hash_cache`` attribute
+        so that ``content_hash()`` returns it immediately.  Any subsequent
+        feature mutation will invalidate the cache and force recomputation.
+
         Args:
             hash_value: Content hash string
         """
-        self._content_hash = hash_value
+        self._content_hash_cache = hash_value
 
     # ========== String Representations ==========
 

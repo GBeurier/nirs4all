@@ -69,6 +69,8 @@ from .nirs import (
     RollingBall,
     IASLS,
     BEADS,
+    AreaNormalization,
+    ExtendedMultiplicativeScatterCorrection,
 )
 
 # Import scalers (including local aliases such as IdentityTransformer and
@@ -191,6 +193,8 @@ __all__ = [
     "RollingBall",
     "IASLS",
     "BEADS",
+    "AreaNormalization",
+    "ExtendedMultiplicativeScatterCorrection",
 
     # Scalers
     "Normalize",

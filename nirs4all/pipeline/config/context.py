@@ -1184,6 +1184,8 @@ class RuntimeContext:
     trace_recorder: Any = None  # TraceRecorder instance for execution trace recording
     retrain_config: Any = None  # Phase 7: RetrainConfig for retrain mode control
     phase: ExecutionPhase = ExecutionPhase.CV  # Current execution phase (CV or REFIT)
+    cache_config: Any = None  # CacheConfig for step-level caching settings
+    step_cache: Any = None  # StepCache instance (set when cache_config.step_cache_enabled)
 
     def __deepcopy__(self, memo):
         """Return self on deepcopy -- RuntimeContext is shared infrastructure, not data."""

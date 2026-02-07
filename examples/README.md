@@ -170,6 +170,7 @@ The Developer Path covers advanced features for power users and contributors.
 |---------|-------------|------------|
 | D01_session_workflow.py | Session-based workflows | ★★★☆☆ |
 | D02_custom_controllers.py | Custom controller development | ★★★★★ |
+| D03_cache_performance.py | Cache performance comparison (step cache + CoW) | ★★★★☆ |
 
 ---
 

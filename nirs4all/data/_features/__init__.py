@@ -9,7 +9,7 @@ from .feature_constants import (
     normalize_layout,
     normalize_header_unit,
 )
-from .array_storage import ArrayStorage
+from .array_storage import ArrayStorage, SharedBlocks
 from .processing_manager import ProcessingManager
 from .header_manager import HeaderManager
 from .layout_transformer import LayoutTransformer
@@ -30,6 +30,7 @@ __all__ = [
     "FeatureSource",
     # Internal components
     "ArrayStorage",
+    "SharedBlocks",
     "ProcessingManager",
     "HeaderManager",
     "LayoutTransformer",

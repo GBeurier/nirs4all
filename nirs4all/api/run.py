@@ -207,6 +207,7 @@ def run(
     plots_visible: bool = False,
     random_state: Optional[int] = None,
     refit: Union[bool, Dict[str, Any], None] = True,
+    cache: Optional[Any] = None,
     # All other PipelineRunner options
     **runner_kwargs: Any
 ) -> RunResult:
@@ -262,6 +263,10 @@ def run(
             - ``True``: Enable refit (default).
             - ``False`` or ``None``: Disable refit.
             - ``dict``: Refit options (reserved for future use).
+
+        cache: Optional CacheConfig for step-level caching.
+            - ``None``: Use default CacheConfig (step cache OFF).
+            - ``CacheConfig(step_cache_enabled=True)``: Enable step caching.
 
         **runner_kwargs: Additional PipelineRunner parameters. See
             PipelineRunner.__init__ for full list. Common options:
@@ -384,6 +389,10 @@ def run(
             all_kwargs["random_state"] = random_state
 
         runner = PipelineRunner(**all_kwargs)
+
+    # Set cache config on runner (flows to orchestrator -> runtime_context)
+    if cache is not None:
+        runner.cache_config = cache
 
     # Execute the cartesian product: each pipeline × each dataset
     all_predictions = Predictions()

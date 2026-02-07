@@ -322,6 +322,36 @@ class FeatureSource:
             self._storage.add_processing(addition.new_data)
             self._processing_mgr.add_processing(addition.new_proc_name)
 
+    def evict_oldest_processings(self, max_processings: int) -> int:
+        """Evict oldest non-raw processings if over the limit.
+
+        Removes the oldest processings (by insertion order, skipping raw)
+        until the processing count is within ``max_processings``.
+
+        Args:
+            max_processings: Maximum number of processings to keep.
+
+        Returns:
+            Number of processings evicted.
+        """
+        from nirs4all.data._features.feature_constants import DEFAULT_PROCESSING
+
+        current = self._processing_mgr.num_processings
+        if current <= max_processings:
+            return 0
+
+        n_to_evict = current - max_processings
+        evicted = 0
+        # Evict from index 1 onward (preserve raw at index 0)
+        while evicted < n_to_evict and self._processing_mgr.num_processings > 1:
+            pid = self._processing_mgr.processing_ids[1]
+            if pid == DEFAULT_PROCESSING:
+                break
+            self._storage.remove_processing(1)
+            self._processing_mgr.remove_processing(pid)
+            evicted += 1
+        return evicted
+
     def augment_samples(
         self,
         sample_indices: List[int],

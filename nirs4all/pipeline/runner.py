@@ -243,6 +243,9 @@ class PipelineRunner:
         self.target_model: Optional[Dict] = None  # Target model for predict/explain modes
         self.last_execution_trace: Any = None  # ExecutionTrace from last run
 
+        # Cache configuration (set via nirs4all.run(cache=...))
+        self.cache_config: Any = None  # CacheConfig instance
+
         # Library for template management
         self._library: Any = None  # PipelineLibrary (lazy)
 
@@ -274,6 +277,9 @@ class PipelineRunner:
         Returns:
             Tuple of (run_predictions, datasets_predictions)
         """
+        # Propagate cache_config to orchestrator for RuntimeContext injection
+        self.orchestrator.cache_config = getattr(self, 'cache_config', None)
+
         run_predictions, dataset_predictions = self.orchestrator.execute(
             pipeline=pipeline,
             dataset=dataset,

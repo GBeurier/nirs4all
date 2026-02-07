@@ -281,6 +281,7 @@ developer_examples=(
     "developer/06_internals/D02_custom_controllers.py"
     "developer/01_advanced_pipelines/D06_separation_branches.py"
     "developer/01_advanced_pipelines/D07_value_mapping.py"
+    "developer/06_internals/D03_cache_performance.py"
 )
 
 reference_examples=(

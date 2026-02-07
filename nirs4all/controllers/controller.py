@@ -38,6 +38,19 @@ class OperatorController(ABC):
         """
         return False
 
+    @classmethod
+    def supports_step_cache(cls) -> bool:
+        """Whether this step's output should be cached for cross-variant reuse.
+
+        Only preprocessing transforms benefit from step caching.
+        Models, splitters, branch/merge, and feature augmentation steps
+        should not be cached.
+
+        Returns:
+            True if step results can be safely cached and restored.
+        """
+        return False
+
     @abstractmethod
     def execute(
         self,

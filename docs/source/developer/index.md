@@ -8,6 +8,7 @@ Documentation for developers who want to understand NIRS4ALL internals or contri
 architecture
 pipeline_architecture
 controllers
+caching
 artifacts
 artifacts_internals
 metadata
@@ -65,6 +66,16 @@ User guide for the artifact storage system.
 
 +++
 {bdg-warning}`Storage`
+:::
+
+:::{grid-item-card} Caching & Memory
+:link: caching
+:link-type: doc
+
+Block-based storage, copy-on-write branches, step caching, and memory observability.
+
++++
+{bdg-info}`Performance`
 :::
 
 ::::

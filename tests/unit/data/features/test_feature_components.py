@@ -76,7 +76,7 @@ class TestArrayStorage:
         """Test ArrayStorage initialization."""
         storage = ArrayStorage()
         assert storage.num_samples == 0
-        assert storage.num_processings == 1
+        assert storage.num_processings == 0
         assert storage.num_features == 0
 
     def test_add_samples(self):

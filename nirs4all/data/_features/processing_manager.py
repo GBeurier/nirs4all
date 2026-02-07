@@ -104,6 +104,28 @@ class ProcessingManager:
         del self._processing_id_to_index[old_id]
         self._processing_id_to_index[new_id] = idx
 
+    def remove_processing(self, processing_id: str) -> int:
+        """Remove a processing ID and reindex remaining processings.
+
+        Args:
+            processing_id: Name of the processing to remove.
+
+        Returns:
+            The index that was removed.
+
+        Raises:
+            ValueError: If processing_id doesn't exist.
+        """
+        if not self.has_processing(processing_id):
+            raise ValueError(f"Processing '{processing_id}' does not exist")
+
+        idx = self._processing_id_to_index[processing_id]
+        self._processing_ids.pop(idx)
+        self._processing_id_to_index = {
+            pid: i for i, pid in enumerate(self._processing_ids)
+        }
+        return idx
+
     def reset_processings(self, new_processings: List[str]) -> None:
         """Reset processing IDs to a new list.
 

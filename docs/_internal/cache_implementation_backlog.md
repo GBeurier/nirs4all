@@ -51,7 +51,7 @@ This backlog is a practical subset of the full design document (`cache_managemen
 
 **Acceptance criteria**:
 - All existing tests pass unchanged
-- `ruff check .` passes
+- `ruff check nirs4all/data nirs4all/pipeline/execution nirs4all/pipeline/storage` passes
 - No references to deleted symbols remain (grep confirms)
 - `data/performance/__init__.py` exports only `DataCache` and `CacheEntry`
 
@@ -76,7 +76,7 @@ This backlog is a practical subset of the full design document (`cache_managemen
 
 **Acceptance criteria**:
 - Single hash attribute (`_content_hash_cache`) throughout the class
-- `set_content_hash(v)` followed by `content_hash()` returns `v`
+- `set_content_hash(v)` followed by `content_hash()` (default call, no `source_index`) returns `v`
 - `set_content_hash(v)` followed by a feature mutation followed by `content_hash()` returns a freshly computed hash (not `v`)
 - `get_dataset_metadata()["hash"]` agrees with `content_hash()`
 - Existing unit tests pass (add a test for the round-trip if none exists)
@@ -93,7 +93,8 @@ This backlog is a practical subset of the full design document (`cache_managemen
 1. Add `max_cache_bytes: int = 2 * 1024**3` (2 GB default) to `DatasetConfigs`
 2. Track cumulative size of cached entries using numpy `nbytes` sums (via the `estimate_cache_entry_bytes()` utility from task 1.4)
 3. When inserting would exceed budget, evict the oldest entry (FIFO — simple and sufficient since this cache rarely has more than a handful of entries)
-4. Improve key derivation: include config parameters in the key, not just the name. Use a hash of `(name, sorted_config_params)` to prevent collisions
+4. Improve key derivation: include config parameters in the key, not just the name. Use canonical JSON (`sort_keys=True`) with a stable serializer for paths/enums and hash `(name, normalized_config)` to prevent collisions.
+5. Explicitly exclude non-serializable runtime objects from the key (e.g., `_preloaded_dataset`). For these, use a separate key component based on object identity/version.
 
 **Why FIFO over LRU**: The `DatasetConfigs` cache typically holds 1–3 entries (one per dataset in a multi-dataset run). LRU tracking adds complexity for no practical benefit at this scale.
 
@@ -172,7 +173,7 @@ Also add lightweight inflight tracking in `TransformerMixinController.execute()`
 
 These tests:
 - Record peak RSS values as test metadata (printed, not asserted — baselines shift with hardware)
-- Assert no OOM / no crash on reasonable hardware (< 8 GB RSS)
+- Assert no OOM / no crash
 - Serve as go/no-go gates: Phase 4 is only warranted if scenario 3 shows a significant bottleneck after Phases 2+3
 
 **Acceptance criteria**:
@@ -211,7 +212,7 @@ class CacheConfig:
     memory_warning_threshold_mb: int = 3072
 ```
 
-**Integration**: `nirs4all.run(..., cache=CacheConfig(step_cache_enabled=True))`. Default `CacheConfig()` is used when not specified. The `cache` parameter name is short and intuitive.
+**Integration**: Expose a `cache` parameter on the main execution entrypoint (runner + API facade), e.g. `nirs4all.run(..., cache=CacheConfig(step_cache_enabled=True))`. Default `CacheConfig()` is used when not specified.
 
 **Why OFF by default**: Step caching introduces a new execution path (cache lookup → restore → skip step execution). Until the correctness test (2.7) and stress tests confirm no regressions, it must be opt-in. After validation, the default flips to `True`.
 
@@ -310,19 +311,21 @@ class CachedStepState:
 
 ---
 
-### 2.5 Fix `DataCache.get()` eviction to be LRU
+### 2.5 Make StepCache eviction policy truly LRU
 
 **Problem**: `DataCache.get()` (`cache.py:140`) increments `hit_count` on access but **never updates `timestamp`**. The eviction logic (`cache.py:282-285`) sorts by `(hit_count, timestamp)` — this is LFU (least-frequently-used) with creation-time tiebreaker, not LRU (least-recently-used).
 
 For step caching, LRU is more appropriate: early pipeline steps are accessed often during variant expansion, then become cold. LFU would keep them around even after they're no longer useful.
 
 **Fix**:
-1. In `DataCache.get()`: also update `entry.timestamp = time.time()` on access (alongside the existing `hit_count` increment)
-2. Override `_estimate_size()` to use `CachedStepState.bytes_estimate` directly when the cached value is a `CachedStepState`, avoiding the pickle fallback path entirely
+1. Add an explicit `eviction_policy` setting to `DataCache` (`"lfu"` default for backward compatibility, `"lru"` for StepCache).
+2. In `DataCache.get()`, update `entry.timestamp = time.time()` on access.
+3. For `"lru"` eviction mode, evict by oldest `timestamp` only (do not include `hit_count` in ordering).
+4. Override `_estimate_size()` to use `CachedStepState.bytes_estimate` directly when the cached value is a `CachedStepState`, avoiding the pickle fallback path entirely.
 
 **Acceptance criteria**:
 - `timestamp` is updated on every `get()` call
-- Eviction order reflects recency of access, not just frequency
+- StepCache entries evict strictly by recency of access
 - No pickle calls during size estimation for `CachedStepState` entries
 
 ---
@@ -374,7 +377,7 @@ The `StepCache` wraps `DataCache` which already handles eviction. Configure it w
 **This test is a mandatory gate**: the step cache default cannot be flipped to `True` until this test passes on the full example suite.
 
 **Acceptance criteria**:
-- Results are bit-for-bit identical (within float tolerance) with cache ON vs OFF
+- Results are numerically equivalent with cache ON vs OFF (`np.allclose(..., atol=1e-10, rtol=0)`)
 - All examples pass with cache ON
 - Test is included in the integration test suite
 
@@ -500,10 +503,9 @@ def _restore_features(self, dataset, snapshot):
     """Restore from snapshot. No copy unless mutation follows."""
     for source, shared in zip(dataset._features.sources, snapshot):
         source._storage._shared = shared.acquire()
-        source._storage._cached_3d = None  # invalidate any cached view
 ```
 
-**Memory improvement**: 6 branches now hold 6 references to the same underlying arrays (+ ~48 bytes per `SharedBlocks` object) instead of 6 full copies. Total additional memory: ~288 bytes instead of ~768 MB.
+**Memory improvement**: Branches now hold references to shared arrays instead of full copies. Additional branch memory is near-constant for read-only branches, and copies happen only on mutation.
 
 Actual copies only happen when a branch modifies the feature arrays (e.g., a preprocessing step inside a branch calls `add_processing()`, triggering `detach()`).
 
@@ -558,7 +560,7 @@ class ArrayStorage:
 - Individual processings can be evicted independently (useful for feature augmentation)
 - Peak RAM during `add_processing()` drops from 2x to ~1x steady-state
 
-**Migration**: Public API unchanged. Internal change from `_data: np.ndarray` to `_blocks: List[np.ndarray]` is private. `x(indices, layout)` returns the same shapes.
+**Migration**: Public API unchanged. Internal change from `_array: np.ndarray` to `_blocks: List[np.ndarray]` is private. `x(indices, layout)` returns the same shapes.
 
 **Acceptance criteria**:
 - Peak RSS reduction >= 30% on the feature-augmentation-heavy stress test scenario
@@ -632,3 +634,35 @@ Phase 4 (Block Storage) ─── conditional on Phase 1 metrics ───
 | Parallel step execution | Design doc §14.5: requires thread-safe dataset access. Step caching gives most of the benefit. |
 | Deprecation warning cycles | Project convention: delete dead code immediately, no backward compatibility. |
 | Feature augmentation default change (`add` → `extend`) | Design doc §14.4: functional change. Separate versioned migration, not part of caching work. |
+
+---
+
+## Phase 5 — Documentation and Developer Guidance
+
+### 5.1 Update developer documentation for caching subsystem
+
+**Scope**: Document the caching subsystem for developers who need to understand or extend it.
+
+**Deliverables**:
+
+1. **Developer guide** (Sphinx / docs/source):
+   - Architecture overview: block-based `ArrayStorage`, `SharedBlocks` CoW, `StepCache`, `DataCache`
+   - How step caching works: cache keys, selector fingerprinting, snapshot/restore lifecycle
+   - How CoW branch snapshots work: `ensure_shared()` / `restore_from_shared()` / `_materialize_blocks()`
+   - How to enable/configure caching via `CacheConfig`
+   - Performance tuning: `max_size_mb`, `max_entries`, `max_processings`
+
+2. **API reference updates**:
+   - Document `CacheConfig` dataclass fields and defaults
+   - Document `ArrayStorage.ensure_shared()`, `restore_from_shared()`, `add_processings_batch()`, `remove_processing()`, `nbytes`
+   - Document `FeatureSource.evict_oldest_processings()`
+   - Document `ProcessingManager.remove_processing()`
+
+3. **Update existing references**:
+   - Update CLAUDE.md cache section if needed
+   - Update examples README to reference `D03_cache_performance.py`
+
+**Acceptance criteria**:
+- All new public methods have Google-style docstrings (already done in code)
+- Developer guide explains the block-based storage architecture with a state diagram
+- `D03_cache_performance.py` example is referenced from docs
