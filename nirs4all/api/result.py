@@ -395,8 +395,11 @@ class RunResult:
             was not performed or no refit entries exist.
         """
         entries = self.predictions.filter_predictions(fold_id="final")
-        if entries:
-            return entries[0]
+        # Guard against non-filtering/mocked implementations returning
+        # unrelated rows despite the fold filter.
+        for entry in entries:
+            if str(entry.get("fold_id")) == "final":
+                return entry
         return None
 
     @property

@@ -214,7 +214,10 @@ class GroupedSplitterWrapper(BaseCrossValidator):
         ndarray
             Original sample indices corresponding to the representative indices.
         """
-        return np.concatenate([group_indices[i] for i in rep_indices])
+        expanded = [group_indices[i] for i in rep_indices]
+        if not expanded:
+            return np.array([], dtype=int)
+        return np.concatenate(expanded)
 
     def split(self, X, y=None, groups=None):
         """Generate train/test indices with group-awareness.

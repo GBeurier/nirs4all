@@ -312,9 +312,15 @@ class PipelineOrchestrator:
                 # retrain the winning model on the full training set.
                 refit_enabled = refit is True or (isinstance(refit, dict) and refit)
                 if refit_enabled and self.mode == "train" and run_id and run_dataset_predictions.num_predictions > 0:
+                    # Re-load a pristine dataset for refit.
+                    # The per-variant training runs mutate dataset state
+                    # (added processings/folds/exclusions), so passing the
+                    # last trained instance into refit can cause duplicate
+                    # processing IDs and stale fold/index mappings.
+                    refit_dataset = dataset_configs.get_dataset(config, name)
                     self._execute_refit_pass(
                         run_id=run_id,
-                        dataset=dataset,
+                        dataset=refit_dataset,
                         executor=executor,
                         artifact_registry=artifact_registry,
                         run_dataset_predictions=run_dataset_predictions,

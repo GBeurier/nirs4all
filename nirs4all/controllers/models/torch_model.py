@@ -224,7 +224,12 @@ class PyTorchModelController(BaseModelController):
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
         val_loader = None
-        if X_val is not None and y_val is not None:
+        if (
+            X_val is not None
+            and y_val is not None
+            and getattr(X_val, "shape", (0,))[0] > 0
+            and getattr(y_val, "shape", (0,))[0] > 0
+        ):
             val_dataset = TensorDataset(X_val, y_val)
             val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
@@ -256,7 +261,8 @@ class PyTorchModelController(BaseModelController):
                 optimizer.step()
                 train_loss += loss.item()
 
-            train_loss /= len(train_loader)
+            if len(train_loader) > 0:
+                train_loss /= len(train_loader)
 
             # Validation phase
             val_loss = 0.0
@@ -271,7 +277,8 @@ class PyTorchModelController(BaseModelController):
                         outputs = model(batch_X)
                         loss = loss_fn(outputs, batch_y)
                         val_loss += loss.item()
-                val_loss /= len(val_loader)
+                if len(val_loader) > 0:
+                    val_loss /= len(val_loader)
 
                 # Early stopping
                 if val_loss < best_val_loss:
