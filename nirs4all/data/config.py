@@ -9,8 +9,6 @@ import copy
 import json
 import hashlib
 import warnings
-from pathlib import Path
-from tabnanny import verbose
 from typing import List, Union, Dict, Any, Optional
 
 from nirs4all.core.logging import get_logger
@@ -175,7 +173,10 @@ class DatasetConfigs:
                     # Convert string aggregates to repetition values
                     repetition = [a if isinstance(a, str) else None for a in aggregate]
 
+        self.max_cache_bytes: int = 2 * 1024 ** 3  # 2 GB default
         self.cache: Dict[str, Any] = {}
+        self._cache_sizes: Dict[str, int] = {}  # byte size per cache key
+        self._cache_total_bytes: int = 0
 
         # Normalize task_type to a list matching configs length
         # Priority: constructor parameter > config dict > "auto"
@@ -354,9 +355,57 @@ class DatasetConfigs:
 
         return dataset
 
-    def _get_dataset_with_task_type(self, config, name, task_type: str) -> SpectroDataset:
-        """Internal method to get dataset with specific task type (backward compat)."""
-        return self._get_dataset_with_types(config, name, task_type, None)
+    @staticmethod
+    def _make_cache_key(name: str, config: Any) -> str:
+        """Create a cache key from dataset name and config parameters.
+
+        Includes config parameters in the key to prevent collisions when the
+        same dataset name is loaded with different configuration parameters.
+
+        Args:
+            name: Dataset name.
+            config: Dataset configuration dict or path string.
+
+        Returns:
+            MD5-based cache key string.
+        """
+        key_parts = [name]
+        if isinstance(config, dict):
+            # Exclude non-serializable runtime objects from the key
+            serializable = {
+                k: str(v) for k, v in sorted(config.items())
+                if k != "_preloaded_dataset"
+            }
+            key_parts.append(json.dumps(serializable, sort_keys=True, default=str))
+        elif isinstance(config, str):
+            key_parts.append(config)
+        key_data = "|".join(key_parts)
+        return hashlib.md5(key_data.encode()).hexdigest()
+
+    def _cache_set(self, key: str, entry: Any) -> None:
+        """Insert into cache with FIFO eviction when byte budget is exceeded."""
+        from nirs4all.utils.memory import estimate_cache_entry_bytes
+
+        entry_size = estimate_cache_entry_bytes(entry)
+
+        # Skip caching if single entry exceeds budget
+        if entry_size > self.max_cache_bytes:
+            return
+
+        # FIFO eviction: remove oldest entries until we have space
+        while self._cache_total_bytes + entry_size > self.max_cache_bytes and self.cache:
+            oldest_key = next(iter(self.cache))
+            self._cache_remove(oldest_key)
+
+        self.cache[key] = entry
+        self._cache_sizes[key] = entry_size
+        self._cache_total_bytes += entry_size
+
+    def _cache_remove(self, key: str) -> None:
+        """Remove an entry from cache and update bookkeeping."""
+        self.cache.pop(key, None)
+        size = self._cache_sizes.pop(key, 0)
+        self._cache_total_bytes -= size
 
     def _load_dataset(self, config, name) -> SpectroDataset:
         """Load dataset from config, applying config-level signal_type if specified."""
@@ -364,10 +413,12 @@ class DatasetConfigs:
         if isinstance(config, dict) and "_preloaded_dataset" in config:
             return copy.deepcopy(config["_preloaded_dataset"])
 
+        cache_key = self._make_cache_key(name, config)
+
         dataset = SpectroDataset(name=name)
-        if name in self.cache:
+        if cache_key in self.cache:
             (x_train, y_train, m_train, train_headers, m_train_headers, train_unit, train_signal_type,
-             x_test, y_test, m_test, test_headers, m_test_headers, test_unit, test_signal_type) = self.cache[name]
+             x_test, y_test, m_test, test_headers, m_test_headers, test_unit, test_signal_type) = self.cache[cache_key]
         else:
             # Try to load train data
             try:
@@ -387,18 +438,14 @@ class DatasetConfigs:
                 else:
                     raise
 
-            self.cache[name] = (
+            self._cache_set(cache_key, (
                 x_train, y_train, m_train, train_headers, m_train_headers, train_unit, train_signal_type,
                 x_test, y_test, m_test, test_headers, m_test_headers, test_unit, test_signal_type
-            )
+            ))
 
         # Add samples and targets only if they exist
-        train_count = 0
-        test_count = 0
-
         if x_train is not None:
             dataset.add_samples(x_train, {"partition": "train"}, headers=train_headers, header_unit=train_unit)
-            train_count = len(x_train) if not isinstance(x_train, list) else len(x_train[0])
 
             # Apply signal types from config (per source if multi-source)
             if train_signal_type is not None:
@@ -416,7 +463,6 @@ class DatasetConfigs:
 
         if x_test is not None:
             dataset.add_samples(x_test, {"partition": "test"}, headers=test_headers, header_unit=test_unit)
-            test_count = len(x_test) if not isinstance(x_test, list) else len(x_test[0])
 
             # Apply signal types from config (per source if multi-source)
             # Note: test data adds to existing sources, so signal types should already match

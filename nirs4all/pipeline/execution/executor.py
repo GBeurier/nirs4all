@@ -13,6 +13,9 @@ from nirs4all.pipeline.trace import TraceRecorder
 
 logger = get_logger(__name__)
 
+# Default RSS threshold for memory warnings (MB).
+_DEFAULT_MEMORY_WARNING_THRESHOLD_MB = 3072
+
 
 class PipelineExecutor:
     """Executes a single pipeline configuration on a single dataset.
@@ -280,8 +283,6 @@ class PipelineExecutor:
         Maps each prediction to its corresponding chain via step_idx → model_step_idx,
         preserving the Predictions object's short ID as the store prediction_id.
         """
-        import polars as pl
-
         chains_df = store.get_chains_for_pipeline(pipeline_id)
         if chains_df.is_empty():
             return
@@ -505,8 +506,18 @@ class PipelineExecutor:
             # feature data that was produced by that branch's preprocessing steps
             features_snapshot = branch_info.get("features_snapshot")
             if features_snapshot is not None:
-                import copy
-                dataset._features.sources = copy.deepcopy(features_snapshot)
+                use_cow = branch_info.get("use_cow", False)
+                if use_cow:
+                    # CoW restore: acquire shared references (zero-copy for read-only steps)
+                    for source, (shared, proc_ids, headers, header_unit) in zip(
+                        dataset._features.sources, features_snapshot
+                    ):
+                        source._storage.restore_from_shared(shared.acquire())
+                        source._processing_mgr.reset_processings(proc_ids)
+                        source._header_mgr.set_headers(headers, unit=header_unit)
+                else:
+                    import copy
+                    dataset._features.sources = copy.deepcopy(features_snapshot)
 
             # V3: Restore chain state from branch snapshot if available
             # This ensures each branch's post-branch steps use the correct operator chain
@@ -690,6 +701,34 @@ class PipelineExecutor:
             # Record input shapes before execution
             self._record_dataset_shapes(dataset, context, runtime_context, is_input=True)
 
+        # --- Step cache: lookup before execution ---
+        step_cache = getattr(runtime_context, 'step_cache', None) if runtime_context else None
+        step_cacheable = False
+        pre_step_data_hash = None
+
+        if step_cache is not None and self.mode == "train" and self._is_step_cacheable(step):
+            step_cacheable = True
+            step_hash = self._step_cache_key_hash(step)
+            pre_step_data_hash = dataset.content_hash()
+            selector = context.selector if isinstance(context, ExecutionContext) else None
+
+            cached_state = step_cache.get(step_hash, pre_step_data_hash, selector)
+            if cached_state is not None:
+                # Cache hit: restore and skip execution
+                step_cache.restore(cached_state, dataset)
+                if cached_state.processing_names:
+                    context = context.with_processing(cached_state.processing_names)
+                logger.debug(
+                    f"Step {self.step_number}: cache hit "
+                    f"(step={step_hash[:8]}, data={pre_step_data_hash[:8]})"
+                )
+                # Record output shapes after restore
+                if runtime_context:
+                    self._record_dataset_shapes(dataset, context, runtime_context, is_input=False)
+                    is_model = operator_type in ("model", "meta_model")
+                    runtime_context.record_step_end(is_model=is_model)
+                return context
+
         try:
             # Execute step via step runner
             step_result = self.step_runner.execute(
@@ -704,6 +743,9 @@ class PipelineExecutor:
             logger.debug(f"Step {self.step_number} completed with {len(step_result.artifacts)} artifacts")
             if self.verbose > 1:
                 logger.debug(str(dataset))
+
+            # Per-step memory logging (Phase 1.5)
+            self._log_step_memory(dataset, operator_class, runtime_context)
 
             # Record output shapes after execution
             if runtime_context:
@@ -744,6 +786,10 @@ class PipelineExecutor:
 
             # Update context
             context = step_result.updated_context
+
+            # --- Step cache: store after execution ---
+            if step_cacheable and pre_step_data_hash is not None:
+                step_cache.put(step_hash, pre_step_data_hash, dataset, selector)
 
             # Sync operation_count back from runtime_context
             if runtime_context:
@@ -1116,6 +1162,68 @@ class PipelineExecutor:
         except Exception:
             # Shape recording is non-critical, don't fail the step
             pass
+
+    def _log_step_memory(self, dataset: SpectroDataset, operator_class: str, runtime_context: Any = None) -> None:
+        """Log per-step memory stats and warn on high RSS.
+
+        At verbose >= 2, logs dataset shape, steady-state nbytes, and process RSS.
+        Always emits a warning when RSS exceeds the configured threshold.
+
+        Args:
+            dataset: Current dataset to measure.
+            operator_class: Name of the step operator (for log messages).
+            runtime_context: Optional RuntimeContext carrying CacheConfig.
+        """
+        from nirs4all.utils.memory import estimate_dataset_bytes, format_bytes, get_process_rss_mb
+
+        cache_config = getattr(runtime_context, 'cache_config', None) if runtime_context else None
+        if cache_config and not cache_config.log_step_memory:
+            return
+
+        rss_mb = get_process_rss_mb()
+
+        if self.verbose >= 2:
+            steady_bytes = estimate_dataset_bytes(dataset)
+            n_samples = dataset.num_samples
+            n_proc = dataset._features.num_processings
+            n_feat = dataset._features.num_features
+            logger.info(
+                f"[Step {self.step_number}] {operator_class} | "
+                f"shape: {n_samples}x{n_proc}x{n_feat} | "
+                f"steady: {format_bytes(steady_bytes)} | RSS: {rss_mb:.1f} MB"
+            )
+
+        threshold_mb = cache_config.memory_warning_threshold_mb if cache_config else _DEFAULT_MEMORY_WARNING_THRESHOLD_MB
+        if rss_mb > threshold_mb:
+            logger.warning(
+                f"Process RSS at {rss_mb / 1024:.1f} GB "
+                f"(threshold: {threshold_mb / 1024:.1f} GB) "
+                f"after step {operator_class}"
+            )
+
+    def _is_step_cacheable(self, step: Any) -> bool:
+        """Check if a step supports step-level caching.
+
+        Parses the step and routes to the controller to check
+        ``supports_step_cache()``.  Returns False for subpipelines
+        and skipped steps.
+        """
+        try:
+            from nirs4all.pipeline.steps.parser import StepType
+            parsed = self.step_runner.parser.parse(step)
+            if parsed.metadata.get("skip", False):
+                return False
+            if parsed.step_type == StepType.SUBPIPELINE:
+                return False
+            controller = self.step_runner.router.route(parsed, step)
+            return controller.supports_step_cache()
+        except Exception:
+            return False
+
+    def _step_cache_key_hash(self, step: Any) -> str:
+        """Compute a hash of the step configuration for cache keying."""
+        step_json = json.dumps(step, sort_keys=True, default=str).encode()
+        return hashlib.md5(step_json).hexdigest()[:16]
 
     def _compute_pipeline_hash(self, steps: List[Any]) -> str:
         """Compute MD5 hash of pipeline configuration.

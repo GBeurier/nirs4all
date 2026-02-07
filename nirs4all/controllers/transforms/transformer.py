@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING, Union
+from typing import Any, List, Tuple, Optional, TYPE_CHECKING
 
 from sklearn.base import TransformerMixin
 
@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 import warnings
 import numpy as np
 from sklearn.base import clone
-import pickle
 
 from nirs4all.core.logging import get_logger
 
@@ -111,6 +110,11 @@ class TransformerMixinController(OperatorController):
         """TransformerMixin controllers support prediction mode."""
         return True
 
+    @classmethod
+    def supports_step_cache(cls) -> bool:
+        """Preprocessing transforms benefit from cross-variant step caching."""
+        return True
+
     def execute(
         self,
         step_info: 'ParsedStep',
@@ -176,6 +180,15 @@ class TransformerMixinController(OperatorController):
             fit_data = [fit_data]
         if not isinstance(all_data, list):
             all_data = [all_data]
+
+        # Inflight memory check: warn if transient peak (all_data + fit_data) is large
+        inflight_bytes = sum(a.nbytes for a in all_data) + sum(a.nbytes for a in fit_data)
+        if inflight_bytes > 1024 ** 3:  # > 1 GB
+            from nirs4all.utils.memory import format_bytes
+            logger.warning(
+                f"Transformer {operator_name}: inflight data {format_bytes(inflight_bytes)} "
+                f"(all_data + fit_data). Consider reducing dataset size or processings."
+            )
 
         fitted_transformers = []
         transformed_features_list = []

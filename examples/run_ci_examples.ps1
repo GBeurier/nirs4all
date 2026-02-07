@@ -248,6 +248,7 @@ $DeveloperExamples = @(
     "developer/05_advanced_features/D03_repetition_transform.py"
     "developer/06_internals/D01_session_workflow.py"
     "developer/06_internals/D02_custom_controllers.py"
+    "developer/06_internals/D03_cache_performance.py"
 )
 
 $ReferenceExamples = @(

@@ -9,7 +9,6 @@ Section 8.5: Performance Optimization - Caching
 """
 
 import hashlib
-import pickle
 import threading
 import time
 from dataclasses import dataclass, field
@@ -90,6 +89,7 @@ class DataCache:
         max_size_mb: float = 500,
         max_entries: int = 100,
         ttl_seconds: Optional[float] = None,
+        eviction_policy: str = "lfu",
     ):
         """Initialize cache.
 
@@ -97,16 +97,21 @@ class DataCache:
             max_size_mb: Maximum cache size in megabytes.
             max_entries: Maximum number of entries.
             ttl_seconds: Time-to-live for entries (None = no expiry).
+            eviction_policy: ``"lfu"`` (least-frequently-used, default) or
+                ``"lru"`` (least-recently-used).  LRU evicts by oldest
+                ``timestamp`` only; LFU sorts by ``(hit_count, timestamp)``.
         """
         self.max_size_bytes = int(max_size_mb * 1024 * 1024)
         self.max_entries = max_entries
         self.ttl_seconds = ttl_seconds
+        self.eviction_policy = eviction_policy
 
         self._cache: Dict[str, CacheEntry] = {}
         self._lock = threading.RLock()
         self._total_size = 0
         self._hits = 0
         self._misses = 0
+        self._eviction_count = 0
 
     def get(self, key: str) -> Optional[Any]:
         """Get data from cache.
@@ -138,6 +143,7 @@ class DataCache:
                     return None
 
             entry.hit_count += 1
+            entry.timestamp = time.time()
             self._hits += 1
             return entry.data
 
@@ -231,6 +237,16 @@ class DataCache:
                 return True
             return False
 
+    @property
+    def eviction_count(self) -> int:
+        """Number of entries evicted since creation."""
+        return self._eviction_count
+
+    @property
+    def total_size(self) -> int:
+        """Current total size of cached data in bytes."""
+        return self._total_size
+
     def clear(self) -> None:
         """Clear all cached data."""
         with self._lock:
@@ -267,27 +283,44 @@ class DataCache:
         """Evict entries if needed (internal, assumes lock held)."""
         # Evict based on entry count
         while len(self._cache) >= self.max_entries:
-            self._evict_lru()
+            self._evict_one()
 
         # Evict based on size
         while self._total_size + new_size > self.max_size_bytes and self._cache:
-            self._evict_lru()
+            self._evict_one()
 
-    def _evict_lru(self) -> None:
-        """Evict least recently used entry (internal, assumes lock held)."""
+    def _evict_one(self) -> None:
+        """Evict one entry based on configured eviction policy (assumes lock held)."""
         if not self._cache:
             return
 
-        # Find LRU entry (oldest timestamp, lowest hit count)
-        lru_key = min(
-            self._cache.keys(),
-            key=lambda k: (self._cache[k].hit_count, self._cache[k].timestamp)
-        )
-        self._remove(lru_key)
-        logger.debug(f"Evicted cache entry: {lru_key}")
+        if self.eviction_policy == "lru":
+            # Strict LRU: evict by oldest timestamp only
+            victim_key = min(
+                self._cache.keys(),
+                key=lambda k: self._cache[k].timestamp,
+            )
+        else:
+            # LFU: evict by (lowest hit_count, oldest timestamp)
+            victim_key = min(
+                self._cache.keys(),
+                key=lambda k: (self._cache[k].hit_count, self._cache[k].timestamp),
+            )
+        self._remove(victim_key)
+        self._eviction_count += 1
+        logger.debug(f"Evicted cache entry: {victim_key}")
 
     def _estimate_size(self, data: Any) -> int:
-        """Estimate memory size of data."""
+        """Estimate memory size of data.
+
+        Uses CachedStepState.bytes_estimate (O(1)) when available.
+        Falls back to numpy nbytes for arrays, sys.getsizeof for others.
+        Never uses pickle for size estimation.
+        """
+        # CachedStepState has a pre-computed bytes_estimate
+        if hasattr(data, 'bytes_estimate') and data.bytes_estimate > 0:
+            return data.bytes_estimate
+
         if isinstance(data, np.ndarray):
             return data.nbytes
 
@@ -300,10 +333,8 @@ class DataCache:
                 for k, v in data.items()
             )
 
-        try:
-            return len(pickle.dumps(data))
-        except Exception:
-            return 1000  # Default estimate
+        import sys
+        return sys.getsizeof(data)
 
 
 def make_cache_key(
@@ -326,22 +357,3 @@ def make_cache_key(
         key_data += param_str
 
     return hashlib.md5(key_data.encode()).hexdigest()
-
-
-# Global cache instance
-_cache: Optional[DataCache] = None
-
-
-def cache_manager(max_size_mb: float = 500) -> DataCache:
-    """Get or create the global cache instance.
-
-    Args:
-        max_size_mb: Maximum cache size (only used when creating).
-
-    Returns:
-        DataCache instance.
-    """
-    global _cache
-    if _cache is None:
-        _cache = DataCache(max_size_mb=max_size_mb)
-    return _cache

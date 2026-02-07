@@ -1,9 +1,11 @@
 """
 Configuration module for nirs4all.
 
-Provides validation and schema utilities for pipeline and dataset configurations.
+Provides validation and schema utilities for pipeline and dataset configurations,
+and the CacheConfig dataclass for runtime caching settings.
 """
 
+from nirs4all.config.cache_config import CacheConfig
 from nirs4all.config.validator import (
     validate_pipeline_config,
     validate_dataset_config,
@@ -14,6 +16,7 @@ from nirs4all.config.validator import (
 )
 
 __all__ = [
+    'CacheConfig',
     'validate_pipeline_config',
     'validate_dataset_config',
     'validate_config_file',

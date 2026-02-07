@@ -1,145 +1,225 @@
 """In-memory preprocessed data snapshots for pipeline step caching.
 
-Stores the full ``SpectroDataset`` state after each preprocessing step,
-keyed by ``(chain_path_hash, data_hash)``.  For generator sweeps with
-shared preprocessing prefixes and for the refit pass replaying the same
-chain, caching preprocessed dataset snapshots eliminates redundant
-computation at the dataset level.
+Stores lightweight feature snapshots after each preprocessing step,
+keyed by ``(chain_path_hash, data_hash, selector_fingerprint)``.
+For generator sweeps with shared preprocessing prefixes and for
+the refit pass replaying the same chain, caching eliminates
+redundant computation.
 
-The ``StepCache`` wraps the existing :class:`DataCache` from
-``nirs4all.data.performance.cache`` as the underlying LRU storage
-backend, adding a step-specific composite key scheme and deep-copy
-semantics to prevent aliasing.
+The ``StepCache`` wraps :class:`DataCache` from
+``nirs4all.data.performance.cache`` as the LRU storage backend,
+using ``CachedStepState`` (a targeted snapshot of feature arrays
+only) instead of full dataset deep-copies.
 """
 
 from __future__ import annotations
 
 import copy
+import hashlib
 import threading
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, List, Optional
 
 import numpy as np
 
 from nirs4all.core.logging import get_logger
-from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.performance.cache import DataCache
+from nirs4all.utils.memory import estimate_cache_entry_bytes
+
+if TYPE_CHECKING:
+    from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.config.context import DataSelector
 
 logger = get_logger(__name__)
 
 
-class StepCache:
-    """LRU cache for preprocessed dataset snapshots.
+# ---------------------------------------------------------------------------
+# CachedStepState — lightweight snapshot for step cache entries
+# ---------------------------------------------------------------------------
 
-    Each entry is a deep copy of a ``SpectroDataset`` stored after a
-    preprocessing step completes.  Entries are keyed by a composite key
-    of ``(chain_path_hash, data_hash)`` so that different pipeline
-    variants sharing the same preprocessing prefix can reuse cached
-    snapshots.
+@dataclass
+class CachedStepState:
+    """Lightweight snapshot of dataset feature state after a preprocessing step.
 
-    The cache delegates to :class:`DataCache` for LRU eviction and
-    thread-safe access, while adding dataset-specific size estimation
-    and deep-copy semantics on get/put.
+    Only the parts of SpectroDataset that change during preprocessing are
+    captured: the feature source arrays and their processing names.  Metadata,
+    targets, sample indices, fold assignments, and tags are NOT copied because
+    preprocessing transforms do not modify them.
 
-    Args:
-        max_size_mb: Maximum memory budget in megabytes.  When the
-            total estimated size of cached datasets exceeds this limit,
-            the least-recently-used entries are evicted.
-
-    Example:
-        >>> cache = StepCache(max_size_mb=1024)
-        >>> cache.put("step_hash_1", "data_hash_a", dataset)
-        >>> restored = cache.get("step_hash_1", "data_hash_a")
-        >>> assert restored is not None
+    Attributes:
+        features_sources: Deep-copied list of FeatureSource objects.
+        processing_names: Processing chain per source (list of lists of str).
+        content_hash: Post-step content hash of the dataset.
+        bytes_estimate: Estimated memory footprint (computed once at store time).
     """
 
-    def __init__(self, max_size_mb: int = 2048) -> None:
+    features_sources: List[Any] = field(default_factory=list)
+    processing_names: List[List[str]] = field(default_factory=list)
+    content_hash: str = ""
+    bytes_estimate: int = 0
+
+
+def _compute_selector_fingerprint(selector: DataSelector) -> str:
+    """Hash the execution-context selector fields that affect transformer behaviour.
+
+    The fingerprint includes: partition, fold_id, processing chain,
+    include_augmented flag, tag_filters, and branch_path.  Two calls with the
+    same chain and data hash but different selectors must produce different
+    cache keys.
+
+    Args:
+        selector: The DataSelector whose relevant fields will be hashed.
+
+    Returns:
+        A 16-character hex digest.
+    """
+    parts = [
+        str(selector.partition),
+        str(selector.fold_id),
+        str(selector.processing),
+        str(selector.include_augmented),
+        str(sorted(selector.tag_filters.items())) if selector.tag_filters else "",
+        str(selector.branch_path),
+    ]
+    raw = "|".join(parts)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+# ---------------------------------------------------------------------------
+# StepCache — main API
+# ---------------------------------------------------------------------------
+
+class StepCache:
+    """LRU cache for preprocessed feature snapshots.
+
+    Each entry is a :class:`CachedStepState` — a targeted snapshot of the
+    feature arrays only — keyed by ``(chain_path_hash, data_hash,
+    selector_fingerprint)``.
+
+    The cache delegates to :class:`DataCache` for LRU eviction and
+    thread-safe access.
+
+    Args:
+        max_size_mb: Maximum memory budget in megabytes.
+        max_entries: Maximum number of cached entries.
+    """
+
+    def __init__(self, max_size_mb: int = 2048, max_entries: int = 200) -> None:
         self._backend = DataCache(
             max_size_mb=max_size_mb,
-            max_entries=10_000,
+            max_entries=max_entries,
             ttl_seconds=None,
+            eviction_policy="lru",
         )
         self._lock = threading.Lock()
         self._hit_count = 0
         self._miss_count = 0
+        self._eviction_count = 0
+        self._peak_bytes = 0
 
     @property
     def hit_count(self) -> int:
-        """Total cache hits."""
         return self._hit_count
 
     @property
     def miss_count(self) -> int:
-        """Total cache misses."""
         return self._miss_count
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def get(self, chain_path_hash: str, data_hash: str) -> SpectroDataset | None:
-        """Retrieve a cached dataset snapshot.
-
-        Returns a *deep copy* of the cached dataset so that subsequent
-        pipeline mutations do not corrupt the cached state.
+    def get(
+        self,
+        chain_path_hash: str,
+        data_hash: str,
+        selector: Optional[DataSelector] = None,
+    ) -> Optional[CachedStepState]:
+        """Retrieve a cached step state.
 
         Args:
-            chain_path_hash: Hash identifying the chain of steps up to
-                (and including) the cached step.
-            data_hash: Hash of the input data to the cached step.
+            chain_path_hash: Hash of the step chain.
+            data_hash: Hash of the input data.
+            selector: DataSelector for fingerprinting (ensures fold/partition
+                correctness).
 
         Returns:
-            A deep copy of the cached ``SpectroDataset``, or ``None`` on
-            cache miss.
+            A ``CachedStepState``, or ``None`` on cache miss.
         """
-        key = self._make_key(chain_path_hash, data_hash)
+        key = self._make_key(chain_path_hash, data_hash, selector)
         with self._lock:
-            dataset = self._backend.get(key)
-            if dataset is None:
+            state = self._backend.get(key)
+            if state is None:
                 self._miss_count += 1
                 return None
             self._hit_count += 1
-        # Deep copy outside the lock to avoid holding it during the
-        # (potentially expensive) copy operation.
-        return copy.deepcopy(dataset)
+        return state
 
-    def put(self, chain_path_hash: str, data_hash: str, dataset: SpectroDataset) -> None:
-        """Store a dataset snapshot in the cache.
+    def put(
+        self,
+        chain_path_hash: str,
+        data_hash: str,
+        dataset: SpectroDataset,
+        selector: Optional[DataSelector] = None,
+    ) -> None:
+        """Store a feature snapshot in the cache.
 
-        A *deep copy* of the dataset is stored to prevent aliasing with
-        the caller's live dataset object.
+        Only the feature sources and processing names are deep-copied.
 
         Args:
-            chain_path_hash: Hash identifying the chain of steps.
+            chain_path_hash: Hash of the step chain.
             data_hash: Hash of the input data.
-            dataset: Dataset to cache (will be deep-copied).
+            dataset: Dataset whose feature state will be snapshotted.
+            selector: DataSelector for fingerprinting.
         """
-        key = self._make_key(chain_path_hash, data_hash)
-        snapshot = copy.deepcopy(dataset)
+        state = self._snapshot(dataset)
+        key = self._make_key(chain_path_hash, data_hash, selector)
         with self._lock:
-            self._backend.set(key, snapshot)
+            prev_evictions = self._backend.eviction_count
+            self._backend.set(key, state)
+            self._eviction_count += self._backend.eviction_count - prev_evictions
+            # Track peak memory
+            current = self._backend.total_size
+            if current > self._peak_bytes:
+                self._peak_bytes = current
+
+    def restore(self, state: CachedStepState, dataset: SpectroDataset) -> None:
+        """Restore cached feature state into a live dataset.
+
+        Deep-copies the cached feature sources back into the dataset and
+        updates the content hash.
+
+        Args:
+            state: Previously cached step state.
+            dataset: Target dataset to restore into.
+        """
+        dataset._features.sources = copy.deepcopy(state.features_sources)
+        dataset._content_hash_cache = state.content_hash
 
     def clear(self) -> None:
-        """Remove all cached entries."""
         with self._lock:
             self._backend.clear()
             self._hit_count = 0
             self._miss_count = 0
+            self._eviction_count = 0
+            self._peak_bytes = 0
 
     def stats(self) -> dict[str, object]:
-        """Return cache statistics for observability.
-
-        Returns:
-            Dict with ``hit_count``, ``miss_count``, ``hit_rate``,
-            and the underlying ``DataCache`` statistics.
-        """
+        """Return cache statistics for observability."""
         with self._lock:
             total = self._hit_count + self._miss_count
             hit_rate = self._hit_count / total if total > 0 else 0.0
             backend_stats = self._backend.stats()
         return {
-            "hit_count": self._hit_count,
-            "miss_count": self._miss_count,
+            "hits": self._hit_count,
+            "misses": self._miss_count,
             "hit_rate": hit_rate,
-            **backend_stats,
+            "evictions": self._eviction_count,
+            "peak_mb": self._peak_bytes / (1024 * 1024),
+            "entries": backend_stats["entries"],
+            "max_entries": backend_stats["max_entries"],
+            "size_mb": backend_stats["size_mb"],
+            "max_size_mb": backend_stats["max_size_mb"],
         }
 
     # ------------------------------------------------------------------
@@ -147,28 +227,38 @@ class StepCache:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _make_key(chain_path_hash: str, data_hash: str) -> str:
-        """Build a composite cache key from the two hash components."""
+    def _make_key(
+        chain_path_hash: str,
+        data_hash: str,
+        selector: Optional[DataSelector] = None,
+    ) -> str:
+        """Build a composite cache key."""
+        if selector is not None:
+            fingerprint = _compute_selector_fingerprint(selector)
+            return f"step:{chain_path_hash}:{data_hash}:{fingerprint}"
         return f"step:{chain_path_hash}:{data_hash}"
 
     @staticmethod
-    def estimate_dataset_size(dataset: SpectroDataset) -> int:
-        """Estimate the in-memory size of a dataset in bytes.
+    def _snapshot(dataset: SpectroDataset) -> CachedStepState:
+        """Create a ``CachedStepState`` from the current dataset.
 
-        Sums ``X.nbytes`` across all sources and processings.
-
-        Args:
-            dataset: Dataset to estimate.
-
-        Returns:
-            Estimated size in bytes.
+        Deep-copies only the feature sources (the only thing preprocessing
+        modifies). Computing ``bytes_estimate`` via numpy nbytes is O(1).
         """
-        total = 0
-        for source in dataset._features.sources:
-            arr = source._storage.array
-            total += arr.nbytes
-        # Add target array size
-        y_arr = dataset._targets._data.get("numeric")
-        if y_arr is not None and isinstance(y_arr, np.ndarray):
-            total += y_arr.nbytes
-        return total
+        sources = copy.deepcopy(dataset._features.sources)
+        processing_names = [
+            list(dataset.features_processings(i))
+            for i in range(len(sources))
+        ]
+
+        # Estimate bytes via numpy nbytes (O(1) per array, no pickle)
+        total_bytes = 0
+        for src in sources:
+            total_bytes += src._storage.nbytes
+
+        return CachedStepState(
+            features_sources=sources,
+            processing_names=processing_names,
+            content_hash=dataset.content_hash(),
+            bytes_estimate=total_bytes,
+        )
