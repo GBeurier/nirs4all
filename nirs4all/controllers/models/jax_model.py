@@ -285,7 +285,13 @@ class JaxModelController(BaseModelController):
 
         # Training loop
         n_samples = X_train.shape[0]
-        steps_per_epoch = n_samples // batch_size
+        steps_per_epoch = max(1, int(np.ceil(n_samples / batch_size)))
+        has_validation = (
+            X_val is not None
+            and y_val is not None
+            and getattr(X_val, "shape", (0,))[0] > 0
+            and getattr(y_val, "shape", (0,))[0] > 0
+        )
 
         best_val_loss = float('inf')
         best_params = None
@@ -310,10 +316,11 @@ class JaxModelController(BaseModelController):
                 state, loss = train_step(state, batch_X, batch_y, step_rng)
                 epoch_loss += loss
 
-            epoch_loss /= steps_per_epoch
+            if steps_per_epoch > 0:
+                epoch_loss /= steps_per_epoch
 
             # Validation
-            if X_val is not None and y_val is not None:
+            if has_validation:
                 val_loss = eval_step(state, X_val, y_val)
 
                 if val_loss < best_val_loss:
@@ -502,4 +509,3 @@ class JaxModelController(BaseModelController):
 
         # Call parent execute method
         return super().execute(step_info, dataset, context, runtime_context, source, mode, loaded_binaries, prediction_store)
-

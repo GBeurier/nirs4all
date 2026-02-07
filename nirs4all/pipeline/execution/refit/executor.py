@@ -217,12 +217,24 @@ def _step_is_splitter(step: Any) -> bool:
 class _FullTrainFoldSplitter:
     """Dummy splitter that yields a single fold with all samples in train."""
 
-    def __init__(self, n_samples: int) -> None:
+    def __init__(self, n_samples: int | None = None) -> None:
+        # Optional fallback when X length cannot be inferred at runtime.
         self._n_samples = n_samples
 
     def split(self, X, y=None, groups=None):
         """Yield a single fold: all indices go to train, empty validation."""
-        yield list(range(self._n_samples)), []
+        n_samples = self._n_samples
+        if X is not None:
+            with contextlib.suppress(Exception):
+                n_samples = int(X.shape[0])
+            if n_samples is None:
+                with contextlib.suppress(Exception):
+                    n_samples = int(len(X))
+
+        if n_samples is None:
+            n_samples = 0
+
+        yield list(range(n_samples)), []
 
     def get_n_splits(self, X=None, y=None, groups=None) -> int:
         """Return 1 (single fold)."""
@@ -240,10 +252,12 @@ def _make_full_train_fold_step(dataset: Any) -> Any:
     """
     try:
         X_train = dataset.x({"partition": "train"}, layout="2d")
-        n_train = X_train.shape[0]
+        n_train = int(X_train.shape[0])
     except Exception:
-        n_train = 100  # Fallback; the splitter will re-measure from X anyway
+        n_train = 100
 
+    # The splitter re-measures from X at execution time so it remains valid
+    # when upstream refit steps change active sample count.
     return _FullTrainFoldSplitter(n_train)
 
 
