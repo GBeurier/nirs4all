@@ -409,3 +409,9 @@ print(df.describe())
 - [Understanding Predictions](understanding_predictions.md) -- Core concepts (chains, partitions, scores)
 - [Exporting Models](exporting_models.md) -- Export the best model for deployment
 - {doc}`/reference/predictions_api` -- Full API reference for PredictionResultsList
+
+```{seealso}
+**Related Examples:**
+- [U04: Visualization](../../../examples/user/01_getting_started/U04_visualization.py) - PredictionAnalyzer methods and visualization options
+- [U02: Basic Regression](../../../examples/user/01_getting_started/U02_basic_regression.py) - Result analysis in complete workflow
+```

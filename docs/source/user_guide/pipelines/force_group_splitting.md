@@ -171,3 +171,9 @@ for train_idx, test_idx in wrapper.split(X, y, groups=sample_ids):
 
 - [Writing Pipelines](./writing_pipelines.md): General pipeline authoring guide
 - {doc}`/reference/pipeline_syntax` - Pipeline syntax reference
+
+```{seealso}
+**Related Examples:**
+- [U02: Group Splitting](../../../examples/user/05_cross_validation/U02_group_splitting.py) - GroupKFold and repetition-aware splitting
+- [U04: Repetition Aggregation](../../../examples/user/05_cross_validation/U04_aggregation.py) - Handling repeated measurements
+```

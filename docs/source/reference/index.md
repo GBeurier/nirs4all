@@ -10,8 +10,10 @@ operator_catalog
 generator_keywords
 combination_generator
 configuration
+configuration/index
 metrics
 predictions_api
+api/session
 cli
 workspace
 storage
@@ -87,6 +89,16 @@ Complete guide to the Predictions and PredictionResultsList objects.
 
 +++
 {bdg-info}`Results`
+:::
+
+:::{grid-item-card} 🔄 Session API
+:link: api/session
+:link-type: doc
+
+Complete API reference for stateful Session workflows and model persistence.
+
++++
+{bdg-info}`Stateful`
 :::
 
 :::{grid-item-card} 💻 CLI Reference

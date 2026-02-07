@@ -284,6 +284,42 @@ for pred in result.top(n=5, display_metrics=['rmse', 'r2']):
     print(f"{pred['model_name']}: RMSE={pred['rmse']:.4f}")
 ```
 
+## Optimize Performance with Caching
+
+When testing many pipeline variants (generators, hyperparameter sweeps), enable caching to reuse preprocessing:
+
+```python
+from nirs4all.config.cache_config import CacheConfig
+from nirs4all.operators.transforms import StandardNormalVariate, SavitzkyGolay
+
+# Pipeline with generators creates many variants
+pipeline = [
+    MinMaxScaler(),
+    ShuffleSplit(n_splits=3),
+    StandardNormalVariate(),  # This step is cached
+    {"_or_": [None, SavitzkyGolay(window_length=11), SavitzkyGolay(window_length=15)]},
+    {"_range_": [5, 20, 5], "param": "n_components", "model": PLSRegression},
+]
+# Creates 3 × 4 = 12 variants
+
+# Enable caching to reuse SNV across all variants
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset="sample_data/regression",
+    cache=CacheConfig(
+        step_cache_enabled=True,        # Reuse preprocessing
+        use_cow_snapshots=True,         # Reduce memory
+        step_cache_max_mb=2048,         # 2 GB cache budget
+    ),
+    verbose=1
+)
+
+print(f"Tested {result.num_predictions} configurations")
+print(f"Best RMSE: {result.best_rmse:.4f}")
+```
+
+**Performance tip**: Caching can speed up generator-heavy pipelines by 2-5×. See {doc}`/user_guide/pipelines/cache_optimization` for details.
+
 ## Run Multiple Pipelines at Once
 
 Pass a list of pipelines to execute them all independently:
@@ -406,3 +442,10 @@ Complete pipeline syntax reference.
 - {doc}`concepts` - Understanding SpectroDataset and pipelines
 - {doc}`/user_guide/preprocessing/overview` - NIRS preprocessing techniques
 - {doc}`/reference/pipeline_syntax` - Complete syntax reference
+
+```{seealso}
+**Related Examples:**
+- [U01: Hello World](../../../examples/user/01_getting_started/U01_hello_world.py) - Your first nirs4all pipeline
+- [U02: Basic Regression](../../../examples/user/01_getting_started/U02_basic_regression.py) - Complete workflow with preprocessing and visualization
+- [Interactive Example Browser](../../examples/index.md) - Browse all 67 examples by topic
+```

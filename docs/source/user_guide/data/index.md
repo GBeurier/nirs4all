@@ -7,6 +7,7 @@ This section covers loading and managing spectroscopic data in NIRS4ALL.
 
 loading_data
 synthetic_data
+signal_types
 aggregation
 sample_filtering
 ```
@@ -36,6 +37,16 @@ Generate realistic synthetic NIRS spectra for testing and prototyping.
 
 +++
 {bdg-info}`New in 0.6`
+:::
+
+:::{grid-item-card} 🔬 Signal Types
+:link: signal_types
+:link-type: doc
+
+Detect and convert between absorbance, reflectance, and other spectral representations.
+
++++
+{bdg-success}`Essential`
 :::
 
 :::{grid-item-card} 📊 Aggregation

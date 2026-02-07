@@ -305,3 +305,8 @@ Memory ≈ base_samples_size + (augmentation_count × features_size)
 - {doc}`augmentations` - Overview of augmentation methods
 - {doc}`synthetic_nirs_generator` - Generate synthetic NIRS data
 - {doc}`/reference/operator_catalog` - Complete operator reference
+
+```{seealso}
+**Related Examples:**
+- [U03: Sample Augmentation](../../../examples/user/03_preprocessing/U03_sample_augmentation.py) - Data augmentation for training set expansion
+```

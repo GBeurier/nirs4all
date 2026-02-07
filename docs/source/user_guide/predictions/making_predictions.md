@@ -279,3 +279,9 @@ print(df.head())
 - [Understanding Predictions](understanding_predictions.md) -- Core concepts
 - [Exporting Models](exporting_models.md) -- Export formats and bundle anatomy
 - [Advanced Predictions](advanced_predictions.md) -- Transfer learning and batch prediction
+
+```{seealso}
+**Related Examples:**
+- [U01: Save, Load, Predict](../../../examples/user/06_deployment/U01_save_load_predict.py) - Basic prediction workflow
+- [U02: Export Bundle](../../../examples/user/06_deployment/U02_export_bundle.py) - Export and load models for prediction
+```

@@ -259,8 +259,256 @@ fig2 = analyzer.plot_heatmap('model_name', 'preprocessings')
 plt.show()
 ```
 
+## Repetition Handling
+
+### Setting Repetition Column
+
+The repetition column identifies which spectra belong to the same physical sample. This is fundamental for proper cross-validation (preventing data leakage) and score aggregation:
+
+```python
+from nirs4all.data import DatasetConfigs
+
+# Create dataset
+dataset = DatasetConfigs("path/to/data")
+
+# Set repetition column from metadata
+dataset.set_repetition('Sample_ID')
+
+# Check current setting
+print(f"Repetition column: {dataset.repetition}")
+```
+
+The repetition column must exist in your metadata. You can also set it at dataset creation time:
+
+```python
+dataset = DatasetConfigs(
+    "path/to/data",
+    repetition="Sample_ID"
+)
+```
+
+### Repetition Statistics
+
+Query statistics about how repetitions are distributed across samples:
+
+```python
+# Get detailed statistics
+stats = dataset.repetition_stats
+
+print(f"Number of unique samples: {stats['n_groups']}")
+print(f"Repetitions per sample: {stats['min']}-{stats['max']} (avg: {stats['mean']:.1f})")
+print(f"Variable counts: {stats['is_variable']}")
+```
+
+The statistics dictionary includes:
+- `n_groups`: Number of unique samples
+- `min`: Minimum repetitions per sample
+- `max`: Maximum repetitions per sample
+- `mean`: Average repetitions per sample
+- `std`: Standard deviation of repetition counts
+- `is_variable`: True if samples have different numbers of repetitions
+
+### Repetition Groups
+
+Access the raw grouping information:
+
+```python
+# Get mapping of sample IDs to row indices
+groups = dataset.repetition_groups
+# Example: {'sample_001': [0, 1, 2, 3], 'sample_002': [4, 5, 6, 7], ...}
+
+# Count samples
+n_samples = len(groups)
+
+# Find which samples have most repetitions
+max_reps = max(len(v) for v in groups.values())
+print(f"Maximum repetitions: {max_reps}")
+```
+
+## Configuring Aggregation
+
+### Enable Aggregation
+
+Aggregation determines how predictions are combined when you have multiple spectra per sample:
+
+```python
+# Aggregate by metadata column (recommended)
+dataset.set_aggregate('Sample_ID')
+
+# Aggregate by target values (y_true)
+dataset.set_aggregate(True)
+
+# Disable aggregation
+dataset.set_aggregate(None)
+
+# Check current setting
+agg_setting = dataset.aggregate
+print(f"Aggregation: {agg_setting}")
+```
+
+When aggregation is enabled, both raw (per-spectrum) and aggregated (per-sample) metrics are computed and displayed.
+
+### Aggregation Methods
+
+Different aggregation methods are available depending on your task:
+
+| Method | Use Case | Description |
+|--------|----------|-------------|
+| `mean` | Regression (default) | Average predictions within each sample group |
+| `median` | Regression (robust) | Median prediction within each group (outlier-resistant) |
+| `robust_mean` | Regression (robust) | Mean after excluding outliers using T² statistic |
+| `vote` | Classification | Majority voting or probability averaging |
+
+Set the aggregation method:
+
+```python
+# Use median instead of mean
+dataset.set_aggregate_method('median')
+
+# Use robust mean (with automatic outlier exclusion)
+dataset.set_aggregate_method('robust_mean')
+
+# Check current method
+method = dataset.aggregate_method
+print(f"Aggregation method: {method}")
+```
+
+### Outlier Exclusion
+
+For robust aggregation, you can enable Hotelling's T² based outlier exclusion:
+
+```python
+# Enable outlier exclusion with 95% confidence threshold
+dataset.set_aggregate_exclude_outliers(True, threshold=0.95)
+
+# Use stricter threshold (99%)
+dataset.set_aggregate_exclude_outliers(True, threshold=0.99)
+
+# Disable outlier exclusion
+dataset.set_aggregate_exclude_outliers(False)
+
+# Check settings
+is_enabled = dataset.aggregate_exclude_outliers
+threshold = dataset.aggregate_outlier_threshold
+print(f"Outlier exclusion: {is_enabled} (threshold: {threshold})")
+```
+
+When enabled, outlier repetitions are identified using the T² statistic and excluded before averaging. This is useful when you have occasional bad measurements within an otherwise good set of repetitions.
+
+## Complete Example
+
+Here's a complete workflow showing repetition handling and aggregation:
+
+```python
+import nirs4all
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import ShuffleSplit
+
+# Load data and configure repetition
+dataset = nirs4all.data.DatasetConfigs("soil_samples/")
+dataset.set_repetition('Sample_ID')
+
+# Inspect repetition statistics
+stats = dataset.repetition_stats
+print(f"{stats['n_groups']} samples with {stats['mean']:.1f} reps each")
+if stats['is_variable']:
+    print(f"Warning: variable repetition counts ({stats['min']}-{stats['max']})")
+
+# Configure aggregation
+dataset.set_aggregate('Sample_ID')
+dataset.set_aggregate_method('robust_mean')
+dataset.set_aggregate_exclude_outliers(True, threshold=0.95)
+
+# Check configuration
+print(f"Aggregation: {dataset.aggregate}")
+print(f"Method: {dataset.aggregate_method}")
+print(f"Outlier exclusion: {dataset.aggregate_exclude_outliers}")
+
+# Run pipeline
+result = nirs4all.run(
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=5, test_size=0.2),
+        {"model": PLSRegression(n_components=10)}
+    ],
+    dataset=dataset,
+    verbose=1
+)
+
+# Results will show both raw and aggregated metrics
+print(f"Best RMSE (raw): {result.best_rmse:.4f}")
+
+# Get predictions with aggregation
+from nirs4all.visualization.predictions import PredictionAnalyzer
+analyzer = PredictionAnalyzer(result.predictions)
+
+# Top models ranked by aggregated metrics
+top_models = result.predictions.top(5, rank_metric='rmse', by_repetition='Sample_ID')
+for i, model in enumerate(top_models, 1):
+    print(f"{i}. {model['model_name']}: RMSE={model['val_score']:.4f}")
+```
+
+## Properties and Methods Reference
+
+### Properties
+
+- `dataset.repetition` → Optional[str]
+
+  Get the column name identifying sample repetitions.
+
+- `dataset.repetition_groups` → Dict[Any, List[int]]
+
+  Get sample groups by repetition column (mapping of sample IDs to row indices).
+
+- `dataset.repetition_stats` → Dict[str, Any]
+
+  Get statistics about repetition counts (n_groups, min, max, mean, std, is_variable).
+
+- `dataset.aggregate` → Optional[str]
+
+  Get the aggregation setting ('y' for target-based, column name, or None).
+
+- `dataset.aggregate_method` → str
+
+  Get the aggregation method ('mean', 'median', 'robust_mean', or 'vote').
+
+- `dataset.aggregate_exclude_outliers` → bool
+
+  Get whether T² outlier exclusion is enabled.
+
+- `dataset.aggregate_outlier_threshold` → float
+
+  Get the outlier detection threshold (0-1).
+
+### Methods
+
+- `dataset.set_repetition(column: Optional[str])` → None
+
+  Set the column name identifying sample repetitions. Pass None to disable.
+
+- `dataset.set_aggregate(value: Union[str, bool, None])` → None
+
+  Enable sample-level aggregation. Pass True for y-based aggregation, column name for metadata-based, or None to disable.
+
+- `dataset.set_aggregate_method(value: Optional[str])` → None
+
+  Set aggregation method ('mean', 'median', 'robust_mean', or 'vote').
+
+- `dataset.set_aggregate_exclude_outliers(value: bool, threshold: float = 0.95)` → None
+
+  Enable/disable T² based outlier exclusion before aggregation.
+
 ## See Also
 
 - {doc}`/reference/predictions_api` - Predictions API reference
 - {doc}`/user_guide/visualization/prediction_charts` - Visualization methods
 - {doc}`/getting_started/index` - Quick start guide
+- {doc}`signal_types` - Signal type detection and conversion
+
+```{seealso}
+**Related Examples:**
+- [U04: Repetition Aggregation](../../../examples/user/05_cross_validation/U04_aggregation.py) - Handle repeated measurements with aggregation
+- [U02: Group Splitting](../../../examples/user/05_cross_validation/U02_group_splitting.py) - Group-aware cross-validation
+- [D03: Repetition Transform](../../../examples/developer/05_advanced_features/D03_repetition_transform.py) - Advanced repetition handling strategies
+```
