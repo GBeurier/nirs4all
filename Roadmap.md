@@ -1,6 +1,6 @@
 ## ROADMAP
 
-[Tests] Parallel tests, smoke CI examples, remove legacy tests.
+[Tests] Remove legacy tests.
 [Docs] Updated
 
 **RELEASE** 0.7.1 - Ready for UI dev

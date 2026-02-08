@@ -60,8 +60,6 @@ python user/01_getting_started/U01_hello_world.py
 # Run with visualizations
 python user/01_getting_started/U02_basic_regression.py --plots --show
 
-# Quick mode (skip deep learning examples)
-./run.sh -q
 ```
 
 ---
