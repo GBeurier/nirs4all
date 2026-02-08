@@ -82,7 +82,6 @@ from nirs4all.pipeline.storage.store_queries import (
     INSERT_PREDICTION_ARRAYS,
     INSERT_RUN,
     INVALIDATE_DATASET_CACHE,
-    UPDATE_PREDICTION,
     UPDATE_ARTIFACT_CACHE_KEY,
     build_aggregated_query,
     build_chain_predictions_query,
@@ -583,46 +582,56 @@ class WorkspaceStore:
         """
         with self._lock:
             conn = self._ensure_open()
-            existing = conn.execute(
-                "SELECT prediction_id FROM predictions "
-                "WHERE pipeline_id = $1 AND chain_id = $2 AND fold_id = $3 AND partition = $4 "
-                "AND model_name = $5 "
-                "LIMIT 1",
-                [pipeline_id, chain_id, fold_id, partition, model_name],
-            ).fetchone()
+
+            # Natural-key lookup includes branch_id to distinguish
+            # predictions from different branches with the same model name.
+            if branch_id is not None:
+                existing = conn.execute(
+                    "SELECT prediction_id FROM predictions "
+                    "WHERE pipeline_id = $1 AND chain_id = $2 AND fold_id = $3 AND partition = $4 "
+                    "AND model_name = $5 AND branch_id = $6 "
+                    "LIMIT 1",
+                    [pipeline_id, chain_id, fold_id, partition, model_name, branch_id],
+                ).fetchone()
+            else:
+                existing = conn.execute(
+                    "SELECT prediction_id FROM predictions "
+                    "WHERE pipeline_id = $1 AND chain_id = $2 AND fold_id = $3 AND partition = $4 "
+                    "AND model_name = $5 AND branch_id IS NULL "
+                    "LIMIT 1",
+                    [pipeline_id, chain_id, fold_id, partition, model_name],
+                ).fetchone()
 
             if existing is not None:
-                # Upsert guard: preserve natural-key idempotency.
-                # Keep the original prediction row identity to avoid FK churn.
+                # Upsert: delete old row and re-insert.
+                # Using DELETE + INSERT instead of UPDATE avoids DuckDB FK
+                # constraint errors that some versions raise when updating a
+                # row referenced by prediction_arrays.
                 prediction_id = str(existing[0])
                 conn.execute(DELETE_PREDICTION_ARRAYS, [prediction_id])
-                conn.execute(UPDATE_PREDICTION, [
-                    prediction_id, pipeline_id, chain_id, dataset_name, model_name,
-                    model_class, fold_id, partition, val_score, test_score, train_score,
-                    metric, task_type, n_samples, n_features,
-                    _to_json(scores), _to_json(best_params),
-                    preprocessings, branch_id, branch_name,
-                    exclusion_count, exclusion_rate, refit_context,
-                ])
-            elif prediction_id is None:
+                conn.execute(DELETE_PREDICTION, [prediction_id])
+            elif prediction_id is not None:
+                # Explicit prediction_id provided — guard against PK collision
+                # from a different natural key (e.g. different chain/branch).
+                pk_existing = conn.execute(
+                    "SELECT 1 FROM predictions WHERE prediction_id = $1",
+                    [prediction_id],
+                ).fetchone()
+                if pk_existing is not None:
+                    conn.execute(DELETE_PREDICTION_ARRAYS, [prediction_id])
+                    conn.execute(DELETE_PREDICTION, [prediction_id])
+
+            if prediction_id is None:
                 prediction_id = str(uuid4())
-                conn.execute(INSERT_PREDICTION, [
-                    prediction_id, pipeline_id, chain_id, dataset_name, model_name,
-                    model_class, fold_id, partition, val_score, test_score, train_score,
-                    metric, task_type, n_samples, n_features,
-                    _to_json(scores), _to_json(best_params),
-                    preprocessings, branch_id, branch_name,
-                    exclusion_count, exclusion_rate, refit_context,
-                ])
-            else:
-                conn.execute(INSERT_PREDICTION, [
-                    prediction_id, pipeline_id, chain_id, dataset_name, model_name,
-                    model_class, fold_id, partition, val_score, test_score, train_score,
-                    metric, task_type, n_samples, n_features,
-                    _to_json(scores), _to_json(best_params),
-                    preprocessings, branch_id, branch_name,
-                    exclusion_count, exclusion_rate, refit_context,
-                ])
+
+            conn.execute(INSERT_PREDICTION, [
+                prediction_id, pipeline_id, chain_id, dataset_name, model_name,
+                model_class, fold_id, partition, val_score, test_score, train_score,
+                metric, task_type, n_samples, n_features,
+                _to_json(scores), _to_json(best_params),
+                preprocessings, branch_id, branch_name,
+                exclusion_count, exclusion_rate, refit_context,
+            ])
             return prediction_id
 
     def save_prediction_arrays(
