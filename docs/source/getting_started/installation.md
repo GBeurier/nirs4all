@@ -12,12 +12,14 @@ pip install nirs4all
 
 This installs:
 - All required dependencies (NumPy, Pandas, Scikit-learn, etc.)
-- TensorFlow (CPU version)
 - Core NIRS4ALL functionality
+
+TensorFlow is optional and available through extras (for example:
+`pip install nirs4all[tensorflow]` or `pip install nirs4all[all]`).
 
 ## Requirements
 
-- **Python 3.9 or higher** (3.11+ recommended)
+- **Python 3.11 or higher**
 - pip (Python package manager)
 
 :::{tip}
@@ -271,4 +273,3 @@ Once installed, continue to:
 - {doc}`quickstart` - Run your first pipeline in 5 minutes
 - {doc}`concepts` - Understand the core concepts
 - {doc}`/examples/index` - Explore working examples
-

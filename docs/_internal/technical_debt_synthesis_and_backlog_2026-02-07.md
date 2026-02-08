@@ -524,6 +524,30 @@ This roadmap translates the structured backlog into concrete implementation guid
 
 ### Phase 0: Quick Wins and Correctness Fixes
 
+#### Phase 0 Progress Update (2026-02-07)
+
+Implementation status on branch `cache_refactoring`:
+
+| ID | Status | Notes |
+|----|--------|-------|
+| D-01 | ✅ Completed | Updated Python minimum version references to `3.11+` in installation, quickstart, and export-bundles docs (`docs/source/user_guide/deployment/export_bundles.md` path in current tree). |
+| D-02 | ✅ Completed | Corrected installation wording: TensorFlow is optional (extras), not part of the base install. |
+| DC-01 | ✅ Completed | Deleted `nirs4all/data/io.py` (fully commented dead file). |
+| DC-02 | ✅ Completed | Removed `PipelineExecutor._filter_binaries_for_branch` (unused no-op). |
+| DC-03 | ✅ Completed | Removed `build_filter_clause` from `store_queries.py` (unused legacy helper). |
+| DC-04 | ✅ Completed | Removed `count_with_constraints`, `get_all_strategies`, `_get_registry_state` (unused). |
+| DC-05 | ✅ Completed | Removed unreachable block after return in `step_runner.py`. |
+| DC-06 | ✅ Completed | Removed no-op cache stubs from `Predictions`; updated `PredictionAnalyzer` to gracefully handle optional prediction-level cache APIs. |
+| C-01 | ✅ Completed | `begin_pipeline(dataset_hash=...)` now uses `dataset.content_hash()` (true dataset hash). |
+| C-02 | ✅ Completed | Refit labels now flow through runtime context and are applied during store flush, so persisted rows are labeled before persistence. |
+| C-03 | ✅ Completed | Fold-key normalization landed: canonical `fold_*` keys in trace/chain/store path with legacy lookup compatibility. |
+| C-04 | ✅ Completed | `nirs4all.api.run(cache=None)` now explicitly sets `CacheConfig()` defaults (CoW snapshots on, step cache off). |
+
+Validation run after implementation:
+
+- `.venv/bin/pytest -q tests/unit/api/test_run_cache_config.py tests/unit/pipeline/execution/test_executor_phase0.py tests/unit/pipeline/trace/test_execution_trace.py tests/unit/pipeline/config/test_context.py tests/unit/visualization/test_prediction_analyzer_default_aggregate.py tests/unit/pipeline/execution/refit/test_refit_executor.py tests/unit/pipeline/execution/refit/test_stacking_refit.py tests/unit/pipeline/execution/refit/test_refit_p2c.py`
+- Result: **248 passed**
+
 #### D-01: Fix Python version in docs [S]
 
 **Files**:
@@ -648,6 +672,32 @@ runner.cache_config = cache if cache is not None else CacheConfig()
 ---
 
 ### Phase 1: Reproducibility and Contract Hardening
+
+#### Phase 1 Progress Update (2026-02-07)
+
+Implementation status on branch `cache_refactoring`:
+
+| ID | Status | Notes |
+|----|--------|-------|
+| R-01 | ✅ Completed | `PipelineConfigs` now propagates a deterministic seed into `expand_spec_with_choices(...)` via `random_state` (explicit arg or root config key). |
+| R-02 | ✅ Completed | Removed global NumPy RNG mutation in loader/row selector paths; both now use local RNG instances. |
+| R-03 | ✅ Completed | Resolver filesystem discovery now sorts run/subdir candidates deterministically before selection. |
+| R-04 | ✅ Completed | Removed import-time root logger mutation from `pipeline_config.py`; logging remains bootstrap-controlled. |
+| R-05 | ✅ Completed | Introduced longer identity hash (16 hex chars) and separate short display hash (8 chars) for pipeline names. |
+| RES-01 | ✅ Completed | Store chain matching now parses and compares `branch_path` structurally (not raw JSON-string equality). |
+| RES-02 | ✅ Completed | Added deterministic chain ordering and explicit `ResolverAmbiguityError` fail-fast behavior on unresolved multi-match cases. |
+| RES-03 | ✅ Completed | Added resolver determinism integration coverage in `tests/integration/test_resolver_determinism.py`. |
+| CT-01 | ✅ Completed | Chain replay now passes `wavelengths` to transformers when supported (signature/kwargs/mixin-aware). |
+| CT-02 | ✅ Completed | Artifact dedup now verifies full content hash before reusing short-hash filename matches. |
+| CT-03 | ✅ Completed | Added prediction upsert guard for explicit-ID writes on natural keys (idempotent persistence path) plus supporting index. |
+| CT-04 | ✅ Completed | Runtime prediction persistence now routes through `Predictions.flush(...)` (single authoritative write path). |
+| CT-05 | ✅ Completed | Resolver mode policy implemented: `"auto"`, `"store"`, `"filesystem"` with store-miss fallback observability in auto mode. |
+
+Validation run after implementation:
+
+- `.venv/bin/pytest -q tests/unit/pipeline/config/test_pipeline_config.py tests/unit/data/loaders/test_loader_random_state.py tests/unit/data/selection/test_row_selector.py tests/unit/pipeline/test_resolver.py tests/integration/test_resolver_determinism.py tests/unit/pipeline/storage/test_workspace_store.py tests/unit/pipeline/storage/artifacts/test_artifact_registry.py tests/unit/data/test_predictions_store.py tests/unit/pipeline/execution/test_executor_phase0.py tests/unit/pipeline/storage/test_chain_replay.py`
+- `.venv/bin/pytest -q tests/unit/pipeline/execution/refit/test_refit_infrastructure.py`
+- Result: **220 passed**
 
 #### R-01: Propagate seed into generator expansion [S]
 
@@ -779,6 +829,24 @@ Tests:
 
 ### Phase 2: Performance Hardening
 
+#### Phase 2 Progress Update (2026-02-08)
+
+Implementation status on branch `cache_refactoring`:
+
+| ID | Status | Notes |
+|----|--------|-------|
+| P-01 | ✅ Completed | Shape tracing is now gated at `verbose >= 2`; executor caches traced shape metadata by selector + dataset-structure key to avoid repeated 2D/3D materialization when unchanged. |
+| P-02 | ✅ Completed | `ArtifactLoader` now builds step/branch/source indexes at manifest import and resolves `load_for_step()` via indexed candidate sets instead of full artifact scans. |
+| P-03 | ✅ Completed | Prediction flush chain resolution now pre-indexes chain rows by step/branch/class/preprocessing and performs O(1)-style lookup per prediction row. |
+| P-04 | ✅ Completed | Default runner/orchestrator behavior is now `keep_datasets=False`; when enabled, preprocessed snapshots are bounded via `max_preprocessed_snapshots_per_dataset` (default `3`). |
+| P-05 | ✅ Completed | `SpectroDataset.get_dataset_metadata()` hash generation now uses `content_hash()` (non-materializing path), removing the prior `x(..., layout="2d")` metadata hashing materialization. |
+
+Validation run after implementation:
+
+- `.venv/bin/pytest -q tests/unit/pipeline/execution/test_executor_phase0.py tests/unit/pipeline/storage/artifacts/test_artifact_loader.py tests/unit/pipeline/test_runner_state.py tests/unit/test_hashing.py`
+- `.venv/bin/pytest -q tests/unit/pipeline/test_runner_comprehensive.py::TestRunnerInitialization`
+- Result: **85 passed**
+
 #### P-01: Gate shape tracing [M]
 
 **File**: `nirs4all/pipeline/execution/executor.py:691,710,575,595,1090,1098`
@@ -822,6 +890,25 @@ Tests:
 ---
 
 ### Phase 3: Architecture Consolidation
+
+#### Phase 3 Progress Update (2026-02-08)
+
+Implementation status on branch `cache_refactoring`:
+
+| ID | Status | Notes |
+|----|--------|-------|
+| A-01 | ✅ Completed | Consolidated runtime CSV loading to the modern `csv_loader_new` stack. Legacy `csv_loader.py` is now a deprecation shim that delegates to the unified implementation; internal loader paths now import from `csv_loader_new` directly. |
+| A-02 | ✅ Completed | Added shared `ArtifactQueryService` + `ArtifactQuerySpec` and refactored artifact lookup/filtering in `ArtifactLoader`, `LoaderArtifactProvider`, `MinimalArtifactProvider`, and `ArtifactRegistry` to use a single query contract for branch/source/substep/fold/pipeline matching. |
+| A-03 | ✅ Completed | Refactored `Predictor` into a unified prediction execution engine with strategy hooks (`minimal` vs `full`) to eliminate duplicated setup logic for selector/context/executor/runtime wiring. |
+| A-04 | ✅ Completed | Confirmed dormant `LazyDataset`/`LazyArray` and prediction cache stubs are removed; `nirs4all.data.performance` now exposes active cache components only (`DataCache`, `CacheEntry`) with regression coverage. |
+| A-05 | ✅ Completed | Enforced explicit workspace injection for runtime-critical orchestration: `PipelineOrchestrator` now requires an explicit `workspace_path`; default/global workspace resolution remains at the `PipelineRunner` convenience layer. |
+| A-06 | ✅ Completed | Removed JAX transformer placeholder path in `nicon.py` by consolidating to one concrete `TransformerBlock` implementation and updating transformer builder usage accordingly. |
+| A-07 | ✅ Completed | Adopted `pipeline/run.py` as public API: exported run entities/helpers through `nirs4all.pipeline` and top-level `nirs4all`, with dedicated unit tests for transitions/roundtrip/metric helpers and API exposure. |
+
+Validation run after implementation:
+
+- `.venv/bin/pytest -q tests/unit/data/loaders/test_csv_loader.py tests/unit/data/loaders/test_csv_loader_new.py tests/unit/pipeline/storage/artifacts/test_artifact_loader.py tests/unit/pipeline/storage/artifacts/test_artifact_registry.py tests/unit/pipeline/config/test_context.py tests/unit/pipeline/test_runner_state.py tests/unit/pipeline/test_runner_predict.py -k 'not controls_entropy' tests/unit/pipeline/test_run_entities.py tests/unit/pipeline/execution/test_orchestrator_workspace_injection.py tests/unit/data/performance/test_exports.py`
+- Result: **158 passed, 1 deselected**
 
 #### A-01: Consolidate CSV loader stacks [L]
 
@@ -871,6 +958,26 @@ Tests:
 ---
 
 ### Phase 4: Quality Gates and CI
+
+#### Phase 4 Progress Update (2026-02-08)
+
+Implementation status on branch `cache_refactoring`:
+
+| ID | Status | Notes |
+|----|--------|-------|
+| Q-01 | ✅ Completed | Added unused-symbol debt ratchet for `F401/F841` via `scripts/ci/check_unused_symbol_budget.py` with baseline snapshot file `.github/quality/ruff_unused_budget.json`; wired into `CI.yaml`, `pre-publish.yml`, and `publish.yml`. |
+| Q-02 | ✅ Completed | Added per-file C901 complexity budget ratchet via `scripts/ci/check_complexity_budget.py` with baseline `.github/quality/ruff_c901_budget.json`; CI fails on per-file count/max regression. |
+| Q-03 | ✅ Completed | Added Stage 1 coverage threshold policy file `.github/quality/coverage_stage1_thresholds.json` and enforcement script `scripts/ci/check_coverage_thresholds.py`; wired to full-test workflows (`pre-publish.yml`, `publish.yml`) after coverage JSON generation. |
+| Q-04 | ✅ Completed | Added fold-key contract integration test `tests/integration/storage/test_fold_key_contract.py` validating canonical fold key normalization across trace → chain → store → replay and `fold_final` replay preference. |
+| Q-05 | ✅ Completed | Resolver deterministic-selection integration coverage remains active in `tests/integration/test_resolver_determinism.py` (structural branch matching, ambiguity fail-fast, mode policy behavior). |
+| Q-06 | ✅ Completed | Added persisted-refit-label integration test `tests/integration/pipeline/test_refit_persistence_contract.py` asserting flush-time REFIT overrides persist to store rows (`fold_id="final"`, `refit_context="standalone"`). |
+
+Validation run after implementation:
+
+- `python scripts/ci/check_unused_symbol_budget.py`
+- `python scripts/ci/check_complexity_budget.py --max-complexity 10`
+- `python -m pytest -q tests/integration/storage/test_fold_key_contract.py tests/integration/test_resolver_determinism.py tests/integration/pipeline/test_refit_persistence_contract.py`
+- Result: **5 passed**
 
 #### Q-01: Unused symbol enforcement [M]
 
