@@ -61,4 +61,12 @@ jobs:
 
       - name: Run quick pytest
         run: |
-          python -m pytest -v tests/integration/pipeline/
+          # Serial subset with known write-contention under heavy xdist load
+          python -m pytest -v \
+            tests/integration/pipeline/test_merge_mixed.py \
+            tests/integration/pipeline/test_merge_per_branch.py
+
+          # Parallel remainder
+          python -m pytest -v -n auto --dist worksteal tests/integration/pipeline/ \
+            --ignore=tests/integration/pipeline/test_merge_mixed.py \
+            --ignore=tests/integration/pipeline/test_merge_per_branch.py
