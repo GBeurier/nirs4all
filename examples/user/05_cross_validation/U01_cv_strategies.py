@@ -200,7 +200,7 @@ pipeline_stratified = [
     # Stratified 3-fold
     StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
 
-    {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
+    {"model": RandomForestClassifier(n_estimators=5, random_state=42)},
 ]
 
 result_stratified = nirs4all.run(
@@ -234,7 +234,7 @@ pipeline_strat_shuffle = [
     # Stratified random splits
     StratifiedShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
 
-    {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
+    {"model": RandomForestClassifier(n_estimators=5, random_state=42)},
 ]
 
 result_strat_shuffle = nirs4all.run(
