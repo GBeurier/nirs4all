@@ -56,7 +56,6 @@ pytest --cov=nirs4all             # With coverage
 ./run.sh                          # All examples
 ./run.sh -c user                  # User examples only
 ./run.sh -n "U01*"                # By pattern
-./run.sh -q                       # Quick (skip deep learning)
 
 # Code quality
 ruff check .                      # Linting
@@ -210,7 +209,7 @@ docs/source/        # Sphinx documentation
 * Deep learning backends (TensorFlow, PyTorch, JAX) are **lazy-loaded**
 * YAML note: tuples may convert to lists during serialization
 * Actively remove deprecated and dead code
-* After API changes, run: `cd examples && ./run.sh -q`
+* After API changes, run: `cd examples && ./run.sh`
 
 ---
 

@@ -11,7 +11,6 @@ set -uo pipefail
 # Options:
 #   -c CATEGORY  Category: user, developer, reference, all (default: all)
 #   -j JOBS      Parallel workers for example execution (default: 1)
-#   -q           Quick mode: skip deep learning examples
 #   -s           Strict mode: fail on warning/invalid patterns (default: true)
 #   -v           Verbose: show example output on warnings/failures
 #   -k           Keep going: don't stop on first failure (always implied for -j > 1)
@@ -23,7 +22,6 @@ set -uo pipefail
 # =============================================================================
 
 CATEGORY="all"
-QUICK=0
 STRICT=1
 VERBOSE=0
 KEEP_GOING=0
@@ -45,7 +43,6 @@ Usage: ./run_ci_examples.sh [OPTIONS]
 Options:
   -c CATEGORY  Category: user, developer, reference, all (default: all)
   -j JOBS      Parallel workers for example execution (default: 1)
-  -q           Quick mode: skip deep learning examples
   -s           Strict mode: fail on warning/invalid patterns (default: true)
   -v           Verbose: show example output on warnings/failures
   -k           Keep going: don't stop on first failure
@@ -54,21 +51,20 @@ Options:
 Examples:
   ./run_ci_examples.sh
   ./run_ci_examples.sh -c user -j 4
-  ./run_ci_examples.sh -c all -q -j 6 -k
+  ./run_ci_examples.sh -c all -j 6 -k
 EOF
     exit 0
 }
 
-while getopts "c:j:qsvkh" opt; do
+while getopts "c:j:svkh" opt; do
     case "$opt" in
         c) CATEGORY="$OPTARG" ;;
         j) JOBS="$OPTARG" ;;
-        q) QUICK=1 ;;
         s) STRICT=1 ;;
         v) VERBOSE=1 ;;
         k) KEEP_GOING=1 ;;
         h) show_help ;;
-        *) echo "Usage: $0 [-c category] [-j jobs] [-q] [-s] [-v] [-k] [-h]"; exit 1 ;;
+        *) echo "Usage: $0 [-c category] [-j jobs] [-s] [-v] [-k] [-h]"; exit 1 ;;
     esac
 done
 shift $((OPTIND - 1))
@@ -167,7 +163,6 @@ echo "CI Examples Runner - Local Validation" | tee "$SUMMARY_FILE"
 echo "======================================" | tee -a "$SUMMARY_FILE"
 echo "Timestamp: $(date)" | tee -a "$SUMMARY_FILE"
 echo "Category: $CATEGORY" | tee -a "$SUMMARY_FILE"
-echo "Quick mode: $QUICK" | tee -a "$SUMMARY_FILE"
 echo "Strict mode: $STRICT" | tee -a "$SUMMARY_FILE"
 echo "Jobs: $JOBS" | tee -a "$SUMMARY_FILE"
 echo "Fast mode: $FAST_MODE" | tee -a "$SUMMARY_FILE"
@@ -305,25 +300,6 @@ reference_examples=(
     "reference/R04_legacy_api.py"
 )
 
-dl_examples=(
-    "D01_pytorch_models.py"
-    "D02_jax_models.py"
-    "D03_tensorflow_models.py"
-    "D04_framework_comparison.py"
-)
-
-is_dl_example() {
-    local example="$1"
-    local base
-    base=$(basename "$example")
-    for dl in "${dl_examples[@]}"; do
-        if [[ "$base" == "$dl" ]]; then
-            return 0
-        fi
-    done
-    return 1
-}
-
 selected_examples=()
 case "$CATEGORY" in
     user)      selected_examples=("${user_examples[@]}") ;;
@@ -339,9 +315,6 @@ esac
 filtered_examples=()
 for ex in "${selected_examples[@]}"; do
     if [ -f "$ex" ]; then
-        if [ "$QUICK" -eq 1 ] && is_dl_example "$ex"; then
-            continue
-        fi
         filtered_examples+=("$ex")
     fi
 done

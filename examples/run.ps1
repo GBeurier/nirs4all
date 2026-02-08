@@ -29,16 +29,12 @@
 .PARAMETER Show
     Show plots interactively
 
-.PARAMETER Quick
-    Quick mode: skip deep learning examples
-
 .EXAMPLE
     ./run.ps1                     # Run all examples
     ./run.ps1 -c user             # Run only User path examples
     ./run.ps1 -c legacy           # Run only legacy Q*/X* examples
     ./run.ps1 -i 1                # Run first example
     ./run.ps1 -n "U01*.py"        # Run by name pattern
-    ./run.ps1 -q                  # Skip deep learning examples
     ./run.ps1 -l -p               # Enable logging and plots
 #>
 
@@ -65,10 +61,7 @@ param(
     [switch]$Plot,
 
     [Alias('s')]
-    [switch]$Show,
-
-    [Alias('q')]
-    [switch]$Quick
+    [switch]$Show
 )
 
 # =============================================================================
@@ -224,28 +217,9 @@ $legacyExamples = @(
     "legacy/baseline_sota.py"
 )
 
-# Deep learning examples to skip in quick mode (basenames)
-$dlExamplesPatterns = @(
-    "D01_pytorch_models.py"
-    "D02_jax_models.py"
-    "D03_tensorflow_models.py"
-    "D04_framework_comparison.py"
-    "Q15_jax_models.py"
-    "Q16_pytorch_models.py"
-    "Q17_nicon_comparison.py"
-    "Q5_predict_NN.py"
-    "X3_hiba_full.py"
-)
-
 # =============================================================================
 # Build Examples List
 # =============================================================================
-
-function Is-DLExample {
-    param([string]$example)
-    $basename = Split-Path -Leaf $example
-    return $dlExamplesPatterns -contains $basename
-}
 
 # Build selected examples based on category
 $examples = @()
@@ -274,12 +248,6 @@ switch ($Category.ToLower()) {
 # Filter to existing files only
 $selectedExamples = $examples | Where-Object { Test-Path $_ }
 
-# Apply quick mode filter
-if ($Quick) {
-    $selectedExamples = $selectedExamples | Where-Object { -not (Is-DLExample $_) }
-    Write-Host "Quick mode: Skipping deep learning examples" -ForegroundColor Yellow
-}
-
 if ($selectedExamples.Count -eq 0) {
     Write-Host "No examples found for category '$Category'." -ForegroundColor Red
     Write-Host "Make sure examples exist in the expected locations."
@@ -300,7 +268,6 @@ if ($Log) {
     "=================================================" | Out-File -FilePath $logFile -Encoding UTF8
     "Log started at: $(Get-Date)" | Out-File -FilePath $logFile -Append -Encoding UTF8
     "Category: $Category" | Out-File -FilePath $logFile -Append -Encoding UTF8
-    "Quick mode: $Quick" | Out-File -FilePath $logFile -Append -Encoding UTF8
     "=================================================" | Out-File -FilePath $logFile -Append -Encoding UTF8
     "" | Out-File -FilePath $logFile -Append -Encoding UTF8
 }

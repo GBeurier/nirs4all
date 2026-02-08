@@ -126,10 +126,14 @@ jobs:
           retention-days: 3
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # Verify examples (quick mode)
+  # Verify examples (parallelized by category)
   # ═══════════════════════════════════════════════════════════════════════════
   verify-examples:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        category: [user, developer, reference]
     steps:
       - name: Free disk space
         run: |
@@ -158,11 +162,11 @@ jobs:
           python -m pip install -r requirements-examples.txt
           python -m pip install -e .
 
-      - name: Run all examples (quick mode)
+      - name: Run ${{ matrix.category }} examples
         run: |
           cd examples
           chmod +x run.sh
-          ./run.sh -q
+          ./run.sh -c ${{ matrix.category }}
         timeout-minutes: 30
 
   # ═══════════════════════════════════════════════════════════════════════════

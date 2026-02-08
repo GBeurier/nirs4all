@@ -376,7 +376,7 @@ print(result)
    - Pick an issue from GitHub
    - Fix bugs or add features
    - Write tests (`pytest tests/`)
-   - Run examples (`cd examples && ./run.sh -q`)
+   - Run examples (`cd examples && ./run.sh`)
    - Submit PR
 
 ### Key Resources
@@ -526,7 +526,7 @@ A structured plan for your first week contributing to NIRS4ALL:
 
 **Afternoon:**
 - [ ] Run tests: `pytest tests/`
-- [ ] Run examples: `cd examples && ./run.sh -q`
+- [ ] Run examples: `cd examples && ./run.sh`
 - [ ] Submit PR (or keep in draft for feedback)
 
 **Output**: Your first contribution!

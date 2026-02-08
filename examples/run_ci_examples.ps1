@@ -9,7 +9,6 @@ param(
     [ValidateSet("user", "developer", "reference", "all")]
     [string]$Category = "all",
 
-    [switch]$Quick,
     [switch]$Strict = $true,
     [switch]$VerboseOutput,
     [switch]$KeepGoing,
@@ -121,7 +120,6 @@ Write-Log "CI Examples Runner - Local Validation"
 Write-Log "======================================"
 Write-Log "Timestamp: $(Get-Date)"
 Write-Log "Category: $Category"
-Write-Log "Quick mode: $Quick"
 Write-Log "Strict mode: $Strict"
 Write-Log "Jobs: $Jobs"
 Write-Log "Fast mode: $FastMode"
@@ -259,19 +257,6 @@ $ReferenceExamples = @(
     "reference/R04_legacy_api.py"
 )
 
-$DlExamples = @(
-    "D01_pytorch_models.py"
-    "D02_jax_models.py"
-    "D03_tensorflow_models.py"
-    "D04_framework_comparison.py"
-)
-
-function Test-IsDlExample {
-    param([string]$Example)
-    $basename = Split-Path -Leaf $Example
-    return $DlExamples -contains $basename
-}
-
 $SelectedExamples = switch ($Category) {
     "user" { $UserExamples }
     "developer" { $DeveloperExamples }
@@ -282,9 +267,6 @@ $SelectedExamples = switch ($Category) {
 $FilteredExamples = @()
 foreach ($ex in $SelectedExamples) {
     if (Test-Path $ex) {
-        if ($Quick -and (Test-IsDlExample $ex)) {
-            continue
-        }
         $FilteredExamples += $ex
     }
 }
