@@ -334,12 +334,15 @@ class BranchController(OperatorController):
         else:
             logger.info(f"Creating {n_branches} duplication branches")
 
+        # Determine CoW mode from cache config
+        use_cow = self._use_cow_snapshots(runtime_context)
+
         # Store the initial context as a snapshot point
         initial_context = context.copy()
         initial_processing = copy.deepcopy(context.selector.processing)
 
         # Snapshot the dataset's feature state before branching
-        initial_features_snapshot = self._snapshot_features(dataset)
+        initial_features_snapshot = self._snapshot_features(dataset, use_cow=use_cow)
 
         # V3: Snapshot the chain state before branching
         initial_chain = recorder.current_chain() if recorder else None
@@ -384,7 +387,7 @@ class BranchController(OperatorController):
             branch_context.selector.processing = copy.deepcopy(initial_processing)
 
             # Restore dataset features to initial state for this branch
-            self._restore_features(dataset, initial_features_snapshot)
+            self._restore_features(dataset, initial_features_snapshot, use_cow=use_cow)
 
             # Reset artifact load counter for this branch
             if runtime_context:
@@ -447,7 +450,7 @@ class BranchController(OperatorController):
                 recorder.exit_branch()
 
             # Snapshot features AFTER branch processing completes
-            branch_features_snapshot = self._snapshot_features(dataset)
+            branch_features_snapshot = self._snapshot_features(dataset, use_cow=use_cow)
 
             # Store the final context for this branch
             branch_contexts.append({
@@ -458,6 +461,7 @@ class BranchController(OperatorController):
                 "features_snapshot": branch_features_snapshot,
                 "chain_snapshot": branch_chain_snapshot,
                 "branch_mode": "duplication",
+                "use_cow": use_cow,
             })
 
             logger.success(f"  Branch {branch_id} ({branch_name}) completed")
@@ -465,6 +469,9 @@ class BranchController(OperatorController):
         # V3: End branch step in trace
         if recorder is not None:
             recorder.end_step()
+
+        # Release the initial snapshot (no longer needed after all branches executed)
+        self._release_snapshot(initial_features_snapshot, use_cow=use_cow)
 
         # Store branch contexts in custom dict for post-branch iteration
         existing_branches = context.custom.get("branch_contexts", [])
@@ -1066,12 +1073,15 @@ class BranchController(OperatorController):
                 },
             )
 
+        # Determine CoW mode from cache config
+        use_cow = self._use_cow_snapshots(runtime_context)
+
         logger.info(f"  Creating {n_branches} separation branches ({separation_type})")
 
         # Store initial context as snapshot
         initial_context = context.copy()
         initial_processing = copy.deepcopy(context.selector.processing)
-        initial_features_snapshot = self._snapshot_features(dataset)
+        initial_features_snapshot = self._snapshot_features(dataset, use_cow=use_cow)
 
         # V3: Snapshot chain state
         initial_chain = recorder.current_chain() if recorder else None
@@ -1102,7 +1112,7 @@ class BranchController(OperatorController):
                     recorder.reset_chain_to(initial_chain)
 
             # Restore features to initial state
-            self._restore_features(dataset, initial_features_snapshot)
+            self._restore_features(dataset, initial_features_snapshot, use_cow=use_cow)
 
             # Create isolated context for this branch
             branch_context = initial_context.copy()
@@ -1177,7 +1187,7 @@ class BranchController(OperatorController):
                 recorder.exit_branch()
 
             # Snapshot features after processing
-            branch_features_snapshot = self._snapshot_features(dataset)
+            branch_features_snapshot = self._snapshot_features(dataset, use_cow=use_cow)
 
             # Store branch context
             branch_contexts.append({
@@ -1188,6 +1198,7 @@ class BranchController(OperatorController):
                 "chain_snapshot": branch_chain_snapshot,
                 "branch_mode": "separation",
                 "sample_indices": branch_sample_indices.tolist() if isinstance(branch_sample_indices, np.ndarray) else list(branch_sample_indices),
+                "use_cow": use_cow,
             })
 
             logger.success(f"    Branch {branch_id} '{branch_name}' completed")
@@ -1195,6 +1206,9 @@ class BranchController(OperatorController):
         # V3: End branch step
         if recorder is not None:
             recorder.end_step()
+
+        # Release the initial snapshot (no longer needed after all branches executed)
+        self._release_snapshot(initial_features_snapshot, use_cow=use_cow)
 
         # Handle nested branching
         existing_branches = context.custom.get("branch_contexts", [])
@@ -1385,6 +1399,15 @@ class BranchController(OperatorController):
     # Helper Methods
     # =========================================================================
 
+    def _use_cow_snapshots(self, runtime_context: "RuntimeContext") -> bool:
+        """Check if CoW snapshots are enabled via CacheConfig."""
+        if runtime_context is None:
+            return False
+        cache_config = getattr(runtime_context, "cache_config", None)
+        if cache_config is None:
+            return False
+        return getattr(cache_config, "use_cow_snapshots", False)
+
     def _get_source_names(
         self,
         dataset: "SpectroDataset",
@@ -1507,17 +1530,70 @@ class BranchController(OperatorController):
 
         return result
 
-    def _snapshot_features(self, dataset: "SpectroDataset") -> List[Any]:
-        """Create a deep copy of the dataset's feature sources."""
+    def _snapshot_features(self, dataset: "SpectroDataset", use_cow: bool = False) -> List[Any]:
+        """Create a snapshot of the dataset's feature sources.
+
+        Args:
+            dataset: The dataset to snapshot.
+            use_cow: If True, use copy-on-write shared references instead of
+                deep-copying.  CoW avoids allocating full copies for branches
+                that only read the feature arrays (e.g. model-training steps).
+
+        Returns:
+            A snapshot representation.  With CoW this is a lightweight list of
+            ``(SharedBlocks, processing_ids, headers, header_unit)`` tuples.
+            Without CoW it is a deep-copied list of ``FeatureSource`` objects.
+        """
+        if use_cow:
+            snapshot = []
+            for source in dataset._features.sources:
+                snapshot.append((
+                    source._storage.ensure_shared().acquire(),
+                    source._processing_mgr.processing_ids,  # returns a copy
+                    list(source._header_mgr.headers) if source._header_mgr.headers else None,
+                    source._header_mgr.header_unit,
+                ))
+            return snapshot
         return copy.deepcopy(dataset._features.sources)
 
     def _restore_features(
         self,
         dataset: "SpectroDataset",
-        snapshot: List[Any]
+        snapshot: List[Any],
+        use_cow: bool = False,
     ) -> None:
-        """Restore the dataset's feature sources from a snapshot."""
-        dataset._features.sources = copy.deepcopy(snapshot)
+        """Restore the dataset's feature sources from a snapshot.
+
+        Args:
+            dataset: The dataset to restore into.
+            snapshot: Snapshot created by ``_snapshot_features``.
+            use_cow: Must match the flag used when the snapshot was taken.
+        """
+        if use_cow:
+            for source, (shared, proc_ids, headers, header_unit) in zip(
+                dataset._features.sources, snapshot
+            ):
+                source._storage.restore_from_shared(shared.acquire())
+                source._processing_mgr.reset_processings(proc_ids)
+                source._header_mgr.set_headers(headers, unit=header_unit)
+        else:
+            dataset._features.sources = copy.deepcopy(snapshot)
+
+    def _release_snapshot(self, snapshot: List[Any], use_cow: bool = False) -> None:
+        """Release shared references in a CoW snapshot.
+
+        Should be called when a branch snapshot is no longer needed to allow
+        prompt memory reclamation.
+
+        Args:
+            snapshot: Snapshot created by ``_snapshot_features``.
+            use_cow: Must match the flag used when the snapshot was taken.
+        """
+        if not use_cow:
+            return
+        for item in snapshot:
+            shared = item[0]
+            shared.release()
 
     def _record_dataset_shapes(
         self,

@@ -399,3 +399,9 @@ dataset = DatasetConfigs({
 - {doc}`/reference/configuration` - Full DatasetConfigs specification
 - {doc}`sample_filtering` - Filter samples during loading
 - {doc}`aggregation` - Aggregate multiple measurements
+
+```{seealso}
+**Related Examples:**
+- [U01: Flexible Inputs](../../../examples/user/02_data_handling/U01_flexible_inputs.py) - All data input formats and options
+- [U02: Multi-Datasets](../../../examples/user/02_data_handling/U02_multi_datasets.py) - Analyze multiple datasets in one run
+```

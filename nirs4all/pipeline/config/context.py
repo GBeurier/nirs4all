@@ -32,6 +32,13 @@ from copy import deepcopy
 from collections.abc import MutableMapping
 from abc import ABC, abstractmethod
 
+from nirs4all.pipeline.trace.execution_trace import (
+    fold_key_candidates,
+    normalize_fold_key,
+    parse_numeric_fold_key,
+)
+from nirs4all.pipeline.storage.artifacts.query_service import ArtifactQuerySpec
+
 
 class ExecutionPhase(Enum):
     """Phase of pipeline execution.
@@ -414,7 +421,11 @@ class ArtifactProvider(ABC):
     """
 
     @abstractmethod
-    def get_artifact(self, step_index: int, fold_id: Optional[int] = None) -> Optional[Any]:
+    def get_artifact(
+        self,
+        step_index: int,
+        fold_id: Optional[int | str] = None,
+    ) -> Optional[Any]:
         """Get a single artifact for a step.
 
         Args:
@@ -582,7 +593,11 @@ class MapArtifactProvider(ArtifactProvider):
         self.primary_artifacts = primary_artifacts or {}
         self.source_artifact_map: Dict[Tuple[int, int], List[Tuple[str, Any]]] = source_artifact_map or {}
 
-    def get_artifact(self, step_index: int, fold_id: Optional[int] = None) -> Optional[Any]:
+    def get_artifact(
+        self,
+        step_index: int,
+        fold_id: Optional[int | str] = None,
+    ) -> Optional[Any]:
         """Get a single artifact for a step.
 
         If fold_id is specified, returns the fold-specific artifact.
@@ -600,6 +615,7 @@ class MapArtifactProvider(ArtifactProvider):
             return None
 
         if fold_id is not None:
+            candidates = set(fold_key_candidates(fold_id))
             # Look for fold-specific artifact by parsing the trailing
             # fold number from the artifact ID.  Supports both legacy
             # IDs ("pipeline:step:fold") and V3 chain-based IDs
@@ -607,9 +623,12 @@ class MapArtifactProvider(ArtifactProvider):
             for artifact_id, obj in artifacts:
                 parts = artifact_id.split(":")
                 if len(parts) >= 2:
+                    if parts[-1] in candidates or normalize_fold_key(parts[-1]) in candidates:
+                        return obj
                     try:
                         artifact_fold = int(parts[-1])
-                        if artifact_fold == fold_id:
+                        numeric_fold = parse_numeric_fold_key(fold_id)
+                        if numeric_fold is not None and artifact_fold == numeric_fold:
                             return obj
                     except ValueError:
                         pass
@@ -711,7 +730,7 @@ class MapArtifactProvider(ArtifactProvider):
         artifacts = self.artifact_map.get(step_index, [])
         for artifact_id, obj in artifacts:
             parts = artifact_id.split(":")
-            if len(parts) >= 2 and parts[-1] == "final":
+            if len(parts) >= 2 and normalize_fold_key(parts[-1]) == "fold_final":
                 return obj
         return None
 
@@ -749,7 +768,31 @@ class LoaderArtifactProvider(ArtifactProvider):
         self.loader = loader
         self.trace = trace
 
-    def get_artifact(self, step_index: int, fold_id: Optional[int] = None) -> Optional[Any]:
+    @staticmethod
+    def _resolve_fold_artifact_id(step_artifacts: Any, fold_id: int | str) -> Optional[str]:
+        """Resolve a fold artifact ID from StepArtifacts or a test double."""
+        if step_artifacts is None:
+            return None
+
+        getter = getattr(step_artifacts, "get_fold_artifact_id", None)
+        if callable(getter):
+            candidate = getter(fold_id)
+            if isinstance(candidate, str):
+                return candidate
+
+        fold_map = getattr(step_artifacts, "fold_artifact_ids", None)
+        if isinstance(fold_map, dict):
+            for key in fold_key_candidates(fold_id):
+                candidate = fold_map.get(key)
+                if isinstance(candidate, str):
+                    return candidate
+        return None
+
+    def get_artifact(
+        self,
+        step_index: int,
+        fold_id: Optional[int | str] = None,
+    ) -> Optional[Any]:
         """Get a single artifact for a step.
 
         If trace is available, uses trace to find artifact IDs.
@@ -766,7 +809,7 @@ class LoaderArtifactProvider(ArtifactProvider):
             step = self.trace.get_step(step_index)
             if step and step.artifacts:
                 if fold_id is not None and step.artifacts.fold_artifact_ids:
-                    artifact_id = step.artifacts.fold_artifact_ids.get(fold_id)
+                    artifact_id = self._resolve_fold_artifact_id(step.artifacts, fold_id)
                     if artifact_id:
                         return self.loader.load_by_id(artifact_id)
                 elif step.artifacts.primary_artifact_id:
@@ -776,7 +819,8 @@ class LoaderArtifactProvider(ArtifactProvider):
             return None
 
         # Fallback: use loader's step-based lookup
-        artifacts = self.loader.load_for_step(step_index=step_index, fold_id=fold_id)
+        numeric_fold_id = parse_numeric_fold_key(fold_id) if fold_id is not None else None
+        artifacts = self.loader.load_for_step(step_index=step_index, fold_id=numeric_fold_id)
         if artifacts:
             return artifacts[0][1]
         return None
@@ -801,12 +845,13 @@ class LoaderArtifactProvider(ArtifactProvider):
         Returns:
             List of (artifact_id, artifact_object) tuples
         """
-        # Determine target branch for filtering
-        target_branch: Optional[int] = None
-        if branch_path is not None and len(branch_path) > 0:
-            target_branch = branch_path[0]
-        elif branch_id is not None:
-            target_branch = branch_id
+        spec = ArtifactQuerySpec(
+            step_index=step_index,
+            branch_path=branch_path,
+            branch_id=branch_id,
+            source_index=source_index,
+            substep_index=substep_index,
+        )
 
         if self.trace is not None:
             step = self.trace.get_step(step_index)
@@ -822,17 +867,9 @@ class LoaderArtifactProvider(ArtifactProvider):
                 results = []
                 for artifact_id in artifact_ids:
                     try:
-                        # Filter by branch_path using artifact record metadata
-                        if target_branch is not None:
-                            record = self.loader.get_record(artifact_id)
-                            if record is not None:
-                                artifact_branch = None
-                                if record.branch_path and len(record.branch_path) > 0:
-                                    artifact_branch = record.branch_path[0]
-                                # Include if: artifact has no branch (shared) or matches target
-                                if artifact_branch is not None and artifact_branch != target_branch:
-                                    continue  # Skip - wrong branch
-
+                        record = self.loader.get_record(artifact_id)
+                        if record is not None and not spec.matches_record(record):
+                            continue
                         obj = self.loader.load_by_id(artifact_id)
                         results.append((artifact_id, obj))
                     except (KeyError, FileNotFoundError):
@@ -841,7 +878,15 @@ class LoaderArtifactProvider(ArtifactProvider):
             return []
 
         # Fallback: use loader's step-based lookup
-        return self.loader.load_for_step(step_index=step_index, branch_path=branch_path)
+        effective_branch_path = branch_path
+        if effective_branch_path is None and branch_id is not None:
+            effective_branch_path = [branch_id]
+
+        return self.loader.load_for_step(
+            step_index=step_index,
+            branch_path=effective_branch_path,
+            source_index=source_index,
+        )
 
     def get_fold_artifacts(
         self,
@@ -862,9 +907,12 @@ class LoaderArtifactProvider(ArtifactProvider):
             if step and step.artifacts and step.artifacts.fold_artifact_ids:
                 results = []
                 for fold_id, artifact_id in step.artifacts.fold_artifact_ids.items():
+                    numeric_fold_id = parse_numeric_fold_key(fold_id)
+                    if numeric_fold_id is None:
+                        continue
                     try:
                         obj = self.loader.load_by_id(artifact_id)
-                        results.append((fold_id, obj))
+                        results.append((numeric_fold_id, obj))
                     except (KeyError, FileNotFoundError):
                         pass
                 return sorted(results, key=lambda x: x[0])
@@ -908,9 +956,7 @@ class LoaderArtifactProvider(ArtifactProvider):
         if self.trace is not None:
             step = self.trace.get_step(step_index)
             if step and step.artifacts and step.artifacts.fold_artifact_ids:
-                # fold_artifact_ids maps fold_id -> artifact_id;
-                # the refit pass stores the key as the string "final"
-                artifact_id = step.artifacts.fold_artifact_ids.get("final")
+                artifact_id = self._resolve_fold_artifact_id(step.artifacts, "final")
                 if artifact_id:
                     try:
                         return self.loader.load_by_id(artifact_id)
@@ -1184,6 +1230,10 @@ class RuntimeContext:
     trace_recorder: Any = None  # TraceRecorder instance for execution trace recording
     retrain_config: Any = None  # Phase 7: RetrainConfig for retrain mode control
     phase: ExecutionPhase = ExecutionPhase.CV  # Current execution phase (CV or REFIT)
+    refit_fold_id: Optional[str] = None  # Persisted fold label override for refit predictions
+    refit_context_name: Optional[str] = None  # Persisted refit context override
+    cache_config: Any = None  # CacheConfig for step-level caching settings
+    step_cache: Any = None  # StepCache instance (set when cache_config.step_cache_enabled)
 
     def __deepcopy__(self, memo):
         """Return self on deepcopy -- RuntimeContext is shared infrastructure, not data."""
@@ -1298,7 +1348,7 @@ class RuntimeContext:
         self,
         artifact_id: str,
         is_primary: bool = False,
-        fold_id: Optional[int] = None,
+        fold_id: Optional[int | str] = None,
         chain_path: Optional[str] = None,
         branch_path: Optional[List[int]] = None,
         source_index: Optional[int] = None,

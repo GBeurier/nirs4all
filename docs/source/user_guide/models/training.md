@@ -452,3 +452,10 @@ print("\n✅ Best model exported to exports/best_model.n4a")
 - {doc}`/reference/metrics` - Available evaluation metrics
 - {doc}`/user_guide/pipelines/writing_pipelines` - Pipeline construction guide
 - {doc}`/user_guide/models/hyperparameter_tuning` - Automated tuning with Optuna
+
+```{seealso}
+**Related Examples:**
+- [U01: Hello World](../../../examples/user/01_getting_started/U01_hello_world.py) - Your first training pipeline
+- [U02: Basic Regression](../../../examples/user/01_getting_started/U02_basic_regression.py) - Training with preprocessing and visualization
+- [U01: Multi-Model](../../../examples/user/04_models/U01_multi_model.py) - Compare multiple models in one run
+```

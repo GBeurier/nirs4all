@@ -11,6 +11,7 @@ merging
 stacking
 multi_source
 force_group_splitting
+cache_optimization
 ```
 
 ## Overview
@@ -78,6 +79,16 @@ Handle multiple data sources with source_branch and merge_sources.
 
 +++
 {bdg-success}`Fusion`
+:::
+
+:::{grid-item-card} ⚡ Cache Optimization
+:link: cache_optimization
+:link-type: doc
+
+Speed up generator-heavy pipelines with step-level caching.
+
++++
+{bdg-warning}`Performance`
 :::
 
 ::::

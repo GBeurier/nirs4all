@@ -316,3 +316,9 @@ All sources must have the same number of samples. Ensure your files are aligned 
 - {doc}`/user_guide/pipelines/branching` - Regular pipeline branching
 - {doc}`/reference/pipeline_syntax` - Complete pipeline syntax reference
 - [D04_merge_sources.py](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/01_advanced_pipelines/D04_merge_sources.py) - Full example
+
+```{seealso}
+**Related Examples:**
+- [U03: Multi-Source](../../../examples/user/02_data_handling/U03_multi_source.py) - Basic multi-source data handling
+- [D04: Merge Sources](../../../examples/developer/01_advanced_pipelines/D04_merge_sources.py) - Advanced multi-source branching and merging
+```

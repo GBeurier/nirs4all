@@ -462,7 +462,6 @@ pytest --cov=nirs4all             # With coverage
 # Examples
 cd examples && ./run.sh           # All examples
 ./run.sh -c user                  # User category only
-./run.sh -q                       # Quick (skip deep learning)
 
 # Verification
 nirs4all --test-install

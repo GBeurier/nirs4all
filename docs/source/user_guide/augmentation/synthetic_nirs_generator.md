@@ -538,3 +538,10 @@ generator = fitter.create_matched_generator(random_state=42)
 - **v1.0.0** (2024): Initial implementation with Beer-Lambert model, Voigt profiles, complexity levels
 - **v1.1.0** (2024): Added global slope effect, SyntheticRealComparator for real data comparison
 - **v1.2.0** (2025): Added edge artifact simulation (detector roll-off, stray light, truncated peaks, edge curvature)
+
+```{seealso}
+**Related Examples:**
+- [U05: Synthetic Data](../../../examples/user/02_data_handling/U05_synthetic_data.py) - Basic synthetic data generation
+- [U06: Advanced Synthetic Data](../../../examples/user/02_data_handling/U06_synthetic_advanced.py) - SyntheticDatasetBuilder
+- [D05-D09: Synthetic Generators](../../../examples/developer/02_generators/) - Advanced synthetic data features
+```

@@ -1,6 +1,6 @@
 # .github/workflows/examples.yml
 # Example verification workflow
-# Runs a subset of examples to verify documentation accuracy
+# Runs examples to verify documentation accuracy
 
 name: Verify Examples
 
@@ -13,12 +13,15 @@ on:
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
-  verify-quick-examples:
+  verify-examples:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        category: [user, developer, reference]
     steps:
       - name: Free disk space
         run: |
-          # Aggressive disk cleanup for CI - we need space for all DL frameworks
           echo "=== Initial disk space ==="
           df -h /
           echo "=== Removing unnecessary tools ==="
@@ -64,133 +67,9 @@ jobs:
           python -m pip install -r requirements-examples.txt
           python -m pip install -e .
 
-      - name: Run Getting Started examples (U01-U04)
+      - name: Run ${{ matrix.category }} examples
         run: |
           cd examples
           chmod +x run.sh
-          ./run.sh -c user -b 1 -e 4 -q
-        timeout-minutes: 10
-
-      - name: Run Reference examples (R01-R04)
-        run: |
-          cd examples
-          ./run.sh -c reference -q
-        timeout-minutes: 10
-
-  verify-user-path:
-    runs-on: ubuntu-latest
-    needs: verify-quick-examples
-    steps:
-      - name: Free disk space
-        run: |
-          # Aggressive disk cleanup for CI - we need space for all DL frameworks
-          echo "=== Initial disk space ==="
-          df -h /
-          echo "=== Removing unnecessary tools ==="
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo rm -rf /opt/hostedtoolcache/go
-          sudo rm -rf /opt/hostedtoolcache/Ruby
-          sudo rm -rf /opt/hostedtoolcache/node
-          sudo rm -rf /usr/local/share/powershell
-          sudo rm -rf /usr/share/swift
-          sudo rm -rf /usr/local/share/chromium
-          sudo rm -rf /usr/local/share/edge_driver
-          sudo rm -rf /usr/local/share/gecko_driver
-          sudo rm -rf /usr/local/share/chromedriver-linux64
-          sudo rm -rf /opt/microsoft
-          sudo docker image prune --all --force
-          sudo apt-get clean
-          echo "=== Final disk space ==="
-          df -h /
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install numpy
-          # Install PyTorch CPU-only (faster, no GPU needed in CI)
-          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          # Install JAX CPU-only
-          python -m pip install jax jaxlib
-          # Install TensorFlow (CPU by default)
-          python -m pip install tensorflow
-          # Install remaining example dependencies (PLS libs, etc.)
-          python -m pip install -r requirements-examples.txt
-          python -m pip install -e .
-
-      - name: Run all User path examples (quick mode)
-        run: |
-          cd examples
-          chmod +x run.sh
-          ./run.sh -c user -q
-        timeout-minutes: 30
-
-  verify-developer-path:
-    runs-on: ubuntu-latest
-    needs: verify-quick-examples
-    steps:
-      - name: Free disk space
-        run: |
-          # Aggressive disk cleanup for CI - we need space for all DL frameworks
-          echo "=== Initial disk space ==="
-          df -h /
-          echo "=== Removing unnecessary tools ==="
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo rm -rf /opt/hostedtoolcache/go
-          sudo rm -rf /opt/hostedtoolcache/Ruby
-          sudo rm -rf /opt/hostedtoolcache/node
-          sudo rm -rf /usr/local/share/powershell
-          sudo rm -rf /usr/share/swift
-          sudo rm -rf /usr/local/share/chromium
-          sudo rm -rf /usr/local/share/edge_driver
-          sudo rm -rf /usr/local/share/gecko_driver
-          sudo rm -rf /usr/local/share/chromedriver-linux64
-          sudo rm -rf /opt/microsoft
-          sudo docker image prune --all --force
-          sudo apt-get clean
-          echo "=== Final disk space ==="
-          df -h /
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install numpy
-          # Install PyTorch CPU-only (faster, no GPU needed in CI)
-          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          # Install JAX CPU-only
-          python -m pip install jax jaxlib
-          # Install TensorFlow (CPU by default)
-          python -m pip install tensorflow
-          # Install remaining example dependencies (PLS libs, etc.)
-          python -m pip install -r requirements-examples.txt
-          python -m pip install -e .
-
-      - name: Run Developer path examples (quick mode, no DL)
-        run: |
-          cd examples
-          chmod +x run.sh
-          ./run.sh -c developer -q
+          ./run.sh -c ${{ matrix.category }}
         timeout-minutes: 30

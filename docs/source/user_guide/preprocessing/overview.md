@@ -257,3 +257,10 @@ These SciPy functions are used internally by NIRS4ALL transformers:
 - {doc}`handbook` - In-depth theory and advanced techniques
 - {doc}`/reference/operator_catalog` - Complete operator reference
 - {doc}`snv` - Detailed SNV documentation
+
+```{seealso}
+**Related Examples:**
+- [U01: Preprocessing Basics](../../../examples/user/03_preprocessing/U01_preprocessing_basics.py) - SNV, MSC, derivatives, smoothing, wavelets
+- [U02: Feature Augmentation](../../../examples/user/03_preprocessing/U02_feature_augmentation.py) - Explore preprocessing combinations
+- [U02: Basic Regression](../../../examples/user/01_getting_started/U02_basic_regression.py) - Preprocessing in action
+```

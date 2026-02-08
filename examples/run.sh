@@ -15,7 +15,6 @@ set -uo pipefail
 #   -l           Enable logging to log.txt
 #   -p           Generate plots
 #   -s           Show plots interactively
-#   -q           Quick mode: skip deep learning examples
 #   -h           Show this help message
 #
 # Examples:
@@ -24,7 +23,6 @@ set -uo pipefail
 #   ./run.sh -c legacy           # Run only legacy Q*/X* examples
 #   ./run.sh -i 1                # Run first example
 #   ./run.sh -n "U01*.py"        # Run by name pattern
-#   ./run.sh -q                  # Skip deep learning examples
 #   ./run.sh -l -p               # Enable logging and plots
 # =============================================================================
 
@@ -36,14 +34,13 @@ CATEGORY="all"
 LOG=0
 PLOT=0
 SHOW=0
-QUICK=0
 
 show_help() {
   head -30 "$0" | tail -25 | sed 's/^# //' | sed 's/^#//'
   exit 0
 }
 
-while getopts "i:b:e:n:c:lpsqh" opt; do
+while getopts "i:b:e:n:c:lpsh" opt; do
   case "$opt" in
     i) INDEX="$OPTARG" ;;
     b) BEGIN="$OPTARG" ;;
@@ -53,9 +50,8 @@ while getopts "i:b:e:n:c:lpsqh" opt; do
     l) LOG=1 ;;
     p) PLOT=1 ;;
     s) SHOW=1 ;;
-    q) QUICK=1 ;;
     h) show_help ;;
-    *) echo "Usage: $0 [-i index] [-b begin] [-e end] [-n name] [-c category] [-l] [-p] [-s] [-q] [-h]"; exit 1 ;;
+    *) echo "Usage: $0 [-i index] [-b begin] [-e end] [-n name] [-c category] [-l] [-p] [-s] [-h]"; exit 1 ;;
   esac
 done
 shift $((OPTIND -1))
@@ -143,6 +139,7 @@ developer_examples=(
   # 06_internals
   "developer/06_internals/D01_session_workflow.py"
   "developer/06_internals/D02_custom_controllers.py"
+  "developer/06_internals/D03_cache_performance.py"
 )
 
 # Reference examples (new structure)
@@ -212,35 +209,9 @@ legacy_examples=(
   "legacy/baseline_sota.py"
 )
 
-# Deep learning examples to skip in quick mode (basenames)
-dl_examples_patterns=(
-  "D01_pytorch_models.py"
-  "D02_jax_models.py"
-  "D03_tensorflow_models.py"
-  "D04_framework_comparison.py"
-  "Q15_jax_models.py"
-  "Q16_pytorch_models.py"
-  "Q17_nicon_comparison.py"
-  "Q5_predict_NN.py"
-  "X3_hiba_full.py"
-)
-
 # =============================================================================
 # Build Examples List
 # =============================================================================
-
-# Function to check if an example is a DL example
-is_dl_example() {
-  local example="$1"
-  local basename
-  basename=$(basename "$example")
-  for dl in "${dl_examples_patterns[@]}"; do
-    if [[ "$basename" == "$dl" ]]; then
-      return 0
-    fi
-  done
-  return 1
-}
 
 # Function to filter existing examples only
 filter_existing() {
@@ -289,18 +260,6 @@ build_examples_list() {
     fi
   done
 
-  # Apply quick mode filter
-  if [ "$QUICK" -eq 1 ]; then
-    local filtered=()
-    for ex in "${existing[@]}"; do
-      if ! is_dl_example "$ex"; then
-        filtered+=("$ex")
-      fi
-    done
-    existing=("${filtered[@]}")
-    echo "Quick mode: Skipping deep learning examples" >&2
-  fi
-
   echo "${existing[@]}"
 }
 
@@ -327,7 +286,6 @@ if [ "$LOG" -eq 1 ]; then
   printf "=================================================\n" > "$logFile"
   printf "Log started at: %s\n" "$(date)" >> "$logFile"
   printf "Category: %s\n" "$CATEGORY" >> "$logFile"
-  printf "Quick mode: %s\n" "$QUICK" >> "$logFile"
   printf "=================================================\n\n" >> "$logFile"
 fi
 

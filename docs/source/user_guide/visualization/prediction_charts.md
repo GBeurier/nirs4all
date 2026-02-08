@@ -387,3 +387,9 @@ fig = analyzer.plot_top_k(
     show_scores=['rmse', 'r2', 'mae']
 )
 ```
+
+```{seealso}
+**Related Examples:**
+- [U04: Visualization](../../../examples/user/01_getting_started/U04_visualization.py) - Heatmaps, candlestick charts, prediction analysis
+- [U02: Basic Regression](../../../examples/user/01_getting_started/U02_basic_regression.py) - PredictionAnalyzer in action
+```

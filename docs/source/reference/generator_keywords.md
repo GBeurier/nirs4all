@@ -359,7 +359,7 @@ expand_spec({"_or_": ["A", "B", "C", "D", "E"], "count": 2}, seed=42)
 
 ### `_log_range_`
 
-Generate logarithmically-spaced numeric sequences. Useful for hyperparameter optimization over values spanning multiple orders of magnitude.
+**Purpose**: Generate logarithmically-spaced numeric sequences. Useful for hyperparameter optimization over values spanning multiple orders of magnitude (e.g., learning rates, regularization).
 
 **Syntax:**
 ```python
@@ -368,8 +368,10 @@ Generate logarithmically-spaced numeric sequences. Useful for hyperparameter opt
 
 # Dict syntax
 {"_log_range_": {"from": start, "to": end, "num": n}}
-{"_log_range_": {"from": start, "to": end, "base": b}}  # Custom base
+{"_log_range_": {"from": start, "to": end, "base": b}}  # Custom base (default: 10)
 ```
+
+**Result**: Generates `num` values logarithmically spaced from `start` to `end`.
 
 **Examples:**
 ```python
@@ -377,97 +379,171 @@ Generate logarithmically-spaced numeric sequences. Useful for hyperparameter opt
 {"_log_range_": [0.001, 1, 4]}
 # → [0.001, 0.01, 0.1, 1.0]
 
-# Learning rate search
+# Learning rate search spanning 4 orders of magnitude
 {"_log_range_": [0.0001, 0.1, 5]}
-# → [0.0001, 0.001, 0.01, 0.1, 1.0]  (approximately)
+# → [0.0001, 0.001, 0.01, 0.1]  (approximately)
 
-# Base 2 powers
+# Base 2 powers for depth/width parameters
 {"_log_range_": {"from": 1, "to": 256, "num": 9, "base": 2}}
 # → [1, 2, 4, 8, 16, 32, 64, 128, 256]
+
+# Pipeline example: regularization search
+pipeline = [
+    {"model": PLSRegression},
+    {"alpha": {"_log_range_": [0.0001, 10, 8]}}
+]
+# Generates 8 pipeline variants with exponentially spaced alpha values
 ```
+
+**See also**: `_range_` (linear spacing), `_sample_` (random sampling)
+
+**Example**: See [examples/developer/02_generators/D01_generator_syntax.py](../../examples/developer/02_generators/D01_generator_syntax.py)
 
 ---
 
 ### `_grid_`
 
-Generate Cartesian product of parameter spaces. Similar to sklearn's `ParameterGrid`.
+**Purpose**: Generate Cartesian product of parameter spaces (full grid search). Similar to sklearn's `ParameterGrid` - creates all possible combinations of parameters.
 
 **Syntax:**
 ```python
 {"_grid_": {"param1": [v1, v2, ...], "param2": [v3, v4, ...]}}
 ```
 
+**Result**: Generates all combinations (param1 × param2 × ...). Returns list of dicts.
+
 **Examples:**
 ```python
+# 2×3 = 6 combinations
 {"_grid_": {"learning_rate": [0.01, 0.1], "batch_size": [16, 32, 64]}}
-# → 2 × 3 = 6 configurations:
-# [{"learning_rate": 0.01, "batch_size": 16},
-#  {"learning_rate": 0.01, "batch_size": 32},
-#  {"learning_rate": 0.01, "batch_size": 64},
-#  {"learning_rate": 0.1, "batch_size": 16},
-#  {"learning_rate": 0.1, "batch_size": 32},
-#  {"learning_rate": 0.1, "batch_size": 64}]
+# → [{"learning_rate": 0.01, "batch_size": 16},
+#    {"learning_rate": 0.01, "batch_size": 32},
+#    {"learning_rate": 0.01, "batch_size": 64},
+#    {"learning_rate": 0.1, "batch_size": 16},
+#    {"learning_rate": 0.1, "batch_size": 32},
+#    {"learning_rate": 0.1, "batch_size": 64}]
+
+# Grid with nested generator
+{"_grid_": {
+    "n_components": {"_range_": [5, 15, 5]},  # [5, 10, 15]
+    "scale": [True, False]
+}}
+# → 3 × 2 = 6 combinations
+
+# Pipeline example: full grid search
+pipeline = [
+    {"_grid_": {
+        "preprocessing": ["SNV", "MSC", None],
+        "n_components": [5, 10, 15]
+    }, "model": PLSRegression}
+]
+# Generates 3 × 3 = 9 pipeline variants
 ```
+
+**See also**: `_zip_` (paired iteration), `_cartesian_` (for lists, not dicts), `_sample_` (random subset)
+
+**Example**: See [examples/developer/02_generators/D01_generator_syntax.py](../../examples/developer/02_generators/D01_generator_syntax.py)
 
 ---
 
 ### `_zip_`
 
-Parallel iteration - pair values at the same index (like Python's `zip`).
+**Purpose**: Parallel iteration - pair values at the same index (like Python's `zip()`). Use when parameters should vary together, not independently.
 
 **Syntax:**
 ```python
 {"_zip_": {"param1": [v1, v2, ...], "param2": [v3, v4, ...]}}
 ```
 
+**Result**: Generates N configurations where N = min(len(param1), len(param2), ...). Pairs by position.
+
 **Examples:**
 ```python
+# 3 paired configurations
 {"_zip_": {"x": [1, 2, 3], "y": ["A", "B", "C"]}}
-# → 3 configurations (paired by position):
-# [{"x": 1, "y": "A"}, {"x": 2, "y": "B"}, {"x": 3, "y": "C"}]
+# → [{"x": 1, "y": "A"}, {"x": 2, "y": "B"}, {"x": 3, "y": "C"}]
+
+# Mismatched lengths: shortest list wins
+{"_zip_": {"x": [1, 2, 3, 4], "y": ["A", "B"]}}
+# → [{"x": 1, "y": "A"}, {"x": 2, "y": "B"}]  # Only 2 configurations
+
+# Pipeline example: paired hyperparameters
+pipeline = [
+    {"_zip_": {
+        "alpha": [0.1, 1.0, 10.0],
+        "l1_ratio": [0.2, 0.5, 0.8]  # Paired with alpha
+    }, "model": ElasticNet}
+]
+# Generates 3 variants: (0.1, 0.2), (1.0, 0.5), (10.0, 0.8)
 ```
 
 **Comparison with `_grid_`:**
 ```python
-# _zip_ pairs by position
+# _zip_: 2 paired configurations (N pairs)
 {"_zip_": {"x": [1, 2], "y": ["A", "B"]}}
 # → [{"x": 1, "y": "A"}, {"x": 2, "y": "B"}]
 
-# _grid_ generates all combinations
+# _grid_: 4 all-combinations (N × M)
 {"_grid_": {"x": [1, 2], "y": ["A", "B"]}}
-# → [{"x": 1, "y": "A"}, {"x": 1, "y": "B"}, {"x": 2, "y": "A"}, {"x": 2, "y": "B"}]
+# → [{"x": 1, "y": "A"}, {"x": 1, "y": "B"},
+#    {"x": 2, "y": "A"}, {"x": 2, "y": "B"}]
 ```
+
+**See also**: `_grid_` (all combinations), `_chain_` (sequential)
+
+**Example**: See [examples/developer/02_generators/D01_generator_syntax.py](../../examples/developer/02_generators/D01_generator_syntax.py)
 
 ---
 
 ### `_chain_`
 
-Sequential ordered choices. Preserves order (unlike `_or_` which may be randomized).
+**Purpose**: Sequential ordered choices. Preserves exact order of configurations (unlike `_or_` which may randomize with `count`). Ideal for progressive experiments.
 
 **Syntax:**
 ```python
 {"_chain_": [config1, config2, config3, ...]}
 ```
 
+**Result**: Generates configurations in the exact order provided. Behaves like `_or_` but with guaranteed order.
+
 **Examples:**
 ```python
+# 3 configurations in exact order
 {"_chain_": [
     {"model": "baseline", "complexity": "low"},
     {"model": "improved", "complexity": "medium"},
     {"model": "best", "complexity": "high"}
 ]}
-# → Configurations in that exact order
+# → Returns in that exact order
+
+# Pipeline example: progressive preprocessing complexity
+pipeline = [
+    {"_chain_": [
+        {},                    # No preprocessing (baseline)
+        {"transform": "SNV"},  # Simple SNV
+        {"transform": "SNV", "derivative": 1},  # SNV + 1st derivative
+        {"transform": "SNV", "derivative": 2}   # SNV + 2nd derivative
+    ]},
+    PLSRegression(n_components=10)
+]
+# Runs 4 variants in order of increasing complexity
 ```
 
 **Use cases:**
 - Progressive experiments: baseline → improved → best
-- When configuration order has meaning
+- Ablation studies with defined order
+- When configuration order has semantic meaning
+- Avoiding randomization from `count`
+
+**See also**: `_or_` (unordered choices), `_zip_` (paired parameters)
+
+**Example**: See [examples/developer/02_generators/D02_generator_advanced.py](../../examples/developer/02_generators/D02_generator_advanced.py)
 
 ---
 
 ### `_sample_`
 
-Statistical sampling from various distributions.
+**Purpose**: Statistical sampling from probability distributions. Use for random search in large hyperparameter spaces instead of exhaustive grid search.
 
 **Syntax:**
 ```python
@@ -476,31 +552,52 @@ Statistical sampling from various distributions.
 
 **Distributions:**
 
-| Distribution | Parameters | Description |
-|-------------|------------|-------------|
-| `uniform` | `from`, `to`, `num` | Uniform distribution between from and to |
-| `log_uniform` | `from`, `to`, `num` | Log-uniform (common for learning rates) |
-| `normal`/`gaussian` | `mean`, `std`, `num` | Normal distribution |
-| `choice` | `values`, `num` | Random selection from list |
+| Distribution | Parameters | Description | Use Case |
+|-------------|------------|-------------|----------|
+| `uniform` | `from`, `to`, `num` | Uniform distribution | Regularization, dropout rates |
+| `log_uniform` | `from`, `to`, `num` | Log-uniform (logarithmic scale) | Learning rates, decay factors |
+| `normal`/`gaussian` | `mean`, `std`, `num` | Normal/Gaussian distribution | Random initialization |
+| `choice` | `values`, `num` | Random selection with replacement | Categorical parameters |
+
+**Result**: Generates `num` random values from specified distribution. Use `_seed_` modifier for reproducibility.
 
 **Examples:**
 ```python
-# Uniform sampling
+# Uniform sampling (0 to 1)
 {"_sample_": {"distribution": "uniform", "from": 0.1, "to": 1.0, "num": 5}}
-# → 5 random values uniformly distributed between 0.1 and 1.0
+# → 5 random values uniformly distributed: [0.32, 0.67, 0.15, 0.89, 0.44]
 
 # Log-uniform (learning rate search)
 {"_sample_": {"distribution": "log_uniform", "from": 0.0001, "to": 0.1, "num": 5}}
-# → 5 values with log-uniform distribution
+# → 5 values log-uniformly distributed: [0.0003, 0.002, 0.015, 0.0008, 0.05]
 
 # Normal distribution
 {"_sample_": {"distribution": "normal", "mean": 0, "std": 1, "num": 5}}
-# → 5 values from standard normal distribution
+# → 5 values from standard normal: [-0.32, 1.15, 0.05, -0.89, 0.67]
 
-# Random choice
+# Random choice from list
 {"_sample_": {"distribution": "choice", "values": ["A", "B", "C", "D"], "num": 3}}
-# → 3 randomly selected values (with replacement)
+# → 3 randomly selected values: ["B", "A", "B"]  (with replacement)
+
+# Reproducible sampling with seed
+{"_sample_": {"distribution": "uniform", "from": 0, "to": 1, "num": 10}, "_seed_": 42}
+# → Same 10 values every time with seed=42
+
+# Pipeline example: random regularization search
+pipeline = [
+    {"alpha": {"_sample_": {
+        "distribution": "log_uniform",
+        "from": 0.0001,
+        "to": 10.0,
+        "num": 20
+    }}, "model": Ridge}
+]
+# Generates 20 pipeline variants with random alpha values
 ```
+
+**See also**: `_log_range_` (deterministic log scale), `_or_` with `count` (random subset)
+
+**Example**: See [examples/developer/02_generators/D02_generator_advanced.py](../../examples/developer/02_generators/D02_generator_advanced.py)
 
 ---
 
@@ -530,40 +627,86 @@ Attach arbitrary metadata to configurations.
 
 ### `_cartesian_`
 
-Generate the Cartesian product of multiple stages (each with `_or_` choices), then apply pick/arrange selection on the resulting complete pipelines. This is the key pattern for preprocessing pipeline generation.
+**Purpose**: Generate the Cartesian product of multiple stages (each with `_or_` choices), then optionally apply pick/arrange selection on the resulting complete pipelines. Key pattern for preprocessing pipeline generation.
 
 **Syntax:**
 ```python
 {"_cartesian_": [stage1, stage2, ...]}
 {"_cartesian_": [stage1, stage2, ...], "pick": N}
 {"_cartesian_": [stage1, stage2, ...], "arrange": N}
+{"_cartesian_": [stage1, stage2, ...], "pick": (min, max), "count": N}
 ```
+
+**Result**:
+- First expands all stages → generates stage1 × stage2 × ... complete pipeline lists
+- Then optionally selects subset using `pick` (combinations) or `arrange` (permutations)
+- Returns list of lists (each inner list is a complete pipeline)
 
 **Examples:**
 ```python
-# Generate all pipeline combinations (3×3×3 = 27), then pick 2
+# Generate all 2×2 = 4 complete pipelines
 {"_cartesian_": [
-    {"_or_": ["MSC", "SNV", "EMSC"]},
-    {"_or_": ["SavGol", "Gaussian", None]},
-    {"_or_": [None, "Deriv1", "Deriv2"]}
+    {"_or_": ["SNV", "MSC"]},
+    {"_or_": ["Deriv1", "Deriv2"]}
+]}
+# → [["SNV", "Deriv1"], ["SNV", "Deriv2"],
+#    ["MSC", "Deriv1"], ["MSC", "Deriv2"]]
+
+# Generate 3×3×3 = 27 pipelines, then pick 2-combinations
+{"_cartesian_": [
+    {"_or_": ["MSC", "SNV", "EMSC"]},        # Scatter correction
+    {"_or_": ["SavGol", "Gaussian", None]},  # Smoothing
+    {"_or_": [None, "Deriv1", "Deriv2"]}     # Derivative
 ], "pick": 2}
-# → All 2-combinations of the 27 complete pipelines
+# → C(27, 2) = 351 pairs of complete pipelines
 
 # Pick 1-3 complete pipelines with count limit
 {"_cartesian_": [
     {"_or_": ["A", "B"]},
     {"_or_": ["X", "Y"]}
 ], "pick": (1, 3), "count": 20}
+# → Up to 20 random selections from all 1-, 2-, and 3-combinations
+
+# Pipeline example: preprocessing pipeline search
+pipeline = [
+    {"_cartesian_": [
+        {"_or_": [SNV(), MSC(), None]},         # 3 scatter corrections
+        {"_or_": [FirstDerivative(), None]},    # 2 derivative options
+        {"_or_": [Detrend(order=1), None]}      # 2 detrending options
+    ], "pick": 1, "count": 10},  # Select 10 random complete pipelines
+    PLSRegression(n_components=10)
+]
+# From 3×2×2=12 possible pipelines, randomly select 10
 ```
 
 **Difference from `_grid_`:**
-- `_grid_` produces dicts (parameter combinations)
-- `_cartesian_` produces lists (ordered stages), ideal for preprocessing pipelines
+
+| Feature | `_grid_` | `_cartesian_` |
+|---------|----------|---------------|
+| Output | Dict (parameters) | List of lists (stages) |
+| Use case | Hyperparameters | Pipeline stages |
+| Example | `{"x": 1, "y": 2}` | `[step1, step2, step3]` |
+| Selection | Not applicable | Can use `pick`/`arrange` |
+
+```python
+# _grid_ for parameters
+{"_grid_": {"alpha": [0.1, 1.0], "beta": [2, 3]}}
+# → [{"alpha": 0.1, "beta": 2}, {"alpha": 0.1, "beta": 3}, ...]
+
+# _cartesian_ for pipeline stages
+{"_cartesian_": [{"_or_": ["A", "B"]}, {"_or_": ["X", "Y"]}]}
+# → [["A", "X"], ["A", "Y"], ["B", "X"], ["B", "Y"]]
+```
 
 **Use cases:**
-- Preprocessing pipeline generation
+- Preprocessing pipeline generation (scatter correction → smoothing → derivative)
 - Any staged pipeline where order matters
-- When you want to select from complete pipeline variants
+- Selecting subset of complete pipeline variants
+- Exploring combinations of sequential transformations
+
+**See also**: `_grid_` (for dicts), `_or_` with `arrange` (for single stage)
+
+**Example**: See [examples/developer/02_generators/D01_generator_syntax.py](../../examples/developer/02_generators/D01_generator_syntax.py)
 
 ---
 

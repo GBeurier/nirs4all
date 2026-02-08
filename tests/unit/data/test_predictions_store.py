@@ -133,8 +133,8 @@ class TestPredictionsBufferFlush:
         # Flush with valid pipeline_id
         preds.flush(pipeline_id=pipeline_id, chain_id=chain_id)
 
-        # Buffer should be cleared
-        assert len(preds._buffer) == 0
+        # Buffer is preserved (downstream code reads from it after flush)
+        assert len(preds._buffer) == 100
 
         # Store should have all 100
         df = store.query_predictions()
@@ -163,6 +163,58 @@ class TestPredictionsBufferFlush:
 
         # Buffer still intact (no store to flush to)
         assert len(preds._buffer) == 1
+
+    def test_flush_with_chain_id_resolver(self, tmp_path):
+        """flush() supports per-row chain resolution for runtime persistence."""
+        preds, store, pipeline_id, chain_id_1 = _make_predictions_with_store(tmp_path)
+        chain_id_2 = store.save_chain(
+            pipeline_id=pipeline_id,
+            steps=[{"step_idx": 1, "operator_class": "Ridge", "params": {}, "artifact_id": None, "stateless": False}],
+            model_step_idx=1,
+            model_class="sklearn.linear_model.Ridge",
+            preprocessings="",
+            fold_strategy="per_fold",
+            fold_artifacts={},
+            shared_artifacts={},
+        )
+
+        preds.add_prediction(
+            dataset_name="wheat",
+            model_name="PLS",
+            model_classname="PLSRegression",
+            fold_id=0,
+            partition="val",
+            y_true=np.array([1.0]),
+            y_pred=np.array([1.1]),
+            val_score=0.2,
+            metric="rmse",
+            task_type="regression",
+            n_samples=1,
+            n_features=10,
+        )
+        preds.add_prediction(
+            dataset_name="wheat",
+            model_name="Ridge",
+            model_classname="Ridge",
+            fold_id=0,
+            partition="val",
+            y_true=np.array([1.0]),
+            y_pred=np.array([0.9]),
+            val_score=0.1,
+            metric="rmse",
+            task_type="regression",
+            n_samples=1,
+            n_features=10,
+        )
+
+        preds.flush(
+            pipeline_id=pipeline_id,
+            chain_id_resolver=lambda row: chain_id_1 if row["model_name"] == "PLS" else chain_id_2,
+        )
+
+        df = store.query_predictions(pipeline_id=pipeline_id)
+        assert len(df) == 2
+        assert set(df["chain_id"].to_list()) == {chain_id_1, chain_id_2}
 
 
 class TestPredictionsTop:

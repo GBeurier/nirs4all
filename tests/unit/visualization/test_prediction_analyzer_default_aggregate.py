@@ -23,8 +23,6 @@ class TestDefaultAggregateParameter:
         predictions.get_datasets.return_value = ['test_dataset']
         predictions.get_unique_values.return_value = ['classification']
         predictions.top.return_value = []
-        predictions.clear_caches = Mock()
-        predictions.get_cache_stats.return_value = {}
         return predictions
 
     def test_default_aggregate_none_by_default(self, mock_predictions):
@@ -52,8 +50,6 @@ class TestResolveAggregate:
         predictions = Mock(spec=Predictions)
         predictions.num_predictions = 10
         predictions.get_datasets.return_value = ['test_dataset']
-        predictions.clear_caches = Mock()
-        predictions.get_cache_stats.return_value = {}
         return predictions
 
     def test_resolve_aggregate_returns_default_when_none(self, mock_predictions):
@@ -96,8 +92,6 @@ class TestVisualizationMethodsUseDefaultAggregate:
         predictions = Mock(spec=Predictions)
         predictions.num_predictions = 10
         predictions.get_datasets.return_value = ['dataset1']
-        predictions.clear_caches = Mock()
-        predictions.get_cache_stats.return_value = {}
         predictions.top.return_value = []
         predictions.get_unique_values.return_value = []
 
@@ -224,8 +218,6 @@ class TestConfusionMatrixAggregate:
         predictions = Mock(spec=Predictions)
         predictions.num_predictions = 10
         predictions.get_datasets.return_value = ['dataset1']
-        predictions.clear_caches = Mock()
-        predictions.get_cache_stats.return_value = {}
         predictions.top.return_value = []
         predictions.get_unique_values.return_value = ['classification']
 

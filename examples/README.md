@@ -170,6 +170,7 @@ The Developer Path covers advanced features for power users and contributors.
 |---------|-------------|------------|
 | D01_session_workflow.py | Session-based workflows | ★★★☆☆ |
 | D02_custom_controllers.py | Custom controller development | ★★★★★ |
+| D03_cache_performance.py | Cache performance comparison (step cache + CoW) | ★★★★☆ |
 
 ---
 
@@ -209,11 +210,6 @@ The Developer Path covers advanced features for power users and contributors.
 ./run.sh -n "U01*.py"       # By name pattern
 ```
 
-### Quick mode (skip deep learning)
-```bash
-./run.sh -q                 # Skip TensorFlow/PyTorch/JAX examples
-```
-
 ### Options
 ```bash
 ./run.sh -l                 # Enable logging to log.txt
@@ -234,10 +230,9 @@ For stricter testing that catches silent errors (N/A values, NaN metrics, warnin
 ./run_ci_examples.sh -c user            # User examples only
 ./run_ci_examples.sh -c developer       # Developer examples only
 ./run_ci_examples.sh -c reference       # Reference examples only
-./run_ci_examples.sh -q                 # Quick mode (skip deep learning)
 ./run_ci_examples.sh -k                 # Keep going on failures
 ./run_ci_examples.sh -v                 # Verbose output
-./run_ci_examples.sh -c user -q -k -v   # Combine options
+./run_ci_examples.sh -c user -k -v      # Combine options
 ```
 
 ### Windows PowerShell
@@ -245,7 +240,6 @@ For stricter testing that catches silent errors (N/A values, NaN metrics, warnin
 .\run_ci_examples.ps1                           # Run all with strict validation
 .\run_ci_examples.ps1 -Category user            # User examples only
 .\run_ci_examples.ps1 -Category developer       # Developer examples only
-.\run_ci_examples.ps1 -Quick                    # Skip deep learning examples
 .\run_ci_examples.ps1 -KeepGoing                # Don't stop on first failure
 .\run_ci_examples.ps1 -VerboseOutput            # Show all output
 ```

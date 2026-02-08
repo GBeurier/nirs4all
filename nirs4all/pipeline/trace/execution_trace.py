@@ -54,6 +54,39 @@ class StepExecutionMode(str, Enum):
         return self.value
 
 
+_SPECIAL_FOLD_IDS = {"final", "avg", "w_avg"}
+
+
+def normalize_fold_key(fold_id: Any) -> str:
+    """Normalize fold keys to canonical ``fold_*`` string form."""
+    text = str(fold_id).strip()
+    if text.startswith("fold_"):
+        return text
+    if text in _SPECIAL_FOLD_IDS:
+        return f"fold_{text}"
+    if text.lstrip("-").isdigit():
+        return f"fold_{int(text)}"
+    return f"fold_{text}"
+
+
+def fold_key_candidates(fold_id: Any) -> List[str]:
+    """Return canonical and legacy lookup keys for a fold identifier."""
+    canonical = normalize_fold_key(fold_id)
+    legacy = canonical[5:] if canonical.startswith("fold_") else canonical
+    if legacy == canonical:
+        return [canonical]
+    return [canonical, legacy]
+
+
+def parse_numeric_fold_key(fold_key: Any) -> Optional[int]:
+    """Parse a canonical/legacy fold key into an integer fold index."""
+    canonical = normalize_fold_key(fold_key)
+    suffix = canonical[5:] if canonical.startswith("fold_") else canonical
+    if suffix.lstrip("-").isdigit():
+        return int(suffix)
+    return None
+
+
 @dataclass
 class StepArtifacts:
     """Artifacts produced by a single step (V3).
@@ -77,7 +110,7 @@ class StepArtifacts:
 
     artifact_ids: List[str] = field(default_factory=list)
     primary_artifact_id: Optional[str] = None
-    fold_artifact_ids: Dict[int, str] = field(default_factory=dict)
+    fold_artifact_ids: Dict[str, str] = field(default_factory=dict)
 
     # V3 indexes
     primary_artifacts: Dict[str, str] = field(default_factory=dict)
@@ -120,10 +153,12 @@ class StepArtifacts:
         Returns:
             StepArtifacts instance
         """
-        # Handle fold_artifact_ids with potential string keys from YAML
+        # Normalize fold_artifact_ids to canonical fold_* keys.
         fold_artifacts = data.get("fold_artifact_ids", {})
         if fold_artifacts:
-            fold_artifacts = {int(k): v for k, v in fold_artifacts.items()}
+            fold_artifacts = {
+                normalize_fold_key(k): v for k, v in fold_artifacts.items()
+            }
 
         # Handle by_branch with string keys from YAML
         by_branch_raw = data.get("by_branch", {})
@@ -194,7 +229,7 @@ class StepArtifacts:
 
     def add_fold_artifact(
         self,
-        fold_id: int,
+        fold_id: int | str,
         artifact_id: str,
         chain_path: Optional[str] = None,
         branch_path: Optional[List[int]] = None,
@@ -202,18 +237,27 @@ class StepArtifacts:
         """Add a fold-specific artifact.
 
         Args:
-            fold_id: CV fold index
+            fold_id: CV fold identifier (e.g., ``0`` or ``"final"``)
             artifact_id: Artifact ID for this fold
             chain_path: V3 operator chain path
             branch_path: Branch path for indexing
         """
-        self.fold_artifact_ids[fold_id] = artifact_id
+        normalized_fold = normalize_fold_key(fold_id)
+        self.fold_artifact_ids[normalized_fold] = artifact_id
         self.add_artifact(
             artifact_id,
             is_primary=False,
             chain_path=chain_path,
             branch_path=branch_path,
         )
+
+    def get_fold_artifact_id(self, fold_id: int | str) -> Optional[str]:
+        """Get a fold-specific artifact ID using canonical/legacy lookup keys."""
+        for key in fold_key_candidates(fold_id):
+            artifact_id = self.fold_artifact_ids.get(key)
+            if artifact_id:
+                return artifact_id
+        return None
 
     def get_artifacts_for_branch(
         self,
@@ -641,7 +685,7 @@ class ExecutionTrace:
             return step.artifacts.primary_artifact_id
         return None
 
-    def get_fold_artifact_ids(self) -> Dict[int, str]:
+    def get_fold_artifact_ids(self) -> Dict[str, str]:
         """Get per-fold model artifact IDs.
 
         Returns:

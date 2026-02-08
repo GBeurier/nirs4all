@@ -772,18 +772,18 @@ class BundleLoader:
         Returns:
             The refit model object, or ``None`` if no refit model exists.
         """
-        # Check artifact index for "step_X_foldfinal" key
-        refit_key = f"step_{step_idx}_foldfinal"
-        if refit_key in self._artifact_index:
-            return self.artifact_provider._load_artifact(refit_key)
+        # Check artifact index for canonical/legacy refit keys.
+        for refit_key in (f"step_{step_idx}_foldfinal", f"step_{step_idx}_final"):
+            if refit_key in self._artifact_index:
+                return self.artifact_provider._load_artifact(refit_key)
 
-        # Check chain data for "final" in fold_artifacts
+        # Check chain data for refit fold key in fold_artifacts.
         if self._chain_data:
             fold_artifacts = self._chain_data.get("fold_artifacts", {})
-            if "final" in fold_artifacts:
+            if "fold_final" in fold_artifacts or "final" in fold_artifacts:
                 # The artifact is in the bundle; try to load by filename
                 # The artifact filename is based on the content hash
-                artifact_id = fold_artifacts["final"]
+                artifact_id = fold_artifacts.get("fold_final") or fold_artifacts.get("final")
                 # Search artifact index for any key containing this artifact
                 for key, filename in self._artifact_index.items():
                     if key.startswith(f"step_{step_idx}"):

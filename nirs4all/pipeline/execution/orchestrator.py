@@ -10,27 +10,11 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
-from nirs4all.pipeline.execution.step_cache import StepCache
 from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 from nirs4all.visualization.reports import TabReportManager
 
 logger = get_logger(__name__)
-
-
-def _get_default_workspace_path() -> Path:
-    """Get the default workspace path.
-
-    Uses the workspace module's get_active_workspace() which checks:
-    1. Explicitly set workspace via set_active_workspace()
-    2. NIRS4ALL_WORKSPACE environment variable
-    3. ./workspace in current working directory
-
-    Returns:
-        Default workspace path.
-    """
-    from nirs4all.workspace import get_active_workspace
-    return get_active_workspace()
 
 
 class PipelineOrchestrator:
@@ -64,13 +48,14 @@ class PipelineOrchestrator:
         enable_tab_reports: bool = True,
         continue_on_error: bool = False,
         show_spinner: bool = True,
-        keep_datasets: bool = True,
+        keep_datasets: bool = False,
+        max_preprocessed_snapshots_per_dataset: int = 3,
         plots_visible: bool = False
     ) -> None:
         """Initialize pipeline orchestrator.
 
         Args:
-            workspace_path: Workspace root directory
+            workspace_path: Workspace root directory (required).
             verbose: Verbosity level
             mode: Execution mode (train/predict/explain)
             save_artifacts: Whether to save binary artifacts
@@ -79,11 +64,16 @@ class PipelineOrchestrator:
             continue_on_error: Whether to continue on errors
             show_spinner: Whether to show spinners
             keep_datasets: Whether to keep dataset snapshots
+            max_preprocessed_snapshots_per_dataset: Maximum number of
+                preprocessed snapshots to retain per dataset
             plots_visible: Whether to display plots
         """
         # Workspace configuration
         if workspace_path is None:
-            workspace_path = _get_default_workspace_path()
+            raise ValueError(
+                "workspace_path must be provided explicitly to PipelineOrchestrator. "
+                "Use PipelineRunner for CLI/default workspace resolution."
+            )
         self.workspace_path = Path(workspace_path)
 
         # Create WorkspaceStore for DuckDB-backed persistence
@@ -101,6 +91,7 @@ class PipelineOrchestrator:
         self.continue_on_error = continue_on_error
         self.show_spinner = show_spinner
         self.keep_datasets = keep_datasets
+        self.max_preprocessed_snapshots_per_dataset = max(0, int(max_preprocessed_snapshots_per_dataset))
         self.plots_visible = plots_visible
 
         # Dataset snapshots (if keep_datasets is True)
@@ -112,6 +103,9 @@ class PipelineOrchestrator:
 
         # Legacy compatibility: runs_dir for predictor/explainer modes
         self.runs_dir = self.workspace_path
+
+        # Cache configuration (set by PipelineRunner before execute())
+        self.cache_config: Any = None
 
         # Store last executed pipeline info for post-run operations and syncing
         self.last_pipeline_uid: str | None = None
@@ -193,6 +187,15 @@ class PipelineOrchestrator:
             )
             self.last_run_id = run_id
 
+        # Create StepCache if step caching is enabled
+        step_cache = None
+        if self.cache_config is not None and getattr(self.cache_config, 'step_cache_enabled', False):
+            from nirs4all.pipeline.execution.step_cache import StepCache
+            step_cache = StepCache(
+                max_size_mb=self.cache_config.step_cache_max_mb,
+                max_entries=self.cache_config.step_cache_max_entries,
+            )
+
         # Execute for each dataset
         try:
             for _dataset_idx, (config, name) in enumerate(dataset_configs.configs):
@@ -208,12 +211,6 @@ class PipelineOrchestrator:
                         dataset=name,
                     )
                     artifact_registry.start_run()
-
-                # Create step cache for this dataset.
-                # Lifecycle: same as artifact_registry -- created once per
-                # dataset, shared across all pipeline variants and the refit
-                # pass, then discarded at the end of the dataset loop.
-                step_cache = StepCache()
 
                 # Build executor using ExecutorBuilder
                 executor = (ExecutorBuilder()
@@ -266,6 +263,8 @@ class PipelineOrchestrator:
                         target_model=target_model,
                         explainer=explainer,
                         run_id=run_id,
+                        cache_config=self.cache_config,
+                        step_cache=step_cache,
                     )
 
                     # Execute pipeline with cleanup on failure
@@ -300,7 +299,23 @@ class PipelineOrchestrator:
                     if self.keep_datasets:
                         if name not in self.pp_data:
                             self.pp_data[name] = {}
-                        self.pp_data[name][dataset.short_preprocessings_str()] = dataset.x({}, layout="2d")
+                        snapshot_key = dataset.short_preprocessings_str()
+                        dataset_snapshots = self.pp_data[name]
+                        can_store = (
+                            snapshot_key in dataset_snapshots
+                            or self.max_preprocessed_snapshots_per_dataset == 0
+                            or len(dataset_snapshots) < self.max_preprocessed_snapshots_per_dataset
+                        )
+                        if can_store:
+                            dataset_snapshots[snapshot_key] = dataset.x({}, layout="2d")
+                        else:
+                            logger.debug(
+                                "Skipping preprocessed snapshot for dataset '%s' "
+                                "(limit=%d, key='%s')",
+                                name,
+                                self.max_preprocessed_snapshots_per_dataset,
+                                snapshot_key,
+                            )
 
                     # Merge new predictions into run-level stores
                     if config_predictions.num_predictions > 0:
@@ -330,19 +345,21 @@ class PipelineOrchestrator:
                         explainer=explainer,
                     )
 
-                # Log step cache statistics
-                cache_stats = step_cache.stats()
-                if cache_stats["hit_count"] > 0 or cache_stats["miss_count"] > 0:
-                    logger.info(
-                        f"Step cache: {cache_stats['hit_count']} hits, "
-                        f"{cache_stats['miss_count']} misses "
-                        f"({cache_stats['hit_rate']:.0%} hit rate), "
-                        f"{cache_stats['size_mb']:.1f} MB used"
-                    )
-
                 # Mark run as completed successfully
                 if artifact_registry is not None:
                     artifact_registry.end_run()
+
+                # Log step cache statistics at end of dataset
+                if step_cache is not None and self.cache_config and self.cache_config.log_cache_stats:
+                    cache_stats = step_cache.stats()
+                    if cache_stats["hits"] + cache_stats["misses"] > 0:
+                        logger.info(
+                            f"Step cache: {cache_stats['hits']} hits, "
+                            f"{cache_stats['misses']} misses "
+                            f"({cache_stats['hit_rate']:.0%} hit rate), "
+                            f"{cache_stats['evictions']} evictions, "
+                            f"peak {cache_stats['peak_mb']:.1f} MB"
+                        )
 
                 # Store last aggregate column for visualization integration
                 self.last_aggregate_column = dataset.aggregate

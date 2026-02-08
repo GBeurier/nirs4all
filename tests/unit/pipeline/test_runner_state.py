@@ -72,7 +72,7 @@ class TestStateInitialization:
 
         assert runner._capture_model is False
         assert runner.plots_visible is False
-        assert runner.keep_datasets is True
+        assert runner.keep_datasets is False
 
 
 class TestStepNumbering:
@@ -297,6 +297,25 @@ class TestDataCapture:
 
         # Should have data for both datasets
         assert len(runner.raw_data) >= 2
+
+    def test_preprocessed_snapshots_bounded_per_dataset(self, tmp_path, test_data):
+        """Snapshot retention should honor per-dataset cap when enabled."""
+        runner = PipelineRunner(
+            workspace_path=tmp_path,
+            save_artifacts=False, save_charts=False,
+            verbose=0,
+            enable_tab_reports=False,
+            keep_datasets=True,
+            max_preprocessed_snapshots_per_dataset=1,
+        )
+
+        dataset_path = str(test_data.get_temp_directory() / "regression")
+
+        runner.run([StandardScaler(), {"model": LinearRegression()}], dataset_path)
+        runner.run([MinMaxScaler(), {"model": LinearRegression()}], dataset_path)
+
+        dataset_name = next(iter(runner.pp_data.keys()))
+        assert len(runner.pp_data[dataset_name]) == 1
 
 
 class TestStateConsistency:

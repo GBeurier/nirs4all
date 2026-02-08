@@ -581,9 +581,9 @@ class TestExportChainRefit:
         assert manifest["has_refit"] is True
         assert manifest["fold_strategy"] == "single_refit"
 
-        # chain.json fold_artifacts should only contain "final"
+        # chain.json fold_artifacts should only contain canonical refit key
         fold_arts = chain_data["fold_artifacts"]
-        assert "final" in fold_arts
+        assert "fold_final" in fold_arts
         assert len(fold_arts) == 1
 
         store.close()

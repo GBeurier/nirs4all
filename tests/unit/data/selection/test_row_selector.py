@@ -333,6 +333,32 @@ class TestRowSelectorSampling:
         category_counts = result.data["category"].value_counts()
         assert all(count >= 4 for count in category_counts)
 
+    def test_stratified_sample_does_not_mutate_global_numpy_rng(self):
+        """Stratified sampling must avoid changing global NumPy RNG state."""
+        selector = RowSelector()
+        df = pd.DataFrame(
+            {
+                "category": ["A", "B", "C", "D"] * 25,
+                "value": np.arange(100),
+            }
+        )
+
+        np.random.seed(2026)
+        expected_next = np.random.random()
+
+        np.random.seed(2026)
+        _ = selector.select(
+            df,
+            {
+                "sample": 20,
+                "stratify": "category",
+                "random_state": 42,
+            },
+        )
+        observed_next = np.random.random()
+
+        assert observed_next == expected_next
+
     def test_select_shuffle(self, sample_df):
         """Test shuffling rows."""
         selector = RowSelector()

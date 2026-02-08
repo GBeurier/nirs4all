@@ -42,7 +42,7 @@ Synthetic Data Generation:
 
 See examples/ for more usage examples.
 """
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 # Module-level API (primary interface) - Phase 2
 from .api import (
@@ -60,7 +60,14 @@ from .api import (
 )
 
 # Core pipeline components - for advanced usage
-from .pipeline import PipelineRunner, PipelineConfigs
+from .pipeline import (
+    PipelineRunner,
+    PipelineConfigs,
+    Run,
+    RunConfig,
+    RunStatus,
+    generate_run_id,
+)
 from .controllers import register_controller, CONTROLLER_REGISTRY
 
 # Utility functions for backend detection
@@ -90,6 +97,10 @@ __all__ = [
     # Pipeline components (advanced usage)
     "PipelineRunner",
     "PipelineConfigs",
+    "Run",
+    "RunStatus",
+    "RunConfig",
+    "generate_run_id",
 
     # Controller system
     "register_controller",

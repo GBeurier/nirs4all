@@ -387,3 +387,10 @@ A: Viridis is perceptually uniform, colorblind-friendly, and works well in grays
 - Lundberg & Lee (2017). "A Unified Approach to Interpreting Model Predictions" (NIPS)
 - SHAP documentation: https://shap.readthedocs.io/
 - Viridis colormap: https://matplotlib.org/stable/tutorials/colors/colormaps.html
+
+```{seealso}
+**Related Examples:**
+- [U01: SHAP Basics](../../../examples/user/07_explainability/U01_shap_basics.py) - SHAP waterfall and spectral plots
+- [U02: SHAP with sklearn](../../../examples/user/07_explainability/U02_shap_sklearn.py) - Custom SHAP explainers
+- [U03: Feature Selection](../../../examples/user/07_explainability/U03_feature_selection.py) - CARS and MC-UVE selection
+```

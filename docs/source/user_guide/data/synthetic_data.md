@@ -903,3 +903,10 @@ for preproc in [MinMaxScaler(), StandardScaler(), SNV(), MSC(), FirstDerivative(
 - {doc}`/api/nirs4all.synthesis` - Low-level classes reference
 - {doc}`loading_data` - Loading real datasets
 - {doc}`/getting_started/concepts` - Understanding SpectroDataset
+
+```{seealso}
+**Related Examples:**
+- [U05: Synthetic Data](../../../examples/user/02_data_handling/U05_synthetic_data.py) - Quick synthetic data generation
+- [U06: Advanced Synthetic Data](../../../examples/user/02_data_handling/U06_synthetic_advanced.py) - SyntheticDatasetBuilder for full control
+- [D05: Custom Components](../../../examples/developer/02_generators/D05_synthetic_custom_components.py) - Custom spectral component libraries
+```

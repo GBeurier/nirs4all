@@ -10,7 +10,8 @@ Covers:
 - Statistics / observability
 - Clear operation
 - Key composition
-- Estimate dataset size
+- Restore into dataset
+- Selector fingerprint isolation
 """
 
 from __future__ import annotations
@@ -18,9 +19,11 @@ from __future__ import annotations
 import threading
 
 import numpy as np
+import pytest
 
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.pipeline.execution.step_cache import StepCache
+from nirs4all.pipeline.execution.step_cache import CachedStepState, StepCache
+
 
 # =========================================================================
 # Helpers
@@ -44,14 +47,15 @@ def _make_dataset(name: str = "test", n_samples: int = 50, n_features: int = 100
 class TestStepCacheBasic:
     """Basic cache operations."""
 
-    def test_put_and_get_returns_dataset(self):
-        """Put a dataset, then get it back."""
+    def test_put_and_get_returns_cached_state(self):
+        """Put a dataset, then get returns a CachedStepState."""
         cache = StepCache(max_size_mb=100)
         ds = _make_dataset("ds1")
         cache.put("chain_a", "data_1", ds)
         result = cache.get("chain_a", "data_1")
         assert result is not None
-        assert result.name == "ds1"
+        assert isinstance(result, CachedStepState)
+        assert result.content_hash == ds.content_hash()
 
     def test_get_miss_returns_none(self):
         """Getting a non-existent key returns None."""
@@ -62,37 +66,37 @@ class TestStepCacheBasic:
     def test_put_overwrite(self):
         """Putting the same key twice overwrites the first entry."""
         cache = StepCache(max_size_mb=100)
-        ds1 = _make_dataset("ds1")
-        ds2 = _make_dataset("ds2")
+        ds1 = _make_dataset("ds1", n_features=50)
+        ds2 = _make_dataset("ds2", n_features=80)
         cache.put("chain_a", "data_1", ds1)
         cache.put("chain_a", "data_1", ds2)
         result = cache.get("chain_a", "data_1")
         assert result is not None
-        assert result.name == "ds2"
+        assert result.content_hash == ds2.content_hash()
 
     def test_different_keys_independent(self):
-        """Different keys store independent datasets."""
+        """Different keys store independent snapshots."""
         cache = StepCache(max_size_mb=100)
-        ds1 = _make_dataset("ds1")
-        ds2 = _make_dataset("ds2")
+        ds1 = _make_dataset("ds1", n_features=50)
+        ds2 = _make_dataset("ds2", n_features=80)
         cache.put("chain_a", "data_1", ds1)
         cache.put("chain_b", "data_2", ds2)
         r1 = cache.get("chain_a", "data_1")
         r2 = cache.get("chain_b", "data_2")
-        assert r1 is not None and r1.name == "ds1"
-        assert r2 is not None and r2.name == "ds2"
+        assert r1 is not None and r1.content_hash == ds1.content_hash()
+        assert r2 is not None and r2.content_hash == ds2.content_hash()
 
     def test_same_chain_different_data_hash(self):
         """Same chain hash but different data hash are separate entries."""
         cache = StepCache(max_size_mb=100)
-        ds1 = _make_dataset("ds1")
-        ds2 = _make_dataset("ds2")
+        ds1 = _make_dataset("ds1", n_features=50)
+        ds2 = _make_dataset("ds2", n_features=80)
         cache.put("chain_a", "data_1", ds1)
         cache.put("chain_a", "data_2", ds2)
         r1 = cache.get("chain_a", "data_1")
         r2 = cache.get("chain_a", "data_2")
-        assert r1 is not None and r1.name == "ds1"
-        assert r2 is not None and r2.name == "ds2"
+        assert r1 is not None and r1.content_hash == ds1.content_hash()
+        assert r2 is not None and r2.content_hash == ds2.content_hash()
 
 
 # =========================================================================
@@ -107,40 +111,78 @@ class TestStepCacheDeepCopy:
         """Mutating the original dataset after put does not affect the cache."""
         cache = StepCache(max_size_mb=100)
         ds = _make_dataset("original", n_samples=10, n_features=5)
+        original_hash = ds.content_hash()
         cache.put("chain", "data", ds)
 
-        # Mutate the original
-        ds.name = "mutated"
+        # Mutate the original dataset's feature data
+        X = ds.x({"partition": "train"}, layout="2d")
+        X[:] = 999.0
 
-        # Cache should still have the original
+        # Cache should still have the original data
         result = cache.get("chain", "data")
         assert result is not None
-        assert result.name == "original"
+        assert result.content_hash == original_hash
 
-    def test_get_returns_independent_copy(self):
-        """Mutating a returned dataset does not affect subsequent gets."""
-        cache = StepCache(max_size_mb=100)
-        ds = _make_dataset("cached", n_samples=10, n_features=5)
-        cache.put("chain", "data", ds)
-
-        # Get and mutate
-        r1 = cache.get("chain", "data")
-        assert r1 is not None
-        r1.name = "mutated"
-
-        # Second get should still return original
-        r2 = cache.get("chain", "data")
-        assert r2 is not None
-        assert r2.name == "cached"
-
-    def test_get_returns_different_object(self):
-        """Each get returns a distinct object instance."""
+    def test_restore_produces_independent_data(self):
+        """Two restores into different datasets produce independent arrays."""
         cache = StepCache(max_size_mb=100)
         ds = _make_dataset("test", n_samples=10, n_features=5)
         cache.put("chain", "data", ds)
-        r1 = cache.get("chain", "data")
-        r2 = cache.get("chain", "data")
-        assert r1 is not r2
+
+        state = cache.get("chain", "data")
+        assert state is not None
+
+        ds1 = _make_dataset("target1", n_samples=10, n_features=5)
+        ds2 = _make_dataset("target2", n_samples=10, n_features=5)
+        cache.restore(state, ds1)
+        cache.restore(state, ds2)
+
+        # Mutating ds1 features should not affect ds2
+        X1 = ds1.x({"partition": "train"}, layout="2d")
+        X2 = ds2.x({"partition": "train"}, layout="2d")
+        X1[:] = 999.0
+        assert not np.allclose(X2, 999.0)
+
+
+# =========================================================================
+# Restore
+# =========================================================================
+
+
+class TestStepCacheRestore:
+    """Verify that restore correctly applies cached state to a dataset."""
+
+    def test_restore_feature_data(self):
+        """Restoring a cached state replaces dataset feature data."""
+        cache = StepCache(max_size_mb=100)
+        ds = _make_dataset("test", n_samples=20, n_features=10)
+        X_original = ds.x({"partition": "train"}, layout="2d").copy()
+
+        cache.put("chain", "data", ds)
+
+        # Create a new dataset with different data
+        ds2 = _make_dataset("test2", n_samples=20, n_features=10)
+
+        # Restore cached state into ds2
+        state = cache.get("chain", "data")
+        assert state is not None
+        cache.restore(state, ds2)
+
+        X_restored = ds2.x({"partition": "train"}, layout="2d")
+        np.testing.assert_array_equal(X_original, X_restored)
+
+    def test_restore_updates_content_hash(self):
+        """Restoring updates the dataset's content hash cache."""
+        cache = StepCache(max_size_mb=100)
+        ds = _make_dataset("test", n_samples=10, n_features=5)
+        original_hash = ds.content_hash()
+        cache.put("chain", "data", ds)
+
+        ds2 = _make_dataset("other", n_samples=10, n_features=5)
+        state = cache.get("chain", "data")
+        cache.restore(state, ds2)
+
+        assert ds2._content_hash_cache == original_hash
 
 
 # =========================================================================
@@ -163,12 +205,7 @@ class TestStepCacheEviction:
         cache.put("chain_a", "data_1", ds1)
         cache.put("chain_b", "data_2", ds2)
 
-        # ds1 should have been evicted to make room for ds2
-        # (since the cache is only 10 KB and each dataset is ~40 KB)
-        r1 = cache.get("chain_a", "data_1")
         # Due to the very small cache, at least one should be evicted
-        # The exact behavior depends on DataCache internals, but the
-        # cache should not grow beyond its limit
         stats = cache.stats()
         assert stats["size_mb"] <= 0.05  # Allow some overhead
 
@@ -227,19 +264,21 @@ class TestStepCacheStats:
         cache.get("missing", "key")  # miss
 
         stats = cache.stats()
-        assert stats["hit_count"] == 1
-        assert stats["miss_count"] == 1
+        assert stats["hits"] == 1
+        assert stats["misses"] == 1
         assert stats["hit_rate"] == 0.5
         assert "entries" in stats
         assert "size_mb" in stats
+        assert "evictions" in stats
+        assert "peak_mb" in stats
 
     def test_stats_zero_requests(self):
         """stats() with no requests has 0.0 hit_rate."""
         cache = StepCache(max_size_mb=100)
         stats = cache.stats()
         assert stats["hit_rate"] == 0.0
-        assert stats["hit_count"] == 0
-        assert stats["miss_count"] == 0
+        assert stats["hits"] == 0
+        assert stats["misses"] == 0
 
 
 # =========================================================================
@@ -294,33 +333,24 @@ class TestStepCacheKeyComposition:
         assert k1 != k3
         assert k2 != k3
 
+    def test_make_key_with_selector_includes_fingerprint(self):
+        """_make_key with a selector appends the selector fingerprint."""
+        from nirs4all.pipeline.config.context import DataSelector
+        selector = DataSelector(partition="train", fold_id="fold_0")
+        key_with = StepCache._make_key("chain_a", "data_1", selector)
+        key_without = StepCache._make_key("chain_a", "data_1")
+        assert key_with != key_without
+        # Key with selector has 4 colon-separated parts
+        assert key_with.count(":") == 3
 
-# =========================================================================
-# Size estimation
-# =========================================================================
-
-
-class TestStepCacheSizeEstimation:
-    """Dataset size estimation."""
-
-    def test_estimate_dataset_size_basic(self):
-        """estimate_dataset_size returns reasonable byte count."""
-        ds = _make_dataset("test", n_samples=100, n_features=200)
-        size = StepCache.estimate_dataset_size(ds)
-        # Internal storage uses float32: X is 100*1*200*4 = 80,000 bytes
-        # y is 100*1*4 = 400 bytes (float32, shape (100, 1))
-        # Total ~ 80,400
-        assert size >= 80_000
-        assert size < 120_000  # Allow some overhead
-
-    def test_estimate_dataset_size_no_targets(self):
-        """estimate_dataset_size works with no targets."""
-        ds = SpectroDataset("no_targets")
-        X = np.random.rand(50, 100).astype(np.float64)
-        ds.add_samples(X, indexes={"partition": "train"})
-        size = StepCache.estimate_dataset_size(ds)
-        # Internal storage uses float32: 50*1*100*4 = 20,000 bytes
-        assert size >= 50 * 100 * 4
+    def test_different_selectors_different_keys(self):
+        """Different selectors produce different keys."""
+        from nirs4all.pipeline.config.context import DataSelector
+        sel1 = DataSelector(partition="train", fold_id="fold_0")
+        sel2 = DataSelector(partition="train", fold_id="fold_1")
+        k1 = StepCache._make_key("chain_a", "data_1", sel1)
+        k2 = StepCache._make_key("chain_a", "data_1", sel2)
+        assert k1 != k2
 
 
 # =========================================================================
@@ -344,8 +374,9 @@ class TestStepCacheThreadSafety:
                     ds = _make_dataset(f"t{thread_id}_i{i}", n_samples=10, n_features=5)
                     cache.put(f"chain_{thread_id}", f"data_{i}", ds)
                     result = cache.get(f"chain_{thread_id}", f"data_{i}")
-                    if result is not None and result.name != f"t{thread_id}_i{i}":
-                        errors.append(f"Thread {thread_id}: expected t{thread_id}_i{i}, got {result.name}")
+                    if result is not None:
+                        # Verify it's a valid CachedStepState
+                        assert isinstance(result, CachedStepState)
             except Exception as e:
                 errors.append(f"Thread {thread_id}: {e}")
 
@@ -405,28 +436,29 @@ class TestStepCacheThreadSafety:
 class TestStepCacheDataIntegrity:
     """Verify that cached feature data is correctly preserved."""
 
-    def test_feature_data_preserved(self):
-        """Feature array values are identical after cache round-trip."""
+    def test_feature_data_preserved_via_restore(self):
+        """Feature array values are identical after cache round-trip via restore."""
         cache = StepCache(max_size_mb=100)
         ds = _make_dataset("integrity", n_samples=20, n_features=10)
         X_original = ds.x({"partition": "train"}, layout="2d").copy()
-        y_original = ds.y({"partition": "train"}).copy()
 
         cache.put("chain", "data", ds)
-        restored = cache.get("chain", "data")
-        assert restored is not None
 
-        X_restored = restored.x({"partition": "train"}, layout="2d")
-        y_restored = restored.y({"partition": "train"})
+        # Restore into same dataset
+        state = cache.get("chain", "data")
+        assert state is not None
+        cache.restore(state, ds)
 
-        np.testing.assert_array_equal(X_original, X_restored)
-        np.testing.assert_array_equal(y_original, y_restored)
+        X_after = ds.x({"partition": "train"}, layout="2d")
+        np.testing.assert_array_equal(X_original, X_after)
 
-    def test_dataset_name_preserved(self):
-        """Dataset name survives the cache round-trip."""
+    def test_bytes_estimate_reasonable(self):
+        """CachedStepState.bytes_estimate is a reasonable approximation."""
         cache = StepCache(max_size_mb=100)
-        ds = _make_dataset("my_special_name", n_samples=10, n_features=5)
+        ds = _make_dataset("size_test", n_samples=100, n_features=200)
         cache.put("chain", "data", ds)
-        restored = cache.get("chain", "data")
-        assert restored is not None
-        assert restored.name == "my_special_name"
+        state = cache.get("chain", "data")
+        assert state is not None
+        # float32 storage: 100 * 200 * 4 = 80,000 bytes
+        assert state.bytes_estimate >= 50_000
+        assert state.bytes_estimate < 200_000

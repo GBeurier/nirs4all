@@ -8,10 +8,12 @@ Tests the central registry for artifact management including:
 - Cleanup utilities
 """
 
+import hashlib
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import nirs4all.pipeline.storage.artifacts.artifact_registry as artifact_registry_module
 from nirs4all.pipeline.storage.artifacts.artifact_registry import (
     ArtifactRegistry,
     DependencyGraph,
@@ -225,6 +227,31 @@ class TestArtifactRegistry:
         # Should only have one file
         files = list(registry.binaries_dir.glob("*"))
         assert len(files) == 1
+
+    def test_find_existing_by_hash_verifies_full_content(self, registry, monkeypatch):
+        """Short-hash matches must be validated against full content hash."""
+        target_content = b"target-bytes"
+        target_hash = f"sha256:{hashlib.sha256(target_content).hexdigest()}"
+        shard = target_hash[7:9]
+        shard_dir = registry.binaries_dir / shard
+        shard_dir.mkdir(parents=True, exist_ok=True)
+
+        forced_short_hash = "deadbeefcafe"
+        monkeypatch.setattr(
+            artifact_registry_module,
+            "get_short_hash",
+            lambda *_args, **_kwargs: forced_short_hash,
+        )
+
+        # Wrong content with matching forced short-hash pattern must be rejected.
+        wrong_file = shard_dir / f"model_Wrong_{forced_short_hash}.joblib"
+        wrong_file.write_bytes(b"different-content")
+        assert registry._find_existing_by_hash(target_hash) is None
+
+        # Correct content should then be accepted.
+        good_file = shard_dir / f"model_Good_{forced_short_hash}.joblib"
+        good_file.write_bytes(target_content)
+        assert registry._find_existing_by_hash(target_hash) == f"{shard}/{good_file.name}"
 
     def test_resolve(self, registry):
         """Test resolving artifact by ID."""

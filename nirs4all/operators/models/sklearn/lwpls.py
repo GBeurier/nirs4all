@@ -837,17 +837,17 @@ class LWPLS(BaseEstimator, RegressorMixin):
 
     Attributes
     ----------
-    n_features_in\_ : int
+    n_features_in_ : int
         Number of features seen during fit.
-    n_components\_ : int
+    n_components_ : int
         Actual number of components used (limited by data dimensions).
-    X_train\_ : ndarray of shape (n_samples, n_features)
+    X_train_ : ndarray of shape (n_samples, n_features)
         Stored training X data (standardized if scale=True).
-    y_train\_ : ndarray of shape (n_samples,)
+    y_train_ : ndarray of shape (n_samples,)
         Stored training y data (standardized if scale=True).
-    x_scaler\_ : StandardScaler or None
+    x_scaler_ : StandardScaler or None
         Fitted scaler for X (if scale=True).
-    y_scaler\_ : StandardScaler or None
+    y_scaler_ : StandardScaler or None
         Fitted scaler for y (if scale=True).
 
     Examples

@@ -1099,25 +1099,25 @@ class IntervalPLS(BaseEstimator, RegressorMixin):
 
     Attributes
     ----------
-    n_features_in\_ : int
+    n_features_in_ : int
         Number of features seen during fit.
-    n_components\_ : int
+    n_components_ : int
         Actual number of components used in final model.
-    interval_scores\_ : ndarray of shape (n_intervals,)
+    interval_scores_ : ndarray of shape (n_intervals,)
         Cross-validation scores for each interval.
-    interval_starts\_ : ndarray of shape (n_intervals,)
+    interval_starts_ : ndarray of shape (n_intervals,)
         Start indices for each interval.
-    interval_ends\_ : ndarray of shape (n_intervals,)
+    interval_ends_ : ndarray of shape (n_intervals,)
         End indices for each interval.
-    n_intervals\_ : int
+    n_intervals_ : int
         Actual number of intervals.
-    selected_intervals\_ : list of int
+    selected_intervals_ : list of int
         Indices of selected intervals.
-    selected_regions\_ : list of tuple
+    selected_regions_ : list of tuple
         (start, end) pairs for selected spectral regions.
-    coef\_ : ndarray of shape (n_selected_features, n_targets)
+    coef_ : ndarray of shape (n_selected_features, n_targets)
         Regression coefficients for selected features.
-    feature_mask\_ : ndarray of shape (n_features,)
+    feature_mask_ : ndarray of shape (n_features,)
         Boolean mask indicating selected features.
 
     Examples

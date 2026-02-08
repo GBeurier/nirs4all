@@ -68,8 +68,19 @@ jobs:
         run: python -m pip install -e .
 
       - name: Run full pytest + coverage
+        shell: bash
         run: |
-          python -m pytest -v tests/ --cov=nirs4all --cov-report=xml
+          # Serial subset with known write-contention under heavy xdist load
+          python -m pytest -v \
+            tests/integration/pipeline/test_merge_mixed.py \
+            tests/integration/pipeline/test_merge_per_branch.py \
+            --cov=nirs4all --cov-append
+
+          # Parallel remainder
+          python -m pytest -v -n auto --dist worksteal tests/ \
+            --ignore=tests/integration/pipeline/test_merge_mixed.py \
+            --ignore=tests/integration/pipeline/test_merge_per_branch.py \
+            --cov=nirs4all --cov-append --cov-report=xml
 
   # ═══════════════════════════════════════════════════════════════════════════
   # Documentation build (same as publish.yml)
@@ -115,6 +126,50 @@ jobs:
           retention-days: 3
 
   # ═══════════════════════════════════════════════════════════════════════════
+  # Verify examples (parallelized by category)
+  # ═══════════════════════════════════════════════════════════════════════════
+  verify-examples:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        category: [user, developer, reference]
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL /opt/hostedtoolcache/go
+          sudo rm -rf /opt/hostedtoolcache/Ruby /opt/hostedtoolcache/node
+          sudo rm -rf /usr/local/share/powershell /usr/share/swift
+          sudo rm -rf /usr/local/share/chromium /opt/microsoft
+          sudo docker image prune --all --force
+          sudo apt-get clean
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install jax jaxlib
+          python -m pip install tensorflow
+          python -m pip install -r requirements-examples.txt
+          python -m pip install -e .
+
+      - name: Run ${{ matrix.category }} examples
+        run: |
+          cd examples
+          chmod +x run.sh
+          ./run.sh -c ${{ matrix.category }}
+        timeout-minutes: 30
+
+  # ═══════════════════════════════════════════════════════════════════════════
   # Test package build (validates setup.py/pyproject.toml)
   # ═══════════════════════════════════════════════════════════════════════════
   test-build:
@@ -152,7 +207,7 @@ jobs:
   # Summary (runs after all jobs, reports status)
   # ═══════════════════════════════════════════════════════════════════════════
   summary:
-    needs: [run-tests, build-docs, test-build]
+    needs: [run-tests, build-docs, test-build, verify-examples]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -166,6 +221,7 @@ jobs:
           tests_result="${{ needs.run-tests.result }}"
           docs_result="${{ needs.build-docs.result }}"
           build_result="${{ needs.test-build.result }}"
+          examples_result="${{ needs.verify-examples.result }}"
 
           # Handle skipped tests
           if [ "$tests_result" == "skipped" ]; then
@@ -188,10 +244,16 @@ jobs:
             echo "║  Package Build: ❌ FAILED                                    ║"
           fi
 
+          if [ "$examples_result" == "success" ]; then
+            echo "║  Examples:      ✅ PASSED                                    ║"
+          else
+            echo "║  Examples:      ❌ FAILED                                    ║"
+          fi
+
           echo "╠═══════════════════════════════════════════════════════════════╣"
 
           # Determine overall status
-          if [ "$docs_result" == "success" ] && [ "$build_result" == "success" ]; then
+          if [ "$docs_result" == "success" ] && [ "$build_result" == "success" ] && [ "$examples_result" == "success" ]; then
             if [ "$tests_result" == "success" ] || [ "$tests_result" == "skipped" ]; then
               echo "║  🎉 Ready to publish! Create your release now.              ║"
               echo "╚═══════════════════════════════════════════════════════════════╝"

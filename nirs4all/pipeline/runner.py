@@ -94,6 +94,8 @@ class PipelineRunner:
         continue_on_error (bool): Whether to continue on step failures
         show_spinner (bool): Whether to show progress spinners
         keep_datasets (bool): Whether to keep raw/preprocessed data snapshots
+        max_preprocessed_snapshots_per_dataset (int): Maximum number of
+            preprocessed snapshots retained per dataset when keep_datasets=True.
         plots_visible (bool): Whether to display plots interactively
         orchestrator (PipelineOrchestrator): Underlying orchestrator for execution
         predictor (Predictor): Handler for prediction mode
@@ -127,7 +129,8 @@ class PipelineRunner:
         enable_tab_reports: bool = True,
         continue_on_error: bool = False,
         show_spinner: bool = True,
-        keep_datasets: bool = True,
+        keep_datasets: bool = False,
+        max_preprocessed_snapshots_per_dataset: int = 3,
         plots_visible: bool = False,
         random_state: Optional[int] = None,
         # Logging configuration
@@ -150,6 +153,8 @@ class PipelineRunner:
             continue_on_error: Whether to continue on step failures
             show_spinner: Whether to show progress spinners
             keep_datasets: Whether to keep data snapshots (raw/preprocessed)
+            max_preprocessed_snapshots_per_dataset: Max number of
+                preprocessed snapshots retained per dataset
             plots_visible: Whether to display plots interactively
             random_state: Random seed for reproducibility
             log_file: Whether to write logs to workspace/logs/ directory
@@ -176,6 +181,7 @@ class PipelineRunner:
         self.continue_on_error = continue_on_error
         self.show_spinner = show_spinner
         self.keep_datasets = keep_datasets
+        self.max_preprocessed_snapshots_per_dataset = max(0, int(max_preprocessed_snapshots_per_dataset))
         self.plots_visible = plots_visible
 
         # Store logging configuration
@@ -211,6 +217,7 @@ class PipelineRunner:
             continue_on_error=continue_on_error,
             show_spinner=show_spinner,
             keep_datasets=keep_datasets,
+            max_preprocessed_snapshots_per_dataset=self.max_preprocessed_snapshots_per_dataset,
             plots_visible=plots_visible
         )
 
@@ -243,6 +250,9 @@ class PipelineRunner:
         self.target_model: Optional[Dict] = None  # Target model for predict/explain modes
         self.last_execution_trace: Any = None  # ExecutionTrace from last run
 
+        # Cache configuration (set via nirs4all.run(cache=...))
+        self.cache_config: Any = None  # CacheConfig instance
+
         # Library for template management
         self._library: Any = None  # PipelineLibrary (lazy)
 
@@ -274,6 +284,9 @@ class PipelineRunner:
         Returns:
             Tuple of (run_predictions, datasets_predictions)
         """
+        # Propagate cache_config to orchestrator for RuntimeContext injection
+        self.orchestrator.cache_config = getattr(self, 'cache_config', None)
+
         run_predictions, dataset_predictions = self.orchestrator.execute(
             pipeline=pipeline,
             dataset=dataset,

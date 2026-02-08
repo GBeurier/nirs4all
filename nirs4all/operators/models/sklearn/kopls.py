@@ -597,25 +597,25 @@ class KOPLS(BaseEstimator, RegressorMixin):
 
     Attributes
     ----------
-    n_features_in\_ : int
+    n_features_in_ : int
         Number of features seen during fit.
-    n_components\_ : int
+    n_components_ : int
         Actual number of predictive components used.
-    n_ortho_components\_ : int
+    n_ortho_components_ : int
         Actual number of orthogonal components used.
-    X_train\_ : ndarray of shape (n_samples, n_features)
+    X_train_ : ndarray of shape (n_samples, n_features)
         Training data (stored for kernel computation at predict time).
-    y_mean\_ : ndarray of shape (n_targets,)
+    y_mean_ : ndarray of shape (n_targets,)
         Mean of Y.
-    y_std\_ : ndarray of shape (n_targets,)
+    y_std_ : ndarray of shape (n_targets,)
         Standard deviation of Y.
-    x_scores\_ : ndarray of shape (n_samples, n_components)
+    x_scores_ : ndarray of shape (n_samples, n_components)
         X scores from filtered kernel PLS (T).
-    y_scores\_ : ndarray of shape (n_samples, n_components)
+    y_scores_ : ndarray of shape (n_samples, n_components)
         Y scores (U).
-    y_loadings\_ : ndarray of shape (n_targets, n_components)
+    y_loadings_ : ndarray of shape (n_targets, n_components)
         Y loadings (C).
-    ortho_scores\_ : ndarray of shape (n_samples, n_ortho_components)
+    ortho_scores_ : ndarray of shape (n_samples, n_ortho_components)
         Orthogonal scores (T_ortho).
 
     Examples

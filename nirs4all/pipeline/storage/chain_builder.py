@@ -20,6 +20,7 @@ from nirs4all.pipeline.trace.execution_trace import (
     ExecutionStep,
     ExecutionTrace,
     StepExecutionMode,
+    normalize_fold_key,
 )
 
 
@@ -117,7 +118,7 @@ class ChainBuilder:
         for model_step in model_steps:
             fold_artifacts: Dict[str, str] = {}
             for fold_id, artifact_id in model_step.artifacts.fold_artifact_ids.items():
-                fold_artifacts[f"fold_{fold_id}"] = artifact_id
+                fold_artifacts[normalize_fold_key(fold_id)] = artifact_id
 
             # Include steps up to this model step
             chain_steps = [s for s in all_steps if s["step_idx"] <= model_step.step_index]

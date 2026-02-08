@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from nirs4all.data.config_parser import parse_config
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.data.loaders.csv_loader import load_csv
+from nirs4all.data.loaders.csv_loader_new import load_csv
 from nirs4all.data.signal_type import SignalType, normalize_signal_type
 from typing import Any, Dict, List, Tuple, Union, Optional
 
@@ -45,8 +45,8 @@ def create_synthetic_dataset(config: Dict) -> SpectroDataset:
     # Split indices
     indices = np.arange(n_samples)
     if 'random_state' in config:
-        np.random.seed(config['random_state'])
-        indices = np.random.permutation(indices)
+        rng = np.random.default_rng(config['random_state'])
+        indices = rng.permutation(indices)
 
     train_indices = indices[:n_train]
     test_indices = indices[n_train:]
@@ -174,7 +174,7 @@ def _load_file_with_registry(
             result.header_unit,
         )
     except FormatNotSupportedError:
-        # Fall back to CSV loader for unknown formats
+        # Fall back to the unified CSV loader for unknown formats
         return load_csv(file_path, header_unit=header_unit, data_type=data_type, **params)
     except Exception as e:
         # On any other error, try CSV as a fallback
