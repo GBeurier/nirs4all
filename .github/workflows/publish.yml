@@ -58,6 +58,7 @@ jobs:
         run: python -m pip install -e .
 
       - name: Run full pytest + coverage
+        shell: bash
         run: |
           # Serial subset with known write-contention under heavy xdist load
           python -m pytest -v \
