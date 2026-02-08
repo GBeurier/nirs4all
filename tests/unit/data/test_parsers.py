@@ -292,6 +292,101 @@ class TestConfigNormalizer:
         assert config["train_x"] == "X.csv"
         assert config["train_y"] == "Y.csv"
 
+    def test_normalize_dict_with_key_aliases(self):
+        """Test normalization of accepted key aliases to canonical keys."""
+        normalizer = ConfigNormalizer()
+        input_dict = {
+            "X_test": "Xval.csv",
+            "train_m": "Mcal.csv",
+            "test_m_params": {"has_header": True},
+        }
+
+        config, _ = normalizer.normalize(input_dict)
+
+        assert config["test_x"] == "Xval.csv"
+        assert config["train_group"] == "Mcal.csv"
+        assert config["test_group_params"] == {"has_header": True}
+        assert "X_test" not in config
+        assert "train_m" not in config
+        assert "test_m_params" not in config
+
+    def test_normalize_dict_with_broad_aliases_for_core_keys(self):
+        """Test broad alias coverage for all core dataset keys."""
+        normalizer = ConfigNormalizer()
+        input_dict = {
+            "data_name": "alias_dataset",
+            "desc": "Alias coverage",
+            "ml_task": "regression",
+            "cal_features": "Xcal.csv",
+            "fit_targets": "Ycal.csv",
+            "calibration_metadata": "Mcal.csv",
+            "eval_spectra": "Xval.csv",
+            "holdout_labels": "Yval.csv",
+            "predict_meta": "Mval.csv",
+            "cal_features_config": {"has_header": False},
+            "holdout_labels_cols": [0],
+            "global_loading_options": {"delimiter": ";"},
+            "fit_settings": {"has_header": True},
+            "eval_settings": {"has_header": True},
+            "aggregation_column": "sample_id",
+            "aggregation_strategy": "mean",
+            "remove_outliers_before_aggregation": True,
+            "repeat_column": "sample_id",
+            "cv_splits": "folds.csv",
+        }
+
+        config, name = normalizer.normalize(input_dict)
+
+        assert name == "alias_dataset"
+        assert config["name"] == "alias_dataset"
+        assert config["description"] == "Alias coverage"
+        assert config["task_type"] == "regression"
+        assert config["train_x"] == "Xcal.csv"
+        assert config["train_y"] == "Ycal.csv"
+        assert config["train_group"] == "Mcal.csv"
+        assert config["test_x"] == "Xval.csv"
+        assert config["test_y"] == "Yval.csv"
+        assert config["test_group"] == "Mval.csv"
+        assert config["train_x_params"] == {"has_header": False}
+        assert config["test_y_filter"] == [0]
+        assert config["global_params"] == {"delimiter": ";"}
+        assert config["train_params"] == {"has_header": True}
+        assert config["test_params"] == {"has_header": True}
+        assert config["aggregate"] == "sample_id"
+        assert config["aggregate_method"] == "mean"
+        assert config["aggregate_exclude_outliers"] is True
+        assert config["repetition"] == "sample_id"
+        assert config["folds"] == "folds.csv"
+
+    def test_normalize_dict_with_sources_aliases(self):
+        """Test source syntax aliases map to parser-facing keys."""
+        normalizer = ConfigNormalizer()
+        input_dict = {
+            "sensor_sources": [
+                {"name": "NIR", "train_x": "nir_train.csv", "test_x": "nir_test.csv"}
+            ],
+            "target_spec": {"path": "targets.csv"},
+            "metadata_spec": {"path": "metadata.csv"},
+        }
+
+        config, _ = normalizer.normalize(input_dict)
+
+        assert config["train_x"] == "nir_train.csv"
+        assert config["test_x"] == "nir_test.csv"
+        assert config["train_y"] == "targets.csv"
+        assert config["train_group"] == "metadata.csv"
+
+    def test_normalize_dict_prefers_canonical_on_alias_conflict(self):
+        """Test canonical keys are not overridden by aliases."""
+        normalizer = ConfigNormalizer()
+        input_dict = {
+            "test_x": "canonical.csv",
+            "X_test": "legacy.csv",
+        }
+
+        config, _ = normalizer.normalize(input_dict)
+        assert config["test_x"] == "canonical.csv"
+
     def test_normalize_dict_with_folder(self, sample_folder):
         """Test normalizing dict with folder key."""
         normalizer = ConfigNormalizer()

@@ -273,14 +273,19 @@ class RunResult:
 
     @property
     def best(self) -> dict[str, Any]:
-        """Get best prediction entry by default ranking.
+        """Get the best prediction entry, preferring refit (final) models.
+
+        When refit entries exist, returns the best final entry.
+        Otherwise falls back to the best CV entry.
 
         Returns:
             Dictionary containing best model's metrics, name, and configuration.
             Empty dict if no predictions available.
         """
-        top = self.predictions.top(n=1)
-        return top[0] if top else {}
+        final = self.best_final
+        if final:
+            return final
+        return self.cv_best
 
     @property
     def best_score(self) -> float:
@@ -387,16 +392,41 @@ class RunResult:
     # --- Refit accessors ---
 
     @property
+    def best_final(self) -> dict[str, Any]:
+        """Get the best refit entry across all models.
+
+        Filters predictions to ``fold_id="final"`` entries and ranks them
+        by their originating CV score (``cv_rank_score``).
+
+        Returns:
+            Best refit prediction dict, or empty dict if no refit entries.
+        """
+        top = self.predictions.top(n=1, score_scope="final")
+        return top[0] if top else {}
+
+    @property
     def final(self) -> dict[str, Any] | None:
         """Get the refit model prediction entry (``fold_id="final"``).
+
+        Searches the per-dataset prediction stores where refit entries
+        are stored (they are not merged into the global predictions
+        buffer to avoid polluting CV-centric ranking).
 
         Returns:
             Prediction dict for the refit model, or ``None`` if refit
             was not performed or no refit entries exist.
         """
+        # Search per-dataset prediction stores (refit entries live here)
+        for ds_info in self.per_dataset.values():
+            ds_preds = ds_info.get("run_predictions")
+            if ds_preds is None:
+                continue
+            entries = ds_preds.filter_predictions(fold_id="final")
+            for entry in entries:
+                if str(entry.get("fold_id")) == "final":
+                    return entry
+        # Fallback: check global predictions (for backward compatibility)
         entries = self.predictions.filter_predictions(fold_id="final")
-        # Guard against non-filtering/mocked implementations returning
-        # unrelated rows despite the fold filter.
         for entry in entries:
             if str(entry.get("fold_id")) == "final":
                 return entry
@@ -429,30 +459,8 @@ class RunResult:
         Returns:
             Best CV prediction dict, or empty dict if no CV predictions.
         """
-        # Filter out refit entries from the buffer to get pure CV ranking
-        cv_entries = [
-            entry for entry in self.predictions._buffer
-            if entry.get("fold_id") != "final" and entry.get("refit_context") is None
-        ]
-        if not cv_entries:
-            # Fall back to best overall (legacy behavior)
-            return self.best
-        # Rank CV entries: use the same logic as top()
-        # Find the best by val_score (infer ascending from metric)
-        from nirs4all.data.predictions import _infer_ascending
-        metric = cv_entries[0].get("metric", "rmse")
-        ascending = _infer_ascending(metric)
-
-        # Filter to 'val' or 'w_avg' fold_id entries for ranking
-        rankable = [e for e in cv_entries if e.get("fold_id") in ("avg", "w_avg")]
-        if not rankable:
-            # Fall back to fold entries with val_score
-            rankable = [e for e in cv_entries if e.get("val_score") is not None]
-        if not rankable:
-            return self.best
-
-        ranked = sorted(rankable, key=lambda e: e.get("val_score") or float("inf"), reverse=not ascending)
-        return ranked[0] if ranked else self.best
+        top = self.predictions.top(n=1, score_scope="cv")
+        return top[0] if top else {}
 
     @property
     def cv_best_score(self) -> float:

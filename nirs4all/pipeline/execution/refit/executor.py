@@ -374,6 +374,10 @@ def _relabel_refit_predictions(
     for entry in predictions._buffer:
         entry["fold_id"] = "final"
         entry["refit_context"] = REFIT_CONTEXT_STANDALONE
+        # Inject the CV selection score so final entries can be ranked
+        # in mix mode by their originating chain's avg folds val_score.
+        if refit_config is not None and refit_config.best_score:
+            entry["cv_rank_score"] = refit_config.best_score
         if refit_metadata:
             existing = entry.get("metadata") or {}
             existing.update(refit_metadata)

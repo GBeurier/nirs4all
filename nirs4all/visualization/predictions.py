@@ -230,6 +230,7 @@ class PredictionAnalyzer:
         n: int,
         rank_metric: str,
         rank_partition: str = 'val',
+        score_scope: str = 'mix',
         display_partition: str = 'test',
         display_metrics: Optional[List[str]] = None,
         aggregate: Optional[str] = None,
@@ -246,12 +247,15 @@ class PredictionAnalyzer:
         predictions.top() to benefit from caching.
 
         The cache key includes: aggregate, rank_metric, rank_partition,
-        display_partition, group_by, and all filters.
+        score_scope, display_partition, group_by, and all filters.
 
         Args:
             n: Number of top predictions to return.
             rank_metric: Metric for ranking.
             rank_partition: Partition for ranking (default: 'val').
+            score_scope: Controls how refit (final) entries interact with
+               CV entries.  See :meth:`Predictions.top` for details.
+               Default ``"mix"``.
             display_partition: Partition for display (default: 'test').
             display_metrics: List of metrics to compute for display.
             aggregate: Aggregation column (e.g., 'ID') or None.
@@ -293,6 +297,7 @@ class PredictionAnalyzer:
             rank_partition=rank_partition,
             display_partition=display_partition,
             group_by=group_by,
+            score_scope=score_scope,
             **filters
         )
 
@@ -311,6 +316,7 @@ class PredictionAnalyzer:
                 n=cache_n,
                 rank_metric=rank_metric,
                 rank_partition=rank_partition,
+                score_scope=score_scope,
                 display_partition=display_partition,
                 display_metrics=effective_display_metrics,
                 ascending=ascending,

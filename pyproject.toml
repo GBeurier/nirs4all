@@ -190,19 +190,23 @@ ignore = ["E402", "F841", "F401", "E302", "E305", "W293", "E501"]
 "__init__.py" = ["F401"]
 "tests/*" = ["B", "SIM"]
 
-# Pytest configuration
+# Pytest configuration (single source of truth — no separate pytest.ini)
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short -n auto --dist worksteal"
 markers = [
     "sklearn: sklearn-only tests",
     "tensorflow: TensorFlow tests",
     "torch: PyTorch tests",
+    "keras: tests that require Keras",
     "jax: JAX tests",
     "slow: slow running tests",
     "gpu: GPU-requiring tests",
+    "stress: memory stress tests (slow, excluded from fast CI)",
+    "xdist_group(name): mark test to run in a named group for sequential execution with pytest-xdist",
 ]
 
 # Coverage configuration

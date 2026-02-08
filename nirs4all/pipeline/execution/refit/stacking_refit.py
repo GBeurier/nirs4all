@@ -390,6 +390,52 @@ def _select_winning_branch(
     return winning
 
 
+def _get_branch_scores(
+    refit_config: RefitConfig,
+    store: Any,
+    branch_value: list[Any],
+) -> dict[int, float]:
+    """Get the average CV val_score for each branch.
+
+    Used to inject ``cv_rank_score`` into per-branch refit entries.
+
+    Returns:
+        Mapping from branch index to average val_score.
+    """
+    if store is None or not refit_config.pipeline_id:
+        return {}
+
+    try:
+        preds = store.query_predictions(
+            pipeline_id=refit_config.pipeline_id,
+            partition="val",
+        )
+    except Exception:
+        return {}
+
+    if preds is None or len(preds) == 0:
+        return {}
+
+    branch_scores: dict[int, list[float]] = {}
+    try:
+        branch_ids = preds["branch_id"].to_list()
+        val_scores = preds["val_score"].to_list()
+    except Exception:
+        return {}
+
+    for bid, vs in zip(branch_ids, val_scores):
+        if bid is not None and vs is not None:
+            bid = int(bid)
+            if bid not in branch_scores:
+                branch_scores[bid] = []
+            branch_scores[bid].append(float(vs))
+
+    return {
+        bid: sum(scores) / len(scores)
+        for bid, scores in branch_scores.items()
+    }
+
+
 def _infer_ascending_for_metric(metric: str) -> bool:
     """Infer whether lower-is-better from the metric name.
 
@@ -1092,48 +1138,65 @@ def execute_competing_branches_refit(
             prediction_store=prediction_store,
         )
 
-    # Select the winning branch from CV predictions
-    winning_idx = _select_winning_branch(
-        refit_config, runtime_context.store, branch_value
-    )
-
-    logger.info(
-        f"Competing branches: selected winning branch "
-        f"{winning_idx}/{len(branch_value)}"
-    )
-
-    # Build a flattened pipeline: pre-branch + winning branch + post-branch
+    # Refit ALL branches (not just the winner) so each model gets
+    # a final entry.
     pre_branch = steps[:branch_idx]
-    winning_steps = branch_value[winning_idx]
-    if not isinstance(winning_steps, list):
-        winning_steps = [winning_steps]
-
-    # Steps after the branch — skip any merge step (no merge needed
-    # when we've selected a single branch)
     post_branch = [
         s for s in steps[branch_idx + 1:]
         if not (isinstance(s, dict) and "merge" in s)
     ]
 
-    flat_steps = pre_branch + winning_steps + post_branch
+    # Get per-branch CV scores for cv_rank_score metadata
+    branch_scores = _get_branch_scores(refit_config, runtime_context.store, branch_value)
 
-    # Create a new RefitConfig with the flattened pipeline
-    flat_config = RefitConfig(
-        expanded_steps=flat_steps,
-        best_params=refit_config.best_params,
-        variant_index=refit_config.variant_index,
-        generator_choices=refit_config.generator_choices,
-        pipeline_id=refit_config.pipeline_id,
-        metric=refit_config.metric,
-        best_score=refit_config.best_score,
+    logger.info(
+        f"Competing branches: refitting all {len(branch_value)} branch(es)"
     )
 
-    return execute_simple_refit(
-        refit_config=flat_config,
-        dataset=dataset,
-        context=context,
-        runtime_context=runtime_context,
-        artifact_registry=artifact_registry,
-        executor=executor,
-        prediction_store=prediction_store,
+    total_predictions = 0
+    all_success = True
+
+    for branch_i, branch_steps in enumerate(branch_value):
+        if branch_steps is None:
+            logger.debug(f"Skipping empty branch {branch_i}")
+            continue
+        if not isinstance(branch_steps, list):
+            branch_steps = [branch_steps]
+        if not branch_steps:
+            logger.debug(f"Skipping empty branch {branch_i}")
+            continue
+
+        flat_steps = pre_branch + branch_steps + post_branch
+        branch_score = branch_scores.get(branch_i, refit_config.best_score)
+
+        flat_config = RefitConfig(
+            expanded_steps=flat_steps,
+            best_params=refit_config.best_params,
+            variant_index=refit_config.variant_index,
+            generator_choices=refit_config.generator_choices,
+            pipeline_id=refit_config.pipeline_id,
+            metric=refit_config.metric,
+            best_score=branch_score,
+        )
+
+        result = execute_simple_refit(
+            refit_config=flat_config,
+            dataset=dataset,
+            context=context,
+            runtime_context=runtime_context,
+            artifact_registry=artifact_registry,
+            executor=executor,
+            prediction_store=prediction_store,
+        )
+
+        if result.success:
+            total_predictions += result.predictions_count
+        else:
+            all_success = False
+            logger.warning(f"Refit failed for branch {branch_i}")
+
+    return RefitResult(
+        success=all_success,
+        predictions_count=total_predictions,
+        metric=refit_config.metric,
     )

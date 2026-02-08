@@ -1,20 +1,19 @@
 # Refit Runtime and Score Integration Audit
 
-Date: 2026-02-08  
+Date: 2026-02-08 (updated)
 Scope: `nirs4all` refit execution, prediction ranking (`top`/`get_best`), logging/reporting, storage aggregation, and visualization analyzers/charts.
 
-## Executive Answers
+**Status: RESOLVED** — All issues identified in this audit have been addressed by the visualization refit impact analysis implementation (Phases 0-5). See `visualization_refit_impact_analysis_2026-02-08.md` for the full implementation status.
+
+## Executive Answers (Updated)
 
 1. Are final (refit) scores for all models output in logs/reports?
-- Not globally, and not at the same level as CV scores today.
-- Current dataset-end reporting (`_print_best_predictions`) logs one "best prediction" and one tab report for that chosen entry, not a dedicated per-model refit final table.
-- In simple refit, only the winning pipeline/model is retrained, so there is not even a "final score for all candidate models" artifact by design.
+- **Yes.** Refit now runs on ALL unique model classes, not just the global winner. Each model produces its own `fold_id="final"` entry with `cv_rank_score` metadata. Reporting shows "Final model performance" as headline with per-model summary table and detailed tab reports.
 
 2. Are final scores integrated in `top()` at the same level as other scores, with possibility to request only final?
-- Partially.
-- `top()` can return refit rows, but defaults are CV-oriented (`rank_partition='val'`).
-- With common mixed CV+refit buffers, `top(..., fold_id='final')` returns empty unless caller also switches rank partition (typically to `rank_partition='test'`).
-- `RunResult` exposes dedicated refit accessors (`final`, `final_score`), but refit is not first-class in default `best/top` semantics.
+- **Yes.** `top()` and `get_best()` accept `score_scope` parameter (`'final'`|`'cv'`|`'mix'`|`'flat'`). Default `'mix'` shows finals first, then CV entries. Final entries are ranked by `cv_rank_score` and bypass `rank_partition` filtering. `result.best` prefers `best_final`, `result.cv_best` returns CV-only.
+
+## Original Audit (Historical)
 
 ## Current Runtime Management of Refit
 
