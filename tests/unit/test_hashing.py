@@ -1,6 +1,7 @@
 """Tests for data content hashing utility and SpectroDataset.content_hash()."""
 
 import numpy as np
+from unittest.mock import patch
 
 from nirs4all.utils.hashing import compute_data_hash
 from nirs4all.data.dataset import SpectroDataset
@@ -124,3 +125,20 @@ class TestSpectroDatasetContentHash:
         assert h1 == h2
         # Verify the internal cache is set
         assert ds._content_hash_cache is not None
+
+
+class TestDatasetMetadataHashing:
+    """Tests metadata hashing path for get_dataset_metadata()."""
+
+    def test_get_dataset_metadata_uses_content_hash_without_x_materialization(self):
+        """Metadata hash path should not force dataset.x(layout='2d') materialization."""
+        ds = SpectroDataset("meta")
+        ds.add_samples(np.random.RandomState(123).rand(20, 15), {"partition": "train"})
+
+        expected_hash = ds.content_hash()
+        ds._content_hash_cache = None
+
+        with patch.object(ds, "x", side_effect=AssertionError("dataset.x should not be called")):
+            meta = ds.get_dataset_metadata(include_y_stats=False)
+
+        assert meta["hash"] == expected_hash

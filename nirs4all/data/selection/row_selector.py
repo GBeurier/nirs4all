@@ -533,7 +533,7 @@ class RowSelector:
 
         Samples proportionally from each stratum (unique value of stratify_col).
         """
-        np.random.seed(random_state)
+        rng = np.random.default_rng(random_state)
 
         groups = df.groupby(stratify_col)
         n_groups = len(groups)
@@ -549,7 +549,8 @@ class RowSelector:
             n_group_sample = min(n_group_sample, len(group))
 
             if n_group_sample > 0:
-                sampled_dfs.append(group.sample(n=n_group_sample, random_state=random_state))
+                group_seed = int(rng.integers(0, np.iinfo(np.int32).max)) if random_state is not None else None
+                sampled_dfs.append(group.sample(n=n_group_sample, random_state=group_seed))
 
         if sampled_dfs:
             return pd.concat(sampled_dfs)

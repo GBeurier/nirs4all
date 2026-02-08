@@ -2018,6 +2018,7 @@ class BaseModelController(OperatorController, ABC):
             'partition_metadata': partition_metadata,
             'best_params': best_params if best_params else {},
             'branch_id': getattr(context.selector, 'branch_id', None),
+            'branch_path': getattr(context.selector, 'branch_path', None) or None,
             'branch_name': getattr(context.selector, 'branch_name', None) or "",
         }
 
@@ -2094,6 +2095,7 @@ class BaseModelController(OperatorController, ABC):
                     best_params=prediction_data['best_params'],
                     scores=prediction_data.get('scores', {}),
                     branch_id=prediction_data.get('branch_id'),
+                    branch_path=prediction_data.get('branch_path'),
                     branch_name=prediction_data.get('branch_name'),
                     exclusion_count=prediction_data.get('exclusion_count'),
                     exclusion_rate=prediction_data.get('exclusion_rate'),
@@ -2193,6 +2195,10 @@ class BaseModelController(OperatorController, ABC):
             # Generate V3 artifact ID using chain
             artifact_id = registry.generate_id(chain_path, fold_id, pipeline_id)
 
+            trace_fold_id: Optional[int | str] = fold_id
+            if runtime_context.phase == ExecutionPhase.REFIT and fold_id is not None:
+                trace_fold_id = runtime_context.refit_fold_id or "final"
+
             # Register artifact with V3 chain tracking
             record = registry.register(
                 obj=model,
@@ -2209,7 +2215,7 @@ class BaseModelController(OperatorController, ABC):
             runtime_context.record_step_artifact(
                 artifact_id=artifact_id,
                 is_primary=(fold_id is None),  # Primary if not fold-specific
-                fold_id=fold_id,
+                fold_id=trace_fold_id,
                 chain_path=chain_path,
                 branch_path=bp,
                 metadata={"class_name": model.__class__.__name__, "custom_name": custom_name}
@@ -2220,5 +2226,4 @@ class BaseModelController(OperatorController, ABC):
         # No registry available - skip persistence (for unit tests)
         # In production, artifact_registry should always be set by the runner
         return None
-
 

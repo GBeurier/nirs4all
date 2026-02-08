@@ -43,9 +43,6 @@ Adding Custom Loaders:
     ...         # Load implementation
     ...         pass
 
-Backward Compatibility:
-    The legacy load_csv function is still available for existing code:
-    >>> from nirs4all.data.loaders.csv_loader import load_csv
 """
 
 from pathlib import Path
@@ -68,15 +65,15 @@ from .base import (
 
 # Format-specific loaders
 # Note: Importing these modules automatically registers them via @register_loader
-from .csv_loader_new import CSVLoader, load_csv as load_csv_new
+from .csv_loader_new import CSVLoader, load_csv
 from .numpy_loader import NumpyLoader, load_numpy
 from .parquet_loader import ParquetLoader, load_parquet
 from .excel_loader import ExcelLoader, load_excel
 from .matlab_loader import MatlabLoader, load_matlab
 from .archive_loader import TarLoader, EnhancedZipLoader, list_archive_members
 
-# Legacy imports for backward compatibility
-from .csv_loader import load_csv
+# Backward-compatible alias kept for callers using the old symbol name.
+load_csv_new = load_csv
 
 
 def load_file(

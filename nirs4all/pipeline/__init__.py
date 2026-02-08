@@ -59,6 +59,17 @@ from .retrainer import (
     ExtractedPipeline,
     RetrainArtifactProvider,
 )
+from .run import (
+    DatasetInfo,
+    Run,
+    RunConfig,
+    RunStatus,
+    RunSummary,
+    TemplateInfo,
+    generate_run_id,
+    get_metric_info,
+    is_better_score,
+)
 
 __all__ = [
     'PipelineConfigs',
@@ -95,4 +106,14 @@ __all__ = [
     'RetrainConfig',
     'ExtractedPipeline',
     'RetrainArtifactProvider',
+    # Run entities
+    'Run',
+    'RunStatus',
+    'RunConfig',
+    'RunSummary',
+    'TemplateInfo',
+    'DatasetInfo',
+    'generate_run_id',
+    'get_metric_info',
+    'is_better_score',
 ]

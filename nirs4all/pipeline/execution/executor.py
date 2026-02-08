@@ -71,6 +71,7 @@ class PipelineExecutor:
         self.step_number = 0
         self.substep_number = -1
         self.operation_count = 0
+        self._shape_metadata_cache: Dict[tuple[Any, ...], tuple[tuple[int, int], List[tuple[int, ...]]]] = {}
 
     def initialize_context(self, dataset: SpectroDataset) -> ExecutionContext:
         """Initialize ExecutionContext for pipeline execution.
@@ -136,6 +137,7 @@ class PipelineExecutor:
         self.step_number = 0
         self.substep_number = -1
         self.operation_count = 0
+        self._shape_metadata_cache.clear()
 
         logger.starting(f"Starting pipeline {config_name} on dataset {dataset.name}")
 
@@ -157,7 +159,7 @@ class PipelineExecutor:
                     expanded_config=steps,
                     generator_choices=generator_choices or [],
                     dataset_name=dataset.name,
-                    dataset_hash=pipeline_hash,
+                    dataset_hash=dataset.content_hash(),
                 )
                 # Use pipeline_id as pipeline_uid for backward compatibility
                 pipeline_uid = pipeline_id
@@ -229,7 +231,12 @@ class PipelineExecutor:
 
             # Flush predictions to store so they can be looked up by ID
             if self.mode == "train" and store and pipeline_id and prediction_store.num_predictions > 0:
-                self._flush_predictions_to_store(store, pipeline_id, prediction_store)
+                self._flush_predictions_to_store(
+                    store,
+                    pipeline_id,
+                    prediction_store,
+                    runtime_context=runtime_context,
+                )
 
             # Complete pipeline in store
             if self.mode == "train" and store and pipeline_id:
@@ -277,7 +284,13 @@ class PipelineExecutor:
             traceback.print_exc()
             raise
 
-    def _flush_predictions_to_store(self, store: Any, pipeline_id: str, prediction_store: Predictions) -> None:
+    def _flush_predictions_to_store(
+        self,
+        store: Any,
+        pipeline_id: str,
+        prediction_store: Predictions,
+        runtime_context: Any = None,
+    ) -> None:
         """Flush in-memory predictions to the DuckDB store.
 
         Maps each prediction to its corresponding chain via step_idx → model_step_idx,
@@ -302,83 +315,143 @@ class PipelineExecutor:
                     return []
             return []
 
+        def _register_first(mapping: dict[Any, str], key: Any, chain_id: str) -> None:
+            if key not in mapping:
+                mapping[key] = chain_id
+
+        step_rows_present: set[int] = set()
+        first_by_scope: dict[Optional[int], str] = {}
+        first_by_scope_branch: dict[tuple[Optional[int], int], str] = {}
+        first_by_scope_class: dict[tuple[Optional[int], str], str] = {}
+        first_by_scope_preproc: dict[tuple[Optional[int], str], str] = {}
+        first_by_scope_branch_class: dict[tuple[Optional[int], int, str], str] = {}
+        first_by_scope_branch_preproc: dict[tuple[Optional[int], int, str], str] = {}
+        first_by_scope_class_preproc: dict[tuple[Optional[int], str, str], str] = {}
+        first_by_scope_branch_class_preproc: dict[tuple[Optional[int], int, str, str], str] = {}
+
+        for row in chain_rows:
+            chain_id = str(row["chain_id"])
+            step_idx = int(row.get("model_step_idx", 0) or 0)
+            step_rows_present.add(step_idx)
+
+            branch_path = _parse_branch_path(row.get("branch_path"))
+            branch_root = int(branch_path[0]) if branch_path else None
+            model_class = str(row.get("model_class") or "")
+            preprocessings = str(row.get("preprocessings") or "")
+
+            for scope in (None, step_idx):
+                _register_first(first_by_scope, scope, chain_id)
+
+                if branch_root is not None:
+                    _register_first(first_by_scope_branch, (scope, branch_root), chain_id)
+
+                if model_class:
+                    _register_first(first_by_scope_class, (scope, model_class), chain_id)
+
+                if preprocessings:
+                    _register_first(first_by_scope_preproc, (scope, preprocessings), chain_id)
+
+                if branch_root is not None and model_class:
+                    _register_first(
+                        first_by_scope_branch_class,
+                        (scope, branch_root, model_class),
+                        chain_id,
+                    )
+
+                if branch_root is not None and preprocessings:
+                    _register_first(
+                        first_by_scope_branch_preproc,
+                        (scope, branch_root, preprocessings),
+                        chain_id,
+                    )
+
+                if model_class and preprocessings:
+                    _register_first(
+                        first_by_scope_class_preproc,
+                        (scope, model_class, preprocessings),
+                        chain_id,
+                    )
+
+                if branch_root is not None and model_class and preprocessings:
+                    _register_first(
+                        first_by_scope_branch_class_preproc,
+                        (scope, branch_root, model_class, preprocessings),
+                        chain_id,
+                    )
+
         def _select_chain_id(pred: dict[str, Any]) -> str:
             """Select the best matching chain for a persisted prediction entry."""
             step_idx = int(pred.get("step_idx", 0) or 0)
-            candidates = [row for row in chain_rows if int(row.get("model_step_idx", 0) or 0) == step_idx]
-            if not candidates:
-                candidates = chain_rows
+            scope = step_idx if step_idx in step_rows_present else None
+            selected_chain_id = first_by_scope.get(scope) or first_by_scope.get(None)
+            if selected_chain_id is None and chain_rows:
+                selected_chain_id = str(chain_rows[0]["chain_id"])
 
             branch_id = pred.get("branch_id")
+            branch_key: Optional[int] = None
+            branch_applied = False
             if branch_id is not None:
-                branch_candidates = []
-                for row in candidates:
-                    branch_path = _parse_branch_path(row.get("branch_path"))
-                    if branch_path and int(branch_path[0]) == int(branch_id):
-                        branch_candidates.append(row)
-                if branch_candidates:
-                    candidates = branch_candidates
+                try:
+                    branch_key = int(branch_id)
+                except (TypeError, ValueError):
+                    branch_key = None
+
+                if branch_key is not None:
+                    branch_candidate = first_by_scope_branch.get((scope, branch_key))
+                    if branch_candidate is not None:
+                        selected_chain_id = branch_candidate
+                        branch_applied = True
 
             model_classname = pred.get("model_classname") or pred.get("model_class")
-            if model_classname:
-                class_candidates = [
-                    row for row in candidates
-                    if str(row.get("model_class") or "") == str(model_classname)
-                ]
-                if class_candidates:
-                    candidates = class_candidates
+            class_key = str(model_classname) if model_classname else None
+            class_applied = False
+            if class_key:
+                if branch_applied and branch_key is not None:
+                    class_candidate = first_by_scope_branch_class.get((scope, branch_key, class_key))
+                else:
+                    class_candidate = first_by_scope_class.get((scope, class_key))
+
+                if class_candidate is not None:
+                    selected_chain_id = class_candidate
+                    class_applied = True
 
             preprocessings = pred.get("preprocessings")
-            if preprocessings:
-                preproc_candidates = [
-                    row for row in candidates
-                    if str(row.get("preprocessings") or "") == str(preprocessings)
-                ]
-                if preproc_candidates:
-                    candidates = preproc_candidates
+            preproc_key = str(preprocessings) if preprocessings else None
+            if preproc_key:
+                if branch_applied and class_applied and branch_key is not None and class_key is not None:
+                    preproc_candidate = first_by_scope_branch_class_preproc.get(
+                        (scope, branch_key, class_key, preproc_key)
+                    )
+                elif branch_applied and branch_key is not None:
+                    preproc_candidate = first_by_scope_branch_preproc.get((scope, branch_key, preproc_key))
+                elif class_applied and class_key is not None:
+                    preproc_candidate = first_by_scope_class_preproc.get((scope, class_key, preproc_key))
+                else:
+                    preproc_candidate = first_by_scope_preproc.get((scope, preproc_key))
 
-            return str(candidates[0]["chain_id"])
+                if preproc_candidate is not None:
+                    selected_chain_id = preproc_candidate
 
-        for pred in prediction_store.to_dicts(load_arrays=True):
-            chain_id = _select_chain_id(pred)
+            return str(selected_chain_id or "")
 
-            store_pred_id = store.save_prediction(
-                pipeline_id=pipeline_id,
-                chain_id=chain_id,
-                dataset_name=pred.get("dataset_name", ""),
-                model_name=pred.get("model_name", ""),
-                model_class=pred.get("model_classname", ""),
-                fold_id=str(pred.get("fold_id", "")),
-                partition=pred.get("partition", ""),
-                val_score=pred.get("val_score") or 0.0,
-                test_score=pred.get("test_score") or 0.0,
-                train_score=pred.get("train_score") or 0.0,
-                metric=pred.get("metric", ""),
-                task_type=pred.get("task_type", "regression"),
-                n_samples=pred.get("n_samples", 0),
-                n_features=pred.get("n_features", 0),
-                scores=pred.get("scores", {}),
-                best_params=pred.get("best_params", {}),
-                branch_id=pred.get("branch_id"),
-                branch_name=pred.get("branch_name"),
-                exclusion_count=pred.get("exclusion_count", 0) or 0,
-                exclusion_rate=pred.get("exclusion_rate", 0.0) or 0.0,
-                preprocessings=pred.get("preprocessings", ""),
-                prediction_id=pred.get("id"),
-                refit_context=pred.get("refit_context"),
-            )
+        refit_fold_override = None
+        refit_context_override = None
+        if runtime_context is not None:
+            refit_fold_override = getattr(runtime_context, "refit_fold_id", None)
+            refit_context_override = getattr(runtime_context, "refit_context_name", None)
+            if getattr(runtime_context, "phase", None) is not None:
+                from nirs4all.pipeline.config.context import ExecutionPhase
 
-            # Store arrays
-            y_true = pred.get("y_true")
-            y_pred = pred.get("y_pred")
-            if y_true is not None or y_pred is not None:
-                import numpy as np
-                store.save_prediction_arrays(
-                    prediction_id=store_pred_id,
-                    y_true=np.asarray(y_true) if y_true is not None and len(y_true) > 0 else None,
-                    y_pred=np.asarray(y_pred) if y_pred is not None and len(y_pred) > 0 else None,
-                    y_proba=np.asarray(pred["y_proba"]) if pred.get("y_proba") is not None and len(pred.get("y_proba", [])) > 0 else None,
-                )
+                if runtime_context.phase == ExecutionPhase.REFIT:
+                    refit_fold_override = refit_fold_override or "final"
+
+        prediction_store.flush(
+            pipeline_id=pipeline_id,
+            store=store,
+            chain_id_resolver=_select_chain_id,
+            fold_id_override=str(refit_fold_override) if refit_fold_override is not None else None,
+            refit_context_override=refit_context_override,
+        )
 
     def _execute_steps(
         self,
@@ -899,32 +972,6 @@ class PipelineExecutor:
 
         return processed_artifacts
 
-    def _filter_binaries_for_branch(
-        self,
-        loaded_binaries: List,
-        branch_id: int
-    ) -> List:
-        """Filter loaded binaries for a specific branch.
-
-        Filters artifacts by branch_id metadata. Artifacts without branch_id
-        (pre-branch/shared) are included for all branches.
-
-        Args:
-            loaded_binaries: All loaded binaries for this step as (name, obj) tuples
-            branch_id: Target branch ID
-
-        Returns:
-            Filtered list of binaries for this branch (including shared artifacts)
-        """
-        if not loaded_binaries:
-            return loaded_binaries
-
-        # Note: loaded_binaries are (name, obj) tuples from ArtifactLoader
-        # The ArtifactLoader now handles branch filtering internally via get_step_binaries(step, branch_id)
-        # This method is kept for backward compatibility but primarily relies on ArtifactLoader
-
-        return loaded_binaries
-
     def _extract_step_info(self, step: Any) -> tuple:
         """Extract operator information from a step for trace recording.
 
@@ -1152,21 +1199,39 @@ class PipelineExecutor:
             runtime_context: Runtime context with trace recorder
             is_input: True to record input shapes, False for output shapes
         """
+        if self.verbose < 2:
+            return
+
+        if runtime_context is None or getattr(runtime_context, "trace_recorder", None) is None:
+            return
+
         try:
-            # Get 2D layout shape (samples x features)
-            X_2d = dataset.x(context.selector, layout="2d", include_excluded=False)
-            if isinstance(X_2d, list):
-                # Multi-source with concat
-                layout_shape = (X_2d[0].shape[0], sum(x.shape[1] for x in X_2d))
+            cache_key = self._shape_cache_key(dataset, context)
+            cached_shapes = self._shape_metadata_cache.get(cache_key)
+
+            if cached_shapes is None:
+                # Get 2D layout shape (samples x features)
+                X_2d = dataset.x(context.selector, layout="2d", include_excluded=False)
+                if isinstance(X_2d, list):
+                    # Multi-source with concat
+                    layout_shape = (X_2d[0].shape[0], sum(x.shape[1] for x in X_2d))
+                else:
+                    layout_shape = X_2d.shape
+
+                # Get 3D per-source shapes (samples x processings x features)
+                X_3d = dataset.x(
+                    context.selector,
+                    layout="3d",
+                    concat_source=False,
+                    include_excluded=False,
+                )
+                if not isinstance(X_3d, list):
+                    X_3d = [X_3d]
+
+                features_shapes = [x.shape for x in X_3d]
+                self._shape_metadata_cache[cache_key] = (layout_shape, features_shapes)
             else:
-                layout_shape = X_2d.shape
-
-            # Get 3D per-source shapes (samples x processings x features)
-            X_3d = dataset.x(context.selector, layout="3d", concat_source=False, include_excluded=False)
-            if not isinstance(X_3d, list):
-                X_3d = [X_3d]
-
-            features_shapes = [x.shape for x in X_3d]
+                layout_shape, features_shapes = cached_shapes
 
             # Record to trace
             if is_input:
@@ -1183,6 +1248,71 @@ class PipelineExecutor:
         except Exception:
             # Shape recording is non-critical, don't fail the step
             pass
+
+    def _shape_cache_key(
+        self,
+        dataset: SpectroDataset,
+        context: ExecutionContext,
+    ) -> tuple[Any, ...]:
+        """Build a cache key for repeated shape tracing lookups."""
+        selector = getattr(context, "selector", None)
+
+        if selector is None:
+            selector_key = ("none",)
+        else:
+            if isinstance(selector, dict):
+                partition = selector.get("partition")
+                fold_id = selector.get("fold_id")
+                include_augmented = bool(selector.get("include_augmented", False))
+            else:
+                partition = getattr(selector, "partition", None)
+                fold_id = getattr(selector, "fold_id", None)
+                include_augmented = bool(getattr(selector, "include_augmented", False))
+
+            processing = getattr(selector, "processing", None)
+            if processing is None and isinstance(selector, dict):
+                processing = selector.get("processing")
+            processing_key = tuple(tuple(chain) for chain in (processing or []))
+
+            branch_path = getattr(selector, "branch_path", None)
+            if branch_path is None and isinstance(selector, dict):
+                branch_path = selector.get("branch_path")
+            branch_key = tuple(branch_path or [])
+
+            tag_filters = getattr(selector, "tag_filters", None)
+            if tag_filters is None and isinstance(selector, dict):
+                tag_filters = selector.get("tag_filters")
+            if isinstance(tag_filters, dict):
+                tags_key = tuple(sorted((str(k), str(v)) for k, v in tag_filters.items()))
+            else:
+                tags_key = str(tag_filters)
+
+            selector_key = (
+                str(partition),
+                processing_key,
+                str(fold_id),
+                include_augmented,
+                branch_key,
+                tags_key,
+            )
+
+        source_shapes = []
+        features = getattr(dataset, "_features", None)
+        sources = getattr(features, "sources", []) if features is not None else []
+        for source in sources:
+            source_shapes.append(
+                (
+                    int(getattr(source, "num_processings", 0) or 0),
+                    int(getattr(source, "num_features", 0) or 0),
+                )
+            )
+
+        dataset_key = (
+            int(getattr(dataset, "num_samples", 0) or 0),
+            tuple(source_shapes),
+        )
+
+        return dataset_key + selector_key
 
     def _log_step_memory(self, dataset: SpectroDataset, operator_class: str, runtime_context: Any = None) -> None:
         """Log per-step memory stats and warn on high RSS.

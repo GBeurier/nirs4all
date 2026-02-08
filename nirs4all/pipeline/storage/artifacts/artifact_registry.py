@@ -34,6 +34,7 @@ from nirs4all.pipeline.storage.artifacts.types import (
     ArtifactType,
     MetaModelConfig,
 )
+from nirs4all.pipeline.storage.artifacts.query_service import ArtifactQuerySpec
 from nirs4all.pipeline.storage.artifacts.operator_chain import (
     OperatorChain,
     OperatorNode,
@@ -826,15 +827,19 @@ class ArtifactRegistry:
         Returns:
             List of matching ArtifactRecords
         """
+        spec = ArtifactQuerySpec(
+            step_index=step_index,
+            branch_path=branch_path,
+            fold_id=fold_id,
+            pipeline_id=pipeline_id,
+        )
         results = []
         for record in self._artifacts.values():
-            if record.pipeline_id != pipeline_id:
-                continue
-            if record.step_index != step_index:
-                continue
-            if branch_path is not None and record.branch_path != branch_path:
-                continue
-            if fold_id is not None and record.fold_id != fold_id:
+            if not spec.matches_record(
+                record,
+                shared_branch_ok=False,
+                shared_fold_ok=False,
+            ):
                 continue
             results.append(record)
         return results
@@ -1305,7 +1310,11 @@ class ArtifactRegistry:
             for filepath in shard_dir.glob(f"*_{short_hash}.*"):
                 # Verify it's actually the same content
                 # (short hash collision is unlikely but possible)
-                return f"{shard}/{filepath.name}"
+                try:
+                    if compute_content_hash(filepath.read_bytes()) == content_hash:
+                        return f"{shard}/{filepath.name}"
+                except OSError:
+                    continue
 
         return None
 

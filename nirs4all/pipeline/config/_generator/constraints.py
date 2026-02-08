@@ -210,38 +210,6 @@ def apply_all_constraints(
     return result
 
 
-def count_with_constraints(
-    n: int,
-    k: int,
-    mutex_groups: Optional[List[List[Any]]] = None,
-    requires_groups: Optional[List[List[Any]]] = None
-) -> int:
-    """Estimate count of combinations after constraint filtering.
-
-    Note: This is an approximation. For exact count, generate and filter.
-
-    Args:
-        n: Total number of items.
-        k: Size of combinations to select.
-        mutex_groups: Mutual exclusion groups.
-        requires_groups: Dependency requirement pairs.
-
-    Returns:
-        Estimated count of valid combinations.
-    """
-    from math import comb
-
-    base_count = comb(n, k)
-
-    if not mutex_groups and not requires_groups:
-        return base_count
-
-    # For complex constraints, we'd need to use inclusion-exclusion
-    # This is a simplified estimate
-    # For now, we return the base count as an upper bound
-    return base_count
-
-
 def _normalize_item(item: Any) -> Any:
     """Normalize an item for comparison.
 

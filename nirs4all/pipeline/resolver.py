@@ -48,6 +48,15 @@ from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
 
 logger = logging.getLogger(__name__)
 
+RESOLUTION_MODE_AUTO = "auto"
+RESOLUTION_MODE_STORE = "store"
+RESOLUTION_MODE_FILESYSTEM = "filesystem"
+VALID_RESOLUTION_MODES = {
+    RESOLUTION_MODE_AUTO,
+    RESOLUTION_MODE_STORE,
+    RESOLUTION_MODE_FILESYSTEM,
+}
+
 
 # ---------------------------------------------------------------------------
 # Lightweight manifest helpers (replace ManifestManager dependency)
@@ -293,6 +302,7 @@ class PredictionResolver:
         workspace_path: Union[str, Path],
         runs_dir: Optional[Union[str, Path]] = None,
         store: Optional[Any] = None,
+        resolution_mode: str = RESOLUTION_MODE_AUTO,
     ):
         """Initialize prediction resolver.
 
@@ -300,15 +310,29 @@ class PredictionResolver:
             workspace_path: Root workspace directory
             runs_dir: Optional runs directory override (default: workspace/runs)
             store: Optional WorkspaceStore for DuckDB-backed resolution
+            resolution_mode: Resolver mode policy.
+                - ``"auto"``: Try store first, fallback to filesystem.
+                - ``"store"``: Store-only resolution (no filesystem fallback).
+                - ``"filesystem"``: Filesystem-only resolution (skip store).
         """
         self.workspace_path = Path(workspace_path)
         self.runs_dir = Path(runs_dir) if runs_dir else self.workspace_path / "runs"
         self.store = store
+        self.resolution_mode = self._validate_resolution_mode(resolution_mode)
+
+    @staticmethod
+    def _validate_resolution_mode(mode: str) -> str:
+        normalized = str(mode or "").strip().lower()
+        if normalized not in VALID_RESOLUTION_MODES:
+            valid = ", ".join(sorted(VALID_RESOLUTION_MODES))
+            raise ValueError(f"Invalid resolution_mode: {mode!r}. Expected one of: {valid}")
+        return normalized
 
     def resolve(
         self,
         source: Union[Dict[str, Any], str, Path, Any],
-        verbose: int = 0
+        verbose: int = 0,
+        resolution_mode: Optional[str] = None,
     ) -> ResolvedPrediction:
         """Resolve any prediction source to executable components.
 
@@ -317,6 +341,7 @@ class PredictionResolver:
         Args:
             source: Prediction source (dict, folder path, Run, artifact_id, bundle)
             verbose: Verbosity level for logging
+            resolution_mode: Optional per-call override for resolver mode.
 
         Returns:
             ResolvedPrediction with all components for replay
@@ -325,6 +350,7 @@ class PredictionResolver:
             ValueError: If source type cannot be determined or resolved
             FileNotFoundError: If referenced files/directories don't exist
         """
+        mode = self.resolution_mode if resolution_mode is None else self._validate_resolution_mode(resolution_mode)
         source_type = self._detect_source_type(source)
 
         if verbose > 0:
@@ -333,7 +359,7 @@ class PredictionResolver:
         if source_type == SourceType.PREDICTION:
             # Type narrowing: we know source is dict at this point
             assert isinstance(source, dict)
-            return self._resolve_from_prediction(source, verbose)
+            return self._resolve_from_prediction(source, verbose, mode)
         elif source_type == SourceType.PREDICTION_ID:
             # String prediction ID — look up the full prediction dict from the store
             assert isinstance(source, str) and self.store is not None
@@ -341,7 +367,7 @@ class PredictionResolver:
             # Map store column names to expected prediction dict keys
             if "pipeline_id" in prediction_dict and "pipeline_uid" not in prediction_dict:
                 prediction_dict["pipeline_uid"] = prediction_dict["pipeline_id"]
-            return self._resolve_from_prediction(prediction_dict, verbose)
+            return self._resolve_from_prediction(prediction_dict, verbose, mode)
         elif source_type == SourceType.FOLDER:
             # Type narrowing: we know source is str or Path at this point
             assert isinstance(source, (str, Path))
@@ -522,7 +548,7 @@ class PredictionResolver:
         candidates = []
 
         # Search in all run directories
-        for run_dir in self.runs_dir.iterdir():
+        for run_dir in sorted(self.runs_dir.iterdir(), key=lambda p: p.name):
             if not run_dir.is_dir():
                 continue
 
@@ -533,13 +559,15 @@ class PredictionResolver:
                 continue
 
             # Check for partial match (pipeline_uid might be just the hash part)
-            for subdir in run_dir.iterdir():
+            for subdir in sorted(run_dir.iterdir(), key=lambda p: p.name):
                 if subdir.is_dir() and pipeline_uid in subdir.name:
                     if (subdir / "manifest.yaml").exists():
                         candidates.append(subdir)
 
         if not candidates:
             return None
+
+        candidates = sorted(candidates, key=lambda p: (p.parent.name, p.name))
 
         # If no trace_id specified, return first candidate
         if not trace_id:
@@ -565,7 +593,8 @@ class PredictionResolver:
     def _resolve_from_prediction(
         self,
         prediction: Dict[str, Any],
-        verbose: int = 0
+        verbose: int = 0,
+        resolution_mode: str = RESOLUTION_MODE_AUTO,
     ) -> ResolvedPrediction:
         """Resolve from a prediction dictionary.
 
@@ -581,15 +610,30 @@ class PredictionResolver:
         Args:
             prediction: Prediction dictionary with metadata
             verbose: Verbosity level
+            resolution_mode: Resolution policy (auto/store/filesystem)
 
         Returns:
             ResolvedPrediction with components for replay
         """
-        # Try store-based resolution first (DuckDB)
-        if self.store is not None:
+        # Store-first or store-only modes
+        if resolution_mode in (RESOLUTION_MODE_AUTO, RESOLUTION_MODE_STORE) and self.store is not None:
             resolved = self._resolve_from_store(prediction, verbose)
             if resolved is not None:
                 return resolved
+            if resolution_mode == RESOLUTION_MODE_STORE:
+                pipeline_uid = prediction.get("pipeline_uid", "")
+                raise FileNotFoundError(
+                    f"Store-only resolution failed for pipeline_uid={pipeline_uid!r}. "
+                    "No matching store-backed pipeline/chain was found."
+                )
+            logger.info(
+                "Resolver auto mode fallback: store miss; using filesystem path "
+                f"(pipeline_uid={prediction.get('pipeline_uid', '')!r})"
+            )
+        elif resolution_mode == RESOLUTION_MODE_STORE:
+            raise ValueError(
+                "Store-only resolution requested but resolver has no store instance."
+            )
 
         result = ResolvedPrediction(source_type=SourceType.PREDICTION)
 
@@ -1274,8 +1318,9 @@ class PredictionResolver:
     ) -> str:
         """Select the chain that matches a prediction.
 
-        Tries to match on ``model_class`` and ``preprocessings``.  Falls
-        back to the first chain if no unique match is found.
+        Chain selection is deterministic and fail-fast: if multiple chains
+        remain after applying all available discriminators, a
+        :class:`ResolverAmbiguityError` is raised.
 
         Args:
             chains_df: Polars DataFrame of chains (from
@@ -1285,49 +1330,126 @@ class PredictionResolver:
         Returns:
             The ``chain_id`` of the best-matching chain.
         """
-        import polars as pl
-
         if len(chains_df) == 1:
             return chains_df["chain_id"][0]
 
-        # Direct chain_id from store prediction (most reliable)
+        candidates: List[Dict[str, Any]] = list(chains_df.iter_rows(named=True))
+
+        # Direct chain_id from prediction/store row is authoritative.
         chain_id = prediction.get("chain_id")
         if chain_id:
-            matched = chains_df.filter(pl.col("chain_id") == chain_id)
-            if len(matched) == 1:
-                return matched["chain_id"][0]
+            exact = [row for row in candidates if str(row.get("chain_id")) == str(chain_id)]
+            if len(exact) == 1:
+                return str(exact[0]["chain_id"])
+            if len(exact) > 1:
+                ids = [str(row.get("chain_id")) for row in self._sort_chain_candidates(exact)]
+                raise ValueError(
+                    f"Multiple chains matched explicit chain_id={chain_id!r}: {ids}"
+                )
 
-        # Try to match by branch_id → branch_path
-        branch_id = prediction.get("branch_id")
-        if branch_id is not None and "branch_path" in chains_df.columns:
-            expected_bp = json.dumps([branch_id])
-            matched = chains_df.filter(pl.col("branch_path") == expected_bp)
-            if len(matched) == 1:
-                return matched["chain_id"][0]
+        # Structural branch-path matching.
+        expected_branch_path = self._normalize_branch_path(prediction.get("branch_path"))
+        if expected_branch_path is None and prediction.get("branch_id") is not None:
+            expected_branch_path = self._normalize_branch_path([prediction.get("branch_id")])
 
-        # Try to match by model step index
+        if expected_branch_path is not None and "branch_path" in chains_df.columns:
+            branch_matched = [
+                row for row in candidates
+                if self._normalize_branch_path(row.get("branch_path")) == expected_branch_path
+            ]
+            if branch_matched:
+                candidates = branch_matched
+
+        # Match by model step index when present.
         step_idx = prediction.get("step_idx")
         if step_idx is not None:
-            matched = chains_df.filter(pl.col("model_step_idx") == int(step_idx))
-            if len(matched) == 1:
-                return matched["chain_id"][0]
+            try:
+                expected_step_idx = int(step_idx)
+            except (TypeError, ValueError):
+                expected_step_idx = None
+            if expected_step_idx is not None:
+                step_matched = [
+                    row for row in candidates
+                    if int(row.get("model_step_idx", -1) or -1) == expected_step_idx
+                ]
+                if step_matched:
+                    candidates = step_matched
 
-        # Try to match by model_class (narrows if different model types)
+        # Match by model class.
         model_classname = prediction.get("model_classname") or prediction.get("model_class", "")
         if model_classname:
-            matched = chains_df.filter(pl.col("model_class") == model_classname)
-            if len(matched) == 1:
-                return matched["chain_id"][0]
+            class_matched = [
+                row for row in candidates
+                if str(row.get("model_class") or "") == str(model_classname)
+            ]
+            if class_matched:
+                candidates = class_matched
 
-        # Try to match by preprocessings
+        # Match by preprocessing chain.
         preprocessings = prediction.get("preprocessings", "")
         if preprocessings:
-            matched = chains_df.filter(pl.col("preprocessings") == preprocessings)
-            if len(matched) == 1:
-                return matched["chain_id"][0]
+            preproc_matched = [
+                row for row in candidates
+                if str(row.get("preprocessings") or "") == str(preprocessings)
+            ]
+            if preproc_matched:
+                candidates = preproc_matched
 
-        # Default: first chain
-        return chains_df["chain_id"][0]
+        if not candidates:
+            raise FileNotFoundError("No chain candidates available for prediction resolution.")
+
+        if len(candidates) == 1:
+            return str(candidates[0]["chain_id"])
+
+        candidate_ids = [str(row.get("chain_id")) for row in self._sort_chain_candidates(candidates)]
+        logger.warning(
+            "Ambiguous chain resolution for prediction — %d candidates. "
+            "Falling back to filesystem resolution. "
+            "Include chain_id or branch_path metadata to disambiguate.",
+            len(candidate_ids),
+        )
+        return None
+
+    @staticmethod
+    def _sort_chain_candidates(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Return a deterministic ordering for candidate chains."""
+        return sorted(
+            candidates,
+            key=lambda row: (
+                str(row.get("pipeline_id") or ""),
+                str(row.get("chain_id") or ""),
+            ),
+        )
+
+    @staticmethod
+    def _normalize_branch_path(value: Any) -> Optional[Tuple[int, ...]]:
+        """Normalize branch-path encodings to a canonical tuple[int, ...]."""
+        if value is None:
+            return None
+
+        parsed = value
+        if isinstance(parsed, str):
+            text = parsed.strip()
+            if text == "":
+                return None
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                return None
+
+        if isinstance(parsed, int):
+            return (int(parsed),)
+
+        if isinstance(parsed, (list, tuple)):
+            normalized: List[int] = []
+            for item in parsed:
+                try:
+                    normalized.append(int(item))
+                except (TypeError, ValueError):
+                    return None
+            return tuple(normalized)
+
+        return None
 
     def _find_trace_location(self, trace_id: str) -> Tuple[str, Path]:
         """Find the pipeline and run directory containing a trace.

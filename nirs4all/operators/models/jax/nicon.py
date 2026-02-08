@@ -138,37 +138,6 @@ class TransformerBlock(nn.Module):
 
     @nn.compact
     def __call__(self, x, deterministic: bool = False):
-        # Attention
-        attn_out = nn.MultiHeadAttention(
-            num_heads=self.num_heads,
-            qkv_features=self.head_size * self.num_heads,
-            dropout_rate=self.dropout
-        )(x, x, deterministic=deterministic)
-
-        x = nn.LayerNorm(epsilon=1e-6)(attn_out)
-        x = nn.Dropout(rate=self.dropout)(x, deterministic=deterministic)
-
-        res = x + x # Wait, TF code: res = x + inputs. But x here is Dropout(Norm(Attn)).
-        # TF code:
-        # x = MultiHeadAttention(...)(inputs, inputs)
-        # x = LayerNormalization(...)(x)
-        # x = Dropout(...)(x)
-        # res = x + inputs
-
-        # So I need to keep 'inputs' (which is 'x' at start of function)
-        # But I overwrote 'x'.
-        # Let's fix.
-        pass # Placeholder, will implement in _build_transformer logic or separate class
-
-# Re-implement TransformerBlock properly
-class TransformerBlockImpl(nn.Module):
-    head_size: int
-    num_heads: int
-    ff_dim: int
-    dropout: float
-
-    @nn.compact
-    def __call__(self, x, deterministic: bool = False):
         inputs = x
         x = nn.MultiHeadAttention(
             num_heads=self.num_heads,
@@ -179,7 +148,7 @@ class TransformerBlockImpl(nn.Module):
         x = nn.Dropout(rate=self.dropout)(x, deterministic=deterministic)
         res = x + inputs
 
-        # Feed Forward
+        # Feed-forward block
         x = nn.Conv(features=self.ff_dim, kernel_size=(1,), activation=nn.relu)(res)
         x = nn.Dropout(rate=self.dropout)(x, deterministic=deterministic)
         x = nn.Conv(features=inputs.shape[-1], kernel_size=(1,))(x)
@@ -594,7 +563,7 @@ def _build_transformer(input_shape, params, num_classes=1):
 
     # Transformer blocks
     for _ in range(num_blocks):
-        layers.append(TransformerBlockImpl(
+        layers.append(TransformerBlock(
             head_size=head_size,
             num_heads=num_heads,
             ff_dim=ff_dim,

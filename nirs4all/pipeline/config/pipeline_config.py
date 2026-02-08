@@ -5,28 +5,11 @@ PipelineConfigs.py
 import json
 import logging
 from pathlib import Path
-from typing import List, Any, Dict, Union
+from typing import List, Any, Dict, Union, Optional
 import yaml
 
 from .component_serialization import serialize_component
 from .generator import expand_spec, expand_spec_with_choices, count_combinations, ALL_KEYWORDS
-
-
-class _ShortNameFormatter(logging.Formatter):
-    """Formatter that strips 'nirs4all.' prefix from logger names."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        # Strip nirs4all prefix for cleaner output
-        if record.name.startswith("nirs4all."):
-            record.name = record.name[9:]  # len("nirs4all.") = 9
-        return super().format(record)
-
-
-# Configure logging with simplified module names
-_handler = logging.StreamHandler()
-_handler.setFormatter(_ShortNameFormatter("%(levelname)s: %(name)s: %(message)s"))
-logging.root.addHandler(_handler)
-logging.root.setLevel(logging.INFO)
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +17,17 @@ class PipelineConfigs:
     """
     Class to hold the configuration for a pipeline.
     """
-    def __init__(self, definition: Union[Dict, List[Any], str], name: str = "", description: str = "No description provided", max_generation_count: int = 10000):
+    IDENTITY_HASH_LENGTH = 16
+    DISPLAY_HASH_LENGTH = 8
+
+    def __init__(
+        self,
+        definition: Union[Dict, List[Any], str],
+        name: str = "",
+        description: str = "No description provided",
+        max_generation_count: int = 10000,
+        random_state: Optional[int] = None,
+    ):
         """
         Initialize the pipeline configuration.
 
@@ -43,6 +36,7 @@ class PipelineConfigs:
             name: Optional name for the pipeline
             description: Optional description
             max_generation_count: Maximum number of configurations to generate
+            random_state: Optional seed for deterministic generator expansion
 
         Attributes:
             original_template: The original definition before expansion (deep copy)
@@ -54,6 +48,11 @@ class PipelineConfigs:
 
         ## Parse / Format / Validate the configuration
         self.description = description
+        self.random_state = (
+            random_state
+            if random_state is not None
+            else self._extract_random_state(definition)
+        )
         self.steps = self._load_steps(definition)
         self.steps = self._preprocess_steps(self.steps)
         self.steps = serialize_component(self.steps)
@@ -75,7 +74,10 @@ class PipelineConfigs:
             if count >= 1:
                 self.has_configurations = count > 1
                 # Use expand_spec_with_choices to track generator choices
-                expanded_with_choices = expand_spec_with_choices(self.steps)
+                expanded_with_choices = expand_spec_with_choices(
+                    self.steps,
+                    seed=self.random_state,
+                )
                 self.steps = [config for config, choices in expanded_with_choices]
                 self.generator_choices = [choices for config, choices in expanded_with_choices]
                 was_expanded = True
@@ -88,7 +90,7 @@ class PipelineConfigs:
         if name == "":
             name = "config"
         self.names = [
-            name + "_" + self.get_hash(steps)[0:6]
+            name + "_" + self.get_display_hash(steps)
             for steps in self.steps
         ]
 
@@ -291,16 +293,32 @@ class PipelineConfigs:
         return PipelineConfigs._load_steps(pipeline_definition)
 
     @staticmethod
-    def get_hash(steps) -> str:
+    def _extract_random_state(definition: Union[Dict, List[Any], str]) -> Optional[int]:
+        """Extract optional random_state from dict-style configuration root."""
+        if isinstance(definition, dict):
+            value = definition.get("random_state")
+            if isinstance(value, bool):
+                return None
+            if isinstance(value, int):
+                return value
+        return None
+
+    @classmethod
+    def get_hash(cls, steps) -> str:
         """
         Generate a hash for the pipeline configuration.
 
         All objects are fully JSON-serializable (no _runtime_instance).
-        No need for default=str hack anymore.
+        This returns the long identity hash used for matching and cache identity.
         """
         import hashlib
-        serializable = json.dumps(steps, sort_keys=True).encode('utf-8')
-        return hashlib.md5(serializable).hexdigest()[0:8]
+        serializable = json.dumps(steps, sort_keys=True, separators=(",", ":")).encode('utf-8')
+        return hashlib.sha256(serializable).hexdigest()[:cls.IDENTITY_HASH_LENGTH]
+
+    @classmethod
+    def get_display_hash(cls, steps) -> str:
+        """Return a short display-only hash derived from the identity hash."""
+        return cls.get_hash(steps)[:cls.DISPLAY_HASH_LENGTH]
 
     @staticmethod
     def _get_step_description(step: Any) -> str:

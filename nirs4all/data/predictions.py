@@ -23,7 +23,7 @@ import json
 import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 from uuid import uuid4
 
 import numpy as np
@@ -122,6 +122,7 @@ def _build_prediction_row(
     best_params: dict[str, Any] | None = None,
     scores: dict[str, dict[str, float]] | None = None,
     branch_id: int | None = None,
+    branch_path: list[int] | None = None,
     branch_name: str | None = None,
     exclusion_count: int | None = None,
     exclusion_rate: float | None = None,
@@ -162,6 +163,7 @@ def _build_prediction_row(
         "best_params": best_params if best_params is not None else {},
         "scores": scores if scores is not None else {},
         "branch_id": branch_id,
+        "branch_path": branch_path,
         "branch_name": branch_name or "",
         "exclusion_count": exclusion_count,
         "exclusion_rate": exclusion_rate,
@@ -276,6 +278,7 @@ class Predictions:
         best_params: dict[str, Any] | None = None,
         scores: dict[str, dict[str, float]] | None = None,
         branch_id: int | None = None,
+        branch_path: list[int] | None = None,
         branch_name: str | None = None,
         exclusion_count: int | None = None,
         exclusion_rate: float | None = None,
@@ -319,6 +322,7 @@ class Predictions:
             best_params: Best hyperparameters.
             scores: Dictionary of pre-computed scores per partition.
             branch_id: Branch identifier for pipeline branching.
+            branch_path: List of branch indices for nested branching.
             branch_name: Human-readable branch name.
             exclusion_count: Number of excluded samples.
             exclusion_rate: Rate of excluded samples (0.0-1.0).
@@ -361,6 +365,7 @@ class Predictions:
             best_params=best_params,
             scores=scores,
             branch_id=branch_id,
+            branch_path=branch_path,
             branch_name=branch_name,
             exclusion_count=exclusion_count,
             exclusion_rate=exclusion_rate,
@@ -375,7 +380,16 @@ class Predictions:
     # FLUSH (store-backed mode)
     # =========================================================================
 
-    def flush(self, pipeline_id: str | None = None, chain_id: str | None = None) -> None:
+    def flush(
+        self,
+        pipeline_id: str | None = None,
+        chain_id: str | None = None,
+        *,
+        store: WorkspaceStore | None = None,
+        chain_id_resolver: Callable[[dict[str, Any]], str] | None = None,
+        fold_id_override: str | None = None,
+        refit_context_override: str | None = None,
+    ) -> None:
         """Persist buffered predictions to the workspace store.
 
         Each buffered record is written via
@@ -385,18 +399,43 @@ class Predictions:
         Args:
             pipeline_id: Pipeline ID to associate predictions with.
             chain_id: Chain ID to associate predictions with.
+            store: Optional store override. If omitted, uses the instance
+                store passed at construction.
+            chain_id_resolver: Optional callback that maps each buffered row
+                to a chain ID. Used when predictions from multiple chains are
+                persisted in one flush.
+            fold_id_override: Optional fold-id override applied to all rows
+                (used by refit persistence).
+            refit_context_override: Optional refit-context override applied to
+                all rows.
         """
-        if self._store is None or not self._buffer:
+        target_store = store or self._store
+        if target_store is None or not self._buffer:
             return
 
         for row in self._buffer:
-            pred_id = self._store.save_prediction(
+            resolved_chain_id = chain_id or ""
+            if chain_id_resolver is not None:
+                resolved = chain_id_resolver(row)
+                resolved_chain_id = "" if resolved is None else str(resolved)
+
+            # Write chain_id back into the buffer row for downstream lookups
+            row["chain_id"] = resolved_chain_id
+
+            fold_id = fold_id_override if fold_id_override is not None else row["fold_id"]
+            refit_context = (
+                refit_context_override
+                if refit_context_override is not None
+                else row.get("refit_context")
+            )
+
+            pred_id = target_store.save_prediction(
                 pipeline_id=pipeline_id or "",
-                chain_id=chain_id or "",
+                chain_id=resolved_chain_id,
                 dataset_name=row["dataset_name"],
                 model_name=row["model_name"],
                 model_class=row["model_classname"],
-                fold_id=row["fold_id"],
+                fold_id=str(fold_id),
                 partition=row["partition"],
                 val_score=row.get("val_score") or 0.0,
                 test_score=row.get("test_score") or 0.0,
@@ -412,7 +451,8 @@ class Predictions:
                 exclusion_count=row.get("exclusion_count") or 0,
                 exclusion_rate=row.get("exclusion_rate") or 0.0,
                 preprocessings=row.get("preprocessings", ""),
-                refit_context=row.get("refit_context"),
+                prediction_id=row.get("id"),
+                refit_context=refit_context,
             )
 
             # Save arrays
@@ -426,7 +466,7 @@ class Predictions:
             has_y_pred = y_pred is not None and (isinstance(y_pred, np.ndarray) and y_pred.size > 0)
 
             if has_y_true or has_y_pred:
-                self._store.save_prediction_arrays(
+                target_store.save_prediction_arrays(
                     prediction_id=pred_id,
                     y_true=y_true if has_y_true else None,
                     y_pred=y_pred if has_y_pred else None,
@@ -434,8 +474,6 @@ class Predictions:
                     sample_indices=np.array(sample_indices, dtype=np.int64) if sample_indices and len(sample_indices) > 0 else None,
                     weights=np.array(weights, dtype=np.float64) if weights and len(weights) > 0 else None,
                 )
-
-        self._buffer.clear()
 
     # =========================================================================
     # RANKING OPERATIONS
@@ -1182,21 +1220,6 @@ class Predictions:
     def to_pandas(self) -> Any:
         """Get predictions as pandas DataFrame (metadata only)."""
         return self.to_dataframe().to_pandas()
-
-    # =========================================================================
-    # CACHE (no-op -- kept for API compatibility)
-    # =========================================================================
-
-    def clear_caches(self) -> None:
-        """Clear internal caches (no-op in store-backed mode)."""
-
-    def get_cache_stats(self) -> dict[str, Any]:
-        """Get cache statistics (stub for API compatibility).
-
-        Returns:
-            Empty statistics dict.
-        """
-        return {"aggregation_cache": {"hit_rate": 0.0, "size": 0}, "score_cache": {"hit_rate": 0.0, "size": 0}}
 
     # =========================================================================
     # STATIC UTILITY METHODS

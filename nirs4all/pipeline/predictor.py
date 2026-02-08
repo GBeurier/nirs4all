@@ -8,8 +8,9 @@ Supports two prediction paths:
     - Resolver path: Prediction dicts / folders resolved via PredictionResolver,
       with optional minimal pipeline extraction from execution traces.
 """
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -17,11 +18,29 @@ from nirs4all.core.logging import get_logger
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
-from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata
+from nirs4all.pipeline.config.context import (
+    DataSelector,
+    ExecutionContext,
+    LoaderArtifactProvider,
+    PipelineState,
+    RuntimeContext,
+    StepMetadata,
+)
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
+from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class _PredictionStrategy:
+    """Plan for executing one prediction replay strategy."""
+
+    name: str
+    mode: str  # "minimal" or "full"
+    steps: List[Any]
+    minimal_pipeline: Optional[Any]
+    artifact_provider_factory: Callable[[], Any]
 
 
 class Predictor:
@@ -174,119 +193,14 @@ class Predictor:
         Returns:
             Same as ``predict()`` method.
         """
-        from nirs4all.pipeline.trace import TraceBasedExtractor
-        from nirs4all.pipeline.minimal_predictor import MinimalArtifactProvider
-        from nirs4all.pipeline.config.context import RuntimeContext
-
         logger.info("Using minimal pipeline execution")
-
-        extractor = TraceBasedExtractor()
-        full_steps = list(self._resolved.minimal_pipeline)
-
-        target_branch_name = self.target_model.get("branch_name") if self.target_model else None
-        target_branch_id = self.target_model.get("branch_id") if self.target_model else None
-        target_branch_path = self.target_model.get("branch_path") if self.target_model else None
-
-        if target_branch_name:
-            minimal_pipeline = extractor.extract_for_branch_name(
-                trace=self._execution_trace, branch_name=target_branch_name, full_pipeline=full_steps,
-            )
-        elif target_branch_path:
-            minimal_pipeline = extractor.extract_for_branch(
-                trace=self._execution_trace, branch_path=target_branch_path, full_pipeline=full_steps,
-            )
-        elif target_branch_id is not None:
-            minimal_pipeline = extractor.extract_for_branch(
-                trace=self._execution_trace, branch_path=[target_branch_id], full_pipeline=full_steps,
-            )
-        else:
-            minimal_pipeline = extractor.extract(
-                trace=self._execution_trace, full_pipeline=full_steps, up_to_model=True,
-            )
-
-        self._minimal_pipeline = minimal_pipeline
-
-        logger.debug(
-            f"Minimal pipeline: {minimal_pipeline.get_step_count()} steps "
-            f"(from {len(full_steps)} total)"
+        strategy = self._make_minimal_strategy()
+        return self._run_prediction_strategy(
+            strategy=strategy,
+            dataset_config=dataset_config,
+            all_predictions=all_predictions,
+            verbose=verbose,
         )
-
-        run_predictions = Predictions()
-
-        for config, name in dataset_config.configs:
-            dataset_obj = dataset_config.get_dataset(config, name)
-            config_predictions = Predictions()
-
-            selector = DataSelector(
-                partition=None,
-                processing=[["raw"]] * dataset_obj.features_sources(),
-                layout="2d",
-                concat_source=True,
-            )
-
-            if target_branch_id is not None or target_branch_name:
-                bp = target_branch_path or ([target_branch_id] if target_branch_id is not None else None)
-                selector = selector.with_branch(branch_id=target_branch_id, branch_name=target_branch_name, branch_path=bp)
-
-            context = ExecutionContext(
-                selector=selector,
-                state=PipelineState(y_processing="numeric", step_number=0, mode="predict"),
-                metadata=StepMetadata(),
-            )
-
-            executor = (
-                ExecutorBuilder()
-                .with_workspace(self.runner.workspace_path)
-                .with_verbose(verbose)
-                .with_mode("predict")
-                .with_save_artifacts(False)
-                .with_save_charts(self.runner.save_charts)
-                .with_continue_on_error(self.runner.continue_on_error)
-                .with_show_spinner(self.runner.show_spinner)
-                .with_plots_visible(self.runner.plots_visible)
-                .with_artifact_loader(self.artifact_loader)
-                .build()
-            )
-
-            # Determine substep target
-            target_sub_index = None
-            target_model_name = None
-            if self.target_model:
-                model_artifact_id = self.target_model.get("model_artifact_id")
-                if model_artifact_id:
-                    target_sub_index = self._get_substep_from_artifact(model_artifact_id)
-                else:
-                    target_model_name = self.target_model.get("model_name")
-
-            artifact_provider = MinimalArtifactProvider(
-                minimal_pipeline=minimal_pipeline,
-                artifact_loader=self.artifact_loader,
-                target_sub_index=target_sub_index,
-                target_model_name=target_model_name,
-            )
-
-            runtime_context = RuntimeContext(
-                artifact_loader=self.artifact_loader,
-                artifact_provider=artifact_provider,
-                step_runner=executor.step_runner,
-                target_model=self.target_model,
-                explainer=self.runner.explainer,
-            )
-
-            steps = [step.step_config for step in minimal_pipeline.steps]
-
-            executor.execute_minimal(
-                steps=steps,
-                minimal_pipeline=minimal_pipeline,
-                dataset=dataset_obj,
-                context=context,
-                runtime_context=runtime_context,
-                prediction_store=config_predictions,
-            )
-
-            run_predictions.merge_predictions(config_predictions)
-
-        return self._process_prediction_results(run_predictions, all_predictions)
 
     # -----------------------------------------------------------------
     # Full pipeline path
@@ -308,66 +222,202 @@ class Predictor:
         Returns:
             Same as ``predict()`` method.
         """
-        from nirs4all.pipeline.config.context import RuntimeContext, LoaderArtifactProvider
+        strategy = self._make_full_strategy()
+        return self._run_prediction_strategy(
+            strategy=strategy,
+            dataset_config=dataset_config,
+            all_predictions=all_predictions,
+            verbose=verbose,
+        )
 
-        steps = list(self._resolved.minimal_pipeline)
+    def _make_minimal_strategy(self) -> _PredictionStrategy:
+        """Build the minimal-pipeline replay strategy plan."""
+        from nirs4all.pipeline.minimal_predictor import MinimalArtifactProvider
+        from nirs4all.pipeline.trace import TraceBasedExtractor
 
+        extractor = TraceBasedExtractor()
+        full_steps = list(self._resolved.minimal_pipeline)
+
+        target_branch_name = self.target_model.get("branch_name") if self.target_model else None
+        target_branch_id = self.target_model.get("branch_id") if self.target_model else None
+        target_branch_path = self.target_model.get("branch_path") if self.target_model else None
+
+        if target_branch_name:
+            minimal_pipeline = extractor.extract_for_branch_name(
+                trace=self._execution_trace,
+                branch_name=target_branch_name,
+                full_pipeline=full_steps,
+            )
+        elif target_branch_path:
+            minimal_pipeline = extractor.extract_for_branch(
+                trace=self._execution_trace,
+                branch_path=target_branch_path,
+                full_pipeline=full_steps,
+            )
+        elif target_branch_id is not None:
+            minimal_pipeline = extractor.extract_for_branch(
+                trace=self._execution_trace,
+                branch_path=[target_branch_id],
+                full_pipeline=full_steps,
+            )
+        else:
+            minimal_pipeline = extractor.extract(
+                trace=self._execution_trace,
+                full_pipeline=full_steps,
+                up_to_model=True,
+            )
+
+        self._minimal_pipeline = minimal_pipeline
+        logger.debug(
+            f"Minimal pipeline: {minimal_pipeline.get_step_count()} steps "
+            f"(from {len(full_steps)} total)"
+        )
+
+        target_sub_index = None
+        target_model_name = None
+        if self.target_model:
+            model_artifact_id = self.target_model.get("model_artifact_id")
+            if model_artifact_id:
+                target_sub_index = self._get_substep_from_artifact(model_artifact_id)
+            else:
+                target_model_name = self.target_model.get("model_name")
+
+        def _artifact_provider_factory() -> Any:
+            return MinimalArtifactProvider(
+                minimal_pipeline=minimal_pipeline,
+                artifact_loader=self.artifact_loader,
+                target_sub_index=target_sub_index,
+                target_model_name=target_model_name,
+            )
+
+        return _PredictionStrategy(
+            name="minimal",
+            mode="minimal",
+            steps=[step.step_config for step in minimal_pipeline.steps],
+            minimal_pipeline=minimal_pipeline,
+            artifact_provider_factory=_artifact_provider_factory,
+        )
+
+    def _make_full_strategy(self) -> _PredictionStrategy:
+        """Build the full-pipeline replay strategy plan."""
+
+        def _artifact_provider_factory() -> Any:
+            artifact_provider = self._resolved.artifact_provider
+            if artifact_provider is None and self.artifact_loader:
+                artifact_provider = LoaderArtifactProvider(loader=self.artifact_loader)
+            return artifact_provider
+
+        return _PredictionStrategy(
+            name="full",
+            mode="full",
+            steps=list(self._resolved.minimal_pipeline),
+            minimal_pipeline=None,
+            artifact_provider_factory=_artifact_provider_factory,
+        )
+
+    def _run_prediction_strategy(
+        self,
+        strategy: _PredictionStrategy,
+        dataset_config: DatasetConfigs,
+        all_predictions: bool,
+        verbose: int,
+    ) -> Union[Tuple[np.ndarray, Predictions], Tuple[Dict[str, Any], Predictions]]:
+        """Execute prediction replay using a strategy plan."""
         run_predictions = Predictions()
+
         for config, name in dataset_config.configs:
             dataset_obj = dataset_config.get_dataset(config, name)
             config_predictions = Predictions()
 
-            selector = DataSelector(
-                partition=None,
-                processing=[["raw"]] * dataset_obj.features_sources(),
-                layout="2d",
-                concat_source=True,
+            selector = self._build_prediction_selector(dataset_obj)
+            context = self._build_prediction_context(selector)
+            executor = self._build_prediction_executor(verbose)
+
+            runtime_context = self._build_prediction_runtime_context(
+                executor=executor,
+                artifact_provider=strategy.artifact_provider_factory(),
             )
 
-            # Apply branch filtering from target model
-            target_branch_id = self.target_model.get("branch_id") if self.target_model else None
-            target_branch_name = self.target_model.get("branch_name") if self.target_model else None
-            target_branch_path = self.target_model.get("branch_path") if self.target_model else None
-            if target_branch_id is not None or target_branch_name:
-                bp = target_branch_path or ([target_branch_id] if target_branch_id is not None else None)
-                selector = selector.with_branch(branch_id=target_branch_id, branch_name=target_branch_name, branch_path=bp)
+            if strategy.mode == "minimal":
+                executor.execute_minimal(
+                    steps=strategy.steps,
+                    minimal_pipeline=strategy.minimal_pipeline,
+                    dataset=dataset_obj,
+                    context=context,
+                    runtime_context=runtime_context,
+                    prediction_store=config_predictions,
+                )
+            else:
+                executor.execute(
+                    strategy.steps,
+                    "prediction",
+                    dataset_obj,
+                    context,
+                    runtime_context,
+                    config_predictions,
+                )
 
-            context = ExecutionContext(
-                selector=selector,
-                state=PipelineState(y_processing="numeric", step_number=0, mode="predict"),
-                metadata=StepMetadata(),
-            )
-
-            executor = (
-                ExecutorBuilder()
-                .with_workspace(self.runner.workspace_path)
-                .with_verbose(verbose)
-                .with_mode("predict")
-                .with_save_artifacts(False)
-                .with_save_charts(self.runner.save_charts)
-                .with_continue_on_error(self.runner.continue_on_error)
-                .with_show_spinner(self.runner.show_spinner)
-                .with_plots_visible(self.runner.plots_visible)
-                .with_artifact_loader(self.artifact_loader)
-                .build()
-            )
-
-            artifact_provider = self._resolved.artifact_provider
-            if artifact_provider is None and self.artifact_loader:
-                artifact_provider = LoaderArtifactProvider(loader=self.artifact_loader)
-
-            runtime_context = RuntimeContext(
-                artifact_loader=self.artifact_loader,
-                artifact_provider=artifact_provider,
-                step_runner=executor.step_runner,
-                target_model=self.target_model,
-                explainer=self.runner.explainer,
-            )
-
-            executor.execute(steps, "prediction", dataset_obj, context, runtime_context, config_predictions)
             run_predictions.merge_predictions(config_predictions)
 
         return self._process_prediction_results(run_predictions, all_predictions)
+
+    def _build_prediction_selector(self, dataset_obj: SpectroDataset) -> DataSelector:
+        """Build prediction selector with optional branch filters."""
+        selector = DataSelector(
+            partition=None,
+            processing=[["raw"]] * dataset_obj.features_sources(),
+            layout="2d",
+            concat_source=True,
+        )
+
+        target_branch_id = self.target_model.get("branch_id") if self.target_model else None
+        target_branch_name = self.target_model.get("branch_name") if self.target_model else None
+        target_branch_path = self.target_model.get("branch_path") if self.target_model else None
+
+        if target_branch_id is not None or target_branch_name:
+            bp = target_branch_path or ([target_branch_id] if target_branch_id is not None else None)
+            selector = selector.with_branch(
+                branch_id=target_branch_id,
+                branch_name=target_branch_name,
+                branch_path=bp,
+            )
+
+        return selector
+
+    @staticmethod
+    def _build_prediction_context(selector: DataSelector) -> ExecutionContext:
+        """Build execution context for prediction replay."""
+        return ExecutionContext(
+            selector=selector,
+            state=PipelineState(y_processing="numeric", step_number=0, mode="predict"),
+            metadata=StepMetadata(),
+        )
+
+    def _build_prediction_executor(self, verbose: int) -> Any:
+        """Build configured executor used by both replay strategies."""
+        return (
+            ExecutorBuilder()
+            .with_workspace(self.runner.workspace_path)
+            .with_verbose(verbose)
+            .with_mode("predict")
+            .with_save_artifacts(False)
+            .with_save_charts(self.runner.save_charts)
+            .with_continue_on_error(self.runner.continue_on_error)
+            .with_show_spinner(self.runner.show_spinner)
+            .with_plots_visible(self.runner.plots_visible)
+            .with_artifact_loader(self.artifact_loader)
+            .build()
+        )
+
+    def _build_prediction_runtime_context(self, executor: Any, artifact_provider: Any) -> RuntimeContext:
+        """Build runtime context shared by full and minimal prediction replay."""
+        return RuntimeContext(
+            artifact_loader=self.artifact_loader,
+            artifact_provider=artifact_provider,
+            step_runner=executor.step_runner,
+            target_model=self.target_model,
+            explainer=self.runner.explainer,
+        )
 
     # -----------------------------------------------------------------
     # Result processing
