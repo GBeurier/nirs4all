@@ -20,7 +20,7 @@ def setup(app):
 project = 'Nirs4all'
 copyright = '2025, Gregory Beurier'
 author = 'Gregory Beurier'
-release = '0.7.0'
+release = '0.7.1'
 
 # -- General configuration ---------------------------------------------------
 

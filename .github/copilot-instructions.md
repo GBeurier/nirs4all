@@ -10,7 +10,7 @@ This repository/workspace contains two related projects for Near-Infrared Spectr
 
 ## nirs4all (Python Library)
 
-**Version**: 0.6.x | **Python**: 3.11+ | **License**: CeCILL-2.1
+**Version**: 0.7.x | **Python**: 3.11+ | **License**: CeCILL-2.1
 
 ### Quick Reference (Minimal Example)
 
