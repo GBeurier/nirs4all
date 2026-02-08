@@ -104,7 +104,7 @@ def complex_pipeline_steps():
     """Complex pipeline with multiple operators."""
     return [
         MinMaxScaler(),
-        {"feature_augmentation": {"_or_": [Detrend, Gaussian], "size": 1, "count": 2}},
+        {"feature_augmentation": {"_or_": [Detrend, Gaussian], "pick": 1, "count": 2}},
         ShuffleSplit(n_splits=2, test_size=0.3, random_state=42),
         {"y_processing": StandardScaler()},
         {"model": PLSRegression(n_components=3)},
@@ -321,7 +321,7 @@ class TestRunMethod:
 
         pipeline = [
             MinMaxScaler(),
-            {"feature_augmentation": {"_or_": [Detrend, Gaussian], "size": 1, "count": 2}},
+            {"feature_augmentation": {"_or_": [Detrend, Gaussian], "pick": 1, "count": 2}},
             ShuffleSplit(n_splits=1, test_size=0.3, random_state=42),
             {"model": PLSRegression(n_components=3)}
         ]
@@ -704,7 +704,7 @@ class TestIntegration:
 
         pipeline = [
             MinMaxScaler(),
-            {"feature_augmentation": {"_or_": [Detrend, Gaussian], "size": 1, "count": 2}},
+            {"feature_augmentation": {"_or_": [Detrend, Gaussian], "pick": 1, "count": 2}},
             ShuffleSplit(n_splits=2, test_size=0.3, random_state=42),
             {"y_processing": StandardScaler()},
             {"model": PLSRegression(n_components=3)},

@@ -297,7 +297,6 @@ reference_examples=(
     "reference/R01_pipeline_syntax.py"
     "reference/R02_generator_reference.py"
     "reference/R03_all_keywords.py"
-    "reference/R04_legacy_api.py"
 )
 
 selected_examples=()

@@ -141,7 +141,7 @@ class TestBasicPipelineIntegration:
             MinMaxScaler(),
             {"feature_augmentation": {
                 "_or_": list_of_preprocessors,
-                "size": 1,
+                "pick": 1,
                 "count": 3
             }},
             ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),

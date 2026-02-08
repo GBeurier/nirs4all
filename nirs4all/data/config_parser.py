@@ -8,10 +8,10 @@ parsers in the nirs4all.data.parsers module.
 The parser supports:
 - Folder paths with auto-scanning for data files
 - JSON/YAML configuration files
-- Dictionary configurations (legacy train_x/test_x format)
+- Dictionary configurations (train_x/test_x format)
 - In-memory numpy arrays
 
-For the new schema-based validation, see nirs4all.data.schema.
+For schema-based validation, see nirs4all.data.schema.
 For specialized parsers, see nirs4all.data.parsers.
 """
 
@@ -23,8 +23,6 @@ import yaml
 
 from nirs4all.core.logging import get_logger
 
-# Import from new parser module for internal use
-from nirs4all.data.parsers.legacy_parser import normalize_config_keys as _normalize_keys
 from nirs4all.data.parsers.normalizer import ConfigNormalizer
 
 logger = get_logger(__name__)
@@ -48,20 +46,6 @@ def _load_config_from_file(file_path: str) -> Tuple[Dict[str, Any], str]:
     """
     return _normalizer._load_config_file(file_path)
 
-
-def normalize_config_keys(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize dataset configuration keys to standard format.
-
-    Maps variations like 'x_train', 'X_train', 'Xtrain' to 'train_x'
-    Maps metadata variations like 'metadata_train', 'train_metadata', 'm_train' to 'train_group'
-
-    Args:
-        config: Original configuration dictionary
-
-    Returns:
-        Normalized configuration with standardized keys
-    """
-    return _normalize_keys(config)
 
 def _s_(path):
     """Convert path(s) to POSIX format. Handles both single paths and lists of paths."""

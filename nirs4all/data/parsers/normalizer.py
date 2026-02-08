@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import yaml
 
 from .base import BaseParser, ParserResult
-from .legacy_parser import LegacyParser, normalize_config_keys
 from .files_parser import FilesParser, SourcesParser, VariationsParser
 from .folder_parser import FolderParser
 from ..schema import DatasetConfigSchema
@@ -73,11 +72,10 @@ class ConfigNormalizer:
         if parsers is None:
             # Default parser order - more specific first
             self.parsers = [
-                VariationsParser(), # New variations syntax (Phase 7)
-                SourcesParser(),    # New sources syntax (Phase 6)
-                FilesParser(),      # New files syntax
+                VariationsParser(), # Variations syntax (Phase 7)
+                SourcesParser(),    # Sources syntax (Phase 6)
+                FilesParser(),      # Files syntax
                 FolderParser(),     # Folder auto-scanning
-                LegacyParser(),     # Legacy train_x/test_x format
             ]
         else:
             self.parsers = parsers
@@ -194,10 +192,9 @@ class ConfigNormalizer:
                 # If parser matched but failed, don't try other parsers
                 return None, 'Unknown_dataset'
 
-        # No parser matched - normalize keys and return
-        normalized = normalize_config_keys(config)
-        name = self._extract_name(normalized)
-        return normalized, name
+        # No parser matched - return dict as-is with name extracted
+        name = self._extract_name(config)
+        return config, name
 
     def _load_config_file(
         self,
@@ -256,9 +253,6 @@ class ConfigNormalizer:
 
         except (IOError, OSError) as exc:
             raise ValueError(f"Error reading configuration file {file_path}: {exc}") from exc
-
-        # Normalize keys
-        config = normalize_config_keys(config)
 
         # Extract dataset name
         dataset_name = config.get('name', path.stem)

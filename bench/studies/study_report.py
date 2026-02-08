@@ -1200,7 +1200,7 @@ Models evaluated:
         agg_text = f" (aggregated by {aggregation_key})" if aggregation_key else " (raw)"
         self.markdown_content.append(f"### Top 5 Models{agg_text}\n\n")
         try:
-            top_models = predictions.top(n=5, rank_metric=rank_metric, rank_partition='val', aggregate=aggregation_key)
+            top_models = predictions.top(n=5, rank_metric=rank_metric, rank_partition='val', by_repetition=aggregation_key)
             self.markdown_content.append("| Rank | Model | Score |\n")
             self.markdown_content.append("|------|-------|-------|\n")
             for i, model in enumerate(top_models, 1):
@@ -1688,7 +1688,7 @@ All files are packaged in a ZIP archive for easy sharing.
             agg_text = f" (aggregated by {aggregation_key})" if aggregation_key else " (raw)"
             print(f"    💾 Exporting top 3 predictions as CSV{agg_text}...")
             top_3_models = predictions_obj.top(n=3, rank_metric=rank_metric,
-                                               rank_partition='val', aggregate=aggregation_key)
+                                               rank_partition='val', by_repetition=aggregation_key)
             for i, pred in enumerate(top_3_models, 1):
                 model_name = pred.get('model_name', 'Unknown')
                 score = pred.get('rank_score', 'N/A')

@@ -85,7 +85,7 @@ class TestFinetuneIntegration:
         pipeline = [
             MinMaxScaler(),
             {"y_processing": MinMaxScaler()},
-            {"feature_augmentation": {"_or_": preprocessing_options, "size": 1, "count": 2}},
+            {"feature_augmentation": {"_or_": preprocessing_options, "pick": 1, "count": 2}},
             ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
             {
                 "model": PLSRegression(),

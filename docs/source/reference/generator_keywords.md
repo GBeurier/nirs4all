@@ -8,7 +8,6 @@ This document provides a comprehensive reference for all generator keywords used
 2. [Phase 1-2: Core Keywords](#phase-1-2-core-keywords)
    - [_or_](#_or_)
    - [_range_](#_range_)
-   - [size](#size)
    - [pick](#pick)
    - [arrange](#arrange)
    - [then_pick](#then_pick)
@@ -103,7 +102,6 @@ from nirs4all.pipeline.config.generator import (
     CHAIN_KEYWORD,
     SAMPLE_KEYWORD,
     CARTESIAN_KEYWORD,
-    SIZE_KEYWORD,
     COUNT_KEYWORD,
     SEED_KEYWORD,
     WEIGHTS_KEYWORD,
@@ -184,7 +182,7 @@ Select from a list of alternatives. Each choice becomes a separate configuration
 # → [None, 5, {"window": 11}]
 ```
 
-**Modifiers:** `size`, `pick`, `arrange`, `then_pick`, `then_arrange`, `count`
+**Modifiers:** `pick`, `arrange`, `then_pick`, `then_arrange`, `count`
 
 ---
 
@@ -216,33 +214,9 @@ Generate a sequence of numeric values.
 
 ---
 
-### `size`
-
-**(Legacy)** Select combinations of N items from `_or_` choices. Equivalent to `pick`.
-
-**Syntax:**
-```python
-{"_or_": [...], "size": n}           # Fixed size
-{"_or_": [...], "size": (min, max)}  # Range of sizes
-{"_or_": [...], "size": [outer, inner]}  # Second-order (nested)
-```
-
-**Examples:**
-```python
-# Select 2 from 4 items → C(4,2) = 6 combinations
-{"_or_": ["A", "B", "C", "D"], "size": 2}
-# → [["A", "B"], ["A", "C"], ["A", "D"], ["B", "C"], ["B", "D"], ["C", "D"]]
-
-# Size range
-{"_or_": ["A", "B", "C"], "size": (1, 2)}
-# → [["A"], ["B"], ["C"], ["A", "B"], ["A", "C"], ["B", "C"]]
-```
-
----
-
 ### `pick`
 
-**(Explicit)** Unordered selection - combinations where order doesn't matter.
+Unordered selection - combinations where order doesn't matter.
 
 **Syntax:**
 ```python
@@ -339,7 +313,7 @@ Limit the number of results returned. With a seed, results are deterministic.
 **Syntax:**
 ```python
 {"_or_": [...], "count": n}
-{"_or_": [...], "size": k, "count": n}
+{"_or_": [...], "pick": k, "count": n}
 ```
 
 **Example:**
@@ -1011,7 +985,7 @@ has_cartesian_keyword(node)
 ### Extraction Functions
 
 ```python
-# Extract modifiers (size, count, pick, arrange, etc.)
+# Extract modifiers (count, pick, arrange, etc.)
 modifiers = extract_modifiers(node)
 
 # Extract non-keyword keys

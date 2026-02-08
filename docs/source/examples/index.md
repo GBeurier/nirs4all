@@ -443,7 +443,6 @@ Comprehensive reference examples for advanced features.
 | [R01: Pipeline Syntax](https://github.com/nirs4all/nirs4all/blob/main/examples/reference/R01_pipeline_syntax.py) | ★★☆☆☆ | Complete pipeline syntax reference |
 | [R02: Generator Reference](https://github.com/nirs4all/nirs4all/blob/main/examples/reference/R02_generator_reference.py) | ★★☆☆☆ | All generator keywords and patterns |
 | [R03: All Keywords](https://github.com/nirs4all/nirs4all/blob/main/examples/reference/R03_all_keywords.py) | ★★★★★ | Integration test for all pipeline keywords |
-| [R04: Legacy API](https://github.com/nirs4all/nirs4all/blob/main/examples/reference/R04_legacy_api.py) | ★★☆☆☆ | Deprecated API patterns (for migration) |
 | [R05: Environmental Effects](https://github.com/nirs4all/nirs4all/blob/main/examples/reference/R05_synthetic_environmental.py) | ★★☆☆☆ | Matrix effects simulation in synthetic data |
 | [R06: Synthetic Validation](https://github.com/nirs4all/nirs4all/blob/main/examples/reference/R06_synthetic_validation.py) | ★★☆☆☆ | Quality assessment for synthetic spectra |
 | [R07: Synthetic Fitter](https://github.com/nirs4all/nirs4all/blob/main/examples/reference/R07_synthetic_fitter.py) | ★★★★★ | Fit synthetic data to match real spectra |

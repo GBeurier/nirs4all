@@ -28,6 +28,7 @@ predict/
 trash/
 deprec/
 .github/instructions/Claude instructions.instructions.md
+.github/copilot-instructions.md
 examples/generated/
 example_workspace/
 

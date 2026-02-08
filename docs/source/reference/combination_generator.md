@@ -54,20 +54,6 @@ Two explicit keywords control how items are selected:
 # P(3, 2) = 6 variants
 ```
 
-### Legacy `size` Parameter
-
-The `size` parameter is maintained for backward compatibility and behaves like `pick` (combinations):
-
-```python
-# Legacy syntax (equivalent to pick)
-{"_or_": ["A", "B", "C"], "size": 2}
-# Generates: [["A", "B"], ["A", "C"], ["B", "C"]]
-
-# Size range
-{"_or_": ["A", "B", "C"], "size": (1, 2)}
-# Generates: [["A"], ["B"], ["C"], ["A", "B"], ["A", "C"], ["B", "C"]]
-```
-
 ### Numeric Ranges
 
 Generate sequences of numeric values using the `"_range_"` key:
@@ -103,16 +89,6 @@ For hierarchical selection, use `then_pick` or `then_arrange` after a primary se
 {"_or_": ["A", "B", "C"], "arrange": 2, "then_pick": 2}
 ```
 
-### Legacy Second-Order Array Syntax
-
-The array syntax `[outer, inner]` is supported for backward compatibility:
-
-```python
-{"_or_": ["A", "B"], "size": [1, 2]}
-# Inner: permutations (order matters within sub-arrays)
-# Outer: combinations (order doesn't matter for selection)
-```
-
 ### Stochastic Sampling
 
 Use `"count"` to randomly sample from large result sets:
@@ -130,7 +106,6 @@ Use `"count"` to randomly sample from large result sets:
 |---------|-------------|---------|
 | `_or_` | Choice between alternatives | `{"_or_": ["A", "B", "C"]}` |
 | `_range_` | Numeric sequence generation | `{"_range_": [1, 10, 2]}` |
-| `size` | Number of items to select (legacy, uses combinations) | `{"_or_": [...], "size": 2}` |
 | `pick` | Unordered selection (combinations) | `{"_or_": [...], "pick": 2}` |
 | `arrange` | Ordered arrangement (permutations) | `{"_or_": [...], "arrange": 2}` |
 | `then_pick` | Apply combinations to primary results | `{"_or_": [...], "pick": 2, "then_pick": 2}` |
@@ -166,15 +141,6 @@ Use `"count"` to randomly sample from large result sets:
 | `arrange: 2, then_pick: 2` | Arrange 2, then pick 2 from results | Primary: P(n,2), Secondary: C(primary,2) |
 | `arrange: 2, then_arrange: 2` | Arrange 2, then arrange 2 from results | Primary: P(n,2), Secondary: P(primary,2) |
 
-### Legacy Second-Order Syntax (Array Notation)
-
-| Syntax | Description | Key Behavior |
-|--------|-------------|--------------|
-| `size: [outer, inner]` | Array notation for second-order | Inner uses permutations, outer uses combinations |
-| `size: [2, 2]` | Select 2 arrangements of 2 elements each | `[["A", "B"], ["B", "A"]]` are different |
-| `size: [(1,3), 2]` | Select 1-3 arrangements of exactly 2 elements | Variable outer selection |
-| `size: [2, (1,3)]` | Select exactly 2 arrangements of 1-3 elements | Variable inner arrangements |
-
 ### Advanced Combinations
 
 | Syntax | Description | Use Case |
@@ -209,13 +175,7 @@ With `then_pick` / `then_arrange`:
 # Step 2: P(3,2) = 6 arrangements of those 3 items
 ```
 
-### 3. Legacy `size` with Array Notation
-
-In the legacy `size=[outer, inner]` second-order combinations:
-- `[A, [B, C]]` ≠ `[A, [C, B]]` ✅ (different inner permutations)
-- `[A, [B, C]]` = `[[B, C], A]` ✅ (same outer selection, different order doesn't matter)
-
-### 4. Count Sampling
+### 3. Count Sampling
 
 - Always applies **after** all combinations are generated
 - Uses random sampling without replacement
@@ -283,7 +243,7 @@ Handles the `pick` keyword (combinations):
 - Generates C(n, k) combinations where order doesn't matter
 - Supports int or tuple (from, to) range specification
 - Handles second-order with `then_pick` or `then_arrange`
-- Legacy `size=[outer, inner]` array notation for backward compatibility
+- `pick=[outer, inner]` array notation for second-order selection
 
 #### `_expand_with_arrange(choices, arrange_spec, count, then_pick, then_arrange)`
 Handles the `arrange` keyword (permutations):
@@ -311,14 +271,13 @@ from nirs4all.pipeline.config.generator import (
     ARRANGE_KEYWORD,      # "arrange"
     THEN_PICK_KEYWORD,    # "then_pick"
     THEN_ARRANGE_KEYWORD, # "then_arrange"
-    SIZE_KEYWORD,         # "size" (legacy)
     COUNT_KEYWORD,        # "count"
 
     # Detection functions
     is_generator_node,     # Check if node has _or_ or _range_
     is_pure_or_node,       # Check if node is purely an OR node
     is_pure_range_node,    # Check if node is purely a range node
-    extract_modifiers,     # Extract size, count, pick, arrange modifiers
+    extract_modifiers,     # Extract count, pick, arrange modifiers
     extract_base_node,     # Extract non-keyword keys
 )
 ```
@@ -395,7 +354,7 @@ def estimate_and_generate(config, max_safe=1000):
 ```python
 pipeline = [
     {"_or_": ["normalize", "standardize"]},
-    {"model": {"_or_": ["svm", "rf", "xgb"], "size": 2}},
+    {"model": {"_or_": ["svm", "rf", "xgb"], "pick": 2}},
     {"features": {"_or_": ["pca", "lda"], "count": 1}}
 ]
 
@@ -437,7 +396,7 @@ results = expand_spec_fixed(config)
 ### Complex second-Order Example
 
 ```python
-config = [{"_or_": ["A", "B", "C", "D"], "size": [(1, 3), (2, 4)]}]
+config = [{"_or_": ["A", "B", "C", "D"], "pick": [(1, 3), (2, 4)]}]
 results = expand_spec_fixed(config)
 # Generates:
 # - Inner: all permutations of 2-4 elements
@@ -462,7 +421,7 @@ results = expand_spec_fixed(pipeline)
 
 ```python
 config = [{"_or_": ["method1", "method2", "method3", "method4"],
-           "size": [3, (1, 4)],
+           "pick": [3, (1, 4)],
            "count": 10}]
 results = expand_spec_fixed(config)
 # Random 10 samples from potentially thousands of combinations
@@ -502,7 +461,7 @@ results = expand_spec_fixed(config)
 
 ```python
 # Check combination count first
-config = [{"_or_": ["A", "B", "C"], "size": [2, 2]}]
+config = [{"_or_": ["A", "B", "C"], "pick": [2, 2]}]
 results = expand_spec_fixed(config)
 print(f"Total combinations: {len(results)}")
 

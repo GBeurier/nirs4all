@@ -355,7 +355,7 @@ class TestConfigValidator:
         assert any(w.code == "FILE_NOT_FOUND" for w in result.warnings)
 
     def test_mixed_format_warning(self):
-        """Test warning when mixing legacy and new formats."""
+        """Test warning when mixing train_x/test_x and files/sources formats."""
         config = {
             "train_x": "X.csv",
             "files": [{"path": "other.csv"}]
@@ -365,7 +365,9 @@ class TestConfigValidator:
         result = validator.validate(config)
 
         # Should have warning about mixed format
-        assert any(w.code == "MIXED_FORMAT" for w in result.warnings)
+        mixed_warnings = [w for w in result.warnings if w.code == "MIXED_FORMAT"]
+        assert len(mixed_warnings) == 1
+        assert "Use one format consistently" in mixed_warnings[0].message
 
     def test_validation_result_raise_if_invalid(self):
         """Test that raise_if_invalid raises for invalid config."""

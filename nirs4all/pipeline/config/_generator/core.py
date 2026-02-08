@@ -23,7 +23,6 @@ from .strategies import get_strategy
 from .strategies.base import ExpandedResult
 from .keywords import (
     OR_KEYWORD,
-    SIZE_KEYWORD,
     COUNT_KEYWORD,
     PICK_KEYWORD,
     ARRANGE_KEYWORD,
@@ -197,7 +196,7 @@ def _expand_mixed_or_node(node: Dict[str, Any], seed: Optional[int]) -> Expanded
     """
     # Extract modifiers that go with _or_
     or_modifier_keys = {
-        "_or_", "size", "count", "pick", "arrange", "then_pick", "then_arrange"
+        "_or_", "count", "pick", "arrange", "then_pick", "then_arrange"
     }
 
     # Separate base keys from OR-related keys
@@ -440,7 +439,7 @@ def _expand_mixed_or_with_choices(
         List of (dict_value, merged_choices) tuples.
     """
     or_modifier_keys = {
-        "_or_", "size", "count", "pick", "arrange", "then_pick", "then_arrange"
+        "_or_", "count", "pick", "arrange", "then_pick", "then_arrange"
     }
 
     base = {k: v for k, v in node.items() if k not in or_modifier_keys}
@@ -600,7 +599,7 @@ def _count_mixed_or_node(node: Dict[str, Any]) -> int:
         Number of variants.
     """
     or_modifier_keys = {
-        "_or_", "size", "count", "pick", "arrange", "then_pick", "then_arrange"
+        "_or_", "count", "pick", "arrange", "then_pick", "then_arrange"
     }
 
     base = {k: v for k, v in node.items() if k not in or_modifier_keys}

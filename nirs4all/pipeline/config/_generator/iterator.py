@@ -193,7 +193,7 @@ def _expand_mixed_or_node_iter(
     """
     # Extract modifiers that go with _or_
     or_modifier_keys = {
-        "_or_", "size", "count", "pick", "arrange", "then_pick", "then_arrange"
+        "_or_", "count", "pick", "arrange", "then_pick", "then_arrange"
     }
 
     # Separate base keys from OR-related keys

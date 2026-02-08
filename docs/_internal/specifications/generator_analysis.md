@@ -20,7 +20,7 @@
 
 ### 1.1 Overview
 
-The generator module (`generator.py`) is responsible for expanding pipeline configuration specifications into concrete pipeline variants. It takes a single configuration with combinatorial keywords (`_or_`, `_range_`, `size`, `count`) and generates all possible combinations.
+The generator module (`generator.py`) is responsible for expanding pipeline configuration specifications into concrete pipeline variants. It takes a single configuration with combinatorial keywords (`_or_`, `_range_`, `pick`, `count`) and generates all possible combinations.
 
 ### 1.2 Core Functions
 
@@ -44,12 +44,12 @@ The generator module (`generator.py`) is responsible for expanding pipeline conf
 # → ["A", "B", "C"]
 ```
 
-#### 1.3.2 `_or_` with `size` (Combinations)
+#### 1.3.2 `_or_` with `pick` (Combinations)
 ```python
-{"_or_": ["A", "B", "C"], "size": 2}
+{"_or_": ["A", "B", "C"], "pick": 2}
 # → [["A", "B"], ["A", "C"], ["B", "C"]]
 
-{"_or_": ["A", "B", "C"], "size": (1, 2)}  # Range of sizes
+{"_or_": ["A", "B", "C"], "pick": (1, 2)}  # Range of picks
 # → [["A"], ["B"], ["C"], ["A", "B"], ["A", "C"], ["B", "C"]]
 ```
 
@@ -59,9 +59,9 @@ The generator module (`generator.py`) is responsible for expanding pipeline conf
 # → Random 2 from the choices
 ```
 
-#### 1.3.4 Second-Order with `size=[outer, inner]` (Permutations inside, Combinations outside)
+#### 1.3.4 Second-Order with `pick=[outer, inner]` (Permutations inside, Combinations outside)
 ```python
-{"_or_": ["A", "B", "C"], "size": [2, 2]}
+{"_or_": ["A", "B", "C"], "pick": [2, 2]}
 # Inner: permutations of 2 elements (order matters)
 # Outer: combinations of 2 inner arrangements
 ```
@@ -120,8 +120,8 @@ The generator has **minimal test coverage**:
 {"_or_": ["A", "B", "C"], "count": 1}
 # → ["B"] (single item, but random each time)
 
-# With size=2 and count=1 - returns wrapped list
-{"_or_": ["A", "B", "C"], "size": 2, "count": 1}
+# With pick=2 and count=1 - returns wrapped list
+{"_or_": ["A", "B", "C"], "pick": 2, "count": 1}
 # → [["B", "C"]] (list containing the single combination)
 ```
 
@@ -190,14 +190,14 @@ Several internal functions lack documentation:
 
 ### 2.3 Behavioral Edge Cases
 
-#### 2.3.1 `size=0` Generates Empty List Wrapper
+#### 2.3.1 `pick=0` Generates Empty List Wrapper
 
 ```python
-{"_or_": ["A", "B", "C"], "size": 0}
+{"_or_": ["A", "B", "C"], "pick": 0}
 # → [[]] (list containing empty list)
 ```
 
-**Question**: Is this intentional? Should `size=0` return `[]` instead?
+**Question**: Is this intentional? Should `pick=0` return `[]` instead?
 
 #### 2.3.2 `count=0` Returns Empty List
 
@@ -267,7 +267,7 @@ No way to specify that certain combinations should be excluded:
 All combinations are generated eagerly in memory:
 ```python
 # For large spaces, this uses lots of memory:
-{"_or_": [...100 items...], "size": (1, 5)}
+{"_or_": [...100 items...], "pick": (1, 5)}
 # Generates all C(100,1) + C(100,2) + ... + C(100,5) = 79,375,496 items
 ```
 
@@ -279,19 +279,19 @@ All combinations are generated eagerly in memory:
 |-------|--------|
 | Scalar | `[scalar]` |
 | `{"_or_": [...]}` | `[item1, item2, ...]` |
-| `{"_or_": [...], "size": 2}` | `[[item1, item2], [item1, item3], ...]` |
+| `{"_or_": [...], "pick": 2}` | `[[item1, item2], [item1, item3], ...]` |
 | List | `[[combo1], [combo2], ...]` (Cartesian product) |
 
 The output structure changes based on input type, making it hard to process uniformly.
 
 #### 2.5.2 Magic Keywords Not Documented in Code
 
-The keywords `_or_`, `_range_`, `size`, `count` are scattered throughout:
+The keywords `_or_`, `_range_`, `pick`, `count` are scattered throughout:
 ```python
 # No central definition of keywords
 if "_or_" in node:
     ...
-if set(node.keys()).issubset({"_or_", "size", "count"}):
+if set(node.keys()).issubset({"_or_", "pick", "count"}):
     ...
 ```
 
@@ -330,7 +330,7 @@ Normalize all outputs to the same structure:
 ```python
 # Option A: Always return list of configurations
 expand_spec({"_or_": ["A", "B"]})          → [{"value": "A"}, {"value": "B"}]
-expand_spec({"_or_": ["A", "B"], "size": 1}) → [{"value": ["A"]}, {"value": ["B"]}]
+expand_spec({"_or_": ["A", "B"], "pick": 1}) → [{"value": ["A"]}, {"value": ["B"]}]
 
 # Option B: Always return raw values (current behavior, but documented)
 # Document clearly when nesting levels change
@@ -376,8 +376,8 @@ Every function should have:
 
 ```python
 # At module level
-GENERATOR_KEYWORDS = frozenset({"_or_", "_range_", "size", "count", "_seed_"})
-PURE_OR_KEYS = frozenset({"_or_", "size", "count"})
+GENERATOR_KEYWORDS = frozenset({"_or_", "_range_", "pick", "count", "_seed_"})
+PURE_OR_KEYS = frozenset({"_or_", "pick", "count"})
 PURE_RANGE_KEYS = frozenset({"_range_", "count"})
 ```
 
@@ -400,7 +400,7 @@ if "_weights_" in node:
 #### 3.3.2 Exclusion Rules
 
 ```python
-{"_or_": ["A", "B", "C", "D"], "size": 2, "_exclude_": [["A", "B"], ["C", "D"]]}
+{"_or_": ["A", "B", "C", "D"], "pick": 2, "_exclude_": [["A", "B"], ["C", "D"]]}
 # Skip combinations ["A", "B"] and ["C", "D"]
 ```
 
@@ -541,7 +541,7 @@ generator.py (905 lines)
 ├── _expand_with_arrange()             # Arrange expansion (lines 269-319)
 ├── _handle_nested_arrangements()      # Nested with permutations (lines 322-361)
 ├── _handle_nested_combinations()      # Nested with combinations (lines 364-405)
-├── _normalize_spec()                  # Size normalization (lines 408-415)
+├── _normalize_spec()                  # Spec normalization (lines 408-415)
 ├── _handle_pick_then_pick()           # Second-order pick→pick (lines 418-449)
 ├── _handle_pick_then_arrange()        # Second-order pick→arrange (lines 452-483)
 ├── _handle_arrange_then_pick()        # Second-order arrange→pick (lines 486-517)
@@ -679,7 +679,7 @@ from itertools import combinations, permutations
 
 from .base import ExpansionStrategy
 from ..keywords import (
-    OR_KEYWORD, SIZE_KEYWORD, COUNT_KEYWORD,
+    OR_KEYWORD, COUNT_KEYWORD,
     PICK_KEYWORD, ARRANGE_KEYWORD,
     THEN_PICK_KEYWORD, THEN_ARRANGE_KEYWORD,
     PURE_OR_KEYS
@@ -687,7 +687,7 @@ from ..keywords import (
 from ..utils import sample_with_seed
 
 class OrStrategy(ExpansionStrategy):
-    """Handles _or_ nodes with pick/arrange/size semantics."""
+    """Handles _or_ nodes with pick/arrange semantics."""
 
     @property
     def primary_keyword(self) -> str:
@@ -709,7 +709,6 @@ class OrStrategy(ExpansionStrategy):
         seed: Optional[int] = None
     ) -> List[Any]:
         choices = node[OR_KEYWORD]
-        size = node.get(SIZE_KEYWORD)
         pick = node.get(PICK_KEYWORD)
         arrange = node.get(ARRANGE_KEYWORD)
         then_pick = node.get(THEN_PICK_KEYWORD)
@@ -721,9 +720,6 @@ class OrStrategy(ExpansionStrategy):
             result = self._expand_arrange(choices, arrange, then_pick, then_arrange, expand_child)
         elif pick is not None:
             result = self._expand_pick(choices, pick, then_pick, then_arrange, expand_child)
-        elif size is not None:
-            # Legacy: size behaves like pick
-            result = self._expand_pick(choices, size, then_pick, then_arrange, expand_child)
         else:
             # Simple expansion: all choices
             result = []
@@ -1053,7 +1049,7 @@ After Phase 2, `generator.py` becomes a thin wrapper:
 
 This module expands pipeline configuration specifications into concrete
 pipeline variants. It handles combinatorial keywords (_or_, _range_,
-pick, arrange, size, count) and generates all possible combinations.
+pick, arrange, count) and generates all possible combinations.
 
 Main Functions:
     expand_spec(node): Expand a configuration node into all variants
@@ -1062,7 +1058,6 @@ Main Functions:
 Keywords:
     _or_: Choice between alternatives
     _range_: Numeric sequence generation
-    size: Number of items to select (legacy, uses combinations)
     pick: Unordered selection (combinations)
     arrange: Ordered arrangement (permutations)
     then_pick: Second-order combination selection
@@ -1075,7 +1070,7 @@ from ._generator.core import expand_spec, count_combinations
 
 # Re-export keywords for external use
 from ._generator.keywords import (
-    OR_KEYWORD, RANGE_KEYWORD, SIZE_KEYWORD, COUNT_KEYWORD,
+    OR_KEYWORD, RANGE_KEYWORD, COUNT_KEYWORD,
     PICK_KEYWORD, ARRANGE_KEYWORD, THEN_PICK_KEYWORD, THEN_ARRANGE_KEYWORD,
     PURE_OR_KEYS, PURE_RANGE_KEYS,
     is_generator_node, is_pure_or_node, is_pure_range_node,
@@ -1086,7 +1081,7 @@ from ._generator.keywords import (
 __all__ = [
     "expand_spec", "count_combinations",
     # Keywords
-    "OR_KEYWORD", "RANGE_KEYWORD", "SIZE_KEYWORD", "COUNT_KEYWORD",
+    "OR_KEYWORD", "RANGE_KEYWORD", "COUNT_KEYWORD",
     "PICK_KEYWORD", "ARRANGE_KEYWORD", "THEN_PICK_KEYWORD", "THEN_ARRANGE_KEYWORD",
     "PURE_OR_KEYS", "PURE_RANGE_KEYS",
     # Utilities
@@ -1258,7 +1253,7 @@ def _check_type(value: Any, expected: str) -> bool:
 **Tasks:**
 1. Implement basic `OrStrategy` without pick/arrange
 2. Handle simple `_or_` expansion
-3. Handle `size` parameter (legacy)
+3. Handle `pick` parameter
 4. Handle `count` parameter
 5. Add comprehensive tests
 
@@ -1518,7 +1513,7 @@ baseline_configs = gen.filter_by_tag(all_configs, "baseline")
 ```python
 {
     "_or_": ["A", "B", "C", "D"],
-    "size": 2,
+    "pick": 2,
     "_mutex_": [["A", "B"], ["C", "D"]]  # A and B can't be together, same for C and D
 }
 # Generates: [A,C], [A,D], [B,C], [B,D] - but not [A,B] or [C,D]
@@ -1529,7 +1524,7 @@ baseline_configs = gen.filter_by_tag(all_configs, "baseline")
 ```python
 {
     "_or_": ["A", "B", "C", "D"],
-    "size": 3,
+    "pick": 3,
     "_requires_": [["A", "B"]]  # If A is selected, B must also be selected
 }
 # Only generates combinations that include both A and B, or neither
@@ -1557,7 +1552,7 @@ baseline_configs = gen.filter_by_tag(all_configs, "baseline")
 PRESETS = {
     "spectral_preprocessing": {
         "_or_": [SNV, MSC, Detrend, FirstDerivative],
-        "size": (1, 2)
+        "pick": (1, 2)
     },
     "standard_models": {
         "_or_": [PLSRegression, RandomForest, GradientBoosting]
@@ -1608,7 +1603,7 @@ class StepAwareGenerator:
 {
     "concat_transform": {
         "_or_": [PCA, SVD, LDA],  # Valid: all are transformers
-        "size": 2,
+        "pick": 2,
         "_validate_": "transformer_only"
     }
 }
@@ -1706,7 +1701,7 @@ gen.resume("generation_checkpoint.json")
 ├── test_nested_strategy.py   # Second-order tests
 ├── test_keywords.py          # Keyword detection
 ├── test_sampling.py          # Random sampling with seeds
-├── test_edge_cases.py        # Empty inputs, size=0, count=0, etc.
+├── test_edge_cases.py        # Empty inputs, pick=0, count=0, etc.
 └── test_integration.py       # Full pipeline expansion tests
 ```
 

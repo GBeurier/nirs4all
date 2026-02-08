@@ -191,29 +191,6 @@ class TestCountCombinationsPickArrange:
         assert count_arrange == 5  # min(P(4,2)=12, 5)
 
 
-class TestBackwardCompatibility:
-    """Tests ensuring backward compatibility with legacy 'size' keyword."""
-
-    def test_size_still_works(self):
-        """Legacy size keyword should still work (behaves like pick)."""
-        result_size = expand_spec({"_or_": ["A", "B", "C"], "size": 2})
-        result_pick = expand_spec({"_or_": ["A", "B", "C"], "pick": 2})
-
-        # Should produce same number of results
-        assert len(result_size) == len(result_pick)
-
-        # Convert to sets of sorted tuples for comparison
-        size_set = {tuple(sorted(r)) for r in result_size}
-        pick_set = {tuple(sorted(r)) for r in result_pick}
-        assert size_set == pick_set
-
-    def test_count_size_still_works(self):
-        """Legacy size keyword should work in count_combinations."""
-        count_size = count_combinations({"_or_": ["A", "B", "C"], "size": 2})
-        count_pick = count_combinations({"_or_": ["A", "B", "C"], "pick": 2})
-        assert count_size == count_pick == 3
-
-
 class TestNestedOrWithPickArrange:
     """Tests for nested dict nodes with pick/arrange."""
 
