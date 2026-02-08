@@ -3,6 +3,7 @@
 import pytest
 import tempfile
 import numpy as np
+import pandas as pd
 from pathlib import Path
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
@@ -11,10 +12,30 @@ from nirs4all.data.dataset import SpectroDataset
 class TestDatasetConfig:
     """Test suite for DatasetConfigs."""
 
-    def test_placeholder(self):
-        """Placeholder test."""
-        # TODO: Add comprehensive DatasetConfigs tests
-        pass
+    def test_x_test_alias_loads_test_partition(self):
+        """X_test alias should map to canonical test_x."""
+        X = np.random.rand(4, 6).astype(np.float32)
+
+        dataset_config = DatasetConfigs({"X_test": X})
+        dataset = dataset_config.get_dataset_at(0)
+
+        x_test = dataset.x({"partition": "test"})
+        assert x_test.shape[0] == 4
+        assert dataset.num_samples == 4
+
+    def test_train_m_alias_loads_metadata(self):
+        """train_m alias should map to canonical train_group."""
+        X = np.random.rand(3, 2).astype(np.float32)
+        M = pd.DataFrame({"sample_id": ["s1", "s1", "s2"]})
+
+        dataset_config = DatasetConfigs(
+            {"train_x": X, "train_m": M},
+            repetition="sample_id",
+        )
+        dataset = dataset_config.get_dataset_at(0)
+
+        assert "sample_id" in dataset.metadata_columns
+        assert dataset.repetition == "sample_id"
 
 
 class TestDatasetConfigAggregate:

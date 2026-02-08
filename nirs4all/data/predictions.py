@@ -484,6 +484,7 @@ class Predictions:
         n: int,
         rank_metric: str = "",
         rank_partition: str = "val",
+        score_scope: str = "mix",
         display_metrics: list[str] | None = None,
         display_partition: str = "test",
         aggregate_partitions: bool = False,
@@ -509,6 +510,18 @@ class Predictions:
             rank_metric: Metric to rank by.  Empty string uses the stored
                metric from the prediction record.
             rank_partition: Partition to rank on (default ``"val"``).
+            score_scope: Controls how refit (final) entries interact with
+               CV entries in ranking.  One of:
+
+               - ``"final"``: Only refit entries (``fold_id="final"``),
+                 ranked by their originating CV score (``cv_rank_score``).
+               - ``"cv"``: Only CV entries (exclude refit entries).
+               - ``"mix"``: Refit entries ranked first, then CV entries
+                 below.  Each group ranked independently.
+               - ``"flat"``: All entries ranked equally, no special
+                 treatment for refit entries.
+
+               Default is ``"mix"``.  ``"auto"`` is an alias for ``"mix"``.
             display_metrics: Metrics to compute for display.
             display_partition: Partition to display results from.
             aggregate_partitions: If ``True``, add train/val/test dicts.
@@ -556,13 +569,32 @@ class Predictions:
         _ = filters.pop("aggregate_partitions", None)
         _ = filters.pop("ascending", None)
         _ = filters.pop("group_by_fold", None)
+        _ = filters.pop("score_scope", None)
+
+        # Normalise score_scope alias
+        effective_scope = score_scope if score_scope != "auto" else "mix"
 
         # Work from the in-memory buffer
         candidates = [dict(r) for r in self._buffer]
 
-        # Filter by rank_partition if buffer has mixed partitions
+        # Tag each candidate with is_final before any filtering
+        for r in candidates:
+            r["is_final"] = str(r.get("fold_id", "")) == "final"
+
+        # Apply score_scope filtering
+        if effective_scope == "final":
+            candidates = [r for r in candidates if r["is_final"]]
+        elif effective_scope == "cv":
+            candidates = [r for r in candidates if r.get("refit_context") is None]
+
+        # Filter by rank_partition if buffer has mixed partitions.
+        # Final entries have partition="test" and no val-partition data,
+        # so they bypass rank_partition filtering in all scope modes.
         if rank_partition:
-            partition_candidates = [r for r in candidates if r.get("partition") == rank_partition]
+            partition_candidates = [
+                r for r in candidates
+                if r["is_final"] or r.get("partition") == rank_partition
+            ]
             if partition_candidates:
                 candidates = partition_candidates
 
@@ -585,8 +617,12 @@ class Predictions:
         # Compute rank_score for each candidate
         partition_key = f"{rank_partition}_score" if rank_partition in ("val", "test", "train") else "val_score"
         for r in candidates:
-            score = self._get_rank_score(r, effective_metric, rank_partition, partition_key, effective_by_repetition, effective_repetition_method, effective_repetition_exclude_outliers)
-            r["rank_score"] = score
+            if r["is_final"]:
+                # Final entries rank by their originating CV score
+                r["rank_score"] = r.get("cv_rank_score")
+            else:
+                score = self._get_rank_score(r, effective_metric, rank_partition, partition_key, effective_by_repetition, effective_repetition_method, effective_repetition_exclude_outliers)
+                r["rank_score"] = score
 
         # Filter out None / NaN scores
         def _is_valid(score: Any) -> bool:
@@ -600,7 +636,16 @@ class Predictions:
         candidates = [r for r in candidates if _is_valid(r["rank_score"])]
 
         # Sort by rank_score
-        candidates.sort(key=lambda r: r["rank_score"], reverse=not ascending)
+        if effective_scope == "mix":
+            # Two-level sort: final entries first, then CV entries
+            # Within each group, sort by rank_score
+            finals = [r for r in candidates if r["is_final"]]
+            cvs = [r for r in candidates if r.get("refit_context") is None]
+            finals.sort(key=lambda r: r["rank_score"], reverse=not ascending)
+            cvs.sort(key=lambda r: r["rank_score"], reverse=not ascending)
+            candidates = finals + cvs
+        else:
+            candidates.sort(key=lambda r: r["rank_score"], reverse=not ascending)
 
         effective_group_by: list[str] | None = None
         if group_by is not None:
@@ -770,6 +815,7 @@ class Predictions:
         self,
         metric: str = "",
         ascending: bool | None = None,
+        score_scope: str = "mix",
         aggregate_partitions: bool = False,
         by_repetition: bool | str | None = None,
         repetition_method: str | None = None,
@@ -784,6 +830,8 @@ class Predictions:
         Args:
             metric: Metric to optimise.
             ascending: Sort order.  ``None`` infers from metric.
+            score_scope: Controls how refit (final) entries interact with
+               CV entries.  See :meth:`top` for details.  Default ``"mix"``.
             aggregate_partitions: If ``True``, add partition data.
             by_repetition: Aggregate predictions by repetition column.
                 - ``True``: Uses ``dataset.repetition`` from context.
@@ -800,6 +848,7 @@ class Predictions:
             n=1,
             rank_metric=metric,
             rank_partition="val",
+            score_scope=score_scope,
             ascending=ascending,
             aggregate_partitions=aggregate_partitions,
             by_repetition=by_repetition,
@@ -813,6 +862,7 @@ class Predictions:
                 n=1,
                 rank_metric=metric,
                 rank_partition="test",
+                score_scope=score_scope,
                 ascending=ascending,
                 aggregate_partitions=aggregate_partitions,
                 by_repetition=by_repetition,

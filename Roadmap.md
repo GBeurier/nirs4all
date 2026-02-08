@@ -2,7 +2,10 @@
 
 [Docs] Updated
 
-[Logs] Ensure log and top with final result
+> [Optuna] Integrate complex params setters: Stack (sklearn stacking model), Nested_dict (TABPFN inference params)
+> [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs, review the syntax
+> [Optuna] Allow complex scenarios (random X trials then TPE X trials)
+> [Optuna] Allow sampling on training params not only finetune/model params
 
 **RELEASE** 0.7.1 - Ready for UI dev
 
@@ -51,11 +54,6 @@
 > [Analyses] Cf. Observers - Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline. Choose a default functionning for raw_pp and XXX_pp dedicated to data transformation analysis
 
 > [Dummy_Controller] remove totally and manage exceptions
-
-> [Optuna] Integrate complex params setters: Stack (sklearn stacking model), Nested_dict (TABPFN inference params)
-> [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs, review the syntax
-> [Optuna] Allow complex scenarios (random X trials then TPE X trials)
-> [Optuna] Allow sampling on training params not only finetune/model params
 
 > [Analysis] t-sne
 

@@ -214,6 +214,25 @@ class TestParseConfigWithFiles:
         assert config["task_type"] == "regression"
         assert name == "config"
 
+    def test_parse_yaml_file_path_with_aliases(self, tmp_path):
+        """Test parse_config maps accepted key aliases in YAML files."""
+        config_data = {
+            "X_test": "path/to/Xtest.csv",
+            "train_m": "path/to/Mcal.csv",
+        }
+
+        yaml_file = tmp_path / "aliases.yaml"
+        with open(yaml_file, 'w') as f:
+            yaml.dump(config_data, f)
+
+        config, name = parse_config(str(yaml_file))
+
+        assert config["test_x"] == "path/to/Xtest.csv"
+        assert config["train_group"] == "path/to/Mcal.csv"
+        assert "X_test" not in config
+        assert "train_m" not in config
+        assert name == "aliases"
+
     def test_parse_folder_path_still_works(self, tmp_path):
         """Test that folder path parsing still works."""
         # Create a mock data folder with recognizable files
@@ -388,5 +407,3 @@ global_params:
 
         error_msg = str(exc_info.value)
         assert "Invalid JSON" in error_msg or "line" in error_msg.lower()
-
-

@@ -8,6 +8,7 @@ and produces a canonical representation of dataset configurations.
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+from functools import lru_cache
 
 import yaml
 
@@ -23,7 +24,7 @@ class ConfigNormalizer:
     This class combines multiple parsers to handle:
     - Folder paths (auto-scanning)
     - JSON/YAML config files
-    - Dictionary configurations (legacy format)
+    - Dictionary configurations (canonical keys + aliases)
     - Sources configurations (multi-source format)
     - Variations configurations (preprocessed data / feature variations)
     - In-memory numpy arrays
@@ -80,6 +81,136 @@ class ConfigNormalizer:
         else:
             self.parsers = parsers
 
+    @staticmethod
+    def _normalize_key(key: Any) -> str:
+        """Normalize a config key for case/separator-insensitive matching."""
+        return "".join(ch.lower() for ch in str(key) if ch.isalnum())
+
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _key_alias_map() -> Dict[str, str]:
+        """Build mapping of accepted key aliases to canonical config keys."""
+
+        def _combine_partition_role(partitions: List[str], roles: List[str]) -> List[str]:
+            aliases: List[str] = []
+            for partition in partitions:
+                for role in roles:
+                    aliases.extend([
+                        f"{partition}_{role}",
+                        f"{role}_{partition}",
+                        f"{partition}{role}",
+                        f"{role}{partition}",
+                    ])
+            return aliases
+
+        train_partitions = ["train", "trn", "cal", "calibration", "fit"]
+        test_partitions = ["test", "tst", "val", "validation", "eval", "holdout", "predict", "inference"]
+
+        feature_roles = ["x", "feature", "features", "spectrum", "spectra", "signal", "signals"]
+        target_roles = ["y", "target", "targets", "label", "labels", "response", "responses"]
+        metadata_roles = ["group", "groups", "meta", "metadata", "m", "samplemeta", "samplemetadata"]
+
+        # Base aliases for core train/test data keys.
+        aliases_by_key: Dict[str, List[str]] = {
+            "train_x": _combine_partition_role(train_partitions, feature_roles),
+            "test_x": _combine_partition_role(test_partitions, feature_roles),
+            "train_y": _combine_partition_role(train_partitions, target_roles),
+            "test_y": _combine_partition_role(test_partitions, target_roles),
+            "train_group": _combine_partition_role(train_partitions, metadata_roles),
+            "test_group": _combine_partition_role(test_partitions, metadata_roles),
+            "name": ["dataset_name", "data_name"],
+            "description": ["desc", "dataset_description", "data_description"],
+            "task_type": ["task", "tasktype", "problem_type", "problemtype", "ml_task", "target_type"],
+            "folder": ["dir", "directory", "data_folder", "data_dir", "folder_path", "path"],
+            "global_params": [
+                "global", "global_config", "global_settings", "global_options",
+                "loading_params", "loader_params", "read_params", "io_params",
+                "global_loading_params", "global_loading_options", "shared_params",
+            ],
+            "train_params": _combine_partition_role(train_partitions, ["params", "param", "config", "settings", "options"]),
+            "test_params": _combine_partition_role(test_partitions, ["params", "param", "config", "settings", "options"]),
+            "aggregate": [
+                "aggregation", "aggregate_by", "aggregation_by",
+                "group_by", "groupby", "aggregate_column", "aggregation_column",
+            ],
+            "aggregate_method": [
+                "aggregation_method", "aggregate_mode", "aggregation_mode",
+                "aggregate_strategy", "aggregation_strategy",
+            ],
+            "aggregate_exclude_outliers": [
+                "exclude_outliers", "remove_outliers", "drop_outliers",
+                "exclude_outliers_before_aggregation",
+                "remove_outliers_before_aggregation",
+                "aggregation_exclude_outliers",
+            ],
+            "repetition": [
+                "repetitions", "repeat", "repeat_by", "repetition_column", "repeat_column",
+                "sample_id_column", "sampleidcolumn", "group_column",
+            ],
+            "folds": ["fold", "cv", "cv_folds", "cross_validation", "cross_validation_folds", "splits", "cv_splits"],
+            "files": ["file_list", "data_files", "input_files"],
+            "sources": ["source_list", "sensor_sources", "input_sources", "feature_sources", "modalities"],
+            # Keep parser-facing keys as canonical (targets/metadata) so SourcesParser can consume them.
+            "targets": ["target_spec", "targets_spec", "shared_targets", "shared_target", "common_targets"],
+            "metadata": ["metadata_spec", "meta_spec", "shared_metadata", "shared_meta", "common_metadata"],
+            "variations": ["feature_variations", "data_variations", "preprocessing_variations"],
+            "variation_mode": ["variation_strategy", "variation_type", "variation_method"],
+            "variation_select": ["selected_variations", "variation_selection", "choose_variations", "chosen_variations"],
+            "variation_prefix": ["prefix_variations", "add_variation_prefix", "variation_name_prefix"],
+        }
+
+        # Generate aliases for *_params and *_filter variants of train/test x/y/group keys.
+        suffix_aliases = {
+            "_params": ["params", "param", "config", "configs", "settings", "options"],
+            "_filter": ["filter", "filters", "columns", "cols", "indices", "idx", "select", "selection"],
+        }
+        partitioned_bases = ["train_x", "test_x", "train_y", "test_y", "train_group", "test_group"]
+
+        for base_key in partitioned_bases:
+            base_aliases = list(aliases_by_key.get(base_key, []))
+            for suffix, terms in suffix_aliases.items():
+                canonical_key = f"{base_key}{suffix}"
+                derived_aliases: List[str] = []
+                for base_alias in base_aliases:
+                    for term in terms:
+                        derived_aliases.extend([
+                            f"{base_alias}_{term}",
+                            f"{base_alias}{term}",
+                            f"{term}_{base_alias}",
+                            f"{term}{base_alias}",
+                        ])
+                aliases_by_key[canonical_key] = derived_aliases
+
+        alias_map: Dict[str, str] = {}
+        for canonical_key, aliases in aliases_by_key.items():
+            for alias in [canonical_key, *aliases]:
+                normalized_alias = ConfigNormalizer._normalize_key(alias)
+                # First mapping wins to avoid accidental override by later broad aliases.
+                if normalized_alias not in alias_map:
+                    alias_map[normalized_alias] = canonical_key
+        return alias_map
+
+    @classmethod
+    def _apply_key_aliases(cls, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize accepted key aliases to canonical config keys."""
+        if not isinstance(config, dict):
+            return config
+
+        alias_map = cls._key_alias_map()
+        normalized = dict(config)
+
+        for key, value in list(config.items()):
+            mapped_key = alias_map.get(cls._normalize_key(key))
+            if mapped_key is None or key == mapped_key:
+                continue
+
+            # Canonical key wins when both are present.
+            if mapped_key not in normalized:
+                normalized[mapped_key] = value
+            normalized.pop(key, None)
+
+        return normalized
+
     def normalize(
         self,
         input_data: Any
@@ -128,7 +259,10 @@ class ConfigNormalizer:
 
         # Check if it's a JSON/YAML config file
         if lower_path.endswith(('.json', '.yaml', '.yml')):
-            return self._load_config_file(path_str)
+            config, name = self._load_config_file(path_str)
+            if config is None:
+                return None, name
+            return self._apply_key_aliases(config), name
 
         # Otherwise, treat as folder path
         parser = FolderParser()
@@ -156,6 +290,8 @@ class ConfigNormalizer:
         Returns:
             Tuple of (normalized_config, name).
         """
+        config = self._apply_key_aliases(config)
+
         # Check for 'folder' key first
         if 'folder' in config:
             parser = FolderParser()
