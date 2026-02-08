@@ -1,7 +1,6 @@
-from typing import List, Tuple, Dict, Any, Optional, Union
+from typing import List, Optional, Union
 
 import numpy as np
-import polars as pl
 
 from nirs4all.data._features import FeatureSource
 from nirs4all.data.types import InputData, InputFeatures, ProcessingList, SampleIndices
@@ -15,17 +14,11 @@ class Features:
 
     Attributes:
         sources: List of FeatureSource objects managing individual feature arrays.
-        cache: Whether to enable caching for operations.
     """
 
-    def __init__(self, cache: bool = False):
-        """Initialize empty feature block.
-
-        Args:
-            cache: If True, enables caching for operations (not yet implemented).
-        """
+    def __init__(self):
+        """Initialize empty feature block."""
         self.sources: List[FeatureSource] = []
-        self.cache = cache
 
     def add_samples(self, data: InputData, headers: Optional[Union[List[str], List[List[str]]]] = None,
                     header_unit: Optional[Union[str, List[str]]] = None) -> None:

@@ -13,6 +13,9 @@ from nirs4all.pipeline.trace import TraceRecorder
 
 logger = get_logger(__name__)
 
+# Default RSS threshold for memory warnings (MB).
+_DEFAULT_MEMORY_WARNING_THRESHOLD_MB = 3072
+
 
 class PipelineExecutor:
     """Executes a single pipeline configuration on a single dataset.
@@ -68,6 +71,7 @@ class PipelineExecutor:
         self.step_number = 0
         self.substep_number = -1
         self.operation_count = 0
+        self._shape_metadata_cache: Dict[tuple[Any, ...], tuple[tuple[int, int], List[tuple[int, ...]]]] = {}
 
     def initialize_context(self, dataset: SpectroDataset) -> ExecutionContext:
         """Initialize ExecutionContext for pipeline execution.
@@ -133,6 +137,7 @@ class PipelineExecutor:
         self.step_number = 0
         self.substep_number = -1
         self.operation_count = 0
+        self._shape_metadata_cache.clear()
 
         logger.starting(f"Starting pipeline {config_name} on dataset {dataset.name}")
 
@@ -154,7 +159,7 @@ class PipelineExecutor:
                     expanded_config=steps,
                     generator_choices=generator_choices or [],
                     dataset_name=dataset.name,
-                    dataset_hash=pipeline_hash,
+                    dataset_hash=dataset.content_hash(),
                 )
                 # Use pipeline_id as pipeline_uid for backward compatibility
                 pipeline_uid = pipeline_id
@@ -226,7 +231,12 @@ class PipelineExecutor:
 
             # Flush predictions to store so they can be looked up by ID
             if self.mode == "train" and store and pipeline_id and prediction_store.num_predictions > 0:
-                self._flush_predictions_to_store(store, pipeline_id, prediction_store)
+                self._flush_predictions_to_store(
+                    store,
+                    pipeline_id,
+                    prediction_store,
+                    runtime_context=runtime_context,
+                )
 
             # Complete pipeline in store
             if self.mode == "train" and store and pipeline_id:
@@ -274,14 +284,18 @@ class PipelineExecutor:
             traceback.print_exc()
             raise
 
-    def _flush_predictions_to_store(self, store: Any, pipeline_id: str, prediction_store: Predictions) -> None:
+    def _flush_predictions_to_store(
+        self,
+        store: Any,
+        pipeline_id: str,
+        prediction_store: Predictions,
+        runtime_context: Any = None,
+    ) -> None:
         """Flush in-memory predictions to the DuckDB store.
 
         Maps each prediction to its corresponding chain via step_idx → model_step_idx,
         preserving the Predictions object's short ID as the store prediction_id.
         """
-        import polars as pl
-
         chains_df = store.get_chains_for_pipeline(pipeline_id)
         if chains_df.is_empty():
             return
@@ -301,83 +315,143 @@ class PipelineExecutor:
                     return []
             return []
 
+        def _register_first(mapping: dict[Any, str], key: Any, chain_id: str) -> None:
+            if key not in mapping:
+                mapping[key] = chain_id
+
+        step_rows_present: set[int] = set()
+        first_by_scope: dict[Optional[int], str] = {}
+        first_by_scope_branch: dict[tuple[Optional[int], int], str] = {}
+        first_by_scope_class: dict[tuple[Optional[int], str], str] = {}
+        first_by_scope_preproc: dict[tuple[Optional[int], str], str] = {}
+        first_by_scope_branch_class: dict[tuple[Optional[int], int, str], str] = {}
+        first_by_scope_branch_preproc: dict[tuple[Optional[int], int, str], str] = {}
+        first_by_scope_class_preproc: dict[tuple[Optional[int], str, str], str] = {}
+        first_by_scope_branch_class_preproc: dict[tuple[Optional[int], int, str, str], str] = {}
+
+        for row in chain_rows:
+            chain_id = str(row["chain_id"])
+            step_idx = int(row.get("model_step_idx", 0) or 0)
+            step_rows_present.add(step_idx)
+
+            branch_path = _parse_branch_path(row.get("branch_path"))
+            branch_root = int(branch_path[0]) if branch_path else None
+            model_class = str(row.get("model_class") or "")
+            preprocessings = str(row.get("preprocessings") or "")
+
+            for scope in (None, step_idx):
+                _register_first(first_by_scope, scope, chain_id)
+
+                if branch_root is not None:
+                    _register_first(first_by_scope_branch, (scope, branch_root), chain_id)
+
+                if model_class:
+                    _register_first(first_by_scope_class, (scope, model_class), chain_id)
+
+                if preprocessings:
+                    _register_first(first_by_scope_preproc, (scope, preprocessings), chain_id)
+
+                if branch_root is not None and model_class:
+                    _register_first(
+                        first_by_scope_branch_class,
+                        (scope, branch_root, model_class),
+                        chain_id,
+                    )
+
+                if branch_root is not None and preprocessings:
+                    _register_first(
+                        first_by_scope_branch_preproc,
+                        (scope, branch_root, preprocessings),
+                        chain_id,
+                    )
+
+                if model_class and preprocessings:
+                    _register_first(
+                        first_by_scope_class_preproc,
+                        (scope, model_class, preprocessings),
+                        chain_id,
+                    )
+
+                if branch_root is not None and model_class and preprocessings:
+                    _register_first(
+                        first_by_scope_branch_class_preproc,
+                        (scope, branch_root, model_class, preprocessings),
+                        chain_id,
+                    )
+
         def _select_chain_id(pred: dict[str, Any]) -> str:
             """Select the best matching chain for a persisted prediction entry."""
             step_idx = int(pred.get("step_idx", 0) or 0)
-            candidates = [row for row in chain_rows if int(row.get("model_step_idx", 0) or 0) == step_idx]
-            if not candidates:
-                candidates = chain_rows
+            scope = step_idx if step_idx in step_rows_present else None
+            selected_chain_id = first_by_scope.get(scope) or first_by_scope.get(None)
+            if selected_chain_id is None and chain_rows:
+                selected_chain_id = str(chain_rows[0]["chain_id"])
 
             branch_id = pred.get("branch_id")
+            branch_key: Optional[int] = None
+            branch_applied = False
             if branch_id is not None:
-                branch_candidates = []
-                for row in candidates:
-                    branch_path = _parse_branch_path(row.get("branch_path"))
-                    if branch_path and int(branch_path[0]) == int(branch_id):
-                        branch_candidates.append(row)
-                if branch_candidates:
-                    candidates = branch_candidates
+                try:
+                    branch_key = int(branch_id)
+                except (TypeError, ValueError):
+                    branch_key = None
+
+                if branch_key is not None:
+                    branch_candidate = first_by_scope_branch.get((scope, branch_key))
+                    if branch_candidate is not None:
+                        selected_chain_id = branch_candidate
+                        branch_applied = True
 
             model_classname = pred.get("model_classname") or pred.get("model_class")
-            if model_classname:
-                class_candidates = [
-                    row for row in candidates
-                    if str(row.get("model_class") or "") == str(model_classname)
-                ]
-                if class_candidates:
-                    candidates = class_candidates
+            class_key = str(model_classname) if model_classname else None
+            class_applied = False
+            if class_key:
+                if branch_applied and branch_key is not None:
+                    class_candidate = first_by_scope_branch_class.get((scope, branch_key, class_key))
+                else:
+                    class_candidate = first_by_scope_class.get((scope, class_key))
+
+                if class_candidate is not None:
+                    selected_chain_id = class_candidate
+                    class_applied = True
 
             preprocessings = pred.get("preprocessings")
-            if preprocessings:
-                preproc_candidates = [
-                    row for row in candidates
-                    if str(row.get("preprocessings") or "") == str(preprocessings)
-                ]
-                if preproc_candidates:
-                    candidates = preproc_candidates
+            preproc_key = str(preprocessings) if preprocessings else None
+            if preproc_key:
+                if branch_applied and class_applied and branch_key is not None and class_key is not None:
+                    preproc_candidate = first_by_scope_branch_class_preproc.get(
+                        (scope, branch_key, class_key, preproc_key)
+                    )
+                elif branch_applied and branch_key is not None:
+                    preproc_candidate = first_by_scope_branch_preproc.get((scope, branch_key, preproc_key))
+                elif class_applied and class_key is not None:
+                    preproc_candidate = first_by_scope_class_preproc.get((scope, class_key, preproc_key))
+                else:
+                    preproc_candidate = first_by_scope_preproc.get((scope, preproc_key))
 
-            return str(candidates[0]["chain_id"])
+                if preproc_candidate is not None:
+                    selected_chain_id = preproc_candidate
 
-        for pred in prediction_store.to_dicts(load_arrays=True):
-            chain_id = _select_chain_id(pred)
+            return str(selected_chain_id or "")
 
-            store_pred_id = store.save_prediction(
-                pipeline_id=pipeline_id,
-                chain_id=chain_id,
-                dataset_name=pred.get("dataset_name", ""),
-                model_name=pred.get("model_name", ""),
-                model_class=pred.get("model_classname", ""),
-                fold_id=str(pred.get("fold_id", "")),
-                partition=pred.get("partition", ""),
-                val_score=pred.get("val_score") or 0.0,
-                test_score=pred.get("test_score") or 0.0,
-                train_score=pred.get("train_score") or 0.0,
-                metric=pred.get("metric", ""),
-                task_type=pred.get("task_type", "regression"),
-                n_samples=pred.get("n_samples", 0),
-                n_features=pred.get("n_features", 0),
-                scores=pred.get("scores", {}),
-                best_params=pred.get("best_params", {}),
-                branch_id=pred.get("branch_id"),
-                branch_name=pred.get("branch_name"),
-                exclusion_count=pred.get("exclusion_count", 0) or 0,
-                exclusion_rate=pred.get("exclusion_rate", 0.0) or 0.0,
-                preprocessings=pred.get("preprocessings", ""),
-                prediction_id=pred.get("id"),
-                refit_context=pred.get("refit_context"),
-            )
+        refit_fold_override = None
+        refit_context_override = None
+        if runtime_context is not None:
+            refit_fold_override = getattr(runtime_context, "refit_fold_id", None)
+            refit_context_override = getattr(runtime_context, "refit_context_name", None)
+            if getattr(runtime_context, "phase", None) is not None:
+                from nirs4all.pipeline.config.context import ExecutionPhase
 
-            # Store arrays
-            y_true = pred.get("y_true")
-            y_pred = pred.get("y_pred")
-            if y_true is not None or y_pred is not None:
-                import numpy as np
-                store.save_prediction_arrays(
-                    prediction_id=store_pred_id,
-                    y_true=np.asarray(y_true) if y_true is not None and len(y_true) > 0 else None,
-                    y_pred=np.asarray(y_pred) if y_pred is not None and len(y_pred) > 0 else None,
-                    y_proba=np.asarray(pred["y_proba"]) if pred.get("y_proba") is not None and len(pred.get("y_proba", [])) > 0 else None,
-                )
+                if runtime_context.phase == ExecutionPhase.REFIT:
+                    refit_fold_override = refit_fold_override or "final"
+
+        prediction_store.flush(
+            pipeline_id=pipeline_id,
+            store=store,
+            chain_id_resolver=_select_chain_id,
+            fold_id_override=str(refit_fold_override) if refit_fold_override is not None else None,
+            refit_context_override=refit_context_override,
+        )
 
     def _execute_steps(
         self,
@@ -505,8 +579,18 @@ class PipelineExecutor:
             # feature data that was produced by that branch's preprocessing steps
             features_snapshot = branch_info.get("features_snapshot")
             if features_snapshot is not None:
-                import copy
-                dataset._features.sources = copy.deepcopy(features_snapshot)
+                use_cow = branch_info.get("use_cow", False)
+                if use_cow:
+                    # CoW restore: acquire shared references (zero-copy for read-only steps)
+                    for source, (shared, proc_ids, headers, header_unit) in zip(
+                        dataset._features.sources, features_snapshot
+                    ):
+                        source._storage.restore_from_shared(shared.acquire())
+                        source._processing_mgr.reset_processings(proc_ids)
+                        source._header_mgr.set_headers(headers, unit=header_unit)
+                else:
+                    import copy
+                    dataset._features.sources = copy.deepcopy(features_snapshot)
 
             # V3: Restore chain state from branch snapshot if available
             # This ensures each branch's post-branch steps use the correct operator chain
@@ -671,6 +755,23 @@ class PipelineExecutor:
         Returns:
             Updated context
         """
+        # Handle subpipelines in training mode: iterate substeps individually
+        # so each operator gets its own step cache check. This enables prefix
+        # sharing across generator variants (e.g., _cartesian_ combinations that
+        # share the same first transform get a cache hit on the second variant).
+        # In predict/explain mode, delegate to StepRunner for target_sub_index handling.
+        if isinstance(step, list) and self.mode == "train":
+            for substep_idx, substep in enumerate(step):
+                if runtime_context:
+                    runtime_context.substep_number = substep_idx
+                context = self._execute_single_step(
+                    substep, dataset, context, runtime_context,
+                    loaded_binaries, prediction_store, all_artifacts
+                )
+            if runtime_context:
+                runtime_context.substep_number = -1
+            return context
+
         # Extract operator info for trace recording
         operator_type, operator_class, operator_config = self._extract_step_info(step)
 
@@ -690,6 +791,38 @@ class PipelineExecutor:
             # Record input shapes before execution
             self._record_dataset_shapes(dataset, context, runtime_context, is_input=True)
 
+        # --- Step cache: lookup before execution ---
+        step_cache = getattr(runtime_context, 'step_cache', None) if runtime_context else None
+        step_cacheable = False
+        pre_step_data_hash = None
+
+        if step_cache is not None and self.mode == "train" and self._is_step_cacheable(step):
+            step_cacheable = True
+            step_hash = self._step_cache_key_hash(step)
+
+            t_hash = time.monotonic()
+            pre_step_data_hash = self._step_cache_data_hash(dataset)
+            step_cache.record_hash_time(time.monotonic() - t_hash)
+
+            selector = context.selector if isinstance(context, ExecutionContext) else None
+
+            cached_state = step_cache.get(step_hash, pre_step_data_hash, selector)
+            if cached_state is not None:
+                # Cache hit: restore and skip execution (CoW — near-free)
+                step_cache.restore(cached_state, dataset)
+                if cached_state.processing_names:
+                    context = context.with_processing(cached_state.processing_names)
+                logger.debug(
+                    f"Step {self.step_number}: cache hit "
+                    f"(step={step_hash[:8]}, data={pre_step_data_hash[:8]})"
+                )
+                # Record output shapes after restore
+                if runtime_context:
+                    self._record_dataset_shapes(dataset, context, runtime_context, is_input=False)
+                    is_model = operator_type in ("model", "meta_model")
+                    runtime_context.record_step_end(is_model=is_model)
+                return context
+
         try:
             # Execute step via step runner
             step_result = self.step_runner.execute(
@@ -704,6 +837,9 @@ class PipelineExecutor:
             logger.debug(f"Step {self.step_number} completed with {len(step_result.artifacts)} artifacts")
             if self.verbose > 1:
                 logger.debug(str(dataset))
+
+            # Per-step memory logging (Phase 1.5)
+            self._log_step_memory(dataset, operator_class, runtime_context)
 
             # Record output shapes after execution
             if runtime_context:
@@ -744,6 +880,10 @@ class PipelineExecutor:
 
             # Update context
             context = step_result.updated_context
+
+            # --- Step cache: store after execution ---
+            if step_cacheable and pre_step_data_hash is not None:
+                step_cache.put(step_hash, pre_step_data_hash, dataset, selector)
 
             # Sync operation_count back from runtime_context
             if runtime_context:
@@ -831,32 +971,6 @@ class PipelineExecutor:
                     processed_artifacts.append(meta)
 
         return processed_artifacts
-
-    def _filter_binaries_for_branch(
-        self,
-        loaded_binaries: List,
-        branch_id: int
-    ) -> List:
-        """Filter loaded binaries for a specific branch.
-
-        Filters artifacts by branch_id metadata. Artifacts without branch_id
-        (pre-branch/shared) are included for all branches.
-
-        Args:
-            loaded_binaries: All loaded binaries for this step as (name, obj) tuples
-            branch_id: Target branch ID
-
-        Returns:
-            Filtered list of binaries for this branch (including shared artifacts)
-        """
-        if not loaded_binaries:
-            return loaded_binaries
-
-        # Note: loaded_binaries are (name, obj) tuples from ArtifactLoader
-        # The ArtifactLoader now handles branch filtering internally via get_step_binaries(step, branch_id)
-        # This method is kept for backward compatibility but primarily relies on ArtifactLoader
-
-        return loaded_binaries
 
     def _extract_step_info(self, step: Any) -> tuple:
         """Extract operator information from a step for trace recording.
@@ -1085,21 +1199,39 @@ class PipelineExecutor:
             runtime_context: Runtime context with trace recorder
             is_input: True to record input shapes, False for output shapes
         """
+        if self.verbose < 2:
+            return
+
+        if runtime_context is None or getattr(runtime_context, "trace_recorder", None) is None:
+            return
+
         try:
-            # Get 2D layout shape (samples x features)
-            X_2d = dataset.x(context.selector, layout="2d", include_excluded=False)
-            if isinstance(X_2d, list):
-                # Multi-source with concat
-                layout_shape = (X_2d[0].shape[0], sum(x.shape[1] for x in X_2d))
+            cache_key = self._shape_cache_key(dataset, context)
+            cached_shapes = self._shape_metadata_cache.get(cache_key)
+
+            if cached_shapes is None:
+                # Get 2D layout shape (samples x features)
+                X_2d = dataset.x(context.selector, layout="2d", include_excluded=False)
+                if isinstance(X_2d, list):
+                    # Multi-source with concat
+                    layout_shape = (X_2d[0].shape[0], sum(x.shape[1] for x in X_2d))
+                else:
+                    layout_shape = X_2d.shape
+
+                # Get 3D per-source shapes (samples x processings x features)
+                X_3d = dataset.x(
+                    context.selector,
+                    layout="3d",
+                    concat_source=False,
+                    include_excluded=False,
+                )
+                if not isinstance(X_3d, list):
+                    X_3d = [X_3d]
+
+                features_shapes = [x.shape for x in X_3d]
+                self._shape_metadata_cache[cache_key] = (layout_shape, features_shapes)
             else:
-                layout_shape = X_2d.shape
-
-            # Get 3D per-source shapes (samples x processings x features)
-            X_3d = dataset.x(context.selector, layout="3d", concat_source=False, include_excluded=False)
-            if not isinstance(X_3d, list):
-                X_3d = [X_3d]
-
-            features_shapes = [x.shape for x in X_3d]
+                layout_shape, features_shapes = cached_shapes
 
             # Record to trace
             if is_input:
@@ -1116,6 +1248,189 @@ class PipelineExecutor:
         except Exception:
             # Shape recording is non-critical, don't fail the step
             pass
+
+    def _shape_cache_key(
+        self,
+        dataset: SpectroDataset,
+        context: ExecutionContext,
+    ) -> tuple[Any, ...]:
+        """Build a cache key for repeated shape tracing lookups."""
+        selector = getattr(context, "selector", None)
+
+        if selector is None:
+            selector_key = ("none",)
+        else:
+            if isinstance(selector, dict):
+                partition = selector.get("partition")
+                fold_id = selector.get("fold_id")
+                include_augmented = bool(selector.get("include_augmented", False))
+            else:
+                partition = getattr(selector, "partition", None)
+                fold_id = getattr(selector, "fold_id", None)
+                include_augmented = bool(getattr(selector, "include_augmented", False))
+
+            processing = getattr(selector, "processing", None)
+            if processing is None and isinstance(selector, dict):
+                processing = selector.get("processing")
+            processing_key = tuple(tuple(chain) for chain in (processing or []))
+
+            branch_path = getattr(selector, "branch_path", None)
+            if branch_path is None and isinstance(selector, dict):
+                branch_path = selector.get("branch_path")
+            branch_key = tuple(branch_path or [])
+
+            tag_filters = getattr(selector, "tag_filters", None)
+            if tag_filters is None and isinstance(selector, dict):
+                tag_filters = selector.get("tag_filters")
+            if isinstance(tag_filters, dict):
+                tags_key = tuple(sorted((str(k), str(v)) for k, v in tag_filters.items()))
+            else:
+                tags_key = str(tag_filters)
+
+            selector_key = (
+                str(partition),
+                processing_key,
+                str(fold_id),
+                include_augmented,
+                branch_key,
+                tags_key,
+            )
+
+        source_shapes = []
+        features = getattr(dataset, "_features", None)
+        sources = getattr(features, "sources", []) if features is not None else []
+        for source in sources:
+            source_shapes.append(
+                (
+                    int(getattr(source, "num_processings", 0) or 0),
+                    int(getattr(source, "num_features", 0) or 0),
+                )
+            )
+
+        dataset_key = (
+            int(getattr(dataset, "num_samples", 0) or 0),
+            tuple(source_shapes),
+        )
+
+        return dataset_key + selector_key
+
+    def _log_step_memory(self, dataset: SpectroDataset, operator_class: str, runtime_context: Any = None) -> None:
+        """Log per-step memory stats and warn on high RSS.
+
+        At verbose >= 2, logs dataset shape, steady-state nbytes, and process RSS.
+        Always emits a warning when RSS exceeds the configured threshold.
+
+        Args:
+            dataset: Current dataset to measure.
+            operator_class: Name of the step operator (for log messages).
+            runtime_context: Optional RuntimeContext carrying CacheConfig.
+        """
+        from nirs4all.utils.memory import estimate_dataset_bytes, format_bytes, get_process_rss_mb
+
+        cache_config = getattr(runtime_context, 'cache_config', None) if runtime_context else None
+        if cache_config and not cache_config.log_step_memory:
+            return
+
+        rss_mb = get_process_rss_mb()
+
+        if self.verbose >= 2:
+            steady_bytes = estimate_dataset_bytes(dataset)
+            n_samples = dataset.num_samples
+            n_proc = dataset._features.num_processings
+            n_feat = dataset._features.num_features
+            logger.info(
+                f"[Step {self.step_number}] {operator_class} | "
+                f"shape: {n_samples}x{n_proc}x{n_feat} | "
+                f"steady: {format_bytes(steady_bytes)} | RSS: {rss_mb:.1f} MB"
+            )
+
+        threshold_mb = cache_config.memory_warning_threshold_mb if cache_config else _DEFAULT_MEMORY_WARNING_THRESHOLD_MB
+        if rss_mb > threshold_mb:
+            logger.warning(
+                f"Process RSS at {rss_mb / 1024:.1f} GB "
+                f"(threshold: {threshold_mb / 1024:.1f} GB) "
+                f"after step {operator_class}"
+            )
+
+    def _is_step_cacheable(self, step: Any) -> bool:
+        """Check if a step supports step-level caching.
+
+        Parses the step and routes to the controller to check
+        ``supports_step_cache()``.
+
+        For subpipelines (nested lists), cacheability is determined
+        recursively: a subpipeline is cacheable only if every effective
+        substep (non-skip step) is cacheable.
+        """
+        try:
+            from nirs4all.pipeline.steps.parser import StepType
+            parsed = self.step_runner.parser.parse(step)
+            if parsed.metadata.get("skip", False):
+                return False
+            if parsed.step_type == StepType.SUBPIPELINE:
+                substeps = parsed.metadata.get("steps", [])
+                if not isinstance(substeps, list) or not substeps:
+                    return False
+
+                has_effective_substep = False
+                for substep in substeps:
+                    sub_parsed = self.step_runner.parser.parse(substep)
+                    if sub_parsed.metadata.get("skip", False):
+                        continue
+                    has_effective_substep = True
+                    if not self._is_step_cacheable(substep):
+                        return False
+                return has_effective_substep
+            controller = self.step_runner.router.route(parsed, step)
+            return controller.supports_step_cache()
+        except Exception:
+            return False
+
+    def _step_cache_key_hash(self, step: Any) -> str:
+        """Compute a hash of the step configuration for cache keying."""
+        step_json = json.dumps(step, sort_keys=True, default=str).encode()
+        return hashlib.md5(step_json).hexdigest()[:16]
+
+    def _step_cache_data_hash(self, dataset: SpectroDataset) -> str:
+        """Compute a cache input hash that includes features and index state.
+
+        Feature bytes alone are not sufficient for safe reuse: preprocessing
+        fit subsets can change when index state changes (e.g. excluded samples,
+        partition/group/branch assignments, tag columns) even if feature arrays
+        are unchanged.
+
+        Returns:
+            Stable hash string used as the StepCache data-hash component.
+        """
+        feature_hash = dataset.content_hash()
+        index_hash = self._index_state_hash(dataset)
+        return f"{feature_hash}:{index_hash}"
+
+    @staticmethod
+    def _index_state_hash(dataset: SpectroDataset) -> str:
+        """Hash the dataset index table to detect selection-state mutations."""
+        try:
+            index_df = dataset._indexer.df
+            columns = sorted(index_df.columns)
+            if not columns:
+                return "no-index-cols"
+
+            # Hash all index rows with fixed seeds for deterministic output.
+            row_hashes = index_df.select(columns).hash_rows(
+                seed=0,
+                seed_1=1,
+                seed_2=2,
+                seed_3=3,
+            )
+            arr = row_hashes.to_numpy()
+
+            hasher = hashlib.sha256()
+            hasher.update(str(arr.shape[0]).encode())
+            hasher.update(arr.tobytes())
+            return hasher.hexdigest()[:16]
+        except Exception:
+            # Conservative fallback: keep caching available based on feature hash.
+            return "index-unavailable"
 
     def _compute_pipeline_hash(self, steps: List[Any]) -> str:
         """Compute MD5 hash of pipeline configuration.

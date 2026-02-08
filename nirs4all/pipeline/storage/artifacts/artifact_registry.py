@@ -34,6 +34,7 @@ from nirs4all.pipeline.storage.artifacts.types import (
     ArtifactType,
     MetaModelConfig,
 )
+from nirs4all.pipeline.storage.artifacts.query_service import ArtifactQuerySpec
 from nirs4all.pipeline.storage.artifacts.operator_chain import (
     OperatorChain,
     OperatorNode,
@@ -826,15 +827,19 @@ class ArtifactRegistry:
         Returns:
             List of matching ArtifactRecords
         """
+        spec = ArtifactQuerySpec(
+            step_index=step_index,
+            branch_path=branch_path,
+            fold_id=fold_id,
+            pipeline_id=pipeline_id,
+        )
         results = []
         for record in self._artifacts.values():
-            if record.pipeline_id != pipeline_id:
-                continue
-            if record.step_index != step_index:
-                continue
-            if branch_path is not None and record.branch_path != branch_path:
-                continue
-            if fold_id is not None and record.fold_id != fold_id:
+            if not spec.matches_record(
+                record,
+                shared_branch_ok=False,
+                shared_fold_ok=False,
+            ):
                 continue
             results.append(record)
         return results
@@ -1219,64 +1224,6 @@ class ArtifactRegistry:
         self._current_run_artifacts.clear()
 
     # =========================================================================
-    # Cross-run cache persistence
-    # =========================================================================
-
-    def persist_cache_keys_to_store(
-        self,
-        store: Any,
-        dataset_hash: str,
-    ) -> int:
-        """Push in-memory cache keys to the DuckDB workspace store.
-
-        For each entry in the ``_by_chain_and_data`` index, calls
-        :meth:`WorkspaceStore.update_artifact_cache_key` to persist the
-        cache key so it survives across runs.
-
-        Args:
-            store: A :class:`WorkspaceStore` instance.
-            dataset_hash: Content hash of the source dataset, used for
-                cache invalidation.
-
-        Returns:
-            Number of cache keys persisted.
-        """
-        count = 0
-        for (chain_path_hash, input_data_hash), artifact_id in self._by_chain_and_data.items():
-            store.update_artifact_cache_key(
-                artifact_id,
-                chain_path_hash,
-                input_data_hash,
-                dataset_hash,
-            )
-            count += 1
-        return count
-
-    def load_cached_from_store(
-        self,
-        store: Any,
-        chain_path_hash: str,
-        input_data_hash: str,
-    ) -> Optional[str]:
-        """Query the workspace store for a cached artifact.
-
-        Checks the DuckDB ``artifacts`` table for a previously cached
-        artifact matching the given cache key.  This enables cross-run
-        cache hits for preprocessing steps that were already computed
-        in a prior run.
-
-        Args:
-            store: A :class:`WorkspaceStore` instance.
-            chain_path_hash: Hash identifying the chain of steps.
-            input_data_hash: Hash of the input data.
-
-        Returns:
-            The artifact identifier if a cached entry exists, or
-            ``None`` on cache miss.
-        """
-        return store.find_cached_artifact(chain_path_hash, input_data_hash)
-
-    # =========================================================================
     # Private Helpers
     # =========================================================================
 
@@ -1363,7 +1310,11 @@ class ArtifactRegistry:
             for filepath in shard_dir.glob(f"*_{short_hash}.*"):
                 # Verify it's actually the same content
                 # (short hash collision is unlikely but possible)
-                return f"{shard}/{filepath.name}"
+                try:
+                    if compute_content_hash(filepath.read_bytes()) == content_hash:
+                        return f"{shard}/{filepath.name}"
+                except OSError:
+                    continue
 
         return None
 

@@ -714,3 +714,43 @@ class TestSignalTypeFlow:
         finally:
             Path(x1_path).unlink()
             Path(x2_path).unlink()
+
+
+class TestContentHash:
+    """Test content hash consistency (single canonical attribute)."""
+
+    def test_set_content_hash_round_trip(self):
+        """set_content_hash(v) followed by content_hash() returns v."""
+        dataset = SpectroDataset("test")
+        data = np.random.rand(10, 50)
+        dataset.add_samples(data, {"partition": "train"})
+
+        dataset.set_content_hash("abc123")
+        assert dataset.content_hash() == "abc123"
+
+    def test_content_hash_invalidated_by_mutation(self):
+        """set_content_hash(v) + feature mutation -> fresh hash, not v."""
+        dataset = SpectroDataset("test")
+        data = np.random.rand(10, 50)
+        dataset.add_samples(data, {"partition": "train"})
+
+        dataset.set_content_hash("abc123")
+        # Mutate features
+        new_data = np.random.rand(5, 50)
+        dataset.add_samples(new_data, {"partition": "test"})
+
+        result = dataset.content_hash()
+        assert result != "abc123"
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+    def test_get_dataset_metadata_hash_agrees_with_content_hash(self):
+        """get_dataset_metadata()['hash'] agrees with content_hash()."""
+        dataset = SpectroDataset("test")
+        data = np.random.rand(10, 50)
+        dataset.add_samples(data, {"partition": "train"})
+
+        dataset.set_content_hash("explicit_hash")
+        meta = dataset.get_dataset_metadata(include_y_stats=False)
+        assert meta["hash"] == "explicit_hash"
+        assert meta["hash"] == dataset.content_hash()

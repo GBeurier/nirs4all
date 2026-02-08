@@ -689,23 +689,23 @@ class KernelPLS(BaseEstimator, RegressorMixin):
 
     Attributes
     ----------
-    n_features_in\_ : int
+    n_features_in_ : int
         Number of features seen during fit.
-    n_components\_ : int
+    n_components_ : int
         Actual number of components used.
-    X_train\_ : ndarray of shape (n_train, n_features)
+    X_train_ : ndarray of shape (n_train, n_features)
         Training data (stored for kernel computation at predict time).
-    K_train\_ : ndarray of shape (n_train, n_train)
+    K_train_ : ndarray of shape (n_train, n_train)
         Raw (uncentered) training kernel matrix.
-    y_mean\_ : ndarray of shape (n_targets,)
+    y_mean_ : ndarray of shape (n_targets,)
         Mean of Y (if scale_y=True).
-    y_std\_ : ndarray of shape (n_targets,)
+    y_std_ : ndarray of shape (n_targets,)
         Standard deviation of Y (if scale_y=True).
-    x_scores\_ : ndarray of shape (n_train, n_components)
+    x_scores_ : ndarray of shape (n_train, n_components)
         X scores in kernel space (T).
-    y_scores\_ : ndarray of shape (n_train, n_components)
+    y_scores_ : ndarray of shape (n_train, n_components)
         Y scores (U).
-    coef\_ : ndarray of shape (n_train, n_targets)
+    coef_ : ndarray of shape (n_train, n_targets)
         Kernel regression coefficients.
 
     Examples

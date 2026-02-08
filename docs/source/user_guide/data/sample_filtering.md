@@ -525,3 +525,10 @@ All filters inherit from `SampleFilter` and provide:
 - {doc}`/user_guide/augmentation/sample_augmentation_guide` - Adding synthetic samples
 - {doc}`/user_guide/preprocessing/handbook` - Data preprocessing options
 - {doc}`/reference/operator_catalog` - Complete operator reference
+
+```{seealso}
+**Related Examples:**
+- [U03: Sample Exclusion](../../../examples/user/05_cross_validation/U03_sample_filtering.py) - Outlier detection with exclude keyword
+- [U05: Tagging Analysis](../../../examples/user/05_cross_validation/U05_tagging_analysis.py) - Mark samples with tag for analysis
+- [U06: Exclusion Strategies](../../../examples/user/05_cross_validation/U06_exclusion_strategies.py) - Advanced exclusion strategies
+```

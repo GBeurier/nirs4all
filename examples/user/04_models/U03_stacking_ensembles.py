@@ -25,6 +25,7 @@ Difficulty: ★★★☆☆
 
 # Standard library imports
 import argparse
+import os
 import matplotlib.pyplot as plt
 
 # Third-party imports
@@ -58,6 +59,9 @@ parser = argparse.ArgumentParser(description='U03 Stacking Ensembles Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
+
+
+FAST_MODE = os.environ.get("NIRS4ALL_EXAMPLE_FAST", "0").strip().lower() not in {"", "0", "false", "no", "off"}
 
 
 # =============================================================================
@@ -103,15 +107,15 @@ Combine PLS, Random Forest, and Gradient Boosting with a Ridge meta-learner.
 # Define base estimators
 regression_base_estimators = [
     ('pls', PLSRegression(n_components=10)),
-    ('rf', RandomForestRegressor(n_estimators=50, max_depth=10, random_state=42)),
-    ('gbr', GradientBoostingRegressor(n_estimators=50, max_depth=5, random_state=42)),
+    ('rf', RandomForestRegressor(n_estimators=20 if FAST_MODE else 50, max_depth=10, random_state=42)),
+    ('gbr', GradientBoostingRegressor(n_estimators=20 if FAST_MODE else 50, max_depth=5, random_state=42)),
 ]
 
 # Create Stacking Regressor
 stacking_regressor = StackingRegressor(
     estimators=regression_base_estimators,
     final_estimator=Ridge(alpha=1.0),  # Meta-learner
-    cv=3,                               # CV for meta-features
+    cv=2 if FAST_MODE else 3,           # CV for meta-features
     passthrough=False,                  # Don't include original features
     n_jobs=-1
 )
@@ -195,49 +199,52 @@ print("\n" + "-" * 60)
 print("Section 4: Stacking Classifier")
 print("-" * 60)
 
-print("""
+if FAST_MODE:
+    print("CI fast mode: skipping Sections 4-6 (classification/custom ensembles).")
+else:
+    print("""
 Stacking for classification with Logistic Regression meta-learner.
 """)
 
-# Classification base estimators
-classification_base_estimators = [
-    ('rf', RandomForestClassifier(n_estimators=50, max_depth=10, random_state=42)),
-    ('gbc', GradientBoostingClassifier(n_estimators=50, max_depth=5, random_state=42)),
-    ('lda', LinearDiscriminantAnalysis()),
-]
+    # Classification base estimators
+    classification_base_estimators = [
+        ('rf', RandomForestClassifier(n_estimators=50, max_depth=10, random_state=42)),
+        ('gbc', GradientBoostingClassifier(n_estimators=50, max_depth=5, random_state=42)),
+        ('lda', LinearDiscriminantAnalysis()),
+    ]
 
-# Stacking Classifier
-stacking_classifier = StackingClassifier(
-    estimators=classification_base_estimators,
-    final_estimator=LogisticRegression(max_iter=1000, random_state=42),
-    cv=3,
-    passthrough=False,
-    n_jobs=-1
-)
+    # Stacking Classifier
+    stacking_classifier = StackingClassifier(
+        estimators=classification_base_estimators,
+        final_estimator=LogisticRegression(max_iter=1000, random_state=42),
+        cv=3,
+        passthrough=False,
+        n_jobs=-1
+    )
 
-pipeline_stacking_clf = [
-    StandardScaler(),
-    StandardNormalVariate(),
+    pipeline_stacking_clf = [
+        StandardScaler(),
+        StandardNormalVariate(),
 
-    ShuffleSplit(n_splits=2, random_state=42),
+        ShuffleSplit(n_splits=2, random_state=42),
 
-    {"name": "RF", "model": RandomForestClassifier(n_estimators=50, random_state=42)},
-    {"name": "LDA", "model": LinearDiscriminantAnalysis()},
-    {"name": "Stacking-LR", "model": stacking_classifier},
-]
+        {"name": "RF", "model": RandomForestClassifier(n_estimators=50, random_state=42)},
+        {"name": "LDA", "model": LinearDiscriminantAnalysis()},
+        {"name": "Stacking-LR", "model": stacking_classifier},
+    ]
 
-result_stacking_clf = nirs4all.run(
-    pipeline=pipeline_stacking_clf,
-    dataset="sample_data/classification",
-    name="StackingClf",
-    verbose=1
-)
+    result_stacking_clf = nirs4all.run(
+        pipeline=pipeline_stacking_clf,
+        dataset="sample_data/classification",
+        name="StackingClf",
+        verbose=1
+    )
 
-print(f"\nClassification results:")
-for pred in result_stacking_clf.top(5, display_metrics=['rmse', 'r2']):
-    model = pred.get('model_name', 'Unknown')
-    accuracy = (1 - pred.get('rmse', 0)) * 100
-    print(f"   {model}: Accuracy={accuracy:.1f}%")
+    print(f"\nClassification results:")
+    for pred in result_stacking_clf.top(5, display_metrics=['rmse', 'r2']):
+        model = pred.get('model_name', 'Unknown')
+        accuracy = (1 - pred.get('rmse', 0)) * 100
+        print(f"   {model}: Accuracy={accuracy:.1f}%")
 
 
 # =============================================================================
@@ -247,49 +254,50 @@ print("\n" + "-" * 60)
 print("Section 5: Voting Classifier")
 print("-" * 60)
 
-print("""
+if not FAST_MODE:
+    print("""
 VotingClassifier supports:
   - hard: Majority vote on predicted classes
   - soft: Average predicted probabilities
 """)
 
-# Hard voting (majority vote)
-voting_hard = VotingClassifier(
-    estimators=classification_base_estimators,
-    voting='hard',
-    n_jobs=-1
-)
+    # Hard voting (majority vote)
+    voting_hard = VotingClassifier(
+        estimators=classification_base_estimators,
+        voting='hard',
+        n_jobs=-1
+    )
 
-# Soft voting (probability averaging)
-voting_soft = VotingClassifier(
-    estimators=classification_base_estimators,
-    voting='soft',
-    n_jobs=-1
-)
+    # Soft voting (probability averaging)
+    voting_soft = VotingClassifier(
+        estimators=classification_base_estimators,
+        voting='soft',
+        n_jobs=-1
+    )
 
-pipeline_voting_clf = [
-    StandardScaler(),
-    StandardNormalVariate(),
+    pipeline_voting_clf = [
+        StandardScaler(),
+        StandardNormalVariate(),
 
-    ShuffleSplit(n_splits=2, random_state=42),
+        ShuffleSplit(n_splits=2, random_state=42),
 
-    {"name": "RF", "model": RandomForestClassifier(n_estimators=50, random_state=42)},
-    {"name": "Voting-Hard", "model": voting_hard},
-    {"name": "Voting-Soft", "model": voting_soft},
-]
+        {"name": "RF", "model": RandomForestClassifier(n_estimators=50, random_state=42)},
+        {"name": "Voting-Hard", "model": voting_hard},
+        {"name": "Voting-Soft", "model": voting_soft},
+    ]
 
-result_voting_clf = nirs4all.run(
-    pipeline=pipeline_voting_clf,
-    dataset="sample_data/classification",
-    name="VotingClf",
-    verbose=1
-)
+    result_voting_clf = nirs4all.run(
+        pipeline=pipeline_voting_clf,
+        dataset="sample_data/classification",
+        name="VotingClf",
+        verbose=1
+    )
 
-print(f"\nVoting classifier results:")
-for pred in result_voting_clf.top(5, display_metrics=['rmse', 'r2']):
-    model = pred.get('model_name', 'Unknown')
-    accuracy = (1 - pred.get('rmse', 0)) * 100
-    print(f"   {model}: Accuracy={accuracy:.1f}%")
+    print(f"\nVoting classifier results:")
+    for pred in result_voting_clf.top(5, display_metrics=['rmse', 'r2']):
+        model = pred.get('model_name', 'Unknown')
+        accuracy = (1 - pred.get('rmse', 0)) * 100
+        print(f"   {model}: Accuracy={accuracy:.1f}%")
 
 
 # =============================================================================
@@ -299,49 +307,50 @@ print("\n" + "-" * 60)
 print("Section 6: Custom Ensemble Configuration")
 print("-" * 60)
 
-print("""
+if not FAST_MODE:
+    print("""
 Customize ensemble parameters:
   - passthrough: Include original features in meta-learner
   - weights: Weight base estimators differently
   - cv: Cross-validation folds for meta-features
 """)
 
-# Weighted voting
-weighted_voting = VotingRegressor(
-    estimators=regression_base_estimators,
-    weights=[0.5, 0.3, 0.2],  # Weight PLS higher
-    n_jobs=-1
-)
+    # Weighted voting
+    weighted_voting = VotingRegressor(
+        estimators=regression_base_estimators,
+        weights=[0.5, 0.3, 0.2],  # Weight PLS higher
+        n_jobs=-1
+    )
 
-# Stacking with passthrough
-stacking_passthrough = StackingRegressor(
-    estimators=regression_base_estimators,
-    final_estimator=Ridge(alpha=0.5),
-    cv=5,                 # More CV folds
-    passthrough=True,     # Include original features
-    n_jobs=-1
-)
+    # Stacking with passthrough
+    stacking_passthrough = StackingRegressor(
+        estimators=regression_base_estimators,
+        final_estimator=Ridge(alpha=0.5),
+        cv=5,                 # More CV folds
+        passthrough=True,     # Include original features
+        n_jobs=-1
+    )
 
-pipeline_custom = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
+    pipeline_custom = [
+        MinMaxScaler(),
+        StandardNormalVariate(),
 
-    ShuffleSplit(n_splits=2, random_state=42),
+        ShuffleSplit(n_splits=2, random_state=42),
 
-    {"name": "Voting-Weighted", "model": weighted_voting},
-    {"name": "Stacking-Passthrough", "model": stacking_passthrough},
-]
+        {"name": "Voting-Weighted", "model": weighted_voting},
+        {"name": "Stacking-Passthrough", "model": stacking_passthrough},
+    ]
 
-result_custom = nirs4all.run(
-    pipeline=pipeline_custom,
-    dataset="sample_data/regression",
-    name="CustomEnsemble",
-    verbose=1
-)
+    result_custom = nirs4all.run(
+        pipeline=pipeline_custom,
+        dataset="sample_data/regression",
+        name="CustomEnsemble",
+        verbose=1
+    )
 
-print(f"\nCustom ensemble results:")
-for pred in result_custom.top(5, display_metrics=['rmse', 'r2']):
-    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
+    print(f"\nCustom ensemble results:")
+    for pred in result_custom.top(5, display_metrics=['rmse', 'r2']):
+        print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================

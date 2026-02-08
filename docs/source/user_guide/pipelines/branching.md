@@ -305,3 +305,10 @@ pipeline = [
 - {doc}`/reference/generator_keywords` - Generator syntax reference
 - {doc}`/reference/predictions_api` - Predictions API reference
 - {doc}`stacking` - Meta-model stacking guide
+
+```{seealso}
+**Related Examples:**
+- [D01: Branching Basics](../../../examples/developer/01_advanced_pipelines/D01_branching_basics.py) - Duplication and separation branches
+- [D02: Branching Advanced](../../../examples/developer/01_advanced_pipelines/D02_branching_advanced.py) - BranchAnalyzer for statistical comparison
+- [D06: Separation Branches](../../../examples/developer/01_advanced_pipelines/D06_separation_branches.py) - by_tag, by_metadata, by_filter, by_source
+```

@@ -464,45 +464,6 @@ def build_top_aggregated_query(
     return sql, params
 
 
-# =========================================================================
-# Legacy dynamic query builders
-# =========================================================================
-
-def build_filter_clause(
-    filters: dict[str, object],
-) -> tuple[str, list[object]]:
-    """Build a ``WHERE`` clause from a dictionary of column filters.
-
-    Args:
-        filters: Mapping of column name to value.  ``None`` values are
-            skipped.  String values containing ``%`` are treated as
-            ``LIKE`` patterns.
-
-    Returns:
-        A ``(clause, params)`` tuple where *clause* is a SQL fragment
-        like ``"WHERE col1 = $1 AND col2 LIKE $2"`` and *params* is
-        the positional parameter list.  If no filters apply the clause
-        is an empty string.
-    """
-    conditions: list[str] = []
-    params: list[object] = []
-    idx = 1
-
-    for col, val in filters.items():
-        if val is None:
-            continue
-        if isinstance(val, str) and "%" in val:
-            conditions.append(f"{col} LIKE ${idx}")
-        else:
-            conditions.append(f"{col} = ${idx}")
-        params.append(val)
-        idx += 1
-
-    if not conditions:
-        return "", []
-    return "WHERE " + " AND ".join(conditions), params
-
-
 def build_prediction_query(
     *,
     dataset_name: str | None = None,

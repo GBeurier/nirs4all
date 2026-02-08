@@ -44,3 +44,9 @@ retrained = nirs4all.retrain(
 ```
 
 For the complete guide, see {doc}`/user_guide/predictions/index`.
+
+```{seealso}
+**Related Examples:**
+- [U01: Save, Load, Predict](../../../examples/user/06_deployment/U01_save_load_predict.py) - Model persistence and prediction
+- [U04: sklearn Integration](../../../examples/user/06_deployment/U04_sklearn_integration.py) - NIRSPipeline as sklearn estimator
+```

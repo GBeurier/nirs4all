@@ -320,3 +320,9 @@ pipeline = [
 - {doc}`/reference/generator_keywords` - Pipeline generators (`_range_`, `_or_`)
 - {doc}`/user_guide/pipelines/writing_pipelines` - Pipeline syntax
 - [U14_hyperparameter_tuning.py](https://github.com/GBeurier/nirs4all/blob/main/examples/user/04_models/U14_hyperparameter_tuning.py) - Complete example
+
+```{seealso}
+**Related Examples:**
+- [U02: Hyperparameter Tuning](../../../examples/user/04_models/U02_hyperparameter_tuning.py) - Grid, random, Bayesian, and Hyperband search
+- [D01: Generator Syntax](../../../examples/developer/02_generators/D01_generator_syntax.py) - Generator syntax for parameter sweeps
+```

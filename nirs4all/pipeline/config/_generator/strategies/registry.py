@@ -93,20 +93,6 @@ def get_strategy(node: GeneratorNode) -> Optional[ExpansionStrategy]:
     return None
 
 
-def get_all_strategies() -> List[ExpansionStrategy]:
-    """Get instances of all registered strategies.
-
-    Returns:
-        List of strategy instances in priority order.
-    """
-    result = []
-    for strategy_cls in _strategy_classes:
-        if strategy_cls not in _strategy_instances:
-            _strategy_instances[strategy_cls] = strategy_cls()
-        result.append(_strategy_instances[strategy_cls])
-    return result
-
-
 def clear_registry() -> None:
     """Clear all registered strategies and cached instances.
 
@@ -114,15 +100,3 @@ def clear_registry() -> None:
     """
     _strategy_classes.clear()
     _strategy_instances.clear()
-
-
-def _get_registry_state() -> tuple:
-    """Get current registry state for debugging.
-
-    Returns:
-        Tuple of (strategy_classes, instance_count).
-    """
-    return (
-        [c.__name__ for c in _strategy_classes],
-        len(_strategy_instances)
-    )

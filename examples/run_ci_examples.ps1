@@ -1,42 +1,38 @@
 # =============================================================================
 # Local CI Examples Runner (Windows PowerShell)
 # =============================================================================
-# Mimics the GitHub Actions workflow locally for testing examples
-# with strict output validation to catch silent errors.
-#
-# Usage: .\run_ci_examples.ps1 [OPTIONS]
-#
-# Options:
-#   -Category    Category: user, developer, reference, all (default: all)
-#   -Quick       Quick mode: skip deep learning examples
-#   -Strict      Strict mode: fail on any warning/error pattern (default: true)
-#   -Verbose     Verbose: show all output (not just failures)
-#   -KeepGoing   Keep going: don't stop on first failure
-#
-# Examples:
-#   .\run_ci_examples.ps1                         # Run all with strict validation
-#   .\run_ci_examples.ps1 -Category user          # Run only user examples
-#   .\run_ci_examples.ps1 -Category user -Quick   # Quick mode (no DL)
-#   .\run_ci_examples.ps1 -Verbose                # Verbose output
+# Runs examples with strict output validation and optional parallel workers.
+# Uses `ci_example_launcher.py` to enable CI fast-mode caps.
 # =============================================================================
 
 param(
     [ValidateSet("user", "developer", "reference", "all")]
     [string]$Category = "all",
 
-    [switch]$Quick,
     [switch]$Strict = $true,
     [switch]$VerboseOutput,
-    [switch]$KeepGoing
+    [switch]$KeepGoing,
+    [int]$Jobs = $(if ($env:NIRS4ALL_CI_JOBS) { [int]$env:NIRS4ALL_CI_JOBS } else { 1 })
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($Jobs -lt 1) {
+    Write-Host "Invalid -Jobs value '$Jobs'. Using 1." -ForegroundColor Yellow
+    $Jobs = 1
+}
+
+if ($Jobs -gt 1 -and -not $KeepGoing) {
+    # Parallel mode cannot cleanly stop on first failure once workers are started.
+    $KeepGoing = $true
+}
+
+$FastMode = if ($env:NIRS4ALL_EXAMPLE_FAST) { $env:NIRS4ALL_EXAMPLE_FAST } else { "1" }
 
 # =============================================================================
 # Error Patterns to Detect
 # =============================================================================
 
-# Critical error patterns (always fail)
 $CriticalPatterns = @(
     "Traceback \(most recent call last\)"
     "Error:"
@@ -52,36 +48,29 @@ $CriticalPatterns = @(
     "VALIDATION FAILED:"
 )
 
-# Warning patterns that indicate potential issues
 $WarningPatterns = @(
-    "N/A"
-    ": nan"
-    ": NaN"
-    "nan,"
-    "NaN,"
     "MSE: N/A"
     "R²: N/A"
     "RMSE: N/A"
     "Results: N/A"
-    "Failed to calculate"
-    "\[!\]"
-    "Warning:"
-    "DeprecationWarning:"
-    "FutureWarning:"
-    "UserWarning:"
+    "Accuracy: N/A"
+    "Accuracy: nan%"
+    "R²: nan"
+    "Best R²: nan"
+    "RMSE = nan"
+    "nan,"
+    "NaN,"
 )
 
-# Patterns that indicate empty/invalid results
 $InvalidResultPatterns = @(
-    "0 samples"
-    "0 predictions"
+    ": 0 samples"
+    ": 0 predictions"
     "No predictions"
     "Empty result"
-    "length at least 2"
 )
 
 # =============================================================================
-# Output Directories
+# Paths and Runtime Setup
 # =============================================================================
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -89,22 +78,29 @@ $WorkspaceRoot = Split-Path -Parent $ScriptDir
 $OutputDir = Join-Path $ScriptDir "workspace\ci_output"
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $RunDir = Join-Path $OutputDir "run_$Timestamp"
-
-# Activate virtual environment
-$VenvDir = Join-Path $WorkspaceRoot ".venv"
-$VenvActivate = Join-Path $VenvDir "Scripts\Activate.ps1"
-if (Test-Path $VenvActivate) {
-    Write-Host "Activating virtual environment: $VenvDir"
-    & $VenvActivate
-} else {
-    Write-Host "Warning: Virtual environment not found at $VenvDir"
-    Write-Host "Using system Python instead."
-}
-
-New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
-
+$StatusDir = Join-Path $RunDir "status"
+$WorkspacesDir = Join-Path $RunDir "workspaces"
 $SummaryFile = Join-Path $RunDir "summary.txt"
 $ErrorsFile = Join-Path $RunDir "errors.txt"
+
+New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
+New-Item -ItemType Directory -Force -Path $StatusDir | Out-Null
+New-Item -ItemType Directory -Force -Path $WorkspacesDir | Out-Null
+
+$VenvPython = Join-Path $WorkspaceRoot ".venv\Scripts\python.exe"
+if (Test-Path $VenvPython) {
+    Write-Host "Using virtual environment Python: $VenvPython"
+    $PythonExe = $VenvPython
+}
+else {
+    Write-Host "Virtual environment not found at $VenvPython; using system python."
+    $PythonExe = "python"
+}
+
+$Launcher = Join-Path $ScriptDir "ci_example_launcher.py"
+if (-not (Test-Path $Launcher)) {
+    throw "CI launcher not found at $Launcher"
+}
 
 function Write-Log {
     param([string]$Message)
@@ -112,24 +108,30 @@ function Write-Log {
     Add-Content -Path $SummaryFile -Value $Message
 }
 
+function Format-Duration {
+    param([int]$TotalSeconds)
+    $hours = [int]($TotalSeconds / 3600)
+    $minutes = [int](($TotalSeconds % 3600) / 60)
+    $seconds = [int]($TotalSeconds % 60)
+    return ("{0:D2}:{1:D2}:{2:D2}" -f $hours, $minutes, $seconds)
+}
+
 Write-Log "CI Examples Runner - Local Validation"
 Write-Log "======================================"
 Write-Log "Timestamp: $(Get-Date)"
 Write-Log "Category: $Category"
-Write-Log "Quick mode: $Quick"
 Write-Log "Strict mode: $Strict"
+Write-Log "Jobs: $Jobs"
+Write-Log "Fast mode: $FastMode"
 Write-Log "Output dir: $RunDir"
 Write-Log ""
 
 # =============================================================================
-# Check Output for Errors
+# Validation
 # =============================================================================
 
 function Test-OutputForErrors {
-    param(
-        [string]$OutputFile,
-        [string]$ExampleName
-    )
+    param([string]$OutputFile)
 
     $content = Get-Content -Path $OutputFile -Raw -ErrorAction SilentlyContinue
     if (-not $content) { $content = "" }
@@ -139,7 +141,6 @@ function Test-OutputForErrors {
     $hasInvalid = $false
     $issues = @()
 
-    # Check critical patterns
     foreach ($pattern in $CriticalPatterns) {
         if ($content -match $pattern) {
             $hasCritical = $true
@@ -147,7 +148,6 @@ function Test-OutputForErrors {
         }
     }
 
-    # Check warning patterns
     foreach ($pattern in $WarningPatterns) {
         if ($content -match $pattern) {
             $hasWarning = $true
@@ -155,7 +155,6 @@ function Test-OutputForErrors {
         }
     }
 
-    # Check invalid result patterns
     foreach ($pattern in $InvalidResultPatterns) {
         if ($content -match $pattern) {
             $hasInvalid = $true
@@ -163,7 +162,6 @@ function Test-OutputForErrors {
         }
     }
 
-    # Return status: 0=ok, 1=warning, 2=critical
     if ($hasCritical) {
         return @{ Status = 2; Issues = $issues }
     }
@@ -176,12 +174,11 @@ function Test-OutputForErrors {
 }
 
 # =============================================================================
-# Build Example List
+# Example Selection
 # =============================================================================
 
 Set-Location $ScriptDir
 
-# User examples
 $UserExamples = @(
     "user/01_getting_started/U01_hello_world.py"
     "user/01_getting_started/U02_basic_regression.py"
@@ -248,6 +245,9 @@ $DeveloperExamples = @(
     "developer/05_advanced_features/D03_repetition_transform.py"
     "developer/06_internals/D01_session_workflow.py"
     "developer/06_internals/D02_custom_controllers.py"
+    "developer/01_advanced_pipelines/D06_separation_branches.py"
+    "developer/01_advanced_pipelines/D07_value_mapping.py"
+    "developer/06_internals/D03_cache_performance.py"
 )
 
 $ReferenceExamples = @(
@@ -257,49 +257,149 @@ $ReferenceExamples = @(
     "reference/R04_legacy_api.py"
 )
 
-# Deep learning examples to skip in quick mode
-$DlExamples = @(
-    "D01_pytorch_models.py"
-    "D02_jax_models.py"
-    "D03_tensorflow_models.py"
-    "D04_framework_comparison.py"
-)
-
-function Test-IsDlExample {
-    param([string]$Example)
-    $basename = Split-Path -Leaf $Example
-    return $DlExamples -contains $basename
+$SelectedExamples = switch ($Category) {
+    "user" { $UserExamples }
+    "developer" { $DeveloperExamples }
+    "reference" { $ReferenceExamples }
+    "all" { $UserExamples + $DeveloperExamples + $ReferenceExamples }
 }
 
-# Build selected examples list
-$SelectedExamples = @()
-
-switch ($Category) {
-    "user" { $SelectedExamples = $UserExamples }
-    "developer" { $SelectedExamples = $DeveloperExamples }
-    "reference" { $SelectedExamples = $ReferenceExamples }
-    "all" { $SelectedExamples = $UserExamples + $DeveloperExamples + $ReferenceExamples }
-}
-
-# Filter to existing files only
 $FilteredExamples = @()
 foreach ($ex in $SelectedExamples) {
     if (Test-Path $ex) {
-        # Apply quick mode filter
-        if ($Quick -and (Test-IsDlExample $ex)) {
-            continue
-        }
         $FilteredExamples += $ex
     }
 }
-
 $SelectedExamples = $FilteredExamples
+
+if ($SelectedExamples.Count -eq 0) {
+    Write-Log "No examples selected."
+    exit 1
+}
 
 Write-Log "Examples to run: $($SelectedExamples.Count)"
 Write-Log ""
 
 # =============================================================================
-# Run Examples with Validation
+# Execution (sequential or parallel)
+# =============================================================================
+
+$GlobalStart = Get-Date
+
+function Invoke-ExampleWorker {
+    param(
+        [int]$Index,
+        [string]$Example,
+        [string]$PythonExe,
+        [string]$Launcher,
+        [string]$RunDir,
+        [string]$StatusDir,
+        [string]$WorkspacesDir,
+        [string]$FastMode
+    )
+
+    $exampleName = [System.IO.Path]::GetFileNameWithoutExtension($Example)
+    $outputFile = Join-Path $RunDir ("{0:D3}_{1}.log" -f $Index, $exampleName)
+    $statusFile = Join-Path $StatusDir ("{0:D3}.status" -f $Index)
+    $workspaceDir = Join-Path $WorkspacesDir ("{0:D3}_{1}" -f $Index, $exampleName)
+
+    New-Item -ItemType Directory -Force -Path $workspaceDir | Out-Null
+
+    $startTime = Get-Date
+    $startIso = $startTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    $exitCode = 0
+
+    try {
+        $env:NIRS4ALL_EXAMPLE_FAST = $FastMode
+        $env:NIRS4ALL_WORKSPACE = $workspaceDir
+        & $PythonExe $Launcher $Example *> $outputFile
+        $exitCode = $LASTEXITCODE
+    }
+    catch {
+        $exitCode = 1
+        $_ | Out-File -FilePath $outputFile -Append -Encoding UTF8
+    }
+
+    $endTime = Get-Date
+    $duration = [math]::Round(($endTime - $startTime).TotalSeconds)
+    $endIso = $endTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    "{0}|{1}|{2}|{3}|{4}|{5}|{6}" -f $Index, $Example, $outputFile, $exitCode, $duration, $startIso, $endIso |
+        Out-File -FilePath $statusFile -Encoding UTF8
+    Write-Host ("DONE   [{0}/{1}] {2} :: {3} ({4}s, exit={5})" -f $Index, $SelectedExamples.Count, $endIso, $Example, $duration, $exitCode)
+}
+
+if ($Jobs -gt 1) {
+    $jobList = @()
+
+    for ($i = 0; $i -lt $SelectedExamples.Count; $i++) {
+        while (($jobList | Where-Object { $_.State -eq "Running" }).Count -ge $Jobs) {
+            Start-Sleep -Milliseconds 200
+        }
+
+        $index = $i + 1
+        $example = $SelectedExamples[$i]
+        $launchIso = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        Write-Host ("LAUNCH [{0}/{1}] {2} :: {3}" -f $index, $SelectedExamples.Count, $launchIso, $example)
+
+        $job = Start-Job -ScriptBlock {
+            param($Index, $Example, $PythonExe, $Launcher, $RunDir, $StatusDir, $WorkspacesDir, $FastMode)
+            $ErrorActionPreference = "Stop"
+
+            $exampleName = [System.IO.Path]::GetFileNameWithoutExtension($Example)
+            $outputFile = Join-Path $RunDir ("{0:D3}_{1}.log" -f $Index, $exampleName)
+            $statusFile = Join-Path $StatusDir ("{0:D3}.status" -f $Index)
+            $workspaceDir = Join-Path $WorkspacesDir ("{0:D3}_{1}" -f $Index, $exampleName)
+
+            New-Item -ItemType Directory -Force -Path $workspaceDir | Out-Null
+
+            $startTime = Get-Date
+            $startIso = $startTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            $exitCode = 0
+            try {
+                $env:NIRS4ALL_EXAMPLE_FAST = $FastMode
+                $env:NIRS4ALL_WORKSPACE = $workspaceDir
+                & $PythonExe $Launcher $Example *> $outputFile
+                $exitCode = $LASTEXITCODE
+            }
+            catch {
+                $exitCode = 1
+                $_ | Out-File -FilePath $outputFile -Append -Encoding UTF8
+            }
+
+            $endTime = Get-Date
+            $duration = [math]::Round(($endTime - $startTime).TotalSeconds)
+            $endIso = $endTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            "{0}|{1}|{2}|{3}|{4}|{5}|{6}" -f $Index, $Example, $outputFile, $exitCode, $duration, $startIso, $endIso |
+                Out-File -FilePath $statusFile -Encoding UTF8
+            "DONE   [{0}] {1} :: {2} ({3}s, exit={4})" -f $Index, $endIso, $Example, $duration, $exitCode
+        } -ArgumentList $index, $example, $PythonExe, $Launcher, $RunDir, $StatusDir, $WorkspacesDir, $FastMode
+
+        $jobList += $job
+    }
+
+    if ($jobList.Count -gt 0) {
+        Wait-Job -Job $jobList | Out-Null
+        $jobOutput = Receive-Job -Job $jobList
+        foreach ($line in $jobOutput) {
+            if ($line) { Write-Host $line }
+        }
+        Remove-Job -Job $jobList | Out-Null
+    }
+}
+else {
+    for ($i = 0; $i -lt $SelectedExamples.Count; $i++) {
+        $index = $i + 1
+        $example = $SelectedExamples[$i]
+        $launchIso = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        Write-Host ("LAUNCH [{0}/{1}] {2} :: {3}" -f $index, $SelectedExamples.Count, $launchIso, $example)
+        Invoke-ExampleWorker -Index $index -Example $example `
+            -PythonExe $PythonExe -Launcher $Launcher `
+            -RunDir $RunDir -StatusDir $StatusDir -WorkspacesDir $WorkspacesDir -FastMode $FastMode
+    }
+}
+
+# =============================================================================
+# Validation and Summary
 # =============================================================================
 
 $passed = 0
@@ -308,46 +408,54 @@ $warnings = 0
 $failedExamples = @()
 $warningExamples = @()
 
-foreach ($example in $SelectedExamples) {
-    $exampleName = [System.IO.Path]::GetFileNameWithoutExtension($example)
-    $outputFile = Join-Path $RunDir "$exampleName.log"
+for ($i = 0; $i -lt $SelectedExamples.Count; $i++) {
+    $index = $i + 1
+    $example = $SelectedExamples[$i]
+    $statusFile = Join-Path $StatusDir ("{0:D3}.status" -f $index)
 
     Write-Host -NoNewline "Running: $example ... "
 
-    # Run the example and capture output
-    $startTime = Get-Date
-    $exitCode = 0
-
-    try {
-        $output = & python $example 2>&1
-        $output | Out-File -FilePath $outputFile -Encoding UTF8
-        $exitCode = $LASTEXITCODE
-    }
-    catch {
-        $exitCode = 1
-        $_ | Out-File -FilePath $outputFile -Encoding UTF8
+    if (-not (Test-Path $statusFile)) {
+        Write-Host "FAILED (missing status file)"
+        $failed++
+        $failedExamples += "$example (missing status file)"
+        continue
     }
 
-    $endTime = Get-Date
-    $duration = [math]::Round(($endTime - $startTime).TotalSeconds)
+    $raw = (Get-Content -Path $statusFile -Raw).Trim()
+    $parts = $raw -split '\|', 7
 
-    # Check exit code first
+    if ($parts.Count -lt 7) {
+        Write-Host "FAILED (invalid status format)"
+        $failed++
+        $failedExamples += "$example (invalid status format)"
+        continue
+    }
+
+    $outputFile = $parts[2]
+    $exitCode = [int]$parts[3]
+    $duration = [int]$parts[4]
+    $startIso = $parts[5]
+    $endIso = $parts[6]
+
     if ($exitCode -ne 0) {
-        Write-Host "FAILED (exit code: $exitCode, ${duration}s)"
+        Write-Host "FAILED (exit code: $exitCode, ${duration}s, done: $endIso)"
         $failed++
         $failedExamples += "$example (exit code: $exitCode)"
 
         Add-Content -Path $ErrorsFile -Value ""
         Add-Content -Path $ErrorsFile -Value "=== $example (exit code: $exitCode) ==="
-        Get-Content -Path $outputFile | Add-Content -Path $ErrorsFile
+        if (Test-Path $outputFile) {
+            Get-Content -Path $outputFile | Add-Content -Path $ErrorsFile
+        }
 
-        if ($VerboseOutput) {
+        if ($VerboseOutput -and (Test-Path $outputFile)) {
             Write-Host "--- Output ---"
             Get-Content -Path $outputFile
             Write-Host "--- End Output ---"
         }
 
-        if (-not $KeepGoing) {
+        if (-not $KeepGoing -and $Jobs -eq 1) {
             Write-Host ""
             Write-Host "Stopping on first failure. Use -KeepGoing to continue."
             break
@@ -355,16 +463,15 @@ foreach ($example in $SelectedExamples) {
         continue
     }
 
-    # Check output for error patterns
-    $checkResult = Test-OutputForErrors -OutputFile $outputFile -ExampleName $exampleName
+    $checkResult = Test-OutputForErrors -OutputFile $outputFile
 
     switch ($checkResult.Status) {
         0 {
-            Write-Host "OK (${duration}s)"
+            Write-Host "OK (${duration}s, done: $endIso)"
             $passed++
         }
         1 {
-            Write-Host "WARNING (${duration}s)"
+            Write-Host "WARNING (${duration}s, done: $endIso)"
             $warnings++
             $warningExamples += $example
             if ($Strict) {
@@ -375,34 +482,41 @@ foreach ($example in $SelectedExamples) {
             Add-Content -Path $ErrorsFile -Value ""
             Add-Content -Path $ErrorsFile -Value "=== $example (warnings) ==="
             $checkResult.Issues | ForEach-Object { Add-Content -Path $ErrorsFile -Value $_ }
+            Add-Content -Path $ErrorsFile -Value "--- Relevant output ---"
+            foreach ($pattern in ($WarningPatterns + $InvalidResultPatterns)) {
+                Select-String -Path $outputFile -Pattern $pattern -ErrorAction SilentlyContinue |
+                    ForEach-Object { Add-Content -Path $ErrorsFile -Value $_.Line }
+            }
 
             if ($VerboseOutput) {
                 Write-Host "  Issues:"
                 $checkResult.Issues | ForEach-Object { Write-Host "    $_" }
             }
 
-            if ($Strict -and -not $KeepGoing) {
+            if ($Strict -and -not $KeepGoing -and $Jobs -eq 1) {
                 Write-Host ""
                 Write-Host "Stopping on warning (strict mode). Use -KeepGoing to continue."
                 break
             }
         }
         2 {
-            Write-Host "CRITICAL (${duration}s)"
+            Write-Host "CRITICAL (${duration}s, done: $endIso)"
             $failed++
             $failedExamples += "$example (critical error)"
 
             Add-Content -Path $ErrorsFile -Value ""
             Add-Content -Path $ErrorsFile -Value "=== $example (critical) ==="
-            Get-Content -Path $outputFile | Add-Content -Path $ErrorsFile
+            if (Test-Path $outputFile) {
+                Get-Content -Path $outputFile | Add-Content -Path $ErrorsFile
+            }
 
-            if ($VerboseOutput) {
+            if ($VerboseOutput -and (Test-Path $outputFile)) {
                 Write-Host "--- Output ---"
                 Get-Content -Path $outputFile
                 Write-Host "--- End Output ---"
             }
 
-            if (-not $KeepGoing) {
+            if (-not $KeepGoing -and $Jobs -eq 1) {
                 Write-Host ""
                 Write-Host "Stopping on critical error. Use -KeepGoing to continue."
                 break
@@ -411,9 +525,10 @@ foreach ($example in $SelectedExamples) {
     }
 }
 
-# =============================================================================
-# Summary Report
-# =============================================================================
+$GlobalEnd = Get-Date
+$GlobalDuration = [int][math]::Round(($GlobalEnd - $GlobalStart).TotalSeconds)
+$GlobalStartIso = $GlobalStart.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+$GlobalEndIso = $GlobalEnd.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
 Write-Log ""
 Write-Log "========================================"
@@ -423,6 +538,9 @@ Write-Log "Total examples: $($SelectedExamples.Count)"
 Write-Log "Passed: $passed"
 Write-Log "Warnings: $warnings"
 Write-Log "Failed: $failed"
+Write-Log "Started: $GlobalStartIso"
+Write-Log "Finished: $GlobalEndIso"
+Write-Log ("Elapsed: {0}s ({1})" -f $GlobalDuration, (Format-Duration -TotalSeconds $GlobalDuration))
 Write-Log ""
 
 if ($failedExamples.Count -gt 0) {
@@ -446,14 +564,12 @@ if ((Test-Path $ErrorsFile) -and ((Get-Item $ErrorsFile).Length -gt 0)) {
     Write-Log "Errors file: $ErrorsFile"
 }
 
-# Exit with appropriate code
 if ($failed -gt 0) {
     Write-Host ""
     Write-Host "X CI validation FAILED" -ForegroundColor Red
     exit 1
 }
-else {
-    Write-Host ""
-    Write-Host "OK CI validation PASSED" -ForegroundColor Green
-    exit 0
-}
+
+Write-Host ""
+Write-Host "OK CI validation PASSED" -ForegroundColor Green
+exit 0

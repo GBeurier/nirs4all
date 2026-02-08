@@ -592,10 +592,12 @@ class TestPerformanceBenchmark:
         print(f"    Wrapped KFold:     {time_wrapper * 1000:.2f} ms")
         print(f"    Overhead ratio:    {overhead_ratio:.2f}x")
 
-        # Wrapper should not be more than 10x slower
-        # (aggregation adds overhead but should still be fast)
-        assert overhead_ratio < 10, \
+        # Wrapper should not be dramatically slower. When native timing is only
+        # a few milliseconds, parallel CI scheduler jitter can inflate ratios.
+        max_ratio = 10 if time_native >= 0.01 else 20
+        assert overhead_ratio < max_ratio, (
             f"Wrapper is too slow ({overhead_ratio:.2f}x slower than native)"
+        )
 
     def test_wrapper_memory_efficiency(self, large_grouped_data):
         """Test that wrapper doesn't create excessive memory copies."""

@@ -96,7 +96,7 @@ cars_pipeline = [
     # CARS feature selection
     CARS(
         n_components=10,            # PLS components for internal model
-        n_sampling_runs=50,         # Number of Monte-Carlo runs
+        n_sampling_runs=10,         # Number of Monte-Carlo runs
         n_variables_ratio_end=0.2,  # Final ratio of variables to keep
         cv_folds=5,                 # Cross-validation folds
         random_state=42             # For reproducibility
@@ -160,7 +160,7 @@ mcuve_pipeline = [
     # MC-UVE feature selection
     MCUVE(
         n_components=10,           # PLS components for internal model
-        n_iterations=100,          # Number of bootstrap iterations
+        n_iterations=10,          # Number of bootstrap iterations
         threshold_method='auto',   # Automatic threshold selection
         random_state=42            # For reproducibility
     ),

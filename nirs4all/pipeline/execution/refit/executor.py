@@ -119,8 +119,14 @@ def execute_simple_refit(
     # Inject best_params into the model step
     _inject_best_params(steps, refit_config.best_params)
 
+    # Preserve runtime labels so this helper is non-destructive to callers.
+    prev_refit_fold_id = runtime_context.refit_fold_id
+    prev_refit_context_name = runtime_context.refit_context_name
+
     # Set execution phase to REFIT
     runtime_context.phase = ExecutionPhase.REFIT
+    runtime_context.refit_fold_id = "final"
+    runtime_context.refit_context_name = REFIT_CONTEXT_STANDALONE
 
     # Reset runtime context counters for a fresh execution pass
     runtime_context.step_number = 0
@@ -152,6 +158,8 @@ def execute_simple_refit(
     except Exception as e:
         logger.error(f"Refit execution failed: {e}")
         runtime_context.phase = ExecutionPhase.CV
+        runtime_context.refit_fold_id = prev_refit_fold_id
+        runtime_context.refit_context_name = prev_refit_context_name
         return result
 
     # Mark refit prediction entries with fold_id="final", refit_context, and metadata
@@ -175,6 +183,8 @@ def execute_simple_refit(
 
     # Reset phase back to CV for any subsequent operations
     runtime_context.phase = ExecutionPhase.CV
+    runtime_context.refit_fold_id = prev_refit_fold_id
+    runtime_context.refit_context_name = prev_refit_context_name
 
     logger.success("Refit pass completed successfully")
     return result

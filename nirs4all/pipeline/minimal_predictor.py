@@ -50,7 +50,12 @@ from nirs4all.pipeline.config.context import (
     LoaderArtifactProvider,
 )
 from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord, ArtifactType
+from nirs4all.pipeline.storage.artifacts.query_service import (
+    ArtifactQueryService,
+    ArtifactQuerySpec,
+)
 from nirs4all.pipeline.trace import MinimalPipeline, MinimalPipelineStep
+from nirs4all.pipeline.trace.execution_trace import parse_numeric_fold_key
 
 
 logger = logging.getLogger(__name__)
@@ -188,7 +193,7 @@ class MinimalArtifactProvider(ArtifactProvider):
     def get_artifact(
         self,
         step_index: int,
-        fold_id: Optional[int] = None
+        fold_id: Optional[int | str] = None
     ) -> Optional[Any]:
         """Get a single artifact for a step.
 
@@ -205,7 +210,7 @@ class MinimalArtifactProvider(ArtifactProvider):
 
         # Try fold-specific artifact first
         if fold_id is not None and step_artifacts.fold_artifact_ids:
-            artifact_id = step_artifacts.fold_artifact_ids.get(fold_id)
+            artifact_id = step_artifacts.get_fold_artifact_id(fold_id)
             if artifact_id:
                 return self._load_artifact(artifact_id)
 
@@ -252,12 +257,13 @@ class MinimalArtifactProvider(ArtifactProvider):
         if not step_artifacts:
             return []
 
-        # Determine target branch to filter by
-        target_branch: Optional[int] = None
-        if branch_path is not None and len(branch_path) > 0:
-            target_branch = branch_path[0]
-        elif branch_id is not None:
-            target_branch = branch_id
+        spec = ArtifactQuerySpec(
+            step_index=step_index,
+            branch_path=branch_path,
+            branch_id=branch_id,
+            source_index=source_index,
+            substep_index=substep_index,
+        )
 
         # Debug: log filtering params
         logger.debug(
@@ -270,75 +276,18 @@ class MinimalArtifactProvider(ArtifactProvider):
             # Get artifact record for V3 metadata
             record = self._get_record(artifact_id)
 
-            # Filter by branch if specified - use record.branch_path
-            if target_branch is not None:
-                artifact_branch = None
-                if record and record.branch_path:
-                    artifact_branch = record.branch_path[0] if len(record.branch_path) > 0 else None
-
-                # Include artifact if:
-                # - It has no branch (shared/pre-branch artifact)
-                # - Its branch matches the target branch
-                if artifact_branch is not None and artifact_branch != target_branch:
-                    logger.debug(
-                        f"Filtering artifact {artifact_id} (branch={artifact_branch}) "
-                        f"- target branch is {target_branch}"
-                    )
-                    continue
-
-            # Filter by substep_index if specified (for branch substeps)
-            # This ensures each transformer controller gets only its own artifact
-            if substep_index is not None and record is not None:
-                artifact_substep = record.substep_index
-                if artifact_substep is not None and artifact_substep != substep_index:
-                    logger.debug(
-                        f"Filtering artifact {artifact_id} (substep_index={artifact_substep}) "
-                        f"- target substep is {substep_index}"
-                    )
-                    continue
-
-            # Filter by source_index if specified (for multi-source datasets)
-            # Each source gets its own transformer artifact, and we need to select
-            # the correct one for the current source being processed
-            if source_index is not None and record is not None:
-                artifact_source = record.source_index
-                if artifact_source is not None and artifact_source != source_index:
-                    logger.debug(
-                        f"Filtering artifact {artifact_id} (source_index={artifact_source}) "
-                        f"- target source is {source_index}"
-                    )
-                    continue
+            if record is not None and not spec.matches_record(record):
+                continue
 
             # Filter model artifacts to only load the correct model in subpipelines
             # This is critical when a list like [JaxMLPRegressor, nicon] creates
             # artifacts with different substep_index values
-            should_filter = self.target_sub_index is not None or self.target_model_name is not None
-
-            if should_filter and record is not None:
-                # Check if this artifact is a model by querying its type from the record
-                is_model_artifact = record.artifact_type in (
-                    ArtifactType.MODEL, ArtifactType.META_MODEL
-                )
-
-                if is_model_artifact:
-                    # Strategy 1: Filter by substep_index if available
-                    if self.target_sub_index is not None:
-                        artifact_sub_index = record.substep_index
-                        if artifact_sub_index is not None and artifact_sub_index != self.target_sub_index:
-                            logger.debug(
-                                f"Filtering artifact {artifact_id} (substep_index={artifact_sub_index}) "
-                                f"- target sub_index is {self.target_sub_index}"
-                            )
-                            continue
-                    # Strategy 2: Filter by model name (fallback for avg/w_avg predictions)
-                    elif self.target_model_name is not None:
-                        # Check if artifact's custom_name matches target model name
-                        if record.custom_name and record.custom_name != self.target_model_name:
-                            logger.debug(
-                                f"Filtering artifact {artifact_id} (custom_name={record.custom_name}) "
-                                f"- target model is {self.target_model_name}"
-                            )
-                            continue
+            if record is not None and not ArtifactQueryService.matches_model_target(
+                record,
+                target_sub_index=self.target_sub_index,
+                target_model_name=self.target_model_name,
+            ):
+                continue
 
             obj = self._load_artifact(artifact_id)
             if obj is not None:
@@ -354,7 +303,7 @@ class MinimalArtifactProvider(ArtifactProvider):
         # they were created during training. This is critical for multi-source
         # pipelines with feature_augmentation where transformers are loaded
         # by index position.
-        results.sort(key=lambda x: (x[2] if x[2] is not None else float('inf')))
+        results = ArtifactQueryService.sort_by_substep(results)
 
         # Remove substep_index from results (keep only operator_name, obj tuples)
         results = [(name, obj) for name, obj, _ in results]
@@ -435,9 +384,12 @@ class MinimalArtifactProvider(ArtifactProvider):
                 return []
 
             for fold_id, artifact_id in step_artifacts.fold_artifact_ids.items():
+                numeric_fold_id = parse_numeric_fold_key(fold_id)
+                if numeric_fold_id is None:
+                    continue
                 obj = self._load_artifact(artifact_id)
                 if obj is not None:
-                    results.append((fold_id, obj))
+                    results.append((numeric_fold_id, obj))
 
         return sorted(results, key=lambda x: x[0])
 

@@ -47,7 +47,7 @@ class TestStepArtifacts:
         artifacts.add_fold_artifact(0, "0001:4:0")
         artifacts.add_fold_artifact(1, "0001:4:1")
 
-        assert artifacts.fold_artifact_ids == {0: "0001:4:0", 1: "0001:4:1"}
+        assert artifacts.fold_artifact_ids == {"fold_0": "0001:4:0", "fold_1": "0001:4:1"}
         assert "0001:4:0" in artifacts.artifact_ids
         assert "0001:4:1" in artifacts.artifact_ids
 
@@ -56,7 +56,7 @@ class TestStepArtifacts:
         artifacts = StepArtifacts(
             artifact_ids=["0001:1:all", "0001:4:0"],
             primary_artifact_id="0001:4:0",
-            fold_artifact_ids={0: "0001:4:0"},
+            fold_artifact_ids={"fold_0": "0001:4:0"},
             metadata={"type": "model"}
         )
 
@@ -64,7 +64,7 @@ class TestStepArtifacts:
 
         assert d["artifact_ids"] == ["0001:1:all", "0001:4:0"]
         assert d["primary_artifact_id"] == "0001:4:0"
-        assert d["fold_artifact_ids"] == {0: "0001:4:0"}
+        assert d["fold_artifact_ids"] == {"fold_0": "0001:4:0"}
         assert d["metadata"] == {"type": "model"}
 
     def test_from_dict(self):
@@ -80,15 +80,15 @@ class TestStepArtifacts:
 
         assert artifacts.artifact_ids == ["0001:1:all"]
         assert artifacts.primary_artifact_id == "0001:1:all"
-        # Keys should be converted to int
-        assert artifacts.fold_artifact_ids == {0: "0001:4:0", 1: "0001:4:1"}
+        # Keys should be normalized to canonical fold_* format
+        assert artifacts.fold_artifact_ids == {"fold_0": "0001:4:0", "fold_1": "0001:4:1"}
 
     def test_roundtrip(self):
         """Test to_dict/from_dict roundtrip."""
         original = StepArtifacts(
             artifact_ids=["a", "b", "c"],
             primary_artifact_id="b",
-            fold_artifact_ids={0: "a", 1: "c"},
+            fold_artifact_ids={"fold_0": "a", "fold_1": "c"},
             metadata={"key": "value"}
         )
 
@@ -299,7 +299,7 @@ class TestExecutionTrace:
         trace.add_step(step)
 
         fold_ids = trace.get_fold_artifact_ids()
-        assert fold_ids == {0: "0001:4:0", 1: "0001:4:1"}
+        assert fold_ids == {"fold_0": "0001:4:0", "fold_1": "0001:4:1"}
 
     def test_finalize(self):
         """Test finalizing trace with summary info."""

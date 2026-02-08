@@ -294,10 +294,10 @@ pipeline_robust = [
 
     ShuffleSplit(n_splits=3, random_state=42),
 
-    {"model": PLSRegression(n_components=10), "name": "PLS-10"},
-    {"model": RobustPLS(n_components=10, weighting='huber', max_iter=50, backend='numpy'),
+    {"model": PLSRegression(n_components=5), "name": "PLS-5"},
+    {"model": RobustPLS(n_components=5, weighting='huber', max_iter=50, backend='numpy'),
      "name": "RobustPLS-huber"},
-    {"model": RobustPLS(n_components=10, weighting='tukey', max_iter=50, backend='numpy'),
+    {"model": RobustPLS(n_components=5, weighting='tukey', max_iter=50, backend='numpy'),
      "name": "RobustPLS-tukey"},
 ]
 

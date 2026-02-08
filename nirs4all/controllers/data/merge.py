@@ -2910,18 +2910,21 @@ class MergeController(OperatorController):
 
     def _extract_features_from_snapshot(
         self,
-        snapshot: List["FeatureSource"],
+        snapshot: List[Any],
         expected_samples: int,
         branch_idx: int,
         layout: str = "2d",
     ) -> np.ndarray:
         """Extract features from a branch's feature snapshot.
 
-        The snapshot is a list of FeatureSource objects (one per data source).
-        Each FeatureSource contains a 3D array of shape (samples, processings, features).
+        The snapshot is either a list of FeatureSource objects (deep-copy mode)
+        or a list of ``(SharedBlocks, proc_ids, headers, header_unit)`` tuples
+        (CoW mode).  Each source contains a 3D array of shape
+        ``(samples, processings, features)``.
 
         Args:
-            snapshot: List of FeatureSource objects from branch context.
+            snapshot: List of FeatureSource objects or CoW tuples from branch
+                context.
             expected_samples: Expected number of samples.
             branch_idx: Branch index (for error messages).
             layout: Feature layout to extract:
@@ -2947,25 +2950,36 @@ class MergeController(OperatorController):
         source_features = []
 
         for src_idx, feature_source in enumerate(snapshot):
-            # Get number of samples in this source
-            n_samples = feature_source.num_samples
-            if n_samples != expected_samples:
-                raise ValueError(
-                    f"Branch {branch_idx} source {src_idx} has {n_samples} samples, "
-                    f"expected {expected_samples}. [Error: MERGE-E003]"
-                )
-
-            # Get all sample indices
-            sample_indices = list(range(n_samples))
-
-            # Extract features with specified layout
-            try:
-                features = feature_source.x(indices=sample_indices, layout=layout)
-            except Exception as e:
-                raise ValueError(
-                    f"Failed to extract features from branch {branch_idx} "
-                    f"source {src_idx}: {e}"
-                ) from e
+            # Handle CoW tuple format: (SharedBlocks, proc_ids, headers, header_unit)
+            if isinstance(feature_source, tuple):
+                shared_blocks = feature_source[0]
+                arr_3d = shared_blocks.array  # shape: (samples, processings, features)
+                n_samples = arr_3d.shape[0]
+                if n_samples != expected_samples:
+                    raise ValueError(
+                        f"Branch {branch_idx} source {src_idx} has {n_samples} samples, "
+                        f"expected {expected_samples}. [Error: MERGE-E003]"
+                    )
+                if layout == "2d":
+                    features = arr_3d.reshape(n_samples, -1)
+                else:
+                    features = arr_3d
+            else:
+                # FeatureSource object (deep-copy mode)
+                n_samples = feature_source.num_samples
+                if n_samples != expected_samples:
+                    raise ValueError(
+                        f"Branch {branch_idx} source {src_idx} has {n_samples} samples, "
+                        f"expected {expected_samples}. [Error: MERGE-E003]"
+                    )
+                sample_indices = list(range(n_samples))
+                try:
+                    features = feature_source.x(indices=sample_indices, layout=layout)
+                except Exception as e:
+                    raise ValueError(
+                        f"Failed to extract features from branch {branch_idx} "
+                        f"source {src_idx}: {e}"
+                    ) from e
 
             if features.size == 0:
                 logger.warning(

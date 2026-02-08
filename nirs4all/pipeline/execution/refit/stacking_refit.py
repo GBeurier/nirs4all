@@ -498,8 +498,14 @@ def execute_stacking_refit(
     post_merge_steps = _extract_post_merge_steps(steps, branch_idx)
     meta_model_config = _extract_model_from_steps(post_merge_steps)
 
+    # Preserve caller overrides so this helper does not leak refit labels.
+    prev_refit_fold_id = runtime_context.refit_fold_id
+    prev_refit_context_name = runtime_context.refit_context_name
+
     # Set execution phase to REFIT
     runtime_context.phase = ExecutionPhase.REFIT
+    runtime_context.refit_fold_id = "final"
+    runtime_context.refit_context_name = REFIT_CONTEXT_STACKING
     runtime_context.step_number = 0
     runtime_context.operation_count = 0
     runtime_context.substep_number = -1
@@ -574,6 +580,8 @@ def execute_stacking_refit(
                             f"{refit_pipeline_name}_nested_{branch_i}"
                         ),
                         phase=ExecutionPhase.REFIT,
+                        refit_fold_id="final",
+                        refit_context_name=REFIT_CONTEXT_STACKING,
                     )
 
                     try:
@@ -650,6 +658,8 @@ def execute_stacking_refit(
                 step_runner=executor.step_runner,
                 run_id=runtime_context.run_id,
                 phase=ExecutionPhase.REFIT,
+                refit_fold_id="final",
+                refit_context_name=REFIT_CONTEXT_STACKING,
             )
 
             try:
@@ -730,6 +740,8 @@ def execute_stacking_refit(
             step_runner=executor.step_runner,
             run_id=runtime_context.run_id,
             phase=ExecutionPhase.REFIT,
+            refit_fold_id="final",
+            refit_context_name=REFIT_CONTEXT_STACKING,
         )
 
         try:
@@ -770,6 +782,8 @@ def execute_stacking_refit(
     finally:
         # Always reset phase back to CV
         runtime_context.phase = ExecutionPhase.CV
+        runtime_context.refit_fold_id = prev_refit_fold_id
+        runtime_context.refit_context_name = prev_refit_context_name
 
     return result
 

@@ -228,7 +228,7 @@ pipeline_balanced = [
 
     "fold_chart",
     split_step,
-    {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
+    {"model": RandomForestClassifier(n_estimators=5, random_state=42)},
 ]
 
 result_balanced = nirs4all.run(

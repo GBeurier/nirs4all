@@ -368,6 +368,139 @@ class TestArtifactLoaderStepLoading:
         artifacts = loader.load_for_step(step_index=2, branch_path=[0])
         assert len(artifacts) == 1
 
+    def test_import_builds_step_indexes(self, workspace_path, results_dir):
+        """Step/branch/source indexes should be populated at import."""
+        artifacts_dir = workspace_path / "artifacts"
+        scaler = StandardScaler()
+        scaler.fit(np.array([[0], [1], [2]]))
+        meta = persist(scaler, artifacts_dir, "scaler_index")
+
+        manifest = {
+            "dataset": "test_dataset",
+            "artifacts": {
+                "schema_version": "2.0",
+                "items": [
+                    {
+                        "artifact_id": "0001:0:2:all",
+                        "content_hash": meta["hash"],
+                        "path": meta["path"],
+                        "pipeline_id": "0001",
+                        "branch_path": [0],
+                        "step_index": 2,
+                        "source_index": 1,
+                        "artifact_type": "transformer",
+                        "class_name": "StandardScaler",
+                        "format": meta["format"],
+                    }
+                ]
+            },
+        }
+
+        loader = ArtifactLoader(workspace_path, "test_dataset", results_dir)
+        loader.import_from_manifest(manifest)
+
+        assert loader._by_step[2] == ["0001:0:2:all"]
+        assert loader._by_step_branch[(2, (0,))] == ["0001:0:2:all"]
+        assert loader._by_step_branch_source[(2, (0,), 1)] == ["0001:0:2:all"]
+
+    def test_load_for_step_with_branch_and_source_uses_indexes(self, workspace_path, results_dir):
+        """Branch+source lookups should include shared and branch-specific artifacts."""
+        artifacts_dir = workspace_path / "artifacts"
+
+        def _artifact(name: str, value: float) -> dict:
+            scaler = StandardScaler()
+            scaler.fit(np.array([[value], [value + 1.0]]))
+            return persist(scaler, artifacts_dir, name)
+
+        meta_shared_all = _artifact("shared_all", 0.0)
+        meta_shared_source = _artifact("shared_source", 2.0)
+        meta_branch_all = _artifact("branch_all", 4.0)
+        meta_branch_source = _artifact("branch_source", 6.0)
+        meta_other_branch = _artifact("other_branch", 8.0)
+
+        manifest = {
+            "dataset": "test_dataset",
+            "artifacts": {
+                "schema_version": "2.0",
+                "items": [
+                    {
+                        "artifact_id": "a_shared_all",
+                        "content_hash": meta_shared_all["hash"],
+                        "path": meta_shared_all["path"],
+                        "pipeline_id": "0001",
+                        "branch_path": [],
+                        "step_index": 2,
+                        "source_index": None,
+                        "artifact_type": "transformer",
+                        "class_name": "StandardScaler",
+                        "format": meta_shared_all["format"],
+                    },
+                    {
+                        "artifact_id": "a_shared_source",
+                        "content_hash": meta_shared_source["hash"],
+                        "path": meta_shared_source["path"],
+                        "pipeline_id": "0001",
+                        "branch_path": [],
+                        "step_index": 2,
+                        "source_index": 1,
+                        "artifact_type": "transformer",
+                        "class_name": "StandardScaler",
+                        "format": meta_shared_source["format"],
+                    },
+                    {
+                        "artifact_id": "a_branch_all",
+                        "content_hash": meta_branch_all["hash"],
+                        "path": meta_branch_all["path"],
+                        "pipeline_id": "0001",
+                        "branch_path": [0],
+                        "step_index": 2,
+                        "source_index": None,
+                        "artifact_type": "transformer",
+                        "class_name": "StandardScaler",
+                        "format": meta_branch_all["format"],
+                    },
+                    {
+                        "artifact_id": "a_branch_source",
+                        "content_hash": meta_branch_source["hash"],
+                        "path": meta_branch_source["path"],
+                        "pipeline_id": "0001",
+                        "branch_path": [0],
+                        "step_index": 2,
+                        "source_index": 1,
+                        "artifact_type": "transformer",
+                        "class_name": "StandardScaler",
+                        "format": meta_branch_source["format"],
+                    },
+                    {
+                        "artifact_id": "a_other_branch",
+                        "content_hash": meta_other_branch["hash"],
+                        "path": meta_other_branch["path"],
+                        "pipeline_id": "0001",
+                        "branch_path": [1],
+                        "step_index": 2,
+                        "source_index": 1,
+                        "artifact_type": "transformer",
+                        "class_name": "StandardScaler",
+                        "format": meta_other_branch["format"],
+                    },
+                ]
+            },
+        }
+
+        loader = ArtifactLoader(workspace_path, "test_dataset", results_dir)
+        loader.import_from_manifest(manifest)
+
+        artifacts = loader.load_for_step(step_index=2, branch_path=[0], source_index=1)
+        artifact_ids = [artifact_id for artifact_id, _obj in artifacts]
+
+        assert set(artifact_ids) == {
+            "a_shared_all",
+            "a_shared_source",
+            "a_branch_all",
+            "a_branch_source",
+        }
+        assert "a_other_branch" not in artifact_ids
+
 
 class TestArtifactLoaderFoldModels:
     """Test loading fold-specific models."""

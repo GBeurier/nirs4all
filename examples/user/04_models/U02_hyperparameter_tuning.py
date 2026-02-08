@@ -161,7 +161,7 @@ pipeline_tpe = [
             "verbose": 1,
             "approach": "single",
             "model_params": {
-                "n_estimators": [20, 50],           # Categorical (reduced)
+                "n_estimators": [2, 5],           # Categorical (reduced)
                 "max_depth": ('int', 3, 6),          # Integer range
             },
         }
@@ -205,7 +205,7 @@ pipeline_log = [
         "model": Ridge(),
         "name": "Ridge-LogScale",
         "finetune_params": {
-            "n_trials": 5,
+            "n_trials": 2,
             "sample": "tpe",
             "verbose": 1,
             "approach": "single",
@@ -248,7 +248,7 @@ pipeline_hyperband = [
         "model": PLSRegression(),
         "name": "PLS-Hyperband",
         "finetune_params": {
-            "n_trials": 3,
+            "n_trials": 2,
             "sample": "hyperband",       # Hyperband with early stopping
             "verbose": 1,
             "approach": "single",
@@ -297,7 +297,7 @@ pipeline_grouped = [
         "model": PLSRegression(),
         "name": "PLS-Grouped",
         "finetune_params": {
-            "n_trials": 3,
+            "n_trials": 2,
             "sample": "grid",
             "verbose": 1,
             "approach": "grouped",       # Search per preprocessing
@@ -348,7 +348,7 @@ pipeline_combined = [
         "model": PLSRegression(),
         "name": "PLS-Combined",
         "finetune_params": {
-            "n_trials": 3,
+            "n_trials": 2,
             "sample": "tpe",
             "verbose": 1,
             "approach": "single",
@@ -423,7 +423,7 @@ Hyperparameter Tuning Configuration:
   {
     "model": PLSRegression(),
     "finetune_params": {
-      "n_trials": 20,                    # Number of trials
+      "n_trials": 2,                    # Number of trials
       "sample": "tpe",                   # Search method
       "verbose": 1,                      # 0=silent, 1=basic, 2=detailed
       "approach": "single",              # Tuning approach

@@ -635,24 +635,27 @@ class TestAllPresets:
         """Verify presets have expected relative performance."""
         X_source, X_target, y_source = small_transfer_data
 
-        times = {}
+        timings = {}
         for preset in ["fast", "balanced"]:
             selector = make_selector(preset=preset, verbose=0)
             results = selector.fit(X_source, X_target)
-            times[preset] = sum(results.timing.values())
+            timings[preset] = results.timing
 
-        fast_time = times["fast"]
-        balanced_time = times["balanced"]
+        fast_timing = timings["fast"]
+        balanced_timing = timings["balanced"]
+
+        fast_time = sum(fast_timing.values())
+        balanced_time = sum(balanced_timing.values())
         assert fast_time > 0
         assert balanced_time > 0
 
-        # On very short smoke runs, scheduler noise can dominate timing.
-        if max(fast_time, balanced_time) < 0.1:
-            ratio = balanced_time / fast_time
-            assert 0.5 <= ratio <= 2.5
-        else:
-            # Balanced should usually be at least comparable to fast.
-            assert balanced_time >= fast_time * 0.8
+        # Preset behavior should be reflected in stage coverage, not wall-clock
+        # timing (which is noisy under parallel test execution).
+        assert "stage1" in fast_timing
+        assert "stage1" in balanced_timing
+        assert "stage2" not in fast_timing
+        assert "stage2" in balanced_timing
+        assert len(balanced_timing) >= len(fast_timing)
 
 
 # =============================================================================

@@ -35,6 +35,10 @@ from nirs4all.pipeline.storage.artifacts.operator_chain import (
     OperatorNode,
     is_v3_artifact_id,
 )
+from nirs4all.pipeline.storage.artifacts.query_service import (
+    ArtifactQueryService,
+    ArtifactQuerySpec,
+)
 from nirs4all.pipeline.storage.artifacts.utils import get_binaries_path
 
 
@@ -186,6 +190,11 @@ class ArtifactLoader:
         # V3 indexes for efficient lookup
         self._by_chain_path: Dict[str, str] = {}  # chain_path -> artifact_id
         self._by_content_hash: Dict[str, str] = {}  # content_hash -> artifact_id
+        self._by_step: Dict[int, List[str]] = {}
+        self._by_step_branch: Dict[Tuple[int, Tuple[int, ...]], List[str]] = {}
+        self._by_step_branch_source: Dict[Tuple[int, Tuple[int, ...], Optional[int]], List[str]] = {}
+        self._artifact_order: Dict[str, int] = {}
+        self._artifact_order_counter: int = 0
 
         # LRU cache for loaded objects (artifact_id -> object)
         self._cache = LRUCache(max_size=cache_size)
@@ -359,38 +368,32 @@ class ArtifactLoader:
             List of (artifact_id, loaded_object) tuples
         """
         results = []
-        branch_path = branch_path or []
+        spec = ArtifactQuerySpec(
+            step_index=step_index,
+            branch_path=branch_path,
+            source_index=source_index,
+            fold_id=fold_id,
+            pipeline_id=pipeline_id,
+        )
 
-        for artifact_id, record in self._artifacts.items():
-            # Check pipeline_id if specified
-            if pipeline_id is not None and record.pipeline_id != pipeline_id:
+        candidate_ids = ArtifactQueryService.gather_indexed_candidate_ids(
+            step_index=step_index,
+            spec=spec,
+            by_step_branch=self._by_step_branch,
+            by_step_branch_source=self._by_step_branch_source,
+        )
+        ordered_candidate_ids = ArtifactQueryService.sort_candidate_ids(
+            candidate_ids,
+            self._artifact_order,
+        )
+
+        for artifact_id in ordered_candidate_ids:
+            record = self._artifacts.get(artifact_id)
+            if record is None:
                 continue
 
-            # Check step_index
-            if record.step_index != step_index:
+            if not spec.matches_record(record):
                 continue
-
-            # Check branch_path
-            # Include if:
-            # - record has no branch (shared/pre-branch artifact)
-            # - record branch matches request
-            if record.branch_path:
-                if record.branch_path != branch_path:
-                    continue
-
-            # Check source_index if specified
-            if source_index is not None and record.source_index is not None:
-                if record.source_index != source_index:
-                    continue
-
-            # Check fold_id
-            # Include if:
-            # - fold_id not specified (load all folds)
-            # - record has no fold (shared across folds)
-            # - record fold matches request
-            if fold_id is not None and record.fold_id is not None:
-                if record.fold_id != fold_id:
-                    continue
 
             # Load and add to results
             try:
@@ -904,16 +907,7 @@ class ArtifactLoader:
         for item in items:
             if isinstance(item, dict):
                 record = ArtifactRecord.from_dict(item)
-                self._artifacts[record.artifact_id] = record
-                self._by_content_hash[record.content_hash] = record.artifact_id
-
-                # V3: Index by chain_path
-                if record.chain_path:
-                    self._by_chain_path[record.chain_path] = record.artifact_id
-
-                # Track dependencies
-                if record.depends_on:
-                    self._dependencies[record.artifact_id] = record.depends_on
+                self._register_record(record)
 
     def get_record(self, artifact_id: str) -> Optional[ArtifactRecord]:
         """Get artifact record by ID.
@@ -1155,3 +1149,28 @@ class ArtifactLoader:
             type_name = record.artifact_type.value
             counts[type_name] = counts.get(type_name, 0) + 1
         return counts
+
+    def _register_record(self, record: ArtifactRecord) -> None:
+        """Register a record across all loader indexes."""
+        self._artifacts[record.artifact_id] = record
+        self._by_content_hash[record.content_hash] = record.artifact_id
+        self._artifact_order[record.artifact_id] = self._artifact_order_counter
+        self._artifact_order_counter += 1
+
+        # V3: Index by chain_path
+        if record.chain_path:
+            self._by_chain_path[record.chain_path] = record.artifact_id
+
+        # Track dependencies
+        if record.depends_on:
+            self._dependencies[record.artifact_id] = record.depends_on
+
+        step_index = int(record.step_index)
+        branch_key = tuple(record.branch_path or [])
+
+        self._by_step.setdefault(step_index, []).append(record.artifact_id)
+        self._by_step_branch.setdefault((step_index, branch_key), []).append(record.artifact_id)
+        self._by_step_branch_source.setdefault(
+            (step_index, branch_key, record.source_index),
+            [],
+        ).append(record.artifact_id)

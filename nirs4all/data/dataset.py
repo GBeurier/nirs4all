@@ -1923,7 +1923,6 @@ class SpectroDataset:
             >>> meta = dataset.get_dataset_metadata()
             >>> print(meta["n_samples"], meta["y_stats"])
         """
-        import hashlib
         from pathlib import Path
 
         meta: Dict[str, Any] = {
@@ -1941,20 +1940,13 @@ class SpectroDataset:
             if path_obj.exists():
                 meta["file_size"] = path_obj.stat().st_size
 
-        # Content hash (if stored or compute from features)
-        if hasattr(self, '_content_hash') and self._content_hash:
-            meta["hash"] = self._content_hash
-        elif self._features.sources and meta["n_samples"] > 0:
-            # Compute quick hash from sample of features
+        # Content hash (non-materializing feature path).
+        if self._features.sources and meta["n_samples"] > 0:
             try:
-                X = self.x(None, layout="2d")
-                if X is not None and len(X) > 0:
-                    # Hash first 100 rows + last 100 rows for efficiency
-                    sample_rows = min(100, len(X))
-                    sample_data = np.vstack([X[:sample_rows], X[-sample_rows:]]) if len(X) > sample_rows * 2 else X
-                    meta["hash"] = hashlib.md5(sample_data.tobytes()).hexdigest()[:12]
+                meta["hash"] = self.content_hash()
             except Exception:
-                pass
+                if self._content_hash_cache:
+                    meta["hash"] = self._content_hash_cache
 
         # Task type
         task_type = self._target_accessor.task_type
@@ -2033,10 +2025,14 @@ class SpectroDataset:
         """
         Set the content hash for version tracking.
 
+        The value is stored in the canonical ``_content_hash_cache`` attribute
+        so that ``content_hash()`` returns it immediately.  Any subsequent
+        feature mutation will invalidate the cache and force recomputation.
+
         Args:
             hash_value: Content hash string
         """
-        self._content_hash = hash_value
+        self._content_hash_cache = hash_value
 
     # ========== String Representations ==========
 

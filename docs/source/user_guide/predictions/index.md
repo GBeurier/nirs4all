@@ -45,13 +45,81 @@ print(preds.values)
 
 ## Documentation Sections
 
-| Section | What You Will Learn |
-|---------|-------------------|
-| [Understanding Predictions](understanding_predictions.md) | What predictions are, how they are stored, key concepts (chains, partitions, scores) |
-| [Making Predictions](making_predictions.md) | How to predict on new data from a RunResult, exported bundle, or chain ID |
-| [Analyzing Results](analyzing_results.md) | Querying, filtering, ranking, and visualizing prediction results |
-| [Exporting Models](exporting_models.md) | Exporting models as bundles, scripts, or configs for sharing and deployment |
-| [Advanced Predictions](advanced_predictions.md) | Transfer learning, retraining, SHAP explanations, batch prediction patterns |
+```{toctree}
+:maxdepth: 1
+
+understanding_predictions
+making_predictions
+session_api
+analyzing_results
+exporting_models
+advanced_predictions
+```
+
+::::{grid} 2
+:gutter: 3
+
+:::{grid-item-card} 📘 Understanding Predictions
+:link: understanding_predictions
+:link-type: doc
+
+What predictions are, how they are stored, key concepts (chains, partitions, scores)
+
++++
+{bdg-primary}`Fundamentals`
+:::
+
+:::{grid-item-card} 🎯 Making Predictions
+:link: making_predictions
+:link-type: doc
+
+How to predict on new data from a RunResult, exported bundle, or chain ID
+
++++
+{bdg-success}`Core Usage`
+:::
+
+:::{grid-item-card} 🔄 Session API
+:link: session_api
+:link-type: doc
+
+Stateful workflows for production pipelines, model persistence, and iterative experimentation
+
++++
+{bdg-info}`Stateful`
+:::
+
+:::{grid-item-card} 📊 Analyzing Results
+:link: analyzing_results
+:link-type: doc
+
+Querying, filtering, ranking, and visualizing prediction results
+
++++
+{bdg-primary}`Analysis`
+:::
+
+:::{grid-item-card} 📦 Exporting Models
+:link: exporting_models
+:link-type: doc
+
+Exporting models as bundles, scripts, or configs for sharing and deployment
+
++++
+{bdg-warning}`Deployment`
+:::
+
+:::{grid-item-card} 🚀 Advanced Predictions
+:link: advanced_predictions
+:link-type: doc
+
+Transfer learning, retraining, SHAP explanations, batch prediction patterns
+
++++
+{bdg-danger}`Advanced`
+:::
+
+::::
 
 ## See Also
 
