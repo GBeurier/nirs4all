@@ -122,34 +122,6 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
         $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
 """
 
-UPDATE_PREDICTION = """
-UPDATE predictions
-SET
-    pipeline_id = $2,
-    chain_id = $3,
-    dataset_name = $4,
-    model_name = $5,
-    model_class = $6,
-    fold_id = $7,
-    partition = $8,
-    val_score = $9,
-    test_score = $10,
-    train_score = $11,
-    metric = $12,
-    task_type = $13,
-    n_samples = $14,
-    n_features = $15,
-    scores = $16,
-    best_params = $17,
-    preprocessings = $18,
-    branch_id = $19,
-    branch_name = $20,
-    exclusion_count = $21,
-    exclusion_rate = $22,
-    refit_context = $23
-WHERE prediction_id = $1
-"""
-
 INSERT_PREDICTION_ARRAYS = """
 INSERT INTO prediction_arrays
     (prediction_id, y_true, y_pred, y_proba, sample_indices, weights)

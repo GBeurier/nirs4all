@@ -192,7 +192,7 @@ CREATE INDEX IF NOT EXISTS idx_predictions_chain_id ON predictions(chain_id);
 CREATE INDEX IF NOT EXISTS idx_predictions_dataset ON predictions(dataset_name);
 CREATE INDEX IF NOT EXISTS idx_predictions_val_score ON predictions(val_score);
 CREATE INDEX IF NOT EXISTS idx_predictions_partition ON predictions(partition);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_predictions_natural_key ON predictions(pipeline_id, chain_id, fold_id, partition, model_name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_predictions_natural_key_v2 ON predictions(pipeline_id, chain_id, fold_id, partition, model_name, branch_id);
 CREATE INDEX IF NOT EXISTS idx_logs_pipeline_id ON logs(pipeline_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_content_hash ON artifacts(content_hash);
 CREATE INDEX IF NOT EXISTS idx_artifacts_cache_key ON artifacts(chain_path_hash, input_data_hash);
@@ -278,13 +278,15 @@ def _migrate_schema(conn: duckdb.DuckDBPyConnection) -> None:
     if "dataset_hash" not in artifact_columns:
         conn.execute("ALTER TABLE artifacts ADD COLUMN dataset_hash VARCHAR")
 
-    # Migration: ensure chain_id and model_name columns exist before unique index
+    # Migration: ensure chain_id, model_name, branch_id columns exist before unique index
     if "chain_id" not in existing_columns:
         conn.execute("ALTER TABLE predictions ADD COLUMN chain_id VARCHAR DEFAULT ''")
     if "model_name" not in existing_columns:
         conn.execute("ALTER TABLE predictions ADD COLUMN model_name VARCHAR DEFAULT ''")
+    if "branch_id" not in existing_columns:
+        conn.execute("ALTER TABLE predictions ADD COLUMN branch_id INTEGER")
 
-    # Migration: deduplicate predictions before unique index creation
+    # Migration: replace old natural key index with v2 (includes branch_id)
     existing_indexes = {
         row[0]
         for row in conn.execute(
@@ -292,12 +294,16 @@ def _migrate_schema(conn: duckdb.DuckDBPyConnection) -> None:
             "WHERE table_name = 'predictions'"
         ).fetchall()
     }
-    if "idx_predictions_natural_key" not in existing_indexes:
+    if "idx_predictions_natural_key" in existing_indexes:
+        conn.execute("DROP INDEX idx_predictions_natural_key")
+
+    # Deduplicate predictions before unique index creation
+    if "idx_predictions_natural_key_v2" not in existing_indexes:
         dup_count = conn.execute(
             "SELECT COUNT(*) FROM ("
-            "  SELECT pipeline_id, chain_id, fold_id, partition, model_name "
+            "  SELECT pipeline_id, chain_id, fold_id, partition, model_name, branch_id "
             "  FROM predictions "
-            "  GROUP BY pipeline_id, chain_id, fold_id, partition, model_name "
+            "  GROUP BY pipeline_id, chain_id, fold_id, partition, model_name, branch_id "
             "  HAVING COUNT(*) > 1"
             ")"
         ).fetchone()[0]
@@ -309,7 +315,7 @@ def _migrate_schema(conn: duckdb.DuckDBPyConnection) -> None:
                 "  SELECT prediction_id FROM ("
                 "    SELECT prediction_id, "
                 "      ROW_NUMBER() OVER ("
-                "        PARTITION BY pipeline_id, chain_id, fold_id, partition, model_name "
+                "        PARTITION BY pipeline_id, chain_id, fold_id, partition, model_name, branch_id "
                 "        ORDER BY created_at DESC"
                 "      ) AS rn "
                 "    FROM predictions"
@@ -322,7 +328,7 @@ def _migrate_schema(conn: duckdb.DuckDBPyConnection) -> None:
                 "  SELECT prediction_id FROM ("
                 "    SELECT prediction_id, "
                 "      ROW_NUMBER() OVER ("
-                "        PARTITION BY pipeline_id, chain_id, fold_id, partition, model_name "
+                "        PARTITION BY pipeline_id, chain_id, fold_id, partition, model_name, branch_id "
                 "        ORDER BY created_at DESC"
                 "      ) AS rn "
                 "    FROM predictions"
