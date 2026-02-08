@@ -5,7 +5,7 @@ Get up and running with NIRS4ALL in 5 minutes. This guide walks you through your
 ## Prerequisites
 
 - NIRS4ALL installed (see {doc}`installation`)
-- Python 3.9+
+- Python 3.11+
 
 ## Your First Pipeline
 

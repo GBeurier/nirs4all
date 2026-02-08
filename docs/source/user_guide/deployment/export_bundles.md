@@ -352,7 +352,7 @@ result = nirs4all.retrain("exports/wheat_model.n4a", new_data, mode="transfer")
 ### Portable Script Errors
 
 - Ensure numpy, scipy, scikit-learn, and joblib are installed
-- Check Python version compatibility (3.9+)
+- Check Python version compatibility (3.11+)
 - Verify input data shape matches expected features
 - **For deep learning models**: Use `.n4a` format instead
 
