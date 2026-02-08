@@ -6,7 +6,7 @@ import pytest
 import pandas as pd
 import tempfile
 from pathlib import Path
-from nirs4all.data.loaders.csv_loader import load_csv
+from nirs4all.data.loaders import load_csv
 
 
 class TestCSVLoaderHeaderUnit:

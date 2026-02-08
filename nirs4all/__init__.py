@@ -60,7 +60,14 @@ from .api import (
 )
 
 # Core pipeline components - for advanced usage
-from .pipeline import PipelineRunner, PipelineConfigs
+from .pipeline import (
+    PipelineRunner,
+    PipelineConfigs,
+    Run,
+    RunConfig,
+    RunStatus,
+    generate_run_id,
+)
 from .controllers import register_controller, CONTROLLER_REGISTRY
 
 # Utility functions for backend detection
@@ -90,6 +97,10 @@ __all__ = [
     # Pipeline components (advanced usage)
     "PipelineRunner",
     "PipelineConfigs",
+    "Run",
+    "RunStatus",
+    "RunConfig",
+    "generate_run_id",
 
     # Controller system
     "register_controller",

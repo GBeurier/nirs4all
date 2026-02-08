@@ -256,7 +256,7 @@ class TraceRecorder:
         self,
         artifact_id: str,
         is_primary: bool = False,
-        fold_id: Optional[int] = None,
+        fold_id: Optional[int | str] = None,
         chain_path: Optional[str] = None,
         branch_path: Optional[List[int]] = None,
         source_index: Optional[int] = None,

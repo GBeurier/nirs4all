@@ -17,21 +17,6 @@ from nirs4all.visualization.reports import TabReportManager
 logger = get_logger(__name__)
 
 
-def _get_default_workspace_path() -> Path:
-    """Get the default workspace path.
-
-    Uses the workspace module's get_active_workspace() which checks:
-    1. Explicitly set workspace via set_active_workspace()
-    2. NIRS4ALL_WORKSPACE environment variable
-    3. ./workspace in current working directory
-
-    Returns:
-        Default workspace path.
-    """
-    from nirs4all.workspace import get_active_workspace
-    return get_active_workspace()
-
-
 class PipelineOrchestrator:
     """Orchestrates execution of multiple pipelines across multiple datasets.
 
@@ -63,13 +48,14 @@ class PipelineOrchestrator:
         enable_tab_reports: bool = True,
         continue_on_error: bool = False,
         show_spinner: bool = True,
-        keep_datasets: bool = True,
+        keep_datasets: bool = False,
+        max_preprocessed_snapshots_per_dataset: int = 3,
         plots_visible: bool = False
     ) -> None:
         """Initialize pipeline orchestrator.
 
         Args:
-            workspace_path: Workspace root directory
+            workspace_path: Workspace root directory (required).
             verbose: Verbosity level
             mode: Execution mode (train/predict/explain)
             save_artifacts: Whether to save binary artifacts
@@ -78,11 +64,16 @@ class PipelineOrchestrator:
             continue_on_error: Whether to continue on errors
             show_spinner: Whether to show spinners
             keep_datasets: Whether to keep dataset snapshots
+            max_preprocessed_snapshots_per_dataset: Maximum number of
+                preprocessed snapshots to retain per dataset
             plots_visible: Whether to display plots
         """
         # Workspace configuration
         if workspace_path is None:
-            workspace_path = _get_default_workspace_path()
+            raise ValueError(
+                "workspace_path must be provided explicitly to PipelineOrchestrator. "
+                "Use PipelineRunner for CLI/default workspace resolution."
+            )
         self.workspace_path = Path(workspace_path)
 
         # Create WorkspaceStore for DuckDB-backed persistence
@@ -100,6 +91,7 @@ class PipelineOrchestrator:
         self.continue_on_error = continue_on_error
         self.show_spinner = show_spinner
         self.keep_datasets = keep_datasets
+        self.max_preprocessed_snapshots_per_dataset = max(0, int(max_preprocessed_snapshots_per_dataset))
         self.plots_visible = plots_visible
 
         # Dataset snapshots (if keep_datasets is True)
@@ -307,7 +299,23 @@ class PipelineOrchestrator:
                     if self.keep_datasets:
                         if name not in self.pp_data:
                             self.pp_data[name] = {}
-                        self.pp_data[name][dataset.short_preprocessings_str()] = dataset.x({}, layout="2d")
+                        snapshot_key = dataset.short_preprocessings_str()
+                        dataset_snapshots = self.pp_data[name]
+                        can_store = (
+                            snapshot_key in dataset_snapshots
+                            or self.max_preprocessed_snapshots_per_dataset == 0
+                            or len(dataset_snapshots) < self.max_preprocessed_snapshots_per_dataset
+                        )
+                        if can_store:
+                            dataset_snapshots[snapshot_key] = dataset.x({}, layout="2d")
+                        else:
+                            logger.debug(
+                                "Skipping preprocessed snapshot for dataset '%s' "
+                                "(limit=%d, key='%s')",
+                                name,
+                                self.max_preprocessed_snapshots_per_dataset,
+                                snapshot_key,
+                            )
 
                     # Merge new predictions into run-level stores
                     if config_predictions.num_predictions > 0:

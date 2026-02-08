@@ -131,7 +131,7 @@ class TestRunnerInitialization:
         assert runner.show_spinner is True
         assert runner.enable_tab_reports is True
         assert runner.plots_visible is False
-        assert runner.keep_datasets is True
+        assert runner.keep_datasets is False
         assert runner.step_number == 0
         assert runner.substep_number == -1
         assert runner.operation_count == 0

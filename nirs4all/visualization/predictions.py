@@ -150,12 +150,12 @@ class PredictionAnalyzer:
         """Clear all caches.
 
         Call this if the underlying predictions data has been modified
-        to ensure fresh results are computed. Clears both:
-        - Analyzer's query result cache
-        - Ranker's aggregation and score caches
+        to ensure fresh results are computed.
         """
         self._cache.clear()
-        self.predictions.clear_caches()
+        clear_caches = getattr(self.predictions, "clear_caches", None)
+        if callable(clear_caches):
+            clear_caches()
 
     def _resolve_aggregate(self, aggregate: Optional[str]) -> Optional[str]:
         """Resolve effective aggregate value, considering default.
@@ -213,13 +213,16 @@ class PredictionAnalyzer:
         """Get cache performance statistics.
 
         Returns:
-            Dictionary with stats for both analyzer and ranker caches:
+            Dictionary with stats for analyzer cache and any optional
+            prediction-level cache implementation:
             - analyzer_cache: Query result cache stats
-            - ranker_cache: Aggregation and score cache stats
+            - ranker_cache: Aggregation and score cache stats (if exposed)
         """
+        get_cache_stats = getattr(self.predictions, "get_cache_stats", None)
+        ranker_cache = get_cache_stats() if callable(get_cache_stats) else {}
         return {
             'analyzer_cache': self._cache.get_stats(),
-            'ranker_cache': self.predictions.get_cache_stats()
+            'ranker_cache': ranker_cache,
         }
 
     def get_cached_predictions(

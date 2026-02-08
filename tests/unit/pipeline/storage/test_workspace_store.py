@@ -23,6 +23,23 @@ from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 # Helpers
 # =========================================================================
 
+
+class _WavelengthAwareAdder:
+    """Simple transformer that requires wavelengths in transform()."""
+
+    def transform(self, X, wavelengths=None):  # noqa: ANN001
+        if wavelengths is None:
+            raise ValueError("wavelengths are required")
+        wl = np.asarray(wavelengths, dtype=float).reshape(1, -1)
+        return np.asarray(X, dtype=float) + wl
+
+
+class _SummingModel:
+    """Simple model used for chain replay tests."""
+
+    def predict(self, X):  # noqa: ANN001
+        return np.asarray(X, dtype=float).sum(axis=1)
+
 def _make_store(tmp_path: Path) -> WorkspaceStore:
     """Create a WorkspaceStore rooted at *tmp_path*."""
     return WorkspaceStore(tmp_path / "workspace")
@@ -294,6 +311,52 @@ class TestChainSaveLoad:
         store.close()
 
 
+class TestChainReplay:
+    """Chain replay behavior including wavelength passthrough."""
+
+    def test_replay_chain_passes_wavelengths_to_transformers(self, tmp_path):
+        """replay_chain forwards wavelengths when transformer supports it."""
+        store = _make_store(tmp_path)
+        run_id = store.begin_run("run", config={}, datasets=[])
+        pipeline_id = store.begin_pipeline(run_id, "pipe", {}, [], "ds", "hash")
+
+        transformer_id = store.save_artifact(
+            _WavelengthAwareAdder(),
+            "tests._WavelengthAwareAdder",
+            "transformer",
+            "joblib",
+        )
+        model_id = store.save_artifact(
+            _SummingModel(),
+            "tests._SummingModel",
+            "model",
+            "joblib",
+        )
+
+        chain_id = store.save_chain(
+            pipeline_id=pipeline_id,
+            steps=[
+                {"step_idx": 0, "operator_class": "Adder", "params": {}, "artifact_id": transformer_id, "stateless": False},
+                {"step_idx": 1, "operator_class": "Model", "params": {}, "artifact_id": model_id, "stateless": False},
+            ],
+            model_step_idx=1,
+            model_class="tests._SummingModel",
+            preprocessings="",
+            fold_strategy="per_fold",
+            fold_artifacts={"fold_0": model_id},
+            shared_artifacts={"0": [transformer_id]},
+        )
+
+        X = np.array([[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]])
+        wavelengths = np.array([10.0, 20.0, 30.0])
+
+        y_pred = store.replay_chain(chain_id=chain_id, X=X, wavelengths=wavelengths)
+
+        expected = (X + wavelengths.reshape(1, -1)).sum(axis=1)
+        np.testing.assert_allclose(y_pred, expected)
+        store.close()
+
+
 # =========================================================================
 # test_prediction_save_query
 # =========================================================================
@@ -309,6 +372,7 @@ class TestPredictionSaveQuery:
         chain_id = store.save_chain(pid, [{"step_idx": 0, "operator_class": "M", "params": {}, "artifact_id": None, "stateless": True}], 0, "Model", "", "per_fold", {}, {})
 
         # Save 100 predictions: 50 val + 50 test
+        # Each prediction has a unique natural key (pipeline_id, chain_id, fold_id, partition, model_name)
         pred_ids = []
         for i in range(100):
             part = "val" if i < 50 else "test"
@@ -317,7 +381,7 @@ class TestPredictionSaveQuery:
                 pipeline_id=pid,
                 chain_id=chain_id,
                 dataset_name="wheat",
-                model_name=model_cls,
+                model_name=f"{model_cls}_{i}",
                 model_class=f"sklearn.{model_cls}",
                 fold_id=f"fold_{i % 5}",
                 partition=part,
@@ -368,6 +432,78 @@ class TestPredictionSaveQuery:
         # By run_id
         df = store.query_predictions(run_id=run_id)
         assert len(df) == 100
+
+        store.close()
+
+    def test_prediction_upsert_guard_for_explicit_prediction_id(self, tmp_path):
+        """Explicit-ID writes with same natural key should update in-place."""
+        store = _make_store(tmp_path)
+        run_id = store.begin_run("run", config={}, datasets=[])
+        pid = store.begin_pipeline(run_id, "p", {}, [], "wheat", "h")
+        chain_id = store.save_chain(
+            pid,
+            [{"step_idx": 0, "operator_class": "M", "params": {}, "artifact_id": None, "stateless": True}],
+            0,
+            "Model",
+            "",
+            "per_fold",
+            {},
+            {},
+        )
+
+        first_id = store.save_prediction(
+            pipeline_id=pid,
+            chain_id=chain_id,
+            dataset_name="wheat",
+            model_name="PLS",
+            model_class="PLS",
+            fold_id="fold_0",
+            partition="val",
+            val_score=0.50,
+            test_score=0.60,
+            train_score=0.40,
+            metric="rmse",
+            task_type="regression",
+            n_samples=10,
+            n_features=5,
+            scores={},
+            best_params={},
+            branch_id=None,
+            branch_name=None,
+            exclusion_count=0,
+            exclusion_rate=0.0,
+            prediction_id="pred_explicit",
+        )
+
+        second_id = store.save_prediction(
+            pipeline_id=pid,
+            chain_id=chain_id,
+            dataset_name="wheat",
+            model_name="PLS",
+            model_class="PLS",
+            fold_id="fold_0",
+            partition="val",
+            val_score=0.10,
+            test_score=0.20,
+            train_score=0.05,
+            metric="rmse",
+            task_type="regression",
+            n_samples=10,
+            n_features=5,
+            scores={},
+            best_params={},
+            branch_id=None,
+            branch_name=None,
+            exclusion_count=0,
+            exclusion_rate=0.0,
+            prediction_id="pred_explicit_new",
+        )
+
+        df = store.query_predictions(pipeline_id=pid)
+        assert len(df) == 1
+        assert first_id == second_id
+        assert df["prediction_id"][0] == "pred_explicit"
+        assert df["val_score"][0] == pytest.approx(0.10)
 
         store.close()
 
@@ -454,12 +590,12 @@ class TestTopPredictions:
         pid = store.begin_pipeline(run_id, "p", {}, [], "wheat", "h")
         cid = store.save_chain(pid, [{"step_idx": 0, "operator_class": "M", "params": {}, "artifact_id": None, "stateless": True}], 0, "M", "", "per_fold", {}, {})
 
-        # Create predictions with different val_scores
+        # Create predictions with different val_scores (unique fold_id per row)
         for i in range(20):
             store.save_prediction(
                 pipeline_id=pid, chain_id=cid, dataset_name="wheat",
                 model_name="PLS", model_class="PLS" if i < 10 else "Ridge",
-                fold_id="f0", partition="val",
+                fold_id=f"f{i}", partition="val",
                 val_score=float(i), test_score=float(i), train_score=float(i),
                 metric="rmse", task_type="regression",
                 n_samples=50, n_features=100,
@@ -489,13 +625,13 @@ class TestTopPredictions:
         pid = store.begin_pipeline(run_id, "p", {}, [], "wheat", "h")
         cid = store.save_chain(pid, [{"step_idx": 0, "operator_class": "M", "params": {}, "artifact_id": None, "stateless": True}], 0, "M", "", "per_fold", {}, {})
 
-        # 5 PLS + 5 Ridge predictions
+        # 5 PLS + 5 Ridge predictions (unique fold_id per row)
         for i in range(10):
             model = "PLS" if i < 5 else "Ridge"
             store.save_prediction(
                 pipeline_id=pid, chain_id=cid, dataset_name="wheat",
                 model_name=model, model_class=model,
-                fold_id="f0", partition="val",
+                fold_id=f"f{i}", partition="val",
                 val_score=float(i), test_score=0.0, train_score=0.0,
                 metric="rmse", task_type="regression",
                 n_samples=50, n_features=100,
@@ -523,7 +659,7 @@ class TestTopPredictions:
             store.save_prediction(
                 pipeline_id=pid, chain_id=cid, dataset_name=ds,
                 model_name="PLS", model_class="PLS",
-                fold_id="f0", partition="val",
+                fold_id=f"f{i}", partition="val",
                 val_score=float(i), test_score=0.0, train_score=0.0,
                 metric="rmse", task_type="regression",
                 n_samples=50, n_features=100,

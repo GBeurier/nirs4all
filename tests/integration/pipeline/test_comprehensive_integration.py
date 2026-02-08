@@ -450,7 +450,7 @@ class TestNirs4allIntegration:
         dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
 
         # Load the data directly to verify properties
-        from nirs4all.data.loaders.csv_loader import load_csv
+        from nirs4all.data.loaders import load_csv
 
         X_df, _, _, _, _ = load_csv(str(Path(dataset_folder) / "Xcal.csv.gz"), delimiter=';', has_header=False)
         y_df, _, _, _, _ = load_csv(str(Path(dataset_folder) / "Ycal.csv.gz"), delimiter=';', has_header=False)

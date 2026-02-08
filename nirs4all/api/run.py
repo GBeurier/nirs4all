@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 
 from nirs4all.pipeline import PipelineRunner, PipelineConfigs
+from nirs4all.config.cache_config import CacheConfig
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
@@ -265,7 +266,7 @@ def run(
             - ``dict``: Refit options (reserved for future use).
 
         cache: Optional CacheConfig for step-level caching.
-            - ``None``: Use default CacheConfig (step cache OFF).
+            - ``None``: Use default CacheConfig (step cache OFF, CoW snapshots ON).
             - ``CacheConfig(step_cache_enabled=True)``: Enable step caching.
 
         **runner_kwargs: Additional PipelineRunner parameters. See
@@ -390,9 +391,9 @@ def run(
 
         runner = PipelineRunner(**all_kwargs)
 
-    # Set cache config on runner (flows to orchestrator -> runtime_context)
-    if cache is not None:
-        runner.cache_config = cache
+    # Set cache config on runner (flows to orchestrator -> runtime_context).
+    # Default path keeps step cache disabled while enabling CoW snapshots.
+    runner.cache_config = cache if cache is not None else CacheConfig()
 
     # Execute the cartesian product: each pipeline × each dataset
     all_predictions = Predictions()

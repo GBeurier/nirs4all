@@ -111,6 +111,7 @@ class TestPredictionResolver:
         """Test resolver initialization."""
         assert resolver.workspace_path == mock_workspace
         assert resolver.runs_dir == mock_workspace / "runs"
+        assert resolver.resolution_mode == "auto"
 
     def test_init_custom_runs_dir(self, mock_workspace, tmp_path):
         """Test resolver with custom runs directory."""
@@ -119,6 +120,11 @@ class TestPredictionResolver:
 
         resolver = PredictionResolver(mock_workspace, runs_dir=custom_runs)
         assert resolver.runs_dir == custom_runs
+
+    def test_init_invalid_resolution_mode_raises(self, mock_workspace):
+        """Invalid resolver mode should fail fast."""
+        with pytest.raises(ValueError, match="Invalid resolution_mode"):
+            PredictionResolver(mock_workspace, resolution_mode="invalid")
 
     def test_detect_source_type_prediction_dict(self, resolver):
         """Test detecting prediction dict source."""
@@ -288,6 +294,167 @@ class TestPredictionResolverIntegration:
 
         assert resolved.source_type == SourceType.PREDICTION
         assert resolved.pipeline_uid == "test_pipeline_abc123"
+
+
+class TestResolverDeterminism:
+    """Determinism and resolution-mode contract tests."""
+
+    @pytest.fixture
+    def workspace_with_runs(self, tmp_path):
+        """Create workspace/runs layout for resolver tests."""
+        import json
+        import yaml
+
+        workspace = tmp_path / "workspace"
+        runs_dir = workspace / "runs"
+        run_a = runs_dir / "2026-01-01_a"
+        run_b = runs_dir / "2026-01-02_b"
+        pipeline_uid = "pipe_xyz"
+
+        for run_dir in (run_a, run_b):
+            pipeline_dir = run_dir / pipeline_uid
+            pipeline_dir.mkdir(parents=True)
+            with open(pipeline_dir / "manifest.yaml", "w", encoding="utf-8") as f:
+                yaml.safe_dump({"pipeline_uid": pipeline_uid, "execution_traces": {}}, f)
+            with open(pipeline_dir / "pipeline.json", "w", encoding="utf-8") as f:
+                json.dump({"steps": [{"model": "PLS"}]}, f)
+
+        return {
+            "workspace": workspace,
+            "runs_dir": runs_dir,
+            "run_a": run_a,
+            "run_b": run_b,
+            "pipeline_uid": pipeline_uid,
+        }
+
+    def test_find_pipeline_dir_is_deterministic(self, workspace_with_runs):
+        """_find_pipeline_dir returns deterministically sorted first match."""
+        resolver = PredictionResolver(
+            workspace_with_runs["workspace"],
+            runs_dir=workspace_with_runs["runs_dir"],
+        )
+        found = resolver._find_pipeline_dir(workspace_with_runs["pipeline_uid"])
+        assert found is not None
+        assert found.parent.name == "2026-01-01_a"
+
+    def test_pick_chain_matches_structural_branch_path(self, workspace_with_runs):
+        """Branch path matching uses parsed structure, not raw JSON string."""
+        import polars as pl
+
+        resolver = PredictionResolver(
+            workspace_with_runs["workspace"],
+            runs_dir=workspace_with_runs["runs_dir"],
+        )
+        chains_df = pl.DataFrame(
+            {
+                "chain_id": ["c2", "c1"],
+                "pipeline_id": ["p", "p"],
+                "branch_path": ["[2,1]", "[ 1, 2 ]"],
+                "model_step_idx": [3, 3],
+                "model_class": ["M", "M"],
+                "preprocessings": ["P", "P"],
+            }
+        )
+        prediction = {
+            "branch_path": [1, 2],
+            "step_idx": 3,
+            "model_classname": "M",
+            "preprocessings": "P",
+        }
+
+        assert resolver._pick_chain_for_prediction(chains_df, prediction) == "c1"
+
+    def test_pick_chain_warns_on_ambiguity_and_picks_first(self, workspace_with_runs):
+        """Ambiguous multi-candidate chain selection warns and picks deterministic first."""
+        import polars as pl
+
+        resolver = PredictionResolver(
+            workspace_with_runs["workspace"],
+            runs_dir=workspace_with_runs["runs_dir"],
+        )
+        chains_df = pl.DataFrame(
+            {
+                "chain_id": ["b_chain", "a_chain"],
+                "pipeline_id": ["p", "p"],
+                "branch_path": [None, None],
+                "model_step_idx": [1, 1],
+                "model_class": ["M", "M"],
+                "preprocessings": ["P", "P"],
+            }
+        )
+        prediction = {
+            "step_idx": 1,
+            "model_classname": "M",
+            "preprocessings": "P",
+        }
+
+        result = resolver._pick_chain_for_prediction(chains_df, prediction)
+        assert result is None  # ambiguous → returns None for filesystem fallback
+
+    def test_store_mode_requires_store(self, workspace_with_runs):
+        """store mode should fail if resolver has no store instance."""
+        resolver = PredictionResolver(
+            workspace_with_runs["workspace"],
+            runs_dir=workspace_with_runs["runs_dir"],
+        )
+        prediction = {"pipeline_uid": workspace_with_runs["pipeline_uid"]}
+
+        with pytest.raises(ValueError, match="no store instance"):
+            resolver.resolve(prediction, resolution_mode="store")
+
+    def test_filesystem_mode_skips_store_resolution(self, workspace_with_runs):
+        """filesystem mode must not call store resolver path."""
+        store = MagicMock()
+        resolver = PredictionResolver(
+            workspace_with_runs["workspace"],
+            runs_dir=workspace_with_runs["runs_dir"],
+            store=store,
+        )
+        prediction = {
+            "pipeline_uid": workspace_with_runs["pipeline_uid"],
+            "run_dir": str(workspace_with_runs["run_a"]),
+            "model_name": "PLS",
+        }
+
+        with patch.object(resolver, "_resolve_from_store", return_value=None) as mocked_store_resolve:
+            resolved = resolver.resolve(prediction, resolution_mode="filesystem")
+
+        assert mocked_store_resolve.call_count == 0
+        assert resolved.source_type == SourceType.PREDICTION
+
+    def test_auto_mode_falls_back_to_filesystem_on_store_miss(self, workspace_with_runs):
+        """auto mode tries store once then falls back to filesystem."""
+        store = MagicMock()
+        resolver = PredictionResolver(
+            workspace_with_runs["workspace"],
+            runs_dir=workspace_with_runs["runs_dir"],
+            store=store,
+        )
+        prediction = {
+            "pipeline_uid": workspace_with_runs["pipeline_uid"],
+            "run_dir": str(workspace_with_runs["run_a"]),
+            "model_name": "PLS",
+        }
+
+        with patch.object(resolver, "_resolve_from_store", return_value=None) as mocked_store_resolve:
+            resolved = resolver.resolve(prediction, resolution_mode="auto")
+
+        assert mocked_store_resolve.call_count == 1
+        assert resolved.source_type == SourceType.PREDICTION
+
+    def test_store_mode_fails_fast_when_store_cannot_resolve(self, workspace_with_runs):
+        """store mode must not silently fall back when store misses."""
+        store = MagicMock()
+        resolver = PredictionResolver(
+            workspace_with_runs["workspace"],
+            runs_dir=workspace_with_runs["runs_dir"],
+            store=store,
+        )
+        prediction = {"pipeline_uid": workspace_with_runs["pipeline_uid"], "model_name": "PLS"}
+
+        with patch.object(resolver, "_resolve_from_store", return_value=None):
+            with pytest.raises(FileNotFoundError, match="Store-only resolution failed"):
+                resolver.resolve(prediction, resolution_mode="store")
 
 
 class TestModelFileResolution:

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import inspect
 import io
 import json
 import threading
@@ -581,8 +582,22 @@ class WorkspaceStore:
         """
         with self._lock:
             conn = self._ensure_open()
-            if prediction_id is None:
+            existing = conn.execute(
+                "SELECT prediction_id FROM predictions "
+                "WHERE pipeline_id = $1 AND chain_id = $2 AND fold_id = $3 AND partition = $4 "
+                "AND model_name = $5 "
+                "LIMIT 1",
+                [pipeline_id, chain_id, fold_id, partition, model_name],
+            ).fetchone()
+
+            if existing is not None:
+                # Upsert guard: preserve natural-key idempotency.
+                prediction_id = str(existing[0])
+                conn.execute(DELETE_PREDICTION_ARRAYS, [prediction_id])
+                conn.execute(DELETE_PREDICTION, [prediction_id])
+            elif prediction_id is None:
                 prediction_id = str(uuid4())
+
             conn.execute(INSERT_PREDICTION, [
                 prediction_id, pipeline_id, chain_id, dataset_name, model_name,
                 model_class, fold_id, partition, val_score, test_score, train_score,
@@ -1467,14 +1482,15 @@ class WorkspaceStore:
         fold_artifacts = chain.get("fold_artifacts") or {}
         shared_artifacts = chain.get("shared_artifacts") or {}
 
-        # Detect refit model: if "final" exists in fold_artifacts, export
-        # only the single refit model instead of all CV fold models.
-        has_refit = "final" in fold_artifacts
+        # Detect refit model using canonical fold key; keep legacy key fallback.
+        refit_key = "fold_final" if "fold_final" in fold_artifacts else ("final" if "final" in fold_artifacts else None)
+        has_refit = refit_key is not None
         if has_refit:
-            # Only include the "final" model artifact
-            export_fold_artifacts = {"final": fold_artifacts["final"]}
-            if fold_artifacts["final"]:
-                artifact_ids.add(fold_artifacts["final"])
+            # Only include the single refit model artifact.
+            refit_artifact_id = fold_artifacts.get(refit_key, "")
+            export_fold_artifacts = {"fold_final": refit_artifact_id}
+            if refit_artifact_id:
+                artifact_ids.add(refit_artifact_id)
         else:
             export_fold_artifacts = fold_artifacts
             for aid in fold_artifacts.values():
@@ -2045,13 +2061,34 @@ class WorkspaceStore:
 
         X_current = X.copy()
 
+        def _transform_with_optional_wavelengths(transformer: Any, X_in: np.ndarray) -> np.ndarray:
+            """Call transformer.transform with wavelengths when supported."""
+            if wavelengths is None:
+                return transformer.transform(X_in)
+
+            supports_wavelengths = False
+            try:
+                params = inspect.signature(transformer.transform).parameters
+                supports_wavelengths = (
+                    "wavelengths" in params
+                    or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+                )
+            except (TypeError, ValueError):
+                supports_wavelengths = False
+
+            if supports_wavelengths or hasattr(transformer, "_requires_wavelengths"):
+                return transformer.transform(X_in, wavelengths=wavelengths)
+
+            return transformer.transform(X_in)
+
         for step in steps:
             idx = step["step_idx"]
 
             if idx == model_step_idx:
-                # Refit model: single "final" artifact, direct prediction
-                if "final" in fold_artifacts and fold_artifacts["final"]:
-                    model = self.load_artifact(fold_artifacts["final"])
+                # Refit model: single canonical refit artifact, direct prediction
+                refit_artifact_id = fold_artifacts.get("fold_final") or fold_artifacts.get("final")
+                if refit_artifact_id:
+                    model = self.load_artifact(refit_artifact_id)
                     return model.predict(X_current)
 
                 # Legacy: load all fold models, predict, average
@@ -2071,7 +2108,7 @@ class WorkspaceStore:
                     artifact_ids = [artifact_ids]
                 for artifact_id in artifact_ids:
                     transformer = self.load_artifact(artifact_id)
-                    X_current = transformer.transform(X_current)
+                    X_current = _transform_with_optional_wavelengths(transformer, X_current)
             elif step.get("stateless", False):
                 # Stateless step -- skip (no artifact needed)
                 pass
