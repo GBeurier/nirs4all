@@ -82,6 +82,7 @@ from nirs4all.pipeline.storage.store_queries import (
     INSERT_PREDICTION_ARRAYS,
     INSERT_RUN,
     INVALIDATE_DATASET_CACHE,
+    UPDATE_PREDICTION,
     UPDATE_ARTIFACT_CACHE_KEY,
     build_aggregated_query,
     build_chain_predictions_query,
@@ -592,20 +593,36 @@ class WorkspaceStore:
 
             if existing is not None:
                 # Upsert guard: preserve natural-key idempotency.
+                # Keep the original prediction row identity to avoid FK churn.
                 prediction_id = str(existing[0])
                 conn.execute(DELETE_PREDICTION_ARRAYS, [prediction_id])
-                conn.execute(DELETE_PREDICTION, [prediction_id])
+                conn.execute(UPDATE_PREDICTION, [
+                    prediction_id, pipeline_id, chain_id, dataset_name, model_name,
+                    model_class, fold_id, partition, val_score, test_score, train_score,
+                    metric, task_type, n_samples, n_features,
+                    _to_json(scores), _to_json(best_params),
+                    preprocessings, branch_id, branch_name,
+                    exclusion_count, exclusion_rate, refit_context,
+                ])
             elif prediction_id is None:
                 prediction_id = str(uuid4())
-
-            conn.execute(INSERT_PREDICTION, [
-                prediction_id, pipeline_id, chain_id, dataset_name, model_name,
-                model_class, fold_id, partition, val_score, test_score, train_score,
-                metric, task_type, n_samples, n_features,
-                _to_json(scores), _to_json(best_params),
-                preprocessings, branch_id, branch_name,
-                exclusion_count, exclusion_rate, refit_context,
-            ])
+                conn.execute(INSERT_PREDICTION, [
+                    prediction_id, pipeline_id, chain_id, dataset_name, model_name,
+                    model_class, fold_id, partition, val_score, test_score, train_score,
+                    metric, task_type, n_samples, n_features,
+                    _to_json(scores), _to_json(best_params),
+                    preprocessings, branch_id, branch_name,
+                    exclusion_count, exclusion_rate, refit_context,
+                ])
+            else:
+                conn.execute(INSERT_PREDICTION, [
+                    prediction_id, pipeline_id, chain_id, dataset_name, model_name,
+                    model_class, fold_id, partition, val_score, test_score, train_score,
+                    metric, task_type, n_samples, n_features,
+                    _to_json(scores), _to_json(best_params),
+                    preprocessings, branch_id, branch_name,
+                    exclusion_count, exclusion_rate, refit_context,
+                ])
             return prediction_id
 
     def save_prediction_arrays(

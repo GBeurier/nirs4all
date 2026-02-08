@@ -507,6 +507,89 @@ class TestPredictionSaveQuery:
 
         store.close()
 
+    def test_prediction_upsert_replaces_arrays(self, tmp_path):
+        """Upsert with same natural key should replace array payloads cleanly."""
+        store = _make_store(tmp_path)
+        run_id = store.begin_run("run", config={}, datasets=[])
+        pid = store.begin_pipeline(run_id, "p", {}, [], "wheat", "h")
+        chain_id = store.save_chain(
+            pid,
+            [{"step_idx": 0, "operator_class": "M", "params": {}, "artifact_id": None, "stateless": True}],
+            0,
+            "Model",
+            "",
+            "per_fold",
+            {},
+            {},
+        )
+
+        first_id = store.save_prediction(
+            pipeline_id=pid,
+            chain_id=chain_id,
+            dataset_name="wheat",
+            model_name="PLS",
+            model_class="PLS",
+            fold_id="fold_0",
+            partition="val",
+            val_score=0.50,
+            test_score=0.60,
+            train_score=0.40,
+            metric="rmse",
+            task_type="regression",
+            n_samples=3,
+            n_features=2,
+            scores={},
+            best_params={},
+            branch_id=None,
+            branch_name=None,
+            exclusion_count=0,
+            exclusion_rate=0.0,
+            prediction_id="pred_arrays",
+        )
+        store.save_prediction_arrays(
+            prediction_id=first_id,
+            y_true=np.array([1.0, 2.0, 3.0]),
+            y_pred=np.array([1.1, 2.1, 3.1]),
+        )
+
+        second_id = store.save_prediction(
+            pipeline_id=pid,
+            chain_id=chain_id,
+            dataset_name="wheat",
+            model_name="PLS",
+            model_class="PLS",
+            fold_id="fold_0",
+            partition="val",
+            val_score=0.10,
+            test_score=0.20,
+            train_score=0.05,
+            metric="rmse",
+            task_type="regression",
+            n_samples=2,
+            n_features=2,
+            scores={},
+            best_params={},
+            branch_id=None,
+            branch_name=None,
+            exclusion_count=0,
+            exclusion_rate=0.0,
+            prediction_id="pred_arrays_new",
+        )
+        store.save_prediction_arrays(
+            prediction_id=second_id,
+            y_true=np.array([10.0, 20.0]),
+            y_pred=np.array([10.5, 20.5]),
+        )
+
+        assert second_id == first_id
+        pred = store.get_prediction(first_id, load_arrays=True)
+        assert pred is not None
+        assert pred["val_score"] == pytest.approx(0.10)
+        np.testing.assert_array_equal(pred["y_true"], np.array([10.0, 20.0]))
+        np.testing.assert_array_equal(pred["y_pred"], np.array([10.5, 20.5]))
+
+        store.close()
+
 
 # =========================================================================
 # test_prediction_arrays

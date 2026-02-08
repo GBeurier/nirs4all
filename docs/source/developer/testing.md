@@ -18,6 +18,28 @@ nirs4all uses **pytest** for testing, with a comprehensive test suite covering:
 pytest tests/
 ```
 
+By default, `pytest` uses parallel workers (`-n auto --dist worksteal`) from
+`pyproject.toml`.
+
+Install test dependencies (including `pytest-xdist`) with:
+
+```bash
+pip install -r requirements-test.txt
+```
+
+### Parallel Execution
+
+```bash
+# Use all available CPU cores
+pytest tests/ -n auto --dist worksteal
+
+# Use a fixed worker count
+pytest tests/ -n 4 --dist worksteal
+
+# Disable parallel workers for local debugging
+pytest tests/ -n 0
+```
+
 ### Run Specific Test Categories
 
 ```bash
@@ -76,8 +98,8 @@ nirs4all uses pytest markers to categorize tests by framework requirements:
 | `@pytest.mark.sklearn` | Tests using scikit-learn only |
 | `@pytest.mark.tensorflow` | Tests requiring TensorFlow |
 | `@pytest.mark.torch` | Tests requiring PyTorch |
-| `@pytest.mark.keras` | Tests requiring Keras |
 | `@pytest.mark.jax` | Tests requiring JAX |
+| `@pytest.mark.slow` | Longer-running tests |
 | `@pytest.mark.gpu` | Tests requiring GPU |
 
 ### Running Tests by Marker
@@ -316,22 +338,46 @@ cd examples
 
 ## Test Configuration
 
-### pytest.ini
+### pyproject.toml
 
-```ini
-[pytest]
-testpaths = tests
-markers =
-    sklearn: mark a test as a sklearn test
-    tensorflow: mark a test as a tensorflow test
-    torch: mark a test as a torch test
-    keras: tests that require Keras
-    jax: tests that require JAX
-    gpu: tests that require GPU
-python_files = test_*.py
-python_classes = Test*
-python_functions = test_*
+`pytest` is configured in `pyproject.toml`:
+
+```toml
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short -n auto --dist worksteal"
+markers = [
+    "sklearn: sklearn-only tests",
+    "tensorflow: TensorFlow tests",
+    "torch: PyTorch tests",
+    "jax: JAX tests",
+    "slow: slow running tests",
+    "gpu: GPU-requiring tests",
+]
 ```
+
+### VS Code Test Explorer
+
+To make VS Code run tests in parallel, add this local workspace config:
+
+```json
+{
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": [
+    "tests",
+    "-n",
+    "auto",
+    "--dist",
+    "worksteal"
+  ]
+}
+```
+
+Create or update `.vscode/settings.json` with this content.
+`/.vscode/` is gitignored, so this is a local developer setting.
 
 ### conftest.py
 
