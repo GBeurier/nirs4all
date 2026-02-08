@@ -246,7 +246,7 @@ pipeline_coverage = [
 
     {"branch": {
         "pls": [SNV(), PLSRegression(n_components=5)],
-        "rf": [RandomForestRegressor(n_estimators=50, random_state=42)],
+        "rf": [RandomForestRegressor(n_estimators=5, random_state=42)],
     }},
 
     {"merge": "predictions"},
@@ -288,8 +288,8 @@ pipeline_3level = [
     {"branch": {
         "pls5": [SNV(), PLSRegression(n_components=5)],
         "pls10": [SNV(), PLSRegression(n_components=10)],
-        "rf": [MSC(), RandomForestRegressor(n_estimators=50, random_state=42)],
-        "gbm": [FirstDerivative(), GradientBoostingRegressor(n_estimators=50, random_state=42)],
+        "rf": [MSC(), RandomForestRegressor(n_estimators=5, random_state=42)],
+        "gbm": [FirstDerivative(), GradientBoostingRegressor(n_estimators=5, random_state=42)],
     }},
     {"merge": "predictions"},
 
@@ -371,7 +371,7 @@ pipeline_stacking = [
     KFold(n_splits=5, shuffle=True, random_state=42),
     {"branch": {
         "pls": [SNV(), PLSRegression(n_components=5)],
-        "rf": [RandomForestRegressor(n_estimators=50, random_state=42)],
+        "rf": [RandomForestRegressor(n_estimators=5, random_state=42)],
     }},
     {"merge": "predictions"},
     Ridge(alpha=0.1),
@@ -410,8 +410,8 @@ pipeline_heterogeneous = [
         "elastic": [SNV(), ElasticNet(alpha=0.1, l1_ratio=0.5)],
 
         # Tree models
-        "rf": [MSC(), RandomForestRegressor(n_estimators=50, random_state=42)],
-        "gbm": [MSC(), GradientBoostingRegressor(n_estimators=50, random_state=42)],
+        "rf": [MSC(), RandomForestRegressor(n_estimators=5, random_state=42)],
+        "gbm": [MSC(), GradientBoostingRegressor(n_estimators=5, random_state=42)],
     }},
     {"merge": "predictions"},
 
