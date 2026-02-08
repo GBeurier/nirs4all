@@ -708,8 +708,16 @@ class PipelineOrchestrator:
             )
 
         if refit_result.success:
-            # Also merge refit predictions into the global run predictions
+            # Merge refit predictions into the global run predictions
             if refit_result.predictions_count > 0:
+                refit_entries = [
+                    e for e in run_dataset_predictions._buffer
+                    if str(e.get("fold_id")) == "final"
+                ]
+                if refit_entries:
+                    refit_preds = Predictions()
+                    refit_preds._buffer.extend(refit_entries)
+                    run_predictions.merge_predictions(refit_preds)
                 logger.info(
                     f"Refit completed: {refit_result.predictions_count} "
                     f"prediction(s) added with fold_id='final'"
@@ -737,8 +745,9 @@ class PipelineOrchestrator:
     ) -> None:
         """Print best predictions for a dataset.
 
-        Reports best predictions to the logger.  Persistence is handled
-        by :meth:`Predictions.flush` / :class:`WorkspaceStore`.
+        Reports best CV predictions and refit final scores to the logger.
+        Persistence is handled by :meth:`Predictions.flush` /
+        :class:`WorkspaceStore`.
         """
         if run_dataset_predictions.num_predictions > 0:
             # Use None for ascending to let ranker infer from metric
@@ -747,13 +756,13 @@ class PipelineOrchestrator:
             )
             logger.success(f"Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
 
+            # Get aggregation setting from dataset for reporting
+            aggregate_column = dataset.aggregate  # Could be None, 'y', or column name
+            aggregate_method = dataset.aggregate_method  # Could be None, 'mean', 'median', 'vote'
+            aggregate_exclude_outliers = dataset.aggregate_exclude_outliers
+
             if self.enable_tab_reports:
                 best_by_partition = run_dataset_predictions.get_entry_partitions(best)
-
-                # Get aggregation setting from dataset for reporting
-                aggregate_column = dataset.aggregate  # Could be None, 'y', or column name
-                aggregate_method = dataset.aggregate_method  # Could be None, 'mean', 'median', 'vote'
-                aggregate_exclude_outliers = dataset.aggregate_exclude_outliers
 
                 # Log aggregation info if enabled
                 if aggregate_column:
@@ -769,5 +778,34 @@ class PipelineOrchestrator:
                     aggregate_exclude_outliers=aggregate_exclude_outliers
                 )
                 logger.info(tab_report)
+
+            # --- Refit final scores ---
+            # Show a dedicated report for the refit model when present
+            refit_entries = [
+                e for e in run_dataset_predictions._buffer
+                if str(e.get("fold_id")) == "final"
+            ]
+            if refit_entries:
+                # Pick the best refit entry by test_score (there's usually one)
+                from nirs4all.data.predictions import _infer_ascending
+                metric = refit_entries[0].get("metric", "rmse")
+                asc = _infer_ascending(metric)
+                rankable = [e for e in refit_entries if e.get("test_score") is not None]
+                if rankable:
+                    rankable.sort(key=lambda e: e["test_score"], reverse=not asc)
+                    best_refit = rankable[0]
+                    logger.success(
+                        f"Final model (refit) for dataset '{name}': "
+                        f"{Predictions.pred_long_string(best_refit)}"
+                    )
+                    if self.enable_tab_reports:
+                        refit_partitions = run_dataset_predictions.get_entry_partitions(best_refit)
+                        refit_tab, _ = TabReportManager.generate_best_score_tab_report(
+                            refit_partitions,
+                            aggregate=aggregate_column,
+                            aggregate_method=aggregate_method,
+                            aggregate_exclude_outliers=aggregate_exclude_outliers,
+                        )
+                        logger.info(refit_tab)
 
         logger.info("=" * 120)

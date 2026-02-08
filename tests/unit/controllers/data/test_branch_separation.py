@@ -69,62 +69,6 @@ class TestBranchModeDetection:
                 controller._detect_branch_mode(raw_def)
 
 
-class TestSourceBranchCompatibility:
-    """Test backward compatibility for source_branch keyword."""
-
-    @pytest.fixture
-    def controller(self):
-        return BranchController()
-
-    def test_matches_source_branch_keyword(self):
-        """Controller should match source_branch keyword."""
-        step = {"source_branch": {"NIR": [], "markers": []}}
-        assert BranchController.matches(step, None, "source_branch") is True
-
-    def test_convert_auto_syntax(self, controller):
-        """Test conversion of source_branch: 'auto'."""
-        original_step = {"source_branch": "auto"}
-        result = controller._convert_source_branch_syntax(original_step)
-
-        assert result["by_source"] is True
-        assert "steps" in result
-
-    def test_convert_true_syntax(self, controller):
-        """Test conversion of source_branch: True."""
-        original_step = {"source_branch": True}
-        result = controller._convert_source_branch_syntax(original_step)
-
-        assert result["by_source"] is True
-
-    def test_convert_dict_syntax(self, controller):
-        """Test conversion of source_branch dict to by_source steps."""
-        original_step = {
-            "source_branch": {
-                "NIR": ["step1", "step2"],
-                "markers": ["step3"],
-            }
-        }
-        result = controller._convert_source_branch_syntax(original_step)
-
-        assert result["by_source"] is True
-        assert result["steps"]["NIR"] == ["step1", "step2"]
-        assert result["steps"]["markers"] == ["step3"]
-
-    def test_convert_list_syntax(self, controller):
-        """Test conversion of source_branch list (indexed by position)."""
-        original_step = {
-            "source_branch": [
-                ["step1"],
-                ["step2"],
-            ]
-        }
-        result = controller._convert_source_branch_syntax(original_step)
-
-        assert result["by_source"] is True
-        assert result["steps"]["0"] == ["step1"]
-        assert result["steps"]["1"] == ["step2"]
-
-
 class TestSeparationKeywordsConstant:
     """Test the SEPARATION_KEYWORDS constant."""
 

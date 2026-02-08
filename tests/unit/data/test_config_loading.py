@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 
 from nirs4all.data.config import DatasetConfigs
-from nirs4all.data.config_parser import parse_config, _load_config_from_file, normalize_config_keys
+from nirs4all.data.config_parser import parse_config, _load_config_from_file
 
 
 class TestLoadConfigFromFile:
@@ -83,13 +83,12 @@ class TestLoadConfigFromFile:
         assert name == "wheat_protein"
         assert config["name"] == "wheat_protein"
 
-    def test_key_normalization(self, tmp_path):
-        """Test that config keys are normalized."""
-        # Use non-standard key naming
+    def test_keys_preserved(self, tmp_path):
+        """Test that config keys are preserved as-is."""
         config_data = {
-            "X_train": "path/to/X.csv",
-            "Y_train": "path/to/Y.csv",
-            "Xtest": "path/to/Xtest.csv"
+            "train_x": "path/to/X.csv",
+            "train_y": "path/to/Y.csv",
+            "test_x": "path/to/Xtest.csv"
         }
 
         yaml_file = tmp_path / "dataset.yaml"
@@ -98,10 +97,9 @@ class TestLoadConfigFromFile:
 
         config, _ = _load_config_from_file(str(yaml_file))
 
-        # Keys should be normalized to standard format
-        assert "train_x" in config
-        assert "train_y" in config
-        assert "test_x" in config
+        assert config["train_x"] == "path/to/X.csv"
+        assert config["train_y"] == "path/to/Y.csv"
+        assert config["test_x"] == "path/to/Xtest.csv"
 
     def test_file_not_found(self, tmp_path):
         """Test error when file doesn't exist."""
@@ -336,8 +334,8 @@ global_params:
         # The dataset should have the task type from file
         assert configs._task_types[0] == "regression"
 
-    def test_dataset_configs_constructor_overrides_file(self, tmp_path, sample_data_files):
-        """Test that constructor params override file config."""
+    def test_dataset_configs_aggregate_from_file(self, tmp_path, sample_data_files):
+        """Test that aggregate is read from config file."""
         config_data = {
             "train_x": sample_data_files["x"],
             "train_y": sample_data_files["y"],
@@ -350,10 +348,9 @@ global_params:
         with open(config_file, 'w') as f:
             json.dump(config_data, f)
 
-        # Constructor param should override file
-        configs = DatasetConfigs(str(config_file), aggregate="batch")
+        configs = DatasetConfigs(str(config_file))
 
-        assert configs._aggregates[0] == "batch"
+        assert configs._aggregates[0] == "sample_id"
 
     def test_dataset_configs_multiple_json_files(self, tmp_path, sample_data_files):
         """Test loading multiple JSON config files."""
@@ -393,71 +390,3 @@ global_params:
         assert "Invalid JSON" in error_msg or "line" in error_msg.lower()
 
 
-class TestNormalizeConfigKeys:
-    """Test suite for config key normalization."""
-
-    def test_standard_keys_unchanged(self):
-        """Test that standard keys pass through unchanged."""
-        config = {
-            "train_x": "path/x.csv",
-            "train_y": "path/y.csv",
-            "test_x": "path/xtest.csv"
-        }
-        result = normalize_config_keys(config)
-
-        assert result == config
-
-    def test_various_train_x_formats(self):
-        """Test various train_x naming conventions."""
-        test_cases = [
-            ("X_train", "train_x"),
-            ("Xtrain", "train_x"),
-            ("trainX", "train_x"),
-            ("x_train", "train_x"),
-        ]
-
-        for input_key, expected_key in test_cases:
-            config = {input_key: "path/file.csv"}
-            result = normalize_config_keys(config)
-            assert expected_key in result, f"Failed for {input_key}"
-
-    def test_various_test_x_formats(self):
-        """Test various test/val X naming conventions."""
-        test_cases = [
-            ("X_test", "test_x"),
-            ("Xtest", "test_x"),
-            ("X_val", "test_x"),
-            ("Xval", "test_x"),
-            ("valX", "test_x"),
-        ]
-
-        for input_key, expected_key in test_cases:
-            config = {input_key: "path/file.csv"}
-            result = normalize_config_keys(config)
-            assert expected_key in result, f"Failed for {input_key}"
-
-    def test_metadata_key_normalization(self):
-        """Test metadata/group key normalization."""
-        test_cases = [
-            ("train_metadata", "train_group"),
-            ("metadata_train", "train_group"),
-            ("M_train", "train_group"),
-            ("train_m", "train_group"),
-        ]
-
-        for input_key, expected_key in test_cases:
-            config = {input_key: "path/file.csv"}
-            result = normalize_config_keys(config)
-            assert expected_key in result, f"Failed for {input_key}"
-
-    def test_unknown_keys_preserved(self):
-        """Test that unknown keys are preserved as-is."""
-        config = {
-            "train_x": "path/x.csv",
-            "custom_key": "custom_value",
-            "signal_type": "absorbance"
-        }
-        result = normalize_config_keys(config)
-
-        assert result["custom_key"] == "custom_value"
-        assert result["signal_type"] == "absorbance"

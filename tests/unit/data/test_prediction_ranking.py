@@ -216,10 +216,10 @@ class TestRankingWithRepetition:
 
 
 class TestRankingWithAggregation:
-    """Test ranking uses aggregated scores when aggregate is provided."""
+    """Test ranking uses aggregated scores when by_repetition is provided."""
 
     def test_top_with_aggregation_uses_aggregated_scores(self, predictions_with_metadata_for_aggregation):
-        """Verify ranking uses aggregated scores when aggregate is provided."""
+        """Verify ranking uses aggregated scores when by_repetition is provided."""
         predictions = predictions_with_metadata_for_aggregation
 
         # Get top 2 models with aggregation by sample ID
@@ -227,7 +227,7 @@ class TestRankingWithAggregation:
             n=2,
             rank_metric="rmse",
             rank_partition="val",
-            aggregate="ID"
+            by_repetition="ID"
         )
 
         assert len(results) == 2
@@ -247,7 +247,7 @@ class TestRankingWithAggregation:
             rank_metric="rmse",
             rank_partition="val",
             display_partition="val",  # Use val partition for display too
-            aggregate="ID"
+            by_repetition="ID"
         )
 
         # Get without aggregation
@@ -431,103 +431,6 @@ class TestGroupByFiltering:
         # Each group should have at most 2
         for key, count in group_counts.items():
             assert count <= 2
-
-
-class TestDeprecatedParameters:
-    """Test deprecated parameter handling."""
-
-    def test_aggregate_emits_deprecation_warning(self, predictions_with_metadata_for_aggregation):
-        """Verify aggregate parameter emits deprecation warning."""
-        predictions = predictions_with_metadata_for_aggregation
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-
-            predictions.top(
-                n=2,
-                rank_metric="rmse",
-                rank_partition="val",
-                aggregate="ID"  # Deprecated
-            )
-
-            # Check for deprecation warning
-            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            assert len(deprecation_warnings) >= 1
-            assert "aggregate" in str(deprecation_warnings[0].message)
-            assert "by_repetition" in str(deprecation_warnings[0].message)
-
-    def test_best_per_model_emits_deprecation_warning(self, predictions_with_multiple_models):
-        """Verify best_per_model emits deprecation warning."""
-        predictions = predictions_with_multiple_models
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-
-            predictions.top(
-                n=5,
-                rank_metric="rmse",
-                rank_partition="val",
-                best_per_model=True
-            )
-
-            # Check for deprecation warning
-            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            assert len(deprecation_warnings) >= 1
-            assert "best_per_model" in str(deprecation_warnings[0].message)
-
-    def test_best_per_model_same_as_group_by_model_name(self, predictions_with_multiple_models):
-        """Verify best_per_model=True gives same result as group_by=['model_name'] with n=1."""
-        predictions = predictions_with_multiple_models
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-
-            # best_per_model=True should behave like group_by=['model_name'] with n=1
-            results_deprecated = predictions.top(
-                n=1,  # n=1 per group
-                rank_metric="rmse",
-                rank_partition="val",
-                best_per_model=True
-            )
-
-        results_new = predictions.top(
-            n=1,  # n=1 per group
-            rank_metric="rmse",
-            rank_partition="val",
-            group_by=["model_name"]
-        )
-
-        assert len(results_deprecated) == len(results_new)
-        for r1, r2 in zip(results_deprecated, results_new):
-            assert r1["model_name"] == r2["model_name"]
-            assert r1["rank_score"] == r2["rank_score"]
-
-    def test_best_per_model_same_as_group_by_model_name(self, predictions_with_multiple_models):
-        """Verify best_per_model=True gives same result as group_by=['model_name'] with n=1."""
-        predictions = predictions_with_multiple_models
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-
-            # best_per_model=True should behave like group_by=['model_name'] with n=1
-            results_deprecated = predictions.top(
-                n=1,  # n=1 per group
-                rank_metric="rmse",
-                rank_partition="val",
-                best_per_model=True
-            )
-
-        results_new = predictions.top(
-            n=1,  # n=1 per group
-            rank_metric="rmse",
-            rank_partition="val",
-            group_by=["model_name"]
-        )
-
-        assert len(results_deprecated) == len(results_new)
-        for r1, r2 in zip(results_deprecated, results_new):
-            assert r1["model_name"] == r2["model_name"]
-            assert r1["rank_score"] == r2["rank_score"]
 
 
 class TestMakeGroupKey:
@@ -718,7 +621,7 @@ class TestEdgeCases:
                 n=5,
                 rank_metric="rmse",
                 rank_partition="val",
-                aggregate="nonexistent_id"
+                by_repetition="nonexistent_id"
             )
 
             # Should have warnings about missing column

@@ -29,7 +29,6 @@ CARTESIAN_KEYWORD: str = "_cartesian_"  # Cartesian product of stages with pick/
 # Modifier Keywords
 # =============================================================================
 
-SIZE_KEYWORD: str = "size"
 COUNT_KEYWORD: str = "count"
 SEED_KEYWORD: str = "_seed_"  # Deterministic generation with seed
 WEIGHTS_KEYWORD: str = "_weights_"  # Weighted random selection
@@ -85,7 +84,6 @@ SELECTION_KEYWORDS: FrozenSet[str] = frozenset({
 })
 
 MODIFIER_KEYWORDS: FrozenSet[str] = frozenset({
-    SIZE_KEYWORD,
     COUNT_KEYWORD,
     SEED_KEYWORD,
     WEIGHTS_KEYWORD,
@@ -113,7 +111,7 @@ ALL_KEYWORDS: FrozenSet[str] = (
 
 # Subsets for specific node type detection
 PURE_OR_KEYS: FrozenSet[str] = frozenset({
-    OR_KEYWORD, SIZE_KEYWORD, COUNT_KEYWORD, PICK_KEYWORD, ARRANGE_KEYWORD,
+    OR_KEYWORD, COUNT_KEYWORD, PICK_KEYWORD, ARRANGE_KEYWORD,
     THEN_PICK_KEYWORD, THEN_ARRANGE_KEYWORD, SEED_KEYWORD, WEIGHTS_KEYWORD,
     MUTEX_KEYWORD, REQUIRES_KEYWORD, EXCLUDE_KEYWORD,
     TAGS_KEYWORD, METADATA_KEYWORD,
@@ -181,7 +179,7 @@ def is_generator_node(node: Dict[str, Any]) -> bool:
 
 
 def is_pure_or_node(node: Dict[str, Any]) -> bool:
-    """Check if a node is a pure OR node (only _or_, size, count keys).
+    """Check if a node is a pure OR node (only _or_, count, pick, arrange keys).
 
     Args:
         node: A dictionary node from the configuration.
@@ -190,7 +188,7 @@ def is_pure_or_node(node: Dict[str, Any]) -> bool:
         True if the node contains only OR-related keys, False otherwise.
 
     Examples:
-        >>> is_pure_or_node({"_or_": ["A", "B"], "size": 2})
+        >>> is_pure_or_node({"_or_": ["A", "B"], "pick": 2})
         True
         >>> is_pure_or_node({"_or_": ["A", "B"], "class": "X"})
         False
@@ -214,7 +212,7 @@ def is_pure_range_node(node: Dict[str, Any]) -> bool:
         True
         >>> is_pure_range_node({"_range_": [1, 10], "count": 5})
         True
-        >>> is_pure_range_node({"_range_": [1, 10], "size": 2})
+        >>> is_pure_range_node({"_range_": [1, 10], "pick": 2})
         False
     """
     if not isinstance(node, dict):
@@ -253,7 +251,7 @@ def has_range_keyword(node: Dict[str, Any]) -> bool:
 def extract_modifiers(node: Dict[str, Any]) -> Dict[str, Any]:
     """Extract modifier values from a node.
 
-    Extracts all modifier keywords (size, count, _seed_, _weights_, _exclude_)
+    Extracts all modifier keywords (count, _seed_, _weights_, pick, arrange, etc.)
     from a node and returns them as a dictionary.
 
     Args:
@@ -263,8 +261,8 @@ def extract_modifiers(node: Dict[str, Any]) -> Dict[str, Any]:
         A dictionary containing only the modifier key-value pairs found in the node.
 
     Examples:
-        >>> extract_modifiers({"_or_": ["A", "B"], "size": 2, "count": 1})
-        {"size": 2, "count": 1}
+        >>> extract_modifiers({"_or_": ["A", "B"], "pick": 2, "count": 1})
+        {"pick": 2, "count": 1}
         >>> extract_modifiers({"_or_": ["A", "B"]})
         {}
     """
@@ -285,7 +283,7 @@ def extract_base_node(node: Dict[str, Any]) -> Dict[str, Any]:
         A dictionary containing only the non-keyword key-value pairs.
 
     Examples:
-        >>> extract_base_node({"_or_": ["A", "B"], "class": "MyClass", "size": 2})
+        >>> extract_base_node({"_or_": ["A", "B"], "class": "MyClass", "pick": 2})
         {"class": "MyClass"}
         >>> extract_base_node({"class": "MyClass", "params": {"n": 5}})
         {"class": "MyClass", "params": {"n": 5}}

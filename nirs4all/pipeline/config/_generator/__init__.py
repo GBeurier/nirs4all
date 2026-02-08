@@ -2,7 +2,7 @@
 
 This package provides functionality for expanding pipeline configuration
 specifications into concrete pipeline variants. It handles combinatorial
-keywords (_or_, _range_, size, count, pick, arrange) and generates all
+keywords (_or_, _range_, count, pick, arrange) and generates all
 possible combinations.
 
 This is an internal package. The main API is exposed through the parent
@@ -12,7 +12,6 @@ Phase 2 Keywords:
 -----------------
 - _or_: Choice between alternatives
 - _range_: Numeric sequence generation
-- size: Number of items to select from choices (legacy, uses combinations)
 - pick: Unordered selection (combinations) - explicit intent
 - arrange: Ordered arrangement (permutations) - explicit intent
 - count: Limit number of generated variants
@@ -81,7 +80,6 @@ from .keywords import (
     CHAIN_KEYWORD,
     SAMPLE_KEYWORD,
     # Constants - Modifiers
-    SIZE_KEYWORD,
     COUNT_KEYWORD,
     SEED_KEYWORD,
     WEIGHTS_KEYWORD,
@@ -173,7 +171,6 @@ __all__ = [
     "CHAIN_KEYWORD",
     "SAMPLE_KEYWORD",
     # Keywords - Modifiers
-    "SIZE_KEYWORD",
     "COUNT_KEYWORD",
     "SEED_KEYWORD",
     "WEIGHTS_KEYWORD",

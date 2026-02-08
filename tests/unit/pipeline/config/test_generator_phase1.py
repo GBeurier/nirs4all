@@ -13,11 +13,11 @@ def test_basic_expand():
     assert result == ['A', 'B', 'C'], f"Expected ['A', 'B', 'C'], got {result}"
     print('PASS')
 
-def test_size():
-    """Test OR with size."""
-    print('=== Size test ===')
-    result = expand_spec({'_or_': ['A', 'B', 'C'], 'size': 2})
-    print(f'expand_spec with size=2: {result}')
+def test_pick():
+    """Test OR with pick."""
+    print('=== Pick test ===')
+    result = expand_spec({'_or_': ['A', 'B', 'C'], 'pick': 2})
+    print(f'expand_spec with pick=2: {result}')
     assert len(result) == 3, f"Expected 3 combinations, got {len(result)}"
     print('PASS')
 
@@ -70,8 +70,8 @@ def test_count_combinations():
     print(f'count for 3 choices: {count}')
     assert count == 3
 
-    count = count_combinations({'_or_': ['A', 'B', 'C'], 'size': 2})
-    print(f'count for 3 choices, size 2: {count}')
+    count = count_combinations({'_or_': ['A', 'B', 'C'], 'pick': 2})
+    print(f'count for 3 choices, pick 2: {count}')
     assert count == 3  # C(3,2) = 3
 
     count = count_combinations({'_range_': [1, 10]})
@@ -81,7 +81,7 @@ def test_count_combinations():
 
 if __name__ == '__main__':
     test_basic_expand()
-    test_size()
+    test_pick()
     test_range()
     test_keyword_constants()
     test_is_generator_node()

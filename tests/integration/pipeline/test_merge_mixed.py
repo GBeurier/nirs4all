@@ -35,11 +35,25 @@ from nirs4all.operators.transforms import (
 pytestmark = pytest.mark.sklearn
 
 
+def _make_runner(tmp_path) -> PipelineRunner:
+    """Create an xdist-safe PipelineRunner with isolated workspace."""
+    return PipelineRunner(
+        workspace_path=tmp_path / "workspace",
+        verbose=0,
+        save_artifacts=False,
+        log_file=False,
+    )
+
+
 def create_test_dataset(n_samples: int = 100, n_features: int = 50, seed: int = 42) -> SpectroDataset:
-    """Create a synthetic dataset for integration testing."""
-    np.random.seed(seed)
-    X = np.random.randn(n_samples, n_features)
-    y = np.sum(X[:, :5], axis=1) + np.random.randn(n_samples) * 0.1
+    """Create a synthetic dataset for integration testing.
+
+    Uses a local RNG (np.random.default_rng) instead of np.random.seed to
+    avoid global random state pollution across parallel xdist workers.
+    """
+    rng = np.random.default_rng(seed)
+    X = rng.standard_normal((n_samples, n_features))
+    y = np.sum(X[:, :5], axis=1) + rng.standard_normal(n_samples) * 0.1
 
     # Split into train/test (80/20)
     n_train = int(n_samples * 0.8)
@@ -56,7 +70,7 @@ def create_test_dataset(n_samples: int = 100, n_features: int = 50, seed: int = 
 class TestMixedFeaturesPredictions:
     """Test mixed merge: features from some branches, predictions from others."""
 
-    def test_mixed_predictions_branch0_features_branch1(self):
+    def test_mixed_predictions_branch0_features_branch1(self, tmp_path):
         """Test merging predictions from branch 0, features from branch 1."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -73,7 +87,7 @@ class TestMixedFeaturesPredictions:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_mixed_pred0_feat1"),
             dataset
@@ -82,7 +96,7 @@ class TestMixedFeaturesPredictions:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_mixed_features_branch0_predictions_branch1(self):
+    def test_mixed_features_branch0_predictions_branch1(self, tmp_path):
         """Test merging features from branch 0, predictions from branch 1."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -99,7 +113,7 @@ class TestMixedFeaturesPredictions:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_mixed_feat0_pred1"),
             dataset
@@ -108,7 +122,7 @@ class TestMixedFeaturesPredictions:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_mixed_three_branches(self):
+    def test_mixed_three_branches(self, tmp_path):
         """Test mixed merge with 3 branches: predictions from 0, features from 1 and 2."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -126,7 +140,7 @@ class TestMixedFeaturesPredictions:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_mixed_3branch"),
             dataset
@@ -135,7 +149,7 @@ class TestMixedFeaturesPredictions:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_mixed_multiple_predictions_single_features(self):
+    def test_mixed_multiple_predictions_single_features(self, tmp_path):
         """Test mixed merge with predictions from multiple branches, features from one."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -153,7 +167,7 @@ class TestMixedFeaturesPredictions:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_mixed_multi_pred"),
             dataset
@@ -166,7 +180,7 @@ class TestMixedFeaturesPredictions:
 class TestMixedWithPerBranchConfig:
     """Test mixed merge combined with per-branch prediction configuration."""
 
-    def test_mixed_with_best_selection(self):
+    def test_mixed_with_best_selection(self, tmp_path):
         """Test mixed merge with 'best' model selection for predictions."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -188,7 +202,7 @@ class TestMixedWithPerBranchConfig:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_mixed_best_selection"),
             dataset
@@ -197,7 +211,7 @@ class TestMixedWithPerBranchConfig:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_mixed_with_aggregation(self):
+    def test_mixed_with_aggregation(self, tmp_path):
         """Test mixed merge with mean aggregation for predictions."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -218,7 +232,7 @@ class TestMixedWithPerBranchConfig:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_mixed_aggregation"),
             dataset
@@ -231,7 +245,7 @@ class TestMixedWithPerBranchConfig:
 class TestAsymmetricBranches:
     """Test asymmetric branch scenarios (models in some, not others)."""
 
-    def test_asymmetric_error_without_mixed_merge(self):
+    def test_asymmetric_error_without_mixed_merge(self, tmp_path):
         """Test that requesting predictions from branch without models raises informative error."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -245,7 +259,7 @@ class TestAsymmetricBranches:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
 
         # Should raise an error about missing predictions with resolution suggestion
         with pytest.raises(RuntimeError) as exc_info:
@@ -258,7 +272,7 @@ class TestAsymmetricBranches:
         error_msg = str(exc_info.value)
         assert "MERGE-E010" in error_msg or "MERGE-E011" in error_msg
 
-    def test_asymmetric_resolved_with_mixed_merge(self):
+    def test_asymmetric_resolved_with_mixed_merge(self, tmp_path):
         """Test that asymmetric branches work correctly with mixed merge."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -275,7 +289,7 @@ class TestAsymmetricBranches:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_asymmetric_resolved"),
             dataset
@@ -294,7 +308,7 @@ class TestDifferentFeatureDimensions:
     No on_shape_mismatch configuration is needed.
     """
 
-    def test_different_pca_dimensions(self):
+    def test_different_pca_dimensions(self, tmp_path):
         """Test merging features from branches with different PCA dimensions.
 
         Branch 0 produces 10 features, Branch 1 produces 30 features.
@@ -312,7 +326,7 @@ class TestDifferentFeatureDimensions:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_diff_pca_dims"),
             dataset
@@ -321,7 +335,7 @@ class TestDifferentFeatureDimensions:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_different_dims_without_shape_mismatch_config(self):
+    def test_different_dims_without_shape_mismatch_config(self, tmp_path):
         """Test that different dimensions work without any on_shape_mismatch config.
 
         In 2D layout (default), on_shape_mismatch has no effect - features are
@@ -339,7 +353,7 @@ class TestDifferentFeatureDimensions:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_allow_shape_mismatch"),
             dataset
@@ -352,7 +366,7 @@ class TestDifferentFeatureDimensions:
 class TestDifferentModelCounts:
     """Test branches with different numbers of models."""
 
-    def test_asymmetric_model_counts(self):
+    def test_asymmetric_model_counts(self, tmp_path):
         """Test merging predictions from branches with different model counts."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -374,7 +388,7 @@ class TestDifferentModelCounts:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_asymmetric_model_counts"),
             dataset
@@ -383,7 +397,7 @@ class TestDifferentModelCounts:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_asymmetric_model_counts_with_aggregation(self):
+    def test_asymmetric_model_counts_with_aggregation(self, tmp_path):
         """Test different aggregation strategies for branches with different model counts."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -410,7 +424,7 @@ class TestDifferentModelCounts:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_asymmetric_counts_agg"),
             dataset
@@ -423,7 +437,7 @@ class TestDifferentModelCounts:
 class TestMixedWithIncludeOriginal:
     """Test mixed merge with include_original flag."""
 
-    def test_mixed_with_original_features(self):
+    def test_mixed_with_original_features(self, tmp_path):
         """Test mixed merge including original pre-branch features."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -441,7 +455,7 @@ class TestMixedWithIncludeOriginal:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_mixed_with_original"),
             dataset
@@ -454,7 +468,7 @@ class TestMixedWithIncludeOriginal:
 class TestComplexAsymmetricScenarios:
     """Test complex real-world asymmetric scenarios."""
 
-    def test_spectral_plus_features_pipeline(self):
+    def test_spectral_plus_features_pipeline(self, tmp_path):
         """Test scenario: spectral models + feature extraction.
 
         Scenario:
@@ -486,7 +500,7 @@ class TestComplexAsymmetricScenarios:
             {"model": Ridge(alpha=0.5)}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_spectral_plus_features"),
             dataset
@@ -495,7 +509,7 @@ class TestComplexAsymmetricScenarios:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_ensemble_path_vs_feature_path(self):
+    def test_ensemble_path_vs_feature_path(self, tmp_path):
         """Test scenario: ensemble models vs feature engineering.
 
         Scenario:
@@ -526,7 +540,7 @@ class TestComplexAsymmetricScenarios:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_ensemble_vs_features"),
             dataset
@@ -539,7 +553,7 @@ class TestComplexAsymmetricScenarios:
 class TestMixedMergeOnMissing:
     """Test on_missing handling with mixed merge."""
 
-    def test_mixed_on_missing_skip(self):
+    def test_mixed_on_missing_skip(self, tmp_path):
         """Test that on_missing='skip' works with mixed merge."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -557,7 +571,7 @@ class TestMixedMergeOnMissing:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = _make_runner(tmp_path)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_mixed_on_missing_skip"),
             dataset
@@ -566,7 +580,7 @@ class TestMixedMergeOnMissing:
         # Should complete (branch 1 predictions skipped)
         assert predictions is not None
 
-    def test_mixed_on_missing_warn(self):
+    def test_mixed_on_missing_warn(self, tmp_path):
         """Test that on_missing='warn' logs warnings with mixed merge."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -583,7 +597,12 @@ class TestMixedMergeOnMissing:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(verbose=1, save_artifacts=False)
+        runner = PipelineRunner(
+            workspace_path=tmp_path / "workspace",
+            verbose=1,
+            save_artifacts=False,
+            log_file=False,
+        )
 
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")

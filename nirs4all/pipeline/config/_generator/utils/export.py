@@ -269,7 +269,7 @@ def get_expansion_tree(
     from ..keywords import (
         OR_KEYWORD, RANGE_KEYWORD, LOG_RANGE_KEYWORD,
         GRID_KEYWORD, ZIP_KEYWORD, CHAIN_KEYWORD, SAMPLE_KEYWORD,
-        SIZE_KEYWORD, PICK_KEYWORD, ARRANGE_KEYWORD
+        PICK_KEYWORD, ARRANGE_KEYWORD
     )
     # Late import to avoid circular dependency
     from ..core import count_combinations
@@ -292,7 +292,7 @@ def get_expansion_tree(
     # Check for generator keywords
     if OR_KEYWORD in spec:
         choices = spec[OR_KEYWORD]
-        size = spec.get(SIZE_KEYWORD) or spec.get(PICK_KEYWORD) or spec.get(ARRANGE_KEYWORD)
+        selection = spec.get(PICK_KEYWORD) or spec.get(ARRANGE_KEYWORD)
 
         children = []
         for i, choice in enumerate(choices):
@@ -300,8 +300,8 @@ def get_expansion_tree(
             children.append(child)
 
         details = {"choices": len(choices)}
-        if size:
-            details["size"] = size
+        if selection:
+            details["selection"] = selection
 
         return ExpansionTreeNode(
             key=key,

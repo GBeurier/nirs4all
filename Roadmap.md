@@ -1,7 +1,8 @@
 ## ROADMAP
 
-[Tests] Remove legacy tests.
 [Docs] Updated
+
+[Logs] Ensure log and top with final result
 
 **RELEASE** 0.7.1 - Ready for UI dev
 
@@ -18,6 +19,7 @@
 **RELEASE** (webapp 0.1.0) - 0.8.0 UI compliant
 
 ## FEATURES
+> [multivariate]
 
 > [Transfer] Partial layers retraining
 

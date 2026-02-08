@@ -371,7 +371,7 @@ Pipeline definition accepts multiple formats:
 # Path to YAML/JSON config
 "configs/my_pipeline.yaml"
 
-# PipelineConfigs object (backward compat)
+# PipelineConfigs object
 PipelineConfigs(steps, name="...")
 
 # List of pipelines (batch execution)
@@ -396,7 +396,7 @@ X  # y inferred as None
 # SpectroDataset instance
 SpectroDataset(...)
 
-# DatasetConfigs object (backward compat)
+# DatasetConfigs object
 DatasetConfigs("path")
 
 # List of datasets (batch execution)

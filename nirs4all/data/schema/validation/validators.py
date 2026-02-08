@@ -186,8 +186,8 @@ class ConfigValidator:
         if (has_train_x or has_test_x) and (has_files or has_sources):
             warnings.append(ValidationWarning(
                 code="MIXED_FORMAT",
-                message="Both legacy (train_x/test_x) and new format (files/sources) detected. "
-                        "Legacy format will take precedence."
+                message="Both train_x/test_x and files/sources detected. "
+                        "Use one format consistently."
             ))
 
         # Validate multi-source consistency

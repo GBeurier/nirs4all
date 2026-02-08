@@ -425,7 +425,7 @@ class PipelineRunner:
 
         Example:
             >>> runner = PipelineRunner()
-            >>> predictions, _ = runner.run(pipeline, DatasetConfigs(path, aggregate='sample_id'))
+            >>> predictions, _ = runner.run(pipeline, DatasetConfigs({"train_x": path, "aggregate": "sample_id"}))
             >>> # Create analyzer with same aggregate setting
             >>> analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
         """

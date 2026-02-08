@@ -8,7 +8,6 @@ name resolution, loader calls, and caching to avoid reloading the same dataset.
 import copy
 import json
 import hashlib
-import warnings
 from typing import List, Union, Dict, Any, Optional
 
 from nirs4all.core.logging import get_logger
@@ -28,7 +27,6 @@ class DatasetConfigs:
         task_type: Union[str, List[str]] = "auto",
         signal_type: Union[SignalTypeInput, List[SignalTypeInput], None] = None,
         repetition: Union[str, List[Optional[str]], None] = None,
-        aggregate: Union[str, bool, List[Union[str, bool, None]], None] = None,
         aggregate_method: Union[str, List[str], None] = None,
         aggregate_exclude_outliers: Union[bool, List[bool], None] = None
     ):
@@ -70,16 +68,6 @@ class DatasetConfigs:
                 When set, splits will automatically group by this column to prevent
                 data leakage. This is the preferred way to handle repeated measurements.
 
-            aggregate: DEPRECATED - Use 'repetition' instead.
-                Sample aggregation setting for prediction aggregation.
-                When set, predictions from multiple spectra of the same biological
-                sample will be aggregated automatically during scoring and reporting.
-                - None (default): No aggregation
-                - True: Aggregate by y_true values (target grouping)
-                - str: Aggregate by specified metadata column (e.g., 'sample_id', 'ID')
-                - list: Per-dataset aggregation settings (must match number of datasets)
-                Note: Constructor parameter overrides config dict value (except None).
-
             aggregate_method: Aggregation method for combining predictions.
                 - None (default): Use 'mean' for regression, 'vote' for classification
                 - 'mean': Average predictions within each group
@@ -98,8 +86,8 @@ class DatasetConfigs:
             # Via config dict (preferred for per-source control):
             config = {
                 "train_x": "/path/to/data.csv",
-                "task_type": "regression",  # Can be set directly in config
-                "aggregate": "sample_id",  # Aggregate predictions by this column
+                "task_type": "regression",
+                "repetition": "sample_id",
                 "train_x_params": {
                     "header_unit": "nm",
                     "signal_type": "reflectance",
@@ -111,7 +99,7 @@ class DatasetConfigs:
             # Or via constructor parameter (overrides config):
             configs = DatasetConfigs("/path/to/folder", task_type="regression")
             configs = DatasetConfigs("/path/to/folder", signal_type="absorbance")
-            configs = DatasetConfigs("/path/to/folder", aggregate="sample_id")
+            configs = DatasetConfigs("/path/to/folder", repetition="sample_id")
         '''
         user_configs = configurations if isinstance(configurations, list) else [configurations]
         self.configs = []
@@ -146,32 +134,6 @@ class DatasetConfigs:
                 self._config_repetitions.append(config_repetition)
             else:
                 logger.error(f"Skipping invalid dataset config: {config}")
-
-        # Handle repetition and aggregate (backward compatibility)
-        # If aggregate is provided but repetition is not, use aggregate as repetition
-        if aggregate is not None and repetition is None:
-            # Issue deprecation warning for aggregate usage
-            if isinstance(aggregate, str):
-                warnings.warn(
-                    "The 'aggregate' parameter is deprecated for specifying repetition grouping. "
-                    "Use 'repetition' instead: DatasetConfigs(..., repetition='{}').".format(aggregate),
-                    DeprecationWarning,
-                    stacklevel=2
-                )
-                # Use aggregate as repetition if it's a string column name
-                repetition = aggregate
-            elif isinstance(aggregate, list):
-                # Check if any element is a string that could be a repetition column
-                has_string_aggregates = any(isinstance(a, str) for a in aggregate if a is not None)
-                if has_string_aggregates:
-                    warnings.warn(
-                        "The 'aggregate' parameter is deprecated for specifying repetition grouping. "
-                        "Use 'repetition' instead.",
-                        DeprecationWarning,
-                        stacklevel=2
-                    )
-                    # Convert string aggregates to repetition values
-                    repetition = [a if isinstance(a, str) else None for a in aggregate]
 
         self.max_cache_bytes: int = 2 * 1024 ** 3  # 2 GB default
         self.cache: Dict[str, Any] = {}
@@ -220,26 +182,8 @@ class DatasetConfigs:
                 for st in signal_type
             ]
 
-        # Normalize aggregate to a list matching configs length
-        # Priority: constructor parameter > config dict > None
-        if aggregate is None:
-            # Use config-level aggregate if available, otherwise None
-            self._aggregates: List[Optional[Union[str, bool]]] = list(self._config_aggregates)
-        elif isinstance(aggregate, (str, bool)):
-            # Constructor parameter overrides config for all datasets
-            self._aggregates = [aggregate] * len(self.configs)
-        else:
-            # List of per-dataset aggregate settings
-            if len(aggregate) != len(self.configs):
-                raise ValueError(
-                    f"aggregate list length ({len(aggregate)}) must match "
-                    f"number of datasets ({len(self.configs)})"
-                )
-            # Per-dataset: constructor parameter overrides config when not None
-            self._aggregates = [
-                agg if agg is not None else self._config_aggregates[i]
-                for i, agg in enumerate(aggregate)
-            ]
+        # Use config-level aggregate if available, otherwise None
+        self._aggregates: List[Optional[Union[str, bool]]] = list(self._config_aggregates)
 
         # Normalize aggregate_method to a list matching configs length
         if aggregate_method is None:

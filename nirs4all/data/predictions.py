@@ -493,12 +493,7 @@ class Predictions:
         repetition_method: str | None = None,
         repetition_exclude_outliers: bool = False,
         group_by: str | list[str] | None = None,
-        best_per_model: bool = False,
         return_grouped: bool = False,
-        # Deprecated aliases (kept for backward compatibility)
-        aggregate: str | None = None,
-        aggregate_method: str | None = None,
-        aggregate_exclude_outliers: bool = False,
         **filters: Any,
     ) -> PredictionResultsList | dict[tuple, PredictionResultsList]:
         """Get top *n* predictions ranked by a metric.
@@ -529,53 +524,17 @@ class Predictions:
             repetition_exclude_outliers: If ``True``, exclude outlier
                 measurements before aggregating within each group.
             group_by: Group predictions by column(s) for ranking.
-            best_per_model: **Deprecated** -- use ``group_by=['model_name']``.
             return_grouped: Return dict of group->results.
-            aggregate: **Deprecated** -- use ``by_repetition`` instead.
-            aggregate_method: **Deprecated** -- use ``repetition_method`` instead.
-            aggregate_exclude_outliers: **Deprecated** -- use
-                ``repetition_exclude_outliers`` instead.
             **filters: Additional filter criteria.
 
         Returns:
             ``PredictionResultsList`` or grouped dict.
         """
-        # Handle deprecated parameter aliases
+        # Resolve by_repetition=True from dataset context
         effective_by_repetition = by_repetition
         effective_repetition_method = repetition_method
         effective_repetition_exclude_outliers = repetition_exclude_outliers
 
-        if aggregate is not None:
-            warnings.warn(
-                "'aggregate' is deprecated and will be removed in a future version. "
-                "Use 'by_repetition' instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            if effective_by_repetition is None:
-                effective_by_repetition = aggregate
-
-        if aggregate_method is not None:
-            warnings.warn(
-                "'aggregate_method' is deprecated and will be removed in a future version. "
-                "Use 'repetition_method' instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            if effective_repetition_method is None:
-                effective_repetition_method = aggregate_method
-
-        if aggregate_exclude_outliers:
-            warnings.warn(
-                "'aggregate_exclude_outliers' is deprecated and will be removed in a future version. "
-                "Use 'repetition_exclude_outliers' instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            if not effective_repetition_exclude_outliers:
-                effective_repetition_exclude_outliers = aggregate_exclude_outliers
-
-        # Resolve by_repetition=True from dataset context
         if effective_by_repetition is True:
             if self._dataset_repetition is None:
                 warnings.warn(
@@ -588,7 +547,7 @@ class Predictions:
                 effective_by_repetition = None
             else:
                 effective_by_repetition = self._dataset_repetition
-        # Strip non-filter kwargs that callers may pass (backward compat)
+        # Strip non-filter kwargs that callers may pass
         _ = filters.pop("partition", None)
         _ = filters.pop("load_arrays", None)
         _ = filters.pop("higher_is_better", None)
@@ -597,25 +556,6 @@ class Predictions:
         _ = filters.pop("aggregate_partitions", None)
         _ = filters.pop("ascending", None)
         _ = filters.pop("group_by_fold", None)
-        _ = filters.pop("aggregate", None)
-
-        # Handle legacy ``metric`` kwarg (some callers pass top(1, metric="test_score"))
-        if "metric" in filters:
-            if not rank_metric:
-                rank_metric = filters.pop("metric")
-            else:
-                _ = filters.pop("metric")
-
-        # Handle display_metric (singular) backward compat
-        if "display_metric" in filters:
-            val = filters.pop("display_metric")
-            if isinstance(val, list):
-                display_metrics = val
-            elif isinstance(val, str):
-                display_metrics = [val]
-
-        if "display_metrics" in filters:
-            display_metrics = filters.pop("display_metrics")
 
         # Work from the in-memory buffer
         candidates = [dict(r) for r in self._buffer]
@@ -662,18 +602,7 @@ class Predictions:
         # Sort by rank_score
         candidates.sort(key=lambda r: r["rank_score"], reverse=not ascending)
 
-        # Handle deprecated best_per_model
         effective_group_by: list[str] | None = None
-        if best_per_model:
-            warnings.warn(
-                "best_per_model is deprecated and will be removed in a future version. "
-                "Use group_by=['model_name'] instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            if group_by is None:
-                effective_group_by = ["model_name"]
-
         if group_by is not None:
             effective_group_by = [group_by] if isinstance(group_by, str) else list(group_by)
 
@@ -845,10 +774,6 @@ class Predictions:
         by_repetition: bool | str | None = None,
         repetition_method: str | None = None,
         repetition_exclude_outliers: bool = False,
-        # Deprecated aliases (kept for backward compatibility)
-        aggregate: str | None = None,
-        aggregate_method: str | None = None,
-        aggregate_exclude_outliers: bool = False,
         **filters: Any,
     ) -> PredictionResult | None:
         """Get the best prediction for a specific metric.
@@ -866,10 +791,6 @@ class Predictions:
                 - ``False``/``None`` (default): No aggregation.
             repetition_method: Aggregation method (``"mean"``, ``"median"``, ``"vote"``).
             repetition_exclude_outliers: Exclude outliers before aggregation.
-            aggregate: **Deprecated** -- use ``by_repetition`` instead.
-            aggregate_method: **Deprecated** -- use ``repetition_method`` instead.
-            aggregate_exclude_outliers: **Deprecated** -- use
-                ``repetition_exclude_outliers`` instead.
             **filters: Additional filter criteria.
 
         Returns:
@@ -884,9 +805,6 @@ class Predictions:
             by_repetition=by_repetition,
             repetition_method=repetition_method,
             repetition_exclude_outliers=repetition_exclude_outliers,
-            aggregate=aggregate,
-            aggregate_method=aggregate_method,
-            aggregate_exclude_outliers=aggregate_exclude_outliers,
             **filters,
         )
         # Fallback to test partition
@@ -900,9 +818,6 @@ class Predictions:
                 by_repetition=by_repetition,
                 repetition_method=repetition_method,
                 repetition_exclude_outliers=repetition_exclude_outliers,
-                aggregate=aggregate,
-                aggregate_method=aggregate_method,
-                aggregate_exclude_outliers=aggregate_exclude_outliers,
                 **filters,
             )
         return results[0] if results else None

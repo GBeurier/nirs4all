@@ -1,7 +1,7 @@
 """Generator module for pipeline configuration expansion.
 
 This module expands pipeline configuration specifications into concrete
-pipeline variants. It handles combinatorial keywords (_or_, _range_, size,
+pipeline variants. It handles combinatorial keywords (_or_, _range_,
 count, pick, arrange) and generates all possible combinations.
 
 This is the public API module. The implementation is in the _generator
@@ -15,7 +15,6 @@ Main Functions:
 Keywords:
     _or_: Choice between alternatives
     _range_: Numeric sequence generation
-    size: Number of items to select (legacy, uses combinations)
     pick: Unordered selection (combinations) - explicit intent
     arrange: Ordered arrangement (permutations) - explicit intent
     then_pick: Second-order combination selection
@@ -118,7 +117,6 @@ from ._generator.keywords import (  # noqa: F401
     SAMPLE_KEYWORD,
     CARTESIAN_KEYWORD,
     # Modifier keywords
-    SIZE_KEYWORD,
     COUNT_KEYWORD,
     SEED_KEYWORD,
     WEIGHTS_KEYWORD,
@@ -267,7 +265,6 @@ __all__ = [
     "SAMPLE_KEYWORD",
     "CARTESIAN_KEYWORD",
     # Modifier keyword constants
-    "SIZE_KEYWORD",
     "COUNT_KEYWORD",
     "SEED_KEYWORD",
     "WEIGHTS_KEYWORD",

@@ -90,7 +90,7 @@ class PredictionAnalyzer:
         >>>
         >>> # With default aggregation from dataset config
         >>> runner = PipelineRunner()
-        >>> predictions, _ = runner.run(pipeline, DatasetConfigs(path, aggregate='sample_id'))
+        >>> predictions, _ = runner.run(pipeline, DatasetConfigs({"train_x": path, "aggregate": "sample_id"}))
         >>> analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
         >>> # All plots now use sample_id aggregation by default
         >>> fig = analyzer.plot_top_k(k=5)  # Aggregated automatically
@@ -131,7 +131,7 @@ class PredictionAnalyzer:
         Example:
             >>> # With default aggregation from dataset config
             >>> runner = PipelineRunner()
-            >>> predictions, _ = runner.run(pipeline, DatasetConfigs(path, aggregate='sample_id'))
+            >>> predictions, _ = runner.run(pipeline, DatasetConfigs({"train_x": path, "aggregate": "sample_id"}))
             >>> analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
             >>> # All plots now use sample_id aggregation by default
             >>> fig = analyzer.plot_top_k(k=5)  # Aggregated
@@ -1455,7 +1455,7 @@ class PredictionAnalyzer:
             partition: Partition for metrics (default: 'test').
             figsize: Figure size tuple (default: auto-computed).
             title: Optional title for the diagram.
-            config: Additional configuration dict for BranchDiagram.
+            config: Additional configuration dict for PipelineDiagram.
 
         Returns:
             matplotlib Figure with branch DAG diagram.
@@ -1468,17 +1468,15 @@ class PredictionAnalyzer:
             ...     partition='val'
             ... )
         """
-        from nirs4all.visualization.branch_diagram import BranchDiagram
+        from nirs4all.visualization.pipeline_diagram import PipelineDiagram
 
         if metric is None:
             metric = self._get_default_metric()
 
         cfg = config or {}
-        diagram = BranchDiagram(self.predictions, config=cfg)
+        diagram = PipelineDiagram(pipeline_steps=None, predictions=self.predictions, config=cfg)
         fig = diagram.render(
-            show_metrics=show_metrics,
-            metric=metric,
-            partition=partition,
+            show_shapes=show_metrics,
             figsize=figsize,
             title=title,
         )

@@ -2194,8 +2194,3 @@ def plot_pipeline_diagram(
         title=title,
         initial_shape=initial_shape,
     )
-
-
-# Backward compatibility alias
-BranchDiagram = PipelineDiagram
-plot_branch_diagram = plot_pipeline_diagram
