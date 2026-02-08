@@ -5,6 +5,91 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - Caching, Workspace Store & Refit Improvements - 2026-02-08
+
+### ✨ New Features
+
+#### Copy-on-Write Caching Mechanism
+- **Step-level cache** (`StepCache`): Cache and restore dataset state between pipeline steps to avoid redundant recomputation
+- **Copy-on-write `ArrayStorage`**: Block-based shared memory with automatic detach-on-write for efficient dataset cloning
+- **Cache configuration** (`CacheConfig`): New centralized cache configuration dataclass
+- **Memory estimation utilities** (`nirs4all.utils.memory`): Accurate byte-level memory estimation for datasets and cache entries
+
+#### Pipeline Refit System
+- **`RefitExecutor`**: Full refit pipeline for retraining best models on the entire dataset
+- **`ModelSelector`**: Select best model configurations from completed runs
+- **`ConfigExtractor`**: Extract pipeline configurations for refit execution
+- **`StackingRefitExecutor`**: Specialized refit support for stacking/meta-model pipelines
+- **`RefitParams`**: Configuration dataclass for refit behavior
+
+#### Pipeline Topology Analysis
+- **New `nirs4all.pipeline.analysis.topology` module**: Analyze pipeline structure including stacking detection, branch separation, and feature merge identification
+- **Pattern detection**: Identify stacking, separation branches, and feature merges in pipeline definitions
+
+#### WorkspaceStore Enhancements
+- **Thread-safe database access**: Concurrent DuckDB access with proper locking
+- **Aggregated predictions view** (`v_aggregated_predictions`): New database view aggregating prediction metrics across folds
+- **Enhanced query system**: New queries for aggregated predictions, chain predictions, and top aggregated predictions with metric-aware ranking
+- **Prediction array retrieval**: Direct access to prediction arrays from the store
+- **Artifact query service** (`QueryService`): Centralized artifact querying with filtering and sorting
+
+#### Hashing Utilities
+- **`nirs4all.utils.hashing`**: New module for deterministic data content hashing
+- **`SpectroDataset.content_hash()`**: Compute content-based hash for dataset change detection without unnecessary materialization
+
+### 🔧 Improvements
+
+#### Pipeline Execution
+- **Enhanced `PipelineExecutor`**: Improved artifact management and prediction safety
+- **Enhanced `PipelineOrchestrator`**: Explicit workspace path requirements, improved run tracking
+- **Prediction resolver**: Deterministic resolution modes for consistent prediction handling
+
+#### Model Training & Validation
+- **Enhanced model training logic**: Improved validation score calculation and dataset handling
+- **Refined splitter functionality**: Better cross-validation splitting behavior
+- **Controller improvements**: Enhanced `TransformerMixinController` with extended step cache support
+
+#### Storage & Artifacts
+- **Enhanced `ArtifactRegistry`**: Content verification against full hashes
+- **Enhanced `ArtifactLoader`**: Improved step index handling and artifact loading behavior
+- **Schema improvements**: Updated store schema with new views and idempotent creation
+
+#### CI/CD
+- **Parallel pytest execution**: Enhanced CI workflows with parallel test execution support
+- **Parallel CI example runner**: Job control and improved output validation in `run_ci_examples.sh`
+- **Optimized example parameters**: Reduced computational load in CI examples for faster execution
+
+### 📚 Documentation
+
+- **Cache optimization guide**: New section in pipelines user guide
+- **Session API documentation**: Detailed guide for stateful workflows
+- **SpectroDataset cache investigation**: Comprehensive analysis of caching mechanisms and memory management strategy
+- **Technical debt review**: Prioritized debt analysis for workspace/predictions/artifacts
+- **Enhanced user guides**: Added related examples across preprocessing, visualization, merging, multi-source, and stacking docs
+
+### 🧪 Testing
+
+- **Pipeline executor regression tests**: Execution and prediction flushing coverage
+- **Pipeline orchestrator tests**: Explicit workspace path requirement enforcement
+- **Pipeline topology analysis tests**: Stacking, separation branches, and feature merge patterns
+- **Execution phase and hashing tests**: Deterministic behavior verification
+- **OOF prediction accumulation tests**: Correct averaging across validation folds
+- **WorkspaceStore tests**: Chain replay, prediction upsert, artifact registration, method signature validation
+- **Prediction resolver tests**: Determinism and resolution mode coverage
+- **Step cache tests**: Cached state restoration, data integrity, statistics accuracy
+- **Content hash tests**: Hash consistency on mutations
+- **Memory estimation tests**: Accurate byte calculations for datasets and cache entries
+- **Refit and run entity tests**: Transition validation and metric comparison
+
+### 🗑️ Removed
+
+- **`csv_loader.py`**: Removed deprecated CSV loader
+- **`lazy_loader.py`**: Removed deprecated lazy loading module
+- **`io.py`**: Removed deprecated data I/O module
+- **Generator constraint/strategy files**: Removed unused generator constraint and strategy registry modules
+
+---
+
 ## [0.7.0] - Major Architecture & Operator Overhaul - 2026-02-05
 
 > **⚠️ Documentation Notice:** Due to the extensive scope of this release, some documentation may be temporarily incomplete or out of sync. Updates are in progress.
