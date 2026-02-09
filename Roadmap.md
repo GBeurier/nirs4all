@@ -1,11 +1,5 @@
 ## ROADMAP
 
-[Docs] Updated
-
-> [Optuna] Integrate complex params setters: Stack (sklearn stacking model), Nested_dict (TABPFN inference params)
-> [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs, review the syntax
-> [Optuna] Allow complex scenarios (random X trials then TPE X trials)
-> [Optuna] Allow sampling on training params not only finetune/model params
 
 **RELEASE** 0.7.1 - Ready for UI dev
 
@@ -22,6 +16,8 @@
 **RELEASE** (webapp 0.1.0) - 0.8.0 UI compliant
 
 ## FEATURES
+> [Docs] Updated
+
 > [multivariate]
 
 > [Transfer] Partial layers retraining
@@ -37,11 +33,13 @@
 
 > [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
 
-> [HuggingFace] Huggingface controller ?
-
 > [Operators] add NorrisWilliams, Whittaker, BandEnergies, FiniteDiffCentral transformermixin
 
 > [Aggregation] Outlier dedicated exclusion T² (MAD already implemented, add Hotelling T²)
+
+> [Analysis] t-sne
+
+> [HuggingFace] Huggingface controller ?
 
 > [CSV] Authorize vertical index (col 1 header - vertical header) in csv
 
@@ -54,8 +52,6 @@
 > [Analyses] Cf. Observers - Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline. Choose a default functionning for raw_pp and XXX_pp dedicated to data transformation analysis
 
 > [Dummy_Controller] remove totally and manage exceptions
-
-> [Analysis] t-sne
 
 > [Transfer] Automate model transfer across machines
 

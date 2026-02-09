@@ -21,7 +21,7 @@ from joblib import Parallel, delayed
 import multiprocessing
 
 from nirs4all.controllers.controller import OperatorController
-from ...optimization.optuna import OptunaManager
+from ...optimization.optuna import OptunaManager, FinetuneResult
 from nirs4all.core.exceptions import NAError
 from nirs4all.data.predictions import Predictions
 from nirs4all.data.ensemble_utils import EnsembleUtils
@@ -175,16 +175,25 @@ class BaseModelController(OperatorController, ABC):
         pass
 
     @abstractmethod
-    def _evaluate_model(self, model: Any, X_val: Any, y_val: Any) -> float:
+    def _evaluate_model(self, model: Any, X_val: Any, y_val: Any, metric: Optional[str] = None, direction: str = "minimize") -> float:
         """Evaluate model performance for hyperparameter optimization.
+
+        When ``metric`` is provided, uses ``nirs4all.core.metrics.eval()`` to
+        compute the named metric.  The Optuna study direction handles
+        minimize/maximize, so the raw metric value is returned.
+
+        When ``metric`` is None, falls back to legacy behavior (MSE for
+        regression, -balanced_accuracy for classification).
 
         Args:
             model: Trained model instance to evaluate.
             X_val: Validation features.
             y_val: Validation targets.
+            metric: Optional metric name (e.g. 'rmse', 'r2', 'accuracy').
+            direction: Optimization direction ('minimize' or 'maximize').
 
         Returns:
-            Validation score to minimize (e.g., RMSE, negative accuracy).
+            Metric value (raw when metric is specified, minimize-oriented when not).
         """
         pass
 
@@ -600,8 +609,9 @@ class BaseModelController(OperatorController, ABC):
             logger.debug(f"Model config: {model_config}")
 
         finetune_params = model_config.get('finetune_params')
+        is_refit = runtime_context.phase == ExecutionPhase.REFIT
 
-        if mode == "finetune" or (mode == "train" and finetune_params):
+        if not is_refit and (mode == "finetune" or (mode == "train" and finetune_params)):
              return self._execute_finetune(
                 dataset, model_config, context, runtime_context, prediction_store,
                 X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
@@ -635,12 +645,24 @@ class BaseModelController(OperatorController, ABC):
         if self.verbose > 0:
             logger.info("Starting finetuning...")
 
-        best_model_params = self.finetune(
+        finetune_result = self.finetune(
             dataset,
             model_config, X_train, y_train, X_test, y_test,
             folds, finetune_params, self.prediction_store, context, runtime_context
         )
+
+        # Extract best_params from FinetuneResult (or list of FinetuneResult for individual approach)
+        if isinstance(finetune_result, list):
+            best_model_params = [r.best_params for r in finetune_result]
+            optimization_summary = [r.to_summary_dict() for r in finetune_result]
+        else:
+            best_model_params = finetune_result.best_params
+            optimization_summary = finetune_result.to_summary_dict()
+
         logger.info(f"Best parameters: {best_model_params}")
+
+        # Store optimization summary in context for prediction payload
+        context.custom['optimization_summary'] = optimization_summary
 
         binaries = self.train(
             dataset, model_config, context, runtime_context, prediction_store,
@@ -694,11 +716,11 @@ class BaseModelController(OperatorController, ABC):
         predictions: Dict,
         context: 'ExecutionContext',
         runtime_context: 'RuntimeContext',
-    ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+    ) -> Union[FinetuneResult, List[FinetuneResult]]:
         """Optimize hyperparameters using Optuna.
 
         Delegates to OptunaManager for Bayesian hyperparameter optimization.
-        Returns optimized parameters that will be used in subsequent training.
+        Returns a FinetuneResult with best_params, trial history, and metrics.
 
         Args:
             dataset: SpectroDataset for optimization.
@@ -714,7 +736,7 @@ class BaseModelController(OperatorController, ABC):
             runtime_context: Runtime context.
 
         Returns:
-            Dictionary of optimized parameters (single model) or list of dicts (per-fold).
+            FinetuneResult (single model) or list of FinetuneResult (per-fold).
         """
         # Store dataset reference for model building
 
@@ -1143,7 +1165,7 @@ class BaseModelController(OperatorController, ABC):
             trained_model = model
         else:
             # Create new model for training
-            if mode == "finetune" and best_params is not None:
+            if best_params is not None:
                 if self.verbose > 0:
                     print(f"Training model {identifiers.name} with: {best_params}...")
                 model = self._get_model_instance(dataset, model_config, force_params=best_params)
@@ -2017,6 +2039,7 @@ class BaseModelController(OperatorController, ABC):
             'partitions': partitions,
             'partition_metadata': partition_metadata,
             'best_params': best_params if best_params else {},
+            'optimization_summary': context.custom.get('optimization_summary', {}),
             'branch_id': getattr(context.selector, 'branch_id', None),
             'branch_path': getattr(context.selector, 'branch_path', None) or None,
             'branch_name': getattr(context.selector, 'branch_name', None) or "",

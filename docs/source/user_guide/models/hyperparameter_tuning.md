@@ -7,9 +7,13 @@ Automatically optimize model hyperparameters using Optuna integration.
 nirs4all provides built-in hyperparameter optimization through **Optuna**, a state-of-the-art hyperparameter optimization framework. This allows you to automatically find the best model configuration without manual trial-and-error.
 
 Key features:
-- **Multiple search methods**: Grid search, random search, Bayesian optimization (TPE), CMA-ES, Hyperband
-- **Flexible parameter types**: Integer ranges, float ranges, categorical choices
+- **Multiple search methods**: Grid search, random search, Bayesian optimization (TPE), CMA-ES
+- **Flexible parameter types**: Integer ranges, float ranges, log-scale, categorical choices
 - **Tuning approaches**: Global search, per-preprocessing group, per-fold optimization
+- **Pruning**: Early termination of unpromising trials (median, successive halving, hyperband)
+- **Multi-phase search**: Exploration followed by exploitation
+- **Custom metrics**: Optimize for RMSE, R2, MAE, accuracy, etc.
+- **Reproducibility**: Seed support for deterministic results
 - **Seamless integration**: Works with any sklearn-compatible model
 
 ## Basic Usage
@@ -27,7 +31,7 @@ pipeline = [
         "model": PLSRegression(),
         "finetune_params": {
             "n_trials": 20,
-            "sample": "tpe",
+            "sampler": "tpe",
             "model_params": {
                 "n_components": ('int', 1, 20),
             }
@@ -53,86 +57,118 @@ print(f"Best score: {result.best_score:.4f}")
     "model": SomeModel(),
     "finetune_params": {
         "n_trials": 20,              # Number of optimization trials
-        "sample": "tpe",             # Search method
+        "sampler": "tpe",            # Search method
         "verbose": 1,                # Logging verbosity (0, 1, or 2)
         "approach": "single",        # Tuning approach
-        "eval_mode": "best",         # For grouped: "best" or "avg"
+        "eval_mode": "best",         # For grouped: "best", "mean", "robust_best"
+        "seed": 42,                  # Reproducible optimization
+        "metric": "rmse",           # Metric to optimize (auto-infers direction)
+        "pruner": "median",          # Prune unpromising trials
         "model_params": {            # Parameters to optimize
             "param1": ('int', 1, 10),
             "param2": ('float', 0.01, 1.0),
             "param3": [True, False],
-        }
+        },
+        "train_params": {            # Training params (also sampable)
+            "epochs": ('int', 50, 300),
+            "verbose": 0,            # Static value (not sampled)
+        },
     }
 }
 ```
 
 ### Parameter Type Specifications
 
-#### Integer Range
+#### Tuple Format (Most Common)
+
 ```python
-"n_components": ('int', 1, 20)  # Integer from 1 to 20
+# Integer ranges
+"n_components": ('int', 1, 20)          # Uniform integer 1-20
+"n_estimators": ('int_log', 10, 1000)   # Log-uniform integer
+
+# Float ranges
+"learning_rate": ('float', 0.001, 0.1)      # Uniform float
+"alpha": ('float_log', 1e-4, 1e2)           # Log-uniform (for regularization)
+
+# Categorical choices
+"kernel": ['linear', 'rbf', 'poly']
+"scale": [True, False]
 ```
 
-#### Float Range
+#### Dict Format (Most Flexible)
+
 ```python
-"learning_rate": ('float', 0.001, 0.1)  # Float from 0.001 to 0.1
+# Integer with step
+"n_estimators": {'type': 'int', 'min': 10, 'max': 200, 'step': 10}
+
+# Integer with log scale
+"n_components": {'type': 'int', 'min': 1, 'max': 1000, 'log': True}
+
+# Float with log scale
+"learning_rate": {'type': 'float', 'min': 1e-5, 'max': 1e-1, 'log': True}
+
+# Categorical
+"max_depth": {'type': 'categorical', 'choices': [3, 5, 7, 10]}
 ```
 
-#### Categorical Choices
-```python
-"kernel": ['linear', 'rbf', 'poly']  # One of these values
-"scale": [True, False]               # Boolean choice
-```
-
-### Search Methods
+### Search Methods (Samplers)
 
 | Method | Description | Best For |
 |--------|-------------|----------|
-| `grid` | Exhaustive search over all combinations | Small parameter spaces |
+| `grid` | Exhaustive search over all combinations | Small categorical spaces |
 | `random` | Random sampling | Quick baseline, large spaces |
-| `tpe` | Tree-Parzen Estimator (Bayesian) | Medium to large spaces |
+| `tpe` | Tree-Parzen Estimator (Bayesian) | Medium to large spaces (default) |
 | `cmaes` | CMA Evolution Strategy | Continuous parameters |
-| `hyperband` | Successive halving with early stopping | Neural networks |
+| `auto` | Automatic selection based on parameter types | When unsure |
 
-#### Grid Search
-```python
-"finetune_params": {
-    "n_trials": 10,
-    "sample": "grid",
-    "model_params": {
-        "n_components": [5, 10, 15, 20],  # Categorical for grid
-    }
-}
-```
+### Pruning
 
-:::{note}
-Grid search requires categorical parameters (lists). Range specifications are
-automatically treated as continuous by TPE/random samplers.
-:::
+Pruners terminate unpromising trials early, saving computation time:
 
-#### Bayesian Optimization (TPE)
+| Pruner | Description |
+|--------|-------------|
+| `none` | No pruning (default) |
+| `median` | Prune if worse than median of completed trials |
+| `successive_halving` | Prune poorest fraction at each step |
+| `hyperband` | Adaptive resource allocation with early stopping |
+
 ```python
 "finetune_params": {
     "n_trials": 50,
-    "sample": "tpe",
+    "sampler": "tpe",
+    "pruner": "median",         # Enable pruning
+    "approach": "grouped",       # Pruning works with grouped approach
     "model_params": {
         "n_components": ('int', 1, 30),
-        "max_depth": ('int', 3, 15),
-        "learning_rate": ('float', 0.01, 0.3),
     }
 }
 ```
 
-#### Hyperband (Early Stopping)
+### Custom Metrics
+
+By default, finetuning minimizes MSE for regression or maximizes balanced accuracy for classification. Use `metric` to optimize for a different objective:
+
 ```python
+# Optimize for R2 (auto-infers direction=maximize)
 "finetune_params": {
-    "n_trials": 100,
-    "sample": "hyperband",
-    "model_params": {
-        "n_components": ('int', 1, 50),
-    }
+    "metric": "r2",
+    "model_params": {"alpha": ('float_log', 1e-4, 1e2)},
+}
+
+# Optimize for RMSE (auto-infers direction=minimize)
+"finetune_params": {
+    "metric": "rmse",
+    "model_params": {"n_components": ('int', 1, 20)},
 }
 ```
+
+Supported metrics and auto-inferred directions:
+
+| Metric | Direction | Task |
+|--------|-----------|------|
+| `mse`, `rmse`, `mae` | minimize | Regression |
+| `r2` | maximize | Regression |
+| `accuracy`, `balanced_accuracy`, `f1` | maximize | Classification |
 
 ### Tuning Approaches
 
@@ -148,7 +184,7 @@ Runs one optimization across all data:
 Optimizes separately for each preprocessing variant:
 ```python
 "approach": "grouped",
-"eval_mode": "best"  # or "avg"
+"eval_mode": "best"  # or "mean" or "robust_best"
 ```
 - **Balanced**: Each preprocessing gets its own optimal hyperparameters
 - **Use when**: Using `feature_augmentation` to compare preprocessings
@@ -161,16 +197,85 @@ Optimizes separately for each cross-validation fold:
 - **Most thorough**: Different hyperparameters per fold
 - **Use when**: Maximum customization, have computational budget
 
+## Advanced Features
+
+### Multi-Phase Optimization
+
+Run different samplers sequentially on a shared study. Phase 1 explores broadly, Phase 2 exploits promising regions:
+
+```python
+"finetune_params": {
+    "seed": 42,
+    "metric": "rmse",
+    "phases": [
+        {"n_trials": 50, "sampler": "random"},   # Broad exploration
+        {"n_trials": 100, "sampler": "tpe"},      # Focused exploitation
+    ],
+    "model_params": {
+        "alpha": ('float_log', 1e-4, 1e2),
+        "l1_ratio": ('float', 0.0, 1.0),
+    },
+}
+```
+
+### Force-Params (Seeding Known Configurations)
+
+Enqueue a known good configuration as trial 0 so the optimizer always evaluates your baseline first:
+
+```python
+"finetune_params": {
+    "n_trials": 50,
+    "sampler": "tpe",
+    "force_params": {"n_components": 5},
+    "model_params": {
+        "n_components": ('int', 1, 20),
+    },
+}
+```
+
+### Training Parameter Tuning
+
+For neural networks and other models with training parameters, use `train_params` to tune training configuration alongside model hyperparameters:
+
+```python
+"finetune_params": {
+    "n_trials": 30,
+    "sampler": "tpe",
+    "model_params": {
+        "filters_1": [8, 16, 32],
+        "dropout_rate": ('float', 0.1, 0.5),
+    },
+    "train_params": {
+        "epochs": ('int', 10, 100),      # Sampled by Optuna
+        "batch_size": [16, 32, 64],       # Sampled (categorical)
+        "verbose": 0,                     # Static value (not sampled)
+    },
+}
+```
+
+### Reproducibility
+
+Use `seed` for deterministic optimization results:
+
+```python
+"finetune_params": {
+    "n_trials": 50,
+    "sampler": "tpe",
+    "seed": 42,              # Same seed + data = same results
+    "model_params": {...},
+}
+```
+
 ## Combining with Preprocessing Search
 
 Combine `feature_augmentation` with hyperparameter tuning to find the best preprocessing + hyperparameter combination:
 
 ```python
-from nirs4all.operators.transforms import SNV, Detrend, FirstDerivative
+from nirs4all.operators.transforms import StandardNormalVariate, Detrend, FirstDerivative
 
 pipeline = [
     # Generate preprocessing variants
-    {"feature_augmentation": [SNV, Detrend, FirstDerivative], "action": "extend"},
+    {"feature_augmentation": [StandardNormalVariate, Detrend, FirstDerivative], "action": "extend"},
 
     ShuffleSplit(n_splits=3, random_state=42),
 
@@ -178,7 +283,7 @@ pipeline = [
         "model": PLSRegression(),
         "finetune_params": {
             "n_trials": 10,
-            "sample": "tpe",
+            "sampler": "tpe",
             "approach": "grouped",  # Optimize per preprocessing
             "model_params": {
                 "n_components": ('int', 1, 20),
@@ -198,7 +303,6 @@ nirs4all offers two approaches to hyperparameter exploration:
 Create multiple complete pipelines upfront:
 ```python
 pipeline = [
-    # Generates 10 separate pipelines
     {"model": PLSRegression(), "_range_": [1, 10], "param": "n_components"}
 ]
 ```
@@ -213,7 +317,7 @@ pipeline = [
         "model": PLSRegression(),
         "finetune_params": {
             "n_trials": 50,
-            "sample": "tpe",
+            "sampler": "tpe",
             "model_params": {"n_components": ('int', 1, 20)}
         }
     }
@@ -228,7 +332,7 @@ pipeline = [
 |----------|-------------|
 | Few parameters (< 10 combinations) | `_range_` / `_or_` |
 | Many parameters (> 50 combinations) | `finetune_params` |
-| Neural network epochs | `finetune_params` with `hyperband` |
+| Neural network architecture + training | `finetune_params` with `train_params` |
 | Reproducible benchmark | `_range_` / `_or_` |
 | Quick exploration | `finetune_params` with `random` |
 
@@ -254,75 +358,27 @@ analyzer.plot_top_k(k=10, rank_metric='rmse')
 analyzer.plot_heatmap(x_var="model_name", y_var="preprocessings", rank_metric='rmse')
 ```
 
-## Examples
-
-### Random Forest with Multiple Parameters
-
-```python
-from sklearn.ensemble import RandomForestRegressor
-
-pipeline = [
-    SNV(),
-    ShuffleSplit(n_splits=3, random_state=42),
-    {
-        "model": RandomForestRegressor(n_jobs=-1, random_state=42),
-        "finetune_params": {
-            "n_trials": 30,
-            "sample": "tpe",
-            "model_params": {
-                "n_estimators": [50, 100, 200],
-                "max_depth": ('int', 3, 15),
-                "min_samples_split": ('int', 2, 10),
-            }
-        }
-    }
-]
-```
-
-### Neural Network with Hyperband
-
-```python
-from nirs4all.operators.models.tensorflow.nicon import nicon
-
-pipeline = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=2, random_state=42),
-    {
-        "model": nicon,
-        "finetune_params": {
-            "n_trials": 50,
-            "sample": "hyperband",
-            "model_params": {
-                "filters1": [8, 16, 32],
-                "dropout_rate": ('float', 0.1, 0.5),
-            }
-        },
-        "train_params": {
-            "epochs": 100,
-            "verbose": 0
-        }
-    }
-]
-```
-
 ## Best Practices
 
-1. **Start small**: Begin with `n_trials=10` and `sample="random"` to establish a baseline
-2. **Use TPE for refinement**: Switch to `sample="tpe"` with more trials for fine-tuning
+1. **Start small**: Begin with `n_trials=10` and `sampler="random"` to establish a baseline
+2. **Use TPE for refinement**: Switch to `sampler="tpe"` with more trials for fine-tuning
 3. **Set reasonable bounds**: Keep parameter ranges realistic to avoid wasted trials
-4. **Monitor progress**: Use `verbose=2` to see trial-by-trial progress
-5. **Use cross-validation**: Ensure robust evaluation with multiple folds
-6. **Consider computational cost**: `hyperband` is efficient for expensive models
+4. **Use log-scale for regularization**: Parameters like `alpha`, `learning_rate` benefit from `('float_log', ...)`
+5. **Monitor progress**: Use `verbose=2` to see trial-by-trial progress
+6. **Use cross-validation**: Ensure robust evaluation with multiple folds
+7. **Seed for reproducibility**: Always set `seed` when comparing configurations
+8. **Multi-phase for large spaces**: Use random exploration followed by TPE exploitation
+9. **Custom metrics**: Use `metric` to align optimization with your evaluation criteria
 
 ## See Also
 
 - {doc}`training` - Basic model training
 - {doc}`/reference/generator_keywords` - Pipeline generators (`_range_`, `_or_`)
 - {doc}`/user_guide/pipelines/writing_pipelines` - Pipeline syntax
-- [U14_hyperparameter_tuning.py](https://github.com/GBeurier/nirs4all/blob/main/examples/user/04_models/U14_hyperparameter_tuning.py) - Complete example
 
 ```{seealso}
 **Related Examples:**
-- [U02: Hyperparameter Tuning](../../../examples/user/04_models/U02_hyperparameter_tuning.py) - Grid, random, Bayesian, and Hyperband search
+- [U02: Hyperparameter Tuning](../../../examples/user/04_models/U02_hyperparameter_tuning.py) - Grid, random, Bayesian search
+- [U05: Advanced Finetuning](../../../examples/user/04_models/U05_advanced_finetuning.py) - Multi-phase, custom metrics, force-params
 - [D01: Generator Syntax](../../../examples/developer/02_generators/D01_generator_syntax.py) - Generator syntax for parameter sweeps
 ```

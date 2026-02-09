@@ -438,22 +438,36 @@ class AutoGluonModelController(BaseModelController):
         self,
         model: Any,
         X_val: np.ndarray,
-        y_val: np.ndarray
+        y_val: np.ndarray,
+        metric: Optional[str] = None,
+        direction: str = "minimize"
     ) -> float:
         """Evaluate AutoGluon model using its internal evaluation.
 
+        When ``metric`` is provided, uses ``nirs4all.core.metrics.eval()``.
+        Otherwise uses AutoGluon's built-in evaluation.
+
         Args:
-            model (TabularPredictor): AutoGluon predictor.
-            X_val (np.ndarray): Validation features.
-            y_val (np.ndarray): Validation targets.
+            model: AutoGluon predictor.
+            X_val: Validation features.
+            y_val: Validation targets.
+            metric: Optional metric name (e.g. 'rmse', 'r2', 'accuracy').
+            direction: Optimization direction ('minimize' or 'maximize').
 
         Returns:
-            float: Evaluation score (negative for maximization metrics).
+            float: Evaluation score. Returns float('inf') on error.
         """
         if not AUTOGLUON_AVAILABLE:
             return float('inf')
 
         try:
+            if metric is not None:
+                y_pred = model.predict(pd.DataFrame(X_val))
+                y_val_1d = y_val.ravel() if y_val.ndim > 1 else y_val
+                y_pred_1d = np.asarray(y_pred).ravel()
+                from nirs4all.core import metrics as evaluator_mod
+                return evaluator_mod.eval(y_val_1d, y_pred_1d, metric)
+
             TabularPredictor = _get_tabular_predictor()
 
             # Create validation DataFrame

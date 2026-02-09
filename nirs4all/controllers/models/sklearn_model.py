@@ -13,9 +13,8 @@ Matches any sklearn model object (estimators with fit/predict methods).
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import numpy as np
 import copy
-from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
-from sklearn.model_selection import cross_val_score
-from sklearn.metrics import mean_squared_error, accuracy_score
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.metrics import mean_squared_error
 from sklearn.base import is_classifier, is_regressor
 
 from ..models.base_model import BaseModelController
@@ -416,64 +415,46 @@ class SklearnModelController(BaseModelController):
 
         return X, y
 
-    def _evaluate_model(self, model: BaseEstimator, X_val: np.ndarray, y_val: np.ndarray) -> float:
-        """Evaluate sklearn model using cross-validation.
+    def _evaluate_model(self, model: BaseEstimator, X_val: np.ndarray, y_val: np.ndarray, metric: Optional[str] = None, direction: str = "minimize") -> float:
+        """Evaluate sklearn model on validation data using direct prediction.
 
-        Uses task-appropriate metrics:
-        - Classifiers: negative accuracy (for minimization)
-        - Regressors: negative MSE (for minimization)
-        - Others: model's score method or fallback to MSE
+        When ``metric`` is provided, uses ``nirs4all.core.metrics.eval()`` for
+        unified metric computation.  Otherwise falls back to legacy behavior
+        (MSE for regressors, -balanced_accuracy for classifiers).
 
         Args:
-            model (BaseEstimator): Sklearn model to evaluate.
-            X_val (np.ndarray): Validation features, shape (n_samples, n_features).
-            y_val (np.ndarray): Validation targets, shape (n_samples, n_targets).
+            model: Trained sklearn model to evaluate.
+            X_val: Validation features, shape (n_samples, n_features).
+            y_val: Validation targets, shape (n_samples, n_targets).
+            metric: Optional metric name (e.g. 'rmse', 'r2', 'accuracy').
+            direction: Optimization direction ('minimize' or 'maximize').
 
         Returns:
-            float: Evaluation score (negative for maximization metrics to support
-                minimization-based optimization). Returns inf on error.
-
-        Note:
-            - Uses 3-fold cross-validation
-            - y_val is automatically raveled to 1D for sklearn compatibility
-            - Fallback to MSE if cross-validation fails
+            float: Evaluation score. Returns inf on error.
         """
-        # Ensure y_val is 1D for sklearn functions
         y_val_1d = y_val.ravel() if y_val.ndim > 1 else y_val
 
         try:
-            # Use cross-validation for evaluation
-            # Note: is_classifier/is_regressor may fail for custom models that don't
-            # implement __sklearn_tags__. Fall back to isinstance checks with Mixin classes.
+            y_pred = model.predict(X_val)
+            if y_pred.ndim > 1:
+                y_pred = y_pred.ravel()
+
+            if metric is not None:
+                from nirs4all.core import metrics as evaluator_mod
+                return evaluator_mod.eval(y_val_1d, y_pred, metric)
+
+            # Legacy behavior when no metric specified
             is_clf = is_classifier(model) or isinstance(model, ClassifierMixin)
-            is_reg = is_regressor(model) or isinstance(model, RegressorMixin)
 
             if is_clf:
-                # For classifiers, use negative balanced accuracy (to minimize)
-                scores = cross_val_score(model, X_val, y_val_1d, cv=3, scoring='balanced_accuracy')
-                return -np.mean(scores)  # Negative because we want to minimize
-            elif is_reg:
-                # For regressors, use negative MSE (to minimize)
-                scores = cross_val_score(model, X_val, y_val_1d, cv=3, scoring='neg_mean_squared_error')
-                return -np.mean(scores)  # Already negative, so negate to get positive MSE
+                from sklearn.metrics import balanced_accuracy_score
+                return -balanced_accuracy_score(y_val_1d, y_pred)
             else:
-                # Default: use model's score method if available
-                if hasattr(model, 'score'):
-                    score = model.score(X_val, y_val_1d)
-                    return -score  # Negative to minimize
-                else:
-                    # Fallback: MSE for any model
-                    y_pred = model.predict(X_val)
-                    return mean_squared_error(y_val_1d, y_pred)
+                return mean_squared_error(y_val_1d, y_pred)
 
         except Exception as e:
             logger.warning(f"Error in model evaluation: {e}")
-            # Fallback evaluation
-            try:
-                y_pred = model.predict(X_val)
-                return mean_squared_error(y_val_1d, y_pred)
-            except Exception:
-                return float('inf')  # Return worst possible score
+            return float('inf')
 
     def get_preferred_layout(self) -> str:
         """Return the preferred data layout for sklearn models.
@@ -551,27 +532,6 @@ class SklearnModelController(BaseModelController):
                         pass
             return model
         return model
-
-    def _sample_hyperparameters(self, trial, finetune_params: Dict[str, Any]) -> Dict[str, Any]:
-        """Sample hyperparameters specific to sklearn models.
-
-        Extends base hyperparameter sampling with sklearn-specific handling.
-        Currently delegates to parent implementation but provides extension point
-        for sklearn-specific cases like random_state preservation.
-
-        Args:
-            trial: Optuna trial object for hyperparameter sampling.
-            finetune_params (Dict[str, Any]): Hyperparameter search space configuration.
-
-        Returns:
-            Dict[str, Any]: Sampled hyperparameters for model instantiation.
-        """
-        params = super()._sample_hyperparameters(trial, finetune_params)
-
-        # Add sklearn-specific parameter handling if needed
-        # For example, handle special cases like random_state preservation
-
-        return params
 
     def execute(
         self,

@@ -1,6 +1,6 @@
 {
   "name": "Complex Finetune Pipeline",
-  "description": "Demonstrates advanced finetune_params including train_params for neural networks, hyperband, and various tuning strategies",
+  "description": "Demonstrates advanced finetune_params including train_params for neural networks and various tuning strategies (grid, random, tpe)",
   "pipeline": [
     {
       "class": "sklearn.preprocessing._data.MinMaxScaler",
@@ -33,7 +33,7 @@
         "n_trials": 15,
         "approach": "single",
         "eval_mode": "best",
-        "sample": "grid",
+        "sampler": "grid",
         "verbose": 0,
         "model_params": {
           "n_components": {
@@ -56,7 +56,7 @@
         "n_trials": 20,
         "approach": "single",
         "eval_mode": "mean",
-        "sample": "random",
+        "sampler": "random",
         "verbose": 0,
         "model_params": {
           "n_estimators": {
@@ -89,12 +89,13 @@
           "random_state": 42
         }
       },
-      "name": "GBR-HyperbandTuned",
+      "name": "GBR-TPETuned",
       "finetune_params": {
         "n_trials": 30,
-        "approach": "cross",
+        "approach": "grouped",
         "eval_mode": "best",
-        "sample": "hyperband",
+        "sampler": "tpe",
+        "metric": "rmse",
         "verbose": 0,
         "model_params": {
           "n_estimators": [
@@ -132,7 +133,7 @@
         "n_trials": 25,
         "approach": "single",
         "eval_mode": "best",
-        "sample": "random",
+        "sampler": "random",
         "model_params": {
           "alpha": {
             "type": "float",
@@ -155,7 +156,7 @@
       "name": "NICON-Tuned",
       "finetune_params": {
         "n_trials": 10,
-        "sample": "hyperband",
+        "sampler": "tpe",
         "approach": "single",
         "verbose": 0,
         "model_params": {
