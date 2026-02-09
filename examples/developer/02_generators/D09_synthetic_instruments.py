@@ -60,7 +60,7 @@ from nirs4all.synthesis import (
 
 # Add examples directory to path for example_utils
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from example_utils import get_example_output_path, print_output_location, save_array_summary
+from example_utils import print_output_location, save_array_summary
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='D09 Instrument Simulation Example')
@@ -414,7 +414,9 @@ for name, gen in generators.items():
 # Section 10: Plotting (optional)
 # =============================================================================
 if args.plots:
-    output_path = get_example_output_path(EXAMPLE_NAME)
+    from example_utils import get_examples_output_dir
+    output_path = get_examples_output_dir() / EXAMPLE_NAME
+    output_path.mkdir(parents=True, exist_ok=True)
 
     # Plot 1: Multi-sensor detector responses
     fig, ax = plt.subplots(figsize=(10, 6))

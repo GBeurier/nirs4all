@@ -345,9 +345,11 @@ model_finetune = {
     "finetune_params": {
         "n_trials": 20,
         "verbose": 2,
-        "approach": "single",           # "single" | "cross"
-        "eval_mode": "best",            # "best" | "mean"
-        "sample": "grid",               # "grid" | "hyperband" | "random"
+        "approach": "single",           # "single" | "grouped" | "individual"
+        "eval_mode": "best",            # "best" | "mean" | "robust_best"
+        "sampler": "grid",              # "auto" | "grid" | "tpe" | "random" | "cmaes"
+        "seed": 42,                     # Reproducible optimization
+        "metric": "rmse",              # Metric to optimize (auto-infers direction)
         "model_params": {
             'n_components': ('int', 1, 30),
         },
@@ -370,7 +372,7 @@ if _HAS_TENSORFLOW:
         "name": "CustomNICON",
         "finetune_params": {
             "n_trials": 30,
-            "sample": "hyperband",
+            "sampler": "tpe",
             "model_params": {
                 "filters_1": [8, 16, 32, 64],
                 "filters_3": [8, 16, 32, 64]

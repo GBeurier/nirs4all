@@ -452,24 +452,3 @@ class TestMetadataLoading:
         assert len(quality_values) == 15
 
 
-class TestMetadataConfigNormalization:
-    """Test config key normalization for metadata."""
-
-    def test_normalize_metadata_keys(self):
-        """Test that various metadata key formats are normalized."""
-        from nirs4all.data.config_parser import normalize_config_keys
-
-        # Test various formats
-        configs_to_test = [
-            {'train_metadata': 'path/to/meta.csv'},
-            {'metadata_train': 'path/to/meta.csv'},
-            {'train_meta': 'path/to/meta.csv'},
-            {'meta_train': 'path/to/meta.csv'},
-            {'train_m': 'path/to/meta.csv'},
-            {'m_train': 'path/to/meta.csv'},
-        ]
-
-        for config in configs_to_test:
-            normalized = normalize_config_keys(config)
-            assert 'train_group' in normalized
-            assert normalized['train_group'] == 'path/to/meta.csv'

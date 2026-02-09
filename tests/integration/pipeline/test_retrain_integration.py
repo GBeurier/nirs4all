@@ -475,7 +475,7 @@ class TestBundleWithSpecialOperators:
 
         # Create new prediction dataset
         predict_dataset = DatasetConfigs({
-            'X_test': f'{dataset_folder}/Xval.csv.gz'
+            'test_x': f'{dataset_folder}/Xval.csv.gz'
         })
 
         # Predict from bundle - this was where the bug occurred
@@ -516,7 +516,7 @@ class TestBundleWithSpecialOperators:
 
         # Create new prediction dataset
         predict_dataset = DatasetConfigs({
-            'X_test': f'{dataset_folder}/Xval.csv.gz'
+            'test_x': f'{dataset_folder}/Xval.csv.gz'
         })
 
         # Predict from bundle
@@ -558,7 +558,7 @@ class TestBundleWithSpecialOperators:
 
         # Create new prediction dataset
         predict_dataset = DatasetConfigs({
-            'X_test': f'{dataset_folder}/Xval.csv.gz'
+            'test_x': f'{dataset_folder}/Xval.csv.gz'
         })
 
         # Predict from bundle
@@ -603,7 +603,7 @@ class TestBundleWithSpecialOperators:
 
         # Predict from both original and bundle
         predict_dataset = DatasetConfigs({
-            'X_test': f'{dataset_folder}/Xval.csv.gz'
+            'test_x': f'{dataset_folder}/Xval.csv.gz'
         })
 
         original_predictions, _ = runner.predict(

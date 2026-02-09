@@ -365,7 +365,7 @@ if args.plots:
     analyzer = PredictionAnalyzer(result_stacking.predictions)
 
     fig1 = analyzer.plot_top_k(k=4, rank_metric='rmse')
-    fig2 = analyzer.plot_candlestick(variable="model_name", partition="test")
+    fig2 = analyzer.plot_candlestick(variable="model_name", display_partition="test")
 
     print("Charts generated (use --show to display)")
 

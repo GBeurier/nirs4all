@@ -42,7 +42,7 @@
         "n_trials": 10,
         "approach": "single",
         "eval_mode": "best",
-        "sample": "grid",
+        "sampler": "grid",
         "verbose": 0,
         "model_params": {
           "n_components": {

@@ -84,7 +84,7 @@ class TestClassificationIntegration:
         pipeline = [
             {"feature_augmentation": {
                 "_or_": [Detrend, Gaussian, StandardNormalVariate],
-                "size": 1,
+                "pick": 1,
                 "count": 3
             }},
             StandardScaler(),

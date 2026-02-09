@@ -542,16 +542,3 @@ class TestNormalizeGeneratorSpec:
         result = FeatureAugmentationController.normalize_generator_spec(spec)
         assert result == spec
 
-    def test_size_converted_to_pick(self):
-        """Legacy 'size' should be converted to 'pick' when _or_ is present."""
-        spec = {"_or_": [1, 2, 3], "size": 2}
-        result = FeatureAugmentationController.normalize_generator_spec(spec)
-        assert "pick" in result
-        assert result["pick"] == 2
-        assert "size" not in result
-
-    def test_size_without_or_unchanged(self):
-        """'size' without '_or_' should remain unchanged."""
-        spec = {"size": 2, "other": "value"}
-        result = FeatureAugmentationController.normalize_generator_spec(spec)
-        assert result == spec

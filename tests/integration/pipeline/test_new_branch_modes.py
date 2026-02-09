@@ -3,7 +3,6 @@ Integration tests for new unified branch modes (Phase 4).
 
 Tests the new separation branch syntax:
 - Mode detection (duplication vs separation)
-- by_source backward compatibility
 - by_metadata separation branches (basic)
 - Legacy pattern error handling
 
@@ -186,46 +185,6 @@ class TestModeDetection:
         assert ctrl._detect_branch_mode({"snv": [], "msc": []}) == "duplication"
 
 
-class TestSourceBranchConversion:
-    """Test backward compatibility conversion for source_branch keyword."""
-
-    def test_source_branch_auto_conversion(self):
-        """Test source_branch: 'auto' is converted to by_source."""
-        from nirs4all.controllers.data.branch import BranchController
-
-        ctrl = BranchController()
-        result = ctrl._convert_source_branch_syntax({"source_branch": "auto"})
-
-        assert result["by_source"] is True
-        assert "steps" in result
-
-    def test_source_branch_true_conversion(self):
-        """Test source_branch: True is converted to by_source."""
-        from nirs4all.controllers.data.branch import BranchController
-
-        ctrl = BranchController()
-        result = ctrl._convert_source_branch_syntax({"source_branch": True})
-
-        assert result["by_source"] is True
-
-    def test_source_branch_dict_conversion(self):
-        """Test source_branch dict is converted to by_source with steps."""
-        from nirs4all.controllers.data.branch import BranchController
-
-        ctrl = BranchController()
-        original = {
-            "source_branch": {
-                "NIR": ["step1", "step2"],
-                "markers": ["step3"],
-            }
-        }
-        result = ctrl._convert_source_branch_syntax(original)
-
-        assert result["by_source"] is True
-        assert result["steps"]["NIR"] == ["step1", "step2"]
-        assert result["steps"]["markers"] == ["step3"]
-
-
 class TestLegacyPatternErrors:
     """Test that legacy 'by' patterns raise clear errors."""
 
@@ -293,13 +252,6 @@ class TestBranchControllerMatches:
 
         step = {"branch": [[StandardScaler()], [MinMaxScaler()]]}
         assert BranchController.matches(step, None, "branch") is True
-
-    def test_matches_source_branch_keyword(self):
-        """Controller should match 'source_branch' keyword for backward compat."""
-        from nirs4all.controllers.data.branch import BranchController
-
-        step = {"source_branch": {"NIR": [], "markers": []}}
-        assert BranchController.matches(step, None, "source_branch") is True
 
     def test_not_matches_other_keywords(self):
         """Controller should not match other keywords."""

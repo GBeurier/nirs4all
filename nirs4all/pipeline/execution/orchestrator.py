@@ -107,6 +107,9 @@ class PipelineOrchestrator:
         # Cache configuration (set by PipelineRunner before execute())
         self.cache_config: Any = None
 
+        # Per-model selections from refit (populated by _execute_per_model_refit)
+        self._per_model_selections: dict[str, Any] | None = None
+
         # Store last executed pipeline info for post-run operations and syncing
         self.last_pipeline_uid: str | None = None
         self.last_executor: Any = None  # For syncing step_number, substep_number, operation_count
@@ -637,6 +640,7 @@ class PipelineOrchestrator:
         from nirs4all.pipeline.analysis.topology import analyze_topology
         from nirs4all.pipeline.config.context import RuntimeContext
         from nirs4all.pipeline.execution.refit import execute_simple_refit, extract_winning_config
+        from nirs4all.pipeline.execution.refit.config_extractor import extract_per_model_configs
         from nirs4all.pipeline.execution.refit.stacking_refit import (
             execute_competing_branches_refit,
             execute_separation_refit,
@@ -697,18 +701,18 @@ class PipelineOrchestrator:
                 topology=topology,
             )
         else:
-            refit_result = execute_simple_refit(
+            # Simple pipeline — check for multi-model variants
+            refit_result = self._execute_per_model_refit(
+                run_id=run_id,
                 refit_config=refit_config,
                 dataset=dataset,
-                context=None,  # executor.initialize_context is called inside
                 runtime_context=runtime_context,
                 artifact_registry=artifact_registry,
                 executor=executor,
-                prediction_store=run_dataset_predictions,
+                run_dataset_predictions=run_dataset_predictions,
             )
 
         if refit_result.success:
-            # Also merge refit predictions into the global run predictions
             if refit_result.predictions_count > 0:
                 logger.info(
                     f"Refit completed: {refit_result.predictions_count} "
@@ -716,11 +720,24 @@ class PipelineOrchestrator:
                 )
 
             # Clean up transient CV fold artifacts now that the refit model exists
+            winning_pids = [refit_config.pipeline_id]
+            if self._per_model_selections:
+                # Include all per-model winning pipeline IDs
+                per_model_configs = extract_per_model_configs(
+                    self.store, run_id, metric=refit_config.metric
+                )
+                winning_pids = list({
+                    cfg.pipeline_id
+                    for _, cfg in per_model_configs.values()
+                    if cfg.pipeline_id
+                })
+                if not winning_pids:
+                    winning_pids = [refit_config.pipeline_id]
             try:
                 removed = self.store.cleanup_transient_artifacts(
                     run_id=run_id,
                     dataset_name=dataset.name,
-                    winning_pipeline_ids=[refit_config.pipeline_id],
+                    winning_pipeline_ids=winning_pids,
                 )
                 if removed > 0:
                     logger.info(f"Cleaned up {removed} transient artifact file(s)")
@@ -728,6 +745,97 @@ class PipelineOrchestrator:
                 logger.warning(f"Transient artifact cleanup failed (non-fatal): {e}")
         else:
             logger.warning("Refit pass did not complete successfully")
+
+    def _execute_per_model_refit(
+        self,
+        run_id: str,
+        refit_config: Any,
+        dataset: Any,
+        runtime_context: Any,
+        artifact_registry: Any,
+        executor: Any,
+        run_dataset_predictions: Any,
+    ) -> Any:
+        """Refit each unique model independently on its best variant.
+
+        If the pipeline has multiple model classes (e.g. from ``_or_``
+        generators), each model gets its own refit on the variant where
+        it performed best.  Falls back to standard single-model refit
+        when only one model class is found.
+
+        Args:
+            run_id: Store run identifier.
+            refit_config: Global winning RefitConfig (fallback).
+            dataset: Original dataset for refit.
+            runtime_context: Shared runtime context.
+            artifact_registry: Artifact registry from CV pass.
+            executor: PipelineExecutor instance.
+            run_dataset_predictions: Per-dataset prediction accumulator.
+
+        Returns:
+            A :class:`RefitResult` summarizing the outcome.
+        """
+        from nirs4all.pipeline.execution.refit import execute_simple_refit
+        from nirs4all.pipeline.execution.refit.config_extractor import extract_per_model_configs
+        from nirs4all.pipeline.execution.refit.executor import RefitResult
+
+        # Try per-model extraction
+        per_model_configs = extract_per_model_configs(
+            self.store, run_id, metric=refit_config.metric
+        )
+
+        if not per_model_configs:
+            # Single model or single variant — standard refit
+            return execute_simple_refit(
+                refit_config=refit_config,
+                dataset=dataset,
+                context=None,
+                runtime_context=runtime_context,
+                artifact_registry=artifact_registry,
+                executor=executor,
+                prediction_store=run_dataset_predictions,
+            )
+
+        # Multi-model: refit each model independently
+        logger.info(
+            f"Per-model refit: {len(per_model_configs)} unique model(s) "
+            f"({', '.join(per_model_configs.keys())})"
+        )
+
+        total_predictions = 0
+        all_success = True
+        selections = {}
+
+        for model_name, (selection, model_config) in per_model_configs.items():
+            logger.info(
+                f"Refitting model '{model_name}' from variant "
+                f"{selection.variant_index} (cv_score={selection.best_score:.4f})"
+            )
+            result = execute_simple_refit(
+                refit_config=model_config,
+                dataset=dataset,
+                context=None,
+                runtime_context=runtime_context,
+                artifact_registry=artifact_registry,
+                executor=executor,
+                prediction_store=run_dataset_predictions,
+            )
+            if result.success:
+                total_predictions += result.predictions_count
+            else:
+                all_success = False
+                logger.warning(f"Refit failed for model '{model_name}'")
+
+            selections[model_name] = selection
+
+        # Store per-model selections for RunResult.models
+        self._per_model_selections = selections
+
+        return RefitResult(
+            success=all_success,
+            predictions_count=total_predictions,
+            metric=refit_config.metric,
+        )
 
     def _print_best_predictions(
         self,
@@ -737,37 +845,126 @@ class PipelineOrchestrator:
     ) -> None:
         """Print best predictions for a dataset.
 
-        Reports best predictions to the logger.  Persistence is handled
-        by :meth:`Predictions.flush` / :class:`WorkspaceStore`.
+        Reports best CV predictions and refit final scores to the logger.
+        Persistence is handled by :meth:`Predictions.flush` /
+        :class:`WorkspaceStore`.
         """
         if run_dataset_predictions.num_predictions > 0:
-            # Use None for ascending to let ranker infer from metric
-            best = run_dataset_predictions.get_best(
-                ascending=None
-            )
-            logger.success(f"Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
+            # Get aggregation setting from dataset for reporting
+            aggregate_column = dataset.aggregate  # Could be None, 'y', or column name
+            aggregate_method = dataset.aggregate_method  # Could be None, 'mean', 'median', 'vote'
+            aggregate_exclude_outliers = dataset.aggregate_exclude_outliers
 
-            if self.enable_tab_reports:
-                best_by_partition = run_dataset_predictions.get_entry_partitions(best)
+            # Check for final (refit) entries
+            refit_entries = [
+                e for e in run_dataset_predictions._buffer
+                if str(e.get("fold_id")) == "final"
+            ]
 
-                # Get aggregation setting from dataset for reporting
-                aggregate_column = dataset.aggregate  # Could be None, 'y', or column name
-                aggregate_method = dataset.aggregate_method  # Could be None, 'mean', 'median', 'vote'
-                aggregate_exclude_outliers = dataset.aggregate_exclude_outliers
-
-                # Log aggregation info if enabled
-                if aggregate_column:
-                    agg_label = "y (target values)" if aggregate_column == 'y' else f"'{aggregate_column}'"
-                    method_label = f", method='{aggregate_method}'" if aggregate_method else ""
-                    outlier_label = ", exclude_outliers=True" if aggregate_exclude_outliers else ""
-                    logger.info(f"Including aggregated scores (by {agg_label}{method_label}{outlier_label}) in report")
-
-                tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(
-                    best_by_partition,
-                    aggregate=aggregate_column,
-                    aggregate_method=aggregate_method,
-                    aggregate_exclude_outliers=aggregate_exclude_outliers
+            if refit_entries:
+                self._print_refit_report(
+                    run_dataset_predictions, refit_entries, name,
+                    aggregate_column, aggregate_method, aggregate_exclude_outliers,
                 )
-                logger.info(tab_report)
+            else:
+                self._print_cv_only_report(
+                    run_dataset_predictions, name,
+                    aggregate_column, aggregate_method, aggregate_exclude_outliers,
+                )
 
         logger.info("=" * 120)
+
+    def _print_refit_report(
+        self,
+        predictions: Predictions,
+        refit_entries: list,
+        name: str,
+        aggregate_column: str | None,
+        aggregate_method: str | None,
+        aggregate_exclude_outliers: bool,
+    ) -> None:
+        """Print structured report when final (refit) entries exist.
+
+        Headline: Final model performance with best final score.
+        Detail: Per-model table (when multiple models), then CV selection summary.
+        """
+        from nirs4all.data.predictions import _infer_ascending
+
+        metric = refit_entries[0].get("metric", "rmse")
+        asc = _infer_ascending(metric)
+        rankable = [e for e in refit_entries if e.get("test_score") is not None]
+        if not rankable:
+            return
+
+        rankable.sort(key=lambda e: e["test_score"], reverse=not asc)
+        best_refit = rankable[0]
+
+        # --- Headline: Final model performance ---
+        logger.success(
+            f"Final model performance for dataset '{name}': "
+            f"{Predictions.pred_long_string(best_refit)}"
+        )
+
+        if self.enable_tab_reports:
+            refit_partitions = predictions.get_entry_partitions(best_refit)
+            if aggregate_column:
+                agg_label = "y (target values)" if aggregate_column == "y" else f"'{aggregate_column}'"
+                method_label = f", method='{aggregate_method}'" if aggregate_method else ""
+                outlier_label = ", exclude_outliers=True" if aggregate_exclude_outliers else ""
+                logger.info(f"Including aggregated scores (by {agg_label}{method_label}{outlier_label}) in report")
+            refit_tab, _ = TabReportManager.generate_best_score_tab_report(
+                refit_partitions,
+                aggregate=aggregate_column,
+                aggregate_method=aggregate_method,
+                aggregate_exclude_outliers=aggregate_exclude_outliers,
+            )
+            logger.info(refit_tab)
+
+        # --- Per-model table when multiple models refit ---
+        if len(rankable) > 1:
+            summary = TabReportManager.generate_per_model_summary(rankable, ascending=asc)
+            logger.info(f"Per-model final scores ({len(rankable)} models):\n{summary}")
+
+        # --- Detail: CV selection summary ---
+        cv_best = predictions.get_best(ascending=None, score_scope="cv")
+        if cv_best:
+            logger.info(
+                f"CV selection summary for dataset '{name}': "
+                f"{Predictions.pred_long_string(cv_best)}"
+            )
+            if self.enable_tab_reports:
+                cv_partitions = predictions.get_entry_partitions(cv_best)
+                cv_tab, _ = TabReportManager.generate_best_score_tab_report(
+                    cv_partitions,
+                    aggregate=aggregate_column,
+                    aggregate_method=aggregate_method,
+                    aggregate_exclude_outliers=aggregate_exclude_outliers,
+                )
+                logger.info(cv_tab)
+
+    def _print_cv_only_report(
+        self,
+        predictions: Predictions,
+        name: str,
+        aggregate_column: str | None,
+        aggregate_method: str | None,
+        aggregate_exclude_outliers: bool,
+    ) -> None:
+        """Print report when no final (refit) entries exist — CV only."""
+        best = predictions.get_best(ascending=None)
+        logger.success(f"Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
+
+        if self.enable_tab_reports:
+            best_by_partition = predictions.get_entry_partitions(best)
+            if aggregate_column:
+                agg_label = "y (target values)" if aggregate_column == "y" else f"'{aggregate_column}'"
+                method_label = f", method='{aggregate_method}'" if aggregate_method else ""
+                outlier_label = ", exclude_outliers=True" if aggregate_exclude_outliers else ""
+                logger.info(f"Including aggregated scores (by {agg_label}{method_label}{outlier_label}) in report")
+            tab_report, _ = TabReportManager.generate_best_score_tab_report(
+                best_by_partition,
+                aggregate=aggregate_column,
+                aggregate_method=aggregate_method,
+                aggregate_exclude_outliers=aggregate_exclude_outliers,
+            )
+            logger.info(tab_report)

@@ -48,7 +48,7 @@ class TestPCAAnalysisIntegration:
 
         pipeline = [
             MinMaxScaler(),
-            {"_or_": preprocessing_options[:3], "size": (1, 2), "count": 2},
+            {"_or_": preprocessing_options[:3], "pick": (1, 2), "count": 2},
         ]
 
         pipeline_config = PipelineConfigs(pipeline, "PCA_eval_test")
@@ -85,7 +85,7 @@ class TestPCAAnalysisIntegration:
 
         pipeline = [
             MinMaxScaler(),
-            {"_or_": [Gaussian, StandardNormalVariate, Haar], "size": 1, "count": 2},
+            {"_or_": [Gaussian, StandardNormalVariate, Haar], "pick": 1, "count": 2},
         ]
 
         pipeline_config = PipelineConfigs(pipeline, "PCA_metrics_test")
@@ -116,7 +116,7 @@ class TestPCAAnalysisIntegration:
 
         pipeline = [
             MinMaxScaler(),
-            {"_or_": [Gaussian, StandardNormalVariate], "size": 1, "count": 2},
+            {"_or_": [Gaussian, StandardNormalVariate], "pick": 1, "count": 2},
         ]
 
         pipeline_config = PipelineConfigs(pipeline, "cross_dataset_test")
@@ -143,7 +143,7 @@ class TestPCAAnalysisIntegration:
 
         pipeline = [
             MinMaxScaler(),
-            {"_or_": [Gaussian, Detrend], "size": 1, "count": 2},
+            {"_or_": [Gaussian, Detrend], "pick": 1, "count": 2},
         ]
 
         pipeline_config = PipelineConfigs(pipeline, "minimal_pca_test")

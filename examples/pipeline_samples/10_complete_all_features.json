@@ -115,7 +115,7 @@
               "n_trials": 5,
               "approach": "single",
               "eval_mode": "best",
-              "sample": "random",
+              "sampler": "random",
               "verbose": 0,
               "model_params": {
                 "n_components": {

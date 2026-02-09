@@ -23,7 +23,6 @@ from typing import Any, Callable, Dict, List, Optional, Set, Union
 from ..keywords import (
     OR_KEYWORD,
     RANGE_KEYWORD,
-    SIZE_KEYWORD,
     COUNT_KEYWORD,
     PICK_KEYWORD,
     ARRANGE_KEYWORD,
@@ -245,7 +244,7 @@ def _validate_dict_spec(spec: Dict[str, Any], path: str, strict: bool) -> Valida
 
     # Check for orphaned modifier keywords
     orphaned = set(spec.keys()) & {
-        SIZE_KEYWORD, PICK_KEYWORD, ARRANGE_KEYWORD,
+        PICK_KEYWORD, ARRANGE_KEYWORD,
         THEN_PICK_KEYWORD, THEN_ARRANGE_KEYWORD
     }
     if orphaned:
@@ -292,8 +291,8 @@ def _validate_or_spec(spec: Dict[str, Any], path: str, strict: bool) -> Validati
             code="EMPTY_OR"
         ))
 
-    # Validate size/pick/arrange specifications
-    for key in (SIZE_KEYWORD, PICK_KEYWORD, ARRANGE_KEYWORD):
+    # Validate pick/arrange specifications
+    for key in (PICK_KEYWORD, ARRANGE_KEYWORD):
         if key in spec:
             size_result = _validate_size_spec(spec[key], key, len(or_value), f"{path}.{key}")
             result.merge(size_result)
@@ -301,9 +300,9 @@ def _validate_or_spec(spec: Dict[str, Any], path: str, strict: bool) -> Validati
     # Validate then_pick/then_arrange
     for key in (THEN_PICK_KEYWORD, THEN_ARRANGE_KEYWORD):
         if key in spec:
-            if PICK_KEYWORD not in spec and ARRANGE_KEYWORD not in spec and SIZE_KEYWORD not in spec:
+            if PICK_KEYWORD not in spec and ARRANGE_KEYWORD not in spec:
                 result.add_error(ValidationError(
-                    message=f"{key} requires pick, arrange, or size to be specified",
+                    message=f"{key} requires pick or arrange to be specified",
                     path=f"{path}.{key}",
                     code="ORPHANED_THEN_KEYWORD"
                 ))
@@ -325,14 +324,14 @@ def _validate_or_spec(spec: Dict[str, Any], path: str, strict: bool) -> Validati
             ))
 
     # Check for conflicting selection modes
-    selection_modes = sum(1 for k in (SIZE_KEYWORD, PICK_KEYWORD, ARRANGE_KEYWORD) if k in spec)
+    selection_modes = sum(1 for k in (PICK_KEYWORD, ARRANGE_KEYWORD) if k in spec)
     if selection_modes > 1:
         result.add_error(ValidationError(
-            message="Cannot use size, pick, and arrange together",
+            message="Cannot use pick and arrange together",
             path=path,
             severity=ValidationSeverity.WARNING if not strict else ValidationSeverity.ERROR,
             code="CONFLICTING_SELECTION",
-            suggestion="Use only one of: size (legacy), pick (combinations), or arrange (permutations)"
+            suggestion="Use only one of: pick (combinations) or arrange (permutations)"
         ))
 
     # Check for unknown keys in pure OR node
@@ -469,11 +468,11 @@ def _validate_size_spec(
     max_size: int,
     path: str
 ) -> ValidationResult:
-    """Validate a size/pick/arrange specification.
+    """Validate a pick/arrange specification.
 
     Args:
         spec: The size specification value.
-        key_name: Name of the key (size/pick/arrange).
+        key_name: Name of the key (pick/arrange).
         max_size: Maximum valid size (length of _or_ list).
         path: Current path for error reporting.
 

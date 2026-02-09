@@ -289,7 +289,7 @@ class TestGroupWarnings:
             # Check that a warning was issued
             assert len(w) >= 1
             warning_messages = [str(warning.message) for warning in w]
-            assert any("force_group" in msg for msg in warning_messages)
+            assert any("'group' parameter" in msg for msg in warning_messages)
             assert any("KFold" in msg for msg in warning_messages)
 
     def test_warning_shuffle_split_with_group(self, dataset_with_metadata):
@@ -315,7 +315,7 @@ class TestGroupWarnings:
             # Check that a warning was issued
             assert len(w) >= 1
             warning_messages = [str(warning.message) for warning in w]
-            assert any("force_group" in msg for msg in warning_messages)
+            assert any("'group' parameter" in msg for msg in warning_messages)
             assert any("ShuffleSplit" in msg for msg in warning_messages)
 
     def test_no_warning_groupkfold_with_group(self, dataset_with_metadata):
@@ -337,33 +337,7 @@ class TestGroupWarnings:
                 context=context, runtime_context=make_mock_runtime_context(), mode="train"
             )
 
-            # Check that no force_group warning was issued
-            force_group_warnings = [
-                warning for warning in w
-                if "force_group" in str(warning.message)
-            ]
-            assert len(force_group_warnings) == 0
-
-    def test_no_warning_with_force_group(self, dataset_with_metadata):
-        """Test that using 'force_group' with KFold does NOT emit warning."""
-        import warnings
-
-        step = {"split": KFold(n_splits=3), "force_group": "batch"}
-        controller = CrossValidatorController()
-        context = ExecutionContext(
-            selector=DataSelector(processing=[["raw"]]),
-            state=PipelineState(),
-            metadata=StepMetadata()
-        )
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            controller.execute(
-                step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-                context=context, runtime_context=make_mock_runtime_context(), mode="train"
-            )
-
-            # Check no warning about 'group' parameter being ignored
+            # Check that no group warning was issued for native group splitters
             group_warnings = [
                 warning for warning in w
                 if "'group' parameter" in str(warning.message)

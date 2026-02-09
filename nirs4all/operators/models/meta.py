@@ -323,10 +323,19 @@ class MetaModel(BaseModelOperator):
             return self._detected_level or 1
         return self.stacking_config.level.value
 
+    # Keys in finetune_space that are control parameters, not model hyperparameters
+    _FINETUNE_CONTROL_KEYS = frozenset({
+        'n_trials', 'approach', 'eval_mode', 'sampler', 'train_params',
+        'verbose', 'pruner', 'seed', 'storage', 'study_name', 'resume',
+        'direction', 'force_params', 'phases', 'metric',
+    })
+
     def get_finetune_params(self) -> Optional[Dict[str, Any]]:
         """Get finetuning parameters for Optuna optimization.
 
-        Returns the finetune_space with proper formatting for the Optuna manager.
+        Separates control keys (n_trials, sampler, approach, etc.) from
+        model hyperparameter specs, returning them in the format expected
+        by OptunaManager.
 
         Returns:
             Dict with finetune configuration or None if no finetuning configured.
@@ -334,13 +343,29 @@ class MetaModel(BaseModelOperator):
         if not self.finetune_space:
             return None
 
-        return {
-            'model_params': self.finetune_space,
-            'n_trials': self.finetune_space.get('n_trials', 50),
-            'approach': self.finetune_space.get('approach', 'grouped'),
-            'eval_mode': self.finetune_space.get('eval_mode', 'best'),
-            'verbose': self.finetune_space.get('verbose', 0),
+        # Separate control keys from model hyperparameter specs
+        control = {}
+        model_params = {}
+        for key, value in self.finetune_space.items():
+            if key in self._FINETUNE_CONTROL_KEYS:
+                control[key] = value
+            else:
+                model_params[key] = value
+
+        result = {
+            'model_params': model_params,
+            'n_trials': control.get('n_trials', 50),
+            'approach': control.get('approach', 'grouped'),
+            'eval_mode': control.get('eval_mode', 'best'),
+            'verbose': control.get('verbose', 0),
         }
+        # Forward any additional control keys
+        for key in ('sampler', 'pruner', 'seed', 'storage', 'study_name',
+                     'resume', 'direction', 'force_params', 'train_params', 'phases', 'metric'):
+            if key in control:
+                result[key] = control[key]
+
+        return result
 
     def get_params(self, deep: bool = True) -> Dict[str, Any]:
         """Get parameters for this operator.

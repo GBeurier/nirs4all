@@ -99,10 +99,11 @@ class TestRunResult:
         assert result._runner is None
 
     def test_best_property(self, run_result, mock_predictions):
-        """Test best property returns first entry from top(1)."""
+        """Test best property returns final entry when available."""
         mock_predictions.top.return_value = [{'id': 'best_model'}]
         assert run_result.best == {'id': 'best_model'}
-        mock_predictions.top.assert_called_with(n=1)
+        # best calls best_final first (score_scope="final")
+        mock_predictions.top.assert_any_call(n=1, score_scope="final")
 
     def test_best_property_empty(self, mock_predictions):
         """Test best property returns empty dict when no predictions."""

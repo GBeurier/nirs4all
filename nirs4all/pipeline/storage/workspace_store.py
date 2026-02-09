@@ -1293,6 +1293,7 @@ class WorkspaceStore:
         dataset_name: str | None = None,
         model_class: str | None = None,
         metric: str | None = None,
+        score_scope: str = "cv",
     ) -> pl.DataFrame:
         """Query the aggregated predictions VIEW with optional filters.
 
@@ -1310,6 +1311,10 @@ class WorkspaceStore:
             dataset_name: Filter by dataset name.
             model_class: Filter by model class (supports SQL ``LIKE``).
             metric: Filter by metric name.
+            score_scope: Which predictions to include.
+                ``'cv'`` (default) uses CV-only entries,
+                ``'all'`` includes both CV and refit entries,
+                ``'final'`` includes only refit entries.
 
         Returns:
             A :class:`polars.DataFrame` with one row per aggregated
@@ -1322,6 +1327,7 @@ class WorkspaceStore:
             dataset_name=dataset_name,
             model_class=model_class,
             metric=metric,
+            score_scope=score_scope,
         )
         return self._fetch_pl(sql, params)
 
@@ -1392,6 +1398,7 @@ class WorkspaceStore:
         n: int = 10,
         score_column: str = "avg_val_score",
         ascending: bool | None = None,
+        score_scope: str = "cv",
         **filters: Any,
     ) -> pl.DataFrame:
         """Query aggregated predictions ranked by best score for a metric.
@@ -1407,6 +1414,10 @@ class WorkspaceStore:
                 ``"avg_val_score"``).
             ascending: Sort direction.  If ``None`` (default), inferred
                 from *metric* using standard heuristics.
+            score_scope: Which predictions to include.
+                ``'cv'`` (default) uses CV-only entries,
+                ``'all'`` includes both CV and refit entries,
+                ``'final'`` includes only refit entries.
             **filters: Additional filters passed to the query builder
                 (``run_id``, ``pipeline_id``, ``dataset_name``,
                 ``model_class``).
@@ -1427,6 +1438,7 @@ class WorkspaceStore:
             pipeline_id=filters.get("pipeline_id"),
             dataset_name=filters.get("dataset_name"),
             model_class=filters.get("model_class"),
+            score_scope=score_scope,
         )
         return self._fetch_pl(sql, params)
 

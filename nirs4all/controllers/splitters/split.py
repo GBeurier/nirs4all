@@ -18,7 +18,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 # Native group-aware splitter class names (sklearn and nirs4all)
-# These splitters have built-in group support and don't need force_group
+# These splitters have built-in group support and handle groups directly
 _NATIVE_GROUP_SPLITTERS = frozenset({
     "GroupKFold",
     "GroupShuffleSplit",
@@ -133,7 +133,7 @@ def _is_native_group_splitter(splitter: Any) -> bool:
     """Check if splitter has native group support.
 
     Returns True if the splitter is a known group-aware splitter that
-    properly handles the 'groups' parameter without needing force_group.
+    properly handles the 'groups' parameter directly.
     """
     return splitter.__class__.__name__ in _NATIVE_GROUP_SPLITTERS
 
@@ -231,7 +231,7 @@ class CrossValidatorController(OperatorController):
 
         * Smartly supplies ``y`` / ``groups`` only if required.
         * Extracts groups from metadata if specified.
-        * Supports ``force_group`` parameter to wrap any splitter with group-awareness.
+        * Supports ``group_by`` parameter and dataset repetition for group-aware splitting.
         * Maps local indices back to the global index space.
         * Stores the list of folds into the dataset for subsequent steps.
 
@@ -253,48 +253,22 @@ class CrossValidatorController(OperatorController):
             Pre-loaded binary data (not used).
         prediction_store : Any
             Store for predictions (not used).
-
-        Notes
-        -----
-        The ``force_group`` parameter enables any sklearn-compatible splitter
-        to work with grouped samples by wrapping it with ``GroupedSplitterWrapper``.
-        This aggregates samples by group, passes "virtual samples" to the splitter,
-        and expands fold indices back to the original dataset.
-
-        Example usage::
-
-            {"split": KFold(n_splits=5), "force_group": "Sample_ID"}
-            {"split": ShuffleSplit(test_size=0.2), "force_group": "ID", "aggregation": "median"}
         """
         from nirs4all.pipeline.execution.result import StepOutput
 
         op = step_info.operator
 
         # Extract grouping parameters from step dict
-        force_group = None
         group_by = None
         ignore_repetition = False
         aggregation = "mean"
         y_aggregation = None
 
         if isinstance(step_info.original_step, dict):
-            force_group = step_info.original_step.get("force_group")
             group_by = step_info.original_step.get("group_by")
             ignore_repetition = step_info.original_step.get("ignore_repetition", False)
             aggregation = step_info.original_step.get("aggregation", "mean")
             y_aggregation = step_info.original_step.get("y_aggregation")
-
-            # Deprecate force_group in favor of repetition
-            if force_group is not None:
-                warnings.warn(
-                    "⚠️ 'force_group' is deprecated and will be removed in a future version.\n"
-                    "💡 Use the 'repetition' parameter in DatasetConfigs instead for automatic grouping:\n"
-                    "   DatasetConfigs(folder, repetition='Sample_ID')\n"
-                    "Or use 'group_by' for additional grouping columns:\n"
-                    "   {'split': KFold(5), 'group_by': ['Year', 'Location']}",
-                    DeprecationWarning,
-                    stacklevel=2
-                )
 
         # In predict/explain mode, skip fold splitting entirely
         if mode == "predict" or mode == "explain":
@@ -326,82 +300,28 @@ class CrossValidatorController(OperatorController):
 
             # Warn if 'group' is used with a non-native-group splitter
             # These splitters will silently ignore the groups parameter
-            # Suggest using 'force_group' instead for universal group support
             if not _is_native_group_splitter(op):
                 splitter_name = op.__class__.__name__
                 warnings.warn(
-                    f"⚠️ 'group' parameter specified with {splitter_name}, which does not "
+                    f"'group' parameter specified with {splitter_name}, which does not "
                     f"natively support groups. The 'group' parameter will be ignored.\n"
-                    f"💡 Use 'force_group' instead to enable group-aware splitting with any splitter:\n"
-                    f"    {{'split': {splitter_name}(...), 'force_group': '{group_column}'}}\n"
-                    f"This will ensure all samples from the same group stay together in train/test.",
+                    f"Use 'repetition' parameter in DatasetConfigs for automatic grouping, "
+                    f"or 'group_by' for explicit grouping:\n"
+                    f"    DatasetConfigs(folder, repetition='{group_column}')\n"
+                    f"    {{'split': {splitter_name}(...), 'group_by': '{group_column}'}}",
                     UserWarning,
                     stacklevel=2
                 )
 
-        # Handle force_group: wrap the splitter with GroupedSplitterWrapper
-        # This enables any sklearn-compatible splitter to work with groups
-        force_group_column = None
-        force_group_is_y = False  # Track if force_group uses y-binning
-        n_bins = 5  # Default bins for y-binning
         use_effective_groups = False  # Track if we should use compute_effective_groups
 
-        if force_group is not None:
-            if not isinstance(force_group, str):
-                raise TypeError(
-                    f"force_group must be a string column name or 'y', got {type(force_group).__name__}"
-                )
-
-            # Check if force_group is "y" (special case: use binned y values as groups)
-            if force_group.lower() == "y":
-                force_group_is_y = True
-                # Extract n_bins from step dict if provided
-                if isinstance(step_info.original_step, dict):
-                    n_bins = step_info.original_step.get("n_bins", 5)
-                    if not isinstance(n_bins, int) or n_bins < 2:
-                        raise ValueError(
-                            f"n_bins must be an integer >= 2, got {n_bins}"
-                        )
-            else:
-                # Legacy force_group with column name:
-                # If dataset has no repetition, treat force_group as group_by
-                # If dataset has repetition, combine both (unless ignore_repetition)
-                if not dataset.repetition:
-                    # No repetition defined - use force_group column directly
-                    force_group_column = force_group
-                else:
-                    # Repetition exists - force_group should be combined with it
-                    # Treat force_group as an additional group_by column
-                    if group_by is None:
-                        group_by = [force_group]
-                    elif isinstance(group_by, str):
-                        group_by = [group_by, force_group]
-                    elif force_group not in group_by:
-                        group_by = list(group_by) + [force_group]
-                    use_effective_groups = True
-
-            # Validate aggregation parameter
-            valid_aggregations = ("mean", "median", "first")
-            if aggregation not in valid_aggregations:
-                raise ValueError(
-                    f"aggregation must be one of {valid_aggregations}, got '{aggregation}'"
-                )
-
-            # Validate y_aggregation parameter if provided
-            valid_y_aggregations = ("mean", "mode", "first", None)
-            if y_aggregation not in valid_y_aggregations:
-                raise ValueError(
-                    f"y_aggregation must be one of {valid_y_aggregations}, got '{y_aggregation}'"
-                )
-
         # Check if we should compute effective groups (from repetition + group_by)
-        # This is the new Phase 2 behavior
         has_repetition_or_group_by = (
             (dataset.repetition and not ignore_repetition) or
             group_by is not None
         )
 
-        if has_repetition_or_group_by and not force_group_is_y and not force_group_column:
+        if has_repetition_or_group_by:
             use_effective_groups = True
 
         local_context = context.with_partition("train")
@@ -417,27 +337,15 @@ class CrossValidatorController(OperatorController):
         )
 
         y = None
-        if needs_y or force_group_column is not None or force_group_is_y or use_effective_groups:
-            # Get y for splitters that need it, or for force_group (wrapper may need it)
+        if needs_y or use_effective_groups:
+            # Get y for splitters that need it, or for effective_groups wrapper
             y = dataset.y(local_context, include_augmented=False)
 
         # Get groups from metadata if available
-        # Priority: force_group_is_y > force_group_column > use_effective_groups > group (legacy)
+        # Priority: use_effective_groups > group (legacy)
         groups = None
-        effective_group_column = force_group_column or group_column
 
-        if force_group_is_y:
-            # force_group: "y" - use binned y values as groups
-            # This enables stratification on continuous targets
-            if y is None:
-                raise ValueError(
-                    "force_group='y' specified but dataset.y returned None"
-                )
-            # Bin y values into n_bins quantile bins for group-aware splitting
-            # Each bin becomes a "group" that won't be split across train/test
-            groups = self._bin_y_for_groups(y, n_bins)
-
-        elif use_effective_groups:
+        if use_effective_groups:
             # NEW Phase 2: Use compute_effective_groups to combine repetition + group_by
             # This is the primary path for automatic grouping
             groups = compute_effective_groups(
@@ -451,28 +359,6 @@ class CrossValidatorController(OperatorController):
                 raise ValueError(
                     f"Effective groups array length ({len(groups)}) doesn't match X rows ({X.shape[0]})"
                 )
-
-        elif force_group_column is not None:
-            # Legacy force_group: extract groups from specified column
-            if not hasattr(dataset, 'metadata_columns') or not dataset.metadata_columns:
-                raise ValueError(
-                    f"force_group='{force_group_column}' specified but dataset has no metadata columns."
-                )
-            if force_group_column not in dataset.metadata_columns:
-                raise ValueError(
-                    f"force_group column '{force_group_column}' not found in metadata.\n"
-                    f"Available columns: {dataset.metadata_columns}"
-                )
-            try:
-                groups = dataset.metadata_column(force_group_column, local_context, include_augmented=False)
-                if len(groups) != X.shape[0]:
-                    raise ValueError(
-                        f"Group array length ({len(groups)}) doesn't match X rows ({X.shape[0]})"
-                    )
-            except Exception as e:
-                raise ValueError(
-                    f"Failed to extract groups from force_group column '{force_group_column}': {e}"
-                ) from e
 
         elif needs_g and (group_column is not None or _is_native_group_splitter(op)):
             # Legacy 'group' parameter for native group splitters
@@ -544,24 +430,18 @@ class CrossValidatorController(OperatorController):
 
         # Build kwargs for split()
         kwargs: Dict[str, Any] = {}
-        if needs_y or force_group_column is not None or force_group_is_y or use_effective_groups:
-            # Provide y for splitters that need it, or for force_group/effective_groups wrapper
+        if needs_y or use_effective_groups:
+            # Provide y for splitters that need it, or for effective_groups wrapper
             if needs_y and y is None:
                 raise ValueError(
                     f"{op.__class__.__name__} requires y but dataset.y returned None"
                 )
             if y is not None:
-                # Special case: force_group="y" with StratifiedKFold
-                # Pass bin labels (groups) as y for stratification on continuous targets
-                if force_group_is_y and "Stratified" in step_info.operator.__class__.__name__:
-                    # Use bin labels for stratification instead of continuous y
-                    kwargs["y"] = groups.astype(int)
-                else:
-                    kwargs["y"] = y
+                kwargs["y"] = y
         if groups is not None:
             # Provide groups for:
             # 1. Native group splitters (needs_g is True)
-            # 2. force_group/effective_groups wrapped splitters (wrapper needs groups)
+            # 2. Effective_groups wrapped splitters (wrapper needs groups)
             kwargs["groups"] = groups
 
         # Train mode: perform actual fold splitting
@@ -612,21 +492,8 @@ class CrossValidatorController(OperatorController):
             binary += ",".join(row_values).encode("utf-8") + b"\n"
 
         # Filename includes group column if used
-        # For force_group or effective_groups, use the inner splitter's name
-        if force_group_column is not None or force_group_is_y:
-            inner_splitter = op.splitter  # GroupedSplitterWrapper stores inner splitter
-            folds_name = f"folds_{inner_splitter.__class__.__name__}"
-            if force_group_is_y:
-                folds_name += f"_force_group-y_bins{n_bins}"
-            else:
-                folds_name += f"_force_group-{force_group_column}"
-            if aggregation != "mean":
-                folds_name += f"_{aggregation}"
-            if hasattr(inner_splitter, "random_state"):
-                seed = getattr(inner_splitter, "random_state")
-                if seed is not None:
-                    folds_name += f"_seed{seed}"
-        elif use_effective_groups and requires_wrapper:
+        # For effective_groups, use the inner splitter's name
+        if use_effective_groups and requires_wrapper:
             # Phase 2: effective groups from repetition + group_by
             inner_splitter = op.splitter  # GroupedSplitterWrapper stores inner splitter
             folds_name = f"folds_{inner_splitter.__class__.__name__}"
@@ -687,89 +554,6 @@ class CrossValidatorController(OperatorController):
         #     n_folds = operator.get_n_splits(**kwargs) if hasattr(operator, "get_n_splits") else 1
         #     dataset.set_folds([(list(range(n_samples)), [])] * n_folds)
         #     return context, []
-
-    def _bin_y_for_groups(self, y, n_bins: int = 5):
-        """Bin continuous y values into quantile-based groups for stratified splitting.
-
-        This method enables stratification on continuous targets by binning y values
-        into quantiles. Each bin becomes a "pseudo-group" that ensures samples with
-        similar y values are kept together during splitting, enabling balanced
-        distribution of target values across folds.
-
-        Parameters
-        ----------
-        y : array-like of shape (n_samples,)
-            Continuous target values to bin.
-        n_bins : int, default=5
-            Number of quantile bins to create. More bins = finer stratification
-            but may fail with small datasets. Recommended: 3-10 bins.
-
-        Returns
-        -------
-        groups : ndarray of shape (n_samples,)
-            Integer bin labels (0 to n_bins-1) for each sample.
-
-        Notes
-        -----
-        Uses quantile-based binning (pd.qcut equivalent) to ensure approximately
-        equal number of samples per bin, regardless of y value distribution.
-
-        If there are fewer unique y values than n_bins, reduces to unique value
-        binning (each unique value = one bin).
-
-        Examples
-        --------
-        >>> y = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
-        >>> groups = self._bin_y_for_groups(y, n_bins=5)
-        >>> # groups will be [0, 0, 1, 1, 2, 2, 3, 3, 4, 4] (approximately)
-        """
-        import numpy as np
-
-        y = np.asarray(y).ravel()
-        n_samples = len(y)
-
-        # Handle edge cases
-        n_unique = len(np.unique(y))
-        if n_unique <= n_bins:
-            # Fewer unique values than bins - use unique values as groups
-            _, groups = np.unique(y, return_inverse=True)
-            return groups
-
-        # Quantile-based binning for balanced bin sizes
-        # This ensures each bin has approximately equal number of samples
-        try:
-            # Compute quantile edges
-            quantiles = np.linspace(0, 1, n_bins + 1)
-            bin_edges = np.quantile(y, quantiles)
-
-            # Make edges unique to avoid empty bins
-            bin_edges = np.unique(bin_edges)
-
-            # If we lost bins due to non-unique edges, adjust
-            actual_bins = len(bin_edges) - 1
-            if actual_bins < 2:
-                # Fall back to unique value binning
-                _, groups = np.unique(y, return_inverse=True)
-                return groups
-
-            # Digitize y values into bins (1-indexed, so subtract 1)
-            # np.digitize returns indices 1 to n_bins, we want 0 to n_bins-1
-            groups = np.digitize(y, bin_edges[1:-1], right=False)
-
-            return groups
-
-        except Exception:
-            # Fallback: equal-width binning
-            y_min, y_max = y.min(), y.max()
-            if y_min == y_max:
-                # All values identical
-                return np.zeros(n_samples, dtype=int)
-
-            bin_width = (y_max - y_min) / n_bins
-            groups = ((y - y_min) / bin_width).astype(int)
-            groups = np.clip(groups, 0, n_bins - 1)  # Handle edge case of y == y_max
-
-            return groups
 
     def _check_group_leakage(
         self,

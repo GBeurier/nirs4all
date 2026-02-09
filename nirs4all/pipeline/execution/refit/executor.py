@@ -301,6 +301,9 @@ def _inject_best_params(steps: list[Any], best_params: dict[str, Any]) -> None:
             elif isinstance(model_value, dict) and "params" in model_value:
                 model_value["params"].update(best_params)
 
+        # Remove finetune_params to prevent re-triggering during refit
+        step.pop("finetune_params", None)
+
         # Resolve refit_params (merge refit_params on top of train_params)
         resolved = resolve_refit_params(step)
         if resolved:
@@ -374,6 +377,10 @@ def _relabel_refit_predictions(
     for entry in predictions._buffer:
         entry["fold_id"] = "final"
         entry["refit_context"] = REFIT_CONTEXT_STANDALONE
+        # Inject the CV selection score so final entries can be ranked
+        # in mix mode by their originating chain's avg folds val_score.
+        if refit_config is not None and refit_config.best_score:
+            entry["cv_rank_score"] = refit_config.best_score
         if refit_metadata:
             existing = entry.get("metadata") or {}
             existing.update(refit_metadata)

@@ -10,7 +10,6 @@ Submodules
    nirs4all.data.parsers.base
    nirs4all.data.parsers.files_parser
    nirs4all.data.parsers.folder_parser
-   nirs4all.data.parsers.legacy_parser
    nirs4all.data.parsers.normalizer
 
 Module contents

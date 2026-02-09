@@ -176,12 +176,12 @@ print("   ✓ Created heatmap: models vs preprocessing")
 # Plot candlestick chart for model performance distribution
 fig3 = analyzer.plot_candlestick(
     variable="model_name",
-    partition="test"
+    display_partition="test"
 )
 print("   ✓ Created candlestick chart")
 
 # Plot histogram of RMSE values
-fig4 = analyzer.plot_histogram(partition="test")
+fig4 = analyzer.plot_histogram(display_partition="test")
 print("   ✓ Created histogram")
 
 

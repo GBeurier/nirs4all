@@ -90,7 +90,7 @@ class PredictionAnalyzer:
         >>>
         >>> # With default aggregation from dataset config
         >>> runner = PipelineRunner()
-        >>> predictions, _ = runner.run(pipeline, DatasetConfigs(path, aggregate='sample_id'))
+        >>> predictions, _ = runner.run(pipeline, DatasetConfigs({"train_x": path, "aggregate": "sample_id"}))
         >>> analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
         >>> # All plots now use sample_id aggregation by default
         >>> fig = analyzer.plot_top_k(k=5)  # Aggregated automatically
@@ -131,7 +131,7 @@ class PredictionAnalyzer:
         Example:
             >>> # With default aggregation from dataset config
             >>> runner = PipelineRunner()
-            >>> predictions, _ = runner.run(pipeline, DatasetConfigs(path, aggregate='sample_id'))
+            >>> predictions, _ = runner.run(pipeline, DatasetConfigs({"train_x": path, "aggregate": "sample_id"}))
             >>> analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
             >>> # All plots now use sample_id aggregation by default
             >>> fig = analyzer.plot_top_k(k=5)  # Aggregated
@@ -230,6 +230,7 @@ class PredictionAnalyzer:
         n: int,
         rank_metric: str,
         rank_partition: str = 'val',
+        score_scope: str = 'mix',
         display_partition: str = 'test',
         display_metrics: Optional[List[str]] = None,
         aggregate: Optional[str] = None,
@@ -246,12 +247,15 @@ class PredictionAnalyzer:
         predictions.top() to benefit from caching.
 
         The cache key includes: aggregate, rank_metric, rank_partition,
-        display_partition, group_by, and all filters.
+        score_scope, display_partition, group_by, and all filters.
 
         Args:
             n: Number of top predictions to return.
             rank_metric: Metric for ranking.
             rank_partition: Partition for ranking (default: 'val').
+            score_scope: Controls how refit (final) entries interact with
+               CV entries.  See :meth:`Predictions.top` for details.
+               Default ``"mix"``.
             display_partition: Partition for display (default: 'test').
             display_metrics: List of metrics to compute for display.
             aggregate: Aggregation column (e.g., 'ID') or None.
@@ -293,6 +297,7 @@ class PredictionAnalyzer:
             rank_partition=rank_partition,
             display_partition=display_partition,
             group_by=group_by,
+            score_scope=score_scope,
             **filters
         )
 
@@ -311,6 +316,7 @@ class PredictionAnalyzer:
                 n=cache_n,
                 rank_metric=rank_metric,
                 rank_partition=rank_partition,
+                score_scope=score_scope,
                 display_partition=display_partition,
                 display_metrics=effective_display_metrics,
                 ascending=ascending,
@@ -1455,7 +1461,7 @@ class PredictionAnalyzer:
             partition: Partition for metrics (default: 'test').
             figsize: Figure size tuple (default: auto-computed).
             title: Optional title for the diagram.
-            config: Additional configuration dict for BranchDiagram.
+            config: Additional configuration dict for PipelineDiagram.
 
         Returns:
             matplotlib Figure with branch DAG diagram.
@@ -1468,17 +1474,15 @@ class PredictionAnalyzer:
             ...     partition='val'
             ... )
         """
-        from nirs4all.visualization.branch_diagram import BranchDiagram
+        from nirs4all.visualization.pipeline_diagram import PipelineDiagram
 
         if metric is None:
             metric = self._get_default_metric()
 
         cfg = config or {}
-        diagram = BranchDiagram(self.predictions, config=cfg)
+        diagram = PipelineDiagram(pipeline_steps=None, predictions=self.predictions, config=cfg)
         fig = diagram.render(
-            show_metrics=show_metrics,
-            metric=metric,
-            partition=partition,
+            show_shapes=show_metrics,
             figsize=figsize,
             title=title,
         )

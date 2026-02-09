@@ -155,7 +155,7 @@ This creates **three pipelines**:
 **Generator keys**:
 - `_or_`: Choose between alternatives (creates N pipelines)
 - `_range_`: Sweep parameter values (creates M pipelines)
-- `size`: Limit combinations (for feature augmentation)
+- `pick`: Limit combinations (for feature augmentation)
 - `count`: Randomly sample N configurations
 
 Generators are **expanded** by `PipelineConfigs` before execution, producing multiple concrete pipelines.
@@ -769,13 +769,13 @@ pipeline = [
 
 ---
 
-### 3. `_or_` with `size` - Combinations
+### 3. `_or_` with `pick` - Combinations
 
-**Syntax**: Add `size` key to select N items at once (creates combinations).
+**Syntax**: Add `pick` key to select N items at once (creates combinations).
 
 ```python
 pipeline = [
-    {"_or_": preprocessing_options, "size": 2}  # Choose 2 at a time
+    {"_or_": preprocessing_options, "pick": 2}  # Choose 2 at a time
 ]
 ```
 
@@ -789,29 +789,29 @@ pipeline = [
 
 ---
 
-### 4. `_or_` with `size` Range - Variable Size
+### 4. `_or_` with `pick` Range - Variable Size
 
-**Syntax**: Use tuple `(from, to)` for size range.
+**Syntax**: Use tuple `(from, to)` for pick range.
 
 ```python
 pipeline = [
-    {"_or_": preprocessing_options, "size": (1, 2)}  # 1 or 2 items
+    {"_or_": preprocessing_options, "pick": (1, 2)}  # 1 or 2 items
 ]
 ```
 
-**Expands to**: All combinations of size 1 + all combinations of size 2 = 4 + 6 = 10 pipelines.
+**Expands to**: All combinations of pick 1 + all combinations of pick 2 = 4 + 6 = 10 pipelines.
 
 ---
 
-### 5. `_or_` with `size` and `count` - Limited Combinations
+### 5. `_or_` with `pick` and `count` - Limited Combinations
 
-**Syntax**: Combine `size` and `count` to randomly sample from combinations.
+**Syntax**: Combine `pick` and `count` to randomly sample from combinations.
 
 ```python
 pipeline = [
     {"feature_augmentation": {
         "_or_": preprocessing_options,
-        "size": (1, 2),
+        "pick": (1, 2),
         "count": 5  # Randomly pick 5 combinations
     }}
 ]
@@ -829,7 +829,7 @@ pipeline = [
 pipeline = [
     {"feature_augmentation": {
         "_or_": preprocessing_options,
-        "size": [2, (1, 2)]  # 2 sub-pipelines, each with 1-2 items
+        "pick": [2, (1, 2)]  # 2 sub-pipelines, each with 1-2 items
     }}
 ]
 ```
@@ -1224,7 +1224,7 @@ pipeline:
         - class: nirs4all.operators.transforms.Detrend
         - class: nirs4all.operators.transforms.FirstDerivative
         - class: nirs4all.operators.transforms.Gaussian
-      size: [1, 2]
+      pick: [1, 2]
       count: 5
 
   - class: sklearn.model_selection._split.ShuffleSplit
@@ -1262,9 +1262,9 @@ pipeline:
 | **Model + Finetune** | `{"model": PLSRegression(), "finetune_params": {...}}` | HPO | `{"model": "...", "finetune_params": {...}}` or with params |
 | **Generator (_or_)** | `{"_or_": [A, B, C]}` | Alternatives | Expands to N pipelines |
 | **Generator (_range_)** | `{"_range_": [1, 10, 2], "param": "n", "model": ...}` | Param sweep | Expands to M pipelines |
-| **Generator + size** | `{"_or_": [...], "size": 2}` | Combinations | C(n, k) pipelines |
+| **Generator + pick** | `{"_or_": [...], "pick": 2}` | Combinations | C(n, k) pipelines |
 | **Generator + count** | `{"_or_": [...], "count": 5}` | Random sample | 5 pipelines |
-| **Nested generator** | `{"_or_": [...], "size": [2, (1,2)]}` | Sub-pipelines | Complex expansion |
+| **Nested generator** | `{"_or_": [...], "pick": [2, (1,2)]}` | Sub-pipelines | Complex expansion |
 | **Branch** | `{"branch": [[A], [B]]}` | Parallel paths | Creates N branches |
 | **Branch (named)** | `{"branch": {"a": [A], "b": [B]}}` | Named parallel | Creates named branches |
 | **Merge features** | `{"merge": "features"}` | Combine X | Exits branch mode |
@@ -1417,7 +1417,7 @@ nicon
 
 ### Rule 6: Special Keys Preserved
 
-Generator keys (`_or_`, `_range_`, `size`, `count`) and operator keys (`y_processing`, `feature_augmentation`, etc.) are **preserved as-is**.
+Generator keys (`_or_`, `_range_`, `pick`, `count`) and operator keys (`y_processing`, `feature_augmentation`, etc.) are **preserved as-is**.
 
 ---
 
@@ -1670,7 +1670,7 @@ pipeline = [
     MinMaxScaler(),
     {"feature_augmentation": {
         "_or_": [Detrend, FirstDerivative, Gaussian, StandardNormalVariate],
-        "size": (1, 2),  # 1 or 2 preprocessing steps
+        "pick": (1, 2),  # 1 or 2 preprocessing steps
         "count": 5        # Random sample 5 combinations
     }},
     ShuffleSplit(n_splits=5, test_size=0.25),

@@ -505,7 +505,7 @@ def display_results(all_results, folder, aggregation_key):
     for name, preds in all_results.items():
         if preds is None:
             continue
-        top = preds.top(n=5, rank_metric="rmse", rank_partition="test", aggregate=aggregation_key)
+        top = preds.top(n=5, rank_metric="rmse", rank_partition="test", by_repetition=aggregation_key)
         for p in top:
             p["_source_pipeline"] = name
         combined_top.extend(top)

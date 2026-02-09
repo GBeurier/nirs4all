@@ -4,14 +4,20 @@ After cross-validation (Pass 1) completes, this module extracts the
 winning pipeline configuration -- the expanded steps, finetuned params,
 and generator choices -- so that the refit phase can replay the exact
 configuration that produced the best CV score.
+
+Also provides per-model configuration extraction for refitting ALL
+unique model classes independently.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nirs4all.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from nirs4all.pipeline.execution.refit.model_selector import PerModelSelection
 
 logger = get_logger(__name__)
 
@@ -187,3 +193,107 @@ def _extract_best_params(
         return best_params_raw
 
     return {}
+
+
+def extract_per_model_configs(
+    store: Any,
+    run_id: str,
+    metric: str | None = None,
+    ascending: bool | None = None,
+) -> dict[str, tuple[PerModelSelection, RefitConfig]]:
+    """Extract the best RefitConfig for each unique model class.
+
+    Queries all completed pipeline variants from the store, identifies the
+    model class used in each, and for each unique model picks the variant
+    with the best validation score.
+
+    Args:
+        store: :class:`WorkspaceStore` instance.
+        run_id: Run identifier.
+        metric: Metric for ranking.  Inferred if ``None``.
+        ascending: Sort direction.  Inferred if ``None``.
+
+    Returns:
+        Mapping from model class name to ``(PerModelSelection, RefitConfig)``
+        tuples.  Empty dict if only one model class exists (standard refit
+        suffices).
+    """
+    from nirs4all.pipeline.analysis.topology import analyze_topology
+    from nirs4all.pipeline.execution.refit.model_selector import PerModelSelection
+    from nirs4all.pipeline.storage.workspace_store import _infer_metric_ascending
+
+    pipelines_df = store.list_pipelines(run_id=run_id)
+    if pipelines_df.is_empty():
+        return {}
+
+    completed = pipelines_df.filter(pipelines_df["status"] == "completed")
+    if completed.is_empty() or len(completed) <= 1:
+        return {}
+
+    # Determine metric and ascending
+    if metric is None:
+        metric_col = completed["metric"]
+        non_null = [v for v in metric_col.to_list() if v is not None and v != ""]
+        metric = non_null[0] if non_null else "rmse"
+    if ascending is None:
+        ascending = _infer_metric_ascending(metric)
+
+    pipeline_ids = completed["pipeline_id"].to_list()
+    best_vals = completed["best_val"].to_list()
+
+    # For each pipeline variant, identify its model class via topology
+    model_to_variants: dict[str, list[tuple[str, float, int]]] = {}
+
+    for idx, (pid, bv) in enumerate(zip(pipeline_ids, best_vals)):
+        record = store.get_pipeline(pid)
+        if record is None:
+            continue
+        expanded_steps = record.get("expanded_config", [])
+        topo = analyze_topology(expanded_steps)
+
+        for model_node in topo.model_nodes:
+            model_class = model_node.model_class
+            if model_class not in model_to_variants:
+                model_to_variants[model_class] = []
+            model_to_variants[model_class].append((pid, bv if bv is not None else 0.0, idx))
+
+    if len(model_to_variants) <= 1:
+        return {}
+
+    # For each model, pick the variant with best val_score
+    result: dict[str, tuple[PerModelSelection, RefitConfig]] = {}
+
+    for model_class, variants in model_to_variants.items():
+        if ascending:
+            best_pid, best_score, best_idx = min(variants, key=lambda x: x[1])
+        else:
+            best_pid, best_score, best_idx = max(variants, key=lambda x: x[1])
+
+        record = store.get_pipeline(best_pid)
+        if record is None:
+            continue
+
+        expanded_steps = record.get("expanded_config", [])
+        generator_choices = record.get("generator_choices", [])
+        best_params = _extract_best_params(store, best_pid, metric, ascending)
+
+        selection = PerModelSelection(
+            variant_index=best_idx,
+            best_score=best_score,
+            best_params=best_params,
+            expanded_steps=expanded_steps,
+        )
+
+        config = RefitConfig(
+            expanded_steps=expanded_steps,
+            best_params=best_params,
+            variant_index=best_idx,
+            generator_choices=generator_choices,
+            pipeline_id=best_pid,
+            metric=metric,
+            best_score=best_score,
+        )
+
+        result[model_class] = (selection, config)
+
+    return result

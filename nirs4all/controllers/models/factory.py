@@ -245,10 +245,11 @@ class ModelFactory:
 
         Handles StackingRegressor, StackingClassifier, VotingRegressor, VotingClassifier
         by getting current params via get_params() and merging with force_params.
+        Properly handles nested parameters (e.g., final_estimator__alpha) using set_params.
 
         Args:
             model: Meta-estimator instance to rebuild.
-            force_params: Parameters to override.
+            force_params: Parameters to override (can include nested params with __ separator).
 
         Returns:
             New meta-estimator instance with merged parameters.
@@ -258,10 +259,29 @@ class ModelFactory:
         # Use sklearn's get_params to get current configuration (excludes fitted attributes)
         current_params = model.get_params(deep=False)
 
-        # Merge with force_params (force_params takes precedence)
-        merged = {**current_params, **force_params}
+        # Separate top-level and nested parameters
+        top_level_params = {}
+        nested_params = {}
 
-        return model_class(**merged)
+        for key, value in force_params.items():
+            if '__' in key:
+                # Nested parameter (e.g., final_estimator__alpha)
+                nested_params[key] = value
+            else:
+                # Top-level parameter
+                top_level_params[key] = value
+
+        # Merge top-level params with current params
+        merged_top_level = {**current_params, **top_level_params}
+
+        # Create new instance with top-level params
+        new_model = model_class(**merged_top_level)
+
+        # Apply nested params using set_params
+        if nested_params:
+            new_model.set_params(**nested_params)
+
+        return new_model
 
     @staticmethod
     def _from_dict(model_dict, dataset, force_params=None):

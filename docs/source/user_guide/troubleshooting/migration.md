@@ -13,7 +13,7 @@ This guide helps you migrate from older versions of nirs4all to the current vers
 
 ## API Migration (v0.5 → v0.6+)
 
-nirs4all v0.6 introduces a simplified module-level API that reduces boilerplate while maintaining full functionality. The classic API remains fully supported for backward compatibility.
+nirs4all v0.6 introduced a simplified module-level API that reduces boilerplate while maintaining full functionality. The module-level API is now the only supported API.
 
 ### What Changed
 
@@ -27,7 +27,7 @@ nirs4all v0.6 introduces a simplified module-level API that reduces boilerplate 
 
 ### Quick Comparison
 
-#### Classic API (Still Supported)
+#### Classic API (Deprecated)
 
 ```python
 from nirs4all.pipeline import PipelineRunner, PipelineConfigs
