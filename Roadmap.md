@@ -1,26 +1,22 @@
 ## ROADMAP
 
 
-**RELEASE** 0.7.1 - Ready for UI dev
-
+**RELEASE** (webapp 0.1.0) - 0.8.0 UI compliant
 
 > [Design] Define all services
 > [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
 
 > [Parralellization] make a study on that
 
-> [WEBAPP] full react version - hidden fastapi / nirs4all
-
-> [DEPLOY] standalone installer, web installer (gpu/no gpu - os) options for backend and CUDA
-
-**RELEASE** (webapp 0.1.0) - 0.8.0 UI compliant
 
 ## FEATURES
 > [Docs] Updated
 
+> [Optuma] Modularize god class
+
 > [multivariate]
 
-> [Transfer] Partial layers retraining
+> [Transfer] Partial layers retraining or partial retrain on new data.
 
 > [Stacking] Stacking from predictions files directly (need hash for oof and clean separation) - use model path or chain path in pipeline
 
@@ -45,6 +41,8 @@
 
 > [Fusion] Mid: Multi head models
 > [Fusion] Late: predictions final / avg / w_avg / asymetric ensembling
+
+> [Training] model prediction cache for sweep in stack that retrain exactly same pipelines
 
 > [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators. and more. Both operators and analyzers should be uniformized (inside the pipeline or outside)
 > [Charts] aggregate based on metadata col, convert std indexes (model_name, model_classname, pp, etc.) to enum, keep string only for columns. Add Y as grouping value, add variance, mean, etc. as sort score.

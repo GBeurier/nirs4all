@@ -1378,3 +1378,60 @@ class OptunaManager:
                 search_space[param_name] = param_config.get("choices", param_config.get("values", []))
 
         return search_space
+
+
+# ============================================================================
+# Parameter helpers for complex sklearn models
+# ============================================================================
+
+
+def stack_params(
+    final_estimator_params: Optional[Dict[str, Any]] = None,
+    **other_params: Any
+) -> Dict[str, Any]:
+    """Create Optuna-compatible parameter structure for sklearn Stacking models.
+
+    Helper to finetune the final_estimator (metamodel) of a StackingRegressor
+    or StackingClassifier through Optuna. Automatically namespaces parameters
+    with the ``final_estimator__`` prefix required by sklearn.
+
+    The existing nested parameter flattening/unflattening system in
+    OptunaManager will handle the ``__`` separator transparently.
+
+    Args:
+        final_estimator_params: Parameter specs for the metamodel.
+            Each value can be an Optuna parameter spec (range tuple, list, dict).
+        **other_params: Additional Stack parameters (e.g., cv, passthrough).
+
+    Returns:
+        Dict with properly namespaced parameters for Optuna sampling.
+
+    Example:
+        >>> from nirs4all.optimization.optuna import stack_params
+        >>> finetune_params = {
+        ...     "n_trials": 20,
+        ...     "model_params": stack_params(
+        ...         final_estimator_params={
+        ...             "alpha": ("float", 1e-3, 1e0, "log"),
+        ...             "fit_intercept": [True, False],
+        ...         },
+        ...         passthrough=True,  # Stack parameter
+        ...     ),
+        ... }
+        >>> # Optuna will sample final_estimator__alpha and final_estimator__fit_intercept
+
+    See Also:
+        - sklearn.ensemble.StackingRegressor
+        - sklearn.ensemble.StackingClassifier
+    """
+    params = {}
+
+    # Namespace final_estimator params with final_estimator__ prefix
+    if final_estimator_params:
+        for key, value in final_estimator_params.items():
+            params[f"final_estimator__{key}"] = value
+
+    # Add other Stack-level params as-is (e.g., cv, passthrough)
+    params.update(other_params)
+
+    return params

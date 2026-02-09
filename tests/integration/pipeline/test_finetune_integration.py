@@ -279,3 +279,58 @@ class TestFinetuneIntegration:
 
             assert predictions.num_predictions > 0
             print(f"Eval mode '{eval_mode}' completed")
+
+    @pytest.mark.optuna
+    def test_finetune_stack_helper(self, test_data_manager):
+        """Test finetuning StackingRegressor metamodel with stack_params helper."""
+        pytest.importorskip("optuna")
+        from sklearn.ensemble import StackingRegressor
+        from sklearn.linear_model import Ridge
+        from nirs4all.optimization.optuna import stack_params
+
+        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
+
+        # Create base estimators
+        base_estimators = [
+            ("pls", PLSRegression(n_components=3)),
+        ]
+
+        # Use stack_params helper to create finetunable StackingRegressor
+        pipeline = [
+            MinMaxScaler(),
+            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            {
+                "model": StackingRegressor(
+                    estimators=base_estimators,
+                    final_estimator=Ridge(),
+                    cv=2,
+                ),
+                "name": "Stack-Finetuned",
+                "finetune_params": {
+                    "n_trials": 3,
+                    "verbose": 0,
+                    "approach": "single",
+                    "sampler": "grid",
+                    "model_params": stack_params(
+                        final_estimator_params={
+                            "alpha": [0.1, 1.0, 10.0],
+                        },
+                    ),
+                }
+            },
+        ]
+
+        pipeline_config = PipelineConfigs(pipeline, "finetune_stack_test")
+        dataset_config = DatasetConfigs(dataset_folder)
+
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        # Should have predictions from finetuned stack
+        assert predictions.num_predictions > 0
+
+        # Verify finetuning produced results
+        best_pred = predictions.get_best(ascending=True)
+        assert 'model_name' in best_pred
+        assert best_pred['model_name'] == 'Stack-Finetuned'
+        assert np.isfinite(best_pred['val_score'])

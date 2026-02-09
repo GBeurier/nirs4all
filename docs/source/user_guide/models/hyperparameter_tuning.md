@@ -266,6 +266,49 @@ Use `seed` for deterministic optimization results:
 }
 ```
 
+### Stack Helper (Stacking Model Optimization)
+
+For sklearn `StackingRegressor` and `StackingClassifier`, use the `stack_params()` helper to easily finetune the final estimator (metamodel):
+
+```python
+from sklearn.ensemble import StackingRegressor
+from sklearn.linear_model import Ridge
+from sklearn.cross_decomposition import PLSRegression
+from nirs4all.optimization.optuna import stack_params
+
+# Define base estimators
+base_estimators = [
+    ("pls", PLSRegression(n_components=5)),
+    ("ridge", Ridge(alpha=1.0)),
+]
+
+pipeline = [
+    ShuffleSplit(n_splits=3, random_state=42),
+    {
+        "model": StackingRegressor(
+            estimators=base_estimators,
+            final_estimator=Ridge(),
+            cv=3,
+        ),
+        "finetune_params": {
+            "n_trials": 20,
+            "sampler": "tpe",
+            "model_params": stack_params(
+                final_estimator_params={
+                    "alpha": ('float_log', 1e-3, 1e2),      # Finetune metamodel alpha
+                    "fit_intercept": [True, False],          # Finetune metamodel fit_intercept
+                },
+                passthrough=True,  # Stack-level parameter (optional)
+            ),
+        }
+    }
+]
+
+result = nirs4all.run(pipeline=pipeline, dataset="data/")
+```
+
+The `stack_params()` helper automatically namespaces final estimator parameters with the `final_estimator__` prefix required by sklearn. This works seamlessly with the existing nested parameter system.
+
 ## Combining with Preprocessing Search
 
 Combine `feature_augmentation` with hyperparameter tuning to find the best preprocessing + hyperparameter combination:
