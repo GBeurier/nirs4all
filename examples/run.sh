@@ -83,6 +83,7 @@ user_examples=(
   "user/04_models/U02_hyperparameter_tuning.py"
   "user/04_models/U03_stacking_ensembles.py"
   "user/04_models/U04_pls_variants.py"
+  "user/04_models/U05_advanced_finetuning.py"
   # 05_cross_validation
   "user/05_cross_validation/U01_cv_strategies.py"
   "user/05_cross_validation/U02_group_splitting.py"

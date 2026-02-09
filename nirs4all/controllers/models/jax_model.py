@@ -420,14 +420,19 @@ class JaxModelController(BaseModelController):
         from .jax.data_prep import JaxDataPreparation
         return JaxDataPreparation.prepare_data(X, y)
 
-    def _evaluate_model(self, model: Any, X_val: Any, y_val: Any) -> float:
+    def _evaluate_model(self, model: Any, X_val: Any, y_val: Any, metric: Optional[str] = None, direction: str = "minimize") -> float:
         """Evaluate JAX model."""
         # Import wrapper here (lazy)
         from .jax_wrapper import JaxModelWrapper
 
         if isinstance(model, JaxModelWrapper):
             predictions = model.predict(X_val)
-            # Calculate MSE manually on numpy arrays
+            if metric is not None:
+                y_val_1d = np.asarray(y_val).ravel()
+                y_pred_1d = np.asarray(predictions).ravel()
+                from nirs4all.core import metrics as evaluator_mod
+                return evaluator_mod.eval(y_val_1d, y_pred_1d, metric)
+            # Legacy: calculate MSE manually on numpy arrays
             mse = np.mean((predictions - y_val) ** 2)
             return float(mse)
         return float('inf')

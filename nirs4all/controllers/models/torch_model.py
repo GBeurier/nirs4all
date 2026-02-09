@@ -394,7 +394,7 @@ class PyTorchModelController(BaseModelController):
         from .torch.data_prep import PyTorchDataPreparation
         return PyTorchDataPreparation.prepare_data(X, y)
 
-    def _evaluate_model(self, model: 'nn.Module', X_val: Any, y_val: Any) -> float:
+    def _evaluate_model(self, model: 'nn.Module', X_val: Any, y_val: Any, metric: Optional[str] = None, direction: str = "minimize") -> float:
         """Evaluate PyTorch model."""
         try:
             torch = _get_torch()
@@ -406,6 +406,13 @@ class PyTorchModelController(BaseModelController):
             model.eval()
             with torch.no_grad():
                 predictions = model(X_val)
+
+                if metric is not None:
+                    y_val_np = y_val.cpu().numpy().ravel()
+                    y_pred_np = predictions.cpu().numpy().ravel()
+                    from nirs4all.core import metrics as evaluator_mod
+                    return evaluator_mod.eval(y_val_np, y_pred_np, metric)
+
                 mse_loss = nn.MSELoss()
                 loss = mse_loss(predictions, y_val)
                 return loss.item()

@@ -282,9 +282,18 @@ class MetaModelController(SklearnModelController):
         else:
             model = meta_operator
 
-        # Apply force_params if provided and model supports it
+        # Apply force_params if provided and model supports it.
+        # Strip 'model__' prefix from keys — finetune_space uses 'model__alpha'
+        # to match sklearn's nested parameter convention, but the inner model
+        # (e.g. Ridge) expects just 'alpha'.
         if force_params and model is not None and hasattr(model, 'set_params'):
-            model.set_params(**force_params)
+            clean_params = {}
+            for key, value in force_params.items():
+                if key.startswith('model__'):
+                    clean_params[key[7:]] = value
+                else:
+                    clean_params[key] = value
+            model.set_params(**clean_params)
 
         return model
 
