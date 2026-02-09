@@ -154,16 +154,16 @@ class SklearnModelController(BaseModelController):
             if force_params is None:
                 return model
 
-            # If we have force_params, we need to get the class and rebuild
+            # If we have force_params, we need to rebuild
             if force_params:
-                # Get the model class (either from instance or if it's already a class)
+                # For instances, pass the instance itself to preserve structural parameters (e.g., estimators in StackingRegressor)
+                # For classes, pass the class
                 if isinstance(model, type):
                     model_class = model
+                    return ModelFactory.build_single_model(model_class, dataset, force_params)
                 else:
-                    model_class = type(model)
-
-                # Rebuild with force_params
-                return ModelFactory.build_single_model(model_class, dataset, force_params)
+                    # Pass instance to preserve structural parameters through _from_instance path
+                    return ModelFactory.build_single_model(model, dataset, force_params)
 
         # Handle new serialization formats: {'function': ..., 'params': ...} or {'class': ..., 'params': ...}
         if any(key in model_config for key in ('function', 'class', 'import')):
