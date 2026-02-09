@@ -449,7 +449,7 @@ for i, pred in enumerate(result_all.top(10, display_metrics=['rmse', 'r2']), 1):
 if args.plots:
     analyzer = PredictionAnalyzer(result_all.predictions)
     fig1 = analyzer.plot_top_k(k=7, rank_metric='rmse')
-    fig2 = analyzer.plot_candlestick(variable="model_name", partition="test")
+    fig2 = analyzer.plot_candlestick(variable="model_name", display_partition="test")
 
     if args.show:
         plt.show()
