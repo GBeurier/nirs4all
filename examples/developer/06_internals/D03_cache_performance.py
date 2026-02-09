@@ -252,6 +252,8 @@ if __name__ == "__main__":
         help="Path to dataset root directory (default: sample_data)",
     )
     parser.add_argument("-v", "--verbose", type=int, default=0)
+    parser.add_argument("--plots", action="store_true", help="Generate plots (not used in this example)")
+    parser.add_argument("--show", action="store_true", help="Display plots (not used in this example)")
     args = parser.parse_args()
     dataset_root = Path(args.dataset_root)
 

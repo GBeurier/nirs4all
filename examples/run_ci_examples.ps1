@@ -9,6 +9,7 @@ param(
     [ValidateSet("user", "developer", "reference", "all")]
     [string]$Category = "all",
 
+    [switch]$Plots,
     [switch]$Strict = $true,
     [switch]$VerboseOutput,
     [switch]$KeepGoing,
@@ -122,6 +123,7 @@ Write-Log "Timestamp: $(Get-Date)"
 Write-Log "Category: $Category"
 Write-Log "Strict mode: $Strict"
 Write-Log "Jobs: $Jobs"
+Write-Log "Plots: $Plots"
 Write-Log "Fast mode: $FastMode"
 Write-Log "Output dir: $RunDir"
 Write-Log ""
@@ -294,7 +296,8 @@ function Invoke-ExampleWorker {
         [string]$RunDir,
         [string]$StatusDir,
         [string]$WorkspacesDir,
-        [string]$FastMode
+        [string]$FastMode,
+        [bool]$Plots = $false
     )
 
     $exampleName = [System.IO.Path]::GetFileNameWithoutExtension($Example)
@@ -304,6 +307,9 @@ function Invoke-ExampleWorker {
 
     New-Item -ItemType Directory -Force -Path $workspaceDir | Out-Null
 
+    $launcherArgs = @($Example)
+    if ($Plots) { $launcherArgs += "--plots" }
+
     $startTime = Get-Date
     $startIso = $startTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     $exitCode = 0
@@ -311,7 +317,7 @@ function Invoke-ExampleWorker {
     try {
         $env:NIRS4ALL_EXAMPLE_FAST = $FastMode
         $env:NIRS4ALL_WORKSPACE = $workspaceDir
-        & $PythonExe $Launcher $Example *> $outputFile
+        & $PythonExe $Launcher @launcherArgs *> $outputFile
         $exitCode = $LASTEXITCODE
     }
     catch {
@@ -341,7 +347,7 @@ if ($Jobs -gt 1) {
         Write-Host ("LAUNCH [{0}/{1}] {2} :: {3}" -f $index, $SelectedExamples.Count, $launchIso, $example)
 
         $job = Start-Job -ScriptBlock {
-            param($Index, $Example, $PythonExe, $Launcher, $RunDir, $StatusDir, $WorkspacesDir, $FastMode)
+            param($Index, $Example, $PythonExe, $Launcher, $RunDir, $StatusDir, $WorkspacesDir, $FastMode, $Plots)
             $ErrorActionPreference = "Stop"
 
             $exampleName = [System.IO.Path]::GetFileNameWithoutExtension($Example)
@@ -351,13 +357,16 @@ if ($Jobs -gt 1) {
 
             New-Item -ItemType Directory -Force -Path $workspaceDir | Out-Null
 
+            $launcherArgs = @($Example)
+            if ($Plots) { $launcherArgs += "--plots" }
+
             $startTime = Get-Date
             $startIso = $startTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
             $exitCode = 0
             try {
                 $env:NIRS4ALL_EXAMPLE_FAST = $FastMode
                 $env:NIRS4ALL_WORKSPACE = $workspaceDir
-                & $PythonExe $Launcher $Example *> $outputFile
+                & $PythonExe $Launcher @launcherArgs *> $outputFile
                 $exitCode = $LASTEXITCODE
             }
             catch {
@@ -371,7 +380,7 @@ if ($Jobs -gt 1) {
             "{0}|{1}|{2}|{3}|{4}|{5}|{6}" -f $Index, $Example, $outputFile, $exitCode, $duration, $startIso, $endIso |
                 Out-File -FilePath $statusFile -Encoding UTF8
             "DONE   [{0}] {1} :: {2} ({3}s, exit={4})" -f $Index, $endIso, $Example, $duration, $exitCode
-        } -ArgumentList $index, $example, $PythonExe, $Launcher, $RunDir, $StatusDir, $WorkspacesDir, $FastMode
+        } -ArgumentList $index, $example, $PythonExe, $Launcher, $RunDir, $StatusDir, $WorkspacesDir, $FastMode, $Plots.IsPresent
 
         $jobList += $job
     }
@@ -393,7 +402,8 @@ else {
         Write-Host ("LAUNCH [{0}/{1}] {2} :: {3}" -f $index, $SelectedExamples.Count, $launchIso, $example)
         Invoke-ExampleWorker -Index $index -Example $example `
             -PythonExe $PythonExe -Launcher $Launcher `
-            -RunDir $RunDir -StatusDir $StatusDir -WorkspacesDir $WorkspacesDir -FastMode $FastMode
+            -RunDir $RunDir -StatusDir $StatusDir -WorkspacesDir $WorkspacesDir -FastMode $FastMode `
+            -Plots $Plots.IsPresent
     }
 }
 

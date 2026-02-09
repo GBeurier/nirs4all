@@ -199,7 +199,7 @@ def _optimize_dataset_spec(dataset: Any) -> Any:
     return optimized
 
 
-def _patch_nirs4all_fast_mode() -> None:
+def _patch_nirs4all_fast_mode(*, plots: bool = False) -> None:
     import nirs4all
     from nirs4all.pipeline.runner import PipelineRunner
     run_api = importlib.import_module("nirs4all.api.run")
@@ -215,16 +215,18 @@ def _patch_nirs4all_fast_mode() -> None:
         kwargs.setdefault("verbose", 0)
         kwargs.setdefault("show_spinner", False)
         kwargs.setdefault("show_progress_bar", False)
-        kwargs.setdefault("plots_visible", False)
-        kwargs.setdefault("save_charts", False)
+        if not plots:
+            kwargs.setdefault("plots_visible", False)
+            kwargs.setdefault("save_charts", False)
         return original_run(pipeline, dataset, **kwargs)
 
     def fast_pr_init(self: Any, *args: Any, **kwargs: Any) -> None:
         kwargs.setdefault("verbose", 0)
         kwargs.setdefault("show_spinner", False)
         kwargs.setdefault("show_progress_bar", False)
-        kwargs.setdefault("plots_visible", False)
-        kwargs.setdefault("save_charts", False)
+        if not plots:
+            kwargs.setdefault("plots_visible", False)
+            kwargs.setdefault("save_charts", False)
         original_pr_init(self, *args, **kwargs)
 
     def fast_pr_run(self: Any, pipeline: Any, dataset: Any, *args: Any, **kwargs: Any) -> Any:
@@ -261,8 +263,10 @@ def main() -> int:
     if str(examples_dir) not in sys.path:
         sys.path.insert(0, str(examples_dir))
 
+    plots_requested = "--plots" in args.example_args
+
     if _is_fast_mode():
-        _patch_nirs4all_fast_mode()
+        _patch_nirs4all_fast_mode(plots=plots_requested)
 
     # Forward argv as if the example was launched directly.
     sys.argv = [str(example_path)] + args.example_args

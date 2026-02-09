@@ -11,6 +11,7 @@ set -uo pipefail
 # Options:
 #   -c CATEGORY  Category: user, developer, reference, all (default: all)
 #   -j JOBS      Parallel workers for example execution (default: 1)
+#   -p           Generate plots (pass --plots to examples)
 #   -s           Strict mode: fail on warning/invalid patterns (default: true)
 #   -v           Verbose: show example output on warnings/failures
 #   -k           Keep going: don't stop on first failure (always implied for -j > 1)
@@ -25,6 +26,7 @@ CATEGORY="all"
 STRICT=1
 VERBOSE=0
 KEEP_GOING=0
+PLOTS=0
 JOBS="${NIRS4ALL_CI_JOBS:-1}"
 FAST_MODE="${NIRS4ALL_EXAMPLE_FAST:-1}"
 
@@ -43,6 +45,7 @@ Usage: ./run_ci_examples.sh [OPTIONS]
 Options:
   -c CATEGORY  Category: user, developer, reference, all (default: all)
   -j JOBS      Parallel workers for example execution (default: 1)
+  -p           Generate plots (pass --plots to examples)
   -s           Strict mode: fail on warning/invalid patterns (default: true)
   -v           Verbose: show example output on warnings/failures
   -k           Keep going: don't stop on first failure
@@ -52,19 +55,22 @@ Examples:
   ./run_ci_examples.sh
   ./run_ci_examples.sh -c user -j 4
   ./run_ci_examples.sh -c all -j 6 -k
+  ./run_ci_examples.sh -c user -p
+  ./run_ci_examples.sh -c user -p        # With plot generation
 EOF
     exit 0
 }
 
-while getopts "c:j:svkh" opt; do
+while getopts "c:j:psvkh" opt; do
     case "$opt" in
         c) CATEGORY="$OPTARG" ;;
         j) JOBS="$OPTARG" ;;
+        p) PLOTS=1 ;;
         s) STRICT=1 ;;
         v) VERBOSE=1 ;;
         k) KEEP_GOING=1 ;;
         h) show_help ;;
-        *) echo "Usage: $0 [-c category] [-j jobs] [-s] [-v] [-k] [-h]"; exit 1 ;;
+        *) echo "Usage: $0 [-c category] [-j jobs] [-p] [-s] [-v] [-k] [-h]"; exit 1 ;;
     esac
 done
 shift $((OPTIND - 1))
@@ -165,6 +171,7 @@ echo "Timestamp: $(date)" | tee -a "$SUMMARY_FILE"
 echo "Category: $CATEGORY" | tee -a "$SUMMARY_FILE"
 echo "Strict mode: $STRICT" | tee -a "$SUMMARY_FILE"
 echo "Jobs: $JOBS" | tee -a "$SUMMARY_FILE"
+echo "Plots: $PLOTS" | tee -a "$SUMMARY_FILE"
 echo "Fast mode: $FAST_MODE" | tee -a "$SUMMARY_FILE"
 echo "Output dir: $RUN_DIR" | tee -a "$SUMMARY_FILE"
 echo "" | tee -a "$SUMMARY_FILE"
@@ -344,13 +351,16 @@ run_example_worker() {
 
     mkdir -p "$workspace_dir"
 
+    local launcher_args=()
+    if [ "$PLOTS" -eq 1 ]; then launcher_args+=("--plots"); fi
+
     local startTime endTime duration exitCode start_iso end_iso
     startTime=$(date +%s)
     start_iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     exitCode=0
     NIRS4ALL_EXAMPLE_FAST="$FAST_MODE" \
     NIRS4ALL_WORKSPACE="$workspace_dir" \
-    "$PYTHON_BIN" "$LAUNCHER" "$example" > "$output_file" 2>&1 || exitCode=$?
+    "$PYTHON_BIN" "$LAUNCHER" "$example" "${launcher_args[@]}" > "$output_file" 2>&1 || exitCode=$?
     endTime=$(date +%s)
     duration=$((endTime - startTime))
     end_iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

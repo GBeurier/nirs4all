@@ -261,15 +261,15 @@ print(branch_df.to_string(index=False) if hasattr(branch_df, 'to_string') else b
 if args.plots or args.show:
     # Create branch comparison chart
     fig_compare = viz_analyzer.plot_branch_comparison(
-        metric='rmse',
-        partition='test'
+        rank_metric='rmse',
+        display_partition='test'
     )
     print("Created branch comparison chart")
 
     # Create branch boxplot
     fig_boxplot = viz_analyzer.plot_branch_boxplot(
-        metric='rmse',
-        partition='test'
+        rank_metric='rmse',
+        display_partition='test'
     )
     print("Created branch boxplot")
 

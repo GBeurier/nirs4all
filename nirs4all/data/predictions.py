@@ -570,6 +570,9 @@ class Predictions:
         _ = filters.pop("ascending", None)
         _ = filters.pop("group_by_fold", None)
         _ = filters.pop("score_scope", None)
+        _ = filters.pop("aggregate", None)
+        _ = filters.pop("aggregate_method", None)
+        _ = filters.pop("aggregate_exclude_outliers", None)
 
         # Normalise score_scope alias
         effective_scope = score_scope if score_scope != "auto" else "mix"

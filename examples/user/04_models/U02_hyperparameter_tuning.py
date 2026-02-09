@@ -400,7 +400,7 @@ if args.plots:
     # Candlestick: performance distribution
     fig3 = analyzer.plot_candlestick(
         variable="model_name",
-        partition="test"
+        display_partition="test"
     )
 
     print("Charts generated (use --show to display)")
