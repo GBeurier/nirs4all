@@ -57,7 +57,7 @@ class TestNirs4allIntegration:
         pipeline = [
             MinMaxScaler(),
             {"y_processing": MinMaxScaler()},
-            {"feature_augmentation": {"_or_": list_of_preprocessors, "size": 1, "count": 2}},
+            {"feature_augmentation": {"_or_": list_of_preprocessors, "pick": 1, "count": 2}},
             ShuffleSplit(n_splits=1, test_size=0.25, random_state=42),
             {"model": PLSRegression(n_components=4)},
             {"model": PLSRegression(n_components=7)},

@@ -52,14 +52,6 @@ class ModelIdentifierGenerator:
         'MyPLS_10_fold0'
     """
 
-    def __init__(self, helper=None):
-        """Initialize identifier generator.
-
-        Args:
-            helper: Deprecated parameter, kept for backwards compatibility.
-        """
-        # Helper is deprecated - methods are now implemented directly in this class
-
     def extract_core_name(self, model_config: Dict[str, Any]) -> str:
         """Extract core name from model configuration.
 

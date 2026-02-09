@@ -5,7 +5,7 @@ different generator node types through the Strategy pattern.
 
 Phase 2 Strategies:
     - RangeStrategy: Handles _range_ nodes for numeric sequences
-    - OrStrategy: Handles _or_ nodes with pick/arrange/size semantics
+    - OrStrategy: Handles _or_ nodes with pick/arrange semantics
 
 Phase 3 Strategies:
     - LogRangeStrategy: Handles _log_range_ nodes for logarithmic sequences

@@ -26,11 +26,8 @@ examples/
 │   └── 06_internals/           # D01-D02: Custom controllers, sessions
 │
 ├── reference/               # 📚 Reference Examples (R01-R07)
-│   ├── R01-R04                  # Pipeline syntax documentation
+│   ├── R01-R03                  # Pipeline syntax documentation
 │   └── R05-R07                  # Advanced synthetic data (Phase 3-4)
-│
-├── legacy/                  # 🗄️ Legacy Examples (Q*/X*)
-│   └── Old examples being migrated
 │
 └── sample_data/             # 📂 Sample datasets
 ```
@@ -181,7 +178,6 @@ The Developer Path covers advanced features for power users and contributors.
 | R01_pipeline_syntax.py | Complete pipeline syntax reference |
 | R02_generator_reference.py | Generator syntax documentation |
 | R03_all_keywords.py | Test all pipeline keywords |
-| R04_legacy_api.py | Legacy PipelineRunner API |
 | R05_synthetic_environmental.py | Environmental & matrix effects (Phase 3) |
 | R06_synthetic_validation.py | Validation & quality assessment (Phase 4) |
 | R07_synthetic_fitter.py | Fitting generators to real data (Phase 4) |
@@ -201,7 +197,6 @@ The Developer Path covers advanced features for power users and contributors.
 ./run.sh -c user            # User path only
 ./run.sh -c developer       # Developer path only
 ./run.sh -c reference       # Reference examples
-./run.sh -c legacy          # Old Q* examples (during migration)
 ```
 
 ### Run specific example
@@ -257,18 +252,6 @@ Results are saved to `workspace/ci_output/run_YYYYMMDD_HHMMSS/`:
 - `summary.txt` - Overall pass/fail summary
 - `errors.txt` - Detailed error information
 - `*.log` - Individual example output logs
-
----
-
-## 📋 Migration Status
-
-This directory is being reorganized. During the transition period:
-
-- **New examples** are in `user/`, `developer/`, `reference/`
-- **Legacy examples** (Q*.py, X*.py) remain at the root level
-- Use `-c legacy` to run only legacy examples
-
-See [EXAMPLES_REORGANIZATION.md](../docs/EXAMPLES_REORGANIZATION.md) for the full migration plan.
 
 ---
 

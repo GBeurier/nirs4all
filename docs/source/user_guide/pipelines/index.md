@@ -10,7 +10,6 @@ branching
 merging
 stacking
 multi_source
-force_group_splitting
 cache_optimization
 ```
 
@@ -59,16 +58,6 @@ Build meta-models that combine predictions from multiple base models.
 
 +++
 {bdg-warning}`Ensembles`
-:::
-
-:::{grid-item-card} 👥 Group Splitting
-:link: force_group_splitting
-:link-type: doc
-
-Ensure related samples stay together during cross-validation.
-
-+++
-{bdg-info}`Validation`
 :::
 
 :::{grid-item-card} 🔀 Multi-Source Pipelines

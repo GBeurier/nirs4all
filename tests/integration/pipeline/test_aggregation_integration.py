@@ -58,23 +58,6 @@ class TestAggregationIntegration:
         yield manager
         manager.cleanup()
 
-    def test_aggregate_via_constructor_parameter(self, test_data_manager):
-        """Test aggregation via DatasetConfigs constructor parameter."""
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
-
-        # Create dataset config with aggregate parameter
-        dataset_config = DatasetConfigs(
-            dataset_folder,
-            aggregate="sample_id"
-        )
-
-        # Verify the aggregate setting is stored
-        assert dataset_config._aggregates[0] == "sample_id"
-
-        # Get dataset and verify the setting propagates
-        dataset = dataset_config.get_dataset_at(0)
-        assert dataset.aggregate == "sample_id"
-
     def test_aggregate_via_config_dict(self, test_data_manager):
         """Test aggregation via config dictionary."""
         temp_dir = test_data_manager.get_temp_directory()
@@ -96,42 +79,32 @@ class TestAggregationIntegration:
         dataset = dataset_config.get_dataset_at(0)
         assert dataset.aggregate == "sample_id"
 
-    def test_aggregate_constructor_overrides_config(self, test_data_manager):
-        """Test that constructor parameter overrides config dict value."""
+    def test_aggregate_true_for_y_grouping(self, test_data_manager):
+        """Test aggregate=True groups by y values."""
         temp_dir = test_data_manager.get_temp_directory()
 
         config = {
             "train_x": str(temp_dir / "regression" / "Xcal.csv.gz"),
             "train_y": str(temp_dir / "regression" / "Ycal.csv.gz"),
-            "aggregate": "sample_id"  # Config dict setting
+            "aggregate": True
         }
 
-        # Constructor parameter overrides
-        dataset_config = DatasetConfigs(config, aggregate="other_column")
-
-        # Verify constructor parameter wins
-        assert dataset_config._aggregates[0] == "other_column"
-
-    def test_aggregate_true_for_y_grouping(self, test_data_manager):
-        """Test aggregate=True groups by y values."""
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
-
-        dataset_config = DatasetConfigs(
-            dataset_folder,
-            aggregate=True
-        )
-
+        dataset_config = DatasetConfigs(config)
         dataset = dataset_config.get_dataset_at(0)
         assert dataset.aggregate == "y"
 
     def test_pipeline_with_aggregate_runs_successfully(self, test_data_manager):
         """Test that a pipeline with aggregate setting runs without errors."""
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
+        temp_dir = test_data_manager.get_temp_directory()
 
-        dataset_config = DatasetConfigs(
-            dataset_folder,
-            aggregate="sample_id"
-        )
+        config = {
+            "train_x": str(temp_dir / "regression" / "Xcal.csv.gz"),
+            "train_y": str(temp_dir / "regression" / "Ycal.csv.gz"),
+            "train_group": str(temp_dir / "regression" / "Mcal.csv.gz"),
+            "aggregate": "sample_id"
+        }
+
+        dataset_config = DatasetConfigs(config)
 
         pipeline = [
             MinMaxScaler(),
@@ -154,12 +127,16 @@ class TestAggregationIntegration:
 
     def test_context_stores_aggregate_column(self, test_data_manager):
         """Test that ExecutionContext stores the aggregate_column property."""
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
+        temp_dir = test_data_manager.get_temp_directory()
 
-        dataset_config = DatasetConfigs(
-            dataset_folder,
-            aggregate="sample_id"
-        )
+        config = {
+            "train_x": str(temp_dir / "regression" / "Xcal.csv.gz"),
+            "train_y": str(temp_dir / "regression" / "Ycal.csv.gz"),
+            "train_group": str(temp_dir / "regression" / "Mcal.csv.gz"),
+            "aggregate": "sample_id"
+        }
+
+        dataset_config = DatasetConfigs(config)
 
         dataset = dataset_config.get_dataset_at(0)
 
@@ -251,14 +228,11 @@ class TestAggregationIntegration:
         pd.DataFrame(y2).to_csv(path2 / "Ycal.csv.gz", index=False, header=False,
                                compression='gzip', sep=';')
 
-        # Create configs with list of aggregates
-        config1 = {"train_x": str(path1 / "Xcal.csv.gz"), "train_y": str(path1 / "Ycal.csv.gz")}
-        config2 = {"train_x": str(path2 / "Xcal.csv.gz"), "train_y": str(path2 / "Ycal.csv.gz")}
+        # Create configs with per-dataset aggregates
+        config1 = {"train_x": str(path1 / "Xcal.csv.gz"), "train_y": str(path1 / "Ycal.csv.gz"), "aggregate": "sample_id"}
+        config2 = {"train_x": str(path2 / "Xcal.csv.gz"), "train_y": str(path2 / "Ycal.csv.gz"), "aggregate": "batch_id"}
 
-        dataset_config = DatasetConfigs(
-            [config1, config2],
-            aggregate=["sample_id", "batch_id"]  # Different per dataset
-        )
+        dataset_config = DatasetConfigs([config1, config2])
 
         assert dataset_config._aggregates[0] == "sample_id"
         assert dataset_config._aggregates[1] == "batch_id"
@@ -282,10 +256,12 @@ class TestAggregationReporting:
                               compression='gzip', sep=';')
 
         # Use aggregate=True for y-based aggregation (doesn't need metadata)
-        dataset_config = DatasetConfigs(
-            str(dataset_path),
-            aggregate=True  # Aggregate by y values
-        )
+        config = {
+            "train_x": str(dataset_path / "Xcal.csv.gz"),
+            "train_y": str(dataset_path / "Ycal.csv.gz"),
+            "aggregate": True
+        }
+        dataset_config = DatasetConfigs(config)
 
         pipeline = [
             MinMaxScaler(),

@@ -3,6 +3,7 @@
 import pytest
 import tempfile
 import numpy as np
+import pandas as pd
 from pathlib import Path
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
@@ -11,10 +12,30 @@ from nirs4all.data.dataset import SpectroDataset
 class TestDatasetConfig:
     """Test suite for DatasetConfigs."""
 
-    def test_placeholder(self):
-        """Placeholder test."""
-        # TODO: Add comprehensive DatasetConfigs tests
-        pass
+    def test_x_test_alias_loads_test_partition(self):
+        """X_test alias should map to canonical test_x."""
+        X = np.random.rand(4, 6).astype(np.float32)
+
+        dataset_config = DatasetConfigs({"X_test": X})
+        dataset = dataset_config.get_dataset_at(0)
+
+        x_test = dataset.x({"partition": "test"})
+        assert x_test.shape[0] == 4
+        assert dataset.num_samples == 4
+
+    def test_train_m_alias_loads_metadata(self):
+        """train_m alias should map to canonical train_group."""
+        X = np.random.rand(3, 2).astype(np.float32)
+        M = pd.DataFrame({"sample_id": ["s1", "s1", "s2"]})
+
+        dataset_config = DatasetConfigs(
+            {"train_x": X, "train_m": M},
+            repetition="sample_id",
+        )
+        dataset = dataset_config.get_dataset_at(0)
+
+        assert "sample_id" in dataset.metadata_columns
+        assert dataset.repetition == "sample_id"
 
 
 class TestDatasetConfigAggregate:
@@ -67,32 +88,6 @@ class TestDatasetConfigAggregate:
 
         assert dataset.aggregate is None
 
-    def test_aggregate_via_constructor_string(self, sample_data_files):
-        """Test setting aggregate via constructor with column name."""
-        config = {
-            'train_x': sample_data_files['x'],
-            'train_y': sample_data_files['y'],
-            'global_params': {'delimiter': ';', 'has_header': True}
-        }
-
-        dataset_config = DatasetConfigs(config, aggregate='sample_id')
-        dataset = dataset_config.get_dataset_at(0)
-
-        assert dataset.aggregate == 'sample_id'
-
-    def test_aggregate_via_constructor_true(self, sample_data_files):
-        """Test setting aggregate via constructor with True (aggregate by y)."""
-        config = {
-            'train_x': sample_data_files['x'],
-            'train_y': sample_data_files['y'],
-            'global_params': {'delimiter': ';', 'has_header': True}
-        }
-
-        dataset_config = DatasetConfigs(config, aggregate=True)
-        dataset = dataset_config.get_dataset_at(0)
-
-        assert dataset.aggregate == 'y'
-
     def test_aggregate_via_config_dict(self, sample_data_files):
         """Test setting aggregate via config dict."""
         config = {
@@ -121,68 +116,28 @@ class TestDatasetConfigAggregate:
 
         assert dataset.aggregate == 'y'
 
-    def test_aggregate_constructor_overrides_config(self, sample_data_files):
-        """Test that constructor parameter overrides config dict value."""
-        config = {
-            'train_x': sample_data_files['x'],
-            'train_y': sample_data_files['y'],
-            'aggregate': 'sample_id',  # Config says sample_id
-            'global_params': {'delimiter': ';', 'has_header': True}
-        }
-
-        # Constructor parameter overrides to batch
-        dataset_config = DatasetConfigs(config, aggregate='batch')
-        dataset = dataset_config.get_dataset_at(0)
-
-        assert dataset.aggregate == 'batch'
-
-    def test_aggregate_constructor_true_overrides_config_string(self, sample_data_files):
-        """Test that constructor True overrides config dict string."""
-        config = {
-            'train_x': sample_data_files['x'],
-            'train_y': sample_data_files['y'],
-            'aggregate': 'sample_id',  # Config says sample_id
-            'global_params': {'delimiter': ';', 'has_header': True}
-        }
-
-        # Constructor parameter overrides to True (y-based)
-        dataset_config = DatasetConfigs(config, aggregate=True)
-        dataset = dataset_config.get_dataset_at(0)
-
-        assert dataset.aggregate == 'y'
-
-    def test_aggregate_per_dataset_list(self, sample_data_files):
-        """Test per-dataset aggregate settings with list."""
+    def test_aggregate_per_dataset_via_config_dicts(self, sample_data_files):
+        """Test per-dataset aggregate settings via config dicts."""
         config1 = {
             'train_x': sample_data_files['x'],
             'train_y': sample_data_files['y'],
+            'aggregate': 'sample_id',
             'global_params': {'delimiter': ';', 'has_header': True}
         }
         config2 = {
             'train_x': sample_data_files['x'],
             'train_y': sample_data_files['y'],
+            'aggregate': 'batch',
             'global_params': {'delimiter': ';', 'has_header': True}
         }
 
-        # Different aggregate for each dataset
-        dataset_config = DatasetConfigs([config1, config2], aggregate=['sample_id', 'batch'])
+        dataset_config = DatasetConfigs([config1, config2])
 
         dataset1 = dataset_config.get_dataset_at(0)
         dataset2 = dataset_config.get_dataset_at(1)
 
         assert dataset1.aggregate == 'sample_id'
         assert dataset2.aggregate == 'batch'
-
-    def test_aggregate_list_length_mismatch_raises(self, sample_data_files):
-        """Test that aggregate list length mismatch raises ValueError."""
-        config = {
-            'train_x': sample_data_files['x'],
-            'train_y': sample_data_files['y'],
-            'global_params': {'delimiter': ';', 'has_header': True}
-        }
-
-        with pytest.raises(ValueError, match="aggregate list length"):
-            DatasetConfigs(config, aggregate=['sample_id', 'batch'])
 
     def test_aggregate_iter_datasets(self, sample_data_files):
         """Test that aggregate is applied when using iter_datasets()."""
@@ -311,9 +266,10 @@ class TestDatasetConfigAggregateMethod:
         config = {
             'train_x': sample_data_files['x'],
             'train_y': sample_data_files['y'],
+            'aggregate': 'y',
             'global_params': {'delimiter': ';', 'has_header': True}
         }
-        dataset_config = DatasetConfigs(config, aggregate='y', aggregate_method='median')
+        dataset_config = DatasetConfigs(config, aggregate_method='median')
         dataset = dataset_config.get_dataset_at(0)
         assert dataset.aggregate_method == 'median'
 
@@ -346,9 +302,10 @@ class TestDatasetConfigAggregateMethod:
         config = {
             'train_x': sample_data_files['x'],
             'train_y': sample_data_files['y'],
+            'aggregate': 'y',
             'global_params': {'delimiter': ';', 'has_header': True}
         }
-        dataset_config = DatasetConfigs(config, aggregate='y', aggregate_exclude_outliers=True)
+        dataset_config = DatasetConfigs(config, aggregate_exclude_outliers=True)
         dataset = dataset_config.get_dataset_at(0)
         assert dataset.aggregate_exclude_outliers is True
 

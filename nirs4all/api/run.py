@@ -432,8 +432,13 @@ def run(
                     if existing_run_preds is not None and new_run_preds is not None:
                         existing_run_preds.merge_predictions(new_run_preds)
 
+    # Extract per-model selections from the orchestrator (if available)
+    orchestrator = getattr(runner, 'orchestrator', None)
+    per_model_selections = getattr(orchestrator, '_per_model_selections', None) if orchestrator else None
+
     return RunResult(
         predictions=all_predictions,
         per_dataset=all_per_dataset,
-        _runner=runner
+        _runner=runner,
+        _per_model_selections=per_model_selections,
     )

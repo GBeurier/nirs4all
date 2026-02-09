@@ -122,9 +122,9 @@ class BranchController(OperatorController):
             keyword: Step keyword
 
         Returns:
-            True if keyword is "branch" or "source_branch" (backward compatibility)
+            True if keyword is "branch"
         """
-        return keyword in ("branch", "source_branch")
+        return keyword == "branch"
 
     @classmethod
     def use_multi_source(cls) -> bool:
@@ -165,11 +165,7 @@ class BranchController(OperatorController):
         Returns:
             Tuple of (updated_context, StepOutput with collected artifacts)
         """
-        # Handle backward compatibility: source_branch keyword -> by_source
-        if "source_branch" in step_info.original_step:
-            raw_def = self._convert_source_branch_syntax(step_info.original_step)
-        else:
-            raw_def = step_info.original_step.get("branch", {})
+        raw_def = step_info.original_step.get("branch", {})
 
         branch_mode = self._detect_branch_mode(raw_def)
 
@@ -196,50 +192,6 @@ class BranchController(OperatorController):
                 loaded_binaries=loaded_binaries,
                 prediction_store=prediction_store,
             )
-
-    def _convert_source_branch_syntax(self, original_step: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert legacy source_branch syntax to new by_source syntax.
-
-        Old syntax:
-            {"source_branch": {"NIR": [steps], "markers": [steps]}}
-            {"source_branch": "auto"}
-
-        New syntax:
-            {"by_source": True, "steps": {"NIR": [steps], "markers": [steps]}}
-
-        Args:
-            original_step: Original step containing source_branch key
-
-        Returns:
-            Converted raw_def dict suitable for by_source processing
-        """
-        source_branch_def = original_step.get("source_branch", {})
-
-        logger.warning(
-            "The 'source_branch' keyword is deprecated. "
-            "Use {'branch': {'by_source': True, 'steps': {...}}} instead. "
-            "See migration guide for details."
-        )
-
-        if source_branch_def == "auto" or source_branch_def is True:
-            return {"by_source": True, "steps": {}}
-
-        if isinstance(source_branch_def, dict):
-            # Extract special keys
-            steps = {}
-            for key, value in source_branch_def.items():
-                if not key.startswith("_"):
-                    steps[key] = value
-
-            return {"by_source": True, "steps": steps}
-
-        if isinstance(source_branch_def, list):
-            # List indexed by source position
-            steps = {str(i): v for i, v in enumerate(source_branch_def)}
-            return {"by_source": True, "steps": steps}
-
-        # Default
-        return {"by_source": True, "steps": {}}
 
     def _detect_branch_mode(self, raw_def: Any) -> str:
         """Detect whether this is a duplication or separation branch.
@@ -1636,7 +1588,7 @@ class BranchController(OperatorController):
             type_keywords = [
                 'preprocessing', 'y_processing', 'feature_augmentation',
                 'sample_augmentation', 'concat_transform', 'model',
-                'meta_model', 'branch', 'merge', 'source_branch',
+                'meta_model', 'branch', 'merge',
                 'merge_sources', 'name', 'tag', 'exclude'
             ]
             for kw in type_keywords:

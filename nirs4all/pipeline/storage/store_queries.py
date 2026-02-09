@@ -300,6 +300,7 @@ WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = $1)
 # ---- Aggregated predictions (from v_aggregated_predictions VIEW) --------
 
 QUERY_AGGREGATED_PREDICTIONS_BASE = "SELECT * FROM v_aggregated_predictions"
+QUERY_AGGREGATED_PREDICTIONS_ALL_BASE = "SELECT * FROM v_aggregated_predictions_all"
 
 GET_CHAIN_PREDICTIONS = """
 SELECT * FROM predictions WHERE chain_id = $1
@@ -319,10 +320,17 @@ def build_aggregated_query(
     dataset_name: str | None = None,
     model_class: str | None = None,
     metric: str | None = None,
+    score_scope: str = "cv",
 ) -> tuple[str, list[object]]:
-    """Build a query against the ``v_aggregated_predictions`` VIEW.
+    """Build a query against an aggregated predictions VIEW.
 
     All filters are optional and combined with ``AND``.
+
+    Args:
+        score_scope: Which predictions to include.
+            ``'cv'`` (default) uses the CV-only view,
+            ``'all'`` includes both CV and refit entries,
+            ``'final'`` includes only refit entries.
 
     Returns:
         ``(sql, params)`` ready for ``conn.execute(sql, params)``.
@@ -330,6 +338,14 @@ def build_aggregated_query(
     conditions: list[str] = []
     params: list[object] = []
     idx = 1
+
+    # Choose base table based on score_scope
+    if score_scope == "cv":
+        base = QUERY_AGGREGATED_PREDICTIONS_BASE
+    else:
+        base = QUERY_AGGREGATED_PREDICTIONS_ALL_BASE
+        if score_scope == "final":
+            conditions.append("refit_context IS NOT NULL")
 
     for col, val in [
         ("run_id", run_id),
@@ -352,7 +368,7 @@ def build_aggregated_query(
     if conditions:
         where = " WHERE " + " AND ".join(conditions)
 
-    sql = QUERY_AGGREGATED_PREDICTIONS_BASE + where
+    sql = base + where
     return sql, params
 
 
@@ -401,6 +417,7 @@ def build_top_aggregated_query(
     pipeline_id: str | None = None,
     dataset_name: str | None = None,
     model_class: str | None = None,
+    score_scope: str = "cv",
 ) -> tuple[str, list[object]]:
     """Build a ranking query on the aggregated predictions VIEW.
 
@@ -414,6 +431,10 @@ def build_top_aggregated_query(
         pipeline_id: Optional pipeline filter.
         dataset_name: Optional dataset filter.
         model_class: Optional model class filter.
+        score_scope: Which predictions to include.
+            ``'cv'`` (default) uses the CV-only view,
+            ``'all'`` includes both CV and refit entries,
+            ``'final'`` includes only refit entries.
 
     Returns:
         ``(sql, params)`` ready for ``conn.execute(sql, params)``.
@@ -429,9 +450,18 @@ def build_top_aggregated_query(
     if score_column not in valid_score_columns:
         raise ValueError(f"Invalid score column: {score_column!r}")
 
+    # Choose base table based on score_scope
+    if score_scope == "cv":
+        view_name = "v_aggregated_predictions"
+    else:
+        view_name = "v_aggregated_predictions_all"
+
     conditions: list[str] = []
     params: list[object] = []
     idx = 1
+
+    if score_scope == "final":
+        conditions.append("refit_context IS NOT NULL")
 
     # Always filter by metric
     conditions.append(f"metric = ${idx}")
@@ -455,7 +485,7 @@ def build_top_aggregated_query(
     nulls = "NULLS LAST"
 
     sql = (
-        f"SELECT * FROM v_aggregated_predictions{where} "
+        f"SELECT * FROM {view_name}{where} "
         f"ORDER BY {score_column} {direction} {nulls} "
         f"LIMIT ${idx}"
     )

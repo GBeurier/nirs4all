@@ -4,7 +4,6 @@ This module handles _or_ nodes that define choices with various selection modes:
 - Basic choice: Pick one from alternatives
 - pick: Unordered selection (combinations)
 - arrange: Ordered arrangement (permutations)
-- size: Legacy alias for pick
 - Second-order: then_pick, then_arrange, or [outer, inner] syntax
 - Constraints: _mutex_, _requires_, _exclude_ for filtering combinations
 
@@ -24,7 +23,7 @@ from typing import Any, FrozenSet, List, Optional, Tuple, Union
 from .base import ExpansionStrategy, GeneratorNode, ExpandedResult, SizeSpec
 from .registry import register_strategy
 from ..keywords import (
-    OR_KEYWORD, SIZE_KEYWORD, COUNT_KEYWORD,
+    OR_KEYWORD, COUNT_KEYWORD,
     PICK_KEYWORD, ARRANGE_KEYWORD,
     THEN_PICK_KEYWORD, THEN_ARRANGE_KEYWORD,
     MUTEX_KEYWORD, REQUIRES_KEYWORD, EXCLUDE_KEYWORD,
@@ -41,13 +40,12 @@ class OrStrategy(ExpansionStrategy):
         - Basic choice expansion (each alternative becomes a variant)
         - pick: Unordered selection using combinations
         - arrange: Ordered arrangement using permutations
-        - size: Legacy alias for pick (backward compatibility)
         - Second-order selection via then_pick/then_arrange or [outer, inner]
         - count: Limit number of generated variants
         - Constraints: _mutex_, _requires_, _exclude_ for filtering (Phase 4)
 
     Attributes:
-        keywords: {_or_, size, count, pick, arrange, then_pick, then_arrange,
+        keywords: {_or_, count, pick, arrange, then_pick, then_arrange,
                    _mutex_, _requires_, _exclude_}
         priority: 10 (standard priority)
     """
@@ -88,7 +86,6 @@ class OrStrategy(ExpansionStrategy):
             List of expanded variants.
         """
         choices = node[OR_KEYWORD]
-        size = node.get(SIZE_KEYWORD)
         pick = node.get(PICK_KEYWORD)
         arrange = node.get(ARRANGE_KEYWORD)
         then_pick = node.get(THEN_PICK_KEYWORD)
@@ -100,7 +97,7 @@ class OrStrategy(ExpansionStrategy):
         requires_groups = node.get(REQUIRES_KEYWORD, [])
         exclude_combos = node.get(EXCLUDE_KEYWORD, [])
 
-        # Determine selection mode: arrange > pick > size (backward compat)
+        # Determine selection mode: arrange > pick
         if arrange is not None:
             result = self._expand_with_arrange(
                 choices, arrange, then_pick, then_arrange, expand_nested, seed
@@ -108,11 +105,6 @@ class OrStrategy(ExpansionStrategy):
         elif pick is not None:
             result = self._expand_with_pick(
                 choices, pick, then_pick, then_arrange, expand_nested, seed
-            )
-        elif size is not None:
-            # Legacy size behaves like pick (combinations)
-            result = self._expand_with_pick(
-                choices, size, then_pick, then_arrange, expand_nested, seed
             )
         else:
             # Basic expansion: each choice becomes a variant
@@ -141,7 +133,6 @@ class OrStrategy(ExpansionStrategy):
             Number of variants.
         """
         choices = node[OR_KEYWORD]
-        size = node.get(SIZE_KEYWORD)
         pick = node.get(PICK_KEYWORD)
         arrange = node.get(ARRANGE_KEYWORD)
         then_pick = node.get(THEN_PICK_KEYWORD)
@@ -156,10 +147,6 @@ class OrStrategy(ExpansionStrategy):
         elif pick is not None:
             total = self._count_with_pick(
                 choices, pick, then_pick, then_arrange, count_nested
-            )
-        elif size is not None:
-            total = self._count_with_pick(
-                choices, size, then_pick, then_arrange, count_nested
             )
         else:
             # Basic count: sum of each choice's count
@@ -195,7 +182,7 @@ class OrStrategy(ExpansionStrategy):
             errors.append(f"_or_ must be a list, got {type(choices).__name__}")
 
         # Validate pick/arrange specs
-        for key in (PICK_KEYWORD, ARRANGE_KEYWORD, SIZE_KEYWORD):
+        for key in (PICK_KEYWORD, ARRANGE_KEYWORD):
             if key in node:
                 spec = node[key]
                 if not self._is_valid_size_spec(spec):

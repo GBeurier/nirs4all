@@ -531,22 +531,22 @@ class TestGeneratorSyntaxes:
         assert serialized["_range_"] == [1, 10, 2]
         assert "param" in serialized
 
-    def test_generator_or_with_size(self):
-        """Test _or_ with size parameter."""
+    def test_generator_or_with_pick(self):
+        """Test _or_ with pick parameter."""
         step = {
             "_or_": [Detrend, FirstDerivative, Gaussian],
-            "size": 2
+            "pick": 2
         }
         serialized = serialize_component(step)
 
         assert "_or_" in serialized
-        assert "size" in serialized
+        assert "pick" in serialized
 
     def test_generator_or_with_count(self):
         """Test _or_ with count parameter (random sampling)."""
         step = {
             "_or_": [Detrend, FirstDerivative, Gaussian, StandardNormalVariate],
-            "size": [1, 2],
+            "pick": [1, 2],
             "count": 3
         }
         serialized = serialize_component(step)
@@ -840,7 +840,7 @@ class TestGeneratorExpansion:
             MinMaxScaler(),
             {
                 "_or_": [Detrend, FirstDerivative, Gaussian],
-                "size": 1
+                "pick": 1
             },
             PLSRegression(n_components=10)
         ]

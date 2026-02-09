@@ -486,22 +486,31 @@ class TensorFlowModelController(BaseModelController):
         from .tensorflow import TensorFlowDataPreparation
         return TensorFlowDataPreparation.prepare_data(X, y, context)
 
-    def _evaluate_model(self, model: Any, X_val: np.ndarray, y_val: np.ndarray) -> float:
+    def _evaluate_model(self, model: Any, X_val: np.ndarray, y_val: np.ndarray, metric: Optional[str] = None, direction: str = "minimize") -> float:
         """Evaluate TensorFlow model on validation data.
 
-        Uses model.evaluate() to compute loss. Falls back to MSE calculation
-        from predictions if evaluation fails.
+        When ``metric`` is provided, uses ``nirs4all.core.metrics.eval()``.
+        Otherwise uses model.evaluate() to compute loss, falling back to MSE.
 
         Args:
             model: Trained TensorFlow/Keras model.
             X_val: Validation features.
             y_val: Validation targets.
+            metric: Optional metric name (e.g. 'rmse', 'r2', 'accuracy').
+            direction: Optimization direction ('minimize' or 'maximize').
 
         Returns:
-            Loss value as float. Returns float('inf') if evaluation fails completely.
+            Metric value or loss as float. Returns float('inf') on error.
         """
         try:
-            # Use model's evaluate method
+            if metric is not None:
+                y_pred = model.predict(X_val, verbose=0)
+                y_val_1d = np.asarray(y_val).ravel()
+                y_pred_1d = np.asarray(y_pred).ravel()
+                from nirs4all.core import metrics as evaluator_mod
+                return evaluator_mod.eval(y_val_1d, y_pred_1d, metric)
+
+            # Legacy behavior: use model.evaluate()
             loss = model.evaluate(X_val, y_val, verbose=0)
 
             # If evaluate returns list (loss + metrics), take the loss

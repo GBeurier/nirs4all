@@ -73,9 +73,10 @@ class NIRSPipelineClassifier(NIRSPipeline):
         import tempfile
         from nirs4all.pipeline.bundle import BundleLoader
 
-        # Get source prediction
+        # Get source prediction (prefer refit entry, consistent with export())
         if source is None:
-            source = result.best
+            final = getattr(result, "final", None)
+            source = final if isinstance(final, dict) and final else result.best
             if not source:
                 raise ValueError(
                     "No predictions available in result. "

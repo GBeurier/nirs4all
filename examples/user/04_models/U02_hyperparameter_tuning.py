@@ -7,7 +7,7 @@ Automatically tune model hyperparameters using Optuna.
 This tutorial covers:
 
 * finetune_params for automated tuning
-* Search methods: grid, random, Bayesian, Hyperband
+* Search methods: grid, random, tpe, auto
 * Tuning approaches: single, grouped, individual
 * Combining tuning with preprocessing search
 
@@ -62,12 +62,12 @@ Hyperparameter tuning finds optimal model settings automatically.
 
 nirs4all uses Optuna for efficient hyperparameter optimization:
 
-  📊 SEARCH METHODS
+  📊 SEARCH METHODS (sampler)
      grid      - Exhaustive grid search
      random    - Random sampling
      tpe       - Tree-Parzen Estimator (Bayesian)
-     cmaes     - CMA Evolution Strategy
-     hyperband - Early stopping + successive halving
+     cmaes     - CMA-ES (good for continuous params)
+     auto      - Automatic selection based on search space
 
   📈 TUNING APPROACHES
      single    - One global search across all variants
@@ -111,7 +111,7 @@ pipeline_grid = [
         "name": "PLS-GridSearch",
         "finetune_params": {
             "n_trials": 2,              # Number of trials
-            "sample": "grid",            # Grid search
+            "sampler": "grid",            # Grid search
             "verbose": 1,                # 0=silent, 1=basic, 2=detailed
             "approach": "single",        # Global search
             "model_params": {
@@ -157,7 +157,7 @@ pipeline_tpe = [
         "name": "RF-TPE",
         "finetune_params": {
             "n_trials": 2,              # Number of trials
-            "sample": "tpe",             # Bayesian optimization
+            "sampler": "tpe",             # Bayesian optimization
             "verbose": 1,
             "approach": "single",
             "model_params": {
@@ -206,7 +206,7 @@ pipeline_log = [
         "name": "Ridge-LogScale",
         "finetune_params": {
             "n_trials": 2,
-            "sample": "tpe",
+            "sampler": "tpe",
             "verbose": 1,
             "approach": "single",
             "model_params": {
@@ -228,30 +228,41 @@ print(f"\nBest RMSE: {result_log.best_score:.4f}")
 
 
 # =============================================================================
-# Section 5: Hyperband for Deep Learning
+# Section 5: Pruning and Seed Support
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 5: Hyperband Optimization")
+print("Section 5: Pruning and Reproducibility")
 print("-" * 60)
 
 print("""
-Hyperband uses early stopping to quickly discard bad configs.
-Especially useful for neural networks with many epochs.
+Pruners terminate unpromising trials early, saving time.
+Seed ensures reproducible optimization results.
+
+  PRUNERS
+     none               - No pruning (default)
+     median             - Prune if worse than median of completed trials
+     successive_halving - Prune poorest fraction at each step
+     hyperband          - Adaptive resource allocation with early stopping
+
+  SEED
+     seed: 42           - Same seed + data → same results
 """)
 
-pipeline_hyperband = [
+pipeline_pruning = [
     StandardNormalVariate(),
 
     ShuffleSplit(n_splits=2, random_state=42),
 
     {
         "model": PLSRegression(),
-        "name": "PLS-Hyperband",
+        "name": "PLS-Pruned",
         "finetune_params": {
             "n_trials": 2,
-            "sample": "hyperband",       # Hyperband with early stopping
+            "sampler": "tpe",
+            "pruner": "median",     # Prune unpromising trials
+            "seed": 42,             # Reproducible results
             "verbose": 1,
-            "approach": "single",
+            "approach": "grouped",
             "model_params": {
                 "n_components": ('int', 1, 15),
             },
@@ -259,14 +270,66 @@ pipeline_hyperband = [
     },
 ]
 
-result_hyperband = nirs4all.run(
-    pipeline=pipeline_hyperband,
+result_pruning = nirs4all.run(
+    pipeline=pipeline_pruning,
     dataset="sample_data/regression",
-    name="Hyperband",
+    name="Pruning",
     verbose=1
 )
 
-print(f"\nBest RMSE: {result_hyperband.best_score:.4f}")
+print(f"\nBest RMSE: {result_pruning.best_score:.4f}")
+
+
+# =============================================================================
+# Section 5b: Custom Metric and Direction
+# =============================================================================
+print("\n" + "-" * 60)
+print("Section 5b: Custom Metric and Direction")
+print("-" * 60)
+
+print("""
+By default, optimization minimizes MSE (regression) or maximizes balanced
+accuracy (classification). Use 'metric' and 'direction' to customize:
+
+  SUPPORTED METRICS
+     mse, rmse, mae          - minimize (regression)
+     r2                      - maximize (regression)
+     accuracy, balanced_accuracy, f1 - maximize (classification)
+
+  Direction is auto-inferred from the metric name, but can be overridden.
+""")
+
+pipeline_metric = [
+    StandardNormalVariate(),
+
+    ShuffleSplit(n_splits=2, random_state=42),
+
+    {
+        "model": Ridge(),
+        "name": "Ridge-R2Metric",
+        "finetune_params": {
+            "n_trials": 2,
+            "sampler": "tpe",
+            "seed": 42,
+            "verbose": 1,
+            "approach": "single",
+            "metric": "r2",              # Optimize for R2 instead of MSE
+            # direction auto-inferred as "maximize" for r2
+            "model_params": {
+                "alpha": ('float_log', 1e-4, 1e2),
+            },
+        }
+    },
+]
+
+result_metric = nirs4all.run(
+    pipeline=pipeline_metric,
+    dataset="sample_data/regression",
+    name="CustomMetric",
+    verbose=1
+)
+
+print(f"\nBest R2-optimized score: {result_metric.best_score:.4f}")
 
 
 # =============================================================================
@@ -298,7 +361,7 @@ pipeline_grouped = [
         "name": "PLS-Grouped",
         "finetune_params": {
             "n_trials": 2,
-            "sample": "grid",
+            "sampler": "grid",
             "verbose": 1,
             "approach": "grouped",       # Search per preprocessing
             "eval_mode": "best",         # Use best trial per group
@@ -349,7 +412,7 @@ pipeline_combined = [
         "name": "PLS-Combined",
         "finetune_params": {
             "n_trials": 2,
-            "sample": "tpe",
+            "sampler": "tpe",
             "verbose": 1,
             "approach": "single",
             "model_params": {
@@ -400,7 +463,7 @@ if args.plots:
     # Candlestick: performance distribution
     fig3 = analyzer.plot_candlestick(
         variable="model_name",
-        partition="test"
+        display_partition="test"
     )
 
     print("Charts generated (use --show to display)")
@@ -424,14 +487,21 @@ Hyperparameter Tuning Configuration:
     "model": PLSRegression(),
     "finetune_params": {
       "n_trials": 2,                    # Number of trials
-      "sample": "tpe",                   # Search method
+      "sampler": "tpe",                   # Search method
       "verbose": 1,                      # 0=silent, 1=basic, 2=detailed
       "approach": "single",              # Tuning approach
-      "eval_mode": "best",               # For grouped: "best" or "avg"
+      "eval_mode": "best",               # For grouped: "best" or "mean"
+      "seed": 42,                        # Reproducible optimization
+      "pruner": "median",               # Prune unpromising trials
+      "metric": "rmse",                  # Metric to optimize (auto-infers direction)
       "model_params": {
         "n_components": ('int', 1, 20),  # Integer range
         "scale": [True, False],          # Categorical
         "tol": ('float', 1e-6, 1e-4),    # Float range
+      },
+      "train_params": {                  # Training params (also sampable)
+        "epochs": ('int', 50, 300),      # Sampled by Optuna
+        "verbose": 0,                    # Static value (not sampled)
       },
     }
   }
@@ -440,8 +510,8 @@ Search Methods:
   grid      - Exhaustive (small spaces)
   random    - Random sampling (quick baseline)
   tpe       - Bayesian (efficient for medium spaces)
-  cmaes     - Evolution strategy (continuous params)
-  hyperband - Early stopping (neural networks)
+  cmaes     - CMA-ES (continuous parameter spaces)
+  auto      - Automatic selection based on search space
 
 Tuning Approaches:
   single     - Global search (fastest)

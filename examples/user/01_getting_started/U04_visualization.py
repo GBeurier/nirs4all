@@ -10,6 +10,7 @@ This tutorial covers:
 * Heatmaps, candlestick charts, histograms
 * Top-k comparison plots
 * Ranking and display partition configuration
+* Score scope for refit-aware ranking
 
 Prerequisites
 -------------
@@ -264,6 +265,44 @@ print("   ✓ Created heatmap: rank by val, display test")
 
 
 # =============================================================================
+# Section 8: Score Scope (Refit-Aware Ranking)
+# =============================================================================
+print("\n" + "-" * 60)
+print("Section 8: Score Scope (Refit-Aware Ranking)")
+print("-" * 60)
+
+print("""
+When refit is enabled (default), nirs4all retrains the best model
+on the full training set after cross-validation. The score_scope
+parameter controls how these "final" entries interact with rankings:
+
+  score_scope='mix'   (default) - Final entries first, then CV entries
+  score_scope='cv'    - Only cross-validation entries (no refit)
+  score_scope='final' - Only final/refit entries
+  score_scope='flat'  - All entries ranked together by raw score
+
+The score_scope flows through all visualization methods via **kwargs:
+""")
+
+# Top-k with only CV entries (ignoring refit)
+fig14 = analyzer.plot_top_k(k=3, rank_metric='rmse', score_scope='cv')
+print("   ✓ plot_top_k(score_scope='cv') - CV entries only")
+
+# Top-k with default mix mode (final entries ranked first)
+fig15 = analyzer.plot_top_k(k=3, rank_metric='rmse', score_scope='mix')
+print("   ✓ plot_top_k(score_scope='mix') - Final entries first, then CV")
+
+# Heatmap with final-only entries
+fig16 = analyzer.plot_heatmap(
+    x_var="model_name",
+    y_var="preprocessings",
+    rank_metric="rmse",
+    score_scope='final',
+)
+print("   ✓ plot_heatmap(score_scope='final') - Refit entries only")
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 print("\n" + "=" * 60)
@@ -293,6 +332,7 @@ Key parameters:
   rank_partition - Partition for ranking: 'val', 'test', 'train'
   display_partition - Partition to display
   aggregation    - 'best', 'mean', 'median'
+  score_scope    - Refit awareness: 'mix', 'cv', 'final', 'flat'
 
 Next: U05_flexible_inputs.py - Different data input formats
 """)

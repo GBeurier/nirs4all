@@ -100,6 +100,7 @@ def _deserialize_meta_estimator(cls, params: dict) -> Any:
         Instantiated meta-estimator with deserialized nested estimators.
     """
     deserialized_params = {}
+    nested_params = {}
 
     # Handle estimators list of [name, estimator_config] tuples
     if "estimators" in params:
@@ -114,12 +115,24 @@ def _deserialize_meta_estimator(cls, params: dict) -> Any:
             params["final_estimator"]
         )
 
-    # Deserialize other params normally
+    # Deserialize other params, separating top-level and nested params
     for key, value in params.items():
         if key not in ["estimators", "final_estimator"]:
-            deserialized_params[key] = deserialize_component(value)
+            if '__' in key:
+                # Nested parameter (e.g., final_estimator__alpha)
+                nested_params[key] = deserialize_component(value)
+            else:
+                # Top-level parameter
+                deserialized_params[key] = deserialize_component(value)
 
-    return cls(**deserialized_params)
+    # Create instance with top-level params
+    instance = cls(**deserialized_params)
+
+    # Apply nested params using set_params
+    if nested_params:
+        instance.set_params(**nested_params)
+
+    return instance
 
 def serialize_component(obj: Any) -> Any:
     """

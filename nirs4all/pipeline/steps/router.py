@@ -1,5 +1,5 @@
 """Controller router for selecting appropriate controllers."""
-from typing import Any, Optional, Type
+from typing import Any
 
 from nirs4all.controllers.base import BaseController
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
@@ -75,48 +75,3 @@ class ControllerRouter:
         # Return instantiated controller with highest priority
         return matches[0]()
 
-    def route_from_raw(
-        self,
-        step: Any,
-        operator: Any = None,
-        keyword: str = ""
-    ) -> BaseController:
-        """Route from raw step parameters (backward compatibility).
-
-        Args:
-            step: Raw step configuration
-            operator: Optional operator instance
-            keyword: Optional keyword hint
-
-        Returns:
-            Instantiated controller instance
-
-        Raises:
-            TypeError: If no matching controller found
-        """
-        if self.verbose:
-            print(f"\n[Router] Matching raw step: {step}")
-            print(f"[Router]   Operator: {operator}")
-            print(f"[Router]   Keyword: {keyword}")
-
-        matches = []
-        for cls in self.registry:
-            matched = cls.matches(step, operator, keyword)
-            if self.verbose:
-                status = "✓" if matched else "✗"
-                print(f"[Router]   {status} {cls.__name__} (priority={cls.priority})")
-            if matched:
-                matches.append(cls)
-
-        if not matches:
-            raise TypeError(
-                f"No matching controller found for {step}. "
-                f"Available controllers: {[cls.__name__ for cls in self.registry]}"
-            )
-
-        matches.sort(key=lambda c: c.priority)
-
-        if self.verbose:
-            print(f"[Router] Selected: {matches[0].__name__} (priority={matches[0].priority})")
-
-        return matches[0]()

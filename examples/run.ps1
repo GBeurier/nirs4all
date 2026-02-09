@@ -18,7 +18,7 @@
     Run by name pattern (glob, e.g., "U01*.py")
 
 .PARAMETER Category
-    Category: user, developer, reference, legacy, all (default: all)
+    Category: user, developer, reference, all (default: all)
 
 .PARAMETER Log
     Enable logging to log.txt
@@ -32,7 +32,6 @@
 .EXAMPLE
     ./run.ps1                     # Run all examples
     ./run.ps1 -c user             # Run only User path examples
-    ./run.ps1 -c legacy           # Run only legacy Q*/X* examples
     ./run.ps1 -i 1                # Run first example
     ./run.ps1 -n "U01*.py"        # Run by name pattern
     ./run.ps1 -l -p               # Enable logging and plots
@@ -92,6 +91,7 @@ $userExamples = @(
     "user/04_models/U02_hyperparameter_tuning.py"
     "user/04_models/U03_stacking_ensembles.py"
     "user/04_models/U04_pls_variants.py"
+    "user/04_models/U05_advanced_finetuning.py"
     # 05_cross_validation
     "user/05_cross_validation/U01_cv_strategies.py"
     "user/05_cross_validation/U02_group_splitting.py"
@@ -155,66 +155,6 @@ $referenceExamples = @(
     "reference/R01_pipeline_syntax.py"
     "reference/R02_generator_reference.py"
     "reference/R03_all_keywords.py"
-    "reference/R04_legacy_api.py"
-)
-
-# Legacy examples (old Q*/X* structure - for transition period)
-$legacyExamples = @(
-    "legacy/Q1_classif.py"
-    "legacy/Q1_regression.py"
-    "legacy/Q2_groupsplit.py"
-    "legacy/Q2_multimodel.py"
-    "legacy/Q2B_force_group.py"
-    "legacy/Q3_finetune.py"
-    "legacy/Q4_multidatasets.py"
-    "legacy/Q5_predict.py"
-    "legacy/Q5_predict_NN.py"
-    "legacy/Q6_multisource.py"
-    "legacy/Q7_discretization.py"
-    "legacy/Q8_shap.py"
-    "legacy/Q9_acp_spread.py"
-    "legacy/Q10_resampler.py"
-    "legacy/Q11_flexible_inputs.py"
-    "legacy/Q12_sample_augmentation.py"
-    "legacy/Q13_nm_headers.py"
-    "legacy/Q14_workspace.py"
-    "legacy/Q15_jax_models.py"
-    "legacy/Q16_pytorch_models.py"
-    "legacy/Q17_nicon_comparison.py"
-    "legacy/Q18_stacking.py"
-    "legacy/Q19_pls_methods.py"
-    "legacy/Q21_feature_selection.py"
-    "legacy/Q22_concat_transform.py"
-    "legacy/Q23_generator_syntax.py"
-    "legacy/Q23b_generator.py"
-    "legacy/Q24_generator_advanced.py"
-    "legacy/Q25_complex_pipeline_pls.py"
-    "legacy/Q26_nested_or_preprocessing.py"
-    "legacy/Q27_transfer_analysis.py"
-    "legacy/Q28_sample_filtering.py"
-    "legacy/Q29_signal_conversion.py"
-    "legacy/Q30_branching.py"
-    "legacy/Q31_outlier_branching.py"
-    "legacy/Q32_export_bundle.py"
-    "legacy/Q33_retrain_transfer.py"
-    "legacy/Q34_aggregation.py"
-    "legacy/Q35_metadata_branching.py"
-    "legacy/Q36_repetition_transform.py"
-    "legacy/Q40_new_api.py"
-    "legacy/Q41_sklearn_shap.py"
-    "legacy/Q42_session_workflow.py"
-    "legacy/Q_meta_stacking.py"
-    "legacy/Q_complex_all_keywords.py"
-    "legacy/Q_feature_augmentation_modes.py"
-    "legacy/Q_merge_branches.py"
-    "legacy/Q_merge_sources.py"
-    "legacy/Q_sklearn_wrapper.py"
-    "legacy/X0_pipeline_sample.py"
-    "legacy/X1_metadata.py"
-    "legacy/X2_sample_augmentation.py"
-    "legacy/X3_hiba_full.py"
-    "legacy/X4_features.py"
-    "legacy/baseline_sota.py"
 )
 
 # =============================================================================
@@ -233,14 +173,11 @@ switch ($Category.ToLower()) {
     "reference" {
         $examples = $referenceExamples
     }
-    "legacy" {
-        $examples = $legacyExamples
-    }
     "all" {
-        $examples = $userExamples + $developerExamples + $referenceExamples + $legacyExamples
+        $examples = $userExamples + $developerExamples + $referenceExamples
     }
     default {
-        Write-Host "Error: Unknown category '$Category'. Valid: user, developer, reference, legacy, all" -ForegroundColor Red
+        Write-Host "Error: Unknown category '$Category'. Valid: user, developer, reference, all" -ForegroundColor Red
         exit 1
     }
 }

@@ -14,88 +14,11 @@ import yaml
 from nirs4all.data.parsers import (
     BaseParser,
     ParserResult,
-    LegacyParser,
     FilesParser,
     FolderParser,
     ConfigNormalizer,
     normalize_config,
 )
-from nirs4all.data.parsers.legacy_parser import normalize_config_keys
-
-
-class TestNormalizeConfigKeys:
-    """Test suite for key normalization."""
-
-    def test_standard_keys_unchanged(self):
-        """Test that standard keys pass through unchanged."""
-        config = {
-            "train_x": "X.csv",
-            "train_y": "Y.csv",
-            "test_x": "Xtest.csv"
-        }
-        result = normalize_config_keys(config)
-
-        assert result["train_x"] == "X.csv"
-        assert result["train_y"] == "Y.csv"
-        assert result["test_x"] == "Xtest.csv"
-
-    def test_train_x_variations(self):
-        """Test various train_x naming conventions."""
-        test_cases = [
-            ("X_train", "train_x"),
-            ("Xtrain", "train_x"),
-            ("trainX", "train_x"),
-            ("x_train", "train_x"),
-            ("TRAIN_X", "train_x"),
-        ]
-
-        for input_key, expected_key in test_cases:
-            config = {input_key: "file.csv"}
-            result = normalize_config_keys(config)
-            assert expected_key in result, f"Failed for {input_key}"
-
-    def test_test_x_variations(self):
-        """Test test/val X naming conventions."""
-        test_cases = [
-            ("X_test", "test_x"),
-            ("Xtest", "test_x"),
-            ("X_val", "test_x"),
-            ("Xval", "test_x"),
-            ("valX", "test_x"),
-        ]
-
-        for input_key, expected_key in test_cases:
-            config = {input_key: "file.csv"}
-            result = normalize_config_keys(config)
-            assert expected_key in result, f"Failed for {input_key}"
-
-    def test_metadata_variations(self):
-        """Test metadata/group key normalization."""
-        test_cases = [
-            ("train_metadata", "train_group"),
-            ("metadata_train", "train_group"),
-            ("M_train", "train_group"),
-            ("train_m", "train_group"),
-            ("test_metadata", "test_group"),
-            ("val_meta", "test_group"),
-        ]
-
-        for input_key, expected_key in test_cases:
-            config = {input_key: "file.csv"}
-            result = normalize_config_keys(config)
-            assert expected_key in result, f"Failed for {input_key}"
-
-    def test_unknown_keys_preserved(self):
-        """Test that unknown keys are preserved."""
-        config = {
-            "train_x": "X.csv",
-            "custom_key": "value",
-            "signal_type": "absorbance"
-        }
-        result = normalize_config_keys(config)
-
-        assert result["custom_key"] == "value"
-        assert result["signal_type"] == "absorbance"
 
 
 class TestParserResult:
@@ -124,97 +47,6 @@ class TestParserResult:
         assert result.success is False
         assert len(result.errors) == 1
         assert "success=False" in str(result)
-
-
-class TestLegacyParser:
-    """Test suite for LegacyParser."""
-
-    def test_can_parse_dict_with_train_x(self):
-        """Test that parser recognizes train_x config."""
-        parser = LegacyParser()
-        config = {"train_x": "X.csv", "train_y": "Y.csv"}
-
-        assert parser.can_parse(config) is True
-
-    def test_can_parse_dict_with_test_x(self):
-        """Test that parser recognizes test_x config."""
-        parser = LegacyParser()
-        config = {"test_x": "X.csv"}
-
-        assert parser.can_parse(config) is True
-
-    def test_can_parse_non_legacy_keys(self):
-        """Test that parser normalizes and recognizes variant keys."""
-        parser = LegacyParser()
-        config = {"X_train": "X.csv"}  # Variant format
-
-        assert parser.can_parse(config) is True
-
-    def test_cannot_parse_non_dict(self):
-        """Test that parser rejects non-dict input."""
-        parser = LegacyParser()
-
-        assert parser.can_parse("string") is False
-        assert parser.can_parse(123) is False
-        assert parser.can_parse(None) is False
-
-    def test_cannot_parse_empty_dict(self):
-        """Test that parser rejects dict without data keys."""
-        parser = LegacyParser()
-        config = {"task_type": "regression"}
-
-        assert parser.can_parse(config) is False
-
-    def test_parse_basic_config(self):
-        """Test parsing basic configuration."""
-        parser = LegacyParser()
-        config = {
-            "train_x": "data/X.csv",
-            "train_y": "data/Y.csv"
-        }
-
-        result = parser.parse(config)
-
-        assert result.success is True
-        assert result.config["train_x"] == "data/X.csv"
-        assert result.config["train_y"] == "data/Y.csv"
-        assert "data" in result.dataset_name.lower()
-
-    def test_parse_normalizes_keys(self):
-        """Test that parsing normalizes keys."""
-        parser = LegacyParser()
-        config = {
-            "X_train": "X.csv",
-            "Y_train": "Y.csv"
-        }
-
-        result = parser.parse(config)
-
-        assert result.success is True
-        assert "train_x" in result.config
-        assert "train_y" in result.config
-
-    def test_parse_with_explicit_name(self):
-        """Test that explicit name is used."""
-        parser = LegacyParser()
-        config = {
-            "name": "my_dataset",
-            "train_x": "X.csv"
-        }
-
-        result = parser.parse(config)
-
-        assert result.dataset_name == "my_dataset"
-
-    def test_parse_error_no_data(self):
-        """Test error when no data source found."""
-        parser = LegacyParser()
-        config = {"task_type": "regression"}
-
-        result = parser.parse(config)
-
-        assert result.success is False
-        assert any("train_x" in e or "test_x" in e for e in result.errors)
 
 
 class TestFilesParser:
@@ -448,17 +280,112 @@ class TestConfigNormalizer:
         assert name == "dataset"
 
     def test_normalize_dict(self):
-        """Test normalizing dictionary."""
+        """Test normalizing dictionary with canonical keys."""
         normalizer = ConfigNormalizer()
         input_dict = {
-            "X_train": "X.csv",  # Variant key
+            "train_x": "X.csv",
             "train_y": "Y.csv"
         }
 
         config, name = normalizer.normalize(input_dict)
 
-        assert "train_x" in config  # Normalized key
+        assert config["train_x"] == "X.csv"
         assert config["train_y"] == "Y.csv"
+
+    def test_normalize_dict_with_key_aliases(self):
+        """Test normalization of accepted key aliases to canonical keys."""
+        normalizer = ConfigNormalizer()
+        input_dict = {
+            "X_test": "Xval.csv",
+            "train_m": "Mcal.csv",
+            "test_m_params": {"has_header": True},
+        }
+
+        config, _ = normalizer.normalize(input_dict)
+
+        assert config["test_x"] == "Xval.csv"
+        assert config["train_group"] == "Mcal.csv"
+        assert config["test_group_params"] == {"has_header": True}
+        assert "X_test" not in config
+        assert "train_m" not in config
+        assert "test_m_params" not in config
+
+    def test_normalize_dict_with_broad_aliases_for_core_keys(self):
+        """Test broad alias coverage for all core dataset keys."""
+        normalizer = ConfigNormalizer()
+        input_dict = {
+            "data_name": "alias_dataset",
+            "desc": "Alias coverage",
+            "ml_task": "regression",
+            "cal_features": "Xcal.csv",
+            "fit_targets": "Ycal.csv",
+            "calibration_metadata": "Mcal.csv",
+            "eval_spectra": "Xval.csv",
+            "holdout_labels": "Yval.csv",
+            "predict_meta": "Mval.csv",
+            "cal_features_config": {"has_header": False},
+            "holdout_labels_cols": [0],
+            "global_loading_options": {"delimiter": ";"},
+            "fit_settings": {"has_header": True},
+            "eval_settings": {"has_header": True},
+            "aggregation_column": "sample_id",
+            "aggregation_strategy": "mean",
+            "remove_outliers_before_aggregation": True,
+            "repeat_column": "sample_id",
+            "cv_splits": "folds.csv",
+        }
+
+        config, name = normalizer.normalize(input_dict)
+
+        assert name == "alias_dataset"
+        assert config["name"] == "alias_dataset"
+        assert config["description"] == "Alias coverage"
+        assert config["task_type"] == "regression"
+        assert config["train_x"] == "Xcal.csv"
+        assert config["train_y"] == "Ycal.csv"
+        assert config["train_group"] == "Mcal.csv"
+        assert config["test_x"] == "Xval.csv"
+        assert config["test_y"] == "Yval.csv"
+        assert config["test_group"] == "Mval.csv"
+        assert config["train_x_params"] == {"has_header": False}
+        assert config["test_y_filter"] == [0]
+        assert config["global_params"] == {"delimiter": ";"}
+        assert config["train_params"] == {"has_header": True}
+        assert config["test_params"] == {"has_header": True}
+        assert config["aggregate"] == "sample_id"
+        assert config["aggregate_method"] == "mean"
+        assert config["aggregate_exclude_outliers"] is True
+        assert config["repetition"] == "sample_id"
+        assert config["folds"] == "folds.csv"
+
+    def test_normalize_dict_with_sources_aliases(self):
+        """Test source syntax aliases map to parser-facing keys."""
+        normalizer = ConfigNormalizer()
+        input_dict = {
+            "sensor_sources": [
+                {"name": "NIR", "train_x": "nir_train.csv", "test_x": "nir_test.csv"}
+            ],
+            "target_spec": {"path": "targets.csv"},
+            "metadata_spec": {"path": "metadata.csv"},
+        }
+
+        config, _ = normalizer.normalize(input_dict)
+
+        assert config["train_x"] == "nir_train.csv"
+        assert config["test_x"] == "nir_test.csv"
+        assert config["train_y"] == "targets.csv"
+        assert config["train_group"] == "metadata.csv"
+
+    def test_normalize_dict_prefers_canonical_on_alias_conflict(self):
+        """Test canonical keys are not overridden by aliases."""
+        normalizer = ConfigNormalizer()
+        input_dict = {
+            "test_x": "canonical.csv",
+            "X_test": "legacy.csv",
+        }
+
+        config, _ = normalizer.normalize(input_dict)
+        assert config["test_x"] == "canonical.csv"
 
     def test_normalize_dict_with_folder(self, sample_folder):
         """Test normalizing dict with folder key."""

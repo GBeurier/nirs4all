@@ -121,6 +121,59 @@ class TabReportManager:
         return formatted_string, csv_string
 
     @staticmethod
+    def generate_per_model_summary(
+        refit_entries: list,
+        ascending: bool = True,
+    ) -> str:
+        """Generate a per-model summary table for refit entries.
+
+        Args:
+            refit_entries: Refit prediction entries (fold_id="final")
+                with test_score already populated.
+            ascending: Whether lower scores are better.
+
+        Returns:
+            Formatted table string.
+        """
+        entries = sorted(
+            [e for e in refit_entries if e.get("test_score") is not None],
+            key=lambda e: e["test_score"],
+            reverse=not ascending,
+        )
+        if not entries:
+            return ""
+
+        headers = ["#", "Model", "Test Score", "CV Selection Score"]
+        rows = []
+        for i, entry in enumerate(entries):
+            model_name = entry.get("model_name", "unknown")
+            test_score = entry.get("test_score")
+            cv_rank = entry.get("cv_rank_score")
+            rows.append([
+                str(i + 1),
+                model_name,
+                f"{test_score:.4f}" if test_score is not None else "N/A",
+                f"{cv_rank:.4f}" if cv_rank is not None else "N/A",
+            ])
+
+        all_rows = [headers] + rows
+        col_widths = [
+            max(max(len(str(row[j])) for row in all_rows), 6)
+            for j in range(len(headers))
+        ]
+
+        lines = []
+        separator = "|" + "|".join("-" * (w + 2) for w in col_widths) + "|"
+        lines.append(separator)
+        lines.append("|" + "|".join(f" {h:<{col_widths[j]}} " for j, h in enumerate(headers)) + "|")
+        lines.append(separator)
+        for row in rows:
+            lines.append("|" + "|".join(f" {row[j]:<{col_widths[j]}} " for j in range(len(row))) + "|")
+        lines.append(separator)
+
+        return "\n".join(lines)
+
+    @staticmethod
     def _aggregate_predictions(
         y_true: np.ndarray,
         y_pred: np.ndarray,

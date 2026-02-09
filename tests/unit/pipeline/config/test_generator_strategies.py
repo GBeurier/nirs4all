@@ -127,7 +127,7 @@ class TestOrStrategy:
         assert OrStrategy.handles({"_or_": ["A", "B"]})
         assert OrStrategy.handles({"_or_": ["A", "B"], "pick": 2})
         assert OrStrategy.handles({"_or_": ["A", "B"], "arrange": 2})
-        assert OrStrategy.handles({"_or_": ["A", "B"], "size": 1})
+        assert OrStrategy.handles({"_or_": ["A", "B"], "pick": 1})
         assert OrStrategy.handles({"_or_": ["A", "B"], "count": 1})
         # Should not handle mixed nodes
         assert not OrStrategy.handles({"_or_": ["A", "B"], "class": "MyClass"})

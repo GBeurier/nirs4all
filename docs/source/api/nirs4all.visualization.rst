@@ -17,7 +17,6 @@ Submodules
 .. toctree::
    :maxdepth: 4
 
-   nirs4all.visualization.branch_diagram
    nirs4all.visualization.pipeline_diagram
    nirs4all.visualization.prediction_cache
    nirs4all.visualization.predictions

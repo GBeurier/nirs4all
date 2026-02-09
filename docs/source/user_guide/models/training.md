@@ -144,8 +144,7 @@ from sklearn.model_selection import GroupKFold
 pipeline = [
     # Keeps all samples from a group in same fold
     # Groups come from metadata column
-    {"force_group_splitting": "subject_id"},
-    GroupKFold(n_splits=5),
+    {"split": GroupKFold(n_splits=5), "group": "subject_id"},
     {"model": PLSRegression(n_components=10)}
 ]
 ```

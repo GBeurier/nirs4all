@@ -352,8 +352,7 @@ class Targets:
                               targets: Union[np.ndarray, List, tuple],
                               ancestor: str = "numeric",
                               transformer: Optional[TransformerMixin] = None,
-                              mode: str = "train",
-                              labelizer: bool = True) -> None:
+                              mode: str = "train") -> None:
         """
         Add processed version of target data.
 
@@ -363,7 +362,6 @@ class Targets:
             ancestor (str, optional): Source processing name. Defaults to 'numeric'.
             transformer (TransformerMixin, optional): Transformer used to create this processing
             mode (str, optional): Mode for validation ('train' enforces shape checks). Defaults to 'train'.
-            labelizer (bool, optional): Legacy parameter (currently unused). Defaults to True.
 
         Raises:
             ValueError: If processing_name already exists

@@ -268,7 +268,7 @@ def main():
 
     print(f"Top {n_top} results by {ranking_metric.upper()}:")
     print("-" * 70)
-    top_models = predictions.top(n=n_top, rank_metric=ranking_metric, aggregate="ID_1700_clean")
+    top_models = predictions.top(n=n_top, rank_metric=ranking_metric, by_repetition="ID_1700_clean")
 
     for idx, prediction in enumerate(top_models, 10):
         score = prediction.get("test_score", prediction.get("val_score", None))
