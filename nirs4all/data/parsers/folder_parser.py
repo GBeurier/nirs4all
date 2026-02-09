@@ -328,5 +328,9 @@ class FolderParser(BaseParser):
         if name.endswith('.csv.gz') or name.endswith('.csv.zip'):
             return True
 
+        # Exclude tar archives (they are not directly loadable as data files)
+        if name.endswith(('.tar.gz', '.tgz', '.tar.bz2', '.tar.xz', '.tar')):
+            return False
+
         # Check simple extensions
         return path.suffix.lower() in self.SUPPORTED_EXTENSIONS

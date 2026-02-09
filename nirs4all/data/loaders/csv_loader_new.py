@@ -280,10 +280,9 @@ class CSVLoader(FileLoader):
         if name_lower.endswith(".csv.zip"):
             return True
 
-        # Check inside archives
+        # Plain .gz files (not tar archives) — assume gzip-compressed CSV
         if path.suffix.lower() == ".gz":
-            base = path.with_suffix("")
-            if base.suffix.lower() == ".csv":
+            if not name_lower.endswith((".tar.gz", ".tgz")):
                 return True
 
         if path.suffix.lower() == ".zip":

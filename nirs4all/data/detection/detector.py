@@ -269,6 +269,21 @@ class AutoDetector:
         if not path.exists():
             return "", "utf-8"
 
+        # Handle gzip-compressed files (.gz, .csv.gz)
+        if path.suffix.lower() == ".gz":
+            import gzip
+            try:
+                with gzip.open(path, "rb") as f:
+                    raw = f.read(self.sample_lines * 4096)
+                for enc in ["utf-8", "latin-1", "cp1252"]:
+                    try:
+                        return raw.decode(enc), enc
+                    except UnicodeDecodeError:
+                        continue
+                return raw.decode("utf-8", errors="replace"), "utf-8"
+            except Exception:
+                pass  # Fall through to regular reading
+
         # Try encodings
         for encoding in ["utf-8", "latin-1", "cp1252"]:
             try:
