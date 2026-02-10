@@ -423,6 +423,12 @@ class SparsePLS(BaseEstimator, RegressorMixin):
       for multiclass problems. BMC Bioinformatics, 9(1), 1-18.
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "advanced",
+        "tags": ["pls", "sparse", "variable-selection", "l1", "regression"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 

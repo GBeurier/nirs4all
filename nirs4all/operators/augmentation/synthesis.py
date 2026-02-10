@@ -56,6 +56,12 @@ class PathLengthAugmenter(TransformerMixin, BaseEstimator):
     >>> X_aug = aug.fit_transform(X)
     """
 
+    _webapp_meta = {
+        "category": "synthesis",
+        "tier": "standard",
+        "tags": ["path-length", "optical", "multiplicative", "augmentation"],
+    }
+
     _supports_variation_scope = True
 
     def __init__(self, path_length_std=0.05, min_path_length=0.5,
@@ -111,6 +117,12 @@ class BatchEffectAugmenter(SpectraTransformerMixin):
     >>> aug = BatchEffectAugmenter(offset_std=0.03, gain_std=0.05)
     >>> X_aug = aug.fit_transform(X, wavelengths=wavelengths)
     """
+
+    _webapp_meta = {
+        "category": "synthesis",
+        "tier": "standard",
+        "tags": ["batch-effect", "instrument", "session", "augmentation"],
+    }
 
     _requires_wavelengths = "optional"
     _supports_variation_scope = True
@@ -179,6 +191,12 @@ class InstrumentalBroadeningAugmenter(SpectraTransformerMixin):
     >>> aug = InstrumentalBroadeningAugmenter(fwhm_range=(2.0, 6.0))
     >>> X_aug = aug.fit_transform(X, wavelengths=wavelengths)
     """
+
+    _webapp_meta = {
+        "category": "synthesis",
+        "tier": "advanced",
+        "tags": ["broadening", "instrumental", "resolution", "gaussian", "augmentation"],
+    }
 
     _requires_wavelengths = "optional"
     _supports_variation_scope = True
@@ -254,6 +272,12 @@ class HeteroscedasticNoiseAugmenter(TransformerMixin, BaseEstimator):
     >>> X_aug = aug.fit_transform(X)
     """
 
+    _webapp_meta = {
+        "category": "noise",
+        "tier": "advanced",
+        "tags": ["noise", "heteroscedastic", "signal-dependent", "detector", "augmentation"],
+    }
+
     _supports_variation_scope = True
 
     def __init__(self, noise_base=0.001, noise_signal_dep=0.005,
@@ -310,6 +334,12 @@ class DeadBandAugmenter(TransformerMixin, BaseEstimator):
     >>> aug = DeadBandAugmenter(n_bands=2, width_range=(15, 40))
     >>> X_aug = aug.fit_transform(X)
     """
+
+    _webapp_meta = {
+        "category": "synthesis",
+        "tier": "advanced",
+        "tags": ["dead-band", "detector", "saturation", "artifact", "augmentation"],
+    }
 
     _supports_variation_scope = True
 

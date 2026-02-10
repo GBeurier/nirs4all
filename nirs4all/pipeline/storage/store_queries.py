@@ -227,6 +227,33 @@ ORDER BY p.created_at
 """
 
 # =========================================================================
+# Project queries
+# =========================================================================
+
+GET_PROJECT = "SELECT * FROM projects WHERE project_id = $1"
+
+GET_PROJECT_BY_NAME = "SELECT * FROM projects WHERE name = $1"
+
+LIST_PROJECTS = "SELECT * FROM projects ORDER BY created_at DESC"
+
+INSERT_PROJECT = """
+INSERT INTO projects (project_id, name, description, color)
+VALUES ($1, $2, $3, $4)
+"""
+
+UPDATE_PROJECT = """
+UPDATE projects
+SET name = $2, description = $3, color = $4, updated_at = current_timestamp
+WHERE project_id = $1
+"""
+
+DELETE_PROJECT = "DELETE FROM projects WHERE project_id = $1"
+
+SET_RUN_PROJECT = "UPDATE runs SET project_id = $2 WHERE run_id = $1"
+
+CLEAR_RUN_PROJECT = "UPDATE runs SET project_id = NULL WHERE run_id = $1"
+
+# =========================================================================
 # Deletion queries
 # =========================================================================
 

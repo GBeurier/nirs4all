@@ -484,6 +484,12 @@ class SIMPLS(BaseEstimator, RegressorMixin):
       Systems, 18(3), 251-263.
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "standard",
+        "tags": ["pls", "simpls", "regression"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 

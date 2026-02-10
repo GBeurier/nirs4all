@@ -148,6 +148,12 @@ class DetectorRollOffAugmenter(SpectraTransformerMixin):
     - LaserComponents InGaAs Photodiodes specifications.
     """
 
+    _webapp_meta = {
+        "category": "edge-artifacts",
+        "tier": "advanced",
+        "tags": ["edge-artifacts", "detector", "roll-off", "sensitivity", "augmentation"],
+    }
+
     _requires_wavelengths: bool = True
 
     def __init__(
@@ -318,6 +324,12 @@ class StrayLightAugmenter(SpectraTransformerMixin):
       Artifacts and Common Errors.
     """
 
+    _webapp_meta = {
+        "category": "edge-artifacts",
+        "tier": "advanced",
+        "tags": ["edge-artifacts", "stray-light", "optical", "augmentation"],
+    }
+
     _requires_wavelengths: bool = True
 
     def __init__(
@@ -481,6 +493,12 @@ class EdgeCurvatureAugmenter(SpectraTransformerMixin):
       spectral data.
     """
 
+    _webapp_meta = {
+        "category": "edge-artifacts",
+        "tier": "advanced",
+        "tags": ["edge-artifacts", "curvature", "baseline", "augmentation"],
+    }
+
     _requires_wavelengths: bool = True
 
     def __init__(
@@ -638,6 +656,12 @@ class TruncatedPeakAugmenter(SpectraTransformerMixin):
     of this band appears in the spectrum.
     """
 
+    _webapp_meta = {
+        "category": "edge-artifacts",
+        "tier": "advanced",
+        "tags": ["edge-artifacts", "truncated-peak", "boundary", "augmentation"],
+    }
+
     _requires_wavelengths: bool = True
 
     def __init__(
@@ -777,6 +801,12 @@ class EdgeArtifactsAugmenter(SpectraTransformerMixin):
     ... )
     >>> pipeline = [aug, SNV(), PLSRegression(10)]
     """
+
+    _webapp_meta = {
+        "category": "edge-artifacts",
+        "tier": "advanced",
+        "tags": ["edge-artifacts", "combined", "detector", "stray-light", "augmentation"],
+    }
 
     _requires_wavelengths: bool = True
 

@@ -121,6 +121,12 @@ class SystematicCircularSplitter(CustomSplitter):
     Implements the systematic circular sampling method.
     """
 
+    _webapp_meta = {
+        "category": "nirs",
+        "tier": "standard",
+        "tags": ["splitter", "circular", "systematic", "sampling"],
+    }
+
     def __init__(self, test_size, random_state=None):
         super().__init__()
         self.test_size = test_size
@@ -155,6 +161,12 @@ class KBinsStratifiedSplitter(CustomSplitter):
     """
     Implements stratified sampling using KBins discretization.
     """
+
+    _webapp_meta = {
+        "category": "sklearn",
+        "tier": "standard",
+        "tags": ["splitter", "stratified", "binning", "discretization"],
+    }
 
     def __init__(self, test_size, random_state=None, n_bins=10, strategy="uniform", encode="ordinal"):
         super().__init__()
@@ -258,6 +270,12 @@ class BinnedStratifiedGroupKFold(CustomSplitter):
     sklearn.model_selection.StratifiedGroupKFold : For categorical targets.
     """
 
+    _webapp_meta = {
+        "category": "sklearn",
+        "tier": "advanced",
+        "tags": ["splitter", "stratified", "grouped", "kfold", "binning"],
+    }
+
     def __init__(
         self,
         n_splits=5,
@@ -357,6 +375,12 @@ class KMeansSplitter(CustomSplitter):
     Implements sampling using K-Means clustering.
     """
 
+    _webapp_meta = {
+        "category": "nirs",
+        "tier": "standard",
+        "tags": ["splitter", "kmeans", "clustering", "sampling"],
+    }
+
     def __init__(self, test_size, random_state=None, pca_components=None, metric="euclidean"):
         super().__init__()
         self.test_size = test_size
@@ -404,6 +428,12 @@ class KennardStoneSplitter(CustomSplitter):
     """
     Implements the Kennard-Stone sampling method based on maximum minimum distance.
     """
+
+    _webapp_meta = {
+        "category": "nirs",
+        "tier": "core",
+        "tags": ["splitter", "kennard-stone", "max-min-distance", "sampling"],
+    }
 
     def __init__(self, test_size, random_state=None, pca_components=None, metric="euclidean"):
         super().__init__()
@@ -460,6 +490,12 @@ class SPXYSplitter(CustomSplitter):
     """
     Implements the SPXY sampling method.
     """
+
+    _webapp_meta = {
+        "category": "nirs",
+        "tier": "standard",
+        "tags": ["splitter", "spxy", "joint-xy-distance", "sampling"],
+    }
 
     def __init__(self, test_size, random_state=None, pca_components=None, metric="euclidean"):
         """
@@ -537,6 +573,12 @@ class SPlitSplitter(CustomSplitter):
     """
     Implements the SPlit sampling.
     """
+
+    _webapp_meta = {
+        "category": "nirs",
+        "tier": "standard",
+        "tags": ["splitter", "split", "twinning", "sampling"],
+    }
 
     def __init__(self, test_size, random_state=None):
         super().__init__()
@@ -653,6 +695,12 @@ class SPXYGFold(CustomSplitter):
     .. [2] Galvão, R.K.H., et al. (2005). "A method for calibration and
        validation subset partitioning." Talanta, 67(4), 736-740.
     """
+
+    _webapp_meta = {
+        "category": "nirs",
+        "tier": "advanced",
+        "tags": ["splitter", "spxy", "grouped", "kfold", "kennard-stone"],
+    }
 
     def __init__(
         self,

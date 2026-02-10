@@ -47,6 +47,12 @@ class StandardNormalVariate(TransformerMixin, BaseEstimator):
     >>> X_transformed = snv.fit_transform(X)
     """
 
+    _webapp_meta = {
+        "category": "scatter-correction",
+        "tier": "core",
+        "tags": ["scatter-correction", "snv", "normalization", "row-wise"],
+    }
+
     _stateless = True
 
     def __init__(self, axis=1, with_mean=True, with_std=True, ddof=0, copy=True):
@@ -166,6 +172,12 @@ class LocalStandardNormalVariate(TransformerMixin, BaseEstimator):
     - std_w==0 → divide by 1 to avoid NaN.
     """
 
+    _webapp_meta = {
+        "category": "scatter-correction",
+        "tier": "advanced",
+        "tags": ["scatter-correction", "snv", "local", "sliding-window"],
+    }
+
     _stateless = True
 
     def __init__(self, window=11, pad_mode="reflect", constant_values=0.0, copy=True):
@@ -254,6 +266,12 @@ class RobustStandardNormalVariate(TransformerMixin, BaseEstimator):
     - MAD==0 → divide by 1 to avoid NaN.
     """
 
+    _webapp_meta = {
+        "category": "scatter-correction",
+        "tier": "advanced",
+        "tags": ["scatter-correction", "snv", "robust", "median", "mad"],
+    }
+
     _stateless = True
 
     def __init__(self, axis=1, with_center=True, with_scale=True, k=1.4826, copy=True):
@@ -318,6 +336,12 @@ class Normalize(TransformerMixin, BaseEstimator):
         copy (if the input is already a numpy array).
 
     """
+
+    _webapp_meta = {
+        "category": "scaling",
+        "tier": "standard",
+        "tags": ["normalization", "scaling", "range", "linalg"],
+    }
 
     def __init__(self, feature_range=(-1, 1), *, copy=True):
         self.copy = copy
@@ -496,6 +520,13 @@ def norml(spectra, feature_range=(-1, 1)):
 
 
 class Derivate(TransformerMixin, BaseEstimator):
+
+    _webapp_meta = {
+        "category": "derivatives",
+        "tier": "standard",
+        "tags": ["derivative", "gradient", "spectral-math"],
+    }
+
     _stateless = True
 
     def __init__(self, order=1, delta=1, copy=True):
@@ -552,6 +583,13 @@ def derivate(spectra, order=1, delta=1):
 
 
 class SimpleScale(TransformerMixin, BaseEstimator):
+
+    _webapp_meta = {
+        "category": "scaling",
+        "tier": "standard",
+        "tags": ["scaling", "min-max", "simple"],
+    }
+
     def __init__(self, copy=True):
         self.copy = copy
 

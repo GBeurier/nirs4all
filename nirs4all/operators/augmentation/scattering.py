@@ -86,6 +86,12 @@ class ParticleSizeAugmenter(SpectraTransformerMixin):
     - Dahm & Dahm (2007). Interpreting Diffuse Reflectance and Transmittance.
     """
 
+    _webapp_meta = {
+        "category": "scattering",
+        "tier": "advanced",
+        "tags": ["scattering", "particle-size", "physical", "augmentation"],
+    }
+
     _requires_wavelengths: bool = True
 
     def __init__(
@@ -288,6 +294,12 @@ class EMSCDistortionAugmenter(SpectraTransformerMixin):
     - Martens et al. (2003). Light scattering and light absorbance separated
       by extended multiplicative signal correction. Analytical Chemistry.
     """
+
+    _webapp_meta = {
+        "category": "scattering",
+        "tier": "advanced",
+        "tags": ["scattering", "emsc", "polynomial", "distortion", "augmentation"],
+    }
 
     _requires_wavelengths: bool = True
 

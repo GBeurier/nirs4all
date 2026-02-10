@@ -94,6 +94,12 @@ class IKPLS(BaseEstimator, RegressorMixin):
            Journal of Chemometrics, 11(1), 73-85.
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "standard",
+        "tags": ["pls", "ikpls", "fast", "regression"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 

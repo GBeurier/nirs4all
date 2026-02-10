@@ -209,6 +209,7 @@ def run(
     random_state: Optional[int] = None,
     refit: Union[bool, Dict[str, Any], None] = True,
     cache: Optional[Any] = None,
+    project: Optional[str] = None,
     # All other PipelineRunner options
     **runner_kwargs: Any
 ) -> RunResult:
@@ -268,6 +269,9 @@ def run(
         cache: Optional CacheConfig for step-level caching.
             - ``None``: Use default CacheConfig (step cache OFF, CoW snapshots ON).
             - ``CacheConfig(step_cache_enabled=True)``: Enable step caching.
+
+        project: Optional project name to tag the run with.  If the project
+            does not exist yet it will be created automatically.
 
         **runner_kwargs: Additional PipelineRunner parameters. See
             PipelineRunner.__init__ for full list. Common options:
@@ -435,6 +439,14 @@ def run(
     # Extract per-model selections from the orchestrator (if available)
     orchestrator = getattr(runner, 'orchestrator', None)
     per_model_selections = getattr(orchestrator, '_per_model_selections', None) if orchestrator else None
+
+    # Tag the run with a project if requested
+    if project is not None and orchestrator is not None:
+        run_id = getattr(orchestrator, 'last_run_id', None)
+        store = getattr(orchestrator, 'store', None)
+        if run_id and store and hasattr(store, 'get_or_create_project'):
+            project_id = store.get_or_create_project(project)
+            store.set_run_project(run_id, project_id)
 
     return RunResult(
         predictions=all_predictions,

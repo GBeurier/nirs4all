@@ -5,6 +5,13 @@ from typing import List, Optional, Union
 
 
 class CropTransformer(BaseEstimator, TransformerMixin):
+
+    _webapp_meta = {
+        "category": "feature-engineering",
+        "tier": "standard",
+        "tags": ["cropping", "wavelength-range", "feature-selection", "slicing"],
+    }
+
     _stateless = True
 
     def __init__(self, start: int = 0, end: int = None):
@@ -23,6 +30,13 @@ class CropTransformer(BaseEstimator, TransformerMixin):
 
 
 class ResampleTransformer(BaseEstimator, TransformerMixin):
+
+    _webapp_meta = {
+        "category": "feature-engineering",
+        "tier": "standard",
+        "tags": ["resampling", "interpolation", "wavelength-grid"],
+    }
+
     _stateless = True
 
     def __init__(self, num_samples: int):
@@ -79,6 +93,12 @@ class FlattenPreprocessing(BaseEstimator, TransformerMixin):
         - If input is already 2D, it is returned unchanged.
         - The transformer is stateless (fit does nothing).
     """
+
+    _webapp_meta = {
+        "category": "feature-engineering",
+        "tier": "standard",
+        "tags": ["flattening", "preprocessing-fusion", "reshaping", "multi-view"],
+    }
 
     _stateless = True
 

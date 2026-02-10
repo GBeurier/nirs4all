@@ -771,6 +771,12 @@ class OKLMPLS(BaseEstimator, RegressorMixin):
     RecursivePLS : Online PLS with forgetting factor.
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "advanced",
+        "tags": ["pls", "koopman", "dynamic", "time-series", "regression"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 

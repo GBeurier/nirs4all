@@ -73,6 +73,12 @@ class OPLSDA(BaseEstimator, ClassifierMixin):
       Chemometrics, 20(8-10), 341-351.
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "advanced",
+        "tags": ["pls", "opls", "discriminant-analysis", "classification"],
+    }
+
     def __init__(
         self,
         n_components: int = 1,

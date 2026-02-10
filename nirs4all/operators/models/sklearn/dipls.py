@@ -70,6 +70,12 @@ class DiPLS(BaseEstimator, RegressorMixin):
            and Design, 131, 509-519.
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "advanced",
+        "tags": ["pls", "dynamic", "time-series", "regression"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 

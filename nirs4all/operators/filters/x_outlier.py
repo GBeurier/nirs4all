@@ -64,6 +64,12 @@ class XOutlierFilter(SampleFilter):
         ... ]
     """
 
+    _webapp_meta = {
+        "category": "outlier-detection",
+        "tier": "core",
+        "tags": ["outlier", "x-outlier", "mahalanobis", "pca", "spectral-outlier"],
+    }
+
     def __init__(
         self,
         method: Literal[

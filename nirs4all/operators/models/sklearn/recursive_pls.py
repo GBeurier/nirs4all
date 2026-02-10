@@ -549,6 +549,12 @@ class RecursivePLS(BaseEstimator, RegressorMixin):
       Journal of Process Control, 7(3), 169-179.
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "advanced",
+        "tags": ["pls", "recursive", "online", "adaptive", "regression"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 

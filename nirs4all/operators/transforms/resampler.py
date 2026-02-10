@@ -80,6 +80,12 @@ class Resampler(TransformerMixin, BaseEstimator):
     - Raises error if no wavelengths overlap between original and target
     """
 
+    _webapp_meta = {
+        "category": "feature-engineering",
+        "tier": "standard",
+        "tags": ["resampling", "interpolation", "wavelength-grid", "wavelength-aware"],
+    }
+
     def __init__(
         self,
         target_wavelengths: np.ndarray,

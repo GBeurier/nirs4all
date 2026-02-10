@@ -5,6 +5,12 @@ from sklearn.preprocessing import KBinsDiscretizer
 class IntegerKBinsDiscretizer(BaseEstimator, TransformerMixin):
     """KBinsDiscretizer qui retourne des entiers au lieu de floats"""
 
+    _webapp_meta = {
+        "category": "scaling",
+        "tier": "standard",
+        "tags": ["discretization", "binning", "target-processing", "classification"],
+    }
+
     def __init__(self, n_bins=5, encode='ordinal', strategy='quantile'):
         self.n_bins = n_bins
         self.encode = encode
@@ -24,6 +30,13 @@ class IntegerKBinsDiscretizer(BaseEstimator, TransformerMixin):
 
 
 class RangeDiscretizer(BaseEstimator, TransformerMixin):
+
+    _webapp_meta = {
+        "category": "scaling",
+        "tier": "standard",
+        "tags": ["discretization", "binning", "target-processing", "range-based"],
+    }
+
     def __init__(self, bins):
         # Store the original bins as received (could be list, array, etc.)
         self.bins = bins

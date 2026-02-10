@@ -55,6 +55,12 @@ class ToAbsorbance(TransformerMixin, BaseEstimator):
     >>> # A ≈ [[0.301, 0.398, 0.523], [0.222, 0.301, 0.398]]
     """
 
+    _webapp_meta = {
+        "category": "signal-conversion",
+        "tier": "standard",
+        "tags": ["signal-conversion", "absorbance", "reflectance", "transmittance", "log-transform"],
+    }
+
     _stateless = True
 
     def __init__(
@@ -176,6 +182,12 @@ class FromAbsorbance(TransformerMixin, BaseEstimator):
     >>> # R ≈ [[0.5, 0.4], [0.6, 0.5]]
     """
 
+    _webapp_meta = {
+        "category": "signal-conversion",
+        "tier": "standard",
+        "tags": ["signal-conversion", "absorbance", "reflectance", "transmittance", "inverse"],
+    }
+
     _stateless = True
 
     def __init__(self, target_type: SignalTypeInput = "reflectance"):
@@ -235,6 +247,12 @@ class PercentToFraction(TransformerMixin, BaseEstimator):
     >>> # X_frac = [[0.5, 0.6], [0.7, 0.8]]
     """
 
+    _webapp_meta = {
+        "category": "signal-conversion",
+        "tier": "standard",
+        "tags": ["signal-conversion", "percent", "fraction", "unit-conversion"],
+    }
+
     _stateless = True
 
     def fit(self, X, y=None):
@@ -263,6 +281,12 @@ class FractionToPercent(TransformerMixin, BaseEstimator):
     >>> X_pct = transformer.fit_transform(X_frac)
     >>> # X_pct = [[50, 60], [70, 80]]
     """
+
+    _webapp_meta = {
+        "category": "signal-conversion",
+        "tier": "standard",
+        "tags": ["signal-conversion", "fraction", "percent", "unit-conversion"],
+    }
 
     _stateless = True
 
@@ -304,6 +328,12 @@ class KubelkaMunk(TransformerMixin, BaseEstimator):
     >>> F_R = transformer.fit_transform(R)
     >>> # F_R[0,0] = (1-0.5)² / (2*0.5) = 0.25 / 1 = 0.25
     """
+
+    _webapp_meta = {
+        "category": "signal-conversion",
+        "tier": "advanced",
+        "tags": ["signal-conversion", "kubelka-munk", "diffuse-reflectance", "scattering"],
+    }
 
     _stateless = True
 
@@ -389,6 +419,12 @@ class SignalTypeConverter(TransformerMixin, BaseEstimator):
     >>> R_pct = np.array([[50, 40], [60, 50]])
     >>> A = converter.fit_transform(R_pct)
     """
+
+    _webapp_meta = {
+        "category": "signal-conversion",
+        "tier": "standard",
+        "tags": ["signal-conversion", "general-purpose", "reflectance", "absorbance", "transmittance"],
+    }
 
     _stateless = True
 

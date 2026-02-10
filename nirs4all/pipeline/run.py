@@ -141,6 +141,7 @@ class RunConfig:
     metric: str = "r2"
     save_predictions: bool = True
     save_models: bool = True
+    project: Optional[str] = None
 
 
 @dataclass
