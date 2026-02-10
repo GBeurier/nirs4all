@@ -128,6 +128,12 @@ class TemperatureAugmenter(SpectraTransformerMixin):
     - Segtnan et al. (2001). Analytical Chemistry, 73(13), 3153-3161.
     """
 
+    _webapp_meta = {
+        "category": "environmental",
+        "tier": "advanced",
+        "tags": ["temperature", "environmental", "physical", "augmentation"],
+    }
+
     _requires_wavelengths: bool = True
 
     def __init__(
@@ -358,6 +364,12 @@ class MoistureAugmenter(SpectraTransformerMixin):
     - Luck, W. A. P. (1998). The importance of cooperativity for the
       properties of liquid water. Journal of Molecular Structure.
     """
+
+    _webapp_meta = {
+        "category": "environmental",
+        "tier": "advanced",
+        "tags": ["moisture", "water", "environmental", "physical", "augmentation"],
+    }
 
     _requires_wavelengths: bool = True
 

@@ -43,6 +43,12 @@ class Wavelet(TransformerMixin, BaseEstimator):
 
     """
 
+    _webapp_meta = {
+        "category": "spectral-transforms",
+        "tier": "advanced",
+        "tags": ["wavelet", "frequency-domain", "multi-resolution"],
+    }
+
     _stateless = True
 
     def __init__(self, wavelet: str = "haar", mode: str = "periodization", *, copy: bool = True):
@@ -112,6 +118,12 @@ class Haar(Wavelet):
     Shortcut to the Wavelet haar transform.
     """
 
+    _webapp_meta = {
+        "category": "spectral-transforms",
+        "tier": "standard",
+        "tags": ["wavelet", "haar", "frequency-domain"],
+    }
+
     def __init__(self, *, copy: bool = True):
         super().__init__("haar", "periodization", copy=copy)
 
@@ -164,6 +176,12 @@ class SavitzkyGolay(TransformerMixin, BaseEstimator):
     transform(X, copy=None)
         Applies the Savitzky-Golay filter to the data X.
     """
+
+    _webapp_meta = {
+        "category": "smoothing",
+        "tier": "core",
+        "tags": ["smoothing", "derivatives", "noise-reduction", "savitzky-golay"],
+    }
 
     _stateless = True
 
@@ -246,6 +264,13 @@ class SavitzkyGolay(TransformerMixin, BaseEstimator):
 
 
 class MultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
+
+    _webapp_meta = {
+        "category": "scatter-correction",
+        "tier": "core",
+        "tags": ["scatter-correction", "msc", "baseline", "normalization"],
+    }
+
     def __init__(self, scale=True, *, copy=True):
         self.copy = copy
         self.scale = scale
@@ -372,6 +397,12 @@ class ExtendedMultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
         Whether to copy input data.
     """
 
+    _webapp_meta = {
+        "category": "scatter-correction",
+        "tier": "standard",
+        "tags": ["scatter-correction", "emsc", "baseline", "polynomial"],
+    }
+
     def __init__(self, degree: int = 2, scale: bool = True, *, copy: bool = True):
         self.copy = copy
         self.scale = scale
@@ -455,6 +486,12 @@ class AreaNormalization(TransformerMixin, BaseEstimator):
     copy : bool, default=True
         Whether to copy input data.
     """
+
+    _webapp_meta = {
+        "category": "scaling",
+        "tier": "standard",
+        "tags": ["normalization", "area", "scaling", "intensity-correction"],
+    }
 
     _stateless = True
 
@@ -558,6 +595,12 @@ class LogTransform(TransformerMixin, BaseEstimator):
     copy : bool, default=True
         Whether to copy input.
     """
+
+    _webapp_meta = {
+        "category": "spectral-transforms",
+        "tier": "standard",
+        "tags": ["logarithm", "math-transform", "nonlinear"],
+    }
 
     def __init__(self, base: float = np.e, offset: float = 0.0, auto_offset: bool = True,
                  min_value: float = 1e-8, *, copy: bool = True):
@@ -685,6 +728,12 @@ class FirstDerivative(TransformerMixin, BaseEstimator):
         Whether to copy input.
     """
 
+    _webapp_meta = {
+        "category": "derivatives",
+        "tier": "core",
+        "tags": ["derivative", "first-derivative", "gradient", "spectral-math"],
+    }
+
     _stateless = True
 
     def __init__(self, delta: float = 1.0, edge_order: int = 2, *, copy: bool = True):
@@ -776,6 +825,12 @@ class WaveletFeatures(TransformerMixin, BaseEstimator):
     Mallat (1989). A theory for multiresolution signal decomposition:
     the wavelet representation. IEEE PAMI.
     """
+
+    _webapp_meta = {
+        "category": "spectral-transforms",
+        "tier": "advanced",
+        "tags": ["wavelet", "feature-extraction", "multi-resolution", "statistics"],
+    }
 
     def __init__(
         self,
@@ -955,6 +1010,12 @@ class WaveletPCA(TransformerMixin, BaseEstimator):
     Trygg & Wold (1998). PLS regression on wavelet compressed NIR spectra.
     """
 
+    _webapp_meta = {
+        "category": "spectral-transforms",
+        "tier": "advanced",
+        "tags": ["wavelet", "pca", "dimensionality-reduction", "multi-resolution"],
+    }
+
     def __init__(
         self,
         wavelet: str = 'db4',
@@ -1128,6 +1189,12 @@ class WaveletSVD(TransformerMixin, BaseEstimator):
     Trygg & Wold (1998). PLS regression on wavelet compressed NIR spectra.
     """
 
+    _webapp_meta = {
+        "category": "spectral-transforms",
+        "tier": "advanced",
+        "tags": ["wavelet", "svd", "dimensionality-reduction", "multi-resolution"],
+    }
+
     def __init__(
         self,
         wavelet: str = 'db4',
@@ -1269,6 +1336,12 @@ class SecondDerivative(TransformerMixin, BaseEstimator):
         Whether to copy input.
     """
 
+    _webapp_meta = {
+        "category": "derivatives",
+        "tier": "core",
+        "tags": ["derivative", "second-derivative", "curvature", "spectral-math"],
+    }
+
     _stateless = True
 
     def __init__(self, delta: float = 1.0, edge_order: int = 2, *, copy: bool = True):
@@ -1355,6 +1428,12 @@ class ReflectanceToAbsorbance(TransformerMixin, BaseEstimator):
     >>> A = transformer.fit_transform(R)
     >>> # A ≈ [[0.301, 0.602, 1.0], [0.097, 0.398, 0.699]]
     """
+
+    _webapp_meta = {
+        "category": "signal-conversion",
+        "tier": "standard",
+        "tags": ["signal-conversion", "absorbance", "reflectance", "beer-lambert"],
+    }
 
     _stateless = True
 
@@ -1695,6 +1774,12 @@ class PyBaselineCorrection(TransformerMixin, BaseEstimator):
     pybaselines documentation: https://pybaselines.readthedocs.io/
     """
 
+    _webapp_meta = {
+        "category": "baseline",
+        "tier": "standard",
+        "tags": ["baseline-correction", "pybaselines", "flexible", "multi-method"],
+    }
+
     def __init__(
         self,
         method: str = 'asls',
@@ -1872,6 +1957,13 @@ class AirPLS(_BaselineMethodAlias):
     Zhang, Z.M., et al. (2010). Baseline correction using adaptive iteratively
     reweighted penalized least squares. Analyst, 135(5), 1138-1146.
     """
+
+    _webapp_meta = {
+        "category": "baseline",
+        "tier": "standard",
+        "tags": ["baseline-correction", "airpls", "whittaker", "penalized-least-squares"],
+    }
+
     _method_name = 'airpls'
 
     def __init__(self, lam: float = 1e6, max_iter: int = 50, tol: float = 1e-3, *, copy: bool = True):
@@ -1898,6 +1990,13 @@ class ArPLS(_BaselineMethodAlias):
     Baek, S.J., et al. (2015). Baseline correction using asymmetrically
     reweighted penalized least squares smoothing. Analyst, 140(1), 250-257.
     """
+
+    _webapp_meta = {
+        "category": "baseline",
+        "tier": "standard",
+        "tags": ["baseline-correction", "arpls", "whittaker", "penalized-least-squares"],
+    }
+
     _method_name = 'arpls'
 
     def __init__(self, lam: float = 1e6, max_iter: int = 50, tol: float = 1e-3, *, copy: bool = True):
@@ -1927,6 +2026,13 @@ class IModPoly(_BaselineMethodAlias):
     Zhao, J., et al. (2007). Automated autofluorescence background subtraction
     algorithm for biomedical Raman spectroscopy. Applied Spectroscopy, 61(11), 1225-1232.
     """
+
+    _webapp_meta = {
+        "category": "baseline",
+        "tier": "standard",
+        "tags": ["baseline-correction", "polynomial", "imodpoly", "iterative"],
+    }
+
     _method_name = 'imodpoly'
 
     def __init__(self, poly_order: int = 5, max_iter: int = 250, tol: float = 1e-3, *, copy: bool = True):
@@ -1953,6 +2059,13 @@ class ModPoly(_BaselineMethodAlias):
     Lieber, C.A. and Mahadevan-Jansen, A. (2003). Automated method for subtraction
     of fluorescence from biological Raman spectra. Applied Spectroscopy, 57(11), 1363-1367.
     """
+
+    _webapp_meta = {
+        "category": "baseline",
+        "tier": "standard",
+        "tags": ["baseline-correction", "polynomial", "modpoly", "iterative"],
+    }
+
     _method_name = 'modpoly'
 
     def __init__(self, poly_order: int = 5, max_iter: int = 250, tol: float = 1e-3, *, copy: bool = True):
@@ -1982,6 +2095,13 @@ class SNIP(_BaselineMethodAlias):
     for the quantitative analysis of PIXE spectra in geoscience applications.
     Nuclear Instruments and Methods in Physics Research B, 34(3), 396-402.
     """
+
+    _webapp_meta = {
+        "category": "baseline",
+        "tier": "advanced",
+        "tags": ["baseline-correction", "snip", "peak-clipping", "morphological"],
+    }
+
     _method_name = 'snip'
 
     def __init__(self, max_half_window: int = 40, decreasing: bool = True,
@@ -2011,6 +2131,13 @@ class RollingBall(_BaselineMethodAlias):
     PIXE X-ray spectra backgrounds. Nuclear Instruments and Methods in Physics
     Research B, 109, 209-213.
     """
+
+    _webapp_meta = {
+        "category": "baseline",
+        "tier": "advanced",
+        "tags": ["baseline-correction", "rolling-ball", "morphological"],
+    }
+
     _method_name = 'rolling_ball'
 
     def __init__(self, half_window: int = 50, smooth_half_window: int = None, *, copy: bool = True):
@@ -2043,6 +2170,13 @@ class IASLS(_BaselineMethodAlias):
     He, S., et al. (2014). Baseline correction for Raman spectra using an
     improved asymmetric least squares method. Analytical Methods, 6(12), 4402-4407.
     """
+
+    _webapp_meta = {
+        "category": "baseline",
+        "tier": "advanced",
+        "tags": ["baseline-correction", "iasls", "whittaker", "asymmetric-least-squares"],
+    }
+
     _method_name = 'iasls'
 
     def __init__(self, lam: float = 1e6, p: float = 0.01, lam_1: float = 1e-4,
@@ -2076,6 +2210,13 @@ class BEADS(_BaselineMethodAlias):
     Ning, X., et al. (2014). Chromatogram baseline estimation and denoising
     using sparsity (BEADS). Chemometrics and Intelligent Laboratory Systems, 139, 156-167.
     """
+
+    _webapp_meta = {
+        "category": "baseline",
+        "tier": "advanced",
+        "tags": ["baseline-correction", "beads", "denoising", "sparsity"],
+    }
+
     _method_name = 'beads'
 
     def __init__(self, lam_0: float = 1.0, lam_1: float = 1.0, lam_2: float = 1.0,
@@ -2134,6 +2275,13 @@ class ASLSBaseline(_BaselineMethodAlias):
     Eilers, P.H.C. and Boelens, H.F.M. (2005). Baseline Correction with
     Asymmetric Least Squares Smoothing.
     """
+
+    _webapp_meta = {
+        "category": "baseline",
+        "tier": "standard",
+        "tags": ["baseline-correction", "asls", "whittaker", "asymmetric-least-squares"],
+    }
+
     _method_name = 'asls'
 
     def __init__(self, lam: float = 1e6, p: float = 0.01, max_iter: int = 50,

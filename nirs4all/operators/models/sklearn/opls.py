@@ -86,6 +86,12 @@ class OPLS(BaseEstimator, RegressorMixin):
     (See pls.py for full docstring)
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "advanced",
+        "tags": ["pls", "opls", "orthogonal", "regression"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 

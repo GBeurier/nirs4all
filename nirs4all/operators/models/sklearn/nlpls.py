@@ -748,6 +748,12 @@ class KernelPLS(BaseEstimator, RegressorMixin):
       Learning Research, 2, 97-123.
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "advanced",
+        "tags": ["pls", "kernel", "nonlinear", "rbf", "regression"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 

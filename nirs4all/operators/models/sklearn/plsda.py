@@ -12,6 +12,12 @@ class PLSDA(BaseEstimator, ClassifierMixin):
     (See pls.py for full docstring)
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "standard",
+        "tags": ["pls", "discriminant-analysis", "classification"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingClassifier)
     _estimator_type = "classifier"
 

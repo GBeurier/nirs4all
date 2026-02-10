@@ -63,6 +63,12 @@ class YOutlierFilter(SampleFilter):
         ... ]
     """
 
+    _webapp_meta = {
+        "category": "outlier-detection",
+        "tier": "core",
+        "tags": ["outlier", "y-outlier", "iqr", "zscore", "filtering"],
+    }
+
     def __init__(
         self,
         method: Literal["iqr", "zscore", "percentile", "mad"] = "iqr",

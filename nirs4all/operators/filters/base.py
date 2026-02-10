@@ -266,6 +266,12 @@ class CompositeFilter(SampleFilter):
         ... )
     """
 
+    _webapp_meta = {
+        "category": "outlier-detection",
+        "tier": "standard",
+        "tags": ["composite", "multi-filter", "combination", "and-or"],
+    }
+
     def __init__(
         self,
         filters: Optional[List[SampleFilter]] = None,

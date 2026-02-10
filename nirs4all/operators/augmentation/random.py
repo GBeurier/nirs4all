@@ -20,6 +20,12 @@ class Rotate_Translate(TransformerMixin, BaseEstimator):
         Random seed for reproducibility. Default is None.
     """
 
+    _webapp_meta = {
+        "category": "random",
+        "tier": "standard",
+        "tags": ["random", "rotate", "translate", "augmentation"],
+    }
+
     def __init__(self, p_range=2, y_factor=3, random_state=None):
         self.p_range = p_range
         self.y_factor = y_factor
@@ -101,6 +107,12 @@ class Random_X_Operation(TransformerMixin, BaseEstimator):
     random_state : int or None, optional
         Random seed for reproducibility. Default is None.
     """
+
+    _webapp_meta = {
+        "category": "random",
+        "tier": "standard",
+        "tags": ["random", "operation", "multiplicative", "augmentation"],
+    }
 
     def __init__(self, operator_func=operator.mul, operator_range=(0.97, 1.03), random_state=None):
         self.operator_func = operator_func

@@ -238,6 +238,12 @@ class MetaModel(BaseModelOperator):
         - Circular dependencies are automatically detected and prevented
     """
 
+    _webapp_meta = {
+        "category": "meta",
+        "tier": "advanced",
+        "tags": ["meta", "stacking", "ensemble", "meta-learning"],
+    }
+
     def __init__(
         self,
         model: Any,

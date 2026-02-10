@@ -489,6 +489,12 @@ class MBPLS(BaseEstimator, RegressorMixin):
            301-321.
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "advanced",
+        "tags": ["pls", "multiblock", "fusion", "regression"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 

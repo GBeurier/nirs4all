@@ -117,6 +117,12 @@ class Spline_Smoothing(TransformerMixin, BaseEstimator):
         Seed for the random number generator (unused, kept for API consistency).
     """
 
+    _webapp_meta = {
+        "category": "spline",
+        "tier": "standard",
+        "tags": ["spline", "smoothing", "interpolation", "augmentation"],
+    }
+
     def __init__(self, random_state=None):
         self.random_state = random_state
 
@@ -168,6 +174,12 @@ class Spline_X_Perturbations(TransformerMixin, BaseEstimator):
     random_state : int or None, optional
         Seed for the random number generator.
     """
+
+    _webapp_meta = {
+        "category": "spline",
+        "tier": "advanced",
+        "tags": ["spline", "x-perturbation", "wavelength-axis", "augmentation"],
+    }
 
     def __init__(self, spline_degree=3, perturbation_density=0.05, perturbation_range=(-10, 10), random_state=None):
         self.spline_degree = spline_degree
@@ -241,6 +253,12 @@ class Spline_Y_Perturbations(TransformerMixin, BaseEstimator):
         Seed for the random number generator.
     """
 
+    _webapp_meta = {
+        "category": "spline",
+        "tier": "advanced",
+        "tags": ["spline", "y-perturbation", "intensity-axis", "augmentation"],
+    }
+
     def __init__(self, spline_points=None, perturbation_intensity=0.005, random_state=None):
         self.spline_points = spline_points
         self.perturbation_intensity = perturbation_intensity
@@ -312,6 +330,12 @@ class Spline_X_Simplification(TransformerMixin, BaseEstimator):
     random_state : int or None, optional
         Seed for the random number generator.
     """
+
+    _webapp_meta = {
+        "category": "spline",
+        "tier": "advanced",
+        "tags": ["spline", "simplification", "x-axis", "augmentation"],
+    }
 
     def __init__(self, spline_points=None, uniform=False, random_state=None):
         self.spline_points = spline_points
@@ -388,6 +412,12 @@ class Spline_Curve_Simplification(TransformerMixin, BaseEstimator):
     random_state : int or None, optional
         Seed for the random number generator.
     """
+
+    _webapp_meta = {
+        "category": "spline",
+        "tier": "advanced",
+        "tags": ["spline", "simplification", "curve", "augmentation"],
+    }
 
     def __init__(self, spline_points=None, uniform=False, random_state=None):
         self.spline_points = spline_points

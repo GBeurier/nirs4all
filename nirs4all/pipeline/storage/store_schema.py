@@ -135,6 +135,15 @@ CREATE TABLE IF NOT EXISTS logs (
     level VARCHAR DEFAULT 'info',
     created_at TIMESTAMP DEFAULT current_timestamp
 );
+
+CREATE TABLE IF NOT EXISTS projects (
+    project_id VARCHAR PRIMARY KEY,
+    name VARCHAR NOT NULL,
+    description VARCHAR DEFAULT '',
+    color VARCHAR DEFAULT '#14b8a6',
+    created_at TIMESTAMP DEFAULT current_timestamp,
+    updated_at TIMESTAMP DEFAULT current_timestamp
+);
 """
 
 # =========================================================================
@@ -236,6 +245,7 @@ CREATE INDEX IF NOT EXISTS idx_logs_pipeline_id ON logs(pipeline_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_content_hash ON artifacts(content_hash);
 CREATE INDEX IF NOT EXISTS idx_artifacts_cache_key ON artifacts(chain_path_hash, input_data_hash);
 CREATE INDEX IF NOT EXISTS idx_artifacts_dataset_hash ON artifacts(dataset_hash);
+CREATE INDEX IF NOT EXISTS idx_runs_project_id ON runs(project_id);
 """
 
 # =========================================================================
@@ -250,6 +260,7 @@ TABLE_NAMES: list[str] = [
     "prediction_arrays",
     "artifacts",
     "logs",
+    "projects",
 ]
 
 
@@ -376,3 +387,14 @@ def _migrate_schema(conn: duckdb.DuckDBPyConnection) -> None:
                 "  ) WHERE rn > 1"
                 ")"
             )
+
+    # Migration: add project_id column to runs table
+    runs_columns = {
+        row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'runs'"
+        ).fetchall()
+    }
+    if "project_id" not in runs_columns:
+        conn.execute("ALTER TABLE runs ADD COLUMN project_id VARCHAR")

@@ -645,6 +645,12 @@ class KOPLS(BaseEstimator, RegressorMixin):
     - ConsensusOPLS R package: https://github.com/sib-swiss/ConsensusOPLS
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "advanced",
+        "tags": ["pls", "kernel", "opls", "nonlinear", "regression"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 

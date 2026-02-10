@@ -73,6 +73,12 @@ class MetadataFilter(SampleFilter):
         ... ]
     """
 
+    _webapp_meta = {
+        "category": "metadata",
+        "tier": "standard",
+        "tags": ["metadata", "conditional", "sample-selection", "filtering"],
+    }
+
     def __init__(
         self,
         column: str,

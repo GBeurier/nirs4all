@@ -101,6 +101,12 @@ class CARS(TransformerMixin, BaseEstimator):
     - Final selection is based on minimum cross-validated RMSECV
     """
 
+    _webapp_meta = {
+        "category": "feature-selection",
+        "tier": "advanced",
+        "tags": ["feature-selection", "wavelength-selection", "cars", "variable-selection"],
+    }
+
     def __init__(
         self,
         n_components: int = 10,
@@ -441,6 +447,12 @@ class MCUVE(TransformerMixin, BaseEstimator):
     - The noise comparison ensures a principled selection threshold
     """
 
+    _webapp_meta = {
+        "category": "feature-selection",
+        "tier": "advanced",
+        "tags": ["feature-selection", "wavelength-selection", "mc-uve", "variable-elimination"],
+    }
+
     def __init__(
         self,
         n_components: int = 10,
@@ -742,6 +754,12 @@ class FlexiblePCA(TransformerMixin, BaseEstimator):
     - The fitted PCA object is accessible via the pca_ attribute.
     """
 
+    _webapp_meta = {
+        "category": "feature-selection",
+        "tier": "standard",
+        "tags": ["dimensionality-reduction", "pca", "variance", "feature-extraction"],
+    }
+
     def __init__(
         self,
         n_components: Union[int, float] = 0.95,
@@ -977,6 +995,12 @@ class FlexibleSVD(TransformerMixin, BaseEstimator):
       is not desired.
     - The fitted SVD object is accessible via the svd_ attribute.
     """
+
+    _webapp_meta = {
+        "category": "feature-selection",
+        "tier": "standard",
+        "tags": ["dimensionality-reduction", "svd", "variance", "feature-extraction"],
+    }
 
     def __init__(
         self,

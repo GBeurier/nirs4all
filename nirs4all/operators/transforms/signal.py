@@ -17,6 +17,12 @@ class Baseline(TransformerMixin, BaseEstimator):
         Flag to indicate whether to make a copy of the object, by default True.
     """
 
+    _webapp_meta = {
+        "category": "baseline",
+        "tier": "standard",
+        "tags": ["baseline", "mean-centering", "preprocessing"],
+    }
+
     def __init__(self, *, copy=True):
         """
         Constructor for the Baseline class.
@@ -138,6 +144,12 @@ class Detrend(TransformerMixin, BaseEstimator):
         Whether to make a copy of the input data. Default is True.
     """
 
+    _webapp_meta = {
+        "category": "baseline",
+        "tier": "standard",
+        "tags": ["detrend", "linear-trend", "baseline", "preprocessing"],
+    }
+
     _stateless = True
 
     def __init__(self, bp=0, *, copy=True):
@@ -236,6 +248,13 @@ def gaussian(spectra, order=2, sigma=1):
 
 
 class Gaussian(TransformerMixin, BaseEstimator):
+
+    _webapp_meta = {
+        "category": "smoothing",
+        "tier": "standard",
+        "tags": ["smoothing", "gaussian", "noise-reduction", "filter"],
+    }
+
     _stateless = True
 
     def __init__(self, order=2, sigma=1, *, copy=True):

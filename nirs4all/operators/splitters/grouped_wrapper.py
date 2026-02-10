@@ -84,6 +84,12 @@ class GroupedSplitterWrapper(BaseCrossValidator):
     nirs4all.operators.splitters.SPXYGFold : SPXY-based group-aware splitter.
     """
 
+    _webapp_meta = {
+        "category": "sklearn",
+        "tier": "advanced",
+        "tags": ["splitter", "grouped", "wrapper", "group-awareness"],
+    }
+
     def __init__(self, splitter, aggregation="mean", y_aggregation=None):
         self.splitter = splitter
         self.aggregation = aggregation

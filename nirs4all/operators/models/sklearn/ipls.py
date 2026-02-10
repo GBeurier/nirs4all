@@ -1160,6 +1160,12 @@ class IntervalPLS(BaseEstimator, RegressorMixin):
       from near-infrared spectroscopy. Applied Spectroscopy, 54(3), 413-419.
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "advanced",
+        "tags": ["pls", "interval", "wavelength-selection", "regression"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 

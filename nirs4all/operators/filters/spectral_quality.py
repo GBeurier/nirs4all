@@ -59,6 +59,12 @@ class SpectralQualityFilter(SampleFilter):
         ... ]
     """
 
+    _webapp_meta = {
+        "category": "quality",
+        "tier": "standard",
+        "tags": ["quality", "nan", "saturation", "variance", "spectral-quality"],
+    }
+
     def __init__(
         self,
         max_nan_ratio: float = 0.1,

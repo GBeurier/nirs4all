@@ -65,6 +65,12 @@ class HighLeverageFilter(SampleFilter):
         ... ]
     """
 
+    _webapp_meta = {
+        "category": "outlier-detection",
+        "tier": "standard",
+        "tags": ["leverage", "hat-matrix", "influence", "outlier"],
+    }
+
     def __init__(
         self,
         method: Literal["hat", "pca"] = "hat",

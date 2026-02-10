@@ -43,6 +43,13 @@ class GaussianAdditiveNoise(TransformerMixin, BaseEstimator):
 
     Vectorized implementation using batch convolution.
     """
+
+    _webapp_meta = {
+        "category": "noise",
+        "tier": "core",
+        "tags": ["noise", "gaussian", "additive", "augmentation"],
+    }
+
     _supports_variation_scope = True
 
     def __init__(self, sigma: float = 0.01, smoothing_kernel_width: int = 1,
@@ -84,6 +91,13 @@ class MultiplicativeNoise(TransformerMixin, BaseEstimator):
     Multiplies spectra by a random gain factor.
     X_aug = (1 + epsilon) * X
     """
+
+    _webapp_meta = {
+        "category": "noise",
+        "tier": "standard",
+        "tags": ["noise", "multiplicative", "gain", "augmentation"],
+    }
+
     _supports_variation_scope = True
 
     def __init__(self, sigma_gain: float = 0.05, per_wavelength: bool = False,
@@ -119,6 +133,13 @@ class LinearBaselineDrift(SpectraTransformerMixin):
     Adds a linear baseline drift.
     X_aug = X + a + b * lambda
     """
+
+    _webapp_meta = {
+        "category": "drift",
+        "tier": "standard",
+        "tags": ["drift", "baseline", "linear", "augmentation"],
+    }
+
     _requires_wavelengths = "optional"
 
     def __init__(self, offset_range: Tuple[float, float] = (-0.1, 0.1),
@@ -153,6 +174,13 @@ class PolynomialBaselineDrift(SpectraTransformerMixin):
     """
     Adds a polynomial baseline drift.
     """
+
+    _webapp_meta = {
+        "category": "drift",
+        "tier": "standard",
+        "tags": ["drift", "baseline", "polynomial", "augmentation"],
+    }
+
     _requires_wavelengths = "optional"
 
     def __init__(self, degree: int = 3,
@@ -202,6 +230,13 @@ class WavelengthShift(SpectraTransformerMixin):
 
     Vectorized implementation using batch interpolation.
     """
+
+    _webapp_meta = {
+        "category": "wavelength",
+        "tier": "core",
+        "tags": ["wavelength", "shift", "calibration", "augmentation"],
+    }
+
     _requires_wavelengths = "optional"
 
     def __init__(self, shift_range: Tuple[float, float] = (-2.0, 2.0),
@@ -247,6 +282,13 @@ class WavelengthStretch(SpectraTransformerMixin):
 
     Vectorized implementation using batch interpolation.
     """
+
+    _webapp_meta = {
+        "category": "wavelength",
+        "tier": "standard",
+        "tags": ["wavelength", "stretch", "compression", "augmentation"],
+    }
+
     _requires_wavelengths = "optional"
 
     def __init__(self, stretch_range: Tuple[float, float] = (0.99, 1.01),
@@ -292,6 +334,13 @@ class LocalWavelengthWarp(SpectraTransformerMixin):
 
     Optimized implementation with pre-computed control points.
     """
+
+    _webapp_meta = {
+        "category": "wavelength",
+        "tier": "advanced",
+        "tags": ["wavelength", "warp", "nonlinear", "augmentation"],
+    }
+
     _requires_wavelengths = "optional"
 
     def __init__(self, n_control_points: int = 5,
@@ -349,6 +398,13 @@ class SmoothMagnitudeWarp(SpectraTransformerMixin):
 
     Optimized implementation with pre-computed control points.
     """
+
+    _webapp_meta = {
+        "category": "noise",
+        "tier": "advanced",
+        "tags": ["magnitude-warp", "smooth", "spline", "augmentation"],
+    }
+
     _requires_wavelengths = "optional"
 
     def __init__(self, n_control_points: int = 5,
@@ -399,6 +455,13 @@ class BandPerturbation(TransformerMixin, BaseEstimator):
 
     Optimized with pre-generated random parameters.
     """
+
+    _webapp_meta = {
+        "category": "noise",
+        "tier": "advanced",
+        "tags": ["band", "perturbation", "local", "augmentation"],
+    }
+
     _supports_variation_scope = True
 
     def __init__(self, n_bands: int = 3,
@@ -459,6 +522,13 @@ class GaussianSmoothingJitter(TransformerMixin, BaseEstimator):
     Note: Due to per-sample kernel requirements, this still uses a loop
     but with pre-generated random values.
     """
+
+    _webapp_meta = {
+        "category": "noise",
+        "tier": "advanced",
+        "tags": ["smoothing", "jitter", "gaussian", "resolution", "augmentation"],
+    }
+
     def __init__(self, sigma_range: Tuple[float, float] = (0.5, 2.0),
                  kernel_width: int = 11, random_state=None):
         self.sigma_range = sigma_range
@@ -491,6 +561,13 @@ class UnsharpSpectralMask(TransformerMixin, BaseEstimator):
 
     Vectorized implementation using batch convolution.
     """
+
+    _webapp_meta = {
+        "category": "noise",
+        "tier": "advanced",
+        "tags": ["sharpening", "unsharp-mask", "resolution", "augmentation"],
+    }
+
     def __init__(self, amount_range: Tuple[float, float] = (0.1, 0.5),
                  sigma: float = 1.0, kernel_width: int = 11, random_state=None):
         self.amount_range = amount_range
@@ -531,6 +608,13 @@ class BandMasking(TransformerMixin, BaseEstimator):
 
     Optimized with pre-generated random parameters.
     """
+
+    _webapp_meta = {
+        "category": "masking",
+        "tier": "standard",
+        "tags": ["masking", "band", "dropout", "augmentation"],
+    }
+
     def __init__(self, n_bands_range: Tuple[int, int] = (1, 3),
                  bandwidth_range: Tuple[int, int] = (5, 20),
                  mode: str = "interp", random_state=None):  # "zero" or "interp"
@@ -592,6 +676,13 @@ class ChannelDropout(TransformerMixin, BaseEstimator):
 
     Optimized with vectorized mask generation.
     """
+
+    _webapp_meta = {
+        "category": "masking",
+        "tier": "standard",
+        "tags": ["masking", "channel-dropout", "wavelength", "augmentation"],
+    }
+
     def __init__(self, dropout_prob: float = 0.01,
                  mode: str = "interp", random_state=None):
         self.dropout_prob = dropout_prob
@@ -636,6 +727,13 @@ class SpikeNoise(TransformerMixin, BaseEstimator):
 
     Optimized with pre-generated random parameters.
     """
+
+    _webapp_meta = {
+        "category": "noise",
+        "tier": "standard",
+        "tags": ["noise", "spike", "artifact", "augmentation"],
+    }
+
     _supports_variation_scope = True
 
     def __init__(self, n_spikes_range: Tuple[int, int] = (1, 3),
@@ -684,6 +782,13 @@ class LocalClipping(TransformerMixin, BaseEstimator):
 
     Optimized with pre-generated random parameters.
     """
+
+    _webapp_meta = {
+        "category": "noise",
+        "tier": "advanced",
+        "tags": ["clipping", "saturation", "local", "artifact", "augmentation"],
+    }
+
     def __init__(self, n_regions: int = 1,
                  width_range: Tuple[int, int] = (5, 20), random_state=None):
         self.n_regions = n_regions
@@ -732,6 +837,13 @@ class MixupAugmenter(TransformerMixin, BaseEstimator):
     Note: This modifies both X and y.
     Standard transform() only returns X.
     """
+
+    _webapp_meta = {
+        "category": "mixing",
+        "tier": "core",
+        "tags": ["mixup", "interpolation", "sample-combination", "augmentation"],
+    }
+
     def __init__(self, alpha: float = 0.2, random_state=None):
         self.alpha = alpha
         self.random_state = random_state
@@ -758,6 +870,13 @@ class LocalMixupAugmenter(TransformerMixin, BaseEstimator):
     """
     Mixup with nearest neighbors.
     """
+
+    _webapp_meta = {
+        "category": "mixing",
+        "tier": "advanced",
+        "tags": ["mixup", "local", "nearest-neighbors", "augmentation"],
+    }
+
     def __init__(self, alpha: float = 0.2, k_neighbors: int = 5, random_state=None):
         self.alpha = alpha
         self.k_neighbors = k_neighbors
@@ -798,6 +917,13 @@ class ScatterSimulationMSC(SpectraTransformerMixin):
     """
     Simulates scatter variation: x_aug = a + b * x
     """
+
+    _webapp_meta = {
+        "category": "scattering",
+        "tier": "standard",
+        "tags": ["scattering", "msc", "simulation", "augmentation"],
+    }
+
     _requires_wavelengths = "optional"
 
     def __init__(self, reference_mode: str = "self",  # "self", "global_mean"

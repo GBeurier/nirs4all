@@ -592,6 +592,12 @@ class FCKPLS(BaseEstimator, RegressorMixin):
     IntervalPLS : PLS with wavelength interval selection.
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "advanced",
+        "tags": ["pls", "fractional", "convolutional", "kernel", "regression"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 

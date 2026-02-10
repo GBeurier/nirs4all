@@ -622,6 +622,12 @@ class RobustPLS(BaseEstimator, RegressorMixin):
       (PLS) methods. Journal of Chemometrics, 12(6), 365-378.
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "advanced",
+        "tags": ["pls", "robust", "outlier-resistant", "reweighted", "regression"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 

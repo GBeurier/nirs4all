@@ -48,6 +48,7 @@ from nirs4all.pipeline.storage.store_queries import (
     CASCADE_DELETE_RUN_PREDICTION_ARRAYS,
     CASCADE_DELETE_RUN_PREDICTIONS,
     CASCADE_NULLIFY_CHAIN_PREDICTIONS,
+    CLEAR_RUN_PROJECT,
     COMPLETE_PIPELINE,
     COMPLETE_RUN,
     DECREMENT_ARTIFACT_REF,
@@ -56,6 +57,7 @@ from nirs4all.pipeline.storage.store_queries import (
     DELETE_PIPELINE,
     DELETE_PREDICTION,
     DELETE_PREDICTION_ARRAYS,
+    DELETE_PROJECT,
     DELETE_RUN,
     FAIL_PIPELINE,
     FAIL_RUN,
@@ -70,6 +72,8 @@ from nirs4all.pipeline.storage.store_queries import (
     GET_PREDICTION,
     GET_PREDICTION_ARRAYS,
     GET_PREDICTION_WITH_ARRAYS,
+    GET_PROJECT,
+    GET_PROJECT_BY_NAME,
     GET_RUN,
     GET_RUN_LOG_SUMMARY,
     INCREMENT_ARTIFACT_REF,
@@ -80,9 +84,13 @@ from nirs4all.pipeline.storage.store_queries import (
     INSERT_PIPELINE,
     INSERT_PREDICTION,
     INSERT_PREDICTION_ARRAYS,
+    INSERT_PROJECT,
     INSERT_RUN,
     INVALIDATE_DATASET_CACHE,
+    LIST_PROJECTS,
+    SET_RUN_PROJECT,
     UPDATE_ARTIFACT_CACHE_KEY,
+    UPDATE_PROJECT,
     build_aggregated_query,
     build_chain_predictions_query,
     build_prediction_query,
@@ -1050,6 +1058,7 @@ class WorkspaceStore:
         self,
         status: str | None = None,
         dataset: str | None = None,
+        project_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> pl.DataFrame:
@@ -1060,6 +1069,7 @@ class WorkspaceStore:
                 ``"failed"``).  ``None`` returns all statuses.
             dataset: Filter to runs that reference this dataset name in
                 their ``datasets`` list.
+            project_id: Filter by project.  ``None`` returns all projects.
             limit: Maximum number of rows to return.
             offset: Number of rows to skip (for pagination).
 
@@ -1080,6 +1090,11 @@ class WorkspaceStore:
             # JSON contains check -- search for dataset name in the JSON array
             conditions.append(f"datasets::VARCHAR LIKE ${idx}")
             params.append(f"%{dataset}%")
+            idx += 1
+
+        if project_id is not None:
+            conditions.append(f"project_id = ${idx}")
+            params.append(project_id)
             idx += 1
 
         where = ""
@@ -1468,6 +1483,64 @@ class WorkspaceStore:
             run.
         """
         return self._fetch_pl(GET_RUN_LOG_SUMMARY, [run_id])
+
+    # =====================================================================
+    # Projects
+    # =====================================================================
+
+    def create_project(
+        self, name: str, description: str = "", color: str = "#14b8a6"
+    ) -> str:
+        """Create a new project and return its ID."""
+        with self._lock:
+            conn = self._ensure_open()
+            project_id = str(uuid4())
+            conn.execute(INSERT_PROJECT, [project_id, name, description, color])
+            return project_id
+
+    def list_projects(self) -> pl.DataFrame:
+        """List all projects ordered by creation date (newest first)."""
+        return self._fetch_pl(LIST_PROJECTS, [])
+
+    def get_project(self, project_id: str) -> dict | None:
+        """Retrieve a single project by ID."""
+        return self._fetch_one(GET_PROJECT, [project_id])
+
+    def get_project_by_name(self, name: str) -> dict | None:
+        """Retrieve a project by its unique name."""
+        return self._fetch_one(GET_PROJECT_BY_NAME, [name])
+
+    def update_project(
+        self, project_id: str, name: str, description: str = "", color: str = "#14b8a6"
+    ) -> None:
+        """Update project attributes."""
+        with self._lock:
+            conn = self._ensure_open()
+            conn.execute(UPDATE_PROJECT, [project_id, name, description, color])
+
+    def delete_project(self, project_id: str) -> None:
+        """Delete a project.  Runs referencing it will have ``project_id`` set to NULL."""
+        with self._lock:
+            conn = self._ensure_open()
+            conn.execute("UPDATE runs SET project_id = NULL WHERE project_id = $1", [project_id])
+            conn.execute(DELETE_PROJECT, [project_id])
+
+    def set_run_project(self, run_id: str, project_id: str) -> None:
+        """Assign a run to a project."""
+        with self._lock:
+            conn = self._ensure_open()
+            conn.execute(SET_RUN_PROJECT, [run_id, project_id])
+
+    def get_or_create_project(self, name: str) -> str:
+        """Get an existing project by name, or create one.
+
+        Returns:
+            The ``project_id`` of the existing or newly-created project.
+        """
+        existing = self.get_project_by_name(name)
+        if existing is not None:
+            return existing["project_id"]
+        return self.create_project(name=name)
 
     # =====================================================================
     # Export operations (produce files on demand)

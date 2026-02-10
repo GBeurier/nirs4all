@@ -909,6 +909,12 @@ class LWPLS(BaseEstimator, RegressorMixin):
       International Journal of Pharmaceutics, 421(2), 269-274.
     """
 
+    _webapp_meta = {
+        "category": "pls",
+        "tier": "advanced",
+        "tags": ["pls", "locally-weighted", "adaptive", "nonlinear", "regression"],
+    }
+
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 
