@@ -187,8 +187,8 @@ class CartesianStrategy(ExpansionStrategy):
                 result, mutex_groups, requires_groups, exclude_combos
             )
 
-        # Step 5: Apply count limit
-        if count is not None and len(result) > count:
+        # Step 5: Apply count limit (count <= 0 means no limit)
+        if count is not None and count > 0 and len(result) > count:
             result = sample_with_seed(result, count, seed=node_seed)
 
         return result
@@ -320,8 +320,8 @@ class CartesianStrategy(ExpansionStrategy):
         else:
             total = total_pipelines
 
-        # Apply count limit
-        if count_limit is not None:
+        # Apply count limit (count <= 0 means no limit)
+        if count_limit is not None and count_limit > 0:
             return min(count_limit, total)
         return total
 

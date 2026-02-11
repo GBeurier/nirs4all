@@ -314,6 +314,9 @@ class BranchController(OperatorController):
             branch_name = branch_def.get("name", f"branch_{branch_id}")
             branch_steps = branch_def.get("steps", [])
 
+            # Track prediction count before this branch variant for accumulator
+            n_pred_before = len(prediction_store._buffer) if prediction_store else 0
+
             logger.info(f"  Branch {branch_id}: {branch_name}")
 
             # V3: Enter branch context in trace recorder
@@ -354,45 +357,53 @@ class BranchController(OperatorController):
                 if not branch_binaries:
                     branch_binaries = loaded_binaries
 
-            # Execute branch steps sequentially
-            for substep_idx, substep in enumerate(branch_steps):
-                if runtime_context.step_runner:
-                    runtime_context.substep_number = substep_idx
+            try:
+                # Execute branch steps sequentially
+                for substep_idx, substep in enumerate(branch_steps):
+                    if runtime_context.step_runner:
+                        runtime_context.substep_number = substep_idx
 
-                    # Record substep in trace before execution
-                    if recorder is not None:
-                        op_type, op_class = self._extract_substep_info(substep)
-                        recorder.start_branch_substep(
-                            parent_step_index=runtime_context.step_number,
-                            branch_id=branch_id,
-                            operator_type=op_type,
-                            operator_class=op_class,
-                            substep_index=substep_idx,
-                            branch_name=branch_name,
+                        # Record substep in trace before execution
+                        if recorder is not None:
+                            op_type, op_class = self._extract_substep_info(substep)
+                            recorder.start_branch_substep(
+                                parent_step_index=runtime_context.step_number,
+                                branch_id=branch_id,
+                                operator_type=op_type,
+                                operator_class=op_class,
+                                substep_index=substep_idx,
+                                branch_name=branch_name,
+                            )
+
+                            self._record_dataset_shapes(
+                                dataset, branch_context, runtime_context, is_input=True
+                            )
+
+                        result = runtime_context.step_runner.execute(
+                            step=substep,
+                            dataset=dataset,
+                            context=branch_context,
+                            runtime_context=runtime_context,
+                            loaded_binaries=branch_binaries,
+                            prediction_store=prediction_store
                         )
 
-                        self._record_dataset_shapes(
-                            dataset, branch_context, runtime_context, is_input=True
-                        )
+                        if recorder is not None:
+                            self._record_dataset_shapes(
+                                dataset, result.updated_context, runtime_context, is_input=False
+                            )
+                            is_model = op_type in ("model", "meta_model")
+                            recorder.end_step(is_model=is_model)
 
-                    result = runtime_context.step_runner.execute(
-                        step=substep,
-                        dataset=dataset,
-                        context=branch_context,
-                        runtime_context=runtime_context,
-                        loaded_binaries=branch_binaries,
-                        prediction_store=prediction_store
-                    )
-
-                    if recorder is not None:
-                        self._record_dataset_shapes(
-                            dataset, result.updated_context, runtime_context, is_input=False
-                        )
-                        is_model = op_type in ("model", "meta_model")
-                        recorder.end_step(is_model=is_model)
-
-                    branch_context = result.updated_context
-                    all_artifacts.extend(result.artifacts)
+                        branch_context = result.updated_context
+                        all_artifacts.extend(result.artifacts)
+            except Exception as e:
+                if mode in ("predict", "explain"):
+                    raise
+                logger.warning(f"  Branch {branch_id} ({branch_name}) failed: {e}")
+                if recorder is not None:
+                    recorder.exit_branch()
+                continue
 
             # V3: Snapshot the chain state BEFORE exiting branch context
             branch_chain_snapshot = recorder.current_chain() if recorder else None
@@ -417,6 +428,20 @@ class BranchController(OperatorController):
             })
 
             logger.success(f"  Branch {branch_id} ({branch_name}) completed")
+
+            # Accumulate best preprocessing chain per model for refit
+            if (
+                runtime_context
+                and runtime_context.best_refit_chains is not None
+                and prediction_store
+                and mode == "train"
+            ):
+                self._update_best_refit_chains(
+                    runtime_context.best_refit_chains,
+                    prediction_store,
+                    n_pred_before,
+                    branch_steps,
+                )
 
         # V3: End branch step in trace
         if recorder is not None:
@@ -1241,6 +1266,18 @@ class BranchController(OperatorController):
                             "steps": exp_step if isinstance(exp_step, list) else [exp_step],
                             "generator_choice": exp_step
                         })
+                elif isinstance(steps, list) and any(
+                    isinstance(s, dict) and is_generator_node(s) for s in steps
+                ):
+                    # Steps list contains generator nodes — expand them
+                    expanded_list = self._expand_list_with_generators(steps)
+                    for i, exp_steps in enumerate(expanded_list):
+                        branch_name = f"{name}_{i}" if len(expanded_list) > 1 else name
+                        expanded_branches.append({
+                            "name": branch_name,
+                            "steps": exp_steps,
+                            "generator_choice": exp_steps
+                        })
                 else:
                     expanded_branches.append({
                         "name": name,
@@ -1262,6 +1299,17 @@ class BranchController(OperatorController):
                                 "name": f"{item.get('name', f'branch_{i}')}_{j}",
                                 "steps": exp_step if isinstance(exp_step, list) else [exp_step],
                                 "generator_choice": exp_step
+                            })
+                    elif isinstance(steps, list) and any(
+                        isinstance(s, dict) and is_generator_node(s) for s in steps
+                    ):
+                        expanded_list = self._expand_list_with_generators(steps)
+                        base_name = item.get('name', f'branch_{i}')
+                        for j, exp_steps in enumerate(expanded_list):
+                            result.append({
+                                "name": f"{base_name}_{j}" if len(expanded_list) > 1 else base_name,
+                                "steps": exp_steps,
+                                "generator_choice": exp_steps
                             })
                     else:
                         result.append({
@@ -1331,7 +1379,12 @@ class BranchController(OperatorController):
         self,
         items: List[Any]
     ) -> List[List[Any]]:
-        """Expand a list that may contain generator nodes."""
+        """Expand a list that may contain generator nodes.
+
+        Generator items that expand to lists (e.g., _cartesian_ producing
+        preprocessing pipelines) are flattened into the result so that
+        each combination is a flat step list.
+        """
         from itertools import product
 
         expanded_items = []
@@ -1343,13 +1396,126 @@ class BranchController(OperatorController):
 
         result = []
         for combo in product(*expanded_items):
-            result.append(list(combo))
+            # Flatten: if a generator produced a list of steps, splice them in
+            flat = []
+            for element in combo:
+                if isinstance(element, list):
+                    flat.extend(element)
+                else:
+                    flat.append(element)
+            result.append(flat)
 
         return result if result else [items]
 
     # =========================================================================
     # Helper Methods
     # =========================================================================
+
+    @staticmethod
+    def _update_best_refit_chains(
+        best_chains: dict,
+        prediction_store: Any,
+        n_pred_before: int,
+        branch_steps: list,
+    ) -> None:
+        """Update the best-refit-chains accumulator after a branch variant.
+
+        Extracts predictions added during this branch variant, groups by
+        model_name, computes average val_score per model, and updates the
+        accumulator if this variant produced a better score.
+
+        Each model's entry stores only the preprocessing steps + its own
+        model step (not other models in the same branch variant).
+
+        Args:
+            best_chains: Accumulator dict (model_name -> BestChainEntry).
+            prediction_store: Predictions instance with new entries appended.
+            n_pred_before: Buffer length before this branch variant started.
+            branch_steps: Expanded steps for this branch variant.
+        """
+        import copy
+
+        from nirs4all.data.predictions import _infer_ascending
+        from nirs4all.pipeline.config.context import BestChainEntry
+
+        n_pred_after = len(prediction_store._buffer)
+        if n_pred_after <= n_pred_before:
+            return
+
+        new_entries = prediction_store._buffer[n_pred_before:n_pred_after]
+
+        # Separate branch_steps into preprocessing and model steps.
+        # Model steps are dicts with "model" key.
+        preprocessing_steps: list = []
+        model_steps_by_name: dict[str, dict] = {}
+        for step in branch_steps:
+            if isinstance(step, dict) and "model" in step:
+                name = step.get("name") or type(step["model"]).__name__
+                model_steps_by_name[name] = step
+            else:
+                preprocessing_steps.append(step)
+
+        # Group prediction entries by model_name
+        model_scores: dict[str, list[float]] = {}
+        model_params: dict[str, dict] = {}
+        model_metric: dict[str, str] = {}
+
+        for entry in new_entries:
+            model_name = entry.get("model_name")
+            val_score = entry.get("val_score")
+            if model_name is None or val_score is None:
+                continue
+
+            model_name = str(model_name)
+            if model_name not in model_scores:
+                model_scores[model_name] = []
+                model_params[model_name] = {}
+                model_metric[model_name] = entry.get("metric", "rmse")
+
+            model_scores[model_name].append(float(val_score))
+
+            # Capture best_params (same for all folds in unified mode)
+            bp = entry.get("best_params")
+            if bp and not model_params[model_name]:
+                if isinstance(bp, str):
+                    import json
+                    try:
+                        model_params[model_name] = json.loads(bp)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                elif isinstance(bp, dict):
+                    model_params[model_name] = bp
+
+        # Update accumulator for each model
+        for model_name, scores in model_scores.items():
+            avg_score = sum(scores) / len(scores)
+            metric = model_metric.get(model_name, "rmse")
+            ascending = _infer_ascending(metric)
+
+            existing = best_chains.get(model_name)
+            if existing is not None:
+                is_better = (
+                    (ascending and avg_score < existing.avg_val_score)
+                    or (not ascending and avg_score > existing.avg_val_score)
+                )
+                if not is_better:
+                    continue
+
+            # Build model-specific steps: preprocessing + only this model's step
+            model_step = model_steps_by_name.get(model_name)
+            if model_step is not None:
+                model_specific_steps = preprocessing_steps + [model_step]
+            else:
+                # Fallback: store full branch_steps (shouldn't happen)
+                model_specific_steps = branch_steps
+
+            best_chains[model_name] = BestChainEntry(
+                model_name=model_name,
+                avg_val_score=avg_score,
+                branch_steps=copy.deepcopy(model_specific_steps),
+                best_params=model_params.get(model_name, {}),
+                metric=metric,
+            )
 
     def _use_cow_snapshots(self, runtime_context: "RuntimeContext") -> bool:
         """Check if CoW snapshots are enabled via CacheConfig."""
