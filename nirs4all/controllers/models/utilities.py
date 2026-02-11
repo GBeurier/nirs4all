@@ -178,7 +178,7 @@ class ModelControllerUtils:
             Tuple[str, bool]: (metric_name, higher_is_better)
         """
         if task_type == TaskType.REGRESSION:
-            return "mse", False  # Lower MSE is better
+            return "rmse", False  # Lower RMSE is better
         else:  # Classification
             return "balanced_accuracy", True  # Higher balanced accuracy is better
 

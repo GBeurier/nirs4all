@@ -18,7 +18,7 @@ class _DummyRunner:
         self.cache_config = None
         _DummyRunner.instances.append(self)
 
-    def run(self, pipeline, dataset, pipeline_name, refit):
+    def run(self, pipeline, dataset, pipeline_name, refit, **kwargs):
         return Predictions(), {}
 
 

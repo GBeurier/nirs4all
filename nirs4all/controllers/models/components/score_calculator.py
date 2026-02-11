@@ -119,7 +119,8 @@ class ScoreCalculator:
         Returns:
             Formatted string like "Train: 0.95 | Val: 0.90 | Test: 0.88 (R2)"
         """
-        direction = "↑" if scores.higher_is_better else "↓"
+        from nirs4all.core.logging.formatters import get_symbols
+        direction = get_symbols().direction(scores.higher_is_better)
         return (
             f"Train: {scores.train:.4f} | "
             f"Val: {scores.val:.4f} | "

@@ -264,6 +264,8 @@ class PipelineRunner:
         dataset_name: str = "dataset",
         max_generation_count: int = 10000,
         refit: Union[bool, Dict[str, Any], None] = True,
+        store_run_id: Optional[str] = None,
+        manage_store_run: bool = True,
     ) -> Tuple[Predictions, Dict[str, Any]]:
         """Execute pipeline on dataset(s).
 
@@ -280,6 +282,8 @@ class PipelineRunner:
                 - ``True``: Enable refit (retrain winning model on full training set, default).
                 - ``False`` or ``None``: Disable refit.
                 - ``dict``: Refit options (reserved for future use).
+            store_run_id: Optional existing store run ID to join.
+            manage_store_run: Whether to manage the store run lifecycle.
 
         Returns:
             Tuple of (run_predictions, datasets_predictions)
@@ -297,6 +301,8 @@ class PipelineRunner:
             target_model=self.target_model,
             explainer=self.explainer,
             refit=refit,
+            store_run_id=store_run_id,
+            manage_store_run=manage_store_run,
         )
 
         # Sync state
