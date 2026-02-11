@@ -671,7 +671,9 @@ class PipelineOrchestrator:
         )
 
         try:
-            refit_config = extract_winning_config(self.store, run_id)
+            refit_config = extract_winning_config(
+                self.store, run_id, dataset_name=dataset.name,
+            )
         except ValueError as e:
             logger.warning(f"Cannot perform refit: {e}")
             return
@@ -766,7 +768,8 @@ class PipelineOrchestrator:
             if self._per_model_selections:
                 # Include all per-model winning pipeline IDs
                 per_model_configs = extract_per_model_configs(
-                    self.store, run_id, metric=refit_config.metric
+                    self.store, run_id, metric=refit_config.metric,
+                    dataset_name=dataset.name,
                 )
                 winning_pids = list({
                     cfg.pipeline_id
@@ -916,7 +919,8 @@ class PipelineOrchestrator:
 
         # Try per-model extraction
         per_model_configs = extract_per_model_configs(
-            self.store, run_id, metric=refit_config.metric
+            self.store, run_id, metric=refit_config.metric,
+            dataset_name=dataset.name,
         )
 
         if not per_model_configs:

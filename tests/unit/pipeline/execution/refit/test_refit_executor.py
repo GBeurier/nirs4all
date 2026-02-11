@@ -77,9 +77,9 @@ class _DummySplitter:
 class _DummyDataset:
     """Minimal SpectroDataset stand-in for testing."""
 
-    def __init__(self, n_train: int = 50) -> None:
+    def __init__(self, n_train: int = 50, name: str = "test_dataset") -> None:
         self._n_train = n_train
-        self.name = "test_dataset"
+        self.name = name
         self.aggregate = None
         self.aggregate_method = None
         self.aggregate_exclude_outliers = False
@@ -778,7 +778,7 @@ class TestOrchestratorRefitPass:
 
             orchestrator._execute_refit_pass(
                 run_id=run_id,
-                dataset=_DummyDataset(),
+                dataset=_DummyDataset(name="ds"),
                 executor=executor,
                 artifact_registry=MagicMock(),
                 run_dataset_predictions=Predictions(),

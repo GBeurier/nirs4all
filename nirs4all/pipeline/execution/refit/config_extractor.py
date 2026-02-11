@@ -57,6 +57,7 @@ def extract_winning_config(
     run_id: str,
     metric: str | None = None,
     ascending: bool | None = None,
+    dataset_name: str | None = None,
 ) -> RefitConfig:
     """Extract the winning pipeline configuration from a completed CV run.
 
@@ -74,6 +75,8 @@ def extract_winning_config(
             recorded in the pipeline records.
         ascending: Sort direction for the metric.  If ``None``, inferred
             from the metric name (lower-is-better for error metrics).
+        dataset_name: Filter pipelines to this dataset.  Required for
+            multi-dataset runs to avoid cross-dataset contamination.
 
     Returns:
         A :class:`RefitConfig` containing the winning variant's steps,
@@ -85,8 +88,8 @@ def extract_winning_config(
     """
     from nirs4all.pipeline.storage.workspace_store import _infer_metric_ascending
 
-    # Get all pipelines for this run
-    pipelines_df = store.list_pipelines(run_id=run_id)
+    # Get pipelines for this run, filtered by dataset if specified
+    pipelines_df = store.list_pipelines(run_id=run_id, dataset_name=dataset_name)
     if pipelines_df.is_empty():
         raise ValueError(f"Run {run_id} has no pipelines")
 
@@ -200,6 +203,7 @@ def extract_per_model_configs(
     run_id: str,
     metric: str | None = None,
     ascending: bool | None = None,
+    dataset_name: str | None = None,
 ) -> dict[str, tuple[PerModelSelection, RefitConfig]]:
     """Extract the best RefitConfig for each unique model class.
 
@@ -212,6 +216,8 @@ def extract_per_model_configs(
         run_id: Run identifier.
         metric: Metric for ranking.  Inferred if ``None``.
         ascending: Sort direction.  Inferred if ``None``.
+        dataset_name: Filter pipelines to this dataset.  Required for
+            multi-dataset runs to avoid cross-dataset contamination.
 
     Returns:
         Mapping from model class name to ``(PerModelSelection, RefitConfig)``
@@ -222,7 +228,7 @@ def extract_per_model_configs(
     from nirs4all.pipeline.execution.refit.model_selector import PerModelSelection
     from nirs4all.pipeline.storage.workspace_store import _infer_metric_ascending
 
-    pipelines_df = store.list_pipelines(run_id=run_id)
+    pipelines_df = store.list_pipelines(run_id=run_id, dataset_name=dataset_name)
     if pipelines_df.is_empty():
         return {}
 

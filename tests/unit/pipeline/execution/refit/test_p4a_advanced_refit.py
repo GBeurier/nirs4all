@@ -40,9 +40,9 @@ from nirs4all.pipeline.storage.store_schema import REFIT_CONTEXT_STACKING
 class _DummyDataset:
     """Minimal SpectroDataset stand-in for testing."""
 
-    def __init__(self, n_train: int = 50) -> None:
+    def __init__(self, n_train: int = 50, name: str = "test_dataset") -> None:
         self._n_train = n_train
-        self.name = "test_dataset"
+        self.name = name
         self.aggregate = None
         self.aggregate_method = None
         self.aggregate_exclude_outliers = False
@@ -58,8 +58,7 @@ class _DummyDataset:
         return 1
 
     def __deepcopy__(self, memo):
-        new = _DummyDataset(self._n_train)
-        new.name = self.name
+        new = _DummyDataset(self._n_train, name=self.name)
         return new
 
 
@@ -786,7 +785,7 @@ class TestOrchestratorDispatch:
 
             orchestrator._execute_refit_pass(
                 run_id=run_id,
-                dataset=_DummyDataset(),
+                dataset=_DummyDataset(name="ds"),
                 executor=executor,
                 artifact_registry=MagicMock(),
                 run_dataset_predictions=Predictions(),
@@ -886,7 +885,7 @@ class TestOrchestratorDispatch:
 
             orchestrator._execute_refit_pass(
                 run_id=run_id,
-                dataset=_DummyDataset(),
+                dataset=_DummyDataset(name="ds"),
                 executor=executor,
                 artifact_registry=MagicMock(),
                 run_dataset_predictions=Predictions(),
