@@ -98,8 +98,8 @@ class SampleStrategy(ExpansionStrategy):
         distribution = sample_spec.get("distribution", "uniform")
         num = sample_spec.get("num", 10)
 
-        # Apply count limit to num if specified
-        if count_limit is not None:
+        # Apply count limit to num if specified (count <= 0 means no limit)
+        if count_limit is not None and count_limit > 0:
             num = min(num, count_limit)
 
         # Generate samples based on distribution
@@ -185,8 +185,8 @@ class SampleStrategy(ExpansionStrategy):
 
         num = sample_spec.get("num", 10)
 
-        # Apply count limit
-        if count_limit is not None:
+        # Apply count limit (count <= 0 means no limit)
+        if count_limit is not None and count_limit > 0:
             return min(count_limit, num)
         return num
 

@@ -1122,6 +1122,13 @@ class OptunaManager:
                 param_type, min_val, max_val = param_config
                 return self._suggest_from_type(trial, param_name, param_type, min_val, max_val)
 
+            # Pattern: ['bool'/'categorical', [choices]] from tuple ('bool'/'categorical', [choices])
+            if (len(param_config) == 2 and
+                isinstance(param_config[0], str) and
+                param_config[0] in ('bool', 'categorical') and
+                isinstance(param_config[1], list)):
+                return trial.suggest_categorical(param_name, param_config[1])
+
             # Regular categorical parameter: [val1, val2, val3]
             return trial.suggest_categorical(param_name, param_config)
 
@@ -1131,8 +1138,11 @@ class OptunaManager:
             return self._suggest_from_type(trial, param_name, param_type, min_val, max_val)
 
         elif isinstance(param_config, tuple) and len(param_config) == 2:
+            type_hint, values = param_config
+            if isinstance(type_hint, str) and type_hint in ('bool', 'categorical') and isinstance(values, list):
+                return trial.suggest_categorical(param_name, values)
             # Range tuple: (min, max) - infer type from values
-            min_val, max_val = param_config
+            min_val, max_val = type_hint, values
             if isinstance(min_val, int) and isinstance(max_val, int):
                 return trial.suggest_int(param_name, min_val, max_val)
             else:

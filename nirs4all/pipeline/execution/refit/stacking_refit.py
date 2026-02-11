@@ -628,6 +628,7 @@ def execute_stacking_refit(
                         phase=ExecutionPhase.REFIT,
                         refit_fold_id="final",
                         refit_context_name=REFIT_CONTEXT_STACKING,
+                        random_state=runtime_context.random_state,
                     )
 
                     try:
@@ -706,6 +707,7 @@ def execute_stacking_refit(
                 phase=ExecutionPhase.REFIT,
                 refit_fold_id="final",
                 refit_context_name=REFIT_CONTEXT_STACKING,
+                random_state=runtime_context.random_state,
             )
 
             try:
@@ -788,6 +790,7 @@ def execute_stacking_refit(
             phase=ExecutionPhase.REFIT,
             refit_fold_id="final",
             refit_context_name=REFIT_CONTEXT_STACKING,
+            random_state=runtime_context.random_state,
         )
 
         try:
@@ -1079,12 +1082,12 @@ def execute_competing_branches_refit(
     prediction_store: Any,  # Predictions
     topology: PipelineTopology,
 ) -> RefitResult:
-    """Refit only the winning branch for competing branches (no merge).
+    """Refit competing branches (no merge), one per unique model.
 
-    When branches have no merge step, they are competing alternatives
-    (Section 4.12).  This function identifies the winning branch from
-    CV predictions, extracts only that branch's sub-pipeline, and
-    refits it using :func:`execute_simple_refit`.
+    When branches have no merge step, they are competing alternatives.
+    For named branches with generators and multiple models, this
+    identifies the best preprocessing chain per unique model from CV
+    predictions and refits only that combination.
 
     Args:
         refit_config: Winning variant configuration.
@@ -1122,6 +1125,36 @@ def execute_competing_branches_refit(
 
     branch_idx, branch_step = branch_info
     branch_value = branch_step.get("branch", [])
+
+    # Handle named branches (dict without separation keywords)
+    _SEP_KEYS = {"by_tag", "by_metadata", "by_filter", "by_source"}
+    if isinstance(branch_value, dict):
+        if branch_value.keys() & _SEP_KEYS:
+            logger.info(
+                "Competing branches refit: separation branch detected. "
+                "Using simple refit."
+            )
+            return execute_simple_refit(
+                refit_config=refit_config,
+                dataset=dataset,
+                context=context,
+                runtime_context=runtime_context,
+                artifact_registry=artifact_registry,
+                executor=executor,
+                prediction_store=prediction_store,
+            )
+
+        return _execute_per_model_competing_refit(
+            refit_config=refit_config,
+            branch_value=branch_value,
+            pre_branch_steps=steps[:branch_idx],
+            dataset=dataset,
+            context=context,
+            runtime_context=runtime_context,
+            artifact_registry=artifact_registry,
+            executor=executor,
+            prediction_store=prediction_store,
+        )
 
     if not isinstance(branch_value, list) or len(branch_value) <= 1:
         logger.info(
@@ -1200,3 +1233,355 @@ def execute_competing_branches_refit(
         predictions_count=total_predictions,
         metric=refit_config.metric,
     )
+
+
+# ---------------------------------------------------------------------------
+# Per-model refit for named branches with generators
+# ---------------------------------------------------------------------------
+
+
+def _execute_per_model_competing_refit(
+    refit_config: RefitConfig,
+    branch_value: dict[str, Any],
+    pre_branch_steps: list[Any],
+    dataset: Any,
+    context: Any,
+    runtime_context: RuntimeContext,
+    artifact_registry: Any,
+    executor: Any,
+    prediction_store: Any,
+) -> RefitResult:
+    """Per-model refit for named competing branches with generators.
+
+    .. deprecated::
+        Superseded by the accumulator-based approach in
+        ``Orchestrator._execute_accumulated_refit``.  The accumulator
+        (``RuntimeContext.best_refit_chains``) captures the best chain
+        per model during CV execution, making store queries unnecessary.
+        Remove in 1.0.0.
+
+    Expands generators within each named branch (mirroring the
+    ``BranchController`` expansion logic), identifies the best
+    preprocessing chain per unique model from CV predictions, and
+    refits only that best chain for each model.
+
+    This avoids redundant refits: instead of refitting every
+    model x preprocessing combination, only one refit per unique
+    model is performed.
+
+    Args:
+        refit_config: Winning variant configuration.
+        branch_value: Named branch dict (e.g. ``{"linear": [...], "nn": [...]}``)
+        pre_branch_steps: Pipeline steps before the branch step.
+        dataset: Original dataset (deep-copied internally by simple refit).
+        context: Execution context (may be ``None``).
+        runtime_context: Shared runtime context.
+        artifact_registry: Artifact registry from CV pass.
+        executor: ``PipelineExecutor`` for step execution.
+        prediction_store: ``Predictions`` accumulator.
+
+    Returns:
+        A :class:`RefitResult` summarizing the per-model refit outcome.
+    """
+    from nirs4all.pipeline.execution.refit.executor import execute_simple_refit
+
+    # Step 1: Expand named branches the same way BranchController does.
+    # Each expanded variant maps to a sequential branch_id.
+    all_expanded: list[tuple[int, str, list[Any]]] = []  # (branch_id, name, steps)
+    branch_id = 0
+    for name, branch_steps in branch_value.items():
+        if not isinstance(branch_steps, list) or name.startswith("_"):
+            continue
+
+        expanded_variants = _expand_branch_steps(branch_steps)
+        for variant_i, variant_steps in enumerate(expanded_variants):
+            variant_name = f"{name}_{variant_i}" if len(expanded_variants) > 1 else name
+            all_expanded.append((branch_id, variant_name, variant_steps))
+            branch_id += 1
+
+    if not all_expanded:
+        logger.warning("No expanded branch variants found. Falling back to simple refit.")
+        return execute_simple_refit(
+            refit_config=refit_config,
+            dataset=dataset,
+            context=context,
+            runtime_context=runtime_context,
+            artifact_registry=artifact_registry,
+            executor=executor,
+            prediction_store=prediction_store,
+        )
+
+    # Step 2: For each variant, extract models and preprocessing.
+    # Build a mapping: model_name -> best candidate info
+    model_candidates: dict[str, list[dict[str, Any]]] = {}  # model_name -> [{...}]
+
+    for bid, variant_name, variant_steps in all_expanded:
+        preprocessing = []
+        models = []
+        for step in variant_steps:
+            if isinstance(step, dict) and "model" in step:
+                models.append(step)
+            else:
+                preprocessing.append(step)
+
+        for model_step in models:
+            model_name = model_step.get("name") or _model_class_name(model_step.get("model"))
+            if model_name not in model_candidates:
+                model_candidates[model_name] = []
+            model_candidates[model_name].append({
+                "branch_id": bid,
+                "variant_name": variant_name,
+                "preprocessing": preprocessing,
+                "model_step": model_step,
+            })
+
+    # Step 3: Query CV predictions to find best variant per model.
+    best_per_model = _select_best_per_model(
+        refit_config, runtime_context.store, model_candidates
+    )
+
+    # Step 4: Refit each model with its best preprocessing chain.
+    logger.info(
+        f"Per-model competing branches refit: "
+        f"{len(best_per_model)} model(s) "
+        f"({', '.join(best_per_model.keys())})"
+    )
+
+    total_predictions = 0
+    all_success = True
+
+    for model_name, best in best_per_model.items():
+        flat_steps = (
+            copy.deepcopy(pre_branch_steps)
+            + copy.deepcopy(best["preprocessing"])
+            + [copy.deepcopy(best["model_step"])]
+        )
+        # Filter out None steps (from _or_ generators expanding to None)
+        flat_steps = [s for s in flat_steps if s is not None]
+
+        cv_score = best.get("score")
+        best_params = best.get("best_params") or {}
+
+        flat_config = RefitConfig(
+            expanded_steps=flat_steps,
+            best_params=best_params,
+            variant_index=refit_config.variant_index,
+            generator_choices=refit_config.generator_choices,
+            pipeline_id=refit_config.pipeline_id,
+            metric=refit_config.metric,
+            best_score=cv_score if cv_score is not None else refit_config.best_score,
+        )
+
+        logger.info(
+            f"  Refitting '{model_name}' "
+            f"(best branch: {best['variant_name']}, "
+            f"cv_score={cv_score})"
+        )
+
+        result = execute_simple_refit(
+            refit_config=flat_config,
+            dataset=dataset,
+            context=context,
+            runtime_context=runtime_context,
+            artifact_registry=artifact_registry,
+            executor=executor,
+            prediction_store=prediction_store,
+        )
+
+        if result.success:
+            total_predictions += result.predictions_count
+        else:
+            all_success = False
+            logger.warning(f"  Refit failed for model '{model_name}'")
+
+    return RefitResult(
+        success=all_success,
+        predictions_count=total_predictions,
+        metric=refit_config.metric,
+    )
+
+
+def _expand_branch_steps(steps: list[Any]) -> list[list[Any]]:
+    """Expand generator nodes within a branch step list.
+
+    .. deprecated::
+        Superseded by the accumulator-based approach.  The
+        ``BranchController`` now captures expanded steps during CV
+        execution, eliminating the need to re-expand at refit time.
+        Remove in 1.0.0.
+
+    Mirrors ``BranchController._expand_list_with_generators``: each
+    generator node is expanded independently, then a Cartesian product
+    is taken across all items.  Generator results that are lists are
+    spliced into the flat result.
+
+    Args:
+        steps: Step list that may contain generator nodes.
+
+    Returns:
+        List of expanded flat step lists.
+    """
+    from itertools import product
+
+    from nirs4all.pipeline.config.generator import expand_spec, is_generator_node
+
+    expanded_items: list[list[Any]] = []
+    for item in steps:
+        if isinstance(item, dict) and is_generator_node(item):
+            expanded_items.append(expand_spec(item))
+        else:
+            expanded_items.append([item])
+
+    result: list[list[Any]] = []
+    for combo in product(*expanded_items):
+        flat: list[Any] = []
+        for element in combo:
+            if isinstance(element, list):
+                flat.extend(element)
+            else:
+                flat.append(element)
+        result.append(flat)
+
+    return result if result else [steps]
+
+
+def _model_class_name(model: Any) -> str:
+    """Get a short class name for a model.
+
+    .. deprecated:: Remove in 1.0.0.
+    """
+    if model is None:
+        return "unknown"
+    if isinstance(model, type):
+        return model.__name__
+    return type(model).__name__
+
+
+def _select_best_per_model(
+    refit_config: RefitConfig,
+    store: Any,
+    model_candidates: dict[str, list[dict[str, Any]]],
+) -> dict[str, dict[str, Any]]:
+    """Select the best branch variant per model using CV predictions.
+
+    .. deprecated::
+        Superseded by the accumulator-based approach in
+        ``BranchController._update_best_refit_chains``.  The accumulator
+        tracks the best chain per model during CV execution, making
+        post-hoc store queries unnecessary.  Remove in 1.0.0.
+
+    Queries the store for validation predictions, groups by
+    ``(model_name, branch_id)``, computes average val_score, and
+    picks the best branch_id for each model_name.
+
+    Args:
+        refit_config: Configuration with ``pipeline_id`` and ``metric``.
+        store: WorkspaceStore for querying predictions.
+        model_candidates: Mapping from model_name to candidate dicts,
+            each containing ``branch_id``, ``preprocessing``, etc.
+
+    Returns:
+        Mapping from model_name to the best candidate dict (with
+        added ``score`` and ``best_params`` keys).
+    """
+    import json
+
+    # Query CV validation predictions
+    preds_df = None
+    if store is not None and refit_config.pipeline_id:
+        try:
+            preds_df = store.query_predictions(
+                pipeline_id=refit_config.pipeline_id,
+                partition="val",
+            )
+        except Exception:
+            pass
+
+    ascending = _infer_ascending_for_metric(refit_config.metric)
+
+    if preds_df is not None and len(preds_df) > 0:
+        # Build average val_score per (model_name, branch_id)
+        try:
+            model_names = preds_df["model_name"].to_list()
+            branch_ids = preds_df["branch_id"].to_list()
+            val_scores = preds_df["val_score"].to_list()
+        except Exception:
+            model_names, branch_ids, val_scores = [], [], []
+
+        # Also collect best_params from the best-scoring entry per key
+        try:
+            best_params_col = preds_df["best_params"].to_list()
+        except Exception:
+            best_params_col = [None] * len(model_names)
+
+        # Accumulate scores per (model_name, branch_id)
+        accum: dict[tuple[str, int], dict[str, Any]] = {}
+        for mn, bid, vs, bp in zip(model_names, branch_ids, val_scores, best_params_col):
+            if mn is None or bid is None or vs is None:
+                continue
+            key = (str(mn), int(bid))
+            if key not in accum:
+                accum[key] = {"scores": [], "best_params": None, "best_val": None}
+            accum[key]["scores"].append(float(vs))
+            # Track the best individual score's params
+            if (
+                accum[key]["best_val"] is None
+                or (ascending and float(vs) < accum[key]["best_val"])
+                or (not ascending and float(vs) > accum[key]["best_val"])
+            ):
+                accum[key]["best_val"] = float(vs)
+                # Parse best_params if JSON string
+                if isinstance(bp, str):
+                    try:
+                        accum[key]["best_params"] = json.loads(bp)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                elif isinstance(bp, dict):
+                    accum[key]["best_params"] = bp
+
+        # Compute average scores
+        avg_scores: dict[tuple[str, int], float] = {}
+        best_params_map: dict[tuple[str, int], dict[str, Any] | None] = {}
+        for key, data in accum.items():
+            avg_scores[key] = sum(data["scores"]) / len(data["scores"])
+            best_params_map[key] = data["best_params"]
+
+        # For each model, find the branch_id with best average score
+        result: dict[str, dict[str, Any]] = {}
+        for model_name, candidates in model_candidates.items():
+            best_candidate = None
+            best_score = None
+
+            for candidate in candidates:
+                bid = candidate["branch_id"]
+                key = (model_name, bid)
+                score = avg_scores.get(key)
+                if score is None:
+                    continue
+
+                if best_score is None or (ascending and score < best_score) or (not ascending and score > best_score):
+                    best_score = score
+                    best_candidate = dict(candidate)
+                    best_candidate["score"] = score
+                    best_candidate["best_params"] = best_params_map.get(key)
+
+            if best_candidate is not None:
+                result[model_name] = best_candidate
+            elif candidates:
+                # No predictions found -- use first candidate
+                fallback = dict(candidates[0])
+                fallback["score"] = None
+                fallback["best_params"] = None
+                result[model_name] = fallback
+
+        return result
+
+    # No predictions available -- use first candidate for each model
+    result = {}
+    for model_name, candidates in model_candidates.items():
+        if candidates:
+            fallback = dict(candidates[0])
+            fallback["score"] = None
+            fallback["best_params"] = None
+            result[model_name] = fallback
+    return result

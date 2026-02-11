@@ -670,6 +670,7 @@ class Retrainer:
                 step_runner=executor.step_runner,
                 run_id=run_id,
                 retrain_config=config,
+                random_state=self.runner.random_state,
             )
 
             # Execute pipeline

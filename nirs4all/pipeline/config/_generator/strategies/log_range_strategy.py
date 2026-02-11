@@ -92,8 +92,8 @@ class LogRangeStrategy(ExpansionStrategy):
         # Generate the full log range
         log_values = self._generate_log_range(log_range_spec)
 
-        # Apply count limit if specified
-        if count is not None and len(log_values) > count:
+        # Apply count limit if specified (count <= 0 means no limit)
+        if count is not None and count > 0 and len(log_values) > count:
             log_values = sample_with_seed(log_values, count, seed=node_seed)
 
         return log_values
@@ -114,8 +114,8 @@ class LogRangeStrategy(ExpansionStrategy):
         # Calculate log range size
         log_range_size = self._count_log_range(log_range_spec)
 
-        # Apply count limit if specified
-        if count_limit is not None:
+        # Apply count limit if specified (count <= 0 means no limit)
+        if count_limit is not None and count_limit > 0:
             return min(count_limit, log_range_size)
         return log_range_size
 

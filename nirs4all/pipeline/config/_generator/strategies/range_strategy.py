@@ -83,8 +83,8 @@ class RangeStrategy(ExpansionStrategy):
         # Generate the full range
         range_values = self._generate_range(range_spec)
 
-        # Apply count limit if specified
-        if count is not None and len(range_values) > count:
+        # Apply count limit if specified (count <= 0 means no limit)
+        if count is not None and count > 0 and len(range_values) > count:
             range_values = sample_with_seed(range_values, count, seed=seed)
 
         return range_values
@@ -108,8 +108,8 @@ class RangeStrategy(ExpansionStrategy):
         # Calculate range size
         range_size = self._count_range(range_spec)
 
-        # Apply count limit if specified
-        if count_limit is not None:
+        # Apply count limit if specified (count <= 0 means no limit)
+        if count_limit is not None and count_limit > 0:
             return min(count_limit, range_size)
         return range_size
 
