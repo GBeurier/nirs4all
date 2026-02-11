@@ -48,12 +48,12 @@ def init_global_random_state(seed: Optional[int] = None):
     Args:
         seed: Random seed value. If None, uses default seed of 42 for TensorFlow and PyTorch.
     """
+    import os
     import random
 
     if seed is not None:
         np.random.seed(seed)
         random.seed(seed)
-        import os
         os.environ['PYTHONHASHSEED'] = str(seed)
 
     try:
@@ -67,6 +67,9 @@ def init_global_random_state(seed: Optional[int] = None):
         torch.manual_seed(seed if seed is not None else 42)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed if seed is not None else 42)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+        os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
     except ImportError:
         pass
 
@@ -168,6 +171,7 @@ class PipelineRunner:
         """
         if random_state is not None:
             init_global_random_state(random_state)
+        self.random_state = random_state
 
         if workspace_path is None:
             workspace_path = _get_default_workspace_path()
@@ -218,7 +222,8 @@ class PipelineRunner:
             show_spinner=show_spinner,
             keep_datasets=keep_datasets,
             max_preprocessed_snapshots_per_dataset=self.max_preprocessed_snapshots_per_dataset,
-            plots_visible=plots_visible
+            plots_visible=plots_visible,
+            random_state=random_state,
         )
 
         # Create predictor and explainer

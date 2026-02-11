@@ -112,7 +112,7 @@ class ZipStrategy(ExpansionStrategy):
             results.append(result_dict)
 
         # Apply count limit if specified
-        if count is not None and len(results) > count:
+        if count is not None and count > 0 and len(results) > count:
             results = sample_with_seed(results, count, seed=node_seed)
 
         return results
@@ -148,8 +148,8 @@ class ZipStrategy(ExpansionStrategy):
 
         total = min(lengths) if lengths else 0
 
-        # Apply count limit
-        if count_limit is not None:
+        # Apply count limit (count <= 0 means no limit)
+        if count_limit is not None and count_limit > 0:
             return min(count_limit, total)
         return total
 

@@ -96,8 +96,8 @@ class ChainStrategy(ExpansionStrategy):
             else:
                 results.append(item)
 
-        # Apply count limit (takes first n, not random)
-        if count is not None and len(results) > count:
+        # Apply count limit (takes first n, not random; count <= 0 means no limit)
+        if count is not None and count > 0 and len(results) > count:
             # For chain, count takes first n items (ordered), not random
             # Unless seed is specified, then we sample randomly
             if node_seed is not None:
@@ -131,8 +131,8 @@ class ChainStrategy(ExpansionStrategy):
             else:
                 total += 1
 
-        # Apply count limit
-        if count_limit is not None:
+        # Apply count limit (count <= 0 means no limit)
+        if count_limit is not None and count_limit > 0:
             return min(count_limit, total)
         return total
 

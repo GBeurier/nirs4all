@@ -691,3 +691,161 @@ class TestBranchGeneratorExpansion:
 
         assert len(result) == 1
         assert result[0] == ["a", "b", "c"]
+
+    def test_expand_list_flattens_cartesian_results(self, controller):
+        """Cartesian generator producing lists should be flattened into step list."""
+        items = [
+            {"_cartesian_": [
+                {"_or_": ["A", "B"]},
+                {"_or_": ["X", "Y"]},
+            ]},
+            "model_step",
+        ]
+        result = controller._expand_list_with_generators(items)
+
+        # 2x2 = 4 cartesian combos, each combined with model_step
+        assert len(result) == 4
+
+        # Each result should be FLAT: [preproc1, preproc2, model_step]
+        for r in result:
+            assert len(r) == 3
+            assert r[-1] == "model_step"
+            assert not isinstance(r[0], list)  # should NOT be nested
+
+    def test_expand_list_cartesian_with_multiple_non_generators(self, controller):
+        """Cartesian with multiple trailing non-generator steps."""
+        items = [
+            {"_or_": [["A1", "A2"], ["B1"]]},
+            "model1",
+            "model2",
+        ]
+        result = controller._expand_list_with_generators(items)
+
+        # 2 options from _or_ × 1 × 1 = 2 combos
+        assert len(result) == 2
+
+        # First option [A1, A2] should be flattened: [A1, A2, model1, model2]
+        assert result[0] == ["A1", "A2", "model1", "model2"]
+        # Second option [B1] should be flattened: [B1, model1, model2]
+        assert result[1] == ["B1", "model1", "model2"]
+
+
+class TestBranchGeneratorInNamedBranches:
+    """Test generator expansion inside named branch step lists."""
+
+    @pytest.fixture
+    def controller(self):
+        return BranchController()
+
+    @pytest.fixture
+    def mock_step_info(self):
+        return ParsedStep(
+            operator=None,
+            keyword="branch",
+            step_type=StepType.WORKFLOW,
+            original_step={},
+            metadata={}
+        )
+
+    def test_named_branch_with_or_generator_in_steps(self, controller, mock_step_info):
+        """Named branch with _or_ generator inside step list."""
+        mock_step_info.original_step = {
+            "branch": {
+                "my_branch": [
+                    {"_or_": ["SNV", "MSC"]},
+                    "model_step",
+                ]
+            }
+        }
+
+        result = controller._parse_branch_definitions(mock_step_info)
+
+        # Should expand to 2 branches
+        assert len(result) == 2
+        for branch in result:
+            assert branch["name"].startswith("my_branch_")
+            # Each branch: [preprocessing, model_step]
+            assert len(branch["steps"]) == 2
+            assert branch["steps"][-1] == "model_step"
+
+    def test_named_branch_with_cartesian_generator_in_steps(self, controller, mock_step_info):
+        """Named branch with _cartesian_ generator + model steps."""
+        mock_step_info.original_step = {
+            "branch": {
+                "linear": [
+                    {"_cartesian_": [
+                        {"_or_": ["A", "B"]},
+                        {"_or_": ["X", "Y"]},
+                    ]},
+                    "PLS",
+                    "Ridge",
+                ]
+            }
+        }
+
+        result = controller._parse_branch_definitions(mock_step_info)
+
+        # _cartesian_ produces 2×2=4 combos, combined with PLS + Ridge
+        assert len(result) == 4
+        for branch in result:
+            assert branch["name"].startswith("linear_")
+            # Each branch: [preproc1, preproc2, PLS, Ridge]
+            assert len(branch["steps"]) == 4
+            assert branch["steps"][-2] == "PLS"
+            assert branch["steps"][-1] == "Ridge"
+
+    def test_multiple_named_branches_independent_expansion(self, controller, mock_step_info):
+        """Multiple named branches with generators expand independently (N+M, not N×M)."""
+        mock_step_info.original_step = {
+            "branch": {
+                "branch_A": [
+                    {"_or_": ["A1", "A2", "A3"]},
+                    "model_A",
+                ],
+                "branch_B": [
+                    {"_or_": ["B1", "B2"]},
+                    "model_B",
+                ],
+            }
+        }
+
+        result = controller._parse_branch_definitions(mock_step_info)
+
+        # 3 from A + 2 from B = 5 (NOT 3×2=6)
+        assert len(result) == 5
+
+        # Check A branches
+        a_branches = [b for b in result if b["name"].startswith("branch_A_")]
+        assert len(a_branches) == 3
+        for b in a_branches:
+            assert b["steps"][-1] == "model_A"
+
+        # Check B branches
+        b_branches = [b for b in result if b["name"].startswith("branch_B_")]
+        assert len(b_branches) == 2
+        for b in b_branches:
+            assert b["steps"][-1] == "model_B"
+
+    def test_mixed_named_branches_with_and_without_generators(self, controller, mock_step_info):
+        """Mix of named branches: some with generators, some without."""
+        mock_step_info.original_step = {
+            "branch": {
+                "static": ["step1", "step2"],
+                "dynamic": [
+                    {"_or_": ["X", "Y"]},
+                    "model",
+                ],
+            }
+        }
+
+        result = controller._parse_branch_definitions(mock_step_info)
+
+        # 1 static + 2 dynamic = 3
+        assert len(result) == 3
+
+        static = [b for b in result if b["name"] == "static"]
+        assert len(static) == 1
+        assert static[0]["steps"] == ["step1", "step2"]
+
+        dynamic = [b for b in result if b["name"].startswith("dynamic_")]
+        assert len(dynamic) == 2

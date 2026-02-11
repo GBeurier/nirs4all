@@ -251,28 +251,52 @@ def _walk_steps(
                     if "by_source" in branch_value:
                         topo.has_multi_source = True
 
-                # Walk sub-steps inside the branch dict if present
-                inner_steps = branch_value.get("steps")
-                if inner_steps is not None:
-                    if isinstance(inner_steps, list):
-                        _walk_steps(
-                            inner_steps,
-                            topo,
-                            branch_path=branch_path + [0],
-                            stacking_depth=stacking_depth,
-                            pending_merge_type=merge_type_for_branch,
-                        )
-                    elif isinstance(inner_steps, dict):
-                        # Per-source or per-group steps: {"NIR": [...], "markers": [...]}
-                        for source_idx, (_source_name, source_steps) in enumerate(inner_steps.items()):
-                            if isinstance(source_steps, list):
-                                _walk_steps(
-                                    source_steps,
-                                    topo,
-                                    branch_path=branch_path + [source_idx],
-                                    stacking_depth=stacking_depth,
-                                    pending_merge_type=merge_type_for_branch,
-                                )
+                    # Walk sub-steps inside the branch dict if present
+                    inner_steps = branch_value.get("steps")
+                    if inner_steps is not None:
+                        if isinstance(inner_steps, list):
+                            _walk_steps(
+                                inner_steps,
+                                topo,
+                                branch_path=branch_path + [0],
+                                stacking_depth=stacking_depth,
+                                pending_merge_type=merge_type_for_branch,
+                            )
+                        elif isinstance(inner_steps, dict):
+                            # Per-source or per-group steps: {"NIR": [...], "markers": [...]}
+                            for source_idx, (_source_name, source_steps) in enumerate(inner_steps.items()):
+                                if isinstance(source_steps, list):
+                                    _walk_steps(
+                                        source_steps,
+                                        topo,
+                                        branch_path=branch_path + [source_idx],
+                                        stacking_depth=stacking_depth,
+                                        pending_merge_type=merge_type_for_branch,
+                                    )
+                else:
+                    # Named duplication branches: {"name1": [steps], "name2": [steps]}
+                    named_entries = [
+                        (k, v) for k, v in branch_value.items()
+                        if isinstance(v, list) and not k.startswith("_")
+                    ]
+                    if named_entries:
+                        if merge_type_for_branch is None:
+                            topo.has_branches_without_merge = True
+
+                        new_stacking_depth = stacking_depth
+                        if merge_type_for_branch == "predictions":
+                            new_stacking_depth = stacking_depth + 1
+                            if new_stacking_depth > topo.max_stacking_depth:
+                                topo.max_stacking_depth = new_stacking_depth
+
+                        for branch_idx, (_name, sub_steps) in enumerate(named_entries):
+                            _walk_steps(
+                                sub_steps,
+                                topo,
+                                branch_path=branch_path + [branch_idx],
+                                stacking_depth=new_stacking_depth,
+                                pending_merge_type=merge_type_for_branch,
+                            )
 
             last_had_branch = True
             consecutive_models = 0
