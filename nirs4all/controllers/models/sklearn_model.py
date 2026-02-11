@@ -150,20 +150,19 @@ class SklearnModelController(BaseModelController):
         if 'model_instance' in model_config:
             model = model_config['model_instance']
 
-            # If no force_params and it's already an instance, just return it
-            if force_params is None:
+            # If no force_params (None or empty dict), return the instance directly
+            if not force_params:
                 return model
 
-            # If we have force_params, we need to rebuild
-            if force_params:
-                # For instances, pass the instance itself to preserve structural parameters (e.g., estimators in StackingRegressor)
-                # For classes, pass the class
-                if isinstance(model, type):
-                    model_class = model
-                    return ModelFactory.build_single_model(model_class, dataset, force_params)
-                else:
-                    # Pass instance to preserve structural parameters through _from_instance path
-                    return ModelFactory.build_single_model(model, dataset, force_params)
+            # We have force_params with actual values — rebuild with new params
+            # For instances, pass the instance itself to preserve structural parameters (e.g., estimators in StackingRegressor)
+            # For classes, pass the class
+            if isinstance(model, type):
+                model_class = model
+                return ModelFactory.build_single_model(model_class, dataset, force_params)
+            else:
+                # Pass instance to preserve structural parameters through _from_instance path
+                return ModelFactory.build_single_model(model, dataset, force_params)
 
         # Handle new serialization formats: {'function': ..., 'params': ...} or {'class': ..., 'params': ...}
         if any(key in model_config for key in ('function', 'class', 'import')):
@@ -300,7 +299,8 @@ class SklearnModelController(BaseModelController):
                 best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
                 best_score = train_scores.get(best_metric)
                 if best_score is not None:
-                    direction = "↑" if higher_is_better else "↓"
+                    from nirs4all.core.logging.formatters import get_symbols
+                    direction = get_symbols().direction(higher_is_better)
                     all_scores_str = ModelUtils.format_scores(train_scores)
                     # Commented out - using logger instead when needed
 
@@ -316,7 +316,8 @@ class SklearnModelController(BaseModelController):
                     best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
                     best_score = val_scores.get(best_metric)
                     if best_score is not None:
-                        direction = "↑" if higher_is_better else "↓"
+                        from nirs4all.core.logging.formatters import get_symbols
+                        direction = get_symbols().direction(higher_is_better)
                         all_scores_str = ModelUtils.format_scores(val_scores)
                         # Commented out - using logger instead when needed
 

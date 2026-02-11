@@ -90,11 +90,14 @@ from nirs4all.pipeline.storage.store_queries import (
     LIST_PROJECTS,
     SET_RUN_PROJECT,
     UPDATE_ARTIFACT_CACHE_KEY,
+    UPDATE_CHAIN_SUMMARY,
     UPDATE_PROJECT,
     build_aggregated_query,
     build_chain_predictions_query,
+    build_chain_summary_query,
     build_prediction_query,
     build_top_aggregated_query,
+    build_top_chains_query,
     build_top_predictions_query,
 )
 from nirs4all.pipeline.storage.store_schema import create_schema
@@ -434,6 +437,7 @@ class WorkspaceStore:
         shared_artifacts: dict,
         branch_path: list[int] | None = None,
         source_index: int | None = None,
+        dataset_name: str | None = None,
     ) -> str:
         """Store a preprocessing-to-model chain.
 
@@ -474,6 +478,8 @@ class WorkspaceStore:
             source_index: For multi-source pipelines, the source index
                 this chain belongs to.  ``None`` for single-source
                 pipelines.
+            dataset_name: Dataset name for this chain.  Resolved from
+                the parent pipeline if not provided.
 
         Returns:
             A unique chain identifier (UUID-based string).
@@ -481,11 +487,19 @@ class WorkspaceStore:
         with self._lock:
             conn = self._ensure_open()
             chain_id = str(uuid4())
+            # Resolve dataset_name from parent pipeline if not provided
+            if dataset_name is None:
+                row = conn.execute(
+                    "SELECT dataset_name FROM pipelines WHERE pipeline_id = $1",
+                    [pipeline_id],
+                ).fetchone()
+                if row is not None:
+                    dataset_name = row[0]
             conn.execute(INSERT_CHAIN, [
                 chain_id, pipeline_id, _to_json(steps), model_step_idx,
                 model_class, preprocessings, fold_strategy,
                 _to_json(fold_artifacts), _to_json(shared_artifacts),
-                _to_json(branch_path), source_index,
+                _to_json(branch_path), source_index, dataset_name,
             ])
             return chain_id
 
@@ -514,6 +528,123 @@ class WorkspaceStore:
             ``branch_path``, and ``source_index``.
         """
         return self._fetch_pl(GET_CHAINS_FOR_PIPELINE, [pipeline_id])
+
+    def update_chain_summary(self, chain_id: str) -> None:
+        """Recompute and store CV/final summary on the chain record.
+
+        Reads all predictions for the given chain, computes averaged
+        CV scores and multi-metric averages, extracts final/refit
+        scores, and persists the summary columns on the ``chains`` table.
+
+        This method is called automatically after predictions are flushed
+        to ensure chain summary data is always up to date.
+
+        Args:
+            chain_id: The chain identifier to update.
+        """
+        with self._lock:
+            conn = self._ensure_open()
+
+            # --- CV averages ---
+            cv_row = conn.execute(
+                "SELECT "
+                "  FIRST(model_name) AS model_name, "
+                "  FIRST(metric) AS metric, "
+                "  FIRST(task_type) AS task_type, "
+                "  FIRST(best_params) AS best_params, "
+                "  AVG(val_score) AS avg_val, "
+                "  AVG(test_score) AS avg_test, "
+                "  AVG(train_score) AS avg_train, "
+                "  COUNT(DISTINCT fold_id) AS fold_count "
+                "FROM predictions "
+                "WHERE chain_id = $1 AND refit_context IS NULL",
+                [chain_id],
+            ).fetchone()
+
+            model_name = cv_row[0] if cv_row else None
+            metric = cv_row[1] if cv_row else None
+            task_type = cv_row[2] if cv_row else None
+            best_params = cv_row[3] if cv_row else None
+            avg_val = cv_row[4] if cv_row else None
+            avg_test = cv_row[5] if cv_row else None
+            avg_train = cv_row[6] if cv_row else None
+            fold_count = cv_row[7] if cv_row else 0
+
+            # If no CV predictions exist, try to get model_name etc. from any prediction
+            if model_name is None:
+                any_row = conn.execute(
+                    "SELECT FIRST(model_name), FIRST(metric), FIRST(task_type), FIRST(best_params) "
+                    "FROM predictions WHERE chain_id = $1",
+                    [chain_id],
+                ).fetchone()
+                if any_row:
+                    model_name = any_row[0]
+                    metric = any_row[1]
+                    task_type = any_row[2]
+                    best_params = any_row[3]
+
+            # --- CV multi-metric averages (cv_scores JSON) ---
+            cv_scores_json: str | None = None
+            cv_metrics_rows = conn.execute(
+                "SELECT partition, scores FROM predictions "
+                "WHERE chain_id = $1 AND refit_context IS NULL "
+                "AND partition IN ('val', 'test')",
+                [chain_id],
+            ).fetchall()
+            if cv_metrics_rows:
+                import json as _json
+
+                partition_scores: dict[str, dict[str, list[float]]] = {}
+                for partition, scores_raw in cv_metrics_rows:
+                    if not scores_raw:
+                        continue
+                    scores = _json.loads(scores_raw) if isinstance(scores_raw, str) else scores_raw
+                    if not isinstance(scores, dict):
+                        continue
+                    inner = scores.get(partition, scores)
+                    if not isinstance(inner, dict):
+                        continue
+                    if partition not in partition_scores:
+                        partition_scores[partition] = {}
+                    for metric_name, val in inner.items():
+                        if isinstance(val, (int, float)):
+                            partition_scores[partition].setdefault(metric_name, []).append(float(val))
+
+                averaged: dict[str, dict[str, float]] = {}
+                for part, metrics in partition_scores.items():
+                    averaged[part] = {m: round(sum(vs) / len(vs), 6) for m, vs in metrics.items() if vs}
+                if averaged:
+                    cv_scores_json = _json.dumps(averaged)
+
+            # --- Final/refit scores ---
+            final_row = conn.execute(
+                "SELECT test_score, train_score, scores "
+                "FROM predictions "
+                "WHERE chain_id = $1 AND refit_context IS NOT NULL "
+                "AND fold_id = 'final' AND partition = 'test' "
+                "LIMIT 1",
+                [chain_id],
+            ).fetchone()
+
+            final_test = final_row[0] if final_row else None
+            final_train = final_row[1] if final_row else None
+            final_scores_json = final_row[2] if final_row else None
+
+            conn.execute(UPDATE_CHAIN_SUMMARY, [
+                chain_id,
+                model_name,
+                metric,
+                task_type,
+                best_params,
+                avg_val,
+                avg_test,
+                avg_train,
+                fold_count or 0,
+                cv_scores_json,
+                final_test,
+                final_train,
+                final_scores_json,
+            ])
 
     # =====================================================================
     # Prediction storage
@@ -1454,6 +1585,87 @@ class WorkspaceStore:
             dataset_name=filters.get("dataset_name"),
             model_class=filters.get("model_class"),
             score_scope=score_scope,
+        )
+        return self._fetch_pl(sql, params)
+
+    # =====================================================================
+    # Queries -- Chain Summaries (v_chain_summary VIEW)
+    # =====================================================================
+
+    def query_chain_summaries(
+        self,
+        run_id: str | None = None,
+        pipeline_id: str | None = None,
+        chain_id: str | None = None,
+        dataset_name: str | None = None,
+        model_class: str | None = None,
+        metric: str | None = None,
+    ) -> pl.DataFrame:
+        """Query chain summaries with optional filters.
+
+        Returns one row per chain with CV averages, final/refit scores,
+        multi-metric JSON, and chain metadata from ``v_chain_summary``.
+
+        All filter arguments are optional and combined with ``AND``.
+
+        Args:
+            run_id: Filter by parent run.
+            pipeline_id: Filter by parent pipeline.
+            chain_id: Filter by chain.
+            dataset_name: Filter by dataset name.
+            model_class: Filter by model class (supports SQL ``LIKE``).
+            metric: Filter by metric name.
+
+        Returns:
+            A :class:`polars.DataFrame` with one row per chain.
+        """
+        sql, params = build_chain_summary_query(
+            run_id=run_id,
+            pipeline_id=pipeline_id,
+            chain_id=chain_id,
+            dataset_name=dataset_name,
+            model_class=model_class,
+            metric=metric,
+        )
+        return self._fetch_pl(sql, params)
+
+    def query_top_chains(
+        self,
+        metric: str | None = None,
+        n: int = 10,
+        score_column: str = "cv_val_score",
+        ascending: bool | None = None,
+        **filters: Any,
+    ) -> pl.DataFrame:
+        """Query chain summaries ranked by score.
+
+        Uses metric-direction heuristics (lower-is-better for error
+        metrics like RMSE, higher-is-better for score metrics like R2)
+        when *ascending* is not explicitly provided.
+
+        Args:
+            metric: Optional metric name filter.
+            n: Number of top results.
+            score_column: Column to sort by (default ``"cv_val_score"``).
+            ascending: Sort direction.  Inferred from *metric* if ``None``.
+            **filters: Additional filters (``run_id``, ``pipeline_id``,
+                ``dataset_name``, ``model_class``).
+
+        Returns:
+            A :class:`polars.DataFrame` with the top *n* chain summaries.
+        """
+        if ascending is None:
+            ascending = _infer_metric_ascending(metric) if metric else True
+
+        sql, params = build_top_chains_query(
+            metric=metric,
+            n=n,
+            score_column=score_column,
+            ascending=ascending,
+            run_id=filters.get("run_id"),
+            pipeline_id=filters.get("pipeline_id"),
+            dataset_name=filters.get("dataset_name"),
+            model_class=filters.get("model_class"),
         )
         return self._fetch_pl(sql, params)
 

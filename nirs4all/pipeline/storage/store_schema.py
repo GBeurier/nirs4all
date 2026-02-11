@@ -69,6 +69,19 @@ CREATE TABLE IF NOT EXISTS chains (
     shared_artifacts JSON,
     branch_path JSON,
     source_index INTEGER,
+    model_name VARCHAR,
+    metric VARCHAR,
+    task_type VARCHAR,
+    best_params JSON,
+    dataset_name VARCHAR,
+    cv_val_score DOUBLE,
+    cv_test_score DOUBLE,
+    cv_train_score DOUBLE,
+    cv_fold_count INTEGER DEFAULT 0,
+    cv_scores JSON,
+    final_test_score DOUBLE,
+    final_train_score DOUBLE,
+    final_scores JSON,
     created_at TIMESTAMP DEFAULT current_timestamp
 );
 
@@ -151,80 +164,32 @@ CREATE TABLE IF NOT EXISTS projects (
 # =========================================================================
 
 VIEW_DDL: str = """
-CREATE VIEW IF NOT EXISTS v_aggregated_predictions AS
+CREATE VIEW IF NOT EXISTS v_chain_summary AS
 SELECT
-    pl.run_id,
-    c.pipeline_id,
     c.chain_id,
+    c.pipeline_id,
     c.model_class,
     c.model_step_idx,
+    c.model_name,
     c.preprocessings,
     c.branch_path,
     c.source_index,
-    p.model_name,
-    p.metric,
-    p.dataset_name,
-    COUNT(DISTINCT p.fold_id) AS fold_count,
-    COUNT(DISTINCT p.partition) AS partition_count,
-    LIST(DISTINCT p.partition ORDER BY p.partition) AS partitions,
-    MIN(p.val_score) AS min_val_score,
-    MAX(p.val_score) AS max_val_score,
-    AVG(p.val_score) AS avg_val_score,
-    MIN(p.test_score) AS min_test_score,
-    MAX(p.test_score) AS max_test_score,
-    AVG(p.test_score) AS avg_test_score,
-    MIN(p.train_score) AS min_train_score,
-    MAX(p.train_score) AS max_train_score,
-    AVG(p.train_score) AS avg_train_score,
-    LIST(p.prediction_id ORDER BY p.partition, p.fold_id) AS prediction_ids,
-    LIST(p.fold_id ORDER BY p.partition, p.fold_id) AS fold_ids
-FROM predictions p
-JOIN chains c ON p.chain_id = c.chain_id
-JOIN pipelines pl ON c.pipeline_id = pl.pipeline_id
-WHERE p.refit_context IS NULL
-GROUP BY
-    pl.run_id, c.pipeline_id, c.chain_id, c.model_class,
-    c.model_step_idx, c.preprocessings, c.branch_path,
-    c.source_index, p.model_name, p.metric, p.dataset_name;
-"""
-
-VIEW_ALL_DDL: str = """
-CREATE VIEW IF NOT EXISTS v_aggregated_predictions_all AS
-SELECT
+    c.metric,
+    c.task_type,
+    c.best_params,
+    c.dataset_name,
+    c.cv_val_score,
+    c.cv_test_score,
+    c.cv_train_score,
+    c.cv_fold_count,
+    c.cv_scores,
+    c.final_test_score,
+    c.final_train_score,
+    c.final_scores,
     pl.run_id,
-    c.pipeline_id,
-    c.chain_id,
-    c.model_class,
-    c.model_step_idx,
-    c.preprocessings,
-    c.branch_path,
-    c.source_index,
-    p.model_name,
-    p.metric,
-    p.dataset_name,
-    p.refit_context,
-    COUNT(DISTINCT p.fold_id) AS fold_count,
-    COUNT(DISTINCT p.partition) AS partition_count,
-    LIST(DISTINCT p.partition ORDER BY p.partition) AS partitions,
-    MIN(p.val_score) AS min_val_score,
-    MAX(p.val_score) AS max_val_score,
-    AVG(p.val_score) AS avg_val_score,
-    MIN(p.test_score) AS min_test_score,
-    MAX(p.test_score) AS max_test_score,
-    AVG(p.test_score) AS avg_test_score,
-    MIN(p.train_score) AS min_train_score,
-    MAX(p.train_score) AS max_train_score,
-    AVG(p.train_score) AS avg_train_score,
-    LIST(p.prediction_id ORDER BY p.partition, p.fold_id) AS prediction_ids,
-    LIST(p.fold_id ORDER BY p.partition, p.fold_id) AS fold_ids
-FROM predictions p
-JOIN chains c ON p.chain_id = c.chain_id
-JOIN pipelines pl ON c.pipeline_id = pl.pipeline_id
-GROUP BY
-    pl.run_id, c.pipeline_id, c.chain_id, c.model_class,
-    c.model_step_idx, c.preprocessings, c.branch_path,
-    c.source_index, p.model_name, p.metric, p.dataset_name,
-    p.refit_context;
+    pl.status AS pipeline_status
+FROM chains c
+JOIN pipelines pl ON c.pipeline_id = pl.pipeline_id;
 """
 
 # =========================================================================
@@ -264,6 +229,127 @@ TABLE_NAMES: list[str] = [
 ]
 
 
+def _backfill_chain_summaries(conn: duckdb.DuckDBPyConnection) -> None:
+    """Backfill chain summary columns from existing prediction data.
+
+    Called once when migrating an older database.  Uses SQL aggregation
+    to compute CV averages and extract final/refit scores.
+
+    Args:
+        conn: An open DuckDB connection.
+    """
+    # Check whether there are any predictions to backfill from
+    has_predictions = conn.execute(
+        "SELECT 1 FROM predictions LIMIT 1"
+    ).fetchone()
+    if has_predictions is None:
+        return
+
+    # Backfill dataset_name from pipelines for all chains
+    conn.execute("""
+        UPDATE chains SET dataset_name = pl.dataset_name
+        FROM pipelines pl
+        WHERE chains.pipeline_id = pl.pipeline_id
+          AND chains.dataset_name IS NULL
+    """)
+
+    # Backfill CV averages from cross-validation predictions
+    conn.execute("""
+        UPDATE chains SET
+            model_name = COALESCE(chains.model_name, sub.model_name),
+            metric = COALESCE(chains.metric, sub.metric),
+            task_type = COALESCE(chains.task_type, sub.task_type),
+            cv_val_score = sub.avg_val,
+            cv_test_score = sub.avg_test,
+            cv_train_score = sub.avg_train,
+            cv_fold_count = sub.fold_count
+        FROM (
+            SELECT chain_id,
+                FIRST(model_name) AS model_name,
+                FIRST(metric) AS metric,
+                FIRST(task_type) AS task_type,
+                AVG(val_score) AS avg_val,
+                AVG(test_score) AS avg_test,
+                AVG(train_score) AS avg_train,
+                COUNT(DISTINCT fold_id) AS fold_count
+            FROM predictions
+            WHERE refit_context IS NULL AND chain_id IS NOT NULL
+            GROUP BY chain_id
+        ) sub
+        WHERE chains.chain_id = sub.chain_id
+    """)
+
+    # Backfill best_params (take first non-null per chain)
+    conn.execute("""
+        UPDATE chains SET best_params = sub.best_params
+        FROM (
+            SELECT chain_id, FIRST(best_params) AS best_params
+            FROM predictions
+            WHERE chain_id IS NOT NULL AND best_params IS NOT NULL
+              AND best_params != '{}'
+            GROUP BY chain_id
+        ) sub
+        WHERE chains.chain_id = sub.chain_id
+          AND (chains.best_params IS NULL)
+    """)
+
+    # Backfill final scores from refit predictions
+    conn.execute("""
+        UPDATE chains SET
+            final_test_score = sub.test_score,
+            final_train_score = sub.train_score,
+            final_scores = sub.scores
+        FROM (
+            SELECT chain_id, test_score, train_score, scores
+            FROM predictions
+            WHERE refit_context IS NOT NULL AND fold_id = 'final'
+              AND partition = 'test' AND chain_id IS NOT NULL
+        ) sub
+        WHERE chains.chain_id = sub.chain_id
+    """)
+
+    # Backfill cv_scores (averaged multi-metric JSON) via Python
+    # DuckDB JSON aggregation is limited, so we do this row by row
+    chain_ids = [
+        row[0] for row in conn.execute(
+            "SELECT DISTINCT chain_id FROM chains WHERE chain_id IS NOT NULL"
+        ).fetchall()
+    ]
+    import json
+    for cid in chain_ids:
+        rows = conn.execute(
+            "SELECT partition, scores FROM predictions "
+            "WHERE chain_id = $1 AND refit_context IS NULL "
+            "AND partition IN ('val', 'test')",
+            [cid],
+        ).fetchall()
+        if not rows:
+            continue
+        partition_scores: dict[str, dict[str, list[float]]] = {}
+        for partition, scores_raw in rows:
+            if not scores_raw:
+                continue
+            scores = json.loads(scores_raw) if isinstance(scores_raw, str) else scores_raw
+            if not isinstance(scores, dict):
+                continue
+            inner = scores.get(partition, scores)
+            if not isinstance(inner, dict):
+                continue
+            if partition not in partition_scores:
+                partition_scores[partition] = {}
+            for metric_name, val in inner.items():
+                if isinstance(val, (int, float)):
+                    partition_scores[partition].setdefault(metric_name, []).append(float(val))
+        averaged: dict[str, dict[str, float]] = {}
+        for part, metrics in partition_scores.items():
+            averaged[part] = {m: round(sum(vs) / len(vs), 6) for m, vs in metrics.items() if vs}
+        if averaged:
+            conn.execute(
+                "UPDATE chains SET cv_scores = $2 WHERE chain_id = $1",
+                [cid, json.dumps(averaged)],
+            )
+
+
 def create_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """Create all tables, views, and indexes in the given DuckDB connection.
 
@@ -288,11 +374,11 @@ def create_schema(conn: duckdb.DuckDBPyConnection) -> None:
     # Drop and recreate views to pick up schema changes
     conn.execute("DROP VIEW IF EXISTS v_aggregated_predictions")
     conn.execute("DROP VIEW IF EXISTS v_aggregated_predictions_all")
-    for ddl in (VIEW_DDL, VIEW_ALL_DDL):
-        for statement in ddl.strip().split(";"):
-            statement = statement.strip()
-            if statement:
-                conn.execute(statement)
+    conn.execute("DROP VIEW IF EXISTS v_chain_summary")
+    for statement in VIEW_DDL.strip().split(";"):
+        statement = statement.strip()
+        if statement:
+            conn.execute(statement)
 
 
 def _migrate_schema(conn: duckdb.DuckDBPyConnection) -> None:
@@ -398,3 +484,42 @@ def _migrate_schema(conn: duckdb.DuckDBPyConnection) -> None:
     }
     if "project_id" not in runs_columns:
         conn.execute("ALTER TABLE runs ADD COLUMN project_id VARCHAR")
+
+    # Migration: add chain summary columns (skip if chains table doesn't exist yet)
+    chain_exists = conn.execute(
+        "SELECT 1 FROM information_schema.tables "
+        "WHERE table_name = 'chains' AND table_type = 'BASE TABLE'"
+    ).fetchone()
+    if not chain_exists:
+        return
+    chain_columns = {
+        row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'chains'"
+        ).fetchall()
+    }
+    _chain_summary_cols: list[tuple[str, str]] = [
+        ("model_name", "VARCHAR"),
+        ("metric", "VARCHAR"),
+        ("task_type", "VARCHAR"),
+        ("best_params", "JSON"),
+        ("dataset_name", "VARCHAR"),
+        ("cv_val_score", "DOUBLE"),
+        ("cv_test_score", "DOUBLE"),
+        ("cv_train_score", "DOUBLE"),
+        ("cv_fold_count", "INTEGER DEFAULT 0"),
+        ("cv_scores", "JSON"),
+        ("final_test_score", "DOUBLE"),
+        ("final_train_score", "DOUBLE"),
+        ("final_scores", "JSON"),
+    ]
+    added_chain_cols = False
+    for col_name, col_type in _chain_summary_cols:
+        if col_name not in chain_columns:
+            conn.execute(f"ALTER TABLE chains ADD COLUMN {col_name} {col_type}")
+            added_chain_cols = True
+
+    # Backfill chain summary from existing predictions
+    if added_chain_cols:
+        _backfill_chain_summaries(conn)

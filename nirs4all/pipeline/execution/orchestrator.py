@@ -130,6 +130,8 @@ class PipelineOrchestrator:
         target_model: dict[str, Any] | None = None,
         explainer: Any = None,
         refit: bool | dict[str, Any] | None = True,
+        store_run_id: str | None = None,
+        manage_store_run: bool = True,
     ) -> tuple[Predictions, dict[str, Any]]:
         """Execute pipeline configurations on dataset configurations.
 
@@ -146,6 +148,11 @@ class PipelineOrchestrator:
                 - ``True``: Enable refit (retrain winning model on full training set, default).
                 - ``False`` or ``None``: Disable refit (legacy behavior).
                 - ``dict``: Refit options (reserved for future use).
+            store_run_id: Optional existing store run ID to join. When provided,
+                skips ``begin_run()`` and uses this ID directly.
+            manage_store_run: Whether to manage the store run lifecycle
+                (begin/complete/fail). Set to ``False`` when the caller manages
+                the run lifecycle externally (e.g. multi-pipeline batch).
 
         Returns:
             Tuple of (run_predictions, dataset_predictions)
@@ -177,9 +184,9 @@ class PipelineOrchestrator:
         run_predictions = Predictions()
         current_run = 0
 
-        # Begin run in store
-        run_id = None
-        if self.mode == "train":
+        # Begin run in store (or join existing run)
+        run_id = store_run_id
+        if self.mode == "train" and run_id is None and manage_store_run:
             dataset_meta = []
             for _config, name in dataset_configs.configs:
                 dataset_meta.append({"name": name})
@@ -188,6 +195,7 @@ class PipelineOrchestrator:
                 config={"n_pipelines": n_pipelines, "n_datasets": n_datasets},
                 datasets=dataset_meta,
             )
+        if run_id:
             self.last_run_id = run_id
 
         # Create StepCache if step caching is enabled
@@ -383,8 +391,8 @@ class PipelineOrchestrator:
                     "dataset_name": name
                 }
 
-            # Complete run in store
-            if run_id and self.mode == "train":
+            # Complete run in store (only if we manage the lifecycle)
+            if run_id and self.mode == "train" and manage_store_run:
                 summary = {"total_pipelines": total_runs}
                 if run_predictions.num_predictions > 0:
                     best = run_predictions.get_best(ascending=None)
@@ -394,8 +402,8 @@ class PipelineOrchestrator:
                 self.store.complete_run(run_id, summary)
 
         except Exception as e:
-            # Fail run in store
-            if run_id and self.mode == "train":
+            # Fail run in store (only if we manage the lifecycle)
+            if run_id and self.mode == "train" and manage_store_run:
                 self.store.fail_run(run_id, str(e))
             raise
 

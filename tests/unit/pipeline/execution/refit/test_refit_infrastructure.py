@@ -395,10 +395,13 @@ class TestRefitContextColumn:
             refit_context=REFIT_CONTEXT_STANDALONE,
         )
 
+        # Update chain summary (populates cv_fold_count from CV predictions only)
+        store.update_chain_summary(chain_id)
+
         agg = store.query_aggregated_predictions(pipeline_id=pipeline_id)
-        # Should only see the CV prediction (fold_count=1, not 2)
+        # Should see 1 chain, with cv_fold_count=1 (only CV prediction, not refit)
         assert len(agg) == 1
-        assert agg["fold_count"][0] == 1
+        assert agg["cv_fold_count"][0] == 1
         store.close()
 
     def test_schema_migration_adds_refit_context(self):

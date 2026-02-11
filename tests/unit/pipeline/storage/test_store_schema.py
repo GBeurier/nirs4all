@@ -47,18 +47,18 @@ class TestSchemaCreation:
 
         assert actual_tables == expected_tables
 
-    def test_all_seven_tables(self, conn):
-        """Exactly 7 tables are created."""
+    def test_all_tables(self, conn):
+        """All expected tables are created."""
         create_schema(conn)
 
         result = conn.execute(
             "SELECT COUNT(*) FROM information_schema.tables "
             "WHERE table_schema = 'main' AND table_type = 'BASE TABLE'"
         ).fetchone()
-        assert result[0] == 7
+        assert result[0] == len(TABLE_NAMES)
 
-    def test_aggregated_predictions_view_created(self, conn):
-        """The v_aggregated_predictions VIEW is created."""
+    def test_chain_summary_view_created(self, conn):
+        """The v_chain_summary VIEW is created."""
         create_schema(conn)
 
         result = conn.execute(
@@ -66,7 +66,7 @@ class TestSchemaCreation:
             "WHERE table_schema = 'main' AND table_type = 'VIEW'"
         ).fetchall()
         view_names = [row[0] for row in result]
-        assert 'v_aggregated_predictions' in view_names
+        assert 'v_chain_summary' in view_names
 
     def test_runs_table_columns(self, conn):
         """The runs table has the expected columns."""
@@ -78,7 +78,7 @@ class TestSchemaCreation:
         columns = [row[0] for row in result]
         expected = [
             "run_id", "name", "config", "datasets", "status",
-            "created_at", "completed_at", "summary", "error",
+            "created_at", "completed_at", "summary", "error", "project_id",
         ]
         assert columns == expected
 
@@ -145,7 +145,7 @@ class TestSchemaIdempotent:
             "SELECT COUNT(*) FROM information_schema.tables "
             "WHERE table_schema = 'main' AND table_type = 'BASE TABLE'"
         ).fetchone()
-        assert result[0] == 7
+        assert result[0] == len(TABLE_NAMES)
 
     def test_data_preserved_after_recreate(self, conn):
         """Data inserted before second create_schema call is preserved."""
@@ -293,9 +293,9 @@ class TestDDLStrings:
         assert "CREATE INDEX IF NOT EXISTS" in INDEX_DDL
 
     def test_table_names_list(self):
-        """TABLE_NAMES has exactly 7 entries."""
-        assert len(TABLE_NAMES) == 7
+        """TABLE_NAMES has expected number of entries."""
+        assert len(TABLE_NAMES) == 8
 
-    def test_view_ddl_contains_aggregated_predictions(self):
-        """VIEW_DDL defines the aggregated predictions view."""
-        assert "CREATE VIEW IF NOT EXISTS v_aggregated_predictions" in VIEW_DDL
+    def test_view_ddl_contains_chain_summary(self):
+        """VIEW_DDL defines the v_chain_summary view."""
+        assert "CREATE VIEW IF NOT EXISTS v_chain_summary" in VIEW_DDL

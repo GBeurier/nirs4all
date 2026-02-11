@@ -25,7 +25,7 @@ def nicon_set():
         pp.StandardNormalVariate(),
         pp.MultiplicativeScatterCorrection(scale=False),
         pp.Detrend(),
-        pp.Derivate(2, 1),
+        pp.Derivate(1, 2),
         pp.Derivate(2, 1),
         pp.Wavelet("haar"),
     ]

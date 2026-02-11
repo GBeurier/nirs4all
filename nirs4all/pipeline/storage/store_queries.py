@@ -94,8 +94,25 @@ INSERT_CHAIN = """
 INSERT INTO chains
     (chain_id, pipeline_id, steps, model_step_idx, model_class,
      preprocessings, fold_strategy, fold_artifacts, shared_artifacts,
-     branch_path, source_index)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     branch_path, source_index, dataset_name)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+"""
+
+UPDATE_CHAIN_SUMMARY = """
+UPDATE chains SET
+    model_name = $2,
+    metric = $3,
+    task_type = $4,
+    best_params = $5,
+    cv_val_score = $6,
+    cv_test_score = $7,
+    cv_train_score = $8,
+    cv_fold_count = $9,
+    cv_scores = $10,
+    final_test_score = $11,
+    final_train_score = $12,
+    final_scores = $13
+WHERE chain_id = $1
 """
 
 # =========================================================================
@@ -324,10 +341,13 @@ WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = $1)
 # Dynamic query builders
 # =========================================================================
 
-# ---- Aggregated predictions (from v_aggregated_predictions VIEW) --------
+# ---- Chain summary (from v_chain_summary VIEW) --------------------------
 
-QUERY_AGGREGATED_PREDICTIONS_BASE = "SELECT * FROM v_aggregated_predictions"
-QUERY_AGGREGATED_PREDICTIONS_ALL_BASE = "SELECT * FROM v_aggregated_predictions_all"
+QUERY_CHAIN_SUMMARY_BASE = "SELECT * FROM v_chain_summary"
+
+# Deprecated aliases -- kept for backward compatibility
+QUERY_AGGREGATED_PREDICTIONS_BASE = QUERY_CHAIN_SUMMARY_BASE
+QUERY_AGGREGATED_PREDICTIONS_ALL_BASE = QUERY_CHAIN_SUMMARY_BASE
 
 GET_CHAIN_PREDICTIONS = """
 SELECT * FROM predictions WHERE chain_id = $1
@@ -349,54 +369,24 @@ def build_aggregated_query(
     metric: str | None = None,
     score_scope: str = "cv",
 ) -> tuple[str, list[object]]:
-    """Build a query against an aggregated predictions VIEW.
+    """Build a query against ``v_chain_summary``.
 
-    All filters are optional and combined with ``AND``.
-
-    Args:
-        score_scope: Which predictions to include.
-            ``'cv'`` (default) uses the CV-only view,
-            ``'all'`` includes both CV and refit entries,
-            ``'final'`` includes only refit entries.
+    .. deprecated::
+        Use :func:`build_chain_summary_query` instead.  The *score_scope*
+        parameter is ignored — the chain summary view contains both CV
+        and final scores in each row.
 
     Returns:
         ``(sql, params)`` ready for ``conn.execute(sql, params)``.
     """
-    conditions: list[str] = []
-    params: list[object] = []
-    idx = 1
-
-    # Choose base table based on score_scope
-    if score_scope == "cv":
-        base = QUERY_AGGREGATED_PREDICTIONS_BASE
-    else:
-        base = QUERY_AGGREGATED_PREDICTIONS_ALL_BASE
-        if score_scope == "final":
-            conditions.append("refit_context IS NOT NULL")
-
-    for col, val in [
-        ("run_id", run_id),
-        ("pipeline_id", pipeline_id),
-        ("chain_id", chain_id),
-        ("dataset_name", dataset_name),
-        ("model_class", model_class),
-        ("metric", metric),
-    ]:
-        if val is None:
-            continue
-        if isinstance(val, str) and "%" in val:
-            conditions.append(f"{col} LIKE ${idx}")
-        else:
-            conditions.append(f"{col} = ${idx}")
-        params.append(val)
-        idx += 1
-
-    where = ""
-    if conditions:
-        where = " WHERE " + " AND ".join(conditions)
-
-    sql = base + where
-    return sql, params
+    return build_chain_summary_query(
+        run_id=run_id,
+        pipeline_id=pipeline_id,
+        chain_id=chain_id,
+        dataset_name=dataset_name,
+        model_class=model_class,
+        metric=metric,
+    )
 
 
 def build_chain_predictions_query(
@@ -446,22 +436,12 @@ def build_top_aggregated_query(
     model_class: str | None = None,
     score_scope: str = "cv",
 ) -> tuple[str, list[object]]:
-    """Build a ranking query on the aggregated predictions VIEW.
+    """Build a ranking query on ``v_chain_summary``.
 
-    Args:
-        metric: Metric name to filter by.
-        n: Number of top results to return.
-        score_column: Column to sort by (e.g. ``"avg_val_score"``,
-            ``"avg_test_score"``).
-        ascending: Sort direction.  ``True`` for lower-is-better metrics.
-        run_id: Optional run filter.
-        pipeline_id: Optional pipeline filter.
-        dataset_name: Optional dataset filter.
-        model_class: Optional model class filter.
-        score_scope: Which predictions to include.
-            ``'cv'`` (default) uses the CV-only view,
-            ``'all'`` includes both CV and refit entries,
-            ``'final'`` includes only refit entries.
+    .. deprecated::
+        Use :func:`build_top_chains_query` instead.  The *score_scope*
+        parameter is ignored — the chain summary view contains both CV
+        and final scores in each row.
 
     Returns:
         ``(sql, params)`` ready for ``conn.execute(sql, params)``.
@@ -469,56 +449,16 @@ def build_top_aggregated_query(
     Raises:
         ValueError: If *score_column* is not a valid aggregation column.
     """
-    valid_score_columns = frozenset({
-        "min_val_score", "max_val_score", "avg_val_score",
-        "min_test_score", "max_test_score", "avg_test_score",
-        "min_train_score", "max_train_score", "avg_train_score",
-    })
-    if score_column not in valid_score_columns:
-        raise ValueError(f"Invalid score column: {score_column!r}")
-
-    # Choose base table based on score_scope
-    if score_scope == "cv":
-        view_name = "v_aggregated_predictions"
-    else:
-        view_name = "v_aggregated_predictions_all"
-
-    conditions: list[str] = []
-    params: list[object] = []
-    idx = 1
-
-    if score_scope == "final":
-        conditions.append("refit_context IS NOT NULL")
-
-    # Always filter by metric
-    conditions.append(f"metric = ${idx}")
-    params.append(metric)
-    idx += 1
-
-    for col, val in [
-        ("run_id", run_id),
-        ("pipeline_id", pipeline_id),
-        ("dataset_name", dataset_name),
-        ("model_class", model_class),
-    ]:
-        if val is None:
-            continue
-        conditions.append(f"{col} = ${idx}")
-        params.append(val)
-        idx += 1
-
-    where = " WHERE " + " AND ".join(conditions)
-    direction = "ASC" if ascending else "DESC"
-    nulls = "NULLS LAST"
-
-    sql = (
-        f"SELECT * FROM {view_name}{where} "
-        f"ORDER BY {score_column} {direction} {nulls} "
-        f"LIMIT ${idx}"
+    return build_top_chains_query(
+        metric=metric,
+        n=n,
+        score_column=score_column,
+        ascending=ascending,
+        run_id=run_id,
+        pipeline_id=pipeline_id,
+        dataset_name=dataset_name,
+        model_class=model_class,
     )
-    params.append(n)
-
-    return sql, params
 
 
 def build_prediction_query(
@@ -657,5 +597,158 @@ def build_top_predictions_query(
             f"LIMIT ${idx}"
         )
         params.append(n)
+
+    return sql, params
+
+
+# =========================================================================
+# Chain summary query builders (v_chain_summary VIEW)
+# =========================================================================
+
+_CHAIN_SUMMARY_COLUMNS: frozenset[str] = frozenset({
+    "chain_id", "pipeline_id", "model_class", "model_step_idx",
+    "model_name", "preprocessings", "branch_path", "source_index",
+    "metric", "task_type", "best_params", "dataset_name",
+    "cv_val_score", "cv_test_score", "cv_train_score", "cv_fold_count",
+    "cv_scores", "final_test_score", "final_train_score", "final_scores",
+    "run_id", "pipeline_status",
+})
+
+
+def build_chain_summary_query(
+    *,
+    run_id: str | None = None,
+    pipeline_id: str | None = None,
+    chain_id: str | None = None,
+    dataset_name: str | None = None,
+    model_class: str | None = None,
+    metric: str | None = None,
+) -> tuple[str, list[object]]:
+    """Build a query against the ``v_chain_summary`` VIEW.
+
+    Returns one row per chain with CV averages, final scores,
+    multi-metric JSON, and chain metadata.
+
+    All filters are optional and combined with ``AND``.
+
+    Returns:
+        ``(sql, params)`` ready for ``conn.execute(sql, params)``.
+    """
+    conditions: list[str] = []
+    params: list[object] = []
+    idx = 1
+
+    for col, val in [
+        ("run_id", run_id),
+        ("pipeline_id", pipeline_id),
+        ("chain_id", chain_id),
+        ("dataset_name", dataset_name),
+        ("model_class", model_class),
+        ("metric", metric),
+    ]:
+        if val is None:
+            continue
+        if isinstance(val, str) and "%" in val:
+            conditions.append(f"{col} LIKE ${idx}")
+        else:
+            conditions.append(f"{col} = ${idx}")
+        params.append(val)
+        idx += 1
+
+    where = ""
+    if conditions:
+        where = " WHERE " + " AND ".join(conditions)
+
+    return QUERY_CHAIN_SUMMARY_BASE + where, params
+
+
+def build_top_chains_query(
+    *,
+    metric: str | None = None,
+    n: int = 10,
+    score_column: str = "cv_val_score",
+    ascending: bool = True,
+    run_id: str | None = None,
+    pipeline_id: str | None = None,
+    dataset_name: str | None = None,
+    model_class: str | None = None,
+) -> tuple[str, list[object]]:
+    """Build a ranking query on ``v_chain_summary``.
+
+    Args:
+        metric: Optional metric name filter.
+        n: Number of top results to return.
+        score_column: Column to sort by (e.g. ``"cv_val_score"``,
+            ``"final_test_score"``).
+        ascending: Sort direction.  ``True`` for lower-is-better metrics.
+        run_id: Optional run filter.
+        pipeline_id: Optional pipeline filter.
+        dataset_name: Optional dataset filter.
+        model_class: Optional model class filter.
+
+    Returns:
+        ``(sql, params)`` ready for ``conn.execute(sql, params)``.
+
+    Raises:
+        ValueError: If *score_column* is not a valid column.
+    """
+    valid_score_columns = frozenset({
+        "cv_val_score", "cv_test_score", "cv_train_score",
+        "final_test_score", "final_train_score",
+        # Deprecated aliases for backward compatibility
+        "min_val_score", "max_val_score", "avg_val_score",
+        "min_test_score", "max_test_score", "avg_test_score",
+        "min_train_score", "max_train_score", "avg_train_score",
+    })
+    # Map old aggregated column names to new chain summary columns
+    _column_aliases: dict[str, str] = {
+        "avg_val_score": "cv_val_score",
+        "avg_test_score": "cv_test_score",
+        "avg_train_score": "cv_train_score",
+        "min_val_score": "cv_val_score",
+        "max_val_score": "cv_val_score",
+        "min_test_score": "cv_test_score",
+        "max_test_score": "cv_test_score",
+        "min_train_score": "cv_train_score",
+        "max_train_score": "cv_train_score",
+    }
+    resolved_column = _column_aliases.get(score_column, score_column)
+    if score_column not in valid_score_columns:
+        raise ValueError(f"Invalid score column: {score_column!r}")
+
+    conditions: list[str] = []
+    params: list[object] = []
+    idx = 1
+
+    if metric is not None:
+        conditions.append(f"metric = ${idx}")
+        params.append(metric)
+        idx += 1
+
+    for col, val in [
+        ("run_id", run_id),
+        ("pipeline_id", pipeline_id),
+        ("dataset_name", dataset_name),
+        ("model_class", model_class),
+    ]:
+        if val is None:
+            continue
+        conditions.append(f"{col} = ${idx}")
+        params.append(val)
+        idx += 1
+
+    where = ""
+    if conditions:
+        where = " WHERE " + " AND ".join(conditions)
+
+    direction = "ASC" if ascending else "DESC"
+    nulls = "NULLS LAST"
+
+    sql = (
+        f"SELECT * FROM v_chain_summary{where} "
+        f"ORDER BY {resolved_column} {direction} {nulls} "
+        f"LIMIT ${idx}"
+    )
+    params.append(n)
 
     return sql, params

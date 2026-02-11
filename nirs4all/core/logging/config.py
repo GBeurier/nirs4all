@@ -236,8 +236,14 @@ def configure_logging(
     log_level = _get_level_from_verbose(verbose)
     root_logger.setLevel(log_level)
 
-    # Create console handler
-    console_handler = logging.StreamHandler(sys.stdout)
+    # Create console handler with encoding error protection (Windows cp1252 can't handle Unicode)
+    stream = sys.stdout
+    try:
+        if hasattr(stream, 'reconfigure') and stream.encoding and stream.encoding.lower() not in ('utf-8', 'utf8'):
+            stream.reconfigure(errors='replace')
+    except Exception:
+        pass
+    console_handler = logging.StreamHandler(stream)
     console_handler.setLevel(log_level)
 
     # Create formatter based on format

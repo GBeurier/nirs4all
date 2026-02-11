@@ -1,5 +1,10 @@
 ## ROADMAP
 
+> [MB-PLS] en multi-source, en multi pp, etc.
+> [Branching] Preprocessing to source ou preprocessings to branch cf. MB-PLS
+> [Predictions] Simplify save
+
+> [Loader] read scientific expr in csv
 
 **RELEASE** (webapp 0.1.0) - 0.8.0 UI compliant
 

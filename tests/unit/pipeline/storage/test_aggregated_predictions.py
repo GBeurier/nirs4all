@@ -1,10 +1,10 @@
-"""Tests for the aggregated predictions VIEW and WorkspaceStore methods.
+"""Tests for the v_chain_summary VIEW and WorkspaceStore methods.
 
 Covers:
 - VIEW creation and idempotency
-- Correct grouping and aggregation
+- Correct chain summary population (CV averages, final scores)
 - Metric-aware ranking (ascending for error metrics, descending for score metrics)
-- Drill-down from aggregated to partition/fold predictions
+- Drill-down from chain summary to partition/fold predictions
 - get_prediction_arrays retrieval
 - Deletion cascade: VIEW reflects removal immediately
 """
@@ -105,6 +105,9 @@ def _populate_store(store: WorkspaceStore, *, n_folds: int = 3) -> dict:
             y_pred = y_true + rng.standard_normal(100) * 0.1
             store.save_prediction_arrays(pred_id, y_true, y_pred)
 
+    # Update chain summary (normally done by executor after flush)
+    store.update_chain_summary(chain_id)
+
     store.complete_pipeline(pipeline_id, best_val=0.10, best_test=0.12, metric="rmse", duration_ms=1000)
     store.complete_run(run_id, summary={"total_pipelines": 1})
 
@@ -176,6 +179,8 @@ def _populate_multi_model_store(store: WorkspaceStore) -> dict:
                 exclusion_rate=0.0,
             )
 
+        # Update chain summary
+        store.update_chain_summary(chain_id)
         chains.append({"chain_id": chain_id, "model_name": model_name, "base_score": base_score})
 
     store.complete_pipeline(pipeline_id, best_val=0.08, best_test=0.10, metric="rmse", duration_ms=2000)
@@ -194,7 +199,7 @@ def _populate_multi_model_store(store: WorkspaceStore) -> dict:
 
 
 class TestViewCreation:
-    """Verify the v_aggregated_predictions VIEW is created correctly."""
+    """Verify the v_chain_summary VIEW is created correctly."""
 
     def test_view_exists_after_schema_creation(self, tmp_path):
         """VIEW is created as part of schema initialization."""
@@ -202,7 +207,7 @@ class TestViewCreation:
         conn = store._ensure_open()
         result = conn.execute(
             "SELECT table_name FROM information_schema.tables "
-            "WHERE table_type = 'VIEW' AND table_name = 'v_aggregated_predictions'"
+            "WHERE table_type = 'VIEW' AND table_name = 'v_chain_summary'"
         ).fetchone()
         assert result is not None
         store.close()
@@ -215,7 +220,7 @@ class TestViewCreation:
         conn = store2._ensure_open()
         result = conn.execute(
             "SELECT table_name FROM information_schema.tables "
-            "WHERE table_type = 'VIEW' AND table_name = 'v_aggregated_predictions'"
+            "WHERE table_type = 'VIEW' AND table_name = 'v_chain_summary'"
         ).fetchone()
         assert result is not None
         store2.close()
@@ -229,75 +234,55 @@ class TestViewCreation:
 
 
 # =========================================================================
-# Aggregation correctness
+# Chain summary correctness
 # =========================================================================
 
 
 class TestAggregation:
-    """Verify VIEW returns correct grouping and aggregates."""
+    """Verify chain summary contains correct data."""
 
-    def test_one_row_per_chain_metric_dataset(self, tmp_path):
-        """VIEW groups to one row per (chain_id, metric, dataset_name)."""
+    def test_one_row_per_chain(self, tmp_path):
+        """VIEW returns one row per chain."""
         store = _make_store(tmp_path)
         ids = _populate_store(store, n_folds=3)
         df = store.query_aggregated_predictions()
-        assert len(df) == 1  # One chain, one metric, one dataset
+        assert len(df) == 1  # One chain
         store.close()
 
-    def test_fold_count(self, tmp_path):
-        """fold_count reflects number of distinct folds."""
+    def test_cv_fold_count(self, tmp_path):
+        """cv_fold_count reflects number of distinct CV folds."""
         store = _make_store(tmp_path)
         ids = _populate_store(store, n_folds=4)
         df = store.query_aggregated_predictions()
         row = df.row(0, named=True)
-        assert row["fold_count"] == 4
+        assert row["cv_fold_count"] == 4
         store.close()
 
-    def test_partition_count(self, tmp_path):
-        """partition_count reflects number of distinct partitions."""
-        store = _make_store(tmp_path)
-        ids = _populate_store(store, n_folds=3)
-        df = store.query_aggregated_predictions()
-        row = df.row(0, named=True)
-        assert row["partition_count"] == 2  # val and test
-        store.close()
-
-    def test_partitions_list(self, tmp_path):
-        """partitions list contains all distinct partition names."""
-        store = _make_store(tmp_path)
-        ids = _populate_store(store, n_folds=3)
-        df = store.query_aggregated_predictions()
-        row = df.row(0, named=True)
-        partitions = row["partitions"]
-        assert sorted(partitions) == ["test", "val"]
-        store.close()
-
-    def test_score_aggregates(self, tmp_path):
-        """min/max/avg scores are mathematically correct."""
+    def test_cv_val_score_average(self, tmp_path):
+        """cv_val_score is the average of val_score across CV folds."""
         store = _make_store(tmp_path)
         ids = _populate_store(store, n_folds=3)
         df = store.query_aggregated_predictions()
         row = df.row(0, named=True)
 
-        # val_score values: 0.10, 0.12, 0.14 (for val) and 0.10, 0.12, 0.14 (for test)
-        # All 6 predictions produce val_score
+        # val_score values: 0.10, 0.12, 0.14 (for val partition)
+        # and 0.10, 0.12, 0.14 (for test partition)
+        # CV averages are computed from ALL predictions (val + test partitions)
         val_scores = [0.10, 0.12, 0.14, 0.10, 0.12, 0.14]
-        assert row["min_val_score"] == pytest.approx(min(val_scores))
-        assert row["max_val_score"] == pytest.approx(max(val_scores))
-        assert row["avg_val_score"] == pytest.approx(sum(val_scores) / len(val_scores))
+        assert row["cv_val_score"] == pytest.approx(sum(val_scores) / len(val_scores))
         store.close()
 
-    def test_prediction_ids_list(self, tmp_path):
-        """prediction_ids list contains all prediction IDs for the chain."""
+    def test_cv_test_score_average(self, tmp_path):
+        """cv_test_score is the average of test_score across CV folds."""
         store = _make_store(tmp_path)
         ids = _populate_store(store, n_folds=3)
         df = store.query_aggregated_predictions()
         row = df.row(0, named=True)
-        pred_ids = row["prediction_ids"]
-        # 3 folds * 2 partitions = 6 predictions
-        assert len(pred_ids) == 6
-        # All IDs should match
-        assert set(pred_ids) == set(ids["prediction_ids"])
+
+        # test_score values: 0.12, 0.15, 0.18 (for val partition)
+        # and 0.12, 0.15, 0.18 (for test partition)
+        test_scores = [0.12, 0.15, 0.18, 0.12, 0.15, 0.18]
+        assert row["cv_test_score"] == pytest.approx(sum(test_scores) / len(test_scores))
         store.close()
 
     def test_chain_metadata(self, tmp_path):
@@ -317,12 +302,41 @@ class TestAggregation:
         store.close()
 
     def test_multiple_chains_produce_multiple_rows(self, tmp_path):
-        """Multiple chains produce separate aggregated rows."""
+        """Multiple chains produce separate rows."""
         store = _make_store(tmp_path)
         ids = _populate_multi_model_store(store)
         df = store.query_aggregated_predictions()
-        # 3 models = 3 chains = 3 rows (all same metric & dataset)
+        # 3 models = 3 chains = 3 rows
         assert len(df) == 3
+        store.close()
+
+    def test_cv_scores_json(self, tmp_path):
+        """cv_scores contains averaged multi-metric JSON."""
+        store = _make_store(tmp_path)
+        ids = _populate_store(store, n_folds=3)
+        df = store.query_aggregated_predictions()
+        row = df.row(0, named=True)
+        cv_scores = row.get("cv_scores")
+        # cv_scores should be a dict (or JSON string)
+        import json
+        if isinstance(cv_scores, str):
+            cv_scores = json.loads(cv_scores)
+        assert isinstance(cv_scores, dict)
+        # Should have "val" and "test" partitions
+        assert "val" in cv_scores or "test" in cv_scores
+        store.close()
+
+    def test_best_params_on_chain(self, tmp_path):
+        """best_params is stored on the chain summary."""
+        store = _make_store(tmp_path)
+        ids = _populate_store(store, n_folds=2)
+        df = store.query_aggregated_predictions()
+        row = df.row(0, named=True)
+        best_params = row.get("best_params")
+        import json
+        if isinstance(best_params, str):
+            best_params = json.loads(best_params)
+        assert best_params == {"n_components": 10}
         store.close()
 
 
@@ -454,7 +468,7 @@ class TestMetricAwareRanking:
 
 
 class TestDrillDown:
-    """Verify drill-down from aggregated to individual predictions."""
+    """Verify drill-down from chain summary to individual predictions."""
 
     def test_get_chain_predictions_all(self, tmp_path):
         """get_chain_predictions returns all predictions for a chain."""
@@ -565,8 +579,9 @@ class TestDeletionCascade:
             branch_id=None, branch_name=None,
             exclusion_count=0, exclusion_rate=0.0,
         )
+        store.update_chain_summary(chain_id2)
 
-        # Verify 2 aggregated rows
+        # Verify 2 chain summary rows
         df = store.query_aggregated_predictions()
         assert len(df) == 2
 
@@ -579,21 +594,21 @@ class TestDeletionCascade:
         assert df.row(0, named=True)["run_id"] == run_id2
         store.close()
 
-    def test_delete_prediction_updates_view(self, tmp_path):
-        """Deleting an individual prediction updates aggregates."""
+    def test_delete_run_clears_chain_summary(self, tmp_path):
+        """Deleting a run removes chains and their summary data from the view."""
         store = _make_store(tmp_path)
         ids = _populate_store(store, n_folds=3)
 
-        # Get initial fold_count
-        df = store.query_aggregated_predictions()
-        initial_pred_count = len(df.row(0, named=True)["prediction_ids"])
-
-        # Delete one prediction
-        store.delete_prediction(ids["prediction_ids"][0])
-
-        # Aggregation should update
+        # Verify summary exists
         df = store.query_aggregated_predictions()
         assert len(df) == 1
-        new_pred_count = len(df.row(0, named=True)["prediction_ids"])
-        assert new_pred_count == initial_pred_count - 1
+        row = df.row(0, named=True)
+        assert row["cv_fold_count"] > 0
+
+        # Delete the run
+        store.delete_run(ids["run_id"])
+
+        # Chain summary should be gone
+        df = store.query_aggregated_predictions()
+        assert len(df) == 0
         store.close()

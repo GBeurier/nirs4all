@@ -453,6 +453,11 @@ class PipelineExecutor:
             refit_context_override=refit_context_override,
         )
 
+        # Update chain summary columns with CV/final scores
+        if hasattr(store, "update_chain_summary"):
+            for chain_row in chain_rows:
+                store.update_chain_summary(str(chain_row["chain_id"]))
+
     def _execute_steps(
         self,
         steps: List[Any],

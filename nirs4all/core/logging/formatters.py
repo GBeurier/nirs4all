@@ -92,6 +92,19 @@ class Symbols:
         """Light separator line (76 chars)."""
         return "-" * 76
 
+    def direction(self, higher_is_better: bool) -> str:
+        """Get direction indicator for metrics.
+
+        Args:
+            higher_is_better: If True, returns up arrow. If False, returns down arrow.
+
+        Returns:
+            Direction symbol (Unicode or ASCII depending on mode).
+        """
+        if self.use_unicode:
+            return "↑" if higher_is_better else "↓"
+        return "(+)" if higher_is_better else "(-)"
+
     def get_status_symbol(self, status: Optional[Status]) -> str:
         """Get symbol for a status indicator.
 
