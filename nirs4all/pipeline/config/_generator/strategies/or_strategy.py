@@ -116,8 +116,8 @@ class OrStrategy(ExpansionStrategy):
                 result, mutex_groups, requires_groups, exclude_combos
             )
 
-        # Apply count limit if specified
-        if count is not None and len(result) > count:
+        # Apply count limit if specified (count <= 0 means no limit)
+        if count is not None and count > 0 and len(result) > count:
             result = sample_with_seed(result, count, seed=seed)
 
         return result
@@ -157,8 +157,8 @@ class OrStrategy(ExpansionStrategy):
                 else:
                     total += 1
 
-        # Apply count limit
-        if count_limit is not None:
+        # Apply count limit (count <= 0 means no limit)
+        if count_limit is not None and count_limit > 0:
             return min(count_limit, total)
         return total
 

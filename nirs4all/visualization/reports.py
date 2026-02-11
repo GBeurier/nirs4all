@@ -124,17 +124,23 @@ class TabReportManager:
     def generate_per_model_summary(
         refit_entries: list,
         ascending: bool = True,
+        metric: str = "rmse",
     ) -> str:
         """Generate a per-model summary table for refit entries.
+
+        When *metric* is ``"mse"`` scores are displayed as RMSE (sqrt of MSE).
 
         Args:
             refit_entries: Refit prediction entries (fold_id="final")
                 with test_score already populated.
             ascending: Whether lower scores are better.
+            metric: Metric name (e.g. ``"rmse"``, ``"mse"``, ``"accuracy"``).
 
         Returns:
             Formatted table string.
         """
+        import math
+
         entries = sorted(
             [e for e in refit_entries if e.get("test_score") is not None],
             key=lambda e: e["test_score"],
@@ -143,17 +149,26 @@ class TabReportManager:
         if not entries:
             return ""
 
-        headers = ["#", "Model", "Test Score", "CV Selection Score"]
+        # When metric is mse, display as rmse for readability
+        display_mse_as_rmse = metric.lower() == "mse"
+        display_metric = "RMSE" if display_mse_as_rmse else metric.upper()
+
+        def _fmt(value: float | None) -> str:
+            if value is None:
+                return "N/A"
+            if display_mse_as_rmse:
+                value = math.sqrt(max(value, 0.0))
+            return f"{value:.4f}"
+
+        headers = ["#", "Model", f"Test {display_metric}", f"CV {display_metric}"]
         rows = []
         for i, entry in enumerate(entries):
             model_name = entry.get("model_name", "unknown")
-            test_score = entry.get("test_score")
-            cv_rank = entry.get("cv_rank_score")
             rows.append([
                 str(i + 1),
                 model_name,
-                f"{test_score:.4f}" if test_score is not None else "N/A",
-                f"{cv_rank:.4f}" if cv_rank is not None else "N/A",
+                _fmt(entry.get("test_score")),
+                _fmt(entry.get("cv_rank_score")),
             ])
 
         all_rows = [headers] + rows

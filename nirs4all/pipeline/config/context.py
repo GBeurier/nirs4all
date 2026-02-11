@@ -1185,6 +1185,29 @@ class ExecutionContext:
 
 
 @dataclass
+class BestChainEntry:
+    """Best preprocessing chain for a model, accumulated during CV execution.
+
+    During cross-validation, BranchController tracks the best-performing
+    preprocessing chain per unique model.  After all variants finish, the
+    refit pass uses these entries directly instead of querying the store.
+
+    Attributes:
+        model_name: Human-readable model name (e.g. ``"PLS"``, ``"Ridge"``).
+        avg_val_score: Average validation score across CV folds.
+        branch_steps: Expanded branch steps (preprocessing + model steps).
+        best_params: Best hyperparameters from finetuning (Optuna).
+        metric: Metric name used for scoring (e.g. ``"rmse"``).
+    """
+
+    model_name: str
+    avg_val_score: float
+    branch_steps: list
+    best_params: dict
+    metric: str
+
+
+@dataclass
 class RuntimeContext:
     """
     Runtime infrastructure components for pipeline execution.
@@ -1209,6 +1232,8 @@ class RuntimeContext:
         trace_recorder: TraceRecorder for recording execution traces.
         retrain_config: RetrainConfig for retrain mode control.
         phase: Current execution phase (CV or REFIT). Defaults to CV.
+        best_refit_chains: Accumulator for best preprocessing chain per
+            model during CV.  Shared across pipeline variants.
     """
     store: Any = None  # WorkspaceStore for DuckDB-backed persistence
     artifact_loader: Any = None
@@ -1234,6 +1259,8 @@ class RuntimeContext:
     refit_context_name: Optional[str] = None  # Persisted refit context override
     cache_config: Any = None  # CacheConfig for step-level caching settings
     step_cache: Any = None  # StepCache instance (set when cache_config.step_cache_enabled)
+    best_refit_chains: Optional[Dict[str, "BestChainEntry"]] = None  # Accumulator: best chain per model during CV
+    random_state: Optional[int] = None  # Random seed for reproducibility propagation
 
     def __deepcopy__(self, memo):
         """Return self on deepcopy -- RuntimeContext is shared infrastructure, not data."""

@@ -611,6 +611,10 @@ class BaseModelController(OperatorController, ABC):
         finetune_params = model_config.get('finetune_params')
         is_refit = runtime_context.phase == ExecutionPhase.REFIT
 
+        # Propagate random_state into finetune_params for Optuna reproducibility
+        if finetune_params and runtime_context.random_state is not None and 'seed' not in finetune_params:
+            finetune_params = {**finetune_params, 'seed': runtime_context.random_state}
+
         if not is_refit and (mode == "finetune" or (mode == "train" and finetune_params)):
              return self._execute_finetune(
                 dataset, model_config, context, runtime_context, prediction_store,

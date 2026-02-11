@@ -50,7 +50,8 @@ class PipelineOrchestrator:
         show_spinner: bool = True,
         keep_datasets: bool = False,
         max_preprocessed_snapshots_per_dataset: int = 3,
-        plots_visible: bool = False
+        plots_visible: bool = False,
+        random_state: int | None = None,
     ) -> None:
         """Initialize pipeline orchestrator.
 
@@ -67,6 +68,7 @@ class PipelineOrchestrator:
             max_preprocessed_snapshots_per_dataset: Maximum number of
                 preprocessed snapshots to retain per dataset
             plots_visible: Whether to display plots
+            random_state: Random seed for reproducibility propagation
         """
         # Workspace configuration
         if workspace_path is None:
@@ -93,6 +95,7 @@ class PipelineOrchestrator:
         self.keep_datasets = keep_datasets
         self.max_preprocessed_snapshots_per_dataset = max(0, int(max_preprocessed_snapshots_per_dataset))
         self.plots_visible = plots_visible
+        self.random_state = random_state
 
         # Dataset snapshots (if keep_datasets is True)
         self.raw_data: dict[str, np.ndarray] = {}
@@ -243,6 +246,11 @@ class PipelineOrchestrator:
                 # Predictions accumulate in-memory; store-backed via flush()
                 run_dataset_predictions = Predictions()
 
+                # Accumulator for best preprocessing chain per model across all variants.
+                # Shared across pipeline variants via RuntimeContext (which returns
+                # self on deepcopy).
+                best_refit_chains: dict = {}
+
                 # Execute each pipeline configuration on this dataset
                 for _i, (steps, config_name, gen_choices) in enumerate(zip(
                     pipeline_configs.steps,
@@ -276,6 +284,8 @@ class PipelineOrchestrator:
                         run_id=run_id,
                         cache_config=self.cache_config,
                         step_cache=step_cache,
+                        best_refit_chains=best_refit_chains,
+                        random_state=self.random_state,
                     )
 
                     # Execute pipeline with cleanup on failure
@@ -354,6 +364,7 @@ class PipelineOrchestrator:
                         artifact_loader=artifact_loader,
                         target_model=target_model,
                         explainer=explainer,
+                        best_refit_chains=best_refit_chains,
                     )
 
                 # Mark run as completed successfully
@@ -624,15 +635,16 @@ class PipelineOrchestrator:
         artifact_loader: Any = None,
         target_model: dict[str, Any] | None = None,
         explainer: Any = None,
+        best_refit_chains: dict | None = None,
     ) -> None:
         """Execute the refit pass after all CV variants have completed.
 
-        Extracts the winning configuration from the store, analyzes its
-        topology, and dispatches to the appropriate refit strategy.
+        When *best_refit_chains* is populated (accumulated during CV by
+        ``BranchController``), each model is refit directly on its best
+        preprocessing chain — no store queries or topology dispatch needed.
 
-        For non-stacking pipelines, uses ``execute_simple_refit`` which
-        replaces the CV splitter with a single full-training-data fold
-        and re-executes the winning pipeline.
+        Falls back to topology-based dispatch for stacking, separation,
+        or when no accumulated chains are available.
 
         Args:
             run_id: Store run identifier.
@@ -644,12 +656,15 @@ class PipelineOrchestrator:
             artifact_loader: Optional artifact loader.
             target_model: Optional target model dict.
             explainer: Optional explainer instance.
+            best_refit_chains: Accumulated best chains per model from CV.
         """
         from nirs4all.pipeline.analysis.topology import analyze_topology
-        from nirs4all.pipeline.config.context import RuntimeContext
+        from nirs4all.pipeline.config.context import BestChainEntry, RuntimeContext
         from nirs4all.pipeline.execution.refit import execute_simple_refit, extract_winning_config
-        from nirs4all.pipeline.execution.refit.config_extractor import extract_per_model_configs
+        from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig, extract_per_model_configs
+        from nirs4all.pipeline.execution.refit.executor import RefitResult
         from nirs4all.pipeline.execution.refit.stacking_refit import (
+            _find_branch_step,
             execute_competing_branches_refit,
             execute_separation_refit,
             execute_stacking_refit,
@@ -673,9 +688,28 @@ class PipelineOrchestrator:
             target_model=target_model,
             explainer=explainer,
             run_id=run_id,
+            cache_config=self.cache_config,
+            random_state=self.random_state,
         )
 
-        if topology.has_stacking or topology.has_mixed_merge:
+        # Fast path: use accumulated best chains when available and topology
+        # is not stacking/separation (those have their own refit strategies).
+        if (
+            best_refit_chains
+            and not topology.has_stacking
+            and not topology.has_mixed_merge
+            and not topology.has_separation_branch
+        ):
+            refit_result = self._execute_accumulated_refit(
+                refit_config=refit_config,
+                best_refit_chains=best_refit_chains,
+                dataset=dataset,
+                runtime_context=runtime_context,
+                artifact_registry=artifact_registry,
+                executor=executor,
+                run_dataset_predictions=run_dataset_predictions,
+            )
+        elif topology.has_stacking or topology.has_mixed_merge:
             refit_result = execute_stacking_refit(
                 refit_config=refit_config,
                 dataset=dataset,
@@ -753,6 +787,99 @@ class PipelineOrchestrator:
                 logger.warning(f"Transient artifact cleanup failed (non-fatal): {e}")
         else:
             logger.warning("Refit pass did not complete successfully")
+
+    def _execute_accumulated_refit(
+        self,
+        refit_config: Any,
+        best_refit_chains: dict,
+        dataset: Any,
+        runtime_context: Any,
+        artifact_registry: Any,
+        executor: Any,
+        run_dataset_predictions: Any,
+    ) -> Any:
+        """Refit each model using accumulated best chains from CV.
+
+        Uses the ``BestChainEntry`` objects accumulated during CV execution
+        by ``BranchController``.  Each model is refit on its best
+        preprocessing chain — no store queries needed.
+
+        Args:
+            refit_config: Global winning RefitConfig (for pre-branch steps).
+            best_refit_chains: Accumulated best chains per model from CV.
+            dataset: Original dataset for refit.
+            runtime_context: Shared runtime context.
+            artifact_registry: Artifact registry from CV pass.
+            executor: PipelineExecutor instance.
+            run_dataset_predictions: Per-dataset prediction accumulator.
+
+        Returns:
+            A :class:`RefitResult` summarizing the outcome.
+        """
+        import copy
+
+        from nirs4all.pipeline.execution.refit import execute_simple_refit
+        from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
+        from nirs4all.pipeline.execution.refit.executor import RefitResult
+        from nirs4all.pipeline.execution.refit.stacking_refit import _find_branch_step
+
+        # Extract pre-branch steps from the original expanded pipeline
+        steps = refit_config.expanded_steps
+        branch_info = _find_branch_step(steps)
+        if branch_info is not None:
+            pre_branch_steps = steps[:branch_info[0]]
+        else:
+            pre_branch_steps = []
+
+        logger.info(
+            f"Accumulated refit: {len(best_refit_chains)} model(s) "
+            f"({', '.join(best_refit_chains.keys())})"
+        )
+
+        total_predictions = 0
+        all_success = True
+
+        for model_name, entry in best_refit_chains.items():
+            flat_steps = copy.deepcopy(pre_branch_steps) + copy.deepcopy(entry.branch_steps)
+            # Filter out None steps (from _or_ generators expanding to None)
+            flat_steps = [s for s in flat_steps if s is not None]
+
+            flat_config = RefitConfig(
+                expanded_steps=flat_steps,
+                best_params=entry.best_params,
+                variant_index=refit_config.variant_index,
+                generator_choices=refit_config.generator_choices,
+                pipeline_id=refit_config.pipeline_id,
+                metric=entry.metric,
+                best_score=entry.avg_val_score,
+            )
+
+            logger.info(
+                f"  Refitting '{model_name}' "
+                f"(cv_score={entry.avg_val_score:.4f})"
+            )
+
+            result = execute_simple_refit(
+                refit_config=flat_config,
+                dataset=dataset,
+                context=None,
+                runtime_context=runtime_context,
+                artifact_registry=artifact_registry,
+                executor=executor,
+                prediction_store=run_dataset_predictions,
+            )
+
+            if result.success:
+                total_predictions += result.predictions_count
+            else:
+                all_success = False
+                logger.warning(f"  Refit failed for model '{model_name}'")
+
+        return RefitResult(
+            success=all_success,
+            predictions_count=total_predictions,
+            metric=refit_config.metric,
+        )
 
     def _execute_per_model_refit(
         self,
@@ -869,6 +996,18 @@ class PipelineOrchestrator:
                 if str(e.get("fold_id")) == "final"
             ]
 
+            # Deduplicate: keep one entry per model (prefer "test" partition).
+            # The model controller creates separate entries per partition
+            # (train/test), but the report should show one row per model.
+            if refit_entries:
+                seen: dict[tuple, dict] = {}
+                for e in refit_entries:
+                    key = (e.get("model_name"), e.get("step_idx"), e.get("config_name"))
+                    existing = seen.get(key)
+                    if existing is None or e.get("partition") == "test":
+                        seen[key] = e
+                refit_entries = list(seen.values())
+
             if refit_entries:
                 self._print_refit_report(
                     run_dataset_predictions, refit_entries, name,
@@ -928,9 +1067,27 @@ class PipelineOrchestrator:
             )
             logger.info(refit_tab)
 
+            # --- Tab reports for all refitted models ---
+            if len(rankable) > 1:
+                for rank_idx, entry in enumerate(rankable):
+                    if entry is best_refit:
+                        continue
+                    model_name = entry.get("model_name", "unknown")
+                    entry_partitions = predictions.get_entry_partitions(entry)
+                    entry_tab, _ = TabReportManager.generate_best_score_tab_report(
+                        entry_partitions,
+                        aggregate=aggregate_column,
+                        aggregate_method=aggregate_method,
+                        aggregate_exclude_outliers=aggregate_exclude_outliers,
+                    )
+                    logger.info(
+                        f"Refit scores for #{rank_idx + 1} '{model_name}' "
+                        f"({Predictions.pred_long_string(entry)}):\n{entry_tab}"
+                    )
+
         # --- Per-model table when multiple models refit ---
         if len(rankable) > 1:
-            summary = TabReportManager.generate_per_model_summary(rankable, ascending=asc)
+            summary = TabReportManager.generate_per_model_summary(rankable, ascending=asc, metric=metric)
             logger.info(f"Per-model final scores ({len(rankable)} models):\n{summary}")
 
         # --- Detail: CV selection summary ---
