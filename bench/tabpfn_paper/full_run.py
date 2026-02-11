@@ -9,6 +9,7 @@ Usage:
 # Standard library imports
 import argparse
 from pathlib import Path
+import time
 
 # Third-party imports
 from sklearn.cross_decomposition import PLSRegression
@@ -239,6 +240,8 @@ pipeline = [
     }},
 ]
 
+start_time = time.time()
+
 DATAPATH = ['data/regression/AMYLOSE/Rice_Amylose_313_YbasedSplit', 'data/regression/CORN/Corn_Moisture_80_WangStyle_m5spec']
 result = nirs4all.run(
     pipeline=pipeline,
@@ -249,12 +252,17 @@ result = nirs4all.run(
     cache=CacheConfig(memory_warning_threshold_mb=16984),
 )
 
-# predictions = result.predictions
+duration = time.time() - start_time
+print(f"\nPipeline completed in {duration:.2f} seconds")
+
 
 
 # # =============================================================================
 # # Section 1: BranchAnalyzer for Statistical Comparison
 # # =============================================================================
+# predictions = result.predictions
+
+
 # print("\n" + "-" * 60)
 # print("Example 1: BranchAnalyzer for Statistical Comparison")
 # print("-" * 60)
