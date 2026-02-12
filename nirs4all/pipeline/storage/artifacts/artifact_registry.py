@@ -262,6 +262,61 @@ class ArtifactRegistry:
         # Run-specific tracking for cleanup on failure
         self._current_run_artifacts: List[str] = []
 
+        # Deferred write state: when active, register() serializes objects
+        # and updates in-memory indexes but buffers disk writes.  The
+        # orchestrator calls commit_deferred() or rollback_deferred() after
+        # comparing the pipeline config's validation score with the best
+        # seen so far.
+        self._deferred_mode: bool = False
+        self._deferred_writes: Dict[str, bytes] = {}  # relative path -> content bytes
+        self._deferred_artifact_ids: List[str] = []  # artifact IDs in current deferred session
+
+    def begin_deferred(self) -> None:
+        """Begin a deferred write session.
+
+        In deferred mode, register()/register_with_chain() serialize
+        objects and update in-memory indexes as normal, but buffer
+        content bytes instead of writing to disk.  Call
+        commit_deferred() to flush buffered writes, or
+        rollback_deferred() to discard them.
+        """
+        self._deferred_mode = True
+        self._deferred_writes.clear()
+        self._deferred_artifact_ids.clear()
+
+    def commit_deferred(self) -> None:
+        """Flush all buffered writes to disk and exit deferred mode."""
+        for path, content in self._deferred_writes.items():
+            artifact_path = self.binaries_dir / path
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            if not artifact_path.exists():
+                artifact_path.write_bytes(content)
+                logger.debug(f"Committed deferred artifact: {artifact_path}")
+        self._deferred_mode = False
+        self._deferred_writes.clear()
+        self._deferred_artifact_ids.clear()
+
+    def rollback_deferred(self) -> None:
+        """Discard buffered writes and clean up in-memory records.
+
+        Removes artifact records registered during this deferred session
+        from all in-memory indexes to prevent stale dedup hits.
+        """
+        for artifact_id in self._deferred_artifact_ids:
+            record = self._artifacts.pop(artifact_id, None)
+            if record:
+                self._by_content_hash.pop(record.content_hash, None)
+                self._by_path.pop(record.path, None)
+                if record.chain_path:
+                    self._by_chain_path.pop(record.chain_path, None)
+                self._remove_from_chain_and_data_index(artifact_id)
+                self.dependency_graph.remove_artifact(artifact_id)
+                if artifact_id in self._current_run_artifacts:
+                    self._current_run_artifacts.remove(artifact_id)
+        self._deferred_mode = False
+        self._deferred_writes.clear()
+        self._deferred_artifact_ids.clear()
+
     def generate_id(
         self,
         chain: Union[OperatorChain, str],
@@ -385,13 +440,17 @@ class ArtifactRegistry:
             shard = hash_for_shard[:2]
             path = f"{shard}/{filename}"
 
-            # Write to binaries shard directory (create lazily if needed)
-            shard_dir = self.binaries_dir / shard
-            shard_dir.mkdir(parents=True, exist_ok=True)
-            artifact_path = shard_dir / filename
-            if not artifact_path.exists():
-                artifact_path.write_bytes(content)
-                logger.debug(f"Saved artifact: {artifact_path}")
+            # Write to binaries shard directory or buffer for deferred mode
+            if self._deferred_mode:
+                self._deferred_writes[path] = content
+                logger.debug(f"Deferred artifact: {path}")
+            else:
+                shard_dir = self.binaries_dir / shard
+                shard_dir.mkdir(parents=True, exist_ok=True)
+                artifact_path = shard_dir / filename
+                if not artifact_path.exists():
+                    artifact_path.write_bytes(content)
+                    logger.debug(f"Saved artifact: {artifact_path}")
 
         # Create V3 record with chain_path
         record = ArtifactRecord(
@@ -436,6 +495,8 @@ class ArtifactRegistry:
 
         # Track for run cleanup
         self._current_run_artifacts.append(artifact_id)
+        if self._deferred_mode:
+            self._deferred_artifact_ids.append(artifact_id)
 
         return record
 
@@ -638,13 +699,17 @@ class ArtifactRegistry:
             shard = hash_for_shard[:2]
             path = f"{shard}/{filename}"
 
-            # Write to binaries shard directory (create lazily if needed)
-            shard_dir = self.binaries_dir / shard
-            shard_dir.mkdir(parents=True, exist_ok=True)
-            artifact_path = shard_dir / filename
-            if not artifact_path.exists():
-                artifact_path.write_bytes(content)
-                logger.debug(f"Saved artifact: {artifact_path}")
+            # Write to binaries shard directory or buffer for deferred mode
+            if self._deferred_mode:
+                self._deferred_writes[path] = content
+                logger.debug(f"Deferred artifact: {path}")
+            else:
+                shard_dir = self.binaries_dir / shard
+                shard_dir.mkdir(parents=True, exist_ok=True)
+                artifact_path = shard_dir / filename
+                if not artifact_path.exists():
+                    artifact_path.write_bytes(content)
+                    logger.debug(f"Saved artifact: {artifact_path}")
 
         # Create V3 record with chain_path
         record = ArtifactRecord(
@@ -685,6 +750,8 @@ class ArtifactRegistry:
 
         # Track for run cleanup
         self._current_run_artifacts.append(artifact_id)
+        if self._deferred_mode:
+            self._deferred_artifact_ids.append(artifact_id)
 
         return record
 
@@ -878,7 +945,7 @@ class ArtifactRegistry:
         return sorted(results, key=lambda r: r.fold_id or 0)
 
     def load_artifact(self, record: ArtifactRecord) -> Any:
-        """Load artifact binary from disk.
+        """Load artifact binary from disk or deferred buffer.
 
         Args:
             record: ArtifactRecord with path and format
@@ -889,6 +956,10 @@ class ArtifactRegistry:
         Raises:
             FileNotFoundError: If artifact file doesn't exist
         """
+        # Check deferred buffer first (artifact may not be on disk yet)
+        if self._deferred_mode and record.path in self._deferred_writes:
+            return from_bytes(self._deferred_writes[record.path], record.format)
+
         artifact_path = self.binaries_dir / record.path
         if not artifact_path.exists():
             raise FileNotFoundError(f"Artifact not found: {artifact_path}")
@@ -1151,6 +1222,10 @@ class ArtifactRegistry:
                 count += 1
 
         self._current_run_artifacts.clear()
+        # Reset deferred state
+        self._deferred_mode = False
+        self._deferred_writes.clear()
+        self._deferred_artifact_ids.clear()
         if count > 0:
             logger.info(f"Cleaned up {count} artifacts from failed run")
         return count
