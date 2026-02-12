@@ -10,7 +10,7 @@ Phase 3 additions:
 - Constraint keywords: _mutex_, _requires_, _depends_on_
 """
 
-from typing import Any, Dict, FrozenSet
+from typing import Any, Dict, FrozenSet, Optional
 
 # =============================================================================
 # Core Generation Keywords
@@ -176,6 +176,54 @@ def is_generator_node(node: Dict[str, Any]) -> bool:
     if not isinstance(node, dict):
         return False
     return bool(GENERATION_KEYWORDS & set(node.keys()))
+
+
+def has_nested_generator_keywords(node: Any, _visited: Optional[set] = None) -> bool:
+    """Recursively check if a node contains generator keywords at any nesting level.
+
+    This function is useful for detecting dicts that need expansion even when
+    generator keywords are nested inside (e.g., in model_params).
+
+    Args:
+        node: A configuration node (dict, list, or scalar).
+        _visited: Internal parameter to prevent infinite recursion on circular refs.
+
+    Returns:
+        True if the node or any nested dict contains generator keywords.
+
+    Examples:
+        >>> has_nested_generator_keywords({"_or_": ["A", "B"]})
+        True
+        >>> has_nested_generator_keywords({"model_params": {"n_components": {"_range_": [1, 30]}}})
+        True
+        >>> has_nested_generator_keywords({"model": "PLSRegression", "name": "PLS"})
+        False
+    """
+    if _visited is None:
+        _visited = set()
+
+    # Prevent infinite recursion on circular references
+    node_id = id(node)
+    if node_id in _visited:
+        return False
+    _visited.add(node_id)
+
+    # Check current node
+    if isinstance(node, dict):
+        # Check top-level keys
+        if bool(GENERATION_KEYWORDS & set(node.keys())):
+            return True
+        # Recursively check all values
+        for value in node.values():
+            if has_nested_generator_keywords(value, _visited):
+                return True
+    elif isinstance(node, list):
+        # Recursively check all list elements
+        for item in node:
+            if has_nested_generator_keywords(item, _visited):
+                return True
+
+    return False
 
 
 def is_pure_or_node(node: Dict[str, Any]) -> bool:

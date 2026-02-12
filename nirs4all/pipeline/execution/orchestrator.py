@@ -7,7 +7,7 @@ import numpy as np
 from nirs4all.core.logging import get_logger
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.data.predictions import Predictions
+from nirs4all.data.predictions import Predictions, _infer_ascending
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
 from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
@@ -251,6 +251,18 @@ class PipelineOrchestrator:
                 # self on deepcopy).
                 best_refit_chains: dict = {}
 
+                # Deferred artifact persistence: only write artifacts to
+                # disk for configs whose validation score beats the
+                # previous best.  Activated when there are multiple
+                # pipeline configs to compare.
+                use_deferred = (
+                    len(pipeline_configs.steps) > 1
+                    and self.mode == "train"
+                    and self.save_artifacts
+                )
+                best_deferred_val: float | None = None
+                best_deferred_ascending: bool | None = None
+
                 # Execute each pipeline configuration on this dataset
                 for _i, (steps, config_name, gen_choices) in enumerate(zip(
                     pipeline_configs.steps,
@@ -293,6 +305,11 @@ class PipelineOrchestrator:
                     # Pass dataset repetition context for by_repetition=True resolution
                     if dataset.repetition:
                         config_predictions.set_repetition_column(dataset.repetition)
+
+                    # Enter deferred mode before execution
+                    if use_deferred and artifact_registry is not None:
+                        artifact_registry.begin_deferred()
+
                     try:
                         executor.execute(
                             steps=steps,
@@ -304,6 +321,9 @@ class PipelineOrchestrator:
                             generator_choices=gen_choices
                         )
                     except Exception:
+                        # Rollback deferred artifacts before cleanup
+                        if use_deferred and artifact_registry is not None and artifact_registry._deferred_mode:
+                            artifact_registry.rollback_deferred()
                         # Cleanup artifacts from failed run
                         if artifact_registry is not None:
                             artifact_registry.cleanup_failed_run()
@@ -337,6 +357,36 @@ class PipelineOrchestrator:
                                 self.max_preprocessed_snapshots_per_dataset,
                                 snapshot_key,
                             )
+
+                    # Deferred artifact persistence: commit if this config's
+                    # validation score beats the previous best, rollback otherwise.
+                    if use_deferred and artifact_registry is not None and artifact_registry._deferred_mode:
+                        should_commit = True
+                        if config_predictions.num_predictions > 0:
+                            config_best = config_predictions.get_best(ascending=None)
+                            if config_best:
+                                val_score = config_best.get("val_score")
+                                if val_score is not None:
+                                    # Has folds — compare with best seen so far
+                                    if best_deferred_val is None:
+                                        best_deferred_val = val_score
+                                        best_deferred_ascending = _infer_ascending(
+                                            config_best.get("metric", "rmse")
+                                        )
+                                    else:
+                                        if best_deferred_ascending:
+                                            is_better = val_score < best_deferred_val
+                                        else:
+                                            is_better = val_score > best_deferred_val
+                                        if is_better:
+                                            best_deferred_val = val_score
+                                        else:
+                                            should_commit = False
+                                # val_score is None → no folds → always commit
+                        if should_commit:
+                            artifact_registry.commit_deferred()
+                        else:
+                            artifact_registry.rollback_deferred()
 
                     # Merge new predictions into run-level stores
                     if config_predictions.num_predictions > 0:
