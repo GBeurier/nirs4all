@@ -307,11 +307,16 @@ def _inject_best_params(steps: list[Any], best_params: dict[str, Any]) -> None:
         # Resolve refit_params (merge refit_params on top of train_params)
         resolved = resolve_refit_params(step)
         if resolved:
-            # Apply resolved params to the model
+            # Apply resolved params to the model (sklearn-compatible models)
             if hasattr(model_value, "set_params"):
                 _apply_params_to_model(model_value, resolved)
             elif isinstance(model_value, dict) and "params" in model_value:
                 model_value["params"].update(resolved)
+
+            # Write resolved params back to train_params so that
+            # launch_training() picks them up for all frameworks
+            # (PyTorch, TensorFlow, etc. read train_params, not set_params).
+            step["train_params"] = resolved
 
 
 def _apply_params_to_model(model: Any, params: dict[str, Any]) -> None:

@@ -259,7 +259,7 @@ def _build_nicon(input_shape, params, num_classes=1):
     layers.append(nn.SELU())
     seq_len = math.floor((seq_len - 15) / 5 + 1)
 
-    layers.append(nn.Dropout(params.get('dropout_rate', 0.2)))
+    layers.append(nn.AlphaDropout(params.get('dropout_rate', 0.2)))
 
     f2 = params.get('filters2', 64)
     layers.append(nn.Conv1d(f1, f2, kernel_size=21, stride=3))

@@ -435,6 +435,18 @@ class SklearnModelController(BaseModelController):
         """
         y_val_1d = y_val.ravel() if y_val.ndim > 1 else y_val
 
+        # Check for NaN in inputs before prediction
+        if np.isnan(X_val).any():
+            model_name = type(model).__name__
+            nan_count = np.isnan(X_val).sum()
+            nan_ratio = nan_count / X_val.size
+            logger.warning(f"NaN in X_val for {model_name}: {nan_count} NaN values ({nan_ratio:.2%}). Model params: {model.get_params() if hasattr(model, 'get_params') else 'N/A'}")
+            return float('inf')
+
+        if np.isnan(y_val).any():
+            logger.warning(f"NaN in y_val: {np.isnan(y_val).sum()} NaN values")
+            return float('inf')
+
         try:
             y_pred = model.predict(X_val)
             if y_pred.ndim > 1:
