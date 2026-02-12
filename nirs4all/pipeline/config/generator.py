@@ -150,6 +150,7 @@ from ._generator.keywords import (  # noqa: F401
     ALL_KEYWORDS,
     # Detection functions
     is_generator_node,
+    has_nested_generator_keywords,
     is_pure_or_node,
     is_pure_range_node,
     is_pure_log_range_node,
@@ -298,6 +299,7 @@ __all__ = [
     "ALL_KEYWORDS",
     # Detection functions
     "is_generator_node",
+    "has_nested_generator_keywords",
     "is_pure_or_node",
     "is_pure_range_node",
     "is_pure_log_range_node",

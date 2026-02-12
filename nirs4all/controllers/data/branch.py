@@ -73,6 +73,7 @@ from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.config.generator import (
     expand_spec,
     is_generator_node,
+    has_nested_generator_keywords,
 )
 from nirs4all.pipeline.execution.result import StepOutput
 
@@ -1257,7 +1258,7 @@ class BranchController(OperatorController):
             for name, steps in raw_def.items():
                 if name.startswith("_"):  # Skip internal keys
                     continue
-                if isinstance(steps, dict) and is_generator_node(steps):
+                if isinstance(steps, dict) and (is_generator_node(steps) or has_nested_generator_keywords(steps)):
                     expanded_steps = expand_spec(steps)
                     for i, exp_step in enumerate(expanded_steps):
                         branch_name = f"{name}_{self._generate_step_name(exp_step, i)}"
@@ -1267,7 +1268,7 @@ class BranchController(OperatorController):
                             "generator_choice": exp_step
                         })
                 elif isinstance(steps, list) and any(
-                    isinstance(s, dict) and is_generator_node(s) for s in steps
+                    isinstance(s, dict) and (is_generator_node(s) or has_nested_generator_keywords(s)) for s in steps
                 ):
                     # Steps list contains generator nodes — expand them
                     expanded_list = self._expand_list_with_generators(steps)
@@ -1292,7 +1293,7 @@ class BranchController(OperatorController):
                 # Sub-case 2a: Dict with explicit name and steps
                 if isinstance(item, dict) and "steps" in item:
                     steps = item["steps"]
-                    if isinstance(steps, dict) and is_generator_node(steps):
+                    if isinstance(steps, dict) and (is_generator_node(steps) or has_nested_generator_keywords(steps)):
                         expanded_steps = expand_spec(steps)
                         for j, exp_step in enumerate(expanded_steps):
                             result.append({
@@ -1301,7 +1302,7 @@ class BranchController(OperatorController):
                                 "generator_choice": exp_step
                             })
                     elif isinstance(steps, list) and any(
-                        isinstance(s, dict) and is_generator_node(s) for s in steps
+                        isinstance(s, dict) and (is_generator_node(s) or has_nested_generator_keywords(s)) for s in steps
                     ):
                         expanded_list = self._expand_list_with_generators(steps)
                         base_name = item.get('name', f'branch_{i}')
@@ -1317,7 +1318,7 @@ class BranchController(OperatorController):
                             "steps": steps
                         })
                 # Sub-case 2b: Dict with generator syntax (inside list)
-                elif isinstance(item, dict) and is_generator_node(item):
+                elif isinstance(item, dict) and (is_generator_node(item) or has_nested_generator_keywords(item)):
                     expanded = expand_spec(item)
                     for j, exp_item in enumerate(expanded):
                         branch_name = self._generate_step_name(exp_item, i * 100 + j)
@@ -1381,12 +1382,15 @@ class BranchController(OperatorController):
     ) -> List[List[Any]]:
         """Expand a list that may contain generator nodes.
 
-        Generator items that expand to lists (e.g., _cartesian_ producing
-        preprocessing pipelines) are flattened into the result so that
-        each combination is a flat step list.
+        Uses a two-phase approach:
+        1. Phase 1: Expand top-level generator nodes (like _cartesian_, _or_)
+           and take Cartesian product, flattening list results.
+        2. Phase 2: For each result from phase 1, expand any steps with nested
+           generator keywords (like model_params._range_) into additional variants.
         """
         from itertools import product
 
+        # Phase 1: Expand top-level generators only
         expanded_items = []
         for item in items:
             if isinstance(item, dict) and is_generator_node(item):
@@ -1394,7 +1398,7 @@ class BranchController(OperatorController):
             else:
                 expanded_items.append([item])
 
-        result = []
+        phase1_results = []
         for combo in product(*expanded_items):
             # Flatten: if a generator produced a list of steps, splice them in
             flat = []
@@ -1403,9 +1407,36 @@ class BranchController(OperatorController):
                     flat.extend(element)
                 else:
                     flat.append(element)
-            result.append(flat)
+            phase1_results.append(flat)
 
-        return result if result else [items]
+        if not phase1_results:
+            phase1_results = [items]
+
+        # Phase 2: Expand nested generators in each phase 1 result
+        final_results = []
+        for step_list in phase1_results:
+            # Check if any step has nested generator keywords
+            has_nested = any(
+                isinstance(step, dict) and has_nested_generator_keywords(step)
+                for step in step_list
+            )
+
+            if not has_nested:
+                final_results.append(step_list)
+                continue
+
+            # Expand nested generators per step and take Cartesian product
+            nested_expansions = []
+            for step in step_list:
+                if isinstance(step, dict) and has_nested_generator_keywords(step):
+                    nested_expansions.append(expand_spec(step))
+                else:
+                    nested_expansions.append([step])
+
+            for combo in product(*nested_expansions):
+                final_results.append(list(combo))
+
+        return final_results if final_results else [items]
 
     # =========================================================================
     # Helper Methods

@@ -24,6 +24,7 @@ from nirs4all.operators.splitters.splitters import SPXYGFold
 from nirs4all.operators.transforms import (
     StandardNormalVariate as SNV,
     ExtendedMultiplicativeScatterCorrection as EMSC,
+    MultiplicativeScatterCorrection as MSC,
     SavitzkyGolay,
     ASLSBaseline,
     Detrend,
@@ -58,7 +59,8 @@ SMOKE = args.smoke
 if SMOKE:
     CFG = dict(
         linear_cartesian_count=2,
-        linear_finetune_trials=2,
+        pls_finetune_trials=2,
+        ridge_finetune_trials=2,
         linear_refit_max_iter=100,
         ridge_refit_max_iter=500,
         nicon_train_epochs=10,
@@ -76,20 +78,21 @@ if SMOKE:
 else:
     CFG = dict(
         linear_cartesian_count=-1,  # all combinations
-        linear_finetune_trials=20,
+        pls_finetune_trials=30,
+        ridge_finetune_trials=60,
         linear_refit_max_iter=2000,
         ridge_refit_max_iter=10000,
-        nicon_train_epochs=500,
-        nicon_train_patience=50,
-        nicon_finetune_trials=200,
-        nicon_finetune_epochs=80,
-        nicon_finetune_patience=10,
-        nicon_refit_epochs=5000,
-        nicon_refit_patience=150,
+        nicon_train_epochs=600,
+        nicon_train_patience=250,
+        nicon_finetune_trials=50,
+        nicon_finetune_epochs=100,
+        nicon_finetune_patience=50,
+        nicon_refit_epochs=300,
+        # nicon_refit_patience=500,
         tabular_cartesian_count=-1,  # all combinations
-        catboost_iterations=80,
-        catboost_refit_iterations=800,
-        tabpfn_refit_estimators=16,
+        catboost_iterations=150,
+        catboost_refit_iterations=600,
+        tabpfn_refit_estimators=20,
     )
 
 print(f"Running in {'SMOKE' if SMOKE else 'FULL'} mode")
@@ -102,94 +105,87 @@ pipeline = [
     SPXYGFold(n_splits=3, random_state=42),
     {"branch": {
         "linear_models": [
-            {"y_processing": MinMaxScaler()},
-            {
-                "_cartesian_": [ # 240 | 729 * 3 folds * 20 trials = 43740 * 2 models = 87480 runs
-                    {"_or_": [None, StandardScaler, MinMaxScaler]},
-                    {"_or_": [None, ASLSBaseline, Detrend]},
-                    {"_or_": [None, SNV, EMSC]},
-                    {"_or_": [None, SavitzkyGolay(window_length=15), Gaussian(order=1, sigma=2)]},
-                    {"_or_": [None, Haar(), AreaNormalization()]},
-                ],
-                "count": CFG["linear_cartesian_count"],
-            },
-            {
-                "model": PLSRegression(),
-                "name": "PLS",
-                "finetune_params": {
-                    "n_trials": CFG["linear_finetune_trials"],
-                    "sampler": "tpe",
-                    "model_params": {
-                        "n_components": ('int', 2, 25),
-                    },
-                },
-                "refit_params": {"max_iter": CFG["linear_refit_max_iter"]},
-            },
-            {
-                "model": Ridge(),
-                "name": "Ridge",
-                "finetune_params": {
-                    "n_trials": CFG["linear_finetune_trials"],
-                    "sampler": "tpe",
-                    "model_params": {
-                        "alpha": ("float_log", 1e-5, 1e4),
-                        "fit_intercept": ("bool", [True, False]),
-                        "solver": "auto",
-                        "max_iter": 1500,
-                        "tol": 1e-4,
-                        "positive": False,
-                    },
-                },
-                "refit_params": {"max_iter": CFG["ridge_refit_max_iter"], "verbose": 1},
-            },
+            # {
+            #     "_cartesian_": [
+            #         {"_or_": [None, ASLSBaseline, Detrend, MSC]},
+            #         {"_or_": [None, EMSC, SavitzkyGolay, Baseline, SNV, Gaussian, Normalize, SavitzkyGolay(window_length=15), Gaussian(order=1, sigma=2)]},
+            #     ],
+            #     "count": CFG["linear_cartesian_count"],
+            # },
+            # StandardScaler(with_mean=False),
+            # {
+            #     "model": PLSRegression(scale=False),
+            #     "name": "PLS",
+            #     "finetune_params": {
+            #         "n_trials": CFG["pls_finetune_trials"],
+            #         "sampler": "tpe",
+            #         "model_params": {
+            #             "n_components": ('int', 1, 30),
+            #         },
+            #     },
+            # },
+            # {
+            #     "model": Ridge(),
+            #     "name": "Ridge",
+            #     "finetune_params": {
+            #         "n_trials": CFG["ridge_finetune_trials"],
+            #         "sampler": "tpe",
+            #         "model_params": {
+            #             "alpha": ("float_log", 1e-5, 1e4),
+            #             "fit_intercept": ("bool", [True, False]),
+            #             "solver": ("categorical", ["auto", "svd", "cholesky", "lsqr"]),  # Removed sag, saga, sparse_cg
+            #             # "solver": ("categorical", ["auto", "svd", "cholesky", "lsqr", "sag", "saga", "sparse_cg"]),
+            #             # "solver": "auto",
+            #             # "max_iter": 1500,
+            #             "tol": 1e-4,
+            #             "positive": False,
+            #         },
+            #     },
+            #     # "refit_params": {"max_iter": CFG["ridge_refit_max_iter"], "verbose": 1},
+            # },
         ],
 
         "neural_net": [
             {"y_processing": MinMaxScaler()},
             {"feature_augmentation": [
                 IdentityTransformer(),
-                SavitzkyGolay(window_length=17, polyorder=2, deriv=2),
-                SavitzkyGolay(window_length=5, polyorder=2),
-                Gaussian(order=1, sigma=2),
-                Gaussian(order=2, sigma=1),
-                Gaussian(order=0, sigma=2),
                 SNV(),
-                EMSC(scale=False),
-                Detrend(),
-                Derivate(2, 1),
+                EMSC(),
+                SavitzkyGolay(window_length=15, deriv=0),
+                SavitzkyGolay(deriv=1),
+                SavitzkyGolay(deriv=2),
+                [SNV(), SavitzkyGolay(window_length=11, deriv=0)],
                 Derivate(1, 2),
-                Haar(),
+                [SNV(), Haar()],
             ]},
+            StandardScaler(with_std=True),
             {
                 "model": nicon,
                 "name": "Nicon-CNN",
                 "train_params": {
                     "epochs": CFG["nicon_train_epochs"],
                     "patience": CFG["nicon_train_patience"],
-                    "batch_size": 1024,
+                    # "batch_size": 1024,
                     "cyclic_lr": True,
                     "cyclic_lr_mode": "triangular2",
                     "base_lr": 0.0005,
-                    "max_lr": 0.02,
-                    "step_size": 100,
+                    "max_lr": 0.01,
+                    "step_size": 200,
                     "loss": "mse",
                 },
                 "finetune_params": {
                     "n_trials": CFG["nicon_finetune_trials"],
                     "verbose": 2,
                     "pruner": "hyperband",
-                    "approach": "single",
+                    "sampler": "tpe",
+                    "approach": "grouped",
                     "model_params": {
                         'spatial_dropout': (float, 0.01, 0.5),
-                        'filters1': [4, 8, 16, 32, 64],
-                        'activation1': ['relu', 'selu', 'elu', 'swish', 'gelu', 'sigmoid'],
+                        'filters1': [4, 8, 16, 32],
                         'dropout_rate': (float, 0.01, 0.5),
-                        'filters2': [4, 8, 16, 32, 64],
-                        'activation2': ['relu', 'selu', 'elu', 'swish', 'gelu', 'sigmoid'],
-                        'filters3': [4, 8, 16, 32, 64],
-                        'activation3': ['relu', 'selu', 'elu', 'swish', 'gelu', 'sigmoid'],
-                        'dense_units': [4, 8, 16, 32, 64],
-                        'dense_activation': ['relu', 'selu', 'elu', 'swish', 'gelu', 'linear'],
+                        'filters2': [32, 64, 128, 256],
+                        'filters3': [8, 16, 32, 64],
+                        'dense_units': [8, 16, 32, 64],
                     },
                     "train_params": {
                         "epochs": CFG["nicon_finetune_epochs"],
@@ -200,17 +196,17 @@ pipeline = [
                 },
                 "refit_params": {
                     "epochs": CFG["nicon_refit_epochs"],
-                    "patience": CFG["nicon_refit_patience"],
-                    "batch_size": 1024,
-                    "cyclic_lr": True,
-                    "cyclic_lr_mode": "triangular2",
+                    # "patience": CFG["nicon_refit_patience"],
+                    # "batch_size": 1024,
+                    # "cyclic_lr": True,
+                    # "cyclic_lr_mode": "triangular2",
                     "base_lr": 0.0005,
-                    "max_lr": 0.02,
-                    "step_size": 100,
+                    # "max_lr": 0.02,
+                    # "step_size": 100,
                     "loss": "mse",
-                    "verbose": 1,
-                    "warm_start": True,
-                    "warm_start_fold": 'best'
+                    # "verbose": 1,
+                    # "warm_start": True,
+                    # "warm_start_fold": 'best'
                 },
             },
         ],
@@ -242,12 +238,15 @@ pipeline = [
 
 start_time = time.time()
 
-DATAPATH = ['data/regression/AMYLOSE/Rice_Amylose_313_YbasedSplit', 'data/regression/CORN/Corn_Moisture_80_WangStyle_m5spec']
+DATAPATH = ['data/regression/AMYLOSE/Rice_Amylose_313_YbasedSplit']#, 'data/regression/CORN/Corn_Moisture_80_WangStyle_m5spec']
+DATASETS = ['IncombustibleMaterial/TIC_spxy70', 'PHOSPHORUS/LP_spxyG', 'PLUMS/Firmness_spxy70', 'BEER/Beer_OriginalExtract_60_KS', 'COLZA/N_woOutlier', 'MILK/Milk_Lactose_1224_KS', 'DIESEL/DIESEL_bp50_246_hlb-a', 'WOOD_density/WOOD_N_402_Olale', 'MANURE21/All_manure_Total_N_SPXY_strat_Manure_type', 'COLZA/N_wOutlier', 'DarkResp/Rd25_CBtestSite', 'GRAPEVINE_LeafTraits/LMA_spxyG70_30_byCultivar_ASD', 'PHOSPHORUS/MP_spxyG', 'ALPINE/ALPINE_P_291_KS', 'BERRY/ta_groupSampleID_stratDateVar_balRows', 'FUSARIUM/Tleaf_grp70_30', 'PHOSPHORUS/V25_spxyG', 'GRAPEVINE_LeafTraits/WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra', 'CORN/Corn_Oil_80_ZhengChenPelegYbaseSplit', 'DarkResp/Rd25_spxy70', 'COLZA/C_woOutlier', 'ALPINE/ALPINE_C_424_KS', 'FUSARIUM/Fv_Fm_grp70_30', 'MILK/Milk_Fat_1224_KS', 'AMYLOSE/Rice_Amylose_313_YbasedSplit', 'MANURE21/All_manure_MgO_SPXY_strat_Manure_type', 'FUSARIUM/FinalScore_grp70_30_scoreQ', 'MANURE21/All_manure_K2O_SPXY_strat_Manure_type', 'QUARTZ/Quartz_spxy70', 'GRAPEVINE_LeafTraits/An_spxyG70_30_byCultivar_MicroNIR_NeoSpectra', 'ALPINE/ALPINE_N_552_KS', 'LUCAS/LUCAS_SOC_Cropland_8731_NocitaKS', 'MALARIA/Malaria_Sporozoite_229_Maia', 'MALARIA/Malaria_Oocist_333_Maia', 'BISCUIT/Biscuit_Fat_40_RandomSplit', 'TABLET/Escitalopramt_310_Zhao', 'PHOSPHORUS/Pi_spxyG', 'ECOSIS_LeafTraits/Chla+b_spxyG_species', 'ECOSIS_LeafTraits/Ccar_spxyG_block2deg', 'MILK/Milk_Urea_1224_KS', 'BISCUIT/Biscuit_Sucrose_40_RandomSplit', 'DIESEL/DIESEL_bp50_246_hla-b', 'GRAPEVINE_LeafTraits/An_spxyG70_30_byCultivar_NeoSpectra', 'GRAPEVINE_LeafTraits/An_spxyG70_30_byCultivar_ASD', 'BERRY/brix_groupSampleID_stratDateVar_balRows', 'LUCAS/LUCAS_SOC_all_26650_NocitaKS', 'BERRY/ph_groupSampleID_stratDateVar_balRows', 'BEEFMARBLING/Beef_Marbling_RandomSplit', 'GRAPEVINES/grapevine_chloride_556_KS', 'MANURE21/All_manure_CaO_SPXY_strat_Manure_type', 'CORN/Corn_Starch_80_ZhengChenPelegYbaseSplit', 'DIESEL/DIESEL_bp50_246_b-a', 'GRAPEVINE_LeafTraits/An_spxyG70_30_byCultivar_MicroNIR', 'PLUMS/Brix_spxy70', 'PEACH/Brix_spxy70', 'ECOSIS_LeafTraits/LMA_spxyG_block2deg', 'ALPINE/ALPINE_C_424_RobustnessAlps', 'WOOD_density/WOOD_Density_402_Olale', 'LUCAS/LUCAS_pH_Organic_1763_LiuRandomOrganic', 'BEER/Beer_OriginalExtract_60_YbaseSplit', 'DarkResp/Rd25_GTtestSite', 'MANURE21/All_manure_P2O5_SPXY_strat_Manure_type', 'ECOSIS_LeafTraits/Chla+b_spxyG_block2deg', 'DarkResp/Rd25_XSBNtestSite', 'PHOSPHORUS/NP_spxyG']
+DATASETS_PATHS = [f"data/regression/{ds}" for ds in DATASETS]
+
 result = nirs4all.run(
     pipeline=pipeline,
     dataset=DATAPATH,
     name="TABPFN_Paper",
-    verbose=1,
+    verbose=1,  # Increase verbosity to see more details
     random_state=42,
     cache=CacheConfig(memory_warning_threshold_mb=16984),
 )
