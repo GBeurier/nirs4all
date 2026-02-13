@@ -291,6 +291,14 @@ class PipelineOrchestrator:
                         n_workers = multiprocessing.cpu_count()
                     n_workers = min(n_workers, len(pipeline_configs.steps))
 
+                    # Create a pickle-safe copy of the executor for parallel workers.
+                    # PipelineExecutor.store holds a WorkspaceStore with a threading.RLock
+                    # which cannot be pickled by loky.  Workers never use executor.store
+                    # (they use runtime_context.store which is set to None), so we null it.
+                    import copy as _copy
+                    parallel_executor = _copy.copy(executor)
+                    parallel_executor.store = None
+
                     # Prepare variant data for parallel execution
                     variant_data_list = []
                     for _i, (steps, config_name, gen_choices) in enumerate(zip(
@@ -309,17 +317,21 @@ class PipelineOrchestrator:
                         # Initialize context
                         context = executor.initialize_context(dataset_copy)
 
-                        # Create runtime context
+                        # Create runtime context for parallel workers.
+                        # Objects containing threading locks are set to None since they
+                        # can't be pickled by loky: store (WorkspaceStore._lock),
+                        # step_cache (StepCache._lock), and explainer (holds a reference
+                        # chain back to the runner/orchestrator/store).
                         runtime_context_copy = RuntimeContext(
-                            store=None,  # Disabled in parallel workers
+                            store=None,
                             artifact_loader=artifact_loader,
                             artifact_registry=artifact_registry,
-                            step_runner=executor.step_runner,
+                            step_runner=parallel_executor.step_runner,
                             target_model=target_model,
-                            explainer=explainer,
+                            explainer=None,
                             run_id=run_id,
                             cache_config=self.cache_config,
-                            step_cache=step_cache,
+                            step_cache=None,
                             best_refit_chains=best_refit_chains,
                             random_state=self.random_state,
                         )
@@ -329,16 +341,19 @@ class PipelineOrchestrator:
                             "config_name": config_name,
                             "gen_choices": gen_choices,
                             "dataset": dataset_copy,
-                            "executor": executor,
+                            "executor": parallel_executor,
                             "context": context,
                             "runtime_context": runtime_context_copy,
                             "run_number": current_run,
                             "total_runs": total_runs,
+                            "verbose": self.verbose,
+                            "keep_datasets": self.keep_datasets,
                         })
 
-                    # Execute variants in parallel
+                    # Execute variants in parallel using the module-level function
+                    # (not a bound method) to avoid pickling the orchestrator.
                     results = Parallel(n_jobs=n_workers, backend='loky', verbose=0)(
-                        delayed(self._execute_single_variant)(variant_data)
+                        delayed(_execute_single_variant)(variant_data)
                         for variant_data in variant_data_list
                     )
 
@@ -375,10 +390,21 @@ class PipelineOrchestrator:
                                     dataset_hash=dataset_obj.content_hash() if dataset_obj else "",
                                 )
 
-                                # Flush predictions with this pipeline_id
-                                config_predictions.flush(
-                                    pipeline_id=pipeline_id,
-                                    store=self.store,
+                                # Sync artifact records from parallel worker
+                                for art_record in result.get("artifact_records", []):
+                                    self.store.register_existing_artifact(**art_record)
+
+                                # Save chains from parallel worker (must precede
+                                # prediction flush due to foreign key constraint)
+                                for chain_data in result.get("chain_data_list", []):
+                                    self.store.save_chain(pipeline_id=pipeline_id, **chain_data)
+
+                                # Flush predictions using chain-aware resolver
+                                executor._flush_predictions_to_store(
+                                    self.store,
+                                    pipeline_id,
+                                    config_predictions,
+                                    runtime_context=None,
                                 )
 
                                 # Compute metrics for complete_pipeline
@@ -610,6 +636,11 @@ class PipelineOrchestrator:
                             f"{cache_stats['evictions']} evictions, "
                             f"peak {cache_stats['peak_mb']:.1f} MB"
                         )
+
+                # In parallel mode, 'dataset' still holds the raw input parameter;
+                # load a SpectroDataset for metadata access in common post-execution code.
+                if use_parallel:
+                    dataset = dataset_configs.get_dataset(config, name)
 
                 # Store last aggregate column for visualization integration
                 self.last_aggregate_column = dataset.aggregate
@@ -1785,114 +1816,134 @@ class PipelineOrchestrator:
                 logger.info(summary)
                 logger.info("=" * 120)
 
-    def _execute_single_variant(
-        self,
-        variant_data: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Execute a single pipeline variant (for parallel execution).
+    # _execute_single_variant is a module-level function (see below)
+    # to avoid pickling the orchestrator (which contains WorkspaceStore with
+    # threading.RLock) when dispatched to loky workers.
 
-        Args:
-            variant_data: Dictionary containing all data needed for variant execution:
-                - steps: Pipeline steps
-                - config_name: Variant name
-                - gen_choices: Generator choices
-                - dataset: SpectroDataset
-                - executor: PipelineExecutor
-                - context: Execution context
-                - runtime_context: RuntimeContext
-                - run_number: Current run number
-                - total_runs: Total number of runs
 
-        Returns:
-            Dictionary with:
-                - predictions: Predictions store for this variant
-                - pipeline_uid: Pipeline UID (if any)
-                - execution_trace: Execution trace
-                - preprocessed_data: Preprocessed dataset snapshot (if keep_datasets=True)
-                - config_name: Variant name
-                - steps: Pipeline steps (for store reconstruction)
-                - generator_choices: Generator choices (for store reconstruction)
-                - dataset: Dataset object (for store reconstruction)
-                - duration_ms: Execution duration in milliseconds
-        """
-        import copy
-        import time
+def _execute_single_variant(variant_data: dict[str, Any]) -> dict[str, Any]:
+    """Execute a single pipeline variant in a parallel worker.
 
-        # Extract data
-        steps = variant_data["steps"]
-        config_name = variant_data["config_name"]
-        gen_choices = variant_data["gen_choices"]
-        dataset = variant_data["dataset"]
-        executor = variant_data["executor"]
-        context = variant_data["context"]
-        runtime_context = variant_data["runtime_context"]
-        run_number = variant_data["run_number"]
-        total_runs = variant_data["total_runs"]
+    This is a module-level function (not a method) so that joblib/loky only
+    pickles the variant_data dict — not the PipelineOrchestrator instance
+    which contains a WorkspaceStore with an unpicklable threading.RLock.
 
-        # Deep copy mutable objects to avoid cross-worker interference
-        dataset = copy.deepcopy(dataset)
-        context = copy.deepcopy(context)
-        runtime_context = copy.deepcopy(runtime_context)
+    Args:
+        variant_data: Dictionary containing all data needed for variant execution.
 
-        # Disable store operations in parallel workers to avoid concurrent writes
-        if runtime_context:
-            runtime_context.store = None
+    Returns:
+        Dictionary with predictions, traces, and metadata for post-processing.
+    """
+    import copy
+    import time
 
-        logger.info(f"Run {run_number}/{total_runs}: pipeline '{config_name}' on dataset")
+    steps = variant_data["steps"]
+    config_name = variant_data["config_name"]
+    gen_choices = variant_data["gen_choices"]
+    dataset = variant_data["dataset"]
+    executor = variant_data["executor"]
+    context = variant_data["context"]
+    runtime_context = variant_data["runtime_context"]
+    run_number = variant_data["run_number"]
+    total_runs = variant_data["total_runs"]
+    verbose = variant_data["verbose"]
+    keep_datasets = variant_data["keep_datasets"]
 
-        if self.verbose > 0:
-            print(dataset)
+    # Deep copy mutable objects to avoid cross-worker interference
+    dataset = copy.deepcopy(dataset)
+    context = copy.deepcopy(context)
+    runtime_context = copy.deepcopy(runtime_context)
 
-        # Create prediction store for this variant
-        config_predictions = Predictions()
-        if dataset.repetition:
-            config_predictions.set_repetition_column(dataset.repetition)
+    # Disable store operations in parallel workers to avoid concurrent writes
+    if runtime_context:
+        runtime_context.store = None
 
-        # Track execution time
-        start_time = time.monotonic()
+    logger.info(f"Run {run_number}/{total_runs}: pipeline '{config_name}' on dataset")
 
-        # Execute variant
-        try:
-            executor.execute(
-                steps=steps,
-                config_name=config_name,
-                dataset=dataset,
-                context=context,
-                runtime_context=runtime_context,
-                prediction_store=config_predictions,
-                generator_choices=gen_choices
-            )
-            logger.info(
-                f"Run {run_number}/{total_runs} completed: '{config_name}', "
-                f"{config_predictions.num_predictions} predictions generated"
-            )
-        except Exception as e:
-            logger.error(f"Variant '{config_name}' failed: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
+    if verbose > 0:
+        print(dataset)
 
-        # Compute duration
-        duration_ms = int((time.monotonic() - start_time) * 1000)
+    # Create prediction store for this variant
+    config_predictions = Predictions()
+    if dataset.repetition:
+        config_predictions.set_repetition_column(dataset.repetition)
 
-        # Capture results
-        result = {
-            "predictions": config_predictions,
-            "pipeline_uid": runtime_context.pipeline_uid if runtime_context else None,
-            "execution_trace": runtime_context.get_execution_trace() if runtime_context else None,
-            "config_name": config_name,
-            "best_refit_chains": runtime_context.best_refit_chains if runtime_context else None,
-            "steps": steps,
-            "generator_choices": gen_choices,
-            "dataset": dataset,
-            "duration_ms": duration_ms,
-        }
+    # Track execution time
+    start_time = time.monotonic()
 
-        # Capture preprocessed data snapshot if requested
-        if self.keep_datasets:
-            result["preprocessed_data"] = dataset.x({}, layout="2d")
-            result["preprocessing_key"] = dataset.short_preprocessings_str()
+    # Execute variant
+    try:
+        executor.execute(
+            steps=steps,
+            config_name=config_name,
+            dataset=dataset,
+            context=context,
+            runtime_context=runtime_context,
+            prediction_store=config_predictions,
+            generator_choices=gen_choices,
+        )
+        logger.info(
+            f"Run {run_number}/{total_runs} completed: '{config_name}', "
+            f"{config_predictions.num_predictions} predictions generated"
+        )
+    except Exception as e:
+        logger.error(f"Variant '{config_name}' failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
-        logger.debug(f"Worker returning result: {len(result['predictions']._buffer)} predictions in buffer")
+    # Compute duration
+    duration_ms = int((time.monotonic() - start_time) * 1000)
 
-        return result
+    # Build chain data for store reconstruction.
+    # In parallel workers store=None, so executor.execute() skips chain
+    # building and artifact syncing.  We do it here so the orchestrator
+    # can reconstruct store state after collecting results.
+    chain_data_list: list[dict[str, Any]] = []
+    artifact_records: list[dict[str, Any]] = []
+
+    tr = getattr(runtime_context, 'trace_recorder', None) if runtime_context else None
+    if tr is not None:
+        from nirs4all.pipeline.storage.chain_builder import ChainBuilder
+        trace = tr.finalize(
+            preprocessing_chain=dataset.short_preprocessings_str(),
+            metadata={"n_steps": len(steps)}
+        )
+        chain_builder = ChainBuilder(trace, executor.artifact_registry)
+        chain_data_list = chain_builder.build_all()
+
+    if executor.artifact_registry is not None:
+        for record in executor.artifact_registry.get_all_records():
+            artifact_records.append({
+                "artifact_id": record.artifact_id,
+                "path": record.path,
+                "content_hash": record.content_hash,
+                "operator_class": record.class_name,
+                "artifact_type": record.artifact_type.value,
+                "format": record.format,
+                "size_bytes": record.size_bytes,
+            })
+
+    # Capture results
+    result = {
+        "predictions": config_predictions,
+        "pipeline_uid": runtime_context.pipeline_uid if runtime_context else None,
+        "execution_trace": runtime_context.get_execution_trace() if runtime_context else None,
+        "config_name": config_name,
+        "best_refit_chains": runtime_context.best_refit_chains if runtime_context else None,
+        "steps": steps,
+        "generator_choices": gen_choices,
+        "dataset": dataset,
+        "duration_ms": duration_ms,
+        "chain_data_list": chain_data_list,
+        "artifact_records": artifact_records,
+    }
+
+    # Capture preprocessed data snapshot if requested
+    if keep_datasets:
+        result["preprocessed_data"] = dataset.x({}, layout="2d")
+        result["preprocessing_key"] = dataset.short_preprocessings_str()
+
+    logger.debug(f"Worker returning result: {len(result['predictions']._buffer)} predictions in buffer")
+
+    return result
