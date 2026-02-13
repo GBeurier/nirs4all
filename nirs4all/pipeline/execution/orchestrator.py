@@ -361,14 +361,24 @@ class PipelineOrchestrator:
                     # In parallel mode, store=None in workers to avoid concurrent writes.
                     # This means pipeline records and predictions were never saved to the
                     # store. We must reconstruct them here so refit pass and tab reports work.
-                    logger.info(f"Processing {len(results)} parallel execution results")
 
-                    for idx, result in enumerate(results):
+                    # Filter out failed variants
+                    failed_variants = [r for r in results if r.get("failed", False)]
+                    successful_results = [r for r in results if not r.get("failed", False)]
+
+                    if failed_variants:
+                        logger.warning(f"Skipped {len(failed_variants)} variant(s) due to incompatible hyperparameters:")
+                        for failed in failed_variants:
+                            logger.warning(f"  - {failed.get('config_name', 'unknown')}: {failed.get('failure_reason', 'unknown error')}")
+
+                    logger.info(f"Processing {len(successful_results)} successful parallel execution results ({len(failed_variants)} failed)")
+
+                    for idx, result in enumerate(successful_results):
                         config_predictions = result["predictions"]
                         config_name = result.get("config_name", "unknown")
 
                         logger.debug(
-                            f"Result {idx+1}/{len(results)}: config '{config_name}', "
+                            f"Result {idx+1}/{len(successful_results)}: config '{config_name}', "
                             f"{config_predictions.num_predictions} predictions"
                         )
 
@@ -955,8 +965,26 @@ class PipelineOrchestrator:
         # Determine if we have multi-config criteria (non-default selection)
         is_multi_config = len(criteria) > 1 or (len(criteria) == 1 and (criteria[0].top_k > 1 or criteria[0].ranking != "rmsecv"))
 
+        # Always show refit mode for transparency
+        if criteria:
+            print(f"\n{'=' * 80}")
+            print(f"REFIT MODE: {'Multi-criteria' if is_multi_config else 'Single criterion'}")
+            print(f"Criteria: {len(criteria)} criterion/criteria")
+            print(f"{'=' * 80}\n", flush=True)
+
         if is_multi_config:
             # Multi-config refit: extract top configs based on criteria
+            # Log each criterion's selection for transparency
+            logger.info("=" * 80)
+            logger.info("MULTI-CRITERIA REFIT SELECTION")
+            logger.info("=" * 80)
+
+            for crit_idx, criterion in enumerate(criteria, 1):
+                logger.info(
+                    f"Criterion #{crit_idx}: ranking={criterion.ranking}, "
+                    f"top_k={criterion.top_k}, metric={criterion.metric or 'default'}"
+                )
+
             try:
                 refit_configs = extract_top_configs(
                     self.store, run_id, criteria,
@@ -967,15 +995,23 @@ class PipelineOrchestrator:
                 logger.warning(f"Cannot perform refit: {e}")
                 return
 
-            logger.info(f"Multi-config refit: {len(refit_configs)} pipeline(s) selected")
+            total_selections = sum(c.top_k for c in criteria)
+            num_duplicates = total_selections - len(refit_configs)
+            logger.info(
+                f"Selection result: {len(refit_configs)} unique config(s) "
+                f"(from {total_selections} total selections, {num_duplicates} duplicates)"
+            )
+            logger.info("-" * 80)
+
             all_winning_pids: list[str] = []
             total_predictions = 0
             any_success = False
 
-            for config_idx, refit_config in enumerate(refit_configs):
+            for config_idx, refit_config in enumerate(refit_configs, 1):
+                criteria_str = ", ".join(refit_config.selected_by_criteria) if refit_config.selected_by_criteria else "unknown"
                 logger.info(
-                    f"Refit config {config_idx + 1}/{len(refit_configs)}: "
-                    f"{refit_config.config_name} (score={refit_config.best_score:.4f})"
+                    f"Refitting #{config_idx}/{len(refit_configs)}: "
+                    f"'{refit_config.config_name}' [{criteria_str}] (best_val={refit_config.best_score:.4f})"
                 )
                 refit_result = self._execute_single_refit(
                     refit_config=refit_config,
@@ -994,12 +1030,17 @@ class PipelineOrchestrator:
                     total_predictions += refit_result.predictions_count
                     if refit_config.pipeline_id:
                         all_winning_pids.append(refit_config.pipeline_id)
+                    logger.info(f"  ✓ Refit #{config_idx} completed successfully")
+                else:
+                    logger.warning(f"  ✗ Refit #{config_idx} failed")
 
+            logger.info("=" * 80)
             if any_success and total_predictions > 0:
                 logger.info(
-                    f"Multi-config refit completed: {total_predictions} "
-                    f"prediction(s) added across {len(refit_configs)} config(s)"
+                    f"REFIT SUMMARY: {total_predictions} prediction(s) added "
+                    f"across {len(refit_configs)} config(s)"
                 )
+            logger.info("=" * 80)
 
             # Clean up transient artifacts for all winning pipelines
             if all_winning_pids:
@@ -1565,9 +1606,16 @@ class PipelineOrchestrator:
                 pred_index=pred_index,
             )
             model_word = "model" if len(rankable) == 1 else "models"
-            print(f"\nDataset '{name}' - Final scores ({len(rankable)} {model_word}):\n{summary}", flush=True)
+
+            # Detect multi-criteria refit from pipeline names
+            refit_suffix = self._detect_refit_criteria(rankable)
+            header = f"Dataset '{name}' - Final scores ({len(rankable)} {model_word})"
+            if refit_suffix:
+                header += f" - {refit_suffix}"
+
+            print(f"\n{header}:\n{summary}", flush=True)
             if self.verbose > 0:
-                logger.info(f"Dataset '{name}' - Final scores ({len(rankable)} {model_word}):\n{summary}")
+                logger.info(f"{header}:\n{summary}")
 
         # --- Top 30 CV chains (averaged across folds) ---
         avg_entries = predictions.top(
@@ -1686,6 +1734,51 @@ class PipelineOrchestrator:
                 aggregate_exclude_outliers=aggregate_exclude_outliers,
             )
             logger.info(tab_report)
+
+    def _detect_refit_criteria(self, entries: list[dict]) -> str:
+        """Detect and format multi-criteria refit info from pipeline names.
+
+        Args:
+            entries: List of prediction entries (refit models)
+
+        Returns:
+            Formatted string like "Multi-criteria refit [rmsecv(top3), mean_val(top3)]"
+            or empty string if not multi-criteria refit.
+        """
+        if not entries:
+            return ""
+
+        # Extract unique criterion sets from pipeline names
+        all_criteria: set[str] = set()
+        for entry in entries:
+            config_name = entry.get("config_name", "")
+            # Check if this is a multi-criteria refit (has both rmsecv and mean_val in name)
+            if "_refit_" in config_name:
+                # Extract the suffix after _refit_
+                parts = config_name.split("_refit_")
+                if len(parts) > 1:
+                    suffix = parts[1]
+                    # Parse criterion labels like "rmsecvt3_mean_valt3"
+                    # Convert back to readable format
+                    criteria = []
+                    if "rmsecvt" in suffix:
+                        import re
+                        match = re.search(r"rmsecvt(\d+)", suffix)
+                        if match:
+                            criteria.append(f"rmsecv(top{match.group(1)})")
+                    if "mean_valt" in suffix:
+                        import re
+                        match = re.search(r"mean_valt(\d+)", suffix)
+                        if match:
+                            criteria.append(f"mean_val(top{match.group(1)})")
+
+                    if criteria:
+                        all_criteria.update(criteria)
+
+        if len(all_criteria) > 1:
+            sorted_criteria = sorted(all_criteria)
+            return f"Multi-criteria refit [{', '.join(sorted_criteria)}]"
+        return ""
 
     def _merge_refit_chains(
         self,
@@ -1872,6 +1965,8 @@ def _execute_single_variant(variant_data: dict[str, Any]) -> dict[str, Any]:
     start_time = time.monotonic()
 
     # Execute variant
+    variant_failed = False
+    failure_reason = None
     try:
         executor.execute(
             steps=steps,
@@ -1887,10 +1982,19 @@ def _execute_single_variant(variant_data: dict[str, Any]) -> dict[str, Any]:
             f"{config_predictions.num_predictions} predictions generated"
         )
     except Exception as e:
-        logger.error(f"Variant '{config_name}' failed: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
+        error_msg = str(e)
+        # Check if this is a recoverable error (invalid hyperparameters for this dataset)
+        if 'n_components' in error_msg or 'upper bound' in error_msg or 'Invalid hyperparameters' in error_msg:
+            logger.warning(f"Variant '{config_name}' skipped due to incompatible hyperparameters: {error_msg}")
+            variant_failed = True
+            failure_reason = error_msg
+            # Don't raise - mark as failed and continue
+        else:
+            # Unknown error - log and re-raise
+            logger.error(f"Variant '{config_name}' failed with unexpected error: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
     # Compute duration
     duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -1937,6 +2041,8 @@ def _execute_single_variant(variant_data: dict[str, Any]) -> dict[str, Any]:
         "duration_ms": duration_ms,
         "chain_data_list": chain_data_list,
         "artifact_records": artifact_records,
+        "failed": variant_failed,
+        "failure_reason": failure_reason,
     }
 
     # Capture preprocessed data snapshot if requested

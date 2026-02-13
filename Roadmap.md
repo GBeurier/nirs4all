@@ -12,9 +12,6 @@
 > [Design] Define all services
 > [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
 
-> [Parralellization] make a study on that
-
-
 ## FEATURES
 > [Docs] Updated
 

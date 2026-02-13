@@ -139,7 +139,13 @@ def execute_simple_refit(
     # _resolve_cv_config_name can strip the _refit suffix and match
     # the CV fold entries for report lookups.
     cv_config_name = refit_config.config_name or runtime_context.pipeline_name or "pipeline"
-    refit_pipeline_name = f"{cv_config_name}_refit"
+
+    # Add criterion information to the pipeline name for multi-criteria refit
+    if refit_config.selected_by_criteria:
+        criteria_suffix = "_".join(c.replace("(", "").replace(")", "").replace("top", "t") for c in refit_config.selected_by_criteria)
+        refit_pipeline_name = f"{cv_config_name}_refit_{criteria_suffix}"
+    else:
+        refit_pipeline_name = f"{cv_config_name}_refit"
 
     # Create a local Predictions to capture refit entries
     refit_predictions = Predictions()
