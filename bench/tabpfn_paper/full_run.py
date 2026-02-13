@@ -116,35 +116,35 @@ pipeline = [
     {
         "branch": {
             "linear_models": [
-                {
-                    "_cartesian_": [
-                        # {"_or_": [None, KubelkaMunk]},
-                        {"_or_": [None, SNV, MSC, EMSC(degree=1), EMSC(degree=2)]},
-                        # {"_or_": [None,
-                        #         SG(window_length=11, polyorder=2, deriv=1), SG(15,2,1), SG(21,2,1), SG(31,2,1), SG(15,3,2), SG(21,3,2), SG(31,3,2),
-                        #         # Gaussian(order=0, sigma=1), Gaussian(order=0, sigma=2),
-                        #         # WaveletDenoise('db4', level=3), WaveletDenoise('db4', level=5)
-                        #         ]},
-                        {"_or_": [None, ASLSBaseline, Detrend]},
-                        {"_or_": [None, OSC(1), OSC(2), OSC(3)]},
+                # {
+                #     "_cartesian_": [
+                #         # {"_or_": [None, KubelkaMunk]},
+                #         {"_or_": [None, SNV, MSC, EMSC(degree=1), EMSC(degree=2)]},
+                #         # {"_or_": [None,
+                #         #         SG(window_length=11, polyorder=2, deriv=1), SG(15,2,1), SG(21,2,1), SG(31,2,1), SG(15,3,2), SG(21,3,2), SG(31,3,2),
+                #         #         # Gaussian(order=0, sigma=1), Gaussian(order=0, sigma=2),
+                #         #         # WaveletDenoise('db4', level=3), WaveletDenoise('db4', level=5)
+                #         #         ]},
+                #         {"_or_": [None, ASLSBaseline, Detrend]},
+                #         {"_or_": [None, OSC(1), OSC(2), OSC(3)]},
 
-                    ],
-                    "count": CFG["linear_cartesian_count"],
-                },
-                StandardScaler(with_mean=True, with_std=False),
-                {
-                    "model": PLSRegression(scale=False),
-                    "name": "PLS",
-                    "finetune_params": {
-                        "n_trials": CFG["pls_finetune_trials"],
-                        "sampler": "binary",
-                        # "pruner": 'successive_halving',
-                        # "n_jobs": 20,
-                        "model_params": {
-                            "n_components": ('int', 1, 25),
-                        },
-                    },
-                },
+                #     ],
+                #     "count": CFG["linear_cartesian_count"],
+                # },
+                # StandardScaler(with_mean=True, with_std=False),
+                # {
+                #     "model": PLSRegression(scale=False),
+                #     "name": "PLS",
+                #     "finetune_params": {
+                #         "n_trials": CFG["pls_finetune_trials"],
+                #         "sampler": "binary",
+                #         # "pruner": 'successive_halving',
+                #         # "n_jobs": 20,
+                #         "model_params": {
+                #             "n_components": ('int', 1, 25),
+                #         },
+                #     },
+                # },
                 # {
                 #     "model": Ridge(),
                 #     "name": "Ridge",
@@ -233,41 +233,42 @@ pipeline = [
             ],
 
             "tabular_models": [
-                # # {"_or_": [None, {"y_processing": StandardScaler()}]},
-                # {
-                #     "_cartesian_": [
-                #         # {"_or_": [Baseline, , Gaussian, Normalize, AreaNormalization, KubelkaMunk, Haar]},
-                #         {"_or_":[None, SNV]},
-                #         {"_or_": [None, SG(window_length=11, polyorder=2, deriv=1), SG(15,2,1), SG(21,2,1), SG(31,2,1), SG(15,3,2), SG(21,3,2), SG(31,3,2)]},
-                #         {"_or_": [None, OSC, Detrend]}, #ASLSBaseline, StandardScaler(with_mean=True, with_std=False), Detrend]},
-                #         # {"_or_": [ASLSBaseline, Detrend]},
-                #         # {"_or_": [OSC(1), OSC(2), OSC(3)]},
-                #         # {"_or_": [None, FlexiblePCA(n_components=0.25)]},
-                #     ],
-                #     "count": CFG["tabular_cartesian_count"],
-                # },
-                # # StandardScaler(with_mean=False, with_std=True),
+                # {"_or_": [None, {"y_processing": StandardScaler()}]},
+                {
+                    "_cartesian_": [
+                        # {"_or_": [Baseline, , Gaussian, Normalize, AreaNormalization, KubelkaMunk, Haar]},
+                        {"_or_":[None, SNV]},
+                        # {"_or_": [None, SG(window_length=11, polyorder=2, deriv=1), SG(15,2,1), SG(21,2,1), SG(31,2,1), SG(15,3,2), SG(21,3,2), SG(31,3,2)]},
+                        {"_or_": [None, OSC, Detrend]}, #ASLSBaseline, StandardScaler(with_mean=True, with_std=False), Detrend]},
+                        # {"_or_": [ASLSBaseline, Detrend]},
+                        # {"_or_": [OSC(1), OSC(2), OSC(3)]},
+                        # {"_or_": [None, FlexiblePCA(n_components=0.25)]},
+                    ],
+                    "count": CFG["tabular_cartesian_count"],
+                },
+                # StandardScaler(with_mean=False, with_std=True),
 
-                # # {
-                # #     "model": CatBoostRegressor(iterations=CFG["catboost_iterations"], depth=8, learning_rate=0.1, random_state=42, verbose=0, allow_writing_files=False),
-                # #     "name": "CatBoost",
-                # #     "refit_params": {"iterations": CFG["catboost_refit_iterations"], "depth": 8, "learning_rate": 0.05, "verbose": 1},
-                # # },
                 # {
-                #     "model": TabPFNRegressor(ignore_pretraining_limits=True, model_path="tabpfn-v2.5-regressor-v2.5_real.ckpt", device="cuda"),
-                #     "name": "TabPFN",
-                #     "refit_params": {"n_estimators": CFG["tabpfn_refit_estimators"], "ignore_pretraining_limits":True}
+                #     "model": CatBoostRegressor(iterations=CFG["catboost_iterations"], depth=8, learning_rate=0.1, random_state=42, verbose=0, allow_writing_files=False),
+                #     "name": "CatBoost",
+                #     "refit_params": {"iterations": CFG["catboost_refit_iterations"], "depth": 8, "learning_rate": 0.05, "verbose": 1},
                 # },
+                {
+                    "model": TabPFNRegressor(ignore_pretraining_limits=True, model_path="tabpfn-v2.5-regressor-v2.5_real.ckpt", device="cuda"),
+                    "name": "TabPFN",
+                    "refit_params": {"n_estimators": CFG["tabpfn_refit_estimators"], "ignore_pretraining_limits":True}
+                },
             ],
             # Parallel execution configuration
-            # "parallel": True,  # Enable/disable parallel execution
-            # "n_jobs": -1,  # Number of parallel workers (-1=auto)
+            "parallel": True,  # Enable/disable parallel execution
+            "n_jobs": -1,  # Number of parallel workers (-1=auto)
         }
     },
 ]
 
 start_time = time.time()
-# 142sec: run 0 bch -1 opt 0, 130sec: 0 12 12, 142sec: 20 - 4, 136: 0 4 12, 60: -1 0 0, 72: 12 0 12, 150: 4 0 20
+#PLS > 142sec: run 0 bch -1 opt 0, 130sec: 0 12 12, 142sec: 20 - 4, 136: 0 4 12, 60: -1 0 0, 72: 12 0 12, 150: 4 0 20
+#PFN > 149sec 0 0 GPU, 170 sec 0 -1 CPU, 172 sec 0 -1 GPU, sec -1 0 CPU, 133 sec -1 0 GPU
 DATASETS = [
             # 'AMYLOSE/Rice_Amylose_313_YbasedSplit', # PLS 1.85 - TabPFN: 1.31 +
             # 'IncombustibleMaterial/TIC_spxy70', # PLS 3.31 - TabPFN: 3.14 *
@@ -290,7 +291,7 @@ result = nirs4all.run(
     name="TABPFN_Paper",
     verbose=1,
     random_state=42,
-    n_jobs=-1,
+    # n_jobs=-1,
     cache=CacheConfig(memory_warning_threshold_mb=16984),
 )
 

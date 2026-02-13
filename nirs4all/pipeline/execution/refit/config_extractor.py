@@ -46,6 +46,9 @@ class RefitConfig:
         best_score: Best validation score achieved.
         config_name: Original CV pipeline config name (for linking
             refit entries back to their CV fold data).
+        selected_by_criteria: List of criterion labels that selected this
+            config in multi-criteria refit (e.g. ["rmsecv(top3)", "mean_val(top1)"]).
+            Empty for single-criterion refit.
     """
 
     expanded_steps: list[Any]
@@ -56,6 +59,7 @@ class RefitConfig:
     metric: str = ""
     best_score: float = 0.0
     config_name: str = ""
+    selected_by_criteria: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -169,12 +173,15 @@ def extract_top_configs(
         first_metric = non_null[0] if non_null else "rmse"
 
     # Collect selected pipeline_ids (preserving order, deduplicating)
+    # Also track which criteria selected each pipeline
     selected_ids: list[str] = []
     seen_ids: set[str] = set()
+    pid_to_criteria: dict[str, list[str]] = {}  # pipeline_id -> list of criterion labels
 
-    for criterion in criteria:
+    for crit_idx, criterion in enumerate(criteria):
         effective_metric = criterion.metric or first_metric
         ascending = _infer_metric_ascending(effective_metric)
+        crit_label = f"{criterion.ranking}(top{criterion.top_k})"
 
         if criterion.ranking == "rmsecv":
             # Rank by best_val (which is RMSECV from the avg fold after the fix)
@@ -182,6 +189,12 @@ def extract_top_configs(
             scored = [(pid, s) for pid, s in scored if s is not None]
             scored.sort(key=lambda x: x[1], reverse=not ascending)
             top_ids = [pid for pid, _ in scored[:criterion.top_k]]
+
+            # Log this criterion's selections
+            names = completed["name"].to_list()
+            pid_to_name = dict(zip(pipeline_ids, names))
+            top_names = [pid_to_name.get(pid, pid) for pid in top_ids]
+            logger.info(f"  Criterion '{crit_label}' selected: {', '.join(top_names)}")
 
         elif criterion.ranking == "mean_val":
             # Rank by mean of individual fold validation scores
@@ -201,6 +214,13 @@ def extract_top_configs(
                 )
                 scored.sort(key=lambda x: x[1], reverse=not ascending)
                 top_ids = [pid for pid, _ in scored[:criterion.top_k]]
+
+            # Log this criterion's selections
+            names = completed["name"].to_list()
+            pid_to_name = dict(zip(pipeline_ids, names))
+            top_names = [pid_to_name.get(pid, pid) for pid in top_ids]
+            logger.info(f"  Criterion '{crit_label}' selected: {', '.join(top_names)}")
+
         else:
             logger.warning(f"Unknown ranking method '{criterion.ranking}', using 'rmsecv'")
             scored = list(zip(pipeline_ids, completed["best_val"].to_list()))
@@ -209,6 +229,10 @@ def extract_top_configs(
             top_ids = [pid for pid, _ in scored[:criterion.top_k]]
 
         for pid in top_ids:
+            if pid not in pid_to_criteria:
+                pid_to_criteria[pid] = []
+            pid_to_criteria[pid].append(crit_label)
+
             if pid not in seen_ids:
                 selected_ids.append(pid)
                 seen_ids.add(pid)
@@ -246,6 +270,7 @@ def extract_top_configs(
             metric=first_metric,
             best_score=best_score or 0.0,
             config_name=cv_config_name,
+            selected_by_criteria=pid_to_criteria.get(pipeline_id, []),
         ))
 
     return configs

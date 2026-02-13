@@ -226,6 +226,16 @@ class TabReportManager:
         datasets = set(e.get("dataset_name") for e in entries)
         show_dataset = len(datasets) > 1
 
+        # Check if we have multi-criteria refit (extract from config_name)
+        criteria_labels = {}
+        has_multi_criteria = False
+        for idx, entry in enumerate(entries):
+            config_name = entry.get("config_name", "")
+            label = TabReportManager._extract_criterion_label(config_name)
+            if label:
+                criteria_labels[idx] = label
+                has_multi_criteria = True
+
         headers = ["#", "Model"]
         if show_dataset:
             headers.append("Dataset")
@@ -237,8 +247,10 @@ class TabReportManager:
             f"CV_test_wavg",
             "Avg_val",
             f"{display_metric}_CV",
-            "Preprocessing"
         ])
+        if has_multi_criteria:
+            headers.append("Selected by")
+        headers.append("Preprocessing")
 
         rows = []
         for i, entry in enumerate(entries):
@@ -263,8 +275,12 @@ class TabReportManager:
                 _fmt(weighted_avg_test_scores.get(i)),
                 _fmt(entry.get("cv_rank_score")),  # This is cv_val_score (renamed to Avg_val)
                 _fmt(rmse_cv_scores.get(i)),
-                _truncate(preprocessing, 40),
             ])
+
+            if has_multi_criteria:
+                row.append(criteria_labels.get(i, ""))
+
+            row.append(_truncate(preprocessing, 40))
             rows.append(row)
 
         all_rows = [headers] + rows
@@ -415,14 +431,61 @@ class TabReportManager:
     def _resolve_cv_config_name(config_name: str) -> str:
         """Derive the original CV config_name from a refit config_name.
 
-        Refit entries get a suffix like ``_refit``, ``_stacking_refit``, etc.
+        Refit entries get a suffix like ``_refit``, ``_stacking_refit``,
+        ``_refit_rmsecvt3_mean_valt3``, etc.
         Strip known suffixes to recover the original CV config_name for
         index lookups.
         """
-        for suffix in ("_stacking_refit", "_refit"):
-            if config_name.endswith(suffix):
-                return config_name[: -len(suffix)]
+        import re
+
+        # Handle stacking refit first (more specific)
+        if config_name.endswith("_stacking_refit"):
+            return config_name[: -len("_stacking_refit")]
+
+        # Handle multi-criteria refit: _refit_<criteria> (e.g., _refit_rmsecvt3_mean_valt3)
+        # Pattern: _refit_ followed by criterion labels (rmsecvt3, mean_valt3, etc.)
+        match = re.search(r"_refit_[a-z0-9_]+$", config_name)
+        if match:
+            return config_name[: match.start()] + "_refit"
+
+        # Handle simple refit
+        if config_name.endswith("_refit"):
+            return config_name[: -len("_refit")]
+
         return config_name
+
+    @staticmethod
+    def _extract_criterion_label(config_name: str) -> str:
+        """Extract criterion label from refit config_name.
+
+        Args:
+            config_name: Config name like ``model_refit_rmsecvt3_mean_valt3``.
+
+        Returns:
+            Human-readable criterion label like ``"rmsecv(top3), mean_val(top3)"``
+            or empty string if not a multi-criteria refit.
+        """
+        import re
+
+        # Extract multi-criteria suffix: _refit_<criteria>
+        match = re.search(r"_refit_([a-z0-9_]+)$", config_name)
+        if not match:
+            return ""
+
+        suffix = match.group(1)
+        criteria = []
+
+        # Parse rmsecvt<N> patterns
+        for m in re.finditer(r"rmsecvt(\d+)", suffix):
+            k = m.group(1)
+            criteria.append(f"rmsecv(top{k})")
+
+        # Parse mean_valt<N> patterns
+        for m in re.finditer(r"mean_valt(\d+)", suffix):
+            k = m.group(1)
+            criteria.append(f"mean_val(top{k})")
+
+        return ", ".join(criteria) if criteria else ""
 
     @staticmethod
     def _compute_rmse_cv_indexed(

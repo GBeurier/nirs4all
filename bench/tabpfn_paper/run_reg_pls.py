@@ -161,7 +161,7 @@ DATASETS = [
             ]
 
 DATASETS_PATHS = [f"data/regression/{ds}" for ds in DATASETS]
-dataset_config = DatasetConfigs( DATASETS_PATHS, task_type="regression")
+dataset_config = DatasetConfigs(DATASETS_PATHS, task_type="regression")
 result = nirs4all.run(
     pipeline=pipeline,
     dataset=dataset_config,
