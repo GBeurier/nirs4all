@@ -17,7 +17,7 @@ import pytest
 
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.context import ExecutionPhase, RuntimeContext
-from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
+from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig, RefitCriterion, parse_refit_param
 from nirs4all.pipeline.execution.refit.executor import (
     RefitResult,
     _apply_params_to_model,
@@ -865,29 +865,445 @@ class TestRefitEnableLogic:
     def test_refit_none_means_disabled(self):
         """refit=None does not trigger refit."""
         refit = None
-        refit_enabled = refit is True or (isinstance(refit, dict) and refit)
+        refit_enabled = refit is True or (isinstance(refit, dict) and refit) or (isinstance(refit, list) and refit)
         assert refit_enabled is False
 
     def test_refit_false_means_disabled(self):
         """refit=False does not trigger refit."""
         refit = False
-        refit_enabled = refit is True or (isinstance(refit, dict) and refit)
+        refit_enabled = refit is True or (isinstance(refit, dict) and refit) or (isinstance(refit, list) and refit)
         assert refit_enabled is False
 
     def test_refit_true_means_enabled(self):
         """refit=True triggers refit."""
         refit = True
-        refit_enabled = refit is True or (isinstance(refit, dict) and refit)
+        refit_enabled = refit is True or (isinstance(refit, dict) and refit) or (isinstance(refit, list) and refit)
         assert refit_enabled is True
 
     def test_refit_empty_dict_means_disabled(self):
         """refit={} does not trigger refit (empty dict is falsy)."""
         refit: dict = {}
-        refit_enabled = refit is True or (isinstance(refit, dict) and refit)
+        refit_enabled = refit is True or (isinstance(refit, dict) and refit) or (isinstance(refit, list) and refit)
         assert not refit_enabled
 
     def test_refit_nonempty_dict_means_enabled(self):
         """refit={...} triggers refit."""
         refit = {"strategy": "simple"}
-        refit_enabled = refit is True or (isinstance(refit, dict) and refit)
+        refit_enabled = refit is True or (isinstance(refit, dict) and refit) or (isinstance(refit, list) and refit)
         assert refit_enabled
+
+    def test_refit_nonempty_list_means_enabled(self):
+        """refit=[{...}] triggers refit."""
+        refit = [{"top_k": 3}]
+        refit_enabled = refit is True or (isinstance(refit, dict) and refit) or (isinstance(refit, list) and refit)
+        assert refit_enabled
+
+    def test_refit_empty_list_means_disabled(self):
+        """refit=[] does not trigger refit."""
+        refit: list = []
+        refit_enabled = refit is True or (isinstance(refit, dict) and refit) or (isinstance(refit, list) and refit)
+        assert not refit_enabled
+
+
+# =========================================================================
+# Refit aggregation reporting
+# =========================================================================
+
+
+def _make_refit_prediction_entry(
+    partition: str,
+    n_samples: int = 20,
+    model_name: str = "PLS",
+    config_name: str = "pipeline_refit",
+    dataset_name: str = "ds",
+    fold_id: str = "final",
+    sample_ids: list | None = None,
+    noise_scale: float = 0.1,
+) -> dict[str, Any]:
+    """Create a realistic refit prediction entry with arrays and metadata."""
+    rng = np.random.RandomState(42)
+    y_true = rng.rand(n_samples)
+    y_pred = y_true + rng.randn(n_samples) * noise_scale
+
+    metadata: dict[str, Any] = {}
+    if sample_ids is not None:
+        metadata["Sample_ID"] = sample_ids
+
+    return {
+        "id": f"{model_name}_{partition}_{fold_id}",
+        "dataset_name": dataset_name,
+        "config_name": config_name,
+        "model_name": model_name,
+        "model_classname": model_name,
+        "fold_id": fold_id,
+        "step_idx": 0,
+        "partition": partition,
+        "y_true": y_true,
+        "y_pred": y_pred,
+        "metadata": metadata,
+        "val_score": 0.05,
+        "test_score": 0.08,
+        "train_score": 0.03,
+        "cv_rank_score": 0.06,
+        "cv_test_score": 0.09,
+        "metric": "rmse",
+        "task_type": "regression",
+        "n_samples": n_samples,
+        "n_features": 100,
+        "refit_context": REFIT_CONTEXT_STANDALONE,
+    }
+
+
+class TestRefitAggregation:
+    """Tests for aggregation scores in refit reports."""
+
+    def test_refit_tab_report_includes_aggregation(self):
+        """TabReportManager shows aggregated rows for refit entries with metadata."""
+        from nirs4all.visualization.reports import TabReportManager
+
+        # 20 spectra from 5 physical samples (4 reps each)
+        sample_ids = [f"S{i}" for i in range(5) for _ in range(4)]
+
+        preds = Predictions()
+        for partition in ("train", "test"):
+            entry = _make_refit_prediction_entry(
+                partition=partition, n_samples=20, sample_ids=sample_ids,
+            )
+            preds._buffer.append(entry)
+
+        # Get the test entry as "best_refit"
+        test_entry = [e for e in preds._buffer if e["partition"] == "test"][0]
+        partitions = preds.get_entry_partitions(test_entry)
+
+        tab, _ = TabReportManager.generate_best_score_tab_report(
+            partitions, aggregate="Sample_ID",
+        )
+
+        # The tab report should contain an aggregated row (marked with *)
+        assert "*" in tab
+        assert "Sample_ID" in tab or "RMSE*" in tab or "R²*" in tab
+
+    def test_refit_tab_report_no_aggregation_when_no_metadata(self):
+        """TabReportManager skips aggregation gracefully when metadata is missing."""
+        from nirs4all.visualization.reports import TabReportManager
+
+        preds = Predictions()
+        for partition in ("train", "test"):
+            entry = _make_refit_prediction_entry(
+                partition=partition, n_samples=20, sample_ids=None,
+            )
+            preds._buffer.append(entry)
+
+        test_entry = [e for e in preds._buffer if e["partition"] == "test"][0]
+        partitions = preds.get_entry_partitions(test_entry)
+
+        # Should not crash, should produce a valid table without aggregation
+        tab, _ = TabReportManager.generate_best_score_tab_report(
+            partitions, aggregate="Sample_ID",
+        )
+        assert tab is not None
+        assert "RMSE" in tab
+
+    def test_per_model_summary_includes_aggregated_score(self):
+        """generate_per_model_summary shows aggregated column when configured."""
+        from nirs4all.visualization.reports import TabReportManager
+
+        sample_ids = [f"S{i}" for i in range(5) for _ in range(4)]
+
+        preds = Predictions()
+        for model_name in ("PLS", "Ridge"):
+            for partition in ("train", "test"):
+                entry = _make_refit_prediction_entry(
+                    partition=partition, n_samples=20,
+                    model_name=model_name, sample_ids=sample_ids,
+                )
+                if model_name == "Ridge":
+                    entry["test_score"] = 0.10
+                    entry["cv_rank_score"] = 0.08
+                    entry["cv_test_score"] = 0.11
+                preds._buffer.append(entry)
+
+        refit_entries = [e for e in preds._buffer if e["partition"] == "test"]
+
+        summary = TabReportManager.generate_per_model_summary(
+            refit_entries, ascending=True, metric="rmse",
+            aggregate="Sample_ID",
+            predictions=preds,
+        )
+
+        assert "RMSE*" in summary
+
+    def test_per_model_summary_without_aggregation(self):
+        """generate_per_model_summary works without aggregation (backward compat)."""
+        from nirs4all.visualization.reports import TabReportManager
+
+        preds = Predictions()
+        for model_name in ("PLS", "Ridge"):
+            for partition in ("train", "test"):
+                entry = _make_refit_prediction_entry(
+                    partition=partition, n_samples=20,
+                    model_name=model_name,
+                )
+                if model_name == "Ridge":
+                    entry["test_score"] = 0.10
+                preds._buffer.append(entry)
+
+        refit_entries = [e for e in preds._buffer if e["partition"] == "test"]
+
+        summary = TabReportManager.generate_per_model_summary(
+            refit_entries, ascending=True, metric="rmse",
+        )
+
+        # Should produce a valid table without aggregated column
+        assert "RMSE" in summary
+        assert "RMSE*" not in summary
+
+
+# =========================================================================
+# RefitCriterion and parse_refit_param
+# =========================================================================
+
+
+class TestRefitCriterion:
+    """Tests for the RefitCriterion dataclass."""
+
+    def test_default_values(self):
+        """RefitCriterion has sensible defaults."""
+        c = RefitCriterion()
+        assert c.top_k == 1
+        assert c.ranking == "rmsecv"
+        assert c.metric == ""
+
+    def test_custom_values(self):
+        """RefitCriterion accepts custom values."""
+        c = RefitCriterion(top_k=3, ranking="mean_val", metric="r2")
+        assert c.top_k == 3
+        assert c.ranking == "mean_val"
+        assert c.metric == "r2"
+
+
+class TestParseRefitParam:
+    """Tests for parse_refit_param normalization."""
+
+    def test_true_returns_default_criterion(self):
+        """True → single default criterion."""
+        result = parse_refit_param(True)
+        assert len(result) == 1
+        assert result[0].top_k == 1
+        assert result[0].ranking == "rmsecv"
+
+    def test_false_returns_empty(self):
+        """False → empty list."""
+        assert parse_refit_param(False) == []
+
+    def test_none_returns_empty(self):
+        """None → empty list."""
+        assert parse_refit_param(None) == []
+
+    def test_dict_returns_single_criterion(self):
+        """Dict → single criterion."""
+        result = parse_refit_param({"top_k": 3, "ranking": "mean_val"})
+        assert len(result) == 1
+        assert result[0].top_k == 3
+        assert result[0].ranking == "mean_val"
+
+    def test_dict_ignores_unknown_keys(self):
+        """Dict with unknown keys ignores them."""
+        result = parse_refit_param({"top_k": 2, "unknown_key": "value"})
+        assert len(result) == 1
+        assert result[0].top_k == 2
+
+    def test_list_returns_multiple_criteria(self):
+        """List[dict] → multiple criteria."""
+        result = parse_refit_param([
+            {"top_k": 3, "ranking": "rmsecv"},
+            {"top_k": 1, "ranking": "mean_val"},
+        ])
+        assert len(result) == 2
+        assert result[0].top_k == 3
+        assert result[0].ranking == "rmsecv"
+        assert result[1].top_k == 1
+        assert result[1].ranking == "mean_val"
+
+    def test_empty_dict_returns_empty(self):
+        """Empty dict returns empty list."""
+        assert parse_refit_param({}) == []
+
+    def test_empty_list_returns_empty(self):
+        """Empty list returns empty list."""
+        assert parse_refit_param([]) == []
+
+
+# =========================================================================
+# extract_top_configs
+# =========================================================================
+
+
+class TestExtractTopConfigs:
+    """Tests for extract_top_configs with store-backed pipelines."""
+
+    def _setup_store_with_pipelines(self, tmp_path, n_pipelines=3):
+        """Create a store with completed pipelines for testing."""
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        store = WorkspaceStore(workspace_path=tmp_path / "workspace")
+        run_id = store.begin_run("test", config={}, datasets=[{"name": "ds"}])
+
+        pipeline_ids = []
+        for i in range(n_pipelines):
+            pid = store.begin_pipeline(
+                run_id=run_id,
+                name=f"pipeline_{i}",
+                expanded_config=[
+                    {"class": "sklearn.preprocessing.MinMaxScaler"},
+                    {"class": "sklearn.model_selection.KFold", "params": {"n_splits": 3}},
+                    {"model": {"class": "sklearn.cross_decomposition.PLSRegression", "params": {"n_components": i + 5}}},
+                ],
+                generator_choices=[],
+                dataset_name="ds",
+                dataset_hash=f"h{i}",
+            )
+
+            chain_id = store.save_chain(
+                pipeline_id=pid,
+                steps=[{"step_idx": 0, "operator_class": "PLS", "params": {}, "artifact_id": None, "stateless": False}],
+                model_step_idx=0,
+                model_class="PLSRegression",
+                preprocessings="",
+                fold_strategy="per_fold",
+                fold_artifacts={},
+                shared_artifacts={},
+            )
+
+            store.save_prediction(
+                pipeline_id=pid,
+                chain_id=chain_id,
+                dataset_name="ds",
+                model_name="PLS",
+                model_class="PLSRegression",
+                fold_id="fold_0",
+                partition="val",
+                val_score=0.10 + i * 0.05,
+                test_score=0.12 + i * 0.03,
+                train_score=0.08,
+                metric="rmse",
+                task_type="regression",
+                n_samples=100,
+                n_features=200,
+                scores={},
+                best_params={},
+                branch_id=None,
+                branch_name=None,
+                exclusion_count=0,
+                exclusion_rate=0.0,
+            )
+
+            store.complete_pipeline(
+                pipeline_id=pid,
+                best_val=0.10 + i * 0.05,
+                best_test=0.12 + i * 0.03,
+                metric="rmse",
+                duration_ms=100,
+            )
+            pipeline_ids.append(pid)
+
+        store.complete_run(run_id, summary={})
+        return store, run_id, pipeline_ids
+
+    def test_single_rmsecv_criterion(self, tmp_path):
+        """Single rmsecv criterion selects best by best_val."""
+        from nirs4all.pipeline.execution.refit.config_extractor import extract_top_configs
+
+        store, run_id, pipeline_ids = self._setup_store_with_pipelines(tmp_path)
+
+        criteria = [RefitCriterion(top_k=1, ranking="rmsecv")]
+        configs = extract_top_configs(store, run_id, criteria, dataset_name="ds")
+
+        assert len(configs) == 1
+        assert configs[0].pipeline_id == pipeline_ids[0]  # Lowest RMSE
+        store.close()
+
+    def test_top_k_rmsecv(self, tmp_path):
+        """top_k=2 selects two best pipelines by RMSECV."""
+        from nirs4all.pipeline.execution.refit.config_extractor import extract_top_configs
+
+        store, run_id, pipeline_ids = self._setup_store_with_pipelines(tmp_path)
+
+        criteria = [RefitCriterion(top_k=2, ranking="rmsecv")]
+        configs = extract_top_configs(store, run_id, criteria, dataset_name="ds")
+
+        assert len(configs) == 2
+        selected_pids = [c.pipeline_id for c in configs]
+        assert pipeline_ids[0] in selected_pids
+        assert pipeline_ids[1] in selected_pids
+        store.close()
+
+    def test_multiple_criteria_deduplicates(self, tmp_path):
+        """Multiple criteria union and deduplicate pipeline IDs."""
+        from nirs4all.pipeline.execution.refit.config_extractor import extract_top_configs
+
+        store, run_id, pipeline_ids = self._setup_store_with_pipelines(tmp_path)
+
+        # Both criteria should pick pipeline_0 (lowest RMSE), but it should appear only once
+        criteria = [
+            RefitCriterion(top_k=1, ranking="rmsecv"),
+            RefitCriterion(top_k=1, ranking="rmsecv"),
+        ]
+        configs = extract_top_configs(store, run_id, criteria, dataset_name="ds")
+
+        assert len(configs) == 1  # Deduplicated
+        assert configs[0].pipeline_id == pipeline_ids[0]
+        store.close()
+
+    def test_empty_criteria_returns_empty(self, tmp_path):
+        """Empty criteria list returns empty configs."""
+        from nirs4all.pipeline.execution.refit.config_extractor import extract_top_configs
+
+        store, run_id, _ = self._setup_store_with_pipelines(tmp_path)
+        configs = extract_top_configs(store, run_id, [], dataset_name="ds")
+        assert configs == []
+        store.close()
+
+    def test_raises_on_no_completed_pipelines(self, tmp_path):
+        """Raises ValueError when no completed pipelines exist."""
+        from nirs4all.pipeline.execution.refit.config_extractor import extract_top_configs
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        store = WorkspaceStore(workspace_path=tmp_path / "workspace")
+        run_id = store.begin_run("test", config={}, datasets=[{"name": "ds"}])
+        store.complete_run(run_id, summary={})
+
+        criteria = [RefitCriterion(top_k=1)]
+        with pytest.raises(ValueError, match="no pipelines"):
+            extract_top_configs(store, run_id, criteria, dataset_name="ds")
+        store.close()
+
+    def test_mean_val_fallback_without_predictions(self, tmp_path):
+        """mean_val ranking falls back to rmsecv when predictions not provided."""
+        from nirs4all.pipeline.execution.refit.config_extractor import extract_top_configs
+
+        store, run_id, pipeline_ids = self._setup_store_with_pipelines(tmp_path)
+
+        criteria = [RefitCriterion(top_k=1, ranking="mean_val")]
+        configs = extract_top_configs(store, run_id, criteria, predictions=None, dataset_name="ds")
+
+        assert len(configs) == 1
+        assert configs[0].pipeline_id == pipeline_ids[0]  # Falls back to best_val
+        store.close()
+
+    def test_config_has_correct_metadata(self, tmp_path):
+        """Returned RefitConfig has correct metadata fields."""
+        from nirs4all.pipeline.execution.refit.config_extractor import extract_top_configs
+
+        store, run_id, pipeline_ids = self._setup_store_with_pipelines(tmp_path)
+
+        criteria = [RefitCriterion(top_k=1)]
+        configs = extract_top_configs(store, run_id, criteria, dataset_name="ds")
+
+        config = configs[0]
+        assert config.pipeline_id == pipeline_ids[0]
+        assert config.metric == "rmse"
+        assert config.best_score == pytest.approx(0.10)
+        assert config.config_name == "pipeline_0"
+        assert len(config.expanded_steps) == 3
+        store.close()

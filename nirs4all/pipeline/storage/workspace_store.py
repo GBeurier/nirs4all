@@ -646,6 +646,143 @@ class WorkspaceStore:
                 final_scores_json,
             ])
 
+    def bulk_update_chain_summaries(self, chain_ids: list[str]) -> None:
+        """Recompute CV/final summary for multiple chains in bulk SQL.
+
+        Uses set-based aggregation instead of per-chain queries,
+        reducing DuckDB round-trips from ``4 × N`` to ``4`` total.
+
+        Args:
+            chain_ids: List of chain identifiers to update.
+        """
+        if not chain_ids:
+            return
+
+        with self._lock:
+            conn = self._ensure_open()
+
+            # Create a temp table with the chain IDs to update
+            conn.execute("CREATE TEMP TABLE IF NOT EXISTS _bulk_chain_ids (chain_id VARCHAR)")
+            conn.execute("DELETE FROM _bulk_chain_ids")
+            conn.executemany(
+                "INSERT INTO _bulk_chain_ids VALUES ($1)",
+                [(cid,) for cid in chain_ids],
+            )
+
+            # --- Bulk CV averages ---
+            conn.execute("""
+                UPDATE chains SET
+                    model_name = COALESCE(chains.model_name, sub.model_name),
+                    metric = COALESCE(chains.metric, sub.metric),
+                    task_type = COALESCE(chains.task_type, sub.task_type),
+                    best_params = COALESCE(chains.best_params, sub.best_params),
+                    cv_val_score = sub.avg_val,
+                    cv_test_score = sub.avg_test,
+                    cv_train_score = sub.avg_train,
+                    cv_fold_count = sub.fold_count
+                FROM (
+                    SELECT chain_id,
+                        FIRST(model_name) AS model_name,
+                        FIRST(metric) AS metric,
+                        FIRST(task_type) AS task_type,
+                        FIRST(best_params) AS best_params,
+                        AVG(val_score) AS avg_val,
+                        AVG(test_score) AS avg_test,
+                        AVG(train_score) AS avg_train,
+                        COUNT(DISTINCT fold_id) AS fold_count
+                    FROM predictions
+                    WHERE refit_context IS NULL
+                      AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)
+                    GROUP BY chain_id
+                ) sub
+                WHERE chains.chain_id = sub.chain_id
+            """)
+
+            # --- Fallback: get model_name etc. from any prediction for
+            #     chains that had no CV predictions ---
+            conn.execute("""
+                UPDATE chains SET
+                    model_name = COALESCE(chains.model_name, sub.model_name),
+                    metric = COALESCE(chains.metric, sub.metric),
+                    task_type = COALESCE(chains.task_type, sub.task_type),
+                    best_params = COALESCE(chains.best_params, sub.best_params)
+                FROM (
+                    SELECT chain_id,
+                        FIRST(model_name) AS model_name,
+                        FIRST(metric) AS metric,
+                        FIRST(task_type) AS task_type,
+                        FIRST(best_params) AS best_params
+                    FROM predictions
+                    WHERE chain_id IN (
+                        SELECT chain_id FROM _bulk_chain_ids
+                        WHERE chain_id NOT IN (
+                            SELECT chain_id FROM predictions
+                            WHERE refit_context IS NULL AND chain_id IS NOT NULL
+                            GROUP BY chain_id
+                        )
+                    )
+                    GROUP BY chain_id
+                ) sub
+                WHERE chains.chain_id = sub.chain_id
+            """)
+
+            # --- Bulk final/refit scores ---
+            conn.execute("""
+                UPDATE chains SET
+                    final_test_score = sub.test_score,
+                    final_train_score = sub.train_score,
+                    final_scores = sub.scores
+                FROM (
+                    SELECT chain_id, test_score, train_score, scores
+                    FROM predictions
+                    WHERE refit_context IS NOT NULL AND fold_id = 'final'
+                      AND partition = 'test'
+                      AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)
+                ) sub
+                WHERE chains.chain_id = sub.chain_id
+            """)
+
+            # --- Bulk cv_scores (averaged multi-metric JSON) ---
+            # DuckDB JSON aggregation is limited, so we use a single
+            # query to fetch all rows and compute in Python once.
+            import json as _json
+
+            rows = conn.execute(
+                "SELECT chain_id, partition, scores FROM predictions "
+                "WHERE refit_context IS NULL "
+                "AND partition IN ('val', 'test') "
+                "AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)",
+            ).fetchall()
+
+            if rows:
+                per_chain: dict[str, dict[str, dict[str, list[float]]]] = {}
+                for chain_id, partition, scores_raw in rows:
+                    if not scores_raw:
+                        continue
+                    scores = _json.loads(scores_raw) if isinstance(scores_raw, str) else scores_raw
+                    if not isinstance(scores, dict):
+                        continue
+                    inner = scores.get(partition, scores)
+                    if not isinstance(inner, dict):
+                        continue
+                    chain_data = per_chain.setdefault(chain_id, {})
+                    part_data = chain_data.setdefault(partition, {})
+                    for metric_name, val in inner.items():
+                        if isinstance(val, (int, float)):
+                            part_data.setdefault(metric_name, []).append(float(val))
+
+                for chain_id, partition_scores in per_chain.items():
+                    averaged: dict[str, dict[str, float]] = {}
+                    for part, metrics in partition_scores.items():
+                        averaged[part] = {m: round(sum(vs) / len(vs), 6) for m, vs in metrics.items() if vs}
+                    if averaged:
+                        conn.execute(
+                            "UPDATE chains SET cv_scores = $2 WHERE chain_id = $1",
+                            [chain_id, _json.dumps(averaged)],
+                        )
+
+            conn.execute("DROP TABLE IF EXISTS _bulk_chain_ids")
+
     # =====================================================================
     # Prediction storage
     # =====================================================================
@@ -2182,19 +2319,25 @@ class WorkspaceStore:
 
             winning_set = set(winning_pipeline_ids)
 
-            # Preload chains for each pipeline once; reuse for prediction-aware
-            # protection and cleanup decrements.
-            chains_by_pipeline: dict[str, list[tuple[str, Any, Any]]] = {}
+            # Bulk-load ALL chains for these pipelines in a single query
+            # instead of one query per pipeline.
+            all_pipeline_ids = [pid for (pid,) in all_pipelines]
+            chains_by_pipeline: dict[str, list[tuple[str, Any, Any]]] = {pid: [] for pid in all_pipeline_ids}
             chain_lookup: dict[str, tuple[dict, dict]] = {}
 
-            for (pipeline_id,) in all_pipelines:
-                rows = conn.execute(
-                    "SELECT chain_id, fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id = $1",
-                    [pipeline_id],
+            if all_pipeline_ids:
+                all_chain_rows = conn.execute(
+                    "SELECT pipeline_id, chain_id, fold_artifacts, shared_artifacts "
+                    "FROM chains WHERE pipeline_id IN ("
+                    "  SELECT pipeline_id FROM pipelines WHERE run_id = $1 AND dataset_name = $2"
+                    ")",
+                    [run_id, dataset_name],
                 ).fetchall()
-                chains_by_pipeline[pipeline_id] = rows
 
-                for chain_id, fold_artifacts_raw, shared_artifacts_raw in rows:
+                for pipeline_id, chain_id, fold_artifacts_raw, shared_artifacts_raw in all_chain_rows:
+                    row_tuple = (chain_id, fold_artifacts_raw, shared_artifacts_raw)
+                    chains_by_pipeline.setdefault(pipeline_id, []).append(row_tuple)
+
                     fold_artifacts = (
                         _from_json(fold_artifacts_raw)
                         if isinstance(fold_artifacts_raw, str)
@@ -2235,6 +2378,9 @@ class WorkspaceStore:
                 else:
                     requested.add(fold_value)
 
+            # Collect all artifact IDs to decrement, then batch-update once.
+            artifacts_to_decrement: list[str] = []
+
             for (pipeline_id,) in all_pipelines:
                 chains = chains_by_pipeline.get(pipeline_id, [])
 
@@ -2265,7 +2411,7 @@ class WorkspaceStore:
                                     continue
                                 if _fold_is_protected(str(fold_key), protected_fold_ids):
                                     continue
-                                conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
+                                artifacts_to_decrement.append(artifact_id)
                         # Keep shared artifacts (preprocessing) -- needed by refit chain
                     else:
                         # Losing pipeline: decrement artifacts unless replay-protected
@@ -2275,13 +2421,28 @@ class WorkspaceStore:
                                     continue
                                 if _fold_is_protected(str(fold_key), protected_fold_ids):
                                     continue
-                                conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
+                                artifacts_to_decrement.append(artifact_id)
 
                         if shared_artifacts:
                             for artifact_id in _iter_shared_artifact_refs(shared_artifacts):
                                 if protect_shared:
                                     continue
-                                conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
+                                artifacts_to_decrement.append(artifact_id)
+
+            # Batch decrement: count how many times each artifact should be
+            # decremented, then issue one UPDATE per distinct decrement count.
+            if artifacts_to_decrement:
+                from collections import Counter
+                decrement_counts: dict[int, list[str]] = {}
+                for aid, cnt in Counter(artifacts_to_decrement).items():
+                    decrement_counts.setdefault(cnt, []).append(aid)
+                for delta, ids in decrement_counts.items():
+                    placeholders = ", ".join(f"${i+2}" for i in range(len(ids)))
+                    conn.execute(
+                        f"UPDATE artifacts SET ref_count = ref_count - $1 "
+                        f"WHERE artifact_id IN ({placeholders})",
+                        [delta] + ids,
+                    )
 
         # Run garbage collection to remove orphaned files
         return self.gc_artifacts()

@@ -72,6 +72,7 @@ class PipelineExecutor:
         self.substep_number = -1
         self.operation_count = 0
         self._shape_metadata_cache: Dict[tuple[Any, ...], tuple[tuple[int, int], List[tuple[int, ...]]]] = {}
+        self._synced_artifact_ids: set[str] = set()
 
     def initialize_context(self, dataset: SpectroDataset) -> ExecutionContext:
         """Initialize ExecutionContext for pipeline execution.
@@ -217,8 +218,11 @@ class PipelineExecutor:
 
                 # Flush ArtifactRegistry records to WorkspaceStore so that
                 # chain replay and export can load artifacts via the store.
+                # Only register artifacts not yet synced (tracked via _synced_artifact_ids).
                 if self.artifact_registry is not None:
                     for record in self.artifact_registry.get_all_records():
+                        if record.artifact_id in self._synced_artifact_ids:
+                            continue
                         store.register_existing_artifact(
                             artifact_id=record.artifact_id,
                             path=record.path,
@@ -228,6 +232,7 @@ class PipelineExecutor:
                             format=record.format,
                             size_bytes=record.size_bytes,
                         )
+                        self._synced_artifact_ids.add(record.artifact_id)
 
             # Flush predictions to store so they can be looked up by ID
             if self.mode == "train" and store and pipeline_id and prediction_store.num_predictions > 0:
@@ -453,8 +458,11 @@ class PipelineExecutor:
             refit_context_override=refit_context_override,
         )
 
-        # Update chain summary columns with CV/final scores
-        if hasattr(store, "update_chain_summary"):
+        # Update chain summary columns with CV/final scores (bulk)
+        chain_ids = [str(row["chain_id"]) for row in chain_rows]
+        if chain_ids and hasattr(store, "bulk_update_chain_summaries"):
+            store.bulk_update_chain_summaries(chain_ids)
+        elif hasattr(store, "update_chain_summary"):
             for chain_row in chain_rows:
                 store.update_chain_summary(str(chain_row["chain_id"]))
 

@@ -387,26 +387,16 @@ class CrossValidatorController(OperatorController):
                     raise ValueError(
                         f"Failed to extract groups from metadata column '{group_column}': {e}"
                     ) from e
-            elif hasattr(dataset, 'metadata_columns') and dataset.metadata_columns:
-                # No explicit group column, but metadata available - use first column as default
-                group_column = dataset.metadata_columns[0]
-                logger.warning(
-                    f"{op.__class__.__name__} has 'groups' parameter but no 'group' specified. "
-                    f"Using default: '{group_column}'"
-                )
-                try:
+            elif _is_native_group_splitter(op):
+                # Native group splitter without explicit group column.
+                # Auto-detect from first metadata column if available.
+                if hasattr(dataset, 'metadata_columns') and dataset.metadata_columns:
+                    group_column = dataset.metadata_columns[0]
                     groups = dataset.metadata_column(group_column, local_context, include_augmented=False)
                     if len(groups) != X.shape[0]:
                         raise ValueError(
                             f"Group array length ({len(groups)}) doesn't match X rows ({X.shape[0]})"
                         )
-                except Exception as e:
-                    raise ValueError(
-                        f"Failed to extract groups from metadata column '{group_column}': {e}"
-                    ) from e
-            # else: No group column specified and no metadata available
-            # Leave groups=None and let the splitter handle it
-            # (will work for splitters that don't require groups, will fail for those that do)
 
         # Wrap splitter with GroupedSplitterWrapper if groups exist and splitter
         # is NOT a native group splitter (e.g., GroupKFold, StratifiedGroupKFold)

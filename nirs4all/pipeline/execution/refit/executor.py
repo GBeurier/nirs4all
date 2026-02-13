@@ -135,7 +135,11 @@ def execute_simple_refit(
 
     # Create a fresh pipeline_uid for the refit pass so that the refit
     # predictions are distinguishable from Pass 1 predictions.
-    refit_pipeline_name = f"{runtime_context.pipeline_name or 'pipeline'}_refit"
+    # Use the original CV config_name from RefitConfig so that
+    # _resolve_cv_config_name can strip the _refit suffix and match
+    # the CV fold entries for report lookups.
+    cv_config_name = refit_config.config_name or runtime_context.pipeline_name or "pipeline"
+    refit_pipeline_name = f"{cv_config_name}_refit"
 
     # Create a local Predictions to capture refit entries
     refit_predictions = Predictions()
@@ -382,6 +386,9 @@ def _relabel_refit_predictions(
     for entry in predictions._buffer:
         entry["fold_id"] = "final"
         entry["refit_context"] = REFIT_CONTEXT_STANDALONE
+        # Refit has no validation set — clear the spurious 0.0 val_score
+        # produced by ScoreCalculator on empty partitions.
+        entry["val_score"] = None
         # Inject the CV selection score so final entries can be ranked
         # in mix mode by their originating chain's avg folds val_score.
         if refit_config is not None and refit_config.best_score:

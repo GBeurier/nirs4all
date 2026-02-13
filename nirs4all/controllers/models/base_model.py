@@ -1368,7 +1368,10 @@ class BaseModelController(OperatorController, ABC):
         from nirs4all.core.logging.formatters import get_symbols
         direction = get_symbols().direction(metric in ['r2', 'accuracy', 'balanced_accuracy'])
 
-        summary = f"{model_name} {metric} {direction} [test: {test_score:.4f}], [val: {val_score:.4f}]"
+        if val_score is not None:
+            summary = f"{model_name} {metric} {direction} [test: {test_score:.4f}], [val: {val_score:.4f}]"
+        else:
+            summary = f"{model_name} {metric} {direction} [test: {test_score:.4f}]"
         if fold_id not in [None, 'None', 'avg', 'w_avg']:
             summary += f", (fold: {fold_id}, id: {op_counter})"
         elif fold_id in ['avg', 'w_avg']:
@@ -1543,8 +1546,7 @@ class BaseModelController(OperatorController, ABC):
         """
         is_classification = dataset.task_type and dataset.task_type.is_classification
 
-        # Prepare validation data
-        X_val = np.vstack([X_train[val_idx] for val_idx in fold_val_indices])
+        # Prepare validation data — concatenated OOF true values from all folds
         y_val_unscaled = np.vstack([y_train_unscaled[val_idx] for val_idx in fold_val_indices])
         all_val_indices = np.hstack(fold_val_indices)
 
@@ -1559,15 +1561,19 @@ class BaseModelController(OperatorController, ABC):
         if is_classification:
             # Use classification-specific averaging (soft or hard voting)
             avg_preds, w_avg_preds, avg_probs, w_avg_probs = self._create_classification_fold_averages(
-                folds_models, X_train, X_val, X_test, weights, mode
+                folds_models, X_train, None, X_test, weights, mode,
+                fold_val_indices=fold_val_indices,
             )
         else:
             # Use regression averaging (arithmetic mean)
             avg_preds, w_avg_preds = self._create_regression_fold_averages(
-                folds_models, X_train, X_val, X_test, weights, dataset, context, mode
+                folds_models, X_train, None, X_test, weights, dataset, context, mode,
+                fold_val_indices=fold_val_indices,
             )
 
-        # Calculate scores for averaged predictions
+        # Calculate scores for averaged predictions.
+        # Val predictions are now concatenated OOF predictions (unbiased),
+        # so scores computed from them are true RMSECV — no override needed.
         true_values = {'train': y_train_unscaled, 'val': y_val_unscaled, 'test': y_test_unscaled}
 
         avg_scores = self.score_calculator.calculate(
@@ -1577,34 +1583,6 @@ class BaseModelController(OperatorController, ABC):
         w_avg_scores = self.score_calculator.calculate(
             true_values, w_avg_preds, dataset.task_type
         ) if mode not in ("predict", "explain") else None
-
-        # IMPORTANT: Override val_score for avg/w_avg to avoid data leakage.
-        # The validation predictions above are computed by having each fold model
-        # predict on ALL validation samples, but each fold's model has seen its own
-        # validation samples during training. This causes biased (overly optimistic) val scores.
-        # Instead, use the average of individual fold validation scores (which are unbiased OOF scores).
-        if mode not in ("predict", "explain") and len(scores) > 0:
-            # Simple average of fold val_scores for 'avg' fold
-            avg_val_score = float(np.mean(scores))
-            if avg_scores is not None:
-                avg_scores = PartitionScores(
-                    train=avg_scores.train,
-                    val=avg_val_score,  # Override with unbiased average
-                    test=avg_scores.test,
-                    metric=avg_scores.metric,
-                    higher_is_better=avg_scores.higher_is_better
-                )
-
-            # Weighted average of fold val_scores for 'w_avg' fold
-            w_avg_val_score = float(np.sum([w * s for w, s in zip(weights, scores)]))
-            if w_avg_scores is not None:
-                w_avg_scores = PartitionScores(
-                    train=w_avg_scores.train,
-                    val=w_avg_val_score,  # Override with unbiased weighted average
-                    test=w_avg_scores.test,
-                    metric=w_avg_scores.metric,
-                    higher_is_better=w_avg_scores.higher_is_better
-                )
 
         # Calculate full metrics for average predictions
         avg_full_scores = {}
@@ -1635,16 +1613,6 @@ class BaseModelController(OperatorController, ABC):
                 else:
                     w_avg_full_scores[partition] = {}
 
-            # IMPORTANT: Override val metrics for avg/w_avg with unbiased scores.
-            # The metrics computed above for 'val' partition are biased because each fold
-            # model predicts on ALL validation samples (including samples it was trained on).
-            # We must use the unbiased scores (mean/weighted mean of individual fold OOF scores)
-            # to ensure correct ranking. This matches the override done for avg_scores.val above.
-            if avg_scores is not None and avg_scores.metric and 'val' in avg_full_scores:
-                avg_full_scores['val'][avg_scores.metric] = avg_scores.val
-            if w_avg_scores is not None and w_avg_scores.metric and 'val' in w_avg_full_scores:
-                w_avg_full_scores['val'][w_avg_scores.metric] = w_avg_scores.val
-
         # Use prediction_assembler component to create prediction dicts
         avg_predictions = self._assemble_avg_prediction(
             dataset, runtime_context, context, base_model_name, model_classname,
@@ -1668,9 +1636,15 @@ class BaseModelController(OperatorController, ABC):
 
     def _create_regression_fold_averages(
         self,
-        folds_models, X_train, X_val, X_test, weights, dataset, context, mode
+        folds_models, X_train, X_val, X_test, weights, dataset, context, mode,
+        fold_val_indices=None,
     ) -> Tuple[Dict, Dict]:
         """Create fold-averaged predictions for regression using arithmetic mean.
+
+        For the validation partition, uses concatenated OOF predictions (each
+        fold model predicts only on its own fold's validation samples) to
+        produce unbiased RMSECV scores.  Train and test partitions use the
+        standard averaged predictions across all fold models.
 
         Args:
             folds_models: List of (model_id, model, score) tuples.
@@ -1679,43 +1653,52 @@ class BaseModelController(OperatorController, ABC):
             dataset: SpectroDataset for prediction transformation.
             context: Execution context.
             mode: Execution mode.
+            fold_val_indices: List of validation index arrays for each fold.
+                Required for OOF prediction construction.
 
         Returns:
             Tuple of (simple_avg_preds, weighted_avg_preds) dictionaries.
         """
         all_train_preds = []
-        all_val_preds = []
         all_test_preds = []
 
-        for _, fold_model, _ in folds_models:
-            preds_scaled = {
-                'train': self._predict_model(fold_model, X_train) if X_train.shape[0] > 0 else np.array([]),
-                'val': self._predict_model(fold_model, X_val) if X_val.shape[0] > 0 else np.array([]),
-                'test': self._predict_model(fold_model, X_test) if X_test.shape[0] > 0 else np.array([])
-            }
+        # OOF predictions for val: each fold model predicts only on its own
+        # fold's validation samples (unbiased).
+        oof_val_preds = []
 
-            # Use prediction_transformer component for unscaling
-            preds_unscaled = {
-                'train': self.prediction_transformer.transform_to_unscaled(preds_scaled['train'], dataset, context),
-                'val': self.prediction_transformer.transform_to_unscaled(preds_scaled['val'], dataset, context),
-                'test': self.prediction_transformer.transform_to_unscaled(preds_scaled['test'], dataset, context)
-            }
+        for fold_idx, (_, fold_model, _) in enumerate(folds_models):
+            # Train and test: each model predicts on the full set (for averaging)
+            train_scaled = self._predict_model(fold_model, X_train) if X_train.shape[0] > 0 else np.array([])
+            test_scaled = self._predict_model(fold_model, X_test) if X_test.shape[0] > 0 else np.array([])
 
-            all_train_preds.append(preds_unscaled['train'])
-            all_val_preds.append(preds_unscaled['val'])
-            all_test_preds.append(preds_unscaled['test'])
+            train_unscaled = self.prediction_transformer.transform_to_unscaled(train_scaled, dataset, context)
+            test_unscaled = self.prediction_transformer.transform_to_unscaled(test_scaled, dataset, context)
 
-        # Simple average
+            all_train_preds.append(train_unscaled)
+            all_test_preds.append(test_unscaled)
+
+            # Val: predict only on this fold's own validation samples (OOF)
+            if mode not in ("predict", "explain") and fold_val_indices is not None:
+                X_val_fold = X_train[fold_val_indices[fold_idx]]
+                if X_val_fold.shape[0] > 0:
+                    val_scaled = self._predict_model(fold_model, X_val_fold)
+                    val_unscaled = self.prediction_transformer.transform_to_unscaled(val_scaled, dataset, context)
+                    oof_val_preds.append(val_unscaled)
+
+        # Concatenated OOF predictions (true RMSECV)
+        oof_val = np.concatenate(oof_val_preds) if oof_val_preds else np.array([])
+
+        # Simple average (train/test averaged across fold models, val = OOF concat)
         avg_preds = {
             'train': np.mean(all_train_preds, axis=0),
-            'val': np.mean(all_val_preds, axis=0) if mode not in ("predict", "explain") else np.array([]),
+            'val': oof_val if mode not in ("predict", "explain") else np.array([]),
             'test': np.mean(all_test_preds, axis=0)
         }
 
-        # Weighted average
+        # Weighted average (train/test weighted, val = same OOF concat)
         w_avg_preds = {
             'train': np.sum([w * p for w, p in zip(weights, all_train_preds)], axis=0),
-            'val': np.sum([w * p for w, p in zip(weights, all_val_preds)], axis=0) if mode not in ("predict", "explain") else np.array([]),
+            'val': oof_val if mode not in ("predict", "explain") else np.array([]),
             'test': np.sum([w * p for w, p in zip(weights, all_test_preds)], axis=0)
         }
 
@@ -1723,35 +1706,43 @@ class BaseModelController(OperatorController, ABC):
 
     def _create_classification_fold_averages(
         self,
-        folds_models, X_train, X_val, X_test, weights, mode
+        folds_models, X_train, X_val, X_test, weights, mode,
+        fold_val_indices=None,
     ) -> Tuple[Dict, Dict]:
         """Create fold-averaged predictions for classification using soft voting.
 
         Uses probability averaging (soft voting) when probabilities are available,
         otherwise falls back to hard voting (majority vote).
 
+        For the validation partition, uses concatenated OOF predictions (each
+        fold model predicts only on its own fold's validation samples) to
+        produce unbiased scores.  Train and test use voted predictions.
+
         Args:
             folds_models: List of (model_id, model, score) tuples.
             X_train, X_val, X_test: Feature arrays for each partition.
             weights: Fold weights for weighted voting.
             mode: Execution mode.
+            fold_val_indices: List of validation index arrays for each fold.
+                Required for OOF prediction construction.
 
         Returns:
             Tuple of (simple_avg_preds, weighted_avg_preds) dictionaries.
         """
         # Collect probabilities or class predictions from all folds
         all_train_probs = []
-        all_val_probs = []
         all_test_probs = []
         all_train_preds = []
-        all_val_preds = []
         all_test_preds = []
         use_soft_voting = True
 
-        for _, fold_model, _ in folds_models:
+        # OOF predictions for val: each fold model on its own val set only
+        oof_val_preds = []
+        oof_val_probs = []
+
+        for fold_idx, (_, fold_model, _) in enumerate(folds_models):
             # Try to get probabilities first
             train_probs = self._predict_proba_model(fold_model, X_train) if X_train.shape[0] > 0 else None
-            val_probs = self._predict_proba_model(fold_model, X_val) if X_val.shape[0] > 0 else None
             test_probs = self._predict_proba_model(fold_model, X_test) if X_test.shape[0] > 0 else None
 
             if train_probs is None or test_probs is None:
@@ -1760,47 +1751,76 @@ class BaseModelController(OperatorController, ABC):
                 all_train_preds.append(
                     self._predict_model(fold_model, X_train) if X_train.shape[0] > 0 else np.array([])
                 )
-                all_val_preds.append(
-                    self._predict_model(fold_model, X_val) if X_val.shape[0] > 0 else np.array([])
-                )
                 all_test_preds.append(
                     self._predict_model(fold_model, X_test) if X_test.shape[0] > 0 else np.array([])
                 )
+                # OOF val predictions (class predictions)
+                if mode not in ("predict", "explain") and fold_val_indices is not None:
+                    X_val_fold = X_train[fold_val_indices[fold_idx]]
+                    if X_val_fold.shape[0] > 0:
+                        oof_val_preds.append(self._predict_model(fold_model, X_val_fold))
             else:
                 all_train_probs.append(train_probs)
-                all_val_probs.append(val_probs if val_probs is not None else np.array([]))
                 all_test_probs.append(test_probs)
                 # Also collect class predictions for potential fallback
                 all_train_preds.append(
                     self._predict_model(fold_model, X_train) if X_train.shape[0] > 0 else np.array([])
                 )
-                all_val_preds.append(
-                    self._predict_model(fold_model, X_val) if X_val.shape[0] > 0 else np.array([])
-                )
                 all_test_preds.append(
                     self._predict_model(fold_model, X_test) if X_test.shape[0] > 0 else np.array([])
                 )
+                # OOF val predictions (probabilities + class predictions)
+                if mode not in ("predict", "explain") and fold_val_indices is not None:
+                    X_val_fold = X_train[fold_val_indices[fold_idx]]
+                    if X_val_fold.shape[0] > 0:
+                        fold_val_probs = self._predict_proba_model(fold_model, X_val_fold)
+                        fold_val_pred = self._predict_model(fold_model, X_val_fold)
+                        oof_val_preds.append(fold_val_pred)
+                        if fold_val_probs is not None:
+                            oof_val_probs.append(fold_val_probs)
+
+        # Concatenated OOF val predictions
+        oof_val = np.concatenate(oof_val_preds) if oof_val_preds else np.array([])
+        if oof_val_probs:
+            # Align probability arrays to the same number of columns (classes)
+            # Different folds may see different numbers of classes
+            max_classes = max(p.shape[1] for p in oof_val_probs)
+            aligned = []
+            for p in oof_val_probs:
+                if p.shape[1] < max_classes:
+                    padding = np.zeros((p.shape[0], max_classes - p.shape[1]), dtype=p.dtype)
+                    p = np.hstack([p, padding])
+                aligned.append(p)
+            oof_val_prob = np.vstack(aligned)
+        else:
+            oof_val_prob = None
 
         if use_soft_voting and all_train_probs:
-            # Soft voting: average probabilities, then argmax
-            # avg: simple average of probabilities
-            # w_avg: uses fold weights AND confidence weighting for meaningful differences
+            # Soft voting for train and test
             avg_preds, avg_probs = self._soft_vote_partitions(
-                all_train_probs, all_val_probs, all_test_probs,
+                all_train_probs, [], all_test_probs,
                 weights=None, mode=mode, use_confidence_weighting=False
             )
             w_avg_preds, w_avg_probs = self._soft_vote_partitions(
-                all_train_probs, all_val_probs, all_test_probs,
+                all_train_probs, [], all_test_probs,
                 weights=weights, mode=mode, use_confidence_weighting=True
             )
+            # Override val with OOF predictions
+            avg_preds['val'] = oof_val
+            w_avg_preds['val'] = oof_val
+            avg_probs['val'] = oof_val_prob
+            w_avg_probs['val'] = oof_val_prob
         else:
-            # Hard voting: majority vote on class predictions
+            # Hard voting for train and test
             avg_preds = self._hard_vote_partitions(
-                all_train_preds, all_val_preds, all_test_preds, weights=None, mode=mode
+                all_train_preds, [], all_test_preds, weights=None, mode=mode
             )
             w_avg_preds = self._hard_vote_partitions(
-                all_train_preds, all_val_preds, all_test_preds, weights=weights, mode=mode
+                all_train_preds, [], all_test_preds, weights=weights, mode=mode
             )
+            # Override val with OOF predictions
+            avg_preds['val'] = oof_val
+            w_avg_preds['val'] = oof_val
             # No probabilities for hard voting
             avg_probs = {'train': None, 'val': None, 'test': None}
             w_avg_probs = {'train': None, 'val': None, 'test': None}
@@ -2128,7 +2148,8 @@ class BaseModelController(OperatorController, ABC):
                     exclusion_count=prediction_data.get('exclusion_count'),
                     exclusion_rate=prediction_data.get('exclusion_rate'),
                     model_artifact_id=prediction_data.get('model_artifact_id'),
-                    trace_id=prediction_data.get('trace_id')
+                    trace_id=prediction_data.get('trace_id'),
+                    target_processing=prediction_data.get('target_processing', ''),
                 )
 
             # Print summary (only once per model)

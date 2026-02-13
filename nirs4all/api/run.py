@@ -207,7 +207,7 @@ def run(
     save_charts: bool = True,
     plots_visible: bool = False,
     random_state: Optional[int] = None,
-    refit: Union[bool, Dict[str, Any], None] = True,
+    refit: Union[bool, Dict[str, Any], List[Dict[str, Any]], None] = True,
     cache: Optional[Any] = None,
     project: Optional[str] = None,
     # All other PipelineRunner options
@@ -260,11 +260,14 @@ def run(
             Default: None (no seeding)
 
         refit: Refit configuration. After cross-validation selects the
-            winning pipeline variant, retrain it on the full training
-            set to produce a single final model.
-            - ``True``: Enable refit (default).
+            winning pipeline variant(s), retrain on the full training set.
+            - ``True``: Refit top 1 by RMSECV (default).
             - ``False`` or ``None``: Disable refit.
-            - ``dict``: Refit options (reserved for future use).
+            - ``dict``: Single criterion, e.g. ``{"top_k": 3, "ranking": "mean_val"}``.
+            - ``list[dict]``: Multiple criteria for union selection, e.g.
+              ``[{"top_k": 3, "ranking": "rmsecv"}, {"top_k": 1, "ranking": "mean_val"}]``.
+            Ranking methods: ``"rmsecv"`` (OOF concatenated val score),
+            ``"mean_val"`` (mean of individual fold val scores).
 
         cache: Optional CacheConfig for step-level caching.
             - ``None``: Use default CacheConfig (step cache OFF, CoW snapshots ON).
