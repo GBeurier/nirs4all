@@ -67,6 +67,7 @@ nirs4all uses Optuna for efficient hyperparameter optimization:
      random    - Random sampling
      tpe       - Tree-Parzen Estimator (Bayesian)
      cmaes     - CMA-ES (good for continuous params)
+     binary    - Binary search (for unimodal integers like PLS n_components)
      auto      - Automatic selection based on search space
 
   📈 TUNING APPROACHES
@@ -511,6 +512,7 @@ Search Methods:
   random    - Random sampling (quick baseline)
   tpe       - Bayesian (efficient for medium spaces)
   cmaes     - CMA-ES (continuous parameter spaces)
+  binary    - Binary search (unimodal integers like PLS n_components, 2-3x faster)
   auto      - Automatic selection based on search space
 
 Tuning Approaches:

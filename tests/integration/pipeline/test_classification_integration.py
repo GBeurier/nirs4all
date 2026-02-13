@@ -338,3 +338,39 @@ class TestClassificationIntegration:
         assert predictions.num_predictions > 0
         best_pred = predictions.get_best(ascending=False)
         assert 'val_score' in best_pred
+
+    def test_classification_unbalanced_classes_cv(self):
+        """Test classification with unbalanced classes across CV folds.
+
+        When classes are highly unbalanced, different CV folds may see
+        different numbers of classes in their training set. The probability
+        arrays from predict_proba will then have different column counts.
+        This test verifies that fold averaging handles mismatched shapes.
+        """
+        import nirs4all
+
+        rng = np.random.RandomState(42)
+        n_features = 50
+
+        # Create unbalanced: 40 of class 0, 30 of class 1, 5 of class 2, 2 of rare class 3
+        n_per_class = [40, 30, 5, 2]
+        X_parts, y_parts = [], []
+        for cls, n in enumerate(n_per_class):
+            X_parts.append(rng.randn(n, n_features) + cls * 0.5)
+            y_parts.append(np.full(n, cls, dtype=float))
+        X = np.vstack(X_parts)
+        y = np.concatenate(y_parts)
+
+        pipeline = [
+            StandardScaler(),
+            ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
+            RandomForestClassifier(max_depth=10, random_state=42),
+        ]
+
+        result = nirs4all.run(
+            pipeline=pipeline,
+            dataset=(X, y),
+            verbose=0,
+        )
+
+        assert result.num_predictions > 0

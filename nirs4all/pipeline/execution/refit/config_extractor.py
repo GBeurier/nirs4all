@@ -6,7 +6,7 @@ and generator choices -- so that the refit phase can replay the exact
 configuration that produced the best CV score.
 
 Also provides per-model configuration extraction for refitting ALL
-unique model classes independently.
+unique model classes independently, and multi-criteria top-K selection.
 """
 
 from __future__ import annotations
@@ -14,9 +14,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 from nirs4all.core.logging import get_logger
 
 if TYPE_CHECKING:
+    from nirs4all.data.predictions import Predictions
     from nirs4all.pipeline.execution.refit.model_selector import PerModelSelection
 
 logger = get_logger(__name__)
@@ -41,6 +44,8 @@ class RefitConfig:
         pipeline_id: Store pipeline ID of the winning variant.
         metric: Metric used for ranking.
         best_score: Best validation score achieved.
+        config_name: Original CV pipeline config name (for linking
+            refit entries back to their CV fold data).
     """
 
     expanded_steps: list[Any]
@@ -50,6 +55,269 @@ class RefitConfig:
     pipeline_id: str = ""
     metric: str = ""
     best_score: float = 0.0
+    config_name: str = ""
+
+
+@dataclass
+class RefitCriterion:
+    """A single refit selection criterion.
+
+    Attributes:
+        top_k: Number of top pipeline variants to select.
+        ranking: Ranking method.  ``"rmsecv"`` uses the avg fold's
+            validation score (RMSECV from concatenated OOF predictions).
+            ``"mean_val"`` uses the arithmetic mean of individual fold
+            validation scores.
+        metric: Metric name for ranking.  Empty string uses the metric
+            recorded in the pipeline records.
+    """
+
+    top_k: int = 1
+    ranking: str = "rmsecv"
+    metric: str = ""
+
+
+def parse_refit_param(
+    refit: bool | dict[str, Any] | list[dict[str, Any]] | None,
+) -> list[RefitCriterion]:
+    """Normalize the user-facing ``refit`` parameter to a list of criteria.
+
+    Args:
+        refit: Refit configuration from :func:`nirs4all.run`.
+            - ``True``: Default criterion (top 1 by RMSECV).
+            - ``False`` / ``None``: Empty list (refit disabled).
+            - ``dict``: Single criterion.
+            - ``list[dict]``: Multiple criteria.
+
+    Returns:
+        List of :class:`RefitCriterion` instances.
+
+    Examples:
+        >>> parse_refit_param(True)
+        [RefitCriterion(top_k=1, ranking='rmsecv', metric='')]
+        >>> parse_refit_param({"top_k": 3, "ranking": "mean_val"})
+        [RefitCriterion(top_k=3, ranking='mean_val', metric='')]
+        >>> parse_refit_param([{"top_k": 3}, {"top_k": 1, "ranking": "mean_val"}])
+        [RefitCriterion(top_k=3, ...), RefitCriterion(top_k=1, ranking='mean_val', ...)]
+    """
+    if refit is True:
+        return [RefitCriterion()]
+    if not refit:
+        return []
+    if isinstance(refit, dict):
+        return [RefitCriterion(**{k: v for k, v in refit.items() if k in ("top_k", "ranking", "metric")})]
+    if isinstance(refit, list):
+        return [
+            RefitCriterion(**{k: v for k, v in c.items() if k in ("top_k", "ranking", "metric")})
+            for c in refit
+        ]
+    return []
+
+
+def extract_top_configs(
+    store: Any,
+    run_id: str,
+    criteria: list[RefitCriterion],
+    predictions: Predictions | None = None,
+    dataset_name: str | None = None,
+) -> list[RefitConfig]:
+    """Extract top pipeline configurations for refit based on multiple criteria.
+
+    For each criterion, ranks all completed pipelines by the specified
+    method and selects the top K.  Results are unioned and deduplicated
+    (preserving first-seen order).
+
+    Args:
+        store: :class:`WorkspaceStore` instance with completed run data.
+        run_id: Run identifier.
+        criteria: List of :class:`RefitCriterion` specifying ranking
+            methods and top-K counts.
+        predictions: In-memory :class:`Predictions` object containing
+            all CV prediction entries.  Required for ``"mean_val"``
+            ranking (to access individual fold scores).
+        dataset_name: Filter pipelines to this dataset.
+
+    Returns:
+        Deduplicated list of :class:`RefitConfig` objects, one per
+        selected pipeline variant.
+
+    Raises:
+        ValueError: If the run has no completed pipelines.
+    """
+    from nirs4all.pipeline.storage.workspace_store import _infer_metric_ascending
+
+    if not criteria:
+        return []
+
+    # Get all completed pipelines
+    pipelines_df = store.list_pipelines(run_id=run_id, dataset_name=dataset_name)
+    if pipelines_df.is_empty():
+        raise ValueError(f"Run {run_id} has no pipelines")
+
+    completed = pipelines_df.filter(pipelines_df["status"] == "completed")
+    if completed.is_empty():
+        raise ValueError(f"Run {run_id} has no completed pipelines")
+
+    # Build lookup: pipeline_id → row index
+    pipeline_ids = completed["pipeline_id"].to_list()
+
+    # Determine effective metric from first criterion or pipeline records
+    first_metric = criteria[0].metric
+    if not first_metric:
+        metric_col = completed["metric"]
+        non_null = [v for v in metric_col.to_list() if v is not None and v != ""]
+        first_metric = non_null[0] if non_null else "rmse"
+
+    # Collect selected pipeline_ids (preserving order, deduplicating)
+    selected_ids: list[str] = []
+    seen_ids: set[str] = set()
+
+    for criterion in criteria:
+        effective_metric = criterion.metric or first_metric
+        ascending = _infer_metric_ascending(effective_metric)
+
+        if criterion.ranking == "rmsecv":
+            # Rank by best_val (which is RMSECV from the avg fold after the fix)
+            scored = list(zip(pipeline_ids, completed["best_val"].to_list()))
+            scored = [(pid, s) for pid, s in scored if s is not None]
+            scored.sort(key=lambda x: x[1], reverse=not ascending)
+            top_ids = [pid for pid, _ in scored[:criterion.top_k]]
+
+        elif criterion.ranking == "mean_val":
+            # Rank by mean of individual fold validation scores
+            if predictions is None:
+                logger.warning(
+                    "Cannot rank by 'mean_val': predictions not available. "
+                    "Falling back to 'rmsecv'."
+                )
+                scored = list(zip(pipeline_ids, completed["best_val"].to_list()))
+                scored = [(pid, s) for pid, s in scored if s is not None]
+                scored.sort(key=lambda x: x[1], reverse=not ascending)
+                top_ids = [pid for pid, _ in scored[:criterion.top_k]]
+            else:
+                # Compute mean of individual fold val_scores for each pipeline
+                scored = _compute_mean_val_scores(
+                    predictions, pipeline_ids, completed, effective_metric,
+                )
+                scored.sort(key=lambda x: x[1], reverse=not ascending)
+                top_ids = [pid for pid, _ in scored[:criterion.top_k]]
+        else:
+            logger.warning(f"Unknown ranking method '{criterion.ranking}', using 'rmsecv'")
+            scored = list(zip(pipeline_ids, completed["best_val"].to_list()))
+            scored = [(pid, s) for pid, s in scored if s is not None]
+            scored.sort(key=lambda x: x[1], reverse=not ascending)
+            top_ids = [pid for pid, _ in scored[:criterion.top_k]]
+
+        for pid in top_ids:
+            if pid not in seen_ids:
+                selected_ids.append(pid)
+                seen_ids.add(pid)
+
+    if not selected_ids:
+        raise ValueError(f"No pipelines selected for refit in run {run_id}")
+
+    # Build RefitConfig for each selected pipeline
+    all_pipeline_ids = pipelines_df["pipeline_id"].to_list()
+    configs: list[RefitConfig] = []
+
+    for pipeline_id in selected_ids:
+        pipeline_record = store.get_pipeline(pipeline_id)
+        if pipeline_record is None:
+            logger.warning(f"Pipeline {pipeline_id} not found, skipping")
+            continue
+
+        expanded_steps = pipeline_record.get("expanded_config", [])
+        generator_choices = pipeline_record.get("generator_choices", [])
+
+        # Get best_val from the completed DataFrame
+        pid_idx = pipeline_ids.index(pipeline_id) if pipeline_id in pipeline_ids else None
+        best_score = completed.row(pid_idx, named=True).get("best_val", 0.0) if pid_idx is not None else 0.0
+
+        cv_config_name = pipeline_record.get("name", "")
+        variant_index = all_pipeline_ids.index(pipeline_id) if pipeline_id in all_pipeline_ids else 0
+        best_params = _extract_best_params(store, pipeline_id, first_metric, _infer_metric_ascending(first_metric))
+
+        configs.append(RefitConfig(
+            expanded_steps=expanded_steps,
+            best_params=best_params,
+            variant_index=variant_index,
+            generator_choices=generator_choices,
+            pipeline_id=pipeline_id,
+            metric=first_metric,
+            best_score=best_score or 0.0,
+            config_name=cv_config_name,
+        ))
+
+    return configs
+
+
+def _compute_mean_val_scores(
+    predictions: Predictions,
+    pipeline_ids: list[str],
+    completed_df: Any,
+    metric: str,
+) -> list[tuple[str, float]]:
+    """Compute mean of individual fold validation scores for each pipeline.
+
+    Filters predictions to individual folds (excluding avg, w_avg, final),
+    groups by config_name (matched to pipeline via the completed DataFrame),
+    and computes the arithmetic mean of fold val_scores.
+
+    Args:
+        predictions: In-memory Predictions with all CV entries.
+        pipeline_ids: List of pipeline IDs to score.
+        completed_df: Polars DataFrame of completed pipelines.
+        metric: Metric name for extracting scores.
+
+    Returns:
+        List of (pipeline_id, mean_val_score) tuples.
+    """
+    # Map config_name → pipeline_id from store records
+    names = completed_df["name"].to_list() if "name" in completed_df.columns else []
+    name_to_pid = dict(zip(names, pipeline_ids))
+
+    # Get all val-partition predictions from buffer
+    val_preds = predictions.filter_predictions(partition="val", load_arrays=False)
+
+    # Group fold val_scores by config_name (excluding virtual folds)
+    config_scores: dict[str, list[float]] = {}
+    for entry in val_preds:
+        fold_id = str(entry.get("fold_id", ""))
+        if fold_id in ("avg", "w_avg", "final"):
+            continue
+
+        config_name = entry.get("config_name", "")
+        val_score = entry.get("val_score")
+        if val_score is None:
+            # Try to get from scores dict
+            scores_dict = entry.get("scores", {})
+            if isinstance(scores_dict, dict) and "val" in scores_dict:
+                val_scores_part = scores_dict["val"]
+                if isinstance(val_scores_part, dict):
+                    val_score = val_scores_part.get(metric)
+        if val_score is not None:
+            if config_name not in config_scores:
+                config_scores[config_name] = []
+            config_scores[config_name].append(float(val_score))
+
+    # Compute mean for each pipeline
+    result: list[tuple[str, float]] = []
+    for config_name, fold_scores in config_scores.items():
+        pid = name_to_pid.get(config_name)
+        if pid is not None and fold_scores:
+            result.append((pid, float(np.mean(fold_scores))))
+
+    # Include pipelines not found in predictions (with no score)
+    scored_pids = {pid for pid, _ in result}
+    for pid in pipeline_ids:
+        if pid not in scored_pids:
+            # Fallback: use best_val from store
+            pid_idx = pipeline_ids.index(pid)
+            best_val = completed_df.row(pid_idx, named=True).get("best_val")
+            if best_val is not None:
+                result.append((pid, float(best_val)))
+
+    return result
 
 
 def extract_winning_config(
@@ -124,6 +392,7 @@ def extract_winning_config(
     expanded_steps = pipeline_record.get("expanded_config", [])
     generator_choices = pipeline_record.get("generator_choices", [])
     best_score = best_pipeline.get("best_val") or 0.0
+    cv_config_name = pipeline_record.get("name", "")
 
     # Determine variant_index: match pipeline_id against all pipelines in order
     all_pipeline_ids = pipelines_df["pipeline_id"].to_list()
@@ -140,6 +409,7 @@ def extract_winning_config(
         pipeline_id=best_pipeline_id,
         metric=effective_metric,
         best_score=best_score,
+        config_name=cv_config_name,
     )
 
 
@@ -282,6 +552,7 @@ def extract_per_model_configs(
         expanded_steps = record.get("expanded_config", [])
         generator_choices = record.get("generator_choices", [])
         best_params = _extract_best_params(store, best_pid, metric, ascending)
+        cv_config_name = record.get("name", "")
 
         selection = PerModelSelection(
             variant_index=best_idx,
@@ -298,6 +569,7 @@ def extract_per_model_configs(
             pipeline_id=best_pid,
             metric=metric,
             best_score=best_score,
+            config_name=cv_config_name,
         )
 
         result[model_class] = (selection, config)

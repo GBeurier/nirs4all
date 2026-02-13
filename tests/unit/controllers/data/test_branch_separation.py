@@ -111,7 +111,7 @@ class TestBranchControllerHelpers:
 
         steps = [FakeStep(), FakeStep()]
         names = controller._get_step_names(steps)
-        assert names == "FakeStep, FakeStep"
+        assert names == "FakeStep > FakeStep"
 
     def test_get_step_names_empty(self, controller):
         """Test step name extraction from empty list."""
@@ -121,14 +121,13 @@ class TestBranchControllerHelpers:
     def test_get_step_names_dict_steps(self, controller):
         """Test step name extraction from dict steps.
 
-        Note: _get_step_names uses __class__.__name__ for all objects,
-        so dict steps return 'dict' rather than extracting keywords.
-        The keyword extraction happens in _extract_substep_info instead.
+        _get_step_names recurses into dict values for known keywords
+        (model, preprocessing), extracting the wrapped operator's class name.
         """
         steps = [{"model": Mock()}, {"preprocessing": Mock()}]
         names = controller._get_step_names(steps)
-        # Dicts have __class__ so they get 'dict' as name
-        assert "dict" in names
+        # Dict steps now recurse into model/preprocessing values
+        assert "Mock" in names
 
 
 class TestMultiplyBranchContexts:

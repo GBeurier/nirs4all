@@ -125,6 +125,11 @@ class TabReportManager:
         refit_entries: list,
         ascending: bool = True,
         metric: str = "rmse",
+        aggregate: Optional[Union[str, bool]] = None,
+        aggregate_method: Optional[str] = None,
+        aggregate_exclude_outliers: bool = False,
+        predictions: Optional[Any] = None,
+        pred_index: Optional[dict] = None,
     ) -> str:
         """Generate a per-model summary table for refit entries.
 
@@ -135,6 +140,15 @@ class TabReportManager:
                 with test_score already populated.
             ascending: Whether lower scores are better.
             metric: Metric name (e.g. ``"rmse"``, ``"mse"``, ``"accuracy"``).
+            aggregate: Aggregation column (``str``), ``True`` for 'y', or
+                ``None``/``False`` to disable.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                ``"vote"``).
+            aggregate_exclude_outliers: Exclude outliers before aggregation.
+            predictions: ``Predictions`` instance for partition lookup.
+                Required when *aggregate* is set.
+            pred_index: Pre-built prediction index from ``_build_prediction_index``.
+                If None, will build index internally (slower).
 
         Returns:
             Formatted table string.
@@ -153,23 +167,105 @@ class TabReportManager:
         display_mse_as_rmse = metric.lower() == "mse"
         display_metric = "RMSE" if display_mse_as_rmse else metric.upper()
 
+        # Normalize aggregate parameter
+        effective_aggregate: Optional[str] = None
+        if aggregate is True:
+            effective_aggregate = 'y'
+        elif isinstance(aggregate, str):
+            effective_aggregate = aggregate
+
+        # Build prediction index once to avoid O(N*M) complexity (if not provided)
+        if pred_index is None and predictions is not None:
+            pred_index = TabReportManager._build_prediction_index(predictions)
+
+        # Compute aggregated test scores when aggregation is configured
+        agg_scores: dict[int, float | None] = {}
+        if effective_aggregate and predictions is not None and pred_index is not None:
+            eval_metric = metric if not display_mse_as_rmse else "mse"
+            for idx, entry in enumerate(entries):
+                agg_score = TabReportManager._compute_aggregated_test_score_indexed(
+                    entry, predictions, pred_index, effective_aggregate,
+                    aggregate_method, aggregate_exclude_outliers, eval_metric,
+                )
+                agg_scores[idx] = agg_score
+
+        show_agg = bool(agg_scores) and any(v is not None for v in agg_scores.values())
+
+        # Compute additional metrics for each entry
+        rmse_cv_scores: dict[int, float | None] = {}
+        avg_test_scores: dict[int, float | None] = {}
+        weighted_avg_test_scores: dict[int, float | None] = {}
+
+        if predictions is not None and pred_index is not None:
+            for idx, entry in enumerate(entries):
+                # RMSE_CV: sqrt(PRESS/n) from all out-of-fold predictions
+                rmse_cv = TabReportManager._compute_rmse_cv_indexed(entry, pred_index, display_mse_as_rmse)
+                rmse_cv_scores[idx] = rmse_cv
+
+                # Average and weighted average test scores across CV folds
+                avg_test, weighted_avg_test = TabReportManager._compute_cv_test_averages_indexed(
+                    entry, pred_index, display_mse_as_rmse
+                )
+                avg_test_scores[idx] = avg_test
+                weighted_avg_test_scores[idx] = weighted_avg_test
+
         def _fmt(value: float | None) -> str:
             if value is None:
                 return "N/A"
-            if display_mse_as_rmse:
+            if display_mse_as_rmse and isinstance(value, (int, float)):
                 value = math.sqrt(max(value, 0.0))
             return f"{value:.4f}"
 
-        headers = ["#", "Model", f"Test {display_metric}", f"CV {display_metric}"]
+        def _truncate(text: str, max_len: int = 30) -> str:
+            """Truncate text if too long."""
+            if len(text) <= max_len:
+                return text
+            return text[:max_len-3] + "..."
+
+        # Check if we have multiple datasets (global summary)
+        datasets = set(e.get("dataset_name") for e in entries)
+        show_dataset = len(datasets) > 1
+
+        headers = ["#", "Model"]
+        if show_dataset:
+            headers.append("Dataset")
+        headers.append(f"Test {display_metric}")
+        if show_agg:
+            headers.append(f"Test {display_metric}*")
+        headers.extend([
+            f"CV_test_avg",
+            f"CV_test_wavg",
+            "Avg_val",
+            f"{display_metric}_CV",
+            "Preprocessing"
+        ])
+
         rows = []
         for i, entry in enumerate(entries):
             model_name = entry.get("model_name", "unknown")
-            rows.append([
+            dataset_name = entry.get("dataset_name", "")
+            preprocessing = entry.get("preprocessings", "")
+
+            row = [
                 str(i + 1),
                 model_name,
-                _fmt(entry.get("test_score")),
-                _fmt(entry.get("cv_rank_score")),
+            ]
+            if show_dataset:
+                row.append(_truncate(dataset_name, 25))
+
+            row.append(_fmt(entry.get("test_score")))
+
+            if show_agg:
+                row.append(_fmt(agg_scores.get(i)))
+
+            row.extend([
+                _fmt(avg_test_scores.get(i)),
+                _fmt(weighted_avg_test_scores.get(i)),
+                _fmt(entry.get("cv_rank_score")),  # This is cv_val_score (renamed to Avg_val)
+                _fmt(rmse_cv_scores.get(i)),
+                _truncate(preprocessing, 40),
             ])
+            rows.append(row)
 
         all_rows = [headers] + rows
         col_widths = [
@@ -187,6 +283,280 @@ class TabReportManager:
         lines.append(separator)
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _build_prediction_index(predictions: Any) -> dict[str, Any]:
+        """Build an index of predictions for O(1) lookups.
+
+        Creates lookup dictionaries to avoid repeated linear scans of the
+        prediction buffer. This dramatically improves performance when
+        generating reports with many models.
+
+        Args:
+            predictions: ``Predictions`` instance.
+
+        Returns:
+            Dictionary containing indexed predictions:
+            - ``partitions``: dict mapping (dataset, config, model, fold, step) → partition → entry
+            - ``oof_preds``: dict mapping (dataset, config, model) → list of val partition entries
+            - ``test_preds``: dict mapping (dataset, config, model) → list of test partition entries
+            - ``w_avg``: dict mapping (dataset, config, model) → {partition → entry} for w_avg fold
+        """
+        partitions_index: dict[tuple, dict[str, dict]] = {}
+        oof_index: dict[tuple, list] = {}
+        test_index: dict[tuple, list] = {}
+        w_avg_index: dict[tuple, dict[str, dict]] = {}
+
+        for row in predictions._buffer:
+            dataset_name = row.get("dataset_name")
+            config_name = row.get("config_name", "")
+            model_name = row.get("model_name")
+            fold_id = row.get("fold_id", "")
+            step_idx = row.get("step_idx", 0)
+            partition = row.get("partition")
+
+            # Index for get_entry_partitions
+            key = (dataset_name, config_name, model_name, fold_id, step_idx)
+            if key not in partitions_index:
+                partitions_index[key] = {}
+            if partition in ("train", "val", "test") and partition not in partitions_index[key]:
+                partitions_index[key][partition] = row
+
+            # Index for get_oof_predictions (val partition, exclude avg/w_avg)
+            if partition == "val" and fold_id not in ("avg", "w_avg", "final", None, ""):
+                oof_key = (dataset_name, config_name, model_name)
+                if oof_key not in oof_index:
+                    oof_index[oof_key] = []
+                oof_index[oof_key].append(row)
+
+            # Index for test predictions (test partition, exclude final/avg/w_avg)
+            if partition == "test" and fold_id not in ("final", "avg", "w_avg", None, ""):
+                test_key = (dataset_name, config_name, model_name)
+                if test_key not in test_index:
+                    test_index[test_key] = []
+                test_index[test_key].append(row)
+
+            # Index for w_avg fold entries (for w_avg enrichment)
+            if fold_id == "w_avg" and partition in ("train", "val", "test"):
+                w_avg_key = (dataset_name, config_name, model_name, step_idx)
+                if w_avg_key not in w_avg_index:
+                    w_avg_index[w_avg_key] = {}
+                if partition not in w_avg_index[w_avg_key]:
+                    w_avg_index[w_avg_key][partition] = row
+
+        return {
+            "partitions": partitions_index,
+            "oof_preds": oof_index,
+            "test_preds": test_index,
+            "w_avg": w_avg_index,
+            "predictions": predictions,
+        }
+
+    @staticmethod
+    def _compute_aggregated_test_score_indexed(
+        entry: dict,
+        predictions: Any,
+        pred_index: dict,
+        aggregate: str,
+        aggregate_method: Optional[str],
+        aggregate_exclude_outliers: bool,
+        metric: str,
+    ) -> Optional[float]:
+        """Compute aggregated test score using pre-built index.
+
+        Args:
+            entry: Refit prediction entry.
+            predictions: ``Predictions`` instance.
+            pred_index: Pre-built prediction index from ``_build_prediction_index``.
+            aggregate: Aggregation column name.
+            aggregate_method: Aggregation method.
+            aggregate_exclude_outliers: Exclude outliers flag.
+            metric: Metric name for evaluation.
+
+        Returns:
+            Aggregated score or ``None`` if aggregation is not possible.
+        """
+        try:
+            dataset_name = entry.get("dataset_name")
+            config_name = entry.get("config_name", "")
+            model_name = entry.get("model_name")
+            fold_id = entry.get("fold_id", "")
+            step_idx = entry.get("step_idx", 0)
+
+            key = (dataset_name, config_name, model_name, fold_id, step_idx)
+            partitions = pred_index["partitions"].get(key, {})
+            test_entry = partitions.get("test")
+
+            if test_entry is None:
+                return None
+
+            y_true = np.array(test_entry["y_true"])
+            y_pred = np.array(test_entry["y_pred"])
+            metadata = test_entry.get("metadata", {})
+
+            agg_result = TabReportManager._aggregate_predictions(
+                y_true=y_true,
+                y_pred=y_pred,
+                aggregate=aggregate,
+                metadata=metadata,
+                partition_name="test",
+                method=aggregate_method,
+                exclude_outliers=aggregate_exclude_outliers,
+            )
+            if agg_result is None:
+                return None
+
+            agg_y_true, agg_y_pred = agg_result
+            return evaluator.eval(agg_y_true, agg_y_pred, metric)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _resolve_cv_config_name(config_name: str) -> str:
+        """Derive the original CV config_name from a refit config_name.
+
+        Refit entries get a suffix like ``_refit``, ``_stacking_refit``, etc.
+        Strip known suffixes to recover the original CV config_name for
+        index lookups.
+        """
+        for suffix in ("_stacking_refit", "_refit"):
+            if config_name.endswith(suffix):
+                return config_name[: -len(suffix)]
+        return config_name
+
+    @staticmethod
+    def _compute_rmse_cv_indexed(
+        entry: dict,
+        pred_index: dict,
+        display_as_rmse: bool = True,
+    ) -> Optional[float]:
+        """Compute RMSE_CV using pre-built index.
+
+        Args:
+            entry: Refit prediction entry.
+            pred_index: Pre-built prediction index (contains predictions object).
+            display_as_rmse: If True, return sqrt(MSE). If False, return MSE.
+
+        Returns:
+            RMSE_CV or None if not computable.
+        """
+        try:
+            oof_index = pred_index.get("oof_preds", {})
+
+            dataset_name = entry.get("dataset_name")
+            config_name = entry.get("config_name", "")
+            model_name = entry.get("model_name")
+            fold_id = entry.get("fold_id", "")
+            is_refit = fold_id == "final"
+
+            # Use the pre-built OOF index
+            oof_key = (dataset_name, config_name, model_name)
+            oof_preds = oof_index.get(oof_key, [])
+
+            # For refit entries, resolve original CV config_name
+            if is_refit and not oof_preds:
+                cv_config = TabReportManager._resolve_cv_config_name(config_name)
+                oof_preds = oof_index.get((dataset_name, cv_config, model_name), [])
+
+            if not oof_preds:
+                return None
+
+            # Collect all y_true and y_pred from all folds
+            y_true_arrays = []
+            y_pred_arrays = []
+
+            for fold_pred in oof_preds:
+                y_true = fold_pred.get("y_true")
+                y_pred = fold_pred.get("y_pred")
+                if y_true is not None and y_pred is not None:
+                    y_true_flat = y_true.ravel() if hasattr(y_true, 'ravel') else np.asarray(y_true).ravel()
+                    y_pred_flat = y_pred.ravel() if hasattr(y_pred, 'ravel') else np.asarray(y_pred).ravel()
+                    y_true_arrays.append(y_true_flat)
+                    y_pred_arrays.append(y_pred_flat)
+
+            if not y_true_arrays:
+                return None
+
+            all_y_true = np.concatenate(y_true_arrays)
+            all_y_pred = np.concatenate(y_pred_arrays)
+
+            squared_errors = (all_y_true - all_y_pred) ** 2
+            press = np.sum(squared_errors)
+            mse = press / len(all_y_true)
+
+            return np.sqrt(mse) if display_as_rmse else mse
+
+        except Exception:
+            return None
+
+    @staticmethod
+    def _compute_cv_test_averages_indexed(
+        entry: dict,
+        pred_index: dict,
+        display_as_rmse: bool = True,
+    ) -> tuple[Optional[float], Optional[float]]:
+        """Compute average and weighted average test scores using pre-built index.
+
+        Args:
+            entry: Refit prediction entry.
+            pred_index: Pre-built prediction index (contains predictions object).
+            display_as_rmse: If True and metric is MSE, return sqrt(MSE).
+
+        Returns:
+            Tuple of (avg_test_score, weighted_avg_test_score).
+            Returns (None, None) if not computable.
+        """
+        try:
+            test_index = pred_index.get("test_preds", {})
+
+            dataset_name = entry.get("dataset_name")
+            config_name = entry.get("config_name", "")
+            model_name = entry.get("model_name")
+            fold_id = entry.get("fold_id", "")
+            is_refit = fold_id == "final"
+
+            # Use the pre-built test index
+            test_key = (dataset_name, config_name, model_name)
+            test_preds = test_index.get(test_key, [])
+
+            # For refit entries, resolve original CV config_name
+            if is_refit and not test_preds:
+                cv_config = TabReportManager._resolve_cv_config_name(config_name)
+                test_preds = test_index.get((dataset_name, cv_config, model_name), [])
+
+            if not test_preds:
+                return None, None
+
+            test_scores = []
+            sample_counts = []
+
+            for fold_pred in test_preds:
+                test_score = fold_pred.get("test_score")
+                n_samples = fold_pred.get("n_samples", 0)
+
+                if test_score is not None and n_samples > 0:
+                    test_scores.append(test_score)
+                    sample_counts.append(n_samples)
+
+            if not test_scores:
+                return None, None
+
+            avg_test = np.mean(test_scores)
+
+            total_samples = sum(sample_counts)
+            if total_samples > 0:
+                weighted_avg_test = sum(score * count for score, count in zip(test_scores, sample_counts)) / total_samples
+            else:
+                weighted_avg_test = avg_test
+
+            if display_as_rmse:
+                avg_test = np.sqrt(max(avg_test, 0.0))
+                weighted_avg_test = np.sqrt(max(weighted_avg_test, 0.0))
+
+            return avg_test, weighted_avg_test
+
+        except Exception:
+            return None, None
 
     @staticmethod
     def _aggregate_predictions(

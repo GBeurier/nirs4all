@@ -53,6 +53,11 @@ class OperatorNode:
     substep_index: Optional[int] = None
     operator_name: Optional[str] = None
 
+    def __post_init__(self) -> None:
+        """Normalize operator_class to short class name (strip module path)."""
+        if "." in self.operator_class:
+            self.operator_class = self.operator_class.rsplit(".", 1)[-1]
+
     def to_key(self) -> str:
         """Generate compact key string for this node.
 

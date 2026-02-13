@@ -52,6 +52,7 @@ class PipelineOrchestrator:
         max_preprocessed_snapshots_per_dataset: int = 3,
         plots_visible: bool = False,
         random_state: int | None = None,
+        n_jobs: int = 1,
     ) -> None:
         """Initialize pipeline orchestrator.
 
@@ -69,6 +70,7 @@ class PipelineOrchestrator:
                 preprocessed snapshots to retain per dataset
             plots_visible: Whether to display plots
             random_state: Random seed for reproducibility propagation
+            n_jobs: Number of parallel workers for pipeline variants (1=sequential, -1=all cores)
         """
         # Workspace configuration
         if workspace_path is None:
@@ -96,6 +98,7 @@ class PipelineOrchestrator:
         self.max_preprocessed_snapshots_per_dataset = max(0, int(max_preprocessed_snapshots_per_dataset))
         self.plots_visible = plots_visible
         self.random_state = random_state
+        self.n_jobs = n_jobs
 
         # Dataset snapshots (if keep_datasets is True)
         self.raw_data: dict[str, np.ndarray] = {}
@@ -132,7 +135,7 @@ class PipelineOrchestrator:
         artifact_loader: Any = None,
         target_model: dict[str, Any] | None = None,
         explainer: Any = None,
-        refit: bool | dict[str, Any] | None = True,
+        refit: bool | dict[str, Any] | list[dict[str, Any]] | None = True,
         store_run_id: str | None = None,
         manage_store_run: bool = True,
     ) -> tuple[Predictions, dict[str, Any]]:
@@ -263,140 +266,314 @@ class PipelineOrchestrator:
                 best_deferred_val: float | None = None
                 best_deferred_ascending: bool | None = None
 
-                # Execute each pipeline configuration on this dataset
-                for _i, (steps, config_name, gen_choices) in enumerate(zip(
-                    pipeline_configs.steps,
-                    pipeline_configs.names,
-                    pipeline_configs.generator_choices,
-                    strict=False,
-                )):
-                    current_run += 1
-                    logger.info(f"Run {current_run}/{total_runs}: pipeline '{config_name}' on dataset '{name}'")
+                # Determine if parallel execution should be used
+                use_parallel = (
+                    self.n_jobs != 1
+                    and len(pipeline_configs.steps) > 1
+                    and self.mode == "train"  # Only train mode for now
+                )
 
-                    dataset = dataset_configs.get_dataset(config, name)
+                # Parallel execution disables deferred artifacts (can't compare across workers)
+                if use_parallel:
+                    use_deferred = False
+                    logger.info(f"Executing {len(pipeline_configs.steps)} variants in parallel (n_jobs={self.n_jobs})")
 
-                    # Capture raw data BEFORE any preprocessing happens
-                    if self.keep_datasets and name not in self.raw_data:
-                        self.raw_data[name] = dataset.x({}, layout="2d")
+                # ===================================================================
+                # PARALLEL EXECUTION PATH
+                # ===================================================================
+                if use_parallel:
+                    from joblib import Parallel, delayed
+                    import multiprocessing
 
-                    if self.verbose > 0:
-                        print(dataset)
+                    # Determine number of workers
+                    n_workers = self.n_jobs
+                    if n_workers == -1:
+                        n_workers = multiprocessing.cpu_count()
+                    n_workers = min(n_workers, len(pipeline_configs.steps))
 
-                    # Initialize execution context via executor
-                    context = executor.initialize_context(dataset)
+                    # Prepare variant data for parallel execution
+                    variant_data_list = []
+                    for _i, (steps, config_name, gen_choices) in enumerate(zip(
+                        pipeline_configs.steps,
+                        pipeline_configs.names,
+                        pipeline_configs.generator_choices,
+                        strict=False,
+                    )):
+                        current_run += 1
+                        dataset_copy = dataset_configs.get_dataset(config, name)
 
-                    # Create RuntimeContext with store
-                    runtime_context = RuntimeContext(
-                        store=self.store,
-                        artifact_loader=artifact_loader,
-                        artifact_registry=artifact_registry,
-                        step_runner=executor.step_runner,
-                        target_model=target_model,
-                        explainer=explainer,
-                        run_id=run_id,
-                        cache_config=self.cache_config,
-                        step_cache=step_cache,
-                        best_refit_chains=best_refit_chains,
-                        random_state=self.random_state,
+                        # Capture raw data (first variant only)
+                        if self.keep_datasets and name not in self.raw_data and _i == 0:
+                            self.raw_data[name] = dataset_copy.x({}, layout="2d")
+
+                        # Initialize context
+                        context = executor.initialize_context(dataset_copy)
+
+                        # Create runtime context
+                        runtime_context_copy = RuntimeContext(
+                            store=None,  # Disabled in parallel workers
+                            artifact_loader=artifact_loader,
+                            artifact_registry=artifact_registry,
+                            step_runner=executor.step_runner,
+                            target_model=target_model,
+                            explainer=explainer,
+                            run_id=run_id,
+                            cache_config=self.cache_config,
+                            step_cache=step_cache,
+                            best_refit_chains=best_refit_chains,
+                            random_state=self.random_state,
+                        )
+
+                        variant_data_list.append({
+                            "steps": steps,
+                            "config_name": config_name,
+                            "gen_choices": gen_choices,
+                            "dataset": dataset_copy,
+                            "executor": executor,
+                            "context": context,
+                            "runtime_context": runtime_context_copy,
+                            "run_number": current_run,
+                            "total_runs": total_runs,
+                        })
+
+                    # Execute variants in parallel
+                    results = Parallel(n_jobs=n_workers, backend='loky', verbose=0)(
+                        delayed(self._execute_single_variant)(variant_data)
+                        for variant_data in variant_data_list
                     )
 
-                    # Execute pipeline with cleanup on failure
-                    config_predictions = Predictions()
-                    # Pass dataset repetition context for by_repetition=True resolution
-                    if dataset.repetition:
-                        config_predictions.set_repetition_column(dataset.repetition)
+                    # CRITICAL FIX: Reconstruct store state after parallel execution
+                    # In parallel mode, store=None in workers to avoid concurrent writes.
+                    # This means pipeline records and predictions were never saved to the
+                    # store. We must reconstruct them here so refit pass and tab reports work.
+                    logger.info(f"Processing {len(results)} parallel execution results")
 
-                    # Enter deferred mode before execution
-                    if use_deferred and artifact_registry is not None:
-                        artifact_registry.begin_deferred()
+                    for idx, result in enumerate(results):
+                        config_predictions = result["predictions"]
+                        config_name = result.get("config_name", "unknown")
 
-                    try:
-                        executor.execute(
-                            steps=steps,
-                            config_name=config_name,
-                            dataset=dataset,
-                            context=context,
-                            runtime_context=runtime_context,
-                            prediction_store=config_predictions,
-                            generator_choices=gen_choices
+                        logger.debug(
+                            f"Result {idx+1}/{len(results)}: config '{config_name}', "
+                            f"{config_predictions.num_predictions} predictions"
                         )
-                    except Exception:
-                        # Rollback deferred artifacts before cleanup
-                        if use_deferred and artifact_registry is not None and artifact_registry._deferred_mode:
-                            artifact_registry.rollback_deferred()
-                        # Cleanup artifacts from failed run
-                        if artifact_registry is not None:
-                            artifact_registry.cleanup_failed_run()
-                        raise
 
-                    # Capture last pipeline_uid for syncing back to runner
-                    if runtime_context.pipeline_uid:
-                        self.last_pipeline_uid = runtime_context.pipeline_uid
+                        # Store reconstruction (non-fatal if it fails)
+                        if config_predictions.num_predictions > 0 and self.store and run_id:
+                            try:
+                                # Extract metadata from result
+                                steps = result.get("steps", [])
+                                gen_choices = result.get("generator_choices", [])
+                                dataset_obj = result.get("dataset")
 
-                    # Capture execution trace for post-run visualization
-                    self.last_execution_trace = runtime_context.get_execution_trace()
+                                # Create pipeline record
+                                pipeline_id = self.store.begin_pipeline(
+                                    run_id=run_id,
+                                    name=config_name,
+                                    expanded_config=steps,
+                                    generator_choices=gen_choices,
+                                    dataset_name=name,
+                                    dataset_hash=dataset_obj.content_hash() if dataset_obj else "",
+                                )
 
-                    # Capture preprocessed data AFTER preprocessing
-                    if self.keep_datasets:
-                        if name not in self.pp_data:
-                            self.pp_data[name] = {}
-                        snapshot_key = dataset.short_preprocessings_str()
-                        dataset_snapshots = self.pp_data[name]
-                        can_store = (
-                            snapshot_key in dataset_snapshots
-                            or self.max_preprocessed_snapshots_per_dataset == 0
-                            or len(dataset_snapshots) < self.max_preprocessed_snapshots_per_dataset
-                        )
-                        if can_store:
-                            dataset_snapshots[snapshot_key] = dataset.x({}, layout="2d")
-                        else:
-                            logger.debug(
-                                "Skipping preprocessed snapshot for dataset '%s' "
-                                "(limit=%d, key='%s')",
-                                name,
-                                self.max_preprocessed_snapshots_per_dataset,
-                                snapshot_key,
-                            )
+                                # Flush predictions with this pipeline_id
+                                config_predictions.flush(
+                                    pipeline_id=pipeline_id,
+                                    store=self.store,
+                                )
 
-                    # Deferred artifact persistence: commit if this config's
-                    # validation score beats the previous best, rollback otherwise.
-                    if use_deferred and artifact_registry is not None and artifact_registry._deferred_mode:
-                        should_commit = True
+                                # Compute metrics for complete_pipeline
+                                best = config_predictions.get_best(ascending=None, score_scope="cv")
+                                best_val = best.get("val_score") if best else None
+                                best_test = best.get("test_score") if best else None
+                                metric = best.get("metric", "rmse") if best else "rmse"
+                                duration_ms = int(result.get("duration_ms", 0))
+
+                                # Complete pipeline record
+                                self.store.complete_pipeline(
+                                    pipeline_id=pipeline_id,
+                                    best_val=best_val,
+                                    best_test=best_test,
+                                    metric=metric,
+                                    duration_ms=duration_ms,
+                                )
+
+                                # Capture last pipeline_uid for syncing
+                                self.last_pipeline_uid = pipeline_id
+
+                                logger.debug(f"  -> Store reconstruction completed (pipeline_id={pipeline_id})")
+                            except Exception as e:
+                                logger.error(
+                                    f"Store reconstruction failed for config '{config_name}': {e}. "
+                                    f"Predictions will still be merged in-memory for reporting."
+                                )
+                                import traceback
+                                traceback.print_exc()
+
+                        # ALWAYS merge predictions into run-level stores (even if store ops failed)
                         if config_predictions.num_predictions > 0:
-                            config_best = config_predictions.get_best(ascending=None)
-                            if config_best:
-                                val_score = config_best.get("val_score")
-                                if val_score is not None:
-                                    # Has folds — compare with best seen so far
-                                    if best_deferred_val is None:
-                                        best_deferred_val = val_score
-                                        best_deferred_ascending = _infer_ascending(
-                                            config_best.get("metric", "rmse")
-                                        )
-                                    else:
-                                        if best_deferred_ascending:
-                                            is_better = val_score < best_deferred_val
-                                        else:
-                                            is_better = val_score > best_deferred_val
-                                        if is_better:
-                                            best_deferred_val = val_score
-                                        else:
-                                            should_commit = False
-                                # val_score is None → no folds → always commit
-                        if should_commit:
-                            artifact_registry.commit_deferred()
-                        else:
-                            artifact_registry.rollback_deferred()
+                            run_dataset_predictions.merge_predictions(config_predictions)
+                            run_predictions.merge_predictions(config_predictions)
+                            logger.debug(f"  -> Merged {config_predictions.num_predictions} predictions")
 
-                    # Merge new predictions into run-level stores
-                    if config_predictions.num_predictions > 0:
-                        run_dataset_predictions.merge_predictions(config_predictions)
-                        run_predictions.merge_predictions(config_predictions)
+                        # Merge best_refit_chains from this worker
+                        worker_refit_chains = result.get("best_refit_chains")
+                        if worker_refit_chains and best_refit_chains is not None:
+                            self._merge_refit_chains(best_refit_chains, worker_refit_chains)
+
+                        # Capture execution trace
+                        if result.get("execution_trace"):
+                            self.last_execution_trace = result["execution_trace"]
+
+                        # Capture preprocessed data
+                        if self.keep_datasets and "preprocessed_data" in result:
+                            if name not in self.pp_data:
+                                self.pp_data[name] = {}
+                            snapshot_key = result["preprocessing_key"]
+                            self.pp_data[name][snapshot_key] = result["preprocessed_data"]
+
+                    logger.info(
+                        f"Parallel results processed: {run_dataset_predictions.num_predictions} "
+                        f"total predictions merged"
+                    )
+
+                # ===================================================================
+                # SEQUENTIAL EXECUTION PATH (original code)
+                # ===================================================================
+                else:
+                    # Execute each pipeline configuration on this dataset
+                    for _i, (steps, config_name, gen_choices) in enumerate(zip(
+                        pipeline_configs.steps,
+                        pipeline_configs.names,
+                        pipeline_configs.generator_choices,
+                        strict=False,
+                    )):
+                        current_run += 1
+                        logger.info(f"Run {current_run}/{total_runs}: pipeline '{config_name}' on dataset '{name}'")
+
+                        dataset = dataset_configs.get_dataset(config, name)
+
+                        # Capture raw data BEFORE any preprocessing happens
+                        if self.keep_datasets and name not in self.raw_data:
+                            self.raw_data[name] = dataset.x({}, layout="2d")
+
+                        if self.verbose > 0:
+                            print(dataset)
+
+                        # Initialize execution context via executor
+                        context = executor.initialize_context(dataset)
+
+                        # Create RuntimeContext with store
+                        runtime_context = RuntimeContext(
+                            store=self.store,
+                            artifact_loader=artifact_loader,
+                            artifact_registry=artifact_registry,
+                            step_runner=executor.step_runner,
+                            target_model=target_model,
+                            explainer=explainer,
+                            run_id=run_id,
+                            cache_config=self.cache_config,
+                            step_cache=step_cache,
+                            best_refit_chains=best_refit_chains,
+                            random_state=self.random_state,
+                        )
+
+                        # Execute pipeline with cleanup on failure
+                        config_predictions = Predictions()
+                        # Pass dataset repetition context for by_repetition=True resolution
+                        if dataset.repetition:
+                            config_predictions.set_repetition_column(dataset.repetition)
+
+                        # Enter deferred mode before execution
+                        if use_deferred and artifact_registry is not None:
+                            artifact_registry.begin_deferred()
+
+                        try:
+                            executor.execute(
+                                steps=steps,
+                                config_name=config_name,
+                                dataset=dataset,
+                                context=context,
+                                runtime_context=runtime_context,
+                                prediction_store=config_predictions,
+                                generator_choices=gen_choices
+                            )
+                        except Exception:
+                            # Rollback deferred artifacts before cleanup
+                            if use_deferred and artifact_registry is not None and artifact_registry._deferred_mode:
+                                artifact_registry.rollback_deferred()
+                            # Cleanup artifacts from failed run
+                            if artifact_registry is not None:
+                                artifact_registry.cleanup_failed_run()
+                            raise
+
+                        # Capture last pipeline_uid for syncing back to runner
+                        if runtime_context.pipeline_uid:
+                            self.last_pipeline_uid = runtime_context.pipeline_uid
+
+                        # Capture execution trace for post-run visualization
+                        self.last_execution_trace = runtime_context.get_execution_trace()
+
+                        # Capture preprocessed data AFTER preprocessing
+                        if self.keep_datasets:
+                            if name not in self.pp_data:
+                                self.pp_data[name] = {}
+                            snapshot_key = dataset.short_preprocessings_str()
+                            dataset_snapshots = self.pp_data[name]
+                            can_store = (
+                                snapshot_key in dataset_snapshots
+                                or self.max_preprocessed_snapshots_per_dataset == 0
+                                or len(dataset_snapshots) < self.max_preprocessed_snapshots_per_dataset
+                            )
+                            if can_store:
+                                dataset_snapshots[snapshot_key] = dataset.x({}, layout="2d")
+                            else:
+                                logger.debug(
+                                    "Skipping preprocessed snapshot for dataset '%s' "
+                                    "(limit=%d, key='%s')",
+                                    name,
+                                    self.max_preprocessed_snapshots_per_dataset,
+                                    snapshot_key,
+                                )
+
+                        # Deferred artifact persistence: commit if this config's
+                        # validation score beats the previous best, rollback otherwise.
+                        if use_deferred and artifact_registry is not None and artifact_registry._deferred_mode:
+                            should_commit = True
+                            if config_predictions.num_predictions > 0:
+                                config_best = config_predictions.get_best(ascending=None)
+                                if config_best:
+                                    val_score = config_best.get("val_score")
+                                    if val_score is not None:
+                                        # Has folds — compare with best seen so far
+                                        if best_deferred_val is None:
+                                            best_deferred_val = val_score
+                                            best_deferred_ascending = _infer_ascending(
+                                                config_best.get("metric", "rmse")
+                                            )
+                                        else:
+                                            if best_deferred_ascending:
+                                                is_better = val_score < best_deferred_val
+                                            else:
+                                                is_better = val_score > best_deferred_val
+                                            if is_better:
+                                                best_deferred_val = val_score
+                                            else:
+                                                should_commit = False
+                                    # val_score is None → no folds → always commit
+                            if should_commit:
+                                artifact_registry.commit_deferred()
+                            else:
+                                artifact_registry.rollback_deferred()
+
+                        # Merge new predictions into run-level stores
+                        if config_predictions.num_predictions > 0:
+                            run_dataset_predictions.merge_predictions(config_predictions)
+                            run_predictions.merge_predictions(config_predictions)
 
                 # --- Pass 2: Refit (optional) ---
                 # After all variants have been executed for this dataset,
                 # retrain the winning model on the full training set.
-                refit_enabled = refit is True or (isinstance(refit, dict) and refit)
+                refit_enabled = refit is True or (isinstance(refit, dict) and refit) or (isinstance(refit, list) and refit)
                 if refit_enabled and self.mode == "train" and run_id and run_dataset_predictions.num_predictions > 0:
                     # Re-load a pristine dataset for refit.
                     # The per-variant training runs mutate dataset state
@@ -415,6 +592,7 @@ class PipelineOrchestrator:
                         target_model=target_model,
                         explainer=explainer,
                         best_refit_chains=best_refit_chains,
+                        refit=refit,
                     )
 
                 # Mark run as completed successfully
@@ -439,6 +617,10 @@ class PipelineOrchestrator:
                 self.last_aggregate_exclude_outliers = dataset.aggregate_exclude_outliers
 
                 # Print best results for this dataset
+                logger.info(
+                    f"Preparing to print results for dataset '{name}': "
+                    f"{run_dataset_predictions.num_predictions} predictions"
+                )
                 self._print_best_predictions(
                     run_dataset_predictions,
                     dataset,
@@ -451,6 +633,17 @@ class PipelineOrchestrator:
                     "dataset": dataset,
                     "dataset_name": name
                 }
+
+            # Print global summary of all final models across all datasets
+            if self.mode == "train":
+                from nirs4all.visualization.reports import TabReportManager
+                pred_index = TabReportManager._build_prediction_index(run_predictions)
+
+                self._print_global_final_summary(
+                    run_predictions,
+                    datasets_predictions,
+                    pred_index=pred_index,
+                )
 
             # Complete run in store (only if we manage the lifecycle)
             if run_id and self.mode == "train" and manage_store_run:
@@ -686,6 +879,7 @@ class PipelineOrchestrator:
         target_model: dict[str, Any] | None = None,
         explainer: Any = None,
         best_refit_chains: dict | None = None,
+        refit: bool | dict[str, Any] | list[dict[str, Any]] | None = True,
     ) -> None:
         """Execute the refit pass after all CV variants have completed.
 
@@ -695,6 +889,9 @@ class PipelineOrchestrator:
 
         Falls back to topology-based dispatch for stacking, separation,
         or when no accumulated chains are available.
+
+        Supports multi-config refit when ``refit`` is a dict or list of
+        dicts specifying :class:`RefitCriterion` options (top_k, ranking).
 
         Args:
             run_id: Store run identifier.
@@ -707,11 +904,12 @@ class PipelineOrchestrator:
             target_model: Optional target model dict.
             explainer: Optional explainer instance.
             best_refit_chains: Accumulated best chains per model from CV.
+            refit: Refit configuration from the user API.
         """
         from nirs4all.pipeline.analysis.topology import analyze_topology
         from nirs4all.pipeline.config.context import BestChainEntry, RuntimeContext
         from nirs4all.pipeline.execution.refit import execute_simple_refit, extract_winning_config
-        from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig, extract_per_model_configs
+        from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig, extract_per_model_configs, extract_top_configs, parse_refit_param
         from nirs4all.pipeline.execution.refit.executor import RefitResult
         from nirs4all.pipeline.execution.refit.stacking_refit import (
             _find_branch_step,
@@ -720,6 +918,76 @@ class PipelineOrchestrator:
             execute_stacking_refit,
         )
 
+        # Parse refit criteria
+        criteria = parse_refit_param(refit)
+
+        # Determine if we have multi-config criteria (non-default selection)
+        is_multi_config = len(criteria) > 1 or (len(criteria) == 1 and (criteria[0].top_k > 1 or criteria[0].ranking != "rmsecv"))
+
+        if is_multi_config:
+            # Multi-config refit: extract top configs based on criteria
+            try:
+                refit_configs = extract_top_configs(
+                    self.store, run_id, criteria,
+                    predictions=run_dataset_predictions,
+                    dataset_name=dataset.name,
+                )
+            except ValueError as e:
+                logger.warning(f"Cannot perform refit: {e}")
+                return
+
+            logger.info(f"Multi-config refit: {len(refit_configs)} pipeline(s) selected")
+            all_winning_pids: list[str] = []
+            total_predictions = 0
+            any_success = False
+
+            for config_idx, refit_config in enumerate(refit_configs):
+                logger.info(
+                    f"Refit config {config_idx + 1}/{len(refit_configs)}: "
+                    f"{refit_config.config_name} (score={refit_config.best_score:.4f})"
+                )
+                refit_result = self._execute_single_refit(
+                    refit_config=refit_config,
+                    run_id=run_id,
+                    dataset=dataset,
+                    executor=executor,
+                    artifact_registry=artifact_registry,
+                    run_dataset_predictions=run_dataset_predictions,
+                    artifact_loader=artifact_loader,
+                    target_model=target_model,
+                    explainer=explainer,
+                    best_refit_chains=best_refit_chains,
+                )
+                if refit_result.success:
+                    any_success = True
+                    total_predictions += refit_result.predictions_count
+                    if refit_config.pipeline_id:
+                        all_winning_pids.append(refit_config.pipeline_id)
+
+            if any_success and total_predictions > 0:
+                logger.info(
+                    f"Multi-config refit completed: {total_predictions} "
+                    f"prediction(s) added across {len(refit_configs)} config(s)"
+                )
+
+            # Clean up transient artifacts for all winning pipelines
+            if all_winning_pids:
+                try:
+                    removed = self.store.cleanup_transient_artifacts(
+                        run_id=run_id,
+                        dataset_name=dataset.name,
+                        winning_pipeline_ids=all_winning_pids,
+                    )
+                    if removed > 0:
+                        logger.info(f"Cleaned up {removed} transient artifact file(s)")
+                except Exception as e:
+                    logger.warning(f"Transient artifact cleanup failed (non-fatal): {e}")
+
+            if not any_success:
+                logger.warning("Multi-config refit pass did not complete successfully")
+            return
+
+        # Single-config refit (default path: refit=True)
         try:
             refit_config = extract_winning_config(
                 self.store, run_id, dataset_name=dataset.name,
@@ -728,83 +996,18 @@ class PipelineOrchestrator:
             logger.warning(f"Cannot perform refit: {e}")
             return
 
-        # Analyze topology to determine refit strategy
-        topology = analyze_topology(refit_config.expanded_steps)
-
-        # Create a RuntimeContext for the refit pass
-        runtime_context = RuntimeContext(
-            store=self.store,
-            artifact_loader=artifact_loader,
+        refit_result = self._execute_single_refit(
+            refit_config=refit_config,
+            run_id=run_id,
+            dataset=dataset,
+            executor=executor,
             artifact_registry=artifact_registry,
-            step_runner=executor.step_runner,
+            run_dataset_predictions=run_dataset_predictions,
+            artifact_loader=artifact_loader,
             target_model=target_model,
             explainer=explainer,
-            run_id=run_id,
-            cache_config=self.cache_config,
-            random_state=self.random_state,
+            best_refit_chains=best_refit_chains,
         )
-
-        # Fast path: use accumulated best chains when available and topology
-        # is not stacking/separation (those have their own refit strategies).
-        if (
-            best_refit_chains
-            and not topology.has_stacking
-            and not topology.has_mixed_merge
-            and not topology.has_separation_branch
-        ):
-            refit_result = self._execute_accumulated_refit(
-                refit_config=refit_config,
-                best_refit_chains=best_refit_chains,
-                dataset=dataset,
-                runtime_context=runtime_context,
-                artifact_registry=artifact_registry,
-                executor=executor,
-                run_dataset_predictions=run_dataset_predictions,
-            )
-        elif topology.has_stacking or topology.has_mixed_merge:
-            refit_result = execute_stacking_refit(
-                refit_config=refit_config,
-                dataset=dataset,
-                context=None,
-                runtime_context=runtime_context,
-                artifact_registry=artifact_registry,
-                executor=executor,
-                prediction_store=run_dataset_predictions,
-                topology=topology,
-            )
-        elif topology.has_branches_without_merge:
-            refit_result = execute_competing_branches_refit(
-                refit_config=refit_config,
-                dataset=dataset,
-                context=None,
-                runtime_context=runtime_context,
-                artifact_registry=artifact_registry,
-                executor=executor,
-                prediction_store=run_dataset_predictions,
-                topology=topology,
-            )
-        elif topology.has_separation_branch:
-            refit_result = execute_separation_refit(
-                refit_config=refit_config,
-                dataset=dataset,
-                context=None,
-                runtime_context=runtime_context,
-                artifact_registry=artifact_registry,
-                executor=executor,
-                prediction_store=run_dataset_predictions,
-                topology=topology,
-            )
-        else:
-            # Simple pipeline — check for multi-model variants
-            refit_result = self._execute_per_model_refit(
-                run_id=run_id,
-                refit_config=refit_config,
-                dataset=dataset,
-                runtime_context=runtime_context,
-                artifact_registry=artifact_registry,
-                executor=executor,
-                run_dataset_predictions=run_dataset_predictions,
-            )
 
         if refit_result.success:
             if refit_result.predictions_count > 0:
@@ -840,6 +1043,120 @@ class PipelineOrchestrator:
                 logger.warning(f"Transient artifact cleanup failed (non-fatal): {e}")
         else:
             logger.warning("Refit pass did not complete successfully")
+
+    def _execute_single_refit(
+        self,
+        refit_config: Any,
+        run_id: str,
+        dataset: SpectroDataset,
+        executor: Any,
+        artifact_registry: ArtifactRegistry | None,
+        run_dataset_predictions: Predictions,
+        artifact_loader: Any = None,
+        target_model: dict[str, Any] | None = None,
+        explainer: Any = None,
+        best_refit_chains: dict | None = None,
+    ) -> Any:
+        """Execute refit for a single config, dispatching by topology.
+
+        Args:
+            refit_config: :class:`RefitConfig` for the pipeline variant.
+            run_id: Store run identifier.
+            dataset: Original dataset (will be deep-copied internally).
+            executor: PipelineExecutor instance.
+            artifact_registry: Shared artifact registry.
+            run_dataset_predictions: Per-dataset prediction accumulator.
+            artifact_loader: Optional artifact loader.
+            target_model: Optional target model dict.
+            explainer: Optional explainer instance.
+            best_refit_chains: Accumulated best chains per model from CV.
+
+        Returns:
+            A :class:`RefitResult` summarizing the outcome.
+        """
+        from nirs4all.pipeline.analysis.topology import analyze_topology
+        from nirs4all.pipeline.config.context import RuntimeContext
+        from nirs4all.pipeline.execution.refit.executor import RefitResult
+        from nirs4all.pipeline.execution.refit.stacking_refit import (
+            execute_competing_branches_refit,
+            execute_separation_refit,
+            execute_stacking_refit,
+        )
+
+        topology = analyze_topology(refit_config.expanded_steps)
+
+        runtime_context = RuntimeContext(
+            store=self.store,
+            artifact_loader=artifact_loader,
+            artifact_registry=artifact_registry,
+            step_runner=executor.step_runner,
+            target_model=target_model,
+            explainer=explainer,
+            run_id=run_id,
+            cache_config=self.cache_config,
+            random_state=self.random_state,
+        )
+
+        # Fast path: use accumulated best chains when available and topology
+        # is not stacking/separation (those have their own refit strategies).
+        if (
+            best_refit_chains
+            and not topology.has_stacking
+            and not topology.has_mixed_merge
+            and not topology.has_separation_branch
+        ):
+            return self._execute_accumulated_refit(
+                refit_config=refit_config,
+                best_refit_chains=best_refit_chains,
+                dataset=dataset,
+                runtime_context=runtime_context,
+                artifact_registry=artifact_registry,
+                executor=executor,
+                run_dataset_predictions=run_dataset_predictions,
+            )
+        elif topology.has_stacking or topology.has_mixed_merge:
+            return execute_stacking_refit(
+                refit_config=refit_config,
+                dataset=dataset,
+                context=None,
+                runtime_context=runtime_context,
+                artifact_registry=artifact_registry,
+                executor=executor,
+                prediction_store=run_dataset_predictions,
+                topology=topology,
+            )
+        elif topology.has_branches_without_merge:
+            return execute_competing_branches_refit(
+                refit_config=refit_config,
+                dataset=dataset,
+                context=None,
+                runtime_context=runtime_context,
+                artifact_registry=artifact_registry,
+                executor=executor,
+                prediction_store=run_dataset_predictions,
+                topology=topology,
+            )
+        elif topology.has_separation_branch:
+            return execute_separation_refit(
+                refit_config=refit_config,
+                dataset=dataset,
+                context=None,
+                runtime_context=runtime_context,
+                artifact_registry=artifact_registry,
+                executor=executor,
+                prediction_store=run_dataset_predictions,
+                topology=topology,
+            )
+        else:
+            return self._execute_per_model_refit(
+                run_id=run_id,
+                refit_config=refit_config,
+                dataset=dataset,
+                runtime_context=runtime_context,
+                artifact_registry=artifact_registry,
+                executor=executor,
+                run_dataset_predictions=run_dataset_predictions,
+            )
 
     def _execute_accumulated_refit(
         self,
@@ -905,6 +1222,7 @@ class PipelineOrchestrator:
                 pipeline_id=refit_config.pipeline_id,
                 metric=entry.metric,
                 best_score=entry.avg_val_score,
+                config_name=refit_config.config_name,
             )
 
             logger.info(
@@ -1038,6 +1356,13 @@ class PipelineOrchestrator:
         Persistence is handled by :meth:`Predictions.flush` /
         :class:`WorkspaceStore`.
         """
+        if run_dataset_predictions.num_predictions == 0:
+            logger.warning(
+                f"No predictions to report for dataset '{name}'. "
+                f"This usually indicates a problem during pipeline execution."
+            )
+            return
+
         if run_dataset_predictions.num_predictions > 0:
             # Get aggregation setting from dataset for reporting
             aggregate_column = dataset.aggregate  # Could be None, 'y', or column name
@@ -1063,9 +1388,13 @@ class PipelineOrchestrator:
                 refit_entries = list(seen.values())
 
             if refit_entries:
+                from nirs4all.visualization.reports import TabReportManager
+                dataset_pred_index = TabReportManager._build_prediction_index(run_dataset_predictions)
+
                 self._print_refit_report(
                     run_dataset_predictions, refit_entries, name,
                     aggregate_column, aggregate_method, aggregate_exclude_outliers,
+                    pred_index=dataset_pred_index,
                 )
             else:
                 self._print_cv_only_report(
@@ -1075,6 +1404,26 @@ class PipelineOrchestrator:
 
         logger.info("=" * 120)
 
+    @staticmethod
+    def _get_entry_partitions_indexed(
+        predictions: Predictions,
+        entry: dict,
+        pred_index: dict | None,
+    ) -> dict[str, dict]:
+        """Get train/val/test partitions for an entry using the index when available."""
+        if pred_index is not None:
+            key = (
+                entry.get("dataset_name"),
+                entry.get("config_name", ""),
+                entry.get("model_name"),
+                entry.get("fold_id", ""),
+                entry.get("step_idx", 0),
+            )
+            result = pred_index["partitions"].get(key)
+            if result is not None:
+                return result
+        return predictions.get_entry_partitions(entry)
+
     def _print_refit_report(
         self,
         predictions: Predictions,
@@ -1083,6 +1432,7 @@ class PipelineOrchestrator:
         aggregate_column: str | None,
         aggregate_method: str | None,
         aggregate_exclude_outliers: bool,
+        pred_index: dict | None = None,
     ) -> None:
         """Print structured report when final (refit) entries exist.
 
@@ -1098,16 +1448,50 @@ class PipelineOrchestrator:
             return
 
         rankable.sort(key=lambda e: e["test_score"], reverse=not asc)
+
+        # Enrich each refit entry with the CV test score from its w_avg fold.
+        # This is the test score computed from the weighted-average of fold
+        # predictions (before refit) — useful for comparing CV vs refit performance.
+        if pred_index is not None:
+            w_avg_index = pred_index.get("w_avg", {})
+            for entry in rankable:
+                w_avg_key = (entry["dataset_name"], entry.get("config_name"), entry["model_name"], entry.get("step_idx", 0))
+                w_avg_parts = w_avg_index.get(w_avg_key, {})
+                test_entry = w_avg_parts.get("test")
+                if test_entry is not None:
+                    entry["cv_test_score"] = test_entry.get("test_score")
+        else:
+            for entry in rankable:
+                w_avg_matches = predictions.filter_predictions(
+                    dataset_name=entry["dataset_name"],
+                    config_name=entry.get("config_name"),
+                    model_name=entry["model_name"],
+                    step_idx=entry.get("step_idx"),
+                    fold_id="w_avg",
+                    partition="test",
+                    load_arrays=False,
+                )
+                if w_avg_matches:
+                    entry["cv_test_score"] = w_avg_matches[0].get("test_score")
+
         best_refit = rankable[0]
 
         # --- Headline: Final model performance ---
-        logger.success(
+        cv_test_str = ""
+        if best_refit.get("cv_test_score") is not None:
+            cv_test_str = f", [cv_test: {best_refit['cv_test_score']:.4f}]"
+        final_msg = (
             f"Final model performance for dataset '{name}': "
-            f"{Predictions.pred_long_string(best_refit)}"
+            f"{Predictions.pred_long_string(best_refit)}{cv_test_str}"
         )
+        # Always show best model (even with verbose=0)
+        print(f"\n{final_msg}")
+        # Also log for file output if enabled
+        if self.verbose > 0:
+            logger.success(final_msg)
 
         if self.enable_tab_reports:
-            refit_partitions = predictions.get_entry_partitions(best_refit)
+            refit_partitions = self._get_entry_partitions_indexed(predictions, best_refit, pred_index)
             if aggregate_column:
                 agg_label = "y (target values)" if aggregate_column == "y" else f"'{aggregate_column}'"
                 method_label = f", method='{aggregate_method}'" if aggregate_method else ""
@@ -1127,7 +1511,7 @@ class PipelineOrchestrator:
                     if entry is best_refit:
                         continue
                     model_name = entry.get("model_name", "unknown")
-                    entry_partitions = predictions.get_entry_partitions(entry)
+                    entry_partitions = self._get_entry_partitions_indexed(predictions, entry, pred_index)
                     entry_tab, _ = TabReportManager.generate_best_score_tab_report(
                         entry_partitions,
                         aggregate=aggregate_column,
@@ -1139,10 +1523,94 @@ class PipelineOrchestrator:
                         f"({Predictions.pred_long_string(entry)}):\n{entry_tab}"
                     )
 
-        # --- Per-model table when multiple models refit ---
-        if len(rankable) > 1:
-            summary = TabReportManager.generate_per_model_summary(rankable, ascending=asc, metric=metric)
-            logger.info(f"Per-model final scores ({len(rankable)} models):\n{summary}")
+        # --- Per-model table for this dataset (always show, even with 1 model) ---
+        if len(rankable) > 0:
+            summary = TabReportManager.generate_per_model_summary(
+                rankable, ascending=asc, metric=metric,
+                aggregate=aggregate_column,
+                aggregate_method=aggregate_method,
+                aggregate_exclude_outliers=aggregate_exclude_outliers,
+                predictions=predictions,
+                pred_index=pred_index,
+            )
+            model_word = "model" if len(rankable) == 1 else "models"
+            print(f"\nDataset '{name}' - Final scores ({len(rankable)} {model_word}):\n{summary}", flush=True)
+            if self.verbose > 0:
+                logger.info(f"Dataset '{name}' - Final scores ({len(rankable)} {model_word}):\n{summary}")
+
+        # --- Top 30 CV chains (averaged across folds) ---
+        avg_entries = predictions.top(
+            n=30,
+            ascending=asc,
+            score_scope="cv",
+            rank_partition="val",
+            fold_id="avg",
+        )
+
+        if avg_entries:
+            rows: list[dict] = []
+            all_fold_ids: set[str] = set()
+            for entry in avg_entries:
+                e_model = entry.get("model_name", "unknown")
+                e_config = entry.get("config_name", "")
+                e_step = entry.get("step_idx", 0)
+                e_preproc = entry.get("preprocessings", "")
+
+                # Build display chain including y_processing when present
+                target_proc = entry.get("target_processing", "")
+                y_label = ""
+                if target_proc and target_proc not in ("numeric", "raw", ""):
+                    # Extract class name(s) from processing chain like "numeric_StandardScaler42"
+                    import re
+                    parts = re.findall(r'_([A-Z][A-Za-z]+)\d+', target_proc)
+                    if parts:
+                        y_label = "y:" + "|".join(parts)
+                chain_display = f"{y_label}>{e_preproc}" if y_label else e_preproc
+
+                # Look up sibling entries (w_avg + individual folds)
+                siblings = predictions.filter_predictions(
+                    model_name=e_model, config_name=e_config, step_idx=e_step,
+                    preprocessings=e_preproc, partition="val", load_arrays=False,
+                )
+
+                w_avg_val = None
+                fold_scores: dict[str, float | None] = {}
+                for sib in siblings:
+                    fid = str(sib.get("fold_id", ""))
+                    if fid == "w_avg":
+                        w_avg_val = sib.get("val_score")
+                    elif fid not in ("avg", "w_avg", "final") and fid:
+                        fold_scores[fid] = sib.get("val_score")
+                        all_fold_ids.add(fid)
+
+                rows.append({
+                    "model": e_model,
+                    "test": entry.get("test_score"),
+                    "avg": entry.get("val_score"),
+                    "w_avg": w_avg_val,
+                    "folds": fold_scores,
+                    "chain": chain_display,
+                })
+
+            sorted_fold_ids = sorted(all_fold_ids)
+
+            # Build header
+            fold_cols = "".join(f" | {'f' + fid:>7s}" for fid in sorted_fold_ids)
+            header = f"| {'#':>3s} | {'Model':10s} | {'Test':>9s} | {'Avg':>9s} | {'W_Avg':>9s}{fold_cols} | {'Chain':<80s} |"
+            sep = "-" * len(header)
+
+            print(f"\nTop 30 CV chains (avg) for dataset '{name}':")
+            print(sep)
+            print(header)
+            print(sep)
+            for idx, row in enumerate(rows, 1):
+                def _fmt(v: float | None) -> str:
+                    return f"{v:.4f}" if v is not None else "N/A"
+
+                fold_vals = "".join(f" | {_fmt(row['folds'].get(fid)):>7s}" for fid in sorted_fold_ids)
+                print(f"| {idx:3d} | {row['model'][:10]:10s} | {_fmt(row['test']):>9s} | {_fmt(row['avg']):>9s} | {_fmt(row['w_avg']):>9s}{fold_vals} | {row['chain'][:80]:<80s} |")
+            print(sep)
+            print()
 
         # --- Detail: CV selection summary ---
         cv_best = predictions.get_best(ascending=None, score_scope="cv")
@@ -1187,3 +1655,244 @@ class PipelineOrchestrator:
                 aggregate_exclude_outliers=aggregate_exclude_outliers,
             )
             logger.info(tab_report)
+
+    def _merge_refit_chains(
+        self,
+        target_chains: dict,
+        source_chains: dict,
+    ) -> None:
+        """Merge refit chains from a parallel worker into the main accumulator.
+
+        For each model in source_chains, compare its avg_val_score with the
+        existing entry in target_chains (if any). Keep the better one.
+
+        Args:
+            target_chains: Main accumulator dict (model_name -> BestChainEntry)
+            source_chains: Worker's refit chains to merge in
+        """
+        from nirs4all.data.predictions import _infer_ascending
+
+        for model_name, source_entry in source_chains.items():
+            existing_entry = target_chains.get(model_name)
+
+            if existing_entry is None:
+                # No existing entry - use worker's entry
+                target_chains[model_name] = source_entry
+                continue
+
+            # Compare scores - keep the better one
+            metric = source_entry.metric
+            ascending = _infer_ascending(metric)
+
+            source_score = source_entry.avg_val_score
+            existing_score = existing_entry.avg_val_score
+
+            is_better = (
+                (ascending and source_score < existing_score)
+                or (not ascending and source_score > existing_score)
+            )
+
+            if is_better:
+                target_chains[model_name] = source_entry
+
+    def _print_global_final_summary(
+        self,
+        run_predictions: Predictions,
+        datasets_predictions: dict,
+        pred_index: dict | None = None,
+    ) -> None:
+        """Print a global summary table of ALL final (refit) models across all datasets.
+
+        This shows a unified view of all models that were refit, regardless of which dataset
+        they belong to. Always displayed (even with verbose=0).
+
+        Args:
+            run_predictions: Global Predictions object with all predictions.
+            datasets_predictions: Dict mapping dataset names to their prediction info.
+        """
+        from nirs4all.visualization.reports import TabReportManager
+
+        # Collect all final (refit) entries across all datasets
+        all_refit_entries = run_predictions.filter_predictions(
+            fold_id="final",
+            load_arrays=False
+        )
+
+        if not all_refit_entries:
+            return  # No refit entries to show
+
+        # Filter to entries with valid test scores
+        rankable = [e for e in all_refit_entries if e.get("test_score") is not None]
+        if not rankable:
+            return
+
+        # Enrich each entry with cv_test_score from w_avg fold (if available)
+        if pred_index is not None:
+            w_avg_index = pred_index.get("w_avg", {})
+            for entry in rankable:
+                w_avg_key = (entry["dataset_name"], entry.get("config_name"), entry["model_name"], entry.get("step_idx", 0))
+                w_avg_parts = w_avg_index.get(w_avg_key, {})
+                test_entry = w_avg_parts.get("test")
+                if test_entry is not None:
+                    entry["cv_test_score"] = test_entry.get("test_score")
+        else:
+            for entry in rankable:
+                w_avg_matches = run_predictions.filter_predictions(
+                    dataset_name=entry["dataset_name"],
+                    config_name=entry.get("config_name"),
+                    model_name=entry["model_name"],
+                    step_idx=entry.get("step_idx"),
+                    fold_id="w_avg",
+                    partition="test",
+                    load_arrays=False,
+                )
+                if w_avg_matches:
+                    entry["cv_test_score"] = w_avg_matches[0].get("test_score")
+
+        # Get metric and aggregation settings from first entry
+        metric = rankable[0].get("metric", "rmse")
+
+        # Try to get aggregate settings from last dataset processed
+        aggregate_column = self.last_aggregate_column
+        aggregate_method = self.last_aggregate_method
+        aggregate_exclude_outliers = self.last_aggregate_exclude_outliers
+
+        # Generate the global summary table (using pre-built index for efficiency)
+        summary = TabReportManager.generate_per_model_summary(
+            rankable,
+            ascending=True,  # Will be adjusted based on metric
+            metric=metric,
+            aggregate=aggregate_column,
+            aggregate_method=aggregate_method,
+            aggregate_exclude_outliers=aggregate_exclude_outliers,
+            predictions=run_predictions,
+            pred_index=pred_index,
+        )
+
+        if summary:
+            # Always print (even with verbose=0)
+            print(f"\n{'=' * 120}")
+            print(f"GLOBAL SUMMARY: All final models ({len(rankable)} models across {len(datasets_predictions)} dataset(s))")
+            print(f"{'=' * 120}")
+            print(summary)
+            print(f"{'=' * 120}\n")
+
+            # Also log for file output if enabled
+            if self.verbose > 0:
+                logger.info("=" * 120)
+                logger.info(f"GLOBAL SUMMARY: All final models ({len(rankable)} models across {len(datasets_predictions)} dataset(s))")
+                logger.info("=" * 120)
+                logger.info(summary)
+                logger.info("=" * 120)
+
+    def _execute_single_variant(
+        self,
+        variant_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Execute a single pipeline variant (for parallel execution).
+
+        Args:
+            variant_data: Dictionary containing all data needed for variant execution:
+                - steps: Pipeline steps
+                - config_name: Variant name
+                - gen_choices: Generator choices
+                - dataset: SpectroDataset
+                - executor: PipelineExecutor
+                - context: Execution context
+                - runtime_context: RuntimeContext
+                - run_number: Current run number
+                - total_runs: Total number of runs
+
+        Returns:
+            Dictionary with:
+                - predictions: Predictions store for this variant
+                - pipeline_uid: Pipeline UID (if any)
+                - execution_trace: Execution trace
+                - preprocessed_data: Preprocessed dataset snapshot (if keep_datasets=True)
+                - config_name: Variant name
+                - steps: Pipeline steps (for store reconstruction)
+                - generator_choices: Generator choices (for store reconstruction)
+                - dataset: Dataset object (for store reconstruction)
+                - duration_ms: Execution duration in milliseconds
+        """
+        import copy
+        import time
+
+        # Extract data
+        steps = variant_data["steps"]
+        config_name = variant_data["config_name"]
+        gen_choices = variant_data["gen_choices"]
+        dataset = variant_data["dataset"]
+        executor = variant_data["executor"]
+        context = variant_data["context"]
+        runtime_context = variant_data["runtime_context"]
+        run_number = variant_data["run_number"]
+        total_runs = variant_data["total_runs"]
+
+        # Deep copy mutable objects to avoid cross-worker interference
+        dataset = copy.deepcopy(dataset)
+        context = copy.deepcopy(context)
+        runtime_context = copy.deepcopy(runtime_context)
+
+        # Disable store operations in parallel workers to avoid concurrent writes
+        if runtime_context:
+            runtime_context.store = None
+
+        logger.info(f"Run {run_number}/{total_runs}: pipeline '{config_name}' on dataset")
+
+        if self.verbose > 0:
+            print(dataset)
+
+        # Create prediction store for this variant
+        config_predictions = Predictions()
+        if dataset.repetition:
+            config_predictions.set_repetition_column(dataset.repetition)
+
+        # Track execution time
+        start_time = time.monotonic()
+
+        # Execute variant
+        try:
+            executor.execute(
+                steps=steps,
+                config_name=config_name,
+                dataset=dataset,
+                context=context,
+                runtime_context=runtime_context,
+                prediction_store=config_predictions,
+                generator_choices=gen_choices
+            )
+            logger.info(
+                f"Run {run_number}/{total_runs} completed: '{config_name}', "
+                f"{config_predictions.num_predictions} predictions generated"
+            )
+        except Exception as e:
+            logger.error(f"Variant '{config_name}' failed: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+        # Compute duration
+        duration_ms = int((time.monotonic() - start_time) * 1000)
+
+        # Capture results
+        result = {
+            "predictions": config_predictions,
+            "pipeline_uid": runtime_context.pipeline_uid if runtime_context else None,
+            "execution_trace": runtime_context.get_execution_trace() if runtime_context else None,
+            "config_name": config_name,
+            "best_refit_chains": runtime_context.best_refit_chains if runtime_context else None,
+            "steps": steps,
+            "generator_choices": gen_choices,
+            "dataset": dataset,
+            "duration_ms": duration_ms,
+        }
+
+        # Capture preprocessed data snapshot if requested
+        if self.keep_datasets:
+            result["preprocessed_data"] = dataset.x({}, layout="2d")
+            result["preprocessing_key"] = dataset.short_preprocessings_str()
+
+        logger.debug(f"Worker returning result: {len(result['predictions']._buffer)} predictions in buffer")
+
+        return result

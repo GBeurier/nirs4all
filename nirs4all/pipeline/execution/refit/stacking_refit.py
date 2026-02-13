@@ -613,6 +613,7 @@ def execute_stacking_refit(
                         pipeline_id=refit_config.pipeline_id,
                         metric=refit_config.metric,
                         best_score=refit_config.best_score,
+                        config_name=refit_config.config_name,
                     )
 
                     nested_predictions = Predictions()
@@ -1210,6 +1211,7 @@ def execute_competing_branches_refit(
             pipeline_id=refit_config.pipeline_id,
             metric=refit_config.metric,
             best_score=branch_score,
+            config_name=refit_config.config_name,
         )
 
         result = execute_simple_refit(
@@ -1370,6 +1372,7 @@ def _execute_per_model_competing_refit(
             pipeline_id=refit_config.pipeline_id,
             metric=refit_config.metric,
             best_score=cv_score if cv_score is not None else refit_config.best_score,
+            config_name=refit_config.config_name,
         )
 
         logger.info(
