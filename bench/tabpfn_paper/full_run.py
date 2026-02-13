@@ -116,54 +116,54 @@ pipeline = [
     {
         "branch": {
             "linear_models": [
-                # {
-                #     "_cartesian_": [
-                #         # {"_or_": [None, KubelkaMunk]},
-                #         {"_or_": [None, SNV, MSC, EMSC(degree=1), EMSC(degree=2)]},
-                #         {"_or_": [None,
-                #                 SG(window_length=11, polyorder=2, deriv=1), SG(15,2,1), SG(21,2,1), SG(31,2,1), SG(15,3,2), SG(21,3,2), SG(31,3,2),
-                #                 # Gaussian(order=0, sigma=1), Gaussian(order=0, sigma=2),
-                #                 # WaveletDenoise('db4', level=3), WaveletDenoise('db4', level=5)
-                #                 ]},
-                #         {"_or_": [None, ASLSBaseline, Detrend]},
-                #         {"_or_": [None, OSC(1), OSC(2), OSC(3)]},
+                {
+                    "_cartesian_": [
+                        # {"_or_": [None, KubelkaMunk]},
+                        {"_or_": [None, SNV, MSC, EMSC(degree=1), EMSC(degree=2)]},
+                        # {"_or_": [None,
+                        #         SG(window_length=11, polyorder=2, deriv=1), SG(15,2,1), SG(21,2,1), SG(31,2,1), SG(15,3,2), SG(21,3,2), SG(31,3,2),
+                        #         # Gaussian(order=0, sigma=1), Gaussian(order=0, sigma=2),
+                        #         # WaveletDenoise('db4', level=3), WaveletDenoise('db4', level=5)
+                        #         ]},
+                        {"_or_": [None, ASLSBaseline, Detrend]},
+                        {"_or_": [None, OSC(1), OSC(2), OSC(3)]},
 
-                #     ],
-                #     "count": CFG["linear_cartesian_count"],
-                # },
-                # StandardScaler(with_mean=True, with_std=False),
+                    ],
+                    "count": CFG["linear_cartesian_count"],
+                },
+                StandardScaler(with_mean=True, with_std=False),
+                {
+                    "model": PLSRegression(scale=False),
+                    "name": "PLS",
+                    "finetune_params": {
+                        "n_trials": CFG["pls_finetune_trials"],
+                        "sampler": "binary",
+                        # "pruner": 'successive_halving',
+                        # "n_jobs": 20,
+                        "model_params": {
+                            "n_components": ('int', 1, 25),
+                        },
+                    },
+                },
                 # {
-                #     "model": PLSRegression(scale=False),
-                #     "name": "PLS",
+                #     "model": Ridge(),
+                #     "name": "Ridge",
                 #     "finetune_params": {
-                #         "n_trials": CFG["pls_finetune_trials"],
-                #         "sampler": "binary",
-                #         # "pruner": 'successive_halving',
-                #         "n_jobs": 12,
+                #         "n_trials": CFG["ridge_finetune_trials"],
+                #         "sampler": "tpe",
                 #         "model_params": {
-                #             "n_components": ('int', 1, 25),
+                #             "alpha": ("float_log", 1e-5, 1e4),
+                #             "fit_intercept": ("bool", [True, False]),
+                #             "solver": ("categorical", ["auto", "svd", "cholesky", "lsqr"]),  # Removed sag, saga, sparse_cg
+                #             # "solver": ("categorical", ["auto", "svd", "cholesky", "lsqr", "sag", "saga", "sparse_cg"]),
+                #             # "solver": "auto",
+                #             # "max_iter": 1500,
+                #             "tol": 1e-4,
+                #             "positive": False,
                 #         },
                 #     },
+                #     # "refit_params": {"max_iter": CFG["ridge_refit_max_iter"], "verbose": 1},
                 # },
-                # # {
-                # #     "model": Ridge(),
-                # #     "name": "Ridge",
-                # #     "finetune_params": {
-                # #         "n_trials": CFG["ridge_finetune_trials"],
-                # #         "sampler": "tpe",
-                # #         "model_params": {
-                # #             "alpha": ("float_log", 1e-5, 1e4),
-                # #             "fit_intercept": ("bool", [True, False]),
-                # #             "solver": ("categorical", ["auto", "svd", "cholesky", "lsqr"]),  # Removed sag, saga, sparse_cg
-                # #             # "solver": ("categorical", ["auto", "svd", "cholesky", "lsqr", "sag", "saga", "sparse_cg"]),
-                # #             # "solver": "auto",
-                # #             # "max_iter": 1500,
-                # #             "tol": 1e-4,
-                # #             "positive": False,
-                # #         },
-                # #     },
-                # #     # "refit_params": {"max_iter": CFG["ridge_refit_max_iter"], "verbose": 1},
-                # # },
             ],
 
             "neural_net": [
@@ -233,51 +233,51 @@ pipeline = [
             ],
 
             "tabular_models": [
-                # {"_or_": [None, {"y_processing": StandardScaler()}]},
-                {
-                    "_cartesian_": [
-                        # {"_or_": [Baseline, , Gaussian, Normalize, AreaNormalization, KubelkaMunk, Haar]},
-                        {"_or_":[None, SNV]},
-                        {"_or_": [None, SG(window_length=11, polyorder=2, deriv=1), SG(15,2,1), SG(21,2,1), SG(31,2,1), SG(15,3,2), SG(21,3,2), SG(31,3,2)]},
-                        {"_or_": [None, OSC, Detrend]}, #ASLSBaseline, StandardScaler(with_mean=True, with_std=False), Detrend]},
-                        # {"_or_": [ASLSBaseline, Detrend]},
-                        # {"_or_": [OSC(1), OSC(2), OSC(3)]},
-                        # {"_or_": [None, FlexiblePCA(n_components=0.25)]},
-                    ],
-                    "count": CFG["tabular_cartesian_count"],
-                },
-                # StandardScaler(with_mean=False, with_std=True),
-
+                # # {"_or_": [None, {"y_processing": StandardScaler()}]},
                 # {
-                #     "model": CatBoostRegressor(iterations=CFG["catboost_iterations"], depth=8, learning_rate=0.1, random_state=42, verbose=0, allow_writing_files=False),
-                #     "name": "CatBoost",
-                #     "refit_params": {"iterations": CFG["catboost_refit_iterations"], "depth": 8, "learning_rate": 0.05, "verbose": 1},
+                #     "_cartesian_": [
+                #         # {"_or_": [Baseline, , Gaussian, Normalize, AreaNormalization, KubelkaMunk, Haar]},
+                #         {"_or_":[None, SNV]},
+                #         {"_or_": [None, SG(window_length=11, polyorder=2, deriv=1), SG(15,2,1), SG(21,2,1), SG(31,2,1), SG(15,3,2), SG(21,3,2), SG(31,3,2)]},
+                #         {"_or_": [None, OSC, Detrend]}, #ASLSBaseline, StandardScaler(with_mean=True, with_std=False), Detrend]},
+                #         # {"_or_": [ASLSBaseline, Detrend]},
+                #         # {"_or_": [OSC(1), OSC(2), OSC(3)]},
+                #         # {"_or_": [None, FlexiblePCA(n_components=0.25)]},
+                #     ],
+                #     "count": CFG["tabular_cartesian_count"],
                 # },
-                {
-                    "model": TabPFNRegressor(ignore_pretraining_limits=True, model_path="tabpfn-v2.5-regressor-v2.5_real.ckpt", device="cuda"),
-                    "name": "TabPFN",
-                    "refit_params": {"n_estimators": CFG["tabpfn_refit_estimators"], "ignore_pretraining_limits":True}
-                },
+                # # StandardScaler(with_mean=False, with_std=True),
+
+                # # {
+                # #     "model": CatBoostRegressor(iterations=CFG["catboost_iterations"], depth=8, learning_rate=0.1, random_state=42, verbose=0, allow_writing_files=False),
+                # #     "name": "CatBoost",
+                # #     "refit_params": {"iterations": CFG["catboost_refit_iterations"], "depth": 8, "learning_rate": 0.05, "verbose": 1},
+                # # },
+                # {
+                #     "model": TabPFNRegressor(ignore_pretraining_limits=True, model_path="tabpfn-v2.5-regressor-v2.5_real.ckpt", device="cuda"),
+                #     "name": "TabPFN",
+                #     "refit_params": {"n_estimators": CFG["tabpfn_refit_estimators"], "ignore_pretraining_limits":True}
+                # },
             ],
             # Parallel execution configuration
             # "parallel": True,  # Enable/disable parallel execution
-            # "n_jobs": 12,  # Number of parallel workers (-1=auto)
+            # "n_jobs": -1,  # Number of parallel workers (-1=auto)
         }
     },
 ]
 
 start_time = time.time()
-
+# 142sec: run 0 bch -1 opt 0, 130sec: 0 12 12, 142sec: 20 - 4, 136: 0 4 12, 60: -1 0 0, 72: 12 0 12, 150: 4 0 20
 DATASETS = [
-            'AMYLOSE/Rice_Amylose_313_YbasedSplit', # PLS 1.85 - TabPFN: 1.31 +
-            'IncombustibleMaterial/TIC_spxy70', # PLS 3.31 - TabPFN: 3.14 *
-            'PHOSPHORUS/LP_spxyG', # PLS 0.17 - TabPFN: 0.14 *
-            'PLUMS/Firmness_spxy70', # PLS 0.29 - TabPFN: 0.26 *
-            'BEER/Beer_OriginalExtract_60_KS', # PLS 0.20 - TabPFN: 0.08 +
-            'COLZA/N_woOutlier', # PLS 0.25- TabPFN: 0.18
-            'MILK/Milk_Lactose_1224_KS', # PLS 0.056 - TabPFN: 0.053
-            'DIESEL/DIESEL_bp50_246_hlb-a', # PLS 3.22 - TabPFN: 3.3 *
-            'WOOD_density/WOOD_N_402_Olale', # PLS 0.050 - TabPFN: 0.048
+            # 'AMYLOSE/Rice_Amylose_313_YbasedSplit', # PLS 1.85 - TabPFN: 1.31 +
+            # 'IncombustibleMaterial/TIC_spxy70', # PLS 3.31 - TabPFN: 3.14 *
+            # 'PHOSPHORUS/LP_spxyG', # PLS 0.17 - TabPFN: 0.14 *
+            # 'PLUMS/Firmness_spxy70', # PLS 0.29 - TabPFN: 0.26 *
+            # 'BEER/Beer_OriginalExtract_60_KS', # PLS 0.20 - TabPFN: 0.08 +
+            # 'COLZA/N_woOutlier', # PLS 0.25- TabPFN: 0.18
+            'MILK/Milk_Lactose_1224_KS', # PLS 0.0541 - TabPFN: 0.053
+            # 'DIESEL/DIESEL_bp50_246_hlb-a', # PLS 3.22 - TabPFN: 3.3 *
+            # 'WOOD_density/WOOD_N_402_Olale', # PLS 0.050 - TabPFN: 0.048
             #
             # 'MANURE21/All_manure_Total_N_SPXY_strat_Manure_type', 'COLZA/N_wOutlier', 'DarkResp/Rd25_CBtestSite', 'GRAPEVINE_LeafTraits/LMA_spxyG70_30_byCultivar_ASD', 'PHOSPHORUS/MP_spxyG', 'ALPINE/ALPINE_P_291_KS', 'BERRY/ta_groupSampleID_stratDateVar_balRows', 'FUSARIUM/Tleaf_grp70_30', 'PHOSPHORUS/V25_spxyG', 'GRAPEVINE_LeafTraits/WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra', 'CORN/Corn_Oil_80_ZhengChenPelegYbaseSplit', 'DarkResp/Rd25_spxy70', 'COLZA/C_woOutlier', 'ALPINE/ALPINE_C_424_KS', 'FUSARIUM/Fv_Fm_grp70_30', 'MILK/Milk_Fat_1224_KS', 'MANURE21/All_manure_MgO_SPXY_strat_Manure_type', 'FUSARIUM/FinalScore_grp70_30_scoreQ', 'MANURE21/All_manure_K2O_SPXY_strat_Manure_type', 'QUARTZ/Quartz_spxy70', 'GRAPEVINE_LeafTraits/An_spxyG70_30_byCultivar_MicroNIR_NeoSpectra', 'ALPINE/ALPINE_N_552_KS', 'LUCAS/LUCAS_SOC_Cropland_8731_NocitaKS', 'MALARIA/Malaria_Sporozoite_229_Maia', 'MALARIA/Malaria_Oocist_333_Maia', 'BISCUIT/Biscuit_Fat_40_RandomSplit', 'TABLET/Escitalopramt_310_Zhao', 'PHOSPHORUS/Pi_spxyG', 'ECOSIS_LeafTraits/Chla+b_spxyG_species', 'ECOSIS_LeafTraits/Ccar_spxyG_block2deg', 'MILK/Milk_Urea_1224_KS', 'BISCUIT/Biscuit_Sucrose_40_RandomSplit', 'DIESEL/DIESEL_bp50_246_hla-b', 'GRAPEVINE_LeafTraits/An_spxyG70_30_byCultivar_NeoSpectra', 'GRAPEVINE_LeafTraits/An_spxyG70_30_byCultivar_ASD', 'BERRY/brix_groupSampleID_stratDateVar_balRows', 'LUCAS/LUCAS_SOC_all_26650_NocitaKS', 'BERRY/ph_groupSampleID_stratDateVar_balRows', 'BEEFMARBLING/Beef_Marbling_RandomSplit', 'GRAPEVINES/grapevine_chloride_556_KS', 'MANURE21/All_manure_CaO_SPXY_strat_Manure_type', 'CORN/Corn_Starch_80_ZhengChenPelegYbaseSplit', 'DIESEL/DIESEL_bp50_246_b-a', 'GRAPEVINE_LeafTraits/An_spxyG70_30_byCultivar_MicroNIR', 'PLUMS/Brix_spxy70', 'PEACH/Brix_spxy70', 'ECOSIS_LeafTraits/LMA_spxyG_block2deg', 'ALPINE/ALPINE_C_424_RobustnessAlps', 'WOOD_density/WOOD_Density_402_Olale', 'LUCAS/LUCAS_pH_Organic_1763_LiuRandomOrganic', 'BEER/Beer_OriginalExtract_60_YbaseSplit', 'DarkResp/Rd25_GTtestSite', 'MANURE21/All_manure_P2O5_SPXY_strat_Manure_type', 'ECOSIS_LeafTraits/Chla+b_spxyG_block2deg', 'DarkResp/Rd25_XSBNtestSite', 'PHOSPHORUS/NP_spxyG'
             ]
@@ -288,9 +288,9 @@ result = nirs4all.run(
     pipeline=pipeline,
     dataset=dataset_config,
     name="TABPFN_Paper",
-    verbose=0,
+    verbose=1,
     random_state=42,
-    # n_jobs=-1,
+    n_jobs=-1,
     cache=CacheConfig(memory_warning_threshold_mb=16984),
 )
 
