@@ -761,7 +761,7 @@ class TestIntegration:
 
         best = run_predictions.get_best(ascending=False)
         assert best is not None
-        assert 0 <= best['val_score'] <= 1
+        assert 0 <= best['test_score'] <= 1
 
     def test_multiple_pipelines_multiple_datasets(self, test_data_manager, temp_workspace):
         """Test multiple pipelines on multiple datasets."""

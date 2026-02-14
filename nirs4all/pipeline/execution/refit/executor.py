@@ -380,6 +380,12 @@ def _relabel_refit_predictions(
             refit_metadata["generator_choices"] = refit_config.generator_choices
         if refit_config.best_params:
             refit_metadata["best_params"] = refit_config.best_params
+        # Record the selection criterion used
+        if refit_config.primary_selection_criterion:
+            refit_metadata["selection_criterion"] = refit_config.primary_selection_criterion
+        # Record all selection scores for multi-criteria refit
+        if refit_config.selection_scores:
+            refit_metadata["selection_scores"] = refit_config.selection_scores
 
     # Extract CV strategy info from original steps
     if original_steps is not None:
@@ -396,9 +402,9 @@ def _relabel_refit_predictions(
         # produced by ScoreCalculator on empty partitions.
         entry["val_score"] = None
         # Inject the CV selection score so final entries can be ranked
-        # in mix mode by their originating chain's avg folds val_score.
-        if refit_config is not None and refit_config.best_score:
-            entry["cv_rank_score"] = refit_config.best_score
+        # in mix mode by their originating chain's selection score.
+        if refit_config is not None and refit_config.selection_score:
+            entry["selection_score"] = refit_config.selection_score
         if refit_metadata:
             existing = entry.get("metadata") or {}
             existing.update(refit_metadata)

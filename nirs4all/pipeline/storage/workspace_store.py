@@ -796,9 +796,9 @@ class WorkspaceStore:
         model_class: str,
         fold_id: str,
         partition: str,
-        val_score: float,
-        test_score: float,
-        train_score: float,
+        val_score: float | None,
+        test_score: float | None,
+        train_score: float | None,
         metric: str,
         task_type: str,
         n_samples: int,
@@ -832,9 +832,9 @@ class WorkspaceStore:
             fold_id: Fold identifier (e.g. ``"fold_0"``, ``"avg"``,
                 ``"final"`` for refit).
             partition: Data partition (``"train"``, ``"val"``, ``"test"``).
-            val_score: Validation score (primary ranking metric).
-            test_score: Test score (for reporting).
-            train_score: Training score (for overfitting diagnostics).
+            val_score: Validation score (primary ranking metric). None for refit entries.
+            test_score: Test score (for reporting). None if not available.
+            train_score: Training score (for overfitting diagnostics). None if not available.
             metric: Name of the metric (e.g. ``"rmse"``, ``"r2"``).
             task_type: ``"regression"`` or ``"classification"``.
             n_samples: Number of samples in this partition.
