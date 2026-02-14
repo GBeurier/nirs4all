@@ -115,16 +115,21 @@ def _retry_on_lock(func):
 
     DuckDB uses process-level file locks that can conflict when another
     process holds the WAL lock (e.g. a lingering child process from
-    parallel execution).  This retries with exponential backoff.
+    parallel execution).  Retries with exponential backoff, then enters
+    degraded mode to skip all future writes instantly.
+
+    The first argument (``self``) must be a :class:`WorkspaceStore`.
     """
     import functools
 
     @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(self, *args, **kwargs):
+        if self._degraded:
+            return None
         last_error: Exception | None = None
         for attempt in range(_MAX_RETRIES + 1):
             try:
-                return func(*args, **kwargs)
+                return func(self, *args, **kwargs)
             except duckdb.TransactionException as e:
                 last_error = e
                 if attempt < _MAX_RETRIES:
@@ -134,6 +139,12 @@ def _retry_on_lock(func):
                         func.__name__, attempt + 1, _MAX_RETRIES, delay, e,
                     )
                     time.sleep(delay)
+        self._degraded = True
+        logger.warning(
+            "DuckDB store entering degraded mode after persistent lock failure in %s. "
+            "All subsequent store writes will be skipped. Predictions are still tracked in-memory.",
+            func.__name__,
+        )
         raise last_error  # type: ignore[misc]
     return wrapper
 
@@ -241,6 +252,7 @@ class WorkspaceStore:
         self._workspace_path = Path(workspace_path)
         self._workspace_path.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._degraded = False  # Set to True on persistent DuckDB lock failure
 
         db_path = self._workspace_path / "store.duckdb"
         self._conn: duckdb.DuckDBPyConnection | None = duckdb.connect(str(db_path))
@@ -260,6 +272,11 @@ class WorkspaceStore:
         """Root directory of the workspace."""
         return self._workspace_path
 
+    @property
+    def degraded(self) -> bool:
+        """Whether the store is in degraded mode (writes skipped)."""
+        return self._degraded
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -275,10 +292,13 @@ class WorkspaceStore:
         sql: str,
         params: list[object] | None = None,
         *,
-        max_retries: int = 5,
-        base_delay: float = 0.1,
+        max_retries: int = _MAX_RETRIES,
+        base_delay: float = _BASE_DELAY,
     ) -> None:
         """Execute a write statement with retry on transient DuckDB lock errors.
+
+        If all retries fail, the store enters degraded mode so that
+        subsequent writes are skipped instantly.
 
         Args:
             sql: SQL statement to execute.
@@ -286,6 +306,8 @@ class WorkspaceStore:
             max_retries: Maximum number of retry attempts.
             base_delay: Initial delay in seconds (doubles each retry).
         """
+        if self._degraded:
+            return
         with self._lock:
             conn = self._ensure_open()
             last_error: Exception | None = None
@@ -302,6 +324,11 @@ class WorkspaceStore:
                             attempt + 1, max_retries, delay, e,
                         )
                         time.sleep(delay)
+            self._degraded = True
+            logger.warning(
+                "DuckDB store entering degraded mode after persistent lock failure. "
+                "All subsequent store writes will be skipped. Predictions are still tracked in-memory.",
+            )
             raise last_error  # type: ignore[misc]
 
     def _safe_execute(self, sql: str, params: list[object] | None = None) -> None:
@@ -310,10 +337,12 @@ class WorkspaceStore:
         Used for non-critical operations (logging, error recording) that
         must never crash the pipeline.
         """
+        if self._degraded:
+            return
         try:
             self._execute_with_retry(sql, params)
         except duckdb.TransactionException:
-            logger.warning("DuckDB lock error suppressed for non-critical operation")
+            pass  # _execute_with_retry already logged and set degraded mode
 
     def _fetch_one(self, sql: str, params: list[object] | None = None) -> dict | None:
         """Execute *sql* and return the first row as a dict, or ``None``."""
@@ -491,6 +520,8 @@ class WorkspaceStore:
             pipeline_id: Identifier returned by :meth:`begin_pipeline`.
             error: Human-readable error description.
         """
+        if self._degraded:
+            return
         try:
             with self._lock:
                 self._ensure_open()
