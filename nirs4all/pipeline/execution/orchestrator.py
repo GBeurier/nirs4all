@@ -700,9 +700,14 @@ class PipelineOrchestrator:
                 self.store.complete_run(run_id, summary)
 
         except Exception as e:
-            # Fail run in store (only if we manage the lifecycle)
+            # Fail run in store (only if we manage the lifecycle).
+            # Use try/except to prevent store errors from masking the
+            # original pipeline error (e.g. DuckDB lock conflicts).
             if run_id and self.mode == "train" and manage_store_run:
-                self.store.fail_run(run_id, str(e))
+                try:
+                    self.store.fail_run(run_id, str(e))
+                except Exception:
+                    pass  # fail_run already logs internally
             raise
 
         return run_predictions, datasets_predictions

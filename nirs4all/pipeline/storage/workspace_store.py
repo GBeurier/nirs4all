@@ -25,7 +25,9 @@ import hashlib
 import inspect
 import io
 import json
+import logging
 import threading
+import time
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +38,8 @@ import duckdb
 import numpy as np
 import polars as pl
 import yaml
+
+logger = logging.getLogger(__name__)
 
 from nirs4all.pipeline.storage.store_queries import (
     CASCADE_DELETE_PIPELINE_CHAINS,
@@ -101,6 +105,37 @@ from nirs4all.pipeline.storage.store_queries import (
     build_top_predictions_query,
 )
 from nirs4all.pipeline.storage.store_schema import create_schema
+
+_MAX_RETRIES = 5
+_BASE_DELAY = 0.1
+
+
+def _retry_on_lock(func):
+    """Decorator that retries the wrapped method on DuckDB lock errors.
+
+    DuckDB uses process-level file locks that can conflict when another
+    process holds the WAL lock (e.g. a lingering child process from
+    parallel execution).  This retries with exponential backoff.
+    """
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        last_error: Exception | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                return func(*args, **kwargs)
+            except duckdb.TransactionException as e:
+                last_error = e
+                if attempt < _MAX_RETRIES:
+                    delay = _BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        "DuckDB lock conflict in %s (attempt %d/%d), retrying in %.1fs: %s",
+                        func.__name__, attempt + 1, _MAX_RETRIES, delay, e,
+                    )
+                    time.sleep(delay)
+        raise last_error  # type: ignore[misc]
+    return wrapper
 
 
 def _to_json(obj: Any) -> str | None:
@@ -235,6 +270,51 @@ class WorkspaceStore:
             raise RuntimeError("WorkspaceStore is closed")
         return self._conn
 
+    def _execute_with_retry(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        *,
+        max_retries: int = 5,
+        base_delay: float = 0.1,
+    ) -> None:
+        """Execute a write statement with retry on transient DuckDB lock errors.
+
+        Args:
+            sql: SQL statement to execute.
+            params: Query parameters.
+            max_retries: Maximum number of retry attempts.
+            base_delay: Initial delay in seconds (doubles each retry).
+        """
+        with self._lock:
+            conn = self._ensure_open()
+            last_error: Exception | None = None
+            for attempt in range(max_retries + 1):
+                try:
+                    conn.execute(sql, params or [])
+                    return
+                except duckdb.TransactionException as e:
+                    last_error = e
+                    if attempt < max_retries:
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(
+                            "DuckDB lock conflict (attempt %d/%d), retrying in %.1fs: %s",
+                            attempt + 1, max_retries, delay, e,
+                        )
+                        time.sleep(delay)
+            raise last_error  # type: ignore[misc]
+
+    def _safe_execute(self, sql: str, params: list[object] | None = None) -> None:
+        """Execute a write statement, suppressing DuckDB lock errors after retries.
+
+        Used for non-critical operations (logging, error recording) that
+        must never crash the pipeline.
+        """
+        try:
+            self._execute_with_retry(sql, params)
+        except duckdb.TransactionException:
+            logger.warning("DuckDB lock error suppressed for non-critical operation")
+
     def _fetch_one(self, sql: str, params: list[object] | None = None) -> dict | None:
         """Execute *sql* and return the first row as a dict, or ``None``."""
         with self._lock:
@@ -301,11 +381,9 @@ class WorkspaceStore:
         Returns:
             A unique run identifier (UUID-based string).
         """
-        with self._lock:
-            conn = self._ensure_open()
-            run_id = str(uuid4())
-            conn.execute(INSERT_RUN, [run_id, name, _to_json(config), _to_json(datasets)])
-            return run_id
+        run_id = str(uuid4())
+        self._execute_with_retry(INSERT_RUN, [run_id, name, _to_json(config), _to_json(datasets)])
+        return run_id
 
     def complete_run(self, run_id: str, summary: dict) -> None:
         """Mark a run as successfully completed.
@@ -318,9 +396,7 @@ class WorkspaceStore:
             summary: Free-form summary dictionary persisted alongside the
                 run record.
         """
-        with self._lock:
-            conn = self._ensure_open()
-            conn.execute(COMPLETE_RUN, [run_id, _to_json(summary)])
+        self._execute_with_retry(COMPLETE_RUN, [run_id, _to_json(summary)])
 
     def fail_run(self, run_id: str, error: str) -> None:
         """Mark a run as failed.
@@ -329,13 +405,14 @@ class WorkspaceStore:
         message.  Any pipelines still in ``"running"`` status under this
         run should be considered implicitly failed.
 
+        Uses :meth:`_safe_execute` so that a DuckDB lock conflict in the
+        error-handling path never masks the original pipeline error.
+
         Args:
             run_id: Identifier returned by :meth:`begin_run`.
             error: Human-readable error description or traceback excerpt.
         """
-        with self._lock:
-            conn = self._ensure_open()
-            conn.execute(FAIL_RUN, [run_id, error])
+        self._safe_execute(FAIL_RUN, [run_id, error])
 
     # =====================================================================
     # Pipeline lifecycle
@@ -372,15 +449,13 @@ class WorkspaceStore:
         Returns:
             A unique pipeline identifier (UUID-based string).
         """
-        with self._lock:
-            conn = self._ensure_open()
-            pipeline_id = str(uuid4())
-            conn.execute(INSERT_PIPELINE, [
-                pipeline_id, run_id, name,
-                _to_json(expanded_config), _to_json(generator_choices),
-                dataset_name, dataset_hash,
-            ])
-            return pipeline_id
+        pipeline_id = str(uuid4())
+        self._execute_with_retry(INSERT_PIPELINE, [
+            pipeline_id, run_id, name,
+            _to_json(expanded_config), _to_json(generator_choices),
+            dataset_name, dataset_hash,
+        ])
+        return pipeline_id
 
     def complete_pipeline(
         self,
@@ -400,9 +475,7 @@ class WorkspaceStore:
             metric: Name of the metric used for ranking (e.g. ``"rmse"``).
             duration_ms: Total execution time in milliseconds.
         """
-        with self._lock:
-            conn = self._ensure_open()
-            conn.execute(COMPLETE_PIPELINE, [pipeline_id, best_val, best_test, metric, duration_ms])
+        self._execute_with_retry(COMPLETE_PIPELINE, [pipeline_id, best_val, best_test, metric, duration_ms])
 
     def fail_pipeline(self, pipeline_id: str, error: str) -> None:
         """Mark a pipeline execution as failed and roll back its data.
@@ -411,15 +484,20 @@ class WorkspaceStore:
         removed.  Artifacts whose reference count drops to zero become
         candidates for garbage collection.
 
+        Uses :meth:`_safe_execute` so that a DuckDB lock conflict in the
+        error-handling path never masks the original pipeline error.
+
         Args:
             pipeline_id: Identifier returned by :meth:`begin_pipeline`.
             error: Human-readable error description.
         """
-        with self._lock:
-            conn = self._ensure_open()
-            # Decrement artifact ref counts for chains being deleted
-            self._decrement_artifact_refs_for_pipeline(pipeline_id)
-            conn.execute(FAIL_PIPELINE, [pipeline_id, error])
+        try:
+            with self._lock:
+                self._ensure_open()
+                self._decrement_artifact_refs_for_pipeline(pipeline_id)
+        except Exception:
+            logger.warning("Could not decrement artifact refs for pipeline %s", pipeline_id)
+        self._safe_execute(FAIL_PIPELINE, [pipeline_id, error])
 
     # =====================================================================
     # Chain management
@@ -495,13 +573,13 @@ class WorkspaceStore:
                 ).fetchone()
                 if row is not None:
                     dataset_name = row[0]
-            conn.execute(INSERT_CHAIN, [
-                chain_id, pipeline_id, _to_json(steps), model_step_idx,
-                model_class, preprocessings, fold_strategy,
-                _to_json(fold_artifacts), _to_json(shared_artifacts),
-                _to_json(branch_path), source_index, dataset_name,
-            ])
-            return chain_id
+        self._execute_with_retry(INSERT_CHAIN, [
+            chain_id, pipeline_id, _to_json(steps), model_step_idx,
+            model_class, preprocessings, fold_strategy,
+            _to_json(fold_artifacts), _to_json(shared_artifacts),
+            _to_json(branch_path), source_index, dataset_name,
+        ])
+        return chain_id
 
     def get_chain(self, chain_id: str) -> dict | None:
         """Retrieve a chain by its identifier.
@@ -529,6 +607,7 @@ class WorkspaceStore:
         """
         return self._fetch_pl(GET_CHAINS_FOR_PIPELINE, [pipeline_id])
 
+    @_retry_on_lock
     def update_chain_summary(self, chain_id: str) -> None:
         """Recompute and store CV/final summary on the chain record.
 
@@ -646,6 +725,7 @@ class WorkspaceStore:
                 final_scores_json,
             ])
 
+    @_retry_on_lock
     def bulk_update_chain_summaries(self, chain_ids: list[str]) -> None:
         """Recompute CV/final summary for multiple chains in bulk SQL.
 
@@ -787,6 +867,7 @@ class WorkspaceStore:
     # Prediction storage
     # =====================================================================
 
+    @_retry_on_lock
     def save_prediction(
         self,
         pipeline_id: str,
@@ -910,6 +991,7 @@ class WorkspaceStore:
             ])
             return prediction_id
 
+    @_retry_on_lock
     def save_prediction_arrays(
         self,
         prediction_id: str,
@@ -965,6 +1047,7 @@ class WorkspaceStore:
     # Artifact storage
     # =====================================================================
 
+    @_retry_on_lock
     def save_artifact(
         self,
         obj: Any,
@@ -1113,6 +1196,7 @@ class WorkspaceStore:
     # Cross-run artifact caching
     # =====================================================================
 
+    @_retry_on_lock
     def save_artifact_with_cache_key(
         self,
         obj: Any,
@@ -1294,13 +1378,11 @@ class WorkspaceStore:
             level: Log level (``"debug"``, ``"info"``, ``"warning"``,
                 ``"error"``).
         """
-        with self._lock:
-            conn = self._ensure_open()
-            log_id = str(uuid4())
-            conn.execute(INSERT_LOG, [
-                log_id, pipeline_id, step_idx, operator_class, event,
-                duration_ms, message, _to_json(details), level,
-            ])
+        log_id = str(uuid4())
+        self._safe_execute(INSERT_LOG, [
+            log_id, pipeline_id, step_idx, operator_class, event,
+            duration_ms, message, _to_json(details), level,
+        ])
 
     # =====================================================================
     # Queries -- Runs
