@@ -385,8 +385,15 @@ class PipelineOrchestrator:
                             f"{config_predictions.num_predictions} predictions"
                         )
 
-                        # Store reconstruction (non-fatal if it fails)
-                        if config_predictions.num_predictions > 0 and self.store and run_id:
+                        # Store reconstruction (non-fatal if it fails).
+                        # Skip entirely if the store is in degraded mode (persistent lock).
+                        store_available = (
+                            config_predictions.num_predictions > 0
+                            and self.store
+                            and run_id
+                            and not self.store.degraded
+                        )
+                        if store_available:
                             try:
                                 # Extract metadata from result
                                 steps = result.get("steps", [])
@@ -441,12 +448,10 @@ class PipelineOrchestrator:
 
                                 logger.debug(f"  -> Store reconstruction completed (pipeline_id={pipeline_id})")
                             except Exception as e:
-                                logger.error(
-                                    f"Store reconstruction failed for config '{config_name}': {e}. "
+                                logger.warning(
+                                    f"[X] Store reconstruction failed for config '{config_name}': {e}. "
                                     f"Predictions will still be merged in-memory for reporting."
                                 )
-                                import traceback
-                                traceback.print_exc()
 
                         # ALWAYS merge predictions into run-level stores (even if store ops failed)
                         if config_predictions.num_predictions > 0:
