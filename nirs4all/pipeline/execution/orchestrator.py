@@ -1661,6 +1661,16 @@ class PipelineOrchestrator:
         )
 
         if avg_entries:
+            import numpy as np
+            from nirs4all.visualization.naming import get_metric_names
+
+            # Determine task type and metric for naming
+            first_entry = avg_entries[0]
+            cv_task_type = first_entry.get("task_type", "regression")
+            cv_metric = first_entry.get("metric", "rmse")
+            cv_task_str = "regression" if cv_task_type == "regression" else "classification"
+            names = get_metric_names(self.report_naming, cv_task_str, cv_metric)
+
             rows: list[dict] = []
             all_fold_ids: set[str] = set()
             for entry in avg_entries:
@@ -1686,52 +1696,72 @@ class PipelineOrchestrator:
                     preprocessings=e_preproc, partition="val", load_arrays=False,
                 )
 
-                w_avg_val = None
+                w_ens_test: float | None = None
                 fold_scores: dict[str, float | None] = {}
                 for sib in siblings:
                     fid = str(sib.get("fold_id", ""))
                     if fid == "w_avg":
-                        w_avg_val = sib.get("val_score")
+                        w_ens_test = sib.get("test_score")
                     elif fid not in ("avg", "w_avg", "final") and fid:
                         fold_scores[fid] = sib.get("val_score")
                         all_fold_ids.add(fid)
 
+                # Compute MF_Val: mean of per-fold val scores
+                valid_vals = [v for v in fold_scores.values() if v is not None]
+                mf_val = float(np.mean(valid_vals)) if valid_vals else None
+
                 rows.append({
                     "model": e_model,
-                    "test": entry.get("test_score"),
-                    "avg": entry.get("val_score"),
-                    "w_avg": w_avg_val,
+                    "rmsecv": entry.get("val_score"),
+                    "mf_val": mf_val,
+                    "ens_test": entry.get("test_score"),
+                    "w_ens_test": w_ens_test,
                     "folds": fold_scores,
                     "chain": chain_display,
                 })
 
             sorted_fold_ids = sorted(all_fold_ids)
 
-            # Build header
+            # Build header with proper naming convention
+            cv_col = names["cv_score"]
+            mfv_col = names["mean_fold_cv"]
+            ens_col = names["ens_test"]
+            wens_col = names["w_ens_test"]
+
             fold_cols = "".join(f" | {'f' + fid:>7s}" for fid in sorted_fold_ids)
-            header = f"| {'#':>3s} | {'Model':10s} | {'Test':>9s} | {'Avg':>9s} | {'W_Avg':>9s}{fold_cols} | {'Chain':<80s} |"
+            header = (
+                f"| {'#':>3s} | {'Model':10s} | {cv_col:>9s} | {mfv_col:>9s}"
+                f" | {ens_col:>9s} | {wens_col:>10s}{fold_cols} | {'Chain':<60s} |"
+            )
             sep = "-" * len(header)
 
-            print(f"\nTop 30 CV chains (avg) for dataset '{name}':")
+            print(f"\nTop 30 CV chains (ranked by {cv_col}) for dataset '{name}':")
             print(sep)
             print(header)
             print(sep)
-            for idx, row in enumerate(rows, 1):
-                def _fmt(v: float | None) -> str:
-                    return f"{v:.4f}" if v is not None else "N/A"
 
+            def _fmt(v: float | None) -> str:
+                return f"{v:.4f}" if v is not None else "N/A"
+
+            for idx, row in enumerate(rows, 1):
                 fold_vals = "".join(f" | {_fmt(row['folds'].get(fid)):>7s}" for fid in sorted_fold_ids)
-                print(f"| {idx:3d} | {row['model'][:10]:10s} | {_fmt(row['test']):>9s} | {_fmt(row['avg']):>9s} | {_fmt(row['w_avg']):>9s}{fold_vals} | {row['chain'][:80]:<80s} |")
+                print(
+                    f"| {idx:3d} | {row['model'][:10]:10s} | {_fmt(row['rmsecv']):>9s} | {_fmt(row['mf_val']):>9s}"
+                    f" | {_fmt(row['ens_test']):>9s} | {_fmt(row['w_ens_test']):>10s}{fold_vals} | {row['chain'][:60]:<60s} |"
+                )
             print(sep)
             print()
 
-        # --- Detail: CV selection summary ---
+        # --- Detail: CV selection summary (always visible) ---
         cv_best = predictions.get_best(ascending=None, score_scope="cv")
         if cv_best:
-            logger.info(
+            cv_summary_msg = (
                 f"CV selection summary for dataset '{name}': "
                 f"{Predictions.pred_long_string(cv_best)}"
             )
+            print(f"\n{cv_summary_msg}")
+            if self.verbose > 0:
+                logger.success(cv_summary_msg)
             if self.enable_tab_reports:
                 cv_partitions = predictions.get_entry_partitions(cv_best)
                 cv_tab, _ = TabReportManager.generate_best_score_tab_report(

@@ -137,8 +137,8 @@ class TabReportManager:
         """Generate a per-model summary table for refit entries.
 
         Uses configurable naming convention (NIRS or ML):
-        - NIRS mode (default): RMSEP, RMSECV, Mean_Fold_RMSEP, Selection_Score
-        - ML mode: Test_Score, CV_Score, Mean_Fold_Test, Selection_Score
+        - NIRS mode (default): RMSEP, Ens_Test, W_Ens_Test, RMSECV, MF_Val
+        - ML mode: Test_Score, Ens_Test_Score, W_Ens_Test_Score, CV_Score, MF_CV
         - Classification: Adapts to task type with proper metric names
 
         Args:
@@ -166,16 +166,19 @@ class TabReportManager:
         if not valid_entries:
             return ""
 
-        # Sort by RMSECV (pre-computed by enrich_refit_entries), falling back
-        # to selection_score then test_score when RMSECV is unavailable.
+        # Sort by RMSEP (test_score after refit), falling back to RMSECV
+        # then selection_score when test_score is unavailable.
         def _sort_key(e: dict) -> float:
+            test = e.get("test_score")
+            if test is not None:
+                return test
             rmsecv = e.get("rmsecv")
             if rmsecv is not None:
                 return rmsecv
             sel = e.get("selection_score")
             if sel is not None:
                 return sel
-            return e["test_score"]
+            return float('inf') if ascending else float('-inf')
 
         entries = sorted(valid_entries, key=_sort_key, reverse=not ascending)
 
@@ -188,8 +191,9 @@ class TabReportManager:
         metric_names = get_metric_names(report_naming, task_type_str, metric)
         test_metric_name = metric_names["test_score"]
         cv_metric_name = metric_names["cv_score"]
-        mean_fold_test_name = metric_names["mean_fold_test"]
-        wmean_fold_test_name = metric_names["wmean_fold_test"]
+        ens_test_name = metric_names["ens_test"]
+        w_ens_test_name = metric_names["w_ens_test"]
+        mf_val_name = metric_names["mean_fold_cv"]
 
         # Normalize aggregate parameter
         effective_aggregate: Optional[str] = None
@@ -241,18 +245,15 @@ class TabReportManager:
                 criteria_labels[idx] = label
                 has_multi_criteria = True
 
-        # Extract selection criterion from first entry's metadata
-        selection_criterion_name = ""
-        if entries:
-            first_metadata = entries[0].get("metadata", {})
-            if isinstance(first_metadata, dict):
-                criterion = first_metadata.get("selection_criterion", "")
-                if criterion == "rmsecv":
-                    selection_criterion_name = " (RMSECV)"
-                elif criterion == "mean_val":
-                    selection_criterion_name = " (Mean_Fold)"
-                elif criterion:  # Any other criterion
-                    selection_criterion_name = f" ({criterion})"
+        # Determine best model per criterion (first in RMSEP-sorted order)
+        best_per_criterion: dict[str, int] = {}
+        if has_multi_criteria:
+            for idx, entry in enumerate(entries):
+                label = criteria_labels.get(idx, "")
+                for part in label.split(", "):
+                    key = part.split("(")[0]  # "rmsecv" or "mean_val"
+                    if key and key not in best_per_criterion:
+                        best_per_criterion[key] = idx
 
         headers = ["#", "Model"]
         if show_dataset:
@@ -261,10 +262,10 @@ class TabReportManager:
         if show_agg:
             headers.append(f"{test_metric_name}*")
         headers.extend([
-            mean_fold_test_name,
-            wmean_fold_test_name,
-            f"Selection_Score{selection_criterion_name}",
+            ens_test_name,
+            w_ens_test_name,
             cv_metric_name,
+            mf_val_name,
         ])
         if has_multi_criteria:
             headers.append("Selected_By")
@@ -276,8 +277,16 @@ class TabReportManager:
             dataset_name = entry.get("dataset_name", "")
             preprocessing = entry.get("preprocessings", "")
 
+            # Add star marker for best model per criterion
+            rank_str = str(i + 1)
+            if has_multi_criteria:
+                for _crit_key, best_idx in best_per_criterion.items():
+                    if best_idx == i:
+                        rank_str = f"{i + 1}*"
+                        break
+
             row = [
-                str(i + 1),
+                rank_str,
                 model_name,
             ]
             if show_dataset:
@@ -290,10 +299,10 @@ class TabReportManager:
 
             # Read pre-computed values from enriched entries
             row.extend([
-                _fmt(entry.get("mean_fold_test")),
-                _fmt(entry.get("wmean_fold_test")),
-                _fmt(entry.get("selection_score")),
+                _fmt(entry.get("ens_test")),
+                _fmt(entry.get("w_ens_test")),
                 _fmt(entry.get("rmsecv")),
+                _fmt(entry.get("mf_val")),
             ])
 
             if has_multi_criteria:
@@ -310,7 +319,7 @@ class TabReportManager:
 
         # Add sorting indicator header
         sort_direction = "ascending (lower is better)" if ascending else "descending (higher is better)"
-        sorting_info = f"Sorted by: {cv_metric_name} ({sort_direction})"
+        sorting_info = f"Sorted by: {test_metric_name} ({sort_direction})"
 
         lines = [sorting_info, ""]  # Start with sorting info and blank line
         separator = "|" + "|".join("-" * (w + 2) for w in col_widths) + "|"
@@ -438,8 +447,9 @@ class TabReportManager:
         Enriches each refit entry in-place with:
 
         - ``rmsecv``: Pooled out-of-fold CV metric (RMSECV for regression).
-        - ``mean_fold_test``: Arithmetic mean of per-fold test scores.
-        - ``wmean_fold_test``: Sample-weighted mean of per-fold test scores.
+        - ``ens_test``: Ensemble test score (avg fold's test_score).
+        - ``w_ens_test``: Weighted ensemble test score (w_avg fold's test_score).
+        - ``mf_val``: Mean of per-fold validation scores (MF_Val).
 
         These values are computed once from the CV fold predictions
         referenced by ``pred_index`` and stored on the entry dicts so
@@ -461,11 +471,14 @@ class TabReportManager:
             )
             entry["rmsecv"] = rmsecv
 
-            avg_test, wmean_test = TabReportManager._compute_cv_test_averages_indexed(
-                entry, pred_index, metric
+            ens_test, w_ens_test = TabReportManager._compute_ensemble_test_scores_indexed(
+                entry, pred_index,
             )
-            entry["mean_fold_test"] = avg_test
-            entry["wmean_fold_test"] = wmean_test
+            entry["ens_test"] = ens_test
+            entry["w_ens_test"] = w_ens_test
+
+            mf_val = TabReportManager._compute_mf_val_indexed(entry, pred_index)
+            entry["mf_val"] = mf_val
 
     @staticmethod
     def _build_prediction_index(predictions: Any) -> dict[str, Any]:
@@ -814,45 +827,32 @@ class TabReportManager:
             return None
 
     @staticmethod
-    def _compute_cv_test_averages_indexed(
+    def _compute_ensemble_test_scores_indexed(
         entry: dict,
         pred_index: dict,
-        metric: str,
     ) -> tuple[Optional[float], Optional[float]]:
-        """Compute mean and weighted-mean test scores across CV folds.
+        """Look up ensemble test scores (Ens_Test and W_Ens_Test) from CV phase.
 
-        Looks up individual-fold test predictions for the pipeline that
-        produced *entry* and computes two averages of their ``test_score``
-        values:
-
-        - **Mean**: arithmetic mean of per-fold test scores.
-        - **Weighted mean**: weighted by per-fold sample count
-          (``sum(score_i * n_i) / sum(n_i)``), which accounts for
-          unequal fold sizes.
-
-        When the primary metric is ``"mse"``, the stored per-fold scores
-        are in MSE units.  Both averages are converted to RMSE
-        (``sqrt(max(value, 0))``) for display consistency with RMSEP.
+        Retrieves the ``test_score`` from the ``fold_id="avg"`` entry
+        (Ens_Test: RMSE of averaged fold predictions on test) and from
+        the ``fold_id="w_avg"`` entry (W_Ens_Test: RMSE of quality-weighted
+        averaged fold predictions on test).
 
         For refit entries (``fold_id="final"``), the original CV config
-        name is resolved via ``_resolve_cv_config_name`` to locate the
-        matching CV fold test predictions.
+        name is resolved via ``_resolve_cv_config_name``.
 
         Args:
-            entry: Refit prediction entry (must contain ``dataset_name``,
-                ``config_name``, ``model_name``, ``step_idx``).
+            entry: Refit prediction entry.
             pred_index: Pre-built prediction index from
                 ``_build_prediction_index``.
-            metric: Primary metric name.  If ``"mse"``, the returned
-                scores are converted from MSE to RMSE for display.
 
         Returns:
-            Tuple of ``(avg_test_score, weighted_avg_test_score)`` in
-            display-ready units.  Returns ``(None, None)`` if no
-            per-fold test predictions are available.
+            Tuple of ``(ens_test, w_ens_test)``.
+            Returns ``(None, None)`` if lookup fails.
         """
         try:
-            test_index = pred_index.get("test_preds", {})
+            partitions_index = pred_index.get("partitions", {})
+            w_avg_index = pred_index.get("w_avg", {})
 
             dataset_name = entry.get("dataset_name")
             config_name = entry.get("config_name", "")
@@ -861,60 +861,95 @@ class TabReportManager:
             step_idx = entry.get("step_idx", 0)
             is_refit = fold_id == "final"
 
-            # Get chain_id for branch disambiguation (fallback to branch_id)
             chain_id = entry.get("chain_id")
             branch_id = entry.get("branch_id") if chain_id is None else None
 
-            # Use the pre-built test index (including step_idx and chain_id for branch disambiguation)
-            test_key = (dataset_name, config_name, model_name, step_idx, chain_id or branch_id)
-            test_preds = test_index.get(test_key, [])
-
-            # For refit entries, resolve original CV config_name and fall back
-            # without chain_id (refit gets a new chain_id per execution pass).
-            if is_refit and not test_preds:
+            # Resolve CV config name for refit entries
+            cv_config = config_name
+            if is_refit:
                 cv_config = TabReportManager._resolve_cv_config_name(config_name)
-                test_preds = test_index.get((dataset_name, cv_config, model_name, step_idx, chain_id or branch_id), [])
-                # Fall back: match without chain_id (refit always gets a fresh chain_id)
-                if not test_preds:
-                    for k, v in test_index.items():
-                        if k[0] == dataset_name and k[1] == cv_config and k[2] == model_name and k[3] == step_idx:
-                            test_preds = v
-                            break
 
-            if not test_preds:
-                return None, None
+            # --- Ens_Test: avg fold's test_score ---
+            avg_key = (dataset_name, cv_config, model_name, "avg", step_idx)
+            avg_parts = partitions_index.get(avg_key, {})
+            avg_test_entry = avg_parts.get("test")
+            ens_test = avg_test_entry.get("test_score") if avg_test_entry else None
 
-            test_scores = []
-            sample_counts = []
+            # --- W_Ens_Test: w_avg fold's test_score ---
+            w_avg_key = (dataset_name, cv_config, model_name, step_idx, chain_id or branch_id)
+            w_avg_parts = w_avg_index.get(w_avg_key, {})
+            # Fall back: match without chain_id
+            if not w_avg_parts:
+                for k, v in w_avg_index.items():
+                    if k[0] == dataset_name and k[1] == cv_config and k[2] == model_name and k[3] == step_idx:
+                        w_avg_parts = v
+                        break
+            w_avg_test_entry = w_avg_parts.get("test")
+            w_ens_test = w_avg_test_entry.get("test_score") if w_avg_test_entry else None
 
-            for fold_pred in test_preds:
-                test_score = fold_pred.get("test_score")
-                n_samples = fold_pred.get("n_samples", 0)
-
-                if test_score is not None and n_samples > 0:
-                    test_scores.append(test_score)
-                    sample_counts.append(n_samples)
-
-            if not test_scores:
-                return None, None
-
-            avg_test = np.mean(test_scores)
-
-            total_samples = sum(sample_counts)
-            if total_samples > 0:
-                weighted_avg_test = sum(score * count for score, count in zip(test_scores, sample_counts)) / total_samples
-            else:
-                weighted_avg_test = avg_test
-
-            # Convert MSE to RMSE for display if metric is "mse"
-            if metric.lower() == "mse":
-                avg_test = np.sqrt(max(avg_test, 0.0))
-                weighted_avg_test = np.sqrt(max(weighted_avg_test, 0.0))
-
-            return avg_test, weighted_avg_test
+            return ens_test, w_ens_test
 
         except Exception:
             return None, None
+
+    @staticmethod
+    def _compute_mf_val_indexed(
+        entry: dict,
+        pred_index: dict,
+    ) -> Optional[float]:
+        """Compute MF_Val: arithmetic mean of per-fold validation scores.
+
+        Looks up individual-fold validation predictions for the pipeline
+        that produced *entry* and computes the arithmetic mean of their
+        ``val_score`` values.
+
+        For refit entries (``fold_id="final"``), the original CV config
+        name is resolved via ``_resolve_cv_config_name``.
+
+        Args:
+            entry: Refit prediction entry.
+            pred_index: Pre-built prediction index from
+                ``_build_prediction_index``.
+
+        Returns:
+            Mean of per-fold val_scores, or ``None`` if unavailable.
+        """
+        try:
+            oof_index = pred_index.get("oof_preds", {})
+
+            dataset_name = entry.get("dataset_name")
+            config_name = entry.get("config_name", "")
+            model_name = entry.get("model_name")
+            fold_id = entry.get("fold_id", "")
+            step_idx = entry.get("step_idx", 0)
+            is_refit = fold_id == "final"
+
+            chain_id = entry.get("chain_id")
+            branch_id = entry.get("branch_id") if chain_id is None else None
+
+            oof_key = (dataset_name, config_name, model_name, step_idx, chain_id or branch_id)
+            oof_preds = oof_index.get(oof_key, [])
+
+            if is_refit and not oof_preds:
+                cv_config = TabReportManager._resolve_cv_config_name(config_name)
+                oof_preds = oof_index.get((dataset_name, cv_config, model_name, step_idx, chain_id or branch_id), [])
+                if not oof_preds:
+                    for k, v in oof_index.items():
+                        if k[0] == dataset_name and k[1] == cv_config and k[2] == model_name and k[3] == step_idx:
+                            oof_preds = v
+                            break
+
+            if not oof_preds:
+                return None
+
+            val_scores = [p.get("val_score") for p in oof_preds if p.get("val_score") is not None]
+            if not val_scores:
+                return None
+
+            return float(np.mean(val_scores))
+
+        except Exception:
+            return None
 
     @staticmethod
     def _aggregate_predictions(

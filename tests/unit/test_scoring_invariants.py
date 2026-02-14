@@ -374,23 +374,31 @@ def test_none_scores_not_coerced_in_flush_row():
 
 
 def test_nirs_regression_naming():
-    """NIRS regression naming must use RMSECV/RMSEP."""
+    """NIRS regression naming must use RMSECV/RMSEP and CV-phase metrics."""
     names = get_metric_names("nirs", "regression")
     assert names["cv_score"] == "RMSECV"
     assert names["test_score"] == "RMSEP"
     assert names["mean_fold_test"] == "Mean_Fold_RMSEP"
     assert names["wmean_fold_test"] == "W_Mean_Fold_RMSEP"
     assert names["selection_score"] == "Selection_Score"
+    assert names["ens_test"] == "Ens_Test"
+    assert names["w_ens_test"] == "W_Ens_Test"
+    assert names["mean_fold_cv"] == "MF_Val"
+    assert names["wmean_fold_cv"] == "W_RMSECV"
 
 
 def test_ml_regression_naming():
-    """ML regression naming must use CV_Score/Test_Score."""
+    """ML regression naming must use CV_Score/Test_Score and CV-phase metrics."""
     names = get_metric_names("ml", "regression")
     assert names["cv_score"] == "CV_Score"
     assert names["test_score"] == "Test_Score"
     assert names["mean_fold_test"] == "Mean_Fold_Test"
     assert names["wmean_fold_test"] == "W_Mean_Fold_Test"
     assert names["selection_score"] == "Selection_Score"
+    assert names["ens_test"] == "Ens_Test_Score"
+    assert names["w_ens_test"] == "W_Ens_Test_Score"
+    assert names["mean_fold_cv"] == "MF_CV"
+    assert names["wmean_fold_cv"] == "W_CV_Score"
 
 
 def test_nirs_classification_naming():
@@ -424,47 +432,61 @@ def test_format_metric_display():
 
 
 # ---------------------------------------------------------------------------
-# 6. Multi-criteria selection dedup
+# 6. Multi-criteria independent selection
 # ---------------------------------------------------------------------------
 
 
-def test_extract_top_configs_deduplication(tmp_path):
-    """extract_top_configs must deduplicate when the same config is selected by multiple criteria.
+def test_extract_top_configs_independent_selection():
+    """Each refit criterion must independently fill its top_k quota.
 
-    If pipeline A is top-1 by both rmsecv and mean_val, it should appear
-    only once in the output but with both criteria listed in selected_by_criteria.
+    When criteria overlap (same model appears in both rankings), each
+    criterion skips globally-seen models and selects the next available,
+    guaranteeing sum(top_k) unique models.
     """
-    # We test the deduplication logic by examining the seen_ids mechanism.
-    # Since extract_top_configs requires a real store, we test the dedup
-    # property of the algorithm directly.
+    # Simulate ranked lists for two criteria
+    # Criterion 1 (rmsecv, top2): ranks are A, B, C, D
+    # Criterion 2 (mean_val, top2): ranks are A, C, D, E
+    # A is top-1 for both -> criterion 2 must skip A and take C, D
+    rmsecv_ranked = ["A", "B", "C", "D"]
+    mean_val_ranked = ["A", "C", "D", "E"]
+
     selected_ids: list[str] = []
     seen_ids: set[str] = set()
     pid_to_criteria: dict[str, list[str]] = {}
 
-    # Simulate criterion 1 selecting pipelines A, B
-    for pid in ["A", "B"]:
+    # Criterion 1: select top 2
+    top_ids_1 = []
+    for pid in rmsecv_ranked:
+        if pid not in seen_ids:
+            top_ids_1.append(pid)
+            if len(top_ids_1) >= 2:
+                break
+    for pid in top_ids_1:
         pid_to_criteria.setdefault(pid, []).append("rmsecv(top2)")
-        if pid not in seen_ids:
-            selected_ids.append(pid)
-            seen_ids.add(pid)
+        selected_ids.append(pid)
+        seen_ids.add(pid)
 
-    # Simulate criterion 2 selecting pipelines A, C
-    # A is already seen -> should NOT be added again
-    for pid in ["A", "C"]:
+    # Criterion 2: select top 2 (skipping globally-seen)
+    top_ids_2 = []
+    for pid in mean_val_ranked:
+        if pid not in seen_ids:
+            top_ids_2.append(pid)
+            if len(top_ids_2) >= 2:
+                break
+    for pid in top_ids_2:
         pid_to_criteria.setdefault(pid, []).append("mean_val(top2)")
-        if pid not in seen_ids:
-            selected_ids.append(pid)
-            seen_ids.add(pid)
+        selected_ids.append(pid)
+        seen_ids.add(pid)
 
-    # A appears in both criteria but selected_ids has it only once
-    assert selected_ids == ["A", "B", "C"]
-    assert len(selected_ids) == 3
+    # Total: 4 unique models (2 per criterion, no overlap)
+    assert selected_ids == ["A", "B", "C", "D"]
+    assert len(selected_ids) == 4
 
-    # A has both criteria labels
-    assert pid_to_criteria["A"] == ["rmsecv(top2)", "mean_val(top2)"]
-    # B and C have only one
+    # A is selected by criterion 1, C and D by criterion 2
+    assert pid_to_criteria["A"] == ["rmsecv(top2)"]
     assert pid_to_criteria["B"] == ["rmsecv(top2)"]
     assert pid_to_criteria["C"] == ["mean_val(top2)"]
+    assert pid_to_criteria["D"] == ["mean_val(top2)"]
 
 
 def test_refit_criterion_defaults():
@@ -518,3 +540,85 @@ def test_refit_config_selected_by_criteria():
     # Default is empty list
     default_config = RefitConfig(expanded_steps=[])
     assert default_config.selected_by_criteria == []
+
+
+# ---------------------------------------------------------------------------
+# 8. Final scores table sorted by RMSEP
+# ---------------------------------------------------------------------------
+
+
+def test_per_model_summary_sorted_by_rmsep():
+    """generate_per_model_summary must sort entries by RMSEP (test_score), not RMSECV."""
+    entries = [
+        {
+            "model_name": "PLS",
+            "test_score": 3.0,  # Lower RMSEP, but worse RMSECV
+            "rmsecv": 5.0,
+            "selection_score": 5.0,
+            "preprocessings": "SNV",
+            "config_name": "cfg1_refit",
+            "task_type": "regression",
+            "dataset_name": "test",
+            "fold_id": "final",
+            "step_idx": 0,
+        },
+        {
+            "model_name": "RF",
+            "test_score": 5.0,  # Higher RMSEP, but better RMSECV
+            "rmsecv": 2.0,
+            "selection_score": 2.0,
+            "preprocessings": "MSC",
+            "config_name": "cfg2_refit",
+            "task_type": "regression",
+            "dataset_name": "test",
+            "fold_id": "final",
+            "step_idx": 0,
+        },
+    ]
+
+    report = TabReportManager.generate_per_model_summary(
+        entries, ascending=True, metric="rmse",
+    )
+
+    # PLS (RMSEP=3.0) should come before RF (RMSEP=5.0)
+    assert report.index("3.0000") < report.index("5.0000")
+    # Sorting indicator should mention RMSEP, not RMSECV
+    assert "Sorted by: RMSEP" in report
+
+
+def test_per_model_summary_star_markers():
+    """Multi-criteria refit models should have star markers for best per criterion."""
+    entries = [
+        {
+            "model_name": "PLS",
+            "test_score": 2.0,
+            "rmsecv": 4.0,
+            "selection_score": 4.0,
+            "preprocessings": "SNV",
+            "config_name": "cfg1_refit_rmsecvt2",
+            "task_type": "regression",
+            "dataset_name": "test",
+            "fold_id": "final",
+            "step_idx": 0,
+        },
+        {
+            "model_name": "RF",
+            "test_score": 3.0,
+            "rmsecv": 3.0,
+            "selection_score": 3.0,
+            "preprocessings": "MSC",
+            "config_name": "cfg2_refit_mean_valt2",
+            "task_type": "regression",
+            "dataset_name": "test",
+            "fold_id": "final",
+            "step_idx": 0,
+        },
+    ]
+
+    report = TabReportManager.generate_per_model_summary(
+        entries, ascending=True, metric="rmse",
+    )
+
+    # Both #1 and #2 should have stars (each is best for its criterion)
+    assert "1*" in report
+    assert "2*" in report
