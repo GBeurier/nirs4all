@@ -14,27 +14,33 @@ NAMING_CONVENTIONS = {
         # Regression metrics (chemometrics standard)
         "cv_score": "RMSECV",
         "test_score": "RMSEP",
-        "mean_fold_test": "Mean_Fold_RMSEP",
-        "wmean_fold_test": "W_Mean_Fold_RMSEP",
         "selection_score": "Selection_Score",
+        # CV-phase ensemble and fold-level metrics
+        "ens_test": "Ens_Test",
+        "w_ens_test": "W_Ens_Test",
+        "mean_fold_cv": "MF_Val",
         # Classification metrics
         "cv_classification": "CV_{metric}",  # e.g., CV_BalAcc
         "test_classification": "Test_{metric}",  # e.g., Test_BalAcc
-        "mean_fold_classification": "Mean_Fold_{metric}",
-        "wmean_fold_classification": "W_Mean_Fold_{metric}",
+        "ens_test_classification": "Ens_Test_{metric}",
+        "w_ens_test_classification": "W_Ens_Test_{metric}",
+        "mean_fold_cv_classification": "MF_Val_{metric}",
     },
     "ml": {
         # Regression metrics (ML/DL convention)
         "cv_score": "CV_Score",
         "test_score": "Test_Score",
-        "mean_fold_test": "Mean_Fold_Test",
-        "wmean_fold_test": "W_Mean_Fold_Test",
         "selection_score": "Selection_Score",
+        # CV-phase ensemble and fold-level metrics
+        "ens_test": "Ens_Test_Score",
+        "w_ens_test": "W_Ens_Test_Score",
+        "mean_fold_cv": "MF_CV",
         # Classification metrics
         "cv_classification": "CV_Score",
         "test_classification": "Test_Score",
-        "mean_fold_classification": "Mean_Fold_Score",
-        "wmean_fold_classification": "W_Mean_Fold_Score",
+        "ens_test_classification": "Ens_Test_Score",
+        "w_ens_test_classification": "W_Ens_Test_Score",
+        "mean_fold_cv_classification": "MF_CV_Score",
     },
 }
 
@@ -70,9 +76,10 @@ def get_metric_names(
         return {
             "cv_score": convention["cv_score"],
             "test_score": convention["test_score"],
-            "mean_fold_test": convention["mean_fold_test"],
-            "wmean_fold_test": convention["wmean_fold_test"],
             "selection_score": convention["selection_score"],
+            "ens_test": convention["ens_test"],
+            "w_ens_test": convention["w_ens_test"],
+            "mean_fold_cv": convention["mean_fold_cv"],
         }
     else:  # classification
         # Format classification templates with metric name
@@ -80,9 +87,10 @@ def get_metric_names(
         return {
             "cv_score": convention["cv_classification"].format(metric=metric_display),
             "test_score": convention["test_classification"].format(metric=metric_display),
-            "mean_fold_test": convention["mean_fold_classification"].format(metric=metric_display),
-            "wmean_fold_test": convention["wmean_fold_classification"].format(metric=metric_display),
             "selection_score": convention["selection_score"],
+            "ens_test": convention["ens_test_classification"].format(metric=metric_display),
+            "w_ens_test": convention["w_ens_test_classification"].format(metric=metric_display),
+            "mean_fold_cv": convention["mean_fold_cv_classification"].format(metric=metric_display),
         }
 
 

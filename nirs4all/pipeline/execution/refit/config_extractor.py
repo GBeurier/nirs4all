@@ -196,13 +196,6 @@ def extract_top_configs(
             scored = list(zip(pipeline_ids, completed["best_val"].to_list()))
             scored = [(pid, s) for pid, s in scored if s is not None]
             scored.sort(key=lambda x: x[1], reverse=not ascending)
-            top_ids = [pid for pid, _ in scored[:criterion.top_k]]
-
-            # Log this criterion's selections
-            names = completed["name"].to_list()
-            pid_to_name = dict(zip(pipeline_ids, names))
-            top_names = [pid_to_name.get(pid, pid) for pid in top_ids]
-            logger.info(f"  Criterion '{crit_label}' selected: {', '.join(top_names)}")
 
         elif criterion.ranking == "mean_val":
             # Rank by mean of individual fold validation scores
@@ -214,36 +207,38 @@ def extract_top_configs(
                 scored = list(zip(pipeline_ids, completed["best_val"].to_list()))
                 scored = [(pid, s) for pid, s in scored if s is not None]
                 scored.sort(key=lambda x: x[1], reverse=not ascending)
-                top_ids = [pid for pid, _ in scored[:criterion.top_k]]
             else:
                 # Compute mean of individual fold val_scores for each pipeline
                 scored = _compute_mean_val_scores(
                     predictions, pipeline_ids, completed, effective_metric,
                 )
                 scored.sort(key=lambda x: x[1], reverse=not ascending)
-                top_ids = [pid for pid, _ in scored[:criterion.top_k]]
-
-            # Log this criterion's selections
-            names = completed["name"].to_list()
-            pid_to_name = dict(zip(pipeline_ids, names))
-            top_names = [pid_to_name.get(pid, pid) for pid in top_ids]
-            logger.info(f"  Criterion '{crit_label}' selected: {', '.join(top_names)}")
 
         else:
             logger.warning(f"Unknown ranking method '{criterion.ranking}', using 'rmsecv'")
             scored = list(zip(pipeline_ids, completed["best_val"].to_list()))
             scored = [(pid, s) for pid, s in scored if s is not None]
             scored.sort(key=lambda x: x[1], reverse=not ascending)
-            top_ids = [pid for pid, _ in scored[:criterion.top_k]]
+
+        # Select top_k unique pipeline IDs not already globally selected.
+        # Each criterion independently fills its quota by skipping models
+        # already taken by prior criteria, ensuring sum(top_k) unique models.
+        top_ids: list[str] = []
+        for pid, _ in scored:
+            if pid not in seen_ids:
+                top_ids.append(pid)
+                if len(top_ids) >= criterion.top_k:
+                    break
+
+        # Log this criterion's selections
+        pid_to_name = dict(zip(pipeline_ids, completed["name"].to_list()))
+        top_names = [pid_to_name.get(pid, pid) for pid in top_ids]
+        logger.info(f"  Criterion '{crit_label}' selected: {', '.join(top_names)}")
 
         for pid in top_ids:
-            if pid not in pid_to_criteria:
-                pid_to_criteria[pid] = []
-            pid_to_criteria[pid].append(crit_label)
-
-            if pid not in seen_ids:
-                selected_ids.append(pid)
-                seen_ids.add(pid)
+            pid_to_criteria.setdefault(pid, []).append(crit_label)
+            selected_ids.append(pid)
+            seen_ids.add(pid)
 
     if not selected_ids:
         raise ValueError(f"No pipelines selected for refit in run {run_id}")
