@@ -122,7 +122,7 @@ class LazyModelRefitResult:
                 best_params=self.selection.best_params,
                 variant_index=self.selection.variant_index,
                 metric=self._refit_config.metric,
-                best_score=self.selection.best_score,
+                selection_score=self.selection.best_score,
             )
 
             # Create a fresh prediction store for capturing refit predictions

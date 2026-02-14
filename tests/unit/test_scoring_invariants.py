@@ -204,10 +204,8 @@ def test_per_model_summary_fmt_preserves_values():
 
     # The table should contain "4.0000" (the actual test_score), not "2.0000"
     assert "4.0000" in report
-    assert "9.0000" in report
     # Ensure no sqrt was applied
     assert "2.0000" not in report
-    assert "3.0000" not in report
 
 
 # ---------------------------------------------------------------------------
@@ -378,13 +376,14 @@ def test_nirs_regression_naming():
     names = get_metric_names("nirs", "regression")
     assert names["cv_score"] == "RMSECV"
     assert names["test_score"] == "RMSEP"
-    assert names["mean_fold_test"] == "Mean_Fold_RMSEP"
-    assert names["wmean_fold_test"] == "W_Mean_Fold_RMSEP"
     assert names["selection_score"] == "Selection_Score"
     assert names["ens_test"] == "Ens_Test"
     assert names["w_ens_test"] == "W_Ens_Test"
     assert names["mean_fold_cv"] == "MF_Val"
-    assert names["wmean_fold_cv"] == "W_RMSECV"
+    # Removed keys should not be present
+    assert "mean_fold_test" not in names
+    assert "wmean_fold_test" not in names
+    assert "wmean_fold_cv" not in names
 
 
 def test_ml_regression_naming():
@@ -392,13 +391,14 @@ def test_ml_regression_naming():
     names = get_metric_names("ml", "regression")
     assert names["cv_score"] == "CV_Score"
     assert names["test_score"] == "Test_Score"
-    assert names["mean_fold_test"] == "Mean_Fold_Test"
-    assert names["wmean_fold_test"] == "W_Mean_Fold_Test"
     assert names["selection_score"] == "Selection_Score"
     assert names["ens_test"] == "Ens_Test_Score"
     assert names["w_ens_test"] == "W_Ens_Test_Score"
     assert names["mean_fold_cv"] == "MF_CV"
-    assert names["wmean_fold_cv"] == "W_CV_Score"
+    # Removed keys should not be present
+    assert "mean_fold_test" not in names
+    assert "wmean_fold_test" not in names
+    assert "wmean_fold_cv" not in names
 
 
 def test_nirs_classification_naming():
@@ -543,7 +543,7 @@ def test_refit_config_selected_by_criteria():
 
 
 # ---------------------------------------------------------------------------
-# 8. Final scores table sorted by RMSEP
+# 8. Final scores table sorted by RMSEP with correct columns
 # ---------------------------------------------------------------------------
 
 
@@ -586,6 +586,46 @@ def test_per_model_summary_sorted_by_rmsep():
     assert "Sorted by: RMSEP" in report
 
 
+def test_per_model_summary_has_correct_columns():
+    """Final scores table must have RMSEP, Ens_Test, W_Ens_Test, RMSECV, MF_Val columns."""
+    entries = [{
+        "model_name": "PLS",
+        "test_score": 2.0,
+        "ens_test": 2.1,
+        "w_ens_test": 2.05,
+        "rmsecv": 2.5,
+        "mf_val": 2.6,
+        "preprocessings": "SNV",
+        "config_name": "cfg_refit",
+        "task_type": "regression",
+        "dataset_name": "test",
+        "fold_id": "final",
+        "step_idx": 0,
+    }]
+
+    report = TabReportManager.generate_per_model_summary(
+        entries, ascending=True, metric="rmse",
+    )
+
+    # Correct columns present
+    assert "RMSEP" in report
+    assert "Ens_Test" in report
+    assert "W_Ens_Test" in report
+    assert "RMSECV" in report
+    assert "MF_Val" in report
+
+    # Removed columns absent
+    assert "Mean_Fold_RMSEP" not in report
+    assert "W_Mean_Fold_RMSEP" not in report
+    assert "Selection_Score" not in report
+
+    # Values present
+    assert "2.1000" in report  # ens_test
+    assert "2.0500" in report  # w_ens_test
+    assert "2.5000" in report  # rmsecv
+    assert "2.6000" in report  # mf_val
+
+
 def test_per_model_summary_star_markers():
     """Multi-criteria refit models should have star markers for best per criterion."""
     entries = [
@@ -622,3 +662,81 @@ def test_per_model_summary_star_markers():
     # Both #1 and #2 should have stars (each is best for its criterion)
     assert "1*" in report
     assert "2*" in report
+
+
+# ---------------------------------------------------------------------------
+# 9. Enrichment: ens_test, w_ens_test, mf_val
+# ---------------------------------------------------------------------------
+
+
+def test_enrich_refit_entries_populates_ens_test_and_mf_val():
+    """enrich_refit_entries must populate ens_test, w_ens_test, and mf_val."""
+    predictions = Predictions()
+
+    # Add 2 individual fold val entries (for RMSECV and MF_Val)
+    for fold_id, (val_score, n_samples) in enumerate([(2.0, 50), (3.0, 50)]):
+        yt = np.random.randn(n_samples)
+        yp = yt + np.random.randn(n_samples) * 0.1
+        predictions.add_prediction(
+            dataset_name="ds",
+            config_name="cfg",
+            model_name="PLS",
+            fold_id=fold_id,
+            partition="val",
+            y_true=yt,
+            y_pred=yp,
+            val_score=val_score,
+            n_samples=n_samples,
+            metric="rmse",
+            task_type="regression",
+        )
+
+    # Add avg fold entry with test_score = Ens_Test
+    predictions.add_prediction(
+        dataset_name="ds",
+        config_name="cfg",
+        model_name="PLS",
+        fold_id="avg",
+        partition="test",
+        test_score=1.8,
+        metric="rmse",
+        task_type="regression",
+    )
+
+    # Add w_avg fold entry with test_score = W_Ens_Test
+    predictions.add_prediction(
+        dataset_name="ds",
+        config_name="cfg",
+        model_name="PLS",
+        fold_id="w_avg",
+        partition="test",
+        test_score=1.75,
+        metric="rmse",
+        task_type="regression",
+    )
+
+    # Create a refit entry
+    refit_entry = {
+        "dataset_name": "ds",
+        "config_name": "cfg_refit",
+        "model_name": "PLS",
+        "fold_id": "final",
+        "step_idx": 0,
+        "test_score": 2.1,
+        "task_type": "regression",
+    }
+
+    pred_index = TabReportManager._build_prediction_index(predictions)
+    TabReportManager.enrich_refit_entries([refit_entry], pred_index, metric="rmse")
+
+    # Ens_Test should be the avg fold's test_score
+    assert refit_entry["ens_test"] == pytest.approx(1.8)
+
+    # W_Ens_Test should be the w_avg fold's test_score
+    assert refit_entry["w_ens_test"] == pytest.approx(1.75)
+
+    # MF_Val should be mean of per-fold val_scores: (2.0 + 3.0) / 2 = 2.5
+    assert refit_entry["mf_val"] == pytest.approx(2.5)
+
+    # RMSECV should be computed (not None)
+    assert refit_entry["rmsecv"] is not None
