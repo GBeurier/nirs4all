@@ -286,9 +286,14 @@ class PipelineExecutor:
                 )
 
         except Exception as e:
-            # Fail pipeline in store
+            # Fail pipeline in store.  Use try/except to prevent store
+            # errors from masking the original pipeline error (e.g. DuckDB
+            # lock conflicts from concurrent processes).
             if self.mode == "train" and store and pipeline_id:
-                store.fail_pipeline(pipeline_id, str(e))
+                try:
+                    store.fail_pipeline(pipeline_id, str(e))
+                except Exception:
+                    pass  # fail_pipeline already logs internally
             logger.error(
                 f"Pipeline {config_name} on dataset {dataset.name} "
                 f"failed: {str(e)}"

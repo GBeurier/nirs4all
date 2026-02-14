@@ -119,9 +119,10 @@ pipeline = [
             # {"_or_": [Baseline, , Gaussian, Normalize, AreaNormalization, KubelkaMunk, Haar]},
 
 
-            {"_or_": [None, SNV]},
-            {"_or_": [None, SG(window_length=11, polyorder=2, deriv=1), SG(15,2,1), SG(21,2,1), SG(31,2,1), SG(15,3,2), SG(21,3,2), SG(31,3,2)]},
+            {"_or_": [None, SNV, MSC]},
+            {"_or_": [None, SG(window_length=11, polyorder=2, deriv=1), SG(15,2,1), SG(21,2,1), SG(31,2,1), SG(15,3,2), SG(21,3,2), SG(31,3,2), SG(15,2,0)]},
             {"_or_": [None, OSC, Detrend]},
+            {"_or_": [None, FlexiblePCA(n_components=0.25)]},
 
             ## DISCARDED
             #ASLSBaseline, StandardScaler(with_mean=True, with_std=False), Detrend]},
