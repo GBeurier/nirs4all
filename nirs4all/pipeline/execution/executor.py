@@ -250,11 +250,19 @@ class PipelineExecutor:
                 best_test = 0.0
                 metric = ""
                 if prediction_store.num_predictions > 0:
-                    pipeline_best = prediction_store.get_best(ascending=None)
-                    if pipeline_best:
-                        best_val = pipeline_best.get("val_score", 0.0) or 0.0
-                        best_test = pipeline_best.get("test_score", 0.0) or 0.0
-                        metric = pipeline_best.get("metric", "") or ""
+                    # Get the avg fold entry (RMSECV) instead of best single fold
+                    avg_entry = prediction_store.get_best(ascending=None, fold_id="avg")
+                    if avg_entry:
+                        best_val = avg_entry.get("val_score", 0.0) or 0.0
+                        best_test = avg_entry.get("test_score", 0.0) or 0.0
+                        metric = avg_entry.get("metric", "") or ""
+                    else:
+                        # Fallback to best entry if no avg fold exists
+                        pipeline_best = prediction_store.get_best(ascending=None)
+                        if pipeline_best:
+                            best_val = pipeline_best.get("val_score", 0.0) or 0.0
+                            best_test = pipeline_best.get("test_score", 0.0) or 0.0
+                            metric = pipeline_best.get("metric", "") or ""
                 store.complete_pipeline(
                     pipeline_id=pipeline_id,
                     best_val=best_val,

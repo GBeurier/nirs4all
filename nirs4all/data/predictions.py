@@ -442,9 +442,9 @@ class Predictions:
                 model_class=row["model_classname"],
                 fold_id=str(fold_id),
                 partition=row["partition"],
-                val_score=row.get("val_score") or 0.0,
-                test_score=row.get("test_score") or 0.0,
-                train_score=row.get("train_score") or 0.0,
+                val_score=row.get("val_score"),
+                test_score=row.get("test_score"),
+                train_score=row.get("train_score"),
                 metric=row["metric"],
                 task_type=row["task_type"],
                 n_samples=row["n_samples"],
@@ -519,7 +519,7 @@ class Predictions:
                CV entries in ranking.  One of:
 
                - ``"final"``: Only refit entries (``fold_id="final"``),
-                 ranked by their originating CV score (``cv_rank_score``).
+                 ranked by their selection score (``selection_score``).
                - ``"cv"``: Only CV entries (exclude refit entries).
                - ``"mix"``: Refit entries ranked first, then CV entries
                  below.  Each group ranked independently.
@@ -627,8 +627,8 @@ class Predictions:
         partition_key = f"{rank_partition}_score" if rank_partition in ("val", "test", "train") else "val_score"
         for r in candidates:
             if r["is_final"]:
-                # Final entries rank by their originating CV score
-                r["rank_score"] = r.get("cv_rank_score")
+                # Final entries rank by their selection score
+                r["rank_score"] = r.get("selection_score")
             else:
                 score = self._get_rank_score(r, effective_metric, rank_partition, partition_key, effective_by_repetition, effective_repetition_method, effective_repetition_exclude_outliers)
                 r["rank_score"] = score

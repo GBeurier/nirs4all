@@ -43,7 +43,13 @@ class RefitConfig:
             variant (e.g. ``[{"_or_": "SNV"}, {"_range_": 10}]``).
         pipeline_id: Store pipeline ID of the winning variant.
         metric: Metric used for ranking.
-        best_score: Best validation score achieved.
+        selection_score: Selection score that determined this config was chosen for refit.
+            Matches the primary criterion used (rmsecv or mean_val).
+        selection_scores: Per-criterion scores for all applicable criteria.
+            Example: ``{"rmsecv": 3.21, "mean_val": 3.25}``.
+            Used in multi-criteria refit to display all scores.
+        primary_selection_criterion: Name of the primary criterion used for selection.
+            One of: ``"rmsecv"``, ``"mean_val"``. Used for sorting and primary display.
         config_name: Original CV pipeline config name (for linking
             refit entries back to their CV fold data).
         selected_by_criteria: List of criterion labels that selected this
@@ -57,7 +63,9 @@ class RefitConfig:
     generator_choices: list[dict[str, Any]] = field(default_factory=list)
     pipeline_id: str = ""
     metric: str = ""
-    best_score: float = 0.0
+    selection_score: float = 0.0
+    selection_scores: dict[str, float] = field(default_factory=dict)
+    primary_selection_criterion: str = "rmsecv"
     config_name: str = ""
     selected_by_criteria: list[str] = field(default_factory=list)
 
@@ -244,6 +252,19 @@ def extract_top_configs(
     all_pipeline_ids = pipelines_df["pipeline_id"].to_list()
     configs: list[RefitConfig] = []
 
+    # Collect all criterion labels for this selection
+    all_criteria_labels = [crit_labels for crit_labels in pid_to_criteria.values()]
+    all_criteria_labels_flat = [item for sublist in all_criteria_labels for item in sublist]
+
+    # Pre-compute mean_val scores if needed (for any mean_val criterion)
+    mean_val_scores_map: dict[str, float] = {}
+    has_mean_val_criterion = any("mean_val" in c for c in all_criteria_labels_flat)
+    if has_mean_val_criterion and predictions is not None:
+        mean_val_scores = _compute_mean_val_scores(
+            predictions, pipeline_ids, completed, effective_metric,
+        )
+        mean_val_scores_map = dict(mean_val_scores)
+
     for pipeline_id in selected_ids:
         pipeline_record = store.get_pipeline(pipeline_id)
         if pipeline_record is None:
@@ -253,9 +274,27 @@ def extract_top_configs(
         expanded_steps = pipeline_record.get("expanded_config", [])
         generator_choices = pipeline_record.get("generator_choices", [])
 
-        # Get best_val from the completed DataFrame
+        # Determine scores for all applicable criteria
         pid_idx = pipeline_ids.index(pipeline_id) if pipeline_id in pipeline_ids else None
-        best_score = completed.row(pid_idx, named=True).get("best_val", 0.0) if pid_idx is not None else 0.0
+
+        # Get the criteria that selected this pipeline
+        selected_by = pid_to_criteria.get(pipeline_id, [])
+
+        # Compute scores for all criteria
+        rmsecv_score = completed.row(pid_idx, named=True).get("best_val", 0.0) if pid_idx is not None else 0.0
+        mean_val_score = mean_val_scores_map.get(pipeline_id, rmsecv_score)  # Fallback to rmsecv if not computed
+
+        # Build selection_scores dict with all applicable scores
+        selection_scores = {
+            "rmsecv": rmsecv_score,
+            "mean_val": mean_val_score,
+        }
+
+        # Determine primary criterion based on which criteria selected this pipeline
+        # Priority: If selected by mean_val at all, use mean_val; otherwise use rmsecv
+        use_mean_val = any("mean_val" in c for c in selected_by)
+        primary_criterion = "mean_val" if use_mean_val else "rmsecv"
+        best_score = selection_scores[primary_criterion]
 
         cv_config_name = pipeline_record.get("name", "")
         variant_index = all_pipeline_ids.index(pipeline_id) if pipeline_id in all_pipeline_ids else 0
@@ -268,7 +307,9 @@ def extract_top_configs(
             generator_choices=generator_choices,
             pipeline_id=pipeline_id,
             metric=first_metric,
-            best_score=best_score or 0.0,
+            selection_score=best_score or 0.0,
+            selection_scores=selection_scores,
+            primary_selection_criterion=primary_criterion,
             config_name=cv_config_name,
             selected_by_criteria=pid_to_criteria.get(pipeline_id, []),
         ))
@@ -426,6 +467,9 @@ def extract_winning_config(
     # Extract best_params from the best prediction for this pipeline
     best_params = _extract_best_params(store, best_pipeline_id, effective_metric, ascending)
 
+    # For single-criterion selection, only rmsecv is available
+    selection_scores = {"rmsecv": best_score}
+
     return RefitConfig(
         expanded_steps=expanded_steps,
         best_params=best_params,
@@ -433,7 +477,9 @@ def extract_winning_config(
         generator_choices=generator_choices,
         pipeline_id=best_pipeline_id,
         metric=effective_metric,
-        best_score=best_score,
+        selection_score=best_score,
+        selection_scores=selection_scores,
+        primary_selection_criterion="rmsecv",
         config_name=cv_config_name,
     )
 
@@ -586,6 +632,9 @@ def extract_per_model_configs(
             expanded_steps=expanded_steps,
         )
 
+        # For per-model selection, only rmsecv is available
+        selection_scores = {"rmsecv": best_score}
+
         config = RefitConfig(
             expanded_steps=expanded_steps,
             best_params=best_params,
@@ -593,7 +642,9 @@ def extract_per_model_configs(
             generator_choices=generator_choices,
             pipeline_id=best_pid,
             metric=metric,
-            best_score=best_score,
+            selection_score=best_score,
+            selection_scores=selection_scores,
+            primary_selection_criterion="rmsecv",
             config_name=cv_config_name,
         )
 

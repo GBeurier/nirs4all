@@ -53,6 +53,7 @@ class PipelineOrchestrator:
         plots_visible: bool = False,
         random_state: int | None = None,
         n_jobs: int = 1,
+        report_naming: str = "nirs",
     ) -> None:
         """Initialize pipeline orchestrator.
 
@@ -71,6 +72,7 @@ class PipelineOrchestrator:
             plots_visible: Whether to display plots
             random_state: Random seed for reproducibility propagation
             n_jobs: Number of parallel workers for pipeline variants (1=sequential, -1=all cores)
+            report_naming: Naming convention for metrics in reports ("nirs", "ml", or "auto")
         """
         # Workspace configuration
         if workspace_path is None:
@@ -98,6 +100,7 @@ class PipelineOrchestrator:
         self.max_preprocessed_snapshots_per_dataset = max(0, int(max_preprocessed_snapshots_per_dataset))
         self.plots_visible = plots_visible
         self.random_state = random_state
+        self.report_naming = report_naming
         self.n_jobs = n_jobs
 
         # Dataset snapshots (if keep_datasets is True)
@@ -972,6 +975,10 @@ class PipelineOrchestrator:
             print(f"Criteria: {len(criteria)} criterion/criteria")
             print(f"{'=' * 80}\n", flush=True)
 
+        # Snapshot buffer size before refit so we can sync new entries
+        # to the global run_predictions after refit completes (P2.3).
+        pre_refit_count = run_dataset_predictions.num_predictions
+
         if is_multi_config:
             # Multi-config refit: extract top configs based on criteria
             # Log each criterion's selection for transparency
@@ -1011,7 +1018,7 @@ class PipelineOrchestrator:
                 criteria_str = ", ".join(refit_config.selected_by_criteria) if refit_config.selected_by_criteria else "unknown"
                 logger.info(
                     f"Refitting #{config_idx}/{len(refit_configs)}: "
-                    f"'{refit_config.config_name}' [{criteria_str}] (best_val={refit_config.best_score:.4f})"
+                    f"'{refit_config.config_name}' [{criteria_str}] (best_val={refit_config.selection_score:.4f})"
                 )
                 refit_result = self._execute_single_refit(
                     refit_config=refit_config,
@@ -1057,6 +1064,9 @@ class PipelineOrchestrator:
 
             if not any_success:
                 logger.warning("Multi-config refit pass did not complete successfully")
+
+            # Sync refit predictions to global buffer
+            self._sync_refit_to_global(run_dataset_predictions, run_predictions, pre_refit_count)
             return
 
         # Single-config refit (default path: refit=True)
@@ -1115,6 +1125,28 @@ class PipelineOrchestrator:
                 logger.warning(f"Transient artifact cleanup failed (non-fatal): {e}")
         else:
             logger.warning("Refit pass did not complete successfully")
+
+        # Sync refit predictions to global buffer
+        self._sync_refit_to_global(run_dataset_predictions, run_predictions, pre_refit_count)
+
+    def _sync_refit_to_global(
+        self,
+        run_dataset_predictions: Predictions,
+        run_predictions: Predictions,
+        pre_refit_count: int,
+    ) -> None:
+        """Sync refit predictions from per-dataset to global buffer.
+
+        After refit, new predictions (fold_id='final') are in
+        ``run_dataset_predictions`` but not in ``run_predictions``.
+        This copies the newly added entries to the global buffer.
+        """
+        new_count = run_dataset_predictions.num_predictions - pre_refit_count
+        if new_count > 0:
+            refit_preds = Predictions()
+            refit_preds._buffer = run_dataset_predictions._buffer[pre_refit_count:]
+            run_predictions.merge_predictions(refit_preds)
+            logger.debug(f"Synced {new_count} refit prediction(s) to global buffer")
 
     def _execute_single_refit(
         self,
@@ -1462,6 +1494,8 @@ class PipelineOrchestrator:
             if refit_entries:
                 from nirs4all.visualization.reports import TabReportManager
                 dataset_pred_index = TabReportManager._build_prediction_index(run_dataset_predictions)
+                metric = refit_entries[0].get("metric", "rmse")
+                TabReportManager.enrich_refit_entries(refit_entries, dataset_pred_index, metric)
 
                 self._print_refit_report(
                     run_dataset_predictions, refit_entries, name,
@@ -1603,7 +1637,9 @@ class PipelineOrchestrator:
                 aggregate_method=aggregate_method,
                 aggregate_exclude_outliers=aggregate_exclude_outliers,
                 predictions=predictions,
+                report_naming=self.report_naming,
                 pred_index=pred_index,
+                verbose=self.verbose,
             )
             model_word = "model" if len(rankable) == 1 else "models"
 
@@ -1614,8 +1650,6 @@ class PipelineOrchestrator:
                 header += f" - {refit_suffix}"
 
             print(f"\n{header}:\n{summary}", flush=True)
-            if self.verbose > 0:
-                logger.info(f"{header}:\n{summary}")
 
         # --- Top 30 CV chains (averaged across folds) ---
         avg_entries = predictions.top(
@@ -1850,6 +1884,17 @@ class PipelineOrchestrator:
         if not rankable:
             return
 
+        # Deduplicate: keep one entry per (model, step, config) - prefer "test" partition
+        seen: dict[tuple, dict] = {}
+        for e in rankable:
+            key = (e.get("dataset_name"), e.get("model_name"), e.get("step_idx"), e.get("config_name"))
+            existing = seen.get(key)
+            if existing is None or e.get("partition") == "test":
+                seen[key] = e
+        rankable = list(seen.values())
+        if not rankable:
+            return
+
         # Enrich each entry with cv_test_score from w_avg fold (if available)
         if pred_index is not None:
             w_avg_index = pred_index.get("w_avg", {})
@@ -1876,6 +1921,10 @@ class PipelineOrchestrator:
         # Get metric and aggregation settings from first entry
         metric = rankable[0].get("metric", "rmse")
 
+        # Enrich refit entries with CV metrics (RMSECV, mean/wmean fold test)
+        if pred_index is not None:
+            TabReportManager.enrich_refit_entries(rankable, pred_index, metric)
+
         # Try to get aggregate settings from last dataset processed
         aggregate_column = self.last_aggregate_column
         aggregate_method = self.last_aggregate_method
@@ -1888,9 +1937,11 @@ class PipelineOrchestrator:
             metric=metric,
             aggregate=aggregate_column,
             aggregate_method=aggregate_method,
+            report_naming=self.report_naming,
             aggregate_exclude_outliers=aggregate_exclude_outliers,
             predictions=run_predictions,
             pred_index=pred_index,
+            verbose=self.verbose,
         )
 
         if summary:
@@ -1900,14 +1951,6 @@ class PipelineOrchestrator:
             print(f"{'=' * 120}")
             print(summary)
             print(f"{'=' * 120}\n")
-
-            # Also log for file output if enabled
-            if self.verbose > 0:
-                logger.info("=" * 120)
-                logger.info(f"GLOBAL SUMMARY: All final models ({len(rankable)} models across {len(datasets_predictions)} dataset(s))")
-                logger.info("=" * 120)
-                logger.info(summary)
-                logger.info("=" * 120)
 
     # _execute_single_variant is a module-level function (see below)
     # to avoid pickling the orchestrator (which contains WorkspaceStore with
