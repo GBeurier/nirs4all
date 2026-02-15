@@ -683,6 +683,10 @@ class PipelineOrchestrator:
                     "dataset_name": name
                 }
 
+                # Cleanup between datasets to release memory (GPU, step cache, GC)
+                if n_datasets > 1:
+                    self._cleanup_between_datasets(step_cache, name)
+
             # Print global summary of all final models across all datasets
             if self.mode == "train":
                 from nirs4all.visualization.reports import TabReportManager
@@ -716,6 +720,45 @@ class PipelineOrchestrator:
             raise
 
         return run_predictions, datasets_predictions
+
+    def _cleanup_between_datasets(self, step_cache: Any, dataset_name: str) -> None:
+        """Release memory between dataset iterations.
+
+        Clears the step cache (entries from the previous dataset are not
+        reusable), releases GPU memory held by models like TabPFN, and
+        runs garbage collection.
+
+        Args:
+            step_cache: StepCache instance (or None).
+            dataset_name: Name of the dataset that just completed (for logging).
+        """
+        import gc
+
+        # Clear step cache -- entries are keyed by content hash so entries
+        # from the previous dataset will never hit, but still consume memory.
+        if step_cache is not None:
+            step_cache.clear()
+
+        # Release GPU memory (PyTorch/TensorFlow/JAX).
+        # This is critical for models like TabPFN that allocate CUDA tensors
+        # and don't release them until the Python objects are garbage-collected.
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
+
+        try:
+            import tensorflow as tf
+            tf.keras.backend.clear_session()
+        except ImportError:
+            pass
+
+        # Force garbage collection to release model objects and their tensors.
+        gc.collect()
+
+        logger.debug(f"Cleanup completed after dataset '{dataset_name}'")
 
     def _normalize_pipeline(
         self,
