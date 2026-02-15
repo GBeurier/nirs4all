@@ -16,14 +16,16 @@ Let X ∈ ℝ^{n×p} be the input matrix and y ∈ ℝ^n the response vector.
 Given an operator bank {A_b}_{b=1..B} of p×p linear operators (SG filters,
 detrend projections, identity), AOM-PLS extracts K predictive components:
 
-For each component k (operating on residuals X_res, Y_res):
-1. Compute cross-covariance: c_k = X_res^T y_res
-2. Apply operator adjoints: g_{b,k} = A_b^T c_k  (adjoint trick)
-3. Normalized block scores: s_{b,k} = ||g_{b,k}||² / (ν_b + ε)
-4. Sparse gating: γ_k = sparsemax(s_k / τ)
-5. Effective loading: w_k = Σ_b γ_{b,k} A_b ŵ_{b,k}
-6. Component score: t_k = X_res w_k
-7. NIPALS deflation of X_res and Y_res
+Hard gating (default): For each operator b, run full K-component NIPALS:
+1. For k = 1..K: w_k via adjoint trick A_b, t_k = X_res w_k, NIPALS deflation
+2. Compute prefix regression coefficients B_k for k = 1..K
+3. If validation data: select operator with lowest validation RMSE at best k
+4. If no validation: select operator with highest first-component R²
+
+Sparsemax gating (experimental): Soft operator mixing via R² scoring:
+1. R² scoring per operator on first component
+2. γ = sparsemax(s / τ) for sparse weight vector
+3. NIPALS with mixed weights: w_k = Σ_b γ_b A_b ŵ_b
 
 References
 ----------
@@ -454,6 +456,112 @@ def _opls_prefilter(X: NDArray, y: NDArray, n_orth: int) -> tuple[NDArray, NDArr
 
 
 # =============================================================================
+# NIPALS Single-Operator Extraction
+# =============================================================================
+
+def _nipals_extract(
+    X: NDArray,
+    Y: NDArray,
+    operator: LinearOperator,
+    n_components: int,
+    eps: float = 1e-12,
+) -> tuple[NDArray, NDArray, NDArray, NDArray, NDArray, int]:
+    """Run K-component NIPALS PLS with a single linear operator.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n, p)
+        Centered X matrix.
+    Y : ndarray of shape (n, q)
+        Centered Y matrix.
+    operator : LinearOperator
+        Operator for weight computation via adjoint trick.
+    n_components : int
+        Maximum components.
+    eps : float
+        Numerical tolerance.
+
+    Returns
+    -------
+    W : ndarray of shape (p, n_extracted)
+    T : ndarray of shape (n, n_extracted)
+    P : ndarray of shape (p, n_extracted)
+    Q : ndarray of shape (q, n_extracted)
+    B_coefs : ndarray of shape (n_extracted, p, q)
+        Prefix regression coefficients.
+    n_extracted : int
+    """
+    n, p = X.shape
+    q = Y.shape[1]
+
+    W = np.zeros((p, n_components), dtype=np.float64)
+    T = np.zeros((n, n_components), dtype=np.float64)
+    P = np.zeros((p, n_components), dtype=np.float64)
+    Q = np.zeros((q, n_components), dtype=np.float64)
+
+    X_res = X.copy()
+    Y_res = Y.copy()
+    n_extracted = 0
+
+    for k in range(n_components):
+        c_k = X_res.T @ Y_res
+        if q == 1:
+            c_k = c_k[:, 0]
+        else:
+            u, s, _ = np.linalg.svd(c_k, full_matrices=False)
+            c_k = u[:, 0] * s[0]
+
+        c_norm = np.linalg.norm(c_k)
+        if c_norm < eps:
+            break
+
+        g = operator.apply_adjoint(c_k)
+        g_norm = np.linalg.norm(g)
+        if g_norm < eps:
+            break
+        w_hat = g / g_norm
+        a_w = operator.apply(w_hat.reshape(1, -1)).ravel()
+        a_w_norm = np.linalg.norm(a_w)
+        if a_w_norm < eps:
+            break
+        w_k = a_w / a_w_norm
+
+        t_k = X_res @ w_k
+        tt = t_k @ t_k
+        if tt < eps:
+            break
+
+        p_k = (X_res.T @ t_k) / tt
+        q_k = (Y_res.T @ t_k) / tt
+
+        W[:, k] = w_k
+        T[:, k] = t_k
+        P[:, k] = p_k
+        Q[:, k] = q_k
+        n_extracted = k + 1
+
+        X_res -= np.outer(t_k, p_k)
+        Y_res -= np.outer(t_k, q_k)
+
+    W = W[:, :n_extracted]
+    T = T[:, :n_extracted]
+    P = P[:, :n_extracted]
+    Q = Q[:, :n_extracted]
+
+    # Compute prefix regression coefficients
+    B_coefs = np.zeros((n_extracted, p, q), dtype=np.float64)
+    for k in range(n_extracted):
+        PtW = P[:, :k + 1].T @ W[:, :k + 1]
+        try:
+            R_k = W[:, :k + 1] @ np.linalg.inv(PtW)
+        except np.linalg.LinAlgError:
+            R_k = W[:, :k + 1] @ np.linalg.pinv(PtW)
+        B_coefs[k] = R_k @ Q[:, :k + 1].T
+
+    return W, T, P, Q, B_coefs, n_extracted
+
+
+# =============================================================================
 # NumPy Backend Implementation
 # =============================================================================
 
@@ -465,17 +573,19 @@ def _aompls_fit_numpy(
     tau: float,
     n_orth: int,
     gate: str,
+    X_val: NDArray | None = None,
+    Y_val: NDArray | None = None,
+    operator_index: int | None = None,
 ) -> dict:
     """Fit AOM-PLS model using NumPy with NIPALS deflation.
 
-    Uses global operator selection: the best operator (or sparse mix) is chosen
-    ONCE from the full cross-covariance c = X^T Y before deflation begins.
-    All NIPALS components then use the same operator, avoiding the compounding
-    selection bias of per-component evaluation on progressively noisier residuals.
+    For hard gating: tries each operator with full K-component NIPALS and
+    selects the best by validation RMSE (if validation data provided) or
+    first-component R² (fallback). This directly evaluates multi-component
+    prediction quality rather than relying on proxy scoring criteria.
 
-    Operator scoring uses normalized adjoint scoring (||A^T c||²/ν) which fairly
-    compares operators of different scales — derivatives can win when they
-    concentrate cross-covariance more effectively relative to their DoF.
+    For sparsemax gating: uses first-component R² scoring for soft mixing,
+    then runs NIPALS with the weighted operator combination.
 
     Guarantees AOM-PLS >= PLS: identity always competes, and if no operator
     genuinely helps, identity wins and AOM-PLS reduces to standard NIPALS PLS.
@@ -496,6 +606,10 @@ def _aompls_fit_numpy(
         Number of OPLS orthogonal components to pre-filter.
     gate : str
         'hard' for argmax operator selection, 'sparsemax' for soft mixing.
+    X_val : ndarray of shape (n_val, p) or None
+        Centered/scaled validation X (same space as X).
+    Y_val : ndarray of shape (n_val, q) or None
+        Centered/scaled validation Y (same space as Y).
 
     Returns
     -------
@@ -511,116 +625,195 @@ def _aompls_fit_numpy(
     P_orth = None
     if n_orth > 0:
         X, P_orth, T_orth = _opls_prefilter(X, Y[:, 0] if q == 1 else Y, n_orth)
-
-    # ---- Global operator selection ----
-    # Score operators using full cross-covariance (before any deflation).
-    # This gives the strongest signal for selection and avoids compounding bias.
-    c_0 = X.T @ Y
-    if q == 1:
-        c_0 = c_0[:, 0]
-    else:
-        u0, s0, _ = np.linalg.svd(c_0, full_matrices=False)
-        c_0 = u0[:, 0] * s0[0]
-
-    scores = np.zeros(B, dtype=np.float64)
-    for b, op in enumerate(operators):
-        g_b = op.apply_adjoint(c_0)
-        scores[b] = np.sum(g_b ** 2) / (op.frobenius_norm_sq() + eps)
+        # Apply OPLS to validation data
+        if X_val is not None:
+            X_val = X_val.copy()
+            for j in range(P_orth.shape[1]):
+                p_o = P_orth[:, j]
+                t_o = X_val @ p_o
+                X_val = X_val - np.outer(t_o, p_o)
 
     if gate == "hard":
-        best_b = int(np.argmax(scores))
-        gamma_row = np.zeros(B, dtype=np.float64)
-        gamma_row[best_b] = 1.0
-        selected_ops = [(best_b, 1.0)]
-    else:
-        gamma_row = _sparsemax(scores / (tau * np.max(scores) + eps))
-        selected_ops = [(b, gamma_row[b]) for b in range(B) if gamma_row[b] > eps]
+        has_val = X_val is not None and Y_val is not None and X_val.shape[0] > 0
+        best_k = None  # None = use all components
 
-    # ---- NIPALS with selected operator(s) ----
-    W = np.zeros((p, n_components), dtype=np.float64)
-    T = np.zeros((n, n_components), dtype=np.float64)
-    P = np.zeros((p, n_components), dtype=np.float64)
-    Q = np.zeros((q, n_components), dtype=np.float64)
-    Gamma = np.zeros((n_components, B), dtype=np.float64)
-
-    X_res = X.copy()
-    Y_res = Y.copy()
-
-    n_extracted = 0
-
-    for k in range(n_components):
-        # Cross-covariance direction from residuals
-        c_k = X_res.T @ Y_res
-        if q == 1:
-            c_k = c_k[:, 0]
+        if operator_index is not None:
+            # Operator pre-selected (e.g. by Optuna) — skip selection, just fit
+            best_b = min(operator_index, B - 1)
+        elif has_val:
+            # External validation data — use it for operator + prefix selection
+            best_val_rmse = np.inf
+            best_b = 0
+            for b, op in enumerate(operators):
+                W_b, T_b, P_b, Q_b, B_coefs_b, n_ext = _nipals_extract(X, Y, op, n_components, eps)
+                if n_ext == 0:
+                    continue
+                for k in range(1, n_ext + 1):
+                    y_pred = X_val @ B_coefs_b[k - 1]
+                    rmse = np.sqrt(np.mean((Y_val - y_pred) ** 2))
+                    if rmse < best_val_rmse:
+                        best_val_rmse = rmse
+                        best_b = b
+                        best_k = k
         else:
-            u, s, _ = np.linalg.svd(c_k, full_matrices=False)
-            c_k = u[:, 0] * s[0]
+            # No external help — internal holdout for operator + prefix selection
+            rng = np.random.RandomState(42)
+            n_ho = max(3, n // 5)
+            idx = rng.permutation(n)
+            X_ho_train, X_ho_val = X[idx[n_ho:]], X[idx[:n_ho]]
+            Y_ho_train, Y_ho_val = Y[idx[n_ho:]], Y[idx[:n_ho]]
+            best_val_rmse = np.inf
+            best_b = 0
+            for b, op in enumerate(operators):
+                W_b, T_b, P_b, Q_b, B_coefs_b, n_ext = _nipals_extract(X_ho_train, Y_ho_train, op, n_components, eps)
+                if n_ext == 0:
+                    continue
+                for k in range(1, n_ext + 1):
+                    y_pred = X_ho_val @ B_coefs_b[k - 1]
+                    rmse = np.sqrt(np.mean((Y_ho_val - y_pred) ** 2))
+                    if rmse < best_val_rmse:
+                        best_val_rmse = rmse
+                        best_b = b
+                        best_k = k
 
-        c_norm = np.linalg.norm(c_k)
-        if c_norm < eps:
-            break
+        # Fit with selected operator on ALL data
+        W, T, P, Q, B_coefs, n_extracted = _nipals_extract(X, Y, operators[best_b], n_components, eps)
 
-        # Compute weight using the globally selected operator(s)
-        w_k = np.zeros(p, dtype=np.float64)
-        for b_idx, weight in selected_ops:
-            g_b = operators[b_idx].apply_adjoint(c_k)
+        # Safety: if selected operator couldn't extract, fall back to identity
+        if n_extracted == 0:
+            identity_idx = next((b for b, op in enumerate(operators) if isinstance(op, IdentityOperator)), 0)
+            W, T, P, Q, B_coefs, n_extracted = _nipals_extract(X, Y, operators[identity_idx], n_components, eps)
+            best_b = identity_idx
+            best_k = None
+
+        # Limit to selected prefix count
+        if best_k is not None and best_k < n_extracted:
+            n_extracted = best_k
+            W = W[:, :n_extracted]
+            T = T[:, :n_extracted]
+            P = P[:, :n_extracted]
+            Q = Q[:, :n_extracted]
+            B_coefs = B_coefs[:n_extracted]
+
+        Gamma = np.zeros((n_extracted, B), dtype=np.float64)
+        Gamma[:, best_b] = 1.0
+
+    else:
+        # ---- Sparsemax: R² scoring for soft mixing ----
+        c_0 = X.T @ Y
+        if q == 1:
+            c_0 = c_0[:, 0]
+            y_score = Y[:, 0]
+        else:
+            u0, s0, vt0 = np.linalg.svd(c_0, full_matrices=False)
+            c_0 = u0[:, 0] * s0[0]
+            y_score = Y @ vt0[0]
+
+        y_norm_sq = np.dot(y_score, y_score)
+        scores = np.zeros(B, dtype=np.float64)
+        for b, op in enumerate(operators):
+            g_b = op.apply_adjoint(c_0)
             g_norm = np.linalg.norm(g_b)
             if g_norm < eps:
                 continue
             w_hat_b = g_b / g_norm
-            a_w = operators[b_idx].apply(w_hat_b.reshape(1, -1)).ravel()
+            a_w = op.apply(w_hat_b.reshape(1, -1)).ravel()
             a_w_norm = np.linalg.norm(a_w)
             if a_w_norm < eps:
                 continue
-            w_k += weight * (a_w / a_w_norm)
+            w_b = a_w / a_w_norm
+            t_b = X @ w_b
+            cov_yt = np.dot(y_score, t_b)
+            scores[b] = cov_yt ** 2 / (y_norm_sq * np.dot(t_b, t_b) + eps)
 
-        w_norm = np.linalg.norm(w_k)
-        if w_norm < eps:
-            break
-        w_k = w_k / w_norm
+        gamma_row = _sparsemax(scores / (tau * np.max(scores) + eps))
+        selected_ops = [(b, gamma_row[b]) for b in range(B) if gamma_row[b] > eps]
 
-        Gamma[k] = gamma_row
+        # NIPALS with mixed operators
+        W = np.zeros((p, n_components), dtype=np.float64)
+        T = np.zeros((n, n_components), dtype=np.float64)
+        P = np.zeros((p, n_components), dtype=np.float64)
+        Q = np.zeros((q, n_components), dtype=np.float64)
+        Gamma = np.zeros((n_components, B), dtype=np.float64)
 
-        # NIPALS component
-        t_k = X_res @ w_k
-        tt = t_k @ t_k
-        if tt < eps:
-            break
-        p_k = (X_res.T @ t_k) / tt
-        q_k = (Y_res.T @ t_k) / tt
+        X_res = X.copy()
+        Y_res = Y.copy()
+        n_extracted = 0
 
-        W[:, k] = w_k
-        T[:, k] = t_k
-        P[:, k] = p_k
-        Q[:, k] = q_k
+        for k in range(n_components):
+            c_k = X_res.T @ Y_res
+            if q == 1:
+                c_k = c_k[:, 0]
+            else:
+                u, s, _ = np.linalg.svd(c_k, full_matrices=False)
+                c_k = u[:, 0] * s[0]
 
-        n_extracted = k + 1
+            c_norm = np.linalg.norm(c_k)
+            if c_norm < eps:
+                break
 
-        # NIPALS deflation
-        X_res = X_res - np.outer(t_k, p_k)
-        Y_res = Y_res - np.outer(t_k, q_k)
+            w_k = np.zeros(p, dtype=np.float64)
+            for b_idx, weight in selected_ops:
+                g_b = operators[b_idx].apply_adjoint(c_k)
+                g_norm = np.linalg.norm(g_b)
+                if g_norm < eps:
+                    continue
+                w_hat_b = g_b / g_norm
+                a_w = operators[b_idx].apply(w_hat_b.reshape(1, -1)).ravel()
+                a_w_norm = np.linalg.norm(a_w)
+                if a_w_norm < eps:
+                    continue
+                w_k += weight * (a_w / a_w_norm)
 
-    # Compute prefix regression coefficients
-    B_coefs = np.zeros((n_extracted, p, q), dtype=np.float64)
-    for k in range(n_extracted):
-        W_a = W[:, :k + 1]
-        P_a = P[:, :k + 1]
-        Q_a = Q[:, :k + 1]
-        PtW = P_a.T @ W_a
-        try:
-            R_a = W_a @ np.linalg.inv(PtW)
-        except np.linalg.LinAlgError:
-            R_a = W_a @ np.linalg.pinv(PtW)
-        B_coefs[k] = R_a @ Q_a.T
+            w_norm = np.linalg.norm(w_k)
+            if w_norm < eps:
+                break
+            w_k = w_k / w_norm
+
+            Gamma[k] = gamma_row
+
+            t_k = X_res @ w_k
+            tt = t_k @ t_k
+            if tt < eps:
+                break
+            p_k = (X_res.T @ t_k) / tt
+            q_k = (Y_res.T @ t_k) / tt
+
+            W[:, k] = w_k
+            T[:, k] = t_k
+            P[:, k] = p_k
+            Q[:, k] = q_k
+            n_extracted = k + 1
+
+            X_res -= np.outer(t_k, p_k)
+            Y_res -= np.outer(t_k, q_k)
+
+        W = W[:, :n_extracted]
+        T = T[:, :n_extracted]
+        P = P[:, :n_extracted]
+        Q = Q[:, :n_extracted]
+        Gamma = Gamma[:n_extracted]
+
+        # Compute prefix regression coefficients
+        B_coefs = np.zeros((n_extracted, p, q), dtype=np.float64)
+        for k in range(n_extracted):
+            W_a = W[:, :k + 1]
+            P_a = P[:, :k + 1]
+            Q_a = Q[:, :k + 1]
+            PtW = P_a.T @ W_a
+            try:
+                R_a = W_a @ np.linalg.inv(PtW)
+            except np.linalg.LinAlgError:
+                R_a = W_a @ np.linalg.pinv(PtW)
+            B_coefs[k] = R_a @ Q_a.T
 
     return {
         "n_extracted": n_extracted,
-        "W": W[:, :n_extracted],
-        "T": T[:, :n_extracted],
-        "P": P[:, :n_extracted],
-        "Q": Q[:, :n_extracted],
-        "Gamma": Gamma[:n_extracted],
+        "W": W,
+        "T": T,
+        "P": P,
+        "Q": Q,
+        "Gamma": Gamma,
         "B_coefs": B_coefs,
         "P_orth": P_orth,
     }
@@ -646,11 +839,11 @@ def _check_torch_available():
 class AOMPLSRegressor(BaseEstimator, RegressorMixin):
     """Adaptive Operator-Mixture PLS regressor.
 
-    Automatically selects the best preprocessing operator (or sparse mix)
-    from a bank of linear operators (SG filters, detrend projections,
-    identity) using normalized adjoint scoring on the full cross-covariance.
-    All PLS components then use the selected operator, combining automatic
-    preprocessing selection with standard NIPALS PLS.
+    Automatically selects the best preprocessing operator from a bank of
+    linear operators (SG filters, detrend projections, identity) by running
+    full NIPALS PLS for each operator and selecting the one with the best
+    validation RMSE. All PLS components use the selected operator, combining
+    automatic preprocessing selection with standard NIPALS PLS.
 
     Guarantees AOM-PLS >= standard PLS: identity always competes in the bank,
     so if no operator genuinely helps, AOM-PLS reduces to NIPALS PLS.
@@ -674,6 +867,10 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
         Lower values → sparser selection. Range: 0.1–2.0.
     n_orth : int, default=0
         Number of OPLS orthogonal components to pre-filter.
+    operator_index : int or None, default=None
+        If set, skip operator selection and use this operator from the bank.
+        Intended to be tuned by Optuna alongside n_components and n_orth,
+        so the refit inherits the best operator without needing validation data.
     center : bool, default=True
         Whether to center X and Y (subtract mean).
     scale : bool, default=False
@@ -737,6 +934,7 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
         gate: str = "hard",
         tau: float = 0.5,
         n_orth: int = 0,
+        operator_index: int | None = None,
         center: bool = True,
         scale: bool = False,
         selection: str = "validation",
@@ -748,6 +946,7 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
         self.gate = gate
         self.tau = tau
         self.n_orth = n_orth
+        self.operator_index = operator_index
         self.center = center
         self.scale = scale
         self.selection = selection
@@ -835,12 +1034,23 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
             op.initialize(n_features)
         self.block_names_ = [op.name for op in self.operators_]
 
+        # Center/scale validation data for operator selection
+        X_val_c = None
+        Y_val_c = None
+        if X_val is not None and y_val is not None:
+            X_v = np.asarray(X_val, dtype=np.float64)
+            y_v = np.asarray(y_val, dtype=np.float64)
+            if self._y_1d and y_v.ndim == 1:
+                y_v = y_v.reshape(-1, 1)
+            X_val_c = (X_v - self.x_mean_) / self.x_std_
+            Y_val_c = (y_v - self.y_mean_) / self.y_std_
+
         # Fit using appropriate backend
         if self.backend == "torch":
             from nirs4all.operators.models.pytorch.aom_pls import aompls_fit_torch
             artifacts = aompls_fit_torch(X_centered, Y_centered, self.operators_, n_comp, self.tau, self.n_orth, self.gate)
         else:
-            artifacts = _aompls_fit_numpy(X_centered, Y_centered, self.operators_, n_comp, self.tau, self.n_orth, self.gate)
+            artifacts = _aompls_fit_numpy(X_centered, Y_centered, self.operators_, n_comp, self.tau, self.n_orth, self.gate, X_val_c, Y_val_c, self.operator_index)
 
         # Unpack artifacts
         self.n_components_ = artifacts["n_extracted"]
@@ -852,8 +1062,13 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
         self._B_coefs = artifacts["B_coefs"]
         self._P_orth = artifacts["P_orth"]
 
-        # Select best prefix via validation or use all
-        self.k_selected_ = self._select_prefix(X_val, y_val)
+        # Prefix selection: hard gate already handles operator + prefix internally
+        # (via validation or internal holdout). Only use external _select_prefix
+        # for sparsemax gate or when operator_index is set with external val data.
+        if self.gate == "hard":
+            self.k_selected_ = self.n_components_
+        else:
+            self.k_selected_ = self._select_prefix(X_val, y_val)
 
         # Store regression coefficients for selected prefix
         if self.n_components_ > 0:
@@ -1010,6 +1225,7 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
             "gate": self.gate,
             "tau": self.tau,
             "n_orth": self.n_orth,
+            "operator_index": self.operator_index,
             "center": self.center,
             "scale": self.scale,
             "selection": self.selection,
