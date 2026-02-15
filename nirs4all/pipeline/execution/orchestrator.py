@@ -217,8 +217,10 @@ class PipelineOrchestrator:
             )
 
         # Execute for each dataset
+        failed_datasets: list[str] = []
         try:
             for _dataset_idx, (config, name) in enumerate(dataset_configs.configs):
+              try:
                 # Create artifact registry for this dataset.
                 # Lifecycle: Registry is created once per dataset, shared by all
                 # pipeline variant (CV) executions, and will be available to the
@@ -686,6 +688,26 @@ class PipelineOrchestrator:
                 # Cleanup between datasets to release memory (GPU, step cache, GC)
                 if n_datasets > 1:
                     self._cleanup_between_datasets(step_cache, name)
+
+              except Exception as e:
+                logger.error(f"Dataset '{name}' failed: {e}")
+                failed_datasets.append(name)
+                # Cleanup artifact registry from failed dataset
+                if artifact_registry is not None:
+                    try:
+                        artifact_registry.cleanup_failed_run()
+                    except Exception:
+                        pass
+                # Still run cleanup to release memory before next dataset
+                if n_datasets > 1:
+                    self._cleanup_between_datasets(step_cache, name)
+                continue
+
+            if failed_datasets:
+                logger.warning(
+                    f"{len(failed_datasets)}/{n_datasets} dataset(s) failed: "
+                    + ", ".join(failed_datasets)
+                )
 
             # Print global summary of all final models across all datasets
             if self.mode == "train":
