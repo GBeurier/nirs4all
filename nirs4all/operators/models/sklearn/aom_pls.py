@@ -329,23 +329,46 @@ def default_operator_bank() -> list[LinearOperator]:
     operators : list of LinearOperator
         Default operator bank with ~11 operators.
     """
-    return [
-        # Identity (always included as baseline — recovers standard PLS)
-        IdentityOperator(),
+    savgols = [
         # SG smoothing
         SavitzkyGolayOperator(window=11, polyorder=2, deriv=0),
         SavitzkyGolayOperator(window=21, polyorder=2, deriv=0),
+        SavitzkyGolayOperator(window=31, polyorder=2, deriv=0),
         # SG 1st derivative (the workhorse of NIRS preprocessing)
         SavitzkyGolayOperator(window=11, polyorder=2, deriv=1),
         SavitzkyGolayOperator(window=21, polyorder=2, deriv=1),
+        SavitzkyGolayOperator(window=31, polyorder=2, deriv=1),
         SavitzkyGolayOperator(window=11, polyorder=3, deriv=1),
         # SG 2nd derivative
         SavitzkyGolayOperator(window=11, polyorder=2, deriv=2),
         SavitzkyGolayOperator(window=21, polyorder=2, deriv=2),
+        SavitzkyGolayOperator(window=31, polyorder=2, deriv=2),
+        # SG 2nd derivative
+        SavitzkyGolayOperator(window=11, polyorder=3, deriv=2),
+        SavitzkyGolayOperator(window=21, polyorder=3, deriv=2),
+        SavitzkyGolayOperator(window=31, polyorder=3, deriv=2),
+    ]
+
+    DetrendOps = [
+        DetrendProjectionOperator(degree=0),  # mean centering
+    ]
+
+    ComposedOps = []
+    for sg in savgols:
+        for dt in DetrendOps:
+            ComposedOps.append(ComposedOperator(first=sg, second=dt))
+
+    return [
+        # Identity (always included as baseline — recovers standard PLS)
+        IdentityOperator(),
+        # Savitzky-Golay filters (various smoothing and derivative configs)
+        *savgols,
         # Detrend projections
-        DetrendProjectionOperator(degree=0),
-        DetrendProjectionOperator(degree=1),
-        DetrendProjectionOperator(degree=2),
+        DetrendProjectionOperator(degree=0),  # mean centering
+        DetrendProjectionOperator(degree=1),  # linear detrend
+        DetrendProjectionOperator(degree=2),  # quadratic detrend
+        # Composed operators (e.g., SG smoothing + detrend)
+        *ComposedOps,
     ]
 
 
