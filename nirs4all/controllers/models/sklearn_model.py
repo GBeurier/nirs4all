@@ -11,6 +11,7 @@ Matches any sklearn model object (estimators with fit/predict methods).
 """
 
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
+import inspect
 import numpy as np
 import copy
 from sklearn.base import BaseEstimator, ClassifierMixin
@@ -275,7 +276,13 @@ class SklearnModelController(BaseModelController):
             y_fit = y_train  # Multi-output: keep as 2D
 
         try:
-            trained_model.fit(X_train, y_fit)
+            # Pass validation data to models that accept it (e.g. AOMPLSRegressor)
+            fit_params = inspect.signature(trained_model.fit).parameters
+            if 'X_val' in fit_params and 'y_val' in fit_params and X_val is not None and y_val is not None:
+                y_val_fit = y_val.ravel() if y_val.ndim == 2 and y_val.shape[1] == 1 else y_val
+                trained_model.fit(X_train, y_fit, X_val=X_val, y_val=y_val_fit)
+            else:
+                trained_model.fit(X_train, y_fit)
         except ValueError as e:
             # Catch and annotate invalid hyperparameter errors for better diagnostics
             error_msg = str(e)

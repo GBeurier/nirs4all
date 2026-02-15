@@ -242,17 +242,33 @@ def aompls_fit_torch(
     # Build batched operator bank
     bank = TorchOperatorBank(operators, device)
 
-    # ---- Global operator selection ----
+    # ---- Global operator selection via R² scoring ----
     c_0 = X_t.T @ Y_t
     if q == 1:
         c_0 = c_0[:, 0]
+        y_score = Y_t[:, 0]
     else:
-        u0, s0, _ = torch.linalg.svd(c_0, full_matrices=False)
+        u0, s0, vt0 = torch.linalg.svd(c_0, full_matrices=False)
         c_0 = u0[:, 0] * s0[0]
+        y_score = Y_t @ vt0[0]
 
+    y_norm_sq = torch.dot(y_score, y_score)
     block_grads_0 = bank.apply_adjoint_all(c_0)  # (B, p)
-    grad_norms_sq_0 = torch.sum(block_grads_0 ** 2, dim=1)  # (B,)
-    scores_0 = grad_norms_sq_0 / (bank.nus + eps)
+    scores_0 = torch.zeros(B, dtype=torch.float32, device=device)
+    for b in range(B):
+        g_b = block_grads_0[b]
+        g_norm = torch.linalg.norm(g_b)
+        if g_norm < eps:
+            continue
+        w_hat_b = g_b / g_norm
+        a_w = bank.apply_forward(b, w_hat_b)
+        a_w_norm = torch.linalg.norm(a_w)
+        if a_w_norm < eps:
+            continue
+        w_b = a_w / a_w_norm
+        t_b = X_t @ w_b
+        cov_yt = torch.dot(y_score, t_b)
+        scores_0[b] = cov_yt ** 2 / (y_norm_sq * torch.dot(t_b, t_b) + eps)
 
     if gate == "hard":
         best_b = int(torch.argmax(scores_0))

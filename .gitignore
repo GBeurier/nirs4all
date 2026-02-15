@@ -90,3 +90,4 @@ bench/tabpfn_paper/studies/
 bench/tabpfn_paper/workspace/
 workspace_test_variant_parallel/
 examples/*.png
+bench/tabpfn_paper/AOM_workspace/
