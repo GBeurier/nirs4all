@@ -72,6 +72,7 @@ class PipelineExecutor:
         self.substep_number = -1
         self.operation_count = 0
         self._shape_metadata_cache: Dict[tuple[Any, ...], tuple[tuple[int, int], List[tuple[int, ...]]]] = {}
+        self._synced_artifact_ids: set[str] = set()
 
     def initialize_context(self, dataset: SpectroDataset) -> ExecutionContext:
         """Initialize ExecutionContext for pipeline execution.
@@ -217,8 +218,11 @@ class PipelineExecutor:
 
                 # Flush ArtifactRegistry records to WorkspaceStore so that
                 # chain replay and export can load artifacts via the store.
+                # Only register artifacts not yet synced (tracked via _synced_artifact_ids).
                 if self.artifact_registry is not None:
                     for record in self.artifact_registry.get_all_records():
+                        if record.artifact_id in self._synced_artifact_ids:
+                            continue
                         store.register_existing_artifact(
                             artifact_id=record.artifact_id,
                             path=record.path,
@@ -228,6 +232,7 @@ class PipelineExecutor:
                             format=record.format,
                             size_bytes=record.size_bytes,
                         )
+                        self._synced_artifact_ids.add(record.artifact_id)
 
             # Flush predictions to store so they can be looked up by ID
             if self.mode == "train" and store and pipeline_id and prediction_store.num_predictions > 0:
@@ -245,11 +250,19 @@ class PipelineExecutor:
                 best_test = 0.0
                 metric = ""
                 if prediction_store.num_predictions > 0:
-                    pipeline_best = prediction_store.get_best(ascending=None)
-                    if pipeline_best:
-                        best_val = pipeline_best.get("val_score", 0.0) or 0.0
-                        best_test = pipeline_best.get("test_score", 0.0) or 0.0
-                        metric = pipeline_best.get("metric", "") or ""
+                    # Get the avg fold entry (RMSECV) instead of best single fold
+                    avg_entry = prediction_store.get_best(ascending=None, fold_id="avg")
+                    if avg_entry:
+                        best_val = avg_entry.get("val_score", 0.0) or 0.0
+                        best_test = avg_entry.get("test_score", 0.0) or 0.0
+                        metric = avg_entry.get("metric", "") or ""
+                    else:
+                        # Fallback to best entry if no avg fold exists
+                        pipeline_best = prediction_store.get_best(ascending=None)
+                        if pipeline_best:
+                            best_val = pipeline_best.get("val_score", 0.0) or 0.0
+                            best_test = pipeline_best.get("test_score", 0.0) or 0.0
+                            metric = pipeline_best.get("metric", "") or ""
                 store.complete_pipeline(
                     pipeline_id=pipeline_id,
                     best_val=best_val,
@@ -273,9 +286,14 @@ class PipelineExecutor:
                 )
 
         except Exception as e:
-            # Fail pipeline in store
+            # Fail pipeline in store.  Use try/except to prevent store
+            # errors from masking the original pipeline error (e.g. DuckDB
+            # lock conflicts from concurrent processes).
             if self.mode == "train" and store and pipeline_id:
-                store.fail_pipeline(pipeline_id, str(e))
+                try:
+                    store.fail_pipeline(pipeline_id, str(e))
+                except Exception:
+                    pass  # fail_pipeline already logs internally
             logger.error(
                 f"Pipeline {config_name} on dataset {dataset.name} "
                 f"failed: {str(e)}"
@@ -453,8 +471,11 @@ class PipelineExecutor:
             refit_context_override=refit_context_override,
         )
 
-        # Update chain summary columns with CV/final scores
-        if hasattr(store, "update_chain_summary"):
+        # Update chain summary columns with CV/final scores (bulk)
+        chain_ids = [str(row["chain_id"]) for row in chain_rows]
+        if chain_ids and hasattr(store, "bulk_update_chain_summaries"):
+            store.bulk_update_chain_summaries(chain_ids)
+        elif hasattr(store, "update_chain_summary"):
             for chain_row in chain_rows:
                 store.update_chain_summary(str(chain_row["chain_id"]))
 

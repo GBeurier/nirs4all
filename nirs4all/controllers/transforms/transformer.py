@@ -43,6 +43,30 @@ class TransformerMixinController(OperatorController):
         )
 
     @staticmethod
+    def _requires_y(operator: Any) -> bool:
+        """Check if the operator requires y during fit (supervised transform).
+
+        Args:
+            operator: The operator to check.
+
+        Returns:
+            True if the operator declares requires_y=True in its _more_tags().
+        """
+        # Check _more_tags() method (sklearn convention)
+        if hasattr(operator, '_more_tags'):
+            tags = operator._more_tags()
+            if tags.get('requires_y', False):
+                return True
+
+        # Fallback: check _tags attribute directly
+        if hasattr(operator, '_tags'):
+            tags = operator._tags
+            if isinstance(tags, dict) and tags.get('requires_y', False):
+                return True
+
+        return False
+
+    @staticmethod
     def _extract_wavelengths(
         dataset: 'SpectroDataset',
         source_index: int,
@@ -160,6 +184,10 @@ class TransformerMixinController(OperatorController):
         # Normal or feature augmentation execution (existing code)
         operator_name = op.__class__.__name__
 
+        # Generate operator name with parameters for preprocessing chain display
+        from nirs4all.utils.operator_formatting import format_operator_with_params
+        operator_name_with_params = format_operator_with_params(op)
+
         # Get all data (always needed for transform)
         # IMPORTANT: Include excluded samples to maintain consistent array shapes
         # when replacing features. Excluded samples are filtered at query time, not transform time.
@@ -201,6 +229,21 @@ class TransformerMixinController(OperatorController):
 
         # Check if operator needs wavelengths (once, outside source loop)
         needs_wavelengths = self._needs_wavelengths(op)
+
+        # Check if operator requires y (supervised transform like OSC, EPO)
+        requires_y = self._requires_y(op)
+        y_fit = None
+        if requires_y:
+            # Get target values for fitting
+            if fit_on_all:
+                y_fit = dataset.y(context.selector, include_excluded=False)
+            else:
+                train_context = context.with_partition("train")
+                y_fit = dataset.y(train_context.selector, include_excluded=False)
+            # Handle multi-target datasets: use first target column
+            if y_fit.ndim > 1:
+                y_fit = y_fit[:, 0]
+            y_fit = y_fit.ravel()
 
         # Loop through each data source
         for sd_idx, (fit_x, all_x) in enumerate(zip(fit_data, all_data)):
@@ -316,8 +359,12 @@ class TransformerMixinController(OperatorController):
                         transformer = cached_transformer
                     else:
                         transformer = clone(op)
-                        if needs_wavelengths:
+                        if needs_wavelengths and requires_y:
+                            transformer.fit(fit_2d, y_fit, wavelengths=wavelengths)
+                        elif needs_wavelengths:
                             transformer.fit(fit_2d, wavelengths=wavelengths)
+                        elif requires_y:
+                            transformer.fit(fit_2d, y_fit)
                         else:
                             transformer.fit(fit_2d)
 
@@ -339,7 +386,10 @@ class TransformerMixinController(OperatorController):
 
                 # Store results
                 source_transformed_features.append(transformed_2d)
-                new_processing_name = f"{processing_name}_{new_operator_name}"
+                # Use operator name with parameters for better readability
+                # Extract the operator counter from new_operator_name (e.g., "SNV_3" -> "3")
+                op_counter = new_operator_name.split('_')[-1]
+                new_processing_name = f"{processing_name}_{operator_name_with_params}_{op_counter}"
                 source_new_processing_names.append(new_processing_name)
                 source_processing_names.append(processing_name)
 
@@ -433,8 +483,12 @@ class TransformerMixinController(OperatorController):
         needs_wavelengths = self._needs_wavelengths(operator)
         wavelengths_cache = {}  # Cache wavelengths per source
 
+        # Check if operator requires y (supervised transform)
+        requires_y = self._requires_y(operator)
+
         # Get data for fitting (if not in predict/explain mode) - once for all samples
         fit_data = None
+        y_fit = None
         fitted_transformers_cache = {}  # Cache fitted transformers per source/processing
 
         if mode not in ["predict", "explain"]:
@@ -448,6 +502,14 @@ class TransformerMixinController(OperatorController):
             fit_data = dataset.x(fit_selector, "3d", concat_source=False)
             if not isinstance(fit_data, list):
                 fit_data = [fit_data]
+
+            # Get target values if required
+            if requires_y:
+                y_fit = dataset.y(fit_selector, include_excluded=False)
+                # Handle multi-target datasets: use first target column
+                if y_fit.ndim > 1:
+                    y_fit = y_fit[:, 0]
+                y_fit = y_fit.ravel()
 
         # Batch fetch all target samples at once
         batch_selector = {"sample": list(target_sample_ids)}
@@ -486,8 +548,12 @@ class TransformerMixinController(OperatorController):
                     cache_key = (source_idx, proc_idx)
                     transformer = clone(operator)
                     fit_proc_data = fit_data[source_idx][:, proc_idx, :]
-                    if needs_wavelengths:
+                    if needs_wavelengths and requires_y:
+                        transformer.fit(fit_proc_data, y_fit, wavelengths=wavelengths)
+                    elif needs_wavelengths:
                         transformer.fit(fit_proc_data, wavelengths=wavelengths)
+                    elif requires_y:
+                        transformer.fit(fit_proc_data, y_fit)
                     else:
                         transformer.fit(fit_proc_data)
                     fitted_transformers_cache[cache_key] = transformer
@@ -625,8 +691,12 @@ class TransformerMixinController(OperatorController):
         # Check if operator needs wavelengths
         needs_wavelengths = self._needs_wavelengths(operator)
 
+        # Check if operator requires y (supervised transform)
+        requires_y = self._requires_y(operator)
+
         # Get data for fitting (if not in predict/explain mode)
         fit_data = None
+        y_fit = None
         if mode not in ["predict", "explain"]:
             if fit_on_all:
                 # Fit on all data (unsupervised preprocessing)
@@ -638,6 +708,14 @@ class TransformerMixinController(OperatorController):
             fit_data = dataset.x(fit_selector, "3d", concat_source=False)
             if not isinstance(fit_data, list):
                 fit_data = [fit_data]
+
+            # Get target values if required
+            if requires_y:
+                y_fit = dataset.y(fit_selector, include_excluded=False)
+                # Handle multi-target datasets: use first target column
+                if y_fit.ndim > 1:
+                    y_fit = y_fit[:, 0]
+                y_fit = y_fit.ravel()
 
         # Process each target sample
         for sample_id in target_sample_ids:
@@ -698,8 +776,12 @@ class TransformerMixinController(OperatorController):
                         transformer = clone(operator)
                         if fit_data:
                             fit_proc_data = fit_data[source_idx][:, proc_idx, :]
-                            if needs_wavelengths:
+                            if needs_wavelengths and requires_y:
+                                transformer.fit(fit_proc_data, y_fit, wavelengths=wavelengths)
+                            elif needs_wavelengths:
                                 transformer.fit(fit_proc_data, wavelengths=wavelengths)
+                            elif requires_y:
+                                transformer.fit(fit_proc_data, y_fit)
                             else:
                                 transformer.fit(fit_proc_data)
                         fitted_transformers_cache[cache_key] = transformer

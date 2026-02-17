@@ -129,6 +129,7 @@ def _build_prediction_row(
     model_artifact_id: str | None = None,
     trace_id: str | None = None,
     refit_context: str | None = None,
+    target_processing: str = "",
 ) -> dict[str, Any]:
     """Normalise add_prediction kwargs into a flat dict with a generated id."""
     pred_id = str(uuid4())[:16]
@@ -170,6 +171,7 @@ def _build_prediction_row(
         "model_artifact_id": model_artifact_id or "",
         "trace_id": trace_id or "",
         "refit_context": refit_context,
+        "target_processing": target_processing or "",
         "created_at": datetime.now().isoformat(),
     }
 
@@ -285,6 +287,7 @@ class Predictions:
         model_artifact_id: str | None = None,
         trace_id: str | None = None,
         refit_context: str | None = None,
+        target_processing: str = "",
     ) -> str:
         """Add a single prediction to the in-memory buffer.
 
@@ -331,6 +334,7 @@ class Predictions:
             refit_context: Refit context label. ``None`` for CV entries,
                 ``"standalone"`` for standalone refit,
                 ``"stacking"`` for stacking-context refit.
+            target_processing: Target (y) processing chain name.
 
         Returns:
             Prediction ID (short UUID string).
@@ -372,6 +376,7 @@ class Predictions:
             model_artifact_id=model_artifact_id,
             trace_id=trace_id,
             refit_context=refit_context,
+            target_processing=target_processing,
         )
         self._buffer.append(row)
         return row["id"]
@@ -437,9 +442,9 @@ class Predictions:
                 model_class=row["model_classname"],
                 fold_id=str(fold_id),
                 partition=row["partition"],
-                val_score=row.get("val_score") or 0.0,
-                test_score=row.get("test_score") or 0.0,
-                train_score=row.get("train_score") or 0.0,
+                val_score=row.get("val_score"),
+                test_score=row.get("test_score"),
+                train_score=row.get("train_score"),
                 metric=row["metric"],
                 task_type=row["task_type"],
                 n_samples=row["n_samples"],
@@ -514,7 +519,7 @@ class Predictions:
                CV entries in ranking.  One of:
 
                - ``"final"``: Only refit entries (``fold_id="final"``),
-                 ranked by their originating CV score (``cv_rank_score``).
+                 ranked by their selection score (``selection_score``).
                - ``"cv"``: Only CV entries (exclude refit entries).
                - ``"mix"``: Refit entries ranked first, then CV entries
                  below.  Each group ranked independently.
@@ -577,33 +582,34 @@ class Predictions:
         # Normalise score_scope alias
         effective_scope = score_scope if score_scope != "auto" else "mix"
 
-        # Work from the in-memory buffer
-        candidates = [dict(r) for r in self._buffer]
+        # Filter the in-memory buffer first, then copy only matching entries.
+        # This avoids creating ~N shallow dict copies when only a fraction
+        # of the buffer matches the filters.
+        filter_items = list(filters.items())
+        candidates: list[dict[str, Any]] = []
+        for r in self._buffer:
+            fold_id_str = str(r.get("fold_id", ""))
+            is_final = fold_id_str == "final"
+            refit_context = r.get("refit_context")
 
-        # Tag each candidate with is_final before any filtering
-        for r in candidates:
-            r["is_final"] = str(r.get("fold_id", "")) == "final"
+            # Apply score_scope filtering
+            if effective_scope == "final" and not is_final:
+                continue
+            if effective_scope == "cv" and refit_context is not None:
+                continue
 
-        # Apply score_scope filtering
-        if effective_scope == "final":
-            candidates = [r for r in candidates if r["is_final"]]
-        elif effective_scope == "cv":
-            candidates = [r for r in candidates if r.get("refit_context") is None]
+            # Apply rank_partition filtering
+            if rank_partition and not is_final and r.get("partition") != rank_partition:
+                continue
 
-        # Filter by rank_partition if buffer has mixed partitions.
-        # Final entries have partition="test" and no val-partition data,
-        # so they bypass rank_partition filtering in all scope modes.
-        if rank_partition:
-            partition_candidates = [
-                r for r in candidates
-                if r["is_final"] or r.get("partition") == rank_partition
-            ]
-            if partition_candidates:
-                candidates = partition_candidates
+            # Apply custom filters
+            if filter_items and not all(r.get(k) == v for k, v in filter_items):
+                continue
 
-        # Apply filters
-        for key, value in filters.items():
-            candidates = [r for r in candidates if r.get(key) == value]
+            # Only copy entries that pass all filters
+            c = dict(r)
+            c["is_final"] = is_final
+            candidates.append(c)
 
         if not candidates:
             if return_grouped:
@@ -621,8 +627,8 @@ class Predictions:
         partition_key = f"{rank_partition}_score" if rank_partition in ("val", "test", "train") else "val_score"
         for r in candidates:
             if r["is_final"]:
-                # Final entries rank by their originating CV score
-                r["rank_score"] = r.get("cv_rank_score")
+                # Final entries rank by their selection score
+                r["rank_score"] = r.get("selection_score")
             else:
                 score = self._get_rank_score(r, effective_metric, rank_partition, partition_key, effective_by_repetition, effective_repetition_method, effective_repetition_exclude_outliers)
                 r["rank_score"] = score
@@ -909,8 +915,6 @@ class Predictions:
         Returns:
             List of matching prediction dicts.
         """
-        results = list(self._buffer)
-
         filter_map: dict[str, Any] = {}
         if dataset_name is not None:
             filter_map["dataset_name"] = dataset_name
@@ -931,11 +935,16 @@ class Predictions:
             filter_map["branch_name"] = branch_name
         filter_map.update(kwargs)
 
-        for key, value in filter_map.items():
-            results = [r for r in results if r.get(key) == value]
-
-        if not load_arrays:
-            results = [{k: v for k, v in r.items() if k not in ("y_true", "y_pred", "y_proba")} for r in results]
+        # Single-pass filter instead of sequential list comprehensions
+        filter_items = list(filter_map.items())
+        _ARRAY_KEYS = {"y_true", "y_pred", "y_proba"}
+        results: list[dict[str, Any]] = []
+        for row in self._buffer:
+            if all(row.get(k) == v for k, v in filter_items):
+                if not load_arrays:
+                    results.append({k: v for k, v in row.items() if k not in _ARRAY_KEYS})
+                else:
+                    results.append(row)
 
         return results
 
@@ -1042,25 +1051,38 @@ class Predictions:
     def get_entry_partitions(self, entry: dict[str, Any]) -> dict[str, dict[str, Any] | None]:
         """Get all partition data for an entry.
 
+        Finds train, val, and test partitions in a single pass over
+        the buffer instead of three separate ``filter_predictions`` calls.
+
         Args:
             entry: Prediction entry dict.
 
         Returns:
             Dict with ``train``, ``val``, ``test`` keys.
         """
-        res: dict[str, dict[str, Any] | None] = {}
-        filter_dict: dict[str, Any] = {
-            "dataset_name": entry["dataset_name"],
-            "config_name": entry.get("config_name", ""),
-            "model_name": entry["model_name"],
-            "fold_id": entry.get("fold_id", ""),
-            "step_idx": entry.get("step_idx", 0),
-        }
+        target_dataset = entry["dataset_name"]
+        target_config = entry.get("config_name", "")
+        target_model = entry["model_name"]
+        target_fold = entry.get("fold_id", "")
+        target_step = entry.get("step_idx", 0)
 
-        for partition in ("train", "val", "test"):
-            filter_dict["partition"] = partition
-            predictions = self.filter_predictions(**filter_dict, load_arrays=True)
-            res[partition] = predictions[0] if predictions else None
+        res: dict[str, dict[str, Any] | None] = {"train": None, "val": None, "test": None}
+        found = 0
+        for row in self._buffer:
+            part = row.get("partition")
+            if part not in res or res[part] is not None:
+                continue
+            if (
+                row.get("dataset_name") == target_dataset
+                and row.get("config_name", "") == target_config
+                and row.get("model_name") == target_model
+                and row.get("fold_id", "") == target_fold
+                and row.get("step_idx", 0) == target_step
+            ):
+                res[part] = row
+                found += 1
+                if found == 3:
+                    break
 
         return res
 
@@ -1271,6 +1293,8 @@ class Predictions:
             desc += f" - {metric_str} "
             if test_score is not None and val_score is not None:
                 desc += f"[test: {test_score:.4f}], [val: {val_score:.4f}]"
+            elif test_score is not None:
+                desc += f"[test: {test_score:.4f}]"
         if scores_str:
             desc += f", {scores_str}"
         desc += f", (fold: {fold_id}, id: {op_counter}, step: {step_idx}) - [{entry_id}]"

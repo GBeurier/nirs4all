@@ -397,7 +397,7 @@ def _get_branch_scores(
 ) -> dict[int, float]:
     """Get the average CV val_score for each branch.
 
-    Used to inject ``cv_rank_score`` into per-branch refit entries.
+    Used to inject ``selection_score`` into per-branch refit entries.
 
     Returns:
         Mapping from branch index to average val_score.
@@ -612,7 +612,8 @@ def execute_stacking_refit(
                         generator_choices=refit_config.generator_choices,
                         pipeline_id=refit_config.pipeline_id,
                         metric=refit_config.metric,
-                        best_score=refit_config.best_score,
+                        selection_score=refit_config.selection_score,
+                        config_name=refit_config.config_name,
                     )
 
                     nested_predictions = Predictions()
@@ -1179,7 +1180,7 @@ def execute_competing_branches_refit(
         if not (isinstance(s, dict) and "merge" in s)
     ]
 
-    # Get per-branch CV scores for cv_rank_score metadata
+    # Get per-branch CV scores for selection_score metadata
     branch_scores = _get_branch_scores(refit_config, runtime_context.store, branch_value)
 
     logger.info(
@@ -1200,7 +1201,7 @@ def execute_competing_branches_refit(
             continue
 
         flat_steps = pre_branch + branch_steps + post_branch
-        branch_score = branch_scores.get(branch_i, refit_config.best_score)
+        branch_score = branch_scores.get(branch_i, refit_config.selection_score)
 
         flat_config = RefitConfig(
             expanded_steps=flat_steps,
@@ -1209,7 +1210,8 @@ def execute_competing_branches_refit(
             generator_choices=refit_config.generator_choices,
             pipeline_id=refit_config.pipeline_id,
             metric=refit_config.metric,
-            best_score=branch_score,
+            selection_score=branch_score,
+            config_name=refit_config.config_name,
         )
 
         result = execute_simple_refit(
@@ -1369,7 +1371,8 @@ def _execute_per_model_competing_refit(
             generator_choices=refit_config.generator_choices,
             pipeline_id=refit_config.pipeline_id,
             metric=refit_config.metric,
-            best_score=cv_score if cv_score is not None else refit_config.best_score,
+            selection_score=cv_score if cv_score is not None else refit_config.selection_score,
+            config_name=refit_config.config_name,
         )
 
         logger.info(

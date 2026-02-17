@@ -122,7 +122,7 @@ class LazyModelRefitResult:
                 best_params=self.selection.best_params,
                 variant_index=self.selection.variant_index,
                 metric=self._refit_config.metric,
-                best_score=self.selection.best_score,
+                selection_score=self.selection.best_score,
             )
 
             # Create a fresh prediction store for capturing refit predictions
@@ -396,7 +396,7 @@ class RunResult:
         """Get the best refit entry across all models.
 
         Filters predictions to ``fold_id="final"`` entries and ranks them
-        by their originating CV score (``cv_rank_score``).
+        by their selection score (``selection_score``).
 
         Returns:
             Best refit prediction dict, or empty dict if no refit entries.

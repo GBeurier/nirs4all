@@ -50,7 +50,7 @@ def _make_refit_config(metric: str = "rmse") -> RefitConfig:
         best_params={},
         variant_index=0,
         metric=metric,
-        best_score=0.5,
+        selection_score=0.5,
     )
 
 

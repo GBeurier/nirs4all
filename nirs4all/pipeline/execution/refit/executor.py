@@ -135,7 +135,17 @@ def execute_simple_refit(
 
     # Create a fresh pipeline_uid for the refit pass so that the refit
     # predictions are distinguishable from Pass 1 predictions.
-    refit_pipeline_name = f"{runtime_context.pipeline_name or 'pipeline'}_refit"
+    # Use the original CV config_name from RefitConfig so that
+    # _resolve_cv_config_name can strip the _refit suffix and match
+    # the CV fold entries for report lookups.
+    cv_config_name = refit_config.config_name or runtime_context.pipeline_name or "pipeline"
+
+    # Add criterion information to the pipeline name for multi-criteria refit
+    if refit_config.selected_by_criteria:
+        criteria_suffix = "_".join(c.replace("(", "").replace(")", "").replace("top", "t") for c in refit_config.selected_by_criteria)
+        refit_pipeline_name = f"{cv_config_name}_refit_{criteria_suffix}"
+    else:
+        refit_pipeline_name = f"{cv_config_name}_refit"
 
     # Create a local Predictions to capture refit entries
     refit_predictions = Predictions()
@@ -370,6 +380,12 @@ def _relabel_refit_predictions(
             refit_metadata["generator_choices"] = refit_config.generator_choices
         if refit_config.best_params:
             refit_metadata["best_params"] = refit_config.best_params
+        # Record the selection criterion used
+        if refit_config.primary_selection_criterion:
+            refit_metadata["selection_criterion"] = refit_config.primary_selection_criterion
+        # Record all selection scores for multi-criteria refit
+        if refit_config.selection_scores:
+            refit_metadata["selection_scores"] = refit_config.selection_scores
 
     # Extract CV strategy info from original steps
     if original_steps is not None:
@@ -382,10 +398,13 @@ def _relabel_refit_predictions(
     for entry in predictions._buffer:
         entry["fold_id"] = "final"
         entry["refit_context"] = REFIT_CONTEXT_STANDALONE
+        # Refit has no validation set — clear the spurious 0.0 val_score
+        # produced by ScoreCalculator on empty partitions.
+        entry["val_score"] = None
         # Inject the CV selection score so final entries can be ranked
-        # in mix mode by their originating chain's avg folds val_score.
-        if refit_config is not None and refit_config.best_score:
-            entry["cv_rank_score"] = refit_config.best_score
+        # in mix mode by their originating chain's selection score.
+        if refit_config is not None and refit_config.selection_score:
+            entry["selection_score"] = refit_config.selection_score
         if refit_metadata:
             existing = entry.get("metadata") or {}
             existing.update(refit_metadata)

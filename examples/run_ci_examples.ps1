@@ -196,6 +196,8 @@ $UserExamples = @(
     "user/03_preprocessing/U02_feature_augmentation.py"
     "user/03_preprocessing/U03_sample_augmentation.py"
     "user/03_preprocessing/U04_signal_conversion.py"
+    "user/03_preprocessing/U05_orthogonalization.py"
+    "user/03_preprocessing/U06_wavelet_denoise.py"
     "user/04_models/U01_multi_model.py"
     "user/04_models/U02_hyperparameter_tuning.py"
     "user/04_models/U03_stacking_ensembles.py"
@@ -222,6 +224,8 @@ $DeveloperExamples = @(
     "developer/01_advanced_pipelines/D03_merge_basics.py"
     "developer/01_advanced_pipelines/D04_merge_sources.py"
     "developer/01_advanced_pipelines/D05_meta_stacking.py"
+    "developer/01_advanced_pipelines/D06_separation_branches.py"
+    "developer/01_advanced_pipelines/D07_value_mapping.py"
     "developer/02_generators/D01_generator_syntax.py"
     "developer/02_generators/D02_generator_advanced.py"
     "developer/02_generators/D03_generator_iterators.py"
@@ -231,11 +235,6 @@ $DeveloperExamples = @(
     "developer/02_generators/D07_synthetic_wavenumber_procedural.py"
     "developer/02_generators/D08_synthetic_application_domains.py"
     "developer/02_generators/D09_synthetic_instruments.py"
-    "developer/02_generators/D10_synthetic_custom_components.py"
-    "developer/02_generators/D11_synthetic_testing.py"
-    "developer/02_generators/D12_synthetic_environmental.py"
-    "developer/02_generators/D13_synthetic_validation.py"
-    "developer/02_generators/D14_synthetic_fitter.py"
     "developer/03_deep_learning/D01_pytorch_models.py"
     "developer/03_deep_learning/D02_jax_models.py"
     "developer/03_deep_learning/D03_tensorflow_models.py"
@@ -248,15 +247,18 @@ $DeveloperExamples = @(
     "developer/05_advanced_features/D03_repetition_transform.py"
     "developer/06_internals/D01_session_workflow.py"
     "developer/06_internals/D02_custom_controllers.py"
-    "developer/01_advanced_pipelines/D06_separation_branches.py"
-    "developer/01_advanced_pipelines/D07_value_mapping.py"
     "developer/06_internals/D03_cache_performance.py"
+    "developer/06_internals/D04_parallel_branches.py"
+    "developer/06_internals/D05_binary_search_sampler.py"
 )
 
 $ReferenceExamples = @(
     "reference/R01_pipeline_syntax.py"
     "reference/R02_generator_reference.py"
     "reference/R03_all_keywords.py"
+    "reference/R05_synthetic_environmental.py"
+    "reference/R06_synthetic_validation.py"
+    "reference/R07_synthetic_fitter.py"
 )
 
 $SelectedExamples = switch ($Category) {

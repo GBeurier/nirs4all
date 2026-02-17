@@ -207,9 +207,10 @@ def run(
     save_charts: bool = True,
     plots_visible: bool = False,
     random_state: Optional[int] = None,
-    refit: Union[bool, Dict[str, Any], None] = True,
+    refit: Union[bool, Dict[str, Any], List[Dict[str, Any]], None] = True,
     cache: Optional[Any] = None,
     project: Optional[str] = None,
+    report_naming: str = "nirs",
     # All other PipelineRunner options
     **runner_kwargs: Any
 ) -> RunResult:
@@ -260,11 +261,14 @@ def run(
             Default: None (no seeding)
 
         refit: Refit configuration. After cross-validation selects the
-            winning pipeline variant, retrain it on the full training
-            set to produce a single final model.
-            - ``True``: Enable refit (default).
+            winning pipeline variant(s), retrain on the full training set.
+            - ``True``: Refit top 1 by RMSECV (default).
             - ``False`` or ``None``: Disable refit.
-            - ``dict``: Refit options (reserved for future use).
+            - ``dict``: Single criterion, e.g. ``{"top_k": 3, "ranking": "mean_val"}``.
+            - ``list[dict]``: Multiple criteria for union selection, e.g.
+              ``[{"top_k": 3, "ranking": "rmsecv"}, {"top_k": 1, "ranking": "mean_val"}]``.
+            Ranking methods: ``"rmsecv"`` (OOF concatenated val score),
+            ``"mean_val"`` (mean of individual fold val scores).
 
         cache: Optional CacheConfig for step-level caching.
             - ``None``: Use default CacheConfig (step cache OFF, CoW snapshots ON).
@@ -272,6 +276,13 @@ def run(
 
         project: Optional project name to tag the run with.  If the project
             does not exist yet it will be created automatically.
+
+        report_naming: Naming convention for metrics in reports and summaries.
+            - ``"nirs"`` (default): Chemometrics terminology (RMSECV, RMSEP, etc.)
+            - ``"ml"``: Machine learning terminology (CV_Score, Test_Score, etc.)
+            - ``"auto"``: Auto-detect based on context (defaults to "nirs")
+            Affects column headers in final summary tables. Internal variable names
+            use ML conventions regardless of this setting.
 
         **runner_kwargs: Additional PipelineRunner parameters. See
             PipelineRunner.__init__ for full list. Common options:
@@ -391,6 +402,7 @@ def run(
             "save_artifacts": save_artifacts,
             "save_charts": save_charts,
             "plots_visible": plots_visible,
+            "report_naming": report_naming,
             **runner_kwargs
         }
         if random_state is not None:

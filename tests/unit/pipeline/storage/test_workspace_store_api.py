@@ -840,6 +840,7 @@ class TestMethodInventory:
         "top_predictions",
         # Queries -- Chain Summaries
         "update_chain_summary",
+        "bulk_update_chain_summaries",
         "query_chain_summaries",
         "query_top_chains",
         # Queries -- Logs
@@ -923,4 +924,4 @@ class TestMethodInventory:
 
     def test_total_method_count(self):
         """The expected method count matches the design doc."""
-        assert len(self.EXPECTED_METHODS) == 55
+        assert len(self.EXPECTED_METHODS) == 56
