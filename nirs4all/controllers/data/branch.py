@@ -256,6 +256,9 @@ class BranchController(OperatorController):
 
         n_branches = len(branch_defs)
 
+        # Extract parallel execution configuration
+        parallel_config = self._get_parallel_config(step_info)
+
         # V3: Start branch step recording in trace
         recorder = runtime_context.trace_recorder
         if recorder is not None:
@@ -304,145 +307,50 @@ class BranchController(OperatorController):
         branch_contexts: List[Dict[str, Any]] = []
         all_artifacts = []
 
-        # Execute each branch
-        for idx, branch_def in enumerate(branch_defs):
-            # Use original branch_id if we're in predict mode and have filtered
-            if target_branch_id is not None:
-                branch_id = target_branch_id
-            else:
-                branch_id = idx
+        # Determine if parallel execution should be used
+        use_parallel = self._should_use_parallel_execution(
+            parallel_config, branch_defs, mode, n_branches
+        )
 
-            branch_name = branch_def.get("name", f"branch_{branch_id}")
-            branch_steps = branch_def.get("steps", [])
+        logger.info(f"Parallel config: enabled={parallel_config['enabled']}, n_jobs={parallel_config['n_jobs']}, use_parallel={use_parallel}, n_branches={n_branches}, mode={mode}")
 
-            # Track prediction count before this branch variant for accumulator
-            n_pred_before = len(prediction_store._buffer) if prediction_store else 0
-
-            logger.info(f"  Branch {branch_id}: {branch_name}")
-
-            # V3: Enter branch context in trace recorder
-            if recorder is not None:
-                recorder.enter_branch(branch_id)
-                if initial_chain is not None:
-                    recorder.reset_chain_to(initial_chain)
-
-            # Create isolated context for this branch
-            branch_context = initial_context.copy()
-
-            # Build branch_path by appending to parent's branch_path
-            parent_branch_path = context.selector.branch_path or []
-            new_branch_path = parent_branch_path + [branch_id]
-
-            branch_context.selector = branch_context.selector.with_branch(
-                branch_id=branch_id,
-                branch_name=branch_name,
-                branch_path=new_branch_path
+        if use_parallel:
+            # Parallel execution
+            n_jobs = parallel_config["n_jobs"]
+            branch_contexts, all_artifacts = self._execute_branches_parallel(
+                branch_defs=branch_defs,
+                dataset=dataset,
+                initial_context=initial_context,
+                initial_processing=initial_processing,
+                initial_features_snapshot=initial_features_snapshot,
+                initial_chain=initial_chain,
+                context=context,
+                runtime_context=runtime_context,
+                loaded_binaries=loaded_binaries,
+                prediction_store=prediction_store,
+                recorder=recorder,
+                mode=mode,
+                use_cow=use_cow,
+                n_jobs=n_jobs,
             )
-
-            # Reset processing to initial state for this branch
-            branch_context.selector.processing = copy.deepcopy(initial_processing)
-
-            # Restore dataset features to initial state for this branch
-            self._restore_features(dataset, initial_features_snapshot, use_cow=use_cow)
-
-            # Reset artifact load counter for this branch
-            if runtime_context:
-                runtime_context.artifact_load_counter = {}
-
-            # In predict/explain mode, load branch-specific binaries
-            branch_binaries = loaded_binaries
-            if mode in ("predict", "explain") and runtime_context.artifact_loader:
-                branch_binaries = runtime_context.artifact_loader.get_step_binaries(
-                    runtime_context.step_number, branch_id=branch_id
-                )
-                if not branch_binaries:
-                    branch_binaries = loaded_binaries
-
-            try:
-                # Execute branch steps sequentially
-                for substep_idx, substep in enumerate(branch_steps):
-                    if runtime_context.step_runner:
-                        runtime_context.substep_number = substep_idx
-
-                        # Record substep in trace before execution
-                        if recorder is not None:
-                            op_type, op_class = self._extract_substep_info(substep)
-                            recorder.start_branch_substep(
-                                parent_step_index=runtime_context.step_number,
-                                branch_id=branch_id,
-                                operator_type=op_type,
-                                operator_class=op_class,
-                                substep_index=substep_idx,
-                                branch_name=branch_name,
-                            )
-
-                            self._record_dataset_shapes(
-                                dataset, branch_context, runtime_context, is_input=True
-                            )
-
-                        result = runtime_context.step_runner.execute(
-                            step=substep,
-                            dataset=dataset,
-                            context=branch_context,
-                            runtime_context=runtime_context,
-                            loaded_binaries=branch_binaries,
-                            prediction_store=prediction_store
-                        )
-
-                        if recorder is not None:
-                            self._record_dataset_shapes(
-                                dataset, result.updated_context, runtime_context, is_input=False
-                            )
-                            is_model = op_type in ("model", "meta_model")
-                            recorder.end_step(is_model=is_model)
-
-                        branch_context = result.updated_context
-                        all_artifacts.extend(result.artifacts)
-            except Exception as e:
-                if mode in ("predict", "explain"):
-                    raise
-                logger.warning(f"  Branch {branch_id} ({branch_name}) failed: {e}")
-                if recorder is not None:
-                    recorder.exit_branch()
-                continue
-
-            # V3: Snapshot the chain state BEFORE exiting branch context
-            branch_chain_snapshot = recorder.current_chain() if recorder else None
-
-            # V3: Exit branch context in trace recorder
-            if recorder is not None:
-                recorder.exit_branch()
-
-            # Snapshot features AFTER branch processing completes
-            branch_features_snapshot = self._snapshot_features(dataset, use_cow=use_cow)
-
-            # Store the final context for this branch
-            branch_contexts.append({
-                "branch_id": branch_id,
-                "name": branch_name,
-                "context": branch_context,
-                "generator_choice": branch_def.get("generator_choice"),
-                "features_snapshot": branch_features_snapshot,
-                "chain_snapshot": branch_chain_snapshot,
-                "branch_mode": "duplication",
-                "use_cow": use_cow,
-            })
-
-            logger.success(f"  Branch {branch_id} ({branch_name}) completed")
-
-            # Accumulate best preprocessing chain per model for refit
-            if (
-                runtime_context
-                and runtime_context.best_refit_chains is not None
-                and prediction_store
-                and mode == "train"
-            ):
-                self._update_best_refit_chains(
-                    runtime_context.best_refit_chains,
-                    prediction_store,
-                    n_pred_before,
-                    branch_steps,
-                )
+        else:
+            # Sequential execution (original behavior)
+            branch_contexts, all_artifacts = self._execute_branches_sequential(
+                branch_defs=branch_defs,
+                dataset=dataset,
+                initial_context=initial_context,
+                initial_processing=initial_processing,
+                initial_features_snapshot=initial_features_snapshot,
+                initial_chain=initial_chain,
+                context=context,
+                runtime_context=runtime_context,
+                loaded_binaries=loaded_binaries,
+                prediction_store=prediction_store,
+                recorder=recorder,
+                mode=mode,
+                use_cow=use_cow,
+                target_branch_id=target_branch_id,
+            )
 
         # V3: End branch step in trace
         if recorder is not None:
@@ -1253,10 +1161,15 @@ class BranchController(OperatorController):
             if any(k in raw_def for k in SEPARATION_KEYWORDS):
                 return []
 
+            # Reserved keys for branch configuration (not branch names)
+            reserved_keys = {"parallel", "n_jobs"}
+
             # Check if any value contains generator syntax
             expanded_branches = []
             for name, steps in raw_def.items():
                 if name.startswith("_"):  # Skip internal keys
+                    continue
+                if name in reserved_keys:  # Skip configuration keys
                     continue
                 if isinstance(steps, dict) and (is_generator_node(steps) or has_nested_generator_keywords(steps)):
                     expanded_steps = expand_spec(steps)
@@ -1272,6 +1185,7 @@ class BranchController(OperatorController):
                 ):
                     # Steps list contains generator nodes — expand them
                     expanded_list = self._expand_list_with_generators(steps)
+                    logger.info(f"Expanded branch '{name}' with generators into {len(expanded_list)} variants")
                     for i, exp_steps in enumerate(expanded_list):
                         branch_name = f"{name}_{i}" if len(expanded_list) > 1 else name
                         expanded_branches.append({
@@ -1284,6 +1198,7 @@ class BranchController(OperatorController):
                         "name": name,
                         "steps": steps if isinstance(steps, list) else [steps]
                     })
+            logger.info(f"Parsed {len(expanded_branches)} total branches from dict definition")
             return expanded_branches
 
         # Case 2: List format
@@ -1578,21 +1493,9 @@ class BranchController(OperatorController):
 
     def _get_step_names(self, steps: List[Any]) -> str:
         """Get human-readable names for a list of steps."""
-        if not steps:
-            return ""
-
-        names = []
-        for step in steps:
-            if hasattr(step, "__class__"):
-                names.append(step.__class__.__name__)
-            elif isinstance(step, dict):
-                keys = [k for k in step.keys() if not k.startswith("_")]
-                if keys:
-                    names.append(keys[0])
-            else:
-                names.append(str(step)[:20])
-
-        return ", ".join(names)
+        names = [self._get_single_step_name(s) for s in steps]
+        names = [n for n in names if n]
+        return " > ".join(names) if names else ""
 
     def _generate_step_name(self, step: Any, index: int) -> str:
         """Generate a human-readable name for a step or list of steps."""
@@ -1606,31 +1509,67 @@ class BranchController(OperatorController):
         return self._get_single_step_name(step) or f"branch_{index}"
 
     def _get_single_step_name(self, step: Any) -> Optional[str]:
-        """Extract a short name from a single step."""
+        """Extract a short name from a single step, including non-default parameters."""
         if step is None:
             return None
 
+        if isinstance(step, (int, float, bool)):
+            return str(step)
+
         if isinstance(step, str):
-            return step
+            return step.split(".")[-1] if "." in step else step
 
         if isinstance(step, dict):
+            # Handle explicit name (always takes priority)
             if "name" in step:
                 return step["name"]
+
+            # Handle serialized class with params
             if "class" in step:
                 class_name = step["class"]
+                # Extract short class name
                 if isinstance(class_name, str) and "." in class_name:
-                    return class_name.split(".")[-1]
-                return str(class_name).split(".")[-1].replace("'>", "")
+                    short_name = class_name.split(".")[-1]
+                else:
+                    short_name = str(class_name).split(".")[-1].replace("'>", "")
+
+                # Format parameters if present
+                params = step.get("params", {})
+                if params and isinstance(params, dict):
+                    # Filter out default/common parameters and format compactly
+                    param_strs = []
+                    for key, value in params.items():
+                        if key.startswith("_"):  # Skip private params
+                            continue
+                        # Format value compactly
+                        if isinstance(value, (int, float)):
+                            param_strs.append(f"{key}={value}")
+                        elif isinstance(value, bool):
+                            param_strs.append(f"{key}={value}")
+                        elif isinstance(value, str) and len(value) < 15:
+                            param_strs.append(f"{key}='{value}'")
+
+                    if param_strs:
+                        # Limit to 3 most important params
+                        return f"{short_name}({', '.join(param_strs[:3])})"
+
+                return short_name
+
+            # Handle wrapped model or preprocessing
             if "model" in step:
                 return self._get_single_step_name(step["model"])
             if "preprocessing" in step:
                 return self._get_single_step_name(step["preprocessing"])
+
+            # Fallback to first non-private key
             keys = [k for k in step.keys() if not k.startswith("_")]
             if keys:
                 return keys[0]
 
+        # For operator instances, use format_operator_with_params to show parameters
         if hasattr(step, "__class__"):
-            return step.__class__.__name__
+            from nirs4all.utils.operator_formatting import format_operator_with_params
+            return format_operator_with_params(step)
 
         return None
 
@@ -1855,3 +1794,555 @@ class BranchController(OperatorController):
             return operator.__name__
 
         return type(operator).__name__
+
+    # =========================================================================
+    # Parallel Execution Support
+    # =========================================================================
+
+    def _get_parallel_config(self, step_info: "ParsedStep") -> Dict[str, Any]:
+        """Extract parallel execution configuration from step.
+
+        Returns:
+            Dict with keys:
+            - enabled: bool - whether parallel execution is enabled
+            - n_jobs: int - number of parallel workers (1 = sequential, -1 = auto)
+        """
+        original_step = step_info.original_step
+
+        # Check for parallel config at top level (for backwards compatibility)
+        parallel_enabled = original_step.get("parallel", False)
+        n_jobs = original_step.get("n_jobs", None)
+
+        # If branch is a dict (named branches), check inside the branch dict
+        branch_def = original_step.get("branch", {})
+        if isinstance(branch_def, dict):
+            # Override with branch-level parallel config if present
+            parallel_enabled = branch_def.get("parallel", parallel_enabled)
+            n_jobs = branch_def.get("n_jobs", n_jobs)
+
+        # If n_jobs is explicitly set, use it
+        if n_jobs is not None:
+            return {"enabled": True, "n_jobs": int(n_jobs)}
+
+        # If parallel is True, use auto-detection
+        if parallel_enabled:
+            return {"enabled": True, "n_jobs": -1}
+
+        # Default: sequential execution
+        return {"enabled": False, "n_jobs": 1}
+
+    def _should_use_parallel_execution(
+        self,
+        parallel_config: Dict[str, Any],
+        branch_defs: List[Dict[str, Any]],
+        mode: str,
+        n_branches: int
+    ) -> bool:
+        """Determine if parallel execution should be used.
+
+        Checks:
+        1. Parallel execution is enabled in config
+        2. More than 1 branch to execute
+        3. Not in predict/explain mode (predict needs sequential for proper artifact loading)
+        4. No branches contain incompatible models (nested parallelization, GPU, etc.)
+
+        Returns:
+            True if parallel execution is safe and beneficial
+        """
+        if not parallel_config["enabled"]:
+            return False
+
+        if n_branches <= 1:
+            return False
+
+        # Predict/explain mode needs careful handling of artifact loading
+        # For now, disable parallel execution in these modes
+        if mode in ("predict", "explain"):
+            logger.debug("Parallel execution disabled: predict/explain mode")
+            return False
+
+        # Check each branch for incompatible models
+        for idx, branch_def in enumerate(branch_defs):
+            should_disable, reason = self._check_branch_parallelization_safety(
+                branch_def["steps"]
+            )
+            if should_disable:
+                logger.warning(
+                    f"Parallel execution disabled: Branch {idx} '{branch_def['name']}': {reason}"
+                )
+                return False
+
+        return True
+
+    def _check_branch_parallelization_safety(
+        self, branch_steps: List[Any]
+    ) -> Tuple[bool, Optional[str]]:
+        """Check if a branch contains models that conflict with parallel execution.
+
+        Returns:
+            (should_disable, reason) tuple
+            - should_disable: True if parallel execution should be disabled
+            - reason: Human-readable explanation
+        """
+        for step in branch_steps:
+            # Check dict-wrapped models
+            if isinstance(step, dict):
+                model = step.get("model")
+                if model is not None:
+                    should_disable, reason = self._check_model_parallelization_safety(model)
+                    if should_disable:
+                        return True, reason
+
+            # Check direct model instances
+            elif hasattr(step, 'fit') and hasattr(step, 'predict'):
+                should_disable, reason = self._check_model_parallelization_safety(step)
+                if should_disable:
+                    return True, reason
+
+        return False, None
+
+    def _check_model_parallelization_safety(
+        self, model: Any
+    ) -> Tuple[bool, Optional[str]]:
+        """Check if a model has internal parallelization or GPU usage.
+
+        Returns:
+            (should_disable, reason) tuple
+        """
+        model_class_name = model.__class__.__name__
+        model_module = model.__class__.__module__
+
+        # Check for n_jobs > 1 (sklearn models with internal parallelization)
+        if hasattr(model, 'n_jobs'):
+            n_jobs = getattr(model, 'n_jobs', 1)
+            if n_jobs is not None and n_jobs != 1:
+                return True, f"{model_class_name} uses n_jobs={n_jobs}"
+
+        # Check for neural network frameworks (often use GPU or threads)
+        neural_net_frameworks = ['torch', 'tensorflow', 'keras', 'jax', 'theano']
+        if any(framework in model_module for framework in neural_net_frameworks):
+            return True, f"Neural network model ({model_class_name})"
+
+        # Check for GPU-related attributes
+        gpu_indicators = ['device', 'gpu_id', 'cuda', 'gpu']
+        if any(hasattr(model, attr) for attr in gpu_indicators):
+            device = getattr(model, 'device', None)
+            if device is not None and 'cuda' in str(device).lower():
+                return True, f"{model_class_name} uses GPU (device={device})"
+
+        # Check for models with known parallelization issues
+        problematic_models = [
+            'TabPFNRegressor', 'TabPFNClassifier',  # Uses internal parallelization
+            'CatBoostRegressor', 'CatBoostClassifier',  # Thread pool
+            'LGBMRegressor', 'LGBMClassifier',  # OpenMP threads
+        ]
+        if model_class_name in problematic_models:
+            return True, f"{model_class_name} has internal parallelization"
+
+        return False, None
+
+    def _execute_branches_sequential(
+        self,
+        branch_defs: List[Dict[str, Any]],
+        dataset: "SpectroDataset",
+        initial_context: "ExecutionContext",
+        initial_processing: List[Any],
+        initial_features_snapshot: List[Any],
+        initial_chain: Any,
+        context: "ExecutionContext",
+        runtime_context: "RuntimeContext",
+        loaded_binaries: Optional[List[Tuple[str, Any]]],
+        prediction_store: Optional[Any],
+        recorder: Any,
+        mode: str,
+        use_cow: bool,
+        target_branch_id: Optional[int] = None,
+    ) -> Tuple[List[Dict[str, Any]], List[Any]]:
+        """Execute branches sequentially (original behavior).
+
+        This is the existing for-loop logic extracted into a method.
+        """
+        branch_contexts: List[Dict[str, Any]] = []
+        all_artifacts = []
+
+        # Execute each branch
+        for idx, branch_def in enumerate(branch_defs):
+            # Use original branch_id if we're in predict mode and have filtered
+            if target_branch_id is not None:
+                branch_id = target_branch_id
+            else:
+                branch_id = idx
+
+            branch_name = branch_def.get("name", f"branch_{branch_id}")
+            branch_steps = branch_def.get("steps", [])
+
+            # Track prediction count before this branch variant for accumulator
+            n_pred_before = len(prediction_store._buffer) if prediction_store is not None else 0
+
+            chain_str = self._get_step_names(branch_steps)
+            logger.info(f"  Branch {branch_id}/{len(branch_defs)}: {branch_name}: {chain_str or '[empty]'}")
+
+            # V3: Enter branch context in trace recorder
+            if recorder is not None:
+                recorder.enter_branch(branch_id)
+                if initial_chain is not None:
+                    recorder.reset_chain_to(initial_chain)
+
+            # Create isolated context for this branch
+            branch_context = initial_context.copy()
+
+            # Build branch_path by appending to parent's branch_path
+            parent_branch_path = context.selector.branch_path or []
+            new_branch_path = parent_branch_path + [branch_id]
+
+            branch_context.selector = branch_context.selector.with_branch(
+                branch_id=branch_id,
+                branch_name=branch_name,
+                branch_path=new_branch_path
+            )
+
+            # Reset processing to initial state for this branch
+            branch_context.selector.processing = copy.deepcopy(initial_processing)
+
+            # Restore dataset features to initial state for this branch
+            self._restore_features(dataset, initial_features_snapshot, use_cow=use_cow)
+
+            # Reset artifact load counter for this branch
+            if runtime_context:
+                runtime_context.artifact_load_counter = {}
+
+            # In predict/explain mode, load branch-specific binaries
+            branch_binaries = loaded_binaries
+            if mode in ("predict", "explain") and runtime_context.artifact_loader:
+                branch_binaries = runtime_context.artifact_loader.get_step_binaries(
+                    runtime_context.step_number, branch_id=branch_id
+                )
+                if not branch_binaries:
+                    branch_binaries = loaded_binaries
+
+            # Skip expensive shape recording when there are many branches
+            # (_record_dataset_shapes calls dataset.x() 4x per substep)
+            record_shapes = recorder is not None and len(branch_defs) <= 20
+
+            try:
+                # Execute branch steps sequentially
+                for substep_idx, substep in enumerate(branch_steps):
+                    if runtime_context.step_runner:
+                        runtime_context.substep_number = substep_idx
+
+                        # Record substep in trace before execution
+                        if recorder is not None:
+                            op_type, op_class = self._extract_substep_info(substep)
+                            recorder.start_branch_substep(
+                                parent_step_index=runtime_context.step_number,
+                                branch_id=branch_id,
+                                operator_type=op_type,
+                                operator_class=op_class,
+                                substep_index=substep_idx,
+                                branch_name=branch_name,
+                            )
+
+                            if record_shapes:
+                                self._record_dataset_shapes(
+                                    dataset, branch_context, runtime_context, is_input=True
+                                )
+
+                        result = runtime_context.step_runner.execute(
+                            step=substep,
+                            dataset=dataset,
+                            context=branch_context,
+                            runtime_context=runtime_context,
+                            loaded_binaries=branch_binaries,
+                            prediction_store=prediction_store
+                        )
+
+                        if recorder is not None:
+                            if record_shapes:
+                                self._record_dataset_shapes(
+                                    dataset, result.updated_context, runtime_context, is_input=False
+                                )
+                            is_model = op_type in ("model", "meta_model")
+                            recorder.end_step(is_model=is_model)
+
+                        branch_context = result.updated_context
+                        all_artifacts.extend(result.artifacts)
+            except Exception as e:
+                if mode in ("predict", "explain"):
+                    raise
+                logger.warning(f"  Branch {branch_id} ({branch_name}) failed: {e}")
+                if recorder is not None:
+                    recorder.exit_branch()
+                continue
+
+            # V3: Snapshot the chain state BEFORE exiting branch context
+            branch_chain_snapshot = recorder.current_chain() if recorder else None
+
+            # V3: Exit branch context in trace recorder
+            if recorder is not None:
+                recorder.exit_branch()
+
+            # Snapshot features AFTER branch processing completes
+            branch_features_snapshot = self._snapshot_features(dataset, use_cow=use_cow)
+
+            # Store the final context for this branch
+            branch_contexts.append({
+                "branch_id": branch_id,
+                "name": branch_name,
+                "context": branch_context,
+                "generator_choice": branch_def.get("generator_choice"),
+                "features_snapshot": branch_features_snapshot,
+                "chain_snapshot": branch_chain_snapshot,
+                "branch_mode": "duplication",
+                "use_cow": use_cow,
+            })
+
+            logger.success(f"  Branch {branch_id} ({branch_name}) completed")
+
+            # Accumulate best preprocessing chain per model for refit
+            if (
+                runtime_context
+                and runtime_context.best_refit_chains is not None
+                and prediction_store is not None  # FIX: Check 'is not None' instead of truthy test, because empty Predictions has __len__ -> bool=False
+                and mode == "train"
+            ):
+                self._update_best_refit_chains(
+                    runtime_context.best_refit_chains,
+                    prediction_store,
+                    n_pred_before,
+                    branch_steps,
+                )
+
+        return branch_contexts, all_artifacts
+
+    def _execute_branches_parallel(
+        self,
+        branch_defs: List[Dict[str, Any]],
+        dataset: "SpectroDataset",
+        initial_context: "ExecutionContext",
+        initial_processing: List[Any],
+        initial_features_snapshot: List[Any],
+        initial_chain: Any,
+        context: "ExecutionContext",
+        runtime_context: "RuntimeContext",
+        loaded_binaries: Optional[List[Tuple[str, Any]]],
+        prediction_store: Optional[Any],
+        recorder: Any,
+        mode: str,
+        use_cow: bool,
+        n_jobs: int,
+    ) -> Tuple[List[Dict[str, Any]], List[Any]]:
+        """Execute branches in parallel using joblib.
+
+        Uses chunk-based parallelism: creates only n_workers copies of the
+        dataset (not n_branches copies).  Each worker processes a chunk of
+        branches sequentially, using CoW snapshots for state isolation
+        within the chunk.  This avoids the massive overhead of deep-copying
+        the dataset per branch.
+
+        Args:
+            n_jobs: Number of parallel workers (-1 = auto-detect)
+        """
+        from joblib import Parallel, delayed
+        import multiprocessing
+
+        # Determine effective n_jobs
+        if n_jobs == -1:
+            n_jobs = min(len(branch_defs), multiprocessing.cpu_count())
+        n_jobs = min(n_jobs, len(branch_defs))
+
+        logger.info(f"Parallel execution: {len(branch_defs)} branches with {n_jobs} workers (chunk-based)")
+
+        # Split branches into n_jobs chunks
+        chunk_size = (len(branch_defs) + n_jobs - 1) // n_jobs
+        branch_chunks: List[List[Tuple[int, Dict[str, Any]]]] = []
+        for i in range(0, len(branch_defs), chunk_size):
+            chunk = [(idx, bdef) for idx, bdef in enumerate(branch_defs[i:i + chunk_size], start=i)]
+            branch_chunks.append(chunk)
+
+        logger.info(f"Split into {len(branch_chunks)} chunks (avg {chunk_size} branches/worker)")
+
+        parent_branch_path = context.selector.branch_path or []
+
+        def _execute_branch_chunk_worker(
+            chunk: List[Tuple[int, Dict[str, Any]]],
+            dataset_copy: "SpectroDataset",
+            initial_context_copy: "ExecutionContext",
+            initial_processing_copy: List[Any],
+            runtime_context_copy: "RuntimeContext",
+        ) -> List[Dict[str, Any]]:
+            """Execute a chunk of branches in a single worker thread.
+
+            Uses CoW snapshot/restore for efficient state isolation
+            between branches within the chunk.
+            """
+            import copy as copy_module
+            from nirs4all.data.predictions import Predictions
+
+            # Recreate step_runner in this worker (not picklable)
+            if runtime_context_copy and runtime_context_copy.step_runner is None:
+                from nirs4all.pipeline.steps.step_runner import StepRunner
+                runtime_context_copy.step_runner = StepRunner()
+
+            # Take initial snapshot of the worker's dataset copy for CoW restore
+            worker_initial_snapshot = self._snapshot_features(dataset_copy, use_cow=True)
+
+            results = []
+            for branch_id, branch_def in chunk:
+                branch_name = branch_def.get("name", f"branch_{branch_id}")
+                branch_steps = branch_def.get("steps", [])
+                local_predictions = Predictions()
+
+                try:
+                    # Restore dataset to initial state via CoW (lightweight)
+                    self._restore_features(dataset_copy, worker_initial_snapshot, use_cow=True)
+
+                    # Create isolated context for this branch
+                    branch_context = initial_context_copy.copy()
+                    new_branch_path = parent_branch_path + [branch_id]
+                    branch_context.selector = branch_context.selector.with_branch(
+                        branch_id=branch_id,
+                        branch_name=branch_name,
+                        branch_path=new_branch_path,
+                    )
+                    branch_context.selector.processing = copy_module.deepcopy(initial_processing_copy)
+
+                    if runtime_context_copy:
+                        runtime_context_copy.artifact_load_counter = {}
+
+                    # Execute branch steps
+                    for substep_idx, substep in enumerate(branch_steps):
+                        if runtime_context_copy and runtime_context_copy.step_runner:
+                            runtime_context_copy.substep_number = substep_idx
+                            step_result = runtime_context_copy.step_runner.execute(
+                                step=substep,
+                                dataset=dataset_copy,
+                                context=branch_context,
+                                runtime_context=runtime_context_copy,
+                                loaded_binaries=None,
+                                prediction_store=local_predictions,
+                            )
+                            branch_context = step_result.updated_context
+
+                    results.append({
+                        "success": True,
+                        "branch_id": branch_id,
+                        "branch_name": branch_name,
+                        "predictions": local_predictions._buffer,
+                        "context_selector": {
+                            "processing": branch_context.selector.processing,
+                            "branch_id": branch_context.selector.branch_id,
+                            "branch_name": branch_context.selector.branch_name,
+                            "branch_path": branch_context.selector.branch_path,
+                        },
+                        "generator_choice": branch_def.get("generator_choice"),
+                        "branch_steps": branch_steps,
+                    })
+
+                except Exception as e:
+                    import traceback
+                    logger.warning(f"  Branch {branch_id} ({branch_name}) failed: {e}")
+                    results.append({
+                        "success": False,
+                        "branch_id": branch_id,
+                        "branch_name": branch_name,
+                        "error": str(e),
+                        "traceback": traceback.format_exc(),
+                    })
+
+            # Release worker snapshot
+            self._release_snapshot(worker_initial_snapshot, use_cow=True)
+            return results
+
+        # Temporarily clear unpicklable objects from runtime_context for deep copy
+        original_attrs = {}
+        unpicklable_keys = ["store", "artifact_registry", "trace_recorder", "step_runner", "artifact_loader"]
+        if runtime_context:
+            for key in unpicklable_keys:
+                original_attrs[key] = getattr(runtime_context, key, None)
+                setattr(runtime_context, key, None)
+
+        # Create only n_workers copies (not n_branches copies)
+        worker_args = []
+        for chunk in branch_chunks:
+            dataset_copy = copy.deepcopy(dataset)
+            initial_context_copy = copy.deepcopy(initial_context)
+            initial_processing_copy = copy.deepcopy(initial_processing)
+            runtime_context_copy = copy.deepcopy(runtime_context)
+            if runtime_context_copy:
+                runtime_context_copy.store = None
+                runtime_context_copy.artifact_registry = None
+                runtime_context_copy.trace_recorder = None
+            worker_args.append((chunk, dataset_copy, initial_context_copy, initial_processing_copy, runtime_context_copy))
+
+        # Restore original runtime_context attributes
+        if runtime_context:
+            for key, val in original_attrs.items():
+                setattr(runtime_context, key, val)
+
+        logger.info(f"Created {len(worker_args)} worker copies (instead of {len(branch_defs)})")
+
+        # Execute chunks in parallel using threading backend
+        chunk_results = Parallel(n_jobs=n_jobs, backend='threading')(
+            delayed(_execute_branch_chunk_worker)(*args)
+            for args in worker_args
+        )
+
+        # Flatten chunk results and collect
+        branch_contexts = []
+        all_artifacts: List[Any] = []
+
+        for chunk_result_list in chunk_results:
+            for result in chunk_result_list:
+                if not result["success"]:
+                    logger.error(
+                        f"Branch {result['branch_id']} ({result['branch_name']}) failed:\n"
+                        f"{result['error']}\n{result.get('traceback', '')}"
+                    )
+                    continue
+
+                n_pred_before = len(prediction_store._buffer) if prediction_store is not None else 0
+
+                # Merge predictions into main store
+                if prediction_store is not None and result["predictions"]:
+                    prediction_store._buffer.extend(result["predictions"])
+
+                # Reconstruct branch context
+                branch_context_dict = {
+                    "branch_id": result["branch_id"],
+                    "name": result["branch_name"],
+                    "context": initial_context.copy(),
+                    "generator_choice": result.get("generator_choice"),
+                    "features_snapshot": None,
+                    "chain_snapshot": None,
+                    "branch_mode": "duplication",
+                    "use_cow": use_cow,
+                }
+                ctx_sel = result["context_selector"]
+                branch_context_dict["context"].selector.processing = ctx_sel["processing"]
+                branch_context_dict["context"].selector.branch_id = ctx_sel["branch_id"]
+                branch_context_dict["context"].selector.branch_name = ctx_sel["branch_name"]
+                branch_context_dict["context"].selector.branch_path = ctx_sel["branch_path"]
+                branch_contexts.append(branch_context_dict)
+
+                # Accumulate best preprocessing chain per model for refit
+                if (
+                    runtime_context
+                    and runtime_context.best_refit_chains is not None
+                    and prediction_store is not None
+                    and mode == "train"
+                    and result.get("branch_steps")
+                ):
+                    self._update_best_refit_chains(
+                        runtime_context.best_refit_chains,
+                        prediction_store,
+                        n_pred_before,
+                        result["branch_steps"],
+                    )
+
+        total_predictions = len(prediction_store._buffer) if prediction_store is not None else 0
+        logger.info(
+            f"Parallel branch execution complete: {len(branch_contexts)} branches processed, "
+            f"{total_predictions} total predictions in store"
+        )
+
+        return branch_contexts, all_artifacts

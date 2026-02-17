@@ -635,6 +635,9 @@ class SampleAugmentationController(OperatorController):
             transformer = transformers[trans_idx]
             scope = variation_scopes[trans_idx]
             operator_name = transformer.__class__.__name__
+            # Generate operator name with parameters for augmentation labels
+            from nirs4all.utils.operator_formatting import format_operator_with_params
+            operator_name_with_params = format_operator_with_params(transformer)
 
             # Get indices for this transformer's samples
             local_indices = [sample_id_to_idx[sid] for sid in sample_ids]
@@ -669,7 +672,7 @@ class SampleAugmentationController(OperatorController):
                     batch_data = transformed_per_source
 
                 indexes_list = [
-                    {"partition": "train", "origin": sid, "augmentation": operator_name}
+                    {"partition": "train", "origin": sid, "augmentation": operator_name_with_params}
                     for sid in sample_ids
                 ]
                 return batch_data, indexes_list
@@ -722,7 +725,7 @@ class SampleAugmentationController(OperatorController):
                     batch_data = transformed_per_source
 
                 indexes_list = [
-                    {"partition": "train", "origin": sid, "augmentation": operator_name}
+                    {"partition": "train", "origin": sid, "augmentation": operator_name_with_params}
                     for sid in sample_ids
                 ]
                 return batch_data, indexes_list

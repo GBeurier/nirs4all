@@ -15,6 +15,15 @@ from .sklearn import PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS, SIMPLS
 from .sklearn.nlpls import KernelPLS, NLPLS, KPLS
 from .sklearn.oklmpls import OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
 from .sklearn.fckpls import FCKPLS, FractionalPLS, FractionalConvFeaturizer
+from .sklearn.aom_pls import (
+    AOMPLSRegressor,
+    LinearOperator,
+    IdentityOperator,
+    SavitzkyGolayOperator,
+    DetrendProjectionOperator,
+    ComposedOperator,
+    default_operator_bank,
+)
 
 # TensorFlow models are loaded lazily to avoid importing TensorFlow at startup
 # Use: from nirs4all.operators.models.tensorflow import nicon, generic
@@ -86,6 +95,14 @@ __all__ = [
     "FCKPLS",
     "FractionalPLS",
     "FractionalConvFeaturizer",
+    # AOM-PLS
+    "AOMPLSRegressor",
+    "LinearOperator",
+    "IdentityOperator",
+    "SavitzkyGolayOperator",
+    "DetrendProjectionOperator",
+    "ComposedOperator",
+    "default_operator_bank",
     # Meta-model stacking
     "MetaModel",
     "StackingConfig",

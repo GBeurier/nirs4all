@@ -2,17 +2,16 @@
 
 > [MB-PLS] en multi-source, en multi pp, etc.
 > [Branching] Preprocessing to source ou preprocessings to branch cf. MB-PLS
-> [Predictions] Simplify save
+
+> [Predictions] Simplify and verify save
 
 > [Loader] read scientific expr in csv
+
 
 **RELEASE** (webapp 0.1.0) - 0.8.0 UI compliant
 
 > [Design] Define all services
 > [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
-
-> [Parralellization] make a study on that
-
 
 ## FEATURES
 > [Docs] Updated

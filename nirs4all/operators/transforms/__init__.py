@@ -72,6 +72,7 @@ from .nirs import (
     AreaNormalization,
     ExtendedMultiplicativeScatterCorrection,
 )
+from .wavelet_denoise import WaveletDenoise, wavelet_denoise
 
 # Import scalers (including local aliases such as IdentityTransformer and
 # RobustNormalVariate which are defined in the scalers module)
@@ -99,6 +100,7 @@ from .signal_conversion import (
 from .features import CropTransformer, ResampleTransformer, FlattenPreprocessing
 from .resampler import Resampler
 from .feature_selection import CARS, MCUVE, FlexiblePCA, FlexibleSVD
+from .orthogonalization import OSC, EPO
 from .presets import (
     id_preprocessing,
     savgol_only,
@@ -165,6 +167,8 @@ __all__ = [
     "Haar",
     "MultiplicativeScatterCorrection",
     "Wavelet",
+    "WaveletDenoise",
+    "wavelet_denoise",
     "WaveletFeatures",
     "WaveletPCA",
     "WaveletSVD",
@@ -235,6 +239,10 @@ __all__ = [
     # Dimensionality reduction
     "FlexiblePCA",
     "FlexibleSVD",
+
+    # Orthogonalization
+    "OSC",
+    "EPO",
 
     # Targets / discretizers
     "IntegerKBinsDiscretizer",

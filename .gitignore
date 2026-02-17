@@ -89,3 +89,5 @@ bench/tabpfn_paper/reports/
 bench/tabpfn_paper/studies/
 bench/tabpfn_paper/workspace/
 bench/tabpfn_paper/cards/
+workspace_test_variant_parallel/
+examples/*.png

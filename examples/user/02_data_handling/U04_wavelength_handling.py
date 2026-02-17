@@ -88,26 +88,21 @@ print("\n" + "-" * 60)
 print("Example 1: Resample to Match Reference Dataset")
 print("-" * 60)
 
-pipeline_match = [
-    # Show original spectra
-    "chart_2d",
+# Load source dataset to demonstrate resampling
+src_config = DatasetConfigs("sample_data/regression_3")
+src_dataset = list(src_config.iter_datasets())[0]
+src_wavelengths = src_dataset.float_headers(0)
 
-    # Resample to match reference wavelengths
-    Resampler(target_wavelengths=target_wavelengths, method='linear'),
+src_X = src_dataset.x({"partition": "train"})
 
-    # Show resampled spectra
-    "chart_2d",
-]
+print(f"   Source: {len(src_wavelengths)} points ({src_wavelengths[0]:.1f} to {src_wavelengths[-1]:.1f})")
 
-result1 = nirs4all.run(
-    pipeline=pipeline_match,
-    dataset="sample_data/regression_3",
-    name="ResampleMatch",
-    verbose=1,
-    plots_visible=args.plots
-)
+# Apply resampler directly to see the effect
+resampler = Resampler(target_wavelengths=target_wavelengths, method='linear')
+X_resampled = resampler.fit_transform(src_X, wavelengths=src_wavelengths)
 
-print(f"   ✓ Resampled spectra to match reference: {len(target_wavelengths)} points")
+print(f"   Target: {len(target_wavelengths)} points ({target_wavelengths[0]:.1f} to {target_wavelengths[-1]:.1f})")
+print(f"   ✓ Resampled {X_resampled.shape[0]} spectra: {src_X.shape[1]} → {X_resampled.shape[1]} features")
 
 
 # =============================================================================
@@ -121,21 +116,10 @@ print("-" * 60)
 # Note: Keep order consistent (descending if original is descending)
 target_wl_downsample = np.linspace(11012, 5966, 10)  # Descending
 
-pipeline_downsample = [
-    "chart_2d",
-    Resampler(target_wavelengths=target_wl_downsample, method='linear'),
-    "chart_2d",
-]
+resampler_down = Resampler(target_wavelengths=target_wl_downsample, method='linear')
+X_down = resampler_down.fit_transform(src_X, wavelengths=src_wavelengths)
 
-result2 = nirs4all.run(
-    pipeline=pipeline_downsample,
-    dataset="sample_data/regression_3",
-    name="Downsample",
-    verbose=1,
-    plots_visible=args.plots
-)
-
-print(f"   ✓ Downsampled from original to 10 points")
+print(f"   ✓ Downsampled from {src_X.shape[1]} to {X_down.shape[1]} points")
 print(f"   Wavelengths: {target_wl_downsample}")
 
 
@@ -149,21 +133,10 @@ print("-" * 60)
 # Focus on a specific region with higher resolution
 target_wl_region = np.linspace(9500, 7000, 50)  # 50 points in fingerprint region
 
-pipeline_region = [
-    "chart_2d",
-    Resampler(target_wavelengths=target_wl_region, method='linear'),
-    "chart_2d",
-]
+resampler_region = Resampler(target_wavelengths=target_wl_region, method='linear')
+X_region = resampler_region.fit_transform(src_X, wavelengths=src_wavelengths)
 
-result3 = nirs4all.run(
-    pipeline=pipeline_region,
-    dataset="sample_data/regression_3",
-    name="FingerprintRegion",
-    verbose=1,
-    plots_visible=args.plots
-)
-
-print(f"   ✓ Focused on region: 9500-7000 cm⁻¹ with 50 points")
+print(f"   ✓ Focused on region: 9500-7000 cm⁻¹ with {X_region.shape[1]} points")
 
 
 # =============================================================================

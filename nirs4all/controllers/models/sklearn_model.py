@@ -273,7 +273,19 @@ class SklearnModelController(BaseModelController):
             y_fit = y_train.ravel()  # Single output: flatten to 1D
         else:
             y_fit = y_train  # Multi-output: keep as 2D
-        trained_model.fit(X_train, y_fit)
+
+        try:
+            trained_model.fit(X_train, y_fit)
+        except ValueError as e:
+            # Catch and annotate invalid hyperparameter errors for better diagnostics
+            error_msg = str(e)
+            if 'n_components' in error_msg or 'upper bound' in error_msg:
+                # Add context and re-raise (will be caught by orchestrator)
+                raise ValueError(
+                    f"Invalid hyperparameters for {trained_model.__class__.__name__} with current dataset: {error_msg}"
+                ) from e
+            else:
+                raise
 
         # Reset GPU memory AFTER training as well to free model's training buffers
         if reset_gpu:

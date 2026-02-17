@@ -20,6 +20,15 @@ from .simpls import SIMPLS
 from .nlpls import KernelPLS, NLPLS, KPLS
 from .oklmpls import OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
 from .fckpls import FCKPLS, FractionalPLS, FractionalConvFeaturizer
+from .aom_pls import (
+    AOMPLSRegressor,
+    LinearOperator,
+    IdentityOperator,
+    SavitzkyGolayOperator,
+    DetrendProjectionOperator,
+    ComposedOperator,
+    default_operator_bank,
+)
 
 
 __all__ = [
@@ -46,4 +55,11 @@ __all__ = [
     "FCKPLS",
     "FractionalPLS",
     "FractionalConvFeaturizer",
+    "AOMPLSRegressor",
+    "LinearOperator",
+    "IdentityOperator",
+    "SavitzkyGolayOperator",
+    "DetrendProjectionOperator",
+    "ComposedOperator",
+    "default_operator_bank",
 ]

@@ -25,7 +25,9 @@ import hashlib
 import inspect
 import io
 import json
+import logging
 import threading
+import time
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +38,8 @@ import duckdb
 import numpy as np
 import polars as pl
 import yaml
+
+logger = logging.getLogger(__name__)
 
 from nirs4all.pipeline.storage.store_queries import (
     CASCADE_DELETE_PIPELINE_CHAINS,
@@ -101,6 +105,48 @@ from nirs4all.pipeline.storage.store_queries import (
     build_top_predictions_query,
 )
 from nirs4all.pipeline.storage.store_schema import create_schema
+
+_MAX_RETRIES = 5
+_BASE_DELAY = 0.1
+
+
+def _retry_on_lock(func):
+    """Decorator that retries the wrapped method on DuckDB lock errors.
+
+    DuckDB uses process-level file locks that can conflict when another
+    process holds the WAL lock (e.g. a lingering child process from
+    parallel execution).  Retries with exponential backoff, then enters
+    degraded mode to skip all future writes instantly.
+
+    The first argument (``self``) must be a :class:`WorkspaceStore`.
+    """
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        if self._degraded:
+            return None
+        last_error: Exception | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                return func(self, *args, **kwargs)
+            except duckdb.TransactionException as e:
+                last_error = e
+                if attempt < _MAX_RETRIES:
+                    delay = _BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        "DuckDB lock conflict in %s (attempt %d/%d), retrying in %.1fs: %s",
+                        func.__name__, attempt + 1, _MAX_RETRIES, delay, e,
+                    )
+                    time.sleep(delay)
+        self._degraded = True
+        logger.warning(
+            "DuckDB store entering degraded mode after persistent lock failure in %s. "
+            "All subsequent store writes will be skipped. Predictions are still tracked in-memory.",
+            func.__name__,
+        )
+        raise last_error  # type: ignore[misc]
+    return wrapper
 
 
 def _to_json(obj: Any) -> str | None:
@@ -206,6 +252,7 @@ class WorkspaceStore:
         self._workspace_path = Path(workspace_path)
         self._workspace_path.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._degraded = False  # Set to True on persistent DuckDB lock failure
 
         db_path = self._workspace_path / "store.duckdb"
         self._conn: duckdb.DuckDBPyConnection | None = duckdb.connect(str(db_path))
@@ -225,6 +272,11 @@ class WorkspaceStore:
         """Root directory of the workspace."""
         return self._workspace_path
 
+    @property
+    def degraded(self) -> bool:
+        """Whether the store is in degraded mode (writes skipped)."""
+        return self._degraded
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -234,6 +286,63 @@ class WorkspaceStore:
         if self._conn is None:
             raise RuntimeError("WorkspaceStore is closed")
         return self._conn
+
+    def _execute_with_retry(
+        self,
+        sql: str,
+        params: list[object] | None = None,
+        *,
+        max_retries: int = _MAX_RETRIES,
+        base_delay: float = _BASE_DELAY,
+    ) -> None:
+        """Execute a write statement with retry on transient DuckDB lock errors.
+
+        If all retries fail, the store enters degraded mode so that
+        subsequent writes are skipped instantly.
+
+        Args:
+            sql: SQL statement to execute.
+            params: Query parameters.
+            max_retries: Maximum number of retry attempts.
+            base_delay: Initial delay in seconds (doubles each retry).
+        """
+        if self._degraded:
+            return
+        with self._lock:
+            conn = self._ensure_open()
+            last_error: Exception | None = None
+            for attempt in range(max_retries + 1):
+                try:
+                    conn.execute(sql, params or [])
+                    return
+                except duckdb.TransactionException as e:
+                    last_error = e
+                    if attempt < max_retries:
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(
+                            "DuckDB lock conflict (attempt %d/%d), retrying in %.1fs: %s",
+                            attempt + 1, max_retries, delay, e,
+                        )
+                        time.sleep(delay)
+            self._degraded = True
+            logger.warning(
+                "DuckDB store entering degraded mode after persistent lock failure. "
+                "All subsequent store writes will be skipped. Predictions are still tracked in-memory.",
+            )
+            raise last_error  # type: ignore[misc]
+
+    def _safe_execute(self, sql: str, params: list[object] | None = None) -> None:
+        """Execute a write statement, suppressing DuckDB lock errors after retries.
+
+        Used for non-critical operations (logging, error recording) that
+        must never crash the pipeline.
+        """
+        if self._degraded:
+            return
+        try:
+            self._execute_with_retry(sql, params)
+        except duckdb.TransactionException:
+            pass  # _execute_with_retry already logged and set degraded mode
 
     def _fetch_one(self, sql: str, params: list[object] | None = None) -> dict | None:
         """Execute *sql* and return the first row as a dict, or ``None``."""
@@ -301,11 +410,9 @@ class WorkspaceStore:
         Returns:
             A unique run identifier (UUID-based string).
         """
-        with self._lock:
-            conn = self._ensure_open()
-            run_id = str(uuid4())
-            conn.execute(INSERT_RUN, [run_id, name, _to_json(config), _to_json(datasets)])
-            return run_id
+        run_id = str(uuid4())
+        self._execute_with_retry(INSERT_RUN, [run_id, name, _to_json(config), _to_json(datasets)])
+        return run_id
 
     def complete_run(self, run_id: str, summary: dict) -> None:
         """Mark a run as successfully completed.
@@ -318,9 +425,7 @@ class WorkspaceStore:
             summary: Free-form summary dictionary persisted alongside the
                 run record.
         """
-        with self._lock:
-            conn = self._ensure_open()
-            conn.execute(COMPLETE_RUN, [run_id, _to_json(summary)])
+        self._execute_with_retry(COMPLETE_RUN, [run_id, _to_json(summary)])
 
     def fail_run(self, run_id: str, error: str) -> None:
         """Mark a run as failed.
@@ -329,13 +434,14 @@ class WorkspaceStore:
         message.  Any pipelines still in ``"running"`` status under this
         run should be considered implicitly failed.
 
+        Uses :meth:`_safe_execute` so that a DuckDB lock conflict in the
+        error-handling path never masks the original pipeline error.
+
         Args:
             run_id: Identifier returned by :meth:`begin_run`.
             error: Human-readable error description or traceback excerpt.
         """
-        with self._lock:
-            conn = self._ensure_open()
-            conn.execute(FAIL_RUN, [run_id, error])
+        self._safe_execute(FAIL_RUN, [run_id, error])
 
     # =====================================================================
     # Pipeline lifecycle
@@ -372,15 +478,13 @@ class WorkspaceStore:
         Returns:
             A unique pipeline identifier (UUID-based string).
         """
-        with self._lock:
-            conn = self._ensure_open()
-            pipeline_id = str(uuid4())
-            conn.execute(INSERT_PIPELINE, [
-                pipeline_id, run_id, name,
-                _to_json(expanded_config), _to_json(generator_choices),
-                dataset_name, dataset_hash,
-            ])
-            return pipeline_id
+        pipeline_id = str(uuid4())
+        self._execute_with_retry(INSERT_PIPELINE, [
+            pipeline_id, run_id, name,
+            _to_json(expanded_config), _to_json(generator_choices),
+            dataset_name, dataset_hash,
+        ])
+        return pipeline_id
 
     def complete_pipeline(
         self,
@@ -400,9 +504,7 @@ class WorkspaceStore:
             metric: Name of the metric used for ranking (e.g. ``"rmse"``).
             duration_ms: Total execution time in milliseconds.
         """
-        with self._lock:
-            conn = self._ensure_open()
-            conn.execute(COMPLETE_PIPELINE, [pipeline_id, best_val, best_test, metric, duration_ms])
+        self._execute_with_retry(COMPLETE_PIPELINE, [pipeline_id, best_val, best_test, metric, duration_ms])
 
     def fail_pipeline(self, pipeline_id: str, error: str) -> None:
         """Mark a pipeline execution as failed and roll back its data.
@@ -411,15 +513,22 @@ class WorkspaceStore:
         removed.  Artifacts whose reference count drops to zero become
         candidates for garbage collection.
 
+        Uses :meth:`_safe_execute` so that a DuckDB lock conflict in the
+        error-handling path never masks the original pipeline error.
+
         Args:
             pipeline_id: Identifier returned by :meth:`begin_pipeline`.
             error: Human-readable error description.
         """
-        with self._lock:
-            conn = self._ensure_open()
-            # Decrement artifact ref counts for chains being deleted
-            self._decrement_artifact_refs_for_pipeline(pipeline_id)
-            conn.execute(FAIL_PIPELINE, [pipeline_id, error])
+        if self._degraded:
+            return
+        try:
+            with self._lock:
+                self._ensure_open()
+                self._decrement_artifact_refs_for_pipeline(pipeline_id)
+        except Exception:
+            logger.warning("Could not decrement artifact refs for pipeline %s", pipeline_id)
+        self._safe_execute(FAIL_PIPELINE, [pipeline_id, error])
 
     # =====================================================================
     # Chain management
@@ -495,13 +604,13 @@ class WorkspaceStore:
                 ).fetchone()
                 if row is not None:
                     dataset_name = row[0]
-            conn.execute(INSERT_CHAIN, [
-                chain_id, pipeline_id, _to_json(steps), model_step_idx,
-                model_class, preprocessings, fold_strategy,
-                _to_json(fold_artifacts), _to_json(shared_artifacts),
-                _to_json(branch_path), source_index, dataset_name,
-            ])
-            return chain_id
+        self._execute_with_retry(INSERT_CHAIN, [
+            chain_id, pipeline_id, _to_json(steps), model_step_idx,
+            model_class, preprocessings, fold_strategy,
+            _to_json(fold_artifacts), _to_json(shared_artifacts),
+            _to_json(branch_path), source_index, dataset_name,
+        ])
+        return chain_id
 
     def get_chain(self, chain_id: str) -> dict | None:
         """Retrieve a chain by its identifier.
@@ -529,6 +638,7 @@ class WorkspaceStore:
         """
         return self._fetch_pl(GET_CHAINS_FOR_PIPELINE, [pipeline_id])
 
+    @_retry_on_lock
     def update_chain_summary(self, chain_id: str) -> None:
         """Recompute and store CV/final summary on the chain record.
 
@@ -646,10 +756,149 @@ class WorkspaceStore:
                 final_scores_json,
             ])
 
+    @_retry_on_lock
+    def bulk_update_chain_summaries(self, chain_ids: list[str]) -> None:
+        """Recompute CV/final summary for multiple chains in bulk SQL.
+
+        Uses set-based aggregation instead of per-chain queries,
+        reducing DuckDB round-trips from ``4 × N`` to ``4`` total.
+
+        Args:
+            chain_ids: List of chain identifiers to update.
+        """
+        if not chain_ids:
+            return
+
+        with self._lock:
+            conn = self._ensure_open()
+
+            # Create a temp table with the chain IDs to update
+            conn.execute("CREATE TEMP TABLE IF NOT EXISTS _bulk_chain_ids (chain_id VARCHAR)")
+            conn.execute("DELETE FROM _bulk_chain_ids")
+            conn.executemany(
+                "INSERT INTO _bulk_chain_ids VALUES ($1)",
+                [(cid,) for cid in chain_ids],
+            )
+
+            # --- Bulk CV averages ---
+            conn.execute("""
+                UPDATE chains SET
+                    model_name = COALESCE(chains.model_name, sub.model_name),
+                    metric = COALESCE(chains.metric, sub.metric),
+                    task_type = COALESCE(chains.task_type, sub.task_type),
+                    best_params = COALESCE(chains.best_params, sub.best_params),
+                    cv_val_score = sub.avg_val,
+                    cv_test_score = sub.avg_test,
+                    cv_train_score = sub.avg_train,
+                    cv_fold_count = sub.fold_count
+                FROM (
+                    SELECT chain_id,
+                        FIRST(model_name) AS model_name,
+                        FIRST(metric) AS metric,
+                        FIRST(task_type) AS task_type,
+                        FIRST(best_params) AS best_params,
+                        AVG(val_score) AS avg_val,
+                        AVG(test_score) AS avg_test,
+                        AVG(train_score) AS avg_train,
+                        COUNT(DISTINCT fold_id) AS fold_count
+                    FROM predictions
+                    WHERE refit_context IS NULL
+                      AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)
+                    GROUP BY chain_id
+                ) sub
+                WHERE chains.chain_id = sub.chain_id
+            """)
+
+            # --- Fallback: get model_name etc. from any prediction for
+            #     chains that had no CV predictions ---
+            conn.execute("""
+                UPDATE chains SET
+                    model_name = COALESCE(chains.model_name, sub.model_name),
+                    metric = COALESCE(chains.metric, sub.metric),
+                    task_type = COALESCE(chains.task_type, sub.task_type),
+                    best_params = COALESCE(chains.best_params, sub.best_params)
+                FROM (
+                    SELECT chain_id,
+                        FIRST(model_name) AS model_name,
+                        FIRST(metric) AS metric,
+                        FIRST(task_type) AS task_type,
+                        FIRST(best_params) AS best_params
+                    FROM predictions
+                    WHERE chain_id IN (
+                        SELECT chain_id FROM _bulk_chain_ids
+                        WHERE chain_id NOT IN (
+                            SELECT chain_id FROM predictions
+                            WHERE refit_context IS NULL AND chain_id IS NOT NULL
+                            GROUP BY chain_id
+                        )
+                    )
+                    GROUP BY chain_id
+                ) sub
+                WHERE chains.chain_id = sub.chain_id
+            """)
+
+            # --- Bulk final/refit scores ---
+            conn.execute("""
+                UPDATE chains SET
+                    final_test_score = sub.test_score,
+                    final_train_score = sub.train_score,
+                    final_scores = sub.scores
+                FROM (
+                    SELECT chain_id, test_score, train_score, scores
+                    FROM predictions
+                    WHERE refit_context IS NOT NULL AND fold_id = 'final'
+                      AND partition = 'test'
+                      AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)
+                ) sub
+                WHERE chains.chain_id = sub.chain_id
+            """)
+
+            # --- Bulk cv_scores (averaged multi-metric JSON) ---
+            # DuckDB JSON aggregation is limited, so we use a single
+            # query to fetch all rows and compute in Python once.
+            import json as _json
+
+            rows = conn.execute(
+                "SELECT chain_id, partition, scores FROM predictions "
+                "WHERE refit_context IS NULL "
+                "AND partition IN ('val', 'test') "
+                "AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)",
+            ).fetchall()
+
+            if rows:
+                per_chain: dict[str, dict[str, dict[str, list[float]]]] = {}
+                for chain_id, partition, scores_raw in rows:
+                    if not scores_raw:
+                        continue
+                    scores = _json.loads(scores_raw) if isinstance(scores_raw, str) else scores_raw
+                    if not isinstance(scores, dict):
+                        continue
+                    inner = scores.get(partition, scores)
+                    if not isinstance(inner, dict):
+                        continue
+                    chain_data = per_chain.setdefault(chain_id, {})
+                    part_data = chain_data.setdefault(partition, {})
+                    for metric_name, val in inner.items():
+                        if isinstance(val, (int, float)):
+                            part_data.setdefault(metric_name, []).append(float(val))
+
+                for chain_id, partition_scores in per_chain.items():
+                    averaged: dict[str, dict[str, float]] = {}
+                    for part, metrics in partition_scores.items():
+                        averaged[part] = {m: round(sum(vs) / len(vs), 6) for m, vs in metrics.items() if vs}
+                    if averaged:
+                        conn.execute(
+                            "UPDATE chains SET cv_scores = $2 WHERE chain_id = $1",
+                            [chain_id, _json.dumps(averaged)],
+                        )
+
+            conn.execute("DROP TABLE IF EXISTS _bulk_chain_ids")
+
     # =====================================================================
     # Prediction storage
     # =====================================================================
 
+    @_retry_on_lock
     def save_prediction(
         self,
         pipeline_id: str,
@@ -659,9 +908,9 @@ class WorkspaceStore:
         model_class: str,
         fold_id: str,
         partition: str,
-        val_score: float,
-        test_score: float,
-        train_score: float,
+        val_score: float | None,
+        test_score: float | None,
+        train_score: float | None,
         metric: str,
         task_type: str,
         n_samples: int,
@@ -695,9 +944,9 @@ class WorkspaceStore:
             fold_id: Fold identifier (e.g. ``"fold_0"``, ``"avg"``,
                 ``"final"`` for refit).
             partition: Data partition (``"train"``, ``"val"``, ``"test"``).
-            val_score: Validation score (primary ranking metric).
-            test_score: Test score (for reporting).
-            train_score: Training score (for overfitting diagnostics).
+            val_score: Validation score (primary ranking metric). None for refit entries.
+            test_score: Test score (for reporting). None if not available.
+            train_score: Training score (for overfitting diagnostics). None if not available.
             metric: Name of the metric (e.g. ``"rmse"``, ``"r2"``).
             task_type: ``"regression"`` or ``"classification"``.
             n_samples: Number of samples in this partition.
@@ -773,6 +1022,7 @@ class WorkspaceStore:
             ])
             return prediction_id
 
+    @_retry_on_lock
     def save_prediction_arrays(
         self,
         prediction_id: str,
@@ -828,6 +1078,7 @@ class WorkspaceStore:
     # Artifact storage
     # =====================================================================
 
+    @_retry_on_lock
     def save_artifact(
         self,
         obj: Any,
@@ -976,6 +1227,7 @@ class WorkspaceStore:
     # Cross-run artifact caching
     # =====================================================================
 
+    @_retry_on_lock
     def save_artifact_with_cache_key(
         self,
         obj: Any,
@@ -1157,13 +1409,11 @@ class WorkspaceStore:
             level: Log level (``"debug"``, ``"info"``, ``"warning"``,
                 ``"error"``).
         """
-        with self._lock:
-            conn = self._ensure_open()
-            log_id = str(uuid4())
-            conn.execute(INSERT_LOG, [
-                log_id, pipeline_id, step_idx, operator_class, event,
-                duration_ms, message, _to_json(details), level,
-            ])
+        log_id = str(uuid4())
+        self._safe_execute(INSERT_LOG, [
+            log_id, pipeline_id, step_idx, operator_class, event,
+            duration_ms, message, _to_json(details), level,
+        ])
 
     # =====================================================================
     # Queries -- Runs
@@ -2182,19 +2432,25 @@ class WorkspaceStore:
 
             winning_set = set(winning_pipeline_ids)
 
-            # Preload chains for each pipeline once; reuse for prediction-aware
-            # protection and cleanup decrements.
-            chains_by_pipeline: dict[str, list[tuple[str, Any, Any]]] = {}
+            # Bulk-load ALL chains for these pipelines in a single query
+            # instead of one query per pipeline.
+            all_pipeline_ids = [pid for (pid,) in all_pipelines]
+            chains_by_pipeline: dict[str, list[tuple[str, Any, Any]]] = {pid: [] for pid in all_pipeline_ids}
             chain_lookup: dict[str, tuple[dict, dict]] = {}
 
-            for (pipeline_id,) in all_pipelines:
-                rows = conn.execute(
-                    "SELECT chain_id, fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id = $1",
-                    [pipeline_id],
+            if all_pipeline_ids:
+                all_chain_rows = conn.execute(
+                    "SELECT pipeline_id, chain_id, fold_artifacts, shared_artifacts "
+                    "FROM chains WHERE pipeline_id IN ("
+                    "  SELECT pipeline_id FROM pipelines WHERE run_id = $1 AND dataset_name = $2"
+                    ")",
+                    [run_id, dataset_name],
                 ).fetchall()
-                chains_by_pipeline[pipeline_id] = rows
 
-                for chain_id, fold_artifacts_raw, shared_artifacts_raw in rows:
+                for pipeline_id, chain_id, fold_artifacts_raw, shared_artifacts_raw in all_chain_rows:
+                    row_tuple = (chain_id, fold_artifacts_raw, shared_artifacts_raw)
+                    chains_by_pipeline.setdefault(pipeline_id, []).append(row_tuple)
+
                     fold_artifacts = (
                         _from_json(fold_artifacts_raw)
                         if isinstance(fold_artifacts_raw, str)
@@ -2235,6 +2491,9 @@ class WorkspaceStore:
                 else:
                     requested.add(fold_value)
 
+            # Collect all artifact IDs to decrement, then batch-update once.
+            artifacts_to_decrement: list[str] = []
+
             for (pipeline_id,) in all_pipelines:
                 chains = chains_by_pipeline.get(pipeline_id, [])
 
@@ -2265,7 +2524,7 @@ class WorkspaceStore:
                                     continue
                                 if _fold_is_protected(str(fold_key), protected_fold_ids):
                                     continue
-                                conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
+                                artifacts_to_decrement.append(artifact_id)
                         # Keep shared artifacts (preprocessing) -- needed by refit chain
                     else:
                         # Losing pipeline: decrement artifacts unless replay-protected
@@ -2275,13 +2534,28 @@ class WorkspaceStore:
                                     continue
                                 if _fold_is_protected(str(fold_key), protected_fold_ids):
                                     continue
-                                conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
+                                artifacts_to_decrement.append(artifact_id)
 
                         if shared_artifacts:
                             for artifact_id in _iter_shared_artifact_refs(shared_artifacts):
                                 if protect_shared:
                                     continue
-                                conn.execute(DECREMENT_ARTIFACT_REF, [artifact_id])
+                                artifacts_to_decrement.append(artifact_id)
+
+            # Batch decrement: count how many times each artifact should be
+            # decremented, then issue one UPDATE per distinct decrement count.
+            if artifacts_to_decrement:
+                from collections import Counter
+                decrement_counts: dict[int, list[str]] = {}
+                for aid, cnt in Counter(artifacts_to_decrement).items():
+                    decrement_counts.setdefault(cnt, []).append(aid)
+                for delta, ids in decrement_counts.items():
+                    placeholders = ", ".join(f"${i+2}" for i in range(len(ids)))
+                    conn.execute(
+                        f"UPDATE artifacts SET ref_count = ref_count - $1 "
+                        f"WHERE artifact_id IN ({placeholders})",
+                        [delta] + ids,
+                    )
 
         # Run garbage collection to remove orphaned files
         return self.gc_artifacts()
