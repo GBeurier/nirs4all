@@ -68,20 +68,32 @@ Wavelength resampling and interpolation techniques.
 | Method | Description | Use Case |
 |--------|-------------|----------|
 | **SNV** | Standard Normal Variate | Scatter correction |
-| **MSC** | Multiplicative Scatter Correction | Reference-based scatter correction |
+| **MSC** / **EMSC** | Multiplicative Scatter Correction | Reference-based scatter correction |
 | **Derivatives** | Savitzky-Golay, First/Second | Baseline removal, peak enhancement |
+| **NorrisWilliams** | Gap derivative with segment smoothing | Noise-robust derivatives |
+| **WaveletDenoise** | Multi-level wavelet denoising | Noise reduction with frequency selectivity |
+| **OSC** | Orthogonal Signal Correction | Remove Y-orthogonal variation |
+| **EPO** | External Parameter Orthogonalization | Remove external parameter influence |
 | **Detrend** | Polynomial detrending | Linear/quadratic baseline removal |
+| **Baseline** | ALS, AirPLS, ArPLS, SNIP, etc. | Advanced baseline correction |
 | **Normalization** | Min-max, area, vector | Scale standardization |
 | **Smoothing** | Gaussian, moving average | Noise reduction |
 
 ## Quick Example
 
 ```python
-from nirs4all.operators.transforms import SNV, SavitzkyGolay
+from nirs4all.operators.transforms import SNV, SavitzkyGolay, NorrisWilliams, WaveletDenoise
 
 pipeline = [
     SNV(),                                    # Scatter correction
     SavitzkyGolay(window_length=15, deriv=1), # First derivative
+    # ... rest of pipeline
+]
+
+# Or use newer transforms
+pipeline = [
+    WaveletDenoise(wavelet='db4', level=3),    # Wavelet denoising
+    NorrisWilliams(gap=5, segment=5, deriv=1), # Norris-Williams gap derivative
     # ... rest of pipeline
 ]
 ```

@@ -25,6 +25,8 @@ The pipeline module is designed around a **layered architecture** with **separat
 -   Iterates over all provided **Pipeline Configurations**.
 -   Manages global results (aggregating predictions across runs).
 -   Instantiates a `PipelineExecutor` for each (Dataset, Pipeline) pair.
+-   Supports **parallel variant execution** via `n_jobs` parameter (uses `joblib.Parallel` with loky backend).
+-   Handles refit of winning pipeline variants on full training data.
 
 ### 3. PipelineExecutor (`nirs4all/pipeline/execution/executor.py`)
 **Role:** The sequence runner.

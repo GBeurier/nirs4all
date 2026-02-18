@@ -681,7 +681,7 @@ class TestExtractWinningConfig:
         assert config.variant_index == 0
         assert config.pipeline_id == ids["pipeline_ids"][0]
         assert config.metric == "rmse"
-        assert config.best_score == 0.05
+        assert config.selection_score == 0.05
         assert len(config.expanded_steps) > 0
         store.close()
 
@@ -696,7 +696,7 @@ class TestExtractWinningConfig:
 
         assert config.variant_index == 1
         assert config.pipeline_id == ids["pipeline_ids"][1]
-        assert config.best_score == 0.05  # Best variant always gets 0.05
+        assert config.selection_score == 0.05  # Best variant always gets 0.05
         store.close()
 
     def test_extraction_includes_best_params(self, tmp_path):
@@ -782,7 +782,7 @@ class TestExtractWinningConfig:
 
         assert config.metric == "rmse"
         assert config.pipeline_id == ids["pipeline_ids"][0]
-        assert config.best_score == 0.05
+        assert config.selection_score == 0.05
         store.close()
 
     def test_refit_config_dataclass(self):
@@ -796,7 +796,7 @@ class TestExtractWinningConfig:
             generator_choices=[{"_or_": "SNV"}],
             pipeline_id="abc-123",
             metric="rmse",
-            best_score=0.05,
+            selection_score=0.05,
         )
 
         assert config.expanded_steps == [{"model": "PLS"}]
@@ -805,7 +805,7 @@ class TestExtractWinningConfig:
         assert config.generator_choices == [{"_or_": "SNV"}]
         assert config.pipeline_id == "abc-123"
         assert config.metric == "rmse"
-        assert config.best_score == 0.05
+        assert config.selection_score == 0.05
 
     def test_refit_config_defaults(self):
         """RefitConfig uses sensible defaults."""
@@ -818,4 +818,4 @@ class TestExtractWinningConfig:
         assert config.generator_choices == []
         assert config.pipeline_id == ""
         assert config.metric == ""
-        assert config.best_score == 0.0
+        assert config.selection_score == 0.0

@@ -450,13 +450,14 @@ class Predictor:
         target_fold_id = self.target_model.get("fold_id", None)
 
         is_aggregated_fold = target_fold_id in ("avg", "w_avg")
+        is_refit_fold = target_fold_id == "final"
 
         filter_kwargs: Dict[str, Any] = {
             "model_name": self.target_model.get("model_name"),
             "step_idx": self.target_model.get("step_idx"),
         }
 
-        if not is_aggregated_fold:
+        if not is_aggregated_fold and not is_refit_fold:
             filter_kwargs["fold_id"] = target_fold_id
 
         target_branch_id = self.target_model.get("branch_id")

@@ -80,6 +80,8 @@ predictions, per_dataset = runner.run(pipeline, dataset)
 - Iterates over all provided **Pipeline Configurations**
 - Manages global results (aggregating predictions across runs)
 - Instantiates a `PipelineExecutor` for each (Dataset, Pipeline) pair
+- Supports **parallel variant execution** via `n_jobs` parameter (uses `joblib.Parallel` with loky backend)
+- Handles refit of winning pipeline variants on full training data
 
 ### 3. PipelineExecutor
 
@@ -171,10 +173,15 @@ nirs4all/
 │   ├── runner.py                # PipelineRunner (public API)
 │   ├── config/                  # Configuration handling
 │   │   ├── config.py            # PipelineConfigs
-│   │   └── context.py           # ExecutionContext, RuntimeContext
+│   │   ├── context.py           # ExecutionContext, RuntimeContext
+│   │   └── generator.py        # Pipeline variant generator
 │   ├── execution/               # Execution infrastructure
-│   │   ├── orchestrator.py      # PipelineOrchestrator
-│   │   └── executor.py          # PipelineExecutor
+│   │   ├── orchestrator.py      # PipelineOrchestrator (supports parallel via n_jobs)
+│   │   ├── executor.py          # PipelineExecutor
+│   │   └── refit/               # Refit infrastructure
+│   │       ├── executor.py      # RefitExecutor
+│   │       ├── config_extractor.py  # Extract winning config
+│   │       └── stacking_refit.py    # Stacking-aware refit
 │   ├── steps/                   # Step processing
 │   │   ├── parser.py            # StepParser
 │   │   ├── router.py            # ControllerRouter
@@ -182,8 +189,14 @@ nirs4all/
 │   ├── bundle/                  # Export/import bundles
 │   │   ├── generator.py         # BundleGenerator
 │   │   └── loader.py            # BundleLoader
-│   └── storage/                 # Artifact management
-│       └── artifacts/           # Artifact registry, loader
+│   └── storage/                 # Persistence layer
+│       ├── workspace_store.py   # DuckDB-backed metadata (runs, pipelines, chains)
+│       ├── array_store.py       # Parquet-backed prediction arrays
+│       ├── migration.py         # DuckDB→Parquet array migration tool
+│       ├── chain_builder.py     # Operator chain construction
+│       ├── chain_replay.py      # Chain replay for prediction
+│       ├── library.py           # Pipeline template library
+│       └── artifacts/           # Artifact registry (content-addressed)
 ├── controllers/                 # Step handlers
 │   ├── registry.py              # @register_controller
 │   ├── controller.py            # OperatorController base
@@ -194,12 +207,13 @@ nirs4all/
 ├── data/                        # Data handling
 │   ├── config.py                # DatasetConfigs
 │   ├── dataset.py               # SpectroDataset
-│   └── predictions.py           # Predictions container
+│   └── predictions.py           # Predictions facade (DuckDB metadata + Parquet arrays)
 └── operators/                   # Pipeline operators
-    ├── transforms/              # NIRS-specific transformers
-    ├── augmentation/            # Data augmentation
-    ├── models/                  # Pre-built models
-    └── splitters/               # Splitting algorithms
+    ├── transforms/              # NIRS-specific transformers (SNV, MSC, SG, NorrisWilliams, OSC, EPO, WaveletDenoise, ...)
+    ├── augmentation/            # Data augmentation (20+ spectral augmenters)
+    ├── models/                  # Pre-built models (AOM-PLS, POP-PLS, 15+ PLS variants, DL models)
+    ├── splitters/               # Splitting algorithms (KS, SPXY, SPXYFold, KMeans, ...)
+    └── filters/                 # Outlier filters (Y, X, metadata, spectral quality)
 ```
 
 ## Common Patterns

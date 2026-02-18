@@ -698,9 +698,12 @@ class PipelineOrchestrator:
                         artifact_registry.cleanup_failed_run()
                     except Exception:
                         pass
+                # For single-dataset runs, propagate the exception immediately
+                # so callers can catch pipeline errors.
+                if n_datasets == 1:
+                    raise
                 # Still run cleanup to release memory before next dataset
-                if n_datasets > 1:
-                    self._cleanup_between_datasets(step_cache, name)
+                self._cleanup_between_datasets(step_cache, name)
                 continue
 
             if failed_datasets:
@@ -1400,7 +1403,7 @@ class PipelineOrchestrator:
                 generator_choices=refit_config.generator_choices,
                 pipeline_id=refit_config.pipeline_id,
                 metric=entry.metric,
-                best_score=entry.avg_val_score,
+                selection_score=entry.avg_val_score,
                 config_name=refit_config.config_name,
             )
 

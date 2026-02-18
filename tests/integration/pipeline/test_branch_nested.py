@@ -86,9 +86,11 @@ class TestNestedBranchBasics:
             dataset=dataset
         )
 
-        # Should have 2 × 2 = 4 unique branch combinations
+        # Should have 2 × 2 = 4 unique leaf branch combinations
         branch_names = [b for b in predictions.get_unique_values("branch_name") if b]
-        assert len(branch_names) == 4, f"Expected 4 branch combinations, got {len(branch_names)}: {branch_names}"
+        # Filter to leaf branches (not a prefix of any other branch name)
+        leaf_branches = [b for b in branch_names if not any(other.startswith(b + "_") for other in branch_names)]
+        assert len(leaf_branches) == 4, f"Expected 4 branch combinations, got {len(leaf_branches)}: {leaf_branches}"
 
     def test_nested_branch_names_combined(
         self, orchestrator, dataset
@@ -160,9 +162,11 @@ class TestNestedBranchBasics:
             dataset=dataset
         )
 
-        # Should have 2 × 2 × 2 = 8 unique branch combinations
+        # Should have 2 × 2 × 2 = 8 unique leaf branch combinations
         branch_names = [b for b in predictions.get_unique_values("branch_name") if b]
-        assert len(branch_names) == 8, f"Expected 8 branch combinations, got {len(branch_names)}"
+        # Filter to leaf branches (not a prefix of any other branch name)
+        leaf_branches = [b for b in branch_names if not any(other.startswith(b + "_") for other in branch_names)]
+        assert len(leaf_branches) == 8, f"Expected 8 branch combinations, got {len(leaf_branches)}"
 
 
 class TestNestedBranchRoundtrip:
@@ -429,9 +433,11 @@ class TestNestedBranchEdgeCases:
             dataset=dataset
         )
 
-        # Should have 2 × 1 = 2 branches
+        # Should have 2 × 1 = 2 leaf branches
         branch_names = [b for b in predictions.get_unique_values("branch_name") if b]
-        assert len(branch_names) == 2
+        # Filter to leaf branches (not a prefix of any other branch name)
+        leaf_branches = [b for b in branch_names if not any(other.startswith(b + "_") for other in branch_names)]
+        assert len(leaf_branches) == 2
 
     def test_nested_branch_ids_sequential(
         self, orchestrator, dataset

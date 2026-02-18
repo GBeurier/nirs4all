@@ -37,7 +37,10 @@ A workspace is initialized with this structure:
 
 ```
 workspace/
-├── store.duckdb          # DuckDB database (runs, chains, predictions, artifacts metadata)
+├── store.duckdb          # DuckDB database (runs, chains, predictions metadata)
+├── arrays/               # Prediction arrays (Parquet sidecar files per dataset)
+│   ├── wheat.parquet
+│   └── corn.parquet
 ├── artifacts/            # Content-addressed binary files (hash-sharded)
 │   ├── ab/
 │   │   └── abc123...joblib
@@ -51,7 +54,7 @@ workspace/
 └── logs/                 # Log files (optional)
 ```
 
-**Key principle**: Structured data lives in DuckDB, binary artifacts live in content-addressed files.
+**Key principle**: Structured metadata lives in DuckDB, dense arrays in Parquet sidecar files, binary artifacts in content-addressed files.
 
 ## Store-First Architecture
 
@@ -69,7 +72,7 @@ The DB is the **source of truth** for runs and predictions, avoiding scattered m
 
 ## Core Store Tables
 
-The workspace database contains these core tables:
+The DuckDB database contains these core tables:
 
 | Table | Purpose |
 | --- | --- |
@@ -77,9 +80,11 @@ The workspace database contains these core tables:
 | `pipelines` | Per-variant execution metadata (pipeline_id, run_id, dataset_name) |
 | `chains` | Replayable step-to-artifact mappings (chain_id, steps, artifact refs) |
 | `predictions` | Scalar metrics and identifiers (rmse, r2, accuracy, fold_id, partition) |
-| `prediction_arrays` | Dense arrays (y_true, y_pred, y_proba) linked to predictions |
 | `artifacts` | Binary metadata and content hash references (artifact_id, hash, type) |
 | `logs` | Structured step events (timestamp, level, message) |
+| `projects` | Project grouping for runs |
+
+Dense prediction arrays (y_true, y_pred, y_proba, sample_indices, weights) are stored in per-dataset Parquet sidecar files under `arrays/`, managed by `ArrayStore`.
 
 Together, these capture **full runtime provenance** and power analysis and replay.
 
@@ -352,11 +357,12 @@ Useful for consolidating experiments from different environments.
 <details>
 <summary><strong>Workspace Backup</strong></summary>
 
-Backup workspace database and artifacts:
+Backup workspace database, arrays, and artifacts:
 
 ```bash
-# Database only (fast)
+# Database + arrays only (fast)
 cp workspace/store.duckdb workspace_backup/store.duckdb
+cp -r workspace/arrays/ workspace_backup/arrays/
 
 # Full backup (slow)
 tar -czf workspace_backup.tar.gz workspace/

@@ -85,7 +85,7 @@ The full lifecycle of a prediction, from training to deployment:
    For each pipeline x fold x partition:
        - Compute predictions (y_pred) and scores
        - Save prediction record to store.duckdb
-       - Save arrays (y_true, y_pred) to store.duckdb
+       - Save arrays (y_true, y_pred) to arrays/*.parquet (via ArrayStore)
        - Save chain (fitted artifacts) to store.duckdb + artifacts/
        |
        v
@@ -109,17 +109,20 @@ The full lifecycle of a prediction, from training to deployment:
 
 ## Workspace Storage
 
-All prediction data is stored in a DuckDB database (`store.duckdb`) inside the workspace directory:
+Prediction data uses a hybrid DuckDB + Parquet architecture inside the workspace directory:
 
 ```
 workspace/
-    store.duckdb          # All structured data (runs, pipelines, chains, predictions)
+    store.duckdb          # Structured metadata (runs, pipelines, chains, predictions)
+    arrays/               # Prediction arrays (Parquet sidecar files per dataset)
+        wheat.parquet
+        corn.parquet
     artifacts/            # Flat content-addressed binaries (fitted models, transformers)
         ab/abc123.joblib
     exports/              # User-triggered exports (on demand)
 ```
 
-The database contains seven tables:
+The DuckDB database contains seven tables:
 
 | Table | Contents |
 |-------|----------|
@@ -127,9 +130,11 @@ The database contains seven tables:
 | `pipelines` | Individual pipeline configurations (one per generator expansion) |
 | `chains` | Fitted preprocessing-to-model paths with artifact references |
 | `predictions` | Scalar scores, metadata, and chain links |
-| `prediction_arrays` | y_true, y_pred, y_proba arrays (stored as native DOUBLE[]) |
 | `artifacts` | Metadata for binary files (path, hash, type, reference count) |
 | `logs` | Structured step-level execution logs |
+| `projects` | Project grouping for runs |
+
+Dense arrays (y_true, y_pred, y_proba) are stored in per-dataset Parquet sidecar files under `arrays/`, managed by `ArrayStore`. This separation enables efficient I/O with Zstd compression and per-dataset file granularity.
 
 This architecture means:
 

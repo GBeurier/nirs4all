@@ -1,6 +1,6 @@
 # Storage API Reference
 
-This document provides the API reference for the nirs4all storage system, centered on the DuckDB-backed `WorkspaceStore`.
+This document provides the API reference for the nirs4all storage system, which uses a hybrid DuckDB + Parquet architecture.
 
 ## Module: `nirs4all.pipeline.storage`
 
@@ -11,10 +11,12 @@ class WorkspaceStore:
     """Database-backed workspace storage.
 
     Central storage facade for all workspace data: runs, pipelines, chains,
-    predictions, prediction arrays, artifacts, and structured execution logs.
+    predictions, artifacts, and structured execution logs.
 
-    The store manages two on-disk resources:
-    - store.duckdb: A single DuckDB database with 7 tables
+    The store manages three on-disk resources:
+    - store.duckdb: DuckDB database with 7 tables (runs, pipelines, chains,
+      predictions, artifacts, logs, projects)
+    - arrays/: Per-dataset Parquet files for prediction arrays (via ArrayStore)
     - artifacts/: A flat, content-addressed directory for binary artifacts
     """
 ```
@@ -135,6 +137,8 @@ def get_chains_for_pipeline(self, pipeline_id: str) -> pl.DataFrame:
 
 #### Prediction Storage
 
+Prediction scalar scores are stored in DuckDB. Dense arrays (y_true, y_pred, etc.) are stored in per-dataset Parquet sidecar files via `ArrayStore`.
+
 ```python
 def save_prediction(
     self, pipeline_id: str, chain_id: str, dataset_name: str,
@@ -146,19 +150,50 @@ def save_prediction(
     exclusion_count: int, exclusion_rate: float,
     preprocessings: str = "",
 ) -> str:
-    """Store a single prediction record.
+    """Store a single prediction record (scalar scores in DuckDB).
 
     Returns:
         A unique prediction identifier (UUID string).
     """
+```
 
-def save_prediction_arrays(
-    self, prediction_id: str, y_true: np.ndarray | None,
-    y_pred: np.ndarray | None, y_proba: np.ndarray | None = None,
-    sample_indices: np.ndarray | None = None,
-    weights: np.ndarray | None = None,
-) -> None:
-    """Store dense arrays as native DOUBLE[] columns in DuckDB."""
+### ArrayStore
+
+```python
+from nirs4all.pipeline.storage import ArrayStore
+```
+
+Parquet-backed storage for prediction arrays. Arrays live under `workspace/arrays/`, one `.parquet` file per dataset, with Zstd compression. Writes append row groups; deletes use a tombstone file that is applied during `compact()`.
+
+```python
+class ArrayStore:
+    def __init__(self, base_dir: Path) -> None:
+        """Initialize. Creates arrays/ subdirectory automatically."""
+
+    def save_batch(self, records: list[dict]) -> None:
+        """Append prediction arrays for a batch of records.
+
+        Each record dict must contain:
+        - prediction_id, dataset_name (required)
+        - y_true, y_pred (numpy arrays)
+        - y_proba, sample_indices, weights (optional numpy arrays)
+        - model_name, fold_id, partition, metric, val_score, task_type (metadata)
+        """
+
+    def load(self, prediction_id: str, dataset_name: str) -> dict | None:
+        """Load arrays for a single prediction."""
+
+    def load_batch(self, prediction_ids: list[str], dataset_name: str) -> list[dict]:
+        """Load arrays for multiple predictions from the same dataset."""
+
+    def delete(self, prediction_ids: list[str]) -> None:
+        """Mark predictions for deletion (tombstone). Apply with compact()."""
+
+    def compact(self, dataset_name: str | None = None) -> int:
+        """Rewrite Parquet files, removing tombstoned rows. Returns rows removed."""
+
+    def list_datasets(self) -> list[str]:
+        """Return dataset names that have Parquet array files."""
 ```
 
 ---

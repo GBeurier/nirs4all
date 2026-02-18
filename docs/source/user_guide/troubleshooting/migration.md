@@ -5,9 +5,10 @@ This guide helps you migrate from older versions of nirs4all to the current vers
 ## Table of Contents
 
 1. [API Migration (v0.5 → v0.6+)](#api-migration-v05--v06)
-2. [Dataset Configuration Migration](#dataset-configuration-migration)
-3. [Prediction Format Migration](#prediction-format-migration)
-4. [Troubleshooting](#troubleshooting)
+2. [Storage Migration (v0.7 → v0.8+)](#storage-migration-v07--v08)
+3. [Dataset Configuration Migration](#dataset-configuration-migration)
+4. [Prediction Format Migration](#prediction-format-migration)
+5. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -195,6 +196,47 @@ score = pipe.score(X_test, y_test)
 - [ ] Consider using `nirs4all.session()` for multiple related runs
 - [ ] Use `NIRSPipeline.from_result()` for sklearn/SHAP integration
 - [ ] Update exports from `runner.export(source=best, ...)` to `result.export(...)`
+
+---
+
+## Storage Migration (v0.7 → v0.8+)
+
+nirs4all v0.8 moved prediction arrays from DuckDB to Parquet sidecar files for better performance and disk efficiency.
+
+### What Changed
+
+| Aspect | Before (v0.7) | After (v0.8+) |
+|--------|---------------|----------------|
+| Prediction arrays | `prediction_arrays` DuckDB table | `arrays/<dataset>.parquet` Parquet files |
+| Array format | DuckDB `DOUBLE[]` columns | Zstd-compressed Parquet with list columns |
+| Array management | `WorkspaceStore.save_prediction_arrays()` | `ArrayStore.save_batch()` |
+| DuckDB tables | 7 (including `prediction_arrays`) | 7 (replaced with `projects`) |
+
+### Automatic Migration
+
+Migration is **fully automatic**. When you open a workspace with a legacy `prediction_arrays` table, nirs4all auto-migrates all rows to Parquet sidecar files and drops the DuckDB table. No manual action required.
+
+### Manual Migration (Optional)
+
+For explicit control, use the migration tool:
+
+```python
+from nirs4all.pipeline.storage import migrate_arrays_to_parquet, verify_migrated_store
+
+# Run migration
+report = migrate_arrays_to_parquet("workspace/")
+print(f"Migrated {report.rows_migrated} rows across {report.datasets_migrated} datasets")
+
+# Verify migration
+verify_migrated_store("workspace/")
+```
+
+### Migration Checklist
+
+- [ ] Backup your workspace before upgrading (optional but recommended)
+- [ ] Open workspace with nirs4all v0.8+ (auto-migration happens automatically)
+- [ ] Verify `workspace/arrays/` directory contains per-dataset `.parquet` files
+- [ ] Verify `prediction_arrays` table no longer exists in DuckDB
 
 ---
 

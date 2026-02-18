@@ -1,17 +1,17 @@
 # Workspace Architecture
 
-**Version**: 4.0
+**Version**: 5.0
 **Status**: Implemented
 
-This document describes the nirs4all workspace directory structure, centered on a DuckDB-backed store.
+This document describes the nirs4all workspace directory structure, which uses a hybrid DuckDB + Parquet storage backend.
 
 ## Design Principles
 
 | Principle | Description |
 |-----------|-------------|
-| **Single database** | All structured data in `store.duckdb` (runs, pipelines, chains, predictions, logs) |
+| **Hybrid storage** | Structured metadata in DuckDB, dense arrays in Parquet sidecar files |
 | **Content-addressed artifacts** | Binary deduplication via SHA-256 hashing in flat `artifacts/` directory |
-| **Export on demand** | No files written during training except `store.duckdb` and artifact binaries |
+| **Export on demand** | No export files written during training — only on explicit `export()` calls |
 | **Zero-copy queries** | DuckDB returns Polars DataFrames via Arrow transfer |
 | **Library flexibility** | Pipeline templates stored as JSON with category and tag support |
 
@@ -21,7 +21,10 @@ This document describes the nirs4all workspace directory structure, centered on 
 
 ```
 workspace/
-├── store.duckdb                        # All structured data (7 tables)
+├── store.duckdb                        # Structured metadata (7 DuckDB tables)
+├── arrays/                              # Prediction arrays (Parquet sidecar files)
+│   ├── wheat.parquet                    # All arrays for dataset "wheat"
+│   └── corn.parquet                     # All arrays for dataset "corn"
 ├── artifacts/                          # Flat content-addressed binary storage
 │   ├── ab/abc123def456.joblib          # Sharded by first 2 chars of hash
 │   └── cd/cde789012345.joblib
@@ -44,9 +47,13 @@ workspace/
 | `pipelines` | Individual pipeline executions within a run |
 | `chains` | Preprocessing-to-model step sequences with artifact references |
 | `predictions` | Per-fold, per-partition prediction scores and metadata |
-| `prediction_arrays` | Dense arrays (y_true, y_pred, y_proba) |
 | `artifacts` | Content-addressed artifact registry with ref_count |
 | `logs` | Structured execution logs per pipeline step |
+| `projects` | Project grouping for runs |
+
+## Parquet Array Storage
+
+Dense prediction arrays (y_true, y_pred, y_proba, sample_indices, weights) are stored in per-dataset Parquet files under `arrays/`, managed by `ArrayStore`. Each Parquet file uses Zstd compression and embeds lightweight metadata columns for self-describing portability.
 
 ---
 

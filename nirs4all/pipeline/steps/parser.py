@@ -193,6 +193,18 @@ class StepParser:
         # If it looks like a class path (contains dots), treat as serialized.
         # If it's a single word, treat as keyword/workflow.
 
+        # Detect Python repr output from json.dumps(default=str), e.g.
+        # "<nirs4all.pipeline.execution.refit.executor._FullTrainFoldSplitter object at 0x...>"
+        # These are non-reconstructable internal objects — skip them.
+        if step.startswith("<") and step.endswith(">"):
+            return ParsedStep(
+                operator=None,
+                keyword="",
+                step_type=StepType.UNKNOWN,
+                original_step=step,
+                metadata={"skip": True}
+            )
+
         if "." in step:
              # Deserialize as a class/function reference
             operator = deserialize_component(step)

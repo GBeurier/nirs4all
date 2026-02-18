@@ -2,13 +2,16 @@
 
 ## Overview
 
-nirs4all uses a DuckDB-backed workspace for all structured data. Binary artifacts (fitted models, transformers) are stored in a flat content-addressed directory alongside the database.
+nirs4all uses a hybrid DuckDB + Parquet workspace architecture. Structured metadata lives in DuckDB (`store.duckdb`), dense prediction arrays are stored in per-dataset Parquet sidecar files (`arrays/`), and binary artifacts (fitted models, transformers) are stored in a flat content-addressed directory.
 
 ## Workspace Structure
 
 ```
 workspace/
-├── store.duckdb                        # All structured data (7 tables)
+├── store.duckdb                        # Structured metadata (7 DuckDB tables)
+├── arrays/                              # Prediction arrays (Parquet sidecar files)
+│   ├── wheat.parquet                    # All arrays for dataset "wheat"
+│   └── corn.parquet                     # All arrays for dataset "corn"
 ├── artifacts/                           # Flat content-addressed binary storage
 │   ├── ab/abc123def456.joblib
 │   └── cd/cde789012345.joblib
@@ -100,15 +103,25 @@ CREATE TABLE predictions (
 );
 ```
 
-### prediction_arrays
+### Parquet Array Storage (ArrayStore)
+
+Dense prediction arrays are stored in per-dataset Parquet files under `arrays/`, managed by `ArrayStore`:
+
+```
+arrays/
+├── wheat.parquet     # y_true, y_pred, y_proba, sample_indices, weights
+└── corn.parquet      # Zstd-compressed, one row per prediction
+```
+
+Each Parquet file contains columns: `prediction_id`, `dataset_name`, `model_name`, `fold_id`, `partition`, `metric`, `val_score`, `task_type`, `y_true` (list), `y_pred` (list), `y_proba` (list), `sample_indices` (list), `weights` (list).
+
+### projects
 ```sql
-CREATE TABLE prediction_arrays (
-    prediction_id VARCHAR PRIMARY KEY,
-    y_true DOUBLE[],
-    y_pred DOUBLE[],
-    y_proba DOUBLE[],
-    sample_indices DOUBLE[],
-    weights DOUBLE[]
+CREATE TABLE projects (
+    project_id VARCHAR PRIMARY KEY,
+    name VARCHAR NOT NULL,
+    description VARCHAR,
+    created_at TIMESTAMPTZ DEFAULT now()
 );
 ```
 
@@ -215,7 +228,7 @@ See [Storage API Reference](../source/reference/storage.md) for the complete API
 ### Key Methods
 
 ```python
-from nirs4all.pipeline.storage import WorkspaceStore
+from nirs4all.pipeline.storage import WorkspaceStore, ArrayStore
 
 store = WorkspaceStore(workspace_path)
 
@@ -224,9 +237,12 @@ run_id = store.begin_run(name, config, datasets)
 pipeline_id = store.begin_pipeline(run_id, name, config, ...)
 chain_id = store.save_chain(pipeline_id, steps, ...)
 pred_id = store.save_prediction(pipeline_id, chain_id, ...)
-store.save_prediction_arrays(pred_id, y_true, y_pred)
 store.complete_pipeline(pipeline_id, best_val, best_test, metric, duration_ms)
 store.complete_run(run_id, summary)
+
+# Prediction arrays (via ArrayStore)
+array_store = ArrayStore(workspace_path / "arrays")
+array_store.save_batch([{"prediction_id": pred_id, "dataset_name": "wheat", ...}])
 
 # Queries (return polars.DataFrame)
 store.list_runs(status="completed")

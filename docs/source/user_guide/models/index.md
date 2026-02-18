@@ -78,7 +78,43 @@ print(f"RMSE: {result.best_rmse:.4f}")
 
 NIRS4ALL includes specialized models optimized for spectroscopy:
 
-- **nicon** - 1D CNN for NIR classification
+### PLS Variants
+
+| Model | Description |
+|-------|-------------|
+| **AOMPLSRegressor** | Adaptive Operator-Mixture PLS — auto-selects best preprocessing from operator bank |
+| **AOMPLSClassifier** | AOM-PLS for classification with probability calibration |
+| **POPPLSRegressor** | Per-Operator-Per-component PLS — different operator per component via PRESS |
+| **POPPLSClassifier** | POP-PLS for classification with probability calibration |
+| **PLSDA** | PLS Discriminant Analysis |
+| **OPLS** / **OPLSDA** | Orthogonal PLS / OPLS-DA |
+| **MBPLS** | Multi-Block PLS |
+| **DiPLS** | Domain-Invariant PLS |
+| **IKPLS** | Improved Kernel PLS |
+| **FCKPLS** | Fractional Convolution Kernel PLS |
+| **LWPLS** | Locally Weighted PLS |
+| **SparsePLS** | Sparse PLS |
+| **SIMPLS** | SIMPLS algorithm |
+
+```python
+from nirs4all.operators.models import AOMPLSRegressor, POPPLSRegressor
+
+# AOM-PLS: auto-selects best preprocessing from operator bank
+pipeline = [
+    KFold(n_splits=5),
+    {"model": AOMPLSRegressor(n_components=15, gate="hard")}
+]
+
+# POP-PLS: selects different operator per component (no holdout needed)
+pipeline = [
+    KFold(n_splits=5),
+    {"model": POPPLSRegressor(n_components=15, auto_select=True)}
+]
+```
+
+### Deep Learning
+
+- **nicon** - 1D CNN for NIR classification/regression
 - **decon** - 1D CNN for NIR regression
 
 ```python
