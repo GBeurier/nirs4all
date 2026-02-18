@@ -217,6 +217,135 @@ class Predictions:
         self._dataset_repetition: str | None = None
 
     # =========================================================================
+    # LOADING FROM WORKSPACE
+    # =========================================================================
+
+    @classmethod
+    def from_workspace(
+        cls,
+        workspace_path: str | Path,
+        *,
+        dataset_name: str | None = None,
+        load_arrays: bool = True,
+    ) -> Predictions:
+        """Load predictions from a workspace DuckDB store.
+
+        Opens the workspace store, queries all predictions (with optional
+        dataset filter), loads associated arrays (y_true, y_pred), and
+        returns a fully populated in-memory ``Predictions`` instance
+        ready for use with ``PredictionAnalyzer``.
+
+        Args:
+            workspace_path: Path to the workspace directory containing
+                ``store.duckdb``.
+            dataset_name: Optional dataset name filter.
+            load_arrays: If ``True`` (default), load y_true/y_pred arrays
+                for each prediction.  Set to ``False`` for metadata-only
+                queries (faster, but no scatter/residual plots).
+
+        Returns:
+            A ``Predictions`` instance with the buffer populated from
+            the store.
+
+        Example:
+            >>> predictions = Predictions.from_workspace("workspace")
+            >>> predictions.top(5)
+            >>> analyzer = PredictionAnalyzer(predictions)
+            >>> analyzer.plot_histogram()
+        """
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        workspace_path = Path(workspace_path)
+        store = WorkspaceStore(workspace_path)
+        try:
+            return cls._load_from_store(store, dataset_name=dataset_name, load_arrays=load_arrays)
+        finally:
+            store.close()
+
+    @classmethod
+    def _load_from_store(
+        cls,
+        store: WorkspaceStore,
+        *,
+        dataset_name: str | None = None,
+        load_arrays: bool = True,
+    ) -> Predictions:
+        """Load predictions from an open WorkspaceStore.
+
+        Args:
+            store: An open WorkspaceStore instance.
+            dataset_name: Optional dataset name filter.
+            load_arrays: If True, load y_true/y_pred arrays.
+
+        Returns:
+            A Predictions instance with buffer populated.
+        """
+        predictions = cls()
+
+        df = store.query_predictions(dataset_name=dataset_name)
+        if df.is_empty():
+            return predictions
+
+        for row in df.iter_rows(named=True):
+            pred_id = row["prediction_id"]
+
+            y_true = None
+            y_pred = None
+            y_proba = None
+            sample_indices = None
+
+            if load_arrays:
+                arrays = store.get_prediction_arrays(pred_id)
+                if arrays:
+                    y_true = arrays.get("y_true")
+                    y_pred = arrays.get("y_pred")
+                    y_proba = arrays.get("y_proba")
+                    sample_indices = arrays.get("sample_indices")
+
+            # Parse JSON fields from DuckDB
+            scores = row.get("scores")
+            if isinstance(scores, str):
+                try:
+                    scores = json.loads(scores)
+                except (json.JSONDecodeError, TypeError):
+                    scores = None
+
+            best_params = row.get("best_params")
+            if isinstance(best_params, str):
+                try:
+                    best_params = json.loads(best_params)
+                except (json.JSONDecodeError, TypeError):
+                    best_params = None
+
+            predictions.add_prediction(
+                dataset_name=row.get("dataset_name", ""),
+                model_name=row.get("model_name", ""),
+                model_classname=row.get("model_class", ""),
+                fold_id=row.get("fold_id", ""),
+                partition=row.get("partition", ""),
+                val_score=row.get("val_score"),
+                test_score=row.get("test_score"),
+                train_score=row.get("train_score"),
+                metric=row.get("metric", "rmse"),
+                task_type=row.get("task_type", "regression"),
+                n_samples=row.get("n_samples") or 0,
+                n_features=row.get("n_features") or 0,
+                preprocessings=row.get("preprocessings", ""),
+                scores=scores,
+                best_params=best_params,
+                branch_id=row.get("branch_id"),
+                branch_name=row.get("branch_name"),
+                refit_context=row.get("refit_context"),
+                y_true=y_true,
+                y_pred=y_pred,
+                y_proba=y_proba,
+                sample_indices=sample_indices,
+                pipeline_uid=row.get("pipeline_id", ""),
+            )
+
+        return predictions
+
+    # =========================================================================
     # DATASET CONTEXT
     # =========================================================================
 

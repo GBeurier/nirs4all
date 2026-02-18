@@ -22,8 +22,16 @@ from .sklearn.aom_pls import (
     SavitzkyGolayOperator,
     DetrendProjectionOperator,
     ComposedOperator,
+    NorrisWilliamsOperator,
+    FiniteDifferenceOperator,
+    WaveletProjectionOperator,
+    FFTBandpassOperator,
     default_operator_bank,
+    extended_operator_bank,
 )
+from .sklearn.pop_pls import POPPLSRegressor, pop_pls_operator_bank
+from .sklearn.aom_pls_classifier import AOMPLSClassifier
+from .sklearn.pop_pls_classifier import POPPLSClassifier
 
 # TensorFlow models are loaded lazily to avoid importing TensorFlow at startup
 # Use: from nirs4all.operators.models.tensorflow import nicon, generic
@@ -102,7 +110,18 @@ __all__ = [
     "SavitzkyGolayOperator",
     "DetrendProjectionOperator",
     "ComposedOperator",
+    "NorrisWilliamsOperator",
+    "FiniteDifferenceOperator",
+    "WaveletProjectionOperator",
+    "FFTBandpassOperator",
     "default_operator_bank",
+    "extended_operator_bank",
+    # POP-PLS
+    "POPPLSRegressor",
+    "pop_pls_operator_bank",
+    # Classifiers
+    "AOMPLSClassifier",
+    "POPPLSClassifier",
     # Meta-model stacking
     "MetaModel",
     "StackingConfig",
