@@ -27,8 +27,16 @@ from .aom_pls import (
     SavitzkyGolayOperator,
     DetrendProjectionOperator,
     ComposedOperator,
+    NorrisWilliamsOperator,
+    FiniteDifferenceOperator,
+    WaveletProjectionOperator,
+    FFTBandpassOperator,
     default_operator_bank,
+    extended_operator_bank,
 )
+from .pop_pls import POPPLSRegressor, pop_pls_operator_bank
+from .aom_pls_classifier import AOMPLSClassifier
+from .pop_pls_classifier import POPPLSClassifier
 
 
 __all__ = [
@@ -61,5 +69,14 @@ __all__ = [
     "SavitzkyGolayOperator",
     "DetrendProjectionOperator",
     "ComposedOperator",
+    "NorrisWilliamsOperator",
+    "FiniteDifferenceOperator",
+    "WaveletProjectionOperator",
+    "FFTBandpassOperator",
     "default_operator_bank",
+    "extended_operator_bank",
+    "POPPLSRegressor",
+    "pop_pls_operator_bank",
+    "AOMPLSClassifier",
+    "POPPLSClassifier",
 ]

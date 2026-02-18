@@ -271,7 +271,7 @@ start_time = time.time()
 #PFN > 149sec 0 0 GPU, 170 sec 0 -1 CPU, 172 sec 0 -1 GPU, sec -1 0 CPU, 133 sec -1 0 GPU
 DATASETS = [
             'AMYLOSE/Rice_Amylose_313_YbasedSplit', # PLS 1.85 - TabPFN: 1.31 +
-            'IncombustibleMaterial/TIC_spxy70', # PLS 3.31 - TabPFN: 3.14 *
+            'IncombustibleMaterial/TIC_spxy70', # PLS 3.03 - TabPFN: 3.14 *
             'PHOSPHORUS/LP_spxyG', # PLS 0.17 - TabPFN: 0.14 *
             'PLUMS/Firmness_spxy70', # PLS 0.29 - TabPFN: 0.26 *
             'BEER/Beer_OriginalExtract_60_KS', # PLS 0.20 - TabPFN: 0.08 +

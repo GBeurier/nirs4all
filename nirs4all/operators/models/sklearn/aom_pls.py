@@ -16,14 +16,16 @@ Let X ∈ ℝ^{n×p} be the input matrix and y ∈ ℝ^n the response vector.
 Given an operator bank {A_b}_{b=1..B} of p×p linear operators (SG filters,
 detrend projections, identity), AOM-PLS extracts K predictive components:
 
-For each component k (operating on residuals X_res, Y_res):
-1. Compute cross-covariance: c_k = X_res^T y_res
-2. Apply operator adjoints: g_{b,k} = A_b^T c_k  (adjoint trick)
-3. Normalized block scores: s_{b,k} = ||g_{b,k}||² / (ν_b + ε)
-4. Sparse gating: γ_k = sparsemax(s_k / τ)
-5. Effective loading: w_k = Σ_b γ_{b,k} A_b ŵ_{b,k}
-6. Component score: t_k = X_res w_k
-7. NIPALS deflation of X_res and Y_res
+Hard gating (default): For each operator b, run full K-component NIPALS:
+1. For k = 1..K: w_k via adjoint trick A_b, t_k = X_res w_k, NIPALS deflation
+2. Compute prefix regression coefficients B_k for k = 1..K
+3. If validation data: select operator with lowest validation RMSE at best k
+4. If no validation: select operator with highest first-component R²
+
+Sparsemax gating (experimental): Soft operator mixing via R² scoring:
+1. R² scoring per operator on first component
+2. γ = sparsemax(s / τ) for sparse weight vector
+3. NIPALS with mixed weights: w_k = Σ_b γ_b A_b ŵ_b
 
 References
 ----------
@@ -311,6 +313,278 @@ class ComposedOperator(LinearOperator):
         return self._nu
 
 
+class NorrisWilliamsOperator(LinearOperator):
+    """Norris-Williams gap derivative operator.
+
+    Computes gap derivatives: d[i] = (x[i+gap] - x[i-gap]) / (2*gap*delta),
+    optionally with segment averaging beforehand. This is a standard NIRS
+    preprocessing that provides different spectral selectivity than SG derivatives.
+
+    The operator is implemented as a sparse convolution kernel, making both
+    forward and adjoint operations O(p) per sample.
+
+    Parameters
+    ----------
+    gap : int, default=5
+        Gap size in data points for the derivative.
+    segment : int, default=1
+        Segment size for smoothing before derivative (1 = no smoothing).
+        Must be odd.
+    deriv : int, default=1
+        Derivative order (1 or 2).
+    delta : float, default=1.0
+        Sampling interval.
+    """
+
+    def __init__(self, gap: int = 5, segment: int = 1, deriv: int = 1, delta: float = 1.0):
+        self.gap = gap
+        self.segment = segment
+        self.deriv = deriv
+        self.delta = delta
+
+    @property
+    def name(self) -> str:
+        return f"NW(g={self.gap},s={self.segment},d={self.deriv})"
+
+    @property
+    def params(self) -> dict:
+        return {"gap": self.gap, "segment": self.segment, "deriv": self.deriv, "delta": self.delta}
+
+    def initialize(self, p: int) -> None:
+        super().initialize(p)
+        # Build the combined kernel: segment smoothing + gap derivative
+        # Segment smoothing kernel
+        if self.segment > 1:
+            seg_kernel = np.ones(self.segment) / self.segment
+        else:
+            seg_kernel = np.array([1.0])
+        # Gap derivative kernel: [... 0 -1/(2*gap*delta) 0 ... 0 +1/(2*gap*delta) 0 ...]
+        gap_kernel = np.zeros(2 * self.gap + 1)
+        gap_kernel[0] = -1.0 / (2 * self.gap * self.delta)
+        gap_kernel[-1] = 1.0 / (2 * self.gap * self.delta)
+        # Convolve to get combined kernel
+        combined = np.convolve(seg_kernel, gap_kernel, mode='full')
+        if self.deriv == 2:
+            combined = np.convolve(combined, gap_kernel, mode='full')
+        self._conv_kernel = combined.astype(np.float64)
+        self._adj_kernel = combined[::-1].astype(np.float64)
+        self._nu = self._compute_frobenius_norm_sq(p)
+
+    def _compute_frobenius_norm_sq(self, p: int) -> float:
+        klen = len(self._conv_kernel)
+        hw = (klen - 1) // 2
+        h2 = self._conv_kernel ** 2
+        total = 0.0
+        for i in range(p):
+            k_start = max(0, hw - i)
+            k_end = min(klen, p - i + hw)
+            total += np.sum(h2[k_start:k_end])
+        return total
+
+    def apply(self, X: NDArray) -> NDArray:
+        return _convolve1d(X, self._conv_kernel, axis=-1, mode='constant', cval=0.0)
+
+    def apply_adjoint(self, c: NDArray) -> NDArray:
+        return _convolve1d(c, self._adj_kernel, axis=-1, mode='constant', cval=0.0)
+
+    def frobenius_norm_sq(self) -> float:
+        return self._nu
+
+
+class FiniteDifferenceOperator(LinearOperator):
+    """Finite difference derivative operator.
+
+    Simple numerical derivative using central differences:
+    d[i] = (x[i+1] - x[i-1]) / (2*delta) for first order.
+    Uses zero-padded boundaries for strict linearity.
+
+    Parameters
+    ----------
+    order : int, default=1
+        Derivative order (1 or 2).
+    delta : float, default=1.0
+        Sampling interval.
+    """
+
+    def __init__(self, order: int = 1, delta: float = 1.0):
+        self.order = order
+        self.delta = delta
+
+    @property
+    def name(self) -> str:
+        return f"FD(d={self.order})"
+
+    @property
+    def params(self) -> dict:
+        return {"order": self.order, "delta": self.delta}
+
+    def initialize(self, p: int) -> None:
+        super().initialize(p)
+        if self.order == 1:
+            self._conv_kernel = np.array([-1.0, 0.0, 1.0]) / (2.0 * self.delta)
+        elif self.order == 2:
+            self._conv_kernel = np.array([1.0, -2.0, 1.0]) / (self.delta ** 2)
+        else:
+            # Higher order: apply first-order kernel repeatedly
+            k = np.array([-1.0, 0.0, 1.0]) / (2.0 * self.delta)
+            for _ in range(self.order - 1):
+                k = np.convolve(k, np.array([-1.0, 0.0, 1.0]) / (2.0 * self.delta), mode='full')
+            self._conv_kernel = k
+        self._adj_kernel = self._conv_kernel[::-1].astype(np.float64)
+        self._nu = self._compute_frobenius_norm_sq(p)
+
+    def _compute_frobenius_norm_sq(self, p: int) -> float:
+        klen = len(self._conv_kernel)
+        hw = (klen - 1) // 2
+        h2 = self._conv_kernel ** 2
+        total = 0.0
+        for i in range(p):
+            k_start = max(0, hw - i)
+            k_end = min(klen, p - i + hw)
+            total += np.sum(h2[k_start:k_end])
+        return total
+
+    def apply(self, X: NDArray) -> NDArray:
+        return _convolve1d(X, self._conv_kernel, axis=-1, mode='constant', cval=0.0)
+
+    def apply_adjoint(self, c: NDArray) -> NDArray:
+        return _convolve1d(c, self._adj_kernel, axis=-1, mode='constant', cval=0.0)
+
+    def frobenius_norm_sq(self) -> float:
+        return self._nu
+
+
+class WaveletProjectionOperator(LinearOperator):
+    """Wavelet approximation projection operator.
+
+    Projects spectral data onto the wavelet approximation subspace at a given
+    level, effectively performing multi-resolution smoothing. The operator
+    decomposes the signal, zeroes all detail coefficients, and reconstructs
+    from the approximation coefficients only.
+
+    This is a linear, symmetric (self-adjoint) projection operator.
+
+    Parameters
+    ----------
+    wavelet : str, default='db4'
+        Wavelet family (any pywt-supported wavelet: 'haar', 'db4', 'coif3', 'sym5', etc.).
+    level : int, default=3
+        Decomposition level. Higher = more aggressive smoothing.
+    """
+
+    def __init__(self, wavelet: str = 'db4', level: int = 3):
+        self.wavelet = wavelet
+        self.level = level
+
+    @property
+    def name(self) -> str:
+        return f"wav({self.wavelet},L={self.level})"
+
+    @property
+    def params(self) -> dict:
+        return {"wavelet": self.wavelet, "level": self.level}
+
+    def initialize(self, p: int) -> None:
+        import pywt
+        super().initialize(p)
+        wav_obj = pywt.Wavelet(self.wavelet)
+        # Build the exact orthogonal projection matrix onto the wavelet
+        # approximation subspace. We apply the wavelet approximation to
+        # each basis vector, then use eigendecomposition to construct a
+        # matrix that is exactly symmetric (P^T = P) and idempotent (P^2 = P).
+        padded_len = int(2 ** np.ceil(np.log2(p)))
+        max_level = pywt.dwt_max_level(padded_len, wav_obj.dec_len)
+        actual_level = min(self.level, max_level)
+
+        # Build raw projection matrix: columns are P_raw @ e_i
+        P_raw = np.zeros((p, p), dtype=np.float64)
+        for i in range(p):
+            e_i = np.zeros(padded_len, dtype=np.float64)
+            e_i[i] = 1.0
+            coeffs = pywt.wavedec(e_i, wav_obj, level=actual_level, mode='periodization')
+            coeffs_filtered = [coeffs[0]] + [np.zeros_like(c) for c in coeffs[1:]]
+            rec = pywt.waverec(coeffs_filtered, wav_obj, mode='periodization')
+            P_raw[:, i] = rec[:p]
+
+        # Eigendecomposition of the symmetrized matrix to extract the
+        # projection subspace, then rebuild as an exact orthogonal projector
+        P_sym = 0.5 * (P_raw + P_raw.T)
+        eigenvalues, eigenvectors = np.linalg.eigh(P_sym)
+        # For a projection, eigenvalues are 0 or 1; threshold at 0.5
+        mask = eigenvalues > 0.5
+        U_r = eigenvectors[:, mask]
+        self._P_mat = U_r @ U_r.T
+        self._nu = float(np.sum(mask))  # rank = trace of projection
+
+    def apply(self, X: NDArray) -> NDArray:
+        if X.ndim == 1:
+            return self._P_mat @ X
+        return X @ self._P_mat.T
+
+    def apply_adjoint(self, c: NDArray) -> NDArray:
+        # Self-adjoint: P^T = P
+        return self.apply(c)
+
+    def frobenius_norm_sq(self) -> float:
+        return self._nu
+
+
+class FFTBandpassOperator(LinearOperator):
+    """FFT bandpass filter operator.
+
+    Applies a frequency-domain bandpass filter using FFT. The operator
+    is symmetric (self-adjoint) since the frequency mask is real.
+
+    Useful for isolating specific frequency bands in spectral data:
+    low frequencies capture broad chemical features, high frequencies
+    capture sharp peaks and noise.
+
+    Parameters
+    ----------
+    low_cut : float, default=0.0
+        Lower frequency cutoff as fraction of Nyquist (0.0 = DC).
+    high_cut : float, default=0.5
+        Upper frequency cutoff as fraction of Nyquist (1.0 = Nyquist).
+    """
+
+    def __init__(self, low_cut: float = 0.0, high_cut: float = 0.5):
+        self.low_cut = low_cut
+        self.high_cut = high_cut
+
+    @property
+    def name(self) -> str:
+        return f"FFT({self.low_cut:.2f}-{self.high_cut:.2f})"
+
+    @property
+    def params(self) -> dict:
+        return {"low_cut": self.low_cut, "high_cut": self.high_cut}
+
+    def initialize(self, p: int) -> None:
+        super().initialize(p)
+        # Build frequency mask
+        freqs = np.fft.rfftfreq(p)
+        nyquist = 0.5
+        self._mask = ((freqs >= self.low_cut * nyquist) & (freqs <= self.high_cut * nyquist)).astype(np.float64)
+        # Frobenius norm: for a symmetric frequency filter applied via FFT,
+        # ||A||_F^2 = sum of squared eigenvalues = sum(mask^2) * (p / len(mask)) approximately
+        # More precisely, for real symmetric circulant: trace = sum of eigenvalues
+        self._nu = float(np.sum(self._mask))
+
+    def apply(self, X: NDArray) -> NDArray:
+        if X.ndim == 1:
+            fft_x = np.fft.rfft(X)
+            return np.fft.irfft(fft_x * self._mask, n=self.p_)
+        fft_x = np.fft.rfft(X, axis=-1)
+        return np.fft.irfft(fft_x * self._mask[np.newaxis, :], n=self.p_, axis=-1)
+
+    def apply_adjoint(self, c: NDArray) -> NDArray:
+        # Symmetric: real frequency mask means A^T = A
+        return self.apply(c)
+
+    def frobenius_norm_sq(self) -> float:
+        return self._nu
+
+
 def default_operator_bank() -> list[LinearOperator]:
     """Build the default operator bank for AOM-PLS.
 
@@ -327,24 +601,153 @@ def default_operator_bank() -> list[LinearOperator]:
     operators : list of LinearOperator
         Default operator bank with ~11 operators.
     """
+    savgols = [
+        # SG smoothing
+        SavitzkyGolayOperator(window=11, polyorder=2, deriv=0),
+        SavitzkyGolayOperator(window=15, polyorder=2, deriv=0),
+        SavitzkyGolayOperator(window=21, polyorder=2, deriv=0),
+        SavitzkyGolayOperator(window=31, polyorder=2, deriv=0),
+        # SavitzkyGolayOperator(window=41, polyorder=2, deriv=0),
+
+        # SG 1st derivative (the workhorse of NIRS preprocessing)
+        SavitzkyGolayOperator(window=11, polyorder=2, deriv=1),
+        SavitzkyGolayOperator(window=15, polyorder=2, deriv=1),
+        SavitzkyGolayOperator(window=21, polyorder=2, deriv=1),
+        SavitzkyGolayOperator(window=31, polyorder=2, deriv=1),
+        SavitzkyGolayOperator(window=41, polyorder=2, deriv=1),
+
+        # SG 2nd derivative
+        SavitzkyGolayOperator(window=11, polyorder=2, deriv=2),
+        SavitzkyGolayOperator(window=15, polyorder=2, deriv=2),
+        SavitzkyGolayOperator(window=21, polyorder=2, deriv=2),
+        SavitzkyGolayOperator(window=31, polyorder=2, deriv=2),
+        SavitzkyGolayOperator(window=41, polyorder=2, deriv=2),
+
+        # SG 2nd derivative
+        SavitzkyGolayOperator(window=11, polyorder=3, deriv=2),
+        SavitzkyGolayOperator(window=15, polyorder=3, deriv=2),
+        SavitzkyGolayOperator(window=21, polyorder=3, deriv=2),
+        SavitzkyGolayOperator(window=31, polyorder=3, deriv=2),
+        # SavitzkyGolayOperator(window=41, polyorder=3, deriv=2),
+
+        # # # SavitzkyGolayOperator(window=7, polyorder=3, deriv=2),
+        SavitzkyGolayOperator(window=11, polyorder=3, deriv=1),
+        SavitzkyGolayOperator(window=15, polyorder=3, deriv=1),
+        SavitzkyGolayOperator(window=21, polyorder=3, deriv=1),
+        SavitzkyGolayOperator(window=31, polyorder=3, deriv=1),
+        # SavitzkyGolayOperator(window=41, polyorder=3, deriv=1),
+        FiniteDifferenceOperator(order=1),
+        FiniteDifferenceOperator(order=2),
+        NorrisWilliamsOperator(gap=3, segment=1, deriv=1),
+        NorrisWilliamsOperator(gap=5, segment=1, deriv=1),
+        NorrisWilliamsOperator(gap=11, segment=1, deriv=1),
+        NorrisWilliamsOperator(gap=5, segment=5, deriv=1),
+        NorrisWilliamsOperator(gap=11, segment=5, deriv=1),
+        NorrisWilliamsOperator(gap=5, segment=1, deriv=2),
+        NorrisWilliamsOperator(gap=11, segment=1, deriv=2),
+        NorrisWilliamsOperator(gap=5, segment=5, deriv=2),
+    ]
+
+    DetrendOps = [
+        DetrendProjectionOperator(degree=0),  # mean centering
+        DetrendProjectionOperator(degree=1),  # mean centering
+    ]
+
+    ComposedOps = []
+    for sg in savgols:
+        for dt in DetrendOps:
+            ComposedOps.append(ComposedOperator(first=sg, second=dt))
+
     return [
         # Identity (always included as baseline — recovers standard PLS)
         IdentityOperator(),
-        # SG smoothing
-        SavitzkyGolayOperator(window=11, polyorder=2, deriv=0),
-        SavitzkyGolayOperator(window=21, polyorder=2, deriv=0),
-        # SG 1st derivative (the workhorse of NIRS preprocessing)
-        SavitzkyGolayOperator(window=11, polyorder=2, deriv=1),
-        SavitzkyGolayOperator(window=21, polyorder=2, deriv=1),
-        SavitzkyGolayOperator(window=11, polyorder=3, deriv=1),
-        # SG 2nd derivative
-        SavitzkyGolayOperator(window=11, polyorder=2, deriv=2),
-        SavitzkyGolayOperator(window=21, polyorder=2, deriv=2),
+        # Savitzky-Golay filters (various smoothing and derivative configs)
+        *savgols,
         # Detrend projections
-        DetrendProjectionOperator(degree=0),
-        DetrendProjectionOperator(degree=1),
-        DetrendProjectionOperator(degree=2),
+        DetrendProjectionOperator(degree=0),  # mean centering
+        DetrendProjectionOperator(degree=1),  # linear detrend
+        DetrendProjectionOperator(degree=2),  # quadratic detrend
+        # Composed operators (e.g., SG smoothing + detrend)
+        # NorrisWilliamsOperator(gap=3, segment=1, deriv=1),
+        # NorrisWilliamsOperator(gap=5, segment=1, deriv=1),
+        # NorrisWilliamsOperator(gap=11, segment=1, deriv=1),
+        # NorrisWilliamsOperator(gap=5, segment=5, deriv=1),
+        # NorrisWilliamsOperator(gap=11, segment=5, deriv=1),
+        # NorrisWilliamsOperator(gap=5, segment=1, deriv=2),
+        # NorrisWilliamsOperator(gap=11, segment=1, deriv=2),
+        # NorrisWilliamsOperator(gap=5, segment=5, deriv=2),
+        # FFTBandpassOperator(low_cut=0.0, high_cut=0.1),   # lowpass (baseline + broad features)
+        # FFTBandpassOperator(low_cut=0.0, high_cut=0.25),  # lowpass (chemical bands)
+        # FFTBandpassOperator(low_cut=0.05, high_cut=0.5),  # highpass (remove baseline)
+        # FFTBandpassOperator(low_cut=0.1, high_cut=0.5),   # highpass (sharp features only)
+        # FFTBandpassOperator(low_cut=0.05, high_cut=0.3),  # bandpass (mid-frequency)
+        *ComposedOps,
     ]
+
+
+def extended_operator_bank() -> list[LinearOperator]:
+    """Build an extended operator bank with all available operator families.
+
+    Includes everything from default_operator_bank() plus Norris-Williams
+    gap derivatives, finite differences, wavelet projections, and FFT
+    bandpass filters. Provides broader spectral coverage at the cost of
+    a larger bank (~50+ operators).
+
+    Returns
+    -------
+    operators : list of LinearOperator
+        Extended operator bank.
+    """
+    base = default_operator_bank()
+
+    nw_ops = [
+        # Norris-Williams gap derivatives (different selectivity than SG)
+        NorrisWilliamsOperator(gap=3, segment=1, deriv=1),
+        NorrisWilliamsOperator(gap=5, segment=1, deriv=1),
+        NorrisWilliamsOperator(gap=11, segment=1, deriv=1),
+        NorrisWilliamsOperator(gap=5, segment=5, deriv=1),
+        NorrisWilliamsOperator(gap=11, segment=5, deriv=1),
+        NorrisWilliamsOperator(gap=5, segment=1, deriv=2),
+        NorrisWilliamsOperator(gap=11, segment=1, deriv=2),
+        NorrisWilliamsOperator(gap=5, segment=5, deriv=2),
+    ]
+    DetrendOps = [
+        DetrendProjectionOperator(degree=0),  # mean centering
+    ]
+
+    ComposedOps = []
+    for sg in nw_ops:
+        for dt in DetrendOps:
+            ComposedOps.append(ComposedOperator(first=sg, second=dt))
+
+    fd_ops = [
+        # Finite differences (raw derivatives without SG smoothing)
+        FiniteDifferenceOperator(order=1),
+        FiniteDifferenceOperator(order=2),
+    ]
+
+    wavelet_ops = [
+        # Wavelet approximation projections (multi-resolution smoothing)
+        WaveletProjectionOperator(wavelet='haar', level=2),
+        WaveletProjectionOperator(wavelet='haar', level=4),
+        WaveletProjectionOperator(wavelet='db4', level=2),
+        WaveletProjectionOperator(wavelet='db4', level=4),
+        WaveletProjectionOperator(wavelet='coif3', level=2),
+        WaveletProjectionOperator(wavelet='coif3', level=4),
+        WaveletProjectionOperator(wavelet='sym5', level=2),
+        WaveletProjectionOperator(wavelet='sym5', level=4),
+    ]
+
+    fft_ops = [
+        # FFT bandpass filters (frequency-domain feature isolation)
+        FFTBandpassOperator(low_cut=0.0, high_cut=0.1),   # lowpass (baseline + broad features)
+        FFTBandpassOperator(low_cut=0.0, high_cut=0.25),  # lowpass (chemical bands)
+        FFTBandpassOperator(low_cut=0.05, high_cut=0.5),  # highpass (remove baseline)
+        FFTBandpassOperator(low_cut=0.1, high_cut=0.5),   # highpass (sharp features only)
+        FFTBandpassOperator(low_cut=0.05, high_cut=0.3),  # bandpass (mid-frequency)
+    ]
+
+    return base + nw_ops + fd_ops + fft_ops + ComposedOps + wavelet_ops
 
 
 # =============================================================================
@@ -454,6 +857,112 @@ def _opls_prefilter(X: NDArray, y: NDArray, n_orth: int) -> tuple[NDArray, NDArr
 
 
 # =============================================================================
+# NIPALS Single-Operator Extraction
+# =============================================================================
+
+def _nipals_extract(
+    X: NDArray,
+    Y: NDArray,
+    operator: LinearOperator,
+    n_components: int,
+    eps: float = 1e-12,
+) -> tuple[NDArray, NDArray, NDArray, NDArray, NDArray, int]:
+    """Run K-component NIPALS PLS with a single linear operator.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n, p)
+        Centered X matrix.
+    Y : ndarray of shape (n, q)
+        Centered Y matrix.
+    operator : LinearOperator
+        Operator for weight computation via adjoint trick.
+    n_components : int
+        Maximum components.
+    eps : float
+        Numerical tolerance.
+
+    Returns
+    -------
+    W : ndarray of shape (p, n_extracted)
+    T : ndarray of shape (n, n_extracted)
+    P : ndarray of shape (p, n_extracted)
+    Q : ndarray of shape (q, n_extracted)
+    B_coefs : ndarray of shape (n_extracted, p, q)
+        Prefix regression coefficients.
+    n_extracted : int
+    """
+    n, p = X.shape
+    q = Y.shape[1]
+
+    W = np.zeros((p, n_components), dtype=np.float64)
+    T = np.zeros((n, n_components), dtype=np.float64)
+    P = np.zeros((p, n_components), dtype=np.float64)
+    Q = np.zeros((q, n_components), dtype=np.float64)
+
+    X_res = X.copy()
+    Y_res = Y.copy()
+    n_extracted = 0
+
+    for k in range(n_components):
+        c_k = X_res.T @ Y_res
+        if q == 1:
+            c_k = c_k[:, 0]
+        else:
+            u, s, _ = np.linalg.svd(c_k, full_matrices=False)
+            c_k = u[:, 0] * s[0]
+
+        c_norm = np.linalg.norm(c_k)
+        if c_norm < eps:
+            break
+
+        g = operator.apply_adjoint(c_k)
+        g_norm = np.linalg.norm(g)
+        if g_norm < eps:
+            break
+        w_hat = g / g_norm
+        a_w = operator.apply(w_hat.reshape(1, -1)).ravel()
+        a_w_norm = np.linalg.norm(a_w)
+        if a_w_norm < eps:
+            break
+        w_k = a_w / a_w_norm
+
+        t_k = X_res @ w_k
+        tt = t_k @ t_k
+        if tt < eps:
+            break
+
+        p_k = (X_res.T @ t_k) / tt
+        q_k = (Y_res.T @ t_k) / tt
+
+        W[:, k] = w_k
+        T[:, k] = t_k
+        P[:, k] = p_k
+        Q[:, k] = q_k
+        n_extracted = k + 1
+
+        X_res -= np.outer(t_k, p_k)
+        Y_res -= np.outer(t_k, q_k)
+
+    W = W[:, :n_extracted]
+    T = T[:, :n_extracted]
+    P = P[:, :n_extracted]
+    Q = Q[:, :n_extracted]
+
+    # Compute prefix regression coefficients
+    B_coefs = np.zeros((n_extracted, p, q), dtype=np.float64)
+    for k in range(n_extracted):
+        PtW = P[:, :k + 1].T @ W[:, :k + 1]
+        try:
+            R_k = W[:, :k + 1] @ np.linalg.inv(PtW)
+        except np.linalg.LinAlgError:
+            R_k = W[:, :k + 1] @ np.linalg.pinv(PtW)
+        B_coefs[k] = R_k @ Q[:, :k + 1].T
+
+    return W, T, P, Q, B_coefs, n_extracted
+
+
+# =============================================================================
 # NumPy Backend Implementation
 # =============================================================================
 
@@ -465,17 +974,19 @@ def _aompls_fit_numpy(
     tau: float,
     n_orth: int,
     gate: str,
+    X_val: NDArray | None = None,
+    Y_val: NDArray | None = None,
+    operator_index: int | None = None,
 ) -> dict:
     """Fit AOM-PLS model using NumPy with NIPALS deflation.
 
-    Uses global operator selection: the best operator (or sparse mix) is chosen
-    ONCE from the full cross-covariance c = X^T Y before deflation begins.
-    All NIPALS components then use the same operator, avoiding the compounding
-    selection bias of per-component evaluation on progressively noisier residuals.
+    For hard gating: tries each operator with full K-component NIPALS and
+    selects the best by validation RMSE (if validation data provided) or
+    first-component R² (fallback). This directly evaluates multi-component
+    prediction quality rather than relying on proxy scoring criteria.
 
-    Operator scoring uses normalized adjoint scoring (||A^T c||²/ν) which fairly
-    compares operators of different scales — derivatives can win when they
-    concentrate cross-covariance more effectively relative to their DoF.
+    For sparsemax gating: uses first-component R² scoring for soft mixing,
+    then runs NIPALS with the weighted operator combination.
 
     Guarantees AOM-PLS >= PLS: identity always competes, and if no operator
     genuinely helps, identity wins and AOM-PLS reduces to standard NIPALS PLS.
@@ -496,6 +1007,10 @@ def _aompls_fit_numpy(
         Number of OPLS orthogonal components to pre-filter.
     gate : str
         'hard' for argmax operator selection, 'sparsemax' for soft mixing.
+    X_val : ndarray of shape (n_val, p) or None
+        Centered/scaled validation X (same space as X).
+    Y_val : ndarray of shape (n_val, q) or None
+        Centered/scaled validation Y (same space as Y).
 
     Returns
     -------
@@ -511,116 +1026,195 @@ def _aompls_fit_numpy(
     P_orth = None
     if n_orth > 0:
         X, P_orth, T_orth = _opls_prefilter(X, Y[:, 0] if q == 1 else Y, n_orth)
-
-    # ---- Global operator selection ----
-    # Score operators using full cross-covariance (before any deflation).
-    # This gives the strongest signal for selection and avoids compounding bias.
-    c_0 = X.T @ Y
-    if q == 1:
-        c_0 = c_0[:, 0]
-    else:
-        u0, s0, _ = np.linalg.svd(c_0, full_matrices=False)
-        c_0 = u0[:, 0] * s0[0]
-
-    scores = np.zeros(B, dtype=np.float64)
-    for b, op in enumerate(operators):
-        g_b = op.apply_adjoint(c_0)
-        scores[b] = np.sum(g_b ** 2) / (op.frobenius_norm_sq() + eps)
+        # Apply OPLS to validation data
+        if X_val is not None:
+            X_val = X_val.copy()
+            for j in range(P_orth.shape[1]):
+                p_o = P_orth[:, j]
+                t_o = X_val @ p_o
+                X_val = X_val - np.outer(t_o, p_o)
 
     if gate == "hard":
-        best_b = int(np.argmax(scores))
-        gamma_row = np.zeros(B, dtype=np.float64)
-        gamma_row[best_b] = 1.0
-        selected_ops = [(best_b, 1.0)]
-    else:
-        gamma_row = _sparsemax(scores / (tau * np.max(scores) + eps))
-        selected_ops = [(b, gamma_row[b]) for b in range(B) if gamma_row[b] > eps]
+        has_val = X_val is not None and Y_val is not None and X_val.shape[0] > 0
+        best_k = None  # None = use all components
 
-    # ---- NIPALS with selected operator(s) ----
-    W = np.zeros((p, n_components), dtype=np.float64)
-    T = np.zeros((n, n_components), dtype=np.float64)
-    P = np.zeros((p, n_components), dtype=np.float64)
-    Q = np.zeros((q, n_components), dtype=np.float64)
-    Gamma = np.zeros((n_components, B), dtype=np.float64)
-
-    X_res = X.copy()
-    Y_res = Y.copy()
-
-    n_extracted = 0
-
-    for k in range(n_components):
-        # Cross-covariance direction from residuals
-        c_k = X_res.T @ Y_res
-        if q == 1:
-            c_k = c_k[:, 0]
+        if operator_index is not None:
+            # Operator pre-selected (e.g. by Optuna) — skip selection, just fit
+            best_b = min(operator_index, B - 1)
+        elif has_val:
+            # External validation data — use it for operator + prefix selection
+            best_val_rmse = np.inf
+            best_b = 0
+            for b, op in enumerate(operators):
+                W_b, T_b, P_b, Q_b, B_coefs_b, n_ext = _nipals_extract(X, Y, op, n_components, eps)
+                if n_ext == 0:
+                    continue
+                for k in range(1, n_ext + 1):
+                    y_pred = X_val @ B_coefs_b[k - 1]
+                    rmse = np.sqrt(np.mean((Y_val - y_pred) ** 2))
+                    if rmse < best_val_rmse:
+                        best_val_rmse = rmse
+                        best_b = b
+                        best_k = k
         else:
-            u, s, _ = np.linalg.svd(c_k, full_matrices=False)
-            c_k = u[:, 0] * s[0]
+            # No external help — internal holdout for operator + prefix selection
+            rng = np.random.RandomState(42)
+            n_ho = max(3, n // 5)
+            idx = rng.permutation(n)
+            X_ho_train, X_ho_val = X[idx[n_ho:]], X[idx[:n_ho]]
+            Y_ho_train, Y_ho_val = Y[idx[n_ho:]], Y[idx[:n_ho]]
+            best_val_rmse = np.inf
+            best_b = 0
+            for b, op in enumerate(operators):
+                W_b, T_b, P_b, Q_b, B_coefs_b, n_ext = _nipals_extract(X_ho_train, Y_ho_train, op, n_components, eps)
+                if n_ext == 0:
+                    continue
+                for k in range(1, n_ext + 1):
+                    y_pred = X_ho_val @ B_coefs_b[k - 1]
+                    rmse = np.sqrt(np.mean((Y_ho_val - y_pred) ** 2))
+                    if rmse < best_val_rmse:
+                        best_val_rmse = rmse
+                        best_b = b
+                        best_k = k
 
-        c_norm = np.linalg.norm(c_k)
-        if c_norm < eps:
-            break
+        # Fit with selected operator on ALL data
+        W, T, P, Q, B_coefs, n_extracted = _nipals_extract(X, Y, operators[best_b], n_components, eps)
 
-        # Compute weight using the globally selected operator(s)
-        w_k = np.zeros(p, dtype=np.float64)
-        for b_idx, weight in selected_ops:
-            g_b = operators[b_idx].apply_adjoint(c_k)
+        # Safety: if selected operator couldn't extract, fall back to identity
+        if n_extracted == 0:
+            identity_idx = next((b for b, op in enumerate(operators) if isinstance(op, IdentityOperator)), 0)
+            W, T, P, Q, B_coefs, n_extracted = _nipals_extract(X, Y, operators[identity_idx], n_components, eps)
+            best_b = identity_idx
+            best_k = None
+
+        # Limit to selected prefix count
+        if best_k is not None and best_k < n_extracted:
+            n_extracted = best_k
+            W = W[:, :n_extracted]
+            T = T[:, :n_extracted]
+            P = P[:, :n_extracted]
+            Q = Q[:, :n_extracted]
+            B_coefs = B_coefs[:n_extracted]
+
+        Gamma = np.zeros((n_extracted, B), dtype=np.float64)
+        Gamma[:, best_b] = 1.0
+
+    else:
+        # ---- Sparsemax: R² scoring for soft mixing ----
+        c_0 = X.T @ Y
+        if q == 1:
+            c_0 = c_0[:, 0]
+            y_score = Y[:, 0]
+        else:
+            u0, s0, vt0 = np.linalg.svd(c_0, full_matrices=False)
+            c_0 = u0[:, 0] * s0[0]
+            y_score = Y @ vt0[0]
+
+        y_norm_sq = np.dot(y_score, y_score)
+        scores = np.zeros(B, dtype=np.float64)
+        for b, op in enumerate(operators):
+            g_b = op.apply_adjoint(c_0)
             g_norm = np.linalg.norm(g_b)
             if g_norm < eps:
                 continue
             w_hat_b = g_b / g_norm
-            a_w = operators[b_idx].apply(w_hat_b.reshape(1, -1)).ravel()
+            a_w = op.apply(w_hat_b.reshape(1, -1)).ravel()
             a_w_norm = np.linalg.norm(a_w)
             if a_w_norm < eps:
                 continue
-            w_k += weight * (a_w / a_w_norm)
+            w_b = a_w / a_w_norm
+            t_b = X @ w_b
+            cov_yt = np.dot(y_score, t_b)
+            scores[b] = cov_yt ** 2 / (y_norm_sq * np.dot(t_b, t_b) + eps)
 
-        w_norm = np.linalg.norm(w_k)
-        if w_norm < eps:
-            break
-        w_k = w_k / w_norm
+        gamma_row = _sparsemax(scores / (tau * np.max(scores) + eps))
+        selected_ops = [(b, gamma_row[b]) for b in range(B) if gamma_row[b] > eps]
 
-        Gamma[k] = gamma_row
+        # NIPALS with mixed operators
+        W = np.zeros((p, n_components), dtype=np.float64)
+        T = np.zeros((n, n_components), dtype=np.float64)
+        P = np.zeros((p, n_components), dtype=np.float64)
+        Q = np.zeros((q, n_components), dtype=np.float64)
+        Gamma = np.zeros((n_components, B), dtype=np.float64)
 
-        # NIPALS component
-        t_k = X_res @ w_k
-        tt = t_k @ t_k
-        if tt < eps:
-            break
-        p_k = (X_res.T @ t_k) / tt
-        q_k = (Y_res.T @ t_k) / tt
+        X_res = X.copy()
+        Y_res = Y.copy()
+        n_extracted = 0
 
-        W[:, k] = w_k
-        T[:, k] = t_k
-        P[:, k] = p_k
-        Q[:, k] = q_k
+        for k in range(n_components):
+            c_k = X_res.T @ Y_res
+            if q == 1:
+                c_k = c_k[:, 0]
+            else:
+                u, s, _ = np.linalg.svd(c_k, full_matrices=False)
+                c_k = u[:, 0] * s[0]
 
-        n_extracted = k + 1
+            c_norm = np.linalg.norm(c_k)
+            if c_norm < eps:
+                break
 
-        # NIPALS deflation
-        X_res = X_res - np.outer(t_k, p_k)
-        Y_res = Y_res - np.outer(t_k, q_k)
+            w_k = np.zeros(p, dtype=np.float64)
+            for b_idx, weight in selected_ops:
+                g_b = operators[b_idx].apply_adjoint(c_k)
+                g_norm = np.linalg.norm(g_b)
+                if g_norm < eps:
+                    continue
+                w_hat_b = g_b / g_norm
+                a_w = operators[b_idx].apply(w_hat_b.reshape(1, -1)).ravel()
+                a_w_norm = np.linalg.norm(a_w)
+                if a_w_norm < eps:
+                    continue
+                w_k += weight * (a_w / a_w_norm)
 
-    # Compute prefix regression coefficients
-    B_coefs = np.zeros((n_extracted, p, q), dtype=np.float64)
-    for k in range(n_extracted):
-        W_a = W[:, :k + 1]
-        P_a = P[:, :k + 1]
-        Q_a = Q[:, :k + 1]
-        PtW = P_a.T @ W_a
-        try:
-            R_a = W_a @ np.linalg.inv(PtW)
-        except np.linalg.LinAlgError:
-            R_a = W_a @ np.linalg.pinv(PtW)
-        B_coefs[k] = R_a @ Q_a.T
+            w_norm = np.linalg.norm(w_k)
+            if w_norm < eps:
+                break
+            w_k = w_k / w_norm
+
+            Gamma[k] = gamma_row
+
+            t_k = X_res @ w_k
+            tt = t_k @ t_k
+            if tt < eps:
+                break
+            p_k = (X_res.T @ t_k) / tt
+            q_k = (Y_res.T @ t_k) / tt
+
+            W[:, k] = w_k
+            T[:, k] = t_k
+            P[:, k] = p_k
+            Q[:, k] = q_k
+            n_extracted = k + 1
+
+            X_res -= np.outer(t_k, p_k)
+            Y_res -= np.outer(t_k, q_k)
+
+        W = W[:, :n_extracted]
+        T = T[:, :n_extracted]
+        P = P[:, :n_extracted]
+        Q = Q[:, :n_extracted]
+        Gamma = Gamma[:n_extracted]
+
+        # Compute prefix regression coefficients
+        B_coefs = np.zeros((n_extracted, p, q), dtype=np.float64)
+        for k in range(n_extracted):
+            W_a = W[:, :k + 1]
+            P_a = P[:, :k + 1]
+            Q_a = Q[:, :k + 1]
+            PtW = P_a.T @ W_a
+            try:
+                R_a = W_a @ np.linalg.inv(PtW)
+            except np.linalg.LinAlgError:
+                R_a = W_a @ np.linalg.pinv(PtW)
+            B_coefs[k] = R_a @ Q_a.T
 
     return {
         "n_extracted": n_extracted,
-        "W": W[:, :n_extracted],
-        "T": T[:, :n_extracted],
-        "P": P[:, :n_extracted],
-        "Q": Q[:, :n_extracted],
-        "Gamma": Gamma[:n_extracted],
+        "W": W,
+        "T": T,
+        "P": P,
+        "Q": Q,
+        "Gamma": Gamma,
         "B_coefs": B_coefs,
         "P_orth": P_orth,
     }
@@ -646,11 +1240,11 @@ def _check_torch_available():
 class AOMPLSRegressor(BaseEstimator, RegressorMixin):
     """Adaptive Operator-Mixture PLS regressor.
 
-    Automatically selects the best preprocessing operator (or sparse mix)
-    from a bank of linear operators (SG filters, detrend projections,
-    identity) using normalized adjoint scoring on the full cross-covariance.
-    All PLS components then use the selected operator, combining automatic
-    preprocessing selection with standard NIPALS PLS.
+    Automatically selects the best preprocessing operator from a bank of
+    linear operators (SG filters, detrend projections, identity) by running
+    full NIPALS PLS for each operator and selecting the one with the best
+    validation RMSE. All PLS components use the selected operator, combining
+    automatic preprocessing selection with standard NIPALS PLS.
 
     Guarantees AOM-PLS >= standard PLS: identity always competes in the bank,
     so if no operator genuinely helps, AOM-PLS reduces to NIPALS PLS.
@@ -674,6 +1268,10 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
         Lower values → sparser selection. Range: 0.1–2.0.
     n_orth : int, default=0
         Number of OPLS orthogonal components to pre-filter.
+    operator_index : int or None, default=None
+        If set, skip operator selection and use this operator from the bank.
+        Intended to be tuned by Optuna alongside n_components and n_orth,
+        so the refit inherits the best operator without needing validation data.
     center : bool, default=True
         Whether to center X and Y (subtract mean).
     scale : bool, default=False
@@ -737,6 +1335,7 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
         gate: str = "hard",
         tau: float = 0.5,
         n_orth: int = 0,
+        operator_index: int | None = None,
         center: bool = True,
         scale: bool = False,
         selection: str = "validation",
@@ -748,6 +1347,7 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
         self.gate = gate
         self.tau = tau
         self.n_orth = n_orth
+        self.operator_index = operator_index
         self.center = center
         self.scale = scale
         self.selection = selection
@@ -831,16 +1431,32 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
         if not any(isinstance(op, IdentityOperator) for op in operators):
             operators = [IdentityOperator()] + list(operators)
         self.operators_ = list(operators)
-        for op in self.operators_:
-            op.initialize(n_features)
         self.block_names_ = [op.name for op in self.operators_]
+        if self.operator_index is not None:
+            # Only initialize the selected operator (avoids costly wavelet init)
+            idx = min(self.operator_index, len(self.operators_) - 1)
+            self.operators_[idx].initialize(n_features)
+        else:
+            for op in self.operators_:
+                op.initialize(n_features)
+
+        # Center/scale validation data for operator selection
+        X_val_c = None
+        Y_val_c = None
+        if X_val is not None and y_val is not None:
+            X_v = np.asarray(X_val, dtype=np.float64)
+            y_v = np.asarray(y_val, dtype=np.float64)
+            if self._y_1d and y_v.ndim == 1:
+                y_v = y_v.reshape(-1, 1)
+            X_val_c = (X_v - self.x_mean_) / self.x_std_
+            Y_val_c = (y_v - self.y_mean_) / self.y_std_
 
         # Fit using appropriate backend
         if self.backend == "torch":
             from nirs4all.operators.models.pytorch.aom_pls import aompls_fit_torch
             artifacts = aompls_fit_torch(X_centered, Y_centered, self.operators_, n_comp, self.tau, self.n_orth, self.gate)
         else:
-            artifacts = _aompls_fit_numpy(X_centered, Y_centered, self.operators_, n_comp, self.tau, self.n_orth, self.gate)
+            artifacts = _aompls_fit_numpy(X_centered, Y_centered, self.operators_, n_comp, self.tau, self.n_orth, self.gate, X_val_c, Y_val_c, self.operator_index)
 
         # Unpack artifacts
         self.n_components_ = artifacts["n_extracted"]
@@ -852,8 +1468,13 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
         self._B_coefs = artifacts["B_coefs"]
         self._P_orth = artifacts["P_orth"]
 
-        # Select best prefix via validation or use all
-        self.k_selected_ = self._select_prefix(X_val, y_val)
+        # Prefix selection: hard gate already handles operator + prefix internally
+        # (via validation or internal holdout). Only use external _select_prefix
+        # for sparsemax gate or when operator_index is set with external val data.
+        if self.gate == "hard":
+            self.k_selected_ = self.n_components_
+        else:
+            self.k_selected_ = self._select_prefix(X_val, y_val)
 
         # Store regression coefficients for selected prefix
         if self.n_components_ > 0:
@@ -1010,6 +1631,7 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
             "gate": self.gate,
             "tau": self.tau,
             "n_orth": self.n_orth,
+            "operator_index": self.operator_index,
             "center": self.center,
             "scale": self.scale,
             "selection": self.selection,
