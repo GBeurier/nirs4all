@@ -41,15 +41,14 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+from nirs4all.pipeline.storage.array_store import ArrayStore
 from nirs4all.pipeline.storage.store_queries import (
     CASCADE_DELETE_PIPELINE_CHAINS,
     CASCADE_DELETE_PIPELINE_LOGS,
-    CASCADE_DELETE_PIPELINE_PREDICTION_ARRAYS,
     CASCADE_DELETE_PIPELINE_PREDICTIONS,
     CASCADE_DELETE_RUN_CHAINS,
     CASCADE_DELETE_RUN_LOGS,
     CASCADE_DELETE_RUN_PIPELINES,
-    CASCADE_DELETE_RUN_PREDICTION_ARRAYS,
     CASCADE_DELETE_RUN_PREDICTIONS,
     CASCADE_NULLIFY_CHAIN_PREDICTIONS,
     CLEAR_RUN_PROJECT,
@@ -60,7 +59,6 @@ from nirs4all.pipeline.storage.store_queries import (
     DELETE_GC_ARTIFACTS,
     DELETE_PIPELINE,
     DELETE_PREDICTION,
-    DELETE_PREDICTION_ARRAYS,
     DELETE_PROJECT,
     DELETE_RUN,
     FAIL_PIPELINE,
@@ -74,8 +72,6 @@ from nirs4all.pipeline.storage.store_queries import (
     GET_PIPELINE,
     GET_PIPELINE_LOG,
     GET_PREDICTION,
-    GET_PREDICTION_ARRAYS,
-    GET_PREDICTION_WITH_ARRAYS,
     GET_PROJECT,
     GET_PROJECT_BY_NAME,
     GET_RUN,
@@ -87,7 +83,6 @@ from nirs4all.pipeline.storage.store_queries import (
     INSERT_LOG,
     INSERT_PIPELINE,
     INSERT_PREDICTION,
-    INSERT_PREDICTION_ARRAYS,
     INSERT_PROJECT,
     INSERT_RUN,
     INVALIDATE_DATASET_CACHE,
@@ -224,11 +219,13 @@ class WorkspaceStore:
     SimulationSaver, PipelineWriter, PredictionStorage, ArrayRegistry,
     WorkspaceExporter, and PredictionResolver.
 
-    The store manages two on-disk resources:
+    The store manages three on-disk resources:
 
-    * ``store.duckdb`` -- a single DuckDB database holding seven tables
-      (runs, pipelines, chains, predictions, prediction_arrays, artifacts,
-      logs).
+    * ``store.duckdb`` -- a single DuckDB database for relational metadata
+      (runs, pipelines, chains, predictions, artifacts, logs).
+    * ``arrays/`` -- one Parquet file per dataset containing dense
+      prediction arrays (y_true, y_pred, y_proba, etc.) with Zstd
+      compression.
     * ``artifacts/`` -- a flat, content-addressed directory for binary
       artifacts (fitted models, transformers, etc.).
 
@@ -260,12 +257,20 @@ class WorkspaceStore:
         # Enable WAL mode for concurrent read/write
         self._conn.execute("PRAGMA enable_progress_bar=false")
 
-        # Create schema
-        create_schema(self._conn)
+        # DuckDB connection tuning
+        self._conn.execute("SET memory_limit = '2GB'")
+        self._conn.execute("SET threads = 4")
+        self._conn.execute("SET checkpoint_threshold = '256MB'")
+
+        # Create schema (auto-migrates legacy prediction_arrays if present)
+        create_schema(self._conn, workspace_path=self._workspace_path)
 
         # Ensure artifacts directory exists
         self._artifacts_dir = self._workspace_path / "artifacts"
         self._artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+        # Parquet-backed array storage
+        self._array_store = ArrayStore(self._workspace_path)
 
     @property
     def workspace_path(self) -> Path:
@@ -276,6 +281,11 @@ class WorkspaceStore:
     def degraded(self) -> bool:
         """Whether the store is in degraded mode (writes skipped)."""
         return self._degraded
+
+    @property
+    def array_store(self) -> ArrayStore:
+        """Parquet-backed array storage."""
+        return self._array_store
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -339,10 +349,8 @@ class WorkspaceStore:
         """
         if self._degraded:
             return
-        try:
+        with contextlib.suppress(duckdb.TransactionException):
             self._execute_with_retry(sql, params)
-        except duckdb.TransactionException:
-            pass  # _execute_with_retry already logged and set degraded mode
 
     def _fetch_one(self, sql: str, params: list[object] | None = None) -> dict | None:
         """Execute *sql* and return the first row as a dict, or ``None``."""
@@ -933,7 +941,7 @@ class WorkspaceStore:
         that produced it.
 
         Arrays (y_true, y_pred, etc.) are stored separately via
-        :meth:`save_prediction_arrays`.
+        :attr:`array_store`.
 
         Args:
             pipeline_id: Parent pipeline identifier.
@@ -992,11 +1000,8 @@ class WorkspaceStore:
 
             if existing is not None:
                 # Upsert: delete old row and re-insert.
-                # Using DELETE + INSERT instead of UPDATE avoids DuckDB FK
-                # constraint errors that some versions raise when updating a
-                # row referenced by prediction_arrays.
                 prediction_id = str(existing[0])
-                conn.execute(DELETE_PREDICTION_ARRAYS, [prediction_id])
+                self._array_store.delete_batch({prediction_id})
                 conn.execute(DELETE_PREDICTION, [prediction_id])
             elif prediction_id is not None:
                 # Explicit prediction_id provided — guard against PK collision
@@ -1006,7 +1011,7 @@ class WorkspaceStore:
                     [prediction_id],
                 ).fetchone()
                 if pk_existing is not None:
-                    conn.execute(DELETE_PREDICTION_ARRAYS, [prediction_id])
+                    self._array_store.delete_batch({prediction_id})
                     conn.execute(DELETE_PREDICTION, [prediction_id])
 
             if prediction_id is None:
@@ -1021,58 +1026,6 @@ class WorkspaceStore:
                 exclusion_count, exclusion_rate, refit_context,
             ])
             return prediction_id
-
-    @_retry_on_lock
-    def save_prediction_arrays(
-        self,
-        prediction_id: str,
-        y_true: np.ndarray | None,
-        y_pred: np.ndarray | None,
-        y_proba: np.ndarray | None = None,
-        sample_indices: np.ndarray | None = None,
-        weights: np.ndarray | None = None,
-    ) -> None:
-        """Store the dense arrays associated with a prediction.
-
-        Arrays are stored as native ``DOUBLE[]`` columns in DuckDB,
-        enabling zero-copy Arrow transfer to Polars and efficient
-        columnar compression.
-
-        For classification tasks, ``y_proba`` holds the class-probability
-        matrix (shape ``n_samples x n_classes``), flattened to 1-D for
-        storage with the original shape recorded for reconstruction.
-
-        Args:
-            prediction_id: Prediction identifier returned by
-                :meth:`save_prediction`.
-            y_true: Ground-truth values (1-D array).
-            y_pred: Predicted values (1-D array).
-            y_proba: Class probabilities (2-D array, flattened for
-                storage).  ``None`` for regression tasks.
-            sample_indices: Original dataset indices of the samples in
-                this partition/fold.
-            weights: Per-sample weights, if applicable.
-        """
-        def _to_list(arr: np.ndarray | None) -> list | None:
-            if arr is None:
-                return None
-            return arr.flatten().tolist()
-
-        def _to_int_list(arr: np.ndarray | None) -> list | None:
-            if arr is None:
-                return None
-            return arr.flatten().astype(int).tolist()
-
-        with self._lock:
-            conn = self._ensure_open()
-            conn.execute(INSERT_PREDICTION_ARRAYS, [
-                prediction_id,
-                _to_list(y_true),
-                _to_list(y_pred),
-                _to_list(y_proba),
-                _to_int_list(sample_indices),
-                _to_list(weights),
-            ])
 
     # =====================================================================
     # Artifact storage
@@ -1561,13 +1514,14 @@ class WorkspaceStore:
             prediction_id: Unique prediction identifier.
             load_arrays: If ``True``, the returned dictionary includes
                 ``y_true``, ``y_pred``, ``y_proba``, ``sample_indices``,
-                and ``weights`` as :class:`numpy.ndarray` objects.
+                and ``weights`` as :class:`numpy.ndarray` objects
+                (loaded from the Parquet array store).
                 If ``False`` (default), arrays are omitted for speed.
 
         Returns:
             Prediction dictionary or ``None`` if not found.
         """
-        row = self._fetch_one(GET_PREDICTION_WITH_ARRAYS, [prediction_id]) if load_arrays else self._fetch_one(GET_PREDICTION, [prediction_id])
+        row = self._fetch_one(GET_PREDICTION, [prediction_id])
 
         if row is None:
             return None
@@ -1576,11 +1530,10 @@ class WorkspaceStore:
             row[field] = _from_json(row[field])
 
         if load_arrays:
-            for field in ("y_true", "y_pred", "y_proba", "weights"):
-                if row.get(field) is not None:
-                    row[field] = np.array(row[field], dtype=np.float64)
-            if row.get("sample_indices") is not None:
-                row["sample_indices"] = np.array(row["sample_indices"], dtype=np.int64)
+            arrays = self._array_store.load_single(prediction_id, dataset_name=row.get("dataset_name"))
+            if arrays:
+                for field in ("y_true", "y_pred", "y_proba", "sample_indices", "weights"):
+                    row[field] = arrays.get(field)
 
         return row
 
@@ -1754,39 +1707,6 @@ class WorkspaceStore:
             fold_id=fold_id,
         )
         return self._fetch_pl(sql, params)
-
-    def get_prediction_arrays(
-        self,
-        prediction_id: str,
-    ) -> dict[str, Any] | None:
-        """Retrieve arrays (y_true, y_pred, etc.) for a single prediction.
-
-        Args:
-            prediction_id: Prediction identifier.
-
-        Returns:
-            A dictionary with array fields as :class:`numpy.ndarray`
-            objects, or ``None`` if no arrays exist for this prediction.
-        """
-        row = self._fetch_one(GET_PREDICTION_ARRAYS, [prediction_id])
-        if row is None:
-            return None
-
-        result: dict[str, Any] = {}
-        for field in ("y_true", "y_pred", "y_proba", "weights"):
-            val = row.get(field)
-            if val is not None:
-                result[field] = np.array(val, dtype=np.float64)
-            else:
-                result[field] = None
-
-        val = row.get("sample_indices")
-        if val is not None:
-            result["sample_indices"] = np.array(val, dtype=np.int64)
-        else:
-            result["sample_indices"] = None
-
-        return result
 
     def query_top_aggregated_predictions(
         self,
@@ -2270,27 +2190,24 @@ class WorkspaceStore:
         with self._lock:
             conn = self._ensure_open()
 
+            # Collect prediction_ids for Parquet array deletion
+            pred_ids_result = conn.execute(
+                "SELECT prediction_id FROM predictions WHERE pipeline_id IN "
+                "(SELECT pipeline_id FROM pipelines WHERE run_id = $1)",
+                [run_id],
+            ).fetchall()
+            pred_ids = {row[0] for row in pred_ids_result}
+
             # Count rows that will be deleted
             total = 0
             for table, column in [
                 ("logs", "pipeline_id"),
-                ("prediction_arrays", "prediction_id"),
                 ("predictions", "pipeline_id"),
                 ("chains", "pipeline_id"),
                 ("pipelines", "run_id"),
             ]:
-                if table in ("logs", "prediction_arrays", "predictions", "chains"):
-                    # These cascade through pipelines, so count via join
-                    if table == "prediction_arrays":
-                        sql = (
-                            f"SELECT COUNT(*) AS cnt FROM {table} WHERE prediction_id IN "
-                            f"(SELECT prediction_id FROM predictions WHERE pipeline_id IN "
-                            f"(SELECT pipeline_id FROM pipelines WHERE run_id = $1))"
-                        )
-                    elif table in ("logs", "predictions", "chains"):
-                        sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = $1)"
-                    else:
-                        sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE {column} = $1"
+                if table in ("logs", "predictions", "chains"):
+                    sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = $1)"
                 else:
                     sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE {column} = $1"
                 result = conn.execute(sql, [run_id]).fetchone()
@@ -2304,9 +2221,12 @@ class WorkspaceStore:
             if delete_artifacts:
                 self._decrement_artifact_refs_for_run(run_id)
 
+            # Delete arrays from Parquet store
+            if pred_ids:
+                self._array_store.delete_batch(pred_ids)
+
             # Manual cascade (DuckDB does not support ON DELETE CASCADE).
             # Delete in reverse dependency order.
-            conn.execute(CASCADE_DELETE_RUN_PREDICTION_ARRAYS, [run_id])
             conn.execute(CASCADE_DELETE_RUN_LOGS, [run_id])
             conn.execute(CASCADE_DELETE_RUN_PREDICTIONS, [run_id])
             conn.execute(CASCADE_DELETE_RUN_CHAINS, [run_id])
@@ -2333,9 +2253,34 @@ class WorkspaceStore:
             existing = self._fetch_one(GET_PREDICTION, [prediction_id])
             if existing is None:
                 return False
-            conn.execute(DELETE_PREDICTION_ARRAYS, [prediction_id])
+            self._array_store.delete_batch({prediction_id})
             conn.execute(DELETE_PREDICTION, [prediction_id])
             return True
+
+    def delete_dataset_predictions(self, dataset_name: str) -> int:
+        """Delete all predictions for a dataset and their arrays.
+
+        Args:
+            dataset_name: Dataset whose predictions should be removed.
+
+        Returns:
+            Number of predictions deleted.
+        """
+        with self._lock:
+            conn = self._ensure_open()
+            rows = conn.execute(
+                "SELECT prediction_id FROM predictions WHERE dataset_name = $1",
+                [dataset_name],
+            ).fetchall()
+            pred_ids = {row[0] for row in rows}
+            if not pred_ids:
+                return 0
+
+            # Delete arrays (Parquet file + tombstones)
+            self._array_store.delete_dataset(dataset_name)
+
+            conn.execute("DELETE FROM predictions WHERE dataset_name = $1", [dataset_name])
+            return len(pred_ids)
 
     def cleanup_transient_artifacts(
         self,
@@ -2395,9 +2340,8 @@ class WorkspaceStore:
                     for artifact_id in value:
                         if artifact_id:
                             yield artifact_id
-                elif isinstance(value, str):
-                    if value:
-                        yield value
+                elif isinstance(value, str) and value:
+                    yield value
 
         def _fold_is_protected(
             fold_key: str,

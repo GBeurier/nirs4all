@@ -7,6 +7,7 @@ for buffer/flush, ranking, filtering, and array round-trip operations.
 from __future__ import annotations
 
 import numpy as np
+import polars as pl
 import pytest
 from pathlib import Path
 
@@ -522,3 +523,429 @@ class TestFlushAndQueryStore:
         assert loaded_scores["val"]["rmse"] == 0.15
         assert loaded_scores["val"]["r2"] == 0.85
         assert loaded_scores["test"]["mae"] == 0.14
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — User-Facing API tests
+# ---------------------------------------------------------------------------
+
+def _flush_predictions_to_store(
+    store: WorkspaceStore,
+    pipeline_id: str,
+    chain_id: str,
+    n: int = 10,
+    dataset_name: str = "wheat",
+) -> Predictions:
+    """Create, add, and flush *n* predictions to the store."""
+    preds = Predictions(store=store)
+    for i in range(n):
+        preds.add_prediction(
+            dataset_name=dataset_name,
+            model_name=f"PLS_{i + 1}",
+            model_classname="PLSRegression",
+            fold_id=0,
+            partition="val",
+            y_true=np.array([1.0, 2.0, 3.0, 4.0, 5.0]),
+            y_pred=np.array([1.0, 2.0, 3.0, 4.0, 5.0]) + 0.1 * (i + 1),
+            val_score=0.1 * (i + 1),
+            test_score=0.12 * (i + 1),
+            metric="rmse",
+            task_type="regression",
+            n_samples=5,
+            n_features=100,
+        )
+    preds.flush(pipeline_id=pipeline_id, chain_id=chain_id)
+    return preds
+
+
+class TestPredictionsFromWorkspacePath:
+    """Test Predictions(db_path=workspace_dir)."""
+
+    def test_predictions_from_workspace_path(self, tmp_path):
+        """Predictions('/path/to/workspace') loads predictions."""
+        store = _make_store(tmp_path)
+        pipeline_id, chain_id = _setup_store_hierarchy(store)
+        _flush_predictions_to_store(store, pipeline_id, chain_id, n=5)
+        store.close()
+
+        workspace_dir = tmp_path / "workspace"
+        preds = Predictions(workspace_dir)
+        assert preds.num_predictions == 5
+        assert len(preds.get_models()) == 5
+        preds.close()
+
+    def test_predictions_from_duckdb_file(self, tmp_path):
+        """Predictions.from_file('store.duckdb') works."""
+        store = _make_store(tmp_path)
+        pipeline_id, chain_id = _setup_store_hierarchy(store)
+        _flush_predictions_to_store(store, pipeline_id, chain_id, n=3)
+        store.close()
+
+        db_file = tmp_path / "workspace" / "store.duckdb"
+        preds = Predictions.from_file(db_file)
+        assert preds.num_predictions == 3
+        preds.close()
+
+
+class TestPredictionsFromParquet:
+    """Test Predictions.from_parquet() portable mode."""
+
+    def _write_portable_parquet(self, tmp_path, n: int = 5, dataset_name: str = "wheat") -> Path:
+        """Write a portable Parquet file with *n* rows."""
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        records = []
+        for i in range(n):
+            records.append({
+                "prediction_id": f"pred_{i:04d}",
+                "dataset_name": dataset_name,
+                "model_name": f"PLS_{i + 1}",
+                "fold_id": "0",
+                "partition": "val",
+                "metric": "rmse",
+                "val_score": 0.1 * (i + 1),
+                "task_type": "regression",
+                "y_true": [1.0, 2.0, 3.0],
+                "y_pred": [1.1 + 0.1 * i, 2.1, 3.1],
+                "y_proba": None,
+                "y_proba_shape": None,
+                "sample_indices": None,
+                "weights": None,
+            })
+
+        schema = pa.schema([
+            ("prediction_id", pa.utf8()),
+            ("dataset_name", pa.utf8()),
+            ("model_name", pa.utf8()),
+            ("fold_id", pa.utf8()),
+            ("partition", pa.utf8()),
+            ("metric", pa.utf8()),
+            ("val_score", pa.float64()),
+            ("task_type", pa.utf8()),
+            ("y_true", pa.list_(pa.float64())),
+            ("y_pred", pa.list_(pa.float64())),
+            ("y_proba", pa.list_(pa.float64())),
+            ("y_proba_shape", pa.list_(pa.int32())),
+            ("sample_indices", pa.list_(pa.int32())),
+            ("weights", pa.list_(pa.float64())),
+        ])
+
+        columns = {field.name: [rec[field.name] for rec in records] for field in schema}
+        table = pa.table(columns, schema=schema)
+        path = tmp_path / f"{dataset_name}.parquet"
+        pq.write_table(table, path)
+        return path
+
+    def test_from_parquet(self, tmp_path):
+        """Predictions.from_parquet() loads arrays and metadata."""
+        path = self._write_portable_parquet(tmp_path, n=5)
+        preds = Predictions.from_parquet(path)
+        assert preds.num_predictions == 5
+        assert set(preds.get_models()) == {f"PLS_{i}" for i in range(1, 6)}
+
+        # Check arrays are loaded
+        entry = preds.filter_predictions(model_name="PLS_1")[0]
+        assert entry["y_true"] is not None
+        np.testing.assert_array_almost_equal(entry["y_true"], [1.0, 2.0, 3.0])
+
+    def test_auto_detect_parquet(self, tmp_path):
+        """Predictions('wheat.parquet') auto-detects portable mode."""
+        path = self._write_portable_parquet(tmp_path, n=3)
+        preds = Predictions(path)
+        assert preds.num_predictions == 3
+        assert preds._store is None
+
+    def test_portable_mode_rejects_store_methods(self, tmp_path):
+        """Store-requiring methods raise RuntimeError in portable mode."""
+        path = self._write_portable_parquet(tmp_path, n=2)
+        preds = Predictions.from_parquet(path)
+        with pytest.raises(RuntimeError, match="requires a workspace store"):
+            preds.query("SELECT 1")
+        with pytest.raises(RuntimeError, match="requires a workspace store"):
+            preds.store_stats()
+
+
+class TestMergeStores:
+    """Test Predictions.merge_stores()."""
+
+    def test_merge_stores(self, tmp_path):
+        """Merge 2 workspace stores into a target."""
+        from nirs4all.data.predictions import MergeReport
+
+        # Create source A with 3 predictions
+        store_a = WorkspaceStore(tmp_path / "src_a")
+        pid_a, cid_a = _setup_store_hierarchy(store_a)
+        _flush_predictions_to_store(store_a, pid_a, cid_a, n=3, dataset_name="wheat")
+        store_a.close()
+
+        # Create source B with 2 predictions (different dataset)
+        store_b = WorkspaceStore(tmp_path / "src_b")
+        pid_b, cid_b = _setup_store_hierarchy(store_b, dataset_name="corn")
+        _flush_predictions_to_store(store_b, pid_b, cid_b, n=2, dataset_name="corn")
+        store_b.close()
+
+        target_dir = tmp_path / "target"
+        report = Predictions.merge_stores(
+            sources=[tmp_path / "src_a", tmp_path / "src_b"],
+            target=target_dir,
+        )
+
+        assert isinstance(report, MergeReport)
+        assert report.total_sources == 2
+        assert report.predictions_merged == 5
+        assert set(report.datasets_merged) == {"wheat", "corn"}
+
+        # Verify target has all predictions
+        with Predictions(target_dir) as p:
+            assert p.num_predictions == 5
+
+    def test_merge_with_dataset_filter(self, tmp_path):
+        """merge_stores with datasets filter only merges requested datasets."""
+        store_a = WorkspaceStore(tmp_path / "src_a")
+        pid_a, cid_a = _setup_store_hierarchy(store_a)
+        _flush_predictions_to_store(store_a, pid_a, cid_a, n=3, dataset_name="wheat")
+        store_a.close()
+
+        store_b = WorkspaceStore(tmp_path / "src_b")
+        pid_b, cid_b = _setup_store_hierarchy(store_b, dataset_name="corn")
+        _flush_predictions_to_store(store_b, pid_b, cid_b, n=2, dataset_name="corn")
+        store_b.close()
+
+        target_dir = tmp_path / "target"
+        report = Predictions.merge_stores(
+            sources=[tmp_path / "src_a", tmp_path / "src_b"],
+            target=target_dir,
+            datasets=["wheat"],
+        )
+
+        assert report.predictions_merged == 3
+        assert report.datasets_merged == ["wheat"]
+
+
+class TestCleanDeadLinks:
+    """Test clean_dead_links maintenance helper."""
+
+    def test_clean_dead_links_dry_run(self, tmp_path):
+        """clean_dead_links dry_run reports without deleting."""
+        store = _make_store(tmp_path)
+        pipeline_id, chain_id = _setup_store_hierarchy(store)
+        _flush_predictions_to_store(store, pipeline_id, chain_id, n=5)
+
+        preds = Predictions(store=store)
+        result = preds.clean_dead_links(dry_run=True)
+        # No orphans expected in a healthy store
+        assert result["metadata_orphans_removed"] == 0
+        assert result["array_orphans_found"] == 0
+        store.close()
+
+
+class TestRemoveBottom:
+    """Test remove_bottom maintenance helper."""
+
+    def test_remove_bottom_20_percent(self, tmp_path):
+        """remove_bottom(0.2) removes the worst 20% of predictions."""
+        store = _make_store(tmp_path)
+        pipeline_id, chain_id = _setup_store_hierarchy(store)
+        _flush_predictions_to_store(store, pipeline_id, chain_id, n=10)
+
+        preds = Predictions(store=store)
+        result = preds.remove_bottom(0.2, metric="val_score")
+
+        assert result["removed"] == 2
+        assert result["remaining"] == 8
+        assert result["threshold_score"] is not None
+
+        # Verify store has 8 remaining
+        df = store.query_predictions()
+        assert len(df) == 8
+        store.close()
+
+
+class TestRemoveDataset:
+    """Test remove_dataset maintenance helper."""
+
+    def test_remove_dataset(self, tmp_path):
+        """remove_dataset removes all predictions for a dataset."""
+        store = _make_store(tmp_path)
+        pipeline_id, chain_id = _setup_store_hierarchy(store)
+        _flush_predictions_to_store(store, pipeline_id, chain_id, n=5, dataset_name="wheat")
+
+        # Add corn predictions
+        pid2, cid2 = _setup_store_hierarchy(store, dataset_name="corn")
+        _flush_predictions_to_store(store, pid2, cid2, n=3, dataset_name="corn")
+
+        preds = Predictions(store=store)
+
+        # Verify both datasets exist
+        df_before = store.query_predictions()
+        assert len(df_before) == 8
+
+        result = preds.remove_dataset("wheat")
+        assert result["predictions_removed"] == 5
+        assert result["parquet_deleted"] is True
+
+        # Verify only corn remains
+        df_after = store.query_predictions()
+        assert len(df_after) == 3
+        assert all(row == "corn" for row in df_after["dataset_name"].to_list())
+        store.close()
+
+    def test_remove_dataset_dry_run(self, tmp_path):
+        """remove_dataset dry_run reports without deleting."""
+        store = _make_store(tmp_path)
+        pipeline_id, chain_id = _setup_store_hierarchy(store)
+        _flush_predictions_to_store(store, pipeline_id, chain_id, n=5)
+
+        preds = Predictions(store=store)
+        result = preds.remove_dataset("wheat", dry_run=True)
+        assert result["predictions_removed"] == 5
+        assert result["parquet_deleted"] is True
+
+        # Verify nothing was deleted
+        df = store.query_predictions()
+        assert len(df) == 5
+        store.close()
+
+
+class TestRemoveRun:
+    """Test remove_run maintenance helper."""
+
+    def test_remove_run(self, tmp_path):
+        """remove_run removes a run and all its descendants."""
+        store = _make_store(tmp_path)
+        run_id = store.begin_run(
+            "test_run",
+            config={"metric": "rmse"},
+            datasets=[{"name": "wheat"}],
+        )
+        pipeline_id = store.begin_pipeline(
+            run_id=run_id,
+            name="0001_pls_test",
+            expanded_config=[{"model": "PLSRegression"}],
+            generator_choices=[],
+            dataset_name="wheat",
+            dataset_hash="abc123",
+        )
+        chain_id = store.save_chain(
+            pipeline_id=pipeline_id,
+            steps=[{"step_idx": 0, "operator_class": "PLSRegression", "params": {}, "artifact_id": None, "stateless": False}],
+            model_step_idx=0,
+            model_class="sklearn.cross_decomposition.PLSRegression",
+            preprocessings="",
+            fold_strategy="per_fold",
+            fold_artifacts={},
+            shared_artifacts={},
+        )
+
+        _flush_predictions_to_store(store, pipeline_id, chain_id, n=3)
+
+        preds = Predictions(store=store)
+        result = preds.remove_run(run_id)
+        assert result["rows_removed"] > 0
+
+        # Verify predictions are gone
+        df = store.query_predictions()
+        assert len(df) == 0
+        store.close()
+
+
+class TestCompact:
+    """Test compact() maintenance helper."""
+
+    def test_compact(self, tmp_path):
+        """compact() applies tombstones and deduplicates."""
+        store = _make_store(tmp_path)
+        pipeline_id, chain_id = _setup_store_hierarchy(store)
+        _flush_predictions_to_store(store, pipeline_id, chain_id, n=5)
+
+        # Delete 2 predictions to create tombstones
+        df = store.query_predictions()
+        pids = df["prediction_id"].to_list()
+        store.delete_prediction(pids[0])
+        store.delete_prediction(pids[1])
+
+        preds = Predictions(store=store)
+        stats = preds.compact()
+
+        assert "wheat" in stats
+        assert stats["wheat"]["rows_removed"] >= 2
+        store.close()
+
+
+class TestStoreStats:
+    """Test store_stats() helper."""
+
+    def test_store_stats(self, tmp_path):
+        """store_stats() returns combined DuckDB + Parquet stats."""
+        store = _make_store(tmp_path)
+        pipeline_id, chain_id = _setup_store_hierarchy(store)
+        _flush_predictions_to_store(store, pipeline_id, chain_id, n=5)
+
+        preds = Predictions(store=store)
+        stats = preds.store_stats()
+
+        assert "db_file_bytes" in stats
+        assert stats["db_file_bytes"] > 0
+        assert "tables" in stats
+        assert stats["tables"]["predictions"] == 5
+        assert stats["tables"]["runs"] == 1
+        assert "arrays" in stats
+        assert stats["arrays"]["total_rows"] == 5
+        store.close()
+
+
+class TestQuerySQL:
+    """Test query() method."""
+
+    def test_query_sql(self, tmp_path):
+        """query() runs arbitrary SQL and returns Polars DataFrame."""
+        store = _make_store(tmp_path)
+        pipeline_id, chain_id = _setup_store_hierarchy(store)
+        _flush_predictions_to_store(store, pipeline_id, chain_id, n=5)
+
+        preds = Predictions(store=store)
+        result = preds.query("SELECT COUNT(*) AS cnt FROM predictions")
+        assert isinstance(result, pl.DataFrame)
+        assert result["cnt"][0] == 5
+
+        # More complex query
+        result2 = preds.query("SELECT dataset_name, COUNT(*) AS n FROM predictions GROUP BY dataset_name")
+        assert len(result2) == 1
+        assert result2["n"][0] == 5
+        store.close()
+
+
+class TestContextManager:
+    """Test context manager protocol."""
+
+    def test_context_manager(self, tmp_path):
+        """with Predictions(path) as p: works and closes store."""
+        store = _make_store(tmp_path)
+        pipeline_id, chain_id = _setup_store_hierarchy(store)
+        _flush_predictions_to_store(store, pipeline_id, chain_id, n=3)
+        store.close()
+
+        workspace_dir = tmp_path / "workspace"
+        with Predictions(workspace_dir) as p:
+            assert p.num_predictions == 3
+            assert p._store is not None
+            assert p._owns_store is True
+
+        # After exiting, store should be closed
+        assert p._store is None
+        assert p._owns_store is False
+
+    def test_context_manager_no_store(self):
+        """Context manager works in memory-only mode too."""
+        with Predictions() as p:
+            p.add_prediction(
+                dataset_name="wheat",
+                model_name="PLS",
+                fold_id=0,
+                partition="val",
+                metric="rmse",
+                task_type="regression",
+            )
+            assert p.num_predictions == 1
+        # No crash — close is a no-op when no store
