@@ -38,6 +38,8 @@ Different models have different strengths:
 | Family | Models | Strengths |
 |--------|--------|-----------|
 | **Linear** | PLS, Ridge, Lasso, ElasticNet | Handles collinearity, interpretable |
+| **Adaptive PLS** | AOM-PLS, POP-PLS | Auto-selects preprocessing, no manual tuning |
+| **Specialized PLS** | OPLS, DiPLS, MBPLS, IKPLS, FCKPLS | Domain-specific PLS extensions |
 | **Tree-based** | RandomForest, GradientBoosting, ExtraTrees | Handles non-linearity, feature importance |
 | **Other** | SVR, KNeighbors | Local patterns, non-parametric |
 

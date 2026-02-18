@@ -32,9 +32,11 @@ NIRS4ALL bridges the gap between spectroscopic data and machine learning by prov
 
 ### Key Features
 
-- **NIRS-Specific Preprocessing** — SNV, MSC, Savitzky-Golay, derivatives, and 25+ spectral transforms
+- **NIRS-Specific Preprocessing** — SNV, MSC, Savitzky-Golay, Norris-Williams, wavelet denoise, OSC/EPO, and 30+ spectral transforms
+- **Advanced PLS Models** — AOM-PLS, POP-PLS, OPLS, DiPLS, MBPLS, and 15+ PLS variants with automatic operator selection
 - **Multi-Backend ML** — Seamless integration with scikit-learn, TensorFlow, PyTorch, and JAX
 - **Declarative Pipelines** — Define complex workflows with simple, readable syntax
+- **Parallel Execution** — Multi-core pipeline variant execution via joblib
 - **Hyperparameter Tuning** — Built-in Optuna integration for automated optimization
 - **Rich Visualizations** — Performance heatmaps, candlestick plots, SHAP explanations
 - **Model Deployment** — Export trained pipelines as portable `.n4a` bundles
@@ -247,15 +249,19 @@ pipeline = [
 
 ## Available Transforms
 
-### NIRS-Specific
+### NIRS-Specific Preprocessing
 
 | Transform | Description |
 |-----------|-------------|
 | `SNV` / `StandardNormalVariate` | Standard Normal Variate normalization |
-| `RNV` / `RobustNormalVariate` | Robust Normal Variate (outlier-resistant) |
+| `RNV` / `RobustStandardNormalVariate` | Robust Normal Variate (outlier-resistant) |
 | `MSC` / `MultiplicativeScatterCorrection` | Multiplicative Scatter Correction |
 | `SavitzkyGolay` | Smoothing and derivative computation |
 | `FirstDerivative` / `SecondDerivative` | Spectral derivatives |
+| `NorrisWilliams` | Gap derivative with segment smoothing |
+| `WaveletDenoise` | Multi-level wavelet denoising with thresholding |
+| `OSC` | Orthogonal Signal Correction (DOSC) |
+| `EPO` | External Parameter Orthogonalization |
 | `Detrend` | Remove linear/polynomial trends |
 | `Gaussian` | Gaussian smoothing |
 | `Haar` | Haar wavelet decomposition |
@@ -264,20 +270,37 @@ pipeline = [
 
 | Transform | Description |
 |-----------|-------------|
-| `Baseline` | Baseline correction |
+| `Baseline` | Baseline correction (ALS, AirPLS, ArPLS, IModPoly, SNIP, etc.) |
 | `ReflectanceToAbsorbance` | Convert R to A using Beer-Lambert |
+| `ToAbsorbance` / `FromAbsorbance` | Signal type conversion |
+| `KubelkaMunk` | Kubelka-Munk transform |
 | `Resampler` | Wavelength interpolation |
 | `CARS` / `MCUVE` | Feature selection methods |
+
+### Built-in NIRS Models
+
+| Model | Description |
+|-------|-------------|
+| `AOMPLSRegressor` / `AOMPLSClassifier` | Adaptive Operator-Mixture PLS — auto-selects best preprocessing |
+| `POPPLSRegressor` / `POPPLSClassifier` | Per-Operator-Per-component PLS via PRESS |
+| `PLSDA` | PLS Discriminant Analysis |
+| `OPLS` / `OPLSDA` | Orthogonal PLS |
+| `MBPLS` | Multi-Block PLS |
+| `DiPLS` | Domain-Invariant PLS |
+| `IKPLS` | Improved Kernel PLS |
+| `FCKPLS` | Fractional Convolution Kernel PLS |
 
 ### Splitting Methods
 
 | Splitter | Description |
 |----------|-------------|
-| `KennardStone` | Kennard-Stone algorithm |
-| `SPXY` | Sample set Partitioning based on X and Y |
-| `KMeansSplit` | K-means clustering based split |
+| `KennardStoneSplitter` | Kennard-Stone algorithm |
+| `SPXYSplitter` | Sample set Partitioning based on X and Y |
+| `SPXYFold` / `SPXYGFold` | SPXY-based K-Fold cross-validation (with group support) |
+| `KMeansSplitter` | K-means clustering based split |
+| `KBinsStratifiedSplitter` | Binned stratification for continuous targets |
 
-See [Preprocessing Guide](docs/user_guide/preprocessing.md) for complete reference.
+See [Preprocessing Guide](docs/source/user_guide/preprocessing/) for complete reference.
 
 ---
 
@@ -342,7 +365,7 @@ If you use NIRS4ALL in your research, please cite:
   author = {Gregory Beurier and Denis Cornet and Lauriane Rouan},
   title = {NIRS4ALL: Open spectroscopy for everyone},
   url = {https://github.com/GBeurier/nirs4all},
-  version = {0.6.2},
+  version = {0.8.0},
   year = {2026},
 }
 ```

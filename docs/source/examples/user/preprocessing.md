@@ -15,6 +15,8 @@ This section covers NIRS-specific preprocessing techniques, from basic transform
 | [U02](#u02-feature-augmentation) | Feature Augmentation | ★★☆☆☆ | ~3 min |
 | [U03](#u03-sample-augmentation) | Sample Augmentation | ★★☆☆☆ | ~3 min |
 | [U04](#u04-signal-conversion) | Signal Conversion | ★★☆☆☆ | ~2 min |
+| [U05](#u05-orthogonalization) | Orthogonalization (OSC, EPO) | ★★★☆☆ | ~3 min |
+| [U06](#u06-wavelet-denoise) | Wavelet Denoising | ★★★☆☆ | ~3 min |
 
 ---
 
@@ -108,14 +110,42 @@ Gaussian(sigma=2)
 SavitzkyGolay(window_length=11, polyorder=2, deriv=0)
 ```
 
-#### 🌊 Wavelet Transforms
+#### 🌊 Wavelet Transforms & Denoising
 
-Multi-resolution analysis:
+Multi-resolution analysis and noise reduction:
 
 ```python
-from nirs4all.operators.transforms import Haar
+from nirs4all.operators.transforms import Haar, WaveletDenoise
 
 Haar()  # Haar wavelet transform
+
+# Wavelet denoising with thresholding
+WaveletDenoise(wavelet='db4', level=3, threshold_mode='soft')
+```
+
+#### 🔄 Orthogonalization
+
+Remove unwanted spectral variation:
+
+```python
+from nirs4all.operators.transforms import OSC, EPO
+
+# Orthogonal Signal Correction
+OSC(n_components=2)
+
+# External Parameter Orthogonalization
+EPO(n_components=3)
+```
+
+#### 📏 Gap Derivatives
+
+Noise-robust derivatives via segment smoothing:
+
+```python
+from nirs4all.operators.transforms import NorrisWilliams
+
+# Norris-Williams gap derivative
+NorrisWilliams(gap=5, segment=5, deriv=1)
 ```
 
 ### Combining Preprocessing Steps
@@ -340,6 +370,81 @@ pipeline = [
 | Transmittance (T) | I/I₀ | 0-1 |
 
 Most NIRS preprocessing methods expect **absorbance** data.
+
+---
+
+## U05: Orthogonalization
+
+**Orthogonal Signal Correction (OSC) and External Parameter Orthogonalization (EPO).**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/user/03_preprocessing/U05_orthogonalization.py)
+
+### What You'll Learn
+
+- Removing Y-orthogonal variation with OSC
+- Removing external parameter influence with EPO
+- When to use orthogonalization vs. standard preprocessing
+
+### Orthogonalization Methods
+
+```python
+from nirs4all.operators.transforms import OSC, EPO
+
+# OSC: Remove variation in X that is orthogonal to Y
+pipeline = [
+    OSC(n_components=2),
+    PLSRegression(n_components=10)
+]
+
+# EPO: Remove influence of external parameters
+pipeline = [
+    EPO(n_components=3),
+    PLSRegression(n_components=10)
+]
+```
+
+| Method | How it Works | When to Use |
+|--------|--------------|-------------|
+| **OSC** | Removes spectral variation uncorrelated with target | Improve model interpretability |
+| **EPO** | Removes influence of known external factors | Temperature, humidity corrections |
+
+---
+
+## U06: Wavelet Denoise
+
+**Multi-level wavelet denoising for spectral data.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/user/03_preprocessing/U06_wavelet_denoise.py)
+
+### What You'll Learn
+
+- Wavelet decomposition for denoising
+- Choosing wavelet family and decomposition level
+- Soft vs hard thresholding
+
+### Wavelet Denoising
+
+```python
+from nirs4all.operators.transforms import WaveletDenoise
+
+# Basic wavelet denoising
+WaveletDenoise(wavelet='db4', level=3)
+
+# Fine-tuned denoising
+WaveletDenoise(
+    wavelet='sym8',           # Wavelet family
+    level=4,                  # Decomposition level
+    threshold_mode='soft',    # 'soft' or 'hard' thresholding
+    noise_estimator='median'  # 'median' (robust) or 'std'
+)
+```
+
+| Parameter | Options | Description |
+|-----------|---------|-------------|
+| `wavelet` | `'db4'`, `'sym8'`, `'coif3'`, `'haar'` | Wavelet family |
+| `level` | Integer | Decomposition level (higher = lower frequencies) |
+| `threshold_mode` | `'soft'`, `'hard'` | Thresholding strategy |
+| `noise_estimator` | `'median'`, `'std'` | Noise level estimation method |
 
 ---
 

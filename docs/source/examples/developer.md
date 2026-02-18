@@ -461,6 +461,36 @@ class MyController(OperatorController):
         return context, output
 ```
 
+### D03: Cache Performance
+
+**Step-level caching and performance benchmarks.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/06_internals/D03_cache_performance.py)
+
+### D04: Parallel Branches
+
+**Parallel execution of pipeline variant branches.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/06_internals/D04_parallel_branches.py)
+
+```python
+# Parallel variant execution via n_jobs
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset=dataset,
+    n_jobs=-1,   # Use all cores
+    verbose=1,
+)
+```
+
+Uses `joblib.Parallel` with loky backend. Workers execute pipeline variants independently with store isolation to avoid DB lock conflicts.
+
+### D05: Binary Search Sampler
+
+**Efficient hyperparameter search with binary search sampling.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/06_internals/D05_binary_search_sampler.py)
+
 ---
 
 ## Running Developer Examples

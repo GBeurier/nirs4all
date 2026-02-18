@@ -1,7 +1,7 @@
 # Backlog: Option A — Hybrid DuckDB + Parquet Storage
 
 **Date**: 2026-02-18
-**Status**: Draft — Pending team approval
+**Status**: Implemented — Merged in DuckDB refactoring commits
 **Source**: `predictions_storage_analysis_2026-02-18.md` + production readiness review
 **Scope**: `nirs4all/data/predictions.py`, `nirs4all/pipeline/storage/`
 

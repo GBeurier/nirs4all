@@ -434,7 +434,7 @@ class TestExecuteSimpleRefit:
             generator_choices=[],
             pipeline_id="test-pipeline-id",
             metric="rmse",
-            best_score=0.05,
+            selection_score=0.05,
         )
 
     def _make_mock_executor(self) -> MagicMock:
@@ -1031,7 +1031,7 @@ class TestRefitAggregation:
             predictions=preds,
         )
 
-        assert "RMSE*" in summary
+        assert "RMSEP*" in summary
 
     def test_per_model_summary_without_aggregation(self):
         """generate_per_model_summary works without aggregation (backward compat)."""
@@ -1055,8 +1055,8 @@ class TestRefitAggregation:
         )
 
         # Should produce a valid table without aggregated column
-        assert "RMSE" in summary
-        assert "RMSE*" not in summary
+        assert "RMSEP" in summary
+        assert "RMSEP*" not in summary
 
 
 # =========================================================================
@@ -1238,21 +1238,23 @@ class TestExtractTopConfigs:
         assert pipeline_ids[1] in selected_pids
         store.close()
 
-    def test_multiple_criteria_deduplicates(self, tmp_path):
-        """Multiple criteria union and deduplicate pipeline IDs."""
+    def test_multiple_criteria_selects_unique_models(self, tmp_path):
+        """Multiple criteria select sum(top_k) unique models (no overlap)."""
         from nirs4all.pipeline.execution.refit.config_extractor import extract_top_configs
 
         store, run_id, pipeline_ids = self._setup_store_with_pipelines(tmp_path)
 
-        # Both criteria should pick pipeline_0 (lowest RMSE), but it should appear only once
+        # Each criterion independently fills its quota by skipping already-selected models.
+        # Two criteria with top_k=1 each yield 2 unique models.
         criteria = [
             RefitCriterion(top_k=1, ranking="rmsecv"),
             RefitCriterion(top_k=1, ranking="rmsecv"),
         ]
         configs = extract_top_configs(store, run_id, criteria, dataset_name="ds")
 
-        assert len(configs) == 1  # Deduplicated
-        assert configs[0].pipeline_id == pipeline_ids[0]
+        assert len(configs) == 2  # sum(top_k) unique models
+        assert configs[0].pipeline_id == pipeline_ids[0]  # Best
+        assert configs[1].pipeline_id == pipeline_ids[1]  # Second best
         store.close()
 
     def test_empty_criteria_returns_empty(self, tmp_path):
@@ -1303,7 +1305,7 @@ class TestExtractTopConfigs:
         config = configs[0]
         assert config.pipeline_id == pipeline_ids[0]
         assert config.metric == "rmse"
-        assert config.best_score == pytest.approx(0.10)
+        assert config.selection_score == pytest.approx(0.10)
         assert config.config_name == "pipeline_0"
         assert len(config.expanded_steps) == 3
         store.close()

@@ -53,7 +53,7 @@ nirs4all is a spectroscopy-first ML/DL orchestration library. It is not simply a
 - a rich dataset abstraction (`SpectroDataset`)
 - a controller-based pipeline engine
 - operator families across preprocessing, filtering, and modeling
-- a DuckDB-backed workspace persistence layer
+- a hybrid DuckDB + Parquet workspace persistence layer
 - export and replay capabilities
 - both Python API and CLI usage surfaces
 
@@ -81,9 +81,10 @@ flowchart TD
     F --> N[WorkspaceStore]
     N --> O[store.duckdb]
     N --> P[artifacts/]
+    N --> Q[arrays/]
 ```
 
-The execution core is controller-driven. The data core is dataset and index-driven. The persistence core is DuckDB plus content-addressed artifact files.
+The execution core is controller-driven. The data core is dataset and index-driven. The persistence core is hybrid DuckDB + Parquet with content-addressed artifact files.
 
 ---
 
@@ -117,7 +118,7 @@ The most important objects are:
 | `RuntimeContext` | Infrastructure wiring (store, artifact registry, trace, cache) |
 | `OperatorController` | Behavior adapter between abstract steps and execution |
 | `Predictions` | Accumulated prediction records with arrays and metrics |
-| `WorkspaceStore` | DuckDB-backed persistence facade |
+| `WorkspaceStore` | Hybrid DuckDB + Parquet persistence facade |
 
 Each owns a distinct concern. Execution frequently crosses object boundaries.
 
@@ -694,7 +695,10 @@ A workspace is initialized with:
 
 ```
 workspace/
-├── store.duckdb          # DuckDB database (runs, chains, predictions, artifacts metadata)
+├── store.duckdb          # DuckDB database (runs, chains, predictions metadata)
+├── arrays/               # Prediction arrays (Parquet sidecar files per dataset)
+│   ├── wheat.parquet
+│   └── corn.parquet
 ├── artifacts/            # Content-addressed binary files (hash-sharded)
 │   ├── ab/abc123...joblib
 │   └── ...
@@ -704,9 +708,9 @@ workspace/
 
 Note: `figures/`, `outputs/`, and `logs/` directories may also be created during execution for chart outputs, step outputs, and log files respectively.
 
-### 4.4 Store-First Architecture
+### 4.4 Hybrid Storage Architecture
 
-Structured runtime data lives in DuckDB (file: `store.duckdb`). The DB is the source of truth for runs and predictions, avoiding scattered manifest files and simplifying query/ranking workflows.
+The workspace uses a hybrid DuckDB + Parquet architecture. Structured metadata lives in DuckDB (`store.duckdb`), while dense prediction arrays are stored in per-dataset Parquet sidecar files under `arrays/`. This separation enables efficient I/O and Zstd compression for large arrays.
 
 ### 4.5 Core Store Tables
 
@@ -716,9 +720,11 @@ Structured runtime data lives in DuckDB (file: `store.duckdb`). The DB is the so
 | `pipelines` | Per-variant execution metadata |
 | `chains` | Replayable step-to-artifact mappings |
 | `predictions` | Scalar metrics and identifiers |
-| `prediction_arrays` | Dense arrays (y_true, y_pred, y_proba) |
 | `artifacts` | Binary metadata and content hash references |
 | `logs` | Structured step events |
+| `projects` | Project grouping for runs |
+
+Dense prediction arrays (y_true, y_pred, y_proba, sample_indices, weights) are stored in per-dataset Parquet files managed by `ArrayStore`.
 
 Together these capture full runtime provenance and power analysis and replay.
 
@@ -1301,7 +1307,7 @@ More workflow flexibility means more routing complexity. More backend support me
 | `session` | Reusable runtime container for multiple operations |
 | `signal type` | Physical interpretation of spectral values (absorbance, reflectance, etc.) |
 | `step cache` | Cache for reusing preprocessing results across generator variants |
-| `store` | DuckDB-backed workspace persistence (`store.duckdb`) |
+| `store` | Hybrid DuckDB + Parquet workspace persistence (`store.duckdb` + `arrays/`) |
 | `tag` | Computed sample annotation stored in index space |
 | `task type` | `regression`, `binary_classification`, or `multiclass_classification` |
 | `template library` | Workspace-managed reusable pipeline configuration repository |
@@ -1356,10 +1362,12 @@ flowchart TD
     A --> C[pipelines]
     A --> D[chains]
     A --> E[predictions]
-    A --> F[prediction_arrays]
+    A --> F[projects]
     A --> G[artifacts table]
     A --> H[logs]
     G --> I[artifacts/ directory]
+    J[arrays/] --> J1[wheat.parquet]
+    J --> J2[corn.parquet]
     D --> G
     E --> D
     C --> E

@@ -398,13 +398,15 @@ def _relabel_refit_predictions(
     for entry in predictions._buffer:
         entry["fold_id"] = "final"
         entry["refit_context"] = REFIT_CONTEXT_STANDALONE
-        # Refit has no validation set — clear the spurious 0.0 val_score
-        # produced by ScoreCalculator on empty partitions.
-        entry["val_score"] = None
         # Inject the CV selection score so final entries can be ranked
         # in mix mode by their originating chain's selection score.
+        # Also set val_score to selection_score (the CV-based score that
+        # selected this config) so consumer code sees a meaningful value.
         if refit_config is not None and refit_config.selection_score:
             entry["selection_score"] = refit_config.selection_score
+            entry["val_score"] = refit_config.selection_score
+        else:
+            entry["val_score"] = None
         if refit_metadata:
             existing = entry.get("metadata") or {}
             existing.update(refit_metadata)

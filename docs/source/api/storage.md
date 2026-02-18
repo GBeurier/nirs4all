@@ -1,9 +1,9 @@
 # Storage API Reference
 
-**Version**: 4.0
+**Version**: 5.0
 **Status**: Implemented
 
-This document provides the API reference for the nirs4all storage system, centered on the DuckDB-backed `WorkspaceStore`.
+This document provides the API reference for the nirs4all storage system, which uses a hybrid DuckDB + Parquet architecture.
 
 ## Module: `nirs4all.pipeline.storage`
 
@@ -16,10 +16,12 @@ class WorkspaceStore:
     """Database-backed workspace storage.
 
     Central storage facade for all workspace data: runs, pipelines, chains,
-    predictions, prediction arrays, artifacts, and structured execution logs.
+    predictions, artifacts, and structured execution logs.
 
-    Manages two on-disk resources:
-    - store.duckdb: A single DuckDB database with 7 tables
+    Manages three on-disk resources:
+    - store.duckdb: DuckDB database with 7 tables (runs, pipelines, chains,
+      predictions, artifacts, logs, projects)
+    - arrays/: Per-dataset Parquet files for prediction arrays (via ArrayStore)
     - artifacts/: A flat, content-addressed directory for binary artifacts
     """
 ```
@@ -201,6 +203,8 @@ def get_chains_for_pipeline(self, pipeline_id: str) -> polars.DataFrame:
 
 ### Prediction Storage
 
+Prediction scalar scores are stored in DuckDB. Dense arrays (y_true, y_pred, etc.) are stored in per-dataset Parquet sidecar files via `ArrayStore`.
+
 ```python
 def save_prediction(
     self,
@@ -226,10 +230,9 @@ def save_prediction(
     exclusion_rate: float,
     preprocessings: str = "",
 ) -> str:
-    """Store a single prediction record.
+    """Store a single prediction record (scalar scores in DuckDB).
 
-    Arrays (y_true, y_pred, etc.) are stored separately via
-    save_prediction_arrays().
+    Arrays are stored separately via ArrayStore in Parquet sidecar files.
 
     Args:
         pipeline_id: Parent pipeline identifier.
@@ -257,29 +260,37 @@ def save_prediction(
     Returns:
         A unique prediction identifier (UUID-based string).
     """
+```
 
-def save_prediction_arrays(
-    self,
-    prediction_id: str,
-    y_true: np.ndarray | None,
-    y_pred: np.ndarray | None,
-    y_proba: np.ndarray | None = None,
-    sample_indices: np.ndarray | None = None,
-    weights: np.ndarray | None = None,
-) -> None:
-    """Store the dense arrays associated with a prediction.
+---
 
-    Arrays are stored as DOUBLE[] columns in DuckDB, enabling
-    zero-copy Arrow transfer to Polars.
+### ArrayStore
 
-    Args:
-        prediction_id: Identifier returned by save_prediction().
-        y_true: Ground-truth values (1-D array).
-        y_pred: Predicted values (1-D array).
-        y_proba: Class probabilities (2-D array, flattened). None for regression.
-        sample_indices: Original dataset indices of the samples.
-        weights: Per-sample weights, if applicable.
-    """
+```python
+from nirs4all.pipeline.storage import ArrayStore
+```
+
+Parquet-backed storage for prediction arrays. Arrays live under `workspace/arrays/`, one `.parquet` file per dataset, with Zstd compression.
+
+```python
+class ArrayStore:
+    def __init__(self, base_dir: Path) -> None:
+        """Initialize. Creates arrays/ subdirectory automatically."""
+
+    def save_batch(self, records: list[dict]) -> None:
+        """Append prediction arrays for a batch of records."""
+
+    def load(self, prediction_id: str, dataset_name: str) -> dict | None:
+        """Load arrays for a single prediction."""
+
+    def load_batch(self, prediction_ids: list[str], dataset_name: str) -> list[dict]:
+        """Load arrays for multiple predictions from the same dataset."""
+
+    def delete(self, prediction_ids: list[str]) -> None:
+        """Mark predictions for deletion (tombstone)."""
+
+    def compact(self, dataset_name: str | None = None) -> int:
+        """Rewrite Parquet files, removing tombstoned rows."""
 ```
 
 ---
@@ -599,7 +610,7 @@ def export_predictions_parquet(
 def delete_run(self, run_id: str, delete_artifacts: bool = True) -> int:
     """Delete a run and all its descendant data.
 
-    Cascades to pipelines, chains, predictions, prediction arrays,
+    Cascades to pipelines, chains, predictions, arrays (via ArrayStore),
     and log entries.
 
     Args:
@@ -752,9 +763,11 @@ def replay_chain(
 | `pipelines` | Individual pipeline executions | pipeline_id, run_id, name, expanded_config, best_val |
 | `chains` | Preprocessing-to-model step sequences | chain_id, pipeline_id, steps, fold_artifacts, shared_artifacts |
 | `predictions` | Per-fold, per-partition scores | prediction_id, pipeline_id, chain_id, val_score, test_score |
-| `prediction_arrays` | Dense arrays (y_true, y_pred, y_proba) | prediction_id, y_true, y_pred, y_proba |
 | `artifacts` | Content-addressed artifact registry | artifact_id, artifact_path, content_hash, ref_count |
 | `logs` | Structured execution logs per step | log_id, pipeline_id, step_idx, event, duration_ms |
+| `projects` | Project grouping for runs | project_id, name, description, color |
+
+Dense prediction arrays (y_true, y_pred, y_proba, sample_indices, weights) are stored in per-dataset Parquet sidecar files under `arrays/`, managed by `ArrayStore`. Legacy workspaces with a `prediction_arrays` DuckDB table are auto-migrated on first access.
 
 ---
 

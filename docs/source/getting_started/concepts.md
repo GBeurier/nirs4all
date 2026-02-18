@@ -126,7 +126,7 @@ SpectroDataset  Transformers    Splitter     Models
 | `TransformController` | sklearn TransformerMixin (scalers, preprocessors) |
 | `YProcessingController` | `{"y_processing": ...}` steps |
 | `SplitterController` | Cross-validation splitters |
-| `ModelController` | `{"model": ...}` steps |
+| `SklearnModelController` | `{"model": ...}` sklearn and PLS model steps |
 | `BranchController` | `{"branch": ...}` parallel paths |
 | `MergeController` | `{"merge": ...}` combining outputs |
 

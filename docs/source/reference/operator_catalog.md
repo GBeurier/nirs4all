@@ -6,30 +6,42 @@ This catalog enumerates every pipeline operator exposed across the `nirs4all` ba
 
 | Category | Feather icon | Subcategories | Components | Description |
 | --- | --- | --- | --- | --- |
-| Augmentation | `GitBranch` | 1 | 8 | Spectral augmentation operators to improve robustness |
-| Spectral Preprocessing | `Sliders` | 7 | 18 | Baseline, scatter, smoothing, derivatives, and spectral transforms |
+| Augmentation | `GitBranch` | 5 | 30+ | Spectral augmentation operators (noise, baseline, wavelength, physical, mixup) |
+| Spectral Preprocessing | `Sliders` | 9 | 25+ | Baseline, scatter, smoothing, derivatives, orthogonalization, wavelet denoise |
 | Feature Engineering | `Layers` | 7 | 45 | scikit-learn TransformerMixin utilities and feature builders |
 | Dimension Reduction | `Minimize2` | 3 | 39 | Operators that change feature dimensionality |
+| NIRS Models | `Zap` | 1 | 18+ | Built-in PLS variants (AOM-PLS, POP-PLS, OPLS, DiPLS, MBPLS, etc.) |
 | Classical Models | `BarChart2` | 16 | 99 | scikit-learn estimators (regressors, classifiers, wrappers) |
 | Deep Learning | `Cpu` | 1 | 29 | TensorFlow models bundled with nirs4all |
-| Validation & Splitting | `DivideSquare` | 1 | 17 | Cross-validation and sampling strategies |
+| Validation & Splitting | `DivideSquare` | 1 | 19 | Cross-validation and sampling strategies |
 | Target Processing | `Crosshair` | 1 | 2 | Transformations applied to the target variable (`y`) |
 | Prediction & Outputs | `Target` | 1 | 3 | Prediction helpers and probability calibration |
 | Pipeline Utilities | `Box` | 3 | 11 | Containers, generators, and visualization helpers |
 
 ## Augmentation
 
-- **Spectral Augmentation** – `Rotate & Translate`, `Random X Operation`, `Spline Smoothing`, `Spline X Perturbations`, `Spline Y Perturbations`, `Spline X Simplification`, `Spline Curve Simplification`, `Identity Augmenter`
+- **Spline-based** – `Spline Smoothing`, `Spline X Perturbations`, `Spline Y Perturbations`, `Spline X Simplification`, `Spline Curve Simplification`
+- **Random** – `Rotate & Translate`, `Random X Operation`
+- **Spectral Noise & Drift** – `GaussianAdditiveNoise`, `MultiplicativeNoise`, `SpikeNoise`, `LinearBaselineDrift`, `PolynomialBaselineDrift`
+- **Wavelength Transforms** – `WavelengthShift`, `WavelengthStretch`, `LocalWavelengthWarp`
+- **Spectral Manipulation** – `SmoothMagnitudeWarp`, `BandPerturbation`, `GaussianSmoothingJitter`, `UnsharpSpectralMask`, `BandMasking`, `ChannelDropout`, `LocalClipping`
+- **Mixup** – `MixupAugmenter`, `LocalMixupAugmenter`
+- **Scatter Simulation** – `ScatterSimulationMSC`
+- **Physical/Instrumental** – `PathLengthAugmenter`, `BatchEffectAugmenter`, `InstrumentalBroadeningAugmenter`, `HeteroscedasticNoiseAugmenter`, `DeadBandAugmenter`
 
 ## Spectral Preprocessing
 
-- **Baseline Correction** – `Baseline Removal`, `Detrend`
-- **Scatter & Normalization** – `MSC`, `Standard Normal Variate`, `Robust Normal Variate`
+- **Baseline Correction** – `Baseline Removal`, `Detrend`, `ASLSBaseline`, `AirPLS`, `ArPLS`, `IModPoly`, `ModPoly`, `SNIP`, `RollingBall`, `IASLS`, `BEADS`
+- **Scatter & Normalization** – `MSC`, `EMSC`, `Standard Normal Variate`, `Robust Normal Variate`, `Area Normalization`
 - **Smoothing** – `Savitzky-Golay`, `Gaussian Filter`
-- **Derivatives** – `First Derivative`, `Second Derivative`, `Sample Derivative`
-- **Spectral Transforms** – `Wavelet Transform`, `Haar Wavelet`, `Log Transform`
+- **Derivatives** – `First Derivative`, `Second Derivative`, `Sample Derivative`, `Norris-Williams Gap Derivative`
+- **Orthogonalization** – `OSC` (Orthogonal Signal Correction), `EPO` (External Parameter Orthogonalization)
+- **Wavelet & Denoising** – `Wavelet Transform`, `Haar Wavelet`, `Wavelet Denoise`
+- **Spectral Transforms** – `Log Transform`, `Reflectance to Absorbance`, `To Absorbance`, `From Absorbance`, `Kubelka-Munk`
+- **Signal Type Conversion** – `SignalTypeConverter`, `PercentToFraction`, `FractionToPercent`
 - **NIRS Scaling** – `Normalize Rows`, `Simple Scale`
 - **Resampling & Alignment** – `Adaptive Resampler`, `Crop Transformer`, `Resample Transformer`
+- **Feature Selection** – `CARS`, `MCUVE`, `FlexiblePCA`, `FlexibleSVD`
 
 ## Feature Engineering (scikit-learn TransformerMixin)
 
@@ -52,6 +64,19 @@ This catalog enumerates every pipeline operator exposed across the `nirs4all` ba
 - **Kernel & Projection** - `AdditiveChi2Sampler`, `GaussianRandomProjection`, `Nystroem`, `PolynomialCountSketch`, `RBFSampler`, `SkewedChi2Sampler`, `SparseRandomProjection`
 
 > _Note_: Transformer lists are derived automatically via `sklearn.utils.all_estimators(type_filter="transformer")`, ensuring parity with the installed scikit-learn version.
+
+## NIRS Models (Built-in PLS Variants)
+
+- **Adaptive PLS** – `AOMPLSRegressor` (Adaptive Operator-Mixture PLS), `AOMPLSClassifier`, `POPPLSRegressor` (Per-Operator-Per-component PLS), `POPPLSClassifier`
+- **Standard PLS** – `PLSDA`, `IKPLS`, `SIMPLS`, `RobustPLS`, `RecursivePLS`
+- **Orthogonal PLS** – `OPLS`, `OPLSDA`, `KOPLS`
+- **Multi-Block/Domain** – `MBPLS`, `DiPLS`
+- **Sparse & Interval** – `SparsePLS`, `IntervalPLS`
+- **Kernel PLS** – `KernelPLS`, `NLPLS`, `KPLS`, `OKLMPLS`
+- **Advanced PLS** – `FCKPLS` (Fractional Convolution Kernel), `LWPLS` (Locally Weighted)
+- **Meta-model** – `MetaModel` (stacking configuration), `StackingConfig`
+
+> _Note_: AOM-PLS and POP-PLS include built-in operator banks for automatic preprocessing selection. Use `default_operator_bank()` or `extended_operator_bank()` for AOM-PLS, and `pop_pls_operator_bank()` for POP-PLS.
 
 ## Classical Models (scikit-learn estimators)
 
@@ -82,7 +107,7 @@ These factories are tagged via the `framework("tensorflow")` decorator and are s
 
 ## Validation & Splitting
 
-- **Splitting Strategies** - `Shuffle Split`, `K-Fold`, `Stratified K-Fold`, `Repeated K-Fold`, `Repeated Stratified K-Fold`, `Group K-Fold`, `Group Shuffle Split`, `Stratified Shuffle Split`, `Time Series Split`, `Leave-One-Out`, `Leave-P-Out`, `Kennard-Stone Splitter`, `SPXY Splitter`, `KMeans Splitter`, `SPlit Splitter`, `Systematic Circular`, `KBins Stratified`
+- **Splitting Strategies** - `Shuffle Split`, `K-Fold`, `Stratified K-Fold`, `Repeated K-Fold`, `Repeated Stratified K-Fold`, `Group K-Fold`, `Group Shuffle Split`, `Stratified Shuffle Split`, `Time Series Split`, `Leave-One-Out`, `Leave-P-Out`, `Kennard-Stone Splitter`, `SPXY Splitter`, `SPXY Fold` (K-Fold via SPXY), `SPXY Group Fold`, `KMeans Splitter`, `SPlit Splitter`, `Systematic Circular`, `KBins Stratified`, `Binned Stratified Group KFold`
 
 ## Target Processing
 

@@ -130,7 +130,7 @@ def _make_stacking_refit_config(**overrides) -> RefitConfig:
         "generator_choices": [],
         "pipeline_id": "test-pipeline-id",
         "metric": "rmse",
-        "best_score": 0.05,
+        "selection_score": 0.05,
     }
     defaults.update(overrides)
     return RefitConfig(**defaults)

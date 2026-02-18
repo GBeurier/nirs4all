@@ -42,6 +42,9 @@ This section covers cross-validation strategies to properly evaluate model perfo
 | **StratifiedShuffleSplit** | Classification + flexible splits |
 | **TimeSeriesSplit** | Temporal/sequential data |
 | **LeaveOneOut** | Very small datasets (<50 samples) |
+| **SPXYFold** | Spatially representative folds via SPXY |
+| **KennardStoneSplitter** | Kennard-Stone based train/test split |
+| **KBinsStratifiedSplitter** | Stratification for continuous targets |
 
 ### KFold - Standard K-Fold
 

@@ -5,15 +5,15 @@ Predictions are the core output of nirs4all. Every time you run a pipeline, nirs
 ## The Prediction Lifecycle
 
 ```
-Train               Store                Query              Export             Predict
-nirs4all.run() ---> store.duckdb ------> result.top(n) ---> result.export() -> nirs4all.predict()
-                    (predictions,         result.filter()    "model.n4a"        (new data)
-                     chains,
-                     artifacts)
+Train               Store                    Query              Export             Predict
+nirs4all.run() ---> store.duckdb +        -> result.top(n) ---> result.export() -> nirs4all.predict()
+                    arrays/*.parquet         result.filter()    "model.n4a"        (new data)
+                    (metadata, arrays,
+                     chains, artifacts)
 ```
 
 1. **Train** -- `nirs4all.run()` executes your pipeline, fits models on each fold, and evaluates on train/val/test partitions.
-2. **Store** -- Every prediction record (scores, arrays, chain reference) is persisted in the workspace database (`store.duckdb`).
+2. **Store** -- Prediction scores and metadata are persisted in DuckDB (`store.duckdb`), while dense arrays (y_true, y_pred) are stored in Parquet sidecar files (`arrays/`).
 3. **Query** -- Use `result.top(n)`, `result.filter()`, `result.best_rmse`, etc. to find the best models.
 4. **Export** -- Export the best model as a `.n4a` bundle for sharing or deployment.
 5. **Predict** -- Apply the trained model to new data with `nirs4all.predict()`.

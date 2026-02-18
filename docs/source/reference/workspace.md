@@ -1,15 +1,15 @@
 # Workspace Architecture
 
-**Version**: 4.0
+**Version**: 5.0
 **Status**: Implemented
 
-This document describes the nirs4all workspace structure based on the DuckDB storage backend.
+This document describes the nirs4all workspace structure, which uses a hybrid DuckDB + Parquet storage backend.
 
 ## Design Principles
 
 | Principle | Description |
 |-----------|-------------|
-| **Database-first** | All structured data in a single DuckDB file (`store.duckdb`) |
+| **Hybrid storage** | Structured metadata in DuckDB (`store.duckdb`), dense arrays in Parquet sidecar files (`arrays/`) |
 | **Flat artifacts** | Binary artifacts in content-addressed flat directory |
 | **Export on demand** | Human-readable files produced only by explicit export operations |
 | **Chain as first-class entity** | The preprocessing-to-model chain is stored, not reconstructed |
@@ -21,10 +21,14 @@ This document describes the nirs4all workspace structure based on the DuckDB sto
 
 ```
 workspace/
-├── store.duckdb                        # All structured data (DuckDB database)
+├── store.duckdb                        # Structured metadata (DuckDB database)
 │                                        #   Tables: runs, pipelines, chains,
-│                                        #   predictions, prediction_arrays,
-│                                        #   artifacts, logs
+│                                        #   predictions, artifacts, logs, projects
+│
+├── arrays/                              # Prediction arrays (Parquet sidecar files)
+│   ├── wheat.parquet                    # All arrays for dataset "wheat"
+│   ├── corn.parquet                     # All arrays for dataset "corn"
+│   └── _tombstones.json                # Pending deletes (applied during compact)
 │
 ├── artifacts/                           # Flat content-addressed binary storage
 │   ├── ab/                              # 2-char shard prefix
@@ -49,9 +53,21 @@ workspace/
 | `pipelines` | Expanded pipeline configs | `pipeline_id`, `run_id`, `expanded_config`, `dataset_name` |
 | `chains` | Preprocessing-to-model chains | `chain_id`, `pipeline_id`, `steps`, `fold_artifacts`, `shared_artifacts` |
 | `predictions` | Scalar prediction scores | `prediction_id`, `pipeline_id`, `chain_id`, `val_score`, `test_score` |
-| `prediction_arrays` | Dense y_true/y_pred arrays | `prediction_id`, `y_true DOUBLE[]`, `y_pred DOUBLE[]` |
 | `artifacts` | Artifact metadata & ref counts | `artifact_id`, `artifact_path`, `content_hash`, `ref_count` |
 | `logs` | Structured execution logs | `log_id`, `pipeline_id`, `step_idx`, `event`, `duration_ms` |
+| `projects` | Project grouping for runs | `project_id`, `name`, `description`, `color` |
+
+## Parquet Array Storage
+
+Dense prediction arrays (y_true, y_pred, y_proba, sample_indices, weights) are stored in per-dataset Parquet files under `arrays/`, managed by `ArrayStore`. This separation provides:
+
+- **Efficient I/O**: Zstd-compressed columnar storage for large numerical arrays
+- **Per-dataset files**: One Parquet file per dataset for fast batch queries
+- **Crash-safe writes**: Atomic writes via temp file + rename
+- **Lazy deletion**: Tombstone-based deletes with periodic compaction
+- **Self-describing**: Each Parquet file embeds metadata columns (model_name, fold_id, partition, metric, val_score, task_type)
+
+Legacy workspaces with a `prediction_arrays` DuckDB table are auto-migrated to Parquet on first access.
 
 ---
 
@@ -130,7 +146,7 @@ result = nirs4all.run(
     dataset="sample_data/regression",
     verbose=1,
 )
-# All metadata, predictions, and artifacts are stored in store.duckdb + artifacts/
+# Metadata in store.duckdb, arrays in arrays/*.parquet, binaries in artifacts/
 ```
 
 ### 2. Export Best Model
