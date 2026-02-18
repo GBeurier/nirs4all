@@ -5,7 +5,7 @@ Covers:
 - Correct chain summary population (CV averages, final scores)
 - Metric-aware ranking (ascending for error metrics, descending for score metrics)
 - Drill-down from chain summary to partition/fold predictions
-- get_prediction_arrays retrieval
+- Array store retrieval
 - Deletion cascade: VIEW reflects removal immediately
 """
 
@@ -103,7 +103,18 @@ def _populate_store(store: WorkspaceStore, *, n_folds: int = 3) -> dict:
             rng = np.random.default_rng(fold_idx)
             y_true = rng.standard_normal(100)
             y_pred = y_true + rng.standard_normal(100) * 0.1
-            store.save_prediction_arrays(pred_id, y_true, y_pred)
+            store.array_store.save_batch([{
+                "prediction_id": pred_id,
+                "dataset_name": "wheat",
+                "model_name": "PLSRegression",
+                "fold_id": f"fold_{fold_idx}",
+                "partition": partition,
+                "metric": "rmse",
+                "val_score": val_score,
+                "task_type": "regression",
+                "y_true": y_true,
+                "y_pred": y_pred,
+            }])
 
     # Update chain summary (normally done by executor after flush)
     store.update_chain_summary(chain_id)
@@ -507,12 +518,12 @@ class TestDrillDown:
         assert row["fold_id"] == "fold_1"
         store.close()
 
-    def test_get_prediction_arrays(self, tmp_path):
-        """get_prediction_arrays returns numpy arrays."""
+    def test_array_store_load_single(self, tmp_path):
+        """array_store.load_single returns numpy arrays."""
         store = _make_store(tmp_path)
         ids = _populate_store(store, n_folds=2)
         pred_id = ids["prediction_ids"][0]
-        arrays = store.get_prediction_arrays(pred_id)
+        arrays = store.array_store.load_single(pred_id, dataset_name="wheat")
         assert arrays is not None
         assert isinstance(arrays["y_true"], np.ndarray)
         assert isinstance(arrays["y_pred"], np.ndarray)
@@ -520,10 +531,10 @@ class TestDrillDown:
         assert len(arrays["y_pred"]) == 100
         store.close()
 
-    def test_get_prediction_arrays_nonexistent(self, tmp_path):
-        """get_prediction_arrays returns None for nonexistent prediction."""
+    def test_array_store_load_single_nonexistent(self, tmp_path):
+        """array_store.load_single returns None for nonexistent prediction."""
         store = _make_store(tmp_path)
-        result = store.get_prediction_arrays("nonexistent_id")
+        result = store.array_store.load_single("nonexistent_id")
         assert result is None
         store.close()
 

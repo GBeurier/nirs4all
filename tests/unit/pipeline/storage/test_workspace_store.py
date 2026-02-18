@@ -546,11 +546,18 @@ class TestPredictionSaveQuery:
             exclusion_rate=0.0,
             prediction_id="pred_arrays",
         )
-        store.save_prediction_arrays(
-            prediction_id=first_id,
-            y_true=np.array([1.0, 2.0, 3.0]),
-            y_pred=np.array([1.1, 2.1, 3.1]),
-        )
+        store.array_store.save_batch([{
+            "prediction_id": first_id,
+            "dataset_name": "wheat",
+            "model_name": "PLS",
+            "fold_id": "fold_0",
+            "partition": "val",
+            "metric": "rmse",
+            "val_score": 0.50,
+            "task_type": "regression",
+            "y_true": np.array([1.0, 2.0, 3.0]),
+            "y_pred": np.array([1.1, 2.1, 3.1]),
+        }])
 
         second_id = store.save_prediction(
             pipeline_id=pid,
@@ -575,11 +582,21 @@ class TestPredictionSaveQuery:
             exclusion_rate=0.0,
             prediction_id="pred_arrays_new",
         )
-        store.save_prediction_arrays(
-            prediction_id=second_id,
-            y_true=np.array([10.0, 20.0]),
-            y_pred=np.array([10.5, 20.5]),
-        )
+        store.array_store.save_batch([{
+            "prediction_id": second_id,
+            "dataset_name": "wheat",
+            "model_name": "PLS",
+            "fold_id": "fold_0",
+            "partition": "val",
+            "metric": "rmse",
+            "val_score": 0.10,
+            "task_type": "regression",
+            "y_true": np.array([10.0, 20.0]),
+            "y_pred": np.array([10.5, 20.5]),
+        }])
+
+        # Compact to apply the tombstone from the upsert deletion
+        store.array_store.compact("wheat")
 
         assert second_id == first_id
         pred = store.get_prediction(first_id, load_arrays=True)
@@ -599,7 +616,7 @@ class TestPredictionArrays:
     """Save y_true/y_pred as DOUBLE[]; load; verify numpy roundtrip."""
 
     def test_prediction_arrays(self, tmp_path):
-        """Array round-trip through DuckDB native DOUBLE[]."""
+        """Array round-trip through Parquet sidecar files."""
         store = _make_store(tmp_path)
         ids = _create_full_run(store)
 
@@ -608,13 +625,20 @@ class TestPredictionArrays:
         sample_indices = np.array([0, 1, 2, 3, 4])
         weights = np.array([1.0, 1.0, 1.0, 1.0, 1.0])
 
-        store.save_prediction_arrays(
-            prediction_id=ids["pred_id"],
-            y_true=y_true,
-            y_pred=y_pred,
-            sample_indices=sample_indices,
-            weights=weights,
-        )
+        store.array_store.save_batch([{
+            "prediction_id": ids["pred_id"],
+            "dataset_name": "wheat",
+            "model_name": "PLSRegression",
+            "fold_id": "fold_0",
+            "partition": "val",
+            "metric": "rmse",
+            "val_score": 0.12,
+            "task_type": "regression",
+            "y_true": y_true,
+            "y_pred": y_pred,
+            "sample_indices": sample_indices,
+            "weights": weights,
+        }])
 
         pred = store.get_prediction(ids["pred_id"], load_arrays=True)
         assert pred is not None
@@ -630,14 +654,18 @@ class TestPredictionArrays:
         store = _make_store(tmp_path)
         ids = _create_full_run(store)
 
-        store.save_prediction_arrays(
-            prediction_id=ids["pred_id"],
-            y_true=np.array([1.0, 2.0]),
-            y_pred=np.array([1.1, 2.1]),
-            y_proba=None,
-            sample_indices=None,
-            weights=None,
-        )
+        store.array_store.save_batch([{
+            "prediction_id": ids["pred_id"],
+            "dataset_name": "wheat",
+            "model_name": "PLSRegression",
+            "fold_id": "fold_0",
+            "partition": "val",
+            "metric": "rmse",
+            "val_score": 0.12,
+            "task_type": "regression",
+            "y_true": np.array([1.0, 2.0]),
+            "y_pred": np.array([1.1, 2.1]),
+        }])
 
         pred = store.get_prediction(ids["pred_id"], load_arrays=True)
         assert pred["y_proba"] is None
@@ -886,11 +914,18 @@ class TestDeleteCascade:
         ids = _create_full_run(store)
 
         # Save arrays too
-        store.save_prediction_arrays(
-            ids["pred_id"],
-            y_true=np.array([1.0, 2.0]),
-            y_pred=np.array([1.1, 2.1]),
-        )
+        store.array_store.save_batch([{
+            "prediction_id": ids["pred_id"],
+            "dataset_name": "wheat",
+            "model_name": "PLSRegression",
+            "fold_id": "fold_0",
+            "partition": "val",
+            "metric": "rmse",
+            "val_score": 0.12,
+            "task_type": "regression",
+            "y_true": np.array([1.0, 2.0]),
+            "y_pred": np.array([1.1, 2.1]),
+        }])
 
         # Also add a log entry
         store.log_step(ids["pipeline_id"], 0, "Scaler", "end", duration_ms=10)
@@ -905,11 +940,15 @@ class TestDeleteCascade:
         assert store.get_chain(ids["chain_id"]) is None
         assert store.get_prediction(ids["pred_id"]) is None
 
-        # Check tables are empty
+        # Check DuckDB tables are empty
         conn = store._ensure_open()
-        for table in ["runs", "pipelines", "chains", "predictions", "prediction_arrays", "logs"]:
+        for table in ["runs", "pipelines", "chains", "predictions", "logs"]:
             count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             assert count == 0, f"{table} should be empty after delete_run"
+
+        # Verify arrays are tombstoned (cleaned by compact)
+        store.array_store.compact("wheat")
+        assert store.array_store.load_single(ids["pred_id"], dataset_name="wheat") is None
 
         store.close()
 
@@ -918,7 +957,18 @@ class TestDeleteCascade:
         store = _make_store(tmp_path)
         ids = _create_full_run(store)
 
-        store.save_prediction_arrays(ids["pred_id"], np.array([1.0]), np.array([1.1]))
+        store.array_store.save_batch([{
+            "prediction_id": ids["pred_id"],
+            "dataset_name": "wheat",
+            "model_name": "PLSRegression",
+            "fold_id": "fold_0",
+            "partition": "val",
+            "metric": "rmse",
+            "val_score": 0.12,
+            "task_type": "regression",
+            "y_true": np.array([1.0]),
+            "y_pred": np.array([1.1]),
+        }])
 
         result = store.delete_prediction(ids["pred_id"])
         assert result is True

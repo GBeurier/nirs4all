@@ -121,13 +121,6 @@ WHERE chain_id = $1
 
 GET_PREDICTION = "SELECT * FROM predictions WHERE prediction_id = $1"
 
-GET_PREDICTION_WITH_ARRAYS = """
-SELECT p.*, pa.y_true, pa.y_pred, pa.y_proba, pa.sample_indices, pa.weights
-FROM predictions p
-LEFT JOIN prediction_arrays pa ON p.prediction_id = pa.prediction_id
-WHERE p.prediction_id = $1
-"""
-
 INSERT_PREDICTION = """
 INSERT INTO predictions
     (prediction_id, pipeline_id, chain_id, dataset_name, model_name,
@@ -139,15 +132,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
         $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
 """
 
-INSERT_PREDICTION_ARRAYS = """
-INSERT INTO prediction_arrays
-    (prediction_id, y_true, y_pred, y_proba, sample_indices, weights)
-VALUES ($1, $2, $3, $4, $5, $6)
-"""
-
 DELETE_PREDICTION = "DELETE FROM predictions WHERE prediction_id = $1"
-
-DELETE_PREDICTION_ARRAYS = "DELETE FROM prediction_arrays WHERE prediction_id = $1"
 
 QUERY_PREDICTIONS_BASE = "SELECT * FROM predictions"
 
@@ -279,14 +264,6 @@ DELETE_RUN = "DELETE FROM runs WHERE run_id = $1"
 # --- Manual cascade queries (DuckDB does not support ON DELETE CASCADE) ---
 
 # Cascade delete for a run: delete all dependents in reverse dependency order
-CASCADE_DELETE_RUN_PREDICTION_ARRAYS = """
-DELETE FROM prediction_arrays WHERE prediction_id IN (
-    SELECT prediction_id FROM predictions WHERE pipeline_id IN (
-        SELECT pipeline_id FROM pipelines WHERE run_id = $1
-    )
-)
-"""
-
 CASCADE_DELETE_RUN_PREDICTIONS = """
 DELETE FROM predictions WHERE pipeline_id IN (
     SELECT pipeline_id FROM pipelines WHERE run_id = $1
@@ -308,12 +285,6 @@ DELETE FROM chains WHERE pipeline_id IN (
 CASCADE_DELETE_RUN_PIPELINES = "DELETE FROM pipelines WHERE run_id = $1"
 
 # Cascade delete for a pipeline
-CASCADE_DELETE_PIPELINE_PREDICTION_ARRAYS = """
-DELETE FROM prediction_arrays WHERE prediction_id IN (
-    SELECT prediction_id FROM predictions WHERE pipeline_id = $1
-)
-"""
-
 CASCADE_DELETE_PIPELINE_PREDICTIONS = "DELETE FROM predictions WHERE pipeline_id = $1"
 CASCADE_DELETE_PIPELINE_LOGS = "DELETE FROM logs WHERE pipeline_id = $1"
 CASCADE_DELETE_PIPELINE_CHAINS = "DELETE FROM chains WHERE pipeline_id = $1"
@@ -351,11 +322,6 @@ QUERY_AGGREGATED_PREDICTIONS_ALL_BASE = QUERY_CHAIN_SUMMARY_BASE
 
 GET_CHAIN_PREDICTIONS = """
 SELECT * FROM predictions WHERE chain_id = $1
-"""
-
-GET_PREDICTION_ARRAYS = """
-SELECT y_true, y_pred, y_proba, sample_indices, weights
-FROM prediction_arrays WHERE prediction_id = $1
 """
 
 
