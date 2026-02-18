@@ -99,20 +99,14 @@ class TestSchemaCreation:
         assert "exclusion_count" in columns
         assert "exclusion_rate" in columns
 
-    def test_prediction_arrays_table_columns(self, conn):
-        """The prediction_arrays table has native array columns."""
+    def test_prediction_arrays_table_removed(self, conn):
+        """The prediction_arrays table no longer exists (arrays moved to Parquet)."""
         create_schema(conn)
         result = conn.execute(
-            "SELECT column_name, data_type FROM information_schema.columns "
-            "WHERE table_name = 'prediction_arrays' ORDER BY ordinal_position"
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_name = 'prediction_arrays' AND table_type = 'BASE TABLE'"
         ).fetchall()
-        col_types = {row[0]: row[1] for row in result}
-        assert "prediction_id" in col_types
-        assert "y_true" in col_types
-        assert "y_pred" in col_types
-        assert "y_proba" in col_types
-        assert "sample_indices" in col_types
-        assert "weights" in col_types
+        assert len(result) == 0
 
     def test_artifacts_table_columns(self, conn):
         """The artifacts table has ref_count column."""
@@ -243,10 +237,6 @@ class TestFKBlocksParentDeletion:
             "VALUES ('pr1', 'p1', 'c1', 'ds1', 'M', 'M', 'f0', 'val', 'rmse', 'regression')"
         )
         conn.execute(
-            "INSERT INTO prediction_arrays (prediction_id, y_true, y_pred) "
-            "VALUES ('pr1', [1.0, 2.0], [1.1, 2.1])"
-        )
-        conn.execute(
             "INSERT INTO logs (log_id, pipeline_id, step_idx, event) "
             "VALUES ('l1', 'p1', 0, 'start')"
         )
@@ -263,11 +253,14 @@ class TestFKBlocksParentDeletion:
         with pytest.raises(duckdb.ConstraintException):
             conn.execute("DELETE FROM pipelines WHERE pipeline_id = 'p1'")
 
-    def test_prediction_delete_blocked_by_arrays(self, conn):
-        """Deleting a prediction with existing arrays raises ConstraintException."""
+    def test_prediction_can_be_deleted(self, conn):
+        """Predictions can be deleted directly (no FK from prediction_arrays)."""
         self._setup_hierarchy(conn)
-        with pytest.raises(duckdb.ConstraintException):
-            conn.execute("DELETE FROM predictions WHERE prediction_id = 'pr1'")
+        # With prediction_arrays removed, predictions can be deleted freely
+        # (only logs and chains block pipeline/run deletions)
+        conn.execute("DELETE FROM predictions WHERE prediction_id = 'pr1'")
+        count = conn.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
+        assert count == 0
 
     def test_chain_delete_blocked_by_predictions(self, conn):
         """Deleting a chain referenced by predictions raises ConstraintException."""
@@ -294,7 +287,7 @@ class TestDDLStrings:
 
     def test_table_names_list(self):
         """TABLE_NAMES has expected number of entries."""
-        assert len(TABLE_NAMES) == 8
+        assert len(TABLE_NAMES) == 7
 
     def test_view_ddl_contains_chain_summary(self):
         """VIEW_DDL defines the v_chain_summary view."""
