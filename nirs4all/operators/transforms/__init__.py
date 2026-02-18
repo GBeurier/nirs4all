@@ -100,6 +100,7 @@ from .signal_conversion import (
 from .features import CropTransformer, ResampleTransformer, FlattenPreprocessing
 from .resampler import Resampler
 from .feature_selection import CARS, MCUVE, FlexiblePCA, FlexibleSVD
+from .norris_williams import NorrisWilliams, norris_williams
 from .orthogonalization import OSC, EPO
 from .presets import (
     id_preprocessing,
@@ -239,6 +240,10 @@ __all__ = [
     # Dimensionality reduction
     "FlexiblePCA",
     "FlexibleSVD",
+
+    # Norris-Williams gap derivative
+    "NorrisWilliams",
+    "norris_williams",
 
     # Orthogonalization
     "OSC",

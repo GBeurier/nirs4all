@@ -227,7 +227,7 @@ class TestOperatorProperties:
 
     def test_default_bank_reasonable_size(self):
         bank = default_operator_bank()
-        assert 8 <= len(bank) <= 15
+        assert 8 <= len(bank) <= 40
 
 
 # =============================================================================

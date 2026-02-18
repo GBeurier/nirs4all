@@ -313,6 +313,278 @@ class ComposedOperator(LinearOperator):
         return self._nu
 
 
+class NorrisWilliamsOperator(LinearOperator):
+    """Norris-Williams gap derivative operator.
+
+    Computes gap derivatives: d[i] = (x[i+gap] - x[i-gap]) / (2*gap*delta),
+    optionally with segment averaging beforehand. This is a standard NIRS
+    preprocessing that provides different spectral selectivity than SG derivatives.
+
+    The operator is implemented as a sparse convolution kernel, making both
+    forward and adjoint operations O(p) per sample.
+
+    Parameters
+    ----------
+    gap : int, default=5
+        Gap size in data points for the derivative.
+    segment : int, default=1
+        Segment size for smoothing before derivative (1 = no smoothing).
+        Must be odd.
+    deriv : int, default=1
+        Derivative order (1 or 2).
+    delta : float, default=1.0
+        Sampling interval.
+    """
+
+    def __init__(self, gap: int = 5, segment: int = 1, deriv: int = 1, delta: float = 1.0):
+        self.gap = gap
+        self.segment = segment
+        self.deriv = deriv
+        self.delta = delta
+
+    @property
+    def name(self) -> str:
+        return f"NW(g={self.gap},s={self.segment},d={self.deriv})"
+
+    @property
+    def params(self) -> dict:
+        return {"gap": self.gap, "segment": self.segment, "deriv": self.deriv, "delta": self.delta}
+
+    def initialize(self, p: int) -> None:
+        super().initialize(p)
+        # Build the combined kernel: segment smoothing + gap derivative
+        # Segment smoothing kernel
+        if self.segment > 1:
+            seg_kernel = np.ones(self.segment) / self.segment
+        else:
+            seg_kernel = np.array([1.0])
+        # Gap derivative kernel: [... 0 -1/(2*gap*delta) 0 ... 0 +1/(2*gap*delta) 0 ...]
+        gap_kernel = np.zeros(2 * self.gap + 1)
+        gap_kernel[0] = -1.0 / (2 * self.gap * self.delta)
+        gap_kernel[-1] = 1.0 / (2 * self.gap * self.delta)
+        # Convolve to get combined kernel
+        combined = np.convolve(seg_kernel, gap_kernel, mode='full')
+        if self.deriv == 2:
+            combined = np.convolve(combined, gap_kernel, mode='full')
+        self._conv_kernel = combined.astype(np.float64)
+        self._adj_kernel = combined[::-1].astype(np.float64)
+        self._nu = self._compute_frobenius_norm_sq(p)
+
+    def _compute_frobenius_norm_sq(self, p: int) -> float:
+        klen = len(self._conv_kernel)
+        hw = (klen - 1) // 2
+        h2 = self._conv_kernel ** 2
+        total = 0.0
+        for i in range(p):
+            k_start = max(0, hw - i)
+            k_end = min(klen, p - i + hw)
+            total += np.sum(h2[k_start:k_end])
+        return total
+
+    def apply(self, X: NDArray) -> NDArray:
+        return _convolve1d(X, self._conv_kernel, axis=-1, mode='constant', cval=0.0)
+
+    def apply_adjoint(self, c: NDArray) -> NDArray:
+        return _convolve1d(c, self._adj_kernel, axis=-1, mode='constant', cval=0.0)
+
+    def frobenius_norm_sq(self) -> float:
+        return self._nu
+
+
+class FiniteDifferenceOperator(LinearOperator):
+    """Finite difference derivative operator.
+
+    Simple numerical derivative using central differences:
+    d[i] = (x[i+1] - x[i-1]) / (2*delta) for first order.
+    Uses zero-padded boundaries for strict linearity.
+
+    Parameters
+    ----------
+    order : int, default=1
+        Derivative order (1 or 2).
+    delta : float, default=1.0
+        Sampling interval.
+    """
+
+    def __init__(self, order: int = 1, delta: float = 1.0):
+        self.order = order
+        self.delta = delta
+
+    @property
+    def name(self) -> str:
+        return f"FD(d={self.order})"
+
+    @property
+    def params(self) -> dict:
+        return {"order": self.order, "delta": self.delta}
+
+    def initialize(self, p: int) -> None:
+        super().initialize(p)
+        if self.order == 1:
+            self._conv_kernel = np.array([-1.0, 0.0, 1.0]) / (2.0 * self.delta)
+        elif self.order == 2:
+            self._conv_kernel = np.array([1.0, -2.0, 1.0]) / (self.delta ** 2)
+        else:
+            # Higher order: apply first-order kernel repeatedly
+            k = np.array([-1.0, 0.0, 1.0]) / (2.0 * self.delta)
+            for _ in range(self.order - 1):
+                k = np.convolve(k, np.array([-1.0, 0.0, 1.0]) / (2.0 * self.delta), mode='full')
+            self._conv_kernel = k
+        self._adj_kernel = self._conv_kernel[::-1].astype(np.float64)
+        self._nu = self._compute_frobenius_norm_sq(p)
+
+    def _compute_frobenius_norm_sq(self, p: int) -> float:
+        klen = len(self._conv_kernel)
+        hw = (klen - 1) // 2
+        h2 = self._conv_kernel ** 2
+        total = 0.0
+        for i in range(p):
+            k_start = max(0, hw - i)
+            k_end = min(klen, p - i + hw)
+            total += np.sum(h2[k_start:k_end])
+        return total
+
+    def apply(self, X: NDArray) -> NDArray:
+        return _convolve1d(X, self._conv_kernel, axis=-1, mode='constant', cval=0.0)
+
+    def apply_adjoint(self, c: NDArray) -> NDArray:
+        return _convolve1d(c, self._adj_kernel, axis=-1, mode='constant', cval=0.0)
+
+    def frobenius_norm_sq(self) -> float:
+        return self._nu
+
+
+class WaveletProjectionOperator(LinearOperator):
+    """Wavelet approximation projection operator.
+
+    Projects spectral data onto the wavelet approximation subspace at a given
+    level, effectively performing multi-resolution smoothing. The operator
+    decomposes the signal, zeroes all detail coefficients, and reconstructs
+    from the approximation coefficients only.
+
+    This is a linear, symmetric (self-adjoint) projection operator.
+
+    Parameters
+    ----------
+    wavelet : str, default='db4'
+        Wavelet family (any pywt-supported wavelet: 'haar', 'db4', 'coif3', 'sym5', etc.).
+    level : int, default=3
+        Decomposition level. Higher = more aggressive smoothing.
+    """
+
+    def __init__(self, wavelet: str = 'db4', level: int = 3):
+        self.wavelet = wavelet
+        self.level = level
+
+    @property
+    def name(self) -> str:
+        return f"wav({self.wavelet},L={self.level})"
+
+    @property
+    def params(self) -> dict:
+        return {"wavelet": self.wavelet, "level": self.level}
+
+    def initialize(self, p: int) -> None:
+        import pywt
+        super().initialize(p)
+        wav_obj = pywt.Wavelet(self.wavelet)
+        # Build the exact orthogonal projection matrix onto the wavelet
+        # approximation subspace. We apply the wavelet approximation to
+        # each basis vector, then use eigendecomposition to construct a
+        # matrix that is exactly symmetric (P^T = P) and idempotent (P^2 = P).
+        padded_len = int(2 ** np.ceil(np.log2(p)))
+        max_level = pywt.dwt_max_level(padded_len, wav_obj.dec_len)
+        actual_level = min(self.level, max_level)
+
+        # Build raw projection matrix: columns are P_raw @ e_i
+        P_raw = np.zeros((p, p), dtype=np.float64)
+        for i in range(p):
+            e_i = np.zeros(padded_len, dtype=np.float64)
+            e_i[i] = 1.0
+            coeffs = pywt.wavedec(e_i, wav_obj, level=actual_level, mode='periodization')
+            coeffs_filtered = [coeffs[0]] + [np.zeros_like(c) for c in coeffs[1:]]
+            rec = pywt.waverec(coeffs_filtered, wav_obj, mode='periodization')
+            P_raw[:, i] = rec[:p]
+
+        # Eigendecomposition of the symmetrized matrix to extract the
+        # projection subspace, then rebuild as an exact orthogonal projector
+        P_sym = 0.5 * (P_raw + P_raw.T)
+        eigenvalues, eigenvectors = np.linalg.eigh(P_sym)
+        # For a projection, eigenvalues are 0 or 1; threshold at 0.5
+        mask = eigenvalues > 0.5
+        U_r = eigenvectors[:, mask]
+        self._P_mat = U_r @ U_r.T
+        self._nu = float(np.sum(mask))  # rank = trace of projection
+
+    def apply(self, X: NDArray) -> NDArray:
+        if X.ndim == 1:
+            return self._P_mat @ X
+        return X @ self._P_mat.T
+
+    def apply_adjoint(self, c: NDArray) -> NDArray:
+        # Self-adjoint: P^T = P
+        return self.apply(c)
+
+    def frobenius_norm_sq(self) -> float:
+        return self._nu
+
+
+class FFTBandpassOperator(LinearOperator):
+    """FFT bandpass filter operator.
+
+    Applies a frequency-domain bandpass filter using FFT. The operator
+    is symmetric (self-adjoint) since the frequency mask is real.
+
+    Useful for isolating specific frequency bands in spectral data:
+    low frequencies capture broad chemical features, high frequencies
+    capture sharp peaks and noise.
+
+    Parameters
+    ----------
+    low_cut : float, default=0.0
+        Lower frequency cutoff as fraction of Nyquist (0.0 = DC).
+    high_cut : float, default=0.5
+        Upper frequency cutoff as fraction of Nyquist (1.0 = Nyquist).
+    """
+
+    def __init__(self, low_cut: float = 0.0, high_cut: float = 0.5):
+        self.low_cut = low_cut
+        self.high_cut = high_cut
+
+    @property
+    def name(self) -> str:
+        return f"FFT({self.low_cut:.2f}-{self.high_cut:.2f})"
+
+    @property
+    def params(self) -> dict:
+        return {"low_cut": self.low_cut, "high_cut": self.high_cut}
+
+    def initialize(self, p: int) -> None:
+        super().initialize(p)
+        # Build frequency mask
+        freqs = np.fft.rfftfreq(p)
+        nyquist = 0.5
+        self._mask = ((freqs >= self.low_cut * nyquist) & (freqs <= self.high_cut * nyquist)).astype(np.float64)
+        # Frobenius norm: for a symmetric frequency filter applied via FFT,
+        # ||A||_F^2 = sum of squared eigenvalues = sum(mask^2) * (p / len(mask)) approximately
+        # More precisely, for real symmetric circulant: trace = sum of eigenvalues
+        self._nu = float(np.sum(self._mask))
+
+    def apply(self, X: NDArray) -> NDArray:
+        if X.ndim == 1:
+            fft_x = np.fft.rfft(X)
+            return np.fft.irfft(fft_x * self._mask, n=self.p_)
+        fft_x = np.fft.rfft(X, axis=-1)
+        return np.fft.irfft(fft_x * self._mask[np.newaxis, :], n=self.p_, axis=-1)
+
+    def apply_adjoint(self, c: NDArray) -> NDArray:
+        # Symmetric: real frequency mask means A^T = A
+        return self.apply(c)
+
+    def frobenius_norm_sq(self) -> float:
+        return self._nu
+
+
 def default_operator_bank() -> list[LinearOperator]:
     """Build the default operator bank for AOM-PLS.
 
@@ -332,25 +604,53 @@ def default_operator_bank() -> list[LinearOperator]:
     savgols = [
         # SG smoothing
         SavitzkyGolayOperator(window=11, polyorder=2, deriv=0),
+        SavitzkyGolayOperator(window=15, polyorder=2, deriv=0),
         SavitzkyGolayOperator(window=21, polyorder=2, deriv=0),
         SavitzkyGolayOperator(window=31, polyorder=2, deriv=0),
+        # SavitzkyGolayOperator(window=41, polyorder=2, deriv=0),
+
         # SG 1st derivative (the workhorse of NIRS preprocessing)
         SavitzkyGolayOperator(window=11, polyorder=2, deriv=1),
+        SavitzkyGolayOperator(window=15, polyorder=2, deriv=1),
         SavitzkyGolayOperator(window=21, polyorder=2, deriv=1),
         SavitzkyGolayOperator(window=31, polyorder=2, deriv=1),
-        SavitzkyGolayOperator(window=11, polyorder=3, deriv=1),
+        SavitzkyGolayOperator(window=41, polyorder=2, deriv=1),
+
         # SG 2nd derivative
         SavitzkyGolayOperator(window=11, polyorder=2, deriv=2),
+        SavitzkyGolayOperator(window=15, polyorder=2, deriv=2),
         SavitzkyGolayOperator(window=21, polyorder=2, deriv=2),
         SavitzkyGolayOperator(window=31, polyorder=2, deriv=2),
+        SavitzkyGolayOperator(window=41, polyorder=2, deriv=2),
+
         # SG 2nd derivative
         SavitzkyGolayOperator(window=11, polyorder=3, deriv=2),
+        SavitzkyGolayOperator(window=15, polyorder=3, deriv=2),
         SavitzkyGolayOperator(window=21, polyorder=3, deriv=2),
         SavitzkyGolayOperator(window=31, polyorder=3, deriv=2),
+        # SavitzkyGolayOperator(window=41, polyorder=3, deriv=2),
+
+        # # # SavitzkyGolayOperator(window=7, polyorder=3, deriv=2),
+        SavitzkyGolayOperator(window=11, polyorder=3, deriv=1),
+        SavitzkyGolayOperator(window=15, polyorder=3, deriv=1),
+        SavitzkyGolayOperator(window=21, polyorder=3, deriv=1),
+        SavitzkyGolayOperator(window=31, polyorder=3, deriv=1),
+        # SavitzkyGolayOperator(window=41, polyorder=3, deriv=1),
+        FiniteDifferenceOperator(order=1),
+        FiniteDifferenceOperator(order=2),
+        NorrisWilliamsOperator(gap=3, segment=1, deriv=1),
+        NorrisWilliamsOperator(gap=5, segment=1, deriv=1),
+        NorrisWilliamsOperator(gap=11, segment=1, deriv=1),
+        NorrisWilliamsOperator(gap=5, segment=5, deriv=1),
+        NorrisWilliamsOperator(gap=11, segment=5, deriv=1),
+        NorrisWilliamsOperator(gap=5, segment=1, deriv=2),
+        NorrisWilliamsOperator(gap=11, segment=1, deriv=2),
+        NorrisWilliamsOperator(gap=5, segment=5, deriv=2),
     ]
 
     DetrendOps = [
         DetrendProjectionOperator(degree=0),  # mean centering
+        DetrendProjectionOperator(degree=1),  # mean centering
     ]
 
     ComposedOps = []
@@ -368,8 +668,86 @@ def default_operator_bank() -> list[LinearOperator]:
         DetrendProjectionOperator(degree=1),  # linear detrend
         DetrendProjectionOperator(degree=2),  # quadratic detrend
         # Composed operators (e.g., SG smoothing + detrend)
+        # NorrisWilliamsOperator(gap=3, segment=1, deriv=1),
+        # NorrisWilliamsOperator(gap=5, segment=1, deriv=1),
+        # NorrisWilliamsOperator(gap=11, segment=1, deriv=1),
+        # NorrisWilliamsOperator(gap=5, segment=5, deriv=1),
+        # NorrisWilliamsOperator(gap=11, segment=5, deriv=1),
+        # NorrisWilliamsOperator(gap=5, segment=1, deriv=2),
+        # NorrisWilliamsOperator(gap=11, segment=1, deriv=2),
+        # NorrisWilliamsOperator(gap=5, segment=5, deriv=2),
+        # FFTBandpassOperator(low_cut=0.0, high_cut=0.1),   # lowpass (baseline + broad features)
+        # FFTBandpassOperator(low_cut=0.0, high_cut=0.25),  # lowpass (chemical bands)
+        # FFTBandpassOperator(low_cut=0.05, high_cut=0.5),  # highpass (remove baseline)
+        # FFTBandpassOperator(low_cut=0.1, high_cut=0.5),   # highpass (sharp features only)
+        # FFTBandpassOperator(low_cut=0.05, high_cut=0.3),  # bandpass (mid-frequency)
         *ComposedOps,
     ]
+
+
+def extended_operator_bank() -> list[LinearOperator]:
+    """Build an extended operator bank with all available operator families.
+
+    Includes everything from default_operator_bank() plus Norris-Williams
+    gap derivatives, finite differences, wavelet projections, and FFT
+    bandpass filters. Provides broader spectral coverage at the cost of
+    a larger bank (~50+ operators).
+
+    Returns
+    -------
+    operators : list of LinearOperator
+        Extended operator bank.
+    """
+    base = default_operator_bank()
+
+    nw_ops = [
+        # Norris-Williams gap derivatives (different selectivity than SG)
+        NorrisWilliamsOperator(gap=3, segment=1, deriv=1),
+        NorrisWilliamsOperator(gap=5, segment=1, deriv=1),
+        NorrisWilliamsOperator(gap=11, segment=1, deriv=1),
+        NorrisWilliamsOperator(gap=5, segment=5, deriv=1),
+        NorrisWilliamsOperator(gap=11, segment=5, deriv=1),
+        NorrisWilliamsOperator(gap=5, segment=1, deriv=2),
+        NorrisWilliamsOperator(gap=11, segment=1, deriv=2),
+        NorrisWilliamsOperator(gap=5, segment=5, deriv=2),
+    ]
+    DetrendOps = [
+        DetrendProjectionOperator(degree=0),  # mean centering
+    ]
+
+    ComposedOps = []
+    for sg in nw_ops:
+        for dt in DetrendOps:
+            ComposedOps.append(ComposedOperator(first=sg, second=dt))
+
+    fd_ops = [
+        # Finite differences (raw derivatives without SG smoothing)
+        FiniteDifferenceOperator(order=1),
+        FiniteDifferenceOperator(order=2),
+    ]
+
+    wavelet_ops = [
+        # Wavelet approximation projections (multi-resolution smoothing)
+        WaveletProjectionOperator(wavelet='haar', level=2),
+        WaveletProjectionOperator(wavelet='haar', level=4),
+        WaveletProjectionOperator(wavelet='db4', level=2),
+        WaveletProjectionOperator(wavelet='db4', level=4),
+        WaveletProjectionOperator(wavelet='coif3', level=2),
+        WaveletProjectionOperator(wavelet='coif3', level=4),
+        WaveletProjectionOperator(wavelet='sym5', level=2),
+        WaveletProjectionOperator(wavelet='sym5', level=4),
+    ]
+
+    fft_ops = [
+        # FFT bandpass filters (frequency-domain feature isolation)
+        FFTBandpassOperator(low_cut=0.0, high_cut=0.1),   # lowpass (baseline + broad features)
+        FFTBandpassOperator(low_cut=0.0, high_cut=0.25),  # lowpass (chemical bands)
+        FFTBandpassOperator(low_cut=0.05, high_cut=0.5),  # highpass (remove baseline)
+        FFTBandpassOperator(low_cut=0.1, high_cut=0.5),   # highpass (sharp features only)
+        FFTBandpassOperator(low_cut=0.05, high_cut=0.3),  # bandpass (mid-frequency)
+    ]
+
+    return base + nw_ops + fd_ops + fft_ops + ComposedOps + wavelet_ops
 
 
 # =============================================================================
@@ -1053,9 +1431,14 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
         if not any(isinstance(op, IdentityOperator) for op in operators):
             operators = [IdentityOperator()] + list(operators)
         self.operators_ = list(operators)
-        for op in self.operators_:
-            op.initialize(n_features)
         self.block_names_ = [op.name for op in self.operators_]
+        if self.operator_index is not None:
+            # Only initialize the selected operator (avoids costly wavelet init)
+            idx = min(self.operator_index, len(self.operators_) - 1)
+            self.operators_[idx].initialize(n_features)
+        else:
+            for op in self.operators_:
+                op.initialize(n_features)
 
         # Center/scale validation data for operator selection
         X_val_c = None

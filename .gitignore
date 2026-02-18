@@ -91,3 +91,13 @@ bench/tabpfn_paper/workspace/
 workspace_test_variant_parallel/
 examples/*.png
 bench/tabpfn_paper/AOM_workspace/
+bench/tabpfn_paper/test_workspace/
+bench/tabpfn_paper/~$table_results_tabpfn_final_light.xlsx
+bench/tabpfn_paper/aom.log.txt
+bench/tabpfn_paper/aom.log2.txt
+bench/tabpfn_paper/metrics.xlsx
+bench/tabpfn_paper/table_results_tabpfn_final_light.csv
+bench/tabpfn_paper/table_results_tabpfn_final_light.csv:Zone.Identifier
+bench/tabpfn_paper/table_results_tabpfn_final_light.xlsx
+bench/tabpfn_paper/tabpfn_run.log.bak1
+bench/tabpfn_paper/run_reg_pls.py.original
