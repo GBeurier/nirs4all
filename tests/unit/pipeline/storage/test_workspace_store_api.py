@@ -308,33 +308,6 @@ class TestPredictionStorageMethods:
         hints = get_type_hints(WorkspaceStore.save_prediction)
         assert hints.get("return") is str
 
-    def test_save_prediction_arrays_exists(self):
-        """save_prediction_arrays method exists."""
-        assert hasattr(WorkspaceStore, "save_prediction_arrays")
-
-    def test_save_prediction_arrays_signature(self):
-        """save_prediction_arrays has all expected parameters."""
-        sig = inspect.signature(WorkspaceStore.save_prediction_arrays)
-        params = list(sig.parameters.keys())
-        assert "prediction_id" in params
-        assert "y_true" in params
-        assert "y_pred" in params
-        assert "y_proba" in params
-        assert "sample_indices" in params
-        assert "weights" in params
-
-    def test_save_prediction_arrays_optional_defaults(self):
-        """y_proba, sample_indices, and weights default to None."""
-        sig = inspect.signature(WorkspaceStore.save_prediction_arrays)
-        assert sig.parameters["y_proba"].default is None
-        assert sig.parameters["sample_indices"].default is None
-        assert sig.parameters["weights"].default is None
-
-    def test_save_prediction_arrays_return_annotation(self):
-        """save_prediction_arrays is annotated to return None."""
-        hints = get_type_hints(WorkspaceStore.save_prediction_arrays)
-        assert hints.get("return") is type(None)
-
 
 # =========================================================================
 # Artifact storage methods
@@ -816,7 +789,6 @@ class TestMethodInventory:
         "get_chains_for_pipeline",
         # Prediction storage
         "save_prediction",
-        "save_prediction_arrays",
         # Artifact storage
         "save_artifact",
         "load_artifact",
@@ -833,7 +805,6 @@ class TestMethodInventory:
         # Queries -- Predictions
         "get_chain_predictions",
         "get_prediction",
-        "get_prediction_arrays",
         "query_predictions",
         "query_aggregated_predictions",
         "query_top_aggregated_predictions",
@@ -863,6 +834,7 @@ class TestMethodInventory:
         # Deletion & cleanup
         "delete_run",
         "delete_prediction",
+        "delete_dataset_predictions",
         "cleanup_transient_artifacts",
         "gc_artifacts",
         "vacuum",
@@ -924,4 +896,4 @@ class TestMethodInventory:
 
     def test_total_method_count(self):
         """The expected method count matches the design doc."""
-        assert len(self.EXPECTED_METHODS) == 56
+        assert len(self.EXPECTED_METHODS) == 55

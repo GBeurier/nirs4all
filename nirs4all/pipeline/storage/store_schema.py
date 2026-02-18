@@ -1,8 +1,11 @@
 """DuckDB schema definitions for the workspace store.
 
-Defines the seven-table schema used by :class:`WorkspaceStore`:
+Defines the table schema used by :class:`WorkspaceStore`:
 ``runs``, ``pipelines``, ``chains``, ``predictions``,
-``prediction_arrays``, ``artifacts``, and ``logs``.
+``artifacts``, ``logs``, and ``projects``.
+
+Dense prediction arrays (y_true, y_pred, etc.) are stored in Parquet
+sidecar files managed by :class:`ArrayStore`, not in DuckDB.
 
 The schema uses ``IF NOT EXISTS`` for all DDL statements, making
 :func:`create_schema` safe to call repeatedly (idempotent).
@@ -10,7 +13,12 @@ The schema uses ``IF NOT EXISTS`` for all DDL statements, making
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+
 import duckdb
+
+logger = logging.getLogger(__name__)
 
 # =========================================================================
 # Refit context constants
@@ -110,15 +118,6 @@ CREATE TABLE IF NOT EXISTS predictions (
     exclusion_rate DOUBLE DEFAULT 0.0,
     refit_context VARCHAR DEFAULT NULL,
     created_at TIMESTAMP DEFAULT current_timestamp
-);
-
-CREATE TABLE IF NOT EXISTS prediction_arrays (
-    prediction_id VARCHAR PRIMARY KEY REFERENCES predictions(prediction_id),
-    y_true DOUBLE[],
-    y_pred DOUBLE[],
-    y_proba DOUBLE[],
-    sample_indices INTEGER[],
-    weights DOUBLE[]
 );
 
 CREATE TABLE IF NOT EXISTS artifacts (
@@ -222,11 +221,99 @@ TABLE_NAMES: list[str] = [
     "pipelines",
     "chains",
     "predictions",
-    "prediction_arrays",
     "artifacts",
     "logs",
     "projects",
 ]
+
+
+def _auto_migrate_prediction_arrays(conn: duckdb.DuckDBPyConnection, workspace_path: Path) -> None:
+    """Auto-migrate legacy ``prediction_arrays`` table to Parquet sidecar files.
+
+    Called during schema migration when a workspace still has the legacy
+    DuckDB table.  Streams all rows to per-dataset Parquet files via
+    :class:`ArrayStore`, then drops the table and vacuums.
+
+    Args:
+        conn: An open DuckDB connection.
+        workspace_path: Workspace root directory for the ArrayStore.
+    """
+    import numpy as np
+
+    from nirs4all.pipeline.storage.array_store import ArrayStore
+
+    has_table = conn.execute(
+        "SELECT 1 FROM information_schema.tables "
+        "WHERE table_name = 'prediction_arrays' AND table_type = 'BASE TABLE'"
+    ).fetchone()
+    if has_table is None:
+        return
+
+    total = conn.execute("SELECT COUNT(*) FROM prediction_arrays").fetchone()[0]
+    if total == 0:
+        logger.info("Empty prediction_arrays table — dropping.")
+        conn.execute("DROP TABLE prediction_arrays")
+        return
+
+    logger.info("Auto-migrating %d rows from prediction_arrays to Parquet sidecar files.", total)
+    array_store = ArrayStore(workspace_path)
+
+    # Get distinct datasets with arrays
+    dataset_rows = conn.execute(
+        "SELECT DISTINCT p.dataset_name "
+        "FROM predictions p "
+        "INNER JOIN prediction_arrays pa ON p.prediction_id = pa.prediction_id "
+        "ORDER BY p.dataset_name"
+    ).fetchall()
+
+    batch_size = 10_000
+    for (dataset_name,) in dataset_rows:
+        offset = 0
+        while True:
+            rows = conn.execute(
+                "SELECT pa.prediction_id, pa.y_true, pa.y_pred, pa.y_proba, "
+                "       pa.sample_indices, pa.weights, "
+                "       p.model_name, p.fold_id, p.partition, p.metric, "
+                "       p.val_score, p.task_type "
+                "FROM prediction_arrays pa "
+                "INNER JOIN predictions p ON pa.prediction_id = p.prediction_id "
+                "WHERE p.dataset_name = $1 "
+                "ORDER BY pa.prediction_id "
+                "LIMIT $2 OFFSET $3",
+                [dataset_name, batch_size, offset],
+            ).fetchall()
+
+            if not rows:
+                break
+
+            records = []
+            for row in rows:
+                (prediction_id, y_true, y_pred, y_proba,
+                 sample_indices, weights,
+                 model_name, fold_id, partition, metric,
+                 val_score, task_type) = row
+
+                records.append({
+                    "prediction_id": prediction_id,
+                    "dataset_name": dataset_name,
+                    "model_name": model_name or "",
+                    "fold_id": fold_id or "",
+                    "partition": partition or "",
+                    "metric": metric or "",
+                    "val_score": val_score,
+                    "task_type": task_type or "",
+                    "y_true": np.array(y_true, dtype=np.float64) if y_true is not None else None,
+                    "y_pred": np.array(y_pred, dtype=np.float64) if y_pred is not None else None,
+                    "y_proba": np.array(y_proba, dtype=np.float64) if y_proba is not None else None,
+                    "sample_indices": np.array(sample_indices, dtype=np.int32) if sample_indices is not None else None,
+                    "weights": np.array(weights, dtype=np.float64) if weights is not None else None,
+                })
+
+            array_store.save_batch(records)
+            offset += batch_size
+
+    conn.execute("DROP TABLE prediction_arrays")
+    logger.info("Auto-migration complete. Dropped prediction_arrays table.")
 
 
 def _backfill_chain_summaries(conn: duckdb.DuckDBPyConnection) -> None:
@@ -350,7 +437,7 @@ def _backfill_chain_summaries(conn: duckdb.DuckDBPyConnection) -> None:
             )
 
 
-def create_schema(conn: duckdb.DuckDBPyConnection) -> None:
+def create_schema(conn: duckdb.DuckDBPyConnection, workspace_path: Path | None = None) -> None:
     """Create all tables, views, and indexes in the given DuckDB connection.
 
     Safe to call multiple times -- every DDL statement uses
@@ -358,13 +445,16 @@ def create_schema(conn: duckdb.DuckDBPyConnection) -> None:
 
     Args:
         conn: An open DuckDB connection.
+        workspace_path: Optional workspace root directory.  When provided,
+            any legacy ``prediction_arrays`` table is automatically migrated
+            to Parquet sidecar files and dropped.
     """
     for statement in SCHEMA_DDL.strip().split(";"):
         statement = statement.strip()
         if statement:
             conn.execute(statement)
 
-    _migrate_schema(conn)
+    _migrate_schema(conn, workspace_path=workspace_path)
 
     for statement in INDEX_DDL.strip().split(";"):
         statement = statement.strip()
@@ -381,7 +471,7 @@ def create_schema(conn: duckdb.DuckDBPyConnection) -> None:
             conn.execute(statement)
 
 
-def _migrate_schema(conn: duckdb.DuckDBPyConnection) -> None:
+def _migrate_schema(conn: duckdb.DuckDBPyConnection, *, workspace_path: Path | None = None) -> None:
     """Apply incremental schema migrations to existing databases.
 
     Adds columns that may be missing from older database versions.
@@ -389,6 +479,8 @@ def _migrate_schema(conn: duckdb.DuckDBPyConnection) -> None:
 
     Args:
         conn: An open DuckDB connection with tables already created.
+        workspace_path: Optional workspace root directory for auto-migrating
+            legacy ``prediction_arrays`` to Parquet.
     """
     # Migration: add refit_context column to predictions table
     existing_columns = {
@@ -447,19 +539,6 @@ def _migrate_schema(conn: duckdb.DuckDBPyConnection) -> None:
         ).fetchone()[0]
         if dup_count > 0:
             # Keep the most recent prediction per natural key, delete older duplicates
-            conn.execute(
-                "DELETE FROM prediction_arrays "
-                "WHERE prediction_id IN ("
-                "  SELECT prediction_id FROM ("
-                "    SELECT prediction_id, "
-                "      ROW_NUMBER() OVER ("
-                "        PARTITION BY pipeline_id, chain_id, fold_id, partition, model_name, branch_id "
-                "        ORDER BY created_at DESC"
-                "      ) AS rn "
-                "    FROM predictions"
-                "  ) WHERE rn > 1"
-                ")"
-            )
             conn.execute(
                 "DELETE FROM predictions "
                 "WHERE prediction_id IN ("
@@ -523,3 +602,7 @@ def _migrate_schema(conn: duckdb.DuckDBPyConnection) -> None:
     # Backfill chain summary from existing predictions
     if added_chain_cols:
         _backfill_chain_summaries(conn)
+
+    # Migration: auto-migrate prediction_arrays from DuckDB to Parquet sidecar files
+    if workspace_path is not None:
+        _auto_migrate_prediction_arrays(conn, workspace_path)

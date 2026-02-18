@@ -19,11 +19,14 @@ preserving backward compatibility for code that creates
 
 from __future__ import annotations
 
+import contextlib
 import json
 import warnings
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import numpy as np
@@ -39,7 +42,21 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-__all__ = ["Predictions", "PredictionResult", "PredictionResultsList"]
+__all__ = ["MergeReport", "Predictions", "PredictionResult", "PredictionResultsList"]
+
+
+# ---------------------------------------------------------------------------
+# Public dataclasses
+# ---------------------------------------------------------------------------
+
+@dataclass
+class MergeReport:
+    """Report returned by :meth:`Predictions.merge_stores`."""
+    total_sources: int = 0
+    predictions_merged: int = 0
+    conflicts_resolved: int = 0
+    datasets_merged: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -194,12 +211,28 @@ class Predictions:
     ``Predictions`` instances (tests, visualisation adapters, the webapp).
 
     Args:
-        store: Optional :class:`WorkspaceStore` for database-backed mode.
+        db_path: Path to a workspace directory, ``.duckdb`` file, or
+            ``.parquet`` file.  Auto-detects the mode:
+
+            - Directory or ``.duckdb`` file → opens a
+              :class:`WorkspaceStore`, loads predictions, keeps store ref.
+            - ``.parquet`` file → portable mode: loads arrays into the
+              in-memory buffer without a store.
+        dataset_name: Optional dataset filter when loading from store.
+        load_arrays: If ``True``, load y_true/y_pred arrays when opening
+            a store or parquet file.
+        store: Optional :class:`WorkspaceStore` for pipeline execution.
 
     Examples:
         >>> # In-memory mode (lightweight)
         >>> pred = Predictions()
         >>> pred.add_prediction(dataset_name="wheat", model_name="PLS", ...)
+
+        >>> # Open from workspace path
+        >>> pred = Predictions("workspace/")
+
+        >>> # Open from .parquet file (portable mode)
+        >>> pred = Predictions("wheat.parquet")
 
         >>> # Store-backed mode (pipeline execution)
         >>> from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
@@ -209,115 +242,137 @@ class Predictions:
         >>> pred.flush(pipeline_id="abc")
     """
 
-    def __init__(self, store: WorkspaceStore | None = None) -> None:
+    def __init__(
+        self,
+        db_path: str | Path | None = None,
+        *,
+        dataset_name: str | None = None,
+        load_arrays: bool = True,
+        store: WorkspaceStore | None = None,
+    ) -> None:
         self._store = store
+        self._owns_store = False
         # In-memory buffer for predictions accumulated during a pipeline run.
         self._buffer: list[dict[str, Any]] = []
         # Dataset repetition column for by_repetition=True resolution
         self._dataset_repetition: str | None = None
 
-    # =========================================================================
-    # LOADING FROM WORKSPACE
-    # =========================================================================
+        if db_path is not None:
+            self._open_from_path(Path(db_path), dataset_name=dataset_name, load_arrays=load_arrays)
 
-    @classmethod
-    def from_workspace(
-        cls,
-        workspace_path: str | Path,
+    # ------------------------------------------------------------------
+    # Path auto-detection
+    # ------------------------------------------------------------------
+
+    def _open_from_path(
+        self,
+        path: Path,
         *,
         dataset_name: str | None = None,
         load_arrays: bool = True,
-    ) -> Predictions:
-        """Load predictions from a workspace DuckDB store.
+    ) -> None:
+        """Open a workspace or parquet file from *path*."""
+        if path.suffix == ".parquet":
+            self._load_portable_parquet(path)
+        elif path.suffix == ".duckdb":
+            # Derive workspace dir from the .duckdb file location
+            self._open_store(path.parent, dataset_name=dataset_name, load_arrays=load_arrays)
+        else:
+            # Assume it's a workspace directory
+            self._open_store(path, dataset_name=dataset_name, load_arrays=load_arrays)
 
-        Opens the workspace store, queries all predictions (with optional
-        dataset filter), loads associated arrays (y_true, y_pred), and
-        returns a fully populated in-memory ``Predictions`` instance
-        ready for use with ``PredictionAnalyzer``.
-
-        Args:
-            workspace_path: Path to the workspace directory containing
-                ``store.duckdb``.
-            dataset_name: Optional dataset name filter.
-            load_arrays: If ``True`` (default), load y_true/y_pred arrays
-                for each prediction.  Set to ``False`` for metadata-only
-                queries (faster, but no scatter/residual plots).
-
-        Returns:
-            A ``Predictions`` instance with the buffer populated from
-            the store.
-
-        Example:
-            >>> predictions = Predictions.from_workspace("workspace")
-            >>> predictions.top(5)
-            >>> analyzer = PredictionAnalyzer(predictions)
-            >>> analyzer.plot_histogram()
-        """
+    def _open_store(
+        self,
+        workspace_path: Path,
+        *,
+        dataset_name: str | None = None,
+        load_arrays: bool = True,
+    ) -> None:
+        """Open a WorkspaceStore and load predictions into the buffer."""
         from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
-        workspace_path = Path(workspace_path)
         store = WorkspaceStore(workspace_path)
-        try:
-            return cls._load_from_store(store, dataset_name=dataset_name, load_arrays=load_arrays)
-        finally:
-            store.close()
-
-    @classmethod
-    def _load_from_store(
-        cls,
-        store: WorkspaceStore,
-        *,
-        dataset_name: str | None = None,
-        load_arrays: bool = True,
-    ) -> Predictions:
-        """Load predictions from an open WorkspaceStore.
-
-        Args:
-            store: An open WorkspaceStore instance.
-            dataset_name: Optional dataset name filter.
-            load_arrays: If True, load y_true/y_pred arrays.
-
-        Returns:
-            A Predictions instance with buffer populated.
-        """
-        predictions = cls()
+        self._store = store
+        self._owns_store = True
 
         df = store.query_predictions(dataset_name=dataset_name)
         if df.is_empty():
-            return predictions
+            return
+
+        self._populate_buffer_from_store(store, df, load_arrays=load_arrays)
+
+    def _load_portable_parquet(self, path: Path) -> None:
+        """Load a standalone .parquet file into the in-memory buffer."""
+        df = pl.read_parquet(path)
+        if df.is_empty():
+            return
+
+        for row in df.iter_rows(named=True):
+            y_true = np.array(row["y_true"], dtype=np.float64) if row.get("y_true") is not None else None
+            y_pred = np.array(row["y_pred"], dtype=np.float64) if row.get("y_pred") is not None else None
+            y_proba = None
+            if row.get("y_proba") is not None:
+                y_proba = np.array(row["y_proba"], dtype=np.float64)
+                shape = row.get("y_proba_shape")
+                if shape is not None and len(shape) > 1:
+                    with contextlib.suppress(ValueError):
+                        y_proba = y_proba.reshape(shape)
+
+            sample_indices = None
+            if row.get("sample_indices") is not None:
+                sample_indices = np.array(row["sample_indices"], dtype=np.int64)
+
+            self.add_prediction(
+                dataset_name=row.get("dataset_name", ""),
+                model_name=row.get("model_name", ""),
+                fold_id=row.get("fold_id", ""),
+                partition=row.get("partition", ""),
+                metric=row.get("metric", ""),
+                val_score=row.get("val_score"),
+                task_type=row.get("task_type", "regression"),
+                y_true=y_true,
+                y_pred=y_pred,
+                y_proba=y_proba,
+                sample_indices=sample_indices,
+            )
+
+    def _populate_buffer_from_store(
+        self,
+        store: WorkspaceStore,
+        df: pl.DataFrame,
+        *,
+        load_arrays: bool = True,
+    ) -> None:
+        """Populate the in-memory buffer from a query result DataFrame."""
+        import json as _json
 
         for row in df.iter_rows(named=True):
             pred_id = row["prediction_id"]
 
-            y_true = None
-            y_pred = None
-            y_proba = None
-            sample_indices = None
-
+            y_true = y_pred = y_proba = sample_indices = None
             if load_arrays:
-                arrays = store.get_prediction_arrays(pred_id)
+                arrays = store.array_store.load_single(pred_id, dataset_name=row.get("dataset_name"))
                 if arrays:
                     y_true = arrays.get("y_true")
                     y_pred = arrays.get("y_pred")
                     y_proba = arrays.get("y_proba")
                     sample_indices = arrays.get("sample_indices")
 
-            # Parse JSON fields from DuckDB
             scores = row.get("scores")
             if isinstance(scores, str):
                 try:
-                    scores = json.loads(scores)
+                    scores = _json.loads(scores)
                 except (json.JSONDecodeError, TypeError):
                     scores = None
 
             best_params = row.get("best_params")
             if isinstance(best_params, str):
                 try:
-                    best_params = json.loads(best_params)
+                    best_params = _json.loads(best_params)
                 except (json.JSONDecodeError, TypeError):
                     best_params = None
 
-            predictions.add_prediction(
+            self.add_prediction(
                 dataset_name=row.get("dataset_name", ""),
                 model_name=row.get("model_name", ""),
                 model_classname=row.get("model_class", ""),
@@ -343,6 +398,130 @@ class Predictions:
                 pipeline_uid=row.get("pipeline_id", ""),
             )
 
+    # ------------------------------------------------------------------
+    # Context manager
+    # ------------------------------------------------------------------
+
+    def close(self) -> None:
+        """Close the underlying store if this instance owns it."""
+        if self._owns_store and self._store is not None:
+            self._store.close()
+            self._store = None
+            self._owns_store = False
+
+    def __enter__(self) -> Predictions:
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self.close()
+
+    def _require_store(self) -> WorkspaceStore:
+        """Return the store or raise RuntimeError."""
+        if self._store is None:
+            raise RuntimeError("This operation requires a workspace store (not available in portable/in-memory mode).")
+        return self._store
+
+    # =========================================================================
+    # LOADING FROM WORKSPACE
+    # =========================================================================
+
+    @classmethod
+    def from_workspace(
+        cls,
+        workspace_path: str | Path,
+        *,
+        dataset_name: str | None = None,
+        load_arrays: bool = True,
+    ) -> Predictions:
+        """Load predictions from a workspace DuckDB store.
+
+        Opens the workspace store, queries all predictions (with optional
+        dataset filter), loads associated arrays (y_true, y_pred), and
+        returns a fully populated ``Predictions`` instance ready for use
+        with ``PredictionAnalyzer``.
+
+        Args:
+            workspace_path: Path to the workspace directory containing
+                ``store.duckdb``.
+            dataset_name: Optional dataset name filter.
+            load_arrays: If ``True`` (default), load y_true/y_pred arrays
+                for each prediction.  Set to ``False`` for metadata-only
+                queries (faster, but no scatter/residual plots).
+
+        Returns:
+            A ``Predictions`` instance with the buffer populated from
+            the store.  The instance owns the store and can be used as
+            a context manager.
+
+        Example:
+            >>> predictions = Predictions.from_workspace("workspace")
+            >>> predictions.top(5)
+        """
+        return cls(workspace_path, dataset_name=dataset_name, load_arrays=load_arrays)
+
+    @classmethod
+    def from_file(cls, path: str | Path, **kwargs: Any) -> Predictions:
+        """Open predictions from a file with auto-detection.
+
+        Accepts a workspace directory, ``.duckdb`` file, or ``.parquet``
+        file and delegates to the constructor.
+
+        Args:
+            path: Path to workspace dir, ``.duckdb``, or ``.parquet``.
+            **kwargs: Forwarded to ``__init__`` (``dataset_name``,
+                ``load_arrays``).
+
+        Returns:
+            A ``Predictions`` instance.
+        """
+        return cls(path, **kwargs)
+
+    @classmethod
+    def from_parquet(cls, parquet_path: str | Path) -> Predictions:
+        """Load predictions from a standalone Parquet file.
+
+        The Parquet file must contain the portable columns written by
+        :class:`~nirs4all.pipeline.storage.array_store.ArrayStore`
+        (prediction_id, dataset_name, model_name, fold_id, partition,
+        metric, val_score, task_type, y_true, y_pred, etc.).
+
+        The returned instance operates in portable mode (no store).
+        Maintenance methods that require a store will raise
+        ``RuntimeError``.
+
+        Args:
+            parquet_path: Path to the ``.parquet`` file.
+
+        Returns:
+            A ``Predictions`` instance in portable mode.
+        """
+        return cls(parquet_path)
+
+    @classmethod
+    def _load_from_store(
+        cls,
+        store: WorkspaceStore,
+        *,
+        dataset_name: str | None = None,
+        load_arrays: bool = True,
+    ) -> Predictions:
+        """Load predictions from an open WorkspaceStore.
+
+        Args:
+            store: An open WorkspaceStore instance.
+            dataset_name: Optional dataset name filter.
+            load_arrays: If True, load y_true/y_pred arrays.
+
+        Returns:
+            A Predictions instance with buffer populated.
+        """
+        predictions = cls()
+
+        df = store.query_predictions(dataset_name=dataset_name)
+        if df.is_empty():
+            return predictions
+
+        predictions._populate_buffer_from_store(store, df, load_arrays=load_arrays)
         return predictions
 
     # =========================================================================
@@ -526,9 +705,10 @@ class Predictions:
     ) -> None:
         """Persist buffered predictions to the workspace store.
 
-        Each buffered record is written via
-        :meth:`WorkspaceStore.save_prediction` followed by
-        :meth:`WorkspaceStore.save_prediction_arrays`.
+        Metadata is written row-by-row to DuckDB via
+        :meth:`WorkspaceStore.save_prediction`.  Arrays are accumulated
+        and written in a single batch to Parquet via
+        :meth:`ArrayStore.save_batch` at the end of the flush cycle.
 
         Args:
             pipeline_id: Pipeline ID to associate predictions with.
@@ -546,6 +726,9 @@ class Predictions:
         target_store = store or self._store
         if target_store is None or not self._buffer:
             return
+
+        # Accumulate array records for batch Parquet write
+        array_records: list[dict] = []
 
         for row in self._buffer:
             resolved_chain_id = chain_id or ""
@@ -589,7 +772,7 @@ class Predictions:
                 refit_context=refit_context,
             )
 
-            # Save arrays
+            # Accumulate arrays for batch write
             y_true = row.get("y_true")
             y_pred = row.get("y_pred")
             y_proba = row.get("y_proba")
@@ -600,14 +783,25 @@ class Predictions:
             has_y_pred = y_pred is not None and (isinstance(y_pred, np.ndarray) and y_pred.size > 0)
 
             if has_y_true or has_y_pred:
-                target_store.save_prediction_arrays(
-                    prediction_id=pred_id,
-                    y_true=y_true if has_y_true else None,
-                    y_pred=y_pred if has_y_pred else None,
-                    y_proba=y_proba if (y_proba is not None and isinstance(y_proba, np.ndarray) and y_proba.size > 0) else None,
-                    sample_indices=np.array(sample_indices, dtype=np.int64) if sample_indices and len(sample_indices) > 0 else None,
-                    weights=np.array(weights, dtype=np.float64) if weights and len(weights) > 0 else None,
-                )
+                array_records.append({
+                    "prediction_id": pred_id,
+                    "dataset_name": row["dataset_name"],
+                    "model_name": row["model_name"],
+                    "fold_id": str(fold_id),
+                    "partition": row["partition"],
+                    "metric": row["metric"],
+                    "val_score": row.get("val_score"),
+                    "task_type": row["task_type"],
+                    "y_true": y_true if has_y_true else None,
+                    "y_pred": y_pred if has_y_pred else None,
+                    "y_proba": y_proba if (y_proba is not None and isinstance(y_proba, np.ndarray) and y_proba.size > 0) else None,
+                    "sample_indices": np.array(sample_indices, dtype=np.int64) if sample_indices and len(sample_indices) > 0 else None,
+                    "weights": np.array(weights, dtype=np.float64) if weights and len(weights) > 0 else None,
+                })
+
+        # Batch write all arrays to Parquet (one write per dataset)
+        if array_records:
+            target_store.array_store.save_batch(array_records)
 
     # =========================================================================
     # RANKING OPERATIONS
@@ -1687,6 +1881,374 @@ class Predictions:
                     enriched["partitions"][part_name] = part_data
 
         return enriched
+
+    # =========================================================================
+    # STORE-BACKED OPERATIONS (maintenance, merge, query)
+    # =========================================================================
+
+    @classmethod
+    def merge_stores(
+        cls,
+        sources: list[str | Path],
+        target: str | Path,
+        *,
+        on_conflict: str = "keep_best",
+        datasets: list[str] | None = None,
+    ) -> MergeReport:
+        """Merge predictions from multiple workspace stores into a target.
+
+        Args:
+            sources: List of workspace directory paths to merge from.
+            target: Target workspace directory (created if needed).
+            on_conflict: Conflict resolution strategy:
+
+                - ``"keep_best"``: keep the prediction with the best
+                  ``val_score`` (lowest for error metrics).
+                - ``"keep_existing"``: keep the target's prediction.
+                - ``"overwrite"``: always overwrite with the source.
+            datasets: If given, only merge predictions for these datasets.
+
+        Returns:
+            A :class:`MergeReport` summarising the operation.
+        """
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        report = MergeReport(total_sources=len(sources))
+        target_store = WorkspaceStore(Path(target))
+        all_datasets: set[str] = set()
+        # Cache for merge run/pipeline/chain per source to satisfy FK constraints
+        _merge_pipelines: dict[str, tuple[str, str]] = {}  # source_path -> (pipeline_id, chain_id)
+
+        try:
+            for source_path in sources:
+                src_key = str(source_path)
+                try:
+                    source_store = WorkspaceStore(Path(source_path))
+                except Exception as exc:
+                    report.errors.append(f"Failed to open {source_path}: {exc}")
+                    continue
+
+                try:
+                    src_df = source_store.query_predictions(dataset_name=None)
+                    if src_df.is_empty():
+                        continue
+
+                    # Build unique dataset list from source
+                    src_datasets = set(src_df["dataset_name"].to_list()) if "dataset_name" in src_df.columns else set()
+                    relevant_datasets = src_datasets & set(datasets) if datasets else src_datasets
+
+                    if not relevant_datasets:
+                        continue
+
+                    # Create a merge run/pipeline/chain in the target for this source
+                    if src_key not in _merge_pipelines:
+                        merge_run_id = target_store.begin_run(
+                            f"merge_{Path(source_path).name}",
+                            config={"source": src_key},
+                            datasets=[{"name": ds} for ds in sorted(relevant_datasets)],
+                        )
+                        merge_pipeline_id = target_store.begin_pipeline(
+                            run_id=merge_run_id,
+                            name=f"merge_{Path(source_path).name}",
+                            expanded_config=[],
+                            generator_choices=[],
+                            dataset_name=sorted(relevant_datasets)[0],
+                            dataset_hash="merged",
+                        )
+                        merge_chain_id = target_store.save_chain(
+                            pipeline_id=merge_pipeline_id,
+                            steps=[],
+                            model_step_idx=0,
+                            model_class="merged",
+                            preprocessings="",
+                            fold_strategy="merged",
+                            fold_artifacts={},
+                            shared_artifacts={},
+                        )
+                        _merge_pipelines[src_key] = (merge_pipeline_id, merge_chain_id)
+
+                    target_pipeline_id, target_chain_id = _merge_pipelines[src_key]
+
+                    for row in src_df.iter_rows(named=True):
+                        ds = row.get("dataset_name", "")
+                        if ds not in relevant_datasets:
+                            continue
+
+                        all_datasets.add(ds)
+                        pred_id = row["prediction_id"]
+
+                        # Check for natural key conflict in target
+                        existing = target_store.query_predictions(dataset_name=ds)
+                        conflict = False
+                        if not existing.is_empty():
+                            for ex_row in existing.iter_rows(named=True):
+                                if (
+                                    ex_row.get("model_name") == row.get("model_name")
+                                    and ex_row.get("fold_id") == row.get("fold_id")
+                                    and ex_row.get("partition") == row.get("partition")
+                                ):
+                                    conflict = True
+                                    if on_conflict == "keep_existing":
+                                        break
+                                    if on_conflict == "keep_best":
+                                        src_score = row.get("val_score")
+                                        ex_score = ex_row.get("val_score")
+                                        if src_score is not None and ex_score is not None and src_score >= ex_score:
+                                            break
+                                        target_store.delete_prediction(ex_row["prediction_id"])
+                                    elif on_conflict == "overwrite":
+                                        target_store.delete_prediction(ex_row["prediction_id"])
+                                    break
+
+                            if conflict and on_conflict == "keep_existing":
+                                report.conflicts_resolved += 1
+                                continue
+                            if conflict:
+                                report.conflicts_resolved += 1
+
+                        scores = row.get("scores")
+                        if isinstance(scores, str):
+                            try:
+                                scores = json.loads(scores)
+                            except (json.JSONDecodeError, TypeError):
+                                scores = {}
+                        best_params = row.get("best_params")
+                        if isinstance(best_params, str):
+                            try:
+                                best_params = json.loads(best_params)
+                            except (json.JSONDecodeError, TypeError):
+                                best_params = {}
+
+                        new_pred_id = target_store.save_prediction(
+                            pipeline_id=target_pipeline_id,
+                            chain_id=target_chain_id,
+                            dataset_name=ds,
+                            model_name=row.get("model_name", ""),
+                            model_class=row.get("model_class", ""),
+                            fold_id=row.get("fold_id", ""),
+                            partition=row.get("partition", ""),
+                            val_score=row.get("val_score"),
+                            test_score=row.get("test_score"),
+                            train_score=row.get("train_score"),
+                            metric=row.get("metric", "rmse"),
+                            task_type=row.get("task_type", "regression"),
+                            n_samples=row.get("n_samples") or 0,
+                            n_features=row.get("n_features") or 0,
+                            scores=scores or {},
+                            best_params=best_params or {},
+                            preprocessings=row.get("preprocessings", ""),
+                            branch_id=row.get("branch_id"),
+                            branch_name=row.get("branch_name"),
+                            exclusion_count=row.get("exclusion_count") or 0,
+                            exclusion_rate=row.get("exclusion_rate") or 0.0,
+                            refit_context=row.get("refit_context"),
+                        )
+
+                        # Copy arrays
+                        arrays = source_store.array_store.load_single(pred_id, dataset_name=ds)
+                        if arrays:
+                            y_true = arrays.get("y_true")
+                            y_pred = arrays.get("y_pred")
+                            has_arrays = (y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0) or (y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0)
+                            if has_arrays:
+                                target_store.array_store.save_batch([{
+                                    "prediction_id": new_pred_id,
+                                    "dataset_name": ds,
+                                    "model_name": row.get("model_name", ""),
+                                    "fold_id": row.get("fold_id", ""),
+                                    "partition": row.get("partition", ""),
+                                    "metric": row.get("metric", ""),
+                                    "val_score": row.get("val_score"),
+                                    "task_type": row.get("task_type", ""),
+                                    "y_true": y_true,
+                                    "y_pred": y_pred,
+                                    "y_proba": arrays.get("y_proba"),
+                                    "sample_indices": arrays.get("sample_indices"),
+                                    "weights": arrays.get("weights"),
+                                }])
+
+                        report.predictions_merged += 1
+                finally:
+                    source_store.close()
+
+            report.datasets_merged = sorted(all_datasets)
+        finally:
+            target_store.close()
+
+        return report
+
+    def clean_dead_links(self, *, dry_run: bool = False) -> dict[str, int]:
+        """Remove orphaned metadata or array entries.
+
+        Compares prediction IDs in DuckDB against prediction IDs in
+        the Parquet array files and removes entries that exist in only
+        one side.
+
+        Args:
+            dry_run: If ``True``, report counts without deleting.
+
+        Returns:
+            ``{metadata_orphans_removed, array_orphans_found}``
+        """
+        store = self._require_store()
+
+        df = store.query_predictions()
+        db_ids = set(df["prediction_id"].to_list()) if not df.is_empty() else set()
+
+        check = store.array_store.integrity_check(expected_ids=db_ids)
+        # missing_ids: in DuckDB but not in Parquet (metadata orphans)
+        # orphan_ids: in Parquet but not in DuckDB (array orphans → cleaned by compact)
+        metadata_orphans = check["missing_ids"]
+        array_orphans = check["orphan_ids"]
+
+        removed_meta = 0
+        if not dry_run:
+            for pid in metadata_orphans:
+                store.delete_prediction(pid)
+                removed_meta += 1
+            if array_orphans:
+                store.array_store.compact()
+
+        return {
+            "metadata_orphans_removed": removed_meta if not dry_run else len(metadata_orphans),
+            "array_orphans_found": len(array_orphans),
+        }
+
+    def remove_bottom(
+        self,
+        fraction: float,
+        metric: str = "val_score",
+        *,
+        partition: str = "val",
+        dataset_name: str | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Remove the worst-performing predictions.
+
+        Args:
+            fraction: Fraction of predictions to remove (0.0–1.0).
+            metric: Score column to rank by.
+            partition: Partition to filter.
+            dataset_name: Optional dataset filter.
+            dry_run: If ``True``, report counts without deleting.
+
+        Returns:
+            ``{removed, remaining, threshold_score}``
+        """
+        store = self._require_store()
+
+        df = store.query_predictions(dataset_name=dataset_name, partition=partition)
+        if df.is_empty():
+            return {"removed": 0, "remaining": 0, "threshold_score": None}
+
+        if metric not in df.columns:
+            raise ValueError(f"Column '{metric}' not found in predictions")
+
+        ascending = _infer_ascending(metric.replace("_score", ""))
+        sorted_df = df.sort(metric, descending=not ascending)
+
+        n_remove = max(1, int(len(sorted_df) * fraction))
+        to_remove = sorted_df.tail(n_remove)
+        threshold_score = to_remove[metric][0] if len(to_remove) > 0 else None
+
+        if not dry_run:
+            for pid in to_remove["prediction_id"].to_list():
+                store.delete_prediction(pid)
+
+        return {
+            "removed": n_remove if not dry_run else 0,
+            "remaining": len(sorted_df) - n_remove,
+            "threshold_score": threshold_score,
+        }
+
+    def remove_dataset(self, dataset_name: str, *, dry_run: bool = False) -> dict[str, Any]:
+        """Remove all predictions for a dataset.
+
+        Args:
+            dataset_name: Dataset to remove.
+            dry_run: If ``True``, report counts without deleting.
+
+        Returns:
+            ``{predictions_removed, parquet_deleted}``
+        """
+        store = self._require_store()
+
+        df = store.query_predictions(dataset_name=dataset_name)
+        count = len(df)
+
+        if dry_run:
+            parquet_exists = store.array_store._parquet_path(dataset_name).exists()
+            return {"predictions_removed": count, "parquet_deleted": parquet_exists}
+
+        deleted = store.delete_dataset_predictions(dataset_name)
+        return {"predictions_removed": deleted, "parquet_deleted": deleted > 0}
+
+    def remove_run(self, run_id: str, *, dry_run: bool = False) -> dict[str, int]:
+        """Remove a run and all its descendants.
+
+        Args:
+            run_id: Run to delete.
+            dry_run: If ``True``, report counts without deleting.
+
+        Returns:
+            ``{rows_removed}``
+        """
+        store = self._require_store()
+
+        if dry_run:
+            df = store.query_predictions(run_id=run_id)
+            return {"rows_removed": len(df)}
+
+        total = store.delete_run(run_id)
+        return {"rows_removed": total}
+
+    def compact(self, dataset_name: str | None = None) -> dict[str, dict[str, Any]]:
+        """Compact Parquet files: apply tombstones, deduplicate, re-sort.
+
+        Args:
+            dataset_name: If given, compact only that dataset.
+
+        Returns:
+            Per-dataset compaction stats.
+        """
+        store = self._require_store()
+        return store.array_store.compact(dataset_name)
+
+    def store_stats(self) -> dict[str, Any]:
+        """Combined DuckDB metadata + Parquet array storage statistics.
+
+        Returns:
+            ``{db_file_bytes, tables: {...}, arrays: {...}}``
+        """
+        store = self._require_store()
+
+        # DuckDB file size
+        db_path = store.workspace_path / "store.duckdb"
+        db_bytes = db_path.stat().st_size if db_path.exists() else 0
+
+        # Table row counts
+        tables: dict[str, int] = {}
+        for table_name in ("runs", "pipelines", "chains", "predictions", "artifacts", "logs"):
+            df = store._fetch_pl(f"SELECT COUNT(*) AS cnt FROM {table_name}")
+            tables[table_name] = df["cnt"][0] if not df.is_empty() else 0
+
+        return {
+            "db_file_bytes": db_bytes,
+            "tables": tables,
+            "arrays": store.array_store.stats(),
+        }
+
+    def query(self, sql: str) -> pl.DataFrame:
+        """Run arbitrary read-only SQL against the metadata store.
+
+        Args:
+            sql: SQL query string.
+
+        Returns:
+            Query result as a :class:`polars.DataFrame`.
+        """
+        store = self._require_store()
+        return store._fetch_pl(sql)
 
     # =========================================================================
     # DUNDER METHODS

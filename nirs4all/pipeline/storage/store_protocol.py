@@ -17,7 +17,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-import numpy as np
 import polars as pl
 
 
@@ -35,8 +34,7 @@ class WorkspaceStoreProtocol(Protocol):
     * **Pipeline lifecycle** -- creating, completing, and failing
       pipeline executions.
     * **Chain storage** -- persisting the preprocessing-to-model chain.
-    * **Prediction storage** -- saving scalar prediction records and
-      their associated dense arrays.
+    * **Prediction storage** -- saving scalar prediction records.
     * **Artifact storage** -- content-addressed persistence of fitted
       Python objects.
     * **Core queries** -- ranking predictions and retrieving single
@@ -142,18 +140,6 @@ class WorkspaceStoreProtocol(Protocol):
         prediction_id: str | None = None,
     ) -> str:
         """Store a prediction record and return its identifier."""
-        ...
-
-    def save_prediction_arrays(
-        self,
-        prediction_id: str,
-        y_true: np.ndarray | None,
-        y_pred: np.ndarray | None,
-        y_proba: np.ndarray | None = None,
-        sample_indices: np.ndarray | None = None,
-        weights: np.ndarray | None = None,
-    ) -> None:
-        """Store prediction arrays."""
         ...
 
     # --- Artifact storage ---
