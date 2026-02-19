@@ -1764,12 +1764,13 @@ class WorkspaceStore:
 
     def query_chain_summaries(
         self,
-        run_id: str | None = None,
-        pipeline_id: str | None = None,
-        chain_id: str | None = None,
-        dataset_name: str | None = None,
-        model_class: str | None = None,
+        run_id: str | list[str] | None = None,
+        pipeline_id: str | list[str] | None = None,
+        chain_id: str | list[str] | None = None,
+        dataset_name: str | list[str] | None = None,
+        model_class: str | list[str] | None = None,
         metric: str | None = None,
+        task_type: str | None = None,
     ) -> pl.DataFrame:
         """Query chain summaries with optional filters.
 
@@ -1777,14 +1778,16 @@ class WorkspaceStore:
         multi-metric JSON, and chain metadata from ``v_chain_summary``.
 
         All filter arguments are optional and combined with ``AND``.
+        String filters accept a single value or a list of values (``IN``).
 
         Args:
-            run_id: Filter by parent run.
-            pipeline_id: Filter by parent pipeline.
-            chain_id: Filter by chain.
-            dataset_name: Filter by dataset name.
-            model_class: Filter by model class (supports SQL ``LIKE``).
+            run_id: Filter by parent run(s).
+            pipeline_id: Filter by parent pipeline(s).
+            chain_id: Filter by chain(s).
+            dataset_name: Filter by dataset name(s).
+            model_class: Filter by model class(es) (supports SQL ``LIKE``).
             metric: Filter by metric name.
+            task_type: Filter by task type (regression/classification).
 
         Returns:
             A :class:`polars.DataFrame` with one row per chain.
@@ -1796,6 +1799,7 @@ class WorkspaceStore:
             dataset_name=dataset_name,
             model_class=model_class,
             metric=metric,
+            task_type=task_type,
         )
         return self._fetch_pl(sql, params)
 
