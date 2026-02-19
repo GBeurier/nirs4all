@@ -26,24 +26,24 @@ Difficulty: ★☆☆☆☆
 
 # Standard library imports
 import argparse
-import numpy as np
 
-# Third-party imports
-from sklearn.preprocessing import StandardScaler
+import numpy as np
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 
+# Third-party imports
+from sklearn.preprocessing import StandardScaler
+
 # NIRS4All imports
 import nirs4all
-from nirs4all.pipeline import PipelineRunner, PipelineConfigs
 from nirs4all.data import DatasetConfigs, SpectroDataset
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U01 Flexible Inputs Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Generate Sample Data
@@ -60,7 +60,7 @@ n_features = 100
 X = np.random.randn(n_samples, n_features)
 y = np.random.randn(n_samples)
 
-print(f"\n📊 Generated synthetic data:")
+print("\n📊 Generated synthetic data:")
 print(f"   Samples: {n_samples}, Features: {n_features}")
 
 # Define a simple pipeline
@@ -68,7 +68,6 @@ pipeline_steps = [
     {"preprocessing": StandardScaler()},
     {"model": Ridge(alpha=1.0)}
 ]
-
 
 # =============================================================================
 # Section 2: Traditional Approach (PipelineConfigs + DatasetConfigs)
@@ -91,7 +90,6 @@ dataset_configs = DatasetConfigs({
 result1, _ = runner.run(pipeline_configs, dataset_configs)
 print("   ✓ PipelineConfigs + DatasetConfigs works!")
 
-
 # =============================================================================
 # Section 3: Direct List + Tuple (Simplest!)
 # =============================================================================
@@ -110,7 +108,6 @@ result2, _ = runner2.run(
     dataset_name="array_data"
 )
 print("   ✓ Direct list + tuple: pipeline_steps, (X, y, {'train': 160})")
-
 
 # =============================================================================
 # Section 4: Dictionary Dataset Configuration
@@ -135,7 +132,6 @@ result3, _ = runner3.run(
 )
 print("   ✓ Dict dataset: explicit train_x, train_y, test_x, test_y")
 
-
 # =============================================================================
 # Section 5: SpectroDataset Object
 # =============================================================================
@@ -158,7 +154,6 @@ result4, _ = runner4.run(
 )
 print("   ✓ SpectroDataset: full control over data structure")
 
-
 # =============================================================================
 # Section 6: Custom Partition Indices
 # =============================================================================
@@ -180,7 +175,6 @@ result5, _ = runner5.run(
     dataset_name="custom_split"
 )
 print("   ✓ Custom indices with slices: {'train': slice(0, 150), 'test': slice(150, 200)}")
-
 
 # =============================================================================
 # Section 7: Pipeline with Cross-Validation
@@ -205,7 +199,6 @@ result6, _ = runner6.run(
 )
 print("   ✓ Pipeline with KFold cross-validation embedded")
 
-
 # =============================================================================
 # Section 8: Using nirs4all.run() Directly
 # =============================================================================
@@ -225,7 +218,6 @@ result7 = nirs4all.run(
 )
 print("   ✓ nirs4all.run() with direct array input")
 print(f"     Generated {result7.num_predictions} predictions")
-
 
 # =============================================================================
 # Summary

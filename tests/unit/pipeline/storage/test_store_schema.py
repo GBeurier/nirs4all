@@ -26,7 +26,6 @@ def conn():
     yield connection
     connection.close()
 
-
 # =========================================================================
 # test_schema_creation
 # =========================================================================
@@ -121,7 +120,6 @@ class TestSchemaCreation:
         assert "ref_count" in columns
         assert "size_bytes" in columns
 
-
 # =========================================================================
 # test_schema_idempotent
 # =========================================================================
@@ -153,7 +151,6 @@ class TestSchemaIdempotent:
 
         result = conn.execute("SELECT COUNT(*) FROM runs").fetchone()
         assert result[0] == 1
-
 
 # =========================================================================
 # test_foreign_keys
@@ -202,7 +199,6 @@ class TestForeignKeys:
                 "(log_id, pipeline_id, step_idx, event) "
                 "VALUES ('l1', 'nonexistent', 0, 'start')"
             )
-
 
 # =========================================================================
 # test_cascade_delete
@@ -267,7 +263,6 @@ class TestFKBlocksParentDeletion:
         self._setup_hierarchy(conn)
         with pytest.raises(duckdb.ConstraintException):
             conn.execute("DELETE FROM chains WHERE chain_id = 'c1'")
-
 
 # =========================================================================
 # DDL string sanity checks

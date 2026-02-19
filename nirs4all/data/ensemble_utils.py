@@ -8,7 +8,8 @@ to be with data/prediction modules.
 Supports both regression (numeric averaging) and classification (soft/hard voting).
 """
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, Optional
+
 import numpy as np
 
 
@@ -21,10 +22,10 @@ class EnsembleUtils:
 
     @staticmethod
     def compute_soft_voting_average(
-        probability_arrays: List[np.ndarray],
-        weights: Optional[np.ndarray] = None,
+        probability_arrays: list[np.ndarray],
+        weights: np.ndarray | None = None,
         use_confidence_weighting: bool = False
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Compute soft voting average of class probabilities.
 
         Averages probability distributions from multiple models (weighted or simple),
@@ -104,7 +105,7 @@ class EnsembleUtils:
         else:
             # Standard weighted average of probabilities
             averaged_probs = np.zeros((n_samples, max_classes), dtype=float)
-            for probs, w in zip(aligned_arrays, fold_weights):
+            for probs, w in zip(aligned_arrays, fold_weights, strict=False):
                 averaged_probs += w * probs
 
         # Get class predictions via argmax
@@ -114,9 +115,9 @@ class EnsembleUtils:
 
     @staticmethod
     def compute_hard_voting(
-        class_predictions: List[np.ndarray],
-        weights: Optional[np.ndarray] = None,
-        n_classes: Optional[int] = None
+        class_predictions: list[np.ndarray],
+        weights: np.ndarray | None = None,
+        n_classes: int | None = None
     ) -> np.ndarray:
         """Compute hard voting (majority vote) from class predictions.
 
@@ -149,14 +150,11 @@ class EnsembleUtils:
             n_classes = max(p.max() for p in predictions) + 1
 
         # Default to uniform weights
-        if weights is None:
-            weights = np.ones(n_models)
-        else:
-            weights = np.asarray(weights, dtype=float)
+        weights = np.ones(n_models) if weights is None else np.asarray(weights, dtype=float)
 
         # Count weighted votes for each class per sample
         vote_counts = np.zeros((n_samples, n_classes), dtype=float)
-        for pred, w in zip(predictions, weights):
+        for pred, w in zip(predictions, weights, strict=False):
             for sample_idx in range(n_samples):
                 class_idx = pred[sample_idx]
                 vote_counts[sample_idx, class_idx] += w
@@ -172,10 +170,10 @@ class EnsembleUtils:
 
     @staticmethod
     def compute_weighted_average(
-        arrays: List[np.ndarray],
-        scores: List[float],
-        metric: Optional[str] = None,
-        higher_is_better: Optional[bool] = None
+        arrays: list[np.ndarray],
+        scores: list[float],
+        metric: str | None = None,
+        higher_is_better: bool | None = None
     ) -> np.ndarray:
         """
         Compute weighted average of arrays based on their scores.
@@ -221,7 +219,7 @@ class EnsembleUtils:
 
         # Compute weighted average
         weighted_sum = np.zeros_like(arrays[0], dtype=float)
-        for arr, weight in zip(arrays, weights):
+        for arr, weight in zip(arrays, weights, strict=False):
             weighted_sum += weight * arr
 
         return weighted_sum
@@ -257,11 +255,7 @@ class EnsembleUtils:
             return False
         else:
             # Default assumption: if it contains 'error', 'loss', or 'mse', lower is better
-            if any(term in metric_lower for term in ['error', 'loss', 'mse', 'mae']):
-                return False
-            else:
-                # Default to higher is better for unknown metrics
-                return True
+            return not any(term in metric_lower for term in ['error', 'loss', 'mse', 'mae'])
 
     @staticmethod
     def _scores_to_weights(scores: np.ndarray, higher_is_better: bool) -> np.ndarray:
@@ -284,10 +278,7 @@ class EnsembleUtils:
         if higher_is_better:
             # For higher-is-better metrics, use scores directly
             # Ensure non-negative by shifting if needed
-            if np.min(scores) < 0:
-                shifted_scores = scores - np.min(scores)
-            else:
-                shifted_scores = scores.copy()
+            shifted_scores = scores - np.min(scores) if np.min(scores) < 0 else scores.copy()
 
             # Handle case where all shifted scores are zero
             if np.allclose(shifted_scores, 0):
@@ -314,12 +305,12 @@ class EnsembleUtils:
 
     @staticmethod
     def compute_ensemble_prediction(
-        predictions_data: List[Dict[str, Any]],
+        predictions_data: list[dict[str, Any]],
         score_metric: str = "test_score",
         prediction_key: str = "y_pred",
-        metric_for_direction: Optional[str] = None,
-        higher_is_better: Optional[bool] = None
-    ) -> Dict[str, Any]:
+        metric_for_direction: str | None = None,
+        higher_is_better: bool | None = None
+    ) -> dict[str, Any]:
         """
         Compute ensemble prediction from a list of prediction dictionaries.
 

@@ -1,17 +1,19 @@
 """YChartController - Y values histogram visualization with train/test split and folds."""
 
-from typing import Any, Dict, List, Literal, Optional, Tuple, TYPE_CHECKING
-import matplotlib.pyplot as plt
+import io
+from typing import TYPE_CHECKING, Any, Literal, Optional
+
 import matplotlib.cm as cm
+import matplotlib.pyplot as plt
 import numpy as np
+
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
-import io
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.config.context import ExecutionContext
+    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.pipeline.steps.parser import ParsedStep
 
 @register_controller
@@ -42,7 +44,7 @@ class YChartController(OperatorController):
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ) -> Tuple['ExecutionContext', Any]:
+    ) -> tuple['ExecutionContext', Any]:
         """
         Execute y values histogram visualization.
 
@@ -115,13 +117,7 @@ class YChartController(OperatorController):
                     )
                     excluded_mask = np.isin(train_indices, included_indices, invert=True)
                     excluded_indices = train_indices[excluded_mask]
-                    if len(excluded_indices) > 0:
-                        y_train_excluded = dataset.y(
-                            {"sample": excluded_indices.tolist(), "y": local_context.state.y_processing},
-                            include_excluded=True
-                        )
-                    else:
-                        y_train_excluded = np.array([])
+                    y_train_excluded = dataset.y({"sample": excluded_indices.tolist(), "y": local_context.state.y_processing}, include_excluded=True) if len(excluded_indices) > 0 else np.array([])
                 else:
                     y_train_excluded = None
             else:
@@ -174,9 +170,9 @@ class YChartController(OperatorController):
         self,
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
-        folds: List[Tuple[List[int], List[int]]],
+        folds: list[tuple[list[int], list[int]]],
         layout: Literal['standard', 'stacked', 'staggered'] = 'standard'
-    ) -> Tuple[Any, str]:
+    ) -> tuple[Any, str]:
         """Create a grid of histograms showing Y distribution for each fold validation set and test."""
         n_folds = len(folds)
 
@@ -193,10 +189,7 @@ class YChartController(OperatorController):
         fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
 
         # Flatten axes for easy indexing
-        if n_plots == 1:
-            axes = [axes]
-        else:
-            axes = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+        axes = [axes] if n_plots == 1 else axes.flatten() if hasattr(axes, 'flatten') else [axes]
 
         # Get train partition context for y values
         train_context = context.with_partition("train")
@@ -383,9 +376,9 @@ class YChartController(OperatorController):
             ax.hist(y_val, bins=bins, label='Val/Test', color=val_color, alpha=0.8, edgecolor='none')
 
     def _create_bicolor_histogram(self, y_train: np.ndarray, y_test: np.ndarray, y_all: np.ndarray,
-                                   y_excluded: Optional[np.ndarray] = None,
+                                   y_excluded: np.ndarray | None = None,
                                    layout: Literal['standard', 'stacked', 'staggered'] = 'standard'
-                                   ) -> Tuple[Any, Dict[str, Any]]:
+                                   ) -> tuple[Any, dict[str, Any]]:
         """
         Create a bicolor histogram showing train/test distribution.
 
@@ -444,17 +437,17 @@ class YChartController(OperatorController):
         test_color = viridis_cmap(0.1)   # Dark purple-blue for test
 
         ax.text(0.02, 0.98, train_stats, transform=ax.transAxes, fontsize=9,
-                verticalalignment='top', bbox=dict(boxstyle='round', facecolor=train_color, edgecolor='black'),
+                verticalalignment='top', bbox={"boxstyle": 'round', "facecolor": train_color, "edgecolor": 'black'},
                 color='black')
         ax.text(0.02, 0.75, test_stats, transform=ax.transAxes, fontsize=9,
-                verticalalignment='top', bbox=dict(boxstyle='round', facecolor=test_color, edgecolor='white'),
+                verticalalignment='top', bbox={"boxstyle": 'round', "facecolor": test_color, "edgecolor": 'white'},
                 color='white')
 
         # Add excluded stats if present
         if y_excluded_flat is not None and len(y_excluded_flat) > 0:
             excluded_stats = f'Excluded (n={len(y_excluded_flat)}):\nMean: {np.mean(y_excluded_flat):.3f}\nStd: {np.std(y_excluded_flat):.3f}'
             ax.text(0.02, 0.52, excluded_stats, transform=ax.transAxes, fontsize=9,
-                    verticalalignment='top', bbox=dict(boxstyle='round', facecolor='red', alpha=0.7, edgecolor='darkred'),
+                    verticalalignment='top', bbox={"boxstyle": 'round', "facecolor": 'red', "alpha": 0.7, "edgecolor": 'darkred'},
                     color='white')
 
         plot_info = {
@@ -469,7 +462,7 @@ class YChartController(OperatorController):
 
     def _create_categorical_bicolor_plot(self, ax, y_train: np.ndarray, y_test: np.ndarray,
                                           unique_values: np.ndarray,
-                                          y_excluded: Optional[np.ndarray] = None,
+                                          y_excluded: np.ndarray | None = None,
                                           layout: Literal['standard', 'stacked', 'staggered'] = 'standard'):
         """Create bar plot for categorical data.
 
@@ -527,7 +520,7 @@ class YChartController(OperatorController):
                        label='Excluded', color='red', alpha=0.7, hatch='//')
 
     def _create_continuous_bicolor_plot(self, ax, y_train: np.ndarray, y_test: np.ndarray,
-                                         y_excluded: Optional[np.ndarray] = None,
+                                         y_excluded: np.ndarray | None = None,
                                          layout: Literal['standard', 'stacked', 'staggered'] = 'standard'):
         """Create histograms for continuous data.
 

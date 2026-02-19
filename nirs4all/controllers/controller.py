@@ -2,7 +2,7 @@
 """Base class for pipeline operator controllers."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.execution.result import StepOutput
@@ -60,9 +60,9 @@ class OperatorController(ABC):
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", Any]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", Any]:
         """
         Run the operator with the given parameters and context.
 
@@ -80,6 +80,4 @@ class OperatorController(ABC):
             Tuple of (updated_context, StepOutput)
         """
         raise NotImplementedError("Subclasses must implement this method.")
-
-
 

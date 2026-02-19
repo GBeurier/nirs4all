@@ -25,9 +25,11 @@ Difficulty: ★★★☆☆
 
 # Standard library imports
 import argparse
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
+
+import matplotlib.pyplot as plt
 
 # Third-party imports
 import numpy as np
@@ -35,7 +37,6 @@ import pandas as pd
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
-import matplotlib.pyplot as plt
 
 # NIRS4All imports
 import nirs4all
@@ -48,7 +49,6 @@ parser = argparse.ArgumentParser(description='U04 Aggregation Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Why Aggregation?
@@ -77,14 +77,12 @@ When multiple spectra represent the same physical sample:
      ✓ Both raw and aggregated metrics available
 """)
 
-
 # =============================================================================
 # Section 2: Create Synthetic Data with Repetitions
 # =============================================================================
 print("\n" + "-" * 60)
 print("Section 2: Creating Synthetic Data")
 print("-" * 60)
-
 
 def create_synthetic_data(n_samples=30, n_wavelengths=100, n_reps=4, random_state=42):
     """Create NIRS data with multiple repetitions per sample."""
@@ -139,13 +137,11 @@ def create_synthetic_data(n_samples=30, n_wavelengths=100, n_reps=4, random_stat
 
     return str(temp_dir), n_train, n_test, n_reps
 
-
 data_path, n_train, n_test, n_reps = create_synthetic_data()
 
-print(f"Created synthetic dataset:")
+print("Created synthetic dataset:")
 print(f"   Train: {n_train} samples × {n_reps} reps = {n_train * n_reps} spectra")
 print(f"   Test:  {n_test} samples × {n_reps} reps = {n_test * n_reps} spectra")
-
 
 # =============================================================================
 # Section 3: Running with Repetition
@@ -200,7 +196,6 @@ predictions, _ = runner.run(pipeline_config, dataset_config)
 
 print(f"\nRepetition setting: '{runner.last_aggregate}'")
 
-
 # =============================================================================
 # Section 4: Raw vs Aggregated Metrics
 # =============================================================================
@@ -223,7 +218,7 @@ print(f"\nBest model: {model_name}")
 # Raw metrics
 val_rmse_raw = best_raw.get('val_score', np.nan)
 test_rmse_raw = best_raw.get('test_score', np.nan)
-print(f"\nRaw metrics (per spectrum):")
+print("\nRaw metrics (per spectrum):")
 print(f"   Val RMSE:  {val_rmse_raw:.4f}" if not np.isnan(val_rmse_raw) else "   Val RMSE:  N/A")
 print(f"   Test RMSE: {test_rmse_raw:.4f}" if not np.isnan(test_rmse_raw) else "   Test RMSE: N/A")
 
@@ -231,12 +226,11 @@ print(f"   Test RMSE: {test_rmse_raw:.4f}" if not np.isnan(test_rmse_raw) else "
 best_agg = predictions.top(1, rank_metric='rmse', by_repetition='sample_id')[0]
 val_rmse_agg = best_agg.get('val_score', np.nan)
 test_rmse_agg = best_agg.get('test_score', np.nan)
-print(f"\nRepetition-aggregated metrics (per sample):")
+print("\nRepetition-aggregated metrics (per sample):")
 print(f"   Val RMSE:  {val_rmse_agg:.4f}" if not np.isnan(val_rmse_agg) else "   Val RMSE:  N/A")
 print(f"   Test RMSE: {test_rmse_agg:.4f}" if not np.isnan(test_rmse_agg) else "   Test RMSE: N/A")
 
 print("\nNote: Aggregated RMSE is typically LOWER due to noise averaging!")
-
 
 # =============================================================================
 # Section 5: Visualization with Aggregation
@@ -271,7 +265,6 @@ if args.plots:
     if args.show:
         plt.show()
 
-
 # =============================================================================
 # Section 6: When to Use Repetition
 # =============================================================================
@@ -290,7 +283,6 @@ Do NOT use when:
   ✗ Target varies within repetitions
   ✗ Repetitions are from different conditions
 """)
-
 
 # =============================================================================
 # Summary

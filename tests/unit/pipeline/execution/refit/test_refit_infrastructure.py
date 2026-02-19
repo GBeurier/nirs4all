@@ -28,7 +28,6 @@ def _make_store(tmp_path: Path) -> WorkspaceStore:
     """Create a WorkspaceStore rooted at *tmp_path*."""
     return WorkspaceStore(tmp_path / "workspace")
 
-
 def _create_run_with_predictions(
     store: WorkspaceStore,
     *,
@@ -124,7 +123,6 @@ def _create_run_with_predictions(
         "chain_ids": chain_ids,
         "pred_ids": pred_ids,
     }
-
 
 # =========================================================================
 # Task 2.1: Prediction Store -- refit_context column
@@ -457,7 +455,6 @@ class TestRefitContextColumn:
         finally:
             conn.close()
 
-
 # =========================================================================
 # Task 2.1: Predictions class -- refit_context support
 # =========================================================================
@@ -547,7 +544,6 @@ class TestPredictionsRefitContext:
         assert store_preds["refit_context"][0] == "standalone"
         assert store_preds["fold_id"][0] == "final"
         store.close()
-
 
 # =========================================================================
 # Task 2.2: refit_params keyword support
@@ -660,7 +656,6 @@ class TestRefitParamsKeyword:
             config = {"refit_params": {"warm_start_fold": fold_spec}}
             result = resolve_refit_params(config)
             assert result["warm_start_fold"] == fold_spec
-
 
 # =========================================================================
 # Task 2.3: Winning configuration extraction

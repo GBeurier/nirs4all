@@ -1,12 +1,13 @@
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 from collections import Counter
+from typing import TYPE_CHECKING, Any, Optional
+
 import numpy as np  # noqa: F401
 
 from nirs4all.controllers.controller import OperatorController
+from nirs4all.controllers.data.balancing import BalancingCalculator
 from nirs4all.controllers.registry import register_controller
 from nirs4all.controllers.transforms.transformer import TransformerMixinController
 from nirs4all.core.logging import get_logger
-from nirs4all.controllers.data.balancing import BalancingCalculator
 from nirs4all.data.binning import BinningCalculator  # noqa: F401 - used in _execute_balanced
 from nirs4all.pipeline.config.component_serialization import deserialize_component
 
@@ -19,11 +20,10 @@ except ImportError:
     JOBLIB_AVAILABLE = False
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
-    from nirs4all.pipeline.config.context import ExecutionContext
+    from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.pipeline.steps.parser import ParsedStep
-
 
 @register_controller
 class SampleAugmentationController(OperatorController):
@@ -76,9 +76,9 @@ class SampleAugmentationController(OperatorController):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[Any] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple['ExecutionContext', List]:
+        loaded_binaries: Any | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple['ExecutionContext', list]:
         """
         Execute sample augmentation with standard or balanced mode.
 
@@ -173,18 +173,18 @@ class SampleAugmentationController(OperatorController):
 
     def _execute_standard(
         self,
-        config: Dict,
-        transformers: List,
-        variation_scopes: List[str],
+        config: dict,
+        transformers: list,
+        variation_scopes: list[str],
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
         runtime_context: 'RuntimeContext',
-        loaded_binaries: Optional[Any]
-    ) -> Tuple['ExecutionContext', List]:
+        loaded_binaries: Any | None
+    ) -> tuple['ExecutionContext', list]:
         """Execute standard count-based augmentation."""
         count = config.get("count", 1)
         selection = config.get("selection", "random")
-        random_state = config.get("random_state", None)
+        random_state = config.get("random_state")
 
         # Get train samples (base only, no augmented)
         train_context = context.with_partition("train")
@@ -197,7 +197,7 @@ class SampleAugmentationController(OperatorController):
             return context, []
 
         # Create augmentation plan: sample_id → number of augmentations
-        augmentation_counts = {sample_id: count for sample_id in base_samples}
+        augmentation_counts = dict.fromkeys(base_samples, count)
 
         # Build transformer distribution: sample_id → list of transformer indices
         if selection == "random":
@@ -219,24 +219,24 @@ class SampleAugmentationController(OperatorController):
 
     def _execute_balanced(
         self,
-        config: Dict,
-        transformers: List,
-        variation_scopes: List[str],
+        config: dict,
+        transformers: list,
+        variation_scopes: list[str],
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
         runtime_context: 'RuntimeContext',
-        loaded_binaries: Optional[Any]
-    ) -> Tuple['ExecutionContext', List]:
+        loaded_binaries: Any | None
+    ) -> tuple['ExecutionContext', list]:
         """Execute balanced class-aware augmentation."""
         balance_source = config.get("balance", "y")
-        target_size = config.get("target_size", None)
-        max_factor = config.get("max_factor", None)
-        ref_percentage = config.get("ref_percentage", None)
+        target_size = config.get("target_size")
+        max_factor = config.get("max_factor")
+        ref_percentage = config.get("ref_percentage")
         if target_size is None and ref_percentage is None and max_factor is None:
             ref_percentage = 1.0  # Default to ref_percentage=1.0 if none specified
 
         selection = config.get("selection", "random")
-        random_state = config.get("random_state", None)
+        random_state = config.get("random_state")
         bin_balancing = config.get("bin_balancing", "sample")  # "sample" or "value"
 
         # Get train samples ONLY (ensure we're in train partition)
@@ -281,10 +281,7 @@ class SampleAugmentationController(OperatorController):
 
         # Get labels for BASE TRAIN samples only (for calculating augmentation per base sample)
         labels_base_train = labels_all_train[:len(base_train_samples)]
-        if original_values_all is not None:
-            original_values_base = original_values_all[:len(base_train_samples)]
-        else:
-            original_values_base = None
+        original_values_base = original_values_all[:len(base_train_samples)] if original_values_all is not None else None
 
         # Calculate augmentation counts per BASE TRAIN sample using specified mode
         if bin_balancing == "value" and dataset.is_regression and original_values_base is not None:
@@ -321,7 +318,7 @@ class SampleAugmentationController(OperatorController):
             logger.debug(f"  Class {label}: {count}")
 
         logger.debug("Planned Augmentation:")
-        sample_to_label = {sid: lbl for sid, lbl in zip(base_train_samples, labels_base_train)}
+        sample_to_label = dict(zip(base_train_samples, labels_base_train, strict=False))
         added_counts = Counter()
         for sample_id, count in augmentation_counts.items():
             if count > 0:
@@ -345,12 +342,7 @@ class SampleAugmentationController(OperatorController):
             return context, []
 
         # Build transformer distribution
-        if selection == "random":
-            transformer_map = BalancingCalculator.apply_random_transformer_selection(
-                transformers, augmentation_counts, random_state
-            )
-        else:
-            transformer_map = self._cycle_transformers(transformers, augmentation_counts)
+        transformer_map = BalancingCalculator.apply_random_transformer_selection(transformers, augmentation_counts, random_state) if selection == "random" else self._cycle_transformers(transformers, augmentation_counts)
 
         # Invert map: transformer_idx → list of sample_ids
         transformer_to_samples = self._invert_transformer_map(transformer_map, len(transformers))
@@ -364,9 +356,9 @@ class SampleAugmentationController(OperatorController):
 
     def _invert_transformer_map(
         self,
-        transformer_map: Dict[int, List[int]],
+        transformer_map: dict[int, list[int]],
         n_transformers: int
-    ) -> Dict[int, List[int]]:
+    ) -> dict[int, list[int]]:
         """
         Invert sample→transformer map to transformer→samples map.
 
@@ -387,13 +379,13 @@ class SampleAugmentationController(OperatorController):
 
     def _emit_augmentation_steps(
         self,
-        transformer_to_samples: Dict[int, List[int]],
-        transformers: List,
-        variation_scopes: List[str],
+        transformer_to_samples: dict[int, list[int]],
+        transformers: list,
+        variation_scopes: list[str],
         context: 'ExecutionContext',
         dataset: 'SpectroDataset',
         runtime_context: 'RuntimeContext',
-        loaded_binaries: Optional[Any]
+        loaded_binaries: Any | None
     ):
         """
         Execute transformers and add augmented samples to dataset.
@@ -430,13 +422,13 @@ class SampleAugmentationController(OperatorController):
 
     def _emit_augmentation_steps_sequential(
         self,
-        active_transformers: List[Tuple[int, List[int]]],
-        transformers: List,
-        variation_scopes: List[str],
+        active_transformers: list[tuple[int, list[int]]],
+        transformers: list,
+        variation_scopes: list[str],
         context: 'ExecutionContext',
         dataset: 'SpectroDataset',
         runtime_context: 'RuntimeContext',
-        loaded_binaries: Optional[Any]
+        loaded_binaries: Any | None
     ):
         """Sequential execution of transformers with variation_scope support.
 
@@ -523,13 +515,13 @@ class SampleAugmentationController(OperatorController):
 
     def _emit_augmentation_steps_parallel(
         self,
-        active_transformers: List[Tuple[int, List[int]]],
-        transformers: List,
-        variation_scopes: List[str],
+        active_transformers: list[tuple[int, list[int]]],
+        transformers: list,
+        variation_scopes: list[str],
         context: 'ExecutionContext',
         dataset: 'SpectroDataset',
         runtime_context: 'RuntimeContext',
-        loaded_binaries: Optional[Any]
+        loaded_binaries: Any | None
     ):
         """
         Parallel execution of transformers using ThreadPoolExecutor.
@@ -551,8 +543,9 @@ class SampleAugmentationController(OperatorController):
         2. Execute all transformers in parallel, each returning augmented data
         3. Collect all results and batch insert into dataset
         """
-        from sklearn.base import clone
         from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        from sklearn.base import clone
 
         # Get train data for fitting (once for all transformers)
         train_context = context.with_partition("train")
@@ -656,20 +649,14 @@ class SampleAugmentationController(OperatorController):
                         fitted = all_fitted[(trans_idx, source_idx, proc_idx)]
 
                         wl = get_wavelengths(source_idx, fitted)
-                        if wl is not None:
-                            transformed = fitted.transform(proc_data, wavelengths=wl)
-                        else:
-                            transformed = fitted.transform(proc_data)
+                        transformed = fitted.transform(proc_data, wavelengths=wl) if wl is not None else fitted.transform(proc_data)
 
                         transformed_procs.append(transformed)
 
                     source_3d = np.stack(transformed_procs, axis=1)
                     transformed_per_source.append(source_3d)
 
-                if n_sources == 1:
-                    batch_data = transformed_per_source[0]
-                else:
-                    batch_data = transformed_per_source
+                batch_data = transformed_per_source[0] if n_sources == 1 else transformed_per_source
 
                 indexes_list = [
                     {"partition": "train", "origin": sid, "augmentation": operator_name_with_params}
@@ -719,10 +706,7 @@ class SampleAugmentationController(OperatorController):
                     source_3d = np.concatenate(per_sample_sources[source_idx], axis=0)
                     transformed_per_source.append(source_3d)
 
-                if n_sources == 1:
-                    batch_data = transformed_per_source[0]
-                else:
-                    batch_data = transformed_per_source
+                batch_data = transformed_per_source[0] if n_sources == 1 else transformed_per_source
 
                 indexes_list = [
                     {"partition": "train", "origin": sid, "augmentation": operator_name_with_params}
@@ -764,7 +748,7 @@ class SampleAugmentationController(OperatorController):
         # Single batch insert for ALL augmented samples from ALL transformers
         dataset.add_samples_batch(data=combined_data, indexes_list=all_indexes)
 
-    def _parse_variation_scope(self, config: Dict, transformer_spec=None) -> str:
+    def _parse_variation_scope(self, config: dict, transformer_spec=None) -> str:
         """Get variation_scope for a transformer, with inheritance.
 
         Resolution order:
@@ -803,9 +787,9 @@ class SampleAugmentationController(OperatorController):
 
     def _cycle_transformers(
         self,
-        transformers: List,
-        augmentation_counts: Dict[int, int]
-    ) -> Dict[int, List[int]]:
+        transformers: list,
+        augmentation_counts: dict[int, int]
+    ) -> dict[int, list[int]]:
         """Cycle through transformers for 'all' selection mode."""
         transformer_map = {}
         for sample_id, count in augmentation_counts.items():

@@ -12,12 +12,11 @@ Generates:
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.pipeline.config.context import ExecutionContext
-
+    from nirs4all.pipeline.runner import PipelineRunner
 
 @dataclass
 class ModelIdentifiers:
@@ -29,8 +28,7 @@ class ModelIdentifiers:
     display_name: str  # model_id with fold suffix (e.g., "MyModel_10_fold0")
     operation_counter: int  # Operation counter from runner
     step_id: int  # Pipeline step index
-    fold_idx: Optional[int]  # Fold index if applicable
-
+    fold_idx: int | None  # Fold index if applicable
 
 class ModelIdentifierGenerator:
     """Generates consistent model identifiers for training and persistence.
@@ -52,7 +50,7 @@ class ModelIdentifierGenerator:
         'MyPLS_10_fold0'
     """
 
-    def extract_core_name(self, model_config: Dict[str, Any]) -> str:
+    def extract_core_name(self, model_config: dict[str, Any]) -> str:
         """Extract core name from model configuration.
 
         User-provided name or class name. This is the base name provided by
@@ -100,7 +98,7 @@ class ModelIdentifierGenerator:
         # Fallback for other types
         return self._get_model_class_name(model_config)
 
-    def extract_classname_from_config(self, model_config: Dict[str, Any]) -> str:
+    def extract_classname_from_config(self, model_config: dict[str, Any]) -> str:
         """Extract classname from model configuration.
 
         Based on the model declared in config or instance.__class__.__name__ or function name.
@@ -131,7 +129,7 @@ class ModelIdentifierGenerator:
 
         return "unknown_model"
 
-    def _get_model_instance_from_config(self, model_config: Dict[str, Any]) -> Any:
+    def _get_model_instance_from_config(self, model_config: dict[str, Any]) -> Any:
         """Helper to extract model instance from various config formats.
 
         Args:
@@ -196,10 +194,10 @@ class ModelIdentifierGenerator:
 
     def generate(
         self,
-        model_config: Dict[str, Any],
+        model_config: dict[str, Any],
         runner: 'PipelineRunner',
         context: 'ExecutionContext',
-        fold_idx: Optional[int] = None
+        fold_idx: int | None = None
     ) -> ModelIdentifiers:
         """Generate all model identifiers from configuration and context.
 
@@ -240,7 +238,7 @@ class ModelIdentifierGenerator:
     def generate_binary_key(
         self,
         model_id: str,
-        fold_idx: Optional[int] = None
+        fold_idx: int | None = None
     ) -> str:
         """Generate the binary storage key for a model.
 

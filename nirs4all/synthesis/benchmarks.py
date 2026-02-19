@@ -24,20 +24,19 @@ References:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import numpy as np
-
 
 # ============================================================================
 # Benchmark Dataset Registry
 # ============================================================================
 
-
-class BenchmarkDomain(str, Enum):
+class BenchmarkDomain(StrEnum):
     """Domains for benchmark datasets."""
     AGRICULTURE = "agriculture"
     FOOD = "food"
@@ -45,7 +44,6 @@ class BenchmarkDomain(str, Enum):
     PETROCHEMICAL = "petrochemical"
     ENVIRONMENTAL = "environmental"
     GENERAL = "general"
-
 
 @dataclass
 class BenchmarkDatasetInfo:
@@ -74,15 +72,15 @@ class BenchmarkDatasetInfo:
     domain: BenchmarkDomain
     n_samples: int
     n_wavelengths: int
-    wavelength_range: Tuple[float, float]
-    targets: List[str]
+    wavelength_range: tuple[float, float]
+    targets: list[str]
     sample_type: str
     measurement_mode: str
     source_url: str
     reference: str
     license: str = "Unknown"
-    typical_snr: Tuple[float, float] = (50, 500)
-    typical_peak_density: Tuple[float, float] = (1.0, 5.0)
+    typical_snr: tuple[float, float] = (50, 500)
+    typical_peak_density: tuple[float, float] = (1.0, 5.0)
     notes: str = ""
 
     def summary(self) -> str:
@@ -102,9 +100,8 @@ class BenchmarkDatasetInfo:
             lines.append(f"Notes: {self.notes}")
         return "\n".join(lines)
 
-
 # Registry of benchmark datasets
-BENCHMARK_DATASETS: Dict[str, BenchmarkDatasetInfo] = {
+BENCHMARK_DATASETS: dict[str, BenchmarkDatasetInfo] = {
     "corn": BenchmarkDatasetInfo(
         name="corn",
         full_name="Corn/Maize M5spec Dataset",
@@ -250,11 +247,9 @@ BENCHMARK_DATASETS: Dict[str, BenchmarkDatasetInfo] = {
     ),
 }
 
-
 # ============================================================================
 # Dataset Loader Utilities
 # ============================================================================
-
 
 @dataclass
 class LoadedBenchmarkDataset:
@@ -273,11 +268,10 @@ class LoadedBenchmarkDataset:
     X: np.ndarray
     y: np.ndarray
     wavelengths: np.ndarray
-    sample_ids: Optional[np.ndarray] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    sample_ids: np.ndarray | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-
-def list_benchmark_datasets() -> List[str]:
+def list_benchmark_datasets() -> list[str]:
     """
     List all registered benchmark datasets.
 
@@ -289,7 +283,6 @@ def list_benchmark_datasets() -> List[str]:
         >>> print(datasets)
     """
     return list(BENCHMARK_DATASETS.keys())
-
 
 def get_benchmark_info(name: str) -> BenchmarkDatasetInfo:
     """
@@ -313,8 +306,7 @@ def get_benchmark_info(name: str) -> BenchmarkDatasetInfo:
         raise KeyError(f"Unknown benchmark dataset '{name}'. Available: {available}")
     return BENCHMARK_DATASETS[name]
 
-
-def get_datasets_by_domain(domain: Union[str, BenchmarkDomain]) -> List[str]:
+def get_datasets_by_domain(domain: str | BenchmarkDomain) -> list[str]:
     """
     Get benchmark datasets for a specific domain.
 
@@ -336,10 +328,9 @@ def get_datasets_by_domain(domain: Union[str, BenchmarkDomain]) -> List[str]:
         if info.domain == domain
     ]
 
-
 def load_benchmark_dataset(
     name: str,
-    data_dir: Optional[Union[str, Path]] = None,
+    data_dir: str | Path | None = None,
     format: str = "auto",
 ) -> LoadedBenchmarkDataset:
     """
@@ -407,7 +398,6 @@ def load_benchmark_dataset(
     else:
         raise ValueError(f"Unsupported format: {format}")
 
-
 def _load_csv_dataset(
     filepath: Path,
     info: BenchmarkDatasetInfo,
@@ -416,7 +406,7 @@ def _load_csv_dataset(
     import csv
 
     data = []
-    with open(filepath, 'r') as f:
+    with open(filepath) as f:
         reader = csv.reader(f)
         header = next(reader)
         for row in reader:
@@ -439,7 +429,6 @@ def _load_csv_dataset(
         y=y,
         wavelengths=wavelengths,
     )
-
 
 def _load_mat_dataset(
     filepath: Path,
@@ -487,13 +476,11 @@ def _load_mat_dataset(
         wavelengths=wavelengths,
     )
 
-
 # ============================================================================
 # Synthetic Dataset Generation Matching Benchmark
 # ============================================================================
 
-
-def get_benchmark_spectral_properties(name: str) -> Dict[str, Any]:
+def get_benchmark_spectral_properties(name: str) -> dict[str, Any]:
     """
     Get spectral properties to match when generating synthetic data.
 
@@ -528,12 +515,11 @@ def get_benchmark_spectral_properties(name: str) -> Dict[str, Any]:
         "expected_peak_density": info.typical_peak_density,
     }
 
-
 def create_synthetic_matching_benchmark(
     benchmark_name: str,
-    n_samples: Optional[int] = None,
-    random_state: Optional[int] = None,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    n_samples: int | None = None,
+    random_state: int | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Create synthetic data matching benchmark dataset properties.
 
@@ -550,8 +536,8 @@ def create_synthetic_matching_benchmark(
         >>> print(X.shape)
     """
     # Import here to avoid circular imports
-    from .generator import SyntheticNIRSGenerator
     from .components import ComponentLibrary
+    from .generator import SyntheticNIRSGenerator
 
     props = get_benchmark_spectral_properties(benchmark_name)
 

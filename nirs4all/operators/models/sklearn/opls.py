@@ -4,10 +4,11 @@
 
 def _get_jax_opls_functions():
     """Get JAX-accelerated OPLS functions."""
+    from functools import partial
+
     import jax
     import jax.numpy as jnp
     from jax import lax
-    from functools import partial
 
     jax.config.update("jax_enable_x64", True)
 
@@ -74,6 +75,7 @@ import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.cross_decomposition import PLSRegression
 
+
 def _check_pyopls_available():
     try:
         import pyopls
@@ -128,12 +130,12 @@ class OPLS(BaseEstimator, RegressorMixin):
             try:
                 import jax
                 import jax.numpy as jnp
-            except ImportError:
+            except ImportError as e:
                 raise ImportError(
                     "JAX is required for OPLS with backend='jax'. "
                     "Install it with: pip install jax\n"
                     "For GPU support: pip install jax[cuda12]"
-                )
+                ) from e
 
             # Get JAX functions
             opls_fit_jax, opls_transform_jax = _get_cached_jax_opls()

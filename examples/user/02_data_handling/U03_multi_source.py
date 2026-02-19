@@ -25,6 +25,7 @@ Difficulty: ★★★☆☆
 
 # Standard library imports
 import argparse
+
 import matplotlib.pyplot as plt
 
 # Third-party imports
@@ -36,9 +37,7 @@ from sklearn.preprocessing import MinMaxScaler
 import nirs4all
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
-from nirs4all.operators.transforms import (
-    Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
-)
+from nirs4all.operators.transforms import Gaussian, Haar, SavitzkyGolay, StandardNormalVariate
 from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
@@ -46,7 +45,6 @@ parser = argparse.ArgumentParser(description='U03 Multi-Source Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Understanding Multi-Source Data
@@ -65,7 +63,6 @@ Multi-source datasets contain features from different instruments or types:
 nirs4all can handle multiple feature files per sample.
 """)
 
-
 # =============================================================================
 # Section 2: Load Multi-Source Dataset
 # =============================================================================
@@ -78,7 +75,6 @@ dataset_config = DatasetConfigs('sample_data/multi')
 
 print("   Loading: sample_data/multi/")
 print("   This contains multiple X sources per sample")
-
 
 # =============================================================================
 # Section 3: Build Pipeline with Feature Augmentation
@@ -125,7 +121,6 @@ print("   • Feature augmentation with preprocessing variants")
 print("   • 3-fold cross-validation")
 print("   • PLS-10 model")
 
-
 # =============================================================================
 # Section 4: Train the Pipeline
 # =============================================================================
@@ -144,9 +139,8 @@ result = nirs4all.run(
 
 predictions = result.predictions
 
-print(f"\n📊 Training complete!")
+print("\n📊 Training complete!")
 print(f"   Generated {predictions.num_predictions} predictions")
-
 
 # =============================================================================
 # Section 5: Display Results
@@ -161,7 +155,6 @@ for idx, pred in enumerate(top_models, 1):
     rmse = pred.get('test_rmse', pred.get('rmse', 0))
     preproc = pred.get('preprocessings', 'N/A')
     print(f"{idx}. {Predictions.pred_short_string(pred, metrics=['rmse'])} - {preproc}")
-
 
 # =============================================================================
 # Section 6: Visualize Results
@@ -187,7 +180,6 @@ fig2 = analyzer.plot_heatmap(
     aggregation='best'
 )
 print("   ✓ Heatmap: models vs preprocessing")
-
 
 # =============================================================================
 # Section 7: Model Reuse Demonstration
@@ -216,16 +208,16 @@ test_dataset = DatasetConfigs({
     ]
 })
 
-print(f"\nPredicting with saved model...")
+print("\nPredicting with saved model...")
 reuse_predictions, _ = predictor.predict(model_id, test_dataset, verbose=0)
 reuse_array = reuse_predictions[:5].flatten()
 print(f"Reuse predictions (first 5): {reuse_array}")
 
 # Verify match
 import numpy as np
+
 is_identical = np.allclose(reuse_array, reference_predictions)
 print(f"Predictions match: {'✓ YES' if is_identical else '✗ NO'}")
-
 
 # =============================================================================
 # Summary

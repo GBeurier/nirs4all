@@ -12,7 +12,7 @@ This class supports two execution modes:
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Union
+from typing import Any, Optional, Union
 
 
 class StudyRunner:
@@ -21,14 +21,14 @@ class StudyRunner:
     def __init__(self):
         """Initialize base runner."""
         # Dataset Configuration
-        self.folder_list: List[str] = []
-        self.aggregation_key_list: List[str] = []
+        self.folder_list: list[str] = []
+        self.aggregation_key_list: list[str] = []
 
         # Training Configuration
         self.test_mode: bool = False
-        self.transfer_pp_preset: Optional[str] = None  # "fast", "balanced", "comprehensive"
+        self.transfer_pp_preset: str | None = None  # "fast", "balanced", "comprehensive"
         self.transfer_pp_selected: int = 10
-        self.transfer_pp_config: Optional[Dict[str, Any]] = None  # Advanced: TransferPreprocessingSelector kwargs
+        self.transfer_pp_config: dict[str, Any] | None = None  # Advanced: TransferPreprocessingSelector kwargs
 
         self.pls_pp_count: int = 40
         self.pls_pp_top_selected: int = 10
@@ -38,17 +38,17 @@ class StudyRunner:
         self.ridge_trials: int = 20
 
         self.tabpfn_trials: int = 10
-        self.tabpfn_model_variants: List[str] = ['default', 'real', 'low-skew', 'small-samples']
+        self.tabpfn_model_variants: list[str] = ['default', 'real', 'low-skew', 'small-samples']
         self.tabpfn_pp_max_count: int = 20
         self.tabpfn_pp_max_size: int = 3
-        self.tabpfn_pp: Optional[List[Any]] = None  # Advanced: List of preprocessing pipelines
+        self.tabpfn_pp: list[Any] | None = None  # Advanced: List of preprocessing pipelines
 
-        self.global_pp: Optional[Dict[str, Any]] = None  # Advanced: Global preprocessing spec
+        self.global_pp: dict[str, Any] | None = None  # Advanced: Global preprocessing spec
 
         # Task type override: forces task type and disables automatic detection
         # Can be a single string (applied to all datasets) or a list (one per dataset)
         # Valid values: 'regression', 'binary_classification', 'multiclass_classification', 'auto' (default)
-        self.task_type: Union[str, List[str]] = "auto"
+        self.task_type: str | list[str] = "auto"
 
         self.device: str = "cuda"
         self.verbose: int = 1
@@ -59,9 +59,9 @@ class StudyRunner:
         self.output_dir: str = "reports"
         self.report_mode: str = "aggregated"  # 'raw', 'aggregated', or 'both'
         self.include_dataset_viz: bool = True
-        self.report_aggregation_key: Optional[str] = None  # Override aggregation key for report (None = use first from list)
-        self.report_exclude_models: Optional[List[str]] = None  # Models to exclude from report
-        self.report_model_rename_map: Optional[Dict[str, str]] = None  # Model renaming map
+        self.report_aggregation_key: str | None = None  # Override aggregation key for report (None = use first from list)
+        self.report_exclude_models: list[str] | None = None  # Models to exclude from report
+        self.report_model_rename_map: dict[str, str] | None = None  # Model renaming map
 
         # Execution Control
         self.skip_training: bool = False
@@ -97,7 +97,7 @@ class StudyRunner:
 
         return True
 
-    def _run_command(self, cmd: List[str], description: str) -> int:
+    def _run_command(self, cmd: list[str], description: str) -> int:
         """Run a command and handle errors.
 
         Args:
@@ -122,7 +122,7 @@ class StudyRunner:
 
         return result.returncode
 
-    def _find_generated_parquets(self, workspace: Path, datasets: List[str]) -> List[str]:
+    def _find_generated_parquets(self, workspace: Path, datasets: list[str]) -> list[str]:
         """Find generated meta.parquet files for datasets.
 
         Args:

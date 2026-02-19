@@ -5,21 +5,22 @@ import pytest
 from sklearn.datasets import make_classification, make_regression
 
 from nirs4all.operators.models.sklearn import (
-    PLSDA,
     IKPLS,
+    KOPLS,
+    LWPLS,
+    MBPLS,
     OPLS,
     OPLSDA,
-    MBPLS,
-    DiPLS,
-    SparsePLS,
-    LWPLS,
+    PLSDA,
     SIMPLS,
+    DiPLS,
     IntervalPLS,
-    RobustPLS,
-    RecursivePLS,
-    KOPLS,
     KernelPLS,
+    RecursivePLS,
+    RobustPLS,
+    SparsePLS,
 )
+
 
 class TestPLSDA:
     """Test suite for PLSDA classifier."""
@@ -186,7 +187,6 @@ class TestPLSDA:
         predictions = model.predict(X)
 
         assert set(predictions).issubset({'cat', 'dog', 'bird'})
-
 
 class TestIKPLS:
     """Test suite for IKPLS regressor."""
@@ -411,7 +411,6 @@ class TestIKPLS:
 
         assert model.backend == 'jax'
 
-
 @pytest.mark.xdist_group("gpu")
 class TestIKPLSJAX:
     """Test suite for IKPLS regressor with JAX backend.
@@ -560,7 +559,6 @@ class TestIKPLSJAX:
         predictions = cloned.predict(X)
         assert predictions.shape == y.shape
 
-
 class TestOPLS:
     """Test suite for OPLS regressor."""
 
@@ -668,7 +666,6 @@ class TestOPLS:
         scores = cross_val_score(model, X, y, cv=3, scoring='r2')
 
         assert len(scores) == 3
-
 
 class TestOPLSDA:
     """Test suite for OPLSDA classifier."""
@@ -833,7 +830,6 @@ class TestOPLSDA:
         assert len(scores) == 3
         assert all(0 <= s <= 1 for s in scores)
 
-
 class TestMBPLS:
     """Test suite for MBPLS regressor."""
 
@@ -972,7 +968,6 @@ class TestMBPLS:
 
         assert len(scores) == 3
 
-
 class TestDiPLS:
     """Test suite for DiPLS regressor."""
 
@@ -1087,7 +1082,6 @@ class TestDiPLS:
         scores = cross_val_score(model, X, y, cv=3, scoring='r2')
 
         assert len(scores) == 3
-
 
 class TestSparsePLS:
     """Test suite for SparsePLS regressor."""
@@ -1223,7 +1217,6 @@ class TestSparsePLS:
         assert model.n_components_ <= 10
         predictions = model.predict(X)
         assert predictions.shape == y.shape
-
 
 class TestLWPLS:
     """Test suite for LWPLS (Locally-Weighted PLS) regressor."""
@@ -1504,7 +1497,6 @@ class TestLWPLS:
 
         assert predictions.shape == (1,)
         assert not np.isnan(predictions).any()
-
 
 class TestSIMPLS:
     """Test suite for SIMPLS regressor."""
@@ -1806,7 +1798,6 @@ class TestSIMPLS:
         with pytest.raises(ValueError, match="backend must be 'numpy' or 'jax'"):
             model.fit(X, y)
 
-
 @pytest.mark.xdist_group("gpu")
 class TestSIMPLSJAX:
     """Test suite for SIMPLS regressor with JAX backend.
@@ -1945,7 +1936,6 @@ class TestSIMPLSJAX:
         assert isinstance(T, np.ndarray)
         assert T.shape == (100, 10)
         assert not np.isnan(T).any()
-
 
 class TestIntervalPLS:
     """Test suite for IntervalPLS regressor."""
@@ -2294,7 +2284,6 @@ class TestIntervalPLS:
         assert predictions.shape == y.shape
         assert not np.isnan(predictions).any()
 
-
 @pytest.mark.xdist_group("gpu")
 class TestIntervalPLSJAX:
     """Test suite for IntervalPLS regressor with JAX backend.
@@ -2384,7 +2373,6 @@ class TestIntervalPLSJAX:
         cloned.fit(X, y)
         predictions = cloned.predict(X)
         assert predictions.shape == y.shape
-
 
 class TestRobustPLS:
     """Test suite for RobustPLS regressor."""
@@ -2839,7 +2827,6 @@ class TestRobustPLS:
         # At minimum, RobustPLS should not perform dramatically worse
         assert corr_robust > corr_simpls * 0.8 or corr_robust > 0.7
 
-
 @pytest.mark.xdist_group("gpu")
 class TestRobustPLSJAX:
     """Test suite for RobustPLS regressor with JAX backend.
@@ -3026,7 +3013,6 @@ class TestRobustPLSJAX:
         # Should produce valid weights
         assert model.sample_weights_.shape == (100,)
         assert (model.sample_weights_ >= 0).all()
-
 
 # =============================================================================
 # Backend Parity Tests - Verify NumPy and JAX produce identical results
@@ -3284,7 +3270,6 @@ class TestPLSBackendParity:
 
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
                                    err_msg="RobustPLS multi-target: NumPy and JAX predictions differ")
-
 
 # =============================================================================
 # RecursivePLS Tests
@@ -3674,7 +3659,6 @@ class TestRecursivePLS:
         with pytest.raises(ValueError, match="backend must be 'numpy' or 'jax'"):
             model.fit(X, y)
 
-
 @pytest.mark.xdist_group("gpu")
 class TestRecursivePLSJAX:
     """Test suite for RecursivePLS regressor with JAX backend.
@@ -3851,7 +3835,6 @@ class TestRecursivePLSJAX:
 
         assert not np.allclose(coef_before, coef_after)
 
-
 # Add RecursivePLS to backend parity tests
 @pytest.mark.xdist_group("gpu")
 class TestRecursivePLSBackendParity:
@@ -3929,7 +3912,6 @@ class TestRecursivePLSBackendParity:
 
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
                                    err_msg="RecursivePLS partial_fit: NumPy and JAX predictions differ")
-
 
 class TestKOPLS:
     """Test suite for KOPLS (Kernel OPLS) regressor."""
@@ -4337,7 +4319,6 @@ class TestKOPLS:
         assert predictions.shape == (1,)
         assert not np.isnan(predictions).any()
 
-
 @pytest.mark.xdist_group("gpu")
 class TestKOPLSJAX:
     """Test suite for KOPLS regressor with JAX backend.
@@ -4496,7 +4477,6 @@ class TestKOPLSJAX:
         assert T.shape[1] >= 1
         assert not np.isnan(T).any()
 
-
 @pytest.mark.xdist_group("gpu")
 class TestKOPLSBackendParity:
     """Test KOPLS produces identical results with NumPy and JAX backends."""
@@ -4571,7 +4551,6 @@ class TestKOPLSBackendParity:
 
         np.testing.assert_allclose(T_numpy, T_jax, rtol=1e-4,
                                    err_msg="KOPLS transform: NumPy and JAX differ")
-
 
 class TestKernelPLS:
     """Test suite for KernelPLS (Nonlinear PLS / NL-PLS) regressor."""
@@ -4897,7 +4876,6 @@ class TestKernelPLS:
         predictions = model.predict(X)
         assert predictions.shape == y.shape
 
-
 @pytest.mark.xdist_group("gpu")
 class TestKernelPLSBackendParity:
     """Test KernelPLS produces identical results with NumPy and JAX backends."""
@@ -4990,14 +4968,11 @@ class TestKernelPLSBackendParity:
         np.testing.assert_allclose(T_numpy, T_jax, rtol=1e-4,
                                    err_msg="KernelPLS transform: NumPy and JAX differ")
 
-
 # =============================================================================
 # OKLMPLS Tests
 # =============================================================================
 
-from nirs4all.operators.models.sklearn.oklmpls import (
-    OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
-)
+from nirs4all.operators.models.sklearn.oklmpls import OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
 
 
 class TestOKLMPLS:
@@ -5246,7 +5221,6 @@ class TestOKLMPLS:
         assert 'n_components=5' in repr_str
         assert 'lambda_dyn=1.0' in repr_str
 
-
 class TestIdentityFeaturizer:
     """Test suite for IdentityFeaturizer."""
 
@@ -5268,7 +5242,6 @@ class TestIdentityFeaturizer:
         result = featurizer.transform(X)
 
         np.testing.assert_array_equal(result, X)
-
 
 class TestPolynomialFeaturizer:
     """Test suite for PolynomialFeaturizer."""
@@ -5304,7 +5277,6 @@ class TestPolynomialFeaturizer:
         assert result.shape == (50, 10)
         np.testing.assert_array_equal(result, X ** 2)
 
-
 class TestRBFFeaturizer:
     """Test suite for RBFFeaturizer."""
 
@@ -5329,7 +5301,6 @@ class TestRBFFeaturizer:
         result2 = featurizer2.fit_transform(X)
 
         np.testing.assert_array_equal(result1, result2)
-
 
 @pytest.mark.xdist_group("gpu")
 class TestOKLMPLSBackendParity:
@@ -5373,15 +5344,11 @@ class TestOKLMPLSBackendParity:
         corr = np.corrcoef(pred_numpy, pred_jax)[0, 1]
         assert corr > 0.9, f"OKLMPLS: Low correlation between backends: {corr}"
 
-
 # =============================================================================
 # FCKPLS Tests
 # =============================================================================
 
-from nirs4all.operators.models.sklearn.fckpls import (
-    FCKPLS, FractionalPLS, FractionalConvFeaturizer,
-    fractional_kernel_1d, fractional_kernel_grrunwald_letnikov
-)
+from nirs4all.operators.models.sklearn.fckpls import FCKPLS, FractionalConvFeaturizer, FractionalPLS, fractional_kernel_1d, fractional_kernel_grrunwald_letnikov
 
 
 class TestFractionalKernels:
@@ -5431,7 +5398,6 @@ class TestFractionalKernels:
 
         assert h.shape == (15,)
         assert not np.isnan(h).any()
-
 
 class TestFractionalConvFeaturizer:
     """Test suite for FractionalConvFeaturizer."""
@@ -5535,7 +5501,6 @@ class TestFractionalConvFeaturizer:
         assert info['n_kernels'] == 3
         assert info['alphas'] == [0.0, 1.0, 2.0]
         assert info['kernel_size'] == 15
-
 
 class TestFCKPLS:
     """Test suite for FCKPLS (Fractional Convolutional Kernel PLS)."""
@@ -5767,7 +5732,6 @@ class TestFCKPLS:
         predictions = model.predict(X)
 
         assert predictions.shape == y.shape
-
 
 @pytest.mark.xdist_group("gpu")
 class TestFCKPLSBackendParity:

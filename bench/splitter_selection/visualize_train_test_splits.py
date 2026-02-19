@@ -10,11 +10,12 @@ This helps verify that the SPXY splitting creates representative splits
 with good coverage of both spectral and target spaces.
 """
 
-import matplotlib.pyplot as plt
+from pathlib import Path
+
 import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from pathlib import Path
 
 # Color palette - Teal/Coral modern palette
 TRAIN_COLOR = '#0d9488'  # Teal
@@ -22,12 +23,11 @@ TRAIN_COLOR_DARK = '#0f766e'
 TEST_COLOR = '#f97316'  # Orange/Coral
 TEST_COLOR_DARK = '#ea580c'
 
-
 def load_split_data(dataset_dir: Path) -> dict:
     """Load train/test X and Y data from a split dataset."""
     # Detect X separator
     x_train_path = dataset_dir / 'X_train.csv'
-    with open(x_train_path, 'r') as f:
+    with open(x_train_path) as f:
         first_line = f.readline()
     x_sep = ';' if ';' in first_line else ','
 
@@ -44,7 +44,6 @@ def load_split_data(dataset_dir: Path) -> dict:
         'Y_test': Y_test,
         'name': dataset_dir.name
     }
-
 
 def plot_spectral_distribution(ax, X_train: np.ndarray, X_test: np.ndarray,
                                 title: str = "Spectral Distribution"):
@@ -92,7 +91,6 @@ def plot_spectral_distribution(ax, X_train: np.ndarray, X_test: np.ndarray,
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 
-
 def plot_y_histogram(ax, Y_train: np.ndarray, Y_test: np.ndarray,
                       dataset_name: str, show_legend: bool = True):
     """
@@ -127,7 +125,6 @@ def plot_y_histogram(ax, Y_train: np.ndarray, Y_test: np.ndarray,
     ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-
 
 def create_comprehensive_visualization(regression_dir: Path, classif_dir: Path,
                                          output_path: Path = None):
@@ -218,7 +215,6 @@ def create_comprehensive_visualization(regression_dir: Path, classif_dir: Path,
     plt.show()
     return fig
 
-
 def main():
     """Main function."""
     base_dir = Path(__file__).parent
@@ -233,7 +229,6 @@ def main():
     fig = create_comprehensive_visualization(
         regression_dir, classif_dir, output_path
     )
-
 
 if __name__ == '__main__':
     main()

@@ -8,7 +8,7 @@ for loading models from various file formats.
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -87,7 +87,6 @@ class TestLoadModelFromFile:
         loaded = ModelFactory._load_model_from_file(str(model_path))
         assert loaded is not None
 
-
 class TestLoadTensorFlowModel:
     """Tests for loading TensorFlow/Keras models."""
 
@@ -142,7 +141,6 @@ class TestLoadTensorFlowModel:
 
         assert loaded is not None
         assert hasattr(loaded, 'predict')
-
 
 class TestLoadPyTorchModel:
     """Tests for loading PyTorch models."""
@@ -210,7 +208,6 @@ class TestLoadPyTorchModel:
         assert isinstance(loaded, dict)
         assert 'state_dict' in loaded
 
-
 class TestLoadModelFromFolder:
     """Tests for ModelFactory._load_model_from_folder()."""
 
@@ -222,7 +219,6 @@ class TestLoadModelFromFolder:
 
         with pytest.raises(ValueError, match="Unrecognized model folder structure"):
             ModelFactory._load_model_from_folder(str(folder))
-
 
 class TestModelFactoryFromString:
     """Tests for ModelFactory._from_string() with file paths."""
@@ -260,7 +256,6 @@ class TestModelFactoryFromString:
         from sklearn.linear_model import Ridge
         assert isinstance(model, Ridge)
 
-
 class TestExportModel:
     """Tests for PipelineRunner.export_model() functionality."""
 
@@ -277,12 +272,13 @@ class TestExportModel:
     @pytest.fixture
     def mock_resolved_prediction(self, sklearn_model, tmp_path):
         """Create a mock resolved prediction with model artifact."""
-        from nirs4all.pipeline.resolver import ResolvedPrediction, SourceType, FoldStrategy
+        from typing import Any
+
         from nirs4all.pipeline.config.context import MapArtifactProvider
-        from typing import Dict, List, Tuple, Any
+        from nirs4all.pipeline.resolver import FoldStrategy, ResolvedPrediction, SourceType
 
         # Create artifact map with the model
-        artifact_map: Dict[int, List[Tuple[str, Any]]] = {
+        artifact_map: dict[int, list[tuple[str, Any]]] = {
             0: [("test:0:0", sklearn_model)]
         }
 
@@ -298,7 +294,6 @@ class TestExportModel:
     def test_export_model_joblib(self, sklearn_model, tmp_path):
         """Test exporting a model to .joblib format."""
         import joblib
-        from unittest.mock import patch, MagicMock
 
         # Setup: save model to a temp file first (simulating workspace)
         model_path = tmp_path / "source_model.joblib"
@@ -322,7 +317,7 @@ class TestExportModel:
 
     def test_export_model_pickle(self, sklearn_model, tmp_path):
         """Test exporting a model to .pkl format."""
-        from nirs4all.pipeline.storage.artifacts.artifact_persistence import to_bytes, from_bytes
+        from nirs4all.pipeline.storage.artifacts.artifact_persistence import from_bytes, to_bytes
 
         output_path = tmp_path / "exported_model.pkl"
 

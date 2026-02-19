@@ -28,25 +28,26 @@ import argparse
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+
 # Third-party imports
 import numpy as np
-import matplotlib.pyplot as plt
 
 # NIRS4All imports
 from nirs4all.synthesis import (
-    SyntheticNIRSGenerator,
-    # Real data fitting (Phase 4)
-    RealDataFitter,
-    FittedParameters,
-    SpectralProperties,
-    compute_spectral_properties,
-    fit_to_real_data,
-    compare_datasets,
-    # Phase 1-4 inference classes
-    InstrumentInference,
     DomainInference,
     EnvironmentalInference,
+    FittedParameters,
+    # Phase 1-4 inference classes
+    InstrumentInference,
+    # Real data fitting (Phase 4)
+    RealDataFitter,
     ScatteringInference,
+    SpectralProperties,
+    SyntheticNIRSGenerator,
+    compare_datasets,
+    compute_spectral_properties,
+    fit_to_real_data,
 )
 
 # Add examples directory to path for example_utils
@@ -61,7 +62,6 @@ args = parser.parse_args()
 
 # Example name for output directory
 EXAMPLE_NAME = "R07_synthetic_fitter"
-
 
 # =============================================================================
 # Section 1: Loading Real Data
@@ -94,14 +94,13 @@ Y_real = np.concatenate([Y_cal, Y_val])
 n_wavelengths = X_real.shape[1]
 wavelengths = np.linspace(1100, 2500, n_wavelengths)
 
-print(f"\n📊 Loaded sample_data/regression dataset:")
+print("\n📊 Loaded sample_data/regression dataset:")
 print(f"   Calibration samples: {X_cal.shape[0]}")
 print(f"   Validation samples: {X_val.shape[0]}")
 print(f"   Total samples: {X_real.shape[0]}")
 print(f"   Wavelengths: {n_wavelengths}")
 print(f"   Target range: {Y_real.min():.2f} to {Y_real.max():.2f}")
 print(f"   Assumed wavelength range: {wavelengths[0]:.0f}-{wavelengths[-1]:.0f} nm")
-
 
 # =============================================================================
 # Section 2: Computing Spectral Properties
@@ -113,35 +112,34 @@ print("-" * 60)
 # Compute spectral properties
 props = compute_spectral_properties(X_real, wavelengths, name="sample_regression")
 
-print(f"\n📈 Spectral Properties of the Dataset:")
-print(f"\n   Basic Statistics:")
+print("\n📈 Spectral Properties of the Dataset:")
+print("\n   Basic Statistics:")
 print(f"      Global mean: {props.global_mean:.4f}")
 print(f"      Global std: {props.global_std:.4f}")
 print(f"      Range: {props.global_range[0]:.4f} to {props.global_range[1]:.4f}")
 
-print(f"\n   Spectral Shape:")
+print("\n   Spectral Shape:")
 print(f"      Mean slope: {props.mean_slope:.4f} (per 1000nm)")
 print(f"      Slope std: {props.slope_std:.4f}")
 print(f"      Mean curvature: {props.mean_curvature:.6f}")
 
-print(f"\n   Noise Characteristics:")
+print("\n   Noise Characteristics:")
 print(f"      Noise estimate: {props.noise_estimate:.6f}")
 print(f"      SNR estimate: {props.snr_estimate:.1f}")
 
-print(f"\n   Complexity (PCA):")
+print("\n   Complexity (PCA):")
 print(f"      Components for 95% variance: {props.pca_n_components_95}")
 
-print(f"\n   Peak Analysis:")
+print("\n   Peak Analysis:")
 print(f"      Number of peaks detected: {props.n_peaks_mean:.0f}")
 if props.peak_positions is not None and len(props.peak_positions) > 0:
     print(f"      Peak positions: {[f'{p:.0f}' for p in props.peak_positions[:5]]} nm")
 
-print(f"\n   Phase 1-4 Enhanced Properties:")
+print("\n   Phase 1-4 Enhanced Properties:")
 print(f"      Effective resolution: {props.effective_resolution:.1f} nm")
 print(f"      Noise correlation length: {props.noise_correlation_length:.1f}")
 print(f"      Baseline offset: {props.baseline_offset:.4f}")
 print(f"      Baseline convexity: {props.baseline_convexity:.4f}")
-
 
 # =============================================================================
 # Section 3: Using the RealDataFitter
@@ -154,28 +152,27 @@ print("-" * 60)
 fitter = RealDataFitter()
 params = fitter.fit(X_real, wavelengths=wavelengths, name="sample_regression")
 
-print(f"\n🔧 Fitted Generator Parameters:")
-print(f"\n   Wavelength Grid:")
+print("\n🔧 Fitted Generator Parameters:")
+print("\n   Wavelength Grid:")
 print(f"      Range: {params.wavelength_start:.0f}-{params.wavelength_end:.0f} nm")
 print(f"      Step: {params.wavelength_step:.2f} nm")
 
-print(f"\n   Noise Parameters:")
+print("\n   Noise Parameters:")
 print(f"      Base noise: {params.noise_base:.6f}")
 print(f"      Signal-dependent noise: {params.noise_signal_dep:.6f}")
 
-print(f"\n   Scatter Parameters:")
+print("\n   Scatter Parameters:")
 print(f"      Multiplicative (α): {params.scatter_alpha_std:.4f}")
 print(f"      Additive (β): {params.scatter_beta_std:.4f}")
 print(f"      Path length std: {params.path_length_std:.4f}")
 
-print(f"\n   Baseline Parameters:")
+print("\n   Baseline Parameters:")
 print(f"      Amplitude: {params.baseline_amplitude:.4f}")
 print(f"      Tilt std: {params.tilt_std:.4f}")
 print(f"      Global slope: {params.global_slope_mean:.4f} ± {params.global_slope_std:.4f}")
 
 print(f"\n   Suggested complexity: {params.complexity}")
 print(f"   Suggested n_components: {params.suggested_n_components}")
-
 
 # =============================================================================
 # Section 4: Phase 1-4 Enhanced Inference
@@ -185,7 +182,7 @@ print("Section 4: Phase 1-4 Enhanced Inference")
 print("-" * 60)
 
 # Instrument inference
-print(f"\n🔬 Instrument Inference:")
+print("\n🔬 Instrument Inference:")
 print(f"   Inferred archetype: {params.inferred_instrument}")
 if params.instrument_inference:
     inst = params.instrument_inference
@@ -197,12 +194,12 @@ if params.instrument_inference:
         print(f"   Alternatives: {', '.join([f'{n}({s:.2f})' for n, s in alts])}")
 
 # Measurement mode inference
-print(f"\n📐 Measurement Mode Inference:")
+print("\n📐 Measurement Mode Inference:")
 print(f"   Detected mode: {params.measurement_mode}")
 print(f"   Confidence: {params.measurement_mode_confidence:.2f}")
 
 # Domain inference
-print(f"\n🏭 Application Domain Inference:")
+print("\n🏭 Application Domain Inference:")
 print(f"   Inferred domain: {params.inferred_domain}")
 if params.domain_inference:
     dom = params.domain_inference
@@ -214,7 +211,7 @@ if params.domain_inference:
         print(f"   Alternatives: {', '.join([f'{n}({s:.2f})' for n, s in alts])}")
 
 # Environmental effects inference
-print(f"\n🌡️ Environmental Effects Inference:")
+print("\n🌡️ Environmental Effects Inference:")
 if params.environmental_inference:
     env = params.environmental_inference
     print(f"   Temperature effects: {env.has_temperature_effects}")
@@ -226,7 +223,7 @@ if params.environmental_inference:
     print(f"   Water band shift: {env.water_band_shift:.1f} nm")
 
 # Scattering effects inference
-print(f"\n💨 Scattering Effects Inference:")
+print("\n💨 Scattering Effects Inference:")
 if params.scattering_inference:
     scat = params.scattering_inference
     print(f"   Scatter effects detected: {scat.has_scatter_effects}")
@@ -235,7 +232,6 @@ if params.scattering_inference:
     print(f"   Additive scatter std: {scat.additive_scatter_std:.4f}")
     print(f"   SNV correctable: {scat.snv_correctable}")
     print(f"   MSC correctable: {scat.msc_correctable}")
-
 
 # =============================================================================
 # Section 5: Creating a Matched Generator
@@ -247,7 +243,7 @@ print("-" * 60)
 # Create a generator that matches the real data
 generator = fitter.create_matched_generator(random_state=42)
 
-print(f"\n🏭 Created matched generator:")
+print("\n🏭 Created matched generator:")
 print(f"   Type: {type(generator).__name__}")
 print(f"   Wavelength range: {generator.wavelength_start}-{generator.wavelength_end} nm")
 print(f"   Wavelength step: {generator.wavelength_step} nm")
@@ -257,12 +253,11 @@ print(f"   Complexity: {generator.complexity}")
 n_synthetic = X_real.shape[0]
 X_synth, concentrations, pure_spectra = generator.generate(n_synthetic)
 
-print(f"\n📊 Generated synthetic data:")
+print("\n📊 Generated synthetic data:")
 print(f"   Shape: {X_synth.shape}")
 print(f"   Mean: {X_synth.mean():.4f} (real: {X_real.mean():.4f})")
 print(f"   Std: {X_synth.std():.4f} (real: {X_real.std():.4f})")
 print(f"   Range: {X_synth.min():.4f} to {X_synth.max():.4f}")
-
 
 # =============================================================================
 # Section 6: Evaluating Similarity
@@ -274,26 +269,25 @@ print("-" * 60)
 # Evaluate similarity metrics
 metrics = fitter.evaluate_similarity(X_synth, wavelengths)
 
-print(f"\n📊 Similarity Metrics:")
-print(f"\n   Statistical Comparison:")
+print("\n📊 Similarity Metrics:")
+print("\n   Statistical Comparison:")
 print(f"      Mean relative difference: {metrics['mean_rel_diff']:.4f}")
 print(f"      Std relative difference: {metrics['std_rel_diff']:.4f}")
 
-print(f"\n   Noise Comparison:")
+print("\n   Noise Comparison:")
 print(f"      Noise ratio (synth/real): {metrics['noise_ratio']:.2f}")
 if metrics['snr_ratio'] != float('inf'):
     print(f"      SNR ratio (synth/real): {metrics['snr_ratio']:.2f}")
 
-print(f"\n   Spectral Shape:")
+print("\n   Spectral Shape:")
 print(f"      Slope difference: {metrics['slope_diff']:.4f}")
 if 'mean_spectrum_correlation' in metrics:
     print(f"      Mean spectrum correlation: {metrics['mean_spectrum_correlation']:.4f}")
 
-print(f"\n   Complexity:")
+print("\n   Complexity:")
 print(f"      PCA components difference: {metrics['pca_complexity_diff']}")
 
 print(f"\n   Overall Similarity Score: {metrics['overall_score']:.1f}/100")
-
 
 # =============================================================================
 # Section 7: Tuning Recommendations
@@ -307,7 +301,6 @@ print("\n💡 Recommendations for improving synthetic data:")
 for rec in recommendations:
     print(f"   • {rec}")
 
-
 # =============================================================================
 # Section 8: Using the Quick Function
 # =============================================================================
@@ -318,12 +311,11 @@ print("-" * 60)
 # Use the convenience function
 quick_params = fit_to_real_data(X_real, wavelengths, name="quick_fit")
 
-print(f"\n🚀 Quick fit result:")
+print("\n🚀 Quick fit result:")
 print(f"   Complexity: {quick_params.complexity}")
 print(f"   Instrument: {quick_params.inferred_instrument}")
 print(f"   Domain: {quick_params.inferred_domain}")
 print(f"   Suggested components: {quick_params.suggested_n_components}")
-
 
 # =============================================================================
 # Section 9: Comparing Datasets Directly
@@ -335,11 +327,10 @@ print("-" * 60)
 # Use the compare_datasets convenience function
 comparison = compare_datasets(X_synth, X_real, wavelengths)
 
-print(f"\n📊 Direct comparison (synthetic vs real):")
+print("\n📊 Direct comparison (synthetic vs real):")
 print(f"   Mean relative diff: {comparison['mean_rel_diff']:.4f}")
 print(f"   Std relative diff: {comparison['std_rel_diff']:.4f}")
 print(f"   Overall score: {comparison['overall_score']:.1f}/100")
-
 
 # =============================================================================
 # Section 10: Exporting and Loading Parameters
@@ -363,7 +354,6 @@ print(f"   Instrument: {loaded_params.inferred_instrument}")
 full_config = params.to_full_config()
 print(f"\n📋 Full configuration keys: {list(full_config.keys())}")
 
-
 # =============================================================================
 # Section 11: Parameter Summary
 # =============================================================================
@@ -372,7 +362,6 @@ print("Section 11: Human-Readable Summary")
 print("-" * 60)
 
 print(params.summary())
-
 
 # =============================================================================
 # Section 12: Plotting (optional)
@@ -508,7 +497,6 @@ if args.plots:
         plt.show()
 
     print(f"\n📁 Output directory: {plot_path.parent}")
-
 
 # =============================================================================
 # Summary

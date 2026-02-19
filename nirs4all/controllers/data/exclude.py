@@ -6,7 +6,8 @@ from training based on filter criteria. Unlike `tag`, `exclude` both stores
 tag values AND marks samples as excluded from training.
 """
 
-from typing import Any, List, Tuple, Optional, Dict, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional, Union
+
 import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
@@ -22,7 +23,6 @@ if TYPE_CHECKING:
     from nirs4all.pipeline.config.context import ExecutionContext
     from nirs4all.pipeline.steps.parser import ParsedStep
     from nirs4all.pipeline.steps.runtime import RuntimeContext
-
 
 @register_controller
 class ExcludeController(OperatorController):
@@ -87,9 +87,9 @@ class ExcludeController(OperatorController):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple['ExecutionContext', List]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple['ExecutionContext', list]:
         """
         Execute sample exclusion operation.
 
@@ -157,8 +157,8 @@ class ExcludeController(OperatorController):
             y_train = y_train.flatten()
 
         # Fit all filters and collect masks
-        masks: List[np.ndarray] = []
-        filter_names: List[str] = []
+        masks: list[np.ndarray] = []
+        filter_names: list[str] = []
 
         for filter_obj in filters:
             try:
@@ -213,7 +213,7 @@ class ExcludeController(OperatorController):
             warnings.warn(
                 f"Exclusion would exclude ALL {len(base_sample_indices)} samples. "
                 "Consider adjusting filter thresholds. Keeping at least one sample.",
-                UserWarning
+                UserWarning, stacklevel=2
             )
             # Keep at least one sample (the first one)
             combined_mask[0] = True
@@ -223,10 +223,7 @@ class ExcludeController(OperatorController):
         n_excluded = 0
         if samples_to_exclude:
             # Create a combined reason string
-            if len(filters) == 1:
-                reason = filters[0].exclusion_reason
-            else:
-                reason = f"exclude({filter_mode}:{','.join(filter_names)})"
+            reason = filters[0].exclusion_reason if len(filters) == 1 else f"exclude({filter_mode}:{','.join(filter_names)})"
 
             n_excluded = dataset._indexer.mark_excluded(  # noqa: SLF001
                 samples_to_exclude,
@@ -259,8 +256,8 @@ class ExcludeController(OperatorController):
 
     def _parse_config(
         self,
-        step: Dict[str, Any]
-    ) -> Tuple[List[SampleFilter], str, bool]:
+        step: dict[str, Any]
+    ) -> tuple[list[SampleFilter], str, bool]:
         """
         Parse exclusion configuration from step.
 
@@ -286,8 +283,8 @@ class ExcludeController(OperatorController):
 
     def _parse_filters(
         self,
-        config: Union[Any, List[Any]]
-    ) -> List[SampleFilter]:
+        config: Any | list[Any]
+    ) -> list[SampleFilter]:
         """
         Parse filter configuration into list of SampleFilter instances.
 
@@ -323,10 +320,7 @@ class ExcludeController(OperatorController):
         if isinstance(config, list):
             # List format: [Filter1(), Filter2()]
             for filter_def in config:
-                if isinstance(filter_def, SampleFilter):
-                    filter_obj = filter_def
-                else:
-                    filter_obj = deserialize_component(filter_def)
+                filter_obj = filter_def if isinstance(filter_def, SampleFilter) else deserialize_component(filter_def)
                 if not isinstance(filter_obj, SampleFilter):
                     raise TypeError(
                         f"Exclude filter must be a SampleFilter instance, "
@@ -367,9 +361,9 @@ class ExcludeController(OperatorController):
         self,
         dataset: 'SpectroDataset',
         sample_indices: np.ndarray,
-        filters: List[SampleFilter],
-        masks: List[np.ndarray],
-        filter_names: List[str]
+        filters: list[SampleFilter],
+        masks: list[np.ndarray],
+        filter_names: list[str]
     ) -> None:
         """
         Store exclusion tags for each filter for analysis.
@@ -384,7 +378,7 @@ class ExcludeController(OperatorController):
             masks: List of boolean masks (True = keep, False = exclude)
             filter_names: List of names for each filter
         """
-        for filter_obj, mask, name in zip(filters, masks, filter_names):
+        for _, mask, name in zip(filters, masks, filter_names, strict=False):
             # Create tag name with 'excluded_' prefix to indicate these are exclusion tags
             tag_name = f"excluded_{name}"
 

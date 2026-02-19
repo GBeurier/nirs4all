@@ -6,7 +6,7 @@ including .npy (single array) and .npz (multiple arrays) formats.
 """
 
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Optional
 
 import numpy as np
 import pandas as pd
@@ -15,8 +15,8 @@ from nirs4all.core.exceptions import NAError
 from nirs4all.data.schema.config import NAFillConfig
 
 from .base import (
-    FileLoadError,
     FileLoader,
+    FileLoadError,
     LoaderResult,
     apply_na_policy,
     register_loader,
@@ -43,7 +43,7 @@ class NumpyLoader(FileLoader):
         untrusted files. Only enable this for files you trust completely.
     """
 
-    supported_extensions: ClassVar[Tuple[str, ...]] = (".npy", ".npz")
+    supported_extensions: ClassVar[tuple[str, ...]] = (".npy", ".npz")
     name: ClassVar[str] = "NumPy Loader"
     priority: ClassVar[int] = 40  # Higher priority than CSV for numpy files
 
@@ -56,11 +56,11 @@ class NumpyLoader(FileLoader):
         self,
         path: Path,
         allow_pickle: bool = False,
-        key: Optional[str] = None,
+        key: str | None = None,
         header_unit: str = "index",
         data_type: str = "x",
         na_policy: str = "auto",
-        na_fill_config: Optional[NAFillConfig] = None,
+        na_fill_config: NAFillConfig | None = None,
         **params: Any,
     ) -> LoaderResult:
         """Load data from a NumPy file.
@@ -78,7 +78,7 @@ class NumpyLoader(FileLoader):
         Returns:
             LoaderResult with the loaded data as a DataFrame.
         """
-        report: Dict[str, Any] = {
+        report: dict[str, Any] = {
             "file_path": str(path),
             "format": "npy" if path.suffix.lower() == ".npy" else "npz",
             "allow_pickle": allow_pickle,
@@ -113,10 +113,7 @@ class NumpyLoader(FileLoader):
 
             # Generate column headers
             n_cols = array.shape[1]
-            if header_unit == "index":
-                headers = [str(i) for i in range(n_cols)]
-            else:
-                headers = [f"feature_{i}" for i in range(n_cols)]
+            headers = [str(i) for i in range(n_cols)] if header_unit == "index" else [f"feature_{i}" for i in range(n_cols)]
 
             # Convert to DataFrame
             try:
@@ -169,9 +166,9 @@ class NumpyLoader(FileLoader):
         self,
         path: Path,
         allow_pickle: bool,
-        key: Optional[str],
-        report: Dict[str, Any],
-    ) -> Optional[np.ndarray]:
+        key: str | None,
+        report: dict[str, Any],
+    ) -> np.ndarray | None:
         """Load array from .npy or .npz file.
 
         Args:
@@ -255,11 +252,10 @@ class NumpyLoader(FileLoader):
             report["error"] = f"Unsupported NumPy format: {suffix}"
             return None
 
-
 def load_numpy(
     path,
     allow_pickle: bool = False,
-    key: Optional[str] = None,
+    key: str | None = None,
     header_unit: str = "index",
     **params,
 ):

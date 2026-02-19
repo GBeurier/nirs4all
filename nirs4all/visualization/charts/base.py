@@ -1,17 +1,18 @@
 """
 BaseChart - Abstract base class for all prediction visualization charts.
 """
-from abc import ABC, abstractmethod
-from typing import Optional, Union, List, Dict, Any, TYPE_CHECKING
 import re
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any, Optional, Union
+
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from nirs4all.visualization.charts.config import ChartConfig
+
 from nirs4all.core.metrics import abbreviate_metric
+from nirs4all.visualization.charts.config import ChartConfig
 
 if TYPE_CHECKING:
     from nirs4all.visualization.predictions import PredictionAnalyzer
-
 
 class BaseChart(ABC):
     """Abstract base class for all prediction visualization charts.
@@ -39,8 +40,8 @@ class BaseChart(ABC):
     def __init__(
         self,
         predictions,
-        dataset_name_override: Optional[str] = None,
-        config: Optional[Union[ChartConfig, Dict[str, Any]]] = None,
+        dataset_name_override: str | None = None,
+        config: ChartConfig | dict[str, Any] | None = None,
         analyzer: Optional['PredictionAnalyzer'] = None
     ):
         """Initialize chart with predictions object.
@@ -146,7 +147,7 @@ class BaseChart(ABC):
                 pass
         return 'rmse'
 
-    def _get_score(self, partition_data: Dict[str, Any], metric: str) -> Optional[float]:
+    def _get_score(self, partition_data: dict[str, Any], metric: str) -> float | None:
         """Get score from partition data, computing it if necessary.
 
         Args:
@@ -183,9 +184,9 @@ class BaseChart(ABC):
         rank_partition: str = 'val',
         score_scope: str = 'mix',
         display_partition: str = 'test',
-        display_metrics: Optional[List[str]] = None,
-        aggregate: Optional[str] = None,
-        group_by: Optional[Union[str, List[str]]] = None,
+        display_metrics: list[str] | None = None,
+        aggregate: str | None = None,
+        group_by: str | list[str] | None = None,
         aggregate_partitions: bool = True,
         **filters
     ):
@@ -311,8 +312,8 @@ class BaseChart(ABC):
 
     def _format_score_display(
         self,
-        pred: Dict[str, Any],
-        show_scores: Union[bool, str, List[str], Dict],
+        pred: dict[str, Any],
+        show_scores: bool | str | list[str] | dict,
         rank_metric: str,
         rank_partition: str,
         display_metric: str = None,

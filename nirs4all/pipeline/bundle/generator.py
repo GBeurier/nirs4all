@@ -40,23 +40,20 @@ import base64
 import json
 import logging
 import zipfile
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime, timezone
+from enum import Enum, StrEnum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 from nirs4all.pipeline.resolver import PredictionResolver, ResolvedPrediction
 from nirs4all.pipeline.trace import ExecutionTrace
 
-
 logger = logging.getLogger(__name__)
-
 
 # Bundle format version for compatibility checking
 BUNDLE_FORMAT_VERSION = "1.0"
 
-
-class BundleFormat(str, Enum):
+class BundleFormat(StrEnum):
     """Supported bundle export formats.
 
     Attributes:
@@ -68,7 +65,6 @@ class BundleFormat(str, Enum):
 
     def __str__(self) -> str:
         return self.value
-
 
 class BundleGenerator:
     """Generate standalone prediction bundles from trained pipelines.
@@ -92,9 +88,9 @@ class BundleGenerator:
 
     def __init__(
         self,
-        workspace_path: Union[str, Path],
+        workspace_path: str | Path,
         verbose: int = 0,
-        store: Optional[Any] = None,
+        store: Any | None = None,
     ):
         """Initialize bundle generator.
 
@@ -116,7 +112,7 @@ class BundleGenerator:
     def export_from_chain(
         self,
         chain_id: str,
-        output_path: Union[str, Path],
+        output_path: str | Path,
         fmt: Union[str, "BundleFormat"] = "n4a",
     ) -> Path:
         """Export a chain from WorkspaceStore as a standalone bundle.
@@ -187,8 +183,8 @@ class BundleGenerator:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Collect artifacts
-        artifacts_data: Dict[str, str] = {}
-        step_info: Dict[int, Dict[str, str]] = {}
+        artifacts_data: dict[str, str] = {}
+        step_info: dict[int, dict[str, str]] = {}
 
         fold_artifacts = chain.get("fold_artifacts") or {}
         shared_artifacts = chain.get("shared_artifacts") or {}
@@ -235,7 +231,7 @@ class BundleGenerator:
             preprocessing_chain=chain.get("model_class", ""),
             pipeline_uid=chain_id,
             nirs4all_version=getattr(_nirs4all, "__version__", "unknown"),
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
             include_metadata=True,
         )
 
@@ -246,6 +242,7 @@ class BundleGenerator:
     def _encode_artifact(obj: Any) -> str:
         """Serialize an artifact to base64 string."""
         import io as _io
+
         import joblib
 
         buf = _io.BytesIO()
@@ -258,9 +255,9 @@ class BundleGenerator:
 
     def export(
         self,
-        source: Union[Dict[str, Any], str, Path],
-        output_path: Union[str, Path],
-        format: Union[str, BundleFormat] = BundleFormat.N4A,
+        source: dict[str, Any] | str | Path,
+        output_path: str | Path,
+        format: str | BundleFormat = BundleFormat.N4A,
         include_metadata: bool = True,
         compress: bool = True
     ) -> Path:
@@ -307,7 +304,7 @@ class BundleGenerator:
     def _export_n4a(
         self,
         resolved: ResolvedPrediction,
-        output_path: Union[str, Path],
+        output_path: str | Path,
         include_metadata: bool,
         compress: bool
     ) -> Path:
@@ -376,7 +373,7 @@ class BundleGenerator:
     def _export_n4a_py(
         self,
         resolved: ResolvedPrediction,
-        output_path: Union[str, Path],
+        output_path: str | Path,
         include_metadata: bool
     ) -> Path:
         """Export to .n4a.py portable Python script format.
@@ -396,10 +393,7 @@ class BundleGenerator:
 
         # Ensure .n4a.py extension
         if not str(output_path).endswith('.n4a.py'):
-            if output_path.suffix == '.py':
-                output_path = output_path.with_suffix('.n4a.py')
-            else:
-                output_path = Path(str(output_path) + '.n4a.py')
+            output_path = output_path.with_suffix('.n4a.py') if output_path.suffix == '.py' else Path(str(output_path) + '.n4a.py')
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -427,7 +421,7 @@ class BundleGenerator:
         self,
         resolved: ResolvedPrediction,
         include_metadata: bool
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Create bundle manifest with metadata.
 
         Args:
@@ -442,7 +436,7 @@ class BundleGenerator:
         manifest = {
             "bundle_format_version": BUNDLE_FORMAT_VERSION,
             "nirs4all_version": getattr(nirs4all, '__version__', 'unknown'),
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "pipeline_uid": resolved.pipeline_uid,
             "source_type": str(resolved.source_type),
             "model_step_index": resolved.model_step_index,
@@ -470,7 +464,7 @@ class BundleGenerator:
     def _extract_partitioner_routing_info(
         self,
         trace: ExecutionTrace
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Extract metadata partitioner routing information from trace.
 
         This information is needed for prediction mode to route samples
@@ -512,7 +506,7 @@ class BundleGenerator:
     def _extract_pipeline_config(
         self,
         resolved: ResolvedPrediction
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Extract pipeline configuration from resolved prediction.
 
         Args:
@@ -617,6 +611,7 @@ class BundleGenerator:
             Serialized bytes
         """
         import io
+
         import joblib
 
         buffer = io.BytesIO()
@@ -627,8 +622,8 @@ class BundleGenerator:
         self,
         artifact_id: str,
         artifact_obj: Any,
-        record: Optional[Any] = None,
-        step_index: Optional[int] = None
+        record: Any | None = None,
+        step_index: int | None = None
     ) -> str:
         """Generate filename for artifact.
 
@@ -735,10 +730,7 @@ class BundleGenerator:
 
         # Generate fold weights
         fold_weights_code = ""
-        if resolved.fold_weights:
-            fold_weights_code = repr(resolved.fold_weights)
-        else:
-            fold_weights_code = "{}"
+        fold_weights_code = repr(resolved.fold_weights) if resolved.fold_weights else "{}"
 
         # Build script
         script = self._build_portable_script_template(
@@ -749,7 +741,7 @@ class BundleGenerator:
             preprocessing_chain=resolved.get_preprocessing_chain(),
             pipeline_uid=resolved.pipeline_uid,
             nirs4all_version=getattr(nirs4all, '__version__', 'unknown'),
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
             include_metadata=include_metadata
         )
 
@@ -757,10 +749,10 @@ class BundleGenerator:
 
     def _build_portable_script_template(
         self,
-        artifacts_data: Dict[str, str],
-        step_info: Dict[int, Dict[str, str]],
+        artifacts_data: dict[str, str],
+        step_info: dict[int, dict[str, str]],
         fold_weights: str,
-        model_step_index: Optional[int],
+        model_step_index: int | None,
         preprocessing_chain: str,
         pipeline_uid: str,
         nirs4all_version: str,
@@ -822,7 +814,7 @@ Created: {created_at}
 import base64
 import io
 import sys
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 
@@ -833,7 +825,6 @@ except ImportError:
         "joblib is required for loading artifacts. "
         "Install with: pip install joblib"
     )
-
 
 # =============================================================================
 # Embedded Artifacts (base64 encoded)
@@ -846,7 +837,6 @@ STEP_INFO = {step_info_str}
 FOLD_WEIGHTS: Dict[int, float] = {fold_weights}
 
 MODEL_STEP_INDEX: Optional[int] = {model_step_index}
-
 
 # =============================================================================
 # Artifact Loading
@@ -874,7 +864,6 @@ def load_artifact(key: str) -> Any:
     buffer = io.BytesIO(decoded)
     return joblib.load(buffer)
 
-
 def get_step_artifacts(step_index: int) -> List[Tuple[str, Any]]:
     """Get all artifacts for a step.
 
@@ -894,7 +883,6 @@ def get_step_artifacts(step_index: int) -> List[Tuple[str, Any]]:
 
     return results
 
-
 def get_fold_artifacts(step_index: int) -> List[Tuple[int, Any]]:
     """Get fold-specific artifacts for a step.
 
@@ -912,7 +900,6 @@ def get_fold_artifacts(step_index: int) -> List[Tuple[int, Any]]:
             results.append((fold_id, load_artifact(key)))
 
     return sorted(results, key=lambda x: x[0])
-
 
 # =============================================================================
 # Prediction Logic
@@ -950,7 +937,6 @@ def _apply_y_inverse_transform(y_pred: np.ndarray, y_processing_step_idx: Option
                 y_current = transformer.inverse_transform(y_current)
 
     return y_current
-
 
 def predict(X: np.ndarray) -> np.ndarray:
     """
@@ -1047,7 +1033,6 @@ def predict(X: np.ndarray) -> np.ndarray:
 
     raise RuntimeError("No model step found in pipeline")
 
-
 def predict_from_file(
     input_path: str,
     output_path: Optional[str] = None,
@@ -1079,7 +1064,6 @@ def predict_from_file(
         print(f"Predictions saved to: {{output_path}}")
 
     return y_pred
-
 
 # =============================================================================
 # Main Entry Point

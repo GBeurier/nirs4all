@@ -71,86 +71,88 @@ Example:
     >>> result = reconstructor.reconstruct(dataset, context)
 """
 
-from .reconstructor import (
-    TrainingSetReconstructor,
-    FoldAlignmentValidator,
-    ValidationResult,
-    ReconstructionResult,
+from .branch_validator import (
+    BranchInfo,
+    BranchType,
+    BranchValidationResult,
+    BranchValidator,
+    StackingCompatibility,
+    detect_branch_type,
+    get_disjoint_branch_info,
+    is_disjoint_branch,
+    is_stacking_compatible,
+)
+from .classification import (
+    ClassificationFeatureExtractor,
+    ClassificationInfo,
+    FeatureNameGenerator,
+    MetaFeatureInfo,
+    StackingTaskType,
+    TaskTypeDetector,
+    build_meta_feature_info,
 )
 from .config import (
     ReconstructorConfig,
 )
-from .serialization import (
-    SourceModelReference,
-    MetaModelArtifact,
-    MetaModelSerializer,
-    stacking_config_to_dict,
-    stacking_config_from_dict,
-)
-from .branch_validator import (
-    BranchValidator,
-    BranchType,
-    BranchInfo,
-    BranchValidationResult,
-    StackingCompatibility,
-    detect_branch_type,
-    is_stacking_compatible,
-    is_disjoint_branch,
-    get_disjoint_branch_info,
-)
-from .classification import (
-    StackingTaskType,
-    ClassificationInfo,
-    TaskTypeDetector,
-    ClassificationFeatureExtractor,
-    FeatureNameGenerator,
-    MetaFeatureInfo,
-    build_meta_feature_info,
-)
-# Phase 7: Multi-Level Stacking
-from .multilevel import (
-    MultiLevelValidator,
-    ModelLevelInfo,
-    LevelValidationResult,
-    validate_multi_level_stacking,
-    detect_stacking_level,
-)
+
 # Phase 7: Cross-Branch Stacking
 from .crossbranch import (
-    CrossBranchValidator,
-    CrossBranchValidationResult,
-    CrossBranchCompatibility,
     BranchPredictionInfo,
+    CrossBranchCompatibility,
+    CrossBranchValidationResult,
+    CrossBranchValidator,
     validate_all_branches_scope,
 )
 from .exceptions import (
-    MetaModelError,
-    MetaModelPredictionError,
-    MissingSourceModelError,
-    SourcePredictionError,
-    FeatureOrderMismatchError,
-    BranchMismatchError,
-    NoSourcePredictionsError,
-    MetaModelSerializationError,
-    MissingDependencyError,
-    InvalidMetaModelArtifactError,
+    BranchFeatureAlignmentError,
     # Phase 4 - Branching Exceptions
     BranchingError,
-    IncompatibleBranchTypeError,
-    CrossPartitionStackingError,
-    NestedBranchStackingError,
-    FoldMismatchAcrossBranchesError,
-    DisjointSampleSetsError,
-    GeneratorSyntaxStackingWarning,
-    # Phase 7 - Multi-Level Stacking Exceptions
-    MultiLevelStackingError,
+    BranchMismatchError,
     CircularDependencyError,
-    MaxStackingLevelExceededError,
-    InconsistentLevelError,
     # Phase 7 - Cross-Branch Stacking Exceptions
     CrossBranchStackingError,
+    CrossPartitionStackingError,
+    DisjointSampleSetsError,
+    FeatureOrderMismatchError,
+    FoldMismatchAcrossBranchesError,
+    GeneratorSyntaxStackingWarning,
     IncompatibleBranchSamplesError,
-    BranchFeatureAlignmentError,
+    IncompatibleBranchTypeError,
+    InconsistentLevelError,
+    InvalidMetaModelArtifactError,
+    MaxStackingLevelExceededError,
+    MetaModelError,
+    MetaModelPredictionError,
+    MetaModelSerializationError,
+    MissingDependencyError,
+    MissingSourceModelError,
+    # Phase 7 - Multi-Level Stacking Exceptions
+    MultiLevelStackingError,
+    NestedBranchStackingError,
+    NoSourcePredictionsError,
+    SourcePredictionError,
+)
+
+# Phase 7: Multi-Level Stacking
+from .multilevel import (
+    LevelValidationResult,
+    ModelLevelInfo,
+    MultiLevelValidator,
+    detect_stacking_level,
+    validate_multi_level_stacking,
+)
+from .reconstructor import (
+    FoldAlignmentValidator,
+    ReconstructionResult,
+    TrainingSetReconstructor,
+    ValidationResult,
+)
+from .serialization import (
+    MetaModelArtifact,
+    MetaModelSerializer,
+    SourceModelReference,
+    stacking_config_from_dict,
+    stacking_config_to_dict,
 )
 
 __all__ = [

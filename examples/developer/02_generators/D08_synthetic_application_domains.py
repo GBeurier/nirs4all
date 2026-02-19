@@ -31,25 +31,26 @@ import argparse
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+
 # Third-party imports
 import numpy as np
-import matplotlib.pyplot as plt
 
 # NIRS4All imports
 import nirs4all
 from nirs4all.synthesis import (
-    # Domain utilities
-    DomainCategory,
-    get_domain_config,
-    list_domains,
-    get_domain_components,
-    get_domains_for_component,
-    create_domain_aware_library,
     APPLICATION_DOMAINS,
     # Generator
     ComponentLibrary,
-    SyntheticNIRSGenerator,
+    # Domain utilities
+    DomainCategory,
     SyntheticDatasetBuilder,
+    SyntheticNIRSGenerator,
+    create_domain_aware_library,
+    get_domain_components,
+    get_domain_config,
+    get_domains_for_component,
+    list_domains,
 )
 
 # Add examples directory to path for example_utils
@@ -64,7 +65,6 @@ args = parser.parse_args()
 
 # Example name for output directory
 EXAMPLE_NAME = "D08_synthetic_application_domains"
-
 
 # =============================================================================
 # Section 1: Domain Categories
@@ -83,7 +83,6 @@ for category in DomainCategory:
     print(f"   {category.name:<15} ({len(domains_in_cat)} domains)")
     for domain in domains_in_cat:
         print(f"      - {domain}")
-
 
 # =============================================================================
 # Section 2: Listing Domains
@@ -104,7 +103,6 @@ for category in DomainCategory:
         for domain in domains:
             config = get_domain_config(domain)
             print(f"      {domain:<25} - {config.description[:40]}...")
-
 
 # =============================================================================
 # Section 3: Domain Configuration Details
@@ -135,7 +133,6 @@ if len(grain.typical_components) > 8:
 print()
 print(f"   Sample types: {', '.join(grain.typical_sample_types or [])}")
 
-
 # =============================================================================
 # Section 4: Comparing Domains
 # =============================================================================
@@ -156,7 +153,6 @@ for domain_name in compare_domains:
     config = get_domain_config(domain_name)
     wl_range = f"{config.wavelength_range[0]}-{config.wavelength_range[1]}"
     print(f"   {domain_name:<25} {config.category.name:<15} {len(config.typical_components):<12} {wl_range:<15} {config.measurement_mode}")
-
 
 # =============================================================================
 # Section 5: Finding Components
@@ -181,7 +177,6 @@ for component in ["protein", "water", "starch", "lipid"]:
     if domains:
         print(f"   {component}: {', '.join(domains)}")
 
-
 # =============================================================================
 # Section 6: Domain-Aware Library Creation
 # =============================================================================
@@ -201,7 +196,6 @@ for domain_name in ["agriculture_grain", "food_dairy", "petrochem_fuels"]:
     if len(component_names) > 5:
         print(f"            ... and {len(component_names) - 5} more")
     print(f"      Concentrations shape: {concentrations.shape}")
-
 
 # =============================================================================
 # Section 7: Using Domains with Generator
@@ -226,7 +220,7 @@ generator = SyntheticNIRSGenerator(
 
 X_grain, C_grain, *rest_grain = generator.generate(n_samples=200)
 
-print(f"\n📊 Generated grain analysis dataset:")
+print("\n📊 Generated grain analysis dataset:")
 print(f"   Samples: {X_grain.shape[0]}")
 print(f"   Wavelengths: {X_grain.shape[1]}")
 print(f"   Components: {C_grain.shape[1]}")
@@ -246,12 +240,11 @@ generator_dairy = SyntheticNIRSGenerator(
 
 X_dairy, C_dairy, *rest_dairy = generator_dairy.generate(n_samples=200)
 
-print(f"\n📊 Generated dairy analysis dataset:")
+print("\n📊 Generated dairy analysis dataset:")
 print(f"   Samples: {X_dairy.shape[0]}")
 print(f"   Wavelengths: {X_dairy.shape[1]}")
 print(f"   Components: {C_dairy.shape[1]}")
 print(f"   Component names: {dairy_library.component_names}")
-
 
 # =============================================================================
 # Section 8: Concentration Priors
@@ -265,7 +258,7 @@ print()
 
 # Check priors for grain domain
 if hasattr(grain, 'concentration_priors') and grain.concentration_priors:
-    print(f"   Grain domain priors:")
+    print("   Grain domain priors:")
     for comp_name, prior in grain.concentration_priors.items():
         print(f"      {comp_name}: {prior}")
 else:
@@ -288,7 +281,6 @@ domain_ranges = [
 
 for domain, comp, range_str in domain_ranges:
     print(f"   {domain:<20} {comp:<15} {range_str}")
-
 
 # =============================================================================
 # Section 9: Extended Component Library
@@ -318,7 +310,6 @@ for cat_name, examples in categories.items():
     available = [c for c in examples if c in components]
     print(f"   {cat_name}:")
     print(f"      {', '.join(available)}")
-
 
 # =============================================================================
 # Section 10: Cross-Domain Analysis
@@ -360,7 +351,6 @@ for domain_name, data in domain_datasets.items():
     print(f"   {domain_name}:")
     print(f"      Shape: {data['X'].shape}")
     print(f"      Wavelength: {data['wavelengths'][0]:.0f}-{data['wavelengths'][-1]:.0f} nm")
-
 
 # =============================================================================
 # Section 11: Visualization
@@ -475,7 +465,6 @@ plt.tight_layout()
 plot_path = get_example_output_path(EXAMPLE_NAME, "application_domains_overview.png")
 plt.savefig(plot_path, dpi=150, bbox_inches="tight")
 print_output_location(plot_path, "Overview plot")
-
 
 # =============================================================================
 # Summary

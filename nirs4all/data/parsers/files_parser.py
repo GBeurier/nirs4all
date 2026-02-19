@@ -50,26 +50,26 @@ Example:
       link_by: sample_id
 """
 
+import contextlib
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
-from .base import BaseParser, ParserResult
 from ..schema import (
+    ColumnConfig,
     DatasetConfigSchema,
     FileConfig,
-    ColumnConfig,
-    PartitionConfig,
     LoadingParams,
     PartitionType,
+    PreprocessingApplied,
+    SharedMetadataConfig,
+    SharedTargetsConfig,
     SourceConfig,
     SourceFileConfig,
-    SharedTargetsConfig,
-    SharedMetadataConfig,
     VariationConfig,
     VariationFileConfig,
-    PreprocessingApplied,
     VariationMode,
 )
+from .base import BaseParser, ParserResult
 
 
 class FilesParser(BaseParser):
@@ -100,7 +100,7 @@ class FilesParser(BaseParser):
 
         return isinstance(files, list) and len(files) > 0
 
-    def parse(self, input_data: Dict[str, Any]) -> ParserResult:
+    def parse(self, input_data: dict[str, Any]) -> ParserResult:
         """Parse a files-format configuration.
 
         Args:
@@ -191,9 +191,13 @@ class FilesParser(BaseParser):
             self._to_file_config(pf) for pf in parsed_files
         ]
 
+        config_dict: dict[str, Any] | None = None
+        if not errors:
+            config_dict = DatasetConfigSchema(**config_data).model_dump(exclude_none=True)
+
         return ParserResult(
             success=len(errors) == 0,
-            config=DatasetConfigSchema(**config_data) if not errors else None,
+            config=config_dict,
             errors=errors,
             warnings=warnings,
             source_type="files"
@@ -201,10 +205,10 @@ class FilesParser(BaseParser):
 
     def _parse_single_file(
         self,
-        file_config: Union[str, Dict[str, Any]],
+        file_config: str | dict[str, Any],
         index: int,
-        global_partition: Optional[Union[str, Dict[str, Any]]] = None,
-    ) -> Dict[str, Any]:
+        global_partition: str | dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Parse a single file configuration.
 
         Args:
@@ -217,8 +221,9 @@ class FilesParser(BaseParser):
         """
         # Handle simple string path
         if isinstance(file_config, str):
+            fallback = global_partition if isinstance(global_partition, str) else None
             resolved_partition = self._resolve_partition_from_path(
-                file_config, global_partition
+                file_config, fallback
             )
             return {
                 'path': file_config,
@@ -245,19 +250,13 @@ class FilesParser(BaseParser):
         columns = file_config.get('columns')
         parsed_columns = None
         if columns:
-            if isinstance(columns, dict):
-                parsed_columns = ColumnConfig(**columns)
-            else:
-                parsed_columns = columns
+            parsed_columns = ColumnConfig(**columns) if isinstance(columns, dict) else columns
 
         # Parse params
         params = file_config.get('params')
         parsed_params = None
         if params:
-            if isinstance(params, dict):
-                parsed_params = LoadingParams(**params)
-            else:
-                parsed_params = params
+            parsed_params = LoadingParams(**params) if isinstance(params, dict) else params
 
         return {
             'path': path,
@@ -271,9 +270,9 @@ class FilesParser(BaseParser):
 
     def _resolve_partition(
         self,
-        file_partition: Optional[Union[str, Dict[str, Any]]],
+        file_partition: str | dict[str, Any] | None,
         path: str,
-        global_partition: Optional[Union[str, Dict[str, Any]]],
+        global_partition: str | dict[str, Any] | None,
     ) -> str:
         """Resolve partition assignment for a file.
 
@@ -302,7 +301,7 @@ class FilesParser(BaseParser):
     def _resolve_partition_from_path(
         self,
         path: str,
-        fallback: Optional[str],
+        fallback: str | None,
     ) -> str:
         """Infer partition from file path naming convention.
 
@@ -336,15 +335,13 @@ class FilesParser(BaseParser):
         # Default to train if cannot infer
         return fallback if fallback else 'train'
 
-    def _to_file_config(self, parsed: Dict[str, Any]) -> FileConfig:
+    def _to_file_config(self, parsed: dict[str, Any]) -> FileConfig:
         """Convert parsed file dict to FileConfig model."""
         partition_type = None
         partition_str = parsed.get('_resolved_partition')
         if partition_str and partition_str != 'mixed':
-            try:
+            with contextlib.suppress(ValueError):
                 partition_type = PartitionType(partition_str)
-            except ValueError:
-                pass
 
         return FileConfig(
             path=parsed['path'],
@@ -353,7 +350,6 @@ class FilesParser(BaseParser):
             params=parsed.get('params'),
             link_by=parsed.get('link_by'),
         )
-
 
 class SourcesParser(BaseParser):
     """Parser for multi-source 'sources' syntax configuration.
@@ -408,7 +404,7 @@ class SourcesParser(BaseParser):
 
         return isinstance(sources, list) and len(sources) > 0
 
-    def parse(self, input_data: Dict[str, Any]) -> ParserResult:
+    def parse(self, input_data: dict[str, Any]) -> ParserResult:
         """Parse a sources-format configuration.
 
         Converts the sources syntax to a DatasetConfigSchema that can be
@@ -421,9 +417,9 @@ class SourcesParser(BaseParser):
             ParserResult with parsed configuration.
         """
         sources_list = input_data.get('sources', [])
-        errors = []
-        warnings = []
-        parsed_sources = []
+        errors: list[str] = []
+        warnings: list[str] = []
+        parsed_sources: list[SourceConfig] = []
 
         # Parse global settings
         name = input_data.get('name')
@@ -477,7 +473,7 @@ class SourcesParser(BaseParser):
             )
 
         # Build config schema data
-        config_data = {
+        config_data: dict[str, Any] = {
             'sources': parsed_sources,
         }
 
@@ -512,10 +508,7 @@ class SourcesParser(BaseParser):
         dataset_name = name
         if not dataset_name:
             # Use first source name as dataset name
-            if parsed_sources:
-                dataset_name = f"multisource_{parsed_sources[0].name}"
-            else:
-                dataset_name = "multisource_dataset"
+            dataset_name = f"multisource_{parsed_sources[0].name}" if parsed_sources else "multisource_dataset"
 
         # Add warning about multi-source
         warnings.append(
@@ -525,7 +518,7 @@ class SourcesParser(BaseParser):
 
         return ParserResult(
             success=True,
-            config=schema,
+            config=schema.model_dump(exclude_none=True),
             dataset_name=dataset_name,
             errors=[],
             warnings=warnings,
@@ -534,9 +527,9 @@ class SourcesParser(BaseParser):
 
     def _parse_single_source(
         self,
-        source_config: Dict[str, Any],
+        source_config: dict[str, Any],
         index: int,
-        global_params: Optional[Dict[str, Any]] = None,
+        global_params: dict[str, Any] | None = None,
     ) -> SourceConfig:
         """Parse a single source configuration.
 
@@ -578,7 +571,7 @@ class SourcesParser(BaseParser):
 
         # Parse files list
         files_list = source_config.get('files')
-        parsed_files = None
+        parsed_files: list[str | SourceFileConfig | dict[str, Any]] | None = None
         if files_list:
             parsed_files = []
             for f in files_list:
@@ -607,8 +600,8 @@ class SourcesParser(BaseParser):
 
     def _parse_shared_targets(
         self,
-        targets_config: Union[str, Dict[str, Any], List[Any]],
-    ) -> Union[SharedTargetsConfig, List[SharedTargetsConfig]]:
+        targets_config: str | dict[str, Any] | list[Any],
+    ) -> SharedTargetsConfig | list[SharedTargetsConfig]:
         """Parse shared targets configuration.
 
         Args:
@@ -635,8 +628,8 @@ class SourcesParser(BaseParser):
 
     def _parse_shared_metadata(
         self,
-        metadata_config: Union[str, Dict[str, Any], List[Any]],
-    ) -> Union[SharedMetadataConfig, List[SharedMetadataConfig]]:
+        metadata_config: str | dict[str, Any] | list[Any],
+    ) -> SharedMetadataConfig | list[SharedMetadataConfig]:
         """Parse shared metadata configuration.
 
         Args:
@@ -660,7 +653,6 @@ class SourcesParser(BaseParser):
             ]
 
         raise ValueError(f"Invalid metadata config type: {type(metadata_config)}")
-
 
 class VariationsParser(BaseParser):
     """Parser for feature variations 'variations' syntax configuration.
@@ -714,7 +706,7 @@ class VariationsParser(BaseParser):
 
         return isinstance(variations, list) and len(variations) > 0
 
-    def parse(self, input_data: Dict[str, Any]) -> ParserResult:
+    def parse(self, input_data: dict[str, Any]) -> ParserResult:
         """Parse a variations-format configuration.
 
         Converts the variations syntax to a DatasetConfigSchema that can be
@@ -727,9 +719,9 @@ class VariationsParser(BaseParser):
             ParserResult with parsed configuration.
         """
         variations_list = input_data.get('variations', [])
-        errors = []
-        warnings = []
-        parsed_variations = []
+        errors: list[str] = []
+        warnings: list[str] = []
+        parsed_variations: list[VariationConfig] = []
 
         # Parse global settings
         name = input_data.get('name')
@@ -789,7 +781,7 @@ class VariationsParser(BaseParser):
             )
 
         # Build config schema data
-        config_data = {
+        config_data: dict[str, Any] = {
             'variations': parsed_variations,
         }
 
@@ -832,10 +824,7 @@ class VariationsParser(BaseParser):
         dataset_name = name
         if not dataset_name:
             # Use first variation name as dataset name
-            if parsed_variations:
-                dataset_name = f"variations_{parsed_variations[0].name}"
-            else:
-                dataset_name = "variations_dataset"
+            dataset_name = f"variations_{parsed_variations[0].name}" if parsed_variations else "variations_dataset"
 
         # Add info about variations
         mode_str = variation_mode if isinstance(variation_mode, str) else variation_mode.value
@@ -846,7 +835,7 @@ class VariationsParser(BaseParser):
 
         return ParserResult(
             success=True,
-            config=schema,
+            config=schema.model_dump(exclude_none=True),
             dataset_name=dataset_name,
             errors=[],
             warnings=warnings,
@@ -855,9 +844,9 @@ class VariationsParser(BaseParser):
 
     def _parse_single_variation(
         self,
-        variation_config: Dict[str, Any],
+        variation_config: dict[str, Any],
         index: int,
-        global_params: Optional[Dict[str, Any]] = None,
+        global_params: dict[str, Any] | None = None,
     ) -> VariationConfig:
         """Parse a single variation configuration.
 
@@ -902,7 +891,7 @@ class VariationsParser(BaseParser):
 
         # Parse files list
         files_list = variation_config.get('files')
-        parsed_files = None
+        parsed_files: list[str | VariationFileConfig | dict[str, Any]] | None = None
         if files_list:
             parsed_files = []
             for f in files_list:
@@ -940,8 +929,8 @@ class VariationsParser(BaseParser):
 
     def _parse_shared_targets(
         self,
-        targets_config: Union[str, Dict[str, Any], List[Any]],
-    ) -> Union[SharedTargetsConfig, List[SharedTargetsConfig]]:
+        targets_config: str | dict[str, Any] | list[Any],
+    ) -> SharedTargetsConfig | list[SharedTargetsConfig]:
         """Parse shared targets configuration.
 
         Args:
@@ -968,8 +957,8 @@ class VariationsParser(BaseParser):
 
     def _parse_shared_metadata(
         self,
-        metadata_config: Union[str, Dict[str, Any], List[Any]],
-    ) -> Union[SharedMetadataConfig, List[SharedMetadataConfig]]:
+        metadata_config: str | dict[str, Any] | list[Any],
+    ) -> SharedMetadataConfig | list[SharedMetadataConfig]:
         """Parse shared metadata configuration.
 
         Args:

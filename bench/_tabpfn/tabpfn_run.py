@@ -8,54 +8,73 @@ and (de)activating augmentation.
 
 import argparse
 import os
+
 os.environ['DISABLE_EMOJIS'] = '0'
 
-from matplotlib import pyplot as plt
-from sklearn.model_selection import StratifiedGroupKFold, GroupKFold
-from sklearn.decomposition import PCA
 from huggingface_hub import login
+from matplotlib import pyplot as plt
+from sklearn.decomposition import PCA
+from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
+from sklearn.preprocessing import KBinsDiscretizer, RobustScaler, StandardScaler
+from spectral_latent_features import SpectralLatentFeatures
 from tabpfn import TabPFNClassifier, TabPFNRegressor
 from tabpfn.model_loading import get_cache_dir
 from tabpfn_extensions.hpo import TunedTabPFNClassifier, TunedTabPFNRegressor
 from tabpfn_extensions.rf_pfn import RandomForestTabPFNClassifier, RandomForestTabPFNRegressor
 
-# NIRS4All imports - Sample augmentation transforms
-from nirs4all.operators.transforms import (
-    Rotate_Translate,
-    Spline_Y_Perturbations,
-    Spline_X_Simplification,
-    GaussianAdditiveNoise,
-    MultiplicativeNoise,
-    LinearBaselineDrift,
-    PolynomialBaselineDrift,
-    WavelengthShift,
-    WavelengthStretch,
-    LocalWavelengthWarp,
-    SmoothMagnitudeWarp,
-    GaussianSmoothingJitter,
-    UnsharpSpectralMask,
-    ChannelDropout,
-    MixupAugmenter,
-    ScatterSimulationMSC,
-)
-# NIRS4All imports - Preprocessing transforms
-from nirs4all.operators.transforms import (
-    Detrend, FirstDerivative as FstDer, SecondDerivative as SndDer,
-    Gaussian, StandardNormalVariate as SNV, SavitzkyGolay as SavGol,
-    Haar, MultiplicativeScatterCorrection as MSC,
-    RobustStandardNormalVariate as RSNV, LocalStandardNormalVariate as LSNV, Wavelet,
-)
-from nirs4all.operators.transforms.nirs import (
-    AreaNormalization, ExtendedMultiplicativeScatterCorrection as EMSC
-)
-from sklearn.preprocessing import KBinsDiscretizer
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
-from nirs4all.visualization.predictions import PredictionAnalyzer
+from nirs4all.operators.splitters import BinnedStratifiedGroupKFold, SPXYGFold
+
+# NIRS4All imports - Sample augmentation transforms
+# NIRS4All imports - Preprocessing transforms
+from nirs4all.operators.transforms import (
+    ChannelDropout,
+    Detrend,
+    Gaussian,
+    GaussianAdditiveNoise,
+    GaussianSmoothingJitter,
+    Haar,
+    LinearBaselineDrift,
+    LocalWavelengthWarp,
+    MixupAugmenter,
+    MultiplicativeNoise,
+    PolynomialBaselineDrift,
+    Rotate_Translate,
+    ScatterSimulationMSC,
+    SmoothMagnitudeWarp,
+    Spline_X_Simplification,
+    Spline_Y_Perturbations,
+    UnsharpSpectralMask,
+    WavelengthShift,
+    WavelengthStretch,
+    Wavelet,
+)
+from nirs4all.operators.transforms import (
+    FirstDerivative as FstDer,
+)
+from nirs4all.operators.transforms import (
+    LocalStandardNormalVariate as LSNV,
+)
+from nirs4all.operators.transforms import (
+    MultiplicativeScatterCorrection as MSC,
+)
+from nirs4all.operators.transforms import (
+    RobustStandardNormalVariate as RSNV,
+)
+from nirs4all.operators.transforms import (
+    SavitzkyGolay as SavGol,
+)
+from nirs4all.operators.transforms import (
+    SecondDerivative as SndDer,
+)
+from nirs4all.operators.transforms import (
+    StandardNormalVariate as SNV,
+)
+from nirs4all.operators.transforms.nirs import AreaNormalization
+from nirs4all.operators.transforms.nirs import ExtendedMultiplicativeScatterCorrection as EMSC
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.splitters import SPXYGFold, BinnedStratifiedGroupKFold
-from spectral_latent_features import SpectralLatentFeatures
-from sklearn.preprocessing import StandardScaler, RobustScaler
+from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Hugging Face login for TabPFN - load token from environment variable
 hf_token = os.environ.get("HF_TOKEN")
@@ -75,7 +94,6 @@ print("TABPFN EXPLORATION")
 print("=" * 80)
 # Available TabPFN v2.5 model variants:
 # CLASSIFIER models:
-
 
 def analysis(task_type, predictions, predictions_per_dataset):
     # ============================================================================
@@ -187,8 +205,6 @@ def analysis(task_type, predictions, predictions_per_dataset):
     if args.show:
         plt.show()
 
-
-
 CLASSIFIER_MODELS = {
     'default': 'tabpfn-v2.5-classifier-v2.5_default.ckpt',
     'default-2': 'tabpfn-v2.5-classifier-v2.5_default-2.ckpt',
@@ -211,7 +227,6 @@ REGRESSOR_MODELS = {
     'small-samples': 'tabpfn-v2.5-regressor-v2.5_small-samples.ckpt',
     'variant': 'tabpfn-v2.5-regressor-v2.5_variant.ckpt',
 }
-
 
 def train_tabpfn(task_type, model_variants=None, aug=0.0, cv=False, transf=None, mode="normal"):  # rf, finetune
     """
@@ -312,10 +327,7 @@ def train_tabpfn(task_type, model_variants=None, aug=0.0, cv=False, transf=None,
         #     })
 
     if mode == "finetune":
-        if task_type == 'classification':
-            TabPFN_class = TunedTabPFNClassifier(device='cuda', n_trials=100, metric="f1")
-        else:
-            TabPFN_class = TunedTabPFNRegressor(device='cuda', n_trials=100, metric="rmse")
+        TabPFN_class = TunedTabPFNClassifier(device='cuda', n_trials=100, metric="f1") if task_type == 'classification' else TunedTabPFNRegressor(device='cuda', n_trials=100, metric="rmse")
 
     elif mode == "rf":
         if task_type == 'classification':
@@ -363,10 +375,7 @@ def train_tabpfn(task_type, model_variants=None, aug=0.0, cv=False, transf=None,
         for variant in model_variants:
             if variant == 'default' or variant == '':
                 # Default model - no model_path needed
-                if mode == "normal":
-                    model = TabPFN_base_class(device='cuda')
-                else:
-                    model = TabPFN_class
+                model = TabPFN_base_class(device='cuda') if mode == "normal" else TabPFN_class
                 pipeline.append({"model": model, "name": f"TabPFN_{variant}"})
             elif variant in model_dict:
                 # Specific model variant - construct full path to cache
@@ -381,7 +390,6 @@ def train_tabpfn(task_type, model_variants=None, aug=0.0, cv=False, transf=None,
 
     runner = PipelineRunner(save_artifacts=True, verbose=1, plots_visible=args.plots)
     return runner.run(pipeline_config, dataset_config)
-
 
 classif_latent = SpectralLatentFeatures(
     use_pca=True,

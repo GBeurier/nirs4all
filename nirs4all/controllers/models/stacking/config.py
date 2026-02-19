@@ -6,7 +6,7 @@ for controlling how out-of-fold predictions are collected and processed.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Set
+from typing import Optional
 
 
 @dataclass
@@ -40,7 +40,7 @@ class ReconstructorConfig:
     max_missing_fold_ratio: float = 0.0
     allow_partial_sources: bool = False
     feature_name_pattern: str = "{model_name}_pred"
-    excluded_fold_ids: Set[str] = field(default_factory=lambda: {'avg', 'w_avg'})
+    excluded_fold_ids: set[str] = field(default_factory=lambda: {'avg', 'w_avg'})
 
     def __post_init__(self):
         """Validate configuration after initialization."""

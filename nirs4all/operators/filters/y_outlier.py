@@ -5,7 +5,8 @@ This module provides the YOutlierFilter class for detecting and excluding
 samples with outlier target (y) values using various statistical methods.
 """
 
-from typing import Optional, Dict, Any, Literal
+from typing import Any, Literal, Optional
+
 import numpy as np
 
 from .base import SampleFilter
@@ -75,8 +76,8 @@ class YOutlierFilter(SampleFilter):
         threshold: float = 1.5,
         lower_percentile: float = 1.0,
         upper_percentile: float = 99.0,
-        reason: Optional[str] = None,
-        tag_name: Optional[str] = None
+        reason: str | None = None,
+        tag_name: str | None = None
     ):
         """
         Initialize the Y outlier filter.
@@ -127,10 +128,10 @@ class YOutlierFilter(SampleFilter):
             )
 
         # Fitted attributes (set during fit)
-        self.lower_bound_: Optional[float] = None
-        self.upper_bound_: Optional[float] = None
-        self.center_: Optional[float] = None
-        self.scale_: Optional[float] = None
+        self.lower_bound_: float | None = None
+        self.upper_bound_: float | None = None
+        self.center_: float | None = None
+        self.scale_: float | None = None
 
     @property
     def exclusion_reason(self) -> str:
@@ -139,7 +140,7 @@ class YOutlierFilter(SampleFilter):
             return self.reason
         return f"y_outlier_{self.method}"
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> "YOutlierFilter":
+    def fit(self, X: np.ndarray, y: np.ndarray | None = None) -> "YOutlierFilter":
         """
         Compute outlier detection bounds from training data.
 
@@ -246,7 +247,7 @@ class YOutlierFilter(SampleFilter):
             self.upper_bound_ = self.center_ + self.threshold * mad_scaled
             self.scale_ = mad_scaled
 
-    def get_mask(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> np.ndarray:
+    def get_mask(self, X: np.ndarray, y: np.ndarray | None = None) -> np.ndarray:
         """
         Compute boolean mask indicating which samples to KEEP.
 
@@ -283,7 +284,7 @@ class YOutlierFilter(SampleFilter):
         # Keep if within bounds AND not NaN
         return within_bounds & ~is_nan
 
-    def get_filter_stats(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> Dict[str, Any]:
+    def get_filter_stats(self, X: np.ndarray, y: np.ndarray | None = None) -> dict[str, Any]:
         """
         Get statistics about filter application including method-specific details.
 

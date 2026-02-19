@@ -23,16 +23,15 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import numpy as np
 
-from .generator import SyntheticNIRSGenerator
 from .components import ComponentLibrary
+from .generator import SyntheticNIRSGenerator
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
-
 
 @dataclass
 class SourceConfig:
@@ -58,13 +57,13 @@ class SourceConfig:
 
     name: str
     source_type: Literal["nir", "vis", "aux", "markers"] = "nir"
-    n_features: Optional[int] = None
+    n_features: int | None = None
 
     # NIR-specific options
-    wavelength_start: Optional[float] = None
-    wavelength_end: Optional[float] = None
+    wavelength_start: float | None = None
+    wavelength_end: float | None = None
     wavelength_step: float = 2.0
-    components: Optional[List[str]] = None
+    components: list[str] | None = None
     complexity: Literal["simple", "realistic", "complex"] = "simple"
 
     # Auxiliary-specific options
@@ -72,7 +71,7 @@ class SourceConfig:
     correlation_with_target: float = 0.5
 
     @classmethod
-    def from_dict(cls, config: Dict[str, Any]) -> SourceConfig:
+    def from_dict(cls, config: dict[str, Any]) -> SourceConfig:
         """Create SourceConfig from dictionary."""
         # Handle wavelength_range shorthand
         if "wavelength_range" in config:
@@ -85,7 +84,6 @@ class SourceConfig:
             config["source_type"] = config.pop("type")
 
         return cls(**config)
-
 
 @dataclass
 class MultiSourceResult:
@@ -100,14 +98,14 @@ class MultiSourceResult:
         metadata: Optional metadata dictionary.
     """
 
-    sources: Dict[str, np.ndarray]
+    sources: dict[str, np.ndarray]
     targets: np.ndarray
-    source_configs: List[SourceConfig]
-    wavelengths: Dict[str, np.ndarray] = field(default_factory=dict)
-    metadata: Optional[Dict[str, Any]] = None
+    source_configs: list[SourceConfig]
+    wavelengths: dict[str, np.ndarray] = field(default_factory=dict)
+    metadata: dict[str, Any] | None = None
 
     @property
-    def source_names(self) -> List[str]:
+    def source_names(self) -> list[str]:
         """Get list of source names."""
         return list(self.sources.keys())
 
@@ -124,7 +122,6 @@ class MultiSourceResult:
     def n_features_total(self) -> int:
         """Get total number of features across all sources."""
         return sum(arr.shape[1] for arr in self.sources.values())
-
 
 class MultiSourceGenerator:
     """
@@ -170,7 +167,7 @@ class MultiSourceGenerator:
         ['NIR', 'markers']
     """
 
-    def __init__(self, random_state: Optional[int] = None) -> None:
+    def __init__(self, random_state: int | None = None) -> None:
         """
         Initialize the multi-source generator.
 
@@ -183,9 +180,9 @@ class MultiSourceGenerator:
     def generate(
         self,
         n_samples: int,
-        sources: List[Union[SourceConfig, Dict[str, Any]]],
+        sources: list[SourceConfig | dict[str, Any]],
         *,
-        target_range: Optional[Tuple[float, float]] = None,
+        target_range: tuple[float, float] | None = None,
         concentration_method: str = "dirichlet",
         n_components: int = 5,
     ) -> MultiSourceResult:
@@ -233,8 +230,8 @@ class MultiSourceGenerator:
         )
 
         # Generate each source
-        source_data: Dict[str, np.ndarray] = {}
-        wavelengths: Dict[str, np.ndarray] = {}
+        source_data: dict[str, np.ndarray] = {}
+        wavelengths: dict[str, np.ndarray] = {}
 
         for source_config in parsed_sources:
             if source_config.source_type in ("nir", "vis"):
@@ -286,7 +283,7 @@ class MultiSourceGenerator:
         n_samples: int,
         concentrations: np.ndarray,
         config: SourceConfig,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Generate NIR spectral source."""
         # Use default wavelength range if not specified
         wl_start = config.wavelength_start or 1000
@@ -382,7 +379,7 @@ class MultiSourceGenerator:
     def _generate_targets(
         self,
         concentrations: np.ndarray,
-        target_range: Optional[Tuple[float, float]],
+        target_range: tuple[float, float] | None,
     ) -> np.ndarray:
         """Generate target values from concentrations."""
         # Weighted combination of components
@@ -393,20 +390,17 @@ class MultiSourceGenerator:
         if target_range is not None:
             min_val, max_val = target_range
             y_min, y_max = y.min(), y.max()
-            if y_max > y_min:
-                y = (y - y_min) / (y_max - y_min) * (max_val - min_val) + min_val
-            else:
-                y = np.full_like(y, (min_val + max_val) / 2)
+            y = (y - y_min) / (y_max - y_min) * (max_val - min_val) + min_val if y_max > y_min else np.full_like(y, (min_val + max_val) / 2)
 
         return y
 
     def create_dataset(
         self,
         n_samples: int,
-        sources: List[Union[SourceConfig, Dict[str, Any]]],
+        sources: list[SourceConfig | dict[str, Any]],
         *,
         train_ratio: float = 0.8,
-        target_range: Optional[Tuple[float, float]] = None,
+        target_range: tuple[float, float] | None = None,
         name: str = "multi_source_synthetic",
     ) -> SpectroDataset:
         """
@@ -493,17 +487,16 @@ class MultiSourceGenerator:
 
         return dataset
 
-
 def generate_multi_source(
     n_samples: int,
-    sources: Optional[List[Dict[str, Any]]] = None,
+    sources: list[dict[str, Any]] | None = None,
     *,
-    random_state: Optional[int] = None,
-    target_range: Optional[Tuple[float, float]] = None,
+    random_state: int | None = None,
+    target_range: tuple[float, float] | None = None,
     as_dataset: bool = True,
     train_ratio: float = 0.8,
     name: str = "multi_source_synthetic",
-) -> Union[SpectroDataset, MultiSourceResult]:
+) -> SpectroDataset | MultiSourceResult:
     """
     Convenience function for generating multi-source datasets.
 

@@ -16,7 +16,7 @@ Metrics computed:
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 from scipy.linalg import subspace_angles
@@ -40,7 +40,7 @@ class TransferMetrics:
     evr_source: float
     evr_target: float
 
-    def to_dict(self) -> Dict[str, float]:
+    def to_dict(self) -> dict[str, float]:
         """Convert to dictionary."""
         return {
             "centroid_distance": self.centroid_distance,
@@ -53,7 +53,6 @@ class TransferMetrics:
             "evr_source": self.evr_source,
             "evr_target": self.evr_target,
         }
-
 
 class TransferMetricsComputer:
     """
@@ -114,16 +113,10 @@ class TransferMetricsComputer:
         spread_dist = self._spread_distance(Z_src, Z_tgt)
 
         # Grassmann requires same feature dimension
-        if U_src.shape[0] == U_tgt.shape[0]:
-            grassmann = self._grassmann(U_src, U_tgt)
-        else:
-            grassmann = np.nan
+        grassmann = self._grassmann(U_src, U_tgt) if U_src.shape[0] == U_tgt.shape[0] else np.nan
 
         # Trustworthiness is more expensive
-        if compute_trust:
-            trust = self._trustworthiness(Z_src, Z_tgt)
-        else:
-            trust = np.nan
+        trust = self._trustworthiness(Z_src, Z_tgt) if compute_trust else np.nan
 
         return TransferMetrics(
             centroid_distance=centroid_dist,
@@ -144,7 +137,7 @@ class TransferMetricsComputer:
         X_source_pp: np.ndarray,
         X_target_pp: np.ndarray,
         compute_trust: bool = True,
-    ) -> Tuple[TransferMetrics, TransferMetrics, Dict[str, float]]:
+    ) -> tuple[TransferMetrics, TransferMetrics, dict[str, float]]:
         """
         Compute metrics for both raw and preprocessed data, plus improvement.
 
@@ -165,7 +158,7 @@ class TransferMetricsComputer:
 
         return raw_metrics, pp_metrics, improvements
 
-    def _pca(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
+    def _pca(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
         """
         Compute PCA projection.
 
@@ -347,7 +340,7 @@ class TransferMetricsComputer:
 
     def _compute_improvements(
         self, raw: TransferMetrics, pp: TransferMetrics
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Compute improvement percentages for each metric.
 
@@ -385,11 +378,10 @@ class TransferMetricsComputer:
 
         return improvements
 
-
 def compute_transfer_score(
     metrics: TransferMetrics,
-    raw_metrics: Optional[TransferMetrics] = None,
-    weights: Optional[Dict[str, float]] = None,
+    raw_metrics: TransferMetrics | None = None,
+    weights: dict[str, float] | None = None,
 ) -> float:
     """
     Compute a composite transfer score from metrics.
@@ -441,18 +433,12 @@ def compute_transfer_score(
 
         # Spread improvement (reduction is good)
         raw_spread = raw_metrics.spread_distance
-        if raw_spread < eps:
-            spread_improv = -abs(metrics.spread_distance) if metrics.spread_distance > eps else 0.0
-        else:
-            spread_improv = (raw_spread - metrics.spread_distance) / (raw_spread + eps)
+        spread_improv = -abs(metrics.spread_distance) if metrics.spread_distance > eps else 0.0 if raw_spread < eps else (raw_spread - metrics.spread_distance) / (raw_spread + eps)
         score += weights.get("spread", 0.2) * np.clip(spread_improv, -1, 1)
 
         # EVR preservation
         raw_evr = raw_metrics.evr_source
-        if raw_evr < eps:
-            evr_ratio = 1.0 if metrics.evr_source < eps else 0.0
-        else:
-            evr_ratio = metrics.evr_source / (raw_evr + eps)
+        evr_ratio = 1.0 if metrics.evr_source < eps else 0.0 if raw_evr < eps else metrics.evr_source / (raw_evr + eps)
         score += weights.get("evr", 0.1) * min(evr_ratio, 1.0)
 
     else:

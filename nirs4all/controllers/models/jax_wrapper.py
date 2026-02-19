@@ -1,8 +1,10 @@
 """
 JAX Model Wrapper - Wrapper for Flax models to support pickling and prediction.
 """
+from typing import Any
+
 import numpy as np
-from typing import Any, Dict
+
 
 class JaxModelWrapper:
     """Wrapper to hold Flax model definition and trained state."""

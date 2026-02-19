@@ -29,14 +29,15 @@ import re
 import shutil
 import tempfile
 import zipfile
-from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple
+from pathlib import Path
+from typing import Any, Optional
 
 import matplotlib
+
 matplotlib.use('Agg')  # Use non-interactive backend
-import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 from matplotlib.backends.backend_pdf import PdfPages
@@ -44,9 +45,8 @@ from matplotlib.figure import Figure
 
 # NIRS4All imports
 from nirs4all.data.predictions import Predictions
-from nirs4all.visualization.predictions import PredictionAnalyzer
 from nirs4all.utils.header_units import get_x_values_and_label
-
+from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # ========================================
 # CONFIGURATION
@@ -77,7 +77,6 @@ LOGO_CIRAD = Path(__file__).parent / "logo-cirad-en.jpg"
 # Method documentation
 METHOD_DOC_PATH = Path(__file__).parent / "study_method.md"
 
-
 # ========================================
 # PANDOC SUPPORT
 # ========================================
@@ -94,7 +93,6 @@ def is_pandoc_available() -> bool:
         return True
     except (ImportError, OSError):
         return False
-
 
 def render_markdown_to_pdf_pandoc(markdown_path: Path, output_pdf_path: Path) -> bool:
     """Render markdown file to PDF using pandoc.
@@ -145,13 +143,12 @@ def render_markdown_to_pdf_pandoc(markdown_path: Path, output_pdf_path: Path) ->
             print(f"    ⚠️ Pandoc xelatex fallback also failed: {e2}")
             return False
 
-
 # ========================================
 # UTILITY FUNCTIONS
 # ========================================
 
 def apply_model_filters(predictions: Predictions, exclude_models: list, rename_map: dict,
-                        strip_suffixes: Optional[list] = None) -> Predictions:
+                        strip_suffixes: list | None = None) -> Predictions:
     """Filter out excluded models and rename model_classname values.
 
     Args:
@@ -207,8 +204,7 @@ def apply_model_filters(predictions: Predictions, exclude_models: list, rename_m
     predictions._storage._df = df
     return predictions
 
-
-def detect_task_type(predictions: Predictions) -> Tuple[bool, str, List[str], List[str]]:
+def detect_task_type(predictions: Predictions) -> tuple[bool, str, list[str], list[str]]:
     """Detect task type and return appropriate metrics.
 
     Args:
@@ -230,7 +226,6 @@ def detect_task_type(predictions: Predictions) -> Tuple[bool, str, List[str], Li
         chart_metrics = ['rmse', 'mae', 'r2']
 
     return is_classification, rank_metric, display_metrics, chart_metrics
-
 
 # ========================================
 # REPORT GENERATION CLASSES
@@ -254,7 +249,7 @@ class ReportGenerator:
         self.charts_dir = Path(self.temp_dir) / "charts"
         self.charts_dir.mkdir(parents=True, exist_ok=True)
 
-        self.figures: List[Tuple[str, Figure]] = []
+        self.figures: list[tuple[str, Figure]] = []
         self.markdown_content = []
 
     def _add_dataset_visualizations(self, pdf: PdfPages, dataset_folder: Path, is_classification: bool):
@@ -287,7 +282,7 @@ class ReportGenerator:
                 # Try to get headers from the dataset (first source, first processing)
                 headers = dataset.headers(0)
                 header_unit = dataset.header_unit(0) or "cm-1"
-            except:
+            except Exception:
                 pass
 
             # 1. Create 2D Spectra Chart (train/test)
@@ -318,8 +313,8 @@ class ReportGenerator:
 
     def _create_spectra_chart(self, x_train: np.ndarray, y_train: np.ndarray,
                               x_test: np.ndarray, y_test: np.ndarray,
-                              headers: Optional[list], header_unit: str,
-                              is_classification: bool) -> Optional[Figure]:
+                              headers: list | None, header_unit: str,
+                              is_classification: bool) -> Figure | None:
         """Create 2D spectra visualization with train/test split.
 
         Args:
@@ -366,13 +361,10 @@ class ReportGenerator:
             else:
                 colormap = cm.get_cmap('viridis')
                 y_min, y_max = y_sorted.min(), y_sorted.max()
-                if y_max != y_min:
-                    y_normalized = (y_sorted - y_min) / (y_max - y_min)
-                else:
-                    y_normalized = np.zeros_like(y_sorted)
+                y_normalized = (y_sorted - y_min) / (y_max - y_min) if y_max != y_min else np.zeros_like(y_sorted)
 
             # Plot each spectrum as a line
-            for i, (spectrum, y_val) in enumerate(zip(x_sorted, y_sorted)):
+            for i, (spectrum, _y_val) in enumerate(zip(x_sorted, y_sorted, strict=False)):
                 color = colormap(y_normalized[i])
                 ax.plot(x_values, spectrum, color=color, alpha=0.6, linewidth=0.5)
 
@@ -405,7 +397,7 @@ class ReportGenerator:
             return None
 
     def _create_y_chart(self, y_train: np.ndarray, y_test: np.ndarray,
-                       is_classification: bool) -> Optional[Figure]:
+                       is_classification: bool) -> Figure | None:
         """Create y distribution histogram with train/test split.
 
         Args:
@@ -469,10 +461,10 @@ class ReportGenerator:
             test_stats = f'Test (n={len(y_test_flat)}):\nMean: {np.mean(y_test_flat):.3f}\nStd: {np.std(y_test_flat):.3f}'
 
             ax.text(0.02, 0.98, train_stats, transform=ax.transAxes, fontsize=9,
-                    verticalalignment='top', bbox=dict(boxstyle='round', facecolor=train_color, edgecolor='black'),
+                    verticalalignment='top', bbox={'boxstyle': 'round', 'facecolor': train_color, 'edgecolor': 'black'},
                     color='black')
             ax.text(0.02, 0.75, test_stats, transform=ax.transAxes, fontsize=9,
-                    verticalalignment='top', bbox=dict(boxstyle='round', facecolor=test_color, edgecolor='white'),
+                    verticalalignment='top', bbox={'boxstyle': 'round', 'facecolor': test_color, 'edgecolor': 'white'},
                     color='white')
 
             return fig
@@ -597,7 +589,7 @@ class ReportGenerator:
         self.markdown_content.append("\n---\n\n")
 
     def add_section_1_dataset_description(self, pdf: PdfPages, predictions: Predictions,
-                                           is_classification: bool, dataset_folder: Optional[Path] = None):
+                                           is_classification: bool, dataset_folder: Path | None = None):
         """Add Section 1: Dataset Description.
 
         Args:
@@ -725,7 +717,7 @@ Models evaluated:
 
     def add_section_3_global_results(self, pdf: PdfPages, analyzer: PredictionAnalyzer,
                                       rank_metric: str, is_classification: bool,
-                                      aggregation_key: Optional[str] = None, mode: str = 'aggregated'):
+                                      aggregation_key: str | None = None, mode: str = 'aggregated'):
         """Add Section 3: Global Results.
 
         Args:
@@ -868,7 +860,7 @@ Models evaluated:
                 print(f"    ⚠️ Could not create raw candlestick: {e}")
 
     def add_section_4_ranking_analysis(self, pdf: PdfPages, analyzer: PredictionAnalyzer,
-                                        rank_metric: str, aggregation_key: Optional[str] = None,
+                                        rank_metric: str, aggregation_key: str | None = None,
                                         mode: str = 'aggregated'):
         """Add Section 4: Ranking Analysis.
 
@@ -1018,7 +1010,7 @@ Models evaluated:
 
     def add_section_5_model_diagnostics(self, pdf: PdfPages, analyzer: PredictionAnalyzer,
                                          predictions: Predictions, rank_metric: str,
-                                         is_classification: bool, aggregation_key: Optional[str] = None,
+                                         is_classification: bool, aggregation_key: str | None = None,
                                          mode: str = 'aggregated'):
         """Add Section 5: Individual Model Diagnostics.
 
@@ -1155,10 +1147,10 @@ Models evaluated:
                             plt.close(fig)
                             self.markdown_content.append(f"![Top 3 Models {i}](charts/top3_test_rank_val_agg_{i}.png)\n\n")
                     else:
-                        self._save_chart(fig_top3, f"top3_test_rank_val_agg")
+                        self._save_chart(fig_top3, "top3_test_rank_val_agg")
                         pdf.savefig(fig_top3, bbox_inches='tight')
                         plt.close(fig_top3)
-                        self.markdown_content.append(f"![Top 3 Models](charts/top3_test_rank_val_agg.png)\n\n")
+                        self.markdown_content.append("![Top 3 Models](charts/top3_test_rank_val_agg.png)\n\n")
                 except Exception as e:
                     print(f"    ⚠️ Could not create top-K comparison: {e}")
 
@@ -1189,10 +1181,10 @@ Models evaluated:
                             plt.close(fig)
                             self.markdown_content.append(f"![Top 3 Models Raw {i}](charts/top3_test_rank_val_raw_{i}.png)\n\n")
                     else:
-                        self._save_chart(fig_top3_raw, f"top3_test_rank_val_raw")
+                        self._save_chart(fig_top3_raw, "top3_test_rank_val_raw")
                         pdf.savefig(fig_top3_raw, bbox_inches='tight')
                         plt.close(fig_top3_raw)
-                        self.markdown_content.append(f"![Top 3 Models Raw](charts/top3_test_rank_val_raw.png)\n\n")
+                        self.markdown_content.append("![Top 3 Models Raw](charts/top3_test_rank_val_raw.png)\n\n")
                 except Exception as e:
                     print(f"    ⚠️ Could not create raw top-K comparison: {e}")
 
@@ -1214,7 +1206,7 @@ Models evaluated:
         except Exception as e:
             print(f"    ⚠️ Could not create top models table: {e}")
 
-    def add_section_6_export_summary(self, pdf: PdfPages, export_dir: Optional[Path]):
+    def add_section_6_export_summary(self, pdf: PdfPages, export_dir: Path | None):
         """Add Section 6: Export Summary.
 
         Args:
@@ -1282,7 +1274,7 @@ All files are packaged in a ZIP archive for easy sharing.
 
         # Read the methodology content
         try:
-            with open(METHOD_DOC_PATH, 'r', encoding='utf-8') as f:
+            with open(METHOD_DOC_PATH, encoding='utf-8') as f:
                 method_content = f.read()
             self.markdown_content.append(method_content + "\n\n")
         except Exception as e:
@@ -1356,7 +1348,7 @@ All files are packaged in a ZIP archive for easy sharing.
                     from pdf2image import convert_from_path
                     images = convert_from_path(str(temp_pdf), dpi=150)
 
-                    for i, img in enumerate(images):
+                    for _i, img in enumerate(images):
                         fig, ax = plt.subplots(figsize=(8.27, 11.69))
                         ax.axis('off')
                         ax.imshow(img)
@@ -1483,12 +1475,12 @@ All files are packaged in a ZIP archive for easy sharing.
         code_lines = []
         skip_ascii_art = False
 
-        for i, line in enumerate(lines):
+        for _i, line in enumerate(lines):
             # Handle code blocks
             if line.strip().startswith('```'):
                 if in_code_block:
                     # End of code block - check if it's ASCII art
-                    if code_lines and not all(is_safe_to_render(l) for l in code_lines[:5]):
+                    if code_lines and not all(is_safe_to_render(line_) for line_ in code_lines[:5]):
                         # Likely ASCII art, skip it but add a note
                         check_page_break(0.04)
                         ax.text(left_margin, y_position, '[Workflow diagram - see markdown version]',
@@ -1610,10 +1602,7 @@ All files are packaged in a ZIP archive for easy sharing.
                 check_page_break()
 
             # Wrap long lines
-            if len(line) > 90:
-                wrapped_lines = wrap(line, width=int(100 * (text_width / 0.84)))
-            else:
-                wrapped_lines = [line]
+            wrapped_lines = wrap(line, width=int(100 * (text_width / 0.84))) if len(line) > 90 else [line]
 
             # Check if we need a new page for all wrapped lines
             needed_space = len(wrapped_lines) * line_spacing + extra_space_after
@@ -1663,7 +1652,7 @@ All files are packaged in a ZIP archive for easy sharing.
         print(f"  📄 Saved markdown: {md_path}")
 
     def create_zip_export(self, predictions_obj: Predictions, export_path: Path,
-                         rank_metric: str, workspace_path: Path, aggregation_key: Optional[str] = None):
+                         rank_metric: str, workspace_path: Path, aggregation_key: str | None = None):
         """Create ZIP archive with all export files.
 
         Args:
@@ -1768,16 +1757,15 @@ All files are packaged in a ZIP archive for easy sharing.
             if temp_export_dir.exists():
                 shutil.rmtree(temp_export_dir)
 
-
 # ========================================
 # MAIN REPORT GENERATION FUNCTION
 # ========================================
 
 def generate_report(workspace_path: Path, filename: str, output_dir: Path,
-                   aggregation_key: Optional[str] = None, mode: str = 'aggregated',
-                   dataset_folder: Optional[Path] = None,
-                   exclude_models: Optional[List[str]] = None,
-                   rename_map: Optional[Dict[str, str]] = None) -> Optional[Path]:
+                   aggregation_key: str | None = None, mode: str = 'aggregated',
+                   dataset_folder: Path | None = None,
+                   exclude_models: list[str] | None = None,
+                   rename_map: dict[str, str] | None = None) -> Path | None:
     """Generate comprehensive report for a dataset.
 
     Args:
@@ -1808,7 +1796,7 @@ def generate_report(workspace_path: Path, filename: str, output_dir: Path,
     print(f"  ➡️ Loaded {len(predictions)} predictions")
 
     if len(predictions) == 0:
-        print(f"  ⚠️ No predictions found, skipping")
+        print("  ⚠️ No predictions found, skipping")
         return None
 
     # Apply filters (use defaults if not provided)
@@ -1879,11 +1867,10 @@ def generate_report(workspace_path: Path, filename: str, output_dir: Path,
     import shutil
     if Path(report.temp_dir).exists():
         shutil.rmtree(report.temp_dir, ignore_errors=True)
-        print(f"  🧹 Cleaned up temporary files")
+        print("  🧹 Cleaned up temporary files")
 
     print(f"\n✅ Report generation complete for {filename}")
     return pdf_path
-
 
 # ========================================
 # MAIN FUNCTION
@@ -2003,12 +1990,11 @@ Examples:
 
     # Final summary
     print("\n" + "=" * 70)
-    print(f"REPORT GENERATION COMPLETE")
+    print("REPORT GENERATION COMPLETE")
     print("=" * 70)
     print(f"Successfully generated {success_count}/{len(filenames)} reports")
     print(f"Reports saved to: {output_dir}")
     print("=" * 70)
-
 
 if __name__ == "__main__":
     main()

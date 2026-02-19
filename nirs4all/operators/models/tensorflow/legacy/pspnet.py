@@ -5,12 +5,11 @@ import tensorflow as tf
 def Conv_Block(inputs, model_width, kernel, use_batchnorm=True):
     # 1D Convolutional Block
     x = tf.keras.layers.Conv1D(model_width, kernel, padding='same')(inputs)
-    if use_batchnorm == True:
+    if use_batchnorm:
         x = tf.keras.layers.BatchNormalization()(x)
     x = tf.keras.layers.Activation('relu')(x)
 
     return x
-
 
 def trans_conv1D(inputs, model_width):
     # 1D Transposed Convolutional Block, used instead of UpSampling
@@ -19,7 +18,6 @@ def trans_conv1D(inputs, model_width):
     x = tf.keras.layers.Activation('relu')(x)
 
     return x
-
 
 def PyramidPoolingBlock(inputs, level, conv_filters, pooling_type='avg', use_batchnorm=True):
     # Pyramid Pooling Block
@@ -34,7 +32,6 @@ def PyramidPoolingBlock(inputs, level, conv_filters, pooling_type='avg', use_bat
     x = tf.keras.layers.UpSampling1D(size=up_size)(x)
 
     return x
-
 
 class PSPNet:
     def __init__(self, length, num_channel, model_width, problem_type='Regression', output_nums=1, cardinality=5,
@@ -92,7 +89,6 @@ class PSPNet:
         model = tf.keras.Model(inputs=[inputs], outputs=[outputs])
 
         return model
-
 
 if __name__ == '__main__':
     # Configurations

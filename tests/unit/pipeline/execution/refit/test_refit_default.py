@@ -18,7 +18,6 @@ from unittest.mock import MagicMock, patch
 # Default parameter inspection
 # =========================================================================
 
-
 class TestRefitDefaultValues:
     """Verify that refit defaults to True in all entry points."""
 
@@ -52,11 +51,9 @@ class TestRefitDefaultValues:
             f"Expected orchestrator.execute() refit default to be True, got {refit_param.default!r}"
         )
 
-
 # =========================================================================
 # Refit-enabled condition logic
 # =========================================================================
-
 
 class TestRefitEnabledCondition:
     """Verify the refit_enabled flag evaluates correctly for all input values."""
@@ -86,11 +83,9 @@ class TestRefitEnabledCondition:
         """refit={} disables the refit pass (empty dict is falsy)."""
         assert not self._eval_refit_enabled({})
 
-
 # =========================================================================
 # Integration: refit parameter flows through the call chain
 # =========================================================================
-
 
 class TestRefitParameterFlow:
     """Verify that the refit parameter flows through to the orchestrator."""

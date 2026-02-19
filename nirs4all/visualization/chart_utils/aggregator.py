@@ -1,8 +1,8 @@
 """
 DataAggregator - Aggregate scores using different strategies.
 """
+
 import numpy as np
-from typing import List
 
 
 class DataAggregator:
@@ -13,7 +13,7 @@ class DataAggregator:
     """
 
     @staticmethod
-    def aggregate(scores: List, method: str, higher_better: bool) -> float:
+    def aggregate(scores: list, method: str, higher_better: bool) -> float:
         """Aggregate scores using specified method.
 
         Args:
@@ -44,15 +44,9 @@ class DataAggregator:
                 # Select based on rank_score (second element)
                 rank_scores = [s[1] for s in normalized_scores]
                 if method == 'best':
-                    if higher_better:
-                        best_idx = np.argmax(rank_scores)
-                    else:
-                        best_idx = np.argmin(rank_scores)
+                    best_idx = np.argmax(rank_scores) if higher_better else np.argmin(rank_scores)
                 else:  # worst
-                    if higher_better:
-                        best_idx = np.argmin(rank_scores)
-                    else:
-                        best_idx = np.argmax(rank_scores)
+                    best_idx = np.argmin(rank_scores) if higher_better else np.argmax(rank_scores)
                 return normalized_scores[best_idx][0]  # Return display_score
             else:
                 # For mean/median, aggregate display_scores

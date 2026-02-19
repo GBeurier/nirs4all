@@ -6,20 +6,20 @@ Task 0.5: Verifies that the same ArtifactRegistry instance is shared across
           multiple variant executions within a dataset run.
 """
 
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
-from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, OperatorNode
+from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 
 
 @pytest.fixture
 def tmp_workspace(tmp_path):
     """Create a minimal workspace directory for testing."""
     return tmp_path / "workspace"
-
 
 @pytest.fixture
 def registry(tmp_workspace):
@@ -32,7 +32,6 @@ def registry(tmp_workspace):
     reg.start_run()
     return reg
 
-
 def _make_chain(step: int, cls_name: str) -> OperatorChain:
     """Helper to build a simple one-node OperatorChain."""
     return OperatorChain(
@@ -40,11 +39,9 @@ def _make_chain(step: int, cls_name: str) -> OperatorChain:
         pipeline_id="p001",
     )
 
-
 def _dummy_obj():
     """Return a trivially serializable object for registration."""
     return {"weight": 1.0}
-
 
 # =========================================================================
 # Task 0.4 — Cache-key support
@@ -162,7 +159,6 @@ class TestGetByChainAndData:
         assert registry.get_by_chain_and_data(chain_a, data_hash_2) is None
         assert registry.get_by_chain_and_data(chain_b, data_hash_1) is None
 
-
 class TestGetByChainUnchanged:
     """Existing get_by_chain() behaviour must remain unchanged."""
 
@@ -196,7 +192,6 @@ class TestGetByChainUnchanged:
         found = registry.get_by_chain(chain)
         assert found is not None
         assert found.artifact_id == record.artifact_id
-
 
 class TestCacheKeyCleanup:
     """Cache-key index is cleaned up during purge and failure cleanup."""
@@ -234,7 +229,6 @@ class TestCacheKeyCleanup:
 
         registry.purge_dataset_artifacts(confirm=True)
         assert registry.get_by_chain_and_data(chain, data_hash) is None
-
 
 # =========================================================================
 # Task 0.5 — Registry lifespan across variant executions

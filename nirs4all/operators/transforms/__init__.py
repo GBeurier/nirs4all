@@ -2,126 +2,125 @@ from ..augmentation.random import (
     Random_X_Operation,
     Rotate_Translate,
 )
-from ..augmentation.splines import (
-    Spline_Curve_Simplification,
-    Spline_X_Simplification,
-    Spline_Y_Perturbations,
-    Spline_X_Perturbations,
-    Spline_Smoothing,
-)
 from ..augmentation.spectral import (
+    BandMasking,
+    BandPerturbation,
+    ChannelDropout,
     GaussianAdditiveNoise,
-    MultiplicativeNoise,
+    GaussianSmoothingJitter,
     LinearBaselineDrift,
+    LocalClipping,
+    LocalMixupAugmenter,
+    LocalWavelengthWarp,
+    MixupAugmenter,
+    MultiplicativeNoise,
     PolynomialBaselineDrift,
+    ScatterSimulationMSC,
+    SmoothMagnitudeWarp,
+    SpikeNoise,
+    UnsharpSpectralMask,
     WavelengthShift,
     WavelengthStretch,
-    LocalWavelengthWarp,
-    SmoothMagnitudeWarp,
-    BandPerturbation,
-    GaussianSmoothingJitter,
-    UnsharpSpectralMask,
-    BandMasking,
-    ChannelDropout,
-    SpikeNoise,
-    LocalClipping,
-    MixupAugmenter,
-    LocalMixupAugmenter,
-    ScatterSimulationMSC,
+)
+from ..augmentation.splines import (
+    Spline_Curve_Simplification,
+    Spline_Smoothing,
+    Spline_X_Perturbations,
+    Spline_X_Simplification,
+    Spline_Y_Perturbations,
 )
 from ..augmentation.synthesis import (
-    PathLengthAugmenter,
     BatchEffectAugmenter,
-    InstrumentalBroadeningAugmenter,
-    HeteroscedasticNoiseAugmenter,
     DeadBandAugmenter,
+    HeteroscedasticNoiseAugmenter,
+    InstrumentalBroadeningAugmenter,
+    PathLengthAugmenter,
 )
+from .feature_selection import CARS, MCUVE, FlexiblePCA, FlexibleSVD
+from .features import CropTransformer, FlattenPreprocessing, ResampleTransformer
 from .nirs import (
+    BEADS,
+    IASLS,
+    # Baseline correction
+    PYBASELINES_METHODS,
+    SNIP,
+    AirPLS,
+    AreaNormalization,
+    ArPLS,
+    ASLSBaseline,
+    ExtendedMultiplicativeScatterCorrection,
+    FirstDerivative,
     Haar,
+    IModPoly,
+    LogTransform,
+    ModPoly,
     MultiplicativeScatterCorrection,
+    PyBaselineCorrection,
+    ReflectanceToAbsorbance,
+    RollingBall,
     SavitzkyGolay,
+    SecondDerivative,
     Wavelet,
     WaveletFeatures,
     WaveletPCA,
     WaveletSVD,
-    msc,
-    savgol,
-    wavelet_transform,
-    LogTransform,
-    FirstDerivative,
-    SecondDerivative,
-    log_transform,
-    first_derivative,
-    second_derivative,
-    ReflectanceToAbsorbance,
-    reflectance_to_absorbance,
-    # Baseline correction
-    PYBASELINES_METHODS,
-    pybaseline_correction,
-    PyBaselineCorrection,
-    ASLSBaseline,
     asls_baseline,
-    AirPLS,
-    ArPLS,
-    IModPoly,
-    ModPoly,
-    SNIP,
-    RollingBall,
-    IASLS,
-    BEADS,
-    AreaNormalization,
-    ExtendedMultiplicativeScatterCorrection,
+    first_derivative,
+    log_transform,
+    msc,
+    pybaseline_correction,
+    reflectance_to_absorbance,
+    savgol,
+    second_derivative,
+    wavelet_transform,
 )
-from .wavelet_denoise import WaveletDenoise, wavelet_denoise
+from .norris_williams import NorrisWilliams, norris_williams
+from .orthogonalization import EPO, OSC
+from .presets import (
+    decon_set,
+    dumb_and_dumber_set,
+    dumb_set,
+    dumb_set_2D,
+    fat_set,
+    haar_only,
+    id_preprocessing,
+    list_of_2D_sets,
+    nicon_set,
+    optimal_set_2D,
+    preprocessing_list,
+    savgol_only,
+    senseen_set,
+    small_set,
+    special_set,
+    transf_set,
+)
+from .resampler import Resampler
 
 # Import scalers (including local aliases such as IdentityTransformer and
 # RobustNormalVariate which are defined in the scalers module)
 from .scalers import (
-    IdentityTransformer,
     Derivate,
+    IdentityTransformer,
+    LocalStandardNormalVariate,
     Normalize,
+    RobustStandardNormalVariate,
     SimpleScale,
+    StandardNormalVariate,
     derivate,
     norml,
     spl_norml,
-    StandardNormalVariate,
-    LocalStandardNormalVariate,
-    RobustStandardNormalVariate,
 )
 from .signal import Baseline, Detrend, Gaussian, baseline, detrend, gaussian
 from .signal_conversion import (
-    ToAbsorbance,
-    FromAbsorbance,
-    PercentToFraction,
     FractionToPercent,
+    FromAbsorbance,
     KubelkaMunk,
+    PercentToFraction,
     SignalTypeConverter,
-)
-from .features import CropTransformer, ResampleTransformer, FlattenPreprocessing
-from .resampler import Resampler
-from .feature_selection import CARS, MCUVE, FlexiblePCA, FlexibleSVD
-from .norris_williams import NorrisWilliams, norris_williams
-from .orthogonalization import OSC, EPO
-from .presets import (
-    id_preprocessing,
-    savgol_only,
-    haar_only,
-    nicon_set,
-    decon_set,
-    senseen_set,
-    transf_set,
-    special_set,
-    small_set,
-    dumb_set,
-    dumb_and_dumber_set,
-    dumb_set_2D,
-    list_of_2D_sets,
-    optimal_set_2D,
-    preprocessing_list,
-    fat_set,
+    ToAbsorbance,
 )
 from .targets import IntegerKBinsDiscretizer, RangeDiscretizer
-
+from .wavelet_denoise import WaveletDenoise, wavelet_denoise
 
 __all__ = [
     # Data augmentation

@@ -35,14 +35,13 @@ from sklearn.preprocessing import MinMaxScaler
 # NIRS4All imports
 import nirs4all
 from nirs4all.operators.transforms import StandardNormalVariate as SNV
-from nirs4all.utils.backend import TF_AVAILABLE, TORCH_AVAILABLE, JAX_AVAILABLE
+from nirs4all.utils.backend import JAX_AVAILABLE, TF_AVAILABLE, TORCH_AVAILABLE
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='D04 Framework Comparison Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -60,7 +59,6 @@ nirs4all supports three deep learning backends:
 
 Let's compare them on the same task.
 """)
-
 
 # =============================================================================
 # Check Framework Availability
@@ -86,7 +84,6 @@ if JAX_AVAILABLE:
     print(f"✓ JAX {jax.__version__}")
 else:
     print("✗ JAX not available")
-
 
 # =============================================================================
 # Section 1: nicon Across Frameworks
@@ -128,7 +125,6 @@ timings['pls'] = time.time() - t0
 results['pls'] = result_pls.best_score
 print(f"  PLS: Score={results['pls']:.4f}, Time={timings['pls']:.1f}s")
 
-
 # =============================================================================
 # Section 2: TensorFlow nicon
 # =============================================================================
@@ -162,7 +158,6 @@ if TF_AVAILABLE:
     print(f"  TensorFlow: Score={results['tensorflow']:.4f}, Time={timings['tensorflow']:.1f}s")
 else:
     print("  TensorFlow not available, skipping")
-
 
 # =============================================================================
 # Section 3: PyTorch nicon
@@ -198,7 +193,6 @@ if TORCH_AVAILABLE:
 else:
     print("  PyTorch not available, skipping")
 
-
 # =============================================================================
 # Section 4: JAX nicon
 # =============================================================================
@@ -233,7 +227,6 @@ if JAX_AVAILABLE:
 else:
     print("  JAX not available, skipping")
 
-
 # =============================================================================
 # Section 5: Results Comparison
 # =============================================================================
@@ -257,7 +250,6 @@ if results:
 
     fastest_fw = min(timings, key=timings.get)
     print(f"⚡ Fastest: {fastest_fw} ({timings[fastest_fw]:.1f}s)")
-
 
 # =============================================================================
 # Section 6: Framework Selection Guidelines
@@ -286,7 +278,6 @@ print("""
 │                │ • Custom research operators             │
 └────────────────┴─────────────────────────────────────────┘
 """)
-
 
 # =============================================================================
 # Section 7: Practical Recommendations
@@ -322,7 +313,6 @@ print("""
    - PyTorch for flexibility
    - JAX for performance-critical work
 """)
-
 
 # =============================================================================
 # Summary

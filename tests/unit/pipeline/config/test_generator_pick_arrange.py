@@ -5,13 +5,11 @@ This module tests the Phase 1.5 implementation of explicit selection semantics:
 - arrange: Ordered arrangement (permutations)
 """
 
-import pytest
 from math import comb, factorial
 
-from nirs4all.pipeline.config.generator import (
-    expand_spec, count_combinations,
-    PICK_KEYWORD, ARRANGE_KEYWORD
-)
+import pytest
+
+from nirs4all.pipeline.config.generator import ARRANGE_KEYWORD, PICK_KEYWORD, count_combinations, expand_spec
 
 
 class TestPickKeyword:
@@ -67,7 +65,6 @@ class TestPickKeyword:
         result = expand_spec({"_or_": ["A", "B"], "pick": 5})
         assert len(result) == 0
 
-
 class TestArrangeKeyword:
     """Tests for the 'arrange' keyword (permutations-based selection)."""
 
@@ -122,7 +119,6 @@ class TestArrangeKeyword:
         result = expand_spec({"_or_": ["A", "B"], "arrange": 5})
         assert len(result) == 0
 
-
 class TestPickVsArrangeComparison:
     """Tests comparing pick and arrange behavior."""
 
@@ -157,7 +153,6 @@ class TestPickVsArrangeComparison:
         assert ["A", "B"] in arrange_result
         assert ["B", "A"] in arrange_result
 
-
 class TestCountCombinationsPickArrange:
     """Tests for count_combinations with pick and arrange."""
 
@@ -190,7 +185,6 @@ class TestCountCombinationsPickArrange:
         assert count_pick == 3  # min(C(4,2)=6, 3)
         assert count_arrange == 5  # min(P(4,2)=12, 5)
 
-
 class TestNestedOrWithPickArrange:
     """Tests for nested dict nodes with pick/arrange."""
 
@@ -216,7 +210,6 @@ class TestNestedOrWithPickArrange:
         result = expand_spec(spec)
         # P(3,2) = 6 permutations
         assert len(result) == 6
-
 
 class TestSecondOrderWithPickArrange:
     """Tests for second-order (nested) pick/arrange syntax.
@@ -265,7 +258,6 @@ class TestSecondOrderWithPickArrange:
         assert len(singles) == 3  # A, B, C
         assert len(pairs) == 3    # AB, AC, BC
 
-
 class TestKeywordConstants:
     """Tests for keyword constant accessibility."""
 
@@ -276,7 +268,6 @@ class TestKeywordConstants:
     def test_arrange_keyword_constant(self):
         """ARRANGE_KEYWORD should be 'arrange'."""
         assert ARRANGE_KEYWORD == "arrange"
-
 
 class TestEdgeCases:
     """Edge case tests."""
@@ -301,7 +292,6 @@ class TestEdgeCases:
         """Arrange from single choice."""
         result = expand_spec({"_or_": ["A"], "arrange": 1})
         assert len(result) == 1
-
 
 # Integration tests with complex specs
 class TestComplexSpecs:
@@ -328,7 +318,6 @@ class TestComplexSpecs:
         assert len(result) == 3
         for r in result:
             assert r[1] == "fixed"
-
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

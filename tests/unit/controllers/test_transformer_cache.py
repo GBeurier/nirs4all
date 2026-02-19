@@ -45,7 +45,6 @@ class FitCountingScaler(TransformerMixin, BaseEstimator):
     def transform(self, X):
         return (X - self.mean_) / self.std_
 
-
 def _make_mock_dataset(n_samples=20, n_features=50, content_hash_value="abc123"):
     """Create a mock dataset with the required interface for execute()."""
     dataset = MagicMock()
@@ -64,7 +63,6 @@ def _make_mock_dataset(n_samples=20, n_features=50, content_hash_value="abc123")
 
     return dataset, train_data, all_data
 
-
 def _make_context(processing=None):
     """Create a minimal ExecutionContext."""
     selector = DataSelector(
@@ -76,7 +74,6 @@ def _make_context(processing=None):
     metadata = StepMetadata(keyword="transform")
     return ExecutionContext(selector=selector, state=state, metadata=metadata)
 
-
 def _make_runtime_context(artifact_registry=None, step_number=1):
     """Create a RuntimeContext with optional artifact registry."""
     rc = RuntimeContext(
@@ -85,7 +82,6 @@ def _make_runtime_context(artifact_registry=None, step_number=1):
         pipeline_name="test_pipeline",
     )
     return rc
-
 
 class TestTryCacheLookup:
     """Tests for the _try_cache_lookup method."""
@@ -294,7 +290,6 @@ class TestTryCacheLookup:
 
             assert result is None
 
-
 class TestPersistTransformerWithDataHash:
     """Tests for _persist_transformer with input_data_hash parameter."""
 
@@ -358,7 +353,6 @@ class TestPersistTransformerWithDataHash:
 
             assert record is not None
             assert len(registry._by_chain_and_data) == 0
-
 
 class TestCheckBeforeFitIntegration:
     """Integration tests verifying that check-before-fit skips fitting on cache hit."""
@@ -698,7 +692,6 @@ class TestCheckBeforeFitIntegration:
             # The output should match what the pre-fitted scaler would produce
             np.testing.assert_array_almost_equal(actual_output[0], expected_output)
 
-
 # ---------------------------------------------------------------------------
 # Helper: Stateless fit-counting transformer
 # ---------------------------------------------------------------------------
@@ -724,7 +717,6 @@ class StatelessFitCounter(TransformerMixin, BaseEstimator):
     def transform(self, X):
         return X * self.scale_factor
 
-
 class StatefulFitCounter(TransformerMixin, BaseEstimator):
     """Non-stateless transformer that counts fit() calls.
 
@@ -745,7 +737,6 @@ class StatefulFitCounter(TransformerMixin, BaseEstimator):
     def transform(self, X):
         return X - self.mean_
 
-
 def _make_execute_dataset(
     all_data_3d, fit_data_3d, content_hash_value="hash_abc",
 ):
@@ -765,7 +756,6 @@ def _make_execute_dataset(
     dataset.x.side_effect = x_side_effect
     dataset.features_processings.return_value = ["raw"]
     return dataset
-
 
 # ===========================================================================
 # Task 1.2: fit_on_all artifact reuse validation
@@ -945,7 +935,6 @@ class TestFitOnAllArtifactReuse:
             # so total StandardScaler artifacts should still be >=1
             assert len(ss_records) >= 1
 
-
 # ===========================================================================
 # Task 1.3: Stateless transform detection and skip
 # ===========================================================================
@@ -1025,7 +1014,6 @@ class TestStatelessDetection:
         h1 = TransformerMixinController._compute_operator_params_hash(op1)
         h2 = TransformerMixinController._compute_operator_params_hash(op2)
         assert h1 != h2
-
 
 class TestStatelessCacheSkipIntegration:
     """Integration tests verifying that stateless operators skip data hash for caching."""
@@ -1258,7 +1246,6 @@ class TestStatelessCacheSkipIntegration:
             # Both should produce identical output (scale_factor=3.0 applied to same input)
             np.testing.assert_array_almost_equal(output1[0], output2[0])
             np.testing.assert_array_almost_equal(output1[0], X_all * 3.0)
-
 
 # ===========================================================================
 # Task 1.4: Cross-pipeline preprocessing reuse validation

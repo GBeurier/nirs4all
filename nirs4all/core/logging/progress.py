@@ -8,15 +8,15 @@ from __future__ import annotations
 
 import sys
 import time
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from threading import Lock
-from typing import Any, Callable, Iterator, Optional, Sequence, TypeVar
+from typing import Any, Optional, TypeVar
 
 from .formatters import Symbols, format_duration, get_symbols
 
 T = TypeVar("T")
-
 
 def _is_tty() -> bool:
     """Check if stdout is a terminal."""
@@ -24,7 +24,6 @@ def _is_tty() -> bool:
         return sys.stdout.isatty()
     except AttributeError:
         return False
-
 
 def _supports_ansi() -> bool:
     """Check if terminal supports ANSI escape codes."""
@@ -36,7 +35,7 @@ def _supports_ansi() -> bool:
     # Windows check
     if sys.platform == "win32":
         # Check for Windows Terminal or ConEmu
-        if os.environ.get("WT_SESSION") or os.environ.get("ConEmuANSI") == "ON":
+        if os.environ.get("WT_SESSION") or os.environ.get("ConEmuANSI") == "ON":  # noqa: SIM112
             return True
         # Enable ANSI on Windows 10+
         try:
@@ -53,14 +52,12 @@ def _supports_ansi() -> bool:
     term = os.environ.get("TERM", "")
     return term != "dumb"
 
-
 # ANSI escape codes
 CLEAR_LINE = "\033[2K"
 MOVE_TO_START = "\r"
 HIDE_CURSOR = "\033[?25l"
 SHOW_CURSOR = "\033[?25h"
 MOVE_UP = "\033[{n}A"
-
 
 @dataclass
 class ProgressConfig:
@@ -87,10 +84,8 @@ class ProgressConfig:
     use_unicode: bool = True
     use_colors: bool = True
 
-
 # Global progress config
 _progress_config = ProgressConfig()
-
 
 def configure_progress(
     bar_width: int = 30,
@@ -129,7 +124,6 @@ def configure_progress(
         use_colors=use_colors,
     )
 
-
 class ProgressBar:
     """TTY-aware progress bar for tracking iterations.
 
@@ -164,13 +158,13 @@ class ProgressBar:
         self,
         total: int,
         description: str = "",
-        config: Optional[ProgressConfig] = None,
+        config: ProgressConfig | None = None,
         leave: bool = True,
         disable: bool = False,
         unit: str = "it",
         file: Any = None,
         initial: int = 0,
-        ncols: Optional[int] = None,
+        ncols: int | None = None,
     ) -> None:
         """Initialize progress bar.
 
@@ -196,7 +190,7 @@ class ProgressBar:
         self.ncols = ncols
 
         # State
-        self._start_time: Optional[float] = None
+        self._start_time: float | None = None
         self._last_update_time: float = 0
         self._last_print_time: float = 0
         self._lock = Lock()
@@ -207,10 +201,10 @@ class ProgressBar:
         self._supports_ansi = _supports_ansi() if self._is_tty else False
 
         # Best score tracking (for ML pipelines)
-        self._best_score: Optional[float] = None
+        self._best_score: float | None = None
         self._best_label: str = "best"
 
-    def __enter__(self) -> "ProgressBar":
+    def __enter__(self) -> ProgressBar:
         """Enter context manager."""
         self.start()
         return self
@@ -236,7 +230,7 @@ class ProgressBar:
     def update(
         self,
         n: int = 1,
-        best_score: Optional[float] = None,
+        best_score: float | None = None,
         best_label: str = "best",
     ) -> None:
         """Update progress by n items.
@@ -330,10 +324,7 @@ class ProgressBar:
 
         empty = self.config.bar_width - filled
 
-        if self.config.use_unicode:
-            bar = self.FILLED_UNICODE * filled + self.EMPTY_UNICODE * empty
-        else:
-            bar = self.FILLED_ASCII * filled + self.EMPTY_ASCII * empty
+        bar = self.FILLED_UNICODE * filled + self.EMPTY_UNICODE * empty if self.config.use_unicode else self.FILLED_ASCII * filled + self.EMPTY_ASCII * empty
 
         return bar, percentage
 
@@ -343,7 +334,7 @@ class ProgressBar:
             return 0.0
         return time.time() - self._start_time
 
-    def _get_eta(self) -> Optional[float]:
+    def _get_eta(self) -> float | None:
         """Get estimated time remaining in seconds."""
         elapsed = self._get_elapsed()
         if elapsed <= 0 or self.current <= 0:
@@ -467,7 +458,6 @@ class ProgressBar:
                 yield item
                 pbar.update(1)
 
-
 class MultiLevelProgress:
     """Multi-level progress tracking for nested operations.
 
@@ -494,9 +484,9 @@ class MultiLevelProgress:
 
     def __init__(
         self,
-        run_total: Optional[int] = None,
+        run_total: int | None = None,
         run_description: str = "Run progress",
-        config: Optional[ProgressConfig] = None,
+        config: ProgressConfig | None = None,
         disable: bool = False,
     ) -> None:
         """Initialize multi-level progress.
@@ -514,17 +504,17 @@ class MultiLevelProgress:
         self._run_description = run_description
 
         # Active bars
-        self._run_bar: Optional[ProgressBar] = None
-        self._pipeline_bar: Optional[ProgressBar] = None
-        self._fold_bar: Optional[ProgressBar] = None
-        self._training_bar: Optional[ProgressBar] = None
+        self._run_bar: ProgressBar | None = None
+        self._pipeline_bar: ProgressBar | None = None
+        self._fold_bar: ProgressBar | None = None
+        self._training_bar: ProgressBar | None = None
 
         self._lock = Lock()
 
     def run_level(
         self,
-        total: Optional[int] = None,
-        description: Optional[str] = None,
+        total: int | None = None,
+        description: str | None = None,
     ) -> ProgressBar:
         """Get run-level progress bar.
 
@@ -642,7 +632,6 @@ class MultiLevelProgress:
             self._fold_bar = None
             self._training_bar = None
 
-
 class EvaluationProgress:
     """Specialized progress tracker for pipeline evaluation.
 
@@ -668,7 +657,7 @@ class EvaluationProgress:
         metric_name: str = "score",
         higher_is_better: bool = False,
         description: str = "Evaluating pipelines",
-        config: Optional[ProgressConfig] = None,
+        config: ProgressConfig | None = None,
         disable: bool = False,
     ) -> None:
         """Initialize evaluation progress.
@@ -688,12 +677,12 @@ class EvaluationProgress:
         self.config = config or _progress_config
         self.disable = disable
 
-        self._best_score: Optional[float] = None
-        self._best_pipeline: Optional[str] = None
+        self._best_score: float | None = None
+        self._best_pipeline: str | None = None
         self._completed = 0
-        self._bar: Optional[ProgressBar] = None
+        self._bar: ProgressBar | None = None
 
-    def __enter__(self) -> "EvaluationProgress":
+    def __enter__(self) -> EvaluationProgress:
         """Enter context manager."""
         self._bar = ProgressBar(
             total=self.total_pipelines,
@@ -712,8 +701,8 @@ class EvaluationProgress:
 
     def update(
         self,
-        score: Optional[float] = None,
-        pipeline_name: Optional[str] = None,
+        score: float | None = None,
+        pipeline_name: str | None = None,
         n: int = 1,
     ) -> bool:
         """Update progress with optional score.
@@ -752,15 +741,14 @@ class EvaluationProgress:
         return is_new_best
 
     @property
-    def best_score(self) -> Optional[float]:
+    def best_score(self) -> float | None:
         """Get the current best score."""
         return self._best_score
 
     @property
-    def best_pipeline(self) -> Optional[str]:
+    def best_pipeline(self) -> str | None:
         """Get the name of the best pipeline."""
         return self._best_pipeline
-
 
 class SpinnerProgress:
     """Spinner for indeterminate progress indication.
@@ -798,7 +786,7 @@ class SpinnerProgress:
         self.disable = disable
 
         self._frame = 0
-        self._start_time: Optional[float] = None
+        self._start_time: float | None = None
         self._running = False
         self._supports_ansi = _supports_ansi()
 
@@ -807,7 +795,7 @@ class SpinnerProgress:
         else:
             self._frames = self.FRAMES_ASCII
 
-    def __enter__(self) -> "SpinnerProgress":
+    def __enter__(self) -> SpinnerProgress:
         """Enter context manager."""
         self.start()
         return self
@@ -829,7 +817,7 @@ class SpinnerProgress:
 
         self._display()
 
-    def update(self, description: Optional[str] = None) -> None:
+    def update(self, description: str | None = None) -> None:
         """Update spinner with new description.
 
         Args:
@@ -889,7 +877,6 @@ class SpinnerProgress:
             sys.stdout.flush()
         # Non-TTY: don't spam output, just show on completion
 
-
 # Convenience functions
 def progress_bar(
     total: int,
@@ -907,7 +894,6 @@ def progress_bar(
         ProgressBar instance.
     """
     return ProgressBar(total=total, description=description, **kwargs)
-
 
 def evaluation_progress(
     total_pipelines: int,
@@ -932,7 +918,6 @@ def evaluation_progress(
         higher_is_better=higher_is_better,
         **kwargs,
     )
-
 
 def spinner(description: str = "Processing", **kwargs: Any) -> SpinnerProgress:
     """Create a spinner for indeterminate progress.

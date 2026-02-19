@@ -29,11 +29,9 @@ from nirs4all.operators.models.sklearn.aom_pls import (
     default_operator_bank,
 )
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
-
 
 @pytest.fixture
 def regression_data():
@@ -48,7 +46,6 @@ def regression_data():
     y = X[:, 30:50].mean(axis=1) + 0.5 * X[:, 100:120].mean(axis=1) + 0.1 * rng.randn(n_samples)
     return X, y
 
-
 @pytest.fixture
 def small_data():
     """Small dataset for quick tests."""
@@ -56,7 +53,6 @@ def small_data():
     X = rng.randn(50, 100)
     y = X[:, :5].sum(axis=1) + 0.1 * rng.randn(50)
     return X, y
-
 
 @pytest.fixture
 def val_data():
@@ -66,11 +62,9 @@ def val_data():
     y = X[:, :5].sum(axis=1) + 0.1 * rng.randn(30)
     return X, y
 
-
 # =============================================================================
 # Operator Adjoint Tests
 # =============================================================================
-
 
 class TestOperatorAdjoint:
     """Test that <A x, y> == <x, A^T y> for all operators."""
@@ -146,11 +140,9 @@ class TestOperatorAdjoint:
         for op in bank:
             self._check_adjoint(op)
 
-
 # =============================================================================
 # Operator Property Tests
 # =============================================================================
-
 
 class TestOperatorProperties:
     """Test operator-specific properties."""
@@ -229,11 +221,9 @@ class TestOperatorProperties:
         bank = default_operator_bank()
         assert 8 <= len(bank) <= 120
 
-
 # =============================================================================
 # Sparsemax Tests
 # =============================================================================
-
 
 class TestSparsemax:
     """Test sparsemax activation properties."""
@@ -280,11 +270,9 @@ class TestSparsemax:
         assert p[2] == 0.0
         assert abs(np.sum(p) - 1.0) < 1e-10
 
-
 # =============================================================================
 # Normalized Block Scoring Tests
 # =============================================================================
-
 
 class TestNormalizedScoring:
     """Test that normalized scoring reduces scale bias."""
@@ -322,11 +310,9 @@ class TestNormalizedScoring:
         # Raw scores differ by factor of 100
         assert abs(raw_score_scaled / raw_score - 100.0) < 1e-6
 
-
 # =============================================================================
 # AOMPLSRegressor Tests
 # =============================================================================
-
 
 class TestAOMPLSRegressor:
     """Test AOMPLSRegressor sklearn compatibility and behavior."""
@@ -439,11 +425,9 @@ class TestAOMPLSRegressor:
         preds = model.predict(X)
         assert preds.shape == Y.shape
 
-
 # =============================================================================
 # Identity-Only Bank Recovery Test
 # =============================================================================
-
 
 class TestIdentityBankRecovery:
     """Test that identity-only bank recovers standard PLS predictions."""
@@ -476,11 +460,9 @@ class TestIdentityBankRecovery:
         # Predictions should be very close
         np.testing.assert_allclose(preds_aom, preds_simpls, rtol=0.05, atol=0.1)
 
-
 # =============================================================================
 # sklearn Compatibility Tests
 # =============================================================================
-
 
 class TestSklearnCompat:
     """Test sklearn API compatibility."""
@@ -519,11 +501,9 @@ class TestSklearnCompat:
         model = AOMPLSRegressor()
         assert model._estimator_type == "regressor"
 
-
 # =============================================================================
 # Validation Prefix Selection Tests
 # =============================================================================
-
 
 class TestPrefixSelection:
     """Test validation-based component count selection."""
@@ -542,11 +522,9 @@ class TestPrefixSelection:
         model.fit(X, y)
         assert model.k_selected_ == model.n_components_
 
-
 # =============================================================================
 # OPLS Pre-filter Tests
 # =============================================================================
-
 
 class TestOPLSPrefilter:
     """Test OPLS orthogonal pre-filter integration."""
@@ -574,11 +552,9 @@ class TestOPLSPrefilter:
         # OPLS version should not be dramatically worse
         assert rmse_opls < rmse_no * 3.0
 
-
 # =============================================================================
 # Deterministic Output Tests
 # =============================================================================
-
 
 class TestDeterminism:
     """Test that outputs are deterministic."""
@@ -607,11 +583,9 @@ class TestDeterminism:
 
         np.testing.assert_array_equal(model1.gamma_, model2.gamma_)
 
-
 # =============================================================================
 # Custom Operator Bank Tests
 # =============================================================================
-
 
 class TestCustomBank:
     """Test with custom operator banks."""
@@ -643,11 +617,9 @@ class TestCustomBank:
         model.fit(X, y)
         assert any("identity" in name for name in model.block_names_)
 
-
 # =============================================================================
 # Edge Case Tests
 # =============================================================================
-
 
 class TestEdgeCases:
     """Test edge cases and boundary conditions."""
@@ -717,11 +689,9 @@ class TestEdgeCases:
         np.testing.assert_array_equal(model.x_mean_, np.zeros(X.shape[1]))
         np.testing.assert_array_equal(model.x_std_, np.ones(X.shape[1]))
 
-
 # =============================================================================
 # Torch Backend Tests (only run if torch available)
 # =============================================================================
-
 
 def _torch_available():
     try:
@@ -729,7 +699,6 @@ def _torch_available():
         return True
     except ImportError:
         return False
-
 
 @pytest.mark.skipif(not _torch_available(), reason="PyTorch not installed")
 class TestTorchBackend:

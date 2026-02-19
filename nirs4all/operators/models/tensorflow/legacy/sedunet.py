@@ -11,7 +11,6 @@ def Conv_Block(inputs, model_width, kernel, multiplier):
 
     return x
 
-
 def trans_conv1D(inputs, model_width, multiplier):
     # 1D Transposed Convolutional Block, used instead of UpSampling
     x = tf.keras.layers.Conv1DTranspose(model_width * multiplier, 2, strides=2, padding='same')(inputs)  # Stride = 2, Kernel Size = 2
@@ -19,7 +18,6 @@ def trans_conv1D(inputs, model_width, multiplier):
     x = tf.keras.layers.Activation('relu')(x)
 
     return x
-
 
 def Concat_Block(input1, *argv):
     # Concatenation Block from the KERAS Library
@@ -29,13 +27,11 @@ def Concat_Block(input1, *argv):
 
     return cat
 
-
 def upConv_Block(inputs):
     # 1D UpSampling Block
     up = tf.keras.layers.UpSampling1D(size=2)(inputs)
 
     return up
-
 
 def Feature_Extraction_Block(inputs, model_width, feature_number):
     # Feature Extraction Block for the AutoEncoder Mode
@@ -46,7 +42,6 @@ def Feature_Extraction_Block(inputs, model_width, feature_number):
     latent = tf.keras.layers.Reshape((shape[1], model_width))(latent)
 
     return latent
-
 
 def Attention_Block(skip_connection, gating_signal, num_filters, multiplier):
     # Attention Block
@@ -66,7 +61,6 @@ def Attention_Block(skip_connection, gating_signal, num_filters, multiplier):
 
     return out
 
-
 def dense_block(x, num_filters, kernel_size, multiplier, num_layers):
     for _ in range(num_layers):
         cb = Conv_Block(x, num_filters, kernel_size, multiplier)
@@ -74,7 +68,6 @@ def dense_block(x, num_filters, kernel_size, multiplier, num_layers):
         x = tf.keras.layers.concatenate([x, cb], axis=-1)
 
     return x
-
 
 def SqueezeExcite(x, ratio=16):
     nb_chan = tf.keras.backend.int_shape(x)[-1]
@@ -84,7 +77,6 @@ def SqueezeExcite(x, ratio=16):
     y = tf.keras.layers.Multiply()([x, y])
 
     return y
-
 
 class SEDUNet:
     def __init__(self, length, model_depth, num_channel, model_width, kernel_size, problem_type='Regression',
@@ -120,7 +112,6 @@ class SEDUNet:
         self.feature_number = feature_number
         self.is_transconv = is_transconv
 
-
     def SEDUNet(self):
         # Variable 1DBCDUNet Model Design
         if self.length == 0 or self.model_depth == 0 or self.model_width == 0 or self.num_channel == 0 or self.kernel_size == 0:
@@ -137,7 +128,7 @@ class SEDUNet:
             conv = Conv_Block(pool, self.model_width, self.kernel_size, 2 ** (i - 1))
             conv = Conv_Block(conv, self.model_width, self.kernel_size, 2 ** (i - 1))
             pool = tf.keras.layers.MaxPooling1D(pool_size=2)(conv)
-            convs["conv%s" % i] = conv
+            convs[f"conv{i}"] = conv
 
         conv = dense_block(pool, self.model_width, self.kernel_size, 2 ** self.model_depth, self.dense_loop - 1)
         if self.A_E == 1:
@@ -189,7 +180,6 @@ class SEDUNet:
             model = tf.keras.Model(inputs=[inputs], outputs=levels)
 
         return model
-
 
 if __name__ == '__main__':
     # Configurations

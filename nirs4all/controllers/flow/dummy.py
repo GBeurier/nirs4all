@@ -1,8 +1,8 @@
 """DummyController.py - A catch-all controller for operators not handled by other controllers in the nirs4all pipeline."""
 
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
-import json
 import inspect
+import json
+from typing import TYPE_CHECKING, Any, Optional
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
@@ -11,11 +11,10 @@ from nirs4all.core.logging import get_logger
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.pipeline.steps.parser import ParsedStep
-    from nirs4all.pipeline.config.context import ExecutionContext
-
 
 @register_controller
 class DummyController(OperatorController):
@@ -96,7 +95,7 @@ class DummyController(OperatorController):
         except Exception as e:
             return f"<Error representing object: {type(e).__name__}: {str(e)[:50]}>"
 
-    def _analyze_step_structure(self, step: Any) -> Dict[str, Any]:
+    def _analyze_step_structure(self, step: Any) -> dict[str, Any]:
         """Analyze the structure of a step to help identify why it wasn't matched."""
         analysis = {
             "type": type(step).__name__,
@@ -110,7 +109,7 @@ class DummyController(OperatorController):
 
             # Look for common pipeline keywords
             pipeline_keywords = ['model', 'feature_augmentation', 'concat_transform', 'y_processing', 'sample_augmentation']
-            found_keywords = [k for k in step.keys() if k in pipeline_keywords]
+            found_keywords = [k for k in step if k in pipeline_keywords]
             if found_keywords:
                 analysis["pipeline_keywords"] = found_keywords
 
@@ -130,7 +129,7 @@ class DummyController(OperatorController):
 
         return analysis
 
-    def _get_context_info(self, context: Any) -> Dict[str, Any]:
+    def _get_context_info(self, context: Any) -> dict[str, Any]:
         """Extract useful information from the pipeline context."""
         context_info = {}
 
@@ -173,9 +172,9 @@ class DummyController(OperatorController):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple['ExecutionContext', list[tuple[str, bytes]]]:
         """
         Handle unmatched operators and provide detailed debugging information.
         """
@@ -214,10 +213,7 @@ class DummyController(OperatorController):
             logger.warning(f"   {key}: {value}")
 
         # Keyword analysis
-        if hasattr(context, 'metadata'):
-             keyword = context.metadata.keyword
-        else:
-             keyword = 'unknown'
+        keyword = context.metadata.keyword if hasattr(context, 'metadata') else 'unknown'
         logger.warning(f"Keyword: '{keyword}'")
 
         # Suggestions
@@ -267,5 +263,4 @@ class DummyController(OperatorController):
 
         # Return unchanged context - this is just for debugging
         return context, []
-
 

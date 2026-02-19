@@ -4,18 +4,17 @@ Integration tests for SpectraTransformerMixin operators in pipelines.
 Tests end-to-end pipeline execution with wavelength-aware transformers.
 """
 
-import numpy as np
-import pytest
 from typing import Optional
 
+import numpy as np
+import pytest
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import StandardScaler
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.operators.base import SpectraTransformerMixin
 from nirs4all.pipeline import PipelineRunner
-
 from tests.fixtures.data_generators import TestDataManager
 
 
@@ -47,15 +46,14 @@ class WavelengthRecordingTransformer(SpectraTransformerMixin):
         cls._transform_wavelengths_record = None
 
     @classmethod
-    def get_fit_wavelengths(cls) -> Optional[np.ndarray]:
+    def get_fit_wavelengths(cls) -> np.ndarray | None:
         """Get the wavelengths that were passed to fit."""
         return cls._fit_wavelengths_record
 
     @classmethod
-    def get_transform_wavelengths(cls) -> Optional[np.ndarray]:
+    def get_transform_wavelengths(cls) -> np.ndarray | None:
         """Get the wavelengths that were passed to transform."""
         return cls._transform_wavelengths_record
-
 
 class WavelengthDependentScaler(SpectraTransformerMixin):
     """Transformer that applies wavelength-dependent scaling.
@@ -83,7 +81,6 @@ class WavelengthDependentScaler(SpectraTransformerMixin):
 
         return X_out
 
-
 class OptionalWavelengthTransformer(SpectraTransformerMixin):
     """Transformer that can work with or without wavelengths."""
 
@@ -96,7 +93,6 @@ class OptionalWavelengthTransformer(SpectraTransformerMixin):
     def _transform_impl(self, X, wavelengths):
         self.wavelengths_used = wavelengths
         return X * self.scale
-
 
 class TestSpectraTransformerPipeline:
     """Integration tests for SpectraTransformerMixin in pipelines."""
@@ -238,7 +234,6 @@ class TestSpectraTransformerPipeline:
         # Verify pipeline ran successfully
         assert predictions.num_predictions > 0
 
-
 class TestSpectraTransformerBackwardCompatibility:
     """Tests ensuring backward compatibility with existing pipelines."""
 
@@ -269,7 +264,7 @@ class TestSpectraTransformerBackwardCompatibility:
 
     def test_nirs4all_existing_transforms_unchanged(self, test_data_manager):
         """Test that existing nirs4all transforms work without changes."""
-        from nirs4all.operators.transforms import StandardNormalVariate, SavitzkyGolay
+        from nirs4all.operators.transforms import SavitzkyGolay, StandardNormalVariate
 
         dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
         dataset_config = DatasetConfigs(dataset_folder)
@@ -286,7 +281,6 @@ class TestSpectraTransformerBackwardCompatibility:
 
         # Verify pipeline ran successfully
         assert predictions.num_predictions > 0
-
 
 class TestEnvironmentalAugmentersPipeline:
     """Integration tests for environmental/scattering augmenters in pipelines."""
@@ -375,9 +369,9 @@ class TestEnvironmentalAugmentersPipeline:
     def test_combined_environmental_augmenters(self, dataset_config):
         """Test multiple environmental augmenters in sequence."""
         from nirs4all.operators import (
-            TemperatureAugmenter,
             MoistureAugmenter,
             ParticleSizeAugmenter,
+            TemperatureAugmenter,
         )
 
         pipeline = [
@@ -396,7 +390,7 @@ class TestEnvironmentalAugmentersPipeline:
 
     def test_environmental_augmenters_with_preprocessing(self, dataset_config):
         """Test environmental augmenters combined with standard preprocessing."""
-        from nirs4all.operators import TemperatureAugmenter, EMSCDistortionAugmenter
+        from nirs4all.operators import EMSCDistortionAugmenter, TemperatureAugmenter
         from nirs4all.operators.transforms import StandardNormalVariate
 
         pipeline = [

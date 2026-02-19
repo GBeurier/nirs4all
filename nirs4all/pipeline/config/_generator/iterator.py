@@ -22,25 +22,24 @@ Usage:
     sample = list(expand_spec_iter(large_spec, seed=42, sample_size=100))
 """
 
-from collections.abc import Mapping
-from itertools import product, islice
-from typing import Any, Dict, Iterator, List, Optional, Union
+from collections.abc import Iterator, Mapping
+from itertools import islice, product
+from typing import Any
 
-from .strategies import get_strategy
 from .keywords import (
     OR_KEYWORD,
     RANGE_KEYWORD,
     has_or_keyword,
 )
+from .strategies import get_strategy
 
 # Type alias
-GeneratorNode = Union[Dict[str, Any], List[Any], str, int, float, bool, None]
-
+GeneratorNode = dict[str, Any] | list[Any] | str | int | float | bool | None
 
 def expand_spec_iter(
     node: GeneratorNode,
-    seed: Optional[int] = None,
-    sample_size: Optional[int] = None
+    seed: int | None = None,
+    sample_size: int | None = None
 ) -> Iterator[Any]:
     """Lazily expand a specification node to all possible combinations.
 
@@ -85,10 +84,9 @@ def expand_spec_iter(
     else:
         yield from _expand_iter_internal(node, seed)
 
-
 def _expand_iter_internal(
     node: GeneratorNode,
-    seed: Optional[int] = None
+    seed: int | None = None
 ) -> Iterator[Any]:
     """Internal iterator-based expansion.
 
@@ -141,11 +139,10 @@ def _expand_iter_internal(
     # Normal dict: Cartesian product over key values
     yield from _expand_dict_iter(node, seed)
 
-
 def _expand_list_iter(
     node: list,
-    seed: Optional[int]
-) -> Iterator[List[Any]]:
+    seed: int | None
+) -> Iterator[list[Any]]:
     """Lazily expand a list by yielding Cartesian product of elements.
 
     Args:
@@ -177,11 +174,10 @@ def _expand_list_iter(
     for combo in product(*expanded_elements):
         yield list(combo)
 
-
 def _expand_mixed_or_node_iter(
-    node: Dict[str, Any],
-    seed: Optional[int]
-) -> Iterator[Dict[str, Any]]:
+    node: dict[str, Any],
+    seed: int | None
+) -> Iterator[dict[str, Any]]:
     """Lazily expand a dict that has _or_ mixed with other keys.
 
     Args:
@@ -214,11 +210,10 @@ def _expand_mixed_or_node_iter(
                     f"not {type(c).__name__}. Got: {c}"
                 )
 
-
 def _expand_dict_iter(
-    node: Dict[str, Any],
-    seed: Optional[int]
-) -> Iterator[Dict[str, Any]]:
+    node: dict[str, Any],
+    seed: int | None
+) -> Iterator[dict[str, Any]]:
     """Lazily expand a regular dict by yielding Cartesian product of values.
 
     Args:
@@ -238,10 +233,9 @@ def _expand_dict_iter(
 
     # Yield products one at a time
     for combo in product(*value_options):
-        yield dict(zip(keys, combo))
+        yield dict(zip(keys, combo, strict=False))
 
-
-def _expand_value_iter(v: Any, seed: Optional[int]) -> Iterator[Any]:
+def _expand_value_iter(v: Any, seed: int | None) -> Iterator[Any]:
     """Lazily expand a value in a dict position.
 
     Args:
@@ -251,18 +245,15 @@ def _expand_value_iter(v: Any, seed: Optional[int]) -> Iterator[Any]:
     Yields:
         Expanded values.
     """
-    if isinstance(v, Mapping):
-        yield from _expand_iter_internal(v, seed)
-    elif isinstance(v, list):
+    if isinstance(v, (Mapping, list)):
         yield from _expand_iter_internal(v, seed)
     else:
         yield v
 
-
 def _reservoir_sample(
     iterator: Iterator[Any],
     k: int,
-    seed: Optional[int] = None
+    seed: int | None = None
 ) -> Iterator[Any]:
     """Reservoir sampling for uniformly selecting k items from an iterator.
 
@@ -278,10 +269,7 @@ def _reservoir_sample(
     """
     import random
 
-    if seed is not None:
-        rng = random.Random(seed)
-    else:
-        rng = random.Random()
+    rng = random.Random(seed) if seed is not None else random.Random()
 
     # Fill reservoir with first k items
     reservoir = list(islice(iterator, k))
@@ -299,14 +287,13 @@ def _reservoir_sample(
 
     yield from reservoir
 
-
 # =============================================================================
 # Iteration utilities
 # =============================================================================
 
 def iter_with_progress(
     spec: GeneratorNode,
-    seed: Optional[int] = None,
+    seed: int | None = None,
     report_every: int = 1000
 ) -> Iterator[tuple]:
     """Iterate with progress reporting.
@@ -325,12 +312,11 @@ def iter_with_progress(
             # Progress info is yielded as part of the tuple
             pass
 
-
 def batch_iter(
     spec: GeneratorNode,
     batch_size: int,
-    seed: Optional[int] = None
-) -> Iterator[List[Any]]:
+    seed: int | None = None
+) -> Iterator[list[Any]]:
     """Iterate in batches for chunk processing.
 
     Args:

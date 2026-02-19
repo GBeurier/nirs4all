@@ -8,7 +8,7 @@ various aspects of synthetic spectra generation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Literal, Optional, Union
 
 
 @dataclass
@@ -31,9 +31,8 @@ class FeatureConfig:
     wavelength_end: float = 2500.0
     wavelength_step: float = 2.0
     complexity: Literal["simple", "realistic", "complex"] = "simple"
-    n_components: Optional[int] = None
-    component_names: Optional[List[str]] = None
-
+    n_components: int | None = None
+    component_names: list[str] | None = None
 
 @dataclass
 class TargetConfig:
@@ -50,11 +49,10 @@ class TargetConfig:
     """
 
     distribution: Literal["dirichlet", "uniform", "lognormal", "correlated"] = "dirichlet"
-    range: Optional[Tuple[float, float]] = None
-    n_targets: Optional[int] = None
-    component_indices: Optional[List[int]] = None
-    transform: Optional[Literal["log", "sqrt"]] = None
-
+    range: tuple[float, float] | None = None
+    n_targets: int | None = None
+    component_indices: list[int] | None = None
+    transform: Literal["log", "sqrt"] | None = None
 
 @dataclass
 class MetadataConfig:
@@ -72,11 +70,10 @@ class MetadataConfig:
 
     generate_sample_ids: bool = True
     sample_id_prefix: str = "sample"
-    n_groups: Optional[int] = None
-    n_repetitions: Union[int, Tuple[int, int]] = 1
-    group_names: Optional[List[str]] = None
-    additional_columns: Optional[Dict[str, Any]] = None
-
+    n_groups: int | None = None
+    n_repetitions: int | tuple[int, int] = 1
+    group_names: list[str] | None = None
+    additional_columns: dict[str, Any] | None = None
 
 @dataclass
 class PartitionConfig:
@@ -95,7 +92,6 @@ class PartitionConfig:
     shuffle: bool = True
     group_aware: bool = True
 
-
 @dataclass
 class BatchEffectConfig:
     """
@@ -112,7 +108,6 @@ class BatchEffectConfig:
     n_batches: int = 3
     offset_std: float = 0.02
     gain_std: float = 0.03
-
 
 @dataclass
 class NonLinearConfig:
@@ -134,7 +129,6 @@ class NonLinearConfig:
     interaction_strength: float = 0.5
     hidden_factors: int = 0
     polynomial_degree: int = 2
-
 
 @dataclass
 class ConfounderConfig:
@@ -160,7 +154,6 @@ class ConfounderConfig:
     spectral_masking: float = 0.0
     temporal_drift: bool = False
 
-
 @dataclass
 class MultiRegimeConfig:
     """
@@ -184,7 +177,6 @@ class MultiRegimeConfig:
     regime_overlap: float = 0.2
     noise_heteroscedasticity: float = 0.0
 
-
 @dataclass
 class OutputConfig:
     """
@@ -199,7 +191,6 @@ class OutputConfig:
     as_dataset: bool = True
     include_metadata: bool = False
     include_wavelengths: bool = True
-
 
 @dataclass
 class SyntheticDatasetConfig:
@@ -230,7 +221,7 @@ class SyntheticDatasetConfig:
     """
 
     n_samples: int = 1000
-    random_state: Optional[int] = None
+    random_state: int | None = None
     features: FeatureConfig = field(default_factory=FeatureConfig)
     targets: TargetConfig = field(default_factory=TargetConfig)
     metadata: MetadataConfig = field(default_factory=MetadataConfig)
@@ -258,7 +249,6 @@ class SyntheticDatasetConfig:
                 f"complexity must be one of {valid_complexities}, "
                 f"got '{self.features.complexity}'"
             )
-
 
 # Convenience type alias for complexity levels
 ComplexityLevel = Literal["simple", "realistic", "complex"]

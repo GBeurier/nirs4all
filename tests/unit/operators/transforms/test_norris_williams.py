@@ -15,11 +15,9 @@ from sklearn.base import clone
 
 from nirs4all.operators.transforms.norris_williams import NorrisWilliams, norris_williams
 
-
 # =============================================================================
 # Function API Tests
 # =============================================================================
-
 
 class TestNorrisWilliamsFunction:
     """Test the norris_williams() standalone function."""
@@ -66,11 +64,9 @@ class TestNorrisWilliamsFunction:
         with pytest.raises(ValueError, match="segment must be odd"):
             norris_williams(X, gap=5, segment=0, deriv=1)
 
-
 # =============================================================================
 # Transformer API Tests
 # =============================================================================
-
 
 class TestNorrisWilliamsTransformer:
     """Test the NorrisWilliams sklearn transformer."""

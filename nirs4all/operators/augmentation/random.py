@@ -1,7 +1,7 @@
-import numpy as np
 import operator
 
-from sklearn.base import TransformerMixin, BaseEstimator
+import numpy as np
+from sklearn.base import BaseEstimator, TransformerMixin
 
 
 class Rotate_Translate(TransformerMixin, BaseEstimator):
@@ -92,7 +92,6 @@ class Rotate_Translate(TransformerMixin, BaseEstimator):
         increment = distor * stds  # (n_samples, n_features)
 
         return X + increment
-
 
 class Random_X_Operation(TransformerMixin, BaseEstimator):
     """

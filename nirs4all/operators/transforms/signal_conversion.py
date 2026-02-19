@@ -13,9 +13,10 @@ Mathematical conversions:
 All transformers follow the sklearn TransformerMixin pattern.
 """
 
+from typing import Literal, Optional
+
 import numpy as np
-from sklearn.base import TransformerMixin, BaseEstimator
-from typing import Optional, Literal
+from sklearn.base import BaseEstimator, TransformerMixin
 
 from nirs4all.data.signal_type import SignalType, SignalTypeInput, normalize_signal_type
 
@@ -125,10 +126,7 @@ class ToAbsorbance(TransformerMixin, BaseEstimator):
             X = X / 100.0
 
         # Handle edge cases
-        if self.clip_negative:
-            X = np.clip(X, self.epsilon, None)
-        else:
-            X = np.maximum(X, self.epsilon)
+        X = np.clip(X, self.epsilon, None) if self.clip_negative else np.maximum(X, self.epsilon)
 
         # Apply log transform: A = -log10(X) = log10(1/X)
         A = -np.log10(X)
@@ -159,7 +157,6 @@ class ToAbsorbance(TransformerMixin, BaseEstimator):
             R_or_T = R_or_T * 100.0
 
         return R_or_T
-
 
 class FromAbsorbance(TransformerMixin, BaseEstimator):
     """
@@ -232,7 +229,6 @@ class FromAbsorbance(TransformerMixin, BaseEstimator):
         X = np.maximum(X, 1e-10)
         return -np.log10(X)
 
-
 class PercentToFraction(TransformerMixin, BaseEstimator):
     """
     Convert percentage values to fractional [0, 1] range.
@@ -267,7 +263,6 @@ class PercentToFraction(TransformerMixin, BaseEstimator):
         """Transform fraction to percent."""
         return np.asarray(X, dtype=np.float64) * 100.0
 
-
 class FractionToPercent(TransformerMixin, BaseEstimator):
     """
     Convert fractional [0, 1] values to percentage [0, 100] range.
@@ -301,7 +296,6 @@ class FractionToPercent(TransformerMixin, BaseEstimator):
     def inverse_transform(self, X, y=None):
         """Transform percent to fraction."""
         return np.asarray(X, dtype=np.float64) / 100.0
-
 
 class KubelkaMunk(TransformerMixin, BaseEstimator):
     """
@@ -391,7 +385,6 @@ class KubelkaMunk(TransformerMixin, BaseEstimator):
             R = R * 100.0
 
         return R
-
 
 class SignalTypeConverter(TransformerMixin, BaseEstimator):
     """
@@ -493,11 +486,10 @@ class SignalTypeConverter(TransformerMixin, BaseEstimator):
             return
 
         # Absorbance to R/T
-        if src == SignalType.ABSORBANCE:
-            if tgt in (SignalType.REFLECTANCE, SignalType.REFLECTANCE_PERCENT,
-                       SignalType.TRANSMITTANCE, SignalType.TRANSMITTANCE_PERCENT):
-                self.transformers_.append(FromAbsorbance(target_type=tgt))
-                return
+        if src == SignalType.ABSORBANCE and tgt in (SignalType.REFLECTANCE, SignalType.REFLECTANCE_PERCENT,
+                   SignalType.TRANSMITTANCE, SignalType.TRANSMITTANCE_PERCENT):
+            self.transformers_.append(FromAbsorbance(target_type=tgt))
+            return
 
         # Multi-step conversions (e.g., %R -> A -> %T - though this is unusual)
         # For now, raise an error for unsupported conversions

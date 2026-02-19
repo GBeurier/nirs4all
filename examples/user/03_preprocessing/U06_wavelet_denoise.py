@@ -27,13 +27,13 @@ When to Use
 
 """
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.preprocessing import MinMaxScaler
 
 import nirs4all
 from nirs4all.operators.transforms import WaveletDenoise
-from sklearn.cross_decomposition import PLSRegression
-from sklearn.preprocessing import MinMaxScaler
 
 
 def create_noisy_signal():
@@ -63,7 +63,6 @@ def create_noisy_signal():
 
     return X, y, wavelengths
 
-
 def example_basic_denoising():
     """Example 1: Basic wavelet denoising."""
     print("=" * 70)
@@ -87,7 +86,6 @@ def example_basic_denoising():
     print(f"\nBest RMSE: {result.best_rmse:.4f}")
     print(f"Best R²: {result.best_r2:.4f}")
     print("\n")
-
 
 def example_compare_methods():
     """Example 2: Compare different denoising methods."""
@@ -128,7 +126,6 @@ def example_compare_methods():
         print(f"{config:20s}: RMSE = {rmse:.4f}")
     print("\n")
 
-
 def example_with_cartesian():
     """Example 3: Use with _cartesian_ for automatic method selection."""
     print("=" * 70)
@@ -138,6 +135,7 @@ def example_with_cartesian():
     X, y, wavelengths = create_noisy_signal()
 
     from sklearn.model_selection import ShuffleSplit
+
     from nirs4all.operators.transforms import IdentityTransformer
 
     # Test multiple preprocessing combinations automatically
@@ -160,7 +158,6 @@ def example_with_cartesian():
     print(f"Best R²: {result.best_r2:.4f}")
     print("\nThe pipeline automatically selected the best preprocessing combination.")
     print("\n")
-
 
 def example_visualization():
     """Example 4: Visualize denoising effect."""
@@ -191,7 +188,6 @@ def example_visualization():
     plt.savefig("wavelet_denoise_comparison.png", dpi=150)
     print("Visualization saved to: wavelet_denoise_comparison.png")
     print("\n")
-
 
 def example_noise_variance_comparison():
     """Example 5: Quantify noise reduction."""
@@ -224,7 +220,6 @@ def example_noise_variance_comparison():
     print("\nNote: Higher levels remove more noise but may over-smooth the signal.")
     print("For NIRS data (~1000 features), level=5 is typically a good choice.")
     print("\n")
-
 
 if __name__ == "__main__":
     # Run all examples

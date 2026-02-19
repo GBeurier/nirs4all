@@ -25,12 +25,13 @@ Difficulty: ★★☆☆☆
 
 # Standard library imports
 import argparse
+
 import numpy as np
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import ShuffleSplit
 
 # Third-party imports
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import ShuffleSplit
-from sklearn.cross_decomposition import PLSRegression
 
 # NIRS4All imports
 import nirs4all
@@ -42,7 +43,6 @@ parser = argparse.ArgumentParser(description='U04 Wavelength Handling Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Understanding Wavelength Resampling
@@ -63,7 +63,6 @@ The Resampler operator uses scipy interpolation to estimate spectral
 values at new wavelengths.
 """)
 
-
 # =============================================================================
 # Section 2: Get Reference Wavelengths
 # =============================================================================
@@ -76,10 +75,9 @@ ref_config = DatasetConfigs("sample_data/regression_2")
 ref_dataset = list(ref_config.iter_datasets())[0]
 target_wavelengths = ref_dataset.float_headers(0)
 
-print(f"Reference dataset wavelengths:")
+print("Reference dataset wavelengths:")
 print(f"   Count: {len(target_wavelengths)} points")
 print(f"   Range: {target_wavelengths[0]:.1f} to {target_wavelengths[-1]:.1f}")
-
 
 # =============================================================================
 # Section 3: Resample to Match Another Dataset
@@ -104,7 +102,6 @@ X_resampled = resampler.fit_transform(src_X, wavelengths=src_wavelengths)
 print(f"   Target: {len(target_wavelengths)} points ({target_wavelengths[0]:.1f} to {target_wavelengths[-1]:.1f})")
 print(f"   ✓ Resampled {X_resampled.shape[0]} spectra: {src_X.shape[1]} → {X_resampled.shape[1]} features")
 
-
 # =============================================================================
 # Section 4: Downsample to Fewer Points
 # =============================================================================
@@ -122,7 +119,6 @@ X_down = resampler_down.fit_transform(src_X, wavelengths=src_wavelengths)
 print(f"   ✓ Downsampled from {src_X.shape[1]} to {X_down.shape[1]} points")
 print(f"   Wavelengths: {target_wl_downsample}")
 
-
 # =============================================================================
 # Section 5: Focus on Specific Spectral Region
 # =============================================================================
@@ -137,7 +133,6 @@ resampler_region = Resampler(target_wavelengths=target_wl_region, method='linear
 X_region = resampler_region.fit_transform(src_X, wavelengths=src_wavelengths)
 
 print(f"   ✓ Focused on region: 9500-7000 cm⁻¹ with {X_region.shape[1]} points")
-
 
 # =============================================================================
 # Section 6: Full Pipeline with Resampling
@@ -173,13 +168,12 @@ result4 = nirs4all.run(
     plots_visible=args.plots
 )
 
-print(f"\n📊 Model trained on resampled data:")
-print(f"   Original features: ~125 wavelengths")
-print(f"   Resampled features: 50 wavelengths")
+print("\n📊 Model trained on resampled data:")
+print("   Original features: ~125 wavelengths")
+print("   Resampled features: 50 wavelengths")
 print(f"   Best RMSE: {result4.best_rmse:.4f}")
 r2_value = result4.best_r2
 print(f"   Best R²: {r2_value:.4f}" if not np.isnan(r2_value) else "   Best R²: (see test metrics)")
-
 
 # =============================================================================
 # Section 7: Interpolation Methods
@@ -201,7 +195,6 @@ Choose based on your spectral data characteristics:
   • Discrete/step features: 'nearest'
   • High-frequency content: 'cubic' to preserve details
 """)
-
 
 # =============================================================================
 # Summary

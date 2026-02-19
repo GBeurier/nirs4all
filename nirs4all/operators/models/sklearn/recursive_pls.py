@@ -37,7 +37,6 @@ def _check_jax_available():
     except ImportError:
         return False
 
-
 # =============================================================================
 # NumPy Backend Implementation
 # =============================================================================
@@ -135,7 +134,6 @@ def _initial_pls_fit_numpy(
     B = R @ Q.T
 
     return W, P, Q, R, B, Cov_X, Cov_XY
-
 
 def _recursive_update_numpy(
     X_new: NDArray[np.floating],
@@ -254,7 +252,6 @@ def _recursive_update_numpy(
     B = R @ Q.T
 
     return W, P, Q, R, B, Cov_X, Cov_XY, n_samples_seen
-
 
 # =============================================================================
 # JAX Backend Implementation
@@ -434,10 +431,8 @@ def _get_jax_recursive_pls_functions():
 
     return initial_pls_fit_jax, recursive_update_jax, predict_jax
 
-
 # Cache for JAX functions
 _JAX_RECURSIVE_PLS_FUNCS = None
-
 
 def _get_cached_jax_recursive_pls():
     """Get cached JAX Recursive PLS functions."""
@@ -445,7 +440,6 @@ def _get_cached_jax_recursive_pls():
     if _JAX_RECURSIVE_PLS_FUNCS is None:
         _JAX_RECURSIVE_PLS_FUNCS = _get_jax_recursive_pls_functions()
     return _JAX_RECURSIVE_PLS_FUNCS
-
 
 # =============================================================================
 # RecursivePLS Estimator Class
@@ -577,7 +571,7 @@ class RecursivePLS(BaseEstimator, RegressorMixin):
         self,
         X: ArrayLike,
         y: ArrayLike,
-    ) -> "RecursivePLS":
+    ) -> RecursivePLS:
         """Fit the Recursive PLS model with initial batch.
 
         Parameters
@@ -699,7 +693,7 @@ class RecursivePLS(BaseEstimator, RegressorMixin):
         self,
         X: ArrayLike,
         y: ArrayLike,
-    ) -> "RecursivePLS":
+    ) -> RecursivePLS:
         """Update the Recursive PLS model with new samples.
 
         Parameters
@@ -731,7 +725,7 @@ class RecursivePLS(BaseEstimator, RegressorMixin):
 
         # Update running mean with exponential moving average
         ff = self.forgetting_factor
-        for i in range(n_new):
+        for _ in range(n_new):
             # EMA update for mean (optional: can also keep fixed from initial fit)
             # self.x_mean_ = ff * self.x_mean_ + (1 - ff) * X[i]
             # self.y_mean_ = ff * self.y_mean_ + (1 - ff) * y[i]
@@ -884,7 +878,7 @@ class RecursivePLS(BaseEstimator, RegressorMixin):
             'backend': self.backend,
         }
 
-    def set_params(self, **params) -> "RecursivePLS":
+    def set_params(self, **params) -> RecursivePLS:
         """Set the parameters of this estimator.
 
         Parameters

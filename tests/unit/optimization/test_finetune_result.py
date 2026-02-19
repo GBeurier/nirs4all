@@ -3,10 +3,10 @@
 import pytest
 
 from nirs4all.optimization.optuna import (
-    FinetuneResult,
-    TrialSummary,
     METRIC_DIRECTION,
+    FinetuneResult,
     OptunaManager,
+    TrialSummary,
 )
 
 
@@ -47,7 +47,6 @@ class TestTrialSummary:
             state="FAIL",
         )
         assert ts.state == "FAIL"
-
 
 class TestFinetuneResult:
     """Tests for FinetuneResult dataclass."""
@@ -139,7 +138,6 @@ class TestFinetuneResult:
         assert result.direction == "maximize"
         assert result.metric == "accuracy"
 
-
 class TestMetricDirection:
     """Tests for METRIC_DIRECTION mapping."""
 
@@ -155,7 +153,6 @@ class TestMetricDirection:
         assert METRIC_DIRECTION["accuracy"] == "maximize"
         assert METRIC_DIRECTION["balanced_accuracy"] == "maximize"
         assert METRIC_DIRECTION["f1"] == "maximize"
-
 
 class TestResolveMetricDirection:
     """Tests for _resolve_metric_direction method."""

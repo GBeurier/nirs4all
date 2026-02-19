@@ -1,5 +1,6 @@
 # Import Necessary Libraries
 import math
+
 import numpy as np
 import tensorflow as tf
 
@@ -12,7 +13,6 @@ def Conv_Block(inputs, model_width, kernel, multiplier, padding='same'):
 
     return x
 
-
 def trans_conv1D(inputs, model_width, multiplier):
     # 1D Transposed Convolutional Block, used instead of UpSampling
     x = tf.keras.layers.Conv1DTranspose(model_width * multiplier, 2, strides=2, padding='same')(inputs)
@@ -20,7 +20,6 @@ def trans_conv1D(inputs, model_width, multiplier):
     x = tf.keras.layers.Activation('relu')(x)
 
     return x
-
 
 def Concat_Block(input1, *argv):
     # Concatenation Block from the KERAS Library
@@ -30,13 +29,11 @@ def Concat_Block(input1, *argv):
 
     return cat
 
-
 def upConv_Block(inputs):
     # 1D UpSampling Block
     up = tf.keras.layers.UpSampling1D(size=2)(inputs)
 
     return up
-
 
 def Feature_Extraction_Block(inputs, model_width, feature_number):
     # Feature Extraction Block for the AutoEncoder Mode
@@ -47,7 +44,6 @@ def Feature_Extraction_Block(inputs, model_width, feature_number):
     latent = tf.keras.layers.Reshape((shape[1], model_width))(latent)
 
     return latent
-
 
 def RI_Block(inputs, filters, multiplier):
     # Redesigned Inception Block
@@ -63,7 +59,6 @@ def RI_Block(inputs, filters, multiplier):
     out = tf.keras.layers.add([branch3x3, branch1x1])
 
     return out
-
 
 def Attention_LSTM_Block(skip_connection, gating_signal, num_filters, multiplier, lstm_multiplier, signal_length):
     # Attention Block
@@ -85,7 +80,6 @@ def Attention_LSTM_Block(skip_connection, gating_signal, num_filters, multiplier
     out = skip_connection * resampler
 
     return out
-
 
 class IBAUNet:
     def __init__(self, length, model_depth, num_channel, model_width, problem_type='Regression', output_nums=1,
@@ -128,7 +122,7 @@ class IBAUNet:
         for i in range(1, (self.model_depth + 1)):
             conv = RI_Block(pool, self.model_width, 2 ** (i - 1))
             pool = tf.keras.layers.MaxPooling1D(pool_size=2)(conv)
-            convs["conv%s" % i] = conv
+            convs[f"conv{i}"] = conv
 
         conv = RI_Block(pool, self.model_width, 2 ** self.model_depth)
         if self.A_E == 1:
@@ -156,7 +150,6 @@ class IBAUNet:
             deconv = Concat_Block(deconv, skip_connection)
             deconv = RI_Block(deconv, self.model_width, 2 ** (self.model_depth - j - 1))
 
-
         # Output
         outputs = []
         if self.problem_type == 'Classification':
@@ -172,7 +165,6 @@ class IBAUNet:
             model = tf.keras.Model(inputs=[inputs], outputs=levels)
 
         return model
-
 
 if __name__ == '__main__':
     # Configurations

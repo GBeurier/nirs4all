@@ -2,20 +2,20 @@
 Unit tests for Phase 4 accelerated generation module.
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.synthesis.accelerated import (
-    AcceleratorBackend,
     AcceleratedArrays,
     AcceleratedGenerator,
-    detect_best_backend,
+    AcceleratorBackend,
     benchmark_backends,
-    is_gpu_available,
-    get_backend_info,
     create_accelerated_arrays,
+    detect_best_backend,
     generate_spectra_batch_accelerated,
     generate_voigt_profiles_accelerated,
+    get_backend_info,
+    is_gpu_available,
 )
 
 
@@ -32,7 +32,6 @@ class TestAcceleratorBackend:
         """Test creating backend from string."""
         backend = AcceleratorBackend("numpy")
         assert backend == AcceleratorBackend.NUMPY
-
 
 class TestBackendDetection:
     """Tests for backend detection utilities."""
@@ -59,7 +58,6 @@ class TestBackendDetection:
         """Test that GPU availability check returns boolean."""
         result = is_gpu_available()
         assert isinstance(result, bool)
-
 
 class TestAcceleratedArrays:
     """Tests for AcceleratedArrays dataclass."""
@@ -97,7 +95,6 @@ class TestAcceleratedArrays:
 
         assert isinstance(np_x, np.ndarray)
         np.testing.assert_array_equal(np_x, [1, 2, 3])
-
 
 class TestAcceleratedGenerator:
     """Tests for AcceleratedGenerator class."""
@@ -223,7 +220,6 @@ class TestAcceleratedGenerator:
         assert spectrum.shape == (500,)
         assert np.all(np.isfinite(spectrum))
 
-
 class TestBenchmarkBackends:
     """Tests for backend benchmarking utility."""
 
@@ -234,7 +230,6 @@ class TestBenchmarkBackends:
         assert isinstance(results, dict)
         assert "numpy" in results
         assert results["numpy"] > 0  # Should have positive timing
-
 
 class TestEdgeCases:
     """Tests for edge cases and error handling."""
@@ -271,7 +266,6 @@ class TestEdgeCases:
         )
 
         assert result.shape == (50, 100)
-
 
 class TestLowLevelFunctions:
     """Tests for low-level accelerated functions."""

@@ -32,34 +32,33 @@ Usage:
     >>> y_pred, predictions = predictor.predict(minimal, dataset)
 """
 
+import contextlib
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.context import (
+    ArtifactProvider,
     DataSelector,
     ExecutionContext,
+    LoaderArtifactProvider,
     PipelineState,
     RuntimeContext,
     StepMetadata,
-    ArtifactProvider,
-    LoaderArtifactProvider,
 )
-from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord, ArtifactType
 from nirs4all.pipeline.storage.artifacts.query_service import (
     ArtifactQueryService,
     ArtifactQuerySpec,
 )
+from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord, ArtifactType
 from nirs4all.pipeline.trace import MinimalPipeline, MinimalPipelineStep
 from nirs4all.pipeline.trace.execution_trace import parse_numeric_fold_key
 
-
 logger = logging.getLogger(__name__)
-
 
 class MinimalArtifactProvider(ArtifactProvider):
     """Artifact provider backed by a MinimalPipeline (V3).
@@ -81,8 +80,8 @@ class MinimalArtifactProvider(ArtifactProvider):
         self,
         minimal_pipeline: MinimalPipeline,
         artifact_loader: Any,  # ArtifactLoader
-        target_sub_index: Optional[int] = None,
-        target_model_name: Optional[str] = None
+        target_sub_index: int | None = None,
+        target_model_name: str | None = None
     ):
         """Initialize minimal artifact provider.
 
@@ -101,9 +100,9 @@ class MinimalArtifactProvider(ArtifactProvider):
         self.artifact_loader = artifact_loader
         self.target_sub_index = target_sub_index
         self.target_model_name = target_model_name
-        self._cache: Dict[str, Any] = {}
+        self._cache: dict[str, Any] = {}
 
-    def _get_record(self, artifact_id: str) -> Optional[ArtifactRecord]:
+    def _get_record(self, artifact_id: str) -> ArtifactRecord | None:
         """Get artifact record from loader.
 
         Args:
@@ -117,7 +116,7 @@ class MinimalArtifactProvider(ArtifactProvider):
         except (KeyError, AttributeError):
             return None
 
-    def _get_branch_from_record(self, artifact_id: str) -> Optional[int]:
+    def _get_branch_from_record(self, artifact_id: str) -> int | None:
         """Get branch index from artifact record.
 
         Uses ArtifactRecord.branch_path for V3 artifacts.
@@ -137,7 +136,7 @@ class MinimalArtifactProvider(ArtifactProvider):
             return record.branch_path[0]
         return None
 
-    def _get_substep_from_record(self, artifact_id: str) -> Optional[int]:
+    def _get_substep_from_record(self, artifact_id: str) -> int | None:
         """Get substep_index from artifact record.
 
         Uses ArtifactRecord.substep_index for V3 artifacts.
@@ -154,7 +153,7 @@ class MinimalArtifactProvider(ArtifactProvider):
         return record.substep_index
 
     def _derive_operator_name(
-        self, obj: Any, artifact_id: str, step_index: Optional[int] = None
+        self, obj: Any, artifact_id: str, step_index: int | None = None
     ) -> str:
         """Derive operator name from object class and artifact metadata.
 
@@ -193,8 +192,8 @@ class MinimalArtifactProvider(ArtifactProvider):
     def get_artifact(
         self,
         step_index: int,
-        fold_id: Optional[int | str] = None
-    ) -> Optional[Any]:
+        fold_id: int | str | None = None
+    ) -> Any | None:
         """Get a single artifact for a step.
 
         Args:
@@ -227,11 +226,11 @@ class MinimalArtifactProvider(ArtifactProvider):
     def get_artifacts_for_step(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None,
-        branch_id: Optional[int] = None,
-        source_index: Optional[int] = None,
-        substep_index: Optional[int] = None
-    ) -> List[Tuple[str, Any]]:
+        branch_path: list[int] | None = None,
+        branch_id: int | None = None,
+        source_index: int | None = None,
+        substep_index: int | None = None
+    ) -> list[tuple[str, Any]]:
         """Get all artifacts for a step (V3).
 
         Filters artifacts by branch using the branch_path from ArtifactRecord.
@@ -317,8 +316,8 @@ class MinimalArtifactProvider(ArtifactProvider):
     def get_fold_artifacts(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None
-    ) -> List[Tuple[int, Any]]:
+        branch_path: list[int] | None = None
+    ) -> list[tuple[int, Any]]:
         """Get all fold-specific artifacts for a step.
 
         Filters by target_sub_index when set (for subpipelines with multiple models).
@@ -367,10 +366,8 @@ class MinimalArtifactProvider(ArtifactProvider):
                 if ':' in artifact_id:
                     parts = artifact_id.rsplit(':', 1)
                     if len(parts) == 2:
-                        try:
+                        with contextlib.suppress(ValueError):
                             fold_id = int(parts[1])
-                        except ValueError:
-                            pass
 
                 if fold_id is None:
                     continue
@@ -405,7 +402,7 @@ class MinimalArtifactProvider(ArtifactProvider):
         step_artifacts = self.minimal_pipeline.get_artifacts_for_step(step_index)
         return step_artifacts is not None and len(step_artifacts.artifact_ids) > 0
 
-    def get_fold_weights(self) -> Dict[int, float]:
+    def get_fold_weights(self) -> dict[int, float]:
         """Get fold weights for CV ensemble averaging.
 
         Returns:
@@ -413,7 +410,7 @@ class MinimalArtifactProvider(ArtifactProvider):
         """
         return dict(self.minimal_pipeline.fold_weights or {})
 
-    def _load_artifact(self, artifact_id: str) -> Optional[Any]:
+    def _load_artifact(self, artifact_id: str) -> Any | None:
         """Load an artifact by ID with caching.
 
         Args:
@@ -432,7 +429,6 @@ class MinimalArtifactProvider(ArtifactProvider):
         except (KeyError, FileNotFoundError) as e:
             logger.warning(f"Failed to load artifact {artifact_id}: {e}")
             return None
-
 
 class MinimalPredictor:
     """Execute minimal pipeline for prediction.
@@ -460,7 +456,7 @@ class MinimalPredictor:
     def __init__(
         self,
         artifact_loader: Any,  # ArtifactLoader
-        run_dir: Union[str, Path],
+        run_dir: str | Path,
         verbose: int = 0,
         **_kwargs: Any,
     ):
@@ -476,7 +472,7 @@ class MinimalPredictor:
         self.workspace_path = Path(run_dir)
         self.verbose = verbose
 
-    def _get_substep_from_artifact(self, artifact_id: str) -> Optional[int]:
+    def _get_substep_from_artifact(self, artifact_id: str) -> int | None:
         """Get substep_index from artifact record (V3).
 
         Args:
@@ -497,8 +493,8 @@ class MinimalPredictor:
         self,
         minimal_pipeline: MinimalPipeline,
         dataset: SpectroDataset,
-        target_model: Optional[Dict[str, Any]] = None
-    ) -> Tuple[np.ndarray, Predictions]:
+        target_model: dict[str, Any] | None = None
+    ) -> tuple[np.ndarray, Predictions]:
         """Execute minimal pipeline and return predictions.
 
         Runs only the steps in the minimal pipeline, using pre-loaded
@@ -588,13 +584,7 @@ class MinimalPredictor:
         # Get y_pred from predictions
         if predictions.num_predictions > 0:
             # Filter by target model if specified
-            if target_model:
-                candidates = predictions.filter_predictions(**{
-                    k: v for k, v in target_model.items()
-                    if k in ("model_name", "step_idx", "fold_id", "branch_id")
-                })
-            else:
-                candidates = predictions.to_dicts()
+            candidates = predictions.filter_predictions(**{k: v for k, v in target_model.items() if k in ("model_name", "step_idx", "fold_id", "branch_id")}) if target_model else predictions.to_dicts()
 
             # Get non-empty predictions
             non_empty = [p for p in candidates if len(p.get("y_pred", [])) > 0]
@@ -611,7 +601,7 @@ class MinimalPredictor:
         minimal_pipeline: MinimalPipeline,
         dataset: SpectroDataset,
         fold_strategy: str = "weighted_average"
-    ) -> Tuple[np.ndarray, Predictions]:
+    ) -> tuple[np.ndarray, Predictions]:
         """Execute minimal pipeline with fold ensemble averaging.
 
         For cross-validation models, runs prediction with each fold model
@@ -632,7 +622,7 @@ class MinimalPredictor:
             return self.predict(minimal_pipeline, dataset)
 
         # Get predictions for each fold
-        fold_predictions: Dict[int, np.ndarray] = {}
+        fold_predictions: dict[int, np.ndarray] = {}
 
         for fold_id in sorted(fold_weights.keys()):
             target_model = {"fold_id": fold_id}
@@ -671,7 +661,7 @@ class MinimalPredictor:
     def validate_minimal_pipeline(
         self,
         minimal_pipeline: MinimalPipeline
-    ) -> Tuple[bool, List[str]]:
+    ) -> tuple[bool, list[str]]:
         """Validate that minimal pipeline can be executed.
 
         Checks that:

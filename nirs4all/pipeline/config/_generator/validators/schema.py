@@ -16,21 +16,22 @@ Functions:
     validate_expanded_configs: Validate a list of expanded configs
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Optional, Union
 
 from ..keywords import (
-    OR_KEYWORD,
-    RANGE_KEYWORD,
-    COUNT_KEYWORD,
-    PICK_KEYWORD,
-    ARRANGE_KEYWORD,
-    THEN_PICK_KEYWORD,
-    THEN_ARRANGE_KEYWORD,
     ALL_KEYWORDS,
+    ARRANGE_KEYWORD,
+    COUNT_KEYWORD,
+    OR_KEYWORD,
+    PICK_KEYWORD,
     PURE_OR_KEYS,
     PURE_RANGE_KEYS,
+    RANGE_KEYWORD,
+    THEN_ARRANGE_KEYWORD,
+    THEN_PICK_KEYWORD,
 )
 
 
@@ -40,7 +41,6 @@ class ValidationSeverity(Enum):
     ERROR = "error"  # Critical issue that will cause failure
     WARNING = "warning"  # Potential issue that may cause unexpected behavior
     INFO = "info"  # Informational, non-blocking suggestion
-
 
 @dataclass
 class ValidationError(Exception):
@@ -58,7 +58,7 @@ class ValidationError(Exception):
     path: str = ""
     severity: ValidationSeverity = ValidationSeverity.ERROR
     code: str = ""
-    suggestion: Optional[str] = None
+    suggestion: str | None = None
 
     def __str__(self) -> str:
         """Format error message with path."""
@@ -70,7 +70,6 @@ class ValidationError(Exception):
             f"ValidationError(message={self.message!r}, path={self.path!r}, "
             f"severity={self.severity}, code={self.code!r})"
         )
-
 
 @dataclass
 class ValidationResult:
@@ -86,9 +85,9 @@ class ValidationResult:
     """
 
     is_valid: bool = True
-    errors: List[ValidationError] = field(default_factory=list)
-    warnings: List[ValidationError] = field(default_factory=list)
-    info: List[ValidationError] = field(default_factory=list)
+    errors: list[ValidationError] = field(default_factory=list)
+    warnings: list[ValidationError] = field(default_factory=list)
+    info: list[ValidationError] = field(default_factory=list)
     node_count: int = 0
     generator_count: int = 0
 
@@ -114,10 +113,7 @@ class ValidationResult:
 
     def __str__(self) -> str:
         """Format validation result summary."""
-        if self.is_valid:
-            status = "VALID"
-        else:
-            status = f"INVALID ({len(self.errors)} errors)"
+        status = "VALID" if self.is_valid else f"INVALID ({len(self.errors)} errors)"
 
         parts = [f"ValidationResult: {status}"]
         if self.warnings:
@@ -125,7 +121,6 @@ class ValidationResult:
         parts.append(f"{self.node_count} nodes, {self.generator_count} generators")
 
         return " | ".join(parts)
-
 
 # =============================================================================
 # Specification Validation (before expansion)
@@ -135,7 +130,7 @@ def validate_spec(
     spec: Any,
     path: str = "root",
     strict: bool = False,
-    custom_validators: Optional[List[Callable]] = None
+    custom_validators: list[Callable] | None = None
 ) -> ValidationResult:
     """Validate a generator specification before expansion.
 
@@ -200,8 +195,7 @@ def validate_spec(
 
     return result
 
-
-def _validate_dict_spec(spec: Dict[str, Any], path: str, strict: bool) -> ValidationResult:
+def _validate_dict_spec(spec: dict[str, Any], path: str, strict: bool) -> ValidationResult:
     """Validate a dictionary specification node.
 
     Args:
@@ -258,8 +252,7 @@ def _validate_dict_spec(spec: Dict[str, Any], path: str, strict: bool) -> Valida
 
     return result
 
-
-def _validate_or_spec(spec: Dict[str, Any], path: str, strict: bool) -> ValidationResult:
+def _validate_or_spec(spec: dict[str, Any], path: str, strict: bool) -> ValidationResult:
     """Validate an _or_ specification node.
 
     Args:
@@ -299,13 +292,12 @@ def _validate_or_spec(spec: Dict[str, Any], path: str, strict: bool) -> Validati
 
     # Validate then_pick/then_arrange
     for key in (THEN_PICK_KEYWORD, THEN_ARRANGE_KEYWORD):
-        if key in spec:
-            if PICK_KEYWORD not in spec and ARRANGE_KEYWORD not in spec:
-                result.add_error(ValidationError(
-                    message=f"{key} requires pick or arrange to be specified",
-                    path=f"{path}.{key}",
-                    code="ORPHANED_THEN_KEYWORD"
-                ))
+        if key in spec and PICK_KEYWORD not in spec and ARRANGE_KEYWORD not in spec:
+            result.add_error(ValidationError(
+                message=f"{key} requires pick or arrange to be specified",
+                path=f"{path}.{key}",
+                code="ORPHANED_THEN_KEYWORD"
+            ))
 
     # Validate count
     if COUNT_KEYWORD in spec:
@@ -353,8 +345,7 @@ def _validate_or_spec(spec: Dict[str, Any], path: str, strict: bool) -> Validati
 
     return result
 
-
-def _validate_range_spec(spec: Dict[str, Any], path: str, strict: bool) -> ValidationResult:
+def _validate_range_spec(spec: dict[str, Any], path: str, strict: bool) -> ValidationResult:
     """Validate a _range_ specification node.
 
     Args:
@@ -461,7 +452,6 @@ def _validate_range_spec(spec: Dict[str, Any], path: str, strict: bool) -> Valid
 
     return result
 
-
 def _validate_size_spec(
     spec: Any,
     key_name: str,
@@ -551,16 +541,15 @@ def _validate_size_spec(
 
     return result
 
-
 # =============================================================================
 # Configuration Validation (after expansion)
 # =============================================================================
 
 def validate_config(
     config: Any,
-    schema: Optional[Dict[str, Any]] = None,
-    required_keys: Optional[Set[str]] = None,
-    forbidden_keys: Optional[Set[str]] = None,
+    schema: dict[str, Any] | None = None,
+    required_keys: set[str] | None = None,
+    forbidden_keys: set[str] | None = None,
     path: str = "root"
 ) -> ValidationResult:
     """Validate an expanded configuration.
@@ -636,12 +625,11 @@ def validate_config(
 
     return result
 
-
 def validate_expanded_configs(
-    configs: List[Any],
-    schema: Optional[Dict[str, Any]] = None,
+    configs: list[Any],
+    schema: dict[str, Any] | None = None,
     min_count: int = 0,
-    max_count: Optional[int] = None
+    max_count: int | None = None
 ) -> ValidationResult:
     """Validate a list of expanded configurations.
 
@@ -686,10 +674,9 @@ def validate_expanded_configs(
 
     return result
 
-
 def _validate_against_schema(
-    config: Dict[str, Any],
-    schema: Dict[str, Any],
+    config: dict[str, Any],
+    schema: dict[str, Any],
     path: str
 ) -> ValidationResult:
     """Validate config against schema definition.
@@ -712,14 +699,13 @@ def _validate_against_schema(
 
     # Type check
     expected_type = schema.get("type")
-    if expected_type:
-        if not _check_type(config, expected_type):
-            result.add_error(ValidationError(
-                message=f"Type mismatch: expected {expected_type}, got {type(config).__name__}",
-                path=path,
-                code="SCHEMA_TYPE_MISMATCH"
-            ))
-            return result  # Don't continue if type is wrong
+    if expected_type and not _check_type(config, expected_type):
+        result.add_error(ValidationError(
+            message=f"Type mismatch: expected {expected_type}, got {type(config).__name__}",
+            path=path,
+            code="SCHEMA_TYPE_MISMATCH"
+        ))
+        return result  # Don't continue if type is wrong
 
     # Required keys
     required = schema.get("required", [])
@@ -752,7 +738,6 @@ def _validate_against_schema(
             result.merge(item_result)
 
     return result
-
 
 def _check_type(value: Any, expected: str) -> bool:
     """Check if value matches expected type string.

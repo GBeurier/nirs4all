@@ -35,21 +35,15 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative,
-    SecondDerivative,
-    SavitzkyGolay,
-    Detrend
-)
+from nirs4all.operators.transforms import Detrend, FirstDerivative, SavitzkyGolay, SecondDerivative
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='D03 PCA Geometry Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -69,7 +63,6 @@ PreprocPCAEvaluator measures these effects using PCA:
   - Spread in PCA space (sample separation)
   - Eigenvalue spectrum analysis
 """)
-
 
 # =============================================================================
 # Section 1: PreprocPCAEvaluator Basics
@@ -102,7 +95,6 @@ try:
 except ImportError:
     print("PreprocPCAEvaluator not available in this installation")
     print("Demonstrating concepts manually...")
-
 
 # =============================================================================
 # Section 2: Manual PCA Analysis
@@ -137,10 +129,7 @@ preprocessings = {
 pca_results = {}
 for name, preproc in preprocessings.items():
     # Apply preprocessing
-    if preproc is None:
-        X_pp = X.copy()
-    else:
-        X_pp = preproc.fit_transform(X)
+    X_pp = X.copy() if preproc is None else preproc.fit_transform(X)
 
     # Fit PCA
     pca = PCA(n_components=10)
@@ -160,7 +149,6 @@ print(f"{'Preprocessing':<12} {'Var Explained':<15} {'PC1 Spread':<12} {'PC2 Spr
 print("-" * 50)
 for name, metrics in pca_results.items():
     print(f"{name:<12} {metrics['var_explained']:<15.3f} {metrics['spread_pc1']:<12.3f} {metrics['spread_pc2']:<12.3f}")
-
 
 # =============================================================================
 # Section 3: Variance Explained Analysis
@@ -183,7 +171,6 @@ best_var = max(pca_results.items(), key=lambda x: x[1]['var_explained'])
 print(f"\n🏆 Highest variance concentration: {best_var[0]}")
 print(f"   Top 3 PCs explain: {best_var[1]['var_explained']*100:.1f}% of variance")
 
-
 # =============================================================================
 # Section 4: PCA Spread Analysis
 # =============================================================================
@@ -204,7 +191,6 @@ by normalizing samples, which can be good or bad.
 print("\n📊 PC1 vs PC2 Spread Comparison:")
 for name, metrics in sorted(pca_results.items(), key=lambda x: -x[1]['spread_pc1']):
     print(f"  {name:<12}: PC1={metrics['spread_pc1']:.2f}, PC2={metrics['spread_pc2']:.2f}")
-
 
 # =============================================================================
 # Section 5: Visualization of PCA Effects
@@ -236,7 +222,6 @@ if args.plots or args.show:
     plt.savefig('pca_geometry.png', dpi=100)
     print("Saved: pca_geometry.png")
 
-
 # =============================================================================
 # Section 6: Eigenvalue Spectrum
 # =============================================================================
@@ -255,10 +240,7 @@ Compare preprocessing effects on spectrum.
 # Compute full eigenvalue spectra
 eigenvalue_spectra = {}
 for name, preproc in preprocessings.items():
-    if preproc is None:
-        X_pp = X.copy()
-    else:
-        X_pp = preproc.fit_transform(X)
+    X_pp = X.copy() if preproc is None else preproc.fit_transform(X)
 
     pca_full = PCA()
     pca_full.fit(X_pp)
@@ -269,7 +251,6 @@ print("-" * 60)
 for name, spectrum in eigenvalue_spectra.items():
     top5 = ', '.join([f"{v:.3f}" for v in spectrum[:5]])
     print(f"  {name:<12}: {top5}")
-
 
 # =============================================================================
 # Section 7: Preprocessing Recommendations
@@ -298,7 +279,6 @@ print("""
 └─────────────────────┴─────────────────────────────────────┘
 """)
 
-
 # =============================================================================
 # Section 8: Integration with Pipeline
 # =============================================================================
@@ -321,7 +301,6 @@ Use PCA analysis to select preprocessing:
         PLSRegression(n_components=10)
     ]
 """)
-
 
 # =============================================================================
 # Summary

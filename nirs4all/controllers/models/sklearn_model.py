@@ -10,22 +10,23 @@ This controller handles sklearn models with support for:
 Matches any sklearn model object (estimators with fit/predict methods).
 """
 
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
-import inspect
-import numpy as np
+import contextlib
 import copy
-from sklearn.base import BaseEstimator, ClassifierMixin
-from sklearn.metrics import mean_squared_error
-from sklearn.base import is_classifier, is_regressor
+import inspect
+from typing import TYPE_CHECKING, Any, Optional
 
-from ..models.base_model import BaseModelController
+import numpy as np
+from sklearn.base import BaseEstimator, ClassifierMixin, is_classifier, is_regressor
+from sklearn.metrics import mean_squared_error
+
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
-from .utilities import ModelControllerUtils as ModelUtils
+
+from ..models.base_model import BaseModelController
 from .factory import ModelFactory
+from .utilities import ModelControllerUtils as ModelUtils
 
 logger = get_logger(__name__)
-
 
 def _reset_gpu_memory() -> bool:
     """Reset GPU memory using PyTorch CUDA.
@@ -47,10 +48,10 @@ def _reset_gpu_memory() -> bool:
     return False
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
-    from nirs4all.pipeline.config.context import ExecutionContext
-
+    from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+    from nirs4all.pipeline.runner import PipelineRunner
+    from nirs4all.pipeline.steps.parser import ParsedStep
 
 @register_controller
 class SklearnModelController(BaseModelController):
@@ -110,9 +111,7 @@ class SklearnModelController(BaseModelController):
                  if hasattr(model, 'predict'):
                      return True
                  # Also check the operator if available (handles dict steps where operator is instantiated)
-                 if operator is not None and hasattr(operator, 'predict'):
-                     return True
-                 return False
+                 return bool(operator is not None and hasattr(operator, 'predict'))
              # If it's explicit {"model": ...}, we accept it
              return True
 
@@ -121,12 +120,9 @@ class SklearnModelController(BaseModelController):
             return True
 
         # 4. Accept generic objects with fit/predict methods (Duck Typing)
-        if hasattr(model, 'fit') and hasattr(model, 'predict'):
-            return True
+        return bool(hasattr(model, 'fit') and hasattr(model, 'predict'))
 
-        return False
-
-    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> BaseEstimator:
+    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: dict[str, Any], force_params: dict[str, Any] | None = None) -> BaseEstimator:
         """Create sklearn model instance from configuration.
 
         Handles multiple configuration formats:
@@ -200,8 +196,8 @@ class SklearnModelController(BaseModelController):
         model: BaseEstimator,
         X_train: np.ndarray,
         y_train: np.ndarray,
-        X_val: Optional[np.ndarray] = None,
-        y_val: Optional[np.ndarray] = None,
+        X_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
         **kwargs
     ) -> BaseEstimator:
         """Train sklearn model with score tracking.
@@ -270,10 +266,7 @@ class SklearnModelController(BaseModelController):
 
         # Fit the model
         # Handle y shape: sklearn expects (n_samples,) for single-output, (n_samples, n_outputs) for multi-output
-        if y_train.ndim == 2 and y_train.shape[1] == 1:
-            y_fit = y_train.ravel()  # Single output: flatten to 1D
-        else:
-            y_fit = y_train  # Multi-output: keep as 2D
+        y_fit = y_train.ravel() if y_train.ndim == 2 and y_train.shape[1] == 1 else y_train
 
         try:
             # Pass validation data to models that accept it (e.g. AOMPLSRegressor)
@@ -361,7 +354,7 @@ class SklearnModelController(BaseModelController):
 
         return predictions
 
-    def _predict_proba_model(self, model: BaseEstimator, X: np.ndarray) -> Optional[np.ndarray]:
+    def _predict_proba_model(self, model: BaseEstimator, X: np.ndarray) -> np.ndarray | None:
         """Get class probabilities for sklearn classification models.
 
         Supports all sklearn classifiers with predict_proba, plus XGBoost,
@@ -395,7 +388,7 @@ class SklearnModelController(BaseModelController):
         X: np.ndarray,
         y: np.ndarray,
         context: 'ExecutionContext'
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Prepare data for sklearn (ensure 2D X and 2D y for consistency).
 
         Reshapes input data to ensure proper dimensionality for sklearn models:
@@ -435,7 +428,7 @@ class SklearnModelController(BaseModelController):
 
         return X, y
 
-    def _evaluate_model(self, model: BaseEstimator, X_val: np.ndarray, y_val: np.ndarray, metric: Optional[str] = None, direction: str = "minimize") -> float:
+    def _evaluate_model(self, model: BaseEstimator, X_val: np.ndarray, y_val: np.ndarray, metric: str | None = None, direction: str = "minimize") -> float:
         """Evaluate sklearn model on validation data using direct prediction.
 
         When ``metric`` is provided, uses ``nirs4all.core.metrics.eval()`` for
@@ -530,8 +523,8 @@ class SklearnModelController(BaseModelController):
         try:
             from sklearn.base import clone as sklearn_clone
             return sklearn_clone(model)
-        except ImportError:
-            raise RuntimeError("sklearn is required to clone sklearn models")
+        except ImportError as e:
+            raise RuntimeError("sklearn is required to clone sklearn models") from e
 
     def _apply_warm_start(
         self,
@@ -558,10 +551,8 @@ class SklearnModelController(BaseModelController):
             # Copy fitted attributes from source_model
             for attr in dir(source_model):
                 if attr.endswith('_') and not attr.startswith('__'):
-                    try:
+                    with contextlib.suppress(AttributeError, TypeError):
                         setattr(model, attr, getattr(source_model, attr))
-                    except (AttributeError, TypeError):
-                        pass
             return model
         return model
 
@@ -573,9 +564,9 @@ class SklearnModelController(BaseModelController):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
+        loaded_binaries: list[tuple[str, bytes]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple['ExecutionContext', list[tuple[str, bytes]]]:
         """Execute sklearn model controller with score management.
 
         Main entry point for sklearn model execution in the pipeline. Sets the
@@ -607,5 +598,4 @@ class SklearnModelController(BaseModelController):
 
         # Call parent execute method
         return super().execute(step_info, dataset, context, runtime_context, source, mode, loaded_binaries, prediction_store)
-
 

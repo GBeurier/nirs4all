@@ -17,30 +17,29 @@ The core module handles:
 
 from collections.abc import Mapping
 from itertools import product
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
-from .strategies import get_strategy
-from .strategies.base import ExpandedResult
 from .keywords import (
-    OR_KEYWORD,
-    COUNT_KEYWORD,
-    PICK_KEYWORD,
     ARRANGE_KEYWORD,
-    THEN_PICK_KEYWORD,
-    THEN_ARRANGE_KEYWORD,
+    COUNT_KEYWORD,
+    OR_KEYWORD,
+    PICK_KEYWORD,
     RANGE_KEYWORD,
+    THEN_ARRANGE_KEYWORD,
+    THEN_PICK_KEYWORD,
     has_or_keyword,
 )
+from .strategies import get_strategy
+from .strategies.base import ExpandedResult
 from .utils.sampling import sample_with_seed
 
 # Type alias
-GeneratorNode = Union[Dict[str, Any], List[Any], str, int, float, bool, None]
+GeneratorNode = dict[str, Any] | list[Any] | str | int | float | bool | None
 
 # Type for expansion with choices: list of (config, choices) tuples
-ExpandedWithChoices = List[tuple]  # List[Tuple[Any, List[Dict[str, Any]]]]
+ExpandedWithChoices = list[tuple]  # List[Tuple[Any, List[Dict[str, Any]]]]
 
-
-def expand_spec(node: GeneratorNode, seed: Optional[int] = None) -> ExpandedResult:
+def expand_spec(node: GeneratorNode, seed: int | None = None) -> ExpandedResult:
     """Expand a specification node to all possible combinations.
 
     This is the main entry point for configuration expansion. It handles
@@ -69,11 +68,10 @@ def expand_spec(node: GeneratorNode, seed: Optional[int] = None) -> ExpandedResu
     """
     return _expand_internal(node, seed)
 
-
 def expand_spec_with_choices(
     node: GeneratorNode,
-    seed: Optional[int] = None
-) -> List[tuple]:
+    seed: int | None = None
+) -> list[tuple]:
     """Expand a specification node and track generator choices.
 
     Like expand_spec, but also returns the choices made at each generator
@@ -102,8 +100,7 @@ def expand_spec_with_choices(
     """
     return _expand_with_choices_internal(node, seed)
 
-
-def _expand_internal(node: GeneratorNode, seed: Optional[int] = None) -> ExpandedResult:
+def _expand_internal(node: GeneratorNode, seed: int | None = None) -> ExpandedResult:
     """Internal recursive expansion with seed propagation.
 
     Args:
@@ -143,8 +140,7 @@ def _expand_internal(node: GeneratorNode, seed: Optional[int] = None) -> Expande
     # Normal dict: Cartesian product over key values
     return _expand_dict(node, seed)
 
-
-def _expand_list(node: list, seed: Optional[int]) -> ExpandedResult:
+def _expand_list(node: list, seed: int | None) -> ExpandedResult:
     """Expand a list by taking Cartesian product of elements.
 
     Args:
@@ -178,8 +174,7 @@ def _expand_list(node: list, seed: Optional[int]) -> ExpandedResult:
         results.append(list(combo))
     return results
 
-
-def _expand_mixed_or_node(node: Dict[str, Any], seed: Optional[int]) -> ExpandedResult:
+def _expand_mixed_or_node(node: dict[str, Any], seed: int | None) -> ExpandedResult:
     """Expand a dict that has _or_ mixed with other keys.
 
     The strategy is:
@@ -223,8 +218,7 @@ def _expand_mixed_or_node(node: Dict[str, Any], seed: Optional[int]) -> Expanded
 
     return results
 
-
-def _expand_dict(node: Dict[str, Any], seed: Optional[int]) -> ExpandedResult:
+def _expand_dict(node: dict[str, Any], seed: int | None) -> ExpandedResult:
     """Expand a regular dict by taking Cartesian product of values.
 
     Args:
@@ -251,13 +245,12 @@ def _expand_dict(node: Dict[str, Any], seed: Optional[int]) -> ExpandedResult:
     # Take Cartesian product over values
     results = []
     for combo in product(*value_options):
-        result_dict = dict(zip(keys, combo))
+        result_dict = dict(zip(keys, combo, strict=False))
         results.append(result_dict)
 
     return results
 
-
-def _expand_value(v: Any, seed: Optional[int]) -> ExpandedResult:
+def _expand_value(v: Any, seed: int | None) -> ExpandedResult:
     """Expand a value in a dict position.
 
     Handles nested generator nodes in value positions.
@@ -279,7 +272,6 @@ def _expand_value(v: Any, seed: Optional[int]) -> ExpandedResult:
         # Scalar value
         return [v]
 
-
 # =============================================================================
 # Expansion with Choice Tracking
 # =============================================================================
@@ -287,11 +279,10 @@ def _expand_value(v: Any, seed: Optional[int]) -> ExpandedResult:
 # Type for a single result with its choices
 ResultWithChoices = tuple  # Tuple[Any, List[Dict[str, Any]]]
 
-
 def _expand_with_choices_internal(
     node: GeneratorNode,
-    seed: Optional[int] = None
-) -> List[ResultWithChoices]:
+    seed: int | None = None
+) -> list[ResultWithChoices]:
     """Internal recursive expansion that tracks generator choices.
 
     Args:
@@ -321,12 +312,11 @@ def _expand_with_choices_internal(
     # Normal dict: Cartesian product over key values with merged choices
     return _expand_dict_with_choices(node, seed)
 
-
 def _expand_strategy_with_choices(
-    node: Dict[str, Any],
+    node: dict[str, Any],
     strategy: Any,
-    seed: Optional[int]
-) -> List[ResultWithChoices]:
+    seed: int | None
+) -> list[ResultWithChoices]:
     """Expand a generator node using its strategy and track the choice.
 
     Args:
@@ -356,8 +346,7 @@ def _expand_strategy_with_choices(
 
     return results
 
-
-def _get_generator_keyword(node: Dict[str, Any]) -> str:
+def _get_generator_keyword(node: dict[str, Any]) -> str:
     """Get the primary generator keyword from a node.
 
     Args:
@@ -366,11 +355,7 @@ def _get_generator_keyword(node: Dict[str, Any]) -> str:
     Returns:
         The keyword string (e.g., "_or_", "_range_").
     """
-    from .keywords import (
-        OR_KEYWORD, RANGE_KEYWORD, LOG_RANGE_KEYWORD,
-        GRID_KEYWORD, ZIP_KEYWORD, CHAIN_KEYWORD,
-        SAMPLE_KEYWORD, CARTESIAN_KEYWORD
-    )
+    from .keywords import CARTESIAN_KEYWORD, CHAIN_KEYWORD, GRID_KEYWORD, LOG_RANGE_KEYWORD, RANGE_KEYWORD, SAMPLE_KEYWORD, ZIP_KEYWORD
 
     keyword_priority = [
         OR_KEYWORD, RANGE_KEYWORD, LOG_RANGE_KEYWORD,
@@ -384,11 +369,10 @@ def _get_generator_keyword(node: Dict[str, Any]) -> str:
 
     return "_unknown_"
 
-
 def _expand_list_with_choices(
     node: list,
-    seed: Optional[int]
-) -> List[ResultWithChoices]:
+    seed: int | None
+) -> list[ResultWithChoices]:
     """Expand a list with choice tracking.
 
     Args:
@@ -424,11 +408,10 @@ def _expand_list_with_choices(
 
     return results
 
-
 def _expand_mixed_or_with_choices(
-    node: Dict[str, Any],
-    seed: Optional[int]
-) -> List[ResultWithChoices]:
+    node: dict[str, Any],
+    seed: int | None
+) -> list[ResultWithChoices]:
     """Expand a mixed OR node with choice tracking.
 
     Args:
@@ -465,11 +448,10 @@ def _expand_mixed_or_with_choices(
 
     return results
 
-
 def _expand_dict_with_choices(
-    node: Dict[str, Any],
-    seed: Optional[int]
-) -> List[ResultWithChoices]:
+    node: dict[str, Any],
+    seed: int | None
+) -> list[ResultWithChoices]:
     """Expand a dict with choice tracking.
 
     Args:
@@ -494,7 +476,7 @@ def _expand_dict_with_choices(
     for combo in product(*value_options):
         # combo is tuple of (value, choices) pairs
         values = [item[0] for item in combo]
-        result_dict = dict(zip(keys, values))
+        result_dict = dict(zip(keys, values, strict=False))
         # Merge all choices in order
         merged_choices = []
         for item in combo:
@@ -503,11 +485,10 @@ def _expand_dict_with_choices(
 
     return results
 
-
 def _expand_value_with_choices(
     v: Any,
-    seed: Optional[int]
-) -> List[ResultWithChoices]:
+    seed: int | None
+) -> list[ResultWithChoices]:
     """Expand a value in a dict position with choice tracking.
 
     Args:
@@ -517,19 +498,15 @@ def _expand_value_with_choices(
     Returns:
         List of (value, choices) tuples.
     """
-    if isinstance(v, Mapping):
-        return _expand_with_choices_internal(v, seed)
-    elif isinstance(v, list):
+    if isinstance(v, (Mapping, list)):
         return _expand_with_choices_internal(v, seed)
     else:
         # Scalar value - no choices
         return [(v, [])]
 
-
 # =============================================================================
 # Counting Functions
 # =============================================================================
-
 
 def count_combinations(node: GeneratorNode) -> int:
     """Calculate total number of combinations without generating them.
@@ -552,7 +529,6 @@ def count_combinations(node: GeneratorNode) -> int:
         10
     """
     return _count_internal(node)
-
 
 def _count_internal(node: GeneratorNode) -> int:
     """Internal recursive counting.
@@ -588,8 +564,7 @@ def _count_internal(node: GeneratorNode) -> int:
     # Normal dict: product over key values
     return _count_dict(node)
 
-
-def _count_mixed_or_node(node: Dict[str, Any]) -> int:
+def _count_mixed_or_node(node: dict[str, Any]) -> int:
     """Count mixed OR node.
 
     Args:
@@ -610,8 +585,7 @@ def _count_mixed_or_node(node: Dict[str, Any]) -> int:
 
     return base_count * choice_count
 
-
-def _count_dict(node: Dict[str, Any]) -> int:
+def _count_dict(node: dict[str, Any]) -> int:
     """Count regular dict.
 
     Args:
@@ -628,7 +602,6 @@ def _count_dict(node: Dict[str, Any]) -> int:
         total *= _count_value(v)
     return total
 
-
 def _count_value(v: Any) -> int:
     """Count value-position combinations.
 
@@ -638,9 +611,7 @@ def _count_value(v: Any) -> int:
     Returns:
         Number of variants.
     """
-    if isinstance(v, Mapping):
-        return _count_internal(v)
-    elif isinstance(v, list):
+    if isinstance(v, (Mapping, list)):
         return _count_internal(v)
     else:
         return 1

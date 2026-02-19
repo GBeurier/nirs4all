@@ -15,46 +15,44 @@ Example:
     >>> print(f"Top features: {result.top_features[:5]}")
 """
 
-from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
-from nirs4all.pipeline import PipelineRunner
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.pipeline import PipelineRunner
 
 from .result import ExplainResult
 from .session import Session
 
-
 # Type aliases for clarity
-ModelSpec = Union[
-    Dict[str, Any],               # Prediction dict from previous run
-    str,                          # Path to bundle (.n4a) or config
-    Path                          # Path to bundle or config
-]
+ModelSpec = (
+    dict[str, Any]               # Prediction dict from previous run
+    | str                          # Path to bundle (.n4a) or config
+    | Path                          # Path to bundle or config
+)
 
-DataSpec = Union[
-    str,                          # Path to data folder
-    Path,                         # Path to data folder
-    np.ndarray,                   # X array
-    Dict[str, Any],               # Dict with X key
-    SpectroDataset,               # Direct SpectroDataset instance
-    DatasetConfigs                # Backward compat
-]
-
+DataSpec = (
+    str                          # Path to data folder
+    | Path                         # Path to data folder
+    | np.ndarray                   # X array
+    | dict[str, Any]               # Dict with X key
+    | SpectroDataset               # Direct SpectroDataset instance
+    | DatasetConfigs                # Backward compat
+)
 
 def explain(
     model: ModelSpec,
     data: DataSpec,
     *,
     name: str = "explain_dataset",
-    session: Optional[Session] = None,
+    session: Session | None = None,
     verbose: int = 1,
     plots_visible: bool = True,
     # SHAP-specific parameters
-    n_samples: Optional[int] = None,
+    n_samples: int | None = None,
     explainer_type: str = "auto",
     **shap_params: Any
 ) -> ExplainResult:
@@ -172,14 +170,7 @@ def explain(
         full_shap_params["explainer_type"] = explainer_type
 
     # Use session runner if provided, otherwise create new
-    if session is not None:
-        runner = session.runner
-    else:
-        runner = PipelineRunner(
-            mode="explain",
-            verbose=verbose,
-            plots_visible=plots_visible
-        )
+    runner = session.runner if session is not None else PipelineRunner(mode="explain", verbose=verbose, plots_visible=plots_visible)
 
     # Convert Path to str for compatibility with type hints
     model_arg = str(model) if isinstance(model, Path) else model

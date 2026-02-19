@@ -15,13 +15,14 @@ Usage:
     python D04_parallel_branches.py
 """
 
-import nirs4all
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.linear_model import Ridge
 from sklearn.ensemble import RandomForestRegressor
-from nirs4all.operators.transforms import StandardNormalVariate, MultiplicativeScatterCorrection, SavitzkyGolay
+from sklearn.linear_model import Ridge
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+
+import nirs4all
 from nirs4all.operators.splitters.splitters import SPXYGFold
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection, SavitzkyGolay, StandardNormalVariate
 
 # =============================================================================
 # Example 1: Basic Parallel Execution

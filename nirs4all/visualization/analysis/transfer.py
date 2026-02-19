@@ -1,18 +1,19 @@
 # pip install numpy pandas scipy scikit-learn matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
 from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
-from matplotlib.patches import FancyBboxPatch
 import matplotlib.cm as cm
-from sklearn.decomposition import PCA
-from sklearn.neighbors import NearestNeighbors
+from matplotlib.patches import FancyBboxPatch
 from scipy.linalg import subspace_angles
 from scipy.spatial import procrustes
 from scipy.spatial.distance import cdist
+from sklearn.decomposition import PCA
+from sklearn.neighbors import NearestNeighbors
+
 
 class PreprocPCAEvaluator:
     def __init__(self, r_components=10, knn=10):
@@ -214,10 +215,7 @@ class PreprocPCAEvaluator:
 
                     # Subspace angle (how aligned are the PCA subspaces?)
                     r_subspace = min(U1_raw.shape[1], U2_raw.shape[1], U1_raw.shape[0], U2_raw.shape[0])
-                    if r_subspace > 0 and U1_raw.shape[0] == U2_raw.shape[0]:
-                        subspace_angle_raw = self._grassmann(U1_raw[:, :r_subspace], U2_raw[:, :r_subspace])
-                    else:
-                        subspace_angle_raw = np.nan
+                    subspace_angle_raw = self._grassmann(U1_raw[:, :r_subspace], U2_raw[:, :r_subspace]) if r_subspace > 0 and U1_raw.shape[0] == U2_raw.shape[0] else np.nan
 
                     # For each preprocessing method
                     for pp_name in preproc_names:
@@ -233,10 +231,7 @@ class PreprocPCAEvaluator:
                             spread_dist_pp = self._compute_spread_distance(Z1_pp, Z2_pp)
 
                             r_subspace_pp = min(U1_pp.shape[1], U2_pp.shape[1], U1_pp.shape[0], U2_pp.shape[0])
-                            if r_subspace_pp > 0 and U1_pp.shape[0] == U2_pp.shape[0]:
-                                subspace_angle_pp = self._grassmann(U1_pp[:, :r_subspace_pp], U2_pp[:, :r_subspace_pp])
-                            else:
-                                subspace_angle_pp = np.nan
+                            subspace_angle_pp = self._grassmann(U1_pp[:, :r_subspace_pp], U2_pp[:, :r_subspace_pp]) if r_subspace_pp > 0 and U1_pp.shape[0] == U2_pp.shape[0] else np.nan
 
                             # Compute improvement (negative = datasets got closer)
                             centroid_improvement = (centroid_dist_raw - centroid_dist_pp) / (centroid_dist_raw + 1e-10)
@@ -407,7 +402,7 @@ class PreprocPCAEvaluator:
 
         # Plot 1: Raw data - all datasets together
         ax = axes[0]
-        for ds_idx, dname in enumerate(datasets):
+        for _ds_idx, dname in enumerate(datasets):
             if dname in self.raw_pcas_:
                 Zr, _, evr = self.raw_pcas_[dname]
                 ax.scatter(Zr[:, 0], Zr[:, 1], alpha=0.5, s=25,
@@ -654,7 +649,7 @@ class PreprocPCAEvaluator:
             ax1.set_xlabel(f'{metric_display} Reduction (%, symlog scale)', fontsize=11, fontweight='bold')
 
         # Add value labels
-        for i, (bar, val) in enumerate(zip(bars, df_results['reduction_pct'].values)):
+        for _i, (bar, val) in enumerate(zip(bars, df_results['reduction_pct'].values, strict=False)):
             label_x = val + (2 if val > 0 else -2)
             ha = 'left' if val > 0 else 'right'
             ax1.text(label_x, bar.get_y() + bar.get_height() / 2, f'{val:.1f}%',
@@ -724,7 +719,7 @@ class PreprocPCAEvaluator:
 
         colors_map = ['#2ecc71', '#3498db', '#9b59b6', '#e74c3c', '#f39c12', '#34495e']
 
-        for idx, (metric, display_name, color) in enumerate(zip(quality_metrics, metric_display_names, colors_map)):
+        for idx, (metric, display_name, _color) in enumerate(zip(quality_metrics, metric_display_names, colors_map, strict=False)):
             ax = axes[idx]
 
             convergence_vals = convergence_df[f'{metric}_convergence'].values
@@ -752,7 +747,7 @@ class PreprocPCAEvaluator:
             ax.set_facecolor('#f8f9fa')
 
             # Add value labels for significant convergence
-            for i, (bar, val) in enumerate(zip(bars, convergence_vals)):
+            for _i, (bar, val) in enumerate(zip(bars, convergence_vals, strict=False)):
                 if abs(val) > 0.1:  # Only show if significant
                     label_x = val + (0.02 if val > 0 else -0.02)
                     ha = 'left' if val > 0 else 'right'
@@ -806,7 +801,7 @@ class PreprocPCAEvaluator:
                        f'Trust: {row["trustworthiness"]:.4f}')
 
         fig.text(0.5, 0.02, metrics_text, ha='center', fontsize=10,
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+                bbox={'boxstyle': 'round', 'facecolor': 'wheat', 'alpha': 0.8})
 
         plt.suptitle(f'PCA Comparison: {dataset} / {preproc}',
                     fontsize=13, fontweight='bold', y=0.98)
@@ -846,14 +841,14 @@ class PreprocPCAEvaluator:
 
         fig, ax = plt.subplots(figsize=figsize)
 
-        for i, (m, label, color) in enumerate(zip(metrics, metric_labels, colors_map)):
+        for i, (m, label, color) in enumerate(zip(metrics, metric_labels, colors_map, strict=False)):
             values = agg[m].values
             offset = (i - 2.5) * w
             bars = ax.bar(x + offset, values, w, label=label, color=color,
                          alpha=0.8, edgecolor='black', linewidth=0.5)
 
             # Add value labels on top of bars (only for non-NaN)
-            for j, (bar, val) in enumerate(zip(bars, values)):
+            for _j, (bar, val) in enumerate(zip(bars, values, strict=False)):
                 if not np.isnan(val) and val > 0.05:
                     height = bar.get_height()
                     ax.text(bar.get_x() + bar.get_width()/2., height + 0.02,

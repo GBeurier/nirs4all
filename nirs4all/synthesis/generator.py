@@ -25,18 +25,34 @@ References:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import numpy as np
 from scipy.signal import savgol_filter
 
-from .components import ComponentLibrary
+from nirs4all.operators.augmentation.synthesis import (
+    HeteroscedasticNoiseAugmenter,
+    InstrumentalBroadeningAugmenter,
+    PathLengthAugmenter,
+)
+
 from ._constants import (
     COMPLEXITY_PARAMS,
     DEFAULT_REALISTIC_COMPONENTS,
     DEFAULT_WAVELENGTH_END,
     DEFAULT_WAVELENGTH_START,
     DEFAULT_WAVELENGTH_STEP,
+)
+from .components import ComponentLibrary
+from .detectors import (
+    DetectorConfig,
+    DetectorSimulator,
+    get_default_noise_config,
+)
+from .environmental import (
+    EnvironmentalEffectsConfig,
+    MoistureConfig,
+    TemperatureConfig,
 )
 from .instruments import (
     EdgeArtifactsConfig,
@@ -53,30 +69,28 @@ from .measurement_modes import (
     MeasurementModeSimulator,
     create_transmittance_simulator,
 )
-from .detectors import (
-    DetectorConfig,
-    DetectorSimulator,
-    get_default_noise_config,
-)
-from .environmental import (
-    EnvironmentalEffectsConfig,
-    TemperatureConfig,
-    MoistureConfig,
-)
 from .scattering import (
-    ScatteringEffectsConfig,
-    ParticleSizeConfig,
     EMSCConfig,
-)
-from nirs4all.operators.augmentation.synthesis import (
-    PathLengthAugmenter,
-    InstrumentalBroadeningAugmenter,
-    HeteroscedasticNoiseAugmenter,
+    ParticleSizeConfig,
+    ScatteringEffectsConfig,
 )
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
-
+    from nirs4all.operators.augmentation.edge_artifacts import (
+        DetectorRollOffAugmenter,
+        EdgeCurvatureAugmenter,
+        StrayLightAugmenter,
+        TruncatedPeakAugmenter,
+    )
+    from nirs4all.operators.augmentation.environmental import (
+        MoistureAugmenter,
+        TemperatureAugmenter,
+    )
+    from nirs4all.operators.augmentation.scattering import (
+        EMSCDistortionAugmenter,
+        ParticleSizeAugmenter,
+    )
 
 class SyntheticNIRSGenerator:
     """
@@ -178,19 +192,19 @@ class SyntheticNIRSGenerator:
         wavelength_start: float = DEFAULT_WAVELENGTH_START,
         wavelength_end: float = DEFAULT_WAVELENGTH_END,
         wavelength_step: float = DEFAULT_WAVELENGTH_STEP,
-        wavelengths: Optional[np.ndarray] = None,
-        instrument_wavelength_grid: Optional[str] = None,
-        component_library: Optional[ComponentLibrary] = None,
+        wavelengths: np.ndarray | None = None,
+        instrument_wavelength_grid: str | None = None,
+        component_library: ComponentLibrary | None = None,
         complexity: Literal["simple", "realistic", "complex"] = "realistic",
-        instrument: Optional[Union[str, InstrumentArchetype]] = None,
-        measurement_mode: Optional[Union[str, MeasurementMode]] = None,
-        multi_sensor_config: Optional[MultiSensorConfig] = None,
-        multi_scan_config: Optional[MultiScanConfig] = None,
-        environmental_config: Optional[EnvironmentalEffectsConfig] = None,
-        scattering_effects_config: Optional[ScatteringEffectsConfig] = None,
-        edge_artifacts_config: Optional[EdgeArtifactsConfig] = None,
-        custom_params: Optional[Dict[str, Any]] = None,
-        random_state: Optional[int] = None,
+        instrument: str | InstrumentArchetype | None = None,
+        measurement_mode: str | MeasurementMode | None = None,
+        multi_sensor_config: MultiSensorConfig | None = None,
+        multi_scan_config: MultiScanConfig | None = None,
+        environmental_config: EnvironmentalEffectsConfig | None = None,
+        scattering_effects_config: ScatteringEffectsConfig | None = None,
+        edge_artifacts_config: EdgeArtifactsConfig | None = None,
+        custom_params: dict[str, Any] | None = None,
+        random_state: int | None = None,
     ) -> None:
         """
         Initialize the synthetic NIRS generator.
@@ -255,7 +269,7 @@ class SyntheticNIRSGenerator:
 
         # Phase 6: Custom wavelength grid support
         # Priority: wavelengths > instrument_wavelength_grid > instrument > defaults
-        custom_wavelength_grid: Optional[np.ndarray] = None
+        custom_wavelength_grid: np.ndarray | None = None
 
         if wavelengths is not None:
             # Direct custom wavelength array provided
@@ -265,8 +279,8 @@ class SyntheticNIRSGenerator:
             custom_wavelength_grid = get_instrument_wavelengths(instrument_wavelength_grid)
 
         # Phase 2: Instrument archetype setup
-        self.instrument: Optional[InstrumentArchetype] = None
-        self.instrument_simulator: Optional[InstrumentSimulator] = None
+        self.instrument: InstrumentArchetype | None = None
+        self.instrument_simulator: InstrumentSimulator | None = None
         self.multi_sensor_config = multi_sensor_config
         self.multi_scan_config = multi_scan_config
 
@@ -318,8 +332,8 @@ class SyntheticNIRSGenerator:
         self.n_wavelengths = len(self.wavelengths)
 
         # Phase 2: Measurement mode setup
-        self.measurement_mode: Optional[MeasurementMode] = None
-        self.measurement_mode_simulator: Optional[MeasurementModeSimulator] = None
+        self.measurement_mode: MeasurementMode | None = None
+        self.measurement_mode_simulator: MeasurementModeSimulator | None = None
 
         if measurement_mode is not None:
             if isinstance(measurement_mode, str):
@@ -329,11 +343,11 @@ class SyntheticNIRSGenerator:
 
             # Create measurement mode simulator
             self.measurement_mode_simulator = create_transmittance_simulator(
-                scattering_enabled=True, random_state=random_state
+                random_state=random_state
             )
 
         # Phase 2: Detector simulator
-        self.detector_simulator: Optional[DetectorSimulator] = None
+        self.detector_simulator: DetectorSimulator | None = None
         if self.instrument is not None:
             detector_type = self.instrument.detector_type
             noise_config = get_default_noise_config(detector_type)
@@ -372,24 +386,24 @@ class SyntheticNIRSGenerator:
 
         # Phase 3: Environmental effects configuration (uses operators)
         self.environmental_config = environmental_config
-        self._temperature_op = None
-        self._moisture_op = None
+        self._temperature_op: TemperatureAugmenter | None = None
+        self._moisture_op: MoistureAugmenter | None = None
         if environmental_config is not None:
             self._init_environmental_operators()
 
         # Phase 3: Scattering effects configuration (uses operators)
         self.scattering_effects_config = scattering_effects_config
-        self._particle_op = None
-        self._emsc_op = None
+        self._particle_op: ParticleSizeAugmenter | None = None
+        self._emsc_op: EMSCDistortionAugmenter | None = None
         if scattering_effects_config is not None:
             self._init_scattering_operators()
 
         # Phase 6: Edge artifacts configuration (uses operators)
         self.edge_artifacts_config = edge_artifacts_config
-        self._detector_rolloff_op = None
-        self._stray_light_op = None
-        self._edge_curvature_op = None
-        self._truncated_peak_op = None
+        self._detector_rolloff_op: DetectorRollOffAugmenter | None = None
+        self._stray_light_op: StrayLightAugmenter | None = None
+        self._edge_curvature_op: EdgeCurvatureAugmenter | None = None
+        self._truncated_peak_op: TruncatedPeakAugmenter | None = None
         if edge_artifacts_config is not None:
             self._init_edge_artifact_operators()
 
@@ -404,9 +418,11 @@ class SyntheticNIRSGenerator:
         environmental_config settings.
         """
         from nirs4all.operators.augmentation import (
-            TemperatureAugmenter,
             MoistureAugmenter,
+            TemperatureAugmenter,
         )
+
+        assert self.environmental_config is not None
 
         # Initialize temperature operator
         if self.environmental_config.enable_temperature:
@@ -414,10 +430,7 @@ class SyntheticNIRSGenerator:
             if temp_config is not None:
                 # Determine temperature range based on config
                 variation = temp_config.temperature_variation
-                if variation > 0:
-                    temperature_range = (-variation, variation)
-                else:
-                    temperature_range = None
+                temperature_range = (-variation, variation) if variation > 0 else None
 
                 self._temperature_op = TemperatureAugmenter(
                     temperature_delta=temp_config.delta_temperature,
@@ -451,9 +464,11 @@ class SyntheticNIRSGenerator:
         the scattering_effects_config settings.
         """
         from nirs4all.operators.augmentation import (
-            ParticleSizeAugmenter,
             EMSCDistortionAugmenter,
+            ParticleSizeAugmenter,
         )
+
+        assert self.scattering_effects_config is not None
 
         # Initialize particle size operator
         if self.scattering_effects_config.enable_particle_size:
@@ -496,11 +511,12 @@ class SyntheticNIRSGenerator:
         """
         from nirs4all.operators.augmentation import (
             DetectorRollOffAugmenter,
-            StrayLightAugmenter,
             EdgeCurvatureAugmenter,
+            StrayLightAugmenter,
             TruncatedPeakAugmenter,
         )
 
+        assert self.edge_artifacts_config is not None
         config = self.edge_artifacts_config
 
         # Initialize detector roll-off operator
@@ -591,8 +607,8 @@ class SyntheticNIRSGenerator:
         self,
         n_samples: int,
         method: Literal["dirichlet", "uniform", "lognormal", "correlated"] = "dirichlet",
-        alpha: Optional[np.ndarray] = None,
-        correlation_matrix: Optional[np.ndarray] = None,
+        alpha: np.ndarray | None = None,
+        correlation_matrix: np.ndarray | None = None,
     ) -> np.ndarray:
         """
         Generate concentration matrix using specified distribution.
@@ -649,7 +665,7 @@ class SyntheticNIRSGenerator:
         self,
         n_samples: int,
         n_components: int,
-        correlation_matrix: Optional[np.ndarray] = None,
+        correlation_matrix: np.ndarray | None = None,
     ) -> np.ndarray:
         """
         Generate correlated concentrations using Cholesky decomposition.
@@ -684,7 +700,7 @@ class SyntheticNIRSGenerator:
         C = np.abs(C)
         C = C / C.sum(axis=1, keepdims=True)
 
-        return C
+        return np.asarray(C)
 
     def _apply_beer_lambert(self, C: np.ndarray) -> np.ndarray:
         """
@@ -696,7 +712,7 @@ class SyntheticNIRSGenerator:
         Returns:
             Absorbance matrix (n_samples, n_wavelengths).
         """
-        return C @ self.E
+        return np.asarray(C @ self.E)
 
     def _apply_path_length(self, A: np.ndarray) -> np.ndarray:
         """
@@ -710,7 +726,7 @@ class SyntheticNIRSGenerator:
         Returns:
             Modified absorbance matrix.
         """
-        return self._path_length_op.transform(A)
+        return np.asarray(self._path_length_op.transform(A))
 
     def _generate_baseline(self, n_samples: int) -> np.ndarray:
         """
@@ -755,8 +771,8 @@ class SyntheticNIRSGenerator:
         x_norm = (self.wavelengths - self.wavelengths.min()) / wl_range
 
         # Generate slopes: mean + sample-specific variation
-        slope_mean = self.params["global_slope_mean"]
-        slope_std = self.params["global_slope_std"]
+        slope_mean = float(self.params["global_slope_mean"])
+        slope_std = float(self.params["global_slope_std"])
         slopes = self.rng.normal(slope_mean, slope_std, size=n_samples)
 
         # Scale to actual wavelength range (slope is per 1000nm)
@@ -781,22 +797,22 @@ class SyntheticNIRSGenerator:
         n_samples = A.shape[0]
 
         # Multiplicative scatter
-        alpha = self.rng.normal(1.0, self.params["scatter_alpha_std"], size=n_samples)
+        alpha: np.ndarray = self.rng.normal(1.0, self.params["scatter_alpha_std"], size=n_samples)
         alpha = np.maximum(alpha, 0.7)
 
         # Additive offset
-        beta = self.rng.normal(0, self.params["scatter_beta_std"], size=n_samples)
+        beta: np.ndarray = self.rng.normal(0, self.params["scatter_beta_std"], size=n_samples)
 
         # Apply
         A_scattered = A * alpha[:, np.newaxis] + beta[:, np.newaxis]
 
         # Add tilt
         x = (self.wavelengths - self.wavelengths.mean()) / np.ptp(self.wavelengths)
-        gamma = self.rng.normal(0, self.params["tilt_std"], size=n_samples)
+        gamma: np.ndarray = self.rng.normal(0, self.params["tilt_std"], size=n_samples)
         tilt = gamma[:, np.newaxis] * x[np.newaxis, :]
         A_scattered += tilt
 
-        return A_scattered
+        return np.asarray(A_scattered)
 
     def _apply_wavelength_shift(self, A: np.ndarray) -> np.ndarray:
         """
@@ -810,8 +826,8 @@ class SyntheticNIRSGenerator:
         """
         n_samples = A.shape[0]
 
-        shifts = self.rng.normal(0, self.params["shift_std"], size=n_samples)
-        stretches = self.rng.normal(1.0, self.params["stretch_std"], size=n_samples)
+        shifts: np.ndarray = self.rng.normal(0, self.params["shift_std"], size=n_samples)
+        stretches: np.ndarray = self.rng.normal(1.0, self.params["stretch_std"], size=n_samples)
 
         A_shifted = np.zeros_like(A)
         for i in range(n_samples):
@@ -832,7 +848,7 @@ class SyntheticNIRSGenerator:
         Returns:
             Modified absorbance matrix.
         """
-        return self._instrumental_broadening_op.transform(A, wavelengths=self.wavelengths)
+        return np.asarray(self._instrumental_broadening_op.transform(A, wavelengths=self.wavelengths))
 
     def _add_noise(self, A: np.ndarray) -> np.ndarray:
         """
@@ -846,9 +862,9 @@ class SyntheticNIRSGenerator:
         Returns:
             Modified absorbance matrix with noise.
         """
-        return self._noise_op.transform(A)
+        return np.asarray(self._noise_op.transform(A))
 
-    def _add_artifacts(self, A: np.ndarray, metadata: Dict[str, Any]) -> np.ndarray:
+    def _add_artifacts(self, A: np.ndarray, metadata: dict[str, Any]) -> np.ndarray:
         """
         Add random artifacts (spikes, dead bands, saturation).
 
@@ -869,7 +885,7 @@ class SyntheticNIRSGenerator:
         n_samples = A.shape[0]
         artifact_prob = self.params["artifact_prob"]
 
-        artifact_types: List[Optional[str]] = []
+        artifact_types: list[str | None] = []
         for i in range(n_samples):
             if self.rng.random() < artifact_prob:
                 artifact_type = self.rng.choice(["spike", "dead_band", "saturation"])
@@ -905,8 +921,8 @@ class SyntheticNIRSGenerator:
     def generate_batch_effects(
         self,
         n_batches: int,
-        samples_per_batch: List[int],
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        samples_per_batch: list[int],
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Generate batch/session effects for domain adaptation research.
 
@@ -1150,7 +1166,7 @@ class SyntheticNIRSGenerator:
                 all_scans, result, config.outlier_threshold
             )
 
-        return result
+        return np.asarray(result)
 
     def _reject_scan_outliers(
         self,
@@ -1226,12 +1242,9 @@ class SyntheticNIRSGenerator:
         include_environmental_effects: bool = True,
         include_scattering_effects: bool = True,
         include_edge_artifacts: bool = True,
-        temperatures: Optional[np.ndarray] = None,
+        temperatures: np.ndarray | None = None,
         return_metadata: bool = False,
-    ) -> Union[
-        Tuple[np.ndarray, np.ndarray, np.ndarray],
-        Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]],
-    ]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
         """
         Generate synthetic NIRS spectra.
 
@@ -1301,7 +1314,7 @@ class SyntheticNIRSGenerator:
             >>> X, Y, E, meta = generator.generate(100, return_metadata=True)
             >>> print(meta.keys())
         """
-        metadata: Dict[str, Any] = {
+        metadata: dict[str, Any] = {
             "n_samples": n_samples,
             "n_components": self.library.n_components,
             "n_wavelengths": self.n_wavelengths,
@@ -1396,10 +1409,7 @@ class SyntheticNIRSGenerator:
                 if temp_config is not None:
                     base_temp = temp_config.sample_temperature
                     variation = temp_config.temperature_variation
-                    if variation > 0:
-                        temperatures = self.rng.normal(base_temp, variation, n_samples)
-                    else:
-                        temperatures = np.full(n_samples, base_temp)
+                    temperatures = self.rng.normal(base_temp, variation, n_samples) if variation > 0 else np.full(n_samples, base_temp)
 
             # Apply temperature and moisture operators
             if self._temperature_op is not None:
@@ -1462,8 +1472,8 @@ class SyntheticNIRSGenerator:
         include_environmental_effects: bool = True,
         include_scattering_effects: bool = True,
         include_edge_artifacts: bool = True,
-        temperatures: Optional[np.ndarray] = None,
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        temperatures: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """
         Generate synthetic NIRS spectra from pre-defined concentrations.
 
@@ -1504,7 +1514,7 @@ class SyntheticNIRSGenerator:
         C = concentrations
 
         # Build metadata
-        metadata: Dict[str, Any] = {
+        metadata: dict[str, Any] = {
             "n_samples": n_samples,
             "n_components": self.library.n_components,
             "n_wavelengths": self.n_wavelengths,
@@ -1561,10 +1571,7 @@ class SyntheticNIRSGenerator:
         A = self._apply_instrumental_response(A)
 
         # 10. Apply detector effects or add noise
-        if include_instrument_effects and self.detector_simulator is not None:
-            A = self._apply_detector_effects(A, self.wavelengths)
-        else:
-            A = self._add_noise(A)
+        A = self._apply_detector_effects(A, self.wavelengths) if include_instrument_effects and self.detector_simulator is not None else self._add_noise(A)
 
         # 11. Apply environmental effects
         if include_environmental_effects and self.environmental_config is not None:
@@ -1573,10 +1580,7 @@ class SyntheticNIRSGenerator:
                 if temp_config is not None:
                     base_temp = temp_config.sample_temperature
                     variation = temp_config.temperature_variation
-                    if variation > 0:
-                        temperatures = self.rng.normal(base_temp, variation, n_samples)
-                    else:
-                        temperatures = np.full(n_samples, base_temp)
+                    temperatures = self.rng.normal(base_temp, variation, n_samples) if variation > 0 else np.full(n_samples, base_temp)
 
             if self._temperature_op is not None:
                 A = self._temperature_op.transform(A, wavelengths=self.wavelengths)
@@ -1612,7 +1616,7 @@ class SyntheticNIRSGenerator:
         self,
         n_train: int = 800,
         n_test: int = 200,
-        target_component: Optional[Union[str, int]] = None,
+        target_component: str | int | None = None,
         **generate_kwargs: Any,
     ) -> SpectroDataset:
         """

@@ -27,21 +27,20 @@ Example:
     ...     raise CircularDependencyError(...)
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 import warnings
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Optional
 
 from .exceptions import (
     CircularDependencyError,
-    MaxStackingLevelExceededError,
     InconsistentLevelError,
+    MaxStackingLevelExceededError,
 )
 
 if TYPE_CHECKING:
     from nirs4all.data.predictions import Predictions
-    from nirs4all.pipeline.config.context import ExecutionContext
     from nirs4all.operators.models.selection import ModelCandidate
-
+    from nirs4all.pipeline.config.context import ExecutionContext
 
 @dataclass
 class ModelLevelInfo:
@@ -57,9 +56,8 @@ class ModelLevelInfo:
     model_name: str
     level: int
     is_meta_model: bool
-    source_models: List[str] = field(default_factory=list)
+    source_models: list[str] = field(default_factory=list)
     step_idx: int = 0
-
 
 @dataclass
 class LevelValidationResult:
@@ -75,10 +73,10 @@ class LevelValidationResult:
     """
     is_valid: bool = True
     detected_level: int = 1
-    source_levels: Dict[str, int] = field(default_factory=dict)
-    circular_dependencies: List[List[str]] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    errors: List[str] = field(default_factory=list)
+    source_levels: dict[str, int] = field(default_factory=dict)
+    circular_dependencies: list[list[str]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     def add_warning(self, message: str) -> None:
         """Add a warning message."""
@@ -88,7 +86,6 @@ class LevelValidationResult:
         """Add an error and mark as invalid."""
         self.errors.append(message)
         self.is_valid = False
-
 
 class MultiLevelValidator:
     """Validates multi-level stacking configurations.
@@ -123,12 +120,12 @@ class MultiLevelValidator:
         self.log_warnings = log_warnings
 
         # Cache for model level info
-        self._level_cache: Dict[str, ModelLevelInfo] = {}
+        self._level_cache: dict[str, ModelLevelInfo] = {}
 
     def validate_sources(
         self,
         meta_model_name: str,
-        source_candidates: List['ModelCandidate'],
+        source_candidates: list['ModelCandidate'],
         context: 'ExecutionContext',
         allow_meta_sources: bool = True
     ) -> LevelValidationResult:
@@ -194,7 +191,7 @@ class MultiLevelValidator:
 
         # Add info about detected level
         if max_source_level > 0:
-            meta_sources = [n for n, l in result.source_levels.items() if l > 0]
+            meta_sources = [n for n, level in result.source_levels.items() if level > 0]
             result.add_warning(
                 f"Multi-level stacking detected (level {result.detected_level}). "
                 f"Using meta-model sources: {meta_sources}"
@@ -203,13 +200,13 @@ class MultiLevelValidator:
         # Emit warnings if configured
         if self.log_warnings:
             for warning in result.warnings:
-                warnings.warn(warning)
+                warnings.warn(warning, stacklevel=2)
 
         return result
 
     def detect_level(
         self,
-        source_candidates: List['ModelCandidate'],
+        source_candidates: list['ModelCandidate'],
         context: 'ExecutionContext'
     ) -> int:
         """Detect the appropriate stacking level based on source models.
@@ -233,11 +230,11 @@ class MultiLevelValidator:
 
     def filter_by_level(
         self,
-        candidates: List['ModelCandidate'],
+        candidates: list['ModelCandidate'],
         context: 'ExecutionContext',
-        max_source_level: Optional[int] = None,
+        max_source_level: int | None = None,
         exclude_meta_models: bool = False
-    ) -> List['ModelCandidate']:
+    ) -> list['ModelCandidate']:
         """Filter source candidates by stacking level.
 
         Args:
@@ -356,7 +353,7 @@ class MultiLevelValidator:
         meta_model_name: str,
         meta_step_idx: int,
         context: 'ExecutionContext'
-    ) -> List[str]:
+    ) -> list[str]:
         """Find source models for a meta-model.
 
         Attempts to identify which models were used as sources for a meta-model
@@ -398,9 +395,9 @@ class MultiLevelValidator:
         meta_model_name: str,
         source_name: str,
         context: 'ExecutionContext',
-        visited: Set[str],
-        path: Optional[List[str]] = None
-    ) -> Optional[List[str]]:
+        visited: set[str],
+        path: list[str] | None = None
+    ) -> list[str] | None:
         """Detect circular dependencies in the stacking hierarchy.
 
         Uses DFS to detect cycles in the dependency graph.
@@ -458,7 +455,7 @@ class MultiLevelValidator:
     def get_all_levels(
         self,
         context: 'ExecutionContext'
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Get levels for all models in the prediction store.
 
         Args:
@@ -479,11 +476,10 @@ class MultiLevelValidator:
 
         return levels
 
-
 def validate_multi_level_stacking(
     prediction_store: 'Predictions',
     meta_model_name: str,
-    source_candidates: List['ModelCandidate'],
+    source_candidates: list['ModelCandidate'],
     context: 'ExecutionContext',
     max_level: int = 3,
     allow_meta_sources: bool = True
@@ -513,10 +509,9 @@ def validate_multi_level_stacking(
         allow_meta_sources=allow_meta_sources
     )
 
-
 def detect_stacking_level(
     prediction_store: 'Predictions',
-    source_candidates: List['ModelCandidate'],
+    source_candidates: list['ModelCandidate'],
     context: 'ExecutionContext'
 ) -> int:
     """Convenience function for detecting stacking level.

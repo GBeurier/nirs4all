@@ -5,11 +5,12 @@ PipelineConfigs.py
 import json
 import logging
 from pathlib import Path
-from typing import List, Any, Dict, Union, Optional
+from typing import Any, Optional, Union
+
 import yaml
 
 from .component_serialization import serialize_component
-from .generator import expand_spec, expand_spec_with_choices, count_combinations, ALL_KEYWORDS
+from .generator import ALL_KEYWORDS, count_combinations, expand_spec, expand_spec_with_choices
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +23,11 @@ class PipelineConfigs:
 
     def __init__(
         self,
-        definition: Union[Dict, List[Any], str],
+        definition: dict | list[Any] | str,
         name: str = "",
         description: str = "No description provided",
         max_generation_count: int = 10000,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ):
         """
         Initialize the pipeline configuration.
@@ -62,7 +63,7 @@ class PipelineConfigs:
 
         ## Generation
         self.has_configurations = False
-        self.generator_choices: List[List[Dict[str, Any]]] = []  # Choices for each pipeline
+        self.generator_choices: list[list[dict[str, Any]]] = []  # Choices for each pipeline
         was_expanded = False
 
         if self._has_gen_keys(self.steps):
@@ -139,7 +140,7 @@ class PipelineConfigs:
             result = steps.copy()
 
             # Find all keys ending with '_params'
-            params_keys = [k for k in result.keys() if k.endswith('_params')]
+            params_keys = [k for k in result if k.endswith('_params')]
 
             for params_key in params_keys:
                 # Get the base key (remove '_params' suffix)
@@ -184,7 +185,7 @@ class PipelineConfigs:
             return steps
 
     @staticmethod
-    def _load_steps(definition: Union[Dict, List[Any], str]) -> List[Any]:
+    def _load_steps(definition: dict | list[Any] | str) -> list[Any]:
         """
         Load steps from a definition which can be a dict, list, or string.
         """
@@ -201,7 +202,7 @@ class PipelineConfigs:
             raise TypeError("Pipeline definition must be a list, dict, or string.")
 
     @staticmethod
-    def _load_str_steps(definition: str) -> List[Any]:
+    def _load_str_steps(definition: str) -> list[Any]:
         """Load steps from a string definition which can be a JSON or YAML file path, or a JSON/YAML string.
 
         Args:
@@ -225,7 +226,7 @@ class PipelineConfigs:
 
             if definition.endswith('.json'):
                 try:
-                    with open(definition, 'r', encoding='utf-8') as f:
+                    with open(definition, encoding='utf-8') as f:
                         pipeline_definition = json.load(f)
                 except json.JSONDecodeError as exc:
                     # Provide detailed error message with line number
@@ -241,7 +242,7 @@ class PipelineConfigs:
                     ) from exc
             elif definition.endswith('.yaml') or definition.endswith('.yml'):
                 try:
-                    with open(definition, 'r', encoding='utf-8') as f:
+                    with open(definition, encoding='utf-8') as f:
                         pipeline_definition = yaml.safe_load(f)
                 except yaml.YAMLError as exc:
                     # Extract line number from YAML error if available
@@ -286,14 +287,14 @@ class PipelineConfigs:
 
         if not pipeline_definition:
             raise ValueError(
-                f"Pipeline definition is empty or invalid.\n"
-                f"The configuration file must contain a 'pipeline' key with a list of steps."
+                "Pipeline definition is empty or invalid.\n"
+                "The configuration file must contain a 'pipeline' key with a list of steps."
             )
 
         return PipelineConfigs._load_steps(pipeline_definition)
 
     @staticmethod
-    def _extract_random_state(definition: Union[Dict, List[Any], str]) -> Optional[int]:
+    def _extract_random_state(definition: dict | list[Any] | str) -> int | None:
         """Extract optional random_state from dict-style configuration root."""
         if isinstance(definition, dict):
             value = definition.get("random_state")
@@ -413,7 +414,7 @@ class PipelineConfigs:
         """
         return yaml.dump(self.original_template, default_flow_style=False, sort_keys=False)
 
-    def get_template_dict(self) -> Dict:
+    def get_template_dict(self) -> dict:
         """
         Get the original template as a dictionary.
 

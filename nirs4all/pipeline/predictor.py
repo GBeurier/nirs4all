@@ -8,13 +8,17 @@ Supports two prediction paths:
     - Resolver path: Prediction dicts / folders resolved via PredictionResolver,
       with optional minimal pipeline extraction from execution traces.
 """
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 
 from nirs4all.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
@@ -31,17 +35,15 @@ from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
 
 logger = get_logger(__name__)
 
-
 @dataclass(frozen=True)
 class _PredictionStrategy:
     """Plan for executing one prediction replay strategy."""
 
     name: str
     mode: str  # "minimal" or "full"
-    steps: List[Any]
-    minimal_pipeline: Optional[Any]
+    steps: list[Any]
+    minimal_pipeline: Any | None
     artifact_provider_factory: Callable[[], Any]
-
 
 class Predictor:
     """Handles prediction using trained pipelines.
@@ -72,10 +74,10 @@ class Predictor:
                 execution traces are available.
         """
         self.runner = runner
-        self.pipeline_uid: Optional[str] = None
-        self.artifact_loader: Optional[ArtifactLoader] = None
-        self.config_path: Optional[str] = None
-        self.target_model: Optional[Dict[str, Any]] = None
+        self.pipeline_uid: str | None = None
+        self.artifact_loader: ArtifactLoader | None = None
+        self.config_path: str | None = None
+        self.target_model: dict[str, Any] | None = None
         self.use_minimal_pipeline = use_minimal_pipeline
         self._execution_trace = None  # Cached execution trace
         self._minimal_pipeline = None  # Cached minimal pipeline
@@ -83,12 +85,12 @@ class Predictor:
 
     def predict(
         self,
-        prediction_obj: Union[Dict[str, Any], str],
-        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        prediction_obj: dict[str, Any] | str,
+        dataset: DatasetConfigs | SpectroDataset | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         dataset_name: str = "prediction_dataset",
         all_predictions: bool = False,
         verbose: int = 0,
-    ) -> Union[Tuple[np.ndarray, Predictions], Tuple[Dict[str, Any], Predictions]]:
+    ) -> tuple[np.ndarray, Predictions] | tuple[dict[str, Any], Predictions]:
         """Run prediction using a saved model on new dataset.
 
         Args:
@@ -129,7 +131,7 @@ class Predictor:
     # Resolution
     # -----------------------------------------------------------------
 
-    def _resolve_prediction(self, prediction_obj: Union[Dict[str, Any], str], verbose: int) -> None:
+    def _resolve_prediction(self, prediction_obj: dict[str, Any] | str, verbose: int) -> None:
         """Resolve a prediction object to executable components.
 
         Extracts ``config_path``, ``target_model``, ``artifact_loader`` and
@@ -149,10 +151,7 @@ class Predictor:
         self._resolved = resolver.resolve(prediction_obj, verbose=verbose)
 
         # Extract target model metadata
-        if isinstance(prediction_obj, dict):
-            target_model = {k: v for k, v in prediction_obj.items() if k not in ("y_pred", "y_true", "X")}
-        else:
-            target_model = dict(self._resolved.target_model) if self._resolved.target_model else {}
+        target_model = {k: v for k, v in prediction_obj.items() if k not in ("y_pred", "y_true", "X")} if isinstance(prediction_obj, dict) else dict(self._resolved.target_model) if self._resolved.target_model else {}
 
         if not target_model or "model_name" not in target_model:
             raise ValueError(
@@ -182,7 +181,7 @@ class Predictor:
         dataset_config: DatasetConfigs,
         all_predictions: bool,
         verbose: int,
-    ) -> Union[Tuple[np.ndarray, Predictions], Tuple[Dict[str, Any], Predictions]]:
+    ) -> tuple[np.ndarray, Predictions] | tuple[dict[str, Any], Predictions]:
         """Execute prediction using minimal pipeline extracted from trace.
 
         Args:
@@ -211,7 +210,7 @@ class Predictor:
         dataset_config: DatasetConfigs,
         all_predictions: bool,
         verbose: int,
-    ) -> Union[Tuple[np.ndarray, Predictions], Tuple[Dict[str, Any], Predictions]]:
+    ) -> tuple[np.ndarray, Predictions] | tuple[dict[str, Any], Predictions]:
         """Execute prediction using full pipeline replay.
 
         Args:
@@ -321,7 +320,7 @@ class Predictor:
         dataset_config: DatasetConfigs,
         all_predictions: bool,
         verbose: int,
-    ) -> Union[Tuple[np.ndarray, Predictions], Tuple[Dict[str, Any], Predictions]]:
+    ) -> tuple[np.ndarray, Predictions] | tuple[dict[str, Any], Predictions]:
         """Execute prediction replay using a strategy plan."""
         run_predictions = Predictions()
 
@@ -427,7 +426,7 @@ class Predictor:
         self,
         run_predictions: Predictions,
         all_predictions: bool,
-    ) -> Union[Tuple[np.ndarray, Predictions], Tuple[Dict[str, Any], Predictions]]:
+    ) -> tuple[np.ndarray, Predictions] | tuple[dict[str, Any], Predictions]:
         """Process prediction results and return in requested format.
 
         Args:
@@ -438,7 +437,7 @@ class Predictor:
             Formatted prediction results.
         """
         if all_predictions:
-            res: Dict[str, Any] = {}
+            res: dict[str, Any] = {}
             for pred in run_predictions.to_dicts():
                 ds = pred["dataset_name"]
                 if ds not in res:
@@ -452,7 +451,7 @@ class Predictor:
         is_aggregated_fold = target_fold_id in ("avg", "w_avg")
         is_refit_fold = target_fold_id == "final"
 
-        filter_kwargs: Dict[str, Any] = {
+        filter_kwargs: dict[str, Any] = {
             "model_name": self.target_model.get("model_name"),
             "step_idx": self.target_model.get("step_idx"),
         }
@@ -467,10 +466,7 @@ class Predictor:
         candidates = run_predictions.filter_predictions(**filter_kwargs)
         non_empty = [p for p in candidates if len(p["y_pred"]) > 0]
 
-        if is_aggregated_fold and len(non_empty) > 1:
-            single_pred = self._aggregate_fold_predictions(non_empty, target_fold_id)
-        else:
-            single_pred = non_empty[0] if non_empty else (candidates[0] if candidates else None)
+        single_pred = self._aggregate_fold_predictions(non_empty, target_fold_id) if is_aggregated_fold and len(non_empty) > 1 else non_empty[0] if non_empty else (candidates[0] if candidates else None)
 
         if single_pred is None:
             raise ValueError("No matching prediction found for the specified model criteria.")
@@ -481,9 +477,9 @@ class Predictor:
 
     def _aggregate_fold_predictions(
         self,
-        non_empty: List[Dict[str, Any]],
+        non_empty: list[dict[str, Any]],
         target_fold_id: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Aggregate predictions across folds.
 
         Args:
@@ -495,7 +491,7 @@ class Predictor:
         """
         fold_weights = self.target_model.get("weights")
 
-        fold_preds: Dict[Any, np.ndarray] = {}
+        fold_preds: dict[Any, np.ndarray] = {}
         for p in non_empty:
             fid = p.get("fold_id")
             if fid not in ("avg", "w_avg") and fid is not None and fid not in fold_preds:
@@ -514,12 +510,9 @@ class Predictor:
         )
 
         if has_valid_weights:
-            if isinstance(fold_weights, dict):
-                wl = [fold_weights.get(fid, 1.0) for fid in sorted_folds]
-            else:
-                wl = [fold_weights[i] for i in range(len(sorted_folds))]
+            wl = [fold_weights.get(fid, 1.0) for fid in sorted_folds] if isinstance(fold_weights, dict) else [fold_weights[i] for i in range(len(sorted_folds))]
             total_w = sum(wl)
-            y_pred = sum(w * np.array(y) for w, y in zip(wl, y_arrays)) / total_w
+            y_pred = sum(w * np.array(y) for w, y in zip(wl, y_arrays, strict=False)) / total_w
         else:
             y_pred = np.mean(y_arrays, axis=0)
 
@@ -535,11 +528,11 @@ class Predictor:
     def _predict_from_bundle(
         self,
         bundle_path: str,
-        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        dataset: DatasetConfigs | SpectroDataset | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         dataset_name: str,
         all_predictions: bool,
         verbose: int,
-    ) -> Union[Tuple[np.ndarray, Predictions], Tuple[Dict[str, Any], Predictions]]:
+    ) -> tuple[np.ndarray, Predictions] | tuple[dict[str, Any], Predictions]:
         """Predict from an exported bundle file.
 
         Args:
@@ -600,7 +593,7 @@ class Predictor:
     # Helpers
     # -----------------------------------------------------------------
 
-    def _get_substep_from_artifact(self, artifact_id: str) -> Optional[int]:
+    def _get_substep_from_artifact(self, artifact_id: str) -> int | None:
         """Get substep_index from artifact record.
 
         Args:

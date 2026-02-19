@@ -13,7 +13,7 @@ Classes:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 from scipy.special import voigt_profile
@@ -70,7 +70,6 @@ class NIRBand:
                 wavelengths - self.center, self.sigma, self.gamma
             ) * self.sigma * np.sqrt(2 * np.pi)
 
-
 @dataclass
 class SpectralComponent:
     """
@@ -108,17 +107,17 @@ class SpectralComponent:
     """
 
     name: str
-    bands: List[NIRBand] = field(default_factory=list)
-    correlation_group: Optional[int] = None
+    bands: list[NIRBand] = field(default_factory=list)
+    correlation_group: int | None = None
 
     # Metadata fields (Phase 1 enhancement)
     category: str = ""
     subcategory: str = ""
-    synonyms: List[str] = field(default_factory=list)
+    synonyms: list[str] = field(default_factory=list)
     formula: str = ""
     cas_number: str = ""
-    references: List[str] = field(default_factory=list)
-    tags: List[str] = field(default_factory=list)
+    references: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
     def compute(self, wavelengths: np.ndarray) -> np.ndarray:
         """
@@ -135,7 +134,7 @@ class SpectralComponent:
             spectrum += band.compute(wavelengths)
         return spectrum
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         """
         Validate component parameters.
 
@@ -148,7 +147,7 @@ class SpectralComponent:
             >>> if issues:
             ...     print("Issues found:", issues)
         """
-        issues: List[str] = []
+        issues: list[str] = []
 
         # Check component has bands
         if not self.bands:
@@ -183,7 +182,7 @@ class SpectralComponent:
         max_amp = max(band.amplitude for band in self.bands)
         return abs(max_amp - 1.0) <= tolerance
 
-    def normalized(self, method: str = "max") -> "SpectralComponent":
+    def normalized(self, method: str = "max") -> SpectralComponent:
         """
         Return a new SpectralComponent with normalized band amplitudes.
 
@@ -245,7 +244,7 @@ class SpectralComponent:
             tags=self.tags.copy() if self.tags else [],
         )
 
-    def has_bands_in_range(self, wavelength_range: Tuple[float, float]) -> bool:
+    def has_bands_in_range(self, wavelength_range: tuple[float, float]) -> bool:
         """
         Check if component has any bands with centers in the given wavelength range.
 
@@ -286,7 +285,6 @@ class SpectralComponent:
             lines.append(f"Tags: {', '.join(self.tags)}")
         return "\n".join(lines)
 
-
 class ComponentLibrary:
     """
     Library of spectral components for synthetic NIRS generation.
@@ -313,7 +311,7 @@ class ComponentLibrary:
         >>> E = library.compute_all(wavelengths)  # shape: (n_components, n_wavelengths)
     """
 
-    def __init__(self, random_state: Optional[int] = None) -> None:
+    def __init__(self, random_state: int | None = None) -> None:
         """
         Initialize the component library.
 
@@ -321,13 +319,13 @@ class ComponentLibrary:
             random_state: Random seed for reproducibility.
         """
         self.rng = np.random.default_rng(random_state)
-        self._components: Dict[str, SpectralComponent] = {}
+        self._components: dict[str, SpectralComponent] = {}
 
     @classmethod
     def from_predefined(
         cls,
-        component_names: Optional[List[str]] = None,
-        random_state: Optional[int] = None,
+        component_names: list[str] | None = None,
+        random_state: int | None = None,
     ) -> ComponentLibrary:
         """
         Create a library from predefined spectral components.
@@ -385,8 +383,8 @@ class ComponentLibrary:
         self,
         name: str,
         n_bands: int = 3,
-        wavelength_range: Tuple[float, float] = (1000, 2500),
-        zones: Optional[List[Tuple[float, float]]] = None,
+        wavelength_range: tuple[float, float] = (1000, 2500),
+        zones: list[tuple[float, float]] | None = None,
     ) -> SpectralComponent:
         """
         Generate and add a random spectral component.
@@ -442,7 +440,7 @@ class ComponentLibrary:
     def generate_random_library(
         self,
         n_components: int = 5,
-        n_bands_range: Tuple[int, int] = (2, 6),
+        n_bands_range: tuple[int, int] = (2, 6),
     ) -> ComponentLibrary:
         """
         Generate a library of random spectral components.
@@ -466,12 +464,12 @@ class ComponentLibrary:
     def add_boundary_component(
         self,
         name: str,
-        measurement_range: Tuple[float, float] = (1000, 2500),
+        measurement_range: tuple[float, float] = (1000, 2500),
         edge: str = "both",
         n_bands: int = 1,
-        amplitude_range: Tuple[float, float] = (0.3, 1.0),
-        width_range: Tuple[float, float] = (50, 200),
-        offset_range: Tuple[float, float] = (0.3, 1.5),
+        amplitude_range: tuple[float, float] = (0.3, 1.0),
+        width_range: tuple[float, float] = (50, 200),
+        offset_range: tuple[float, float] = (0.3, 1.5),
     ) -> SpectralComponent:
         """
         Generate a component with bands outside the measurement range.
@@ -526,10 +524,7 @@ class ComponentLibrary:
 
         for i in range(n_bands):
             # Determine which edge
-            if edge == "both":
-                current_edge = self.rng.choice(["left", "right"])
-            else:
-                current_edge = edge
+            current_edge = self.rng.choice(["left", "right"]) if edge == "both" else edge
 
             # Generate band parameters
             amplitude = self.rng.uniform(*amplitude_range)
@@ -568,7 +563,7 @@ class ComponentLibrary:
 
     def add_boundary_components_from_known(
         self,
-        measurement_range: Tuple[float, float] = (1000, 2500),
+        measurement_range: tuple[float, float] = (1000, 2500),
     ) -> ComponentLibrary:
         """
         Add known boundary components that affect common NIR measurement ranges.
@@ -664,7 +659,7 @@ class ComponentLibrary:
         return self
 
     @property
-    def components(self) -> Dict[str, SpectralComponent]:
+    def components(self) -> dict[str, SpectralComponent]:
         """Get all components in the library."""
         return self._components
 
@@ -674,7 +669,7 @@ class ComponentLibrary:
         return len(self._components)
 
     @property
-    def component_names(self) -> List[str]:
+    def component_names(self) -> list[str]:
         """Get list of component names in order."""
         return list(self._components.keys())
 
@@ -714,13 +709,11 @@ class ComponentLibrary:
         """Check if component exists by name."""
         return name in self._components
 
-
 # ============================================================================
 # Discovery API Functions (Phase 1 enhancement)
 # ============================================================================
 
-
-def available_components() -> List[str]:
+def available_components() -> list[str]:
     """
     Return list of all available predefined component names.
 
@@ -735,7 +728,6 @@ def available_components() -> List[str]:
     from ._constants import get_predefined_components
 
     return sorted(get_predefined_components().keys())
-
 
 def get_component(name: str) -> SpectralComponent:
     """
@@ -769,7 +761,7 @@ def get_component(name: str) -> SpectralComponent:
 
     # Check synonyms (case-insensitive)
     name_lower = name.lower()
-    for comp_name, comp in components.items():
+    for _comp_name, comp in components.items():
         if comp.synonyms:
             for synonym in comp.synonyms:
                 if synonym.lower() == name_lower:
@@ -778,14 +770,13 @@ def get_component(name: str) -> SpectralComponent:
     available = available_components()
     raise ValueError(f"Unknown component: '{name}'. Use available_components() to list options. Available: {available[:10]}...")
 
-
 def search_components(
-    query: Optional[str] = None,
-    category: Optional[str] = None,
-    subcategory: Optional[str] = None,
-    tags: Optional[List[str]] = None,
-    wavelength_range: Optional[Tuple[float, float]] = None,
-) -> List[str]:
+    query: str | None = None,
+    category: str | None = None,
+    subcategory: str | None = None,
+    tags: list[str] | None = None,
+    wavelength_range: tuple[float, float] | None = None,
+) -> list[str]:
     """
     Search components by various criteria.
 
@@ -818,10 +809,8 @@ def search_components(
         # Filter by query (fuzzy match on name/synonyms)
         if query:
             query_lower = query.lower()
-            if query_lower not in name.lower():
-                # Check synonyms
-                if not any(query_lower in s.lower() for s in (comp.synonyms or [])):
-                    continue
+            if query_lower not in name.lower() and not any(query_lower in s.lower() for s in (comp.synonyms or [])):
+                continue
 
         # Filter by category
         if category and comp.category != category:
@@ -838,16 +827,14 @@ def search_components(
                 continue
 
         # Filter by wavelength range
-        if wavelength_range:
-            if not comp.has_bands_in_range(wavelength_range):
-                continue
+        if wavelength_range and not comp.has_bands_in_range(wavelength_range):
+            continue
 
         results.append(name)
 
     return sorted(results)
 
-
-def list_categories() -> Dict[str, List[str]]:
+def list_categories() -> dict[str, list[str]]:
     """
     Return dictionary of categories to component names.
 
@@ -862,7 +849,7 @@ def list_categories() -> Dict[str, List[str]]:
     from ._constants import get_predefined_components
 
     components = get_predefined_components()
-    categories: Dict[str, List[str]] = {}
+    categories: dict[str, list[str]] = {}
 
     for name, comp in components.items():
         cat = comp.category or "uncategorized"
@@ -873,7 +860,6 @@ def list_categories() -> Dict[str, List[str]]:
         categories[cat].sort()
 
     return categories
-
 
 def component_info(name: str) -> str:
     """
@@ -891,8 +877,7 @@ def component_info(name: str) -> str:
     comp = get_component(name)
     return comp.info()
 
-
-def validate_predefined_components() -> List[str]:
+def validate_predefined_components() -> list[str]:
     """
     Validate all predefined components.
 
@@ -909,7 +894,7 @@ def validate_predefined_components() -> List[str]:
     """
     from ._constants import get_predefined_components
 
-    issues: List[str] = []
+    issues: list[str] = []
     components = get_predefined_components()
 
     # Check for uniqueness
@@ -937,10 +922,9 @@ def validate_predefined_components() -> List[str]:
 
     return issues
 
-
 def validate_component_coverage(
-    wavelength_range: Tuple[float, float] = (350, 2500),
-) -> Dict[str, List[str]]:
+    wavelength_range: tuple[float, float] = (350, 2500),
+) -> dict[str, list[str]]:
     """
     Check which components have bands in the given wavelength range.
 
@@ -958,8 +942,8 @@ def validate_component_coverage(
     from ._constants import get_predefined_components
 
     components = get_predefined_components()
-    covered: List[str] = []
-    not_covered: List[str] = []
+    covered: list[str] = []
+    not_covered: list[str] = []
 
     for name, comp in components.items():
         if comp.has_bands_in_range(wavelength_range):
@@ -968,7 +952,6 @@ def validate_component_coverage(
             not_covered.append(name)
 
     return {"covered": sorted(covered), "not_covered": sorted(not_covered)}
-
 
 def normalize_component_amplitudes(
     component: SpectralComponent,

@@ -5,33 +5,34 @@ This module contains the main facade that coordinates all dataset blocks
 and provides the primary public API for users.
 """
 
-
 import re
+
 import numpy as np
 
-from nirs4all.data.types import Selector, SourceSelector, OutputData, InputData, Layout, IndexDict, InputFeatures, ProcessingList
+from nirs4all.core.logging import get_logger
+from nirs4all.core.task_type import TaskType
+from nirs4all.data._dataset import FeatureAccessor, MetadataAccessor, TargetAccessor
 from nirs4all.data.features import Features
-from nirs4all.data.targets import Targets
 from nirs4all.data.indexer import Indexer
 from nirs4all.data.metadata import Metadata
 from nirs4all.data.predictions import Predictions
-from nirs4all.data._dataset import FeatureAccessor, TargetAccessor, MetadataAccessor
 from nirs4all.data.signal_type import (
     SignalType,
     SignalTypeInput,
-    normalize_signal_type,
     detect_signal_type,
+    normalize_signal_type,
 )
-from nirs4all.core.logging import get_logger
-from nirs4all.core.task_type import TaskType
+from nirs4all.data.targets import Targets
+from nirs4all.data.types import IndexDict, InputData, InputFeatures, Layout, OutputData, ProcessingList, Selector, SourceSelector
 
 logger = get_logger(__name__)
+import contextlib
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+
 from sklearn.base import TransformerMixin
-from typing import Optional, Union, List, Tuple, Dict, Any, Literal, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nirs4all.operators.data.repetition import RepetitionConfig
-
 
 class SpectroDataset:
     """
@@ -66,26 +67,26 @@ class SpectroDataset:
             name: Dataset identifier (default: "Unknown_dataset")
         """
         self._indexer = Indexer()
-        self._folds: List[Tuple[List[int], List[int]]] = []
+        self._folds: list[tuple[list[int], list[int]]] = []
         self.name = name
 
         # Cached content hash — invalidated on any feature mutation
-        self._content_hash_cache: Optional[str] = None
+        self._content_hash_cache: str | None = None
 
         # Signal type per source (for multi-source support)
-        self._signal_types: List[SignalType] = []
-        self._signal_type_forced: List[bool] = []
+        self._signal_types: list[SignalType] = []
+        self._signal_type_forced: list[bool] = []
 
         # Aggregation setting for sample-level prediction aggregation
-        self._aggregate_column: Optional[str] = None
+        self._aggregate_column: str | None = None
         self._aggregate_by_y: bool = False
-        self._aggregate_method: Optional[str] = None  # 'mean', 'median', or 'vote' (None = auto)
+        self._aggregate_method: str | None = None  # 'mean', 'median', or 'vote' (None = auto)
         self._aggregate_exclude_outliers: bool = False
         self._aggregate_outlier_threshold: float = 0.95
 
         # Repetition column - identifies sample repetitions (multiple spectra per sample)
         # This is the primary way to specify grouping for splits and score aggregation
-        self._repetition: Optional[str] = None
+        self._repetition: str | None = None
 
         # NaN tracking flag — set to True when the dataset may contain NaN
         # (e.g., loaded with na_policy="ignore" or after a transform introduces NaN).
@@ -174,9 +175,9 @@ class SpectroDataset:
 
     def add_samples(self,
                     data: InputData,
-                    indexes: Optional[IndexDict] = None,
-                    headers: Optional[Union[List[str], List[List[str]]]] = None,
-                    header_unit: Optional[Union[str, List[str]]] = None) -> None:
+                    indexes: IndexDict | None = None,
+                    headers: list[str] | list[list[str]] | None = None,
+                    header_unit: str | list[str] | None = None) -> None:
         """
         Add feature samples to the dataset.
 
@@ -190,8 +191,8 @@ class SpectroDataset:
         self._invalidate_content_hash()
 
     def add_samples_batch(self,
-                          data: Union[np.ndarray, List[np.ndarray]],
-                          indexes_list: List[IndexDict]) -> None:
+                          data: np.ndarray | list[np.ndarray],
+                          indexes_list: list[IndexDict]) -> None:
         """
         Add multiple samples in a single batch operation - O(N) instead of O(N²).
 
@@ -244,7 +245,7 @@ class SpectroDataset:
         features: np.ndarray,
         processing_name: str = "merged",
         source: int = 0,
-        processing_names: Optional[List[str]] = None
+        processing_names: list[str] | None = None
     ) -> None:
         """Add merged features from branch merge operations.
 
@@ -312,7 +313,7 @@ class SpectroDataset:
         )
         self._invalidate_content_hash()
 
-    def keep_sources(self, source_indices: Union[int, List[int]]) -> None:
+    def keep_sources(self, source_indices: int | list[int]) -> None:
         """Keep only specified sources, removing all others.
 
         Used after merge operations with output_as="features" to consolidate
@@ -336,7 +337,7 @@ class SpectroDataset:
         self,
         processing_name: str = "merged",
         source: int = 0,
-        selector: Optional[Selector] = None
+        selector: Selector | None = None
     ) -> np.ndarray:
         """Get merged features by processing name.
 
@@ -388,18 +389,18 @@ class SpectroDataset:
                         data: InputData,
                         processings: ProcessingList,
                         augmentation_id: str,
-                        selector: Optional[Selector] = None,
-                        count: Union[int, List[int]] = 1) -> List[int]:
+                        selector: Selector | None = None,
+                        count: int | list[int] = 1) -> list[int]:
         """Create augmented versions of existing samples."""
         result = self._feature_accessor.augment_samples(data, processings, augmentation_id, selector, count)
         self._invalidate_content_hash()
         return result
 
-    def features_processings(self, src: int) -> List[str]:
+    def features_processings(self, src: int) -> list[str]:
         """Get processing names for a source."""
         return self._feature_accessor.processing_names(src)
 
-    def headers(self, src: int) -> List[str]:
+    def headers(self, src: int) -> list[str]:
         """Get feature headers for a source."""
         return self._feature_accessor.headers(src)
 
@@ -525,7 +526,7 @@ class SpectroDataset:
         self,
         src: int = 0,
         force_redetect: bool = False
-    ) -> Tuple[SignalType, float, str]:
+    ) -> tuple[SignalType, float, str]:
         """
         Detect signal type using heuristics.
 
@@ -550,7 +551,7 @@ class SpectroDataset:
 
         return self._detect_signal_type(src)
 
-    def _detect_signal_type(self, src: int) -> Tuple[SignalType, float, str]:
+    def _detect_signal_type(self, src: int) -> tuple[SignalType, float, str]:
         """Internal detection logic."""
         if self._feature_accessor.num_samples == 0:
             return SignalType.UNKNOWN, 0.0, "No data available"
@@ -582,7 +583,7 @@ class SpectroDataset:
             self._signal_type_forced.append(False)
 
     @property
-    def signal_types(self) -> List[SignalType]:
+    def signal_types(self) -> list[SignalType]:
         """
         Get signal types for all sources.
 
@@ -617,7 +618,7 @@ class SpectroDataset:
                 return True
 
         # Check target arrays
-        for processing_name, y_arr in self._targets._data.items():
+        for _processing_name, y_arr in self._targets._data.items():
             if y_arr is not None and y_arr.size > 0:
                 try:
                     if np.isnan(y_arr).any():
@@ -629,7 +630,7 @@ class SpectroDataset:
         return False
 
     @property
-    def nan_summary(self) -> Dict[str, Any]:
+    def nan_summary(self) -> dict[str, Any]:
         """Return per-source NaN statistics for features and targets.
 
         Provides a detailed breakdown of NaN presence across all feature sources
@@ -654,7 +655,7 @@ class SpectroDataset:
             ...     if src["nan_cells"] > 0:
             ...         print(f"Source {src['source']}: {src['nan_cells']} NaN cells")
         """
-        sources_info: List[Dict[str, Any]] = []
+        sources_info: list[dict[str, Any]] = []
         any_nan = False
 
         for src_idx, source in enumerate(self._features.sources):
@@ -714,7 +715,7 @@ class SpectroDataset:
     # ========== Aggregation Settings ==========
 
     @property
-    def repetition(self) -> Optional[str]:
+    def repetition(self) -> str | None:
         """
         Get the column name identifying sample repetitions.
 
@@ -732,7 +733,7 @@ class SpectroDataset:
         """
         return self._repetition
 
-    def set_repetition(self, column: Optional[str]) -> None:
+    def set_repetition(self, column: str | None) -> None:
         """
         Set the column name identifying sample repetitions.
 
@@ -746,19 +747,17 @@ class SpectroDataset:
         Example:
             >>> dataset.set_repetition('Sample_ID')
         """
-        if column is not None and column not in self.metadata_columns:
-            # Only warn if metadata has been loaded
-            if self._metadata.num_rows > 0:
-                from nirs4all.core.logging import get_logger
-                logger = get_logger(__name__)
-                logger.warning(
+        if column is not None and column not in self.metadata_columns and self._metadata.num_rows > 0:
+            from nirs4all.core.logging import get_logger
+            logger = get_logger(__name__)
+            logger.warning(
                     f"Repetition column '{column}' not found in metadata. "
                     f"Available columns: {self.metadata_columns}"
                 )
         self._repetition = column
 
     @property
-    def repetition_groups(self) -> Dict[Any, List[int]]:
+    def repetition_groups(self) -> dict[Any, list[int]]:
         """
         Get sample groups by repetition column.
 
@@ -779,7 +778,7 @@ class SpectroDataset:
         return self._get_sample_groups(self._repetition)
 
     @property
-    def repetition_stats(self) -> Dict[str, Any]:
+    def repetition_stats(self) -> dict[str, Any]:
         """
         Get statistics about repetition counts.
 
@@ -834,7 +833,7 @@ class SpectroDataset:
         }
 
     @property
-    def aggregate(self) -> Optional[str]:
+    def aggregate(self) -> str | None:
         """
         Get the aggregation setting for sample-level prediction aggregation.
 
@@ -851,7 +850,7 @@ class SpectroDataset:
             return 'y'
         return self._aggregate_column
 
-    def set_aggregate(self, value: Union[str, bool, None]) -> None:
+    def set_aggregate(self, value: str | bool | None) -> None:
         """
         Set the aggregation behavior for sample-level prediction aggregation.
 
@@ -894,7 +893,7 @@ class SpectroDataset:
         """
         return self._aggregate_method
 
-    def set_aggregate_method(self, value: Optional[str]) -> None:
+    def set_aggregate_method(self, value: str | None) -> None:
         """
         Set the aggregation method for sample-level prediction aggregation.
 
@@ -953,7 +952,7 @@ class SpectroDataset:
 
     # ========== Repetition Transformation Methods ==========
 
-    def _get_sample_groups(self, column: str) -> Dict[Any, List[int]]:
+    def _get_sample_groups(self, column: str) -> dict[Any, list[int]]:
         """Get sample groups by a metadata column or target values.
 
         Groups samples by the unique values in the specified column, returning
@@ -991,7 +990,7 @@ class SpectroDataset:
                     "Cannot group by 'y': no target values available. "
                     "Add targets first using add_targets(). [Error: REP-E003]"
                 )
-            groups: Dict[Any, List[int]] = defaultdict(list)
+            groups: dict[Any, list[int]] = defaultdict(list)
             for idx, val in enumerate(y):
                 # Use tuple for array values (multi-output), else raw value
                 key = tuple(val) if hasattr(val, '__iter__') and not isinstance(val, str) else val
@@ -1012,9 +1011,9 @@ class SpectroDataset:
 
     def _validate_repetition_groups(
         self,
-        groups: Dict[Any, List[int]],
+        groups: dict[Any, list[int]],
         config: "RepetitionConfig"
-    ) -> Tuple[Dict[Any, List[int]], int]:
+    ) -> tuple[dict[Any, list[int]], int]:
         """Validate and optionally adjust sample groups for equal repetitions.
 
         Args:
@@ -1145,10 +1144,7 @@ class SpectroDataset:
         for src_idx in range(n_existing_sources):
             # Get current source data in 3D layout
             X = self.x({}, layout="3d", concat_source=False, include_augmented=True, include_excluded=True)
-            if isinstance(X, list):
-                X_src = X[src_idx]
-            else:
-                X_src = X
+            X_src = X[src_idx] if isinstance(X, list) else X
 
             n_pp = X_src.shape[1]
             n_features = X_src.shape[2]
@@ -1159,7 +1155,7 @@ class SpectroDataset:
                 # Gather samples for this repetition
                 rep_data = np.zeros((n_unique, n_pp, n_features), dtype=X_src.dtype)
 
-                for sample_idx, (sample_id, row_indices) in enumerate(groups.items()):
+                for sample_idx, (_sample_id, row_indices) in enumerate(groups.items()):
                     if rep_idx < len(row_indices):
                         rep_data[sample_idx] = X_src[row_indices[rep_idx]]
                     else:
@@ -1236,10 +1232,7 @@ class SpectroDataset:
         for src_idx in range(n_existing_sources):
             # Get current source data in 3D layout
             X = self.x({}, layout="3d", concat_source=False, include_augmented=True, include_excluded=True)
-            if isinstance(X, list):
-                X_src = X[src_idx]
-            else:
-                X_src = X
+            X_src = X[src_idx] if isinstance(X, list) else X
 
             n_existing_pp = X_src.shape[1]
             n_features = X_src.shape[2]
@@ -1256,7 +1249,7 @@ class SpectroDataset:
                     new_pp_names.append(config.get_pp_name(rep_idx, pp_name))
 
             # Fill data: for each unique sample, stack all repetitions
-            for sample_idx, (sample_id, row_indices) in enumerate(groups.items()):
+            for sample_idx, (_sample_id, row_indices) in enumerate(groups.items()):
                 for rep_idx in range(n_reps):
                     if rep_idx < len(row_indices):
                         row_idx = row_indices[rep_idx]
@@ -1301,11 +1294,11 @@ class SpectroDataset:
 
     def _rebuild_dataset_from_sources(
         self,
-        sources_data: List[np.ndarray],
-        processing_ids: List[List[str]],
-        sample_keys: List[Any],
-        old_metadata: Optional[Any],
-        first_indices: List[int],
+        sources_data: list[np.ndarray],
+        processing_ids: list[list[str]],
+        sample_keys: list[Any],
+        old_metadata: Any | None,
+        first_indices: list[int],
         config: "RepetitionConfig",
         transformation_type: str
     ) -> None:
@@ -1335,7 +1328,7 @@ class SpectroDataset:
         new_features = Features()
         new_features.sources = []
 
-        for src_idx, (data_3d, pp_ids) in enumerate(zip(sources_data, processing_ids)):
+        for _src_idx, (data_3d, pp_ids) in enumerate(zip(sources_data, processing_ids, strict=False)):
             source = FeatureSource()
             # Add samples as 2D (first pp), then reset with full 3D
             source.reset_features(data_3d, pp_ids)
@@ -1357,7 +1350,7 @@ class SpectroDataset:
         if new_partitions:
             # Group samples by partition
             from collections import defaultdict
-            partition_indices: Dict[str, List[int]] = defaultdict(list)
+            partition_indices: dict[str, list[int]] = defaultdict(list)
             for idx, part in enumerate(new_partitions):
                 partition_indices[part].append(idx)
 
@@ -1482,7 +1475,7 @@ class SpectroDataset:
         """Invalidate the cached content hash after a feature mutation."""
         self._content_hash_cache = None
 
-    def content_hash(self, source_index: Optional[int] = None) -> str:
+    def content_hash(self, source_index: int | None = None) -> str:
         """Compute a deterministic content hash of the feature data.
 
         The hash covers the raw array bytes of the requested source(s).
@@ -1531,16 +1524,16 @@ class SpectroDataset:
                               processing_name: str,
                               targets: np.ndarray,
                               ancestor_processing: str = "numeric",
-                              transformer: Optional[TransformerMixin] = None) -> None:
+                              transformer: TransformerMixin | None = None) -> None:
         """Add processed target version (e.g., scaled, encoded)."""
         self._target_accessor.add_processed_targets(processing_name, targets, ancestor_processing, transformer)
 
     @property
-    def task_type(self) -> Optional[TaskType]:
+    def task_type(self) -> TaskType | None:
         """Get the detected task type."""
         return self._target_accessor.task_type
 
-    def set_task_type(self, task_type: Union[str, TaskType], forced: bool = True) -> None:
+    def set_task_type(self, task_type: str | TaskType, forced: bool = True) -> None:
         """Set the task type explicitly.
 
         Args:
@@ -1580,8 +1573,8 @@ class SpectroDataset:
     # ========== PRIMARY API: Metadata Methods ==========
 
     def add_metadata(self,
-                     data: Union[np.ndarray, Any],
-                     headers: Optional[List[str]] = None) -> None:
+                     data: np.ndarray | Any,
+                     headers: list[str] | None = None) -> None:
         """
         Add metadata rows (aligns with add_samples call order).
 
@@ -1592,8 +1585,8 @@ class SpectroDataset:
         self._metadata_accessor.add_metadata(data, headers)
 
     def metadata(self,
-                 selector: Optional[Selector] = None,
-                 columns: Optional[List[str]] = None,
+                 selector: Selector | None = None,
+                 columns: list[str] | None = None,
                  include_augmented: bool = True):
         """
         Get metadata as DataFrame.
@@ -1611,7 +1604,7 @@ class SpectroDataset:
 
     def metadata_column(self,
                         column: str,
-                        selector: Optional[Selector] = None,
+                        selector: Selector | None = None,
                         include_augmented: bool = True) -> np.ndarray:
         """
         Get single metadata column as array.
@@ -1629,9 +1622,9 @@ class SpectroDataset:
 
     def metadata_numeric(self,
                          column: str,
-                         selector: Optional[Selector] = None,
+                         selector: Selector | None = None,
                          method: Literal["label", "onehot"] = "label",
-                         include_augmented: bool = True) -> Tuple[np.ndarray, Dict]:
+                         include_augmented: bool = True) -> tuple[np.ndarray, dict]:
         """
         Get numeric encoding of metadata column.
 
@@ -1649,8 +1642,8 @@ class SpectroDataset:
 
     def update_metadata(self,
                         column: str,
-                        values: Union[List, np.ndarray],
-                        selector: Optional[Selector] = None,
+                        values: list | np.ndarray,
+                        selector: Selector | None = None,
                         include_augmented: bool = True) -> None:
         """
         Update metadata values for selected samples.
@@ -1666,7 +1659,7 @@ class SpectroDataset:
 
     def add_metadata_column(self,
                             column: str,
-                            values: Union[List, np.ndarray]) -> None:
+                            values: list | np.ndarray) -> None:
         """
         Add new metadata column.
 
@@ -1677,7 +1670,7 @@ class SpectroDataset:
         self._metadata_accessor.add_column(column, values)
 
     @property
-    def metadata_columns(self) -> List[str]:
+    def metadata_columns(self) -> list[str]:
         """Get list of metadata column names."""
         return self._metadata_accessor.columns
 
@@ -1686,7 +1679,7 @@ class SpectroDataset:
     # ========== Cross-Validation Folds ==========
 
     @property
-    def folds(self) -> List[Tuple[List[int], List[int]]]:
+    def folds(self) -> list[tuple[list[int], list[int]]]:
         """Get cross-validation folds."""
         return self._folds
 
@@ -1708,12 +1701,14 @@ class SpectroDataset:
 
     # ========== Index and Size Properties ==========
 
-    def index_column(self, col: str, filter: Dict[str, Any] = {}) -> List[int]:
+    def index_column(self, col: str, filter: dict[str, Any] = None) -> list[int]:
         """Get values from index column."""
+        if filter is None:
+            filter = {}
         return self._indexer.get_column_values(col, filter)
 
     @property
-    def num_features(self) -> Union[List[int], int]:
+    def num_features(self) -> list[int] | int:
         """Get number of features per source."""
         return self._feature_accessor.num_features
 
@@ -1755,8 +1750,8 @@ class SpectroDataset:
     def set_tag(
         self,
         name: str,
-        indices: Union[List[int], np.ndarray],
-        values: Union[Any, List[Any]]
+        indices: list[int] | np.ndarray,
+        values: Any | list[Any]
     ) -> None:
         """
         Set tag values for specific sample indices.
@@ -1782,7 +1777,7 @@ class SpectroDataset:
     def get_tag(
         self,
         name: str,
-        selector: Optional[Selector] = None
+        selector: Selector | None = None
     ) -> np.ndarray:
         """
         Get tag values for samples, optionally filtered by selector.
@@ -1812,7 +1807,7 @@ class SpectroDataset:
         return np.array(values)
 
     @property
-    def tags(self) -> List[str]:
+    def tags(self) -> list[str]:
         """
         Get list of all tag column names.
 
@@ -1824,7 +1819,7 @@ class SpectroDataset:
         """
         return self._indexer._store.get_tag_column_names()
 
-    def tag_info(self) -> Dict[str, Dict[str, Any]]:
+    def tag_info(self) -> dict[str, dict[str, Any]]:
         """
         Get metadata about all tag columns.
 
@@ -1848,7 +1843,7 @@ class SpectroDataset:
             non_null_count = sum(1 for v in values if v is not None)
 
             # Get unique values (limit to prevent memory issues)
-            unique_vals = list(set(v for v in values if v is not None))
+            unique_vals = list({v for v in values if v is not None})
             if len(unique_vals) > 100:
                 unique_vals = unique_vals[:100]  # Truncate for large cardinality
 
@@ -1890,7 +1885,7 @@ class SpectroDataset:
 
     # ========== Rich Metadata for Run Manifests ==========
 
-    def get_dataset_metadata(self, include_y_stats: bool = True) -> Dict[str, Any]:
+    def get_dataset_metadata(self, include_y_stats: bool = True) -> dict[str, Any]:
         """
         Get comprehensive dataset metadata for run manifests.
 
@@ -1925,7 +1920,7 @@ class SpectroDataset:
         """
         from pathlib import Path
 
-        meta: Dict[str, Any] = {
+        meta: dict[str, Any] = {
             "name": self.name,
             "n_samples": self._feature_accessor.num_samples if self._features.sources else 0,
             "n_features": self._feature_accessor.num_features if self._features.sources else 0,
@@ -1967,7 +1962,7 @@ class SpectroDataset:
                         unique, counts = np.unique(y, return_counts=True)
                         meta["y_stats"] = {
                             "n_classes": len(unique),
-                            "class_distribution": dict(zip(unique.astype(str).tolist(), counts.tolist())),
+                            "class_distribution": dict(zip(unique.astype(str).tolist(), counts.tolist(), strict=False)),
                         }
                     else:
                         # For regression, show numeric stats
@@ -1998,13 +1993,11 @@ class SpectroDataset:
                 pass
 
             # Signal types
-            try:
+            with contextlib.suppress(Exception):
                 meta["signal_types"] = [
                     self.signal_type(src).value if hasattr(self.signal_type(src), 'value') else str(self.signal_type(src))
                     for src in range(meta["n_sources"])
                 ]
-            except Exception:
-                pass
 
         # Metadata columns
         if self._metadata.num_rows > 0:

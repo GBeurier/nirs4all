@@ -96,7 +96,6 @@ class TestMetadataFilterInitialization:
         filter_obj = MetadataFilter(column="x", values_to_exclude=["a"])
         assert isinstance(filter_obj, SampleFilter)
 
-
 class TestMetadataFilterValuesToExclude:
     """Tests for values_to_exclude mode."""
 
@@ -149,7 +148,6 @@ class TestMetadataFilterValuesToExclude:
 
         assert mask.sum() == 5
 
-
 class TestMetadataFilterValuesToKeep:
     """Tests for values_to_keep mode."""
 
@@ -186,7 +184,6 @@ class TestMetadataFilterValuesToKeep:
         mask = filter_obj.get_mask(X, metadata=metadata)
 
         assert mask.sum() == 0
-
 
 class TestMetadataFilterCondition:
     """Tests for custom condition mode."""
@@ -245,7 +242,6 @@ class TestMetadataFilterCondition:
         assert mask[1] == False  # noqa: E712  Exception
         assert mask[2] == True   # noqa: E712
 
-
 class TestMetadataFilterMissingValues:
     """Tests for handling missing values."""
 
@@ -300,7 +296,6 @@ class TestMetadataFilterMissingValues:
         # None should now be kept (if in values_to_keep)
         assert mask[1] == True  # noqa: E712
 
-
 class TestMetadataFilterErrorHandling:
     """Tests for error handling."""
 
@@ -332,7 +327,6 @@ class TestMetadataFilterErrorHandling:
 
         with pytest.raises(ValueError, match="does not match"):
             filter_obj.get_mask(X, metadata=metadata)
-
 
 class TestMetadataFilterDataFrameSupport:
     """Tests for pandas DataFrame support."""
@@ -374,7 +368,6 @@ class TestMetadataFilterDataFrameSupport:
         mask = filter_obj.get_mask(X, metadata=metadata)
 
         assert mask.sum() == 3
-
 
 class TestMetadataFilterHelperMethods:
     """Tests for helper methods."""
@@ -444,7 +437,6 @@ class TestMetadataFilterHelperMethods:
         repr_str = repr(filter_obj)
 
         assert "<function>" in repr_str
-
 
 class TestMetadataFilterTransform:
     """Tests for transform method (should be no-op)."""

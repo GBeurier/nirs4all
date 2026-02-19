@@ -1,9 +1,7 @@
 """Test script for Phase 1 generator refactoring."""
 
-from nirs4all.pipeline.config.generator import (
-    expand_spec, count_combinations,
-    OR_KEYWORD, RANGE_KEYWORD, is_generator_node, sample_with_seed
-)
+from nirs4all.pipeline.config.generator import OR_KEYWORD, RANGE_KEYWORD, count_combinations, expand_spec, is_generator_node, sample_with_seed
+
 
 def test_basic_expand():
     """Test basic OR expansion."""

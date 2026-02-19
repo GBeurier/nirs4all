@@ -5,8 +5,8 @@ This module provides caching and memory-mapped file support.
 """
 
 from .cache import (
-    DataCache,
     CacheEntry,
+    DataCache,
 )
 
 __all__ = [

@@ -9,12 +9,12 @@ Tests the new separation branch syntax:
 Note: Full separation branch testing with merge will be in Phase 5.
 """
 
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.linear_model import Ridge
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
@@ -38,7 +38,6 @@ def create_simple_dataset() -> SpectroDataset:
     dataset.add_targets(y[80:])
 
     return dataset
-
 
 def create_metadata_dataset() -> SpectroDataset:
     """Create a dataset with metadata for per-site testing."""
@@ -72,7 +71,6 @@ def create_metadata_dataset() -> SpectroDataset:
     dataset.set_metadata(metadata_df)
 
     return dataset
-
 
 class TestDuplicationBranchesStillWork:
     """Test that existing duplication branch syntax still works."""
@@ -135,7 +133,6 @@ class TestDuplicationBranchesStillWork:
         assert predictions is not None
         assert len(predictions) > 0
 
-
 class TestModeDetection:
     """Test branch mode detection logic."""
 
@@ -183,7 +180,6 @@ class TestModeDetection:
 
         ctrl = BranchController()
         assert ctrl._detect_branch_mode({"snv": [], "msc": []}) == "duplication"
-
 
 class TestLegacyPatternErrors:
     """Test that legacy 'by' patterns raise clear errors."""
@@ -241,7 +237,6 @@ class TestLegacyPatternErrors:
 
         with pytest.raises((ValueError, RuntimeError), match="no longer supported"):
             runner.run(PipelineConfigs(pipeline), dataset)
-
 
 class TestBranchControllerMatches:
     """Test BranchController.matches() method."""

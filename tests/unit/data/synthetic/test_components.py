@@ -2,24 +2,24 @@
 Unit tests for NIRBand, SpectralComponent, and ComponentLibrary classes.
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.synthesis import (
+    PREDEFINED_COMPONENTS,
+    ComponentLibrary,
     NIRBand,
     SpectralComponent,
-    ComponentLibrary,
-    PREDEFINED_COMPONENTS,
-    get_predefined_components,
     # Discovery API (Phase 1 enhancement)
     available_components,
-    get_component,
-    search_components,
-    list_categories,
     component_info,
-    validate_predefined_components,
-    validate_component_coverage,
+    get_component,
+    get_predefined_components,
+    list_categories,
     normalize_component_amplitudes,
+    search_components,
+    validate_component_coverage,
+    validate_predefined_components,
 )
 
 
@@ -84,7 +84,6 @@ class TestNIRBand:
 
         np.testing.assert_allclose(spectrum2, spectrum1 * 2.0, rtol=1e-10)
 
-
 class TestSpectralComponent:
     """Tests for SpectralComponent class."""
 
@@ -127,7 +126,6 @@ class TestSpectralComponent:
             expected += band.compute(sample_wavelengths)
 
         np.testing.assert_allclose(spectrum, expected)
-
 
 class TestComponentLibrary:
     """Tests for ComponentLibrary class."""
@@ -224,7 +222,6 @@ class TestComponentLibrary:
 
         np.testing.assert_allclose(E1, E2)
 
-
 class TestPredefinedComponents:
     """Tests for predefined components constant."""
 
@@ -265,7 +262,6 @@ class TestPredefinedComponents:
         """Test that PREDEFINED_COMPONENTS has keys() method."""
         keys = list(PREDEFINED_COMPONENTS.keys())
         assert "water" in keys
-
 
 class TestSpectralComponentMetadata:
     """Tests for SpectralComponent metadata fields (Phase 1 enhancement)."""
@@ -416,7 +412,6 @@ class TestSpectralComponentMetadata:
         assert "water_related" in info
         assert "1450" in info
 
-
 class TestDiscoveryAPI:
     """Tests for discovery API functions (Phase 1 enhancement)."""
 
@@ -508,7 +503,6 @@ class TestDiscoveryAPI:
         normalized = normalize_component_amplitudes(comp)
         assert normalized.bands[0].amplitude == 1.0
 
-
 class TestComponentEnrichment:
     """Tests for automatic component metadata enrichment."""
 
@@ -559,7 +553,6 @@ class TestComponentEnrichment:
         pet = get_component("pet")
         # These should have synonyms
         assert "PET" in polyester.synonyms or "polyester" in pet.synonyms
-
 
 class TestPhase2VisibleRegionComponents:
     """Tests for Phase 2 visible-region components."""
@@ -668,7 +661,6 @@ class TestPhase2VisibleRegionComponents:
         for name in visible_components:
             comp = get_component(name)
             assert "vis-nir" in comp.tags, f"{name} should have 'vis-nir' tag"
-
 
 class TestBoundaryComponents:
     """Tests for boundary component functionality (peaks outside wavelength range)."""

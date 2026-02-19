@@ -1,9 +1,9 @@
 """Unit tests for OptunaManager._create_study (Phase 4 - Samplers, Pruners, Storage, Seed)."""
 
-import pytest
 import optuna
-from optuna.samplers import TPESampler, GridSampler, RandomSampler, CmaEsSampler
-from optuna.pruners import MedianPruner, SuccessiveHalvingPruner, HyperbandPruner
+import pytest
+from optuna.pruners import HyperbandPruner, MedianPruner, SuccessiveHalvingPruner
+from optuna.samplers import CmaEsSampler, GridSampler, RandomSampler, TPESampler
 
 from nirs4all.optimization.optuna import OptunaManager
 
@@ -78,7 +78,6 @@ class TestCreateStudySamplers:
         study = manager._create_study(fp)
         assert isinstance(study.sampler, TPESampler)
 
-
 class TestCreateStudySeed:
     """Tests for seed support in _create_study."""
 
@@ -146,7 +145,6 @@ class TestCreateStudySeed:
         values2 = [t.params["x"] for t in study2.trials]
         assert values1 == values2
 
-
 class TestCreateStudyPruners:
     """Tests for pruner instantiation in _create_study."""
 
@@ -187,7 +185,6 @@ class TestCreateStudyPruners:
         study = manager._create_study(fp)
         assert isinstance(study.pruner, HyperbandPruner)
 
-
 class TestCreatePruner:
     """Tests for _create_pruner helper."""
 
@@ -210,7 +207,6 @@ class TestCreatePruner:
     def test_unknown_returns_none(self, manager):
         assert manager._create_pruner("unknown_pruner") is None
 
-
 class TestCreateStudyDirection:
     """Tests for direction parameter in _create_study."""
 
@@ -230,7 +226,6 @@ class TestCreateStudyDirection:
         }
         study = manager._create_study(fp)
         assert study.direction == optuna.study.StudyDirection.MAXIMIZE
-
 
 class TestCreateStudyStorage:
     """Tests for storage/resume in _create_study."""
@@ -285,7 +280,6 @@ class TestCreateStudyStorage:
         study2 = manager._create_study(fp2)
         # Should have the trial from the first study
         assert len(study2.trials) == 1
-
 
 class TestCreateStudyForceParams:
     """Tests for force_params enqueue in _create_study."""

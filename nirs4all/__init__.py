@@ -46,36 +46,36 @@ __version__ = "0.7.1"
 
 # Module-level API (primary interface) - Phase 2
 from .api import (
-    run,
-    predict,
-    explain,
-    retrain,
-    session,
-    load_session,
-    Session,
-    RunResult,
-    PredictResult,
     ExplainResult,
+    PredictResult,
+    RunResult,
+    Session,
+    explain,
     generate,
+    load_session,
+    predict,
+    retrain,
+    run,
+    session,
 )
+from .controllers import CONTROLLER_REGISTRY, register_controller
 
 # Core pipeline components - for advanced usage
 from .pipeline import (
-    PipelineRunner,
     PipelineConfigs,
+    PipelineRunner,
     Run,
     RunConfig,
     RunStatus,
     generate_run_id,
 )
-from .controllers import register_controller, CONTROLLER_REGISTRY
 
 # Utility functions for backend detection
 from .utils import (
-    is_tensorflow_available,
+    framework,
     # is_torch_available,
     is_gpu_available,
-    framework
+    is_tensorflow_available,
 )
 
 # Make commonly used classes available at package level

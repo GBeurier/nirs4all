@@ -4,17 +4,17 @@ This module provides helper functions for computing combinations,
 permutations, and related operations used in pipeline generation.
 """
 
+from collections.abc import Callable, Iterator
 from itertools import combinations, permutations, product
 from math import comb, factorial
-from typing import Any, Iterator, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Optional, TypeVar, Union
 
 T = TypeVar('T')
 
-
 def generate_combinations(
-    items: List[T],
+    items: list[T],
     size: int
-) -> Iterator[Tuple[T, ...]]:
+) -> Iterator[tuple[T, ...]]:
     """Generate all combinations of items with given size.
 
     Args:
@@ -32,11 +32,10 @@ def generate_combinations(
         return
     yield from combinations(items, size)
 
-
 def generate_combinations_range(
-    items: List[T],
-    size_range: Tuple[int, int]
-) -> Iterator[Tuple[T, ...]]:
+    items: list[T],
+    size_range: tuple[int, int]
+) -> Iterator[tuple[T, ...]]:
     """Generate combinations for all sizes in a range.
 
     Args:
@@ -55,11 +54,10 @@ def generate_combinations_range(
         if size <= len(items):
             yield from combinations(items, size)
 
-
 def generate_permutations(
-    items: List[T],
-    size: Optional[int] = None
-) -> Iterator[Tuple[T, ...]]:
+    items: list[T],
+    size: int | None = None
+) -> Iterator[tuple[T, ...]]:
     """Generate all permutations of items.
 
     Args:
@@ -79,8 +77,7 @@ def generate_permutations(
         return
     yield from permutations(items, size)
 
-
-def generate_cartesian_product(*iterables: List[Any]) -> Iterator[Tuple[Any, ...]]:
+def generate_cartesian_product(*iterables: list[Any]) -> Iterator[tuple[Any, ...]]:
     """Generate cartesian product of multiple iterables.
 
     Args:
@@ -94,7 +91,6 @@ def generate_cartesian_product(*iterables: List[Any]) -> Iterator[Tuple[Any, ...
         [(1, 'A'), (1, 'B'), (2, 'A'), (2, 'B')]
     """
     yield from product(*iterables)
-
 
 def count_combinations(n: int, k: int) -> int:
     """Count combinations C(n, k) = n! / (k! * (n-k)!).
@@ -116,8 +112,7 @@ def count_combinations(n: int, k: int) -> int:
         return 0
     return comb(n, k)
 
-
-def count_combinations_range(n: int, size_range: Tuple[int, int]) -> int:
+def count_combinations_range(n: int, size_range: tuple[int, int]) -> int:
     """Count total combinations for all sizes in a range.
 
     Args:
@@ -137,7 +132,6 @@ def count_combinations_range(n: int, size_range: Tuple[int, int]) -> int:
         if size <= n:
             total += comb(n, size)
     return total
-
 
 def count_permutations(n: int, k: int) -> int:
     """Count permutations P(n, k) = n! / (n-k)!.
@@ -159,8 +153,7 @@ def count_permutations(n: int, k: int) -> int:
         return 0
     return factorial(n) // factorial(n - k)
 
-
-def count_permutations_range(n: int, size_range: Tuple[int, int]) -> int:
+def count_permutations_range(n: int, size_range: tuple[int, int]) -> int:
     """Count total permutations for all sizes in a range.
 
     Args:
@@ -181,10 +174,9 @@ def count_permutations_range(n: int, size_range: Tuple[int, int]) -> int:
             total += count_permutations(n, size)
     return total
 
-
 def normalize_size_spec(
-    size: Union[int, Tuple[int, int], List[int]]
-) -> Tuple[int, int]:
+    size: int | tuple[int, int] | list[int]
+) -> tuple[int, int]:
     """Normalize size specification to (from, to) tuple.
 
     Handles various size specifications and normalizes them to
@@ -215,7 +207,6 @@ def normalize_size_spec(
     else:
         raise ValueError(f"Invalid size specification: {size}")
 
-
 def is_nested_size_spec(size: Any) -> bool:
     """Check if size specification is for nested combinations [outer, inner].
 
@@ -239,11 +230,10 @@ def is_nested_size_spec(size: Any) -> bool:
     """
     return isinstance(size, list) and len(size) == 2
 
-
 def expand_combination_cartesian(
-    combo: Tuple[Any, ...],
-    expand_func: callable
-) -> List[List[Any]]:
+    combo: tuple[Any, ...],
+    expand_func: Callable
+) -> list[list[Any]]:
     """Expand a combination by taking cartesian product of expanded elements.
 
     This is used when each element of a combination can itself expand

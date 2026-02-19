@@ -25,6 +25,7 @@ Difficulty: ★★★☆☆
 
 # Standard library imports
 import argparse
+
 import matplotlib.pyplot as plt
 
 # Third-party imports
@@ -36,10 +37,10 @@ from sklearn.preprocessing import MinMaxScaler
 # NIRS4All imports
 import nirs4all
 from nirs4all.operators.transforms import (
-    StandardNormalVariate,
-    FirstDerivative,
     Detrend,
+    FirstDerivative,
     SavitzkyGolay,
+    StandardNormalVariate,
 )
 from nirs4all.visualization.predictions import PredictionAnalyzer
 
@@ -48,7 +49,6 @@ parser = argparse.ArgumentParser(description='U02 Hyperparameter Tuning Example'
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Introduction to Hyperparameter Tuning
@@ -87,7 +87,6 @@ nirs4all uses Optuna for efficient hyperparameter optimization:
      {'type': 'float', 'min': 0.0, 'max': 1.0, 'log': True}
      {'type': 'categorical', 'choices': [v1, v2, v3]}
 """)
-
 
 # =============================================================================
 # Section 2: Basic Grid Search
@@ -134,7 +133,6 @@ print("Top configurations:")
 for pred in result_grid.top(3, display_metrics=['rmse', 'r2']):
     print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
-
 # =============================================================================
 # Section 3: Bayesian Optimization (TPE)
 # =============================================================================
@@ -177,7 +175,6 @@ result_tpe = nirs4all.run(
 )
 
 print(f"\nBest RMSE: {result_tpe.best_score:.4f}")
-
 
 # =============================================================================
 # Section 4: Log-Scale Parameters
@@ -226,7 +223,6 @@ result_log = nirs4all.run(
 )
 
 print(f"\nBest RMSE: {result_log.best_score:.4f}")
-
 
 # =============================================================================
 # Section 5: Pruning and Seed Support
@@ -280,7 +276,6 @@ result_pruning = nirs4all.run(
 
 print(f"\nBest RMSE: {result_pruning.best_score:.4f}")
 
-
 # =============================================================================
 # Section 5b: Custom Metric and Direction
 # =============================================================================
@@ -332,7 +327,6 @@ result_metric = nirs4all.run(
 
 print(f"\nBest R2-optimized score: {result_metric.best_score:.4f}")
 
-
 # =============================================================================
 # Section 6: Tuning Approaches
 # =============================================================================
@@ -382,7 +376,6 @@ result_grouped = nirs4all.run(
 
 print(f"\nGrouped search - Best RMSE: {result_grouped.best_score:.4f}")
 print("Each preprocessing gets its own optimal n_components!")
-
 
 # =============================================================================
 # Section 7: Combined Preprocessing + Model Tuning
@@ -440,7 +433,6 @@ for i, pred in enumerate(result_combined.top(5, display_metrics=['rmse', 'r2']),
     model = pred.get('model_name', 'Unknown')
     print(f"   {i}. {preproc} + {model}: RMSE={pred.get('rmse', 0):.4f}")
 
-
 # =============================================================================
 # Section 8: Visualizing Tuning Results
 # =============================================================================
@@ -473,7 +465,6 @@ if args.plots:
         plt.show()
 else:
     print("Use --plots to generate visualization charts")
-
 
 # =============================================================================
 # Summary

@@ -6,6 +6,7 @@ by both data and controller modules without creating circular import issues.
 """
 
 import numpy as np
+
 from nirs4all.core.task_type import TaskType
 
 

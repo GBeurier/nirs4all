@@ -11,18 +11,17 @@ Uses literature-based parameters from the augmentation module.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
-
 
 # =============================================================================
 # Temperature Region Parameters (from literature)
 # =============================================================================
 
 # Import from augmentation module for consistency
-TEMPERATURE_REGION_PARAMS: Dict[str, Dict] = {
+TEMPERATURE_REGION_PARAMS: dict[str, dict] = {
     "oh_1st_overtone": {
         "range": (1400, 1520),
         "shift_per_degree": -0.30,
@@ -67,11 +66,9 @@ BOUND_WATER_PEAK_1ST = 1460  # nm
 FREE_WATER_PEAK_COMB = 1920  # nm
 BOUND_WATER_PEAK_COMB = 1940  # nm
 
-
 # =============================================================================
 # Environmental Effects Model
 # =============================================================================
-
 
 @dataclass
 class EnvironmentalEffectsModel:
@@ -99,8 +96,8 @@ class EnvironmentalEffectsModel:
     reference_wavelength: float = 1500.0
 
     # Cached region masks for efficiency
-    _region_masks: Optional[Dict[str, np.ndarray]] = field(default=None, repr=False)
-    _cached_wavelengths: Optional[np.ndarray] = field(default=None, repr=False)
+    _region_masks: dict[str, np.ndarray] | None = field(default=None, repr=False)
+    _cached_wavelengths: np.ndarray | None = field(default=None, repr=False)
 
     def apply(
         self,
@@ -372,7 +369,7 @@ class EnvironmentalEffectsModel:
         self.scattering_amplitude = orig
         return (spec_plus - spec_minus) / (2 * eps)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "temperature_delta": self.temperature_delta,
@@ -383,7 +380,7 @@ class EnvironmentalEffectsModel:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "EnvironmentalEffectsModel":
+    def from_dict(cls, d: dict[str, Any]) -> EnvironmentalEffectsModel:
         """Create from dictionary."""
         return cls(
             temperature_delta=d.get("temperature_delta", 0.0),
@@ -393,7 +390,7 @@ class EnvironmentalEffectsModel:
             enabled=d.get("enabled", True),
         )
 
-    def copy(self) -> "EnvironmentalEffectsModel":
+    def copy(self) -> EnvironmentalEffectsModel:
         """Create a copy of this model."""
         return EnvironmentalEffectsModel(
             temperature_delta=self.temperature_delta,
@@ -404,11 +401,9 @@ class EnvironmentalEffectsModel:
             reference_wavelength=self.reference_wavelength,
         )
 
-
 # =============================================================================
 # Environmental Parameter Bounds and Priors
 # =============================================================================
-
 
 @dataclass
 class EnvironmentalParameterConfig:
@@ -419,25 +414,25 @@ class EnvironmentalParameterConfig:
     """
 
     # Temperature bounds and prior
-    temperature_bounds: Tuple[float, float] = (-15.0, 15.0)
+    temperature_bounds: tuple[float, float] = (-15.0, 15.0)
     temperature_prior_mean: float = 0.0
     temperature_prior_std: float = 5.0
 
     # Water activity bounds and prior (Beta distribution)
-    water_activity_bounds: Tuple[float, float] = (0.1, 0.9)
+    water_activity_bounds: tuple[float, float] = (0.1, 0.9)
     water_activity_prior_alpha: float = 2.0
     water_activity_prior_beta: float = 2.0
 
     # Scattering power bounds and prior
-    scattering_power_bounds: Tuple[float, float] = (0.5, 3.0)
+    scattering_power_bounds: tuple[float, float] = (0.5, 3.0)
     scattering_power_prior_mean: float = 1.5
     scattering_power_prior_std: float = 0.5
 
     # Scattering amplitude bounds and prior
-    scattering_amplitude_bounds: Tuple[float, float] = (0.0, 0.2)
+    scattering_amplitude_bounds: tuple[float, float] = (0.0, 0.2)
     scattering_amplitude_prior_scale: float = 0.02
 
-    def get_bounds_list(self) -> List[Tuple[float, float]]:
+    def get_bounds_list(self) -> list[tuple[float, float]]:
         """Get list of bounds for all 4 environmental parameters."""
         return [
             self.temperature_bounds,
@@ -485,7 +480,6 @@ class EnvironmentalParameterConfig:
         penalty += scattering_amplitude / self.scattering_amplitude_prior_scale
 
         return penalty
-
 
 __all__ = [
     "EnvironmentalEffectsModel",

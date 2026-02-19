@@ -6,18 +6,19 @@ Tests the flexible input system that allows:
 - Datasets: DatasetConfigs, SpectroDataset, numpy arrays, Dict, or file path
 """
 
-import pytest
-import numpy as np
-import tempfile
 import json
+import tempfile
 from pathlib import Path
 
-from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+import numpy as np
+import pytest
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler
+
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LinearRegression
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+from nirs4all.pipeline.runner import PipelineRunner
 
 
 @pytest.fixture
@@ -28,7 +29,6 @@ def sample_data():
     y = np.random.randn(100)  # Regression targets
     return X, y
 
-
 @pytest.fixture
 def sample_pipeline_steps():
     """Simple pipeline steps for testing."""
@@ -37,12 +37,10 @@ def sample_pipeline_steps():
         {"model": {"class": LinearRegression}}
     ]
 
-
 @pytest.fixture
 def sample_pipeline_dict(sample_pipeline_steps):
     """Pipeline as a dictionary."""
     return {"pipeline": sample_pipeline_steps}
-
 
 @pytest.fixture
 def sample_dataset_config():
@@ -54,7 +52,6 @@ def sample_dataset_config():
         "test_x": np.random.randn(20, 50),
         "test_y": np.random.randn(20)
     }
-
 
 class TestPipelineNormalization:
     """Test pipeline input normalization."""
@@ -111,7 +108,6 @@ class TestPipelineNormalization:
             assert len(normalized.steps) >= 1
         finally:
             Path(temp_path).unlink()
-
 
 class TestDatasetNormalization:
     """Test dataset input normalization."""
@@ -255,7 +251,6 @@ class TestDatasetNormalization:
         assert isinstance(normalized, DatasetConfigs)
         assert len(normalized.configs) == 1
 
-
 class TestRunnerWithNormalization:
     """Integration tests for runner methods with normalized inputs."""
 
@@ -344,7 +339,6 @@ class TestRunnerWithNormalization:
         result3 = runner.run({"pipeline": sample_pipeline_steps}, dataset)
         assert result3 is not None
 
-
 class TestErrorHandling:
     """Test error cases and edge conditions."""
 
@@ -372,7 +366,6 @@ class TestErrorHandling:
 
         with pytest.raises((ValueError, TypeError)):
             runner.orchestrator._normalize_dataset(("not_array", "also_not_array"))
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -1,7 +1,5 @@
 """Prediction transformation utilities."""
 
-from typing import Dict
-
 import numpy as np
 from sklearn.base import TransformerMixin
 from sklearn.preprocessing import LabelEncoder
@@ -46,7 +44,7 @@ class TargetTransformer:
                  predictions: np.ndarray,
                  from_processing: str,
                  to_processing: str,
-                 data_storage: Dict[str, np.ndarray]) -> np.ndarray:
+                 data_storage: dict[str, np.ndarray]) -> np.ndarray:
         """
         Transform predictions from one processing state to another.
 

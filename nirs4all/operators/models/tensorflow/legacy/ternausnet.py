@@ -1,6 +1,7 @@
 # Import Necessary Libraries
 import tensorflow as tf
 
+
 def Conv_Block(inputs, model_width, kernel, multiplier=1, bottleneck=False):
     # 1D Convolutional Block
     if bottleneck:
@@ -18,7 +19,6 @@ def Conv_Block(inputs, model_width, kernel, multiplier=1, bottleneck=False):
 
     return x
 
-
 def Concat_Block(input1, *argv):
     # Concatenation Block from the Keras Library
     cat = input1
@@ -27,13 +27,11 @@ def Concat_Block(input1, *argv):
 
     return cat
 
-
 def upConv_Block(inputs):
     # 1D UpSampling Block
     up = tf.keras.layers.UpSampling1D(size=2)(inputs)
 
     return up
-
 
 def trans_conv1D(inputs, model_width, multiplier, strides):
     # 1D Transposed Convolutional Block, used instead of UpSampling
@@ -42,7 +40,6 @@ def trans_conv1D(inputs, model_width, multiplier, strides):
     x = tf.keras.layers.Activation('relu')(x)
 
     return x
-
 
 def Feature_Extraction_Block(inputs, model_width, feature_number):
     # Feature Extraction Block for the AutoEncoder Mode
@@ -53,7 +50,6 @@ def Feature_Extraction_Block(inputs, model_width, feature_number):
     latent = tf.keras.layers.Reshape((shape[1], model_width))(latent)
 
     return latent
-
 
 def Attention_Block(skip_connection, gating_signal, num_filters, multiplier):
     # Attention Block
@@ -70,7 +66,6 @@ def Attention_Block(skip_connection, gating_signal, num_filters, multiplier):
     out = skip_connection * resampler
 
     return out
-
 
 class TernausNet:
     def __init__(self, length, num_channel, model_width, ds=0, ae=0, ag=0, problem_type='Regression',
@@ -117,7 +112,7 @@ class TernausNet:
             conv = Conv_Block(pool, self.model_width, 3, 2 ** i)
             conv = Conv_Block(conv, self.model_width, 3, 2 ** i)
             pool = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(conv)
-            convs["conv%s" % i] = conv
+            convs[f"conv{i}"] = conv
 
         conv = Conv_Block(pool, self.model_width, 3, 2 ** 3)
         conv = Conv_Block(conv, self.model_width, 3, 2 ** 3)
@@ -189,7 +184,7 @@ class TernausNet:
             conv = Conv_Block(pool, self.model_width, 3, 2 ** i)
             conv = Conv_Block(conv, self.model_width, 3, 2 ** i)
             pool = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(conv)
-            convs["conv%s" % i] = conv
+            convs[f"conv{i}"] = conv
 
         conv = Conv_Block(pool, self.model_width, 3, 2 ** 3)
         conv = Conv_Block(conv, self.model_width, 3, 2 ** 3)
@@ -262,7 +257,7 @@ class TernausNet:
             conv = Conv_Block(conv, self.model_width, 3, 2 ** i)
             conv = Conv_Block(conv, self.model_width, 1, 2 ** i)
             pool = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(conv)
-            convs["conv%s" % i] = conv
+            convs[f"conv{i}"] = conv
 
         conv = Conv_Block(pool, self.model_width, 3, 2 ** 3)
         conv = Conv_Block(conv, self.model_width, 3, 2 ** 3)
@@ -338,7 +333,7 @@ class TernausNet:
             conv = Conv_Block(conv, self.model_width, 3, 2 ** i)
             conv = Conv_Block(conv, self.model_width, 3, 2 ** i)
             pool = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(conv)
-            convs["conv%s" % i] = conv
+            convs[f"conv{i}"] = conv
 
         conv = Conv_Block(pool, self.model_width, 3, 2 ** 3)
         conv = Conv_Block(conv, self.model_width, 3, 2 ** 3)
@@ -389,7 +384,6 @@ class TernausNet:
             model = tf.keras.Model(inputs=[inputs], outputs=levels)
 
         return model
-
 
 if __name__ == '__main__':
     # Configurations

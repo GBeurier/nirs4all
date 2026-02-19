@@ -84,7 +84,7 @@ Priority: 5 (same as BranchController)
 
 import copy
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 
@@ -93,31 +93,30 @@ from nirs4all.controllers.registry import register_controller
 from nirs4all.controllers.shared import ModelSelector, PredictionAggregator
 from nirs4all.core.logging import get_logger
 from nirs4all.operators.data.merge import (
-    MergeConfig,
-    MergeMode,
+    AggregationStrategy,
     BranchPredictionConfig,
     BranchType,
-    DisjointSelectionCriterion,
     DisjointBranchInfo,
     DisjointMergeMetadata,
+    DisjointSelectionCriterion,
+    MergeConfig,
+    MergeMode,
     SelectionStrategy,
-    AggregationStrategy,
     ShapeMismatchStrategy,
+    SourceIncompatibleStrategy,
     SourceMergeConfig,
     SourceMergeStrategy,
-    SourceIncompatibleStrategy,
 )
 from nirs4all.pipeline.execution.result import StepOutput
 
 if TYPE_CHECKING:
-    from nirs4all.data.dataset import SpectroDataset
     from nirs4all.data._features.feature_source import FeatureSource
+    from nirs4all.data.dataset import SpectroDataset
     from nirs4all.data.predictions import Predictions
     from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
     from nirs4all.pipeline.steps.parser import ParsedStep
 
 logger = get_logger(__name__)
-
 
 # =============================================================================
 # Phase 5: Model Selection and Prediction Aggregation Utilities
@@ -127,7 +126,6 @@ logger = get_logger(__name__)
 # They are imported from the shared module and re-exported here for
 # backward compatibility.
 # =============================================================================
-
 
 # =============================================================================
 # Phase 6: Asymmetric Branch Detection and Handling
@@ -147,13 +145,12 @@ class BranchAnalysisResult:
         has_features: Whether the branch has feature snapshots.
     """
     branch_id: int
-    branch_name: Optional[str]
+    branch_name: str | None
     has_models: bool
-    model_names: List[str]
+    model_names: list[str]
     model_count: int
-    feature_dim: Optional[int]
+    feature_dim: int | None
     has_features: bool
-
 
 @dataclass
 class AsymmetryReport:
@@ -177,12 +174,11 @@ class AsymmetryReport:
     has_model_asymmetry: bool
     has_model_count_asymmetry: bool
     has_feature_dim_asymmetry: bool
-    branches_with_models: List[int]
-    branches_without_models: List[int]
-    model_counts: Dict[int, int]
-    feature_dims: Dict[int, Optional[int]]
+    branches_with_models: list[int]
+    branches_without_models: list[int]
+    model_counts: dict[int, int]
+    feature_dims: dict[int, int | None]
     summary: str
-
 
 # =============================================================================
 # Phase 2 (Disjoint Sample Branch Merging): Detection and Analysis
@@ -201,12 +197,11 @@ class DisjointBranchAnalysis:
         partition_column: Metadata column used for partitioning (if metadata_partitioner).
     """
     is_disjoint: bool
-    branch_type: Optional[BranchType]
-    branch_sample_counts: Dict[int, int]
-    branch_sample_indices: Dict[int, List[int]]
+    branch_type: BranchType | None
+    branch_sample_counts: dict[int, int]
+    branch_sample_indices: dict[int, list[int]]
     total_samples: int
-    partition_column: Optional[str] = None
-
+    partition_column: str | None = None
 
 @dataclass
 class DisjointMergeResult:
@@ -222,11 +217,10 @@ class DisjointMergeResult:
     merged_array: np.ndarray
     n_columns: int
     select_by: str
-    branch_info: Dict[str, Any]
-    column_mapping: Dict[int, Dict[str, str]]
+    branch_info: dict[str, Any]
+    column_mapping: dict[int, dict[str, str]]
 
-
-def is_disjoint_branch(branch_context: Dict[str, Any]) -> bool:
+def is_disjoint_branch(branch_context: dict[str, Any]) -> bool:
     """Check if a branch context indicates disjoint sample branching.
 
     A disjoint branch has a 'sample_partition' or 'partition_info' key
@@ -252,14 +246,10 @@ def is_disjoint_branch(branch_context: Dict[str, Any]) -> bool:
 
     # Check for partition_info key (from both partitioners)
     partition_info = branch_context.get("partition_info")
-    if partition_info and "sample_indices" in partition_info:
-        return True
-
-    return False
-
+    return bool(partition_info and "sample_indices" in partition_info)
 
 def detect_disjoint_branches(
-    branch_contexts: List[Dict[str, Any]]
+    branch_contexts: list[dict[str, Any]]
 ) -> DisjointBranchAnalysis:
     """Detect if branches represent disjoint sample partitions.
 
@@ -316,10 +306,7 @@ def detect_disjoint_branches(
         elif "sample_indices" in partition_info:
             has_disjoint = True
             # Determine type from partition_info
-            if partition_info.get("type") in ("outliers", "inliers"):
-                branch_type = BranchType.SAMPLE_PARTITIONER
-            else:
-                branch_type = BranchType.METADATA_PARTITIONER
+            branch_type = BranchType.SAMPLE_PARTITIONER if partition_info.get("type") in ("outliers", "inliers") else BranchType.METADATA_PARTITIONER
             sample_indices = partition_info.get("sample_indices", [])
 
         if sample_indices is not None:
@@ -346,7 +333,6 @@ def detect_disjoint_branches(
         partition_column=partition_column,
     )
 
-
 class AsymmetricBranchAnalyzer:
     """Utility class for analyzing branch asymmetry.
 
@@ -362,8 +348,8 @@ class AsymmetricBranchAnalyzer:
 
     def __init__(
         self,
-        branch_contexts: List[Dict[str, Any]],
-        prediction_store: Optional[Any],
+        branch_contexts: list[dict[str, Any]],
+        prediction_store: Any | None,
         context: "ExecutionContext",
     ):
         """Initialize the analyzer.
@@ -376,7 +362,7 @@ class AsymmetricBranchAnalyzer:
         self.branch_contexts = branch_contexts
         self.prediction_store = prediction_store
         self.context = context
-        self._analysis_cache: Dict[int, BranchAnalysisResult] = {}
+        self._analysis_cache: dict[int, BranchAnalysisResult] = {}
 
     def analyze_branch(self, branch_idx: int) -> BranchAnalysisResult:
         """Analyze a single branch for its characteristics.
@@ -420,7 +406,7 @@ class AsymmetricBranchAnalyzer:
 
         # Estimate feature dimension from snapshot
         feature_dim = None
-        if has_features:
+        if has_features and snapshot is not None:
             try:
                 total_features = 0
                 for feature_source in snapshot:
@@ -457,7 +443,7 @@ class AsymmetricBranchAnalyzer:
                 if p.get('step_idx', 0) < current_step
             ]
 
-            model_names = sorted(set(p.get('model_name') for p in predictions if p.get('model_name')))
+            model_names = sorted({p.get('model_name') for p in predictions if p.get('model_name')})
 
         result = BranchAnalysisResult(
             branch_id=branch_id,
@@ -542,7 +528,7 @@ class AsymmetricBranchAnalyzer:
             summary=summary,
         )
 
-    def suggest_mixed_merge(self) -> Optional[str]:
+    def suggest_mixed_merge(self) -> str | None:
         """Suggest a mixed merge configuration for asymmetric branches.
 
         Returns:
@@ -561,7 +547,6 @@ class AsymmetricBranchAnalyzer:
             f'Consider mixed merge: {{"merge": {{{predictions_part}, {features_part}}}}}\n'
             f"This collects OOF predictions from branches with models and features from branches without."
         )
-
 
 class MergeConfigParser:
     """Parser for merge step configurations.
@@ -633,7 +618,7 @@ class MergeConfigParser:
             )
 
     @classmethod
-    def _parse_dict(cls, config_dict: Dict[str, Any]) -> MergeConfig:
+    def _parse_dict(cls, config_dict: dict[str, Any]) -> MergeConfig:
         """Parse dictionary configuration.
 
         Handles:
@@ -708,7 +693,7 @@ class MergeConfigParser:
 
     @classmethod
     def _parse_source_merge_spec(
-        cls, source_spec: Union[str, Dict[str, Any]]
+        cls, source_spec: str | dict[str, Any]
     ) -> SourceMergeConfig:
         """Parse source merge specification.
 
@@ -741,8 +726,8 @@ class MergeConfigParser:
     @classmethod
     def _parse_branch_spec(
         cls,
-        spec: Union[str, List[int], Dict[str, Any]]
-    ) -> Union[str, List[int]]:
+        spec: str | list[int] | dict[str, Any]
+    ) -> str | list[int]:
         """Parse branch specification for features.
 
         Args:
@@ -778,7 +763,7 @@ class MergeConfigParser:
     def _parse_predictions_spec(
         cls,
         config: MergeConfig,
-        pred_spec: Union[str, List, Dict]
+        pred_spec: str | list | dict
     ) -> MergeConfig:
         """Parse predictions specification.
 
@@ -844,7 +829,7 @@ class MergeConfigParser:
     @classmethod
     def _parse_branch_prediction_config(
         cls,
-        item: Dict[str, Any]
+        item: dict[str, Any]
     ) -> BranchPredictionConfig:
         """Parse a single per-branch prediction configuration.
 
@@ -872,7 +857,6 @@ class MergeConfigParser:
             proba=item.get("proba", False),
             sources=item.get("sources", "all"),
         )
-
 
 @register_controller
 class MergeController(OperatorController):
@@ -942,9 +926,9 @@ class MergeController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute the merge step with keyword dispatch.
 
         Dispatches to appropriate handler based on the step keyword:
@@ -1014,9 +998,9 @@ class MergeController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute branch merge operation.
 
         Combines outputs from multiple branches and exits branch mode.
@@ -1125,7 +1109,7 @@ class MergeController(OperatorController):
 
         if disjoint_analysis.is_disjoint:
             logger.info(
-                f"  Disjoint sample branching detected: {disjoint_analysis.branch_type.value}, "
+                f"  Disjoint sample branching detected: {disjoint_analysis.branch_type.value if disjoint_analysis.branch_type else 'unknown'}, "
                 f"{disjoint_analysis.total_samples} total samples across {n_branches} branches"
             )
 
@@ -1370,10 +1354,10 @@ class MergeController(OperatorController):
         source: int,
         mode: str,
         config: MergeConfig,
-        source_contexts: List[Dict[str, Any]],
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        source_contexts: list[dict[str, Any]],
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute merge for source_branch mode.
 
         This handles merging after source_branch, where each source was processed
@@ -1432,10 +1416,7 @@ class MergeController(OperatorController):
                 source_shapes.append(features.shape)
 
                 # Get source name from contexts or generate default
-                if src_idx < len(source_contexts):
-                    name = source_contexts[src_idx].get("source_name", f"source_{src_idx}")
-                else:
-                    name = f"source_{src_idx}"
+                name = source_contexts[src_idx].get("source_name", f"source_{src_idx}") if src_idx < len(source_contexts) else f"source_{src_idx}"
                 source_names.append(name)
 
                 logger.info(f"  Source {src_idx} ({name}): shape={features.shape}")
@@ -1461,7 +1442,7 @@ class MergeController(OperatorController):
         if config.output_as == "sources":
             # Keep as separate sources - already in the right format
             # Just store merged info for metadata
-            for idx, (part, name) in enumerate(zip(merged_parts, source_names)):
+            for idx, (part, name) in enumerate(zip(merged_parts, source_names, strict=False)):
                 processing_name = f"merged_{name}"
                 if config.source_names and idx < len(config.source_names):
                     processing_name = config.source_names[idx]
@@ -1475,7 +1456,7 @@ class MergeController(OperatorController):
 
         elif config.output_as == "dict":
             # Store as dictionary for multi-input models
-            merged_dict = {name: part for name, part in zip(source_names, merged_parts)}
+            merged_dict = dict(zip(source_names, merged_parts, strict=False))
             merge_info["merged_dict_keys"] = source_names
 
             result_context = context.copy()
@@ -1533,11 +1514,11 @@ class MergeController(OperatorController):
         source: int,
         mode: str,
         config: MergeConfig,
-        branch_contexts: List[Dict[str, Any]],
+        branch_contexts: list[dict[str, Any]],
         disjoint_analysis: DisjointBranchAnalysis,
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute merge for disjoint sample branches.
 
         Disjoint branches partition samples such that each sample exists in
@@ -1576,12 +1557,13 @@ class MergeController(OperatorController):
         logger.info(
             f"Disjoint branch merge: {n_branches} branches, "
             f"{n_total_samples} total samples, "
-            f"type={disjoint_analysis.branch_type.value}"
+            f"type={disjoint_analysis.branch_type.value if disjoint_analysis.branch_type else 'unknown'}"
         )
 
-        merge_info: Dict[str, Any] = {
+        branch_type_value = disjoint_analysis.branch_type.value if disjoint_analysis.branch_type else "unknown"
+        merge_info: dict[str, Any] = {
             "disjoint_merge": True,
-            "branch_type": disjoint_analysis.branch_type.value,
+            "branch_type": branch_type_value,
             "n_branches": n_branches,
             "n_total_samples": n_total_samples,
         }
@@ -1638,10 +1620,7 @@ class MergeController(OperatorController):
         self._validate_merged_trainability(merged_parts[0], merge_info)
 
         # Concatenate horizontally if multiple parts
-        if len(merged_parts) == 1:
-            final_merged = merged_parts[0]
-        else:
-            final_merged = np.concatenate(merged_parts, axis=1)
+        final_merged = merged_parts[0] if len(merged_parts) == 1 else np.concatenate(merged_parts, axis=1)
 
         merge_info["merged_shape"] = final_merged.shape
         logger.info(f"  Final merged shape: {final_merged.shape}")
@@ -1701,11 +1680,11 @@ class MergeController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int,
         config: MergeConfig,
-        branch_contexts: List[Dict[str, Any]],
+        branch_contexts: list[dict[str, Any]],
         disjoint_analysis: DisjointBranchAnalysis,
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute disjoint merge in prediction mode.
 
         In prediction mode, samples have already been routed to their
@@ -1744,7 +1723,7 @@ class MergeController(OperatorController):
             f"{n_total_samples} samples"
         )
 
-        merge_info: Dict[str, Any] = {
+        merge_info: dict[str, Any] = {
             "disjoint_merge": True,
             "prediction_mode": True,
             "branch_type": disjoint_analysis.branch_type.value,
@@ -1851,11 +1830,11 @@ class MergeController(OperatorController):
         self,
         dataset: "SpectroDataset",
         context: "ExecutionContext",
-        branch_contexts: List[Dict[str, Any]],
+        branch_contexts: list[dict[str, Any]],
         disjoint_analysis: DisjointBranchAnalysis,
         config: MergeConfig,
         prediction_store: Any,
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """Collect predictions from disjoint branches in predict mode.
 
         In predict mode, models have already generated predictions for
@@ -1889,7 +1868,7 @@ class MergeController(OperatorController):
             return None
 
         # Group predictions by branch
-        branch_predictions: Dict[int, List[Dict[str, Any]]] = {}
+        branch_predictions: dict[int, list[dict[str, Any]]] = {}
         for pred in predictions:
             branch_id = pred.get('branch_id', 0)
             if branch_id not in branch_predictions:
@@ -1900,7 +1879,7 @@ class MergeController(OperatorController):
         # Find number of models/columns from first branch with predictions
         n_columns = 1
         for preds in branch_predictions.values():
-            model_names = set(p.get('model_name') for p in preds if p.get('model_name'))
+            model_names = {p.get('model_name') for p in preds if p.get('model_name')}
             if model_names:
                 n_columns = len(model_names)
                 break
@@ -1917,7 +1896,7 @@ class MergeController(OperatorController):
             preds = branch_predictions[branch_id]
 
             # Group by model
-            model_preds: Dict[str, np.ndarray] = {}
+            model_preds: dict[str, np.ndarray] = {}
             for pred in preds:
                 model_name = pred.get('model_name', 'model')
                 y_pred = pred.get('y_pred')
@@ -1932,7 +1911,7 @@ class MergeController(OperatorController):
                         )
 
             # Map predictions to output columns
-            for col_idx, (model_name, y_pred) in enumerate(model_preds.items()):
+            for col_idx, (_model_name, y_pred) in enumerate(model_preds.items()):
                 if col_idx >= n_columns:
                     break
 
@@ -1953,10 +1932,10 @@ class MergeController(OperatorController):
     def _collect_disjoint_features(
         self,
         dataset: "SpectroDataset",
-        branch_contexts: List[Dict[str, Any]],
+        branch_contexts: list[dict[str, Any]],
         disjoint_analysis: DisjointBranchAnalysis,
         config: MergeConfig,
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Collect features from disjoint sample branches.
 
         For disjoint branches, features are concatenated VERTICALLY (row-wise)
@@ -1977,8 +1956,8 @@ class MergeController(OperatorController):
             ValueError: If feature dimensions differ across branches.
         """
         n_total_samples = disjoint_analysis.total_samples
-        feature_dims: Dict[str, int] = {}
-        branch_features: Dict[int, Tuple[np.ndarray, List[int]]] = {}
+        feature_dims: dict[str, int] = {}
+        branch_features: dict[int, tuple[np.ndarray, list[int]]] = {}
 
         # Collect features from each branch
         for bc in branch_contexts:
@@ -2042,7 +2021,7 @@ class MergeController(OperatorController):
         # Reconstruct full feature matrix by sample_id
         merged = np.full((n_total_samples, n_features), np.nan)
 
-        for branch_id, (features, sample_indices) in branch_features.items():
+        for _branch_id, (features, sample_indices) in branch_features.items():
             for local_idx, global_idx in enumerate(sample_indices):
                 if global_idx < n_total_samples:
                     merged[global_idx] = features[local_idx]
@@ -2058,8 +2037,8 @@ class MergeController(OperatorController):
 
         # Phase 3: Build comprehensive metadata for feature merge
         # Build per-branch info (for features, no model selection)
-        branches_info: Dict[str, DisjointBranchInfo] = {}
-        for branch_id, (features, sample_indices) in branch_features.items():
+        branches_info: dict[str, DisjointBranchInfo] = {}
+        for branch_id, (_features, sample_indices) in branch_features.items():
             # Get branch name from feature_dims keys (we saved branch_name -> dim)
             branch_name = None
             for bc in branch_contexts:
@@ -2107,12 +2086,12 @@ class MergeController(OperatorController):
         self,
         dataset: "SpectroDataset",
         context: "ExecutionContext",
-        branch_contexts: List[Dict[str, Any]],
+        branch_contexts: list[dict[str, Any]],
         disjoint_analysis: DisjointBranchAnalysis,
         config: MergeConfig,
-        prediction_store: Optional[Any],
+        prediction_store: Any | None,
         mode: str,
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Collect predictions from disjoint sample branches.
 
         For disjoint branches, predictions are collected per-branch and then
@@ -2151,7 +2130,7 @@ class MergeController(OperatorController):
         select_by = config.select_by
 
         # Step 1: Discover models in each branch and their scores
-        branch_models: Dict[int, List[Dict[str, Any]]] = {}
+        branch_models: dict[int, list[dict[str, Any]]] = {}
         branch_sample_indices = disjoint_analysis.branch_sample_indices
 
         for bc in branch_contexts:
@@ -2221,9 +2200,9 @@ class MergeController(OperatorController):
         )
 
         # Step 3: Select top-N models per branch
-        selected_per_branch: Dict[int, List[Dict[str, Any]]] = {}
-        dropped_per_branch: Dict[int, List[Dict[str, Any]]] = {}
-        column_mapping: Dict[int, Dict[str, str]] = {i: {} for i in range(n_columns)}
+        selected_per_branch: dict[int, list[dict[str, Any]]] = {}
+        dropped_per_branch: dict[int, list[dict[str, Any]]] = {}
+        column_mapping: dict[int, dict[str, str]] = {i: {} for i in range(n_columns)}
 
         for branch_id, model_infos in branch_models.items():
             branch_name = model_infos[0]["branch_name"] if model_infos else f"branch_{branch_id}"
@@ -2299,7 +2278,7 @@ class MergeController(OperatorController):
 
         # Phase 3: Build comprehensive metadata using DisjointMergeMetadata
         # Build per-branch info
-        branches_info: Dict[str, DisjointBranchInfo] = {}
+        branches_info: dict[str, DisjointBranchInfo] = {}
         for branch_id, selected_models in selected_per_branch.items():
             # Get branch name
             branch_name = selected_models[0]["branch_name"] if selected_models else f"branch_{branch_id}"
@@ -2335,7 +2314,7 @@ class MergeController(OperatorController):
 
         # Check if column mapping is heterogeneous (different models in same column for different branches)
         is_heterogeneous = False
-        for col_idx, mapping in column_mapping.items():
+        for _col_idx, mapping in column_mapping.items():
             if len(set(mapping.values())) > 1:
                 is_heterogeneous = True
                 break
@@ -2390,7 +2369,7 @@ class MergeController(OperatorController):
         branch_id: int,
         metric: str,
         context: "ExecutionContext",
-    ) -> Optional[float]:
+    ) -> float | None:
         """Get validation score for a model.
 
         Args:
@@ -2450,9 +2429,9 @@ class MergeController(OperatorController):
         prediction_store: Any,
         model_name: str,
         branch_id: int,
-        sample_indices: List[int],
+        sample_indices: list[int],
         mode: str,
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """Get OOF predictions for a model in a disjoint branch.
 
         For disjoint branches, we need predictions only for the samples
@@ -2493,7 +2472,7 @@ class MergeController(OperatorController):
                 return None
 
             # Build sample_id to prediction mapping
-            sample_to_pred: Dict[int, List[float]] = {}
+            sample_to_pred: dict[int, list[float]] = {}
 
             for pred in predictions:
                 y_pred = pred.get('y_pred')
@@ -2529,7 +2508,7 @@ class MergeController(OperatorController):
     def _validate_merged_trainability(
         self,
         merged: np.ndarray,
-        merge_info: Dict[str, Any],
+        merge_info: dict[str, Any],
     ) -> None:
         """Validate that merged predictions can train a meta-model.
 
@@ -2586,7 +2565,7 @@ class MergeController(OperatorController):
     def _validate_branches(
         self,
         config: MergeConfig,
-        branch_contexts: List[Dict[str, Any]]
+        branch_contexts: list[dict[str, Any]]
     ) -> None:
         """Validate that specified branch indices exist.
 
@@ -2641,9 +2620,9 @@ class MergeController(OperatorController):
 
     def _validate_branch_indices(
         self,
-        indices: List[int],
+        indices: list[int],
         available_indices: set,
-        available_names: Dict[str, int],
+        available_names: dict[str, int],
         context_name: str
     ) -> None:
         """Validate a list of branch indices.
@@ -2664,9 +2643,9 @@ class MergeController(OperatorController):
 
     def _validate_branch_reference(
         self,
-        ref: Union[int, str],
+        ref: int | str,
         available_indices: set,
-        available_names: Dict[str, int],
+        available_names: dict[str, int],
         context_name: str
     ) -> None:
         """Validate a single branch reference (index or name).
@@ -2703,8 +2682,8 @@ class MergeController(OperatorController):
         self,
         config: MergeConfig,
         n_branches: int,
-        branch_contexts: Optional[List[Dict[str, Any]]] = None,
-        prediction_store: Optional[Any] = None,
+        branch_contexts: list[dict[str, Any]] | None = None,
+        prediction_store: Any | None = None,
         context: Optional["ExecutionContext"] = None,
     ) -> None:
         """Log merge configuration for debugging.
@@ -2783,12 +2762,12 @@ class MergeController(OperatorController):
     def _collect_features(
         self,
         dataset: "SpectroDataset",
-        branch_contexts: List[Dict[str, Any]],
-        branch_indices: List[int],
+        branch_contexts: list[dict[str, Any]],
+        branch_indices: list[int],
         on_missing: str = "error",
         on_shape_mismatch: str = "error",
         preserve_preprocessing: bool = False,
-    ) -> Tuple[List[np.ndarray], Dict[str, Any]]:
+    ) -> tuple[list[np.ndarray], dict[str, Any]]:
         """Collect features from specified branches.
 
         Extracts features from each branch's feature snapshot. By default, features
@@ -2910,7 +2889,7 @@ class MergeController(OperatorController):
 
     def _extract_features_from_snapshot(
         self,
-        snapshot: List[Any],
+        snapshot: list[Any],
         expected_samples: int,
         branch_idx: int,
         layout: str = "2d",
@@ -2960,10 +2939,7 @@ class MergeController(OperatorController):
                         f"Branch {branch_idx} source {src_idx} has {n_samples} samples, "
                         f"expected {expected_samples}. [Error: MERGE-E003]"
                     )
-                if layout == "2d":
-                    features = arr_3d.reshape(n_samples, -1)
-                else:
-                    features = arr_3d
+                features = arr_3d.reshape(n_samples, -1) if layout == "2d" else arr_3d
             else:
                 # FeatureSource object (deep-copy mode)
                 n_samples = feature_source.num_samples
@@ -3007,9 +2983,9 @@ class MergeController(OperatorController):
 
     def _get_branch_context(
         self,
-        branch_contexts: List[Dict[str, Any]],
-        branch_ref: Union[int, str]
-    ) -> Optional[Dict[str, Any]]:
+        branch_contexts: list[dict[str, Any]],
+        branch_ref: int | str
+    ) -> dict[str, Any] | None:
         """Get a branch context by index or name.
 
         Args:
@@ -3031,10 +3007,10 @@ class MergeController(OperatorController):
 
     def _handle_shape_mismatch(
         self,
-        features_list: List[np.ndarray],
+        features_list: list[np.ndarray],
         strategy: str,
-        branches_used: List[int]
-    ) -> List[np.ndarray]:
+        branches_used: list[int]
+    ) -> list[np.ndarray]:
         """Handle feature dimension mismatches across branches.
 
         Args:
@@ -3112,7 +3088,7 @@ class MergeController(OperatorController):
         self,
         dataset: "SpectroDataset",
         context: "ExecutionContext"
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """Get original pre-branch features from dataset.
 
         Retrieves the features that were present before branching started.
@@ -3164,11 +3140,11 @@ class MergeController(OperatorController):
         self,
         dataset: "SpectroDataset",
         context: "ExecutionContext",
-        branch_contexts: List[Dict[str, Any]],
+        branch_contexts: list[dict[str, Any]],
         config: MergeConfig,
         prediction_store: Optional["Predictions"],
         mode: str = "train",
-    ) -> Tuple[Optional[np.ndarray], Dict[str, Any]]:
+    ) -> tuple[np.ndarray | None, dict[str, Any]]:
         """Collect predictions from specified branches with per-branch control.
 
         Orchestrates model discovery, selection, aggregation, and OOF reconstruction.
@@ -3215,10 +3191,10 @@ class MergeController(OperatorController):
         )
 
         # Collect predictions per branch with selection and aggregation
-        all_branch_predictions: List[np.ndarray] = []
-        all_models_used: List[str] = []
-        branches_used: List[int] = []
-        selection_info: List[Dict[str, Any]] = []
+        all_branch_predictions: list[np.ndarray] = []
+        all_models_used: list[str] = []
+        branches_used: list[int] = []
+        selection_info: list[dict[str, Any]] = []
 
         for branch_config in prediction_configs:
             branch_ref = branch_config.branch
@@ -3374,9 +3350,9 @@ class MergeController(OperatorController):
                     )
                 else:
                     raise ValueError(
-                        f"No model predictions found in any specified branch. "
-                        f"Ensure models were trained in the specified branches before merge. "
-                        f"[Error: MERGE-E010]"
+                        "No model predictions found in any specified branch. "
+                        "Ensure models were trained in the specified branches before merge. "
+                        "[Error: MERGE-E010]"
                     )
             logger.warning("No predictions collected from any branch.")
             return None, {"models_used": [], "branches_used": []}
@@ -3399,11 +3375,11 @@ class MergeController(OperatorController):
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         prediction_store: "Predictions",
-        model_names: List[str],
+        model_names: list[str],
         branch_id: int,
         config: MergeConfig,
         mode: str = "train",
-    ) -> Optional[Dict[str, np.ndarray]]:
+    ) -> dict[str, np.ndarray] | None:
         """Collect predictions for specified models from a single branch.
 
         Returns a dictionary mapping model names to their prediction arrays,
@@ -3445,10 +3421,10 @@ class MergeController(OperatorController):
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         prediction_store: "Predictions",
-        model_names: List[str],
+        model_names: list[str],
         branch_id: int,
         config: MergeConfig,
-    ) -> Optional[Dict[str, np.ndarray]]:
+    ) -> dict[str, np.ndarray] | None:
         """Collect OOF predictions for models in a single branch.
 
         Uses TrainingSetReconstructor for proper OOF reconstruction.
@@ -3465,10 +3441,10 @@ class MergeController(OperatorController):
             Dictionary mapping model names to prediction arrays.
         """
         from nirs4all.controllers.models.stacking import (
-            TrainingSetReconstructor,
             ReconstructorConfig,
+            TrainingSetReconstructor,
         )
-        from nirs4all.operators.models.meta import StackingConfig, CoverageStrategy
+        from nirs4all.operators.models.meta import CoverageStrategy, StackingConfig
 
         # Create stacking config with IMPUTE_MEAN to handle incomplete coverage
         # This is more lenient than STRICT and allows merge to work with
@@ -3561,9 +3537,9 @@ class MergeController(OperatorController):
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         prediction_store: "Predictions",
-        model_names: List[str],
+        model_names: list[str],
         branch_id: int,
-    ) -> Optional[Dict[str, np.ndarray]]:
+    ) -> dict[str, np.ndarray] | None:
         """Collect predictions WITHOUT OOF reconstruction (UNSAFE).
 
         ⚠️ WARNING: This causes DATA LEAKAGE when used for training.
@@ -3641,7 +3617,7 @@ class MergeController(OperatorController):
 
             if test_preds:
                 # Aggregate test predictions across folds
-                test_aggregated: Dict[int, List[float]] = {}
+                test_aggregated: dict[int, list[float]] = {}
 
                 for pred in test_preds:
                     y_pred = pred.get('y_pred')
@@ -3678,8 +3654,8 @@ class MergeController(OperatorController):
         prediction_store: "Predictions",
         model_name: str,
         partition: str,
-        current_step: Union[int, float],
-    ) -> List[Dict[str, Any]]:
+        current_step: int | float,
+    ) -> list[dict[str, Any]]:
         """Get predictions for a model/partition without OOF.
 
         Helper for unsafe prediction collection.
@@ -3712,8 +3688,8 @@ class MergeController(OperatorController):
         prediction_store: "Predictions",
         branch_id: int,
         context: "ExecutionContext",
-        model_filter: Optional[List[str]] = None,
-    ) -> List[str]:
+        model_filter: list[str] | None = None,
+    ) -> list[str]:
         """Discover models that have predictions in a branch.
 
         Queries the prediction store for models that ran in the specified
@@ -3773,8 +3749,8 @@ class MergeController(OperatorController):
 
     def _resolve_branch_index(
         self,
-        branch_contexts: List[Dict[str, Any]],
-        branch_ref: Union[int, str]
+        branch_contexts: list[dict[str, Any]],
+        branch_ref: int | str
     ) -> int:
         """Resolve a branch reference to its numeric index.
 
@@ -3810,9 +3786,9 @@ class MergeController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int,
         config: MergeConfig,
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None,
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None,
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute merge in prediction mode without active branch contexts.
 
         In prediction mode, branches have already been processed by the executor
@@ -3945,7 +3921,7 @@ class MergeController(OperatorController):
         context: "ExecutionContext",
         config: MergeConfig,
         prediction_store: "Predictions",
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """Collect predictions in prediction mode.
 
         In predict mode, models have already generated predictions which are
@@ -3977,7 +3953,7 @@ class MergeController(OperatorController):
             return None
 
         # Group by model
-        model_predictions: Dict[str, List[np.ndarray]] = {}
+        model_predictions: dict[str, list[np.ndarray]] = {}
         for pred in predictions:
             model_name = pred.get('model_name')
             if model_name is None:
@@ -4000,7 +3976,7 @@ class MergeController(OperatorController):
 
         # Aggregate predictions per model (average across folds)
         aggregated = []
-        for model_name, pred_list in model_predictions.items():
+        for _model_name, pred_list in model_predictions.items():
             if len(pred_list) == 1:
                 model_pred = pred_list[0]
             else:
@@ -4028,9 +4004,9 @@ class MergeController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute source merge operation (Phase 9).
 
         Combines features from multiple data sources in a multi-source dataset.
@@ -4098,7 +4074,7 @@ class MergeController(OperatorController):
         try:
             source_indices = config.get_source_indices(source_names)
         except ValueError as e:
-            raise ValueError(str(e))
+            raise ValueError(str(e)) from e
 
         if len(source_indices) < 2:
             logger.warning(
@@ -4232,7 +4208,7 @@ class MergeController(OperatorController):
         self,
         dataset: "SpectroDataset",
         n_sources: int
-    ) -> List[str]:
+    ) -> list[str]:
         """Get source names from dataset.
 
         Args:
@@ -4261,9 +4237,9 @@ class MergeController(OperatorController):
         self,
         dataset: "SpectroDataset",
         context: "ExecutionContext",
-        source_indices: List[int],
-        source_names: List[str],
-    ) -> Tuple[Dict[int, np.ndarray], Dict[str, Any]]:
+        source_indices: list[int],
+        source_names: list[str],
+    ) -> tuple[dict[int, np.ndarray], dict[str, Any]]:
         """Collect features from specified sources.
 
         Args:
@@ -4333,10 +4309,10 @@ class MergeController(OperatorController):
 
     def _merge_sources_concat(
         self,
-        source_features: Dict[int, np.ndarray],
-        source_indices: List[int],
-        source_names: List[str],
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        source_features: dict[int, np.ndarray],
+        source_indices: list[int],
+        source_names: list[str],
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Merge sources by horizontal concatenation.
 
         Args:
@@ -4390,11 +4366,11 @@ class MergeController(OperatorController):
 
     def _merge_sources_stack(
         self,
-        source_features: Dict[int, np.ndarray],
-        source_indices: List[int],
-        source_names: List[str],
+        source_features: dict[int, np.ndarray],
+        source_indices: list[int],
+        source_names: list[str],
         on_incompatible: SourceIncompatibleStrategy,
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Merge sources by stacking along new axis (3D result).
 
         Args:
@@ -4477,10 +4453,10 @@ class MergeController(OperatorController):
 
     def _merge_sources_dict(
         self,
-        source_features: Dict[int, np.ndarray],
-        source_indices: List[int],
-        source_names: List[str],
-    ) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
+        source_features: dict[int, np.ndarray],
+        source_indices: list[int],
+        source_names: list[str],
+    ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
         """Keep sources as structured dictionary.
 
         Args:
@@ -4522,9 +4498,9 @@ class MergeController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute prediction-only merge operation (late fusion).
 
         Late fusion of predictions without branch context requirements.
@@ -4563,10 +4539,7 @@ class MergeController(OperatorController):
 
         # Handle simple string vs dict config
         if isinstance(raw_config, str):
-            if raw_config == "all":
-                model_filter = None
-            else:
-                model_filter = [raw_config]
+            model_filter = None if raw_config == "all" else [raw_config]
             aggregation = "separate"
         elif isinstance(raw_config, dict):
             model_filter = raw_config.get("models")
@@ -4594,9 +4567,9 @@ class MergeController(OperatorController):
             if p.get('step_idx', 0) < current_step
         ]
 
-        available_models = sorted(set(
+        available_models = sorted({
             p.get('model_name') for p in predictions if p.get('model_name')
-        ))
+        })
 
         if not available_models:
             raise ValueError(
@@ -4630,15 +4603,15 @@ class MergeController(OperatorController):
         # Create synthetic branch context for the reconstructor
         # This allows reuse of existing prediction collection logic
         n_samples = dataset.num_samples
-        model_predictions: Dict[str, np.ndarray] = {}
+        model_predictions: dict[str, np.ndarray] = {}
 
         for model_name in selected_models:
             try:
                 from nirs4all.controllers.models.stacking import (
-                    TrainingSetReconstructor,
                     ReconstructorConfig,
+                    TrainingSetReconstructor,
                 )
-                from nirs4all.operators.models.meta import StackingConfig, CoverageStrategy
+                from nirs4all.operators.models.meta import CoverageStrategy, StackingConfig
 
                 stacking_config = StackingConfig(
                     coverage_strategy=CoverageStrategy.IMPUTE_MEAN,
@@ -4788,7 +4761,7 @@ class MergeController(OperatorController):
         self,
         config: MergeConfig,
         branch_type: str,
-        branch_contexts: List[Dict[str, Any]],
+        branch_contexts: list[dict[str, Any]],
     ) -> None:
         """Validate that merge strategy matches branch type.
 
@@ -4842,9 +4815,9 @@ class MergeController(OperatorController):
         source: int,
         mode: str,
         source_merge_config: SourceMergeConfig,
-        loaded_binaries: Optional[List[Tuple[str, Any]]],
-        prediction_store: Optional[Any],
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None,
+        prediction_store: Any | None,
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute source merge using SourceMergeConfig from merge keyword.
 
         Phase 5: Handles {"merge": {"sources": "concat"|"stack"|"dict"}} syntax
@@ -4899,7 +4872,7 @@ class MergeController(OperatorController):
         try:
             source_indices = source_merge_config.get_source_indices(source_names)
         except ValueError as e:
-            raise ValueError(str(e))
+            raise ValueError(str(e)) from e
 
         if len(source_indices) < 2:
             logger.warning(
@@ -4991,7 +4964,6 @@ class MergeController(OperatorController):
 
         return result_context, StepOutput(metadata=metadata)
 
-
 # =============================================================================
 # Phase 7: Static merge_branches method for MetaModel integration
 # =============================================================================
@@ -5002,9 +4974,9 @@ class MergeController(OperatorController):
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         config: MergeConfig,
-        prediction_store: Optional[Any] = None,
+        prediction_store: Any | None = None,
         mode: str = "train",
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Static method for programmatic merge (used by MetaModel).
 
         This class method allows MetaModelController to delegate to merge logic
@@ -5092,7 +5064,7 @@ class MergeController(OperatorController):
         )
 
         merged_parts = []
-        info: Dict[str, Any] = {}
+        info: dict[str, Any] = {}
 
         # Collect features if requested
         if config.collect_features:
@@ -5173,7 +5145,7 @@ class MergeController(OperatorController):
         cls,
         meta_operator: Any,
         context: "ExecutionContext",
-        branch_contexts: Optional[List[Dict[str, Any]]] = None,
+        branch_contexts: list[dict[str, Any]] | None = None,
     ) -> MergeConfig:
         """Build MergeConfig from MetaModel operator parameters.
 
@@ -5237,7 +5209,6 @@ class MergeController(OperatorController):
             config.include_original = True
 
         return config
-
 
 # Expose parser and utilities for testing
 __all__ = [

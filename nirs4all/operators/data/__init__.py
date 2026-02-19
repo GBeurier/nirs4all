@@ -5,17 +5,17 @@ and related data manipulation operations.
 """
 
 from .merge import (
-    MergeMode,
+    AggregationStrategy,
+    BranchPredictionConfig,
     BranchType,
     DisjointSelectionCriterion,
-    SelectionStrategy,
-    AggregationStrategy,
-    ShapeMismatchStrategy,
-    SourceMergeStrategy,
-    SourceIncompatibleStrategy,
-    BranchPredictionConfig,
     MergeConfig,
+    MergeMode,
+    SelectionStrategy,
+    ShapeMismatchStrategy,
+    SourceIncompatibleStrategy,
     SourceMergeConfig,
+    SourceMergeStrategy,
 )
 from .repetition import (
     RepetitionConfig,

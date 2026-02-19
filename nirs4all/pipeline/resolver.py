@@ -31,20 +31,19 @@ Example:
 import json
 import logging
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import yaml
 
 from nirs4all.pipeline.config.context import (
     ArtifactProvider,
-    MapArtifactProvider,
     LoaderArtifactProvider,
+    MapArtifactProvider,
 )
-from nirs4all.pipeline.trace import ExecutionTrace
 from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
-
+from nirs4all.pipeline.trace import ExecutionTrace
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +56,11 @@ VALID_RESOLUTION_MODES = {
     RESOLUTION_MODE_FILESYSTEM,
 }
 
-
 # ---------------------------------------------------------------------------
 # Lightweight manifest helpers (replace ManifestManager dependency)
 # ---------------------------------------------------------------------------
 
-def _load_manifest(run_dir: Path, pipeline_uid: str) -> Dict[str, Any]:
+def _load_manifest(run_dir: Path, pipeline_uid: str) -> dict[str, Any]:
     """Load a manifest YAML file from disk.
 
     Args:
@@ -78,11 +76,10 @@ def _load_manifest(run_dir: Path, pipeline_uid: str) -> Dict[str, Any]:
     manifest_path = run_dir / pipeline_uid / "manifest.yaml"
     if not manifest_path.exists():
         raise FileNotFoundError(f"Manifest not found: {manifest_path}")
-    with open(manifest_path, "r", encoding="utf-8") as f:
+    with open(manifest_path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
-
-def _load_execution_trace(run_dir: Path, pipeline_uid: str, trace_id: str) -> Optional[ExecutionTrace]:
+def _load_execution_trace(run_dir: Path, pipeline_uid: str, trace_id: str) -> ExecutionTrace | None:
     """Load a specific execution trace from a pipeline manifest.
 
     Args:
@@ -103,8 +100,7 @@ def _load_execution_trace(run_dir: Path, pipeline_uid: str, trace_id: str) -> Op
         return None
     return ExecutionTrace.from_dict(trace_dict)
 
-
-def _get_latest_execution_trace(run_dir: Path, pipeline_uid: str) -> Optional[ExecutionTrace]:
+def _get_latest_execution_trace(run_dir: Path, pipeline_uid: str) -> ExecutionTrace | None:
     """Return the most recent execution trace for a pipeline.
 
     Args:
@@ -130,8 +126,7 @@ def _get_latest_execution_trace(run_dir: Path, pipeline_uid: str) -> Optional[Ex
         return ExecutionTrace.from_dict(sorted_traces[0][1])
     return None
 
-
-def _list_pipelines(run_dir: Path) -> List[str]:
+def _list_pipelines(run_dir: Path) -> list[str]:
     """List numbered pipeline directories under *run_dir*.
 
     Args:
@@ -147,8 +142,7 @@ def _list_pipelines(run_dir: Path) -> List[str]:
         if d.is_dir() and d.name[:4].isdigit()
     )
 
-
-def _list_execution_traces(run_dir: Path, pipeline_uid: str) -> List[str]:
+def _list_execution_traces(run_dir: Path, pipeline_uid: str) -> list[str]:
     """List execution trace IDs in a pipeline manifest.
 
     Args:
@@ -164,8 +158,7 @@ def _list_execution_traces(run_dir: Path, pipeline_uid: str) -> List[str]:
         return []
     return list(manifest.get("execution_traces", {}).keys())
 
-
-class SourceType(str, Enum):
+class SourceType(StrEnum):
     """Type of prediction source.
 
     Attributes:
@@ -192,8 +185,7 @@ class SourceType(str, Enum):
     def __str__(self) -> str:
         return self.value
 
-
-class FoldStrategy(str, Enum):
+class FoldStrategy(StrEnum):
     """Strategy for combining fold predictions in CV ensembles.
 
     Attributes:
@@ -208,7 +200,6 @@ class FoldStrategy(str, Enum):
 
     def __str__(self) -> str:
         return self.value
-
 
 @dataclass
 class ResolvedPrediction:
@@ -236,16 +227,16 @@ class ResolvedPrediction:
     """
 
     source_type: SourceType = SourceType.UNKNOWN
-    minimal_pipeline: List[Any] = field(default_factory=list)
-    artifact_provider: Optional[ArtifactProvider] = None
-    trace: Optional[ExecutionTrace] = None
+    minimal_pipeline: list[Any] = field(default_factory=list)
+    artifact_provider: ArtifactProvider | None = None
+    trace: ExecutionTrace | None = None
     fold_strategy: FoldStrategy = FoldStrategy.WEIGHTED_AVERAGE
-    fold_weights: Dict[int, float] = field(default_factory=dict)
-    model_step_index: Optional[int] = None
-    target_model: Dict[str, Any] = field(default_factory=dict)
+    fold_weights: dict[int, float] = field(default_factory=dict)
+    model_step_index: int | None = None
+    target_model: dict[str, Any] = field(default_factory=dict)
     pipeline_uid: str = ""
-    run_dir: Optional[Path] = None
-    manifest: Dict[str, Any] = field(default_factory=dict)
+    run_dir: Path | None = None
+    manifest: dict[str, Any] = field(default_factory=dict)
 
     def has_trace(self) -> bool:
         """Check if execution trace is available.
@@ -273,7 +264,6 @@ class ResolvedPrediction:
             return self.trace.preprocessing_chain
         return ""
 
-
 class PredictionResolver:
     """Resolves any prediction source to executable components.
 
@@ -299,9 +289,9 @@ class PredictionResolver:
 
     def __init__(
         self,
-        workspace_path: Union[str, Path],
-        runs_dir: Optional[Union[str, Path]] = None,
-        store: Optional[Any] = None,
+        workspace_path: str | Path,
+        runs_dir: str | Path | None = None,
+        store: Any | None = None,
         resolution_mode: str = RESOLUTION_MODE_AUTO,
     ):
         """Initialize prediction resolver.
@@ -330,9 +320,9 @@ class PredictionResolver:
 
     def resolve(
         self,
-        source: Union[Dict[str, Any], str, Path, Any],
+        source: dict[str, Any] | str | Path | Any,
         verbose: int = 0,
-        resolution_mode: Optional[str] = None,
+        resolution_mode: str | None = None,
     ) -> ResolvedPrediction:
         """Resolve any prediction source to executable components.
 
@@ -493,9 +483,7 @@ class PredictionResolver:
         if (path / "keras_metadata.pb").exists():
             return True
         # JAX/Orbax checkpoint
-        if (path / "checkpoint").exists():
-            return True
-        return False
+        return bool((path / "checkpoint").exists())
 
     def _looks_like_artifact_id(self, s: str) -> bool:
         """Check if string looks like an artifact ID.
@@ -528,8 +516,8 @@ class PredictionResolver:
     def _find_pipeline_dir(
         self,
         pipeline_uid: str,
-        trace_id: Optional[str] = None
-    ) -> Optional[Path]:
+        trace_id: str | None = None
+    ) -> Path | None:
         """Find pipeline directory by UID.
 
         Searches run directories for a matching pipeline folder.
@@ -560,9 +548,8 @@ class PredictionResolver:
 
             # Check for partial match (pipeline_uid might be just the hash part)
             for subdir in sorted(run_dir.iterdir(), key=lambda p: p.name):
-                if subdir.is_dir() and pipeline_uid in subdir.name:
-                    if (subdir / "manifest.yaml").exists():
-                        candidates.append(subdir)
+                if subdir.is_dir() and pipeline_uid in subdir.name and (subdir / "manifest.yaml").exists():
+                    candidates.append(subdir)
 
         if not candidates:
             return None
@@ -592,7 +579,7 @@ class PredictionResolver:
 
     def _resolve_from_prediction(
         self,
-        prediction: Dict[str, Any],
+        prediction: dict[str, Any],
         verbose: int = 0,
         resolution_mode: str = RESOLUTION_MODE_AUTO,
     ) -> ResolvedPrediction:
@@ -648,10 +635,7 @@ class PredictionResolver:
         if not pipeline_uid:
             # Try config_path as fallback
             config_path = prediction.get("config_path", "")
-            if "/" in config_path or "\\" in config_path:
-                pipeline_uid = Path(config_path).name
-            else:
-                pipeline_uid = config_path
+            pipeline_uid = Path(config_path).name if "/" in config_path or "\\" in config_path else config_path
 
         if not pipeline_uid:
             raise ValueError(
@@ -672,11 +656,11 @@ class PredictionResolver:
         # Load manifest
         try:
             manifest = _load_manifest(run_dir, pipeline_uid)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             raise FileNotFoundError(
                 f"Manifest not found for pipeline: {pipeline_uid}\n"
                 f"Expected at: {run_dir / pipeline_uid / 'manifest.yaml'}"
-            )
+            ) from e
 
         result.manifest = manifest
 
@@ -723,7 +707,7 @@ class PredictionResolver:
 
     def _resolve_from_folder(
         self,
-        folder: Union[str, Path],
+        folder: str | Path,
         verbose: int = 0
     ) -> ResolvedPrediction:
         """Resolve from a folder path.
@@ -922,7 +906,7 @@ class PredictionResolver:
 
     def _resolve_from_bundle(
         self,
-        bundle_path: Union[str, Path],
+        bundle_path: str | Path,
         verbose: int = 0
     ) -> ResolvedPrediction:
         """Resolve from an exported prediction bundle (.n4a file).
@@ -1035,7 +1019,7 @@ class PredictionResolver:
 
     def _resolve_from_model_file(
         self,
-        model_path: Union[str, Path],
+        model_path: str | Path,
         verbose: int = 0
     ) -> ResolvedPrediction:
         """Resolve from a direct model file.
@@ -1076,7 +1060,7 @@ class PredictionResolver:
         # The model is placed at step 0 (single-step pipeline)
         # artifact_id format: "model_file:0:0" (source:step:fold)
         artifact_id = f"model_file:{path.stem}:0:0"
-        artifact_map: Dict[int, List[Tuple[str, Any]]] = {
+        artifact_map: dict[int, list[tuple[str, Any]]] = {
             0: [(artifact_id, model)]  # step 0, fold 0
         }
         result.artifact_provider = MapArtifactProvider(artifact_map)
@@ -1132,9 +1116,9 @@ class PredictionResolver:
 
     def _resolve_from_store(
         self,
-        prediction: Dict[str, Any],
+        prediction: dict[str, Any],
         verbose: int = 0,
-    ) -> Optional[ResolvedPrediction]:
+    ) -> ResolvedPrediction | None:
         """Try to resolve a prediction using the WorkspaceStore.
 
         Looks up the pipeline and chain data in the DuckDB store and
@@ -1200,7 +1184,7 @@ class PredictionResolver:
 
         # Derive fold weights from the target chain
         fold_artifacts = chain.get("fold_artifacts") or {}
-        fold_weights = {i: 1.0 for i in range(len(fold_artifacts))}
+        fold_weights = dict.fromkeys(range(len(fold_artifacts)), 1.0)
         result.fold_weights = fold_weights
         if len(fold_weights) > 1:
             result.fold_strategy = FoldStrategy.WEIGHTED_AVERAGE
@@ -1240,8 +1224,8 @@ class PredictionResolver:
 
     def _build_artifact_map_from_chain(
         self,
-        chain: Dict[str, Any],
-    ) -> Tuple[Dict[int, List[Tuple[str, Any]]], Dict[Tuple[int, int], List[Tuple[str, Any]]]]:
+        chain: dict[str, Any],
+    ) -> tuple[dict[int, list[tuple[str, Any]]], dict[tuple[int, int], list[tuple[str, Any]]]]:
         """Build an artifact map from a store chain.
 
         Loads shared (preprocessing) and fold (model) artifacts from the
@@ -1257,8 +1241,8 @@ class PredictionResolver:
             - source_artifact_map maps (step_index, source_index) → list of
               (artifact_id, object) for multi-source steps
         """
-        artifact_map: Dict[int, List[Tuple[str, Any]]] = {}
-        source_artifact_map: Dict[Tuple[int, int], List[Tuple[str, Any]]] = {}
+        artifact_map: dict[int, list[tuple[str, Any]]] = {}
+        source_artifact_map: dict[tuple[int, int], list[tuple[str, Any]]] = {}
         shared_artifacts = chain.get("shared_artifacts") or {}
         fold_artifacts = chain.get("fold_artifacts") or {}
         model_step_idx = chain["model_step_idx"]
@@ -1273,7 +1257,7 @@ class PredictionResolver:
             step_idx = int(step_idx_str)
             # shared_artifacts values are lists of artifact IDs
             aid_list = artifact_ids_val if isinstance(artifact_ids_val, list) else [artifact_ids_val]
-            loaded: List[Tuple[str, Any]] = []
+            loaded: list[tuple[str, Any]] = []
             for artifact_id in aid_list:
                 try:
                     obj = self.store.load_artifact(artifact_id)
@@ -1287,7 +1271,7 @@ class PredictionResolver:
         if source_map_meta:
             for step_idx_str, sources in source_map_meta.items():
                 step_idx = int(step_idx_str)
-                loaded_at_step = {aid: obj for aid, obj in artifact_map.get(step_idx, [])}
+                loaded_at_step = dict(artifact_map.get(step_idx, []))
                 for source_idx_str, aid_list in sources.items():
                     source_idx = int(source_idx_str)
                     entries = [(aid, loaded_at_step[aid]) for aid in aid_list if aid in loaded_at_step]
@@ -1296,8 +1280,8 @@ class PredictionResolver:
 
         # Load fold artifacts (model) — append to existing entries at this step
         if fold_artifacts:
-            fold_list: List[Tuple[str, Any]] = []
-            for fold_id, artifact_id in fold_artifacts.items():
+            fold_list: list[tuple[str, Any]] = []
+            for _fold_id, artifact_id in fold_artifacts.items():
                 try:
                     obj = self.store.load_artifact(artifact_id)
                     fold_list.append((artifact_id, obj))
@@ -1314,7 +1298,7 @@ class PredictionResolver:
     def _pick_chain_for_prediction(
         self,
         chains_df: Any,
-        prediction: Dict[str, Any],
+        prediction: dict[str, Any],
     ) -> str:
         """Select the chain that matches a prediction.
 
@@ -1333,7 +1317,7 @@ class PredictionResolver:
         if len(chains_df) == 1:
             return chains_df["chain_id"][0]
 
-        candidates: List[Dict[str, Any]] = list(chains_df.iter_rows(named=True))
+        candidates: list[dict[str, Any]] = list(chains_df.iter_rows(named=True))
 
         # Direct chain_id from prediction/store row is authoritative.
         chain_id = prediction.get("chain_id")
@@ -1411,7 +1395,7 @@ class PredictionResolver:
         return None
 
     @staticmethod
-    def _sort_chain_candidates(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _sort_chain_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Return a deterministic ordering for candidate chains."""
         return sorted(
             candidates,
@@ -1422,7 +1406,7 @@ class PredictionResolver:
         )
 
     @staticmethod
-    def _normalize_branch_path(value: Any) -> Optional[Tuple[int, ...]]:
+    def _normalize_branch_path(value: Any) -> tuple[int, ...] | None:
         """Normalize branch-path encodings to a canonical tuple[int, ...]."""
         if value is None:
             return None
@@ -1441,7 +1425,7 @@ class PredictionResolver:
             return (int(parsed),)
 
         if isinstance(parsed, (list, tuple)):
-            normalized: List[int] = []
+            normalized: list[int] = []
             for item in parsed:
                 try:
                     normalized.append(int(item))
@@ -1451,7 +1435,7 @@ class PredictionResolver:
 
         return None
 
-    def _find_trace_location(self, trace_id: str) -> Tuple[str, Path]:
+    def _find_trace_location(self, trace_id: str) -> tuple[str, Path]:
         """Find the pipeline and run directory containing a trace.
 
         Searches all runs for a matching trace ID.
@@ -1485,8 +1469,8 @@ class PredictionResolver:
 
     def _find_run_dir_for_prediction(
         self,
-        prediction: Dict[str, Any]
-    ) -> Optional[Path]:
+        prediction: dict[str, Any]
+    ) -> Path | None:
         """Find run directory for a prediction.
 
         Args:
@@ -1539,7 +1523,7 @@ class PredictionResolver:
         self,
         run_dir: Path,
         pipeline_uid: str
-    ) -> List[Any]:
+    ) -> list[Any]:
         """Load pipeline steps from pipeline.json.
 
         Args:
@@ -1558,7 +1542,7 @@ class PredictionResolver:
         if not pipeline_json.exists():
             raise FileNotFoundError(f"Pipeline not found: {pipeline_json}")
 
-        with open(pipeline_json, "r", encoding="utf-8") as f:
+        with open(pipeline_json, encoding="utf-8") as f:
             pipeline_data = json.load(f)
 
         if isinstance(pipeline_data, dict) and "steps" in pipeline_data:
@@ -1570,10 +1554,10 @@ class PredictionResolver:
 
     def _build_artifact_map_from_manifest(
         self,
-        manifest: Dict[str, Any],
+        manifest: dict[str, Any],
         artifact_loader: ArtifactLoader,
-        up_to_step: Optional[int] = None
-    ) -> Dict[int, List[Tuple[str, Any]]]:
+        up_to_step: int | None = None
+    ) -> dict[int, list[tuple[str, Any]]]:
         """Build artifact map from manifest.
 
         Creates a mapping of step_index -> list of (artifact_id, object) tuples.
@@ -1586,7 +1570,7 @@ class PredictionResolver:
         Returns:
             Dictionary mapping step indices to artifact lists
         """
-        artifact_map: Dict[int, List[Tuple[str, Any]]] = {}
+        artifact_map: dict[int, list[tuple[str, Any]]] = {}
 
         # Get artifacts from manifest
         artifacts_section = manifest.get("artifacts", {})

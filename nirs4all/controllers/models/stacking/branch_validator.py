@@ -12,25 +12,24 @@ The validator ensures that stacking is only performed in compatible
 scenarios and provides clear error messages for unsupported cases.
 """
 
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
-import warnings
+from typing import TYPE_CHECKING, Any, Optional
 
 from .exceptions import (
-    IncompatibleBranchTypeError,
     CrossPartitionStackingError,
-    NestedBranchStackingError,
-    FoldMismatchAcrossBranchesError,
     DisjointSampleSetsError,
+    FoldMismatchAcrossBranchesError,
     GeneratorSyntaxStackingWarning,
+    IncompatibleBranchTypeError,
+    NestedBranchStackingError,
 )
 
 if TYPE_CHECKING:
-    from nirs4all.data.predictions import Predictions
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.data.predictions import Predictions
     from nirs4all.pipeline.config.context import ExecutionContext
-
 
 class BranchType(Enum):
     """Types of branching in nirs4all pipelines."""
@@ -44,7 +43,6 @@ class BranchType(Enum):
     NESTED = "nested"                       # Multiple levels of branching
     UNKNOWN = "unknown"                     # Unrecognized branch type
 
-
 class StackingCompatibility(Enum):
     """Compatibility level for stacking with a branch type."""
 
@@ -53,22 +51,20 @@ class StackingCompatibility(Enum):
     WITHIN_PARTITION_ONLY = "within_partition_only"  # Only within same partition
     NOT_SUPPORTED = "not_supported"         # Not currently supported
 
-
 @dataclass
 class BranchInfo:
     """Information about branch context for stacking validation."""
 
     branch_type: BranchType
-    branch_id: Optional[int] = None
-    branch_name: Optional[str] = None
-    branch_path: List[int] = field(default_factory=list)
-    partition_info: Optional[Dict[str, Any]] = None
-    exclusion_info: Optional[Dict[str, Any]] = None
-    sample_indices: Optional[List[int]] = None
-    n_samples: Optional[int] = None
+    branch_id: int | None = None
+    branch_name: str | None = None
+    branch_path: list[int] = field(default_factory=list)
+    partition_info: dict[str, Any] | None = None
+    exclusion_info: dict[str, Any] | None = None
+    sample_indices: list[int] | None = None
+    n_samples: int | None = None
     is_nested: bool = False
     nesting_depth: int = 0
-
 
 @dataclass
 class BranchValidationResult:
@@ -77,9 +73,9 @@ class BranchValidationResult:
     is_valid: bool
     compatibility: StackingCompatibility
     branch_info: BranchInfo
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    source_filter_hint: Optional[Dict[str, Any]] = None
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    source_filter_hint: dict[str, Any] | None = None
 
     def add_error(self, message: str) -> None:
         """Add an error message."""
@@ -89,7 +85,6 @@ class BranchValidationResult:
     def add_warning(self, message: str) -> None:
         """Add a warning message."""
         self.warnings.append(message)
-
 
 class BranchValidator:
     """Validates branch contexts for meta-model stacking.
@@ -138,7 +133,7 @@ class BranchValidator:
     def validate(
         self,
         context: 'ExecutionContext',
-        source_model_names: List[str],
+        source_model_names: list[str],
         dataset: Optional['SpectroDataset'] = None
     ) -> BranchValidationResult:
         """Validate branch context for stacking compatibility.
@@ -198,7 +193,7 @@ class BranchValidator:
         # Emit warnings if configured
         if self.log_warnings:
             for warning in result.warnings:
-                warnings.warn(warning)
+                warnings.warn(warning, stacklevel=2)
 
         return result
 
@@ -325,10 +320,10 @@ class BranchValidator:
 
     def _extract_separation_branch_info(
         self,
-        custom: Dict[str, Any],
-        branch_id: Optional[int],
-        branch_name: Optional[str],
-        branch_path: List[int]
+        custom: dict[str, Any],
+        branch_id: int | None,
+        branch_name: str | None,
+        branch_path: list[int]
     ) -> BranchInfo:
         """Extract branch info from new unified separation branch patterns.
 
@@ -445,7 +440,7 @@ class BranchValidator:
 
     def _looks_like_generator_syntax(
         self,
-        branch_contexts: List[Dict[str, Any]]
+        branch_contexts: list[dict[str, Any]]
     ) -> bool:
         """Check if branch contexts look like generator syntax.
 
@@ -475,7 +470,7 @@ class BranchValidator:
     def _validate_sample_partitioner(
         self,
         context: 'ExecutionContext',
-        source_model_names: List[str],
+        source_model_names: list[str],
         result: BranchValidationResult
     ) -> None:
         """Validate sample partitioner branching for stacking.
@@ -519,20 +514,18 @@ class BranchValidator:
                     continue
 
                 # Check if from different branch
-                if pred_branch_id is not None and pred_branch_id != current_branch_id:
-                    # Check sample overlap
-                    if current_samples and pred_samples:
-                        overlap = current_samples & pred_samples
-                        overlap_ratio = len(overlap) / max(len(current_samples), 1)
+                if pred_branch_id is not None and pred_branch_id != current_branch_id and current_samples and pred_samples:
+                    overlap = current_samples & pred_samples
+                    overlap_ratio = len(overlap) / max(len(current_samples), 1)
 
-                        if overlap_ratio < 0.1:  # Less than 10% overlap
-                            result.add_error(
-                                f"Source model '{model_name}' is from a different "
-                                f"partition with disjoint samples (only {100*overlap_ratio:.1f}% overlap). "
-                                f"Cross-partition stacking is not supported with sample_partitioner. "
-                                f"Stack only with models from the current '{partition_type}' partition."
-                            )
-                            return
+                    if overlap_ratio < 0.1:  # Less than 10% overlap
+                        result.add_error(
+                            f"Source model '{model_name}' is from a different "
+                            f"partition with disjoint samples (only {100*overlap_ratio:.1f}% overlap). "
+                            f"Cross-partition stacking is not supported with sample_partitioner. "
+                            f"Stack only with models from the current '{partition_type}' partition."
+                        )
+                        return
 
         # Add hint for source filtering
         result.source_filter_hint = {
@@ -548,7 +541,7 @@ class BranchValidator:
     def _validate_metadata_partitioner(
         self,
         context: 'ExecutionContext',
-        source_model_names: List[str],
+        source_model_names: list[str],
         result: BranchValidationResult
     ) -> None:
         """Validate metadata partitioner branching for stacking.
@@ -593,21 +586,19 @@ class BranchValidator:
                     continue
 
                 # Check if from different branch
-                if pred_branch_id is not None and pred_branch_id != current_branch_id:
-                    # Check sample overlap
-                    if current_samples and pred_samples:
-                        overlap = current_samples & pred_samples
-                        overlap_ratio = len(overlap) / max(len(current_samples), 1)
+                if pred_branch_id is not None and pred_branch_id != current_branch_id and current_samples and pred_samples:
+                    overlap = current_samples & pred_samples
+                    overlap_ratio = len(overlap) / max(len(current_samples), 1)
 
-                        if overlap_ratio < 0.1:  # Less than 10% overlap
-                            result.add_error(
-                                f"Source model '{model_name}' is from a different "
-                                f"metadata partition with disjoint samples "
-                                f"(only {100*overlap_ratio:.1f}% overlap). "
-                                f"Cross-partition stacking is not supported with metadata_partitioner. "
-                                f"Stack only with models from the current '{column_name}={partition_value}' partition."
-                            )
-                            return
+                    if overlap_ratio < 0.1:  # Less than 10% overlap
+                        result.add_error(
+                            f"Source model '{model_name}' is from a different "
+                            f"metadata partition with disjoint samples "
+                            f"(only {100*overlap_ratio:.1f}% overlap). "
+                            f"Cross-partition stacking is not supported with metadata_partitioner. "
+                            f"Stack only with models from the current '{column_name}={partition_value}' partition."
+                        )
+                        return
 
         # Add hint for source filtering
         result.source_filter_hint = {
@@ -624,7 +615,7 @@ class BranchValidator:
     def _validate_outlier_excluder(
         self,
         context: 'ExecutionContext',
-        source_model_names: List[str],
+        source_model_names: list[str],
         result: BranchValidationResult
     ) -> None:
         """Validate outlier excluder branching for stacking.
@@ -654,7 +645,7 @@ class BranchValidator:
     def _validate_preprocessing_branch(
         self,
         context: 'ExecutionContext',
-        source_model_names: List[str],
+        source_model_names: list[str],
         result: BranchValidationResult
     ) -> None:
         """Validate preprocessing branching for stacking.
@@ -679,7 +670,7 @@ class BranchValidator:
     def _validate_generator_syntax(
         self,
         context: 'ExecutionContext',
-        source_model_names: List[str],
+        source_model_names: list[str],
         result: BranchValidationResult
     ) -> None:
         """Validate generator syntax for stacking.
@@ -705,7 +696,7 @@ class BranchValidator:
     def _validate_nested_branching(
         self,
         context: 'ExecutionContext',
-        source_model_names: List[str],
+        source_model_names: list[str],
         result: BranchValidationResult
     ) -> None:
         """Validate nested branching for stacking.
@@ -738,7 +729,7 @@ class BranchValidator:
     def _validate_fold_alignment_in_branch(
         self,
         context: 'ExecutionContext',
-        source_model_names: List[str],
+        source_model_names: list[str],
         result: BranchValidationResult
     ) -> None:
         """Validate that fold structures are consistent within branch.
@@ -751,7 +742,7 @@ class BranchValidator:
         current_branch_id = result.branch_info.branch_id
         current_step = context.state.step_number
 
-        fold_counts: Dict[str, int] = {}
+        fold_counts: dict[str, int] = {}
 
         for model_name in source_model_names:
             filter_kwargs = {
@@ -786,8 +777,8 @@ class BranchValidator:
 
     def validate_sample_alignment(
         self,
-        source_model_names: List[str],
-        expected_sample_indices: List[int],
+        source_model_names: list[str],
+        expected_sample_indices: list[int],
         context: 'ExecutionContext'
     ) -> BranchValidationResult:
         """Validate that source models have predictions for expected samples.
@@ -849,7 +840,6 @@ class BranchValidator:
 
         return result
 
-
 def detect_branch_type(context: 'ExecutionContext') -> BranchType:
     """Detect the type of branching from execution context.
 
@@ -896,7 +886,6 @@ def detect_branch_type(context: 'ExecutionContext') -> BranchType:
 
     return BranchType.UNKNOWN
 
-
 def is_stacking_compatible(context: 'ExecutionContext') -> bool:
     """Quick check if stacking is compatible with current context.
 
@@ -927,7 +916,6 @@ def is_stacking_compatible(context: 'ExecutionContext') -> bool:
         return len(branch_path) <= BranchValidator.MAX_NESTING_DEPTH
 
     return True
-
 
 def is_disjoint_branch(context: 'ExecutionContext') -> bool:
     """Check if the current branch context represents disjoint sample branching.
@@ -975,13 +963,9 @@ def is_disjoint_branch(context: 'ExecutionContext') -> bool:
         return True
 
     # sample_partition indicates disjoint samples by filter/tag
-    if custom.get('sample_partition') is not None:
-        return True
+    return custom.get('sample_partition') is not None
 
-    return False
-
-
-def get_disjoint_branch_info(context: 'ExecutionContext') -> Optional[Dict[str, Any]]:
+def get_disjoint_branch_info(context: 'ExecutionContext') -> dict[str, Any] | None:
     """Get information about the disjoint branch if applicable.
 
     Args:

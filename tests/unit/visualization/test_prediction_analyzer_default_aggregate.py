@@ -4,9 +4,10 @@ Unit tests for PredictionAnalyzer default_aggregate parameter.
 Tests Phase 4 of the aggregation feature: Visualization Defaults.
 """
 
-import pytest
+from unittest.mock import MagicMock, Mock, patch
+
 import numpy as np
-from unittest.mock import Mock, patch, MagicMock
+import pytest
 
 from nirs4all.data.predictions import Predictions
 from nirs4all.visualization.predictions import PredictionAnalyzer
@@ -39,7 +40,6 @@ class TestDefaultAggregateParameter:
         """Test setting default_aggregate to 'y'."""
         analyzer = PredictionAnalyzer(mock_predictions, default_aggregate='y')
         assert analyzer.default_aggregate == 'y'
-
 
 class TestResolveAggregate:
     """Test _resolve_aggregate helper method."""
@@ -81,7 +81,6 @@ class TestResolveAggregate:
         analyzer = PredictionAnalyzer(mock_predictions, default_aggregate='ID')
         result = analyzer._resolve_aggregate(None)
         assert result == 'ID'
-
 
 class TestVisualizationMethodsUseDefaultAggregate:
     """Test that visualization methods use default_aggregate."""
@@ -171,7 +170,6 @@ class TestVisualizationMethodsUseDefaultAggregate:
         call_kwargs = mock_chart.render.call_args[1]
         assert call_kwargs.get('aggregate') == 'sample_id'
 
-
 class TestPipelineRunnerLastAggregate:
     """Test PipelineRunner.last_aggregate property."""
 
@@ -190,7 +188,6 @@ class TestPipelineRunnerLastAggregate:
         # Before running, _last_aggregate_column should be None
         assert runner._last_aggregate_column is None
 
-
 class TestOrchestratorAggregateTracking:
     """Test that orchestrator tracks last_aggregate_column."""
 
@@ -207,7 +204,6 @@ class TestOrchestratorAggregateTracking:
 
         assert hasattr(orchestrator, 'last_aggregate_column')
         assert orchestrator.last_aggregate_column is None
-
 
 class TestConfusionMatrixAggregate:
     """Test confusion matrix with default aggregate."""

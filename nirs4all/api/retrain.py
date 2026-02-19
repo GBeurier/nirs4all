@@ -15,36 +15,34 @@ Example:
     >>> print(f"New RMSE: {result.best_rmse:.4f}")
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
-from nirs4all.pipeline import PipelineRunner
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.pipeline import PipelineRunner
 
 from .result import RunResult
 from .session import Session
 
-
 # Type aliases for clarity
-SourceSpec = Union[
-    Dict[str, Any],               # Prediction dict from previous run
-    str,                          # Path to bundle (.n4a) or config
-    Path                          # Path to bundle or config
-]
+SourceSpec = (
+    dict[str, Any]               # Prediction dict from previous run
+    | str                          # Path to bundle (.n4a) or config
+    | Path                          # Path to bundle or config
+)
 
-DataSpec = Union[
-    str,                          # Path to data folder
-    Path,                         # Path to data folder
-    np.ndarray,                   # X array
-    Tuple[np.ndarray, ...],       # (X,) or (X, y)
-    Dict[str, Any],               # Dict with X, y keys
-    SpectroDataset,               # Direct SpectroDataset instance
-    DatasetConfigs                # Backward compat
-]
-
+DataSpec = (
+    str                          # Path to data folder
+    | Path                         # Path to data folder
+    | np.ndarray                   # X array
+    | tuple[np.ndarray, ...]       # (X,) or (X, y)
+    | dict[str, Any]               # Dict with X, y keys
+    | SpectroDataset               # Direct SpectroDataset instance
+    | DatasetConfigs                # Backward compat
+)
 
 def retrain(
     source: SourceSpec,
@@ -52,9 +50,9 @@ def retrain(
     *,
     mode: str = "full",
     name: str = "retrain_dataset",
-    new_model: Optional[Any] = None,
-    epochs: Optional[int] = None,
-    session: Optional[Session] = None,
+    new_model: Any | None = None,
+    epochs: int | None = None,
+    session: Session | None = None,
     verbose: int = 1,
     save_artifacts: bool = True,
     **kwargs: Any
@@ -174,13 +172,7 @@ def retrain(
         raise ValueError(f"Invalid mode '{mode}'. Must be one of: {valid_modes}")
 
     # Use session runner if provided, otherwise create new
-    if session is not None:
-        runner = session.runner
-    else:
-        runner = PipelineRunner(
-            verbose=verbose,
-            save_artifacts=save_artifacts
-        )
+    runner = session.runner if session is not None else PipelineRunner(verbose=verbose, save_artifacts=save_artifacts)
 
     # Convert Path to str for compatibility with type hints
     source_arg = str(source) if isinstance(source, Path) else source

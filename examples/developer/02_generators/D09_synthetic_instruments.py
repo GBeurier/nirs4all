@@ -25,37 +25,38 @@ import argparse
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+
 # Third-party imports
 import numpy as np
-import matplotlib.pyplot as plt
 
 # NIRS4All imports
 from nirs4all.synthesis import (
-    SyntheticNIRSGenerator,
+    ATRConfig,
+    DetectorConfig,
+    # Detectors
+    DetectorSimulator,
+    DetectorType,
+    InstrumentArchetype,
     # Instrument simulation (Phase 2)
     InstrumentCategory,
-    DetectorType,
-    MonochromatorType,
-    SensorConfig,
-    MultiSensorConfig,
-    MultiScanConfig,
-    InstrumentArchetype,
     InstrumentSimulator,
-    get_instrument_archetype,
-    list_instrument_archetypes,
-    get_instruments_by_category,
     # Measurement modes
     MeasurementMode,
     MeasurementModeSimulator,
-    TransmittanceConfig,
-    ReflectanceConfig,
-    ATRConfig,
-    # Detectors
-    DetectorSimulator,
-    DetectorConfig,
+    MonochromatorType,
+    MultiScanConfig,
+    MultiSensorConfig,
     NoiseModelConfig,
+    ReflectanceConfig,
+    SensorConfig,
+    SyntheticNIRSGenerator,
+    TransmittanceConfig,
     get_detector_response,
+    get_instrument_archetype,
+    get_instruments_by_category,
     list_detector_types,
+    list_instrument_archetypes,
 )
 
 # Add examples directory to path for example_utils
@@ -70,7 +71,6 @@ args = parser.parse_args()
 
 # Example name for output directory
 EXAMPLE_NAME = "D09_synthetic_instruments"
-
 
 # =============================================================================
 # Section 1: Exploring Instrument Archetypes
@@ -92,10 +92,9 @@ for name in sorted(all_instruments)[:10]:
 
 # Group instruments by category
 by_category = get_instruments_by_category()
-print(f"\n📊 Instruments by category:")
+print("\n📊 Instruments by category:")
 for cat, instruments in by_category.items():
     print(f"   {cat}: {', '.join(instruments)}")
-
 
 # =============================================================================
 # Section 2: Understanding Instrument Properties
@@ -107,7 +106,7 @@ print("-" * 60)
 # Get a high-end benchtop instrument
 foss_xds = get_instrument_archetype("foss_xds")
 
-print(f"\n🔬 FOSS XDS Properties:")
+print("\n🔬 FOSS XDS Properties:")
 print(f"   Category: {foss_xds.category.value}")
 print(f"   Detector: {foss_xds.detector_type.value}")
 print(f"   Monochromator: {foss_xds.monochromator_type.value}")
@@ -119,14 +118,13 @@ print(f"   Multi-scan: {foss_xds.multi_scan.enabled} ({foss_xds.multi_scan.n_sca
 
 # Compare with a handheld device
 scio = get_instrument_archetype("scio")
-print(f"\n📱 SCiO (Consumer Handheld) Properties:")
+print("\n📱 SCiO (Consumer Handheld) Properties:")
 print(f"   Category: {scio.category.value}")
 print(f"   Detector: {scio.detector_type.value}")
 print(f"   Monochromator: {scio.monochromator_type.value}")
 print(f"   Wavelength range: {scio.wavelength_range[0]}-{scio.wavelength_range[1]} nm")
 print(f"   Spectral resolution: {scio.spectral_resolution} nm")
 print(f"   SNR: {scio.snr}")
-
 
 # =============================================================================
 # Section 3: Multi-Sensor Configuration (Spectral Stitching)
@@ -146,7 +144,7 @@ The signals are stitched together in the overlap region.
 
 # Examine FOSS XDS multi-sensor config
 ms_config = foss_xds.multi_sensor
-print(f"🔗 FOSS XDS Multi-Sensor Configuration:")
+print("🔗 FOSS XDS Multi-Sensor Configuration:")
 print(f"   Enabled: {ms_config.enabled}")
 print(f"   Number of sensors: {len(ms_config.sensors)}")
 print(f"   Stitch method: {ms_config.stitch_method}")
@@ -172,8 +170,7 @@ custom_multi_sensor = MultiSensorConfig(
     add_stitch_artifacts=True,
     artifact_intensity=0.02,
 )
-print(f"\n✨ Created custom 3-sensor configuration (400-2500 nm)")
-
+print("\n✨ Created custom 3-sensor configuration (400-2500 nm)")
 
 # =============================================================================
 # Section 4: Multi-Scan Averaging
@@ -191,7 +188,7 @@ Real instruments take multiple scans and average them to:
 
 # Examine multi-scan config
 scan_config = foss_xds.multi_scan
-print(f"📈 FOSS XDS Multi-Scan Configuration:")
+print("📈 FOSS XDS Multi-Scan Configuration:")
 print(f"   Enabled: {scan_config.enabled}")
 print(f"   Number of scans: {scan_config.n_scans}")
 print(f"   Averaging method: {scan_config.averaging_method}")
@@ -209,8 +206,7 @@ custom_multi_scan = MultiScanConfig(
     discard_outliers=True,
     outlier_threshold=2.5,  # Z-score threshold
 )
-print(f"\n✨ Created custom multi-scan config (64 scans with outlier removal)")
-
+print("\n✨ Created custom multi-scan config (64 scans with outlier removal)")
 
 # =============================================================================
 # Section 5: Using Instruments with the Generator
@@ -257,7 +253,6 @@ gen_scio = SyntheticNIRSGenerator(
 X_scio, _, _, meta_scio = gen_scio.generate(n_samples=50, return_metadata=True)
 print(f"📱 Generated SCiO spectra: {X_scio.shape}")
 
-
 # =============================================================================
 # Section 6: Detector Response Curves
 # =============================================================================
@@ -278,7 +273,6 @@ for det_type in detector_types:
     print(f"      Sensitivity range: {response.short_cutoff:.0f}-{response.cutoff_wavelength:.0f} nm")
     print(f"      Peak wavelength: {response.peak_wavelength:.0f} nm")
     print(f"      Peak QE: {response.peak_qe:.2f}")
-
 
 # =============================================================================
 # Section 7: Measurement Modes
@@ -303,7 +297,7 @@ trans_config = MeasurementModeConfig(
 )
 trans_sim = MeasurementModeSimulator(config=trans_config, random_state=42)
 trans_spectra = trans_sim.apply(sample_spectra.copy(), sample_wl)
-print(f"\n📊 Transmittance simulation:")
+print("\n📊 Transmittance simulation:")
 print(f"   Path length: {trans_config.transmittance.path_length_mm} mm")
 print(f"   Output range: {trans_spectra.min():.3f} to {trans_spectra.max():.3f}")
 
@@ -314,7 +308,7 @@ refl_config = MeasurementModeConfig(
 )
 refl_sim = MeasurementModeSimulator(config=refl_config, random_state=42)
 refl_spectra = refl_sim.apply(sample_spectra.copy(), sample_wl)
-print(f"\n📊 Reflectance simulation:")
+print("\n📊 Reflectance simulation:")
 print(f"   Geometry: {refl_config.reflectance.geometry}")
 print(f"   Output range: {refl_spectra.min():.3f} to {refl_spectra.max():.3f}")
 
@@ -325,11 +319,10 @@ atr_config = MeasurementModeConfig(
 )
 atr_sim = MeasurementModeSimulator(config=atr_config, random_state=42)
 atr_spectra = atr_sim.apply(sample_spectra.copy(), sample_wl)
-print(f"\n📊 ATR simulation:")
+print("\n📊 ATR simulation:")
 print(f"   Crystal: {atr_config.atr.crystal_material}")
 print(f"   Angle: {atr_config.atr.incidence_angle}°")
 print(f"   Output range: {atr_spectra.min():.3f} to {atr_spectra.max():.3f}")
-
 
 # =============================================================================
 # Section 8: Creating Custom Instruments
@@ -355,7 +348,7 @@ custom_instrument = InstrumentArchetype(
     description="Custom high-performance extended-range benchtop",
 )
 
-print(f"\n🛠️ Created custom instrument archetype:")
+print("\n🛠️ Created custom instrument archetype:")
 print(f"   Name: {custom_instrument.name}")
 print(f"   Range: {custom_instrument.wavelength_range}")
 print(f"   Resolution: {custom_instrument.spectral_resolution} nm")
@@ -366,11 +359,10 @@ print(f"   Scans: {custom_instrument.multi_scan.n_scans}")
 # Use the custom instrument
 custom_sim = InstrumentSimulator(custom_instrument, random_state=42)
 custom_spectra, custom_wl = custom_sim.apply(sample_spectra.copy(), sample_wl)
-print(f"\n📊 Applied custom instrument effects:")
+print("\n📊 Applied custom instrument effects:")
 print(f"   Input shape: {sample_spectra.shape}")
 print(f"   Output shape: {custom_spectra.shape}")
 print(f"   Output wavelength range: {custom_wl.min():.0f}-{custom_wl.max():.0f} nm")
-
 
 # =============================================================================
 # Section 9: Comparing Instrument Quality Levels
@@ -409,7 +401,6 @@ for name, gen in generators.items():
     print(f"   {name}: {noise_std:.6f}")
     quality_results[name] = X
 
-
 # =============================================================================
 # Section 10: Plotting (optional)
 # =============================================================================
@@ -441,7 +432,7 @@ if args.plots:
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
     wavelengths_plot = np.linspace(1000, 1700, quality_results["Ideal (no noise)"].shape[1])
 
-    for ax, (name, X) in zip(axes, quality_results.items()):
+    for ax, (name, X) in zip(axes, quality_results.items(), strict=False):
         for i in range(min(5, len(X))):
             ax.plot(wavelengths_plot, X[i], alpha=0.5)
         ax.set_xlabel("Wavelength (nm)")
@@ -458,7 +449,6 @@ if args.plots:
         plt.show()
 
     print_output_location(output_path)
-
 
 # =============================================================================
 # Summary

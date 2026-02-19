@@ -32,17 +32,18 @@ import sys
 import tempfile
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+
 # Third-party imports
 import numpy as np
-import matplotlib.pyplot as plt
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import GroupKFold, ShuffleSplit
 from sklearn.preprocessing import StandardScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.synthesis import SyntheticDatasetBuilder
 from nirs4all.data import DatasetConfigs
+from nirs4all.synthesis import SyntheticDatasetBuilder
 
 # Add examples directory to path for example_utils
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -56,7 +57,6 @@ args = parser.parse_args()
 
 # Example name for output directory
 EXAMPLE_NAME = "U06_synthetic_advanced"
-
 
 # =============================================================================
 # Section 1: Builder Pattern Basics
@@ -86,12 +86,11 @@ dataset = (
     .build()
 )
 
-print(f"\n📊 Builder-created dataset:")
+print("\n📊 Builder-created dataset:")
 print(f"   Samples: {dataset.num_samples}")
 
 y = dataset.y({})
 print(f"   Target range: [{y.min():.1f}, {y.max():.1f}]")
-
 
 # =============================================================================
 # Section 2: Metadata Generation
@@ -114,14 +113,13 @@ dataset_meta = (
     .build()
 )
 
-print(f"\n📊 Dataset with metadata:")
+print("\n📊 Dataset with metadata:")
 print(f"   Samples: {dataset_meta.num_samples}")
-print(f"   Groups configured: 5")
-print(f"   Repetitions: 2-4 per biological sample")
+print("   Groups configured: 5")
+print("   Repetitions: 2-4 per biological sample")
 
 # This would enable group-based cross-validation
 print("\n   Use with GroupKFold for proper validation!")
-
 
 # =============================================================================
 # Section 3: Multi-Source Datasets
@@ -150,10 +148,9 @@ dataset_multi = nirs4all.generate.multi_source(
     random_state=42
 )
 
-print(f"\n📊 Multi-source dataset:")
+print("\n📊 Multi-source dataset:")
 print(f"   Samples: {dataset_multi.num_samples}")
-print(f"   Sources: NIR (spectra) + markers (15 features)")
-
+print("   Sources: NIR (spectra) + markers (15 features)")
 
 # =============================================================================
 # Section 4: Batch Effects (Domain Adaptation)
@@ -175,12 +172,11 @@ dataset_batch = (
     .build()
 )
 
-print(f"\n📊 Dataset with batch effects:")
+print("\n📊 Dataset with batch effects:")
 print(f"   Samples: {dataset_batch.num_samples}")
-print(f"   Batches: 3 simulated measurement sessions")
+print("   Batches: 3 simulated measurement sessions")
 print("\n   Batch effects add systematic variations between sessions.")
 print("   Useful for testing domain adaptation algorithms.")
-
 
 # =============================================================================
 # Section 5: Non-Linear Target Complexity
@@ -206,7 +202,7 @@ dataset_poly = (
     .with_partitions(train_ratio=0.8)
     .build()
 )
-print(f"   Created dataset with polynomial target relationships")
+print("   Created dataset with polynomial target relationships")
 
 # 5b: Hidden Factors (unexplainable variance)
 print("\n5b) Hidden factors (latent variables not in spectra):")
@@ -220,7 +216,7 @@ dataset_hidden = (
     .with_partitions(train_ratio=0.8)
     .build()
 )
-print(f"   Created dataset with 3 hidden factors (irreducible error)")
+print("   Created dataset with 3 hidden factors (irreducible error)")
 
 # 5c: Confounders and Partial Predictability
 print("\n5c) Confounders (partial predictability):")
@@ -236,7 +232,7 @@ dataset_confound = (
     .with_partitions(train_ratio=0.8)
     .build()
 )
-print(f"   Created dataset with 70% predictable target + temporal drift")
+print("   Created dataset with 70% predictable target + temporal drift")
 
 # 5d: Multi-Regime Landscapes
 print("\n5d) Multi-regime landscapes (subpopulations):")
@@ -253,7 +249,7 @@ dataset_regime = (
     .with_partitions(train_ratio=0.8)
     .build()
 )
-print(f"   Created dataset with 3 regimes + heteroscedastic noise")
+print("   Created dataset with 3 regimes + heteroscedastic noise")
 
 # 5e: Combining All Complexity Features
 print("\n5e) Combining all complexity features (realistic benchmark):")
@@ -280,7 +276,7 @@ dataset_hard = (
     .with_partitions(train_ratio=0.8)
     .build()
 )
-print(f"   Created challenging benchmark dataset")
+print("   Created challenging benchmark dataset")
 
 # Quick comparison of prediction difficulty
 print("\n📊 Difficulty comparison (lower R² = harder):")
@@ -297,7 +293,6 @@ for name, ds in [("Simple linear", dataset), ("All complexity", dataset_hard)]:
     y_pred = pls.predict(X_te)
     r2 = r2_score(y_te, y_pred)
     print(f"   {name:20s}: R² = {r2:.3f}")
-
 
 # =============================================================================
 # Section 6: Export to Files
@@ -329,7 +324,6 @@ with tempfile.TemporaryDirectory() as tmpdir:
     loaded_dataset = DatasetConfigs(str(path)).get_datasets()[0]
     print(f"\n   Loaded back: {loaded_dataset.num_samples} samples")
 
-
 # =============================================================================
 # Section 7: Single CSV Export
 # =============================================================================
@@ -354,7 +348,6 @@ with tempfile.TemporaryDirectory() as tmpdir:
     size_kb = os.path.getsize(path) / 1024
     print(f"   File size: {size_kb:.1f} KB")
 
-
 # =============================================================================
 # Section 8: Matching Real Data (Template Fitting)
 # =============================================================================
@@ -377,12 +370,11 @@ dataset_fitted = nirs4all.generate.from_template(
     random_state=42
 )
 
-print(f"\n📊 Template-fitted dataset:")
+print("\n📊 Template-fitted dataset:")
 print(f"   Template samples: {X_real.shape[0]}")
 print(f"   Generated samples: {dataset_fitted.num_samples}")
 print("\n   The fitter analyzes statistical properties and spectral")
 print("   shape to create synthetic data with similar characteristics.")
-
 
 # =============================================================================
 # Section 9: Full Builder Configuration
@@ -432,13 +424,12 @@ config = (
     .get_config()
 )
 
-print(f"\n📊 Full configuration dataset:")
+print("\n📊 Full configuration dataset:")
 print(f"   Samples: {full_dataset.num_samples}")
-print(f"\n   Configuration saved for reproducibility:")
+print("\n   Configuration saved for reproducibility:")
 print(f"   - n_samples: {config.n_samples}")
 print(f"   - complexity: {config.features.complexity}")
 print(f"   - train_ratio: {config.partitions.train_ratio}")
-
 
 # =============================================================================
 # Section 10: Pipeline Integration
@@ -473,7 +464,6 @@ result = nirs4all.run(
 )
 
 print(f"\n   Pipeline result: RMSE = {result.best_rmse:.2f}")
-
 
 # =============================================================================
 # Section 11: Visualization of Generated Data
@@ -557,7 +547,6 @@ plt.tight_layout()
 plot_path = get_example_output_path(EXAMPLE_NAME, "synthetic_advanced_overview.png")
 plt.savefig(plot_path, dpi=150, bbox_inches="tight")
 print_output_location(plot_path, "Overview plot")
-
 
 # =============================================================================
 # Summary

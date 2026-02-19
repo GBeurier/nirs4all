@@ -8,14 +8,12 @@ Tests pipeline JSON serialization with branches:
 - Nested branches serialization
 """
 
-import pytest
 import json
 from copy import deepcopy
 
-from nirs4all.pipeline.config.component_serialization import (
-    serialize_component,
-    deserialize_component
-)
+import pytest
+
+from nirs4all.pipeline.config.component_serialization import deserialize_component, serialize_component
 
 
 class TestBranchListSerialization:
@@ -70,7 +68,6 @@ class TestBranchListSerialization:
 
         assert reloaded["branch"] == serialized["branch"]
 
-
 class TestBranchDictSerialization:
     """Test serialization of named branch syntax."""
 
@@ -106,7 +103,6 @@ class TestBranchDictSerialization:
         assert "alpha" in reloaded["branch"]
         assert "beta" in reloaded["branch"]
 
-
 class TestBranchGeneratorSerialization:
     """Test serialization of generator syntax inside branches."""
 
@@ -140,7 +136,6 @@ class TestBranchGeneratorSerialization:
         assert "branch" in serialized
         assert "_range_" in serialized["branch"]
         assert serialized["branch"]["_range_"] == [5, 15, 5]
-
 
 class TestBranchOutlierExcluderSerialization:
     """Test serialization of outlier excluder branch syntax."""
@@ -178,7 +173,6 @@ class TestBranchOutlierExcluderSerialization:
         assert serialized["branch"]["by"] == "sample_partitioner"
         assert "filter" in serialized["branch"]
         assert serialized["branch"]["filter"]["method"] == "y_outlier"
-
 
 class TestNestedBranchSerialization:
     """Test serialization with multiple branch steps (nested)."""
@@ -226,7 +220,6 @@ class TestNestedBranchSerialization:
         assert len(reloaded) == 2
         assert "branch" in reloaded[0]
         assert "branch" in reloaded[1]
-
 
 class TestBranchMetadataSerialization:
     """Test serialization of branch metadata."""

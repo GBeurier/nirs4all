@@ -15,9 +15,10 @@ Tests cover:
 Based on specification: bench/SPEC_TRANSFER_PREPROCESSING_SELECTION.md
 """
 
-import pytest
-import numpy as np
 import matplotlib
+import numpy as np
+import pytest
+
 matplotlib.use("Agg")  # Non-interactive backend for testing
 
 from sklearn.cross_decomposition import PLSRegression
@@ -25,33 +26,30 @@ from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.analysis import (
+    PRESETS,
+    TransferMetricsComputer,
     TransferPreprocessingSelector,
     TransferResult,
     TransferSelectionResults,
-    TransferMetricsComputer,
-    get_base_preprocessings,
+    apply_augmentation,
     apply_pipeline,
     apply_stacked_pipeline,
-    apply_augmentation,
-    PRESETS,
+    get_base_preprocessings,
     list_presets,
 )
 from nirs4all.data import DatasetConfigs
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.transforms import (
-    StandardNormalVariate,
     FirstDerivative,
-    SavitzkyGolay,
     MultiplicativeScatterCorrection,
+    SavitzkyGolay,
+    StandardNormalVariate,
 )
-
-from tests.fixtures.data_generators import TestDataManager, SyntheticNIRSDataGenerator
-
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from tests.fixtures.data_generators import SyntheticNIRSDataGenerator, TestDataManager
 
 # =============================================================================
 # Fixtures
 # =============================================================================
-
 
 @pytest.fixture
 def test_data_manager():
@@ -62,7 +60,6 @@ def test_data_manager():
     manager.create_regression_dataset("regression_3", n_train=24, n_val=8)
     yield manager
     manager.cleanup()
-
 
 @pytest.fixture
 def synthetic_transfer_data():
@@ -104,7 +101,6 @@ def synthetic_transfer_data():
 
     return X_source, X_target, y_source, y_target
 
-
 @pytest.fixture
 def small_transfer_data():
     """Generate small datasets for quick tests."""
@@ -114,15 +110,12 @@ def small_transfer_data():
     y_source = rng.randn(24) * 10 + 50
     return X_source, X_target, y_source
 
-
 _SMOKE_PREPROCESSING_KEYS = ("identity", "snv", "msc", "d1", "d2", "savgol")
-
 
 def _smoke_preprocessings():
     """Return a small preprocessing pool to keep integration tests smoke-fast."""
     base = get_base_preprocessings()
     return {k: base[k] for k in _SMOKE_PREPROCESSING_KEYS}
-
 
 def make_selector(preset="fast", **kwargs):
     """Factory for fast smoke selectors with deterministic lightweight defaults."""
@@ -130,7 +123,6 @@ def make_selector(preset="fast", **kwargs):
     kwargs.setdefault("n_jobs", 1)
     kwargs.setdefault("preprocessings", _smoke_preprocessings())
     return TransferPreprocessingSelector(preset=preset, **kwargs)
-
 
 @pytest.fixture(autouse=True)
 def smoke_preset_limits():
@@ -192,11 +184,9 @@ def smoke_preset_limits():
     PRESETS.clear()
     PRESETS.update(original)
 
-
 # =============================================================================
 # Test TransferPreprocessingSelector with Full Pipelines
 # =============================================================================
-
 
 class TestTransferAnalysisIntegration:
     """Integration tests for TransferPreprocessingSelector with nirs4all pipelines."""
@@ -342,11 +332,9 @@ class TestTransferAnalysisIntegration:
         assert "centroid_distance" in df.columns
         assert len(df) == len(results.ranking)
 
-
 # =============================================================================
 # Test Integration with nirs4all Pipeline
 # =============================================================================
-
 
 class TestPipelineIntegration:
     """Test integration with full nirs4all pipeline runs."""
@@ -453,11 +441,9 @@ class TestPipelineIntegration:
 
         assert predictions.num_predictions > 0
 
-
 # =============================================================================
 # Test Generator-Based Preprocessing Specification
 # =============================================================================
-
 
 class TestGeneratorIntegration:
     """Test generator-based preprocessing specification."""
@@ -544,11 +530,9 @@ class TestGeneratorIntegration:
         assert "d1>d2" not in stacked_names
         assert "d2>d1" not in stacked_names
 
-
 # =============================================================================
 # Test Visualization Methods
 # =============================================================================
-
 
 class TestVisualizationIntegration:
     """Test visualization methods for transfer analysis results."""
@@ -606,11 +590,9 @@ class TestVisualizationIntegration:
         assert results.best.name in summary
         assert "Improvement" in summary
 
-
 # =============================================================================
 # Test All Presets
 # =============================================================================
-
 
 class TestAllPresets:
     """Test all preset configurations work correctly."""
@@ -657,11 +639,9 @@ class TestAllPresets:
         assert "stage2" in balanced_timing
         assert len(balanced_timing) >= len(fast_timing)
 
-
 # =============================================================================
 # Test Reproducibility
 # =============================================================================
-
 
 class TestReproducibility:
     """Test reproducibility of transfer analysis."""
@@ -692,11 +672,9 @@ class TestReproducibility:
             rtol=1e-5,
         )
 
-
 # =============================================================================
 # Test Edge Cases
 # =============================================================================
-
 
 class TestEdgeCases:
     """Test edge cases and error handling."""
@@ -741,7 +719,6 @@ class TestEdgeCases:
         """Test that invalid preset raises appropriate error."""
         with pytest.raises(ValueError, match="Unknown preset"):
             make_selector(preset="invalid_preset")
-
 
 # =============================================================================
 # Run tests

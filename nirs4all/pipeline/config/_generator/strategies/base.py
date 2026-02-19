@@ -5,13 +5,13 @@ Each strategy handles a specific type of generator node (e.g., _or_, _range_).
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, FrozenSet, List, Optional, Union
+from collections.abc import Callable
+from typing import Any
 
 # Type aliases for clarity
-GeneratorNode = Dict[str, Any]
-ExpandedResult = List[Any]
-SizeSpec = Union[int, tuple, list]
-
+GeneratorNode = dict[str, Any]
+ExpandedResult = list[Any]
+SizeSpec = int | tuple | list
 
 class ExpansionStrategy(ABC):
     """Abstract base class for generator expansion strategies.
@@ -32,7 +32,7 @@ class ExpansionStrategy(ABC):
     """
 
     # Keywords this strategy recognizes (to be overridden by subclasses)
-    keywords: FrozenSet[str] = frozenset()
+    keywords: frozenset[str] = frozenset()
 
     # Priority for strategy matching (higher = checked first)
     priority: int = 0
@@ -53,8 +53,8 @@ class ExpansionStrategy(ABC):
     def expand(
         self,
         node: GeneratorNode,
-        seed: Optional[int] = None,
-        expand_nested: Optional[callable] = None
+        seed: int | None = None,
+        expand_nested: Callable | None = None
     ) -> ExpandedResult:
         """Expand a node into all possible variants.
 
@@ -70,7 +70,7 @@ class ExpansionStrategy(ABC):
         """
 
     @abstractmethod
-    def count(self, node: GeneratorNode, count_nested: Optional[callable] = None) -> int:
+    def count(self, node: GeneratorNode, count_nested: Callable | None = None) -> int:
         """Count the number of variants without generating them.
 
         Args:
@@ -81,7 +81,7 @@ class ExpansionStrategy(ABC):
             Number of variants that would be generated.
         """
 
-    def validate(self, node: GeneratorNode) -> List[str]:
+    def validate(self, node: GeneratorNode) -> list[str]:
         """Validate a node and return any errors.
 
         Args:

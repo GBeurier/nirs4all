@@ -13,9 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from hyperopt import hp
-from tabpfn_common_utils.telemetry import set_extension
-
 from tabpfn.model_loading import ModelSource, ModelVersion, download_model
+from tabpfn_common_utils.telemetry import set_extension
 
 
 def enumerate_preprocess_transforms():
@@ -61,7 +60,6 @@ def enumerate_preprocess_transforms():
                         ],
                     ]
     return transforms
-
 
 @set_extension("hpo")
 def get_param_grid_hyperopt(

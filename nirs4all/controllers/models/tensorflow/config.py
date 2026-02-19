@@ -7,13 +7,15 @@ This module provides classes for managing TensorFlow model configuration:
 - Callback factory for creating various callbacks
 """
 
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
+
 import numpy as np
 
-from nirs4all.core.task_type import TaskType
-from ..utilities import ModelControllerUtils as ModelUtils
-from nirs4all.utils.backend import is_available, require_backend
 from nirs4all.core.logging import get_logger
+from nirs4all.core.task_type import TaskType
+from nirs4all.utils.backend import is_available, require_backend
+
+from ..utilities import ModelControllerUtils as ModelUtils
 
 logger = get_logger(__name__)
 
@@ -27,12 +29,11 @@ if TYPE_CHECKING:
     except ImportError:
         pass
 
-
 class TensorFlowCompilationConfig:
     """Manages TensorFlow model compilation configuration."""
 
     @staticmethod
-    def prepare(train_params: Dict[str, Any], task_type: TaskType) -> Dict[str, Any]:
+    def prepare(train_params: dict[str, Any], task_type: TaskType) -> dict[str, Any]:
         """Prepare compilation configuration from training parameters.
 
         Args:
@@ -76,7 +77,7 @@ class TensorFlowCompilationConfig:
         return compile_config
 
     @staticmethod
-    def _configure_optimizer(compile_config: Dict[str, Any], train_params: Dict[str, Any] = None) -> Dict[str, Any]:
+    def _configure_optimizer(compile_config: dict[str, Any], train_params: dict[str, Any] = None) -> dict[str, Any]:
         """Configure optimizer with learning rate if provided.
 
         Args:
@@ -144,17 +145,16 @@ class TensorFlowCompilationConfig:
 
         return optimizer_class(learning_rate=learning_rate)
 
-
 class TensorFlowFitConfig:
     """Manages TensorFlow model fit configuration."""
 
     @staticmethod
     def prepare(
-        train_params: Dict[str, Any],
-        X_val: Optional[np.ndarray],
-        y_val: Optional[np.ndarray],
+        train_params: dict[str, Any],
+        X_val: np.ndarray | None,
+        y_val: np.ndarray | None,
         verbose: int = 0
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Prepare fit configuration including validation setup.
 
         Args:
@@ -200,16 +200,15 @@ class TensorFlowFitConfig:
 
         return fit_config
 
-
 class TensorFlowCallbackFactory:
     """Factory for creating TensorFlow callbacks."""
 
     @staticmethod
     def create_callbacks(
-        train_params: Dict[str, Any],
-        existing_callbacks: List[Any],
+        train_params: dict[str, Any],
+        existing_callbacks: list[Any],
         verbose: int = 0
-    ) -> List[Any]:
+    ) -> list[Any]:
         """Create comprehensive callback system.
 
         Args:
@@ -263,7 +262,7 @@ class TensorFlowCallbackFactory:
         return callbacks
 
     @staticmethod
-    def create_early_stopping(train_params: Dict[str, Any], verbose: int = 0) -> 'keras.callbacks.EarlyStopping':
+    def create_early_stopping(train_params: dict[str, Any], verbose: int = 0) -> 'keras.callbacks.EarlyStopping':
         """Create early stopping callback.
 
         Args:
@@ -293,7 +292,7 @@ class TensorFlowCallbackFactory:
         return keras.callbacks.EarlyStopping(**es_config)
 
     @staticmethod
-    def create_cyclic_lr(train_params: Dict[str, Any], verbose: int = 0) -> 'keras.callbacks.Callback':
+    def create_cyclic_lr(train_params: dict[str, Any], verbose: int = 0) -> 'keras.callbacks.Callback':
         """Create cyclic learning rate callback.
 
         Args:
@@ -345,7 +344,7 @@ class TensorFlowCallbackFactory:
         )
 
     @staticmethod
-    def create_reduce_lr_on_plateau(train_params: Dict[str, Any], verbose: int = 0) -> 'keras.callbacks.ReduceLROnPlateau':
+    def create_reduce_lr_on_plateau(train_params: dict[str, Any], verbose: int = 0) -> 'keras.callbacks.ReduceLROnPlateau':
         """Create reduce LR on plateau callback.
 
         Args:

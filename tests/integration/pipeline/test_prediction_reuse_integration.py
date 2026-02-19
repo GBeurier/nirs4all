@@ -5,21 +5,18 @@ Tests model persistence, prediction with entry, and prediction with model ID.
 Based on Q5_predict.py and Q5_predict_NN.py examples.
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
 
+import numpy as np
+import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import RepeatedKFold, ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.data import DatasetConfigs
+from nirs4all.operators.transforms import Gaussian, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.transforms import (
-    Gaussian, StandardNormalVariate
-)
-
 from tests.fixtures.data_generators import TestDataManager
 
 
@@ -119,7 +116,6 @@ class TestPredictionReuseIntegration:
         assert method2_predictions is not None
         assert len(method2_predictions) > 0
         assert np.isfinite(method2_predictions).all()
-
 
     def test_prediction_consistency(self, test_data_manager):
         """Test that predictions are consistent when using same model."""

@@ -10,7 +10,7 @@ Phase 3 additions:
 - Constraint keywords: _mutex_, _requires_, _depends_on_
 """
 
-from typing import Any, Dict, FrozenSet, Optional
+from typing import Any, Optional
 
 # =============================================================================
 # Core Generation Keywords
@@ -65,7 +65,7 @@ EXCLUDE_KEYWORD: str = "_exclude_"  # Exclusion rules
 # Keyword Groups
 # =============================================================================
 
-GENERATION_KEYWORDS: FrozenSet[str] = frozenset({
+GENERATION_KEYWORDS: frozenset[str] = frozenset({
     OR_KEYWORD,
     RANGE_KEYWORD,
     LOG_RANGE_KEYWORD,
@@ -76,14 +76,14 @@ GENERATION_KEYWORDS: FrozenSet[str] = frozenset({
     CARTESIAN_KEYWORD,
 })
 
-SELECTION_KEYWORDS: FrozenSet[str] = frozenset({
+SELECTION_KEYWORDS: frozenset[str] = frozenset({
     PICK_KEYWORD,
     ARRANGE_KEYWORD,
     THEN_PICK_KEYWORD,
     THEN_ARRANGE_KEYWORD,
 })
 
-MODIFIER_KEYWORDS: FrozenSet[str] = frozenset({
+MODIFIER_KEYWORDS: frozenset[str] = frozenset({
     COUNT_KEYWORD,
     SEED_KEYWORD,
     WEIGHTS_KEYWORD,
@@ -93,69 +93,68 @@ MODIFIER_KEYWORDS: FrozenSet[str] = frozenset({
     THEN_ARRANGE_KEYWORD,
 })
 
-METADATA_KEYWORDS: FrozenSet[str] = frozenset({
+METADATA_KEYWORDS: frozenset[str] = frozenset({
     TAGS_KEYWORD,
     METADATA_KEYWORD,
 })
 
-CONSTRAINT_KEYWORDS: FrozenSet[str] = frozenset({
+CONSTRAINT_KEYWORDS: frozenset[str] = frozenset({
     MUTEX_KEYWORD,
     REQUIRES_KEYWORD,
     DEPENDS_ON_KEYWORD,
     EXCLUDE_KEYWORD,
 })
 
-ALL_KEYWORDS: FrozenSet[str] = (
+ALL_KEYWORDS: frozenset[str] = (
     GENERATION_KEYWORDS | MODIFIER_KEYWORDS | METADATA_KEYWORDS | CONSTRAINT_KEYWORDS
 )
 
 # Subsets for specific node type detection
-PURE_OR_KEYS: FrozenSet[str] = frozenset({
+PURE_OR_KEYS: frozenset[str] = frozenset({
     OR_KEYWORD, COUNT_KEYWORD, PICK_KEYWORD, ARRANGE_KEYWORD,
     THEN_PICK_KEYWORD, THEN_ARRANGE_KEYWORD, SEED_KEYWORD, WEIGHTS_KEYWORD,
     MUTEX_KEYWORD, REQUIRES_KEYWORD, EXCLUDE_KEYWORD,
     TAGS_KEYWORD, METADATA_KEYWORD,
 })
 
-PURE_RANGE_KEYS: FrozenSet[str] = frozenset({
+PURE_RANGE_KEYS: frozenset[str] = frozenset({
     RANGE_KEYWORD, COUNT_KEYWORD, SEED_KEYWORD,
     TAGS_KEYWORD, METADATA_KEYWORD,
 })
 
-PURE_LOG_RANGE_KEYS: FrozenSet[str] = frozenset({
+PURE_LOG_RANGE_KEYS: frozenset[str] = frozenset({
     LOG_RANGE_KEYWORD, COUNT_KEYWORD, SEED_KEYWORD,
     TAGS_KEYWORD, METADATA_KEYWORD,
 })
 
-PURE_GRID_KEYS: FrozenSet[str] = frozenset({
+PURE_GRID_KEYS: frozenset[str] = frozenset({
     GRID_KEYWORD, COUNT_KEYWORD, SEED_KEYWORD,
     TAGS_KEYWORD, METADATA_KEYWORD,
 })
 
-PURE_ZIP_KEYS: FrozenSet[str] = frozenset({
+PURE_ZIP_KEYS: frozenset[str] = frozenset({
     ZIP_KEYWORD, COUNT_KEYWORD, SEED_KEYWORD,
     TAGS_KEYWORD, METADATA_KEYWORD,
 })
 
-PURE_CHAIN_KEYS: FrozenSet[str] = frozenset({
+PURE_CHAIN_KEYS: frozenset[str] = frozenset({
     CHAIN_KEYWORD, COUNT_KEYWORD, SEED_KEYWORD,
     TAGS_KEYWORD, METADATA_KEYWORD,
 })
 
-PURE_SAMPLE_KEYS: FrozenSet[str] = frozenset({
+PURE_SAMPLE_KEYS: frozenset[str] = frozenset({
     SAMPLE_KEYWORD, COUNT_KEYWORD, SEED_KEYWORD,
     TAGS_KEYWORD, METADATA_KEYWORD,
 })
 
-PURE_CARTESIAN_KEYS: FrozenSet[str] = frozenset({
+PURE_CARTESIAN_KEYS: frozenset[str] = frozenset({
     CARTESIAN_KEYWORD, PICK_KEYWORD, ARRANGE_KEYWORD,
     COUNT_KEYWORD, SEED_KEYWORD,
     MUTEX_KEYWORD, REQUIRES_KEYWORD, EXCLUDE_KEYWORD,
     TAGS_KEYWORD, METADATA_KEYWORD,
 })
 
-
-def is_generator_node(node: Dict[str, Any]) -> bool:
+def is_generator_node(node: dict[str, Any]) -> bool:
     """Check if a dict node contains any generator keywords.
 
     Args:
@@ -177,8 +176,7 @@ def is_generator_node(node: Dict[str, Any]) -> bool:
         return False
     return bool(GENERATION_KEYWORDS & set(node.keys()))
 
-
-def has_nested_generator_keywords(node: Any, _visited: Optional[set] = None) -> bool:
+def has_nested_generator_keywords(node: Any, _visited: set | None = None) -> bool:
     """Recursively check if a node contains generator keywords at any nesting level.
 
     This function is useful for detecting dicts that need expansion even when
@@ -225,8 +223,7 @@ def has_nested_generator_keywords(node: Any, _visited: Optional[set] = None) -> 
 
     return False
 
-
-def is_pure_or_node(node: Dict[str, Any]) -> bool:
+def is_pure_or_node(node: dict[str, Any]) -> bool:
     """Check if a node is a pure OR node (only _or_, count, pick, arrange keys).
 
     Args:
@@ -245,8 +242,7 @@ def is_pure_or_node(node: Dict[str, Any]) -> bool:
         return False
     return set(node.keys()).issubset(PURE_OR_KEYS)
 
-
-def is_pure_range_node(node: Dict[str, Any]) -> bool:
+def is_pure_range_node(node: dict[str, Any]) -> bool:
     """Check if a node is a pure range node (only _range_, count keys).
 
     Args:
@@ -267,8 +263,7 @@ def is_pure_range_node(node: Dict[str, Any]) -> bool:
         return False
     return set(node.keys()).issubset(PURE_RANGE_KEYS)
 
-
-def has_or_keyword(node: Dict[str, Any]) -> bool:
+def has_or_keyword(node: dict[str, Any]) -> bool:
     """Check if a node contains the _or_ keyword.
 
     Args:
@@ -281,8 +276,7 @@ def has_or_keyword(node: Dict[str, Any]) -> bool:
         return False
     return OR_KEYWORD in node
 
-
-def has_range_keyword(node: Dict[str, Any]) -> bool:
+def has_range_keyword(node: dict[str, Any]) -> bool:
     """Check if a node contains the _range_ keyword.
 
     Args:
@@ -295,8 +289,7 @@ def has_range_keyword(node: Dict[str, Any]) -> bool:
         return False
     return RANGE_KEYWORD in node
 
-
-def extract_modifiers(node: Dict[str, Any]) -> Dict[str, Any]:
+def extract_modifiers(node: dict[str, Any]) -> dict[str, Any]:
     """Extract modifier values from a node.
 
     Extracts all modifier keywords (count, _seed_, _weights_, pick, arrange, etc.)
@@ -318,8 +311,7 @@ def extract_modifiers(node: Dict[str, Any]) -> Dict[str, Any]:
         return {}
     return {k: node[k] for k in MODIFIER_KEYWORDS if k in node}
 
-
-def extract_base_node(node: Dict[str, Any]) -> Dict[str, Any]:
+def extract_base_node(node: dict[str, Any]) -> dict[str, Any]:
     """Extract non-keyword keys from a node.
 
     Returns a copy of the node with all generator and modifier keywords removed.
@@ -340,8 +332,7 @@ def extract_base_node(node: Dict[str, Any]) -> Dict[str, Any]:
         return {}
     return {k: v for k, v in node.items() if k not in ALL_KEYWORDS}
 
-
-def extract_or_choices(node: Dict[str, Any]) -> list:
+def extract_or_choices(node: dict[str, Any]) -> list:
     """Extract the choices list from an OR node.
 
     Args:
@@ -360,8 +351,7 @@ def extract_or_choices(node: Dict[str, Any]) -> list:
         return []
     return node.get(OR_KEYWORD, [])
 
-
-def extract_range_spec(node: Dict[str, Any]) -> Any:
+def extract_range_spec(node: dict[str, Any]) -> Any:
     """Extract the range specification from a range node.
 
     Args:
@@ -380,96 +370,83 @@ def extract_range_spec(node: Dict[str, Any]) -> Any:
         return None
     return node.get(RANGE_KEYWORD)
 
-
 # =============================================================================
 # Phase 3: New Detection Functions
 # =============================================================================
 
-def has_log_range_keyword(node: Dict[str, Any]) -> bool:
+def has_log_range_keyword(node: dict[str, Any]) -> bool:
     """Check if a node contains the _log_range_ keyword."""
     if not isinstance(node, dict):
         return False
     return LOG_RANGE_KEYWORD in node
 
-
-def has_grid_keyword(node: Dict[str, Any]) -> bool:
+def has_grid_keyword(node: dict[str, Any]) -> bool:
     """Check if a node contains the _grid_ keyword."""
     if not isinstance(node, dict):
         return False
     return GRID_KEYWORD in node
 
-
-def has_zip_keyword(node: Dict[str, Any]) -> bool:
+def has_zip_keyword(node: dict[str, Any]) -> bool:
     """Check if a node contains the _zip_ keyword."""
     if not isinstance(node, dict):
         return False
     return ZIP_KEYWORD in node
 
-
-def has_chain_keyword(node: Dict[str, Any]) -> bool:
+def has_chain_keyword(node: dict[str, Any]) -> bool:
     """Check if a node contains the _chain_ keyword."""
     if not isinstance(node, dict):
         return False
     return CHAIN_KEYWORD in node
 
-
-def has_sample_keyword(node: Dict[str, Any]) -> bool:
+def has_sample_keyword(node: dict[str, Any]) -> bool:
     """Check if a node contains the _sample_ keyword."""
     if not isinstance(node, dict):
         return False
     return SAMPLE_KEYWORD in node
 
-
-def is_pure_log_range_node(node: Dict[str, Any]) -> bool:
+def is_pure_log_range_node(node: dict[str, Any]) -> bool:
     """Check if a node is a pure log range node."""
     if not isinstance(node, dict):
         return False
     return LOG_RANGE_KEYWORD in node and set(node.keys()).issubset(PURE_LOG_RANGE_KEYS)
 
-
-def is_pure_grid_node(node: Dict[str, Any]) -> bool:
+def is_pure_grid_node(node: dict[str, Any]) -> bool:
     """Check if a node is a pure grid node."""
     if not isinstance(node, dict):
         return False
     return GRID_KEYWORD in node and set(node.keys()).issubset(PURE_GRID_KEYS)
 
-
-def is_pure_zip_node(node: Dict[str, Any]) -> bool:
+def is_pure_zip_node(node: dict[str, Any]) -> bool:
     """Check if a node is a pure zip node."""
     if not isinstance(node, dict):
         return False
     return ZIP_KEYWORD in node and set(node.keys()).issubset(PURE_ZIP_KEYS)
 
-
-def is_pure_chain_node(node: Dict[str, Any]) -> bool:
+def is_pure_chain_node(node: dict[str, Any]) -> bool:
     """Check if a node is a pure chain node."""
     if not isinstance(node, dict):
         return False
     return CHAIN_KEYWORD in node and set(node.keys()).issubset(PURE_CHAIN_KEYS)
 
-
-def is_pure_sample_node(node: Dict[str, Any]) -> bool:
+def is_pure_sample_node(node: dict[str, Any]) -> bool:
     """Check if a node is a pure sample node."""
     if not isinstance(node, dict):
         return False
     return SAMPLE_KEYWORD in node and set(node.keys()).issubset(PURE_SAMPLE_KEYS)
 
-
-def has_cartesian_keyword(node: Dict[str, Any]) -> bool:
+def has_cartesian_keyword(node: dict[str, Any]) -> bool:
     """Check if a node contains the _cartesian_ keyword."""
     if not isinstance(node, dict):
         return False
     return CARTESIAN_KEYWORD in node
 
-
-def is_pure_cartesian_node(node: Dict[str, Any]) -> bool:
+def is_pure_cartesian_node(node: dict[str, Any]) -> bool:
     """Check if a node is a pure cartesian node."""
     if not isinstance(node, dict):
         return False
     return CARTESIAN_KEYWORD in node and set(node.keys()).issubset(PURE_CARTESIAN_KEYS)
 
-
-def extract_tags(node: Dict[str, Any]) -> list:
+def extract_tags(node: dict[str, Any]) -> list:
     """Extract tags from a node.
 
     Args:
@@ -489,8 +466,7 @@ def extract_tags(node: Dict[str, Any]) -> list:
         return [tags]
     return list(tags) if tags else []
 
-
-def extract_metadata(node: Dict[str, Any]) -> Dict[str, Any]:
+def extract_metadata(node: dict[str, Any]) -> dict[str, Any]:
     """Extract metadata from a node.
 
     Args:
@@ -507,8 +483,7 @@ def extract_metadata(node: Dict[str, Any]) -> Dict[str, Any]:
         return {}
     return node.get(METADATA_KEYWORD, {})
 
-
-def extract_constraints(node: Dict[str, Any]) -> Dict[str, Any]:
+def extract_constraints(node: dict[str, Any]) -> dict[str, Any]:
     """Extract constraint specifications from a node.
 
     Args:

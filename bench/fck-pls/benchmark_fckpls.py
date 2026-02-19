@@ -46,13 +46,13 @@ import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
-from sklearn.model_selection import ShuffleSplit, KFold
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import KFold, ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # Suppress warnings for cleaner output
@@ -72,20 +72,6 @@ sys.path.insert(0, str(BENCH_DIR))
 # =============================================================================
 # Imports: nirs4all
 # =============================================================================
-import nirs4all
-from nirs4all.data import DatasetConfigs, SpectroDataset
-from nirs4all.operators.models import FCKPLS
-from nirs4all.operators.transforms import (
-    StandardNormalVariate, FirstDerivative, SecondDerivative,
-    SavitzkyGolay, Detrend, Gaussian, Haar, MultiplicativeScatterCorrection,
-    Wavelet,
-)
-from nirs4all.operators.transforms.nirs import (
-    AreaNormalization,
-    ExtendedMultiplicativeScatterCorrection as EMSC,
-)
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-
 # =============================================================================
 # Imports: FCK-PLS Torch
 # =============================================================================
@@ -96,6 +82,27 @@ from fckpls_torch import FCKPLSTorch, TrainConfig
 # =============================================================================
 from generator import SyntheticNIRSGenerator
 
+import nirs4all
+from nirs4all.data import DatasetConfigs, SpectroDataset
+from nirs4all.operators.models import FCKPLS
+from nirs4all.operators.transforms import (
+    Detrend,
+    FirstDerivative,
+    Gaussian,
+    Haar,
+    MultiplicativeScatterCorrection,
+    SavitzkyGolay,
+    SecondDerivative,
+    StandardNormalVariate,
+    Wavelet,
+)
+from nirs4all.operators.transforms.nirs import (
+    AreaNormalization,
+)
+from nirs4all.operators.transforms.nirs import (
+    ExtendedMultiplicativeScatterCorrection as EMSC,
+)
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 # =============================================================================
 # Configuration
@@ -124,7 +131,6 @@ class BenchmarkConfig:
     test_size: float = 0.25  # For CV folds
     holdout_size: float = 0.20  # For initial train/test split when no test provided
 
-
 # =============================================================================
 # Dataset definitions
 # =============================================================================
@@ -134,19 +140,18 @@ class DatasetDef:
     """Dataset definition for benchmarking."""
     name: str
     # Path for nirs4all (can be relative to examples/ folder)
-    nirs4all_path: Optional[str] = None
+    nirs4all_path: str | None = None
     # Pre-loaded arrays for Torch models
-    X_train: Optional[np.ndarray] = None
-    y_train: Optional[np.ndarray] = None
-    X_test: Optional[np.ndarray] = None
-    y_test: Optional[np.ndarray] = None
+    X_train: np.ndarray | None = None
+    y_train: np.ndarray | None = None
+    X_test: np.ndarray | None = None
+    y_test: np.ndarray | None = None
     # Info
     n_features: int = 0
     n_train: int = 0
     n_test: int = 0
     # Whether the dataset originally had a separate test set
     has_explicit_test: bool = False
-
 
 # =============================================================================
 # Dataset loading
@@ -192,7 +197,6 @@ def generate_synthetic_dataset(
         has_explicit_test=False,  # Benchmark will create holdout
     )
 
-
 def load_csv_dataset(base_path: Path, name: str, sep: str = ";") -> DatasetDef:
     """Load dataset from CSV files (Xtrain, Ytrain, Xtest, Ytest).
 
@@ -216,7 +220,6 @@ def load_csv_dataset(base_path: Path, name: str, sep: str = ";") -> DatasetDef:
         has_explicit_test=True,  # Dataset provides test set
     )
 
-
 def load_train_only_csv_dataset(base_path: Path, name: str, sep: str = ";") -> DatasetDef:
     """Load dataset from CSV files (Xtrain, Ytrain only - no explicit test).
 
@@ -237,7 +240,6 @@ def load_train_only_csv_dataset(base_path: Path, name: str, sep: str = ";") -> D
         n_test=0,
         has_explicit_test=False,  # Benchmark will create holdout
     )
-
 
 def load_sample_data_regression() -> DatasetDef:
     """Load nirs4all sample regression data.
@@ -265,8 +267,7 @@ def load_sample_data_regression() -> DatasetDef:
         has_explicit_test=True,  # Dataset provides test set
     )
 
-
-def load_all_datasets(seed: int = 42) -> List[DatasetDef]:
+def load_all_datasets(seed: int = 42) -> list[DatasetDef]:
     """Load all benchmark datasets."""
     datasets = []
 
@@ -298,7 +299,6 @@ def load_all_datasets(seed: int = 42) -> List[DatasetDef]:
 
     return datasets
 
-
 # =============================================================================
 # Model evaluation helpers
 # =============================================================================
@@ -312,10 +312,9 @@ class ModelResult:
     rmse: float
     mae: float
     train_time: float
-    extra_info: Dict[str, Any] = None
+    extra_info: dict[str, Any] = None
 
-
-def evaluate_predictions(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
+def evaluate_predictions(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
     """Compute metrics."""
     return {
         "r2": r2_score(y_true, y_pred),
@@ -323,8 +322,7 @@ def evaluate_predictions(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, fl
         "mae": mean_absolute_error(y_true, y_pred),
     }
 
-
-def extract_metrics_from_result(result, verbose: bool = False) -> Dict[str, Any]:
+def extract_metrics_from_result(result, verbose: bool = False) -> dict[str, Any]:
     """
     Extract R², RMSE, MAE, best_params and config info from nirs4all result object.
 
@@ -348,10 +346,10 @@ def extract_metrics_from_result(result, verbose: bool = False) -> Dict[str, Any]
         df = result.predictions.to_dataframe()
 
         # Get the weighted average predictions (one per configuration/variant)
-        w_avg_rows = df.filter((df['fold_id'] == 'w_avg'))
+        w_avg_rows = df.filter(df['fold_id'] == 'w_avg')
         if len(w_avg_rows) == 0:
             # Fall back to avg
-            w_avg_rows = df.filter((df['fold_id'] == 'avg'))
+            w_avg_rows = df.filter(df['fold_id'] == 'avg')
         if len(w_avg_rows) == 0:
             # Fall back to first row
             w_avg_rows = df.head(1)
@@ -444,11 +442,10 @@ def extract_metrics_from_result(result, verbose: bool = False) -> Dict[str, Any]
         traceback.print_exc()
         return default_result
 
-
 def prepare_dataset_for_nirs4all(
     dataset: DatasetDef,
     config: BenchmarkConfig,
-) -> Tuple[Any, int]:
+) -> tuple[Any, int]:
     """
     Prepare dataset for nirs4all pipeline.
 
@@ -494,7 +491,6 @@ def prepare_dataset_for_nirs4all(
     effective_train_size = int(effective_train_size * fold_train_fraction)
 
     return dataset_arg, effective_train_size
-
 
 # =============================================================================
 # Model 1: PLSRegression - Baseline (no tuning, fixed preprocessing)
@@ -564,7 +560,6 @@ def run_pls_baseline(
             train_time=time.time() - start,
             extra_info={"error": str(e)},
         )
-
 
 # =============================================================================
 # Model 2: PLSRegression with cartesian preprocessing + tuning
@@ -703,7 +698,6 @@ def run_pls_tuned(
         },
     )
 
-
 # =============================================================================
 # Model 3 & 4: FCK-PLS static (nirs4all) - with/without preprocessing
 # =============================================================================
@@ -735,15 +729,7 @@ def run_fckpls_static(
     model_name = "FCK-PLS-Static" + ("-PP" if with_preprocessing else "-Raw")
 
     # Build preprocessing pipeline
-    if with_preprocessing:
-        preprocessing_steps = [
-            MinMaxScaler(),
-            StandardNormalVariate(),
-        ]
-    else:
-        preprocessing_steps = [
-            MinMaxScaler(),
-        ]
+    preprocessing_steps = [MinMaxScaler(), StandardNormalVariate()] if with_preprocessing else [MinMaxScaler()]
 
     # FCK-PLS hyperparameter search space
     fckpls_params = {
@@ -821,7 +807,6 @@ def run_fckpls_static(
             extra_info={"error": str(e)},
         )
 
-
 # =============================================================================
 # Model 5 & 6: FCK-PLS Torch V1/V2
 # =============================================================================
@@ -829,7 +814,7 @@ def run_fckpls_static(
 def prepare_data_for_torch(
     dataset: DatasetDef,
     config: BenchmarkConfig,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Prepare data for Torch models with consistent train/test split.
 
@@ -861,7 +846,6 @@ def prepare_data_for_torch(
     X_test_scaled = x_scaler.transform(X_test)
 
     return X_train_scaled, y_train_scaled, X_test_scaled, y_test_scaled, y_scaler
-
 
 def run_fckpls_torch(
     dataset: DatasetDef,
@@ -959,15 +943,14 @@ def run_fckpls_torch(
             extra_info={"error": "All configurations failed"},
         )
 
-
 # =============================================================================
 # Benchmark runner
 # =============================================================================
 
 def run_benchmark(
     config: BenchmarkConfig,
-    model_filter: Optional[str] = None,
-) -> List[ModelResult]:
+    model_filter: str | None = None,
+) -> list[ModelResult]:
     """
     Run the benchmark suite.
 
@@ -1090,8 +1073,7 @@ def run_benchmark(
 
     return results
 
-
-def generate_report(results: List[ModelResult]) -> str:
+def generate_report(results: list[ModelResult]) -> str:
     """Generate a markdown report from benchmark results."""
     lines = [
         "# FCK-PLS Benchmark Results",
@@ -1211,7 +1193,6 @@ def generate_report(results: List[ModelResult]) -> str:
 
     return "\n".join(lines)
 
-
 # =============================================================================
 # Main
 # =============================================================================
@@ -1288,7 +1269,6 @@ def main():
 
         except ImportError:
             print("\nWARNING: matplotlib not available for plotting")
-
 
 if __name__ == "__main__":
     main()

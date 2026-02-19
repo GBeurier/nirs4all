@@ -7,12 +7,12 @@ This module provides:
 - Conversion utilities between signal types
 """
 
-from enum import Enum
-from typing import Optional, Union, Tuple, List
+from enum import Enum, StrEnum
+
 import numpy as np
 
 
-class SignalType(str, Enum):
+class SignalType(StrEnum):
     """
     Spectral signal types for NIRS/spectroscopy data.
 
@@ -153,12 +153,10 @@ class SignalType(str, Enum):
             raise ValueError(
                 f"Unknown signal type '{value}'. Valid options: "
                 f"{[e.value for e in cls]}"
-            )
-
+            ) from None
 
 # Type alias for input flexibility
-SignalTypeInput = Union[str, SignalType]
-
+SignalTypeInput = str | SignalType
 
 def normalize_signal_type(signal_type: SignalTypeInput) -> SignalType:
     """
@@ -173,7 +171,6 @@ def normalize_signal_type(signal_type: SignalTypeInput) -> SignalType:
     if isinstance(signal_type, SignalType):
         return signal_type
     return SignalType.from_string(signal_type)
-
 
 class SignalTypeDetector:
     """
@@ -191,7 +188,7 @@ class SignalTypeDetector:
 
     def __init__(
         self,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
         wavelength_unit: str = "nm"
     ):
         """
@@ -208,7 +205,7 @@ class SignalTypeDetector:
         self,
         spectra: np.ndarray,
         confidence_threshold: float = 0.7
-    ) -> Tuple[SignalType, float, str]:
+    ) -> tuple[SignalType, float, str]:
         """
         Detect the signal type of spectral data.
 
@@ -303,10 +300,7 @@ class SignalTypeDetector:
             return True
 
         # Derivative data often has negative values with mean near 0
-        if min_val < -0.5 and max_val < 0.5 and abs(mean_val) < 0.01:
-            return True
-
-        return False
+        return bool(min_val < -0.5 and max_val < 0.5 and abs(mean_val) < 0.01)
 
     def _score_reflectance_fraction(
         self,
@@ -318,7 +312,7 @@ class SignalTypeDetector:
         score = 0.0
 
         # Values should be in [0, 1]
-        if 0 <= min_val and max_val <= 1.2:
+        if min_val >= 0 and max_val <= 1.2:
             score += 0.5
 
             # Typical reflectance range
@@ -341,7 +335,7 @@ class SignalTypeDetector:
         score = 0.0
 
         # Values should be in [0, 100]
-        if 0 <= min_val and 1.5 < max_val <= 120:
+        if min_val >= 0 and 1.5 < max_val <= 120:
             score += 0.5
 
             # Typical percent reflectance range
@@ -365,7 +359,7 @@ class SignalTypeDetector:
 
         # Very similar to reflectance fraction
         # Without band direction info, hard to distinguish
-        if 0 <= min_val and max_val <= 1.2:
+        if min_val >= 0 and max_val <= 1.2:
             score += 0.4
 
             # Transmittance often has lower values than reflectance
@@ -384,7 +378,7 @@ class SignalTypeDetector:
         score = 0.0
 
         # Similar to reflectance percent
-        if 0 <= min_val and 1.5 < max_val <= 120:
+        if min_val >= 0 and 1.5 < max_val <= 120:
             score += 0.4
 
             # Transmittance percent
@@ -403,7 +397,7 @@ class SignalTypeDetector:
         score = 0.0
 
         # Absorbance typically [0, 3+], can be slightly negative
-        if -0.5 <= min_val and 0.5 <= max_val <= 5.0:
+        if min_val >= -0.5 and 0.5 <= max_val <= 5.0:
             score += 0.4
 
             # Typical absorbance range
@@ -499,12 +493,11 @@ class SignalTypeDetector:
         ]
         return " | ".join(parts)
 
-
 def detect_signal_type(
     spectra: np.ndarray,
-    wavelengths: Optional[np.ndarray] = None,
+    wavelengths: np.ndarray | None = None,
     wavelength_unit: str = "nm"
-) -> Tuple[SignalType, float, str]:
+) -> tuple[SignalType, float, str]:
     """
     Convenience function to detect signal type.
 

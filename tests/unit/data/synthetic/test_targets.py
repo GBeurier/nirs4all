@@ -2,14 +2,14 @@
 Unit tests for TargetGenerator class.
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.synthesis.targets import (
-    TargetGenerator,
     ClassSeparationConfig,
-    generate_regression_targets,
+    TargetGenerator,
     generate_classification_targets,
+    generate_regression_targets,
 )
 
 
@@ -25,7 +25,6 @@ class TestTargetGeneratorInit:
         """Test initialization with random state."""
         gen = TargetGenerator(random_state=42)
         assert gen._random_state == 42
-
 
 class TestRegressionTargets:
     """Tests for regression target generation."""
@@ -114,7 +113,6 @@ class TestRegressionTargets:
         y = gen.regression(n_samples=30, range=(0, 100), transform="sqrt")
 
         assert y.min() >= 0
-
 
 class TestClassificationTargets:
     """Tests for classification target generation."""
@@ -220,7 +218,6 @@ class TestClassificationTargets:
                 class_weights=[0.5, 0.3, 0.3]
             )
 
-
 class TestReproducibility:
     """Tests for reproducibility."""
 
@@ -248,7 +245,6 @@ class TestReproducibility:
 
         np.testing.assert_array_equal(y1, y2)
 
-
 class TestConvenienceFunctions:
     """Tests for convenience functions."""
 
@@ -274,7 +270,6 @@ class TestConvenienceFunctions:
 
         assert len(y) == 30
         assert len(set(y)) == 4
-
 
 class TestClassSeparationConfig:
     """Tests for ClassSeparationConfig dataclass."""

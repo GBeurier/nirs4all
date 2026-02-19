@@ -23,10 +23,9 @@ References:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import numpy as np
-
 
 # ============================================================================
 # Spectral Zones in Wavenumber Space (Vis-NIR: 350-2500 nm)
@@ -37,7 +36,7 @@ import numpy as np
 
 # Extended spectral zones defined in wavenumber (cm⁻¹) for physically-correct band placement
 # Includes both visible (electronic transitions) and NIR (vibrational overtones/combinations)
-EXTENDED_SPECTRAL_ZONES: List[Tuple[float, float, str, str]] = [
+EXTENDED_SPECTRAL_ZONES: list[tuple[float, float, str, str]] = [
     # Visible region - electronic transitions (350-700 nm)
     (14285, 28571, "visible_electronic", "Electronic transitions, pigments"),  # 350-700 nm
 
@@ -68,7 +67,7 @@ EXTENDED_SPECTRAL_ZONES: List[Tuple[float, float, str, str]] = [
 
 # Backward-compatible NIR zones (3-tuple format for existing code)
 # These zones correspond to specific molecular vibration types
-NIR_ZONES_WAVENUMBER: List[Tuple[float, float, str]] = [
+NIR_ZONES_WAVENUMBER: list[tuple[float, float, str]] = [
     # Short-wave NIR: Electronic transitions and 3rd overtones
     (9000, 12500, "3rd_overtones"),  # ~800-1111 nm
 
@@ -93,7 +92,7 @@ NIR_ZONES_WAVENUMBER: List[Tuple[float, float, str]] = [
 
 # Visible region zones (electronic transitions, pigments)
 # These are separate from vibrational NIR zones
-VISIBLE_ZONES_WAVENUMBER: List[Tuple[float, float, str, str]] = [
+VISIBLE_ZONES_WAVENUMBER: list[tuple[float, float, str, str]] = [
     # UV-Vis transition region
     (20000, 28571, "uv_vis_transition", "UV-visible transition, aromatic absorptions"),  # 350-500 nm
 
@@ -146,12 +145,11 @@ FUNDAMENTAL_VIBRATIONS = {
     "P-H_stretch": 2400,           # Phosphine
 }
 
-
 # ============================================================================
 # Conversion Functions
 # ============================================================================
 
-def wavenumber_to_wavelength(nu_cm: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+def wavenumber_to_wavelength(nu_cm: float | np.ndarray) -> float | np.ndarray:
     """
     Convert wavenumber (cm⁻¹) to wavelength (nm).
 
@@ -177,8 +175,7 @@ def wavenumber_to_wavelength(nu_cm: Union[float, np.ndarray]) -> Union[float, np
         raise ValueError("Wavenumber must be positive")
     return 1e7 / nu_cm
 
-
-def wavelength_to_wavenumber(lambda_nm: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+def wavelength_to_wavenumber(lambda_nm: float | np.ndarray) -> float | np.ndarray:
     """
     Convert wavelength (nm) to wavenumber (cm⁻¹).
 
@@ -203,7 +200,6 @@ def wavelength_to_wavenumber(lambda_nm: Union[float, np.ndarray]) -> Union[float
     if np.any(lambda_nm <= 0):
         raise ValueError("Wavelength must be positive")
     return 1e7 / lambda_nm
-
 
 def convert_bandwidth_to_wavelength(
     bandwidth_cm: float,
@@ -235,7 +231,6 @@ def convert_bandwidth_to_wavelength(
     """
     return bandwidth_cm * (center_nm ** 2) / 1e7
 
-
 def convert_bandwidth_to_wavenumber(
     bandwidth_nm: float,
     center_nm: float
@@ -259,12 +254,11 @@ def convert_bandwidth_to_wavenumber(
     """
     return bandwidth_nm * 1e7 / (center_nm ** 2)
 
-
 # ============================================================================
 # Zone and Region Functions
 # ============================================================================
 
-def get_zone_wavelength_range(zone_name: str) -> Optional[Tuple[float, float]]:
+def get_zone_wavelength_range(zone_name: str) -> tuple[float, float] | None:
     """
     Get the wavelength range (nm) for a named NIR zone.
 
@@ -284,8 +278,7 @@ def get_zone_wavelength_range(zone_name: str) -> Optional[Tuple[float, float]]:
             return (wavenumber_to_wavelength(nu_max), wavenumber_to_wavelength(nu_min))
     return None
 
-
-def get_all_zones_wavelength() -> List[Tuple[float, float, str]]:
+def get_all_zones_wavelength() -> list[tuple[float, float, str]]:
     """
     Get all NIR zones converted to wavelength space.
 
@@ -304,8 +297,7 @@ def get_all_zones_wavelength() -> List[Tuple[float, float, str]]:
         zones.append((wl_min, wl_max, name))
     return zones
 
-
-def classify_wavelength_zone(wavelength_nm: float) -> Optional[str]:
+def classify_wavelength_zone(wavelength_nm: float) -> str | None:
     """
     Classify a wavelength into its corresponding NIR zone.
 
@@ -327,8 +319,7 @@ def classify_wavelength_zone(wavelength_nm: float) -> Optional[str]:
             return name
     return None
 
-
-def classify_wavelength_extended(wavelength_nm: float) -> Optional[Tuple[str, str]]:
+def classify_wavelength_extended(wavelength_nm: float) -> tuple[str, str] | None:
     """
     Classify a wavelength into extended spectral zones (Vis-NIR: 350-2500 nm).
 
@@ -363,8 +354,7 @@ def classify_wavelength_extended(wavelength_nm: float) -> Optional[Tuple[str, st
 
     return None
 
-
-def get_all_zones_extended() -> List[Tuple[float, float, str, str]]:
+def get_all_zones_extended() -> list[tuple[float, float, str, str]]:
     """
     Get all extended spectral zones (Vis-NIR) converted to wavelength space.
 
@@ -382,7 +372,6 @@ def get_all_zones_extended() -> List[Tuple[float, float, str, str]]:
         wl_max = wavenumber_to_wavelength(nu_min)
         zones.append((wl_min, wl_max, name, description))
     return zones
-
 
 def is_visible_region(wavelength_nm: float) -> bool:
     """
@@ -402,7 +391,6 @@ def is_visible_region(wavelength_nm: float) -> bool:
     """
     return 350 <= wavelength_nm <= 700
 
-
 def is_nir_region(wavelength_nm: float) -> bool:
     """
     Check if a wavelength is in the NIR region (700-2500 nm).
@@ -420,7 +408,6 @@ def is_nir_region(wavelength_nm: float) -> bool:
         False
     """
     return 700 <= wavelength_nm <= 2500
-
 
 # ============================================================================
 # Overtone and Combination Band Calculations
@@ -441,11 +428,10 @@ class OvertoneResult:
         return (f"OvertoneResult({order_name}: {self.wavelength_nm:.1f} nm / "
                 f"{self.wavenumber_cm:.0f} cm⁻¹, amp={self.amplitude_factor:.3f})")
 
-
 def calculate_overtone_position(
-    vibration_type_or_frequency: Union[str, float],
+    vibration_type_or_frequency: str | float,
     overtone_order: int,
-    anharmonicity: Optional[float] = None
+    anharmonicity: float | None = None
 ) -> OvertoneResult:
     """
     Calculate overtone band position with anharmonicity correction.
@@ -521,7 +507,6 @@ def calculate_overtone_position(
         bandwidth_factor=bandwidth_factor,
     )
 
-
 @dataclass
 class CombinationBandResult:
     """Result of combination band calculation."""
@@ -536,8 +521,7 @@ class CombinationBandResult:
         return (f"CombinationBandResult({self.band_type}: "
                 f"{self.wavelength_nm:.1f} nm / {self.wavenumber_cm:.0f} cm⁻¹)")
 
-
-def _resolve_vibration_to_frequency(vibration: Union[str, float]) -> float:
+def _resolve_vibration_to_frequency(vibration: str | float) -> float:
     """Resolve vibration type or frequency to numeric frequency."""
     if isinstance(vibration, str):
         if vibration not in FUNDAMENTAL_VIBRATIONS:
@@ -546,10 +530,9 @@ def _resolve_vibration_to_frequency(vibration: Union[str, float]) -> float:
         return float(FUNDAMENTAL_VIBRATIONS[vibration])
     return float(vibration)
 
-
 def calculate_combination_band(
-    mode1: Union[str, float, List[Union[str, float]]],
-    mode2: Optional[Union[str, float]] = None,
+    mode1: str | float | list[str | float],
+    mode2: str | float | None = None,
     band_type: str = "sum",
     coupling_factor: float = 1.0
 ) -> CombinationBandResult:
@@ -615,13 +598,12 @@ def calculate_combination_band(
         band_type=band_type,
     )
 
-
 def get_nir_overtones_for_fundamental(
     fundamental_cm: float,
     max_order: int = 4,
-    wavelength_range: Tuple[float, float] = (800, 2500),
+    wavelength_range: tuple[float, float] = (800, 2500),
     anharmonicity: float = 0.02
-) -> List[OvertoneResult]:
+) -> list[OvertoneResult]:
     """
     Get all overtones of a fundamental that fall within the NIR range.
 
@@ -646,7 +628,6 @@ def get_nir_overtones_for_fundamental(
         if wavelength_range[0] <= ot.wavelength_nm <= wavelength_range[1]:
             results.append(ot)
     return results
-
 
 # ============================================================================
 # Hydrogen Bonding Effects
@@ -691,7 +672,6 @@ def apply_hydrogen_bonding_shift(
 
     return wavenumber_cm - shift
 
-
 def estimate_bandwidth_broadening(
     baseline_bandwidth_cm: float,
     h_bond_strength: float = 0.0,
@@ -724,7 +704,6 @@ def estimate_bandwidth_broadening(
     temp_factor = np.sqrt(temperature_k / 298.0)
 
     return baseline_bandwidth_cm * h_bond_broadening * temp_factor
-
 
 # ============================================================================
 # Module-level exports

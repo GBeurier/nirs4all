@@ -16,6 +16,7 @@ Tests cover:
 import numpy as np
 import polars as pl
 import pytest
+
 from nirs4all.data.indexer import Indexer
 
 
@@ -50,7 +51,6 @@ class TestSchemaChanges:
         reason_values = indexer.df.select("exclusion_reason").to_series().to_list()
         assert all(v is None for v in reason_values)
 
-
 class TestMarkExcluded:
     """Tests for mark_excluded method."""
 
@@ -62,7 +62,7 @@ class TestMarkExcluded:
         n_excluded = indexer.mark_excluded([0], reason="outlier")
 
         assert n_excluded == 1
-        excluded_df = indexer.df.filter(pl.col("excluded") == True)
+        excluded_df = indexer.df.filter(pl.col("excluded"))
         assert len(excluded_df) == 1
         assert excluded_df["sample"][0] == 0
         assert excluded_df["exclusion_reason"][0] == "outlier"
@@ -75,7 +75,7 @@ class TestMarkExcluded:
         n_excluded = indexer.mark_excluded([0, 2, 4], reason="low_quality")
 
         assert n_excluded == 3
-        excluded_df = indexer.df.filter(pl.col("excluded") == True)
+        excluded_df = indexer.df.filter(pl.col("excluded"))
         assert len(excluded_df) == 3
         assert set(excluded_df["sample"].to_list()) == {0, 2, 4}
 
@@ -87,7 +87,7 @@ class TestMarkExcluded:
         n_excluded = indexer.mark_excluded([0])
 
         assert n_excluded == 1
-        excluded_df = indexer.df.filter(pl.col("excluded") == True)
+        excluded_df = indexer.df.filter(pl.col("excluded"))
         # exclusion_reason should remain None
         assert excluded_df["exclusion_reason"][0] is None
 
@@ -102,7 +102,7 @@ class TestMarkExcluded:
 
         # Should exclude sample 0 and its 2 augmented versions
         assert n_excluded == 3
-        excluded_samples = indexer.df.filter(pl.col("excluded") == True)["sample"].to_list()
+        excluded_samples = indexer.df.filter(pl.col("excluded"))["sample"].to_list()
         assert set(excluded_samples) == {0, 3, 4}
 
     def test_mark_excluded_no_cascade(self):
@@ -116,7 +116,7 @@ class TestMarkExcluded:
 
         # Should exclude only sample 0
         assert n_excluded == 1
-        excluded_samples = indexer.df.filter(pl.col("excluded") == True)["sample"].to_list()
+        excluded_samples = indexer.df.filter(pl.col("excluded"))["sample"].to_list()
         assert excluded_samples == [0]
 
     def test_mark_excluded_with_numpy_array(self):
@@ -128,7 +128,7 @@ class TestMarkExcluded:
         n_excluded = indexer.mark_excluded(sample_ids, reason="test")
 
         assert n_excluded == 3
-        excluded_df = indexer.df.filter(pl.col("excluded") == True)
+        excluded_df = indexer.df.filter(pl.col("excluded"))
         assert len(excluded_df) == 3
 
     def test_mark_excluded_empty_list(self):
@@ -148,11 +148,10 @@ class TestMarkExcluded:
         indexer.mark_excluded([0], reason="first")
         indexer.mark_excluded([0], reason="second")
 
-        excluded_df = indexer.df.filter(pl.col("excluded") == True)
+        excluded_df = indexer.df.filter(pl.col("excluded"))
         assert len(excluded_df) == 1
         # Reason should be updated
         assert excluded_df["exclusion_reason"][0] == "second"
-
 
 class TestMarkIncluded:
     """Tests for mark_included method."""
@@ -166,7 +165,7 @@ class TestMarkIncluded:
         n_included = indexer.mark_included([0])
 
         assert n_included == 1
-        excluded_df = indexer.df.filter(pl.col("excluded") == True)
+        excluded_df = indexer.df.filter(pl.col("excluded"))
         assert len(excluded_df) == 1
         assert excluded_df["sample"][0] == 1  # Only sample 1 still excluded
 
@@ -192,7 +191,7 @@ class TestMarkIncluded:
         n_included = indexer.mark_included()
 
         assert n_included == 3
-        excluded_df = indexer.df.filter(pl.col("excluded") == True)
+        excluded_df = indexer.df.filter(pl.col("excluded"))
         assert len(excluded_df) == 0
 
     def test_mark_included_cascade_to_augmented(self):
@@ -206,9 +205,8 @@ class TestMarkIncluded:
         n_included = indexer.mark_included([0], cascade_to_augmented=True)
 
         assert n_included == 3
-        excluded_df = indexer.df.filter(pl.col("excluded") == True)
+        excluded_df = indexer.df.filter(pl.col("excluded"))
         assert len(excluded_df) == 0
-
 
 class TestXIndicesWithExclusion:
     """Tests for x_indices with include_excluded parameter."""
@@ -272,7 +270,6 @@ class TestXIndicesWithExclusion:
 
         assert len(indices) == 0
 
-
 class TestYIndicesWithExclusion:
     """Tests for y_indices with include_excluded parameter."""
 
@@ -309,7 +306,6 @@ class TestYIndicesWithExclusion:
 
         # Lengths should match
         assert len(x_idx) == len(y_idx)
-
 
 class TestGetExcludedSamples:
     """Tests for get_excluded_samples method."""
@@ -363,7 +359,6 @@ class TestGetExcludedSamples:
         assert isinstance(excluded_df, pl.DataFrame)
         assert "sample" in excluded_df.columns
         assert "exclusion_reason" in excluded_df.columns
-
 
 class TestGetExclusionSummary:
     """Tests for get_exclusion_summary method."""
@@ -421,7 +416,6 @@ class TestGetExclusionSummary:
         assert summary["total_excluded"] == 2
         assert "unspecified" in summary["by_reason"] or None in summary["by_reason"]
 
-
 class TestResetExclusions:
     """Tests for reset_exclusions method."""
 
@@ -434,7 +428,7 @@ class TestResetExclusions:
         n_reset = indexer.reset_exclusions()
 
         assert n_reset == 3
-        excluded_df = indexer.df.filter(pl.col("excluded") == True)
+        excluded_df = indexer.df.filter(pl.col("excluded"))
         assert len(excluded_df) == 0
 
     def test_reset_exclusions_with_selector(self):
@@ -448,10 +442,9 @@ class TestResetExclusions:
         n_reset = indexer.reset_exclusions({"partition": "train"})
 
         assert n_reset == 2  # Only train samples reset
-        excluded_df = indexer.df.filter(pl.col("excluded") == True)
+        excluded_df = indexer.df.filter(pl.col("excluded"))
         assert len(excluded_df) == 1
         assert excluded_df["sample"][0] == 3  # Test sample still excluded
-
 
 class TestBackwardCompatibility:
     """Tests to ensure backward compatibility with existing code."""
@@ -488,7 +481,6 @@ class TestBackwardCompatibility:
         assert indexer.next_sample_index() == 5
         assert indexer.next_row_index() == 5
         assert 1 in indexer.uniques("group")
-
 
 class TestEdgeCases:
     """Tests for edge cases and boundary conditions."""
@@ -554,7 +546,6 @@ class TestEdgeCases:
         excluded_df = indexer.get_excluded_samples()
         assert excluded_df["exclusion_reason"][0] == "updated_reason"
 
-
 class TestQueryBuilderExcludedFilter:
     """Tests for QueryBuilder.build_excluded_filter method."""
 
@@ -570,8 +561,9 @@ class TestQueryBuilderExcludedFilter:
 
     def test_build_excluded_filter_include_all(self):
         """Test that include_excluded=True returns True expression."""
-        from nirs4all.data._indexer.query_builder import QueryBuilder
         import polars as pl
+
+        from nirs4all.data._indexer.query_builder import QueryBuilder
 
         builder = QueryBuilder()
         expr = builder.build_excluded_filter(include_excluded=True)
@@ -585,7 +577,6 @@ class TestQueryBuilderExcludedFilter:
 
         filtered = df.filter(expr)
         assert len(filtered) == 3
-
 
 class TestIntegrationWithAugmentation:
     """Integration tests for exclusion with augmentation tracker."""

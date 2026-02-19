@@ -24,13 +24,13 @@ References:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Dict, List, Optional, Tuple, Union
+from enum import Enum, StrEnum
+from typing import Optional, Union
 
 import numpy as np
 
 
-class MeasurementMode(str, Enum):
+class MeasurementMode(StrEnum):
     """Types of NIR measurement geometries."""
     TRANSMITTANCE = "transmittance"       # Direct transmission (Beer-Lambert)
     REFLECTANCE = "reflectance"           # Diffuse reflectance (Kubelka-Munk)
@@ -38,7 +38,6 @@ class MeasurementMode(str, Enum):
     ATR = "atr"                           # Attenuated Total Reflectance
     INTERACTANCE = "interactance"         # Partial transmission/reflection
     FIBER_OPTIC = "fiber_optic"           # Fiber-coupled reflectance probe
-
 
 @dataclass
 class TransmittanceConfig:
@@ -59,7 +58,6 @@ class TransmittanceConfig:
     path_length_variation: float = 0.02  # Coefficient of variation
     cuvette_material: str = "quartz"     # quartz, sapphire, glass
     reference_type: str = "air"          # air, solvent, empty_cuvette
-
 
 @dataclass
 class ReflectanceConfig:
@@ -84,7 +82,6 @@ class ReflectanceConfig:
     collection_angle: float = 45.0
     sample_presentation: str = "powder"  # powder, solid, slurry, liquid
 
-
 @dataclass
 class TransflectanceConfig:
     """
@@ -103,7 +100,6 @@ class TransflectanceConfig:
     reflector_type: str = "gold"  # gold, aluminum, diffuser
     reflector_reflectance: float = 0.95
     spacer_thickness_mm: float = 0.5
-
 
 @dataclass
 class ATRConfig:
@@ -127,7 +123,6 @@ class ATRConfig:
     n_reflections: int = 1
     sample_refractive_index: float = 1.5  # Typical organic
 
-
 @dataclass
 class ScatteringConfig:
     """
@@ -149,7 +144,6 @@ class ScatteringConfig:
     particle_size_um: float = 50.0
     particle_size_variation: float = 0.2
     sample_to_sample_variation: float = 0.15
-
 
 @dataclass
 class MeasurementModeConfig:
@@ -177,7 +171,6 @@ class MeasurementModeConfig:
     add_specular: bool = False
     specular_fraction: float = 0.04  # Fresnel reflection at normal incidence
 
-
 # ============================================================================
 # Crystal refractive indices for ATR
 # ============================================================================
@@ -189,7 +182,6 @@ ATR_CRYSTAL_PROPERTIES = {
     "si": {"refractive_index": 3.4, "critical_angle": 17.1, "range": (1500, 8000)},
     "thallium_bromide": {"refractive_index": 2.37, "critical_angle": 25.0, "range": (550, 35000)},
 }
-
 
 # ============================================================================
 # Measurement Mode Simulator
@@ -214,8 +206,8 @@ class MeasurementModeSimulator:
 
     def __init__(
         self,
-        config: Optional[MeasurementModeConfig] = None,
-        random_state: Optional[int] = None
+        config: MeasurementModeConfig | None = None,
+        random_state: int | None = None
     ) -> None:
         """
         Initialize the measurement mode simulator.
@@ -232,7 +224,7 @@ class MeasurementModeSimulator:
         self,
         absorption: np.ndarray,
         wavelengths: np.ndarray,
-        scattering: Optional[np.ndarray] = None
+        scattering: np.ndarray | None = None
     ) -> np.ndarray:
         """
         Apply measurement mode transformation.
@@ -460,7 +452,7 @@ class MeasurementModeSimulator:
 
     def generate_scattering_coefficients(
         self,
-        shape: Tuple[int, int],
+        shape: tuple[int, int],
         wavelengths: np.ndarray
     ) -> np.ndarray:
         """
@@ -578,14 +570,13 @@ class MeasurementModeSimulator:
         reflectance = 1 + ks_ratio - np.sqrt(ks_ratio**2 + 2 * ks_ratio)
         return np.clip(reflectance, 0, 1)
 
-
 # ============================================================================
 # Convenience functions
 # ============================================================================
 
 def create_transmittance_simulator(
     path_length_mm: float = 1.0,
-    random_state: Optional[int] = None
+    random_state: int | None = None
 ) -> MeasurementModeSimulator:
     """
     Create a transmittance mode simulator.
@@ -603,11 +594,10 @@ def create_transmittance_simulator(
     )
     return MeasurementModeSimulator(config, random_state)
 
-
 def create_reflectance_simulator(
     geometry: str = "integrating_sphere",
     particle_size_um: float = 50.0,
-    random_state: Optional[int] = None
+    random_state: int | None = None
 ) -> MeasurementModeSimulator:
     """
     Create a diffuse reflectance mode simulator.
@@ -627,12 +617,11 @@ def create_reflectance_simulator(
     )
     return MeasurementModeSimulator(config, random_state)
 
-
 def create_atr_simulator(
     crystal_material: str = "diamond",
     incidence_angle: float = 45.0,
     n_reflections: int = 1,
-    random_state: Optional[int] = None
+    random_state: int | None = None
 ) -> MeasurementModeSimulator:
     """
     Create an ATR mode simulator.
@@ -647,10 +636,7 @@ def create_atr_simulator(
         Configured MeasurementModeSimulator.
     """
     # Get crystal properties
-    if crystal_material in ATR_CRYSTAL_PROPERTIES:
-        n_crystal = ATR_CRYSTAL_PROPERTIES[crystal_material]["refractive_index"]
-    else:
-        n_crystal = 2.4  # Default to diamond-like
+    n_crystal = ATR_CRYSTAL_PROPERTIES[crystal_material]["refractive_index"] if crystal_material in ATR_CRYSTAL_PROPERTIES else 2.4  # Default to diamond-like
 
     config = MeasurementModeConfig(
         mode=MeasurementMode.ATR,
@@ -662,7 +648,6 @@ def create_atr_simulator(
         )
     )
     return MeasurementModeSimulator(config, random_state)
-
 
 # ============================================================================
 # Module-level exports

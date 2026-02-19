@@ -13,17 +13,15 @@ Visualizations include:
 - PCA visualization of splits
 """
 
-from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
+from typing import Any, Optional
 
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 from sklearn.decomposition import PCA
-
 from splitter_evaluation import StrategyResult
-
 
 # Color scheme by category
 CATEGORY_COLORS = {
@@ -35,12 +33,11 @@ CATEGORY_COLORS = {
     'Chemometrics': '#A23B72'
 }
 
-
 def plot_comparison_comprehensive(
     comparison_df: pd.DataFrame,
-    results: List[StrategyResult],
-    save_path: Optional[str] = None,
-    figsize: Tuple[int, int] = (18, 12)
+    results: list[StrategyResult],
+    save_path: str | None = None,
+    figsize: tuple[int, int] = (18, 12)
 ) -> plt.Figure:
     """
     Create comprehensive comparison plot with multiple metrics.
@@ -152,12 +149,11 @@ def plot_comparison_comprehensive(
 
     return fig
 
-
 def plot_predictions(
-    results: List[StrategyResult],
+    results: list[StrategyResult],
     n_top: int = 6,
-    save_path: Optional[str] = None,
-    figsize: Optional[Tuple[int, int]] = None
+    save_path: str | None = None,
+    figsize: tuple[int, int] | None = None
 ) -> plt.Figure:
     """
     Plot predicted vs actual for top strategies.
@@ -236,12 +232,11 @@ def plot_predictions(
 
     return fig
 
-
 def plot_cv_distribution(
-    results: List[StrategyResult],
+    results: list[StrategyResult],
     comparison_df: pd.DataFrame,
-    save_path: Optional[str] = None,
-    figsize: Tuple[int, int] = (14, 8)
+    save_path: str | None = None,
+    figsize: tuple[int, int] = (14, 8)
 ) -> plt.Figure:
     """
     Plot CV RMSE distribution as boxplot.
@@ -273,7 +268,7 @@ def plot_cv_distribution(
                     showmeans=True, meanline=True)
 
     # Color boxes
-    for patch, color in zip(bp['boxes'], colors):
+    for patch, color in zip(bp['boxes'], colors, strict=False):
         patch.set_facecolor(color)
         patch.set_alpha(0.6)
 
@@ -298,7 +293,6 @@ def plot_cv_distribution(
 
     return fig
 
-
 def plot_split_pca(
     X: np.ndarray,
     sample_ids: np.ndarray,
@@ -306,8 +300,8 @@ def plot_split_pca(
     test_ids: np.ndarray,
     fold_df: pd.DataFrame,
     strategy_name: str,
-    save_path: Optional[str] = None,
-    figsize: Tuple[int, int] = (12, 5)
+    save_path: str | None = None,
+    figsize: tuple[int, int] = (12, 5)
 ) -> plt.Figure:
     """
     Visualize train/test split in PCA space.
@@ -386,12 +380,11 @@ def plot_split_pca(
 
     return fig
 
-
 def plot_residuals(
-    results: List[StrategyResult],
+    results: list[StrategyResult],
     n_top: int = 4,
-    save_path: Optional[str] = None,
-    figsize: Optional[Tuple[int, int]] = None
+    save_path: str | None = None,
+    figsize: tuple[int, int] | None = None
 ) -> plt.Figure:
     """
     Plot residual analysis for top strategies.
@@ -452,10 +445,9 @@ def plot_residuals(
 
     return fig
 
-
 def create_summary_report(
     comparison_df: pd.DataFrame,
-    best_strategies: Dict[str, Dict[str, Any]],
+    best_strategies: dict[str, dict[str, Any]],
     output_path: str
 ) -> None:
     """
@@ -514,6 +506,6 @@ def create_summary_report(
 
         best = comparison_df.iloc[0]
         f.write(f"Recommended Strategy: {best['strategy']}\n")
-        f.write(f"Reason: Best test set performance with acceptable generalization\n")
+        f.write("Reason: Best test set performance with acceptable generalization\n")
 
     print(f"Report saved to: {output_path}")

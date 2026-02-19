@@ -83,7 +83,6 @@ def wavelet_denoise(
     # Truncate to original length (waverec may add padding)
     return x_rec[..., :L]
 
-
 class WaveletDenoise(TransformerMixin, BaseEstimator):
     """
     Wavelet denoising transformer for spectral data.

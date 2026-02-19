@@ -15,15 +15,15 @@ Metrics computed:
 """
 
 import time
-from typing import Dict, List, Tuple, Any, Optional
 from dataclasses import dataclass
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import RidgeCV
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.linear_model import RidgeCV
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.neighbors import KNeighborsRegressor
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.preprocessing import StandardScaler
 
 try:
@@ -52,14 +52,13 @@ class FoldResult:
     y_val_true: np.ndarray
     y_val_pred: np.ndarray
 
-
 @dataclass
 class StrategyResult:
     """Aggregated results for a splitting strategy."""
     strategy_key: str
     strategy_name: str
     category: str
-    fold_results: List[FoldResult]
+    fold_results: list[FoldResult]
     test_rmse: float
     test_mae: float
     test_r2: float
@@ -71,8 +70,7 @@ class StrategyResult:
     cv_r2_mean: float
     cv_r2_std: float
     generalization_gap: float
-    strategy_info: Dict[str, Any]
-
+    strategy_info: dict[str, Any]
 
 class BaselineModel:
     """Wrapper for baseline regression models."""
@@ -129,7 +127,6 @@ class BaselineModel:
         X_scaled = self.scaler.transform(X)
         pred = self.model.predict(X_scaled)
         return pred.ravel() if len(pred.shape) > 1 else pred
-
 
 def train_fold(
     X_train: np.ndarray,
@@ -188,7 +185,6 @@ def train_fold(
         y_val_true=y_val,
         y_val_pred=y_val_pred
     )
-
 
 def evaluate_strategy(
     X: np.ndarray,
@@ -295,7 +291,7 @@ def evaluate_strategy(
     generalization_gap = test_rmse - cv_rmse_mean
 
     if verbose:
-        print(f"\n  📊 Summary:")
+        print("\n  📊 Summary:")
         print(f"     CV RMSE: {cv_rmse_mean:.3f} ± {cv_rmse_std:.3f}")
         print(f"     Test RMSE: {test_rmse:.3f}")
         print(f"     Gap (CV→Test): {generalization_gap:+.3f}")
@@ -319,9 +315,8 @@ def evaluate_strategy(
         strategy_info=split_result.strategy_info
     )
 
-
 def compare_strategies(
-    results: List[StrategyResult]
+    results: list[StrategyResult]
 ) -> pd.DataFrame:
     """
     Create comparison DataFrame from strategy results.
@@ -357,10 +352,9 @@ def compare_strategies(
 
     return df
 
-
 def identify_best_strategies(
     comparison_df: pd.DataFrame
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """
     Identify best strategies by different criteria.
 
@@ -404,9 +398,8 @@ def identify_best_strategies(
 
     return best
 
-
 def compute_statistical_tests(
-    results: List[StrategyResult],
+    results: list[StrategyResult],
     alpha: float = 0.05
 ) -> pd.DataFrame:
     """
@@ -419,7 +412,7 @@ def compute_statistical_tests(
     Returns:
         DataFrame with pairwise test results
     """
-    from scipy.stats import ttest_ind, mannwhitneyu
+    from scipy.stats import mannwhitneyu, ttest_ind
 
     # Sort by test performance
     results_sorted = sorted(results, key=lambda r: r.test_rmse)

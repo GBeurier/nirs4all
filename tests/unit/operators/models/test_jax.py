@@ -1,14 +1,17 @@
-import pytest
 import numpy as np
+import pytest
+
 from nirs4all.utils.backend import JAX_AVAILABLE
+
 
 @pytest.mark.xdist_group("gpu")
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX not available")
 class TestJaxModels:
     def test_mlp_regressor(self):
-        from nirs4all.operators.models.jax import JaxMLPRegressor
         import jax
         import jax.numpy as jnp
+
+        from nirs4all.operators.models.jax import JaxMLPRegressor
 
         model = JaxMLPRegressor(features=[10, 5])
         key = jax.random.PRNGKey(0)
@@ -18,9 +21,10 @@ class TestJaxModels:
         assert y.shape == (1, 1)
 
     def test_mlp_classifier(self):
-        from nirs4all.operators.models.jax import JaxMLPClassifier
         import jax
         import jax.numpy as jnp
+
+        from nirs4all.operators.models.jax import JaxMLPClassifier
 
         model = JaxMLPClassifier(features=[10, 5], num_classes=3)
         key = jax.random.PRNGKey(0)

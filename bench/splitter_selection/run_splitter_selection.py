@@ -20,57 +20,43 @@ The data directory should contain:
 """
 
 import argparse
+import json
 import warnings
 from pathlib import Path
-from typing import Dict, Any, Optional
-import json
+from typing import Any, Optional
 
+import matplotlib
 import numpy as np
 import pandas as pd
-import matplotlib
+
 matplotlib.use('Agg')  # Non-interactive backend for saving figures
 import matplotlib.pyplot as plt
-
+from splitter_evaluation import StrategyResult, compare_strategies, compute_statistical_tests, evaluate_strategy, identify_best_strategies
 from splitter_strategies import (
+    HAS_NIRS4ALL_SPLITTERS,
     SPLITTING_STRATEGIES,
-    get_splitter,
-    list_strategies,
-    SimpleSplitter,
-    TargetStratifiedSplitter,
-    SpectralPCASplitter,
-    SpectralDistanceSplitter,
-    HybridSplitter,
     AdversarialSplitter,
+    DuplexSplitter,
+    HierarchicalClusteringSplitter,
+    HonigsSplitter,
+    HybridSplitter,
     KennardStoneSplitter,
-    StratifiedGroupKFoldSplitter,
+    KMedoidsSplitter,
     Nirs4allKennardStoneSplitter,
     Nirs4allSPXYSplitter,
-    HAS_NIRS4ALL_SPLITTERS,
     PuchweinSplitter,
-    DuplexSplitter,
     ShenkWestSplitter,
-    HonigsSplitter,
-    HierarchicalClusteringSplitter,
-    KMedoidsSplitter
+    SimpleSplitter,
+    SpectralDistanceSplitter,
+    SpectralPCASplitter,
+    StratifiedGroupKFoldSplitter,
+    TargetStratifiedSplitter,
+    get_splitter,
+    list_strategies,
 )
-from splitter_evaluation import (
-    evaluate_strategy,
-    compare_strategies,
-    identify_best_strategies,
-    compute_statistical_tests,
-    StrategyResult
-)
-from splitter_visualization import (
-    plot_comparison_comprehensive,
-    plot_predictions,
-    plot_cv_distribution,
-    plot_split_pca,
-    plot_residuals,
-    create_summary_report
-)
+from splitter_visualization import create_summary_report, plot_comparison_comprehensive, plot_cv_distribution, plot_predictions, plot_residuals, plot_split_pca
 
 warnings.filterwarnings('ignore')
-
 
 def load_data(data_dir: Path) -> tuple:
     """
@@ -109,12 +95,11 @@ def load_data(data_dir: Path) -> tuple:
 
     return X, y, sample_ids, metadata
 
-
 def get_configured_strategies(
     test_size: float = 0.2,
     n_folds: int = 3,
     random_state: int = 42
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """
     Get all configured splitting strategies.
 
@@ -360,12 +345,11 @@ def get_configured_strategies(
 
     return strategies
 
-
 def run_evaluation(
     X: np.ndarray,
     y: np.ndarray,
     sample_ids: np.ndarray,
-    strategies: Dict[str, Dict[str, Any]],
+    strategies: dict[str, dict[str, Any]],
     model_type: str = 'ridge',
     verbose: bool = True,
     **model_kwargs
@@ -430,11 +414,10 @@ def run_evaluation(
 
     return results, split_results
 
-
 def save_results(
     results: list,
     comparison_df: pd.DataFrame,
-    best_strategies: Dict[str, Dict[str, Any]],
+    best_strategies: dict[str, dict[str, Any]],
     output_dir: Path
 ) -> None:
     """
@@ -479,7 +462,6 @@ def save_results(
 
     print(f"\nResults saved to: {output_dir}")
 
-
 def main(
     data_dir: str,
     output_dir: str = None,
@@ -488,7 +470,7 @@ def main(
     model_type: str = 'xgboost',
     random_state: int = 42,
     verbose: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Main function for splitter selection.
 
@@ -505,10 +487,7 @@ def main(
         Dictionary with results summary
     """
     data_path = Path(data_dir)
-    if output_dir is None:
-        output_path = data_path / 'splitter_selection'
-    else:
-        output_path = Path(output_dir)
+    output_path = data_path / 'splitter_selection' if output_dir is None else Path(output_dir)
 
     output_path.mkdir(parents=True, exist_ok=True)
     figures_dir = output_path / 'figures'
@@ -642,7 +621,6 @@ def main(
         'results': results,
         'output_dir': str(output_path)
     }
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(

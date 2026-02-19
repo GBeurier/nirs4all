@@ -1,18 +1,18 @@
 import argparse
 import sys
-from pathlib import Path
 import time
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.preprocessing import MinMaxScaler
 
+from nirs4all.analysis import TransferPreprocessingSelector
+
 # NIRS4All imports
 from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.analysis import TransferPreprocessingSelector
-
 
 # =============================================================================
 # Parse Arguments
@@ -36,7 +36,6 @@ PP_SPEC = {
         {"_or_": [None, "haar", "detrend", "area_norm", "wav_sym5", "wav_coif3", "msc", "snv", "emsc"]},  # Stage 4: Post-processing
     ],
 }
-
 
 def main():
     """Run the preprocessing selection study."""
@@ -67,7 +66,7 @@ def main():
     filtered_pp_list = results.to_preprocessing_list(top_k=top_k)
 
     print(f"Selected {len(filtered_pp_list)} preprocessings:")
-    for i, pp_transforms in enumerate(filtered_pp_list, 1):
+    for i, _pp_transforms in enumerate(filtered_pp_list, 1):
         result = results.ranking[i - 1]
         print(f"  {i:2d}. {result.name:<55} (score={result.transfer_score:.4f}, improvement={result.improvement_pct:.1f}%)")
     print()
@@ -185,7 +184,7 @@ def main():
     # =========================================================================
     # Visualizations
     # =========================================================================
-    if args.show or True:  # Always save plots
+    if True:  # Always save plots
         print("Generating visualizations...")
         output_dir = DATA_PATH.parent
 
@@ -219,7 +218,6 @@ def main():
 
     if args.show:
         plt.show()
-
 
 if __name__ == "__main__":
     main()

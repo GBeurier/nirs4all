@@ -7,12 +7,12 @@ introduced in Phase 3.
 import pytest
 
 from nirs4all.pipeline.config._generator.validators import (
-    validate_spec,
+    ValidationError,
+    ValidationResult,
+    ValidationSeverity,
     validate_config,
     validate_expanded_configs,
-    ValidationResult,
-    ValidationError,
-    ValidationSeverity,
+    validate_spec,
 )
 
 
@@ -70,7 +70,6 @@ class TestValidationResult:
         assert "INVALID" in str_repr
         assert "1 error" in str_repr
 
-
 class TestValidationError:
     """Tests for ValidationError class."""
 
@@ -97,7 +96,6 @@ class TestValidationError:
             severity=ValidationSeverity.WARNING
         )
         assert warning.severity == ValidationSeverity.WARNING
-
 
 class TestValidateSpec:
     """Tests for validate_spec function."""
@@ -196,7 +194,6 @@ class TestValidateSpec:
         # Current implementation doesn't validate _sample_ specifically
         assert result.is_valid  # Not validating _sample_ structure yet
 
-
 class TestValidateConfig:
     """Tests for validate_config function."""
 
@@ -223,7 +220,6 @@ class TestValidateConfig:
         result = validate_config({"layers": [64, 32, 16]})
         assert result.is_valid
 
-
 class TestValidateExpandedConfigs:
     """Tests for validate_expanded_configs function."""
 
@@ -247,7 +243,6 @@ class TestValidateExpandedConfigs:
         result = validate_expanded_configs([])
         assert result.is_valid  # Valid with zero configs
         # Note: Current implementation doesn't add warning for empty list
-
 
 class TestValidationIntegration:
     """Integration tests for validation with actual expansion."""
@@ -273,7 +268,6 @@ class TestValidationIntegration:
         result = validate_expanded_configs(expanded)
         assert result.is_valid
         assert len(expanded) == 2
-
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

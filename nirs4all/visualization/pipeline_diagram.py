@@ -23,15 +23,16 @@ Example:
     >>> fig.savefig('pipeline_diagram.png')
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union
 from collections import defaultdict
 from dataclasses import dataclass, field
-import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-from matplotlib.axes import Axes
-from matplotlib.patches import FancyBboxPatch, Rectangle, FancyArrowPatch
+from typing import Any, Optional, Union
+
 import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, Rectangle
 
 
 @dataclass
@@ -60,19 +61,18 @@ class PipelineNode:
     step_index: int
     label: str
     node_type: str = "preprocessing"
-    shape_before: Optional[Tuple[int, int, int]] = None
-    shape_after: Optional[Tuple[int, int, int]] = None
-    input_layout_shape: Optional[Tuple[int, int]] = None
-    output_layout_shape: Optional[Tuple[int, int]] = None
-    features_shape: Optional[List[Tuple[int, int, int]]] = None
-    branch_id: Optional[int] = None
+    shape_before: tuple[int, int, int] | None = None
+    shape_after: tuple[int, int, int] | None = None
+    input_layout_shape: tuple[int, int] | None = None
+    output_layout_shape: tuple[int, int] | None = None
+    features_shape: list[tuple[int, int, int]] | None = None
+    branch_id: int | None = None
     branch_name: str = ""
-    substep_index: Optional[int] = None
-    parent_ids: List[str] = field(default_factory=list)
-    children_ids: List[str] = field(default_factory=list)
+    substep_index: int | None = None
+    parent_ids: list[str] = field(default_factory=list)
+    children_ids: list[str] = field(default_factory=list)
     duration_ms: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 class PipelineDiagram:
     """Create DAG visualization for pipeline execution structure.
@@ -107,10 +107,10 @@ class PipelineDiagram:
 
     def __init__(
         self,
-        pipeline_steps: Optional[List[Any]] = None,
+        pipeline_steps: list[Any] | None = None,
         predictions: Any = None,
         execution_trace: Any = None,
-        config: Optional[Dict[str, Any]] = None
+        config: dict[str, Any] | None = None
     ):
         """Initialize PipelineDiagram.
 
@@ -140,15 +140,15 @@ class PipelineDiagram:
         self._compact = self.config.get('compact', False)
 
         # Build the DAG
-        self.nodes: Dict[str, PipelineNode] = {}
-        self.edges: List[Tuple[str, str]] = []
+        self.nodes: dict[str, PipelineNode] = {}
+        self.edges: list[tuple[str, str]] = []
 
     def render(
         self,
-        show_shapes: Optional[bool] = None,
-        figsize: Optional[Tuple[float, float]] = None,
-        title: Optional[str] = None,
-        initial_shape: Optional[Tuple[int, int, int]] = None
+        show_shapes: bool | None = None,
+        figsize: tuple[float, float] | None = None,
+        title: str | None = None,
+        initial_shape: tuple[int, int, int] | None = None
     ) -> Figure:
         """Render the pipeline diagram.
 
@@ -214,7 +214,7 @@ class PipelineDiagram:
         cls,
         execution_trace: Any,
         predictions: Any = None,
-        config: Optional[Dict[str, Any]] = None
+        config: dict[str, Any] | None = None
     ) -> 'PipelineDiagram':
         """Create a PipelineDiagram from an ExecutionTrace.
 
@@ -280,10 +280,10 @@ class PipelineDiagram:
 
         # Track edges by step
         current_node_ids = ["input"]
-        branch_stacks: Dict[tuple, List[str]] = {}  # branch_path -> node_ids
+        branch_stacks: dict[tuple, list[str]] = {}  # branch_path -> node_ids
         in_branch_mode = False  # Track if we're inside a branch
         in_source_branch_mode = False  # Track if we're inside source_branch (before merge)
-        source_branch_node_ids: List[str] = []  # Track source branch node IDs
+        source_branch_node_ids: list[str] = []  # Track source branch node IDs
         n_sources = 0  # Number of sources in source_branch mode
         last_pre_branch_node = "input"  # Track the node before entering branches
         last_known_features_shape = input_features  # Track last known shape for inheritance
@@ -315,7 +315,7 @@ class PipelineDiagram:
                     current_node_ids, branch_stacks, last_known_features_shape
                 )
                 # Update current_node_ids to point to the source branch nodes
-                source_branch_ids = [nid for nid in self.nodes.keys()
+                source_branch_ids = [nid for nid in self.nodes
                                      if nid.startswith(f"step_{step_index}_src")]
                 source_branch_ids.sort()  # Ensure consistent ordering
                 if source_branch_ids:
@@ -360,7 +360,7 @@ class PipelineDiagram:
                     by_source, current_node_ids, input_features, output_features
                 )
                 # Update current_node_ids to point to the expanded nodes
-                expanded_ids = [nid for nid in self.nodes.keys()
+                expanded_ids = [nid for nid in self.nodes
                                 if nid.startswith(f"step_{step_index}_src")]
                 expanded_ids.sort()
                 if expanded_ids:
@@ -461,10 +461,7 @@ class PipelineDiagram:
             label = self._format_trace_label(operator_class, operator_type, step)
 
             # Create node ID
-            if branch_path:
-                node_id = f"step_{step_index}_b{'_'.join(map(str, branch_path))}"
-            else:
-                node_id = f"step_{step_index}"
+            node_id = f"step_{step_index}_b{'_'.join(map(str, branch_path))}" if branch_path else f"step_{step_index}"
 
             # Handle substep index for unique node IDs
             if substep_idx is not None:
@@ -481,10 +478,7 @@ class PipelineDiagram:
                 else:
                     # Chain to previous substep in same branch
                     prev_substep_id = f"step_{step_index}_b{'_'.join(map(str, branch_path))}_s{substep_idx - 1}"
-                    if prev_substep_id in self.nodes:
-                        parent_nodes = [prev_substep_id]
-                    else:
-                        parent_nodes = current_node_ids.copy() if current_node_ids else [last_pre_branch_node]
+                    parent_nodes = [prev_substep_id] if prev_substep_id in self.nodes else current_node_ids.copy() if current_node_ids else [last_pre_branch_node]
                 in_branch_mode = True
             elif branch_path:
                 # Branch step without substep index (e.g., post-branch steps like splitter)
@@ -508,7 +502,7 @@ class PipelineDiagram:
             elif op_type_lower == 'merge' and in_branch_mode and branch_stacks:
                 # Merge step exiting branch mode - connect to the LEAF nodes of each branch
                 # Group by top-level branch ID and take the most recent (shallowest path length for same branch)
-                branch_leaves_by_id: Dict[int, str] = {}
+                branch_leaves_by_id: dict[int, tuple[int, str]] = {}
                 for bpath, node_ids in branch_stacks.items():
                     if not bpath:
                         continue
@@ -573,11 +567,11 @@ class PipelineDiagram:
     def _get_best_score_from_predictions(
         self,
         step_index: int,
-        branch_path: List[int],
+        branch_path: list[int],
         branch_name: str,
-        model_name: Optional[str],
+        model_name: str | None,
         operator_class: str
-    ) -> Optional[float]:
+    ) -> float | None:
         """Return best score (prefer test of best val; fallback to best available)."""
         if self.predictions is None:
             return None
@@ -628,15 +622,15 @@ class PipelineDiagram:
             return not any(tok in metric_lower for tok in lower_tokens)
 
         # Rank entries by val_score when present; otherwise by test_score/train_score
-        def primary_score(pred: Dict[str, Any]) -> Optional[float]:
+        def primary_score(pred: dict[str, Any]) -> float | None:
             if pred.get('val_score') is not None:
                 return pred.get('val_score')
             if pred.get('test_score') is not None:
                 return pred.get('test_score')
             return pred.get('train_score')
 
-        best_entry: Optional[Dict[str, Any]] = None
-        higher_is_better: Optional[bool] = None
+        best_entry: dict[str, Any] | None = None
+        higher_is_better: bool | None = None
 
         for pred in preds:
             score_candidate = primary_score(pred)
@@ -671,7 +665,7 @@ class PipelineDiagram:
                 return best_entry.get(key)
         return None
 
-    def _get_total_samples_from_trace(self) -> Optional[int]:
+    def _get_total_samples_from_trace(self) -> int | None:
         """Get total sample count from execution trace.
 
         Looks for sample count after sample_augmentation or at the splitter step,
@@ -719,11 +713,11 @@ class PipelineDiagram:
     def _derive_model_input_shape_from_predictions(
         self,
         step_index: int,
-        branch_path: List[int],
+        branch_path: list[int],
         branch_name: str,
         operator_class: str,
-        operator_config: Dict[str, Any],
-    ) -> Optional[Tuple[int, int, int]]:
+        operator_config: dict[str, Any],
+    ) -> tuple[int, int, int] | None:
         """Infer model INPUT 3D shape (samples, processings, features) from predictions metadata.
 
         For models, we want to show the input shape (what the model receives),
@@ -756,7 +750,7 @@ class PipelineDiagram:
             return None
 
         # Get feature count from predictions metadata
-        feature_counts: List[int] = []
+        feature_counts: list[int] = []
         for pred in preds:
             n_features = pred.get('n_features')
             if n_features not in (None, 0):
@@ -773,7 +767,7 @@ class PipelineDiagram:
 
         # Fallback: calculate from predictions partitions if trace not available
         if sample_count is None:
-            partition_counts: Dict[str, int] = {}
+            partition_counts: dict[str, int] = {}
             for pred in preds:
                 n_samples = int(pred.get('n_samples') or 0)
                 partition = str(pred.get('partition') or '').lower()
@@ -800,11 +794,11 @@ class PipelineDiagram:
         self,
         step: Any,
         step_index: int,
-        all_steps: List[Any],
+        all_steps: list[Any],
         step_i: int,
-        current_node_ids: List[str],
-        branch_stacks: Dict[tuple, List[str]],
-        last_known_shape: Optional[List[Tuple[int, int, int]]]
+        current_node_ids: list[str],
+        branch_stacks: dict[tuple, list[str]],
+        last_known_shape: list[tuple[int, int, int]] | None
     ) -> None:
         """Expand a source_branch step into per-source nodes.
 
@@ -833,8 +827,8 @@ class PipelineDiagram:
 
         # Parse chain keys to group by source
         # Format: s5.MinMaxScaler[src=0,sub=0], s5.PCA[src=2,sub=8]
-        source_ops: Dict[int, List[Tuple[int, str]]] = {}  # source_id -> [(substep, class_name), ...]
-        for chain_key in by_chain.keys():
+        source_ops: dict[int, list[tuple[int, str]]] = {}  # source_id -> [(substep, class_name), ...]
+        for chain_key in by_chain:
             # Extract source and class from chain key
             if '[src=' in chain_key:
                 parts = chain_key.split('[')
@@ -876,10 +870,7 @@ class PipelineDiagram:
                     seen_classes.append(cls_name)
 
             # Create label
-            if len(seen_classes) <= 2:
-                label = f"Src{src_id}: {' → '.join(seen_classes)}"
-            else:
-                label = f"Src{src_id}: {seen_classes[0]}...{seen_classes[-1]}"
+            label = f"Src{src_id}: {' → '.join(seen_classes)}" if len(seen_classes) <= 2 else f"Src{src_id}: {seen_classes[0]}...{seen_classes[-1]}"
 
             # Get shape for this source
             src_shape = None
@@ -915,10 +906,10 @@ class PipelineDiagram:
         step_index: int,
         operator_class: str,
         operator_type: str,
-        by_source: Dict[int, List[str]],
-        current_node_ids: List[str],
-        input_features: Optional[List[Tuple[int, int, int]]],
-        output_features: Optional[List[Tuple[int, int, int]]]
+        by_source: dict[int, list[str]],
+        current_node_ids: list[str],
+        input_features: list[tuple[int, int, int]] | None,
+        output_features: list[tuple[int, int, int]] | None
     ) -> None:
         """Expand a step that runs on multiple sources into per-source nodes.
 
@@ -949,10 +940,7 @@ class PipelineDiagram:
                     break
             if parent_id is None and current_node_ids:
                 # Fallback: use the src_id-th parent if available
-                if src_id < len(current_node_ids):
-                    parent_id = current_node_ids[src_id]
-                else:
-                    parent_id = current_node_ids[0]
+                parent_id = current_node_ids[src_id] if src_id < len(current_node_ids) else current_node_ids[0]
 
             node_id = f"step_{step_index}_src{src_id}"
             label = f"Src{src_id}: {operator_class}"
@@ -977,11 +965,11 @@ class PipelineDiagram:
         step: Any,
         step_index: int,
         operator_class: str,
-        current_node_ids: List[str],
-        input_layout: Optional[Tuple[int, int]],
-        output_layout: Optional[Tuple[int, int]],
-        input_features: Optional[List[Tuple[int, int, int]]],
-        output_features: Optional[List[Tuple[int, int, int]]]
+        current_node_ids: list[str],
+        input_layout: tuple[int, int] | None,
+        output_layout: tuple[int, int] | None,
+        input_features: list[tuple[int, int, int]] | None,
+        output_features: list[tuple[int, int, int]] | None
     ) -> None:
         """Create a merge node that collects from all source branches.
 
@@ -1146,7 +1134,7 @@ class PipelineDiagram:
         else:
             return 'preprocessing'
 
-    def _build_dag(self, initial_shape: Optional[Tuple[int, int, int]] = None) -> None:
+    def _build_dag(self, initial_shape: tuple[int, int, int] | None = None) -> None:
         """Build the DAG from pipeline steps.
 
         Args:
@@ -1177,7 +1165,7 @@ class PipelineDiagram:
 
         # Track current node IDs for edge connections
         current_node_ids = ["input"]
-        branch_stacks: List[List[str]] = []  # Stack of lists of node IDs per branch level
+        branch_stacks: list[list[str]] = []  # Stack of lists of node IDs per branch level
 
         step_index = 0
         for step in self.pipeline_steps:
@@ -1327,7 +1315,7 @@ class PipelineDiagram:
                 current_node_ids = [node_id]
                 current_shape = new_shape
 
-    def _parse_step(self, step: Any, step_index: int) -> Optional[Dict[str, Any]]:
+    def _parse_step(self, step: Any, step_index: int) -> dict[str, Any] | None:
         """Parse a pipeline step into structured info.
 
         Args:
@@ -1391,7 +1379,7 @@ class PipelineDiagram:
 
         return {'type': 'default', 'label': '?'}
 
-    def _parse_keyword_step(self, keyword: str, step: Dict) -> Dict[str, Any]:
+    def _parse_keyword_step(self, keyword: str, step: dict) -> dict[str, Any]:
         """Parse a keyword-based step.
 
         Args:
@@ -1512,7 +1500,7 @@ class PipelineDiagram:
 
         return {'type': 'default', 'label': keyword, 'keyword': keyword}
 
-    def _classify_operator(self, class_name: str, config: Dict) -> Dict[str, Any]:
+    def _classify_operator(self, class_name: str, config: dict) -> dict[str, Any]:
         """Classify an operator by its class name.
 
         Args:
@@ -1577,9 +1565,9 @@ class PipelineDiagram:
 
     def _estimate_shape_after(
         self,
-        shape_before: Tuple[int, int, int],
-        step_info: Dict[str, Any]
-    ) -> Tuple[int, int, int]:
+        shape_before: tuple[int, int, int],
+        step_info: dict[str, Any]
+    ) -> tuple[int, int, int]:
         """Estimate the dataset shape after a step.
 
         Args:
@@ -1633,9 +1621,9 @@ class PipelineDiagram:
 
     def _estimate_merge_shape(
         self,
-        shape_before: Tuple[int, int, int],
-        step_info: Dict[str, Any]
-    ) -> Tuple[int, int, int]:
+        shape_before: tuple[int, int, int],
+        step_info: dict[str, Any]
+    ) -> tuple[int, int, int]:
         """Estimate shape after merge.
 
         Args:
@@ -1733,12 +1721,12 @@ class PipelineDiagram:
         if node.metadata.get('best_score') is not None and node.node_type == 'model':
              label_lines.append("★ 0.00")
 
-        max_text_len = max([len(l) for l in label_lines]) if label_lines else 0
+        max_text_len = max([len(line) for line in label_lines]) if label_lines else 0
         # Increased factor from 0.16 to 0.22 for better fit
         calc_width = 2.0 + max_text_len * 0.22
         return max(self._node_width, calc_width)
 
-    def _compute_layout(self) -> Dict[str, Dict[str, Any]]:
+    def _compute_layout(self) -> dict[str, dict[str, Any]]:
         """Compute node positions using topological sort and layering.
 
         Branches maintain their column positions throughout their execution,
@@ -1813,14 +1801,14 @@ class PipelineDiagram:
 
         return layout
 
-    def _compute_layers(self) -> List[List[str]]:
+    def _compute_layers(self) -> list[list[str]]:
         """Compute node layers using topological ordering.
 
         Returns:
             List of lists, where each inner list contains node IDs for that layer
         """
         # Build adjacency and in-degree
-        in_degree = {node_id: 0 for node_id in self.nodes}
+        in_degree = dict.fromkeys(self.nodes, 0)
         adj = defaultdict(list)
 
         for from_id, to_id in self.edges:
@@ -1850,7 +1838,7 @@ class PipelineDiagram:
 
         return layers
 
-    def _format_shape_display(self, node: PipelineNode) -> List[str]:
+    def _format_shape_display(self, node: PipelineNode) -> list[str]:
         """Format shape information for display in a node.
 
         Shows:
@@ -1878,7 +1866,7 @@ class PipelineDiagram:
             n_samples = node.features_shape[0][0]
             parts.append(str(n_samples))
 
-            for s, p, f in node.features_shape:
+            for _s, p, f in node.features_shape:
                 parts.append(f"[{p}, {f}]")
 
             shape_str = f"({', '.join(parts)})"
@@ -1929,7 +1917,7 @@ class PipelineDiagram:
     def _draw_nodes(
         self,
         ax: Axes,
-        layout: Dict[str, Dict[str, Any]],
+        layout: dict[str, dict[str, Any]],
         show_shapes: bool
     ) -> None:
         """Draw nodes on the diagram.
@@ -1939,7 +1927,7 @@ class PipelineDiagram:
             layout: Node layout
             show_shapes: Whether to show shape info
         """
-        for node_id, pos_info in layout.items():
+        for _node_id, pos_info in layout.items():
             x, y = pos_info['x'], pos_info['y']
             node = pos_info['node']
 
@@ -1961,7 +1949,7 @@ class PipelineDiagram:
             n_lines = len(label_lines)
 
             # Calculate width based on text length
-            max_text_len = max([len(l) for l in label_lines]) if label_lines else 0
+            max_text_len = max([len(line) for line in label_lines]) if label_lines else 0
             # Base width + char width factor
             calc_width = 2.0 + max_text_len * 0.22
             box_width = max(self._node_width, calc_width)
@@ -2044,7 +2032,7 @@ class PipelineDiagram:
     def _draw_edges(
         self,
         ax: Axes,
-        layout: Dict[str, Dict[str, Any]]
+        layout: dict[str, dict[str, Any]]
     ) -> None:
         """Draw edges connecting nodes.
 
@@ -2079,22 +2067,22 @@ class PipelineDiagram:
                 '',
                 xy=(to_x, to_y),
                 xytext=(from_x, from_y),
-                arrowprops=dict(
-                    arrowstyle='-|>',
-                    color='#546E7A',  # Blue Grey
-                    linewidth=1.5,
-                    shrinkA=0,
-                    shrinkB=0,
-                    connectionstyle=f'arc3,rad={rad}',
-                    mutation_scale=15,
-                ),
+                arrowprops={
+                    "arrowstyle": '-|>',
+                    "color": '#546E7A',  # Blue Grey
+                    "linewidth": 1.5,
+                    "shrinkA": 0,
+                    "shrinkB": 0,
+                    "connectionstyle": f'arc3,rad={rad}',
+                    "mutation_scale": 15,
+                },
                 zorder=0
             )
 
     def _get_bounds(
         self,
-        layout: Dict[str, Dict[str, Any]]
-    ) -> Tuple[float, float, float, float]:
+        layout: dict[str, dict[str, Any]]
+    ) -> tuple[float, float, float, float]:
         """Get bounding box for the diagram.
 
         Args:
@@ -2152,15 +2140,14 @@ class PipelineDiagram:
             ncol=2,
         )
 
-
 def plot_pipeline_diagram(
-    pipeline_steps: Optional[List[Any]] = None,
+    pipeline_steps: list[Any] | None = None,
     predictions: Any = None,
     show_shapes: bool = True,
-    figsize: Optional[Tuple[float, float]] = None,
-    title: Optional[str] = None,
-    initial_shape: Optional[Tuple[int, int, int]] = None,
-    config: Optional[Dict[str, Any]] = None,
+    figsize: tuple[float, float] | None = None,
+    title: str | None = None,
+    initial_shape: tuple[int, int, int] | None = None,
+    config: dict[str, Any] | None = None,
     execution_trace: Any = None
 ) -> Figure:
     """Convenience function to create a pipeline diagram.

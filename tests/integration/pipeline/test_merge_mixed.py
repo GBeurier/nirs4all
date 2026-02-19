@@ -11,29 +11,29 @@ Tests:
 These tests verify the Phase 6 implementation from the branching_concat_merge_design.
 """
 
-import pytest
-import numpy as np
 import warnings
-from sklearn.model_selection import ShuffleSplit, KFold
+
+import numpy as np
+import pytest
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.linear_model import Ridge, LinearRegression, Lasso
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, MaxAbsScaler
 from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import Lasso, LinearRegression, Ridge
+from sklearn.model_selection import KFold, ShuffleSplit
+from sklearn.preprocessing import MaxAbsScaler, MinMaxScaler, StandardScaler
 
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
-from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.operators.transforms import (
-    StandardNormalVariate,
+    FirstDerivative,
     MultiplicativeScatterCorrection,
     SavitzkyGolay,
-    FirstDerivative,
+    StandardNormalVariate,
 )
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+from nirs4all.pipeline.runner import PipelineRunner
 
 # Mark all tests in this module as sklearn-only (no deep learning dependencies)
 pytestmark = pytest.mark.sklearn
-
 
 def _make_runner(tmp_path) -> PipelineRunner:
     """Create an xdist-safe PipelineRunner with isolated workspace."""
@@ -43,7 +43,6 @@ def _make_runner(tmp_path) -> PipelineRunner:
         save_artifacts=False,
         log_file=False,
     )
-
 
 def create_test_dataset(n_samples: int = 100, n_features: int = 50, seed: int = 42) -> SpectroDataset:
     """Create a synthetic dataset for integration testing.
@@ -65,7 +64,6 @@ def create_test_dataset(n_samples: int = 100, n_features: int = 50, seed: int = 
     dataset.add_targets(y[n_train:])
 
     return dataset
-
 
 class TestMixedFeaturesPredictions:
     """Test mixed merge: features from some branches, predictions from others."""
@@ -176,7 +174,6 @@ class TestMixedFeaturesPredictions:
         assert predictions is not None
         assert len(predictions) > 0
 
-
 class TestMixedWithPerBranchConfig:
     """Test mixed merge combined with per-branch prediction configuration."""
 
@@ -241,7 +238,6 @@ class TestMixedWithPerBranchConfig:
         assert predictions is not None
         assert len(predictions) > 0
 
-
 class TestAsymmetricBranches:
     """Test asymmetric branch scenarios (models in some, not others)."""
 
@@ -297,7 +293,6 @@ class TestAsymmetricBranches:
 
         assert predictions is not None
         assert len(predictions) > 0
-
 
 class TestDifferentFeatureDimensions:
     """Test branches with different output feature dimensions.
@@ -361,7 +356,6 @@ class TestDifferentFeatureDimensions:
 
         assert predictions is not None
         assert len(predictions) > 0
-
 
 class TestDifferentModelCounts:
     """Test branches with different numbers of models."""
@@ -433,7 +427,6 @@ class TestDifferentModelCounts:
         assert predictions is not None
         assert len(predictions) > 0
 
-
 class TestMixedWithIncludeOriginal:
     """Test mixed merge with include_original flag."""
 
@@ -463,7 +456,6 @@ class TestMixedWithIncludeOriginal:
 
         assert predictions is not None
         assert len(predictions) > 0
-
 
 class TestComplexAsymmetricScenarios:
     """Test complex real-world asymmetric scenarios."""
@@ -548,7 +540,6 @@ class TestComplexAsymmetricScenarios:
 
         assert predictions is not None
         assert len(predictions) > 0
-
 
 class TestMixedMergeOnMissing:
     """Test on_missing handling with mixed merge."""

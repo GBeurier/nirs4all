@@ -1,7 +1,7 @@
 """Unit tests for nested parameter flatten/unflatten (Phase 5 - ISSUE-16a)."""
 
-import pytest
 import optuna
+import pytest
 
 from nirs4all.optimization.optuna import OptunaManager
 
@@ -39,7 +39,6 @@ class TestIsParamSpec:
         assert manager._is_param_spec([1, 2, 3]) is False
         assert manager._is_param_spec(42) is False
         assert manager._is_param_spec("string") is False
-
 
 class TestFlattenNestedParams:
     """Tests for _flatten_nested_params."""
@@ -109,7 +108,6 @@ class TestFlattenNestedParams:
         result = manager._flatten_nested_params(params)
         assert result == {}
 
-
 class TestUnflattenParams:
     """Tests for _unflatten_params."""
 
@@ -174,7 +172,6 @@ class TestUnflattenParams:
         flat = manager._flatten_nested_params(original)
         restored = manager._unflatten_params(flat)
         assert restored == original
-
 
 class TestNestedParamsSampling:
     """Integration tests for nested params going through sample_hyperparameters."""

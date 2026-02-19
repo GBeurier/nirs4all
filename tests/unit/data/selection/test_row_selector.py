@@ -4,11 +4,11 @@ Tests for RowSelector class.
 Tests row selection by index, range, percentage, condition, and sampling.
 """
 
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
 
-from nirs4all.data.selection import RowSelector, RowSelectionError
+from nirs4all.data.selection import RowSelectionError, RowSelector
 
 
 @pytest.fixture
@@ -22,7 +22,6 @@ def sample_df():
         "label": [0, 1] * 50,
     })
 
-
 @pytest.fixture
 def small_df():
     """Create a small DataFrame for testing."""
@@ -31,7 +30,6 @@ def small_df():
         "value": [10.0, 20.0, 30.0, 40.0, 50.0],
         "label": ["A", "B", "A", "B", "A"],
     })
-
 
 class TestRowSelectorBasic:
     """Basic row selection tests."""
@@ -69,7 +67,6 @@ class TestRowSelectorBasic:
         with pytest.raises(RowSelectionError, match="out of range"):
             selector.select(small_df, 10)
 
-
 class TestRowSelectorLists:
     """Tests for list-based row selection."""
 
@@ -89,7 +86,6 @@ class TestRowSelectorLists:
 
         assert result.indices == [0, 4]
         assert len(result.data) == 2
-
 
 class TestRowSelectorRanges:
     """Tests for range-based row selection."""
@@ -123,7 +119,6 @@ class TestRowSelectorRanges:
 
         assert result.indices == [0, 2, 4, 6, 8]
         assert len(result.data) == 5
-
 
 class TestRowSelectorPercentage:
     """Tests for percentage-based row selection."""
@@ -162,7 +157,6 @@ class TestRowSelectorPercentage:
 
         with pytest.raises(RowSelectionError, match="Invalid percentage range"):
             selector.select(sample_df, "80%:20%")
-
 
 class TestRowSelectorConditions:
     """Tests for condition-based row selection."""
@@ -274,7 +268,6 @@ class TestRowSelectorConditions:
                 "where": {"column": "value", "op": "invalid", "value": 1}
             })
 
-
 class TestRowSelectorSampling:
     """Tests for sampling-based row selection."""
 
@@ -370,7 +363,6 @@ class TestRowSelectorSampling:
         assert len(result.data) == len(sample_df)
         # Indices should be shuffled
         assert result.indices != list(range(len(sample_df)))
-
 
 class TestRowSelectorHeadTail:
     """Tests for head/tail row selection."""

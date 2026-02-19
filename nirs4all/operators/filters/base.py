@@ -7,7 +7,8 @@ augmentation and transformation operators in nirs4all.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, List, Union
+from typing import Any, Optional, Union
+
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 
@@ -47,7 +48,7 @@ class SampleFilter(TransformerMixin, BaseEstimator, ABC):
         ...         return z_scores <= self.threshold  # True = keep
     """
 
-    def __init__(self, reason: Optional[str] = None, tag_name: Optional[str] = None):
+    def __init__(self, reason: str | None = None, tag_name: str | None = None):
         """
         Initialize the sample filter.
 
@@ -70,7 +71,7 @@ class SampleFilter(TransformerMixin, BaseEstimator, ABC):
         """
         return self.reason if self.reason is not None else self.__class__.__name__
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> "SampleFilter":
+    def fit(self, X: np.ndarray, y: np.ndarray | None = None) -> "SampleFilter":
         """
         Compute filter criteria from training data.
 
@@ -89,7 +90,7 @@ class SampleFilter(TransformerMixin, BaseEstimator, ABC):
         return self
 
     @abstractmethod
-    def get_mask(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> np.ndarray:
+    def get_mask(self, X: np.ndarray, y: np.ndarray | None = None) -> np.ndarray:
         """
         Compute boolean mask indicating which samples to KEEP.
 
@@ -126,7 +127,7 @@ class SampleFilter(TransformerMixin, BaseEstimator, ABC):
         """
         return X
 
-    def fit_transform(self, X: np.ndarray, y: Optional[np.ndarray] = None, **fit_params) -> np.ndarray:
+    def fit_transform(self, X: np.ndarray, y: np.ndarray | None = None, **fit_params) -> np.ndarray:
         """
         Fit to data and return unchanged (transform is no-op).
 
@@ -141,7 +142,7 @@ class SampleFilter(TransformerMixin, BaseEstimator, ABC):
         self.fit(X, y)
         return self.transform(X)
 
-    def get_excluded_indices(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> np.ndarray:
+    def get_excluded_indices(self, X: np.ndarray, y: np.ndarray | None = None) -> np.ndarray:
         """
         Get indices of samples to be excluded.
 
@@ -167,7 +168,7 @@ class SampleFilter(TransformerMixin, BaseEstimator, ABC):
         mask = self.get_mask(X, y)
         return np.where(~mask)[0]
 
-    def get_kept_indices(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> np.ndarray:
+    def get_kept_indices(self, X: np.ndarray, y: np.ndarray | None = None) -> np.ndarray:
         """
         Get indices of samples to be kept.
 
@@ -186,7 +187,7 @@ class SampleFilter(TransformerMixin, BaseEstimator, ABC):
         mask = self.get_mask(X, y)
         return np.where(mask)[0]
 
-    def get_filter_stats(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> Dict[str, Any]:
+    def get_filter_stats(self, X: np.ndarray, y: np.ndarray | None = None) -> dict[str, Any]:
         """
         Get statistics about filter application.
 
@@ -239,7 +240,6 @@ class SampleFilter(TransformerMixin, BaseEstimator, ABC):
         """
         return {"allow_nan": False, "stateless": False}
 
-
 class CompositeFilter(SampleFilter):
     """
     Combine multiple filters with AND/OR logic.
@@ -274,10 +274,10 @@ class CompositeFilter(SampleFilter):
 
     def __init__(
         self,
-        filters: Optional[List[SampleFilter]] = None,
+        filters: list[SampleFilter] | None = None,
         mode: str = "any",
-        reason: Optional[str] = None,
-        tag_name: Optional[str] = None
+        reason: str | None = None,
+        tag_name: str | None = None
     ):
         """
         Initialize the composite filter.
@@ -314,7 +314,7 @@ class CompositeFilter(SampleFilter):
         filter_names = [f.exclusion_reason for f in self.filters]
         return f"composite({self.mode}:{','.join(filter_names)})"
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> "CompositeFilter":
+    def fit(self, X: np.ndarray, y: np.ndarray | None = None) -> "CompositeFilter":
         """
         Fit all sub-filters to the training data.
 
@@ -329,7 +329,7 @@ class CompositeFilter(SampleFilter):
             f.fit(X, y)
         return self
 
-    def get_mask(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> np.ndarray:
+    def get_mask(self, X: np.ndarray, y: np.ndarray | None = None) -> np.ndarray:
         """
         Compute combined mask from all sub-filters.
 
@@ -359,7 +359,7 @@ class CompositeFilter(SampleFilter):
             # keep_mask = any filter says keep
             return np.any(stacked, axis=0)
 
-    def get_filter_stats(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> Dict[str, Any]:
+    def get_filter_stats(self, X: np.ndarray, y: np.ndarray | None = None) -> dict[str, Any]:
         """
         Get statistics including per-filter breakdown.
 

@@ -13,6 +13,7 @@ Tests cover:
 """
 import numpy as np
 import pytest
+
 from nirs4all.data.dataset import SpectroDataset
 
 
@@ -67,7 +68,6 @@ class TestAddTag:
         dataset.set_tag("my_tag", [0, 1, 2], True)
         assert dataset.has_tag("my_tag")
 
-
 class TestSetTag:
     """Tests for set_tag method."""
 
@@ -113,7 +113,6 @@ class TestSetTag:
         assert values[3] is None
         assert values[4] is True
 
-
 class TestGetTag:
     """Tests for get_tag method."""
 
@@ -149,7 +148,6 @@ class TestGetTag:
         assert len(test_tags) == 2
         assert test_tags.tolist() == [4, 5]
 
-
 class TestTagsProperty:
     """Tests for tags property."""
 
@@ -169,7 +167,6 @@ class TestTagsProperty:
 
         tags = dataset.tags
         assert set(tags) == {"tag1", "tag2", "tag3"}
-
 
 class TestTagInfo:
     """Tests for tag_info method."""
@@ -208,7 +205,6 @@ class TestTagInfo:
         assert info["tag1"]["non_null_count"] == 3
         assert info["tag2"]["non_null_count"] == 5
 
-
 class TestRemoveTag:
     """Tests for remove_tag method."""
 
@@ -232,7 +228,6 @@ class TestRemoveTag:
         with pytest.raises(ValueError, match="not found"):
             dataset.remove_tag("nonexistent")
 
-
 class TestHasTag:
     """Tests for has_tag method."""
 
@@ -249,7 +244,6 @@ class TestHasTag:
         dataset = SpectroDataset("test")
 
         assert dataset.has_tag("nonexistent") is False
-
 
 class TestTagIntegration:
     """Integration tests for tags with dataset operations."""
@@ -312,7 +306,6 @@ class TestTagIntegration:
         assert b_values[0] is None
         assert c_values[4] == pytest.approx(3.14)
         assert c_values[0] is None
-
 
 class TestErrorHandling:
     """Tests for error handling in tag operations."""

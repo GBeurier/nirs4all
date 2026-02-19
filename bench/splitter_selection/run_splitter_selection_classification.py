@@ -25,50 +25,43 @@ Expected evaluation time: 15-30 minutes for typical NIRS datasets
 """
 
 import argparse
-import warnings
-from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
 import json
 import time
+import warnings
+from pathlib import Path
+from typing import Any, Optional
 
+import matplotlib
 import numpy as np
 import pandas as pd
-import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-
+from splitter_evaluation_classification import ClassificationStrategyResult, compare_classification_strategies, evaluate_classification_strategy, get_classification_model_suite, identify_best_classification_strategies
 from splitter_strategies import (
-    SimpleSplitter,
-    TargetStratifiedSplitter,
-    SpectralPCASplitter,
-    SpectralDistanceSplitter,
-    HybridSplitter,
+    HAS_NIRS4ALL_SPLITTERS,
     AdversarialSplitter,
+    DuplexSplitter,
+    HierarchicalClusteringSplitter,
+    HonigsSplitter,
+    HybridSplitter,
     KennardStoneSplitter,
-    StratifiedGroupKFoldSplitter,
+    KMedoidsSplitter,
     Nirs4allKennardStoneSplitter,
     Nirs4allSPXYSplitter,
-    HAS_NIRS4ALL_SPLITTERS,
     PuchweinSplitter,
-    DuplexSplitter,
     ShenkWestSplitter,
-    HonigsSplitter,
-    HierarchicalClusteringSplitter,
-    KMedoidsSplitter,
-    SplitResult
-)
-from splitter_evaluation_classification import (
-    evaluate_classification_strategy,
-    compare_classification_strategies,
-    identify_best_classification_strategies,
-    ClassificationStrategyResult,
-    get_classification_model_suite
+    SimpleSplitter,
+    SpectralDistanceSplitter,
+    SpectralPCASplitter,
+    SplitResult,
+    StratifiedGroupKFoldSplitter,
+    TargetStratifiedSplitter,
 )
 
 warnings.filterwarnings('ignore')
 
-
-def load_classification_data(data_dir: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]:
+def load_classification_data(data_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]:
     """
     Load X, Y, M classification data by merging train and test files.
 
@@ -110,19 +103,18 @@ def load_classification_data(data_dir: Path) -> Tuple[np.ndarray, np.ndarray, np
     print(f"  Spectra shape: {X.shape}")
     print(f"  Target shape: {y.shape}")
     print(f"  Classes: {np.unique(y)} ({len(np.unique(y))} classes)")
-    print(f"  Class distribution: {dict(zip(*np.unique(y, return_counts=True)))}")
+    print(f"  Class distribution: {dict(zip(*np.unique(y, return_counts=True), strict=False))}")
     print(f"  Unique samples (IDs): {len(np.unique(sample_ids))}")
     print(f"  Repetitions per sample: {len(y) // len(np.unique(sample_ids)):.1f} (avg)")
     print(f"  Original train: {len(Y_train)}, test: {len(Y_test)}")
 
     return X, y, sample_ids, metadata
 
-
 def get_classification_strategies(
     test_size: float = 0.2,
     n_folds: int = 3,
     random_state: int = 42
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """
     Get all configured splitting strategies for classification.
 
@@ -320,16 +312,15 @@ def get_classification_strategies(
 
     return strategies
 
-
 def run_classification_evaluation(
     X: np.ndarray,
     y: np.ndarray,
     sample_ids: np.ndarray,
-    strategies: Dict[str, Dict[str, Any]],
+    strategies: dict[str, dict[str, Any]],
     n_repeats: int = 3,
     n_bootstrap: int = 1000,
     verbose: bool = True
-) -> Tuple[list, Dict[str, SplitResult]]:
+) -> tuple[list, dict[str, SplitResult]]:
     """
     Run evaluation on all strategies for classification.
     """
@@ -343,7 +334,7 @@ def run_classification_evaluation(
     print("\n" + "=" * 80)
     print("CLASSIFICATION SPLITTER SELECTION EVALUATION")
     print("=" * 80)
-    print(f"\n📊 Configuration:")
+    print("\n📊 Configuration:")
     print(f"   Models: {', '.join(model_names)}")
     print(f"   CV Repeats: {n_repeats} (StratifiedGroupKFold)")
     print(f"   Bootstrap Samples: {n_bootstrap}")
@@ -397,7 +388,6 @@ def run_classification_evaluation(
     print("=" * 80)
 
     return results, split_results
-
 
 def export_best_split(
     X: np.ndarray,
@@ -492,15 +482,14 @@ def export_best_split(
     print(f"   - Y_test.csv: {Y_test_df.shape}")
     print(f"   - M_train.csv: {M_train.shape}")
     print(f"   - M_test.csv: {M_test.shape}")
-    print(f"   - fold_assignments.csv")
-    print(f"   - split_info.json")
-    print(f"   - confusion_matrix.csv")
-
+    print("   - fold_assignments.csv")
+    print("   - split_info.json")
+    print("   - confusion_matrix.csv")
 
 def save_classification_results(
     results: list,
     comparison_df: pd.DataFrame,
-    best_strategies: Dict[str, Dict[str, Any]],
+    best_strategies: dict[str, dict[str, Any]],
     output_dir: Path
 ) -> None:
     """Save classification results to files."""
@@ -563,7 +552,6 @@ def save_classification_results(
         json.dump(detailed, f, indent=2, default=str)
 
     print(f"\nResults saved to: {output_dir}")
-
 
 def plot_classification_comparison(
     comparison_df: pd.DataFrame,
@@ -694,7 +682,6 @@ def plot_classification_comparison(
 
     return fig
 
-
 def plot_confusion_matrices(
     results: list,
     save_path: str,
@@ -744,10 +731,9 @@ def plot_confusion_matrices(
 
     return fig
 
-
 def create_classification_summary_report(
     comparison_df: pd.DataFrame,
-    best_strategies: Dict[str, Dict[str, Any]],
+    best_strategies: dict[str, dict[str, Any]],
     results: list,
     output_path: str
 ) -> None:
@@ -767,7 +753,7 @@ def create_classification_summary_report(
         f.write("\n\nFULL RANKING (by Test Accuracy):\n")
         f.write("-" * 80 + "\n")
 
-        for idx, row in comparison_df.iterrows():
+        for _idx, row in comparison_df.iterrows():
             f.write(f"\n{row['strategy']} ({row['category']})\n")
             f.write(f"  Test Accuracy: {row['test_accuracy']:.4f} "
                     f"[{row['test_accuracy_ci_lower']:.4f}, {row['test_accuracy_ci_upper']:.4f}]\n")
@@ -782,7 +768,6 @@ def create_classification_summary_report(
         f.write("END OF REPORT\n")
         f.write("=" * 80 + "\n")
 
-
 def main(
     data_dir: str,
     output_dir: str = None,
@@ -792,7 +777,7 @@ def main(
     n_bootstrap: int = 1000,
     random_state: int = 42,
     verbose: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Main function for classification splitter selection.
 
@@ -811,10 +796,7 @@ def main(
         Dictionary with results summary
     """
     data_path = Path(data_dir)
-    if output_dir is None:
-        output_path = data_path / 'splitter_selection_classification'
-    else:
-        output_path = Path(output_dir)
+    output_path = data_path / 'splitter_selection_classification' if output_dir is None else Path(output_dir)
 
     output_path.mkdir(parents=True, exist_ok=True)
     figures_dir = output_path / 'figures'
@@ -938,7 +920,6 @@ def main(
         'results': results,
         'output_dir': str(output_path)
     }
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(

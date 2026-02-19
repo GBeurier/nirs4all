@@ -1,18 +1,19 @@
 """Refactored FeatureSource using component-based architecture."""
 
-import numpy as np
-from typing import List, Optional
+from typing import Optional
 
-from nirs4all.data.types import InputFeatures, ProcessingList, SampleIndices
+import numpy as np
+
 from nirs4all.data._features import (
     ArrayStorage,
-    ProcessingManager,
+    AugmentationHandler,
     HeaderManager,
     LayoutTransformer,
-    UpdateStrategy,
-    AugmentationHandler,
     LayoutType,
+    ProcessingManager,
+    UpdateStrategy,
 )
+from nirs4all.data.types import InputFeatures, ProcessingList, SampleIndices
 
 
 class FeatureSource:
@@ -74,7 +75,7 @@ class FeatureSource:
         )
 
     @property
-    def headers(self) -> Optional[List[str]]:
+    def headers(self) -> list[str] | None:
         """Get the feature headers.
 
         Returns:
@@ -128,7 +129,7 @@ class FeatureSource:
         return self._storage.num_processings * self._storage.num_features
 
     @property
-    def processing_ids(self) -> List[str]:
+    def processing_ids(self) -> list[str]:
         """Get a copy of the processing ID list.
 
         Returns:
@@ -139,7 +140,7 @@ class FeatureSource:
     def add_samples(
         self,
         new_samples: np.ndarray,
-        headers: Optional[List[str]] = None
+        headers: list[str] | None = None
     ) -> None:
         """Add new samples to the feature source.
 
@@ -188,7 +189,7 @@ class FeatureSource:
 
         self._storage.add_samples_batch(data)
 
-    def set_headers(self, headers: Optional[List[str]], unit: str = "cm-1") -> None:
+    def set_headers(self, headers: list[str] | None, unit: str = "cm-1") -> None:
         """Set feature headers with unit metadata.
 
         Args:
@@ -250,7 +251,7 @@ class FeatureSource:
     def reset_features(
         self,
         features: np.ndarray,
-        processings: List[str]
+        processings: list[str]
     ) -> None:
         """Reset features and processings.
 
@@ -269,7 +270,7 @@ class FeatureSource:
         # Clear headers as dimensions likely changed
         self._header_mgr.clear_headers()
 
-    def _normalize_features_input(self, features: InputFeatures) -> List[np.ndarray]:
+    def _normalize_features_input(self, features: InputFeatures) -> list[np.ndarray]:
         """Normalize various feature input formats to list of arrays.
 
         Args:
@@ -295,7 +296,7 @@ class FeatureSource:
 
         return []
 
-    def _apply_replacements(self, replacements: List) -> None:
+    def _apply_replacements(self, replacements: list) -> None:
         """Apply replacement operations.
 
         Args:
@@ -312,7 +313,7 @@ class FeatureSource:
                     replacement.new_proc_name
                 )
 
-    def _apply_additions(self, additions: List) -> None:
+    def _apply_additions(self, additions: list) -> None:
         """Apply addition operations.
 
         Args:
@@ -354,10 +355,10 @@ class FeatureSource:
 
     def augment_samples(
         self,
-        sample_indices: List[int],
+        sample_indices: list[int],
         data: np.ndarray,
-        processings: List[str],
-        count_list: List[int]
+        processings: list[str],
+        count_list: list[int]
     ) -> None:
         """Create augmented samples by duplicating existing samples.
 

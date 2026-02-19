@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Literal, Optional, Union
 
 import numpy as np
 
@@ -38,7 +38,6 @@ try:
     HAS_PANDAS = True
 except ImportError:
     HAS_PANDAS = False
-
 
 @dataclass
 class ExportConfig:
@@ -63,9 +62,8 @@ class ExportConfig:
     float_precision: int = 6
     include_headers: bool = True
     include_index: bool = False
-    compression: Optional[Literal["gzip", "zip"]] = None
+    compression: Literal["gzip", "zip"] | None = None
     file_extension: str = ".csv"
-
 
 class DatasetExporter:
     """
@@ -99,7 +97,7 @@ class DatasetExporter:
         ... )
     """
 
-    def __init__(self, config: Optional[ExportConfig] = None) -> None:
+    def __init__(self, config: ExportConfig | None = None) -> None:
         """
         Initialize the exporter.
 
@@ -110,15 +108,15 @@ class DatasetExporter:
 
     def to_folder(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         X: np.ndarray,
         y: np.ndarray,
         *,
         train_ratio: float = 0.8,
-        wavelengths: Optional[np.ndarray] = None,
-        metadata: Optional[Dict[str, np.ndarray]] = None,
-        random_state: Optional[int] = None,
-        format: Optional[Literal["standard", "single", "fragmented"]] = None,
+        wavelengths: np.ndarray | None = None,
+        metadata: dict[str, np.ndarray] | None = None,
+        random_state: int | None = None,
+        format: Literal["standard", "single", "fragmented"] | None = None,
     ) -> Path:
         """
         Export dataset to a folder structure.
@@ -181,9 +179,9 @@ class DatasetExporter:
         X: np.ndarray,
         y: np.ndarray,
         train_ratio: float,
-        wavelengths: Optional[np.ndarray],
-        metadata: Optional[Dict[str, np.ndarray]],
-        random_state: Optional[int],
+        wavelengths: np.ndarray | None,
+        metadata: dict[str, np.ndarray] | None,
+        random_state: int | None,
     ) -> Path:
         """Export to standard Xcal/Ycal/Xval/Yval structure."""
         n_samples = X.shape[0]
@@ -196,10 +194,7 @@ class DatasetExporter:
         test_idx = indices[n_train:]
 
         # Create feature column names
-        if wavelengths is not None:
-            columns = [str(int(wl)) for wl in wavelengths]
-        else:
-            columns = [f"feature_{i}" for i in range(X.shape[1])]
+        columns = [str(int(wl)) for wl in wavelengths] if wavelengths is not None else [f"feature_{i}" for i in range(X.shape[1])]
 
         # Create target column names
         if y.ndim == 1:
@@ -255,9 +250,9 @@ class DatasetExporter:
         X: np.ndarray,
         y: np.ndarray,
         train_ratio: float,
-        wavelengths: Optional[np.ndarray],
-        metadata: Optional[Dict[str, np.ndarray]],
-        random_state: Optional[int],
+        wavelengths: np.ndarray | None,
+        metadata: dict[str, np.ndarray] | None,
+        random_state: int | None,
     ) -> Path:
         """Export all data to a single CSV file with partition column."""
         n_samples = X.shape[0]
@@ -270,10 +265,7 @@ class DatasetExporter:
         test_idx = indices[n_train:]
 
         # Create feature column names
-        if wavelengths is not None:
-            feature_columns = [str(int(wl)) for wl in wavelengths]
-        else:
-            feature_columns = [f"feature_{i}" for i in range(X.shape[1])]
+        feature_columns = [str(int(wl)) for wl in wavelengths] if wavelengths is not None else [f"feature_{i}" for i in range(X.shape[1])]
 
         # Ensure y is 2D
         if y.ndim == 1:
@@ -327,9 +319,9 @@ class DatasetExporter:
         X: np.ndarray,
         y: np.ndarray,
         train_ratio: float,
-        wavelengths: Optional[np.ndarray],
-        metadata: Optional[Dict[str, np.ndarray]],
-        random_state: Optional[int],
+        wavelengths: np.ndarray | None,
+        metadata: dict[str, np.ndarray] | None,
+        random_state: int | None,
     ) -> Path:
         """Export to multiple small files (for loader testing)."""
         n_samples = X.shape[0]
@@ -342,10 +334,7 @@ class DatasetExporter:
         test_idx = indices[n_train:]
 
         # Create feature column names
-        if wavelengths is not None:
-            columns = [str(int(wl)) for wl in wavelengths]
-        else:
-            columns = [f"feature_{i}" for i in range(X.shape[1])]
+        columns = [str(int(wl)) for wl in wavelengths] if wavelengths is not None else [f"feature_{i}" for i in range(X.shape[1])]
 
         # Ensure y is 2D
         if y.ndim == 1:
@@ -408,7 +397,7 @@ class DatasetExporter:
     def _export_metadata(
         self,
         path: Path,
-        metadata: Dict[str, np.ndarray],
+        metadata: dict[str, np.ndarray],
         train_idx: np.ndarray,
         test_idx: np.ndarray,
     ) -> None:
@@ -434,12 +423,12 @@ class DatasetExporter:
 
     def to_csv(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         X: np.ndarray,
         y: np.ndarray,
         *,
-        wavelengths: Optional[np.ndarray] = None,
-        metadata: Optional[Dict[str, np.ndarray]] = None,
+        wavelengths: np.ndarray | None = None,
+        metadata: dict[str, np.ndarray] | None = None,
         include_targets: bool = True,
     ) -> Path:
         """
@@ -475,10 +464,7 @@ class DatasetExporter:
             )
 
         # Create feature column names
-        if wavelengths is not None:
-            feature_columns = [str(int(wl)) for wl in wavelengths]
-        else:
-            feature_columns = [f"feature_{i}" for i in range(X.shape[1])]
+        feature_columns = [str(int(wl)) for wl in wavelengths] if wavelengths is not None else [f"feature_{i}" for i in range(X.shape[1])]
 
         # Build DataFrame
         data = {}
@@ -512,11 +498,11 @@ class DatasetExporter:
 
     def to_numpy(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         X: np.ndarray,
         y: np.ndarray,
         *,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
         compressed: bool = False,
     ) -> Path:
         """
@@ -550,7 +536,6 @@ class DatasetExporter:
             np.savez(save_path, **arrays)
 
         return save_path
-
 
 class CSVVariationGenerator:
     """
@@ -586,14 +571,14 @@ class CSVVariationGenerator:
 
     def generate_all_variations(
         self,
-        base_path: Union[str, Path],
+        base_path: str | Path,
         X: np.ndarray,
         y: np.ndarray,
         *,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
         train_ratio: float = 0.8,
-        random_state: Optional[int] = None,
-    ) -> Dict[str, Path]:
+        random_state: int | None = None,
+    ) -> dict[str, Path]:
         """
         Generate CSV files with all format variations.
 
@@ -710,13 +695,13 @@ class CSVVariationGenerator:
 
     def with_semicolon_delimiter(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         X: np.ndarray,
         y: np.ndarray,
         *,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
         train_ratio: float = 0.8,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ) -> Path:
         """Create CSV with semicolon delimiter (nirs4all default)."""
         config = ExportConfig(separator=";")
@@ -730,13 +715,13 @@ class CSVVariationGenerator:
 
     def with_comma_delimiter(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         X: np.ndarray,
         y: np.ndarray,
         *,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
         train_ratio: float = 0.8,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ) -> Path:
         """Create CSV with comma delimiter."""
         config = ExportConfig(separator=",")
@@ -750,13 +735,13 @@ class CSVVariationGenerator:
 
     def with_tab_delimiter(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         X: np.ndarray,
         y: np.ndarray,
         *,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
         train_ratio: float = 0.8,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ) -> Path:
         """Create CSV with tab delimiter."""
         config = ExportConfig(separator="\t", file_extension=".tsv")
@@ -770,12 +755,12 @@ class CSVVariationGenerator:
 
     def without_headers(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         X: np.ndarray,
         y: np.ndarray,
         *,
         train_ratio: float = 0.8,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ) -> Path:
         """Create CSV without column headers."""
         config = ExportConfig(include_headers=False)
@@ -794,10 +779,7 @@ class CSVVariationGenerator:
         test_idx = indices[n_train:]
 
         # Ensure y is 2D
-        if y.ndim == 1:
-            y_2d = y.reshape(-1, 1)
-        else:
-            y_2d = y
+        y_2d = y.reshape(-1, 1) if y.ndim == 1 else y
 
         np.savetxt(
             path / "Xcal.csv",
@@ -830,13 +812,13 @@ class CSVVariationGenerator:
 
     def with_row_index(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         X: np.ndarray,
         y: np.ndarray,
         *,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
         train_ratio: float = 0.8,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ) -> Path:
         """Create CSV with row index column."""
         config = ExportConfig(include_index=True)
@@ -850,13 +832,13 @@ class CSVVariationGenerator:
 
     def as_single_file(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         X: np.ndarray,
         y: np.ndarray,
         *,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
         train_ratio: float = 0.8,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ) -> Path:
         """Create single CSV file with all data and partition column."""
         config = ExportConfig(format="single")
@@ -871,13 +853,13 @@ class CSVVariationGenerator:
 
     def as_fragmented(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         X: np.ndarray,
         y: np.ndarray,
         *,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
         train_ratio: float = 0.8,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ) -> Path:
         """Create fragmented dataset with multiple small files."""
         exporter = DatasetExporter()
@@ -891,13 +873,13 @@ class CSVVariationGenerator:
 
     def with_precision(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         X: np.ndarray,
         y: np.ndarray,
         *,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
         train_ratio: float = 0.8,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         precision: int = 6,
     ) -> Path:
         """Create CSV with specified floating point precision."""
@@ -910,16 +892,15 @@ class CSVVariationGenerator:
             random_state=random_state,
         )
 
-
 def export_to_folder(
-    path: Union[str, Path],
+    path: str | Path,
     X: np.ndarray,
     y: np.ndarray,
     *,
     train_ratio: float = 0.8,
-    wavelengths: Optional[np.ndarray] = None,
+    wavelengths: np.ndarray | None = None,
     format: Literal["standard", "single", "fragmented"] = "standard",
-    random_state: Optional[int] = None,
+    random_state: int | None = None,
 ) -> Path:
     """
     Quick function to export synthetic data to folder.
@@ -955,13 +936,12 @@ def export_to_folder(
         random_state=random_state,
     )
 
-
 def export_to_csv(
-    path: Union[str, Path],
+    path: str | Path,
     X: np.ndarray,
     y: np.ndarray,
     *,
-    wavelengths: Optional[np.ndarray] = None,
+    wavelengths: np.ndarray | None = None,
 ) -> Path:
     """
     Quick function to export synthetic data to single CSV.

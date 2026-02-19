@@ -35,25 +35,21 @@ import argparse
 # Third-party imports
 import numpy as np
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.feature_selection import VarianceThreshold
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from sklearn.feature_selection import VarianceThreshold
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative,
-    SavitzkyGolay
-)
+from nirs4all.operators.transforms import FirstDerivative, SavitzkyGolay
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='D04 Merge Sources Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -76,7 +72,6 @@ nirs4all handles this with source-aware branching (v2 syntax):
 This is a type of SEPARATION branch: each source is processed independently,
 then samples are reassembled during merge.
 """)
-
 
 # =============================================================================
 # Section 1: Loading Multi-Source Data
@@ -109,7 +104,6 @@ result_single = nirs4all.run(
 )
 
 print(f"\nSingle source predictions: {result_single.num_predictions}")
-
 
 # =============================================================================
 # Section 2: Source Branching Basics
@@ -152,7 +146,6 @@ print("  - main source: SNV → MinMaxScaler")
 print("  - auxiliary source: MSC → StandardScaler")
 print("\nNote: Requires multi-source dataset for full functionality")
 
-
 # =============================================================================
 # Section 3: Merge Sources Operations
 # =============================================================================
@@ -190,7 +183,6 @@ print("  concat  - shape: (n, p_nir + p_raman)")
 print("  stack   - shape: (n, 2, max_p) - for 2D convolutions")
 print("  dict    - keep as dict for multi-input neural networks")
 
-
 # =============================================================================
 # Section 4: Source-Specific Feature Selection
 # =============================================================================
@@ -225,7 +217,6 @@ pipeline_selection = [
 print("Source-specific processing:")
 print("  spectra  - SNV → VarianceThreshold")
 print("  metadata - StandardScaler only")
-
 
 # =============================================================================
 # Section 5: Hybrid Source and Regular Branching
@@ -267,7 +258,6 @@ print("  1. by_source branch: NIR→SNV, Raman→MSC")
 print("  2. merge sources: concatenate")
 print("  3. duplication branch: compare PLS components")
 
-
 # =============================================================================
 # Section 6: Source Weights in Merging
 # =============================================================================
@@ -304,7 +294,6 @@ pipeline_weighted = [
 print("Weighted merge:")
 print("  NIR features × 1.0")
 print("  Raman features × 0.5")
-
 
 # =============================================================================
 # Section 7: Selective Source Merging
@@ -343,7 +332,6 @@ pipeline_selective = [
 print("Selective merge:")
 print("  Include: nir, markers")
 print("  Exclude: raman")
-
 
 # =============================================================================
 # Section 8: Practical Multi-Source Workflow
@@ -395,7 +383,6 @@ print("  portable: SNV → SavGol → 1st Deriv (aggressive)")
 print("  benchtop: SNV → 1st Deriv (stable)")
 print("  merge: concatenate sources")
 print("  model: PLS(n=10)")
-
 
 # =============================================================================
 # Summary

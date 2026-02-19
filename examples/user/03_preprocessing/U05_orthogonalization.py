@@ -13,10 +13,10 @@ by focusing on relevant spectral variation.
 
 import numpy as np
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import cross_val_score
+from sklearn.preprocessing import StandardScaler
 
-from nirs4all.operators.transforms import OSC, EPO
+from nirs4all.operators.transforms import EPO, OSC
 
 print("=" * 80)
 print("Orthogonal Signal Correction (OSC) and EPO Examples")
@@ -60,7 +60,7 @@ print(f"Actual components extracted: {osc.n_components_}")
 corr_before = np.corrcoef(X.mean(axis=1), y)[0, 1]
 corr_after = np.corrcoef(X_filtered.mean(axis=1), y)[0, 1]
 
-print(f"\nY-correlation (average features):")
+print("\nY-correlation (average features):")
 print(f"  Before OSC: {corr_before:.4f}")
 print(f"  After OSC:  {corr_after:.4f}")
 print(f"  Change:     {corr_after - corr_before:+.4f}")
@@ -147,7 +147,7 @@ print(f"Reduction: {(1 - temp_corr_after / temp_corr_before) * 100:.1f}%")
 prop_corr_before = np.corrcoef(X.mean(axis=1), true_property)[0, 1]
 prop_corr_after = np.corrcoef(X_epo_filtered.mean(axis=1), true_property)[0, 1]
 
-print(f"\nCorrelation with true property:")
+print("\nCorrelation with true property:")
 print(f"  Before EPO: {prop_corr_before:.4f}")
 print(f"  After EPO:  {prop_corr_after:.4f}")
 print("  (Should be preserved)")
@@ -168,7 +168,7 @@ X_epo = epo.fit_transform(X, temperature)
 osc = OSC(n_components=2)
 X_final = osc.fit_transform(X_epo, true_property)
 
-print(f"\nData transformation:")
+print("\nData transformation:")
 print(f"  Original:           {np.linalg.norm(X):.2f}")
 print(f"  After EPO:          {np.linalg.norm(X_epo):.2f}")
 print(f"  After EPO + OSC:    {np.linalg.norm(X_final):.2f}")
@@ -177,7 +177,7 @@ print(f"  After EPO + OSC:    {np.linalg.norm(X_final):.2f}")
 temp_corr_final = np.abs(np.corrcoef(X_final[:, 0], temperature)[0, 1])
 prop_corr_final = np.corrcoef(X_final.mean(axis=1), true_property)[0, 1]
 
-print(f"\nFinal correlations:")
+print("\nFinal correlations:")
 print(f"  With temperature: {temp_corr_final:.4f} (removed by EPO)")
 print(f"  With property:    {prop_corr_final:.4f} (preserved)")
 

@@ -6,16 +6,16 @@ and produces a canonical representation of dataset configurations.
 """
 
 import json
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
 from functools import lru_cache
+from pathlib import Path
+from typing import Any, Optional, Union
 
 import yaml
 
+from ..schema import DatasetConfigSchema
 from .base import BaseParser, ParserResult
 from .files_parser import FilesParser, SourcesParser, VariationsParser
 from .folder_parser import FolderParser
-from ..schema import DatasetConfigSchema
 
 
 class ConfigNormalizer:
@@ -64,7 +64,7 @@ class ConfigNormalizer:
         ```
     """
 
-    def __init__(self, parsers: Optional[List[BaseParser]] = None):
+    def __init__(self, parsers: list[BaseParser] | None = None):
         """Initialize the normalizer with parsers.
 
         Args:
@@ -88,11 +88,11 @@ class ConfigNormalizer:
 
     @staticmethod
     @lru_cache(maxsize=1)
-    def _key_alias_map() -> Dict[str, str]:
+    def _key_alias_map() -> dict[str, str]:
         """Build mapping of accepted key aliases to canonical config keys."""
 
-        def _combine_partition_role(partitions: List[str], roles: List[str]) -> List[str]:
-            aliases: List[str] = []
+        def _combine_partition_role(partitions: list[str], roles: list[str]) -> list[str]:
+            aliases: list[str] = []
             for partition in partitions:
                 for role in roles:
                     aliases.extend([
@@ -111,7 +111,7 @@ class ConfigNormalizer:
         metadata_roles = ["group", "groups", "meta", "metadata", "m", "samplemeta", "samplemetadata"]
 
         # Base aliases for core train/test data keys.
-        aliases_by_key: Dict[str, List[str]] = {
+        aliases_by_key: dict[str, list[str]] = {
             "train_x": _combine_partition_role(train_partitions, feature_roles),
             "test_x": _combine_partition_role(test_partitions, feature_roles),
             "train_y": _combine_partition_role(train_partitions, target_roles),
@@ -170,7 +170,7 @@ class ConfigNormalizer:
             base_aliases = list(aliases_by_key.get(base_key, []))
             for suffix, terms in suffix_aliases.items():
                 canonical_key = f"{base_key}{suffix}"
-                derived_aliases: List[str] = []
+                derived_aliases: list[str] = []
                 for base_alias in base_aliases:
                     for term in terms:
                         derived_aliases.extend([
@@ -181,7 +181,7 @@ class ConfigNormalizer:
                         ])
                 aliases_by_key[canonical_key] = derived_aliases
 
-        alias_map: Dict[str, str] = {}
+        alias_map: dict[str, str] = {}
         for canonical_key, aliases in aliases_by_key.items():
             for alias in [canonical_key, *aliases]:
                 normalized_alias = ConfigNormalizer._normalize_key(alias)
@@ -191,7 +191,7 @@ class ConfigNormalizer:
         return alias_map
 
     @classmethod
-    def _apply_key_aliases(cls, config: Dict[str, Any]) -> Dict[str, Any]:
+    def _apply_key_aliases(cls, config: dict[str, Any]) -> dict[str, Any]:
         """Normalize accepted key aliases to canonical config keys."""
         if not isinstance(config, dict):
             return config
@@ -214,7 +214,7 @@ class ConfigNormalizer:
     def normalize(
         self,
         input_data: Any
-    ) -> Tuple[Optional[Dict[str, Any]], str]:
+    ) -> tuple[dict[str, Any] | None, str]:
         """Normalize a configuration to canonical format.
 
         Args:
@@ -246,7 +246,7 @@ class ConfigNormalizer:
     def _normalize_string(
         self,
         path_str: str
-    ) -> Tuple[Optional[Dict[str, Any]], str]:
+    ) -> tuple[dict[str, Any] | None, str]:
         """Normalize a string path input.
 
         Args:
@@ -272,7 +272,7 @@ class ConfigNormalizer:
                 return result.config, result.dataset_name
             else:
                 # Log errors
-                for error in result.errors:
+                for _ in result.errors:
                     pass  # Errors are in result, caller handles them
                 return None, 'Unknown_dataset'
 
@@ -280,8 +280,8 @@ class ConfigNormalizer:
 
     def _normalize_dict(
         self,
-        config: Dict[str, Any]
-    ) -> Tuple[Optional[Dict[str, Any]], str]:
+        config: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str]:
         """Normalize a dictionary configuration.
 
         Args:
@@ -335,7 +335,7 @@ class ConfigNormalizer:
     def _load_config_file(
         self,
         file_path: str
-    ) -> Tuple[Optional[Dict[str, Any]], str]:
+    ) -> tuple[dict[str, Any] | None, str]:
         """Load configuration from JSON/YAML file.
 
         Args:
@@ -363,17 +363,14 @@ class ConfigNormalizer:
             )
 
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 content = f.read()
 
             if not content.strip():
                 raise ValueError(f"Configuration file is empty: {file_path}")
 
             # Parse based on extension
-            if path.suffix.lower() == '.json':
-                config = self._parse_json(content, file_path)
-            else:
-                config = self._parse_yaml(content, file_path)
+            config = self._parse_json(content, file_path) if path.suffix.lower() == '.json' else self._parse_yaml(content, file_path)
 
             if config is None:
                 raise ValueError(
@@ -387,7 +384,7 @@ class ConfigNormalizer:
                     f"File: {file_path}"
                 )
 
-        except (IOError, OSError) as exc:
+        except OSError as exc:
             raise ValueError(f"Error reading configuration file {file_path}: {exc}") from exc
 
         # Extract dataset name
@@ -451,7 +448,7 @@ class ConfigNormalizer:
                     f"Please check your YAML syntax."
                 ) from exc
 
-    def _extract_name(self, config: Dict[str, Any]) -> str:
+    def _extract_name(self, config: dict[str, Any]) -> str:
         """Extract dataset name from configuration.
 
         Args:
@@ -481,8 +478,7 @@ class ConfigNormalizer:
 
         return "array_dataset"
 
-
-def normalize_config(input_data: Any) -> Tuple[Optional[Dict[str, Any]], str]:
+def normalize_config(input_data: Any) -> tuple[dict[str, Any] | None, str]:
     """Convenience function to normalize a configuration.
 
     Args:

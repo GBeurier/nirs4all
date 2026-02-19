@@ -1,21 +1,23 @@
 from __future__ import annotations
 
+import copy
 import inspect
 import warnings
-from typing import Any, Dict, Tuple, TYPE_CHECKING, List, Union, Optional
-import copy
+from typing import TYPE_CHECKING, Any, Optional, Union
+
 import numpy as np
+
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
-from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
 from nirs4all.operators.splitters import GroupedSplitterWrapper
+from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
 
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover
     from nirs4all.data.dataset import SpectroDataset
-
+    from nirs4all.pipeline.steps.parser import ParsedStep
 
 # Native group-aware splitter class names (sklearn and nirs4all)
 # These splitters have built-in group support and handle groups directly
@@ -29,14 +31,13 @@ _NATIVE_GROUP_SPLITTERS = frozenset({
     "BinnedStratifiedGroupKFold",
 })
 
-
 def compute_effective_groups(
-    dataset: "SpectroDataset",
-    group_by: Optional[Union[str, List[str]]] = None,
+    dataset: SpectroDataset,
+    group_by: str | list[str] | None = None,
     ignore_repetition: bool = False,
-    context: Optional[Any] = None,
+    context: Any | None = None,
     include_augmented: bool = False
-) -> Optional[np.ndarray]:
+) -> np.ndarray | None:
     """Compute final group labels for splitting.
 
     Combines repetition column (if defined and not ignored) with
@@ -83,7 +84,7 @@ def compute_effective_groups(
     >>> groups = compute_effective_groups(dataset, group_by='Batch', ignore_repetition=True)
     >>> # groups = ['B1', 'B1', 'B2', 'B2', ...]
     """
-    columns_to_use: List[str] = []
+    columns_to_use: list[str] = []
 
     # Add repetition column first (unless ignored)
     if not ignore_repetition and dataset.repetition:
@@ -126,8 +127,7 @@ def compute_effective_groups(
             for col in columns_to_use
         ]
         # Create array of tuples for multi-column grouping
-        return np.array([tuple(row) for row in zip(*arrays)], dtype=object)
-
+        return np.array([tuple(row) for row in zip(*arrays, strict=False)], dtype=object)
 
 def _is_native_group_splitter(splitter: Any) -> bool:
     """Check if splitter has native group support.
@@ -137,8 +137,7 @@ def _is_native_group_splitter(splitter: Any) -> bool:
     """
     return splitter.__class__.__name__ in _NATIVE_GROUP_SPLITTERS
 
-
-def _needs(splitter: Any) -> Tuple[bool, bool]:
+def _needs(splitter: Any) -> tuple[bool, bool]:
     """Return booleans *(needs_y, needs_groups)* for the given splitter.
 
     Introspects the signature of ``split`` *plus* estimator tags (when
@@ -163,7 +162,6 @@ def _needs(splitter: Any) -> Tuple[bool, bool]:
         needs_y = needs_y or tags.get("requires_y", False)
 
     return needs_y, needs_g
-
 
 @register_controller
 class CrossValidatorController(OperatorController):
@@ -200,7 +198,7 @@ class CrossValidatorController(OperatorController):
             sig = inspect.signature(split_fn)
         except (TypeError, ValueError):  # edge‑cases: C‑extensions or cythonised
             return True  # accept – we can still attempt runtime call
-        params: List[inspect.Parameter] = [
+        params: list[inspect.Parameter] = [
             p for p in sig.parameters.values()
             if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
         ]
@@ -216,12 +214,12 @@ class CrossValidatorController(OperatorController):
         """Cross-validators should not execute during prediction mode."""
         return True
 
-    def execute(  # type: ignore[override]
+    def execute(
         self,
-        step_info: 'ParsedStep',
-        dataset: "SpectroDataset",
+        step_info: ParsedStep,
+        dataset: SpectroDataset,
         context: ExecutionContext,
-        runtime_context: "RuntimeContext",
+        runtime_context: RuntimeContext,
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Any = None,
@@ -279,7 +277,7 @@ class CrossValidatorController(OperatorController):
             n_samples = X.shape[0]
 
             # Build minimal kwargs for get_n_splits
-            kwargs: Dict[str, Any] = {}
+            kwargs: dict[str, Any] = {}
             if needs_y:
                 y = dataset.y(local_context)
                 if y is not None:
@@ -419,7 +417,7 @@ class CrossValidatorController(OperatorController):
         n_samples = X.shape[0]
 
         # Build kwargs for split()
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         if needs_y or use_effective_groups:
             # Provide y for splitters that need it, or for effective_groups wrapper
             if needs_y and y is None:
@@ -474,7 +472,7 @@ class CrossValidatorController(OperatorController):
 
         for row_idx in range(max_train_samples):
             row_values = []
-            for fold_idx, (train_idx, val_idx) in enumerate(sample_id_folds):
+            for _fold_idx, (train_idx, _val_idx) in enumerate(sample_id_folds):
                 if row_idx < len(train_idx):
                     row_values.append(str(train_idx[row_idx]))
                 else:
@@ -501,7 +499,7 @@ class CrossValidatorController(OperatorController):
             if aggregation != "mean":
                 folds_name += f"_{aggregation}"
             if hasattr(inner_splitter, "random_state"):
-                seed = getattr(inner_splitter, "random_state")
+                seed = inner_splitter.random_state
                 if seed is not None:
                     folds_name += f"_seed{seed}"
         elif use_effective_groups:
@@ -519,7 +517,7 @@ class CrossValidatorController(OperatorController):
             if group_info_parts:
                 folds_name += f"_groups-{'+'.join(group_info_parts)}"
             if hasattr(op, "random_state"):
-                seed = getattr(op, "random_state")
+                seed = op.random_state
                 if seed is not None:
                     folds_name += f"_seed{seed}"
         else:
@@ -527,7 +525,7 @@ class CrossValidatorController(OperatorController):
             if group_column:
                 folds_name += f"_group-{group_column}"
             if hasattr(op, "random_state"):
-                seed = getattr(op, "random_state")
+                seed = op.random_state
                 if seed is not None:
                     folds_name += f"_seed{seed}"
         # folds_name += ".csv" # Extension handled by StepOutput tuple

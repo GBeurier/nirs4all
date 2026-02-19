@@ -24,13 +24,13 @@ import gzip
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Literal, Optional
 
 import numpy as np
 import pandas as pd
 import yaml
 
-from nirs4all.synthesis import SyntheticDatasetBuilder, DatasetExporter, ExportConfig
+from nirs4all.synthesis import DatasetExporter, ExportConfig, SyntheticDatasetBuilder
 
 
 @dataclass
@@ -51,7 +51,7 @@ class DatasetSpec:
     decimal_separator: str = "."
     has_header: bool = True
     file_extension: str = ".csv"
-    compression: Optional[str] = None
+    compression: str | None = None
     # Dataset structure
     structure: Literal["standard", "single", "legacy", "fragmented"] = "standard"
     # Task type
@@ -65,23 +65,22 @@ class DatasetSpec:
     skip_rows: int = 0
     # Multi-source
     multi_source: bool = False
-    sources: Optional[List[Dict[str, Any]]] = None
+    sources: list[dict[str, Any]] | None = None
     # Partition
-    partition_method: Optional[str] = None
+    partition_method: str | None = None
     # Repetition (was: Aggregation)
     repetition: bool = False
-    repetition_column: Optional[str] = None
+    repetition_column: str | None = None
     repetition_method: str = "mean"
     # Variations
     variations: bool = False
-    variation_mode: Optional[str] = None
+    variation_mode: str | None = None
     # Folds
     custom_folds: bool = False
     # Metadata
     include_metadata: bool = False
     # Extra config options
-    extra_config: Dict[str, Any] = field(default_factory=dict)
-
+    extra_config: dict[str, Any] = field(default_factory=dict)
 
 class TestDatasetGenerator:
     """Generates all 30 test datasets with matching YAML configs."""
@@ -95,7 +94,7 @@ class TestDatasetGenerator:
         self.output_dir = Path(output_dir)
         self.seed = seed
         self.verbose = verbose
-        self.specs: List[DatasetSpec] = []
+        self.specs: list[DatasetSpec] = []
         self.datasets_dir = self.output_dir / "sample_datasets"
         self.configs_dir = self.output_dir / "sample_configs" / "datasets"
 
@@ -161,7 +160,7 @@ class TestDatasetGenerator:
         spec: DatasetSpec,
         wavelengths: np.ndarray,
         rng: np.random.Generator,
-    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, np.ndarray]]:
+    ) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
         """Generate synthetic spectral data."""
         n_samples = spec.n_samples
         n_features = len(wavelengths)
@@ -220,7 +219,7 @@ class TestDatasetGenerator:
         X: np.ndarray,
         y: np.ndarray,
         wavelengths: np.ndarray,
-        metadata: Dict[str, np.ndarray],
+        metadata: dict[str, np.ndarray],
         rng: np.random.Generator,
     ) -> None:
         """Export to standard Xcal/Ycal/Xval/Yval structure."""
@@ -276,7 +275,7 @@ class TestDatasetGenerator:
         X: np.ndarray,
         y: np.ndarray,
         wavelengths: np.ndarray,
-        metadata: Dict[str, np.ndarray],
+        metadata: dict[str, np.ndarray],
         rng: np.random.Generator,
     ) -> None:
         """Export all data to a single file with partition column."""
@@ -309,7 +308,7 @@ class TestDatasetGenerator:
         X: np.ndarray,
         y: np.ndarray,
         wavelengths: np.ndarray,
-        metadata: Dict[str, np.ndarray],
+        metadata: dict[str, np.ndarray],
         rng: np.random.Generator,
     ) -> None:
         """Export to legacy separate train_x, train_y, test_x, test_y structure."""
@@ -341,7 +340,7 @@ class TestDatasetGenerator:
         X: np.ndarray,
         y: np.ndarray,
         wavelengths: np.ndarray,
-        metadata: Dict[str, np.ndarray],
+        metadata: dict[str, np.ndarray],
         rng: np.random.Generator,
     ) -> None:
         """Export to fragmented multiple files structure."""
@@ -375,7 +374,7 @@ class TestDatasetGenerator:
         X: np.ndarray,
         y: np.ndarray,
         wavelengths: np.ndarray,
-        metadata: Dict[str, np.ndarray],
+        metadata: dict[str, np.ndarray],
         rng: np.random.Generator,
     ) -> None:
         """Export multi-source dataset with prefixed filenames."""
@@ -420,7 +419,7 @@ class TestDatasetGenerator:
         X: np.ndarray,
         y: np.ndarray,
         wavelengths: np.ndarray,
-        metadata: Dict[str, np.ndarray],
+        metadata: dict[str, np.ndarray],
         rng: np.random.Generator,
     ) -> None:
         """Export feature variations (raw + preprocessed)."""
@@ -448,7 +447,7 @@ class TestDatasetGenerator:
         self,
         path: Path,
         data: np.ndarray,
-        headers: Optional[List[str]],
+        headers: list[str] | None,
         spec: DatasetSpec,
         is_text: bool = False,
     ) -> None:
@@ -465,12 +464,7 @@ class TestDatasetGenerator:
             lines.append(spec.delimiter.join(headers))
 
         for row in data:
-            if is_text:
-                row_str = spec.delimiter.join(str(v) for v in row)
-            else:
-                row_str = spec.delimiter.join(
-                    f"{float(v):.6f}".replace(".", spec.decimal_separator) for v in row
-                )
+            row_str = spec.delimiter.join(str(v) for v in row) if is_text else spec.delimiter.join(f"{float(v):.6f}".replace(".", spec.decimal_separator) for v in row)
             lines.append(row_str)
 
         content = prefix_lines + "\n".join(lines) + "\n"
@@ -484,12 +478,12 @@ class TestDatasetGenerator:
             with open(path, "w", encoding=spec.encoding) as f:
                 f.write(content)
 
-    def _generate_config(self, spec: DatasetSpec, dataset_dir: Path) -> Dict[str, Any]:
+    def _generate_config(self, spec: DatasetSpec, dataset_dir: Path) -> dict[str, Any]:
         """Generate YAML configuration for the dataset."""
         # Use path relative to examples/ folder (where user typically runs from)
         rel_path = f"sample_datasets/{spec.name}"
 
-        config: Dict[str, Any] = {
+        config: dict[str, Any] = {
             "name": spec.name,
         }
 
@@ -505,7 +499,7 @@ class TestDatasetGenerator:
         config["signal_type"] = spec.signal_type
 
         # Global params - for loading settings
-        global_params: Dict[str, Any] = {}
+        global_params: dict[str, Any] = {}
 
         if spec.delimiter != ";":
             global_params["delimiter"] = spec.delimiter
@@ -582,7 +576,7 @@ class TestDatasetGenerator:
 
     def _add_multi_source_config(
         self,
-        config: Dict[str, Any],
+        config: dict[str, Any],
         spec: DatasetSpec,
         rel_path: str,
         ext: str,
@@ -619,7 +613,7 @@ class TestDatasetGenerator:
 
     def _add_variations_config(
         self,
-        config: Dict[str, Any],
+        config: dict[str, Any],
         spec: DatasetSpec,
         rel_path: str,
         ext: str,
@@ -646,7 +640,7 @@ class TestDatasetGenerator:
         config["train_y"] = f"{rel_path}/Y_train{ext}"
         config["test_y"] = f"{rel_path}/Y_test{ext}"
 
-    def _add_partition_config(self, config: Dict[str, Any], spec: DatasetSpec) -> None:
+    def _add_partition_config(self, config: dict[str, Any], spec: DatasetSpec) -> None:
         """Add partition configuration."""
         if spec.partition_method == "column":
             config["partition"] = {
@@ -675,7 +669,7 @@ class TestDatasetGenerator:
                 "test": list(range(spec.n_train, spec.n_samples)),
             }
 
-    def _write_yaml(self, path: Path, config: Dict[str, Any], description: str) -> None:
+    def _write_yaml(self, path: Path, config: dict[str, Any], description: str) -> None:
         """Write YAML configuration file."""
         header = f"# {description}\n#\n# Auto-generated test configuration\n\n"
 
@@ -1004,7 +998,6 @@ class TestDatasetGenerator:
             variation_mode="concat",
         ))
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate test datasets and configs")
     parser.add_argument(
@@ -1034,7 +1027,6 @@ def main() -> None:
     )
 
     generator.generate_all()
-
 
 if __name__ == "__main__":
     main()

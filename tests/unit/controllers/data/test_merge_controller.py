@@ -11,17 +11,17 @@ Tests:
 These tests verify the Phase 2 and 3 implementation from the branching_concat_merge_design.
 """
 
-import pytest
 import numpy as np
+import pytest
 from sklearn.model_selection import ShuffleSplit
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
-from nirs4all.data.dataset import SpectroDataset
+from nirs4all.controllers.data.merge import MergeConfigParser, MergeController
 from nirs4all.data._features.feature_source import FeatureSource
-from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
-from nirs4all.pipeline.config.context import ExecutionContext
-from nirs4all.controllers.data.merge import MergeController, MergeConfigParser
+from nirs4all.data.dataset import SpectroDataset
 from nirs4all.operators.data.merge import MergeConfig
+from nirs4all.pipeline.config.context import ExecutionContext
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 
 
 def create_test_dataset(n_samples: int = 50, n_features: int = 30, seed: int = 42) -> SpectroDataset:
@@ -36,7 +36,6 @@ def create_test_dataset(n_samples: int = 50, n_features: int = 30, seed: int = 4
 
     return dataset
 
-
 def create_mock_feature_snapshot(n_samples: int = 50, n_features: int = 30, seed: int = 42) -> list:
     """Create a mock feature snapshot (list of FeatureSource objects)."""
     np.random.seed(seed)
@@ -46,7 +45,6 @@ def create_mock_feature_snapshot(n_samples: int = 50, n_features: int = 30, seed
     fs.add_samples(X)
 
     return [fs]
-
 
 class TestMergeControllerMatching:
     """Test MergeController.matches() for different keywords."""
@@ -69,7 +67,6 @@ class TestMergeControllerMatching:
         assert MergeController.matches({}, None, "model") is False
         assert MergeController.matches({}, None, "preprocessing") is False
         assert MergeController.matches({}, None, "concat_transform") is False
-
 
 class TestMergeConfigParsing:
     """Test MergeConfigParser for Phase 2."""
@@ -114,7 +111,6 @@ class TestMergeConfigParsing:
         assert config.collect_predictions is True
         assert config.feature_branches == [1]
         assert config.prediction_branches == [0]
-
 
 class TestMergeControllerBranchValidation:
     """Test branch validation in MergeController."""
@@ -197,7 +193,6 @@ class TestMergeControllerBranchValidation:
         assert "Available indices" in str(exc_info.value)
         assert "[0, 1, 2]" in str(exc_info.value)
 
-
 class TestMergeSourcesAndPredictionsKeywords:
     """Test that merge_sources and merge_predictions keywords are handled."""
 
@@ -265,7 +260,6 @@ class TestMergeSourcesAndPredictionsKeywords:
                 runtime_context=None,
                 prediction_store=None,  # Explicitly None
             )
-
 
 class TestMergeControllerExitsBranchMode:
     """Test that merge properly exits branch mode."""
@@ -349,7 +343,6 @@ class TestMergeControllerExitsBranchMode:
                 context=context,
                 runtime_context=None,
             )
-
 
 class TestMergeOutputMetadata:
     """Test metadata returned by merge step."""
@@ -447,15 +440,14 @@ class TestMergeOutputMetadata:
 
         assert output.metadata["feature_branches"] == [0, 1]
 
-
 # ============================================================================
 # Phase 6 Unit Tests: AsymmetricBranchAnalyzer
 # ============================================================================
 
 from nirs4all.controllers.data.merge import (
-    BranchAnalysisResult,
-    AsymmetryReport,
     AsymmetricBranchAnalyzer,
+    AsymmetryReport,
+    BranchAnalysisResult,
 )
 
 
@@ -514,7 +506,6 @@ class TestBranchAnalysisResult:
         assert len(result.model_names) == 3
         assert "PLSRegression" in result.model_names
 
-
 class TestAsymmetryReport:
     """Test AsymmetryReport dataclass."""
 
@@ -572,7 +563,6 @@ class TestAsymmetryReport:
         assert report.is_asymmetric is True
         assert report.has_feature_dim_asymmetry is True
         assert report.feature_dims[0] != report.feature_dims[1]
-
 
 class TestAsymmetricBranchAnalyzer:
     """Test AsymmetricBranchAnalyzer utility class."""
@@ -910,7 +900,6 @@ class TestAsymmetricBranchAnalyzer:
         assert 1 in report.branches_without_models
         assert 2 in report.branches_without_models
 
-
 # =============================================================================
 # Phase 9: Source Merge Tests
 # =============================================================================
@@ -1008,7 +997,6 @@ class TestSourceMergeConfig:
         assert restored.on_incompatible == config.on_incompatible
         assert restored.output_name == config.output_name
 
-
 class TestSourceMergeStrategies:
     """Tests for source merge strategy enums (Phase 9)."""
 
@@ -1038,11 +1026,10 @@ class TestSourceMergeStrategies:
 
     def test_config_get_incompatible_strategy(self):
         """Test getting incompatible strategy as enum."""
-        from nirs4all.operators.data.merge import SourceMergeConfig, SourceIncompatibleStrategy
+        from nirs4all.operators.data.merge import SourceIncompatibleStrategy, SourceMergeConfig
 
         config = SourceMergeConfig(on_incompatible="flatten")
         assert config.get_incompatible_strategy() == SourceIncompatibleStrategy.FLATTEN
-
 
 class TestMergeSourcesConfigParsing:
     """Tests for merge_sources configuration parsing."""
@@ -1081,7 +1068,6 @@ class TestMergeSourcesConfigParsing:
         with pytest.raises(ValueError, match="Invalid merge_sources config type"):
             controller._parse_source_merge_config(123)
 
-
 # =============================================================================
 # Phase 2: Disjoint Sample Branch Merging Tests
 # =============================================================================
@@ -1089,8 +1075,8 @@ class TestMergeSourcesConfigParsing:
 from nirs4all.controllers.data.merge import (
     DisjointBranchAnalysis,
     DisjointMergeResult,
-    is_disjoint_branch,
     detect_disjoint_branches,
+    is_disjoint_branch,
 )
 from nirs4all.operators.data.merge import (
     BranchType,
@@ -1113,7 +1099,6 @@ class TestBranchTypeEnum:
         assert BranchType("metadata_partitioner") == BranchType.METADATA_PARTITIONER
         assert BranchType("sample_partitioner") == BranchType.SAMPLE_PARTITIONER
 
-
 class TestDisjointSelectionCriterionEnum:
     """Tests for DisjointSelectionCriterion enum."""
 
@@ -1129,7 +1114,6 @@ class TestDisjointSelectionCriterionEnum:
         """Test creating DisjointSelectionCriterion from string."""
         assert DisjointSelectionCriterion("mse") == DisjointSelectionCriterion.MSE
         assert DisjointSelectionCriterion("r2") == DisjointSelectionCriterion.R2
-
 
 class TestMergeConfigDisjointOptions:
     """Tests for MergeConfig disjoint merge options (n_columns, select_by)."""
@@ -1189,7 +1173,6 @@ class TestMergeConfigDisjointOptions:
         restored = MergeConfig.from_dict(data)
         assert restored.select_by == "r2"
 
-
 class TestDisjointBranchAnalysisDataclass:
     """Tests for DisjointBranchAnalysis dataclass."""
 
@@ -1223,7 +1206,6 @@ class TestDisjointBranchAnalysisDataclass:
         assert analysis.is_disjoint is False
         assert analysis.branch_type == BranchType.COPY
         assert analysis.partition_column is None
-
 
 class TestIsDisjointBranchFunction:
     """Tests for is_disjoint_branch() function."""
@@ -1293,7 +1275,6 @@ class TestIsDisjointBranchFunction:
             },
         }
         assert is_disjoint_branch(branch_context) is True
-
 
 class TestDetectDisjointBranchesFunction:
     """Tests for detect_disjoint_branches() function."""
@@ -1476,7 +1457,6 @@ class TestDetectDisjointBranchesFunction:
         assert len(analysis.branch_sample_counts) == 3
         assert analysis.total_samples == 9
 
-
 class TestDisjointMergeResultDataclass:
     """Tests for DisjointMergeResult dataclass."""
 
@@ -1495,7 +1475,6 @@ class TestDisjointMergeResultDataclass:
         assert result.n_columns == 3
         assert result.select_by == "mse"
         assert result.branch_info["n_branches"] == 2
-
 
 class TestValidateMergedTrainability:
     """Tests for _validate_merged_trainability method."""
@@ -1560,7 +1539,6 @@ class TestValidateMergedTrainability:
 
         # Should not raise
         controller._validate_merged_trainability(merged, merge_info)
-
 
 class TestMergeControllerDisjointDetection:
     """Tests for disjoint branch detection in MergeController.execute()."""
@@ -1709,7 +1687,6 @@ class TestMergeControllerDisjointDetection:
         assert result_context.custom["in_branch_mode"] is False
         assert result_context.custom["branch_contexts"] == []
 
-
 # =============================================================================
 # Phase 3: Disjoint Merge Metadata Tests
 # =============================================================================
@@ -1781,7 +1758,6 @@ class TestDisjointBranchInfoDataclass:
         assert data["n_models_selected"] == 2
         assert data["selected_models"] == [{"name": "PLS", "score": 0.1, "column": 0}]
         assert data["dropped_models"] == []
-
 
 class TestDisjointMergeMetadataDataclass:
     """Tests for DisjointMergeMetadata dataclass."""
@@ -2002,7 +1978,6 @@ class TestDisjointMergeMetadataDataclass:
 
         # Should have warning about heterogeneous column mapping
         assert any("heterogeneous" in w.lower() for w in warnings)
-
 
 class TestDisjointMergeMetadataIntegration:
     """Integration tests for disjoint merge metadata in MergeController."""

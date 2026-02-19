@@ -35,13 +35,13 @@ Example:
     ... ]
 """
 
-from .base import SampleFilter, CompositeFilter
-from .y_outlier import YOutlierFilter
-from .x_outlier import XOutlierFilter
-from .spectral_quality import SpectralQualityFilter
+from .base import CompositeFilter, SampleFilter
 from .high_leverage import HighLeverageFilter
 from .metadata import MetadataFilter
 from .report import FilteringReport, FilteringReportGenerator, FilterResult
+from .spectral_quality import SpectralQualityFilter
+from .x_outlier import XOutlierFilter
+from .y_outlier import YOutlierFilter
 
 __all__ = [
     "SampleFilter",

@@ -28,14 +28,13 @@ Example:
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
 if TYPE_CHECKING:
     from nirs4all.data.predictions import Predictions
     from nirs4all.pipeline.config.context import ExecutionContext
-
 
 @dataclass
 class ModelCandidate:
@@ -59,13 +58,12 @@ class ModelCandidate:
     model_name: str
     model_classname: str
     step_idx: int
-    fold_id: Optional[str] = None
-    branch_id: Optional[int] = None
-    branch_name: Optional[str] = None
-    val_score: Optional[float] = None
-    metric: Optional[str] = None
-    predictions: Optional[Dict[str, np.ndarray]] = None
-
+    fold_id: str | None = None
+    branch_id: int | None = None
+    branch_name: str | None = None
+    val_score: float | None = None
+    metric: str | None = None
+    predictions: dict[str, np.ndarray] | None = None
 
 class SourceModelSelector(ABC):
     """Abstract base class for source model selection strategies.
@@ -86,10 +84,10 @@ class SourceModelSelector(ABC):
     @abstractmethod
     def select(
         self,
-        candidates: List[ModelCandidate],
+        candidates: list[ModelCandidate],
         context: 'ExecutionContext',
         prediction_store: 'Predictions'
-    ) -> List[ModelCandidate]:
+    ) -> list[ModelCandidate]:
         """Select source models from candidates.
 
         Args:
@@ -105,7 +103,7 @@ class SourceModelSelector(ABC):
 
     def validate(
         self,
-        selected: List[ModelCandidate],
+        selected: list[ModelCandidate],
         context: 'ExecutionContext'
     ) -> None:
         """Validate the selection (optional override).
@@ -125,7 +123,6 @@ class SourceModelSelector(ABC):
                 "Ensure previous models exist in the pipeline."
             )
 
-
 class AllPreviousModelsSelector(SourceModelSelector):
     """Select all models from previous steps in current branch.
 
@@ -144,7 +141,7 @@ class AllPreviousModelsSelector(SourceModelSelector):
     def __init__(
         self,
         include_averaged: bool = False,
-        exclude_classnames: Optional[Set[str]] = None
+        exclude_classnames: set[str] | None = None
     ):
         """Initialize selector.
 
@@ -159,10 +156,10 @@ class AllPreviousModelsSelector(SourceModelSelector):
 
     def select(
         self,
-        candidates: List[ModelCandidate],
+        candidates: list[ModelCandidate],
         context: 'ExecutionContext',
         prediction_store: 'Predictions'
-    ) -> List[ModelCandidate]:
+    ) -> list[ModelCandidate]:
         """Select all previous models in current branch.
 
         Args:
@@ -183,15 +180,12 @@ class AllPreviousModelsSelector(SourceModelSelector):
                 continue
 
             # Filter by branch if in a branch context
-            if current_branch_id is not None:
-                # Include models from same branch OR from before the branch (branch_id is None)
-                if candidate.branch_id is not None and candidate.branch_id != current_branch_id:
-                    continue
+            if current_branch_id is not None and candidate.branch_id is not None and candidate.branch_id != current_branch_id:
+                continue
 
             # Skip averaged models if not requested
-            if not self.include_averaged:
-                if candidate.fold_id in ('avg', 'w_avg'):
-                    continue
+            if not self.include_averaged and candidate.fold_id in ('avg', 'w_avg'):
+                continue
 
             # Skip excluded class names
             if candidate.model_classname in self.exclude_classnames:
@@ -203,7 +197,6 @@ class AllPreviousModelsSelector(SourceModelSelector):
         selected.sort(key=lambda c: (c.step_idx, c.model_name, c.fold_id or ''))
 
         return selected
-
 
 class ExplicitModelSelector(SourceModelSelector):
     """Select explicitly named models.
@@ -224,7 +217,7 @@ class ExplicitModelSelector(SourceModelSelector):
 
     def __init__(
         self,
-        model_names: List[str],
+        model_names: list[str],
         strict: bool = True
     ):
         """Initialize selector with explicit model names.
@@ -241,10 +234,10 @@ class ExplicitModelSelector(SourceModelSelector):
 
     def select(
         self,
-        candidates: List[ModelCandidate],
+        candidates: list[ModelCandidate],
         context: 'ExecutionContext',
         prediction_store: 'Predictions'
-    ) -> List[ModelCandidate]:
+    ) -> list[ModelCandidate]:
         """Select models matching the specified names.
 
         Args:
@@ -263,16 +256,15 @@ class ExplicitModelSelector(SourceModelSelector):
         current_branch_id = getattr(context.selector, 'branch_id', None)
 
         # Build a map of model_name -> candidates
-        name_to_candidates: Dict[str, List[ModelCandidate]] = {}
+        name_to_candidates: dict[str, list[ModelCandidate]] = {}
         for candidate in candidates:
             # Skip models from current or later steps
             if candidate.step_idx >= current_step:
                 continue
 
             # Filter by branch
-            if current_branch_id is not None:
-                if candidate.branch_id != current_branch_id:
-                    continue
+            if current_branch_id is not None and candidate.branch_id != current_branch_id:
+                continue
 
             if candidate.model_name not in name_to_candidates:
                 name_to_candidates[candidate.model_name] = []
@@ -300,7 +292,6 @@ class ExplicitModelSelector(SourceModelSelector):
 
         return selected
 
-
 class TopKByMetricSelector(SourceModelSelector):
     """Select top K models by a validation metric.
 
@@ -323,7 +314,7 @@ class TopKByMetricSelector(SourceModelSelector):
         self,
         k: int,
         metric: str = "val_score",
-        ascending: Optional[bool] = None,
+        ascending: bool | None = None,
         per_class: bool = False
     ):
         """Initialize top-K selector.
@@ -359,10 +350,10 @@ class TopKByMetricSelector(SourceModelSelector):
 
     def select(
         self,
-        candidates: List[ModelCandidate],
+        candidates: list[ModelCandidate],
         context: 'ExecutionContext',
         prediction_store: 'Predictions'
-    ) -> List[ModelCandidate]:
+    ) -> list[ModelCandidate]:
         """Select top K models by metric.
 
         Args:
@@ -396,7 +387,7 @@ class TopKByMetricSelector(SourceModelSelector):
 
         if self.per_class:
             # Select top K per class
-            class_groups: Dict[str, List[ModelCandidate]] = {}
+            class_groups: dict[str, list[ModelCandidate]] = {}
             for candidate in valid_candidates:
                 classname = candidate.model_classname
                 if classname not in class_groups:
@@ -404,7 +395,7 @@ class TopKByMetricSelector(SourceModelSelector):
                 class_groups[classname].append(candidate)
 
             selected = []
-            for classname, group in class_groups.items():
+            for _classname, group in class_groups.items():
                 # Sort group by score
                 group.sort(key=lambda c: c.val_score or float('inf'), reverse=not ascending)
                 selected.extend(group[:self.k])
@@ -420,7 +411,6 @@ class TopKByMetricSelector(SourceModelSelector):
             selected = valid_candidates[:self.k]
 
         return selected
-
 
 class DiversitySelector(SourceModelSelector):
     """Select diverse models by class type to maximize ensemble diversity.
@@ -442,7 +432,7 @@ class DiversitySelector(SourceModelSelector):
     def __init__(
         self,
         max_per_class: int = 1,
-        preferred_classes: Optional[List[str]] = None
+        preferred_classes: list[str] | None = None
     ):
         """Initialize diversity selector.
 
@@ -459,10 +449,10 @@ class DiversitySelector(SourceModelSelector):
 
     def select(
         self,
-        candidates: List[ModelCandidate],
+        candidates: list[ModelCandidate],
         context: 'ExecutionContext',
         prediction_store: 'Predictions'
-    ) -> List[ModelCandidate]:
+    ) -> list[ModelCandidate]:
         """Select diverse models by class type.
 
         Args:
@@ -477,7 +467,7 @@ class DiversitySelector(SourceModelSelector):
         current_branch_id = getattr(context.selector, 'branch_id', None)
 
         # Filter and group by class
-        class_groups: Dict[str, List[ModelCandidate]] = {}
+        class_groups: dict[str, list[ModelCandidate]] = {}
         for candidate in candidates:
             if candidate.step_idx >= current_step:
                 continue
@@ -502,7 +492,7 @@ class DiversitySelector(SourceModelSelector):
                 selected.extend(group[:self.max_per_class])
 
         # Then add remaining classes
-        for classname, group in sorted(class_groups.items()):
+        for _classname, group in sorted(class_groups.items()):
             group.sort(key=lambda c: c.val_score or float('inf'))
             selected.extend(group[:self.max_per_class])
 
@@ -510,7 +500,6 @@ class DiversitySelector(SourceModelSelector):
         selected.sort(key=lambda c: (c.step_idx, c.model_name))
 
         return selected
-
 
 class SelectorFactory:
     """Factory for creating source model selectors.
@@ -523,7 +512,7 @@ class SelectorFactory:
         >>> selector = SelectorFactory.create("top_k", k=5, metric="rmse")
     """
 
-    _REGISTRY: Dict[str, type] = {
+    _REGISTRY: dict[str, type] = {
         'all': AllPreviousModelsSelector,
         'all_previous': AllPreviousModelsSelector,
         'explicit': ExplicitModelSelector,

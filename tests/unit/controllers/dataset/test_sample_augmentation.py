@@ -9,15 +9,16 @@ Tests cover:
 - Edge cases
 """
 
+from unittest.mock import MagicMock, Mock, call, patch
+
 import numpy as np
 import pytest
-from unittest.mock import Mock, MagicMock, patch, call
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.controllers.transforms.transformer import TransformerMixinController
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
-from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata, RuntimeContext
 
 
 def make_step_info(operator, step=None):
@@ -32,7 +33,6 @@ def make_step_info(operator, step=None):
         metadata={}
     )
 
-
 @pytest.fixture
 def mock_runtime_context():
     """Mock RuntimeContext."""
@@ -46,7 +46,6 @@ def mock_runtime_context():
     runtime_ctx.saver.persist_artifact = Mock(return_value=Mock(filename="mock_file.pkl", content=b"mock_content"))
 
     return runtime_ctx
-
 
 @pytest.fixture
 def simple_dataset():
@@ -65,7 +64,6 @@ def simple_dataset():
     dataset.add_samples(x_data, {"partition": "train"})
 
     return dataset
-
 
 class TestAugmentSampleDetection:
     """Test detection of augment_sample flag."""
@@ -114,7 +112,6 @@ class TestAugmentSampleDetection:
         # Should have added augmented samples
         total_samples = simple_dataset.x({"partition": "train"}).shape[0]
         assert total_samples == 7  # 5 base + 2 augmented
-
 
 class TestSampleAugmentation:
     """Test sample augmentation functionality."""
@@ -238,7 +235,6 @@ class TestSampleAugmentation:
         assert len(origin_meta) > 0
         assert origin_meta["group"][0] == "A"
 
-
 class TestTransformation:
     """Test that transformations are applied correctly."""
 
@@ -299,7 +295,6 @@ class TestTransformation:
             assert len(binaries) > 0
             # Binaries are now ArtifactRecord objects
             assert all(hasattr(b, 'artifact_id') for b in binaries)
-
 
 class TestEdgeCases:
     """Test edge cases and error handling."""
@@ -378,7 +373,6 @@ class TestEdgeCases:
         # Should have 6 samples (5 base + 1 augmented)
         assert len(all_indices) == 6
 
-
 class TestMultiSource:
     """Test multi-source dataset support."""
 
@@ -417,7 +411,6 @@ class TestMultiSource:
         new_data = dataset.x({"partition": "train"}, layout="2d", concat_source=True)
         new_count = new_data.shape[0]
         assert new_count == initial_count + 1
-
 
 class TestIntegration:
     """Integration tests with delegation pattern."""

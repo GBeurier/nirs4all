@@ -104,14 +104,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Dict
+    
     from .components import SpectralComponent
 
 # Lazy imports to avoid circular dependencies
-_PREDEFINED_COMPONENTS: "Dict[str, SpectralComponent] | None" = None
+_PREDEFINED_COMPONENTS: dict[str, SpectralComponent] | None = None
 
-
-def get_predefined_components() -> "Dict[str, SpectralComponent]":
+def get_predefined_components() -> dict[str, SpectralComponent]:
     """
     Get predefined spectral components based on NIR band assignments.
 
@@ -2567,7 +2566,6 @@ def get_predefined_components() -> "Dict[str, SpectralComponent]":
 
     return _PREDEFINED_COMPONENTS
 
-
 # ============================================================================
 # Component Metadata (Phase 1 enhancement)
 # ============================================================================
@@ -2728,8 +2726,7 @@ _COMPONENT_METADATA = {
     "silica": {"category": "minerals", "subcategory": "silicates", "formula": "SiO2", "cas_number": "7631-86-9", "synonyms": ["silicon dioxide"], "tags": ["geology", "pharma"]},
 }
 
-
-def _enrich_components_with_metadata(components: "Dict[str, SpectralComponent]") -> None:
+def _enrich_components_with_metadata(components: dict[str, SpectralComponent]) -> None:
     """
     Enrich components with metadata from the metadata mapping.
 
@@ -2762,7 +2759,6 @@ def _enrich_components_with_metadata(components: "Dict[str, SpectralComponent]")
             if max_amp > 0 and abs(max_amp - 1.0) > 0.01:
                 for band in comp.bands:
                     band.amplitude = band.amplitude / max_amp
-
 
 # Default wavelength parameters
 # Phase 2 Extension: Extended to include Vis-NIR region (350-2500nm)

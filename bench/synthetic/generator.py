@@ -20,7 +20,11 @@ References:
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Optional, Union
+
+if TYPE_CHECKING:
+    from nirs4all.data import SpectroDataset
+
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from scipy.special import voigt_profile
@@ -56,7 +60,6 @@ class NIRBand:
                 wavelengths - self.center, self.sigma, self.gamma
             ) * self.sigma * np.sqrt(2 * np.pi)
 
-
 @dataclass
 class SpectralComponent:
     """
@@ -68,8 +71,8 @@ class SpectralComponent:
         correlation_group: Optional group ID for correlated components
     """
     name: str
-    bands: List[NIRBand] = field(default_factory=list)
-    correlation_group: Optional[int] = None
+    bands: list[NIRBand] = field(default_factory=list)
+    correlation_group: int | None = None
 
     def compute(self, wavelengths: np.ndarray) -> np.ndarray:
         """Compute the full component spectrum by summing all bands."""
@@ -78,7 +81,6 @@ class SpectralComponent:
             spectrum += band.compute(wavelengths)
         return spectrum
 
-
 # ============================================================================
 # Predefined Spectral Components based on NIR band assignments
 # ============================================================================
@@ -86,7 +88,7 @@ class SpectralComponent:
 # Spectroscopy" (2012), Table of characteristic NIR absorption bands
 # ============================================================================
 
-PREDEFINED_COMPONENTS: Dict[str, SpectralComponent] = {
+PREDEFINED_COMPONENTS: dict[str, SpectralComponent] = {
     "water": SpectralComponent(
         name="water",
         bands=[
@@ -171,7 +173,6 @@ PREDEFINED_COMPONENTS: Dict[str, SpectralComponent] = {
     ),
 }
 
-
 class ComponentLibrary:
     """
     Library of spectral components that can be used for synthetic generation.
@@ -179,7 +180,7 @@ class ComponentLibrary:
     Supports both predefined components and custom component creation.
     """
 
-    def __init__(self, random_state: Optional[int] = None):
+    def __init__(self, random_state: int | None = None):
         """
         Initialize the component library.
 
@@ -187,11 +188,11 @@ class ComponentLibrary:
             random_state: Random seed for reproducibility
         """
         self.rng = np.random.default_rng(random_state)
-        self._components: Dict[str, SpectralComponent] = {}
+        self._components: dict[str, SpectralComponent] = {}
 
     @classmethod
-    def from_predefined(cls, component_names: Optional[List[str]] = None,
-                        random_state: Optional[int] = None) -> 'ComponentLibrary':
+    def from_predefined(cls, component_names: list[str] | None = None,
+                        random_state: int | None = None) -> 'ComponentLibrary':
         """
         Create a library from predefined components.
 
@@ -216,8 +217,8 @@ class ComponentLibrary:
         return library
 
     def add_random_component(self, name: str, n_bands: int = 3,
-                             wavelength_range: Tuple[float, float] = (1000, 2500),
-                             zones: Optional[List[Tuple[float, float]]] = None) -> SpectralComponent:
+                             wavelength_range: tuple[float, float] = (1000, 2500),
+                             zones: list[tuple[float, float]] | None = None) -> SpectralComponent:
         """
         Generate and add a random spectral component.
 
@@ -262,7 +263,7 @@ class ComponentLibrary:
         return component
 
     def generate_random_library(self, n_components: int = 5,
-                                n_bands_range: Tuple[int, int] = (2, 6)) -> 'ComponentLibrary':
+                                n_bands_range: tuple[int, int] = (2, 6)) -> 'ComponentLibrary':
         """
         Generate a library of random spectral components.
 
@@ -279,7 +280,7 @@ class ComponentLibrary:
         return self
 
     @property
-    def components(self) -> Dict[str, SpectralComponent]:
+    def components(self) -> dict[str, SpectralComponent]:
         """Get all components in the library."""
         return self._components
 
@@ -303,10 +304,9 @@ class ComponentLibrary:
         ])
 
     @property
-    def component_names(self) -> List[str]:
+    def component_names(self) -> list[str]:
         """Get list of component names."""
         return list(self._components.keys())
-
 
 class SyntheticNIRSGenerator:
     """
@@ -346,9 +346,9 @@ class SyntheticNIRSGenerator:
         wavelength_start: float = 1000,
         wavelength_end: float = 2500,
         wavelength_step: float = 2,
-        component_library: Optional[ComponentLibrary] = None,
+        component_library: ComponentLibrary | None = None,
         complexity: str = "realistic",
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ):
         self.wavelength_start = wavelength_start
         self.wavelength_end = wavelength_end
@@ -439,8 +439,8 @@ class SyntheticNIRSGenerator:
         self,
         n_samples: int,
         method: str = "dirichlet",
-        alpha: Optional[np.ndarray] = None,
-        correlation_matrix: Optional[np.ndarray] = None,
+        alpha: np.ndarray | None = None,
+        correlation_matrix: np.ndarray | None = None,
     ) -> np.ndarray:
         """
         Generate concentration matrix.
@@ -653,8 +653,8 @@ class SyntheticNIRSGenerator:
     def generate_batch_effects(
         self,
         n_batches: int,
-        samples_per_batch: List[int],
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        samples_per_batch: list[int],
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Generate batch/session effects for domain adaptation research.
 
@@ -687,8 +687,7 @@ class SyntheticNIRSGenerator:
         include_batch_effects: bool = False,
         n_batches: int = 1,
         return_metadata: bool = False,
-    ) -> Union[Tuple[np.ndarray, np.ndarray, np.ndarray],
-               Tuple[np.ndarray, np.ndarray, np.ndarray, dict]]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
         """
         Generate synthetic NIRS spectra.
 
@@ -775,9 +774,9 @@ class SyntheticNIRSGenerator:
         self,
         n_train: int = 800,
         n_test: int = 200,
-        target_component: Optional[Union[str, int]] = None,
+        target_component: str | int | None = None,
         **generate_kwargs,
-    ) -> 'SpectroDataset':
+    ) -> "SpectroDataset":
         """
         Create a SpectroDataset from synthetic spectra.
 

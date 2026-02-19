@@ -9,16 +9,15 @@ Utilities for FCK-PLS Torch experiments.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import KFold
-from sklearn.metrics import mean_squared_error, r2_score
-
 from fckpls_torch import FCKPLSTorch, TrainConfig
-
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import KFold
 
 # =============================================================================
 # CV Search
@@ -27,14 +26,13 @@ from fckpls_torch import FCKPLSTorch, TrainConfig
 @dataclass
 class CVResult:
     """Result from one CV run."""
-    params: Dict[str, Any]
-    fold_scores_rmse: List[float]
-    fold_scores_r2: List[float]
+    params: dict[str, Any]
+    fold_scores_rmse: list[float]
+    fold_scores_r2: list[float]
     mean_rmse: float
     std_rmse: float
     mean_r2: float
     std_r2: float
-
 
 class FCKPLSCVSearch:
     """
@@ -51,13 +49,13 @@ class FCKPLSCVSearch:
 
     def __init__(
         self,
-        param_grid: Dict[str, Sequence[Any]],
+        param_grid: dict[str, Sequence[Any]],
         n_splits: int = 5,
         shuffle: bool = True,
         random_state: int = 42,
         scorer: str = "rmse",  # "rmse" or "r2"
         verbose: int = 1,
-        base_params: Optional[Dict[str, Any]] = None,
+        base_params: dict[str, Any] | None = None,
     ):
         self.param_grid = param_grid
         self.n_splits = n_splits
@@ -67,17 +65,17 @@ class FCKPLSCVSearch:
         self.verbose = verbose
         self.base_params = base_params or {}
 
-        self.results_: List[CVResult] = []
-        self.best_params_: Optional[Dict[str, Any]] = None
-        self.best_score_: Optional[float] = None
-        self.cv_results_df_: Optional[pd.DataFrame] = None
+        self.results_: list[CVResult] = []
+        self.best_params_: dict[str, Any] | None = None
+        self.best_score_: float | None = None
+        self.cv_results_df_: pd.DataFrame | None = None
 
-    def _iter_grid(self) -> Iterable[Dict[str, Any]]:
+    def _iter_grid(self) -> Iterable[dict[str, Any]]:
         """Iterate over all parameter combinations."""
         keys = list(self.param_grid.keys())
         vals = [list(self.param_grid[k]) for k in keys]
 
-        def rec(i: int, cur: Dict[str, Any]):
+        def rec(i: int, cur: dict[str, Any]):
             if i == len(keys):
                 yield dict(cur)
                 return
@@ -92,7 +90,7 @@ class FCKPLSCVSearch:
             return y.reshape(-1, 1)
         return y
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> "FCKPLSCVSearch":
+    def fit(self, X: np.ndarray, y: np.ndarray) -> FCKPLSCVSearch:
         """Run CV search over parameter grid."""
         X = np.asarray(X, dtype=np.float32)
         y = np.asarray(y, dtype=np.float32)
@@ -199,7 +197,6 @@ class FCKPLSCVSearch:
         model.fit(X, y)
         return model
 
-
 # =============================================================================
 # Default Parameter Grids
 # =============================================================================
@@ -237,12 +234,11 @@ GRID_V2_FULL = {
     "tau": [0.5, 1.0, 2.0],
 }
 
-
 # =============================================================================
 # Analysis Tools
 # =============================================================================
 
-def analyze_kernels(model: FCKPLSTorch) -> Dict[str, Any]:
+def analyze_kernels(model: FCKPLSTorch) -> dict[str, Any]:
     """Analyze learned kernels from FCK-PLS Torch model."""
     kernels = model.get_kernels()  # (K, ks)
 
@@ -270,12 +266,11 @@ def analyze_kernels(model: FCKPLSTorch) -> Dict[str, Any]:
 
     return analysis
 
-
 def compare_kernels_to_reference(
     model: FCKPLSTorch,
     reference_alphas: Sequence[float] = (0.0, 0.5, 1.0, 1.5, 2.0),
     reference_sigma: float = 3.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compare learned kernels to reference fractional kernels.
 
@@ -316,7 +311,6 @@ def compare_kernels_to_reference(
         "reference_alphas": list(reference_alphas),
     }
 
-
 def plot_training_history(model: FCKPLSTorch, ax=None):
     """Plot training loss history."""
     import matplotlib.pyplot as plt
@@ -344,7 +338,6 @@ def plot_training_history(model: FCKPLSTorch, ax=None):
     ax.grid(True, alpha=0.3)
 
     return ax
-
 
 def plot_kernel_comparison(
     model: FCKPLSTorch,

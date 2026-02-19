@@ -14,25 +14,23 @@ import numpy as np
 import pytest
 
 from nirs4all.synthesis import (
-    VariationType,
-    ComponentVariation,
-    ProductTemplate,
     PRODUCT_TEMPLATES,
-    ProductGenerator,
     CategoryGenerator,
-    list_product_templates,
-    get_product_template,
+    ComponentVariation,
+    ProductGenerator,
+    ProductTemplate,
+    VariationType,
     generate_product_samples,
-    product_template_info,
+    get_product_template,
     list_product_categories,
     list_product_domains,
+    list_product_templates,
+    product_template_info,
 )
-
 
 # =============================================================================
 # VariationType Enum Tests
 # =============================================================================
-
 
 class TestVariationType:
     """Tests for VariationType enum."""
@@ -59,11 +57,9 @@ class TestVariationType:
         values = [t.value for t in types]
         assert len(values) == len(set(values))
 
-
 # =============================================================================
 # ComponentVariation Tests
 # =============================================================================
-
 
 class TestComponentVariation:
     """Tests for ComponentVariation dataclass."""
@@ -172,11 +168,9 @@ class TestComponentVariation:
         with pytest.raises(ValueError, match="COMPUTED variation requires"):
             ComponentVariation("water", VariationType.COMPUTED)
 
-
 # =============================================================================
 # ProductTemplate Tests
 # =============================================================================
-
 
 class TestProductTemplate:
     """Tests for ProductTemplate dataclass."""
@@ -239,11 +233,9 @@ class TestProductTemplate:
         assert "lipid" in info
         assert "dairy" in info
 
-
 # =============================================================================
 # Predefined Templates Tests
 # =============================================================================
-
 
 class TestPredefinedTemplates:
     """Tests for predefined product templates."""
@@ -296,11 +288,9 @@ class TestPredefinedTemplates:
         assert len(nn_templates) >= 5
         assert "food_cholesterol_variable" in nn_templates
 
-
 # =============================================================================
 # ProductGenerator Tests
 # =============================================================================
-
 
 class TestProductGenerator:
     """Tests for ProductGenerator class."""
@@ -398,11 +388,9 @@ class TestProductGenerator:
         assert "ProductGenerator" in repr_str
         assert "milk_variable_fat" in repr_str
 
-
 # =============================================================================
 # CategoryGenerator Tests
 # =============================================================================
-
 
 class TestCategoryGenerator:
     """Tests for CategoryGenerator class."""
@@ -465,11 +453,9 @@ class TestCategoryGenerator:
         assert "CategoryGenerator" in repr_str
         assert "milk_variable_fat" in repr_str
 
-
 # =============================================================================
 # Convenience Functions Tests
 # =============================================================================
-
 
 class TestConvenienceFunctions:
     """Tests for convenience functions."""
@@ -541,11 +527,9 @@ class TestConvenienceFunctions:
         assert "agriculture" in domains
         assert "pharmaceutical" in domains
 
-
 # =============================================================================
 # Integration with generate API Tests
 # =============================================================================
-
 
 class TestGenerateAPIIntegration:
     """Tests for integration with nirs4all.generate API."""
@@ -594,11 +578,9 @@ class TestGenerateAPIIntegration:
         assert dataset is not None
         assert dataset.num_samples == 100
 
-
 # =============================================================================
 # Composition Sampling Tests
 # =============================================================================
-
 
 class TestCompositionSampling:
     """Tests for _sample_compositions method."""

@@ -97,8 +97,9 @@ preprocessing+PLS models specialized to 1D spectral data.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from functools import partial
-from typing import Literal, Sequence, Union
+from typing import Literal, Union
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -116,7 +117,6 @@ def _check_jax_available():
         return True
     except ImportError:
         return False
-
 
 # =============================================================================
 # Fractional Filter Construction
@@ -188,7 +188,6 @@ def fractional_kernel_1d(
 
     return h
 
-
 def fractional_kernel_grrunwald_letnikov(
     alpha: float,
     kernel_size: int,
@@ -259,7 +258,6 @@ def fractional_kernel_grrunwald_letnikov(
         coeffs = coeffs / norm
 
     return coeffs
-
 
 # =============================================================================
 # Fractional Convolutional Featurizer
@@ -337,10 +335,7 @@ class FractionalConvFeaturizer(BaseEstimator, TransformerMixin):
             raise ValueError("kernel_size must be odd")
 
         # Handle sigma broadcasting
-        if len(self.sigmas) == 1 and len(self.alphas) > 1:
-            sigmas = [self.sigmas[0]] * len(self.alphas)
-        else:
-            sigmas = self.sigmas
+        sigmas = [self.sigmas[0]] * len(self.alphas) if len(self.sigmas) == 1 and len(self.alphas) > 1 else self.sigmas
 
         if len(sigmas) != len(self.alphas):
             raise ValueError(
@@ -350,7 +345,7 @@ class FractionalConvFeaturizer(BaseEstimator, TransformerMixin):
 
         # Build kernels
         self.kernels_ = []
-        for alpha, sigma in zip(self.alphas, sigmas):
+        for alpha, sigma in zip(self.alphas, sigmas, strict=False):
             if self.kernel_type == 'heuristic':
                 h = fractional_kernel_1d(alpha, sigma, self.kernel_size)
             elif self.kernel_type == 'grunwald':
@@ -436,7 +431,6 @@ class FractionalConvFeaturizer(BaseEstimator, TransformerMixin):
             'mode': self.mode,
         }
 
-
 # =============================================================================
 # JAX Backend for Fractional Convolution
 # =============================================================================
@@ -484,7 +478,7 @@ def _get_jax_fckpls_functions():
         for h in kernels:
             h_jax = jnp.asarray(h)
             # Apply to each sample
-            convolved = jax.vmap(lambda x: convolve_1d_jax(x, h_jax))(X)
+            convolved = jax.vmap(lambda x, h=h_jax: convolve_1d_jax(x, h))(X)
             results.append(convolved)
 
         return jnp.hstack(results)
@@ -494,9 +488,7 @@ def _get_jax_fckpls_functions():
         'apply_filter_bank': apply_filter_bank_jax,
     }
 
-
 _JAX_FCKPLS_FUNCS = None
-
 
 def _get_cached_jax_fckpls():
     """Get cached JAX FCK-PLS functions."""
@@ -504,7 +496,6 @@ def _get_cached_jax_fckpls():
     if _JAX_FCKPLS_FUNCS is None:
         _JAX_FCKPLS_FUNCS = _get_jax_fckpls_functions()
     return _JAX_FCKPLS_FUNCS
-
 
 # =============================================================================
 # FCK-PLS Estimator Class
@@ -626,7 +617,7 @@ class FCKPLS(BaseEstimator, RegressorMixin):
         self,
         X: ArrayLike,
         y: ArrayLike,
-    ) -> "FCKPLS":
+    ) -> FCKPLS:
         """Fit the FCK-PLS model.
 
         Parameters
@@ -755,10 +746,7 @@ class FCKPLS(BaseEstimator, RegressorMixin):
         Y_proc = self.pls_.predict(X_feat)
 
         # Inverse transform
-        if self.y_scaler_ is not None:
-            Y = self.y_scaler_.inverse_transform(Y_proc)
-        else:
-            Y = Y_proc
+        Y = self.y_scaler_.inverse_transform(Y_proc) if self.y_scaler_ is not None else Y_proc
 
         if self._y_1d:
             Y = Y.ravel()
@@ -853,7 +841,7 @@ class FCKPLS(BaseEstimator, RegressorMixin):
             'backend': self.backend,
         }
 
-    def set_params(self, **params) -> "FCKPLS":
+    def set_params(self, **params) -> FCKPLS:
         """Set the parameters of this estimator."""
         for key, value in params.items():
             setattr(self, key, value)
@@ -870,7 +858,6 @@ class FCKPLS(BaseEstimator, RegressorMixin):
             f"kernel_type='{self.kernel_type}', "
             f"backend='{self.backend}')"
         )
-
 
 # Aliases
 FractionalPLS = FCKPLS

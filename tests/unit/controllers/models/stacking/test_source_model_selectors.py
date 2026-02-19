@@ -17,21 +17,21 @@ Test scenarios include:
 - Factory creation
 """
 
-import pytest
-import numpy as np
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional
+
+import numpy as np
+import pytest
 
 from nirs4all.operators.models.selection import (
-    SourceModelSelector,
-    ModelCandidate,
     AllPreviousModelsSelector,
-    ExplicitModelSelector,
-    TopKByMetricSelector,
     DiversitySelector,
+    ExplicitModelSelector,
+    ModelCandidate,
     SelectorFactory,
+    SourceModelSelector,
+    TopKByMetricSelector,
 )
-
 
 # =============================================================================
 # Test Fixtures and Mocks
@@ -40,10 +40,9 @@ from nirs4all.operators.models.selection import (
 @dataclass
 class MockSelector:
     """Mock selector with branch_id."""
-    branch_id: Optional[int] = None
-    branch_name: Optional[str] = None
-    branch_path: List[int] = field(default_factory=list)
-
+    branch_id: int | None = None
+    branch_name: str | None = None
+    branch_path: list[int] = field(default_factory=list)
 
 @dataclass
 class MockState:
@@ -51,27 +50,24 @@ class MockState:
     step_number: int = 10
     mode: str = "train"
 
-
 class MockExecutionContext:
     """Mock ExecutionContext for testing selectors."""
 
     def __init__(
         self,
         step_number: int = 10,
-        branch_id: Optional[int] = None,
-        branch_name: Optional[str] = None
+        branch_id: int | None = None,
+        branch_name: str | None = None
     ):
         self.selector = MockSelector(branch_id=branch_id, branch_name=branch_name)
         self.state = MockState(step_number=step_number)
         self.custom = {}
-
 
 class MockPredictionStore:
     """Mock prediction store (unused by most selectors)."""
 
     def filter_predictions(self, **kwargs):
         return []
-
 
 def create_candidates(configs):
     """Create ModelCandidate objects from simplified config dicts.
@@ -96,7 +92,6 @@ def create_candidates(configs):
         )
         candidates.append(candidate)
     return candidates
-
 
 # =============================================================================
 # ModelCandidate Tests
@@ -133,7 +128,6 @@ class TestModelCandidate:
         assert candidate.branch_name is None
         assert candidate.val_score is None
         assert candidate.fold_id is None
-
 
 # =============================================================================
 # AllPreviousModelsSelector Tests
@@ -287,7 +281,6 @@ class TestAllPreviousModelsSelector:
         with pytest.raises(ValueError, match="No source models selected"):
             selector.validate([], context)
 
-
 # =============================================================================
 # ExplicitModelSelector Tests
 # =============================================================================
@@ -394,7 +387,6 @@ class TestExplicitModelSelector:
         names = [c.model_name for c in selected]
         assert 'PLS' in names
         assert 'Future' not in names
-
 
 # =============================================================================
 # TopKByMetricSelector Tests
@@ -524,7 +516,6 @@ class TestTopKByMetricSelector:
         assert len(selected) == 1
         assert selected[0].model_name == 'PLS'
 
-
 # =============================================================================
 # DiversitySelector Tests
 # =============================================================================
@@ -618,7 +609,6 @@ class TestDiversitySelector:
         steps = [c.step_idx for c in selected]
         assert steps == sorted(steps)
 
-
 # =============================================================================
 # SelectorFactory Tests
 # =============================================================================
@@ -700,7 +690,6 @@ class TestSelectorFactory:
         with pytest.raises(TypeError, match="must inherit from SourceModelSelector"):
             SelectorFactory.register('invalid', NotASelector)
 
-
 # =============================================================================
 # Edge Cases and Integration Tests
 # =============================================================================
@@ -752,7 +741,6 @@ class TestSelectorEdgeCases:
         # All 5 fold entries should be selected
         assert len(selected) == 5
         assert all(c.model_name == 'PLS' for c in selected)
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

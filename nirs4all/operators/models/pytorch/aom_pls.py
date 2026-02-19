@@ -41,7 +41,6 @@ def _sparsemax_torch(z):
     tau = (cumsum[k_star - 1] - 1.0) / k_star
     return torch.clamp(z - tau, min=0.0)
 
-
 class TorchOperatorBank:
     """Manages operator bank as torch conv1d kernels for batched operations.
 
@@ -58,6 +57,7 @@ class TorchOperatorBank:
 
     def __init__(self, operators, device):
         import torch
+
         from nirs4all.operators.models.sklearn.aom_pls import (
             SavitzkyGolayOperator,
         )
@@ -169,6 +169,7 @@ class TorchOperatorBank:
         """
         import torch
         import torch.nn.functional as F
+
         from nirs4all.operators.models.sklearn.aom_pls import SavitzkyGolayOperator
 
         op = self.operators[op_idx]
@@ -185,7 +186,6 @@ class TorchOperatorBank:
             x_np = x_np.reshape(1, -1)
         result_np = op.apply(x_np)
         return torch.tensor(result_np.reshape(x.shape), dtype=torch.float32, device=self.device)
-
 
 def aompls_fit_torch(
     X: NDArray,

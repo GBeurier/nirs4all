@@ -9,9 +9,11 @@ Phase 8 Implementation - Dataset Configuration Roadmap
 Section 8.1: Sample Aggregation Enhancements
 """
 
+import contextlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Union
+from enum import Enum, StrEnum
+from typing import Any, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -20,8 +22,7 @@ from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-
-class AggregationMethod(str, Enum):
+class AggregationMethod(StrEnum):
     """Aggregation method for combining samples."""
 
     MEAN = "mean"
@@ -34,7 +35,6 @@ class AggregationMethod(str, Enum):
     FIRST = "first"
     LAST = "last"
     COUNT = "count"
-
 
 @dataclass
 class AggregationConfig:
@@ -53,37 +53,31 @@ class AggregationConfig:
         target_method: Aggregation method for targets (Y), if different from features.
     """
 
-    column: Optional[Union[str, bool]] = None
-    method: Union[AggregationMethod, str] = AggregationMethod.MEAN
+    column: str | bool | None = None
+    method: AggregationMethod | str = AggregationMethod.MEAN
     exclude_outliers: bool = False
     outlier_threshold: float = 3.0
     min_samples: int = 1
-    custom_function: Optional[Callable] = None
-    feature_method: Optional[Union[AggregationMethod, str]] = None
-    target_method: Optional[Union[AggregationMethod, str]] = None
+    custom_function: Callable | None = None
+    feature_method: AggregationMethod | str | None = None
+    target_method: AggregationMethod | str | None = None
 
     def __post_init__(self):
         """Normalize method values to enum."""
         if isinstance(self.method, str):
-            try:
+            with contextlib.suppress(ValueError):
                 self.method = AggregationMethod(self.method.lower())
-            except ValueError:
-                pass  # Keep as string for custom methods
 
         if isinstance(self.feature_method, str):
-            try:
+            with contextlib.suppress(ValueError):
                 self.feature_method = AggregationMethod(self.feature_method.lower())
-            except ValueError:
-                pass
 
         if isinstance(self.target_method, str):
-            try:
+            with contextlib.suppress(ValueError):
                 self.target_method = AggregationMethod(self.target_method.lower())
-            except ValueError:
-                pass
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> "AggregationConfig":
+    def from_config(cls, config: dict[str, Any]) -> "AggregationConfig":
         """Create from configuration dictionary.
 
         Args:
@@ -110,11 +104,9 @@ class AggregationConfig:
         """Check if aggregation is enabled."""
         return self.column is not None
 
-
 class AggregationError(Exception):
     """Exception raised when aggregation fails."""
     pass
-
 
 class Aggregator:
     """Aggregates sample data during loading.
@@ -156,7 +148,7 @@ class Aggregator:
             config: Aggregation configuration.
         """
         self.config = config
-        self._custom_functions: Dict[str, Callable] = {}
+        self._custom_functions: dict[str, Callable] = {}
 
     def register_function(self, name: str, func: Callable) -> None:
         """Register a custom aggregation function.
@@ -170,9 +162,9 @@ class Aggregator:
     def aggregate(
         self,
         X: np.ndarray,
-        y: Optional[np.ndarray] = None,
-        metadata: Optional[pd.DataFrame] = None,
-        group_column: Optional[str] = None,
+        y: np.ndarray | None = None,
+        metadata: pd.DataFrame | None = None,
+        group_column: str | None = None,
     ) -> tuple:
         """Aggregate data by groups.
 
@@ -249,11 +241,11 @@ class Aggregator:
 
     def _get_group_labels(
         self,
-        column: Union[str, bool],
+        column: str | bool,
         X: np.ndarray,
-        y: Optional[np.ndarray],
-        metadata: Optional[pd.DataFrame],
-    ) -> Optional[np.ndarray]:
+        y: np.ndarray | None,
+        metadata: pd.DataFrame | None,
+    ) -> np.ndarray | None:
         """Get group labels for aggregation.
 
         Args:
@@ -317,7 +309,7 @@ class Aggregator:
         data: np.ndarray,
         group_labels: np.ndarray,
         unique_groups: np.ndarray,
-        method: Union[AggregationMethod, str, Callable],
+        method: AggregationMethod | str | Callable,
     ) -> np.ndarray:
         """Aggregate an array by groups.
 
@@ -424,7 +416,7 @@ class Aggregator:
 
     def _get_aggregation_function(
         self,
-        method: Union[AggregationMethod, str, Callable]
+        method: AggregationMethod | str | Callable
     ) -> Callable:
         """Get the aggregation function for a method.
 
@@ -496,13 +488,12 @@ class Aggregator:
 
         return data[mask]
 
-
 def aggregate_data(
     X: np.ndarray,
-    y: Optional[np.ndarray] = None,
-    metadata: Optional[pd.DataFrame] = None,
-    column: Optional[Union[str, bool]] = None,
-    method: Union[str, AggregationMethod] = "mean",
+    y: np.ndarray | None = None,
+    metadata: pd.DataFrame | None = None,
+    column: str | bool | None = None,
+    method: str | AggregationMethod = "mean",
     exclude_outliers: bool = False,
     **kwargs,
 ) -> tuple:

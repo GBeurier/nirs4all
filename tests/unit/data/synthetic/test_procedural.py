@@ -13,13 +13,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from nirs4all.synthesis.components import NIRBand, SpectralComponent
 from nirs4all.synthesis.procedural import (
-    FunctionalGroupType,
     FUNCTIONAL_GROUP_PROPERTIES,
+    FunctionalGroupType,
     ProceduralComponentConfig,
     ProceduralComponentGenerator,
 )
-from nirs4all.synthesis.components import SpectralComponent, NIRBand
 
 
 class TestFunctionalGroupType:
@@ -40,7 +40,6 @@ class TestFunctionalGroupType:
         """Test that FunctionalGroupType is iterable."""
         groups = list(FunctionalGroupType)
         assert len(groups) >= 10  # At least 10 functional groups
-
 
 class TestFunctionalGroupProperties:
     """Tests for FUNCTIONAL_GROUP_PROPERTIES dictionary."""
@@ -79,7 +78,6 @@ class TestFunctionalGroupProperties:
             # Amplitude 0-1
             assert 0 < props["typical_amplitude"] <= 1
 
-
 class TestProceduralComponentConfig:
     """Tests for ProceduralComponentConfig dataclass."""
 
@@ -109,7 +107,6 @@ class TestProceduralComponentConfig:
         assert config.max_overtone_order == 3
         assert config.include_combinations is False
         assert config.h_bond_strength == 0.7
-
 
 class TestProceduralComponentGenerator:
     """Tests for ProceduralComponentGenerator class."""
@@ -230,7 +227,6 @@ class TestProceduralComponentGenerator:
             # Should be close but not identical
             assert abs(orig.center - var.center) < 50
 
-
 class TestProceduralGeneratorEdgeCases:
     """Edge case tests for ProceduralComponentGenerator."""
 
@@ -277,7 +273,6 @@ class TestProceduralGeneratorEdgeCases:
         component = generator.generate_component("high_overtone", config)
         # Should have multiple overtones
         assert len(component.bands) >= 2
-
 
 class TestProceduralIntegration:
     """Integration tests for procedural component generation."""

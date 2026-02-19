@@ -29,7 +29,7 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Literal, Optional, Union
 
 import numpy as np
 from scipy import stats
@@ -54,7 +54,6 @@ class ClassSeparationConfig:
     separation: float = 1.5
     method: Literal["component", "shift", "intensity"] = "component"
     noise: float = 0.1
-
 
 class TargetGenerator:
     """
@@ -93,7 +92,7 @@ class TargetGenerator:
         ... )
     """
 
-    def __init__(self, random_state: Optional[int] = None) -> None:
+    def __init__(self, random_state: int | None = None) -> None:
         """
         Initialize the target generator.
 
@@ -106,15 +105,15 @@ class TargetGenerator:
     def regression(
         self,
         n_samples: int,
-        concentrations: Optional[np.ndarray] = None,
+        concentrations: np.ndarray | None = None,
         *,
         distribution: Literal["uniform", "normal", "lognormal", "bimodal"] = "uniform",
-        range: Optional[Tuple[float, float]] = None,
-        component: Optional[Union[int, str, List[int]]] = None,
-        component_names: Optional[List[str]] = None,
+        range: tuple[float, float] | None = None,
+        component: int | str | list[int] | None = None,
+        component_names: list[str] | None = None,
         correlation: float = 0.9,
         noise: float = 0.1,
-        transform: Optional[Literal["log", "sqrt"]] = None,
+        transform: Literal["log", "sqrt"] | None = None,
     ) -> np.ndarray:
         """
         Generate regression target values.
@@ -184,15 +183,15 @@ class TargetGenerator:
     def classification(
         self,
         n_samples: int,
-        concentrations: Optional[np.ndarray] = None,
+        concentrations: np.ndarray | None = None,
         *,
         n_classes: int = 2,
-        class_weights: Optional[List[float]] = None,
+        class_weights: list[float] | None = None,
         separation: float = 1.5,
         separation_method: Literal["component", "threshold", "cluster"] = "component",
-        class_names: Optional[List[str]] = None,
+        class_names: list[str] | None = None,
         return_proba: bool = False,
-    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+    ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
         """
         Generate classification target labels with controllable class separation.
 
@@ -269,8 +268,8 @@ class TargetGenerator:
     def _concentrations_to_base(
         self,
         concentrations: np.ndarray,
-        component: Optional[Union[int, str, List[int]]],
-        component_names: Optional[List[str]],
+        component: int | str | list[int] | None,
+        component_names: list[str] | None,
     ) -> np.ndarray:
         """Extract base values from concentration matrix."""
         if component is None:
@@ -284,9 +283,7 @@ class TargetGenerator:
                 )
             idx = component_names.index(component)
             return concentrations[:, idx]
-        elif isinstance(component, int):
-            return concentrations[:, component]
-        elif isinstance(component, list):
+        elif isinstance(component, (int, list)):
             return concentrations[:, component]
         else:
             raise ValueError(f"Invalid component specification: {component}")
@@ -341,7 +338,7 @@ class TargetGenerator:
     def _scale_to_range(
         self,
         y: np.ndarray,
-        range: Tuple[float, float],
+        range: tuple[float, float],
     ) -> np.ndarray:
         """Scale values to specified range."""
         min_val, max_val = range
@@ -374,11 +371,11 @@ class TargetGenerator:
     def _classify_by_component_profile(
         self,
         n_samples: int,
-        concentrations: Optional[np.ndarray],
+        concentrations: np.ndarray | None,
         n_classes: int,
-        class_weights: Optional[List[float]],
+        class_weights: list[float] | None,
         separation: float,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Classify samples based on component concentration profiles.
 
@@ -437,11 +434,11 @@ class TargetGenerator:
     def _classify_by_threshold(
         self,
         n_samples: int,
-        concentrations: Optional[np.ndarray],
+        concentrations: np.ndarray | None,
         n_classes: int,
-        class_weights: Optional[List[float]],
+        class_weights: list[float] | None,
         separation: float,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Classify samples using concentration thresholds.
 
@@ -490,11 +487,11 @@ class TargetGenerator:
     def _classify_by_clustering(
         self,
         n_samples: int,
-        concentrations: Optional[np.ndarray],
+        concentrations: np.ndarray | None,
         n_classes: int,
-        class_weights: Optional[List[float]],
+        class_weights: list[float] | None,
         separation: float,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Classify samples using k-means-like clustering in component space.
         """
@@ -539,7 +536,7 @@ class TargetGenerator:
         self,
         labels: np.ndarray,
         n_classes: int,
-        class_weights: List[float],
+        class_weights: list[float],
     ) -> np.ndarray:
         """Rebalance label distribution to match target weights."""
         n_samples = len(labels)
@@ -573,14 +570,13 @@ class TargetGenerator:
 
         return new_labels
 
-
 def generate_regression_targets(
     n_samples: int,
-    concentrations: Optional[np.ndarray] = None,
+    concentrations: np.ndarray | None = None,
     *,
-    random_state: Optional[int] = None,
+    random_state: int | None = None,
     distribution: str = "uniform",
-    range: Optional[Tuple[float, float]] = None,
+    range: tuple[float, float] | None = None,
 ) -> np.ndarray:
     """
     Convenience function for generating regression targets.
@@ -603,14 +599,13 @@ def generate_regression_targets(
         range=range,
     )
 
-
 def generate_classification_targets(
     n_samples: int,
-    concentrations: Optional[np.ndarray] = None,
+    concentrations: np.ndarray | None = None,
     *,
-    random_state: Optional[int] = None,
+    random_state: int | None = None,
     n_classes: int = 2,
-    class_weights: Optional[List[float]] = None,
+    class_weights: list[float] | None = None,
     separation: float = 1.5,
 ) -> np.ndarray:
     """
@@ -635,7 +630,6 @@ def generate_classification_targets(
         class_weights=class_weights,
         separation=separation,
     )
-
 
 @dataclass
 class NonLinearTargetConfig:
@@ -675,7 +669,6 @@ class NonLinearTargetConfig:
     regime_overlap: float = 0.2
     noise_heteroscedasticity: float = 0.0
 
-
 class NonLinearTargetProcessor:
     """
     Process targets with non-linear relationships, confounders, and multi-regime landscapes.
@@ -703,7 +696,7 @@ class NonLinearTargetProcessor:
     def __init__(
         self,
         config: NonLinearTargetConfig,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ) -> None:
         self.config = config
         self.rng = np.random.default_rng(random_state)
@@ -713,7 +706,7 @@ class NonLinearTargetProcessor:
         self,
         concentrations: np.ndarray,
         y_base: np.ndarray,
-        spectra: Optional[np.ndarray] = None,
+        spectra: np.ndarray | None = None,
     ) -> np.ndarray:
         """
         Apply all configured complexity to base targets.
@@ -939,7 +932,7 @@ class NonLinearTargetProcessor:
         self,
         C: np.ndarray,
         y: np.ndarray,
-        spectra: Optional[np.ndarray],
+        spectra: np.ndarray | None,
     ) -> np.ndarray:
         """Apply different target functions in different regimes."""
         n_samples = y.shape[0]
@@ -996,7 +989,7 @@ class NonLinearTargetProcessor:
     def _assign_regimes(
         self,
         C: np.ndarray,
-        spectra: Optional[np.ndarray],
+        spectra: np.ndarray | None,
     ) -> np.ndarray:
         """Assign samples to regimes based on method."""
         n_samples = C.shape[0]

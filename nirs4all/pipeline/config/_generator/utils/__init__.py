@@ -4,32 +4,32 @@ This package provides utility functions for sampling, combinatorics,
 export, and other helper operations used in pipeline configuration generation.
 """
 
-from .sampling import (
-    sample_with_seed,
-    shuffle_with_seed,
-    random_choice_with_seed,
-)
 from .combinatorics import (
-    generate_combinations,
-    generate_combinations_range,
-    generate_permutations,
-    generate_cartesian_product,
     count_combinations,
     count_combinations_range,
     count_permutations,
     count_permutations_range,
-    normalize_size_spec,
-    is_nested_size_spec,
     expand_combination_cartesian,
+    generate_cartesian_product,
+    generate_combinations,
+    generate_combinations_range,
+    generate_permutations,
+    is_nested_size_spec,
+    normalize_size_spec,
 )
 from .export import (
-    to_dataframe,
+    ExpansionTreeNode,
     diff_configs,
-    summarize_configs,
+    format_config_table,
     get_expansion_tree,
     print_expansion_tree,
-    format_config_table,
-    ExpansionTreeNode,
+    summarize_configs,
+    to_dataframe,
+)
+from .sampling import (
+    random_choice_with_seed,
+    sample_with_seed,
+    shuffle_with_seed,
 )
 
 __all__ = [

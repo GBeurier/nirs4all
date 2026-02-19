@@ -34,8 +34,8 @@ Example:
     >>> print(f"R²: {pipe.score(X_test, y_test):.4f}")
 """
 
-from .pipeline import NIRSPipeline
 from .classifier import NIRSPipelineClassifier
+from .pipeline import NIRSPipeline
 
 __all__ = [
     "NIRSPipeline",

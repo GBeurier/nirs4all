@@ -42,13 +42,13 @@ References:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Dict, List, Optional, Tuple, Any
+from enum import Enum, StrEnum
+from typing import Any, Optional
 
 import numpy as np
 
 
-class DomainCategory(str, Enum):
+class DomainCategory(StrEnum):
     """Top-level domain categories."""
     AGRICULTURE = "agriculture"
     FOOD = "food"
@@ -59,7 +59,6 @@ class DomainCategory(str, Enum):
     BIOMEDICAL = "biomedical"
     POLYMER = "polymer"
     BEVERAGE = "beverage"
-
 
 @dataclass
 class ConcentrationPrior:
@@ -73,7 +72,7 @@ class ConcentrationPrior:
         max_value: Maximum allowed concentration.
     """
     distribution: str = "uniform"
-    params: Dict[str, float] = field(default_factory=lambda: {"low": 0.0, "high": 1.0})
+    params: dict[str, float] = field(default_factory=lambda: {"low": 0.0, "high": 1.0})
     min_value: float = 0.0
     max_value: float = 1.0
 
@@ -108,7 +107,6 @@ class ConcentrationPrior:
 
         return np.clip(values, self.min_value, self.max_value)
 
-
 @dataclass
 class DomainConfig:
     """
@@ -135,18 +133,18 @@ class DomainConfig:
     name: str
     category: DomainCategory
     description: str = ""
-    typical_components: List[str] = field(default_factory=list)
-    component_weights: Optional[Dict[str, float]] = None
-    concentration_priors: Dict[str, ConcentrationPrior] = field(default_factory=dict)
-    wavelength_range: Tuple[float, float] = (1000, 2500)
-    n_components_range: Tuple[int, int] = (3, 8)
+    typical_components: list[str] = field(default_factory=list)
+    component_weights: dict[str, float] | None = None
+    concentration_priors: dict[str, ConcentrationPrior] = field(default_factory=dict)
+    wavelength_range: tuple[float, float] = (1000, 2500)
+    n_components_range: tuple[int, int] = (3, 8)
     noise_level: str = "medium"
     measurement_mode: str = "reflectance"
-    typical_sample_types: List[str] = field(default_factory=list)
+    typical_sample_types: list[str] = field(default_factory=list)
     complexity: str = "realistic"
-    additional_params: Dict[str, Any] = field(default_factory=dict)
+    additional_params: dict[str, Any] = field(default_factory=dict)
 
-    def get_component_weights(self) -> Dict[str, float]:
+    def get_component_weights(self) -> dict[str, float]:
         """Get normalized component weights for selection."""
         if self.component_weights is not None:
             return self.component_weights
@@ -155,13 +153,13 @@ class DomainConfig:
         n = len(self.typical_components)
         if n == 0:
             return {}
-        return {comp: 1.0 / n for comp in self.typical_components}
+        return dict.fromkeys(self.typical_components, 1.0 / n)
 
     def sample_components(
         self,
         rng: np.random.Generator,
-        n_components: Optional[int] = None
-    ) -> List[str]:
+        n_components: int | None = None
+    ) -> list[str]:
         """
         Sample components for a sample based on domain priors.
 
@@ -197,7 +195,7 @@ class DomainConfig:
     def sample_concentrations(
         self,
         rng: np.random.Generator,
-        components: List[str],
+        components: list[str],
         n_samples: int = 1
     ) -> np.ndarray:
         """
@@ -228,12 +226,11 @@ class DomainConfig:
 
         return concentrations
 
-
 # ============================================================================
 # Predefined Domain Configurations
 # ============================================================================
 
-APPLICATION_DOMAINS: Dict[str, DomainConfig] = {
+APPLICATION_DOMAINS: dict[str, DomainConfig] = {
     # =========================================================================
     # AGRICULTURE DOMAINS
     # =========================================================================
@@ -722,7 +719,6 @@ APPLICATION_DOMAINS: Dict[str, DomainConfig] = {
     ),
 }
 
-
 # ============================================================================
 # Domain Access Functions
 # ============================================================================
@@ -752,8 +748,7 @@ def get_domain_config(domain_name: str) -> DomainConfig:
         )
     return APPLICATION_DOMAINS[domain_name]
 
-
-def list_domains(category: Optional[DomainCategory] = None) -> List[str]:
+def list_domains(category: DomainCategory | None = None) -> list[str]:
     """
     List available domain names.
 
@@ -773,8 +768,7 @@ def list_domains(category: Optional[DomainCategory] = None) -> List[str]:
             domains.append(name)
     return domains
 
-
-def get_domain_components(domain_name: str) -> List[str]:
+def get_domain_components(domain_name: str) -> list[str]:
     """
     Get typical components for a domain.
 
@@ -791,8 +785,7 @@ def get_domain_components(domain_name: str) -> List[str]:
     config = get_domain_config(domain_name)
     return config.typical_components
 
-
-def get_domains_for_component(component_name: str) -> List[str]:
+def get_domains_for_component(component_name: str) -> list[str]:
     """
     Find domains that typically contain a specific component.
 
@@ -812,12 +805,11 @@ def get_domains_for_component(component_name: str) -> List[str]:
             domains.append(name)
     return domains
 
-
 def create_domain_aware_library(
     domain_name: str,
     n_samples: int = 100,
-    random_state: Optional[int] = None
-) -> Tuple[List[str], np.ndarray]:
+    random_state: int | None = None
+) -> tuple[list[str], np.ndarray]:
     """
     Create component selection and concentrations based on domain priors.
 
@@ -853,7 +845,6 @@ def create_domain_aware_library(
     concentrations = config.sample_concentrations(rng, components, n_samples)
 
     return components, concentrations
-
 
 # ============================================================================
 # Module-level exports

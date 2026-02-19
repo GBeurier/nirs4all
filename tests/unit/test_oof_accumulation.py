@@ -11,13 +11,14 @@ Tests cover:
 - Standard KFold (no regression: each sample appears once)
 """
 
-import pytest
-import numpy as np
 from unittest.mock import MagicMock
 
+import numpy as np
+import pytest
+
 from nirs4all.controllers.models.stacking import (
-    TrainingSetReconstructor,
     ReconstructorConfig,
+    TrainingSetReconstructor,
 )
 from nirs4all.operators.models.meta import StackingConfig
 
@@ -56,11 +57,9 @@ class MockPredictionStore:
             results.append(pred)
         return results
 
-
 # =============================================================================
 # Tests for _collect_oof_predictions_with_proba (1D and 2D)
 # =============================================================================
-
 
 class TestCollectOofPredictionsWithProba:
     """Test OOF accumulation in _collect_oof_predictions_with_proba."""

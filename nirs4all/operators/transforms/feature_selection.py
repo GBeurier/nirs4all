@@ -16,13 +16,14 @@ These selectors identify informative wavelengths and reduce feature
 dimensionality while preserving predictive performance.
 """
 
+import warnings
+from typing import Literal, Optional, Union
+
 import numpy as np
-from typing import Optional, Literal, Union
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_array, check_is_fitted
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA, TruncatedSVD
-import warnings
+from sklearn.utils.validation import check_array, check_is_fitted
 
 
 class CARS(TransformerMixin, BaseEstimator):
@@ -115,7 +116,7 @@ class CARS(TransformerMixin, BaseEstimator):
         n_variables_ratio_end: float = 0.1,
         cv_folds: int = 5,
         subset_ratio: float = 0.8,
-        random_state: Optional[int] = None
+        random_state: int | None = None
     ):
         self.n_components = n_components
         self.n_sampling_runs = n_sampling_runs
@@ -165,7 +166,7 @@ class CARS(TransformerMixin, BaseEstimator):
 
         return np.sqrt(np.mean(errors))
 
-    def fit(self, X, y=None, wavelengths: Optional[np.ndarray] = None):
+    def fit(self, X, y=None, wavelengths: np.ndarray | None = None):
         """
         Fit the CARS selector to identify important wavelengths.
 
@@ -360,7 +361,6 @@ class CARS(TransformerMixin, BaseEstimator):
                     f"n_in={self.n_features_in_}, n_out={self.n_features_out_})")
         return f"CARS(n_components={self.n_components}, unfitted)"
 
-
 class MCUVE(TransformerMixin, BaseEstimator):
     """
     Monte-Carlo Uninformative Variable Elimination (MC-UVE) for wavelength selection.
@@ -458,11 +458,11 @@ class MCUVE(TransformerMixin, BaseEstimator):
         n_components: int = 10,
         n_iterations: int = 100,
         subset_ratio: float = 0.8,
-        n_noise_variables: Optional[int] = None,
+        n_noise_variables: int | None = None,
         threshold_method: Literal['percentile', 'fixed', 'auto'] = 'auto',
         threshold_percentile: float = 99,
         threshold_value: float = 2.0,
-        random_state: Optional[int] = None
+        random_state: int | None = None
     ):
         self.n_components = n_components
         self.n_iterations = n_iterations
@@ -473,7 +473,7 @@ class MCUVE(TransformerMixin, BaseEstimator):
         self.threshold_value = threshold_value
         self.random_state = random_state
 
-    def fit(self, X, y=None, wavelengths: Optional[np.ndarray] = None):
+    def fit(self, X, y=None, wavelengths: np.ndarray | None = None):
         """
         Fit the MC-UVE selector to identify important wavelengths.
 
@@ -544,7 +544,7 @@ class MCUVE(TransformerMixin, BaseEstimator):
                 continue
 
         if len(all_coefs) < 10:
-            warnings.warn("MC-UVE: Too few successful iterations. Results may be unreliable.")
+            warnings.warn("MC-UVE: Too few successful iterations. Results may be unreliable.", stacklevel=2)
             # Fall back to selecting all variables
             self.selected_indices_ = np.arange(n_features)
             self.selection_mask_ = np.ones(n_features, dtype=bool)
@@ -588,7 +588,7 @@ class MCUVE(TransformerMixin, BaseEstimator):
         # Ensure at least 1 variable is selected
         if len(self.selected_indices_) == 0:
             warnings.warn(
-                "MC-UVE: No variables passed threshold. Selecting top 10% by stability."
+                "MC-UVE: No variables passed threshold. Selecting top 10% by stability.", stacklevel=2
             )
             n_select = max(1, n_features // 10)
             top_indices = np.argsort(abs_stability)[-n_select:]
@@ -676,7 +676,6 @@ class MCUVE(TransformerMixin, BaseEstimator):
                     f"n_in={self.n_features_in_}, n_out={self.n_features_out_})")
         return f"MCUVE(n_components={self.n_components}, unfitted)"
 
-
 class FlexiblePCA(TransformerMixin, BaseEstimator):
     """
     PCA with flexible component specification.
@@ -762,10 +761,10 @@ class FlexiblePCA(TransformerMixin, BaseEstimator):
 
     def __init__(
         self,
-        n_components: Union[int, float] = 0.95,
+        n_components: int | float = 0.95,
         whiten: bool = False,
         svd_solver: Literal['auto', 'full', 'arpack', 'randomized'] = 'auto',
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         copy: bool = True
     ):
         self.n_components = n_components
@@ -915,7 +914,6 @@ class FlexiblePCA(TransformerMixin, BaseEstimator):
                     f"n_out={self.n_features_out_}, var={var_explained:.1f}%)")
         return f"FlexiblePCA(n_components={self.n_components}, unfitted)"
 
-
 class FlexibleSVD(TransformerMixin, BaseEstimator):
     """
     Truncated SVD with flexible component specification.
@@ -1004,10 +1002,10 @@ class FlexibleSVD(TransformerMixin, BaseEstimator):
 
     def __init__(
         self,
-        n_components: Union[int, float] = 0.95,
+        n_components: int | float = 0.95,
         algorithm: Literal['arpack', 'randomized'] = 'randomized',
         n_iter: int = 5,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         copy: bool = True
     ):
         self.n_components = n_components
@@ -1091,7 +1089,7 @@ class FlexibleSVD(TransformerMixin, BaseEstimator):
         self.svd_.fit(X)
 
         # Copy attributes from underlying SVD
-        self.n_features_out_ = self.svd_.n_components  # type: ignore[attr-defined]
+        self.n_features_out_ = self.svd_.n_components
         self.components_ = self.svd_.components_
         self.explained_variance_ = self.svd_.explained_variance_
         self.explained_variance_ratio_ = self.svd_.explained_variance_ratio_

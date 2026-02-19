@@ -23,7 +23,6 @@ from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 # Helpers
 # =========================================================================
 
-
 class _WavelengthAwareAdder:
     """Simple transformer that requires wavelengths in transform()."""
 
@@ -32,7 +31,6 @@ class _WavelengthAwareAdder:
             raise ValueError("wavelengths are required")
         wl = np.asarray(wavelengths, dtype=float).reshape(1, -1)
         return np.asarray(X, dtype=float) + wl
-
 
 class _SummingModel:
     """Simple model used for chain replay tests."""
@@ -43,7 +41,6 @@ class _SummingModel:
 def _make_store(tmp_path: Path) -> WorkspaceStore:
     """Create a WorkspaceStore rooted at *tmp_path*."""
     return WorkspaceStore(tmp_path / "workspace")
-
 
 def _create_full_run(store: WorkspaceStore, *, dataset_name: str = "wheat") -> dict:
     """Create a run -> pipeline -> chain -> prediction hierarchy and return all IDs."""
@@ -108,7 +105,6 @@ def _create_full_run(store: WorkspaceStore, *, dataset_name: str = "wheat") -> d
         "artifact_id": art_id,
     }
 
-
 # =========================================================================
 # test_run_lifecycle
 # =========================================================================
@@ -141,7 +137,6 @@ class TestRunLifecycle:
 
         store.close()
 
-
 # =========================================================================
 # test_run_failure
 # =========================================================================
@@ -162,7 +157,6 @@ class TestRunFailure:
         assert run["completed_at"] is not None
 
         store.close()
-
 
 # =========================================================================
 # test_pipeline_crud
@@ -241,7 +235,6 @@ class TestPipelineCrud:
 
         store.close()
 
-
 # =========================================================================
 # test_chain_save_load
 # =========================================================================
@@ -310,7 +303,6 @@ class TestChainSaveLoad:
 
         store.close()
 
-
 class TestChainReplay:
     """Chain replay behavior including wavelength passthrough."""
 
@@ -355,7 +347,6 @@ class TestChainReplay:
         expected = (X + wavelengths.reshape(1, -1)).sum(axis=1)
         np.testing.assert_allclose(y_pred, expected)
         store.close()
-
 
 # =========================================================================
 # test_prediction_save_query
@@ -607,7 +598,6 @@ class TestPredictionSaveQuery:
 
         store.close()
 
-
 # =========================================================================
 # test_prediction_arrays
 # =========================================================================
@@ -685,7 +675,6 @@ class TestPredictionArrays:
         assert "y_pred" not in pred
 
         store.close()
-
 
 # =========================================================================
 # test_top_predictions
@@ -785,7 +774,6 @@ class TestTopPredictions:
 
         store.close()
 
-
 # =========================================================================
 # test_artifact_dedup
 # =========================================================================
@@ -813,7 +801,6 @@ class TestArtifactDedup:
         assert result[0] == 2
 
         store.close()
-
 
 # =========================================================================
 # test_artifact_gc
@@ -845,7 +832,6 @@ class TestArtifactGC:
         assert not artifact_path.exists()
 
         store.close()
-
 
 # =========================================================================
 # test_log_step
@@ -899,7 +885,6 @@ class TestLogStep:
         assert len(df) == 1
 
         store.close()
-
 
 # =========================================================================
 # test_delete_cascade
@@ -981,7 +966,6 @@ class TestDeleteCascade:
 
         store.close()
 
-
 # =========================================================================
 # test_export_chain_n4a
 # =========================================================================
@@ -1030,7 +1014,6 @@ class TestExportChainN4a:
             store.export_chain("nonexistent", tmp_path / "out.n4a")
         store.close()
 
-
 # =========================================================================
 # test_export_pipeline_config
 # =========================================================================
@@ -1061,7 +1044,6 @@ class TestExportPipelineConfig:
         with pytest.raises(KeyError):
             store.export_pipeline_config("nonexistent", tmp_path / "out.json")
         store.close()
-
 
 # =========================================================================
 # test_export_run
@@ -1101,7 +1083,6 @@ class TestExportRun:
         with pytest.raises(KeyError):
             store.export_run("nonexistent", tmp_path / "out.yaml")
         store.close()
-
 
 # =========================================================================
 # test_concurrent_read_write
@@ -1147,7 +1128,6 @@ class TestConcurrentReadWrite:
         store.close()
 
         assert errors == [], f"Concurrent access errors: {errors}"
-
 
 # =========================================================================
 # test_empty_workspace
@@ -1199,7 +1179,6 @@ class TestEmptyWorkspace:
 
         store.close()
 
-
 # =========================================================================
 # test_schema_creation (via WorkspaceStore)
 # =========================================================================
@@ -1247,7 +1226,6 @@ class TestSchemaCreationViaStore:
         assert db_path.exists()
         store.close()
 
-
 # =========================================================================
 # test_export_predictions_parquet
 # =========================================================================
@@ -1279,7 +1257,6 @@ class TestExportPredictionsParquet:
         df = pl.read_parquet(result_path)
         assert len(df) == 0
         store.close()
-
 
 # =========================================================================
 # test_artifact_load
@@ -1332,7 +1309,6 @@ class TestArtifactLoad:
             store.get_artifact_path("nonexistent")
         store.close()
 
-
 # =========================================================================
 # test_close
 # =========================================================================
@@ -1353,7 +1329,6 @@ class TestClose:
         with pytest.raises(RuntimeError):
             store.begin_run("test", config={}, datasets=[])
 
-
 # =========================================================================
 # test_vacuum
 # =========================================================================
@@ -1368,7 +1343,6 @@ class TestVacuum:
         store.delete_run(ids["run_id"])
         store.vacuum()  # Should not raise
         store.close()
-
 
 # =========================================================================
 # test_list_runs
@@ -1425,7 +1399,6 @@ class TestListRuns:
         assert len(df) == 2  # run1 and run3
 
         store.close()
-
 
 # =========================================================================
 # test_sql_injection_guard

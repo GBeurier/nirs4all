@@ -5,7 +5,7 @@ used in nirs4all pipelines.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 
 class BaseModelOperator(ABC):
@@ -30,7 +30,7 @@ class BaseModelOperator(ABC):
         pass
 
     @abstractmethod
-    def get_params(self, deep: bool = True) -> Dict[str, Any]:
+    def get_params(self, deep: bool = True) -> dict[str, Any]:
         """Get parameters for this operator.
 
         Parameters

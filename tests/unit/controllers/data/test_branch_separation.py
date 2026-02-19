@@ -8,13 +8,14 @@ Tests the new separation branch modes:
 - by_source: Branch by data source
 """
 
-import pytest
+from unittest.mock import MagicMock, Mock, patch
+
 import numpy as np
-from unittest.mock import Mock, MagicMock, patch
+import pytest
 
 from nirs4all.controllers.data.branch import (
-    BranchController,
     SEPARATION_KEYWORDS,
+    BranchController,
 )
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
 
@@ -68,7 +69,6 @@ class TestBranchModeDetection:
             with pytest.raises(ValueError, match="no longer supported"):
                 controller._detect_branch_mode(raw_def)
 
-
 class TestSeparationKeywordsConstant:
     """Test the SEPARATION_KEYWORDS constant."""
 
@@ -80,7 +80,6 @@ class TestSeparationKeywordsConstant:
     def test_is_frozen_set(self):
         """SEPARATION_KEYWORDS should be a set for O(1) lookup."""
         assert isinstance(SEPARATION_KEYWORDS, set)
-
 
 class TestBranchControllerHelpers:
     """Test helper methods in BranchController."""
@@ -129,7 +128,6 @@ class TestBranchControllerHelpers:
         # Dict steps now recurse into model/preprocessing values
         assert "Mock" in names
 
-
 class TestMultiplyBranchContexts:
     """Test branch context multiplication for nested branching."""
 
@@ -173,7 +171,6 @@ class TestMultiplyBranchContexts:
         # Check flattened IDs
         ids = [r["branch_id"] for r in result]
         assert ids == [0, 1, 2, 3]
-
 
 class TestExtractSubstepInfo:
     """Test substep info extraction for trace recording."""
@@ -253,7 +250,6 @@ class TestExtractSubstepInfo:
 
         assert op_type == "transform"
         assert op_class == "StandardScaler"
-
 
 class TestGetOperatorClassName:
     """Test operator class name extraction."""

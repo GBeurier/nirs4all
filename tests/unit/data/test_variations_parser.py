@@ -4,24 +4,25 @@ Tests for the VariationsParser and feature variations configuration (Phase 7).
 Tests the parser classes and schema models for feature variation datasets.
 """
 
-import pytest
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from nirs4all.data.parsers import (
-    VariationsParser,
     ConfigNormalizer,
+    VariationsParser,
     normalize_config,
 )
 from nirs4all.data.schema import (
-    VariationConfig,
-    VariationFileConfig,
-    PreprocessingApplied,
-    SharedTargetsConfig,
-    SharedMetadataConfig,
     DatasetConfigSchema,
     LoadingParams,
     PartitionType,
+    PreprocessingApplied,
+    SharedMetadataConfig,
+    SharedTargetsConfig,
+    VariationConfig,
+    VariationFileConfig,
     VariationMode,
 )
 
@@ -140,7 +141,6 @@ class TestVariationConfig:
                 train_x="data/other.csv"
             )
 
-
 class TestVariationFileConfig:
     """Test suite for VariationFileConfig schema model."""
 
@@ -165,7 +165,6 @@ class TestVariationFileConfig:
             params=LoadingParams(delimiter=";")
         )
         assert file.params.delimiter == ";"
-
 
 class TestPreprocessingApplied:
     """Test suite for PreprocessingApplied schema model."""
@@ -200,7 +199,6 @@ class TestPreprocessingApplied:
         assert preprocessing.params["window"] == 15
         assert preprocessing.params["polyorder"] == 2
 
-
 class TestVariationMode:
     """Test suite for VariationMode enum."""
 
@@ -210,7 +208,6 @@ class TestVariationMode:
         assert VariationMode.CONCAT.value == "concat"
         assert VariationMode.SELECT.value == "select"
         assert VariationMode.COMPARE.value == "compare"
-
 
 class TestVariationsParser:
     """Test suite for VariationsParser."""
@@ -385,7 +382,6 @@ class TestVariationsParser:
         assert var.params.delimiter == ";"
         assert var.params.header_unit.value == "nm"
 
-
 class TestDatasetConfigSchemaVariations:
     """Test suite for DatasetConfigSchema variation methods."""
 
@@ -509,7 +505,6 @@ class TestDatasetConfigSchemaVariations:
                 variation_mode=VariationMode.SELECT,
                 variation_select=["raw", "nonexistent"]  # "nonexistent" doesn't exist
             )
-
 
 class TestConfigNormalizerVariations:
     """Test ConfigNormalizer with variations format."""

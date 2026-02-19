@@ -1,23 +1,25 @@
 """SpectraChartController - Unified 2D and 3D spectra visualization controller."""
 
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+import io
+import re
+from typing import TYPE_CHECKING, Any, Optional
+
 import matplotlib
-import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
 import numpy as np
-import re
+
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
-from nirs4all.utils.header_units import get_x_values_and_label, apply_x_axis_limits
-import io
+from nirs4all.utils.header_units import apply_x_axis_limits, get_x_values_and_label
 
 logger = get_logger(__name__)
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.config.context import ExecutionContext
+    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.pipeline.steps.parser import ParsedStep
 
 @register_controller
@@ -77,7 +79,7 @@ class SpectraChartController(OperatorController):
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ) -> Tuple['ExecutionContext', Any]:
+    ) -> tuple['ExecutionContext', Any]:
         """
         Execute spectra visualization for both 2D and 3D plots.
         Skips execution in prediction mode.
@@ -280,10 +282,10 @@ class SpectraChartController(OperatorController):
         x_sorted: np.ndarray,
         y_sorted: np.ndarray,
         processing_name: str,
-        headers: Optional[List[str]] = None,
+        headers: list[str] | None = None,
         header_unit: str = "cm-1",
         is_classification: bool = False,
-        excluded_mask: Optional[np.ndarray] = None
+        excluded_mask: np.ndarray | None = None
     ) -> None:
         """
         Plot 2D spectra on given axis.
@@ -325,10 +327,7 @@ class SpectraChartController(OperatorController):
             y_min, y_max = y_sorted.min(), y_sorted.max()
 
             # Normalize y values to [0, 1] for colormap
-            if y_max != y_min:
-                y_normalized = (y_sorted - y_min) / (y_max - y_min)
-            else:
-                y_normalized = np.zeros_like(y_sorted)
+            y_normalized = (y_sorted - y_min) / (y_max - y_min) if y_max != y_min else np.zeros_like(y_sorted)
 
         # Count excluded samples for subtitle
         n_excluded = 0
@@ -399,10 +398,10 @@ class SpectraChartController(OperatorController):
         x_sorted: np.ndarray,
         y_sorted: np.ndarray,
         processing_name: str,
-        headers: Optional[List[str]] = None,
+        headers: list[str] | None = None,
         header_unit: str = "cm-1",
         is_classification: bool = False,
-        excluded_mask: Optional[np.ndarray] = None
+        excluded_mask: np.ndarray | None = None
     ) -> None:
         """
         Plot 3D spectra on given axis.
@@ -444,10 +443,7 @@ class SpectraChartController(OperatorController):
             y_min, y_max = y_sorted.min(), y_sorted.max()
 
             # Normalize y values to [0, 1] for colormap
-            if y_max != y_min:
-                y_normalized = (y_sorted - y_min) / (y_max - y_min)
-            else:
-                y_normalized = np.zeros_like(y_sorted)
+            y_normalized = (y_sorted - y_min) / (y_max - y_min) if y_max != y_min else np.zeros_like(y_sorted)
 
         # Count excluded samples for subtitle
         n_excluded = 0
@@ -455,7 +451,7 @@ class SpectraChartController(OperatorController):
             n_excluded = excluded_mask.sum()
 
         # Plot each spectrum as a line in 3D space with gradient colors
-        for i, (spectrum, y_val) in enumerate(zip(x_sorted, y_sorted)):
+        for i, (spectrum, y_val) in enumerate(zip(x_sorted, y_sorted, strict=False)):
             color = colormap(y_normalized[i])
 
             # Check if this sample is excluded and should be highlighted

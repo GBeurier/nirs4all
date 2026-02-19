@@ -9,13 +9,14 @@ Tests end-to-end scenarios with:
 - Error handling for missing branch artifacts
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
-from sklearn.linear_model import Ridge
+
+import numpy as np
+import pytest
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.linear_model import Ridge
 from sklearn.model_selection import ShuffleSplit
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
@@ -39,7 +40,6 @@ def create_simple_dataset(n_samples: int = 100, n_features: int = 50) -> Spectro
 
     return dataset
 
-
 def create_new_data_for_prediction(n_samples: int = 20, n_features: int = 50) -> SpectroDataset:
     """Create new data for prediction that wasn't seen during training."""
     np.random.seed(123)  # Different seed than training
@@ -52,7 +52,6 @@ def create_new_data_for_prediction(n_samples: int = 20, n_features: int = 50) ->
     new_dataset.add_targets(np.zeros(n_samples))
 
     return new_dataset
-
 
 class TestBranchPredictModeRoundtrip:
     """Test train → save → load → predict roundtrip with branches."""
@@ -253,7 +252,6 @@ class TestBranchPredictModeRoundtrip:
         assert y_pred is not None
         assert len(y_pred) == 20  # n_samples from create_new_data_for_prediction
 
-
 class TestBranchPredictModeFiltering:
     """Test branch-specific prediction filtering."""
 
@@ -366,7 +364,6 @@ class TestBranchPredictModeFiltering:
         if top_branch_1:
             assert top_branch_1[0].get("branch_id") == 1
 
-
 class TestBranchPredictModeErrorHandling:
     """Test error handling in branch predict mode."""
 
@@ -428,7 +425,6 @@ class TestBranchPredictModeErrorHandling:
 
         # Error message should mention branch
         assert "branch" in str(exc_info.value).lower() or "99" in str(exc_info.value)
-
 
 class TestBranchArtifactPersistence:
     """Test that branch artifacts are correctly persisted and loaded."""
@@ -509,7 +505,6 @@ class TestBranchArtifactPersistence:
         artifacts_dir = workspace_path / "artifacts"
         artifact_files = list(artifacts_dir.glob("**/*.joblib")) + list(artifacts_dir.glob("**/*.pkl"))
         assert len(artifact_files) >= 1, "Should have artifact files"
-
 
 class TestBackwardCompatibility:
     """Test backward compatibility with legacy manifests."""

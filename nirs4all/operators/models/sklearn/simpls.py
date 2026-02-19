@@ -32,7 +32,6 @@ def _check_jax_available():
     except ImportError:
         return False
 
-
 # =============================================================================
 # NumPy Backend Implementation
 # =============================================================================
@@ -190,7 +189,6 @@ def _simpls_fit_numpy(
         R = np.zeros((n_features, n_components), dtype=np.float64)
 
     return T, U, W, P, Q, R, B
-
 
 # =============================================================================
 # JAX Backend Implementation
@@ -375,10 +373,8 @@ def _get_jax_simpls_functions():
 
     return simpls_fit_jax, simpls_predict_jax
 
-
 # Cache for JAX functions
 _JAX_SIMPLS_FUNCS = None
-
 
 def _get_cached_jax_simpls():
     """Get cached JAX SIMPLS functions."""
@@ -386,7 +382,6 @@ def _get_cached_jax_simpls():
     if _JAX_SIMPLS_FUNCS is None:
         _JAX_SIMPLS_FUNCS = _get_jax_simpls_functions()
     return _JAX_SIMPLS_FUNCS
-
 
 # =============================================================================
 # SIMPLS Estimator Class
@@ -522,7 +517,7 @@ class SIMPLS(BaseEstimator, RegressorMixin):
         self,
         X: ArrayLike,
         y: ArrayLike,
-    ) -> "SIMPLS":
+    ) -> SIMPLS:
         """Fit the SIMPLS model.
 
         Parameters
@@ -645,7 +640,7 @@ class SIMPLS(BaseEstimator, RegressorMixin):
     def predict(
         self,
         X: ArrayLike,
-        n_components: Union[int, None] = None,
+        n_components: int | None = None,
     ) -> NDArray[np.floating]:
         """Predict using the SIMPLS model.
 
@@ -666,10 +661,7 @@ class SIMPLS(BaseEstimator, RegressorMixin):
 
         X = np.asarray(X, dtype=np.float64)
 
-        if n_components is None:
-            n_components = self.n_components_
-        else:
-            n_components = min(n_components, self.n_components_)
+        n_components = self.n_components_ if n_components is None else min(n_components, self.n_components_)
 
         if self.backend == 'jax':
             import jax.numpy as jnp
@@ -748,7 +740,7 @@ class SIMPLS(BaseEstimator, RegressorMixin):
             'backend': self.backend,
         }
 
-    def set_params(self, **params) -> "SIMPLS":
+    def set_params(self, **params) -> SIMPLS:
         """Set the parameters of this estimator.
 
         Parameters

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 
 @dataclass
@@ -47,11 +47,11 @@ class OperatorNode:
 
     step_index: int
     operator_class: str
-    branch_path: List[int] = field(default_factory=list)
-    source_index: Optional[int] = None
-    fold_id: Optional[int] = None
-    substep_index: Optional[int] = None
-    operator_name: Optional[str] = None
+    branch_path: list[int] = field(default_factory=list)
+    source_index: int | None = None
+    fold_id: int | None = None
+    substep_index: int | None = None
+    operator_name: str | None = None
 
     def __post_init__(self) -> None:
         """Normalize operator_class to short class name (strip module path)."""
@@ -97,10 +97,10 @@ class OperatorNode:
 
     def matches_context(
         self,
-        step_index: Optional[int] = None,
-        branch_path: Optional[List[int]] = None,
-        source_index: Optional[int] = None,
-        fold_id: Optional[int] = None
+        step_index: int | None = None,
+        branch_path: list[int] | None = None,
+        source_index: int | None = None,
+        fold_id: int | None = None
     ) -> bool:
         """Check if this node matches the given context filters.
 
@@ -121,9 +121,7 @@ class OperatorNode:
             return False
         if source_index is not None and self.source_index != source_index:
             return False
-        if fold_id is not None and self.fold_id != fold_id:
-            return False
-        return True
+        return not (fold_id is not None and self.fold_id != fold_id)
 
     def with_fold(self, fold_id: int) -> OperatorNode:
         """Create a copy of this node with a specific fold ID.
@@ -163,7 +161,7 @@ class OperatorNode:
             operator_name=self.operator_name,
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization.
 
         Returns:
@@ -186,7 +184,7 @@ class OperatorNode:
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> OperatorNode:
+    def from_dict(cls, data: dict[str, Any]) -> OperatorNode:
         """Create OperatorNode from dictionary.
 
         Args:
@@ -229,9 +227,9 @@ class OperatorNode:
         operator_class = match.group(2)
         qualifiers_str = match.group(3)
 
-        branch_path: List[int] = []
-        source_index: Optional[int] = None
-        substep_index: Optional[int] = None
+        branch_path: list[int] = []
+        source_index: int | None = None
+        substep_index: int | None = None
 
         if qualifiers_str:
             for qualifier in qualifiers_str.split(","):
@@ -255,7 +253,6 @@ class OperatorNode:
     def __repr__(self) -> str:
         return f"OperatorNode({self.to_key()})"
 
-
 @dataclass
 class OperatorChain:
     """Ordered sequence of OperatorNodes representing the full execution path.
@@ -269,7 +266,7 @@ class OperatorChain:
         pipeline_id: Pipeline identifier this chain belongs to
     """
 
-    nodes: List[OperatorNode] = field(default_factory=list)
+    nodes: list[OperatorNode] = field(default_factory=list)
     pipeline_id: str = ""
 
     def to_path(self) -> str:
@@ -331,7 +328,7 @@ class OperatorChain:
             pipeline_id=self.pipeline_id or other.pipeline_id,
         )
 
-    def filter_branch(self, target_branch_path: List[int]) -> OperatorChain:
+    def filter_branch(self, target_branch_path: list[int]) -> OperatorChain:
         """Return chain with only nodes matching the branch path.
 
         Includes nodes that:
@@ -381,7 +378,7 @@ class OperatorChain:
                 filtered.append(node)
         return OperatorChain(nodes=filtered, pipeline_id=self.pipeline_id)
 
-    def get_last_node(self) -> Optional[OperatorNode]:
+    def get_last_node(self) -> OperatorNode | None:
         """Get the last node in the chain.
 
         Returns:
@@ -389,7 +386,7 @@ class OperatorChain:
         """
         return self.nodes[-1] if self.nodes else None
 
-    def get_nodes_at_step(self, step_index: int) -> List[OperatorNode]:
+    def get_nodes_at_step(self, step_index: int) -> list[OperatorNode]:
         """Get all nodes at a specific step.
 
         Args:
@@ -400,7 +397,7 @@ class OperatorChain:
         """
         return [n for n in self.nodes if n.step_index == step_index]
 
-    def get_branch_path(self) -> List[int]:
+    def get_branch_path(self) -> list[int]:
         """Get the branch path from the last node.
 
         Returns:
@@ -493,7 +490,7 @@ class OperatorChain:
             pipeline_id=prefix_chain.pipeline_id or self.pipeline_id,
         )
 
-    def remap_steps(self, step_mapping: Dict[int, int]) -> OperatorChain:
+    def remap_steps(self, step_mapping: dict[int, int]) -> OperatorChain:
         """Create new chain with remapped step indices.
 
         Args:
@@ -530,7 +527,7 @@ class OperatorChain:
         return chain
 
     @staticmethod
-    def _branch_matches(node_path: List[int], target_path: List[int]) -> bool:
+    def _branch_matches(node_path: list[int], target_path: list[int]) -> bool:
         """Check if node's branch path is compatible with target.
 
         A node matches if:
@@ -555,7 +552,7 @@ class OperatorChain:
             and target_path[: len(node_path)] == node_path
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization.
 
         Returns:
@@ -568,7 +565,7 @@ class OperatorChain:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> OperatorChain:
+    def from_dict(cls, data: dict[str, Any]) -> OperatorChain:
         """Create OperatorChain from dictionary.
 
         Args:
@@ -611,7 +608,6 @@ class OperatorChain:
             return "OperatorChain(empty)"
         return f"OperatorChain({self.to_path()})"
 
-
 def compute_chain_hash(chain_path: str, length: int = 12) -> str:
     """Compute deterministic hash from chain path string.
 
@@ -624,11 +620,10 @@ def compute_chain_hash(chain_path: str, length: int = 12) -> str:
     """
     return hashlib.sha256(chain_path.encode()).hexdigest()[:length]
 
-
 def generate_artifact_id_v3(
     pipeline_id: str,
-    chain: Union[OperatorChain, str],
-    fold_id: Optional[int] = None
+    chain: OperatorChain | str,
+    fold_id: int | None = None
 ) -> str:
     """Generate V3 artifact ID from chain.
 
@@ -648,15 +643,11 @@ def generate_artifact_id_v3(
         >>> generate_artifact_id_v3("0001_pls", chain, 0)
         '0001_pls$a1b2c3d4e5f6:0'
     """
-    if isinstance(chain, str):
-        chain_hash = compute_chain_hash(chain, 12)
-    else:
-        chain_hash = chain.to_hash(12)
+    chain_hash = compute_chain_hash(chain, 12) if isinstance(chain, str) else chain.to_hash(12)
     fold_str = str(fold_id) if fold_id is not None else "all"
     return f"{pipeline_id}${chain_hash}:{fold_str}"
 
-
-def parse_artifact_id_v3(artifact_id: str) -> Tuple[str, str, Optional[int]]:
+def parse_artifact_id_v3(artifact_id: str) -> tuple[str, str, int | None]:
     """Parse V3 artifact ID into components.
 
     Args:
@@ -686,7 +677,6 @@ def parse_artifact_id_v3(artifact_id: str) -> Tuple[str, str, Optional[int]]:
     fold_id = None if fold_str == "all" else int(fold_str)
 
     return pipeline_part, chain_hash, fold_id
-
 
 def is_v3_artifact_id(artifact_id: str) -> bool:
     """Check if an artifact ID is in V3 format.

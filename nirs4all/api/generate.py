@@ -20,29 +20,30 @@ Example:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
+import contextlib
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import numpy as np
 
 if TYPE_CHECKING:
     from pathlib import Path
+
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.synthesis import SyntheticDatasetBuilder
-
 
 def generate(
     n_samples: int = 1000,
     *,
-    random_state: Optional[int] = None,
+    random_state: int | None = None,
     complexity: Literal["simple", "realistic", "complex"] = "simple",
-    wavelength_range: Optional[Tuple[float, float]] = None,
-    components: Optional[List[str]] = None,
-    target_range: Optional[Tuple[float, float]] = None,
+    wavelength_range: tuple[float, float] | None = None,
+    components: list[str] | None = None,
+    target_range: tuple[float, float] | None = None,
     train_ratio: float = 0.8,
     as_dataset: bool = True,
     name: str = "synthetic_nirs",
     **kwargs: Any,
-) -> Union["SpectroDataset", Tuple[np.ndarray, np.ndarray]]:
+) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
     """
     Generate a synthetic NIRS dataset.
 
@@ -103,7 +104,7 @@ def generate(
     )
 
     # Configure features
-    feature_kwargs: Dict[str, Any] = {"complexity": complexity}
+    feature_kwargs: dict[str, Any] = {"complexity": complexity}
     if wavelength_range is not None:
         feature_kwargs["wavelength_range"] = wavelength_range
     if components is not None:
@@ -130,19 +131,18 @@ def generate(
 
     return builder.build()
 
-
 def regression(
     n_samples: int = 1000,
     *,
-    random_state: Optional[int] = None,
+    random_state: int | None = None,
     complexity: Literal["simple", "realistic", "complex"] = "simple",
-    target_range: Optional[Tuple[float, float]] = None,
-    target_component: Optional[Union[str, int]] = None,
+    target_range: tuple[float, float] | None = None,
+    target_component: str | int | None = None,
     distribution: Literal["dirichlet", "uniform", "lognormal", "correlated"] = "dirichlet",
     train_ratio: float = 0.8,
     as_dataset: bool = True,
     name: str = "synthetic_regression",
-) -> Union["SpectroDataset", Tuple[np.ndarray, np.ndarray]]:
+) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
     """
     Generate a synthetic NIRS dataset for regression tasks.
 
@@ -189,7 +189,7 @@ def regression(
 
     builder.with_features(complexity=complexity)
 
-    target_kwargs: Dict[str, Any] = {"distribution": distribution}
+    target_kwargs: dict[str, Any] = {"distribution": distribution}
     if target_range is not None:
         target_kwargs["range"] = target_range
     if target_component is not None:
@@ -201,19 +201,18 @@ def regression(
 
     return builder.build()
 
-
 def classification(
     n_samples: int = 1000,
     *,
     n_classes: int = 2,
-    random_state: Optional[int] = None,
+    random_state: int | None = None,
     complexity: Literal["simple", "realistic", "complex"] = "simple",
     class_separation: float = 1.0,
-    class_weights: Optional[List[float]] = None,
+    class_weights: list[float] | None = None,
     train_ratio: float = 0.8,
     as_dataset: bool = True,
     name: str = "synthetic_classification",
-) -> Union["SpectroDataset", Tuple[np.ndarray, np.ndarray]]:
+) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
     """
     Generate a synthetic NIRS dataset for classification tasks.
 
@@ -270,12 +269,11 @@ def classification(
 
     return builder.build()
 
-
 def builder(
     n_samples: int = 1000,
-    random_state: Optional[int] = None,
+    random_state: int | None = None,
     name: str = "synthetic_nirs",
-) -> "SyntheticDatasetBuilder":
+) -> SyntheticDatasetBuilder:
     """
     Create a SyntheticDatasetBuilder for fine-grained control.
 
@@ -319,17 +317,16 @@ def builder(
         name=name,
     )
 
-
 def multi_source(
     n_samples: int = 1000,
-    sources: List[Dict[str, Any]] = None,
+    sources: list[dict[str, Any]] = None,
     *,
-    random_state: Optional[int] = None,
-    target_range: Optional[Tuple[float, float]] = None,
+    random_state: int | None = None,
+    target_range: tuple[float, float] | None = None,
     train_ratio: float = 0.8,
     as_dataset: bool = True,
     name: str = "multi_source_synthetic",
-) -> Union["SpectroDataset", Tuple[np.ndarray, np.ndarray]]:
+) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
     """
     Generate a synthetic multi-source NIRS dataset.
 
@@ -396,19 +393,18 @@ def multi_source(
         name=name,
     )
 
-
 def to_folder(
-    path: Union[str, "Path"],
+    path: str | Path,
     n_samples: int = 1000,
     *,
-    random_state: Optional[int] = None,
+    random_state: int | None = None,
     complexity: Literal["simple", "realistic", "complex"] = "simple",
     train_ratio: float = 0.8,
     format: Literal["standard", "single", "fragmented"] = "standard",
-    wavelength_range: Optional[Tuple[float, float]] = None,
-    components: Optional[List[str]] = None,
-    target_range: Optional[Tuple[float, float]] = None,
-) -> "Path":
+    wavelength_range: tuple[float, float] | None = None,
+    components: list[str] | None = None,
+    target_range: tuple[float, float] | None = None,
+) -> Path:
     """
     Generate synthetic data and export to a folder.
 
@@ -446,7 +442,7 @@ def to_folder(
     )
 
     # Configure features
-    feature_kwargs: Dict[str, Any] = {"complexity": complexity}
+    feature_kwargs: dict[str, Any] = {"complexity": complexity}
     if wavelength_range is not None:
         feature_kwargs["wavelength_range"] = wavelength_range
     if components is not None:
@@ -462,16 +458,15 @@ def to_folder(
 
     return builder.export(path, format=format)
 
-
 def to_csv(
-    path: Union[str, "Path"],
+    path: str | Path,
     n_samples: int = 1000,
     *,
-    random_state: Optional[int] = None,
+    random_state: int | None = None,
     complexity: Literal["simple", "realistic", "complex"] = "simple",
-    wavelength_range: Optional[Tuple[float, float]] = None,
-    target_range: Optional[Tuple[float, float]] = None,
-) -> "Path":
+    wavelength_range: tuple[float, float] | None = None,
+    target_range: tuple[float, float] | None = None,
+) -> Path:
     """
     Generate synthetic data and export to a single CSV file.
 
@@ -498,7 +493,7 @@ def to_csv(
     )
 
     # Configure features
-    feature_kwargs: Dict[str, Any] = {"complexity": complexity}
+    feature_kwargs: dict[str, Any] = {"complexity": complexity}
     if wavelength_range is not None:
         feature_kwargs["wavelength_range"] = wavelength_range
     builder.with_features(**feature_kwargs)
@@ -509,20 +504,19 @@ def to_csv(
 
     return builder.export_to_csv(path)
 
-
 def product(
     template: str,
     n_samples: int = 1000,
     *,
-    target: Optional[str] = None,
-    random_state: Optional[int] = None,
-    wavelength_range: Optional[Tuple[float, float]] = None,
-    wavelengths: Optional[np.ndarray] = None,
-    instrument_wavelength_grid: Optional[str] = None,
+    target: str | None = None,
+    random_state: int | None = None,
+    wavelength_range: tuple[float, float] | None = None,
+    wavelengths: np.ndarray | None = None,
+    instrument_wavelength_grid: str | None = None,
     complexity: Literal["simple", "realistic", "complex"] = "realistic",
     train_ratio: float = 0.8,
-    target_range: Optional[Tuple[float, float]] = None,
-) -> "SpectroDataset":
+    target_range: tuple[float, float] | None = None,
+) -> SpectroDataset:
     """
     Generate synthetic NIRS dataset from a product template.
 
@@ -577,7 +571,7 @@ def product(
     from nirs4all.synthesis import ProductGenerator
 
     # Build wavelength kwargs
-    wl_kwargs: Dict[str, Any] = {"complexity": complexity}
+    wl_kwargs: dict[str, Any] = {"complexity": complexity}
     if wavelength_range is not None:
         wl_kwargs["wavelength_start"] = wavelength_range[0]
         wl_kwargs["wavelength_end"] = wavelength_range[1]
@@ -602,20 +596,19 @@ def product(
             train_ratio=train_ratio,
         )
 
-
 def category(
-    templates: List[str],
+    templates: list[str],
     n_samples: int = 1000,
     *,
-    target: Optional[str] = None,
-    random_state: Optional[int] = None,
-    samples_per_template: Optional[List[int]] = None,
-    wavelength_range: Optional[Tuple[float, float]] = None,
-    instrument_wavelength_grid: Optional[str] = None,
+    target: str | None = None,
+    random_state: int | None = None,
+    samples_per_template: list[int] | None = None,
+    wavelength_range: tuple[float, float] | None = None,
+    instrument_wavelength_grid: str | None = None,
     complexity: Literal["simple", "realistic", "complex"] = "realistic",
     train_ratio: float = 0.8,
     shuffle: bool = True,
-) -> "SpectroDataset":
+) -> SpectroDataset:
     """
     Generate synthetic NIRS dataset from multiple product templates.
 
@@ -663,7 +656,7 @@ def category(
     from nirs4all.synthesis import CategoryGenerator
 
     # Build wavelength kwargs
-    wl_kwargs: Dict[str, Any] = {"complexity": complexity}
+    wl_kwargs: dict[str, Any] = {"complexity": complexity}
     if wavelength_range is not None:
         wl_kwargs["wavelength_start"] = wavelength_range[0]
         wl_kwargs["wavelength_end"] = wavelength_range[1]
@@ -680,15 +673,14 @@ def category(
         shuffle=shuffle,
     )
 
-
 def from_template(
-    template: Union[str, np.ndarray, "SpectroDataset"],
+    template: str | np.ndarray | SpectroDataset,
     n_samples: int = 1000,
     *,
-    random_state: Optional[int] = None,
-    wavelengths: Optional[np.ndarray] = None,
+    random_state: int | None = None,
+    wavelengths: np.ndarray | None = None,
     as_dataset: bool = True,
-) -> Union["SpectroDataset", Tuple[np.ndarray, np.ndarray]]:
+) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
     """
     Generate synthetic data mimicking a real dataset template.
 
@@ -724,7 +716,7 @@ def from_template(
         ...     wavelengths=wavelengths
         ... )
     """
-    from nirs4all.synthesis import SyntheticDatasetBuilder, RealDataFitter
+    from nirs4all.synthesis import RealDataFitter, SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
         n_samples=n_samples,
@@ -742,17 +734,14 @@ def from_template(
 
         template_ds = datasets[0]
         template_array = template_ds.x({}, layout="2d")
-        try:
+        with contextlib.suppress(AttributeError, TypeError):
             wavelengths = template_ds.wavelengths
-        except (AttributeError, TypeError):
-            pass
         builder.fit_to(template_array, wavelengths=wavelengths)
     else:
         builder.fit_to(template, wavelengths=wavelengths)
 
     builder.with_output(as_dataset=as_dataset)
     return builder.build()
-
 
 class _GenerateNamespace:
     """
@@ -797,11 +786,9 @@ class _GenerateNamespace:
             "  generate.from_template(...) - Generate mimicking real data"
         )
 
-
 # Create the singleton namespace instance
 # This replaces the module when imported
 generate_namespace = _GenerateNamespace()
-
 
 # For direct function access
 __all__ = [

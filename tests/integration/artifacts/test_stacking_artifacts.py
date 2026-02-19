@@ -8,18 +8,19 @@ Tests meta-model persistence and loading:
 - Meta-model loading includes source models
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
-from sklearn.linear_model import Ridge, LinearRegression
-from sklearn.ensemble import RandomForestRegressor
 
-from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
+import numpy as np
+import pytest
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression, Ridge
+
 from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
+from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 from nirs4all.pipeline.storage.artifacts.types import (
-    ArtifactType,
     ArtifactRecord,
+    ArtifactType,
     MetaModelConfig,
 )
 
@@ -155,7 +156,6 @@ class TestMetaModelRegistration:
         # Check dependency graph
         deps = registry.get_dependencies("0001:5:all")
         assert "0001:3:all" in deps
-
 
 class TestMetaModelLoading:
     """Tests for meta-model artifact loading."""
@@ -332,7 +332,6 @@ class TestMetaModelLoading:
         assert source_models[1][0] == "0001:1:all"
         assert source_models[2][0] == "0001:2:all"
 
-
 class TestMetaModelWithBranches:
     """Tests for meta-model artifacts with branching."""
 
@@ -406,7 +405,6 @@ class TestMetaModelWithBranches:
         assert meta_model is not None
         assert len(source_models) == 1
 
-
 class TestMetaModelSerialization:
     """Tests for meta-model config serialization."""
 
@@ -454,7 +452,6 @@ class TestMetaModelSerialization:
         assert restored.meta_config is not None
         assert len(restored.meta_config.source_models) == 2
         assert restored.meta_config.feature_columns == ["pls_pred", "rf_pred"]
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

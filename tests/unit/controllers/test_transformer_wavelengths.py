@@ -4,13 +4,14 @@ Unit tests for TransformerMixinController wavelength passing functionality.
 Tests that SpectraTransformerMixin operators receive wavelengths from the controller.
 """
 
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
-from unittest.mock import MagicMock, patch
+from sklearn.base import BaseEstimator, TransformerMixin
 
 from nirs4all.controllers.transforms.transformer import TransformerMixinController
 from nirs4all.operators.base import SpectraTransformerMixin
-from sklearn.base import TransformerMixin, BaseEstimator
 
 
 class MockSpectraTransformer(SpectraTransformerMixin):
@@ -33,7 +34,6 @@ class MockSpectraTransformer(SpectraTransformerMixin):
         self.transform_wavelengths = wavelengths
         return X * 2
 
-
 class MockOptionalWavelengthsTransformer(SpectraTransformerMixin):
     """Mock SpectraTransformerMixin that doesn't require wavelengths."""
 
@@ -52,7 +52,6 @@ class MockOptionalWavelengthsTransformer(SpectraTransformerMixin):
         self.transform_wavelengths = wavelengths
         return X
 
-
 class MockStandardTransformer(TransformerMixin, BaseEstimator):
     """Mock standard sklearn TransformerMixin (no wavelengths)."""
 
@@ -67,7 +66,6 @@ class MockStandardTransformer(TransformerMixin, BaseEstimator):
     def transform(self, X):
         self.transform_called = True
         return X * 3
-
 
 class TestNeedsWavelengths:
     """Tests for _needs_wavelengths static method."""
@@ -104,7 +102,6 @@ class TestNeedsWavelengths:
         assert TransformerMixinController._needs_wavelengths("not a transformer") is False
         assert TransformerMixinController._needs_wavelengths(None) is False
         assert TransformerMixinController._needs_wavelengths(42) is False
-
 
 class TestExtractWavelengths:
     """Tests for _extract_wavelengths static method."""
@@ -186,7 +183,6 @@ class TestExtractWavelengths:
         assert "source 2" in str(exc_info.value)
         assert "MyOperator" in str(exc_info.value)
 
-
 class TestControllerMatches:
     """Tests for controller matches method."""
 
@@ -205,7 +201,6 @@ class TestControllerMatches:
         transformer = MockSpectraTransformer()
         step = {"model": transformer}
         assert TransformerMixinController.matches(step, transformer, "model") is True
-
 
 class TestControllerWavelengthLogic:
     """Tests for wavelength passing logic through controller.
@@ -288,7 +283,6 @@ class TestControllerWavelengthLogic:
         # Transform should raise without wavelengths
         with pytest.raises(ValueError, match="requires wavelengths"):
             transformer.transform(X)
-
 
 class TestControllerBackwardCompatibility:
     """Tests ensuring backward compatibility with existing code."""

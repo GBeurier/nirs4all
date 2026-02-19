@@ -346,7 +346,6 @@ class TestGroupedSplitterWrapper:
         wrapper = GroupedSplitterWrapper(ShuffleSplit(n_splits=3))
         assert wrapper._infer_y_aggregation() == "mean"
 
-
 class TestPerformanceBenchmark:
     """Performance benchmarks comparing GroupedSplitterWrapper vs native GroupKFold.
 
@@ -408,6 +407,7 @@ class TestPerformanceBenchmark:
         The wrapper may be slightly slower due to aggregation step.
         """
         import time
+
         from sklearn.model_selection import GroupKFold as NativeGroupKFold
 
         X, y, groups = large_grouped_data

@@ -14,13 +14,13 @@ we verify exclusion by checking pipeline completion and model behavior.
 
 import numpy as np
 import pytest
-from sklearn.model_selection import KFold
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
 
 import nirs4all
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.operators.filters import YOutlierFilter, XOutlierFilter
+from nirs4all.operators.filters import XOutlierFilter, YOutlierFilter
 
 
 class TestExcludeBasicFunctionality:
@@ -120,7 +120,6 @@ class TestExcludeBasicFunctionality:
         # Pipeline should complete successfully
         assert result is not None
 
-
 class TestExcludeControllerDirectly:
     """Test ExcludeController directly on dataset for verification."""
 
@@ -187,7 +186,6 @@ class TestExcludeControllerDirectly:
         tag_data = dataset.get_tag(tag_name)
         assert sum(tag_data) == 5  # 5 samples tagged
 
-
 class TestExcludeWithCrossValidation:
     """Test exclude works correctly with cross-validation."""
 
@@ -229,7 +227,6 @@ class TestExcludeWithCrossValidation:
         assert result is not None
         # Should have results for multiple folds
         assert hasattr(result, 'scores') or hasattr(result, 'best_score')
-
 
 class TestExcludeCascadeToAugmented:
     """Test exclude cascades to augmented samples via direct indexer test."""
@@ -315,7 +312,6 @@ class TestExcludeCascadeToAugmented:
         )
 
         assert result is not None
-
 
 class TestExcludeSyntaxComparison:
     """Compare new exclude syntax functionality."""

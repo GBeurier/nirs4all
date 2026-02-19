@@ -10,20 +10,18 @@ import pytest
 from sklearn.base import clone
 
 from nirs4all.operators import (
-    DetectorRollOffAugmenter,
-    StrayLightAugmenter,
-    EdgeCurvatureAugmenter,
-    TruncatedPeakAugmenter,
-    EdgeArtifactsAugmenter,
     DETECTOR_MODELS,
+    DetectorRollOffAugmenter,
+    EdgeArtifactsAugmenter,
+    EdgeCurvatureAugmenter,
+    StrayLightAugmenter,
+    TruncatedPeakAugmenter,
 )
 from nirs4all.operators.base import SpectraTransformerMixin
-
 
 # =============================================================================
 # DetectorRollOffAugmenter Tests
 # =============================================================================
-
 
 class TestDetectorRollOffAugmenterInit:
     """Tests for DetectorRollOffAugmenter initialization."""
@@ -61,7 +59,6 @@ class TestDetectorRollOffAugmenterInit:
         """Test that _requires_wavelengths is True."""
         aug = DetectorRollOffAugmenter()
         assert aug._requires_wavelengths is True
-
 
 class TestDetectorRollOffAugmenterTransform:
     """Tests for DetectorRollOffAugmenter transform method."""
@@ -155,7 +152,6 @@ class TestDetectorRollOffAugmenterTransform:
         # Should be very close to original with no effects enabled
         np.testing.assert_array_almost_equal(X_transformed, X, decimal=5)
 
-
 class TestDetectorRollOffAugmenterEdgeEffects:
     """Tests for edge-specific effects."""
 
@@ -187,11 +183,9 @@ class TestDetectorRollOffAugmenterEdgeEffects:
 
         assert edge_diff >= center_diff
 
-
 # =============================================================================
 # StrayLightAugmenter Tests
 # =============================================================================
-
 
 class TestStrayLightAugmenterInit:
     """Tests for StrayLightAugmenter initialization."""
@@ -229,7 +223,6 @@ class TestStrayLightAugmenterInit:
         """Test that _requires_wavelengths is True."""
         aug = StrayLightAugmenter()
         assert aug._requires_wavelengths is True
-
 
 class TestStrayLightAugmenterTransform:
     """Tests for StrayLightAugmenter transform method."""
@@ -308,7 +301,6 @@ class TestStrayLightAugmenterTransform:
 
         assert diff_high > diff_low
 
-
 class TestStrayLightAugmenterEdgeEffects:
     """Tests for edge enhancement of stray light."""
 
@@ -343,11 +335,9 @@ class TestStrayLightAugmenterEdgeEffects:
         # Edge effect should be larger
         assert edge_diff >= center_diff
 
-
 # =============================================================================
 # EdgeCurvatureAugmenter Tests
 # =============================================================================
-
 
 class TestEdgeCurvatureAugmenterInit:
     """Tests for EdgeCurvatureAugmenter initialization."""
@@ -385,7 +375,6 @@ class TestEdgeCurvatureAugmenterInit:
         """Test that _requires_wavelengths is True."""
         aug = EdgeCurvatureAugmenter()
         assert aug._requires_wavelengths is True
-
 
 class TestEdgeCurvatureAugmenterTransform:
     """Tests for EdgeCurvatureAugmenter transform method."""
@@ -483,11 +472,9 @@ class TestEdgeCurvatureAugmenterTransform:
         with pytest.raises(ValueError, match="Unknown curvature_type"):
             aug.transform(X, wavelengths=wavelengths)
 
-
 # =============================================================================
 # TruncatedPeakAugmenter Tests
 # =============================================================================
-
 
 class TestTruncatedPeakAugmenterInit:
     """Tests for TruncatedPeakAugmenter initialization."""
@@ -528,7 +515,6 @@ class TestTruncatedPeakAugmenterInit:
         """Test that _requires_wavelengths is True."""
         aug = TruncatedPeakAugmenter()
         assert aug._requires_wavelengths is True
-
 
 class TestTruncatedPeakAugmenterTransform:
     """Tests for TruncatedPeakAugmenter transform method."""
@@ -632,11 +618,9 @@ class TestTruncatedPeakAugmenterTransform:
 
         np.testing.assert_array_almost_equal(X1, X2)
 
-
 # =============================================================================
 # EdgeArtifactsAugmenter (Combined) Tests
 # =============================================================================
-
 
 class TestEdgeArtifactsAugmenterInit:
     """Tests for EdgeArtifactsAugmenter initialization."""
@@ -680,7 +664,6 @@ class TestEdgeArtifactsAugmenterInit:
         """Test that _requires_wavelengths is True."""
         aug = EdgeArtifactsAugmenter()
         assert aug._requires_wavelengths is True
-
 
 class TestEdgeArtifactsAugmenterTransform:
     """Tests for EdgeArtifactsAugmenter transform method."""
@@ -749,7 +732,7 @@ class TestEdgeArtifactsAugmenterTransform:
         effects = ["detector_roll_off", "stray_light", "edge_curvature", "truncated_peaks"]
 
         for effect in effects:
-            kwargs = {e: False for e in effects}
+            kwargs = dict.fromkeys(effects, False)
             kwargs[effect] = True
             kwargs["random_state"] = 42
 
@@ -786,11 +769,9 @@ class TestEdgeArtifactsAugmenterTransform:
 
         assert diff_high > diff_low
 
-
 # =============================================================================
 # sklearn Compatibility Tests
 # =============================================================================
-
 
 class TestEdgeArtifactsSklearnCompatibility:
     """Tests for sklearn compatibility of all edge artifact augmenters."""
@@ -851,11 +832,9 @@ class TestEdgeArtifactsSklearnCompatibility:
         tags = aug._more_tags()
         assert tags["requires_wavelengths"] is True
 
-
 # =============================================================================
 # Import Tests
 # =============================================================================
-
 
 class TestEdgeArtifactsImports:
     """Tests for import paths."""
@@ -863,12 +842,12 @@ class TestEdgeArtifactsImports:
     def test_import_from_operators(self):
         """Test that augmenters can be imported from operators."""
         from nirs4all.operators import (
-            DetectorRollOffAugmenter,
-            StrayLightAugmenter,
-            EdgeCurvatureAugmenter,
-            TruncatedPeakAugmenter,
-            EdgeArtifactsAugmenter,
             DETECTOR_MODELS,
+            DetectorRollOffAugmenter,
+            EdgeArtifactsAugmenter,
+            EdgeCurvatureAugmenter,
+            StrayLightAugmenter,
+            TruncatedPeakAugmenter,
         )
 
         assert DetectorRollOffAugmenter is not None
@@ -881,12 +860,12 @@ class TestEdgeArtifactsImports:
     def test_import_from_augmentation_module(self):
         """Test that augmenters can be imported from augmentation module."""
         from nirs4all.operators.augmentation.edge_artifacts import (
-            DetectorRollOffAugmenter,
-            StrayLightAugmenter,
-            EdgeCurvatureAugmenter,
-            TruncatedPeakAugmenter,
-            EdgeArtifactsAugmenter,
             DETECTOR_MODELS,
+            DetectorRollOffAugmenter,
+            EdgeArtifactsAugmenter,
+            EdgeCurvatureAugmenter,
+            StrayLightAugmenter,
+            TruncatedPeakAugmenter,
         )
 
         assert DetectorRollOffAugmenter is not None

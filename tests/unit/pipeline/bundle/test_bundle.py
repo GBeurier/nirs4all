@@ -11,7 +11,7 @@ import os
 import tempfile
 import zipfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -23,8 +23,8 @@ from nirs4all.pipeline.bundle import (
     BundleMetadata,
 )
 from nirs4all.pipeline.bundle.loader import BundleArtifactProvider
-from nirs4all.pipeline.resolver import ResolvedPrediction, SourceType, FoldStrategy
-from nirs4all.pipeline.trace import ExecutionTrace, ExecutionStep, StepArtifacts
+from nirs4all.pipeline.resolver import FoldStrategy, ResolvedPrediction, SourceType
+from nirs4all.pipeline.trace import ExecutionStep, ExecutionTrace, StepArtifacts
 
 
 class SimpleModel:
@@ -37,7 +37,6 @@ class SimpleModel:
     def fit(self, X, y):
         """Fit method."""
         return self
-
 
 class TestBundleMetadata:
     """Tests for BundleMetadata dataclass."""
@@ -74,7 +73,6 @@ class TestBundleMetadata:
         assert metadata.model_step_index is None
         assert metadata.original_manifest == {}
 
-
 class TestBundleArtifactProvider:
     """Tests for BundleArtifactProvider."""
 
@@ -109,7 +107,6 @@ class TestBundleArtifactProvider:
         weights = provider.get_fold_weights()
         assert weights == {0: 0.52, 1: 0.48}
 
-
 class TestBundleFormat:
     """Tests for BundleFormat enum."""
 
@@ -122,7 +119,6 @@ class TestBundleFormat:
         """Test .n4a.py format enum."""
         assert str(BundleFormat.N4A_PY) == "n4a.py"
         assert BundleFormat.N4A_PY.value == "n4a.py"
-
 
 class TestBundleGenerator:
     """Tests for BundleGenerator class."""
@@ -223,7 +219,6 @@ class TestBundleGenerator:
         # Test shared artifact
         filename = generator._artifact_filename("0001:2:all", mock_artifact)
         assert filename == "step_2_PLSRegression.joblib"
-
 
 class TestBundleLoader:
     """Tests for BundleLoader class."""
@@ -356,7 +351,6 @@ class TestBundleLoader:
         assert "BundleLoader" in repr_str
         assert "0001_test_abc123" in repr_str
 
-
 class TestIntegration:
     """Integration tests for bundle export/load cycle."""
 
@@ -379,7 +373,6 @@ class TestIntegration:
         # Verify generator initializes correctly
         assert generator.workspace_path == mock_workspace
         assert generator.resolver is not None
-
 
 class TestExtractStepInfoFromConfig:
     """Tests for _extract_step_info_from_config method.
@@ -549,7 +542,6 @@ class TestExtractStepInfoFromConfig:
         # Trace should take precedence
         op_type = loader.artifact_provider.get_step_operator_type(2)
         assert op_type == "custom_type_from_trace", f"Trace should take precedence, got '{op_type}'"
-
 
 class TestBundlePredictWithSpecialOperators:
     """Tests for BundleLoader.predict() with special operator types.
@@ -748,7 +740,6 @@ class TestBundlePredictWithSpecialOperators:
         assert y_pred is not None
         assert len(y_pred) == 10
 
-
 class TestBundleEdgeCases:
     """Edge case tests for bundle export/load with special operators.
 
@@ -761,7 +752,7 @@ class TestBundleEdgeCases:
     def create_edge_case_bundle(self, tmp_path):
         """Factory for creating bundles with specific edge case configurations."""
         import joblib
-        from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
+        from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
 
         def _create(
             pipeline_steps: list,
@@ -1002,6 +993,7 @@ class TestBundleEdgeCases:
     def test_all_special_operators_interleaved(self, create_edge_case_bundle):
         """Test complex pipeline with all special operators interleaved."""
         from sklearn.preprocessing import MinMaxScaler, StandardScaler
+
         from nirs4all.operators.transforms import StandardNormalVariate
 
         n_features = 100
@@ -1144,7 +1136,7 @@ class TestBundleEdgeCases:
 
     def test_y_processing_deep_in_pipeline(self, create_edge_case_bundle):
         """Test y_processing buried deep in the pipeline (many steps before it)."""
-        from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
+        from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
 
         X_fit = np.random.randn(50, 100)
         y_fit = np.random.randn(50, 1)

@@ -6,11 +6,13 @@ Extracted from launch_training() lines 449-461 and various controller methods.
 """
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Any
+from typing import Any, Optional
+
 import numpy as np
 
-from ..utilities import ModelControllerUtils as ModelUtils
 from nirs4all.core import metrics as evaluator
+
+from ..utilities import ModelControllerUtils as ModelUtils
 
 
 @dataclass
@@ -22,8 +24,7 @@ class PartitionScores:
     test: float
     metric: str
     higher_is_better: bool
-    detailed_scores: Optional[Dict[str, float]] = None
-
+    detailed_scores: dict[str, float] | None = None
 
 class ScoreCalculator:
     """Calculates evaluation scores for models.
@@ -44,8 +45,8 @@ class ScoreCalculator:
 
     def calculate(
         self,
-        y_true: Dict[str, np.ndarray],
-        y_pred: Dict[str, np.ndarray],
+        y_true: dict[str, np.ndarray],
+        y_pred: dict[str, np.ndarray],
         task_type: str
     ) -> PartitionScores:
         """Calculate scores for all partitions.
@@ -89,7 +90,7 @@ class ScoreCalculator:
         y_true: np.ndarray,
         y_pred: np.ndarray,
         task_type: str,
-        metric: Optional[str] = None
+        metric: str | None = None
     ) -> float:
         """Calculate score for a single partition.
 

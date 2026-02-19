@@ -202,7 +202,6 @@ class TestRunFunction:
         # With same random state, results should be similar
         assert abs(result1.best_score - result2.best_score) < 0.01
 
-
 class TestSessionContextManager:
     """Tests for nirs4all.session() context manager."""
 
@@ -274,7 +273,6 @@ class TestSessionContextManager:
 
         # After exit, runner should be cleaned up
         assert session_obj._runner is None
-
 
 class TestResultClasses:
     """Tests for result classes."""
@@ -385,7 +383,6 @@ class TestResultClasses:
         assert importance["high"] >= importance["low"]
         assert importance["high"] >= importance["mid"]
 
-
 class TestPackageExports:
     """Tests for package-level exports."""
 
@@ -412,24 +409,13 @@ class TestPackageExports:
 
     def test_api_module_imports(self):
         """Test that all API functions are importable from nirs4all.api."""
-        from nirs4all.api import (
-            run,
-            predict,
-            explain,
-            retrain,
-            session,
-            Session,
-            RunResult,
-            PredictResult,
-            ExplainResult
-        )
+        from nirs4all.api import ExplainResult, PredictResult, RunResult, Session, explain, predict, retrain, run, session
 
         assert callable(run)
         assert callable(predict)
         assert callable(explain)
         assert callable(retrain)
         assert callable(session)
-
 
 # Fixtures
 @pytest.fixture

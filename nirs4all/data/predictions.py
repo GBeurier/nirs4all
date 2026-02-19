@@ -44,7 +44,6 @@ logger = get_logger(__name__)
 
 __all__ = ["MergeReport", "Predictions", "PredictionResult", "PredictionResultsList"]
 
-
 # ---------------------------------------------------------------------------
 # Public dataclasses
 # ---------------------------------------------------------------------------
@@ -58,7 +57,6 @@ class MergeReport:
     datasets_merged: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
-
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -70,7 +68,6 @@ def _json_default(obj: Any) -> Any:
     if isinstance(obj, (np.floating,)):
         return float(obj)
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
-
 
 def _infer_ascending(metric: str) -> bool:
     """Infer sort direction from metric name.
@@ -84,9 +81,7 @@ def _infer_ascending(metric: str) -> bool:
     higher_is_better = {"r2", "accuracy", "f1", "precision", "recall", "auc", "roc_auc", "balanced_accuracy", "kappa", "rpd", "rpiq"}
     return metric.lower() not in higher_is_better
 
-
 _CASE_INSENSITIVE_COLS = {"model_name", "model_classname", "preprocessings", "dataset_name", "config_name"}
-
 
 def _make_group_key(row: dict[str, Any], group_by: list[str]) -> tuple:
     """Create a hashable group key from row values.
@@ -106,7 +101,6 @@ def _make_group_key(row: dict[str, Any], group_by: list[str]) -> tuple:
         else:
             parts.append(val)
     return tuple(parts)
-
 
 def _build_prediction_row(
     *,
@@ -191,7 +185,6 @@ def _build_prediction_row(
         "target_processing": target_processing or "",
         "created_at": datetime.now().isoformat(),
     }
-
 
 # ---------------------------------------------------------------------------
 # Predictions facade
@@ -1366,6 +1359,65 @@ class Predictions:
     def clear(self) -> None:
         """Clear all buffered predictions."""
         self._buffer.clear()
+
+    def slice_after(self, n: int) -> Predictions:
+        """Return a new Predictions containing only entries after index *n*.
+
+        Used to extract newly appended entries (e.g. refit predictions)
+        from a buffer that was at length *n* before the append.
+
+        Args:
+            n: Start index (exclusive of entries before this index).
+
+        Returns:
+            A new ``Predictions`` instance with entries from index *n* onward.
+        """
+        result = Predictions()
+        result._buffer = self._buffer[n:]
+        if self._dataset_repetition is not None:
+            result._dataset_repetition = self._dataset_repetition
+        return result
+
+    def iter_entries(self, fold_id: str | None = None) -> list[dict[str, Any]]:
+        """Return buffered entries, optionally filtered by fold_id.
+
+        Args:
+            fold_id: If provided, only return entries whose ``fold_id``
+                matches (string comparison).
+
+        Returns:
+            List of matching entry dicts.
+        """
+        if fold_id is None:
+            return list(self._buffer)
+        return [e for e in self._buffer if str(e.get("fold_id")) == fold_id]
+
+    def extend_from_list(self, entries: list[dict[str, Any]]) -> None:
+        """Append raw dict entries to the buffer.
+
+        Used by branch controller merge paths where prediction entries
+        are collected as plain dicts from parallel workers.
+
+        Args:
+            entries: List of prediction entry dicts to append.
+        """
+        self._buffer.extend(entries)
+
+    def mutate_entries(self, updates: dict[str, Any], fold_id: str | None = None) -> None:
+        """Apply *updates* to all buffered entries, optionally filtered by fold_id.
+
+        This mutates entries in place and is used by refit label
+        helpers that need to set ``fold_id``, ``refit_context``, etc.
+
+        Args:
+            updates: Key-value pairs to set on each matching entry.
+            fold_id: If provided, only mutate entries whose ``fold_id``
+                matches (string comparison).  ``None`` mutates all entries.
+        """
+        for entry in self._buffer:
+            if fold_id is not None and str(entry.get("fold_id")) != fold_id:
+                continue
+            entry.update(updates)
 
     # =========================================================================
     # PARTITION HELPERS

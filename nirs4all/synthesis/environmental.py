@@ -35,15 +35,14 @@ References:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Dict, Optional, Tuple
-
+from enum import Enum, StrEnum
+from typing import Optional
 
 # ============================================================================
 # Temperature Effect Parameters by Spectral Region
 # ============================================================================
 
-class SpectralRegion(str, Enum):
+class SpectralRegion(StrEnum):
     """NIR spectral regions with distinct temperature responses."""
     OH_FIRST_OVERTONE = "oh_1st_overtone"      # ~1400-1500 nm (O-H stretch 1st overtone)
     OH_COMBINATION = "oh_combination"          # ~1900-2000 nm (O-H stretch + bend)
@@ -53,7 +52,6 @@ class SpectralRegion(str, Enum):
     NH_COMBINATION = "nh_combination"          # ~2000-2100 nm (N-H combinations)
     WATER_FREE = "water_free"                  # Free water O-H
     WATER_BOUND = "water_bound"                # Hydrogen-bonded water O-H
-
 
 @dataclass
 class TemperatureEffectParams:
@@ -69,15 +67,14 @@ class TemperatureEffectParams:
         broadening_per_degree: Fractional bandwidth increase per °C.
         reference: Literature reference for values.
     """
-    wavelength_range: Tuple[float, float]
+    wavelength_range: tuple[float, float]
     shift_per_degree: float          # nm/°C
     intensity_change_per_degree: float  # fraction/°C (e.g., -0.002 = -0.2%/°C)
     broadening_per_degree: float     # fraction/°C
     reference: str = ""
 
-
 # Literature-based temperature effect parameters
-TEMPERATURE_EFFECT_PARAMS: Dict[SpectralRegion, TemperatureEffectParams] = {
+TEMPERATURE_EFFECT_PARAMS: dict[SpectralRegion, TemperatureEffectParams] = {
     SpectralRegion.OH_FIRST_OVERTONE: TemperatureEffectParams(
         wavelength_range=(1400, 1520),
         shift_per_degree=-0.30,      # Blue shift with increasing temperature
@@ -136,7 +133,6 @@ TEMPERATURE_EFFECT_PARAMS: Dict[SpectralRegion, TemperatureEffectParams] = {
     ),
 }
 
-
 # ============================================================================
 # Configuration Classes
 # ============================================================================
@@ -163,13 +159,12 @@ class TemperatureConfig:
     enable_intensity: bool = True
     enable_broadening: bool = True
     region_specific: bool = True
-    custom_regions: Optional[Dict[SpectralRegion, TemperatureEffectParams]] = None
+    custom_regions: dict[SpectralRegion, TemperatureEffectParams] | None = None
 
     @property
     def delta_temperature(self) -> float:
         """Temperature difference from reference."""
         return self.sample_temperature - self.reference_temperature
-
 
 @dataclass
 class MoistureConfig:
@@ -203,7 +198,6 @@ class MoistureConfig:
         if not 0.0 <= self.free_water_fraction <= 1.0:
             raise ValueError(f"free_water_fraction must be 0-1, got {self.free_water_fraction}")
 
-
 @dataclass
 class EnvironmentalEffectsConfig:
     """
@@ -220,12 +214,11 @@ class EnvironmentalEffectsConfig:
     enable_temperature: bool = True
     enable_moisture: bool = True
 
-
 # ============================================================================
 # Utility Functions
 # ============================================================================
 
-def get_temperature_effect_regions() -> Dict[str, Tuple[float, float]]:
+def get_temperature_effect_regions() -> dict[str, tuple[float, float]]:
     """
     Get the wavelength regions with significant temperature effects.
 
@@ -236,7 +229,6 @@ def get_temperature_effect_regions() -> Dict[str, Tuple[float, float]]:
         region.value: params.wavelength_range
         for region, params in TEMPERATURE_EFFECT_PARAMS.items()
     }
-
 
 # ============================================================================
 # Module-level exports

@@ -37,7 +37,6 @@ def workspace_dir():
     yield Path(temp_dir)
     shutil.rmtree(temp_dir)
 
-
 # =========================================================================
 # Class existence and instantiation
 # =========================================================================
@@ -65,7 +64,6 @@ class TestClassExists:
         assert store is not None
         store.close()
 
-
 # =========================================================================
 # Protocol compliance
 # =========================================================================
@@ -86,7 +84,6 @@ class TestProtocolCompliance:
     def test_workspace_store_is_subclass_of_protocol(self):
         """WorkspaceStore structurally satisfies WorkspaceStoreProtocol."""
         assert issubclass(WorkspaceStore, WorkspaceStoreProtocol)
-
 
 # =========================================================================
 # Run lifecycle methods
@@ -144,7 +141,6 @@ class TestRunLifecycleMethods:
         """fail_run is annotated to return None."""
         hints = get_type_hints(WorkspaceStore.fail_run)
         assert hints.get("return") is type(None)
-
 
 # =========================================================================
 # Pipeline lifecycle methods
@@ -208,7 +204,6 @@ class TestPipelineLifecycleMethods:
         hints = get_type_hints(WorkspaceStore.complete_pipeline)
         assert hints.get("return") is type(None)
 
-
 # =========================================================================
 # Chain management methods
 # =========================================================================
@@ -271,7 +266,6 @@ class TestChainManagementMethods:
         hints = get_type_hints(WorkspaceStore.get_chains_for_pipeline)
         assert hints.get("return") is pl.DataFrame
 
-
 # =========================================================================
 # Prediction storage methods
 # =========================================================================
@@ -307,7 +301,6 @@ class TestPredictionStorageMethods:
         """save_prediction is annotated to return str."""
         hints = get_type_hints(WorkspaceStore.save_prediction)
         assert hints.get("return") is str
-
 
 # =========================================================================
 # Artifact storage methods
@@ -381,7 +374,6 @@ class TestArtifactStorageMethods:
         hints = get_type_hints(WorkspaceStore.register_existing_artifact)
         assert hints.get("return") is str
 
-
 # =========================================================================
 # Structured logging methods
 # =========================================================================
@@ -418,7 +410,6 @@ class TestLoggingMethods:
         """log_step is annotated to return None."""
         hints = get_type_hints(WorkspaceStore.log_step)
         assert hints.get("return") is type(None)
-
 
 # =========================================================================
 # Query methods
@@ -592,7 +583,6 @@ class TestQueryMethods:
         hints = get_type_hints(WorkspaceStore.get_run_log_summary)
         assert hints.get("return") is pl.DataFrame
 
-
 # =========================================================================
 # Export methods
 # =========================================================================
@@ -665,7 +655,6 @@ class TestExportMethods:
         hints = get_type_hints(WorkspaceStore.export_predictions_parquet)
         assert hints.get("return") is Path
 
-
 # =========================================================================
 # Deletion and cleanup methods
 # =========================================================================
@@ -723,7 +712,6 @@ class TestDeletionMethods:
         hints = get_type_hints(WorkspaceStore.vacuum)
         assert hints.get("return") is type(None)
 
-
 # =========================================================================
 # Chain replay method
 # =========================================================================
@@ -749,7 +737,6 @@ class TestChainReplayMethod:
         hints = get_type_hints(WorkspaceStore.replay_chain)
         assert hints.get("return") is np.ndarray
 
-
 # =========================================================================
 # Close / resource management
 # =========================================================================
@@ -765,7 +752,6 @@ class TestCloseMethod:
         """close is annotated to return None."""
         hints = get_type_hints(WorkspaceStore.close)
         assert hints.get("return") is type(None)
-
 
 # =========================================================================
 # Comprehensive method inventory

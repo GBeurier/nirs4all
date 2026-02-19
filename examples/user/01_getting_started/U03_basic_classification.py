@@ -25,6 +25,7 @@ Difficulty: ★★☆☆☆
 
 # Standard library imports
 import argparse
+
 import matplotlib.pyplot as plt
 
 # Third-party imports
@@ -41,9 +42,7 @@ except ImportError:
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    FirstDerivative, StandardNormalVariate, Haar, MultiplicativeScatterCorrection
-)
+from nirs4all.operators.transforms import FirstDerivative, Haar, MultiplicativeScatterCorrection, StandardNormalVariate
 from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
@@ -51,7 +50,6 @@ parser = argparse.ArgumentParser(description='U03 Basic Classification Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Build Classification Pipeline
@@ -112,7 +110,6 @@ print("   • StandardScaler for feature normalization")
 print("   • 3-fold ShuffleSplit cross-validation")
 print(f"   • {2 if HAS_XGBOOST else 1} classifier(s)")
 
-
 # =============================================================================
 # Section 2: Train the Pipeline
 # =============================================================================
@@ -129,9 +126,8 @@ result = nirs4all.run(
     plots_visible=args.plots
 )
 
-print(f"\n📊 Training complete!")
+print("\n📊 Training complete!")
 print(f"   Generated {result.num_predictions} predictions")
-
 
 # =============================================================================
 # Section 3: Display Results
@@ -153,7 +149,6 @@ for i, pred in enumerate(predictions.top(5, rank_metric='accuracy', display_metr
     print(f"{i}. {model_name}")
     print(f"   Accuracy: {accuracy:.4f} | Balanced Recall: {balanced:.4f}")
     print(f"   Preprocessing: {preproc}")
-
 
 # =============================================================================
 # Section 4: Visualize Results
@@ -193,7 +188,6 @@ fig4 = analyzer.plot_histogram(
     display_metric='balanced_recall',
 )
 print("   ✓ Created histogram (balanced recall)")
-
 
 # =============================================================================
 # Summary

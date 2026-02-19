@@ -14,12 +14,12 @@ from __future__ import annotations
 import numpy as np
 
 from nirs4all.synthesis.scattering import (
-    ScatteringModel,
-    ParticleSizeDistribution,
-    ParticleSizeConfig,
     EMSCConfig,
+    ParticleSizeConfig,
+    ParticleSizeDistribution,
     ScatteringCoefficientConfig,
     ScatteringEffectsConfig,
+    ScatteringModel,
 )
 
 
@@ -33,7 +33,6 @@ class TestScatteringModel:
         assert ScatteringModel.MIE_APPROX.value == "mie_approx"
         assert ScatteringModel.KUBELKA_MUNK.value == "kubelka_munk"
         assert ScatteringModel.POLYNOMIAL.value == "polynomial"
-
 
 class TestParticleSizeDistribution:
     """Tests for ParticleSizeDistribution dataclass."""
@@ -105,7 +104,6 @@ class TestParticleSizeDistribution:
         assert np.all(sizes >= 5.0)
         assert np.all(sizes <= 200.0)
 
-
 class TestParticleSizeConfig:
     """Tests for ParticleSizeConfig dataclass."""
 
@@ -125,7 +123,6 @@ class TestParticleSizeConfig:
         )
         assert config.distribution.mean_size_um == 30.0
         assert config.reference_size_um == 40.0
-
 
 class TestEMSCConfig:
     """Tests for EMSCConfig dataclass."""
@@ -147,7 +144,6 @@ class TestEMSCConfig:
         assert config.polynomial_order == 3
         assert config.multiplicative_scatter_std == 0.2
 
-
 class TestScatteringCoefficientConfig:
     """Tests for ScatteringCoefficientConfig dataclass."""
 
@@ -165,7 +161,6 @@ class TestScatteringCoefficientConfig:
             sample_variation=0.2
         )
         assert config.baseline_scattering == 1.5
-
 
 class TestScatteringEffectsConfig:
     """Tests for ScatteringEffectsConfig dataclass."""

@@ -43,18 +43,15 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative
-)
+from nirs4all.operators.transforms import FirstDerivative
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='D01 Metadata Branching Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -83,7 +80,6 @@ by_metadata branching creates branches based on sample attributes:
 
 This is a SEPARATION branch - different samples go to different branches.
 """)
-
 
 # =============================================================================
 # Section 1: Basic Metadata Branching
@@ -128,7 +124,6 @@ print("  - Each variety gets different preprocessing")
 print("  - Samples reassembled via concat merge")
 print("  - Single model trained on all samples")
 
-
 # =============================================================================
 # Section 2: Auto-Discovery of Metadata Values
 # =============================================================================
@@ -164,7 +159,6 @@ print("Auto-discovery mode:")
 print("  - Branches created for each unique 'instrument' value")
 print("  - Same preprocessing applied to all branches")
 print("  - Useful when you don't know all possible values")
-
 
 # =============================================================================
 # Section 3: Value Mapping for Grouping
@@ -214,7 +208,6 @@ print("Value mapping:")
 print("  - Multiple instruments grouped into 'portable' and 'benchtop'")
 print("  - Each group gets appropriate preprocessing")
 
-
 # =============================================================================
 # Section 4: Per-Branch Model Training
 # =============================================================================
@@ -248,7 +241,6 @@ pipeline_per_branch_model = [
 print("Per-branch model training:")
 print("  - Each farm gets its own PLS model")
 print("  - Predictions merged back in sample order")
-
 
 # =============================================================================
 # Section 5: Minimum Samples Per Branch
@@ -284,7 +276,6 @@ pipeline_min_samples = [
 print("Minimum samples option:")
 print("  - Varieties with < 10 samples are skipped")
 print("  - Prevents training on tiny partitions")
-
 
 # =============================================================================
 # Section 6: Combining with Duplication Branching
@@ -330,7 +321,6 @@ print("  1. by_metadata: per-instrument preprocessing (separation)")
 print("  2. concat merge: reassemble samples")
 print("  3. Regular branch: compare PLS components (duplication)")
 
-
 # =============================================================================
 # Section 7: Other Separation Branch Types
 # =============================================================================
@@ -353,7 +343,6 @@ Example - by_tag branching:
 Example - by_filter branching:
     {"branch": {"by_filter": YOutlierFilter(), "steps": {...}}}
 """)
-
 
 # =============================================================================
 # Section 8: Use Cases for Metadata Branching
@@ -384,7 +373,6 @@ print("""
 │                     │ Season-specific preprocessing       │
 └─────────────────────┴─────────────────────────────────────┘
 """)
-
 
 # =============================================================================
 # Summary

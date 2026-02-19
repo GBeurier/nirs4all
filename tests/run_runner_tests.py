@@ -13,11 +13,11 @@ Options:
     verbose     - Run with verbose output
 """
 
-import sys
-import subprocess
-from pathlib import Path
 import json
+import subprocess
+import sys
 from datetime import datetime
+from pathlib import Path
 
 
 def run_command(cmd, capture=False):
@@ -29,7 +29,6 @@ def run_command(cmd, capture=False):
     else:
         return subprocess.run(cmd, shell=True).returncode
 
-
 def run_all_tests():
     """Run all PipelineRunner tests."""
     print("=" * 80)
@@ -39,7 +38,6 @@ def run_all_tests():
     cmd = "pytest tests/test_pipeline_runner*.py -v --tb=short"
     return run_command(cmd)
 
-
 def run_quick_tests():
     """Run only critical regression prevention tests."""
     print("=" * 80)
@@ -48,7 +46,6 @@ def run_quick_tests():
 
     cmd = "pytest tests/test_pipeline_runner_regression_prevention.py -v --tb=short"
     return run_command(cmd)
-
 
 def run_coverage():
     """Run tests with coverage report."""
@@ -63,7 +60,6 @@ def run_coverage():
         print("\n✅ Coverage report generated in htmlcov/index.html")
 
     return returncode
-
 
 def create_baseline():
     """Create baseline results for comparison."""
@@ -95,7 +91,6 @@ def create_baseline():
 
     return returncode
 
-
 def compare_with_baseline(baseline_file=None):
     """Compare current results with baseline."""
     print("=" * 80)
@@ -122,9 +117,9 @@ def compare_with_baseline(baseline_file=None):
     print(f"\n📊 Comparing {baseline_file} vs {current_file}\n")
 
     try:
-        with open(baseline_file, 'r') as f:
+        with open(baseline_file) as f:
             baseline_content = f.read()
-        with open(current_file, 'r') as f:
+        with open(current_file) as f:
             current_content = f.read()
 
         # Extract test results
@@ -142,7 +137,7 @@ def compare_with_baseline(baseline_file=None):
                 print("✅ Test count matches baseline")
                 return 0
             else:
-                print(f"⚠️  WARNING: Test count changed")
+                print("⚠️  WARNING: Test count changed")
                 print(f"   Baseline: {baseline_count} tests")
                 print(f"   Current:  {current_count} tests")
                 return 1
@@ -158,7 +153,6 @@ def compare_with_baseline(baseline_file=None):
         print(f"❌ Error: {e}")
         return 1
 
-
 def run_verbose():
     """Run tests with maximum verbosity."""
     print("=" * 80)
@@ -168,11 +162,9 @@ def run_verbose():
     cmd = "pytest tests/test_pipeline_runner*.py -vv --tb=long -s"
     return run_command(cmd)
 
-
 def show_help():
     """Show help message."""
     print(__doc__)
-
 
 def main():
     """Main entry point."""
@@ -203,7 +195,6 @@ def main():
         print(f"❌ Unknown option: {option}\n")
         show_help()
         return 1
-
 
 if __name__ == "__main__":
     try:

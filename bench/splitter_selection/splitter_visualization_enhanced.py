@@ -10,18 +10,16 @@ splitting strategy evaluation, including:
 - Model ensemble analysis
 """
 
-from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
+from typing import Any, Optional
 
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 from matplotlib.lines import Line2D
 from sklearn.decomposition import PCA
-
 from splitter_evaluation_enhanced import EnhancedStrategyResult
-
 
 # Color scheme by category
 CATEGORY_COLORS = {
@@ -46,12 +44,11 @@ MODEL_COLORS = {
     'mlp': '#f39c12'
 }
 
-
 def plot_comparison_enhanced(
     comparison_df: pd.DataFrame,
-    results: List[EnhancedStrategyResult],
-    save_path: Optional[str] = None,
-    figsize: Tuple[int, int] = (20, 16)
+    results: list[EnhancedStrategyResult],
+    save_path: str | None = None,
+    figsize: tuple[int, int] = (20, 16)
 ) -> plt.Figure:
     """
     Create comprehensive comparison plot with all enhanced metrics.
@@ -244,12 +241,11 @@ def plot_comparison_enhanced(
 
     return fig
 
-
 def plot_model_comparison(
-    results: List[EnhancedStrategyResult],
+    results: list[EnhancedStrategyResult],
     comparison_df: pd.DataFrame,
-    save_path: Optional[str] = None,
-    figsize: Tuple[int, int] = (16, 10)
+    save_path: str | None = None,
+    figsize: tuple[int, int] = (16, 10)
 ) -> plt.Figure:
     """
     Compare individual model performance across strategies.
@@ -308,7 +304,7 @@ def plot_model_comparison(
     bp = ax.boxplot(model_data, labels=model_labels, patch_artist=True,
                     showmeans=True, meanline=True)
 
-    for patch, color in zip(bp['boxes'], model_colors_list):
+    for patch, color in zip(bp['boxes'], model_colors_list, strict=False):
         patch.set_facecolor(color)
         patch.set_alpha(0.6)
 
@@ -321,7 +317,7 @@ def plot_model_comparison(
     best_models = []
     best_rmses = []
 
-    for idx, row in comparison_df.iterrows():
+    for _idx, row in comparison_df.iterrows():
         best_rmse = float('inf')
         best_model = None
         for model_name in model_names:
@@ -342,7 +338,7 @@ def plot_model_comparison(
     ax.invert_yaxis()
 
     # Add model labels
-    for i, (model, rmse) in enumerate(zip(best_models, best_rmses)):
+    for i, (model, rmse) in enumerate(zip(best_models, best_rmses, strict=False)):
         ax.text(rmse + 0.02, i, model.upper(), va='center', fontsize=8)
 
     ax.grid(axis='x', alpha=0.3)
@@ -373,12 +369,11 @@ def plot_model_comparison(
 
     return fig
 
-
 def plot_representativeness(
-    results: List[EnhancedStrategyResult],
+    results: list[EnhancedStrategyResult],
     comparison_df: pd.DataFrame,
-    save_path: Optional[str] = None,
-    figsize: Tuple[int, int] = (16, 12)
+    save_path: str | None = None,
+    figsize: tuple[int, int] = (16, 12)
 ) -> plt.Figure:
     """
     Detailed representativeness metrics visualization.
@@ -484,13 +479,12 @@ def plot_representativeness(
 
     return fig
 
-
 def plot_bootstrap_confidence(
-    results: List[EnhancedStrategyResult],
+    results: list[EnhancedStrategyResult],
     comparison_df: pd.DataFrame,
     n_top: int = 10,
-    save_path: Optional[str] = None,
-    figsize: Tuple[int, int] = (14, 8)
+    save_path: str | None = None,
+    figsize: tuple[int, int] = (14, 8)
 ) -> plt.Figure:
     """
     Plot bootstrap confidence intervals for top strategies.
@@ -532,7 +526,7 @@ def plot_bootstrap_confidence(
                 color='black', ecolor='black', elinewidth=2)
 
     # Colored markers
-    for i, (mean, color) in enumerate(zip(rmse_means, colors)):
+    for i, (mean, color) in enumerate(zip(rmse_means, colors, strict=False)):
         ax.scatter(mean, i, c=color, s=150, zorder=5, edgecolor='black')
 
     ax.set_yticks(y_pos)
@@ -543,7 +537,7 @@ def plot_bootstrap_confidence(
     ax.grid(axis='x', alpha=0.3)
 
     # Add CI width annotation
-    for i, (lower, upper) in enumerate(zip(rmse_lower, rmse_upper)):
+    for i, (lower, upper) in enumerate(zip(rmse_lower, rmse_upper, strict=False)):
         width = upper - lower
         ax.annotate(f'±{width/2:.3f}', xy=(upper + 0.01, i),
                    fontsize=8, va='center')
@@ -562,7 +556,7 @@ def plot_bootstrap_confidence(
                 fmt='o', capsize=5, capthick=2, markersize=10,
                 color='black', ecolor='black', elinewidth=2)
 
-    for i, (mean, color) in enumerate(zip(r2_means, colors)):
+    for i, (mean, color) in enumerate(zip(r2_means, colors, strict=False)):
         ax.scatter(mean, i, c=color, s=150, zorder=5, edgecolor='black')
 
     ax.set_yticks(y_pos)
@@ -579,12 +573,11 @@ def plot_bootstrap_confidence(
 
     return fig
 
-
 def plot_cv_distribution_enhanced(
-    results: List[EnhancedStrategyResult],
+    results: list[EnhancedStrategyResult],
     comparison_df: pd.DataFrame,
-    save_path: Optional[str] = None,
-    figsize: Tuple[int, int] = (16, 10)
+    save_path: str | None = None,
+    figsize: tuple[int, int] = (16, 10)
 ) -> plt.Figure:
     """
     Enhanced CV distribution plot showing all repeats.
@@ -622,7 +615,7 @@ def plot_cv_distribution_enhanced(
     bp = ax.boxplot(data, labels=order, patch_artist=True,
                     showmeans=True, meanline=True, notch=True)
 
-    for patch, color in zip(bp['boxes'], colors):
+    for patch, color in zip(bp['boxes'], colors, strict=False):
         patch.set_facecolor(color)
         patch.set_alpha(0.6)
 
@@ -651,7 +644,7 @@ def plot_cv_distribution_enhanced(
     bp = ax.boxplot(data_r2, labels=order, patch_artist=True,
                     showmeans=True, meanline=True, notch=True)
 
-    for patch, color in zip(bp['boxes'], colors):
+    for patch, color in zip(bp['boxes'], colors, strict=False):
         patch.set_facecolor(color)
         patch.set_alpha(0.6)
 
@@ -672,12 +665,11 @@ def plot_cv_distribution_enhanced(
 
     return fig
 
-
 def plot_predictions_enhanced(
-    results: List[EnhancedStrategyResult],
+    results: list[EnhancedStrategyResult],
     n_top: int = 6,
-    save_path: Optional[str] = None,
-    figsize: Optional[Tuple[int, int]] = None
+    save_path: str | None = None,
+    figsize: tuple[int, int] | None = None
 ) -> plt.Figure:
     """
     Enhanced prediction plots with density and residuals.
@@ -762,11 +754,10 @@ def plot_predictions_enhanced(
 
     return fig
 
-
 def create_summary_report_enhanced(
     comparison_df: pd.DataFrame,
-    best_strategies: Dict[str, Dict[str, Any]],
-    results: List[EnhancedStrategyResult],
+    best_strategies: dict[str, dict[str, Any]],
+    results: list[EnhancedStrategyResult],
     output_path: str
 ) -> None:
     """
@@ -792,7 +783,7 @@ def create_summary_report_enhanced(
             f.write(f"CV repeats: {r0.n_repeats}\n")
             f.write(f"CV folds: {r0.n_folds}\n")
             f.write(f"Total CV iterations: {r0.n_repeats * r0.n_folds}\n")
-            f.write(f"Bootstrap samples: 1000\n\n")
+            f.write("Bootstrap samples: 1000\n\n")
 
         f.write("BEST STRATEGIES BY CRITERION\n")
         f.write("-" * 40 + "\n\n")
@@ -829,7 +820,7 @@ def create_summary_report_enhanced(
         f.write("FULL RANKING (by Test RMSE)\n")
         f.write("=" * 80 + "\n\n")
 
-        for rank, (idx, row) in enumerate(comparison_df.iterrows(), 1):
+        for rank, (_idx, row) in enumerate(comparison_df.iterrows(), 1):
             f.write(f"{rank}. {row['strategy']}\n")
             f.write(f"   Category: {row['category']}\n")
             f.write(f"   Test RMSE: {row['test_rmse']:.4f} [{row['test_rmse_ci_lower']:.4f}, {row['test_rmse_ci_upper']:.4f}]\n")

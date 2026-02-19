@@ -12,14 +12,13 @@ The models provide:
 - Serialization/deserialization
 """
 
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Annotated, Any, Literal, cast
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.functional_validators import BeforeValidator
-
 
 # =============================================================================
 # Custom type handling for numpy arrays
@@ -38,7 +37,6 @@ def _validate_path_or_array(v: Any) -> Any:
         return v
     return v
 
-
 # Type alias for path or array with custom validator
 PathOrArrayType = Annotated[Any, BeforeValidator(_validate_path_or_array)]
 
@@ -46,8 +44,7 @@ PathOrArrayType = Annotated[Any, BeforeValidator(_validate_path_or_array)]
 # Enums for configuration options
 # =============================================================================
 
-
-class TaskType(str, Enum):
+class TaskType(StrEnum):
     """Task type for the dataset."""
 
     AUTO = "auto"
@@ -55,8 +52,7 @@ class TaskType(str, Enum):
     BINARY_CLASSIFICATION = "binary_classification"
     MULTICLASS_CLASSIFICATION = "multiclass_classification"
 
-
-class HeaderUnit(str, Enum):
+class HeaderUnit(StrEnum):
     """Unit type for spectral headers."""
 
     WAVENUMBER = "cm-1"
@@ -65,8 +61,7 @@ class HeaderUnit(str, Enum):
     TEXT = "text"
     INDEX = "index"
 
-
-class SignalTypeEnum(str, Enum):
+class SignalTypeEnum(StrEnum):
     """Signal type for spectral data."""
 
     AUTO = "auto"
@@ -78,16 +73,14 @@ class SignalTypeEnum(str, Enum):
     LOG_1_R = "log(1/R)"
     KUBELKA_MUNK = "kubelka-munk"
 
-
-class PartitionType(str, Enum):
+class PartitionType(StrEnum):
     """Partition assignment type."""
 
     TRAIN = "train"
     TEST = "test"
     PREDICT = "predict"
 
-
-class NAPolicy(str, Enum):
+class NAPolicy(StrEnum):
     """Policy for handling NA/missing values during data loading and pipeline execution."""
 
     AUTO = "auto"                    # Default → abort (fail-safe)
@@ -97,8 +90,7 @@ class NAPolicy(str, Enum):
     REPLACE = "replace"              # Replace NaN (configurable method)
     IGNORE = "ignore"                # Keep NaN as-is for downstream handling
 
-
-class NAFillMethod(str, Enum):
+class NAFillMethod(StrEnum):
     """Method for filling NA values when using REPLACE policy."""
 
     VALUE = "value"              # Fill with a constant
@@ -107,7 +99,6 @@ class NAFillMethod(str, Enum):
     FORWARD_FILL = "forward_fill"  # Forward-fill (spectral interpolation)
     BACKWARD_FILL = "backward_fill"  # Backward-fill
 
-
 class NAFillConfig(BaseModel):
     """Configuration for NA replacement when na_policy='replace'."""
 
@@ -115,24 +106,21 @@ class NAFillConfig(BaseModel):
     fill_value: float = 0.0
     per_column: bool = True
 
-
-class CategoricalMode(str, Enum):
+class CategoricalMode(StrEnum):
     """Mode for handling categorical columns in Y data."""
 
     AUTO = "auto"
     PRESERVE = "preserve"
     NONE = "none"
 
-
-class AggregateMethod(str, Enum):
+class AggregateMethod(StrEnum):
     """Method for aggregating predictions."""
 
     MEAN = "mean"
     MEDIAN = "median"
     VOTE = "vote"
 
-
-class VariationMode(str, Enum):
+class VariationMode(StrEnum):
     """Mode for handling feature variations.
 
     Feature variations represent different "views" of the same samples,
@@ -145,7 +133,6 @@ class VariationMode(str, Enum):
     SELECT = "select"       # Use only specified variations
     COMPARE = "compare"     # Run each variation and rank by performance
 
-
 # =============================================================================
 # Type aliases
 # =============================================================================
@@ -155,18 +142,16 @@ class VariationMode(str, Enum):
 PathOrArray = Any  # Union[str, Path, np.ndarray, List[Union[str, Path]]]
 
 # Column selection can be indices, names, regex, etc.
-ColumnSelection = Union[
-    List[int],           # List of column indices
-    List[str],           # List of column names
-    str,                 # Range string like "2:-1" or regex pattern
-    Dict[str, Any],      # Complex selection like {"regex": "^feature_.*"}
-]
-
+ColumnSelection = (
+    list[int]           # List of column indices
+    | list[str]           # List of column names
+    | str                 # Range string like "2:-1" or regex pattern
+    | dict[str, Any]      # Complex selection like {"regex": "^feature_.*"}
+)
 
 # =============================================================================
 # Loading parameters schema
 # =============================================================================
-
 
 class LoadingParams(BaseModel):
     """Parameters for loading data files.
@@ -178,54 +163,54 @@ class LoadingParams(BaseModel):
 
     model_config = ConfigDict(extra="allow")  # Allow extra fields for forward compatibility
 
-    delimiter: Optional[str] = Field(
+    delimiter: str | None = Field(
         default=None,
         description="Field delimiter for CSV files. Default: ';' if not specified."
     )
 
-    decimal_separator: Optional[str] = Field(
+    decimal_separator: str | None = Field(
         default=None,
         description="Decimal separator for numeric values. Default: '.'"
     )
 
-    has_header: Optional[bool] = Field(
+    has_header: bool | None = Field(
         default=None,
         description="Whether the first row is a header. Default: True"
     )
 
-    header_unit: Optional[Union[HeaderUnit, str]] = Field(
+    header_unit: HeaderUnit | str | None = Field(
         default=None,
         description="Unit type for headers: 'cm-1', 'nm', 'none', 'text', 'index'. Default: 'cm-1'"
     )
 
-    signal_type: Optional[Union[SignalTypeEnum, str]] = Field(
+    signal_type: SignalTypeEnum | str | None = Field(
         default=None,
         description="Signal type: 'absorbance', 'reflectance', etc. Default: auto-detect"
     )
 
-    encoding: Optional[str] = Field(
+    encoding: str | None = Field(
         default=None,
         description="File encoding. Default: 'utf-8'"
     )
 
-    na_policy: Optional[Union[NAPolicy, str]] = Field(
+    na_policy: NAPolicy | str | None = Field(
         default=None,
         description="How to handle NA values: 'auto', 'abort', 'remove_sample', 'remove_feature', 'replace', 'ignore'"
     )
 
-    na_fill_config: Optional[NAFillConfig] = Field(
+    na_fill_config: NAFillConfig | None = Field(
         default=None,
         description="Configuration for NA replacement when na_policy='replace'"
     )
 
-    categorical_mode: Optional[Union[CategoricalMode, str]] = Field(
+    categorical_mode: CategoricalMode | str | None = Field(
         default=None,
         description="How to handle categorical columns: 'auto', 'preserve', 'none'. Default: 'auto'"
     )
 
     @field_validator("header_unit", mode="before")
     @classmethod
-    def normalize_header_unit(cls, v: Any) -> Optional[Union[HeaderUnit, str]]:
+    def normalize_header_unit(cls, v: Any) -> HeaderUnit | str | None:
         """Normalize header_unit to enum if possible."""
         if v is None:
             return None
@@ -236,11 +221,11 @@ class LoadingParams(BaseModel):
                 return HeaderUnit(v.lower())
             except ValueError:
                 return v  # Keep as string for validation error
-        return v
+        return cast(HeaderUnit | str | None, v)
 
     @field_validator("signal_type", mode="before")
     @classmethod
-    def normalize_signal_type(cls, v: Any) -> Optional[Union[SignalTypeEnum, str]]:
+    def normalize_signal_type(cls, v: Any) -> SignalTypeEnum | str | None:
         """Normalize signal_type to enum if possible."""
         if v is None:
             return None
@@ -251,9 +236,9 @@ class LoadingParams(BaseModel):
                 return SignalTypeEnum(v.lower())
             except ValueError:
                 return v  # Keep as string for validation error
-        return v
+        return cast(SignalTypeEnum | str | None, v)
 
-    def merge_with(self, other: Optional["LoadingParams"]) -> "LoadingParams":
+    def merge_with(self, other: "LoadingParams | None") -> "LoadingParams":
         """Merge with another LoadingParams, self taking precedence.
 
         Args:
@@ -272,11 +257,9 @@ class LoadingParams(BaseModel):
 
         return LoadingParams(**merged_data)
 
-
 # =============================================================================
 # Column configuration schema (for future files syntax)
 # =============================================================================
-
 
 class ColumnConfig(BaseModel):
     """Configuration for column selection and role assignment.
@@ -287,26 +270,24 @@ class ColumnConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    features: Optional[ColumnSelection] = Field(
+    features: ColumnSelection | None = Field(
         default=None,
         description="Columns to use as features (X)."
     )
 
-    targets: Optional[ColumnSelection] = Field(
+    targets: ColumnSelection | None = Field(
         default=None,
         description="Columns to use as targets (Y)."
     )
 
-    metadata: Optional[ColumnSelection] = Field(
+    metadata: ColumnSelection | None = Field(
         default=None,
         description="Columns to use as metadata."
     )
 
-
 # =============================================================================
 # Partition configuration schema
 # =============================================================================
-
 
 class PartitionConfig(BaseModel):
     """Configuration for partition assignment.
@@ -350,82 +331,82 @@ class PartitionConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     # --- Static partition ---
-    type: Optional[PartitionType] = Field(
+    type: PartitionType | None = Field(
         default=None,
         description="Static partition type: 'train', 'test', or 'predict'. "
                     "Assigns entire file to this partition."
     )
 
     # --- Column-based partition ---
-    column: Optional[str] = Field(
+    column: str | None = Field(
         default=None,
         description="Column name containing partition labels."
     )
 
-    train_values: Optional[List[str]] = Field(
+    train_values: list[str] | None = Field(
         default=None,
         description="Values in partition column that indicate training data."
     )
 
-    test_values: Optional[List[str]] = Field(
+    test_values: list[str] | None = Field(
         default=None,
         description="Values in partition column that indicate test data."
     )
 
-    predict_values: Optional[List[str]] = Field(
+    predict_values: list[str] | None = Field(
         default=None,
         description="Values in partition column that indicate predict-only data."
     )
 
-    unknown_policy: Optional[Literal["error", "ignore", "train"]] = Field(
+    unknown_policy: Literal["error", "ignore", "train"] | None = Field(
         default=None,
         description="How to handle unknown values in partition column. "
                     "'error': raise exception, 'ignore': skip rows, 'train': include in training."
     )
 
     # --- Percentage-based partition ---
-    train: Optional[Union[str, List[int]]] = Field(
+    train: str | list[int] | None = Field(
         default=None,
         description="Training partition: percentage string ('80%', '0:80%') or list of indices."
     )
 
-    test: Optional[Union[str, List[int]]] = Field(
+    test: str | list[int] | None = Field(
         default=None,
         description="Test partition: percentage string ('20%', '80%:100%') or list of indices."
     )
 
-    predict: Optional[Union[str, List[int]]] = Field(
+    predict: str | list[int] | None = Field(
         default=None,
         description="Predict partition: percentage string or list of indices."
     )
 
-    shuffle: Optional[bool] = Field(
+    shuffle: bool | None = Field(
         default=None,
         description="Whether to shuffle data before percentage-based splitting."
     )
 
-    random_state: Optional[int] = Field(
+    random_state: int | None = Field(
         default=None,
         description="Random state for shuffle and sampling operations."
     )
 
-    stratify: Optional[str] = Field(
+    stratify: str | None = Field(
         default=None,
         description="Column name for stratified splitting (maintains class proportions)."
     )
 
     # --- Index file partition ---
-    train_file: Optional[str] = Field(
+    train_file: str | None = Field(
         default=None,
         description="Path to file containing training indices."
     )
 
-    test_file: Optional[str] = Field(
+    test_file: str | None = Field(
         default=None,
         description="Path to file containing test indices."
     )
 
-    predict_file: Optional[str] = Field(
+    predict_file: str | None = Field(
         default=None,
         description="Path to file containing predict indices."
     )
@@ -465,7 +446,7 @@ class PartitionConfig(BaseModel):
         # For now, just validate that we have at least one method if any fields are set
         return self
 
-    def to_assigner_spec(self) -> Union[str, Dict[str, Any], None]:
+    def to_assigner_spec(self) -> str | dict[str, Any] | None:
         """Convert this config to a spec for PartitionAssigner.
 
         Returns:
@@ -477,7 +458,7 @@ class PartitionConfig(BaseModel):
 
         # Column-based partition
         if self.column is not None:
-            spec = {"column": self.column}
+            spec: dict[str, Any] = {"column": self.column}
             if self.train_values:
                 spec["train_values"] = self.train_values
             if self.test_values:
@@ -490,39 +471,37 @@ class PartitionConfig(BaseModel):
 
         # File-based partition
         if self.train_file or self.test_file or self.predict_file:
-            spec = {}
+            file_spec: dict[str, Any] = {}
             if self.train_file:
-                spec["train_file"] = self.train_file
+                file_spec["train_file"] = self.train_file
             if self.test_file:
-                spec["test_file"] = self.test_file
+                file_spec["test_file"] = self.test_file
             if self.predict_file:
-                spec["predict_file"] = self.predict_file
-            return spec
+                file_spec["predict_file"] = self.predict_file
+            return file_spec
 
         # Percentage/index partition
         if self.train is not None or self.test is not None or self.predict is not None:
-            spec = {}
+            pct_spec: dict[str, Any] = {}
             if self.train is not None:
-                spec["train"] = self.train
+                pct_spec["train"] = self.train
             if self.test is not None:
-                spec["test"] = self.test
+                pct_spec["test"] = self.test
             if self.predict is not None:
-                spec["predict"] = self.predict
+                pct_spec["predict"] = self.predict
             if self.shuffle is not None:
-                spec["shuffle"] = self.shuffle
+                pct_spec["shuffle"] = self.shuffle
             if self.random_state is not None:
-                spec["random_state"] = self.random_state
+                pct_spec["random_state"] = self.random_state
             if self.stratify is not None:
-                spec["stratify"] = self.stratify
-            return spec
+                pct_spec["stratify"] = self.stratify
+            return pct_spec
 
         return None
-
 
 # =============================================================================
 # Fold configuration schema
 # =============================================================================
-
 
 class FoldDefinition(BaseModel):
     """Definition of a single cross-validation fold.
@@ -532,16 +511,15 @@ class FoldDefinition(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    train: List[int] = Field(
+    train: list[int] = Field(
         description="Sample indices for training in this fold."
     )
 
-    val: List[int] = Field(
+    val: list[int] = Field(
         default_factory=list,
         description="Sample indices for validation in this fold. "
                     "Also accepts 'test' as an alias."
     )
-
 
 class FoldConfig(BaseModel):
     """Configuration for cross-validation fold definitions.
@@ -572,24 +550,24 @@ class FoldConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # --- Inline fold definitions ---
-    folds: Optional[List[FoldDefinition]] = Field(
+    folds: list[FoldDefinition] | None = Field(
         default=None,
         description="List of inline fold definitions."
     )
 
     # --- File reference ---
-    file: Optional[str] = Field(
+    file: str | None = Field(
         default=None,
         description="Path to fold file (CSV, JSON, YAML, TXT)."
     )
 
-    format: Optional[Literal["auto", "csv", "json", "yaml", "txt"]] = Field(
+    format: Literal["auto", "csv", "json", "yaml", "txt"] | None = Field(
         default="auto",
         description="Format of fold file. 'auto' detects from extension."
     )
 
     # --- Column reference ---
-    column: Optional[str] = Field(
+    column: str | None = Field(
         default=None,
         description="Column name in metadata containing fold assignments. "
                     "Each unique value becomes a validation fold."
@@ -615,7 +593,7 @@ class FoldConfig(BaseModel):
 
         return self
 
-    def to_fold_list(self) -> Optional[List[Tuple[List[int], List[int]]]]:
+    def to_fold_list(self) -> list[tuple[list[int], list[int]]] | None:
         """Convert inline fold definitions to fold list.
 
         Returns:
@@ -626,11 +604,9 @@ class FoldConfig(BaseModel):
 
         return [(f.train, f.val) for f in self.folds]
 
-
 # =============================================================================
 # File configuration schema (for future files syntax)
 # =============================================================================
-
 
 class FileConfig(BaseModel):
     """Configuration for a single data file.
@@ -645,31 +621,29 @@ class FileConfig(BaseModel):
         description="Path to the data file."
     )
 
-    partition: Optional[PartitionType] = Field(
+    partition: PartitionType | None = Field(
         default=None,
         description="Which partition this file belongs to."
     )
 
-    columns: Optional[ColumnConfig] = Field(
+    columns: ColumnConfig | None = Field(
         default=None,
         description="Column selection and role assignment."
     )
 
-    params: Optional[LoadingParams] = Field(
+    params: LoadingParams | None = Field(
         default=None,
         description="Loading parameters specific to this file."
     )
 
-    link_by: Optional[str] = Field(
+    link_by: str | None = Field(
         default=None,
         description="Column to use for linking with other files."
     )
 
-
 # =============================================================================
 # Source configuration schema (for multi-source datasets)
 # =============================================================================
-
 
 class SourceFileConfig(BaseModel):
     """Configuration for a single file within a source.
@@ -683,21 +657,20 @@ class SourceFileConfig(BaseModel):
         description="Path to the data file."
     )
 
-    partition: Optional[PartitionType] = Field(
+    partition: PartitionType | None = Field(
         default=None,
         description="Which partition this file belongs to."
     )
 
-    columns: Optional[ColumnConfig] = Field(
+    columns: ColumnConfig | None = Field(
         default=None,
         description="Column selection and role assignment."
     )
 
-    params: Optional[LoadingParams] = Field(
+    params: LoadingParams | None = Field(
         default=None,
         description="Loading parameters specific to this file."
     )
-
 
 class SourceConfig(BaseModel):
     """Configuration for a single feature source in multi-source datasets.
@@ -736,28 +709,28 @@ class SourceConfig(BaseModel):
         description="Unique identifier for this source (e.g., 'NIR', 'MIR', 'sensor1')."
     )
 
-    files: Optional[List[Union[str, SourceFileConfig, Dict[str, Any]]]] = Field(
+    files: list[str | SourceFileConfig | dict[str, Any]] | None = Field(
         default=None,
         description="List of files for this source. Can be paths or file configs."
     )
 
     # Convenience: direct paths for train/test instead of files list
-    train_x: Optional[str] = Field(
+    train_x: str | None = Field(
         default=None,
         description="Direct path to training features for this source."
     )
 
-    test_x: Optional[str] = Field(
+    test_x: str | None = Field(
         default=None,
         description="Direct path to test features for this source."
     )
 
-    params: Optional[LoadingParams] = Field(
+    params: LoadingParams | None = Field(
         default=None,
         description="Loading parameters for all files in this source."
     )
 
-    link_by: Optional[str] = Field(
+    link_by: str | None = Field(
         default=None,
         description="Column to use for linking samples across sources."
     )
@@ -781,7 +754,7 @@ class SourceConfig(BaseModel):
 
         return self
 
-    def get_train_paths(self) -> List[str]:
+    def get_train_paths(self) -> list[str]:
         """Get all training file paths for this source.
 
         Returns:
@@ -810,7 +783,7 @@ class SourceConfig(BaseModel):
                             paths.append(file_dict['path'])
         return paths
 
-    def get_test_paths(self) -> List[str]:
+    def get_test_paths(self) -> list[str]:
         """Get all test file paths for this source.
 
         Returns:
@@ -839,7 +812,6 @@ class SourceConfig(BaseModel):
                             paths.append(file_dict['path'])
         return paths
 
-
 class SharedTargetsConfig(BaseModel):
     """Configuration for shared targets in multi-source datasets.
 
@@ -865,26 +837,25 @@ class SharedTargetsConfig(BaseModel):
         description="Path to the targets file."
     )
 
-    columns: Optional[ColumnSelection] = Field(
+    columns: ColumnSelection | None = Field(
         default=None,
         description="Column selection for targets (if file has multiple columns)."
     )
 
-    link_by: Optional[str] = Field(
+    link_by: str | None = Field(
         default=None,
         description="Column to use for linking targets to feature sources."
     )
 
-    params: Optional[LoadingParams] = Field(
+    params: LoadingParams | None = Field(
         default=None,
         description="Loading parameters for the targets file."
     )
 
-    partition: Optional[PartitionType] = Field(
+    partition: PartitionType | None = Field(
         default=None,
         description="If specified, this targets file is for a specific partition only."
     )
-
 
 class SharedMetadataConfig(BaseModel):
     """Configuration for shared metadata in multi-source datasets.
@@ -905,31 +876,29 @@ class SharedMetadataConfig(BaseModel):
         description="Path to the metadata file."
     )
 
-    columns: Optional[ColumnSelection] = Field(
+    columns: ColumnSelection | None = Field(
         default=None,
         description="Column selection for metadata (if file has multiple columns)."
     )
 
-    link_by: Optional[str] = Field(
+    link_by: str | None = Field(
         default=None,
         description="Column to use for linking metadata to feature sources."
     )
 
-    params: Optional[LoadingParams] = Field(
+    params: LoadingParams | None = Field(
         default=None,
         description="Loading parameters for the metadata file."
     )
 
-    partition: Optional[PartitionType] = Field(
+    partition: PartitionType | None = Field(
         default=None,
         description="If specified, this metadata file is for a specific partition only."
     )
 
-
 # =============================================================================
 # Variation configuration schema (for feature variations / preprocessed data)
 # =============================================================================
-
 
 class PreprocessingApplied(BaseModel):
     """Metadata about preprocessing that was applied offline.
@@ -953,21 +922,20 @@ class PreprocessingApplied(BaseModel):
         description="Type of preprocessing (e.g., 'SNV', 'MSC', 'SG_derivative')."
     )
 
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None,
         description="Human-readable description of the preprocessing."
     )
 
-    software: Optional[str] = Field(
+    software: str | None = Field(
         default=None,
         description="Software used to apply the preprocessing."
     )
 
-    params: Optional[Dict[str, Any]] = Field(
+    params: dict[str, Any] | None = Field(
         default=None,
         description="Parameters used for the preprocessing."
     )
-
 
 class VariationFileConfig(BaseModel):
     """Configuration for a single file within a variation.
@@ -981,26 +949,25 @@ class VariationFileConfig(BaseModel):
         description="Path to the data file."
     )
 
-    partition: Optional[PartitionType] = Field(
+    partition: PartitionType | None = Field(
         default=None,
         description="Which partition this file belongs to."
     )
 
-    columns: Optional[ColumnConfig] = Field(
+    columns: ColumnConfig | None = Field(
         default=None,
         description="Column selection and role assignment."
     )
 
-    params: Optional[LoadingParams] = Field(
+    params: LoadingParams | None = Field(
         default=None,
         description="Loading parameters specific to this file."
     )
 
-    header: Optional[Dict[str, Any]] = Field(
+    header: dict[str, Any] | None = Field(
         default=None,
         description="Header configuration (unit, signal_type, etc.)."
     )
-
 
 class VariationConfig(BaseModel):
     """Configuration for a single feature variation.
@@ -1044,33 +1011,33 @@ class VariationConfig(BaseModel):
         description="Unique identifier for this variation (e.g., 'raw', 'snv', 'derivative')."
     )
 
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None,
         description="Human-readable description of this variation."
     )
 
-    files: Optional[List[Union[str, VariationFileConfig, Dict[str, Any]]]] = Field(
+    files: list[str | VariationFileConfig | dict[str, Any]] | None = Field(
         default=None,
         description="List of files for this variation. Can be paths or file configs."
     )
 
     # Convenience: direct paths for train/test instead of files list
-    train_x: Optional[str] = Field(
+    train_x: str | None = Field(
         default=None,
         description="Direct path to training features for this variation."
     )
 
-    test_x: Optional[str] = Field(
+    test_x: str | None = Field(
         default=None,
         description="Direct path to test features for this variation."
     )
 
-    params: Optional[LoadingParams] = Field(
+    params: LoadingParams | None = Field(
         default=None,
         description="Loading parameters for all files in this variation."
     )
 
-    preprocessing_applied: Optional[List[PreprocessingApplied]] = Field(
+    preprocessing_applied: list[PreprocessingApplied] | None = Field(
         default=None,
         description="Provenance information about preprocessing applied offline."
     )
@@ -1094,7 +1061,7 @@ class VariationConfig(BaseModel):
 
         return self
 
-    def get_train_paths(self) -> List[str]:
+    def get_train_paths(self) -> list[str]:
         """Get all training file paths for this variation.
 
         Returns:
@@ -1123,7 +1090,7 @@ class VariationConfig(BaseModel):
                             paths.append(file_dict['path'])
         return paths
 
-    def get_test_paths(self) -> List[str]:
+    def get_test_paths(self) -> list[str]:
         """Get all test file paths for this variation.
 
         Returns:
@@ -1152,11 +1119,9 @@ class VariationConfig(BaseModel):
                             paths.append(file_dict['path'])
         return paths
 
-
 # =============================================================================
 # Main dataset configuration schema
 # =============================================================================
-
 
 class DatasetConfigSchema(BaseModel):
     """Complete dataset configuration schema.
@@ -1175,190 +1140,190 @@ class DatasetConfigSchema(BaseModel):
     )
 
     # --- Dataset identification ---
-    name: Optional[str] = Field(
+    name: str | None = Field(
         default=None,
         description="Dataset name. Derived from file/folder path if not specified."
     )
 
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None,
         description="Optional description of the dataset."
     )
 
     # --- Task configuration ---
-    task_type: Optional[TaskType] = Field(
+    task_type: TaskType | None = Field(
         default=None,
         description="Task type: 'regression', 'binary_classification', 'multiclass_classification', 'auto'"
     )
 
     # --- Legacy format paths ---
     # Using Any type to support numpy arrays without schema generation issues
-    train_x: Optional[Any] = Field(
+    train_x: Any | None = Field(
         default=None,
         description="Training features: path(s) to CSV file(s) or numpy array."
     )
 
-    train_y: Optional[Any] = Field(
+    train_y: Any | None = Field(
         default=None,
         description="Training targets: path to CSV file, column indices, or numpy array."
     )
 
-    train_group: Optional[Any] = Field(
+    train_group: Any | None = Field(
         default=None,
         description="Training metadata: path to CSV file or DataFrame."
     )
 
-    test_x: Optional[Any] = Field(
+    test_x: Any | None = Field(
         default=None,
         description="Test features: path(s) to CSV file(s) or numpy array."
     )
 
-    test_y: Optional[Any] = Field(
+    test_y: Any | None = Field(
         default=None,
         description="Test targets: path to CSV file, column indices, or numpy array."
     )
 
-    test_group: Optional[Any] = Field(
+    test_group: Any | None = Field(
         default=None,
         description="Test metadata: path to CSV file or DataFrame."
     )
 
     # --- Legacy format filters (for column selection from X) ---
-    train_x_filter: Optional[List[int]] = Field(
+    train_x_filter: list[int] | None = Field(
         default=None,
         description="Column indices to select from train_x."
     )
 
-    train_y_filter: Optional[List[int]] = Field(
+    train_y_filter: list[int] | None = Field(
         default=None,
         description="Column indices to select from train_y (or from train_x if train_y is None)."
     )
 
-    train_group_filter: Optional[List[int]] = Field(
+    train_group_filter: list[int] | None = Field(
         default=None,
         description="Column indices to select from train_group."
     )
 
-    test_x_filter: Optional[List[int]] = Field(
+    test_x_filter: list[int] | None = Field(
         default=None,
         description="Column indices to select from test_x."
     )
 
-    test_y_filter: Optional[List[int]] = Field(
+    test_y_filter: list[int] | None = Field(
         default=None,
         description="Column indices to select from test_y (or from test_x if test_y is None)."
     )
 
-    test_group_filter: Optional[List[int]] = Field(
+    test_group_filter: list[int] | None = Field(
         default=None,
         description="Column indices to select from test_group."
     )
 
     # --- Loading parameters (legacy format) ---
-    global_params: Optional[LoadingParams] = Field(
+    global_params: LoadingParams | None = Field(
         default=None,
         description="Global loading parameters applied to all files."
     )
 
-    train_params: Optional[LoadingParams] = Field(
+    train_params: LoadingParams | None = Field(
         default=None,
         description="Parameters applied to all training files."
     )
 
-    test_params: Optional[LoadingParams] = Field(
+    test_params: LoadingParams | None = Field(
         default=None,
         description="Parameters applied to all test files."
     )
 
-    train_x_params: Optional[LoadingParams] = Field(
+    train_x_params: LoadingParams | None = Field(
         default=None,
         description="Parameters for loading train_x."
     )
 
-    train_y_params: Optional[LoadingParams] = Field(
+    train_y_params: LoadingParams | None = Field(
         default=None,
         description="Parameters for loading train_y."
     )
 
-    train_group_params: Optional[LoadingParams] = Field(
+    train_group_params: LoadingParams | None = Field(
         default=None,
         description="Parameters for loading train_group."
     )
 
-    test_x_params: Optional[LoadingParams] = Field(
+    test_x_params: LoadingParams | None = Field(
         default=None,
         description="Parameters for loading test_x."
     )
 
-    test_y_params: Optional[LoadingParams] = Field(
+    test_y_params: LoadingParams | None = Field(
         default=None,
         description="Parameters for loading test_y."
     )
 
-    test_group_params: Optional[LoadingParams] = Field(
+    test_group_params: LoadingParams | None = Field(
         default=None,
         description="Parameters for loading test_group."
     )
 
     # --- Aggregation settings ---
-    aggregate: Optional[Union[str, bool]] = Field(
+    aggregate: str | bool | None = Field(
         default=None,
         description="Aggregation column name, True for y-based aggregation, or None."
     )
 
-    aggregate_method: Optional[AggregateMethod] = Field(
+    aggregate_method: AggregateMethod | None = Field(
         default=None,
         description="Aggregation method: 'mean', 'median', or 'vote'."
     )
 
-    aggregate_exclude_outliers: Optional[bool] = Field(
+    aggregate_exclude_outliers: bool | None = Field(
         default=None,
         description="Whether to exclude outliers before aggregation."
     )
 
     # --- New format (stubs for future implementation) ---
-    files: Optional[List[FileConfig]] = Field(
+    files: list[FileConfig] | None = Field(
         default=None,
         description="List of file configurations (new format)."
     )
 
-    sources: Optional[List[SourceConfig]] = Field(
+    sources: list[SourceConfig] | None = Field(
         default=None,
         description="Multi-source configuration for sensor fusion / multi-instrument data."
     )
 
-    shared_targets: Optional[Union[SharedTargetsConfig, List[SharedTargetsConfig]]] = Field(
+    shared_targets: SharedTargetsConfig | list[SharedTargetsConfig] | None = Field(
         default=None,
         description="Shared targets configuration for multi-source datasets."
     )
 
-    shared_metadata: Optional[Union[SharedMetadataConfig, List[SharedMetadataConfig]]] = Field(
+    shared_metadata: SharedMetadataConfig | list[SharedMetadataConfig] | None = Field(
         default=None,
         description="Shared metadata configuration for multi-source datasets."
     )
 
-    variations: Optional[List[VariationConfig]] = Field(
+    variations: list[VariationConfig] | None = Field(
         default=None,
         description="Feature variations configuration for preprocessed data or multi-variable datasets."
     )
 
-    variation_mode: Optional[VariationMode] = Field(
+    variation_mode: VariationMode | None = Field(
         default=None,
         description="How to handle feature variations: 'separate', 'concat', 'select', 'compare'."
     )
 
-    variation_select: Optional[List[str]] = Field(
+    variation_select: list[str] | None = Field(
         default=None,
         description="When variation_mode='select', list of variation names to use."
     )
 
-    variation_prefix: Optional[bool] = Field(
+    variation_prefix: bool | None = Field(
         default=None,
         description="When variation_mode='concat', whether to prefix column names with variation names."
     )
 
     # --- Fold configuration ---
-    folds: Optional[Union[FoldConfig, List[Dict[str, Any]], str]] = Field(
+    folds: FoldConfig | list[dict[str, Any]] | str | None = Field(
         default=None,
         description="Cross-validation fold configuration. Can be: "
                     "FoldConfig object, list of fold dicts, or path to fold file."
@@ -1368,7 +1333,7 @@ class DatasetConfigSchema(BaseModel):
 
     @field_validator("task_type", mode="before")
     @classmethod
-    def normalize_task_type(cls, v: Any) -> Optional[TaskType]:
+    def normalize_task_type(cls, v: Any) -> TaskType | None:
         """Normalize task_type to enum."""
         if v is None:
             return None
@@ -1381,12 +1346,12 @@ class DatasetConfigSchema(BaseModel):
                 raise ValueError(
                     f"Invalid task_type: '{v}'. "
                     f"Valid values: {[t.value for t in TaskType]}"
-                )
-        return v
+                ) from None
+        return cast(TaskType | None, v)
 
     @field_validator("aggregate_method", mode="before")
     @classmethod
-    def normalize_aggregate_method(cls, v: Any) -> Optional[AggregateMethod]:
+    def normalize_aggregate_method(cls, v: Any) -> AggregateMethod | None:
         """Normalize aggregate_method to enum."""
         if v is None:
             return None
@@ -1399,8 +1364,8 @@ class DatasetConfigSchema(BaseModel):
                 raise ValueError(
                     f"Invalid aggregate_method: '{v}'. "
                     f"Valid values: {[m.value for m in AggregateMethod]}"
-                )
-        return v
+                ) from None
+        return cast(AggregateMethod | None, v)
 
     @field_validator(
         "global_params", "train_params", "test_params",
@@ -1409,7 +1374,7 @@ class DatasetConfigSchema(BaseModel):
         mode="before"
     )
     @classmethod
-    def parse_loading_params(cls, v: Any) -> Optional[LoadingParams]:
+    def parse_loading_params(cls, v: Any) -> LoadingParams | None:
         """Parse dict to LoadingParams if needed."""
         if v is None:
             return None
@@ -1417,16 +1382,16 @@ class DatasetConfigSchema(BaseModel):
             return v
         if isinstance(v, dict):
             return LoadingParams(**v)
-        return v
+        return cast(LoadingParams | None, v)
 
     @field_validator("sources", mode="before")
     @classmethod
-    def parse_sources(cls, v: Any) -> Optional[List[SourceConfig]]:
+    def parse_sources(cls, v: Any) -> list[SourceConfig] | None:
         """Parse sources list to SourceConfig objects."""
         if v is None:
             return None
         if not isinstance(v, list):
-            return v
+            return cast(list[SourceConfig] | None, v)
 
         parsed = []
         for item in v:
@@ -1440,7 +1405,7 @@ class DatasetConfigSchema(BaseModel):
 
     @field_validator("shared_targets", mode="before")
     @classmethod
-    def parse_shared_targets(cls, v: Any) -> Optional[Union[SharedTargetsConfig, List[SharedTargetsConfig]]]:
+    def parse_shared_targets(cls, v: Any) -> SharedTargetsConfig | list[SharedTargetsConfig] | None:
         """Parse shared targets configuration."""
         if v is None:
             return None
@@ -1453,11 +1418,11 @@ class DatasetConfigSchema(BaseModel):
                 SharedTargetsConfig(**item) if isinstance(item, dict) else item
                 for item in v
             ]
-        return v
+        return cast(SharedTargetsConfig | list[SharedTargetsConfig] | None, v)
 
     @field_validator("shared_metadata", mode="before")
     @classmethod
-    def parse_shared_metadata(cls, v: Any) -> Optional[Union[SharedMetadataConfig, List[SharedMetadataConfig]]]:
+    def parse_shared_metadata(cls, v: Any) -> SharedMetadataConfig | list[SharedMetadataConfig] | None:
         """Parse shared metadata configuration."""
         if v is None:
             return None
@@ -1470,16 +1435,16 @@ class DatasetConfigSchema(BaseModel):
                 SharedMetadataConfig(**item) if isinstance(item, dict) else item
                 for item in v
             ]
-        return v
+        return cast(SharedMetadataConfig | list[SharedMetadataConfig] | None, v)
 
     @field_validator("variations", mode="before")
     @classmethod
-    def parse_variations(cls, v: Any) -> Optional[List[VariationConfig]]:
+    def parse_variations(cls, v: Any) -> list[VariationConfig] | None:
         """Parse variations list to VariationConfig objects."""
         if v is None:
             return None
         if not isinstance(v, list):
-            return v
+            return cast(list[VariationConfig] | None, v)
 
         parsed = []
         for item in v:
@@ -1493,7 +1458,7 @@ class DatasetConfigSchema(BaseModel):
 
     @field_validator("variation_mode", mode="before")
     @classmethod
-    def normalize_variation_mode(cls, v: Any) -> Optional[VariationMode]:
+    def normalize_variation_mode(cls, v: Any) -> VariationMode | None:
         """Normalize variation_mode to enum."""
         if v is None:
             return None
@@ -1506,8 +1471,8 @@ class DatasetConfigSchema(BaseModel):
                 raise ValueError(
                     f"Invalid variation_mode: '{v}'. "
                     f"Valid values: {[m.value for m in VariationMode]}"
-                )
-        return v
+                ) from None
+        return cast(VariationMode | None, v)
 
     @model_validator(mode="after")
     def validate_data_sources(self) -> "DatasetConfigSchema":
@@ -1523,7 +1488,7 @@ class DatasetConfigSchema(BaseModel):
             pass
 
         # Validate variation_select if provided
-        if self.variation_select and has_variations:
+        if self.variation_select and self.variations:
             variation_names = {v.name for v in self.variations}
             unknown_variations = set(self.variation_select) - variation_names
             if unknown_variations:
@@ -1595,15 +1560,13 @@ class DatasetConfigSchema(BaseModel):
         if isinstance(self.test_x, list) and len(self.test_x) > 1:
             return True
         # New format multi-source
-        if self.sources is not None and len(self.sources) > 1:
-            return True
-        return False
+        return bool(self.sources is not None and len(self.sources) > 1)
 
     def is_sources_format(self) -> bool:
         """Check if this config uses the new sources format."""
         return self.sources is not None and len(self.sources) > 0
 
-    def get_source_names(self) -> List[str]:
+    def get_source_names(self) -> list[str]:
         """Get names of all sources in this config.
 
         Returns:
@@ -1632,7 +1595,7 @@ class DatasetConfigSchema(BaseModel):
         """Check if this config uses the variations format."""
         return self.variations is not None and len(self.variations) > 0
 
-    def get_variation_names(self) -> List[str]:
+    def get_variation_names(self) -> list[str]:
         """Get names of all variations in this config.
 
         Returns:
@@ -1652,7 +1615,7 @@ class DatasetConfigSchema(BaseModel):
             return len(self.variations)
         return 0
 
-    def get_selected_variations(self) -> List[VariationConfig]:
+    def get_selected_variations(self) -> list[VariationConfig]:
         """Get the variations to use based on variation_mode and variation_select.
 
         For mode='select', returns only the selected variations.
@@ -1673,7 +1636,7 @@ class DatasetConfigSchema(BaseModel):
 
         return list(self.variations)
 
-    def variations_to_legacy_format(self) -> Dict[str, Any]:
+    def variations_to_legacy_format(self) -> dict[str, Any]:
         """Convert variations format to legacy format for backward compatibility.
 
         This converts the variations syntax to the train_x/test_x format
@@ -1690,7 +1653,7 @@ class DatasetConfigSchema(BaseModel):
         if not self.variations:
             return self.to_dict()
 
-        result = {}
+        result: dict[str, Any] = {}
 
         # Copy non-variation fields
         if self.name:
@@ -1818,7 +1781,7 @@ class DatasetConfigSchema(BaseModel):
 
         return result
 
-    def to_legacy_format(self) -> Dict[str, Any]:
+    def to_legacy_format(self) -> dict[str, Any]:
         """Convert sources or variations format to legacy format for backward compatibility.
 
         This converts the sources/variations syntax to the train_x/test_x array syntax
@@ -1834,7 +1797,7 @@ class DatasetConfigSchema(BaseModel):
         if not self.sources:
             return self.to_dict()
 
-        result = {}
+        result: dict[str, Any] = {}
 
         # Copy non-source fields
         if self.name:
@@ -1920,11 +1883,11 @@ class DatasetConfigSchema(BaseModel):
 
         return result
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
         return self.model_dump(exclude_none=True)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DatasetConfigSchema":
+    def from_dict(cls, data: dict[str, Any]) -> "DatasetConfigSchema":
         """Create from dictionary."""
         return cls(**data)

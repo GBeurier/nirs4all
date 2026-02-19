@@ -1,9 +1,10 @@
 import math
-from typing import List, Tuple, Dict, Union, Optional
+from typing import Optional, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from nirs4all.utils import framework
 
 # -----------------------------------------------------------------------------
@@ -171,10 +172,7 @@ def _build_decon(input_shape, params, num_classes=1):
     layers.append(nn.ReLU())
     layers.append(nn.Dropout(0.2))
 
-    if num_classes == 1:
-        layers.append(nn.Linear(32, 1))
-        layers.append(nn.Sigmoid())
-    elif num_classes == 2:
+    if num_classes == 1 or num_classes == 2:
         layers.append(nn.Linear(32, 1))
         layers.append(nn.Sigmoid())
     else:
@@ -237,10 +235,7 @@ def _build_decon_sep(input_shape, params, num_classes=1):
     layers.append(nn.ReLU())
     layers.append(nn.Dropout(params.get('dropout_rate', 0.2)))
 
-    if num_classes == 1:
-        layers.append(nn.Linear(du, 1))
-        layers.append(nn.Sigmoid())
-    elif num_classes == 2:
+    if num_classes == 1 or num_classes == 2:
         layers.append(nn.Linear(du, 1))
         layers.append(nn.Sigmoid())
     else:
@@ -279,10 +274,7 @@ def _build_nicon(input_shape, params, num_classes=1):
     layers.append(nn.Linear(f3 * seq_len, du))
     layers.append(nn.Sigmoid())
 
-    if num_classes == 1:
-        layers.append(nn.Linear(du, 1))
-        layers.append(nn.Sigmoid())
-    elif num_classes == 2:
+    if num_classes == 1 or num_classes == 2:
         layers.append(nn.Linear(du, 1))
         layers.append(nn.Sigmoid())
     else:
@@ -333,10 +325,7 @@ def _build_customizable_nicon(input_shape, params, num_classes=1):
     layers.append(nn.Linear(f3 * seq_len, du))
     layers.append(act_d)
 
-    if num_classes == 1:
-        layers.append(nn.Linear(du, 1))
-        layers.append(nn.Sigmoid())
-    elif num_classes == 2:
+    if num_classes == 1 or num_classes == 2:
         layers.append(nn.Linear(du, 1))
         layers.append(nn.Sigmoid())
     else:
@@ -375,10 +364,7 @@ def _build_thin_nicon(input_shape, params, num_classes=1):
     layers.append(nn.Linear(f3 * seq_len, du))
     layers.append(nn.Sigmoid())
 
-    if num_classes == 1:
-        layers.append(nn.Linear(du, 1))
-        layers.append(nn.Sigmoid())
-    elif num_classes == 2:
+    if num_classes == 1 or num_classes == 2:
         layers.append(nn.Linear(du, 1))
         layers.append(nn.Sigmoid())
     else:
@@ -429,10 +415,7 @@ def _build_nicon_vg(input_shape, params, num_classes=1):
     layers.append(nn.Linear(du1, du2))
     layers.append(nn.ReLU())
 
-    if num_classes == 1:
-        layers.append(nn.Linear(du2, 1))
-        layers.append(nn.Sigmoid())
-    elif num_classes == 2:
+    if num_classes == 1 or num_classes == 2:
         layers.append(nn.Linear(du2, 1))
         layers.append(nn.Sigmoid())
     else:
@@ -590,12 +573,7 @@ def _build_transformer(input_shape, params, num_classes=1):
     mlp_seq = nn.Sequential(*mlp)
 
     # Output layer
-    if num_classes == 1:
-        out_layer = nn.Sequential(nn.Linear(in_size, 1), nn.Sigmoid())
-    elif num_classes == 2:
-        out_layer = nn.Sequential(nn.Linear(in_size, 1), nn.Sigmoid())
-    else:
-        out_layer = nn.Sequential(nn.Linear(in_size, num_classes), nn.Softmax(dim=1))
+    out_layer = nn.Sequential(nn.Linear(in_size, 1), nn.Sigmoid()) if num_classes == 1 or num_classes == 2 else nn.Sequential(nn.Linear(in_size, num_classes), nn.Softmax(dim=1))
 
     class _Transformer(nn.Module):
         def __init__(self):
@@ -622,82 +600,122 @@ def _build_transformer(input_shape, params, num_classes=1):
 # -----------------------------------------------------------------------------
 
 @framework("pytorch")
-def decon(input_shape, params={}):
+def decon(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_decon(input_shape, params, num_classes=1)
 
 @framework("pytorch")
-def decon_classification(input_shape, num_classes=2, params={}):
+def decon_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_decon(input_shape, params, num_classes=num_classes)
 
 @framework("pytorch")
-def decon_Sep(input_shape, params={}):
+def decon_Sep(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_decon_sep(input_shape, params, num_classes=1)
 
 @framework("pytorch")
-def decon_Sep_classification(input_shape, num_classes=2, params={}):
+def decon_Sep_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_decon_sep(input_shape, params, num_classes=num_classes)
 
 @framework("pytorch")
-def nicon(input_shape, params={}):
+def nicon(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_nicon(input_shape, params, num_classes=1)
 
 @framework("pytorch")
-def nicon_classification(input_shape, num_classes=2, params={}):
+def nicon_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_nicon(input_shape, params, num_classes=num_classes)
 
 @framework("pytorch")
-def customizable_nicon(input_shape, params={}):
+def customizable_nicon(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_customizable_nicon(input_shape, params, num_classes=1)
 
 @framework("pytorch")
-def customizable_nicon_classification(input_shape, num_classes=2, params={}):
+def customizable_nicon_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_customizable_nicon(input_shape, params, num_classes=num_classes)
 
 @framework("pytorch")
-def thin_nicon(input_shape, params={}):
+def thin_nicon(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_thin_nicon(input_shape, params, num_classes=1)
 
 @framework("pytorch")
-def nicon_VG(input_shape, params={}):
+def nicon_VG(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_nicon_vg(input_shape, params, num_classes=1)
 
 @framework("pytorch")
-def nicon_VG_classification(input_shape, num_classes=2, params={}):
+def nicon_VG_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_nicon_vg(input_shape, params, num_classes=num_classes)
 
 @framework("pytorch")
-def customizable_decon(input_shape, params={}):
+def customizable_decon(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_customizable_decon(input_shape, params, num_classes=1)
 
 @framework("pytorch")
-def customizable_decon_classification(input_shape, num_classes=2, params={}):
+def customizable_decon_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_customizable_decon(input_shape, params, num_classes=num_classes)
 
 @framework("pytorch")
-def decon_layer_classification(input_shape, num_classes=2, params={}):
+def decon_layer_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_customizable_decon(input_shape, params, num_classes=num_classes)
 
 @framework("pytorch")
-def transformer(input_shape, params={}):
+def transformer(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_transformer(input_shape, params, num_classes=1)
 
 @framework("pytorch")
-def transformer_VG(input_shape, params={}):
+def transformer_VG(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_transformer(input_shape, params, num_classes=1)
 
 @framework("pytorch")
-def transformer_classification(input_shape, num_classes=2, params={}):
+def transformer_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_transformer(input_shape, params, num_classes=num_classes)
 
 @framework("pytorch")
-def transformer_VG_classification(input_shape, num_classes=2, params={}):
+def transformer_VG_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_transformer(input_shape, params, num_classes=num_classes)
 
 @framework("pytorch")
-def transformer_model(input_shape, params={}):
+def transformer_model(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_transformer(input_shape, params, num_classes=1)
 
 @framework("pytorch")
-def transformer_model_classification(input_shape, num_classes=2, params={}):
+def transformer_model_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_transformer(input_shape, params, num_classes=num_classes)
 

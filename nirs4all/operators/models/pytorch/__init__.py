@@ -3,8 +3,8 @@
 This module provides PyTorch neural network models for use in nirs4all pipelines.
 """
 
-from .nicon import *
 from .generic import *
+from .nicon import *
 from .spectral_transformer import *
 
 __all__ = [

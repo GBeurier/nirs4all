@@ -18,11 +18,9 @@ import numpy as np
 from nirs4all.pipeline.config.context import ExecutionPhase, RuntimeContext
 from nirs4all.pipeline.execution.refit.executor import _apply_params_to_model
 
-
 # =========================================================================
 # Helpers
 # =========================================================================
-
 
 class _DummyModel:
     """Minimal sklearn-like model for testing warm_start."""
@@ -50,7 +48,6 @@ class _DummyModel:
     def get_params(self, deep=True):
         return {"n_components": self.n_components, "warm_start": self.warm_start}
 
-
 class _DummyModelNoWarmStart:
     """Model that does not support warm_start."""
 
@@ -73,7 +70,6 @@ class _DummyModelNoWarmStart:
     def get_params(self, deep=True):
         return {"alpha": self.alpha}
 
-
 def _make_runtime_context(
     fold_artifacts: list[tuple[int, Any]] | None = None,
     phase: ExecutionPhase = ExecutionPhase.REFIT,
@@ -89,11 +85,9 @@ def _make_runtime_context(
         ctx.artifact_provider = provider
     return ctx
 
-
 # =========================================================================
 # Tests: _resolve_warm_start_fold
 # =========================================================================
-
 
 class TestResolveWarmStartFold:
     """Test fold resolution logic."""
@@ -227,11 +221,9 @@ class TestResolveWarmStartFold:
         result = ctrl._resolve_warm_start_fold(ctx, "fold_abc")
         assert result is None
 
-
 # =========================================================================
 # Tests: _apply_warm_start (base class / sklearn)
 # =========================================================================
-
 
 class TestApplyWarmStartBase:
     """Test base class warm-start behavior."""
@@ -269,11 +261,9 @@ class TestApplyWarmStartBase:
         result = ctrl._apply_warm_start(model, source, RuntimeContext())
         assert result.alpha == 1.0  # Unchanged
 
-
 # =========================================================================
 # Tests: _apply_params_to_model skips warm_start_fold
 # =========================================================================
-
 
 class TestApplyParamsSkipsWarmStartFold:
     """Test that _apply_params_to_model skips the warm_start_fold key."""
@@ -291,11 +281,9 @@ class TestApplyParamsSkipsWarmStartFold:
         _apply_params_to_model(model, {"warm_start_fold": "last"})
         assert model.n_components == 5
 
-
 # =========================================================================
 # Tests: Sklearn _apply_warm_start
 # =========================================================================
-
 
 class TestSklearnApplyWarmStart:
     """Test sklearn controller warm-start."""

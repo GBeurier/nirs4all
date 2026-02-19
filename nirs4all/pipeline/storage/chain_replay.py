@@ -25,7 +25,6 @@ import numpy as np
 if TYPE_CHECKING:
     from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
-
 def replay_chain(
     store: WorkspaceStore,
     chain_id: str,

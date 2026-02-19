@@ -3,19 +3,21 @@
 import hashlib
 import json
 from pathlib import Path
+from typing import Any, Optional, Union
+
 import numpy as np
 import pandas as pd
+
 from nirs4all.data.config_parser import parse_config
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.data.loaders.csv_loader_new import load_csv
-from nirs4all.data.signal_type import SignalType, normalize_signal_type
-from typing import Any, Dict, List, Tuple, Union, Optional
 
 # Import the new loader system
-from nirs4all.data.loaders.base import LoaderRegistry, FormatNotSupportedError
+from nirs4all.data.loaders.base import FormatNotSupportedError, LoaderRegistry
+from nirs4all.data.loaders.csv_loader_new import load_csv
+from nirs4all.data.signal_type import SignalType, normalize_signal_type
 
 
-def create_synthetic_dataset(config: Dict) -> SpectroDataset:
+def create_synthetic_dataset(config: dict) -> SpectroDataset:
     """
     Create a synthetic SpectroDataset for testing purposes.
 
@@ -74,7 +76,6 @@ def create_synthetic_dataset(config: Dict) -> SpectroDataset:
 
     return dataset
 
-
 def _merge_params(local_params, handler_params, global_params):
     """
     Merge parameters from local, handler, and global scopes.
@@ -94,15 +95,13 @@ def _merge_params(local_params, handler_params, global_params):
         merged_params.update(local_params)
     return merged_params
 
-
 # Known loading parameter keys that can appear at root level of config
 _LOADING_PARAM_KEYS = frozenset({
     'delimiter', 'decimal_separator', 'has_header',
     'na_policy', 'na_fill_config', 'header_unit', 'categorical_mode'
 })
 
-
-def _get_effective_global_params(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _get_effective_global_params(config: dict[str, Any]) -> dict[str, Any] | None:
     """
     Get effective global params by merging root-level loading params with global_params.
 
@@ -133,13 +132,12 @@ def _get_effective_global_params(config: Dict[str, Any]) -> Optional[Dict[str, A
 
     return effective if effective else None
 
-
 def _load_file_with_registry(
-    file_path: Union[str, Path],
+    file_path: str | Path,
     header_unit: str = "cm-1",
     data_type: str = "x",
     **params: Any,
-) -> Tuple[Optional[pd.DataFrame], Dict[str, Any], Optional[pd.Series], List[str], str]:
+) -> tuple[pd.DataFrame | None, dict[str, Any], pd.Series | None, list[str], str]:
     """Load a file using the LoaderRegistry for format detection.
 
     This function provides automatic format detection and loading using
@@ -182,10 +180,9 @@ def _load_file_with_registry(
             return load_csv(file_path, header_unit=header_unit, data_type=data_type, **params)
         except Exception:
             # If CSV also fails, re-raise the original error
-            raise e
+            raise e from None
 
-
-def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None, m_filter=None, m_params=None):
+def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | None, y_filter: Any, y_params: dict[str, Any], m_path: str | None = None, m_filter: Any = None, m_params: dict[str, Any] | None = None) -> tuple[np.ndarray, np.ndarray, Any, list[str], list[str], str, SignalType | None]:
     """
     Load X, Y, and metadata from single paths. For multi-source, this will be called multiple times.
 
@@ -227,7 +224,7 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
 
     # Extract signal_type from params (default to None for auto-detect)
     x_signal_type_raw = x_params.pop('signal_type', None)
-    x_signal_type: Optional[SignalType] = None
+    x_signal_type: SignalType | None = None
     if x_signal_type_raw is not None:
         x_signal_type = normalize_signal_type(x_signal_type_raw)
 
@@ -239,7 +236,7 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
         if x_report.get("error") is not None or x_df is None:
             raise ValueError(f"Failed to load X data from {x_path}: {x_report.get('error', 'Unknown error')}")
     except Exception as e:
-        raise ValueError(f"Error loading X data from {x_path}: {str(e)}")
+        raise ValueError(f"Error loading X data from {x_path}: {str(e)}") from e
 
     if x_filter is not None:
         raise NotImplementedError("Auto-filtering not implemented yet")
@@ -272,7 +269,7 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
             if y_report.get("error") is not None or y_df is None:
                 raise ValueError(f"Failed to load Y data from {y_path}: {y_report.get('error', 'Unknown error')}")
         except Exception as e:
-            raise ValueError(f"Error loading Y data from {y_path}: {str(e)}")
+            raise ValueError(f"Error loading Y data from {y_path}: {str(e)}") from e
 
         if y_filter is not None:
             if not all(isinstance(i, int) for i in y_filter):
@@ -328,7 +325,7 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
             if m_report.get("error") is not None or m_df is None:
                 raise ValueError(f"Failed to load metadata from {m_path}: {m_report.get('error', 'Unknown error')}")
         except Exception as e:
-            raise ValueError(f"Error loading metadata from {m_path}: {str(e)}")
+            raise ValueError(f"Error loading metadata from {m_path}: {str(e)}") from e
 
         if m_filter is not None:
             raise NotImplementedError("Metadata filtering not implemented yet")
@@ -347,10 +344,9 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
         # Keep metadata as DataFrame (don't convert to numeric)
         m = m_df if not m_df.empty else None
     except Exception as e:
-        raise ValueError(f"Error converting data to numpy arrays: {str(e)}")
+        raise ValueError(f"Error converting data to numpy arrays: {str(e)}") from e
 
     return x, y, m, x_headers, m_headers, x_unit, x_signal_type
-
 
 def handle_data(config, t_set):
     """
@@ -393,10 +389,7 @@ def handle_data(config, t_set):
         m_data = m_path if isinstance(m_path, (pd.DataFrame, np.ndarray)) else None
 
         # Generate simple headers
-        if isinstance(x_array, np.ndarray):
-            x_headers = [f"feature_{i}" for i in range(x_array.shape[1] if x_array.ndim > 1 else 1)]
-        else:
-            x_headers = []
+        x_headers = [f"feature_{i}" for i in range(x_array.shape[1] if x_array.ndim > 1 else 1)] if isinstance(x_array, np.ndarray) else []
 
         m_headers = []
         if isinstance(m_data, pd.DataFrame):
@@ -485,7 +478,7 @@ def handle_data(config, t_set):
                 header_units.append(x_unit)
                 signal_types.append(x_sig_type)
             except Exception as e:
-                raise ValueError(f"Error loading X source {i} from {single_x_path}: {str(e)}")
+                raise ValueError(f"Error loading X source {i} from {single_x_path}: {str(e)}") from e
 
         return x_arrays, y_array, m_data, headers_arrays, m_headers, header_units, signal_types
     else:

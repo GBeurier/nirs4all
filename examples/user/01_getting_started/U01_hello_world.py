@@ -39,7 +39,6 @@ parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
-
 # =============================================================================
 # Section 1: Define a Minimal Pipeline
 # =============================================================================
@@ -61,7 +60,6 @@ print("   2. y_processing - scale targets")
 print("   3. ShuffleSplit - 3-fold cross-validation")
 print("   4. PLSRegression - PLS model with 10 components")
 
-
 # =============================================================================
 # Section 2: Train the Pipeline
 # =============================================================================
@@ -79,7 +77,6 @@ result = nirs4all.run(
     plots_visible=args.plots
 )
 
-
 # =============================================================================
 # Section 3: Access Results
 # =============================================================================
@@ -88,7 +85,7 @@ print("Results")
 print("-" * 60)
 
 # The result object provides convenient accessors
-print(f"\n📊 Pipeline Results:")
+print("\n📊 Pipeline Results:")
 print(f"   Number of predictions: {result.num_predictions}")
 print(f"   Best Score (MSE): {result.best_score:.4f}")
 print(f"   Best RMSE: {result.best_rmse:.4f}")
@@ -97,11 +94,10 @@ print(f"   Best R²: {result.best_r2:.4f}")
 # Get the best model details
 best = result.best
 if best:
-    print(f"\n🏆 Best Model Details:")
+    print("\n🏆 Best Model Details:")
     print(f"   Model name: {best.get('model_name', 'unknown')}")
     print(f"   Dataset: {best.get('dataset_name', 'unknown')}")
     print(f"   Fold: {best.get('fold_id', 'unknown')}")
-
 
 # =============================================================================
 # Section 4: Get Top Models
@@ -115,7 +111,6 @@ for i, pred in enumerate(result.top(n=3, display_metrics=['rmse', 'r2']), 1):
     rmse = pred.get('rmse', 0)
     r2 = pred.get('r2', 0)
     print(f"   {i}. {pred.get('model_name', 'unknown')} - RMSE: {rmse:.4f}, R²: {r2:.4f}")
-
 
 # =============================================================================
 # Summary

@@ -1,29 +1,21 @@
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from fckpls_torch import FCKPLSTorch, TrainConfig, fckpls_v1, fckpls_v2
 from sklearn.cross_decomposition import PLSRegression
-
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 import nirs4all
-from nirs4all.synthesis import SyntheticNIRSGenerator, ComponentLibrary, SyntheticDatasetBuilder
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative,
-    SecondDerivative,
-    SavitzkyGolay,
-    Detrend,
-    Gaussian,
-    Haar,
-    Wavelet,
-    ASLSBaseline
-)
+from nirs4all.operators.models import FCKPLS
+from nirs4all.operators.splitters import SPXYGFold
+from nirs4all.operators.transforms import ASLSBaseline, Detrend, FirstDerivative, Gaussian, Haar, SavitzkyGolay, SecondDerivative, Wavelet
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 from nirs4all.operators.transforms.nirs import (
     AreaNormalization,
+)
+from nirs4all.operators.transforms.nirs import (
     ExtendedMultiplicativeScatterCorrection as EMSC,
 )
-from nirs4all.operators.splitters import SPXYGFold
+from nirs4all.synthesis import ComponentLibrary, SyntheticDatasetBuilder, SyntheticNIRSGenerator
 
-from nirs4all.operators.models import FCKPLS
-from fckpls_torch import FCKPLSTorch, TrainConfig, fckpls_v1, fckpls_v2
 
 def get_synthetic_dataset(n_samples=100, n_features=50, random_state=42, name="Synthetic Dataset"):
     """Create reproducible test dataset."""
@@ -52,12 +44,10 @@ synthetic_dataset_small = get_synthetic_dataset(n_samples=150, n_features=500, n
 synthetic_dataset_mid = get_synthetic_dataset(n_samples=150, n_features=2500, name="Mid Synthetic Dataset")
 synthetic_dataset_large = get_synthetic_dataset(n_samples=1500, n_features=2500, name="Large Synthetic Dataset")
 
-
 print("Datasets created:")
 print(" - SMALL:\n", synthetic_dataset_small)
 print(" - MID:\n", synthetic_dataset_mid)
 print(" - LARGE:\n", synthetic_dataset_large)
-
 
 pls_max_components = 25
 
@@ -92,9 +82,6 @@ pipeline_pls_pp = [
         },
     },
 ]
-
-
-
 
 # ==============================================================================
 # FCK-PLS V1 Configuration (Learnable Free Kernels)
@@ -138,7 +125,6 @@ fckpls_v1_train_params_final = {
     'patience': 100,
     'batch_size': 2048,
 }
-
 
 # ==============================================================================
 # FCK-PLS V2 Configuration (Alpha/Sigma Parametric Kernels)
@@ -235,7 +221,6 @@ pipeline_fck_pls = [
     },
 ]
 
-
 # ==============================================================================
 # Select which pipeline to run (v1 or v2)
 # ==============================================================================
@@ -249,7 +234,6 @@ result = nirs4all.run(
 
 print(f"\nNumber of model configurations: {result.num_predictions}")
 print(f"Best RMSE: {result.best_score:.4f}")
-
 
 # Alternative: Use return_grouped=True for dict output
 print("\nGrouped results (dict format):")

@@ -17,7 +17,6 @@ DEFAULT_SCOPE = ["nirs4all/pipeline", "nirs4all/data"]
 DEFAULT_BASELINE = ROOT / ".github/quality/ruff_unused_budget.json"
 TARGET_RULES = ["F401", "F841"]
 
-
 def _normalize_path(path: str) -> str:
     p = Path(path)
     if not p.is_absolute():
@@ -27,7 +26,6 @@ def _normalize_path(path: str) -> str:
         return str(rel).replace("\\", "/")
     except ValueError:
         return str(p).replace("\\", "/")
-
 
 def _run_ruff(scope: list[str]) -> list[dict[str, Any]]:
     cmd = [
@@ -51,7 +49,6 @@ def _run_ruff(scope: list[str]) -> list[dict[str, Any]]:
         return []
     return json.loads(stdout)
 
-
 def _build_snapshot(findings: list[dict[str, Any]], scope: list[str]) -> dict[str, Any]:
     by_rule: Counter[str] = Counter()
     by_file: Counter[str] = Counter()
@@ -70,12 +67,10 @@ def _build_snapshot(findings: list[dict[str, Any]], scope: list[str]) -> dict[st
         "by_file": dict(sorted(by_file.items())),
     }
 
-
 def _load_baseline(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError(f"baseline file not found: {path}")
     return json.loads(path.read_text(encoding="utf-8"))
-
 
 def _compare(current: dict[str, Any], baseline: dict[str, Any]) -> list[str]:
     messages: list[str] = []
@@ -106,11 +101,9 @@ def _compare(current: dict[str, Any], baseline: dict[str, Any]) -> list[str]:
 
     return messages
 
-
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -159,7 +152,6 @@ def main() -> int:
 
     print("Unused-symbol budget check passed.")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

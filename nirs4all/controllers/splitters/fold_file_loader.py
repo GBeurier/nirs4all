@@ -23,11 +23,13 @@ Example pipeline usage::
 
 from __future__ import annotations
 
-import json
+import contextlib
 import csv
-import numpy as np
+import json
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
+
+import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
@@ -39,7 +41,6 @@ logger = get_logger(__name__)
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.steps.parser import ParsedStep
-
 
 class FoldFileParser:
     """Utility class for parsing fold files in various formats.
@@ -61,9 +62,9 @@ class FoldFileParser:
 
     def parse(
         self,
-        file_path: Union[str, Path],
-        format: Optional[str] = None
-    ) -> List[Tuple[List[int], List[int]]]:
+        file_path: str | Path,
+        format: str | None = None
+    ) -> list[tuple[list[int], list[int]]]:
         """Parse a fold file and return fold definitions.
 
         Args:
@@ -115,7 +116,7 @@ class FoldFileParser:
                 f"Supported: {self.SUPPORTED_EXTENSIONS}"
             )
 
-    def _parse_csv(self, path: Path) -> List[Tuple[List[int], List[int]]]:
+    def _parse_csv(self, path: Path) -> list[tuple[list[int], list[int]]]:
         """Parse CSV fold file.
 
         Supports two formats:
@@ -129,7 +130,7 @@ class FoldFileParser:
         Returns:
             List of (train_indices, val_indices) tuples.
         """
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             reader = csv.reader(f)
             headers = next(reader)
 
@@ -146,9 +147,9 @@ class FoldFileParser:
 
     def _parse_csv_nirs4all_format(
         self,
-        headers: List[str],
+        headers: list[str],
         reader
-    ) -> List[Tuple[List[int], List[int]]]:
+    ) -> list[tuple[list[int], list[int]]]:
         """Parse nirs4all CSV format.
 
         Format: Each column is a fold, rows contain train sample IDs.
@@ -163,16 +164,13 @@ class FoldFileParser:
         n_folds = len(headers)
 
         # Collect train indices for each fold
-        fold_train_indices: List[List[int]] = [[] for _ in range(n_folds)]
+        fold_train_indices: list[list[int]] = [[] for _ in range(n_folds)]
 
         for row in reader:
             for fold_idx, value in enumerate(row):
                 if value.strip():
-                    try:
+                    with contextlib.suppress(ValueError):
                         fold_train_indices[fold_idx].append(int(value.strip()))
-                    except ValueError:
-                        # Skip non-integer values
-                        pass
 
         # Compute all sample IDs
         all_sample_ids = set()
@@ -190,9 +188,9 @@ class FoldFileParser:
 
     def _parse_csv_assignment_format(
         self,
-        headers: List[str],
-        rows: List[List[str]]
-    ) -> List[Tuple[List[int], List[int]]]:
+        headers: list[str],
+        rows: list[list[str]]
+    ) -> list[tuple[list[int], list[int]]]:
         """Parse CSV with fold assignments per sample.
 
         Format: sample_id column and fold column.
@@ -224,7 +222,7 @@ class FoldFileParser:
         use_row_index = sample_col is None
 
         # Group samples by fold
-        fold_to_samples: Dict[int, List[int]] = {}
+        fold_to_samples: dict[int, list[int]] = {}
 
         for row_idx, row in enumerate(rows):
             fold_value = int(row[fold_col].strip())
@@ -248,7 +246,7 @@ class FoldFileParser:
 
         return folds
 
-    def _parse_json(self, path: Path) -> List[Tuple[List[int], List[int]]]:
+    def _parse_json(self, path: Path) -> list[tuple[list[int], list[int]]]:
         """Parse JSON fold file.
 
         Expected format:
@@ -257,7 +255,7 @@ class FoldFileParser:
             {"train": [3, 4, 5], "val": [0, 1, 2]}
         ]
         """
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             data = json.load(f)
 
         if not isinstance(data, list):
@@ -275,17 +273,17 @@ class FoldFileParser:
 
         return folds
 
-    def _parse_yaml(self, path: Path) -> List[Tuple[List[int], List[int]]]:
+    def _parse_yaml(self, path: Path) -> list[tuple[list[int], list[int]]]:
         """Parse YAML fold file."""
         try:
             import yaml
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
                 "PyYAML is required for parsing YAML fold files. "
                 "Install with: pip install pyyaml"
-            )
+            ) from e
 
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             data = yaml.safe_load(f)
 
         if not isinstance(data, list):
@@ -303,7 +301,7 @@ class FoldFileParser:
 
         return folds
 
-    def _parse_txt(self, path: Path) -> List[Tuple[List[int], List[int]]]:
+    def _parse_txt(self, path: Path) -> list[tuple[list[int], list[int]]]:
         """Parse TXT fold file.
 
         Simple format: one fold per line, comma-separated indices.
@@ -315,7 +313,7 @@ class FoldFileParser:
             5,6,7,8,9
             0,1,2,3,4
         """
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             lines = [line.strip() for line in f if line.strip()]
 
         if len(lines) % 2 != 0:
@@ -335,7 +333,6 @@ class FoldFileParser:
             folds.append((train, val))
 
         return folds
-
 
 @register_controller
 class FoldFileLoaderController(OperatorController):
@@ -384,15 +381,15 @@ class FoldFileLoaderController(OperatorController):
 
     def execute(
         self,
-        step_info: 'ParsedStep',
-        dataset: "SpectroDataset",
+        step_info: ParsedStep,
+        dataset: SpectroDataset,
         context: ExecutionContext,
-        runtime_context: "RuntimeContext",
+        runtime_context: RuntimeContext,
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ) -> Tuple[ExecutionContext, Any]:
+    ) -> tuple[ExecutionContext, Any]:
         """Load folds from file and set them on the dataset.
 
         Args:
@@ -446,7 +443,7 @@ class FoldFileLoaderController(OperatorController):
                 raise ValueError(
                     f"Fold file contains {len(missing_ids)} sample IDs not in dataset. "
                     f"Sample IDs in dataset: {len(base_sample_ids_set)}. "
-                    f"Missing IDs (first 10): {sorted(list(missing_ids))[:10]}"
+                    f"Missing IDs (first 10): {sorted(missing_ids)[:10]}"
                 )
             else:
                 logger.warning(

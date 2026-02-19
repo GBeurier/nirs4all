@@ -4,10 +4,10 @@ import numpy as np
 import pytest
 
 from nirs4all.operators.splitters import (
+    KennardStoneSplitter,
     SPXYFold,
     SPXYGFold,
     SPXYSplitter,
-    KennardStoneSplitter,
 )
 
 
@@ -303,7 +303,6 @@ class TestSPXYGFold:
         expected_test_size = int(len(X) * test_size)
         assert abs(len(test) - expected_test_size) <= 1
         assert len(train) + len(test) == len(X)
-
 
 class TestSPXYFold:
     """Test suite for SPXYFold splitter (no group handling)."""

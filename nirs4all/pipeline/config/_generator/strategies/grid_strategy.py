@@ -12,13 +12,14 @@ Examples:
         {"lr": 0.1, "batch_size": 16}, {"lr": 0.1, "batch_size": 32}]
 """
 
+from collections.abc import Callable
 from itertools import product
-from typing import Any, Dict, FrozenSet, List, Optional
+from typing import Any, Optional
 
-from .base import ExpansionStrategy, GeneratorNode, ExpandedResult
-from .registry import register_strategy
-from ..keywords import GRID_KEYWORD, COUNT_KEYWORD, SEED_KEYWORD, PURE_GRID_KEYS
+from ..keywords import COUNT_KEYWORD, GRID_KEYWORD, PURE_GRID_KEYS, SEED_KEYWORD
 from ..utils.sampling import sample_with_seed
+from .base import ExpandedResult, ExpansionStrategy, GeneratorNode
+from .registry import register_strategy
 
 
 @register_strategy
@@ -37,7 +38,7 @@ class GridStrategy(ExpansionStrategy):
         priority: 30 (checked early due to specific structure)
     """
 
-    keywords: FrozenSet[str] = PURE_GRID_KEYS
+    keywords: frozenset[str] = PURE_GRID_KEYS
     priority: int = 30  # High priority
 
     @classmethod
@@ -57,8 +58,8 @@ class GridStrategy(ExpansionStrategy):
     def expand(
         self,
         node: GeneratorNode,
-        seed: Optional[int] = None,
-        expand_nested: Optional[callable] = None
+        seed: int | None = None,
+        expand_nested: Callable | None = None
     ) -> ExpandedResult:
         """Expand a grid node to list of parameter combinations.
 
@@ -118,7 +119,7 @@ class GridStrategy(ExpansionStrategy):
 
         results = []
         for combo in product(*value_lists):
-            result_dict = dict(zip(keys, combo))
+            result_dict = dict(zip(keys, combo, strict=False))
             results.append(result_dict)
 
         # Apply count limit if specified
@@ -127,7 +128,7 @@ class GridStrategy(ExpansionStrategy):
 
         return results
 
-    def count(self, node: GeneratorNode, count_nested: Optional[callable] = None) -> int:
+    def count(self, node: GeneratorNode, count_nested: Callable | None = None) -> int:
         """Count grid combinations without generating them.
 
         Args:
@@ -148,7 +149,7 @@ class GridStrategy(ExpansionStrategy):
 
         # Count total combinations
         total = 1
-        for key, values in grid_spec.items():
+        for _key, values in grid_spec.items():
             if count_nested and isinstance(values, dict):
                 val_count = count_nested(values)
             elif isinstance(values, list):
@@ -162,7 +163,7 @@ class GridStrategy(ExpansionStrategy):
             return min(count_limit, total)
         return total
 
-    def validate(self, node: GeneratorNode) -> List[str]:
+    def validate(self, node: GeneratorNode) -> list[str]:
         """Validate grid node specification.
 
         Args:

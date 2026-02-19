@@ -41,26 +41,27 @@ References:
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from enum import Enum, StrEnum
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import numpy as np
 from scipy import stats
-from scipy.signal import savgol_filter, find_peaks
 from scipy.ndimage import gaussian_filter1d
+from scipy.signal import find_peaks, savgol_filter
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
-    from .generator import SyntheticNIRSGenerator
 
+    from .components import SpectralComponent
+    from .generator import SyntheticNIRSGenerator
 
 # ============================================================================
 # Inference Result Classes
 # ============================================================================
 
-
-class PreprocessingType(str, Enum):
+class PreprocessingType(StrEnum):
     """Detected preprocessing type of spectral data."""
     RAW_ABSORBANCE = "raw_absorbance"
     RAW_REFLECTANCE = "raw_reflectance"
@@ -72,15 +73,13 @@ class PreprocessingType(str, Enum):
     NORMALIZED = "normalized"  # e.g., min-max scaled
     UNKNOWN = "unknown"
 
-
-class MeasurementModeInference(str, Enum):
+class MeasurementModeInference(StrEnum):
     """Inferred measurement mode from spectral analysis."""
     TRANSMITTANCE = "transmittance"
     REFLECTANCE = "reflectance"
     TRANSFLECTANCE = "transflectance"
     ATR = "atr"
     UNKNOWN = "unknown"
-
 
 @dataclass
 class InstrumentInference:
@@ -97,11 +96,10 @@ class InstrumentInference:
     """
     archetype_name: str = "unknown"
     detector_type: str = "unknown"
-    wavelength_range: Tuple[float, float] = (1000.0, 2500.0)
+    wavelength_range: tuple[float, float] = (1000.0, 2500.0)
     estimated_resolution: float = 8.0
     confidence: float = 0.0
-    alternative_archetypes: Dict[str, float] = field(default_factory=dict)
-
+    alternative_archetypes: dict[str, float] = field(default_factory=dict)
 
 @dataclass
 class DomainInference:
@@ -118,9 +116,8 @@ class DomainInference:
     domain_name: str = "unknown"
     category: str = "unknown"
     confidence: float = 0.0
-    detected_components: List[str] = field(default_factory=list)
-    alternative_domains: Dict[str, float] = field(default_factory=dict)
-
+    detected_components: list[str] = field(default_factory=list)
+    alternative_domains: dict[str, float] = field(default_factory=dict)
 
 @dataclass
 class EnvironmentalInference:
@@ -139,7 +136,6 @@ class EnvironmentalInference:
     estimated_moisture_variation: float = 0.0
     has_moisture_effects: bool = False
     water_band_shift: float = 0.0
-
 
 @dataclass
 class ScatteringInference:
@@ -162,7 +158,6 @@ class ScatteringInference:
     baseline_curvature: float = 0.0
     snv_correctable: bool = False
     msc_correctable: bool = False
-
 
 @dataclass
 class EdgeArtifactInference:
@@ -205,8 +200,7 @@ class EdgeArtifactInference:
     detector_model: str = "generic_nir"
     stray_light_fraction: float = 0.0
     curvature_type: str = "none"
-    boundary_peak_amplitudes: Tuple[float, float] = (0.0, 0.0)
-
+    boundary_peak_amplitudes: tuple[float, float] = (0.0, 0.0)
 
 @dataclass
 class PreprocessingInference:
@@ -235,12 +229,11 @@ class PreprocessingInference:
     confidence: float = 0.0
     is_preprocessed: bool = False
     global_mean: float = 0.0
-    global_range: Tuple[float, float] = (0.0, 1.0)
+    global_range: tuple[float, float] = (0.0, 1.0)
     zero_crossing_ratio: float = 0.0
     per_sample_std_variation: float = 0.0
     oscillation_frequency: float = 0.0
-    suggested_inverse: Optional[str] = None
-
+    suggested_inverse: str | None = None
 
 @dataclass
 class SpectralProperties:
@@ -317,19 +310,19 @@ class SpectralProperties:
     name: str = "dataset"
     n_samples: int = 0
     n_wavelengths: int = 0
-    wavelengths: Optional[np.ndarray] = None
+    wavelengths: np.ndarray | None = None
 
     # Basic statistics
-    mean_spectrum: Optional[np.ndarray] = None
-    std_spectrum: Optional[np.ndarray] = None
+    mean_spectrum: np.ndarray | None = None
+    std_spectrum: np.ndarray | None = None
     global_mean: float = 0.0
     global_std: float = 0.0
-    global_range: Tuple[float, float] = (0.0, 0.0)
+    global_range: tuple[float, float] = (0.0, 0.0)
 
     # Shape properties
     mean_slope: float = 0.0
     slope_std: float = 0.0
-    slopes: Optional[np.ndarray] = None
+    slopes: np.ndarray | None = None
     mean_curvature: float = 0.0
     curvature_std: float = 0.0
 
@@ -342,19 +335,19 @@ class SpectralProperties:
     snr_estimate: float = 0.0
 
     # PCA properties
-    pca_explained_variance: Optional[np.ndarray] = None
+    pca_explained_variance: np.ndarray | None = None
     pca_n_components_95: int = 0
 
     # Peak analysis
     n_peaks_mean: float = 0.0
-    peak_positions: Optional[np.ndarray] = None
-    peak_wavenumbers: Optional[np.ndarray] = None
+    peak_positions: np.ndarray | None = None
+    peak_wavenumbers: np.ndarray | None = None
 
     # Phase 1-4 Enhanced properties
     # Instrument indicators
     effective_resolution: float = 8.0
     noise_correlation_length: float = 1.0
-    wavelength_range: Tuple[float, float] = (1000.0, 2500.0)
+    wavelength_range: tuple[float, float] = (1000.0, 2500.0)
 
     # Measurement mode indicators
     baseline_offset: float = 0.0
@@ -363,7 +356,7 @@ class SpectralProperties:
 
     # Environmental indicators
     water_band_variation: float = 0.0
-    oh_band_positions: Optional[np.ndarray] = None
+    oh_band_positions: np.ndarray | None = None
     temperature_sensitivity_score: float = 0.0
 
     # Scattering indicators
@@ -388,7 +381,6 @@ class SpectralProperties:
     edge_curvature_asymmetry: float = 0.0
     has_boundary_rise_left: bool = False
     has_boundary_rise_right: bool = False
-
 
 @dataclass
 class FittedParameters:
@@ -476,14 +468,14 @@ class FittedParameters:
     tilt_std: float = 0.01
 
     # Metadata
-    complexity: str = "realistic"
+    complexity: Literal["simple", "realistic", "complex"] = "realistic"
     source_name: str = ""
-    source_properties: Optional[SpectralProperties] = field(default=None, repr=False)
+    source_properties: SpectralProperties | None = field(default=None, repr=False)
 
     # Phase 1-4 Enhanced Parameters
     # Instrument inference (Phase 2)
     inferred_instrument: str = "unknown"
-    instrument_inference: Optional[InstrumentInference] = field(default=None, repr=False)
+    instrument_inference: InstrumentInference | None = field(default=None, repr=False)
 
     # Measurement mode (Phase 2)
     measurement_mode: str = "transmittance"
@@ -491,33 +483,33 @@ class FittedParameters:
 
     # Domain inference (Phase 1)
     inferred_domain: str = "unknown"
-    domain_inference: Optional[DomainInference] = field(default=None, repr=False)
+    domain_inference: DomainInference | None = field(default=None, repr=False)
 
     # Environmental effects (Phase 3)
-    environmental_inference: Optional[EnvironmentalInference] = field(default=None, repr=False)
-    temperature_config: Dict[str, Any] = field(default_factory=dict)
-    moisture_config: Dict[str, Any] = field(default_factory=dict)
+    environmental_inference: EnvironmentalInference | None = field(default=None, repr=False)
+    temperature_config: dict[str, Any] = field(default_factory=dict)
+    moisture_config: dict[str, Any] = field(default_factory=dict)
 
     # Scattering effects (Phase 3)
-    scattering_inference: Optional[ScatteringInference] = field(default=None, repr=False)
-    particle_size_config: Dict[str, Any] = field(default_factory=dict)
-    emsc_config: Dict[str, Any] = field(default_factory=dict)
+    scattering_inference: ScatteringInference | None = field(default=None, repr=False)
+    particle_size_config: dict[str, Any] = field(default_factory=dict)
+    emsc_config: dict[str, Any] = field(default_factory=dict)
 
     # Edge artifacts (Phase 6)
-    edge_artifact_inference: Optional[EdgeArtifactInference] = field(default=None, repr=False)
-    edge_artifacts_config: Dict[str, Any] = field(default_factory=dict)
-    boundary_components_config: Dict[str, Any] = field(default_factory=dict)
+    edge_artifact_inference: EdgeArtifactInference | None = field(default=None, repr=False)
+    edge_artifacts_config: dict[str, Any] = field(default_factory=dict)
+    boundary_components_config: dict[str, Any] = field(default_factory=dict)
 
     # Preprocessing detection (Phase 5)
-    preprocessing_inference: Optional[PreprocessingInference] = field(default=None, repr=False)
+    preprocessing_inference: PreprocessingInference | None = field(default=None, repr=False)
     preprocessing_type: str = "raw_absorbance"
     is_preprocessed: bool = False
 
     # Components (Phase 1)
-    detected_components: List[str] = field(default_factory=list)
+    detected_components: list[str] = field(default_factory=list)
     suggested_n_components: int = 5
 
-    def to_generator_kwargs(self) -> Dict[str, Any]:
+    def to_generator_kwargs(self) -> dict[str, Any]:
         """
         Convert fitted parameters to kwargs for SyntheticNIRSGenerator.
 
@@ -535,7 +527,7 @@ class FittedParameters:
             "complexity": self.complexity,
         }
 
-    def to_full_config(self) -> Dict[str, Any]:
+    def to_full_config(self) -> dict[str, Any]:
         """
         Convert all fitted parameters to a comprehensive configuration.
 
@@ -584,7 +576,7 @@ class FittedParameters:
             "is_preprocessed": self.is_preprocessed,
         }
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert all parameters to a dictionary.
 
@@ -626,7 +618,7 @@ class FittedParameters:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "FittedParameters":
+    def from_dict(cls, data: dict[str, Any]) -> FittedParameters:
         """
         Create FittedParameters from a dictionary.
 
@@ -682,7 +674,7 @@ class FittedParameters:
             json.dump(self.to_dict(), f, indent=2)
 
     @classmethod
-    def load(cls, path: str) -> "FittedParameters":
+    def load(cls, path: str) -> FittedParameters:
         """
         Load parameters from JSON file.
 
@@ -694,7 +686,7 @@ class FittedParameters:
         """
         import json
 
-        with open(path, "r") as f:
+        with open(path) as f:
             data = json.load(f)
         return cls.from_dict(data)
 
@@ -750,10 +742,9 @@ class FittedParameters:
         lines.append("=" * 60)
         return "\n".join(lines)
 
-
 def compute_spectral_properties(
     X: np.ndarray,
-    wavelengths: Optional[np.ndarray] = None,
+    wavelengths: np.ndarray | None = None,
     name: str = "dataset",
     n_pca_components: int = 20,
 ) -> SpectralProperties:
@@ -947,7 +938,6 @@ def compute_spectral_properties(
 
     return props
 
-
 def _estimate_spectral_resolution(
     mean_spectrum: np.ndarray,
     wavelengths: np.ndarray,
@@ -981,7 +971,6 @@ def _estimate_spectral_resolution(
         return float(np.clip(width_nm, 0.5, 50.0))
     except Exception:
         return 8.0
-
 
 def _compute_noise_correlation_length(
     X: np.ndarray,
@@ -1018,7 +1007,6 @@ def _compute_noise_correlation_length(
     except Exception:
         return 1.0
 
-
 def _compute_baseline_convexity(
     mean_spectrum: np.ndarray,
     wavelengths: np.ndarray,
@@ -1032,7 +1020,6 @@ def _compute_baseline_convexity(
         return float(coeffs[0])
     except Exception:
         return 0.0
-
 
 def _compute_km_linearity(X: np.ndarray) -> float:
     """
@@ -1065,11 +1052,10 @@ def _compute_km_linearity(X: np.ndarray) -> float:
     except Exception:
         return 0.0
 
-
 def _analyze_scatter_baseline(
     mean_spectrum: np.ndarray,
     wavelengths: np.ndarray,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """Analyze baseline for scatter effects."""
     try:
         # Fit low-order polynomial to capture scatter baseline
@@ -1085,11 +1071,10 @@ def _analyze_scatter_baseline(
     except Exception:
         return 0.0, 0.0
 
-
 def _analyze_water_bands(
     X: np.ndarray,
     wavelengths: np.ndarray,
-) -> Tuple[float, np.ndarray]:
+) -> tuple[float, np.ndarray]:
     """Analyze water band regions for environmental effects."""
     try:
         # Water band regions
@@ -1116,7 +1101,6 @@ def _analyze_water_bands(
         return water_variation, np.array(oh_positions)
     except Exception:
         return 0.0, np.array([])
-
 
 def _compute_temperature_sensitivity(
     X: np.ndarray,
@@ -1150,16 +1134,15 @@ def _compute_temperature_sensitivity(
             return 0.0
 
         # Higher variation in peak position suggests temperature effects
-        position_std = np.std(peak_positions)
-        return float(min(1.0, position_std / 5.0))
+        position_std = float(np.std(peak_positions))
+        return min(1.0, position_std / 5.0)
     except Exception:
         return 0.0
-
 
 def _compute_band_intensity(
     mean_spectrum: np.ndarray,
     wavelengths: np.ndarray,
-    regions: List[Tuple[float, float]],
+    regions: list[tuple[float, float]],
 ) -> float:
     """Compute mean intensity in specified wavelength regions."""
     try:
@@ -1176,12 +1159,11 @@ def _compute_band_intensity(
     except Exception:
         return 0.0
 
-
 def _analyze_edge_artifacts(
     X: np.ndarray,
     wavelengths: np.ndarray,
     mean_spectrum: np.ndarray,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Analyze edge artifacts in spectral data.
 
@@ -1298,7 +1280,6 @@ def _analyze_edge_artifacts(
 
     return result
 
-
 class RealDataFitter:
     """
     Fit generator parameters to match real dataset properties.
@@ -1326,16 +1307,16 @@ class RealDataFitter:
 
     def __init__(self) -> None:
         """Initialize the fitter."""
-        self.source_properties: Optional[SpectralProperties] = None
-        self.fitted_params: Optional[FittedParameters] = None
-        self._X_array: Optional[np.ndarray] = None
-        self._wavelengths: Optional[np.ndarray] = None
+        self.source_properties: SpectralProperties | None = None
+        self.fitted_params: FittedParameters | None = None
+        self._X_array: np.ndarray | None = None
+        self._wavelengths: np.ndarray | None = None
 
     def fit(
         self,
-        X: Union[np.ndarray, "SpectroDataset"],
+        X: np.ndarray | SpectroDataset,
         *,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
         name: str = "source",
         infer_instrument: bool = True,
         infer_domain: bool = True,
@@ -1378,14 +1359,14 @@ class RealDataFitter:
         # Handle SpectroDataset input
         if hasattr(X, "x") and callable(X.x):
             # It's a SpectroDataset
-            X_array = X.x({}, layout="2d")
+            X_array: np.ndarray = np.asarray(X.x({}, layout="2d"))
             if wavelengths is None:
                 try:
-                    wavelengths = X.wavelengths
+                    wavelengths = X.float_headers()  # type: ignore[union-attr]
                 except (AttributeError, TypeError):
                     wavelengths = np.arange(X_array.shape[1])
             if hasattr(X, "name"):
-                name = X.name or name
+                name = X.name or name  # type: ignore[union-attr]
         else:
             X_array = np.asarray(X)
 
@@ -1437,7 +1418,7 @@ class RealDataFitter:
         params.scatter_beta_std = props.global_std * 0.1
 
         # Path length variation
-        intensity_variation = np.std(X_array.mean(axis=1)) / max(np.mean(X_array.mean(axis=1)), 0.1)
+        intensity_variation = float(np.std(X_array.mean(axis=1))) / max(float(np.mean(X_array.mean(axis=1))), 0.1)
         params.path_length_std = min(0.2, intensity_variation * 0.5)
 
         # Baseline amplitude
@@ -1514,7 +1495,7 @@ class RealDataFitter:
         snr = props.snr_estimate
         noise_corr = props.noise_correlation_length
 
-        scores: Dict[str, float] = {}
+        scores: dict[str, float] = {}
 
         # Score based on wavelength range
         if wl_max <= 1100:
@@ -1562,7 +1543,7 @@ class RealDataFitter:
 
         # Find best match
         if scores:
-            best_name = max(scores, key=scores.get)
+            best_name = max(scores, key=lambda k: scores[k])
             best_score = scores[best_name]
         else:
             best_name = "unknown"
@@ -1584,7 +1565,7 @@ class RealDataFitter:
             wavelength_range=(wl_min, wl_max),
             estimated_resolution=resolution,
             confidence=min(1.0, best_score),
-            alternative_archetypes={k: v for k, v in sorted(scores.items(), key=lambda x: -x[1])[:5]},
+            alternative_archetypes=dict(sorted(scores.items(), key=lambda x: -x[1])[:5]),
         )
 
     def _infer_measurement_mode(
@@ -1592,7 +1573,7 @@ class RealDataFitter:
         X: np.ndarray,
         wavelengths: np.ndarray,
         props: SpectralProperties,
-    ) -> Tuple[str, float]:
+    ) -> tuple[str, float]:
         """Infer measurement mode from spectral characteristics."""
         scores = {
             "transmittance": 0.0,
@@ -1633,15 +1614,15 @@ class RealDataFitter:
             scores["reflectance"] += 0.2
 
         # Find best
-        best_mode = max(scores, key=scores.get)
+        best_mode = max(scores, key=lambda k: scores[k])
         confidence = scores[best_mode] / max(sum(scores.values()), 0.01)
 
         return best_mode, float(confidence)
 
     def _infer_domain(self, props: SpectralProperties) -> DomainInference:
         """Infer application domain from spectral features."""
-        scores: Dict[str, float] = {}
-        detected_components: List[str] = []
+        scores: dict[str, float] = {}
+        detected_components: list[str] = []
 
         # Score based on band intensities
         water_intensity = props.water_band_intensity
@@ -1700,7 +1681,7 @@ class RealDataFitter:
             scores["unknown"] = 0.5
 
         # Find best
-        best_domain = max(scores, key=scores.get)
+        best_domain = max(scores, key=lambda k: scores[k])
         confidence = scores[best_domain]
 
         # Determine category
@@ -1726,7 +1707,7 @@ class RealDataFitter:
             category=category,
             confidence=confidence,
             detected_components=detected_components,
-            alternative_domains={k: v for k, v in sorted(scores.items(), key=lambda x: -x[1])[:5]},
+            alternative_domains=dict(sorted(scores.items(), key=lambda x: -x[1])[:5]),
         )
 
     def _infer_environmental(
@@ -2002,7 +1983,7 @@ class RealDataFitter:
         curvature = abs(props.mean_curvature)
 
         # Score each preprocessing type
-        scores: Dict[str, float] = {
+        scores: dict[str, float] = {
             "raw_absorbance": 0.0,
             "raw_reflectance": 0.0,
             "second_derivative": 0.0,
@@ -2074,7 +2055,7 @@ class RealDataFitter:
         # ==================================================================
         if 0 <= min_val < 0.1 and 0.9 < max_val <= 1.0:
             scores["normalized"] += 0.6
-        elif 0 <= min_val and global_range < 1.5 and max_val < 2.0:
+        elif min_val >= 0 and global_range < 1.5 and max_val < 2.0:
             scores["normalized"] += 0.3
 
         # ==================================================================
@@ -2097,14 +2078,14 @@ class RealDataFitter:
         # - Values 0-1 (or 0-100 for percent)
         # - Non-zero positive mean
         # ==================================================================
-        if 0 < global_mean < 0.7 and 0 <= min_val and max_val <= 1.0:
+        if 0 < global_mean < 0.7 and min_val >= 0 and max_val <= 1.0:
             scores["raw_reflectance"] += 0.4
         if 0 < min_val < max_val <= 100 and global_mean > 20:
             # Percent reflectance
             scores["raw_reflectance"] += 0.4
 
         # Find best match
-        best_type = max(scores, key=scores.get)
+        best_type = max(scores, key=lambda k: scores[k])
         best_score = scores[best_type]
         total_score = sum(scores.values()) + 1e-10
         confidence = best_score / total_score
@@ -2137,7 +2118,7 @@ class RealDataFitter:
             suggested_inverse=inverse_ops.get(best_type),
         )
 
-    def _build_temperature_config(self, env: Optional[EnvironmentalInference]) -> Dict[str, Any]:
+    def _build_temperature_config(self, env: EnvironmentalInference | None) -> dict[str, Any]:
         """Build temperature configuration from inference."""
         if env is None or not env.has_temperature_effects:
             return {}
@@ -2148,7 +2129,7 @@ class RealDataFitter:
             "enable_broadening": True,
         }
 
-    def _build_moisture_config(self, env: Optional[EnvironmentalInference]) -> Dict[str, Any]:
+    def _build_moisture_config(self, env: EnvironmentalInference | None) -> dict[str, Any]:
         """Build moisture configuration from inference."""
         if env is None or not env.has_moisture_effects:
             return {}
@@ -2163,7 +2144,7 @@ class RealDataFitter:
             "free_water_fraction": free_fraction,
         }
 
-    def _build_particle_size_config(self, scatter: Optional[ScatteringInference]) -> Dict[str, Any]:
+    def _build_particle_size_config(self, scatter: ScatteringInference | None) -> dict[str, Any]:
         """Build particle size configuration from inference."""
         if scatter is None or not scatter.has_scatter_effects:
             return {}
@@ -2173,7 +2154,7 @@ class RealDataFitter:
             "size_effect_strength": 1.0,
         }
 
-    def _build_emsc_config(self, scatter: Optional[ScatteringInference]) -> Dict[str, Any]:
+    def _build_emsc_config(self, scatter: ScatteringInference | None) -> dict[str, Any]:
         """Build EMSC configuration from inference."""
         if scatter is None:
             return {}
@@ -2185,8 +2166,8 @@ class RealDataFitter:
         }
 
     def _build_edge_artifacts_config(
-        self, edge_inf: Optional["EdgeArtifactInference"]
-    ) -> Dict[str, Any]:
+        self, edge_inf: EdgeArtifactInference | None
+    ) -> dict[str, Any]:
         """
         Build edge artifacts configuration from inference.
 
@@ -2202,7 +2183,7 @@ class RealDataFitter:
         if edge_inf is None or not edge_inf.has_edge_artifacts:
             return {}
 
-        config: Dict[str, Any] = {}
+        config: dict[str, Any] = {}
 
         # Detector roll-off configuration
         if edge_inf.has_detector_rolloff:
@@ -2242,9 +2223,9 @@ class RealDataFitter:
 
     def _build_boundary_components_config(
         self,
-        edge_inf: Optional["EdgeArtifactInference"],
+        edge_inf: EdgeArtifactInference | None,
         wavelengths: np.ndarray,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Build boundary components configuration from inference.
 
@@ -2266,7 +2247,7 @@ class RealDataFitter:
         wl_range = wl_max - wl_min
 
         left_amp, right_amp = edge_inf.boundary_peak_amplitudes
-        config: Dict[str, Any] = {"components": []}
+        config: dict[str, Any] = {"components": []}
 
         # Left boundary component (peak center below wavelength range)
         if left_amp > 0.05:
@@ -2296,8 +2277,8 @@ class RealDataFitter:
 
     def create_matched_generator(
         self,
-        random_state: Optional[int] = None,
-    ) -> "SyntheticNIRSGenerator":
+        random_state: int | None = None,
+    ) -> SyntheticNIRSGenerator:
         """
         Create a SyntheticNIRSGenerator configured to match the fitted data.
 
@@ -2422,7 +2403,7 @@ class RealDataFitter:
         self,
         path: str,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> FittedParameters:
         """
         Fit parameters from a dataset path.
@@ -2448,22 +2429,20 @@ class RealDataFitter:
             raise ValueError(f"No datasets found at {path}")
 
         dataset = datasets[0]
-        X = dataset.x({}, layout="2d")
+        X: np.ndarray = np.asarray(dataset.x({}, layout="2d"))
 
         # Try to get wavelengths
         wavelengths = None
-        try:
-            wavelengths = dataset.wavelengths
-        except (AttributeError, TypeError):
-            pass
+        with contextlib.suppress(AttributeError, TypeError, ValueError):
+            wavelengths = dataset.float_headers()
 
         return self.fit(X, wavelengths=wavelengths, name=name or dataset.name)
 
     def evaluate_similarity(
         self,
         X_synthetic: np.ndarray,
-        wavelengths: Optional[np.ndarray] = None,
-    ) -> Dict[str, Any]:
+        wavelengths: np.ndarray | None = None,
+    ) -> dict[str, Any]:
         """
         Evaluate similarity between synthetic and source data.
 
@@ -2500,7 +2479,7 @@ class RealDataFitter:
         )
 
         real_props = self.source_properties
-        metrics: Dict[str, Any] = {}
+        metrics: dict[str, Any] = {}
 
         # Mean comparison
         if real_props.global_mean != 0:
@@ -2574,7 +2553,7 @@ class RealDataFitter:
 
         return metrics
 
-    def get_tuning_recommendations(self) -> List[str]:
+    def get_tuning_recommendations(self) -> list[str]:
         """
         Get recommendations for tuning generation parameters.
 
@@ -2636,10 +2615,9 @@ class RealDataFitter:
 
         return recs
 
-
 def fit_to_real_data(
-    X: Union[np.ndarray, "SpectroDataset"],
-    wavelengths: Optional[np.ndarray] = None,
+    X: np.ndarray | SpectroDataset,
+    wavelengths: np.ndarray | None = None,
     name: str = "source",
 ) -> FittedParameters:
     """
@@ -2662,12 +2640,11 @@ def fit_to_real_data(
     fitter = RealDataFitter()
     return fitter.fit(X, wavelengths=wavelengths, name=name)
 
-
 def compare_datasets(
     X_synthetic: np.ndarray,
     X_real: np.ndarray,
-    wavelengths: Optional[np.ndarray] = None,
-) -> Dict[str, Any]:
+    wavelengths: np.ndarray | None = None,
+) -> dict[str, Any]:
     """
     Quick comparison between synthetic and real datasets.
 
@@ -2687,11 +2664,9 @@ def compare_datasets(
     fitter.fit(X_real, wavelengths=wavelengths, name="real")
     return fitter.evaluate_similarity(X_synthetic, wavelengths)
 
-
 # ============================================================================
 # Phase 5: Spectral Fitting Tools (Component Unmixing)
 # ============================================================================
-
 
 @dataclass
 class ComponentFitResult:
@@ -2708,20 +2683,20 @@ class ComponentFitResult:
         rmse: Root mean squared error of fit.
         wavelengths: Wavelength grid used for fitting.
     """
-    component_names: List[str]
+    component_names: list[str]
     concentrations: np.ndarray
-    baseline_coefficients: Optional[np.ndarray]
+    baseline_coefficients: np.ndarray | None
     fitted_spectrum: np.ndarray
     residuals: np.ndarray
     r_squared: float
     rmse: float
-    wavelengths: Optional[np.ndarray] = None
+    wavelengths: np.ndarray | None = None
 
-    def to_dict(self) -> Dict[str, float]:
+    def to_dict(self) -> dict[str, float]:
         """Return concentrations as a dictionary."""
-        return dict(zip(self.component_names, self.concentrations))
+        return dict(zip(self.component_names, self.concentrations, strict=False))
 
-    def top_components(self, n: int = 5, threshold: float = 0.0) -> List[Tuple[str, float]]:
+    def top_components(self, n: int = 5, threshold: float = 0.0) -> list[tuple[str, float]]:
         """
         Get top N components by concentration.
 
@@ -2732,7 +2707,7 @@ class ComponentFitResult:
         Returns:
             List of (component_name, concentration) tuples, sorted descending.
         """
-        pairs = [(name, float(conc)) for name, conc in zip(self.component_names, self.concentrations) if conc > threshold]
+        pairs = [(name, float(conc)) for name, conc in zip(self.component_names, self.concentrations, strict=False) if conc > threshold]
         pairs.sort(key=lambda x: x[1], reverse=True)
         return pairs[:n]
 
@@ -2760,7 +2735,6 @@ class ComponentFitResult:
         top_3 = self.top_components(3)
         top_str = ", ".join(f"{n}={c:.3f}" for n, c in top_3)
         return f"ComponentFitResult(R²={self.r_squared:.4f}, top=[{top_str}])"
-
 
 class ComponentFitter:
     """
@@ -2813,11 +2787,11 @@ class ComponentFitter:
 
     def __init__(
         self,
-        component_names: Optional[List[str]] = None,
-        wavelengths: Optional[np.ndarray] = None,
+        component_names: list[str] | None = None,
+        wavelengths: np.ndarray | None = None,
         fit_baseline: bool = True,
         baseline_order: int = 2,
-        preprocessing: Optional[Union[str, PreprocessingType]] = None,
+        preprocessing: str | PreprocessingType | None = None,
         auto_detect_preprocessing: bool = False,
         sg_window_length: int = 15,
         sg_polyorder: int = 2,
@@ -2865,19 +2839,18 @@ class ComponentFitter:
         self.fit_baseline = fit_baseline
         self.baseline_order = baseline_order
         self.auto_detect_preprocessing = auto_detect_preprocessing
-        self.detected_preprocessing: Optional[PreprocessingType] = None
+        self.detected_preprocessing: PreprocessingType | None = None
 
         # Preprocessing configuration
-        if preprocessing is not None:
-            if isinstance(preprocessing, str):
-                preprocessing = PreprocessingType(preprocessing)
+        if preprocessing is not None and isinstance(preprocessing, str):
+            preprocessing = PreprocessingType(preprocessing)
         self.preprocessing = preprocessing
         self.sg_window_length = sg_window_length
         self.sg_polyorder = sg_polyorder
 
         # Set wavelengths (default to standard NIR range)
         if wavelengths is None:
-            from ._constants import DEFAULT_WAVELENGTH_START, DEFAULT_WAVELENGTH_END, DEFAULT_WAVELENGTH_STEP
+            from ._constants import DEFAULT_WAVELENGTH_END, DEFAULT_WAVELENGTH_START, DEFAULT_WAVELENGTH_STEP
             wavelengths = np.arange(DEFAULT_WAVELENGTH_START, DEFAULT_WAVELENGTH_END + DEFAULT_WAVELENGTH_STEP, DEFAULT_WAVELENGTH_STEP)
         self.wavelengths = np.asarray(wavelengths)
 
@@ -2900,7 +2873,7 @@ class ComponentFitter:
         self.component_names = self._component_library.component_names
 
         # Design matrix (computed lazily)
-        self._design_matrix: Optional[np.ndarray] = None
+        self._design_matrix: np.ndarray | None = None
         self._n_components: int = len(self.component_names)
 
     def _apply_preprocessing_to_spectra(self, spectra: np.ndarray) -> np.ndarray:
@@ -2975,10 +2948,7 @@ class ComponentFitter:
         Returns:
             Detected PreprocessingType.
         """
-        if spectrum.ndim == 1:
-            data = spectrum
-        else:
-            data = spectrum.mean(axis=0) if spectrum.shape[0] > 1 else spectrum[0]
+        data = spectrum if spectrum.ndim == 1 else spectrum.mean(axis=0) if spectrum.shape[0] > 1 else spectrum[0]
 
         min_val = float(np.min(data))
         max_val = float(np.max(data))
@@ -3033,7 +3003,7 @@ class ComponentFitter:
             return PreprocessingType.RAW_ABSORBANCE
 
         # Raw reflectance: values 0-1
-        if 0 <= min_val and max_val <= 1.2 and 0.1 < mean_val < 0.8:
+        if min_val >= 0 and max_val <= 1.2 and 0.1 < mean_val < 0.8:
             return PreprocessingType.RAW_REFLECTANCE
 
         # Default to raw absorbance if uncertain
@@ -3065,10 +3035,7 @@ class ComponentFitter:
         if self.fit_baseline:
             # Normalize wavelengths to [0, 1] for numerical stability
             wl_min, wl_max = self.wavelengths.min(), self.wavelengths.max()
-            if wl_max > wl_min:
-                normalized = (self.wavelengths - wl_min) / (wl_max - wl_min)
-            else:
-                normalized = np.zeros_like(self.wavelengths)
+            normalized = (self.wavelengths - wl_min) / (wl_max - wl_min) if wl_max > wl_min else np.zeros_like(self.wavelengths)
 
             baseline_terms = []
             for order in range(self.baseline_order + 1):
@@ -3113,6 +3080,7 @@ class ComponentFitter:
 
         if self._design_matrix is None:
             self._build_design_matrix()
+        assert self._design_matrix is not None
 
         X = self._design_matrix
         y = np.asarray(spectrum).ravel()
@@ -3165,7 +3133,7 @@ class ComponentFitter:
         spectra: np.ndarray,
         method: str = "nnls",
         n_jobs: int = -1,
-    ) -> List[ComponentFitResult]:
+    ) -> list[ComponentFitResult]:
         """
         Fit components to multiple spectra in parallel.
 
@@ -3198,7 +3166,7 @@ class ComponentFitter:
             # Parallel execution
             try:
                 from joblib import Parallel, delayed
-                results = Parallel(n_jobs=n_jobs)(
+                results: list[ComponentFitResult] = Parallel(n_jobs=n_jobs)(
                     delayed(self.fit)(spectrum, method=method) for spectrum in spectra
                 )
                 return results
@@ -3212,7 +3180,7 @@ class ComponentFitter:
         top_n: int = 5,
         threshold: float = 0.01,
         method: str = "nnls",
-    ) -> List[Tuple[str, float]]:
+    ) -> list[tuple[str, float]]:
         """
         Suggest which components are likely present in a spectrum.
 
@@ -3242,7 +3210,7 @@ class ComponentFitter:
         spectra: np.ndarray,
         method: str = "nnls",
         n_jobs: int = -1,
-    ) -> Tuple[np.ndarray, List[str]]:
+    ) -> tuple[np.ndarray, list[str]]:
         """
         Get concentration matrix for batch of spectra.
 
@@ -3267,15 +3235,14 @@ class ComponentFitter:
         C = np.array([r.concentrations for r in results])
         return C, self.component_names
 
-
 def fit_components(
     spectrum: np.ndarray,
     wavelengths: np.ndarray,
-    component_names: Optional[List[str]] = None,
+    component_names: list[str] | None = None,
     fit_baseline: bool = True,
     baseline_order: int = 2,
     method: str = "nnls",
-    preprocessing: Optional[Union[str, PreprocessingType]] = None,
+    preprocessing: str | PreprocessingType | None = None,
     auto_detect_preprocessing: bool = False,
 ) -> ComponentFitResult:
     """
@@ -3323,11 +3290,9 @@ def fit_components(
     )
     return fitter.fit(spectrum, method=method)
 
-
 # ============================================================================
 # Optimized Component Fitting (Greedy Selection)
 # ============================================================================
-
 
 # Component category definitions for domain-aware fitting
 COMPONENT_CATEGORIES = {
@@ -3369,7 +3334,6 @@ EXCLUDED_COMPONENTS = {
 # Universal components that can appear in most samples
 UNIVERSAL_COMPONENTS = {'water', 'moisture'}
 
-
 @dataclass
 class OptimizedFitResult:
     """
@@ -3388,9 +3352,9 @@ class OptimizedFitResult:
         baseline_r_squared: R² from baseline-only fit (for comparison).
         wavelengths: Wavelength grid used for fitting.
     """
-    component_names: List[str]
+    component_names: list[str]
     concentrations: np.ndarray
-    baseline_coefficients: Optional[np.ndarray]
+    baseline_coefficients: np.ndarray | None
     fitted_spectrum: np.ndarray
     residuals: np.ndarray
     r_squared: float
@@ -3404,7 +3368,7 @@ class OptimizedFitResult:
         self,
         n: int = 5,
         threshold: float = 0.001,
-    ) -> List[Tuple[str, float]]:
+    ) -> list[tuple[str, float]]:
         """Get top components by concentration."""
         if len(self.component_names) == 0:
             return []
@@ -3431,7 +3395,6 @@ class OptimizedFitResult:
             lines.append(f"  {name}: {conc:.4f}")
         lines.append("=" * 60)
         return "\n".join(lines)
-
 
 class OptimizedComponentFitter:
     """
@@ -3473,11 +3436,11 @@ class OptimizedComponentFitter:
 
     def __init__(
         self,
-        wavelengths: Optional[np.ndarray] = None,
-        priority_categories: Optional[List[str]] = None,
+        wavelengths: np.ndarray | None = None,
+        priority_categories: list[str] | None = None,
         max_components: int = 10,
         baseline_order: int = 4,
-        preprocessing: Optional[Union[str, PreprocessingType]] = None,
+        preprocessing: str | PreprocessingType | None = None,
         auto_detect_preprocessing: bool = False,
         sg_window_length: int = 15,
         sg_polyorder: int = 3,
@@ -3511,7 +3474,7 @@ class OptimizedComponentFitter:
             preprocessing = PreprocessingType(preprocessing)
         self.preprocessing = preprocessing
         self.auto_detect_preprocessing = auto_detect_preprocessing
-        self.detected_preprocessing: Optional[PreprocessingType] = None
+        self.detected_preprocessing: PreprocessingType | None = None
         self.sg_window_length = sg_window_length
         self.sg_polyorder = sg_polyorder
         self.smooth_sigma_nm = smooth_sigma_nm
@@ -3519,7 +3482,7 @@ class OptimizedComponentFitter:
 
         # Set wavelengths
         if wavelengths is None:
-            from ._constants import DEFAULT_WAVELENGTH_START, DEFAULT_WAVELENGTH_END, DEFAULT_WAVELENGTH_STEP
+            from ._constants import DEFAULT_WAVELENGTH_END, DEFAULT_WAVELENGTH_START, DEFAULT_WAVELENGTH_STEP
             wavelengths = np.arange(DEFAULT_WAVELENGTH_START, DEFAULT_WAVELENGTH_END + DEFAULT_WAVELENGTH_STEP, DEFAULT_WAVELENGTH_STEP)
         self.wavelengths = np.asarray(wavelengths)
 
@@ -3533,8 +3496,8 @@ class OptimizedComponentFitter:
         self._all_component_names = [n for n in all_names if n not in EXCLUDED_COMPONENTS]
 
         # Pre-compute component spectra (will be updated with preprocessing)
-        self._component_spectra: Dict[str, np.ndarray] = {}
-        self._baseline_matrix: Optional[np.ndarray] = None
+        self._component_spectra: dict[str, np.ndarray] = {}
+        self._baseline_matrix: np.ndarray | None = None
 
     def _apply_preprocessing_to_spectrum(self, spectrum: np.ndarray) -> np.ndarray:
         """Apply preprocessing to a single spectrum."""
@@ -3547,16 +3510,16 @@ class OptimizedComponentFitter:
         window = min(self.sg_window_length, n_wl - 1) | 1
 
         if self.preprocessing == PreprocessingType.SECOND_DERIVATIVE:
-            return savgol_filter(spectrum, window, min(self.sg_polyorder + 1, window - 1), deriv=2)
+            return np.asarray(savgol_filter(spectrum, window, min(self.sg_polyorder + 1, window - 1), deriv=2))
         elif self.preprocessing == PreprocessingType.FIRST_DERIVATIVE:
-            return savgol_filter(spectrum, window, min(self.sg_polyorder, window - 1), deriv=1)
+            return np.asarray(savgol_filter(spectrum, window, min(self.sg_polyorder, window - 1), deriv=1))
         elif self.preprocessing == PreprocessingType.MEAN_CENTERED:
-            return spectrum - spectrum.mean()
+            return np.asarray(spectrum - spectrum.mean())
         elif self.preprocessing == PreprocessingType.SNV_CORRECTED:
             std = spectrum.std()
             if std < 1e-10:
-                return spectrum - spectrum.mean()
-            return (spectrum - spectrum.mean()) / std
+                return np.asarray(spectrum - spectrum.mean())
+            return np.asarray((spectrum - spectrum.mean()) / std)
 
         return spectrum
 
@@ -3578,9 +3541,8 @@ class OptimizedComponentFitter:
         # First derivative: bipolar values, near-zero mean
         is_bipolar = min_val < 0 < max_val
         has_significant_negative = abs(min_val) > 0.001
-        if is_bipolar and has_significant_negative and abs(mean_val) < 0.1:
-            if min_val < -0.5 or abs(min_val / max(max_val, 1e-10)) > 0.3:
-                return PreprocessingType.FIRST_DERIVATIVE
+        if is_bipolar and has_significant_negative and abs(mean_val) < 0.1 and (min_val < -0.5 or abs(min_val / max(max_val, 1e-10)) > 0.3):
+            return PreprocessingType.FIRST_DERIVATIVE
 
         # Raw absorbance: positive values, typical range
         if min_val >= 0 and 0.2 < mean_val < 3.0:
@@ -3588,15 +3550,16 @@ class OptimizedComponentFitter:
 
         return PreprocessingType.RAW_ABSORBANCE
 
-    def _compute_component_spectra(self) -> Dict[str, np.ndarray]:
+    def _compute_component_spectra(self) -> dict[str, np.ndarray]:
         """
         Compute all component spectra with preprocessing and smoothing applied.
 
         Applies Gaussian smoothing to broaden narrow Voigt bands, making them
         more suitable for fitting real NIRS data which typically has broader features.
         """
-        from .components import get_component
         from scipy.ndimage import gaussian_filter1d
+
+        from .components import get_component
 
         # Determine smoothing kernel size based on wavelength grid
         wl_spacing = np.median(np.diff(self.wavelengths)) if len(self.wavelengths) > 1 else 1.0
@@ -3641,10 +3604,10 @@ class OptimizedComponentFitter:
     def _fit_with_components(
         self,
         target: np.ndarray,
-        component_spectra: Dict[str, np.ndarray],
-        component_names: List[str],
+        component_spectra: dict[str, np.ndarray],
+        component_names: list[str],
         baseline_matrix: np.ndarray,
-    ) -> Tuple[float, np.ndarray, np.ndarray]:
+    ) -> tuple[float, np.ndarray, np.ndarray]:
         """
         Fit target using OLS with baseline + selected component spectra.
 
@@ -3712,14 +3675,14 @@ class OptimizedComponentFitter:
     def _greedy_select_from_pool(
         self,
         target: np.ndarray,
-        component_spectra: Dict[str, np.ndarray],
+        component_spectra: dict[str, np.ndarray],
         baseline_matrix: np.ndarray,
-        pool: List[str],
-        current_components: List[str],
+        pool: list[str],
+        current_components: list[str],
         current_r2: float,
         max_to_add: int,
         min_improvement: float,
-    ) -> Tuple[List[str], float, int]:
+    ) -> tuple[list[str], float, int]:
         """
         Greedy forward selection from a component pool.
 
@@ -3817,10 +3780,10 @@ class OptimizedComponentFitter:
                 if comp in component_spectra and comp not in priority_pool:
                     priority_pool.append(comp)
 
-        other_pool = [n for n in component_spectra.keys() if n not in priority_pool]
+        other_pool = [n for n in component_spectra if n not in priority_pool]
 
         # Phase 1: Greedy selection from PRIORITY pool (LOW threshold)
-        best_components: List[str] = []
+        best_components: list[str] = []
         best_r2 = baseline_r2
         priority_slots = min(self.max_components - 2, len(priority_pool), 8)
 
@@ -3849,7 +3812,7 @@ class OptimizedComponentFitter:
 
         while improved and n_swaps < 15:
             improved = False
-            for i, old_comp in enumerate(best_components):
+            for i, _old_comp in enumerate(best_components):
                 for new_comp in all_pool:
                     if new_comp in best_components:
                         continue
@@ -3899,14 +3862,13 @@ class OptimizedComponentFitter:
             wavelengths=self.wavelengths,
         )
 
-
 def fit_components_optimized(
     spectrum: np.ndarray,
     wavelengths: np.ndarray,
-    priority_categories: Optional[List[str]] = None,
+    priority_categories: list[str] | None = None,
     max_components: int = 10,
     baseline_order: int = 4,
-    preprocessing: Optional[Union[str, PreprocessingType]] = None,
+    preprocessing: str | PreprocessingType | None = None,
     auto_detect_preprocessing: bool = False,
     smooth_sigma_nm: float = 30.0,
     use_nnls: bool = False,
@@ -3950,11 +3912,9 @@ def fit_components_optimized(
     )
     return fitter.fit(spectrum)
 
-
 # ============================================================================
 # Real Band Fitting (Using NIR_BANDS dictionary)
 # ============================================================================
-
 
 @dataclass
 class RealBandFitResult:
@@ -3975,7 +3935,7 @@ class RealBandFitResult:
         wavelengths: Wavelength grid used for fitting.
         band_assignments: Original BandAssignment objects.
     """
-    band_names: List[str]
+    band_names: list[str]
     band_centers: np.ndarray
     amplitudes: np.ndarray
     sigmas: np.ndarray
@@ -3986,13 +3946,13 @@ class RealBandFitResult:
     rmse: float
     n_bands: int
     wavelengths: np.ndarray
-    band_assignments: List[Any] = field(default_factory=list)
+    band_assignments: list[Any] = field(default_factory=list)
 
     def top_bands(
         self,
         n: int = 10,
         threshold: float = 0.001,
-    ) -> List[Tuple[str, float, float]]:
+    ) -> list[tuple[str, float, float]]:
         """Get top bands by amplitude. Returns (name, center, amplitude)."""
         if len(self.band_names) == 0:
             return []
@@ -4023,7 +3983,6 @@ class RealBandFitResult:
             lines.append(f"  {center:.0f} nm: {name} (amp={amp:.4f})")
         lines.append("=" * 60)
         return "\n".join(lines)
-
 
 class RealBandFitter:
     """
@@ -4084,7 +4043,7 @@ class RealBandFitter:
         self.sigma_margin = sigma_margin
         self.n_iterations = n_iterations
 
-    def _get_candidate_bands(self, wl_min: float, wl_max: float) -> List[Any]:
+    def _get_candidate_bands(self, wl_min: float, wl_max: float) -> list[Any]:
         """Get all bands in the wavelength range from NIR_BANDS dictionary."""
         from ._bands import get_bands_in_range
         return get_bands_in_range(wl_min, wl_max)
@@ -4102,17 +4061,14 @@ class RealBandFitter:
     def _compute_all_bands(
         self,
         wl: np.ndarray,
-        bands: List[Any],
+        bands: list[Any],
         amplitudes: np.ndarray,
-        sigmas: Optional[np.ndarray] = None,
+        sigmas: np.ndarray | None = None,
     ) -> np.ndarray:
         """Compute sum of all bands."""
         result = np.zeros_like(wl, dtype=float)
         for i, band in enumerate(bands):
-            if sigmas is not None:
-                sigma = sigmas[i]
-            else:
-                sigma = (band.sigma_range[0] + band.sigma_range[1]) / 2
+            sigma = sigmas[i] if sigmas is not None else (band.sigma_range[0] + band.sigma_range[1]) / 2
             result += self._compute_band(wl, band.center, sigma, amplitudes[i])
         return result
 
@@ -4270,12 +4226,12 @@ class RealBandFitter:
         best_result = None
         best_r2 = -np.inf
 
-        for iteration in range(self.n_iterations):
+        for _ in range(self.n_iterations):
             try:
                 res = minimize(
                     objective, x0,
                     method='L-BFGS-B',
-                    bounds=list(zip(bounds_lo, bounds_hi)),
+                    bounds=list(zip(bounds_lo, bounds_hi, strict=False)),
                     options={'maxiter': 2000, 'ftol': 1e-12}
                 )
                 fitted = model(res.x)
@@ -4350,7 +4306,6 @@ class RealBandFitter:
 
         return RealBandFitResult(**best_result)
 
-
 def fit_real_bands(
     spectrum: np.ndarray,
     wavelengths: np.ndarray,
@@ -4390,11 +4345,9 @@ def fit_real_bands(
     )
     return fitter.fit(spectrum, wavelengths)
 
-
 # ============================================================================
 # Variance Fitting
 # ============================================================================
-
 
 @dataclass
 class OperatorVarianceParams:
@@ -4419,7 +4372,7 @@ class OperatorVarianceParams:
     curvature_std: float = 0.0001
     mult_scatter_std: float = 0.05
 
-    def to_dict(self) -> Dict[str, float]:
+    def to_dict(self) -> dict[str, float]:
         """Convert to dictionary."""
         return {
             "noise_std": self.noise_std,
@@ -4428,7 +4381,6 @@ class OperatorVarianceParams:
             "curvature_std": self.curvature_std,
             "mult_scatter_std": self.mult_scatter_std,
         }
-
 
 @dataclass
 class PCAVarianceParams:
@@ -4446,12 +4398,11 @@ class PCAVarianceParams:
         mean_spectrum: Mean spectrum from PCA.
     """
     n_components: int = 5
-    explained_variance_ratio: Optional[np.ndarray] = None
-    score_means: Optional[np.ndarray] = None
-    score_stds: Optional[np.ndarray] = None
-    components: Optional[np.ndarray] = None
-    mean_spectrum: Optional[np.ndarray] = None
-
+    explained_variance_ratio: np.ndarray | None = None
+    score_means: np.ndarray | None = None
+    score_stds: np.ndarray | None = None
+    components: np.ndarray | None = None
+    mean_spectrum: np.ndarray | None = None
 
 @dataclass
 class VarianceFitResult:
@@ -4467,7 +4418,7 @@ class VarianceFitResult:
     operator_params: OperatorVarianceParams
     pca_params: PCAVarianceParams
     n_samples: int = 0
-    wavelengths: Optional[np.ndarray] = None
+    wavelengths: np.ndarray | None = None
 
     def summary(self) -> str:
         """Return human-readable summary."""
@@ -4493,7 +4444,6 @@ class VarianceFitResult:
             lines.append(f"  Top 3 explained: {self.pca_params.explained_variance_ratio[:3]}")
         lines.append("=" * 60)
         return "\n".join(lines)
-
 
 class VarianceFitter:
     """
@@ -4525,12 +4475,12 @@ class VarianceFitter:
         """
         self.n_pca_components = n_pca_components
         self._fitted = False
-        self._result: Optional[VarianceFitResult] = None
+        self._result: VarianceFitResult | None = None
 
     def fit(
         self,
         X: np.ndarray,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
     ) -> VarianceFitResult:
         """
         Fit variance parameters from real spectra.
@@ -4586,11 +4536,11 @@ class VarianceFitter:
         # Baseline fitting: normalize wavelengths
         wl_norm = (wavelengths - wavelengths.mean()) / (wavelengths.max() - wavelengths.min())
 
-        baseline_coeffs = []
+        baseline_coeffs_list = []
         for i in range(n_samples):
             coeffs = np.polyfit(wl_norm, X[i], 3)
-            baseline_coeffs.append(coeffs)
-        baseline_coeffs = np.array(baseline_coeffs)
+            baseline_coeffs_list.append(coeffs)
+        baseline_coeffs = np.array(baseline_coeffs_list)
 
         # Extract baseline variation parameters
         offset_std = float(np.std(baseline_coeffs[:, -1]))  # constant term
@@ -4644,7 +4594,7 @@ class VarianceFitter:
         base_spectrum: np.ndarray,
         wavelengths: np.ndarray,
         n_samples: int = 100,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ) -> np.ndarray:
         """
         Generate synthetic spectra using operator-based variance.
@@ -4695,8 +4645,8 @@ class VarianceFitter:
     def generate_pca_variance(
         self,
         n_samples: int = 100,
-        n_components: Optional[int] = None,
-        random_state: Optional[int] = None,
+        n_components: int | None = None,
+        random_state: int | None = None,
     ) -> np.ndarray:
         """
         Generate synthetic spectra using PCA-based variance.
@@ -4731,14 +4681,13 @@ class VarianceFitter:
             scores[:, i] = rng.normal(mean, std, n_samples)
 
         # Reconstruct spectra
-        X_synth = scores @ pca_params.components[:n_components] + pca_params.mean_spectrum
+        X_synth: np.ndarray = scores @ pca_params.components[:n_components] + pca_params.mean_spectrum
 
         return X_synth
 
-
 def fit_variance(
     X: np.ndarray,
-    wavelengths: Optional[np.ndarray] = None,
+    wavelengths: np.ndarray | None = None,
     n_pca_components: int = 10,
 ) -> VarianceFitResult:
     """
@@ -4759,11 +4708,9 @@ def fit_variance(
     fitter = VarianceFitter(n_pca_components=n_pca_components)
     return fitter.fit(X, wavelengths)
 
-
 # ============================================================================
 # Physical Forward Model Fitting
 # ============================================================================
-
 
 @dataclass
 class InstrumentChain:
@@ -4827,10 +4774,9 @@ class InstrumentChain:
         spectrum_phot = self.gain * spectrum_ils + self.offset + self.stray_light
 
         # 4. Resample to target grid
-        spectrum_resampled = np.interp(target_wl, warped_wl, spectrum_phot)
+        spectrum_resampled: np.ndarray = np.asarray(np.interp(target_wl, warped_wl, spectrum_phot))
 
         return spectrum_resampled
-
 
 @dataclass
 class ForwardModelFitter:
@@ -4863,13 +4809,13 @@ class ForwardModelFitter:
         >>> result = fitter.fit(spectrum)
         >>> print(f"R² = {result['r_squared']:.4f}")
     """
-    components: List["SpectralComponent"]
+    components: list[SpectralComponent]
     canonical_grid: np.ndarray
     target_grid: np.ndarray
     baseline_order: int = 4
-    wl_shift_bounds: Tuple[float, float] = (-5.0, 5.0)
-    ils_sigma_bounds: Tuple[float, float] = (2.0, 15.0)
-    path_length_bounds: Tuple[float, float] = (0.5, 2.0)
+    wl_shift_bounds: tuple[float, float] = (-5.0, 5.0)
+    ils_sigma_bounds: tuple[float, float] = (2.0, 15.0)
+    path_length_bounds: tuple[float, float] = (0.5, 2.0)
 
     def __post_init__(self):
         """Pre-compute component spectra on canonical grid."""
@@ -4905,7 +4851,7 @@ class ForwardModelFitter:
 
     def _inner_solve(
         self, A: np.ndarray, y: np.ndarray, path_length: float
-    ) -> Tuple[np.ndarray, float, np.ndarray]:
+    ) -> tuple[np.ndarray, float, np.ndarray]:
         """Inner NNLS solve for linear parameters."""
         from scipy.optimize import nnls
 
@@ -4931,8 +4877,8 @@ class ForwardModelFitter:
             return 1.0
 
     def fit(
-        self, y: np.ndarray, initial_guess: Optional[np.ndarray] = None
-    ) -> Dict[str, Any]:
+        self, y: np.ndarray, initial_guess: np.ndarray | None = None
+    ) -> dict[str, Any]:
         """
         Fit forward model to target spectrum.
 
@@ -4985,7 +4931,6 @@ class ForwardModelFitter:
             "path_length": path_length,
         }
 
-
 @dataclass
 class DerivativeAwareForwardModelFitter:
     """
@@ -5019,16 +4964,16 @@ class DerivativeAwareForwardModelFitter:
         >>> result = fitter.fit(derivative_spectrum)
         >>> print(f"R² = {result['r_squared']:.4f}")
     """
-    components: List["SpectralComponent"]
+    components: list[SpectralComponent]
     canonical_grid: np.ndarray
     target_grid: np.ndarray
     derivative_order: int = 1
     sg_window: int = 15
     sg_polyorder: int = 2
     baseline_order: int = 6
-    wl_shift_bounds: Tuple[float, float] = (-5.0, 5.0)
-    ils_sigma_bounds: Tuple[float, float] = (2.0, 15.0)
-    path_length_bounds: Tuple[float, float] = (0.5, 2.0)
+    wl_shift_bounds: tuple[float, float] = (-5.0, 5.0)
+    ils_sigma_bounds: tuple[float, float] = (2.0, 15.0)
+    path_length_bounds: tuple[float, float] = (0.5, 2.0)
 
     def __post_init__(self):
         """Pre-compute component spectra on canonical grid."""
@@ -5081,7 +5026,7 @@ class DerivativeAwareForwardModelFitter:
 
     def _inner_solve(
         self, A_deriv: np.ndarray, y_deriv: np.ndarray, path_length: float
-    ) -> Tuple[np.ndarray, float, np.ndarray]:
+    ) -> tuple[np.ndarray, float, np.ndarray]:
         """Inner bounded solve in derivative space."""
         from scipy.optimize import lsq_linear
 
@@ -5120,8 +5065,8 @@ class DerivativeAwareForwardModelFitter:
             return 1.0
 
     def fit(
-        self, y_deriv: np.ndarray, initial_guess: Optional[np.ndarray] = None
-    ) -> Dict[str, Any]:
+        self, y_deriv: np.ndarray, initial_guess: np.ndarray | None = None
+    ) -> dict[str, Any]:
         """
         Fit forward model to derivative spectrum.
 
@@ -5180,12 +5125,11 @@ class DerivativeAwareForwardModelFitter:
             "path_length": path_length,
         }
 
-
 def multiscale_fit(
     fitter: ForwardModelFitter,
     y: np.ndarray,
-    scales: Optional[List[float]] = None,
-) -> Dict[str, Any]:
+    scales: list[float] | None = None,
+) -> dict[str, Any]:
     """
     Multiscale fitting curriculum for raw spectra.
 
@@ -5211,10 +5155,7 @@ def multiscale_fit(
     current_guess = None
 
     for sigma in scales:
-        if sigma > 0:
-            y_smooth = gaussian_filter1d(y, sigma=sigma)
-        else:
-            y_smooth = y
+        y_smooth = gaussian_filter1d(y, sigma=sigma) if sigma > 0 else y
 
         result = fitter.fit(y_smooth, initial_guess=current_guess)
         current_guess = np.array(
@@ -5223,12 +5164,11 @@ def multiscale_fit(
 
     return result
 
-
 def multiscale_derivative_fit(
     fitter: DerivativeAwareForwardModelFitter,
     y_deriv: np.ndarray,
-    scales: Optional[List[float]] = None,
-) -> Dict[str, Any]:
+    scales: list[float] | None = None,
+) -> dict[str, Any]:
     """
     Multiscale fitting curriculum for derivative spectra.
 
@@ -5253,10 +5193,7 @@ def multiscale_derivative_fit(
     current_guess = None
 
     for sigma in scales:
-        if sigma > 0:
-            y_smooth = gaussian_filter1d(y_deriv, sigma=sigma)
-        else:
-            y_smooth = y_deriv
+        y_smooth = gaussian_filter1d(y_deriv, sigma=sigma) if sigma > 0 else y_deriv
 
         result = fitter.fit(y_smooth, initial_guess=current_guess)
         current_guess = np.array(

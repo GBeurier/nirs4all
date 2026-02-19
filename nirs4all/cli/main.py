@@ -25,7 +25,6 @@ def get_version():
             except Exception:
                 return "unknown"
 
-
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -87,7 +86,6 @@ def main():
     else:
         parser.print_help()
         sys.exit(0)
-
 
 if __name__ == '__main__':
     main()

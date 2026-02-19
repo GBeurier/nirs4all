@@ -11,24 +11,25 @@ Tests cover:
 - max_level enforcement
 """
 
-import pytest
-import numpy as np
-from unittest.mock import Mock, MagicMock, patch
-from typing import Dict, List, Any, Optional
+from typing import Any, Optional
+from unittest.mock import MagicMock, Mock, patch
 
-from nirs4all.controllers.models.stacking.multilevel import (
-    MultiLevelValidator,
-    ModelLevelInfo,
-    LevelValidationResult,
-    validate_multi_level_stacking,
-    detect_stacking_level,
-)
+import numpy as np
+import pytest
+
 from nirs4all.controllers.models.stacking.exceptions import (
     CircularDependencyError,
-    MaxStackingLevelExceededError,
     InconsistentLevelError,
+    MaxStackingLevelExceededError,
 )
-from nirs4all.operators.models.meta import StackingLevel, StackingConfig
+from nirs4all.controllers.models.stacking.multilevel import (
+    LevelValidationResult,
+    ModelLevelInfo,
+    MultiLevelValidator,
+    detect_stacking_level,
+    validate_multi_level_stacking,
+)
+from nirs4all.operators.models.meta import StackingConfig, StackingLevel
 
 
 class TestStackingLevel:
@@ -73,7 +74,6 @@ class TestStackingLevel:
         with pytest.raises(ValueError, match="max_level must be between"):
             StackingConfig(max_level=11)
 
-
 class TestModelLevelInfo:
     """Test ModelLevelInfo dataclass."""
 
@@ -111,7 +111,6 @@ class TestModelLevelInfo:
         )
         assert info.level == 2
         assert "MetaModel_Ridge" in info.source_models
-
 
 class TestLevelValidationResult:
     """Test LevelValidationResult dataclass."""
@@ -155,7 +154,6 @@ class TestLevelValidationResult:
         result = LevelValidationResult()
         result.add_warning("Test warning")
         assert "Test warning" in result.warnings
-
 
 class TestMultiLevelValidator:
     """Test MultiLevelValidator class."""
@@ -242,7 +240,6 @@ class TestMultiLevelValidator:
         level = validator.detect_level(mock_candidates, mock_context)
         assert level == 1
 
-
 class TestConvenienceFunctions:
     """Test convenience functions."""
 
@@ -306,7 +303,6 @@ class TestConvenienceFunctions:
 
         assert isinstance(level, int)
         assert level >= 1
-
 
 class TestMultiLevelExceptions:
     """Test multi-level stacking exceptions."""

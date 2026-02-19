@@ -15,7 +15,7 @@ import argparse
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import yaml
 
@@ -31,9 +31,8 @@ class VerificationResult:
     n_train_samples: int = 0
     n_test_samples: int = 0
     n_features: int = 0
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 class DatasetVerifier:
     """Verifies all test datasets load correctly."""
@@ -45,7 +44,7 @@ class DatasetVerifier:
     ) -> None:
         self.configs_dir = Path(configs_dir)
         self.verbose = verbose
-        self.results: List[VerificationResult] = []
+        self.results: list[VerificationResult] = []
 
     def verify_all(self) -> bool:
         """Verify all datasets, return True if all pass."""
@@ -175,7 +174,6 @@ class DatasetVerifier:
             status = "\033[92mOK\033[0m" if info["passed"] == info["total"] else "\033[91mFAIL\033[0m"
             print(f"  {cat}: {info['passed']}/{info['total']} {status}")
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Verify test datasets load correctly")
     parser.add_argument(
@@ -202,7 +200,6 @@ def main() -> None:
     verifier.print_summary()
 
     exit(0 if success else 1)
-
 
 if __name__ == "__main__":
     main()

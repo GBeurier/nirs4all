@@ -14,12 +14,12 @@ These integration tests focus on the dataset and split integration.
 
 import numpy as np
 import pytest
-from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold
+from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold
 
 from nirs4all.controllers.splitters.split import CrossValidatorController
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.pipeline.steps.parser import ParsedStep, StepType
 from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+from nirs4all.pipeline.steps.parser import ParsedStep, StepType
 
 
 def make_step_info(operator, step=None):
@@ -34,7 +34,6 @@ def make_step_info(operator, step=None):
         metadata={}
     )
 
-
 @pytest.fixture
 def mock_runtime_context():
     """Mock RuntimeContext (minimal implementation for split controller)."""
@@ -45,7 +44,6 @@ def mock_runtime_context():
     runtime_ctx.substep_number = 0
     runtime_ctx.saver = Mock()
     return runtime_ctx
-
 
 class TestDatasetAugmentationAPI:
     """Test dataset augmentation API integration."""
@@ -119,7 +117,6 @@ class TestDatasetAugmentationAPI:
         # Without augmented
         base_only = dataset.x({}, layout="2d", concat_source=True, include_augmented=False)
         assert base_only.shape[0] == 3
-
 
 class TestLeakPreventionIntegration:
     """Test leak prevention in complete pipelines."""
@@ -249,7 +246,6 @@ class TestLeakPreventionIntegration:
             # Each fold should have one group (4 samples)
             assert len(val_idx) == 4
 
-
 class TestMultiRoundAugmentation:
     """Test multiple rounds of augmentation."""
 
@@ -326,7 +322,6 @@ class TestMultiRoundAugmentation:
         assert len(aug_ids) == 3
         assert set(aug_ids) == {"aug1", "aug2", "aug3"}
 
-
 class TestMetadataPreservation:
     """Test that augmented samples preserve metadata."""
 
@@ -385,7 +380,6 @@ class TestMetadataPreservation:
         assert all_y.shape[0] == 12
         assert np.sum(all_y == 0) == 6  # 3 base + 3 augmented
         assert np.sum(all_y == 1) == 6  # 3 base + 3 augmented
-
 
 class TestEdgeCases:
     """Test edge cases and boundary conditions."""

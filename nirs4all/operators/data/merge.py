@@ -28,10 +28,10 @@ Example:
     ... }}
 """
 
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
-import warnings
+from typing import Any, Optional, Union
 
 
 class MergeMode(Enum):
@@ -47,7 +47,6 @@ class MergeMode(Enum):
     PREDICTIONS = "predictions"
     ALL = "all"
 
-
 class BranchType(Enum):
     """Type of branch based on sample handling.
 
@@ -60,7 +59,6 @@ class BranchType(Enum):
     COPY = "copy"
     METADATA_PARTITIONER = "metadata_partitioner"
     SAMPLE_PARTITIONER = "sample_partitioner"
-
 
 class DisjointSelectionCriterion(Enum):
     """Criterion for selecting top-N models in disjoint branch merge.
@@ -82,7 +80,6 @@ class DisjointSelectionCriterion(Enum):
     R2 = "r2"
     ORDER = "order"
 
-
 @dataclass
 class DisjointBranchInfo:
     """Information about a single branch in a disjoint merge.
@@ -100,13 +97,13 @@ class DisjointBranchInfo:
     """
 
     n_samples: int
-    sample_ids: List[int]
+    sample_ids: list[int]
     n_models_original: int = 0
     n_models_selected: int = 0
-    selected_models: List[Dict[str, Any]] = field(default_factory=list)
-    dropped_models: List[Dict[str, Any]] = field(default_factory=list)
+    selected_models: list[dict[str, Any]] = field(default_factory=list)
+    dropped_models: list[dict[str, Any]] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "n_samples": self.n_samples,
@@ -116,7 +113,6 @@ class DisjointBranchInfo:
             "selected_models": self.selected_models,
             "dropped_models": self.dropped_models,
         }
-
 
 @dataclass
 class DisjointMergeMetadata:
@@ -155,12 +151,12 @@ class DisjointMergeMetadata:
     merge_type: str = "disjoint_samples"
     n_columns: int = 0
     select_by: str = "mse"
-    branches: Dict[str, "DisjointBranchInfo"] = field(default_factory=dict)
-    column_mapping: Dict[int, Dict[str, str]] = field(default_factory=dict)
+    branches: dict[str, "DisjointBranchInfo"] = field(default_factory=dict)
+    column_mapping: dict[int, dict[str, str]] = field(default_factory=dict)
     is_heterogeneous: bool = False
-    feature_dim: Optional[int] = None
+    feature_dim: int | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization/logging.
 
         Returns:
@@ -179,7 +175,7 @@ class DisjointMergeMetadata:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DisjointMergeMetadata":
+    def from_dict(cls, data: dict[str, Any]) -> "DisjointMergeMetadata":
         """Create from dictionary representation.
 
         Args:
@@ -221,7 +217,7 @@ class DisjointMergeMetadata:
             parts.append(f"'{name}' ({info.n_samples} samples)")
         return ", ".join(parts)
 
-    def get_column_mapping_summary(self) -> List[str]:
+    def get_column_mapping_summary(self) -> list[str]:
         """Get column mapping summary for logging.
 
         Returns:
@@ -284,7 +280,6 @@ class DisjointMergeMetadata:
             for summary in self.get_column_mapping_summary():
                 logger_warning_func(f"  {summary}")
 
-
 class SelectionStrategy(Enum):
     """How to select models within a branch for prediction merging.
 
@@ -302,7 +297,6 @@ class SelectionStrategy(Enum):
     BEST = "best"
     TOP_K = "top_k"
     EXPLICIT = "explicit"
-
 
 class AggregationStrategy(Enum):
     """How to aggregate predictions from selected models within a branch.
@@ -325,7 +319,6 @@ class AggregationStrategy(Enum):
     MEAN = "mean"
     WEIGHTED_MEAN = "weighted_mean"
     PROBA_MEAN = "proba_mean"
-
 
 class ShapeMismatchStrategy(Enum):
     """How to handle shape mismatches during 3D feature merging.
@@ -354,7 +347,6 @@ class ShapeMismatchStrategy(Enum):
     PAD = "pad"
     TRUNCATE = "truncate"
 
-
 class SourceMergeStrategy(Enum):
     """How to combine features from multiple data sources.
 
@@ -377,7 +369,6 @@ class SourceMergeStrategy(Enum):
     STACK = "stack"
     DICT = "dict"
 
-
 class SourceIncompatibleStrategy(Enum):
     """How to handle incompatible source shapes during stacking.
 
@@ -395,7 +386,6 @@ class SourceIncompatibleStrategy(Enum):
     FLATTEN = "flatten"
     PAD = "pad"
     TRUNCATE = "truncate"
-
 
 @dataclass
 class BranchPredictionConfig:
@@ -445,13 +435,13 @@ class BranchPredictionConfig:
         ... )
     """
 
-    branch: Union[int, str]
-    select: Union[str, Dict[str, Any], List[str]] = "all"
-    metric: Optional[str] = None
+    branch: int | str
+    select: str | dict[str, Any] | list[str] = "all"
+    metric: str | None = None
     aggregate: str = "separate"
-    weight_metric: Optional[str] = None
+    weight_metric: str | None = None
     proba: bool = False
-    sources: Union[str, List[Union[int, str]]] = "all"
+    sources: str | list[int | str] = "all"
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -533,7 +523,6 @@ class BranchPredictionConfig:
         """
         return AggregationStrategy(self.aggregate)
 
-
 @dataclass
 class MergeConfig:
     """Configuration for branch merging operations.
@@ -607,20 +596,20 @@ class MergeConfig:
     """
 
     collect_features: bool = False
-    feature_branches: Union[str, List[int]] = "all"
+    feature_branches: str | list[int] = "all"
     collect_predictions: bool = False
-    prediction_branches: Union[str, List[int]] = "all"
-    prediction_configs: Optional[List[BranchPredictionConfig]] = None
-    model_filter: Optional[List[str]] = None
+    prediction_branches: str | list[int] = "all"
+    prediction_configs: list[BranchPredictionConfig] | None = None
+    model_filter: list[str] | None = None
     use_proba: bool = False
     include_original: bool = False
     on_missing: str = "error"
     on_shape_mismatch: str = "error"
     unsafe: bool = False
     output_as: str = "features"  # Default to "features" for backward compatibility
-    source_names: Optional[List[str]] = None
+    source_names: list[str] | None = None
     # Disjoint sample branch merge options (Phase 2)
-    n_columns: Optional[int] = None  # Force output column count for disjoint prediction merge
+    n_columns: int | None = None  # Force output column count for disjoint prediction merge
     select_by: str = "mse"  # Criterion for selecting top-N models (mse, rmse, mae, r2, order)
     # Phase 5: Separation branch merge options
     is_separation_merge: bool = False  # True when using "concat" mode for separation branches
@@ -702,7 +691,7 @@ class MergeConfig:
     def get_prediction_configs(
         self,
         n_branches: int
-    ) -> List[BranchPredictionConfig]:
+    ) -> list[BranchPredictionConfig]:
         """Get prediction configurations, normalizing legacy format if needed.
 
         Converts legacy simple mode (prediction_branches + model_filter + use_proba)
@@ -720,10 +709,7 @@ class MergeConfig:
 
         # Convert legacy format to per-branch configs
         # Resolve branch indices
-        if self.prediction_branches == "all":
-            branch_indices = list(range(n_branches))
-        else:
-            branch_indices = self.prediction_branches
+        branch_indices = list(range(n_branches)) if self.prediction_branches == "all" else self.prediction_branches
 
         configs = []
         for branch_idx in branch_indices:
@@ -737,7 +723,7 @@ class MergeConfig:
 
         return configs
 
-    def get_feature_branches(self, n_branches: int) -> List[int]:
+    def get_feature_branches(self, n_branches: int) -> list[int]:
         """Get list of branch indices to collect features from.
 
         Args:
@@ -775,7 +761,7 @@ class MergeConfig:
         """
         return ShapeMismatchStrategy(self.on_shape_mismatch)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize merge configuration to a dictionary.
 
         Used for saving merge configuration to manifest for reproducibility
@@ -840,7 +826,7 @@ class MergeConfig:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MergeConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "MergeConfig":
         """Create MergeConfig from a dictionary.
 
         Used for loading merge configuration from manifest in prediction mode.
@@ -891,7 +877,6 @@ class MergeConfig:
             source_merge=source_merge,
         )
 
-
 @dataclass
 class SourceMergeConfig:
     """Configuration for merging multi-source dataset features.
@@ -940,7 +925,7 @@ class SourceMergeConfig:
     """
 
     strategy: str = "concat"
-    sources: Union[str, List[Union[int, str]]] = "all"
+    sources: str | list[int | str] = "all"
     on_incompatible: str = "error"
     output_name: str = "merged"
     preserve_source_info: bool = True
@@ -963,9 +948,8 @@ class SourceMergeConfig:
             )
 
         # Validate sources
-        if isinstance(self.sources, list):
-            if len(self.sources) == 0:
-                raise ValueError("sources list cannot be empty")
+        if isinstance(self.sources, list) and len(self.sources) == 0:
+            raise ValueError("sources list cannot be empty")
 
     def get_strategy(self) -> SourceMergeStrategy:
         """Get the merge strategy as an enum.
@@ -983,7 +967,7 @@ class SourceMergeConfig:
         """
         return SourceIncompatibleStrategy(self.on_incompatible)
 
-    def get_source_indices(self, available_sources: List[str]) -> List[int]:
+    def get_source_indices(self, available_sources: list[str]) -> list[int]:
         """Resolve source specification to indices.
 
         Args:
@@ -1023,7 +1007,7 @@ class SourceMergeConfig:
 
         return indices
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize configuration to dictionary.
 
         Returns:
@@ -1042,7 +1026,7 @@ class SourceMergeConfig:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SourceMergeConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "SourceMergeConfig":
         """Create config from dictionary.
 
         Args:
@@ -1058,7 +1042,6 @@ class SourceMergeConfig:
             output_name=data.get("output_name", "merged"),
             preserve_source_info=data.get("preserve_source_info", True),
         )
-
 
 @dataclass
 class SourceBranchConfig:
@@ -1113,10 +1096,10 @@ class SourceBranchConfig:
         ... }}
     """
 
-    source_pipelines: Union[str, Dict[Union[str, int], List[Any]]] = field(
+    source_pipelines: str | dict[str | int, list[Any]] = field(
         default_factory=dict
     )
-    default_pipeline: Optional[List[Any]] = None
+    default_pipeline: list[Any] | None = None
     merge_after: bool = True
     merge_strategy: str = "concat"
 
@@ -1146,7 +1129,7 @@ class SourceBranchConfig:
                 self.merge_strategy = self.source_pipelines.pop("_merge_strategy_")
 
             # Validate remaining keys are valid source references
-            for key in self.source_pipelines.keys():
+            for key in self.source_pipelines:
                 if not isinstance(key, (str, int)):
                     raise ValueError(
                         f"source_pipelines keys must be str or int, got {type(key).__name__}"
@@ -1164,7 +1147,7 @@ class SourceBranchConfig:
         self,
         source_name: str,
         source_index: int
-    ) -> Optional[List[Any]]:
+    ) -> list[Any] | None:
         """Get pipeline steps for a specific source.
 
         Args:
@@ -1196,8 +1179,8 @@ class SourceBranchConfig:
 
     def get_all_source_mappings(
         self,
-        available_sources: List[str]
-    ) -> Dict[str, List[Any]]:
+        available_sources: list[str]
+    ) -> dict[str, list[Any]]:
         """Get pipeline mapping for all available sources.
 
         Args:
@@ -1225,7 +1208,7 @@ class SourceBranchConfig:
 
         return result
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize configuration to dictionary.
 
         Returns:
@@ -1241,7 +1224,7 @@ class SourceBranchConfig:
         else:
             # Serialize pipeline references (not the actual objects)
             result["source_pipelines"] = {
-                str(k): "..." for k in self.source_pipelines.keys()
+                str(k): "..." for k in self.source_pipelines
             }
 
         if self.default_pipeline is not None:
@@ -1250,7 +1233,7 @@ class SourceBranchConfig:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SourceBranchConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "SourceBranchConfig":
         """Create config from dictionary.
 
         Note: This is primarily for metadata reconstruction. The actual

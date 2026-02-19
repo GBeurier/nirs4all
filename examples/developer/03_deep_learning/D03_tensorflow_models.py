@@ -45,7 +45,6 @@ parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
-
 # =============================================================================
 # Introduction
 # =============================================================================
@@ -64,7 +63,6 @@ These models use the Keras API and are designed
 specifically for spectroscopic data.
 """)
 
-
 # =============================================================================
 # Check TensorFlow Availability
 # =============================================================================
@@ -82,7 +80,6 @@ if gpus:
     print(f"✓ GPU available: {gpus[0].name}")
 else:
     print("  (Running on CPU)")
-
 
 # =============================================================================
 # Section 1: nicon - Built-in NIRS Architecture
@@ -138,7 +135,6 @@ result = nirs4all.run(
 print(f"\nnicon predictions: {result.num_predictions}")
 print(f"Best score: {result.best_score:.4f}")
 
-
 # =============================================================================
 # Section 2: decon - Depthwise Convolution Architecture
 # =============================================================================
@@ -191,7 +187,6 @@ result = nirs4all.run(
 print(f"\ndecon predictions: {result.num_predictions}")
 print(f"Best score: {result.best_score:.4f}")
 
-
 # =============================================================================
 # Section 3: Model Comparison - nicon vs PLS
 # =============================================================================
@@ -227,7 +222,6 @@ result = nirs4all.run(
 print(f"\nPLS vs nicon comparison: {result.num_predictions} predictions")
 print(f"Branches: {result.predictions.get_unique_values('branch_name')}")
 
-
 # =============================================================================
 # Section 4: Model Configuration
 # =============================================================================
@@ -256,7 +250,6 @@ Configure models via model_params and train_params:
     }
 """)
 
-
 # =============================================================================
 # Section 5: Available TensorFlow Models
 # =============================================================================
@@ -281,7 +274,6 @@ nirs4all provides several pre-built TensorFlow architectures:
         decon_classification,
     )
 """)
-
 
 # =============================================================================
 # Section 6: GPU Memory Management
@@ -312,7 +304,6 @@ if gpus:
         print("(Memory growth must be set before GPU initialization)")
 else:
     print("\nNo GPU devices found (using CPU)")
-
 
 # =============================================================================
 # Summary

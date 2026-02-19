@@ -356,7 +356,6 @@ class OSC(TransformerMixin, BaseEstimator):
     def _more_tags(self):
         return {"requires_y": True, "allow_nan": False}
 
-
 class EPO(TransformerMixin, BaseEstimator):
     """External Parameter Orthogonalization (EPO).
 

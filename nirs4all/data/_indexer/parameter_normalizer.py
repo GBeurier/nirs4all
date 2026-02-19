@@ -5,10 +5,11 @@ This module provides the ParameterNormalizer class for handling various
 input formats and converting them to consistent internal representations.
 """
 
-from typing import Union, List, Any, Optional, Dict
+from typing import Any, Optional, Union
+
 import numpy as np
 
-from nirs4all.data.types import SampleIndices, ProcessingList, PartitionType, IndexDict
+from nirs4all.data.types import IndexDict, PartitionType, ProcessingList, SampleIndices
 
 
 class ParameterNormalizer:
@@ -26,7 +27,7 @@ class ParameterNormalizer:
     - Validate parameter combinations
     """
 
-    def __init__(self, default_processings: List[str]):
+    def __init__(self, default_processings: list[str]):
         """
         Initialize the parameter normalizer.
 
@@ -40,7 +41,7 @@ class ParameterNormalizer:
         indices: SampleIndices,
         count: int,
         param_name: str
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Normalize various index formats to a list of integers.
 
@@ -92,11 +93,11 @@ class ParameterNormalizer:
 
     def normalize_single_or_list(
         self,
-        value: Union[Any, List[Any]],
+        value: Any | list[Any],
         count: int,
         param_name: str,
         allow_none: bool = False
-    ) -> List[Any]:
+    ) -> list[Any]:
         """
         Normalize single value or list to a list of specified length.
 
@@ -144,9 +145,9 @@ class ParameterNormalizer:
 
     def prepare_processings(
         self,
-        processings: Union[ProcessingList, List[ProcessingList], None],
+        processings: ProcessingList | list[ProcessingList] | None,
         count: int
-    ) -> List[List[str]]:
+    ) -> list[list[str]]:
         """
         Prepare processing lists for storage (native Polars List format).
 
@@ -212,7 +213,7 @@ class ParameterNormalizer:
         self,
         index_dict: IndexDict,
         count: int
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Convert IndexDict to method parameters.
 

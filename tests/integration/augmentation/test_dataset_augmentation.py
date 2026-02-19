@@ -10,6 +10,7 @@ Tests cover:
 """
 import numpy as np
 import pytest
+
 from nirs4all.data.dataset import SpectroDataset
 
 
@@ -88,7 +89,6 @@ class TestDatasetXMethod:
         X_test = dataset.x({"partition": "test"})
         assert X_test.shape[0] == 2  # Only test base samples
 
-
 class TestDatasetYMethod:
     """Tests for Dataset.y() with augmentation support."""
 
@@ -158,7 +158,6 @@ class TestDatasetYMethod:
 
         # Should have same length
         assert X.shape[0] == len(y) == 5
-
 
 class TestDatasetMetadataMethods:
     """Tests for Dataset metadata methods with augmentation support."""
@@ -258,7 +257,6 @@ class TestDatasetMetadataMethods:
         encoded, mapping = dataset.metadata_numeric("group", {"partition": "train"}, include_augmented=False)
         assert len(encoded) == 4  # Only base samples have metadata
 
-
 class TestAugmentSamplesIntegration:
     """Tests for augment_samples integration with enhanced API."""
 
@@ -315,7 +313,6 @@ class TestAugmentSamplesIntegration:
         X = dataset.x({"partition": "train"})
         assert X.shape[0] == 10  # 4 base + 6 augmented
 
-
 class TestBackwardCompatibility:
     """Tests to ensure backward compatibility with existing code."""
 
@@ -364,7 +361,6 @@ class TestBackwardCompatibility:
         assert len(y_train) == 10
         assert X_test.shape[0] == 5
         assert len(y_test) == 5
-
 
 class TestEdgeCases:
     """Tests for edge cases and boundary conditions."""

@@ -81,7 +81,7 @@ def main():
 
     TabReportManager.enrich_refit_entries(rankable, pred_index, metric)
 
-    datasets = set(e.get("dataset_name") for e in rankable)
+    datasets = {e.get("dataset_name") for e in rankable}
     summary = TabReportManager.generate_per_model_summary(
         rankable,
         ascending=True,
@@ -95,7 +95,6 @@ def main():
     print(f"{'=' * 120}")
     print(summary)
     print(f"{'=' * 120}")
-
 
 if __name__ == "__main__":
     main()

@@ -1,7 +1,9 @@
 """Tests for PyTorch models."""
 
 import pytest
+
 from nirs4all.utils.backend import TORCH_AVAILABLE
+
 
 @pytest.mark.xdist_group("gpu")
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch not available")
@@ -11,6 +13,7 @@ class TestPyTorchModels:
     def test_simple_mlp(self):
         import torch
         import torch.nn as nn
+
         from nirs4all.utils.backend import framework
 
         @framework('pytorch')

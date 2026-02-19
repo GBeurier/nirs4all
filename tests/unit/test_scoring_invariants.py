@@ -19,14 +19,12 @@ from nirs4all.pipeline.execution.refit.config_extractor import (
     RefitCriterion,
     extract_top_configs,
 )
-from nirs4all.visualization.naming import get_metric_names, _format_metric_display
+from nirs4all.visualization.naming import _format_metric_display, get_metric_names
 from nirs4all.visualization.reports import TabReportManager
-
 
 # ---------------------------------------------------------------------------
 # 1. RMSECV = sqrt(PRESS/N) from pooled OOF predictions
 # ---------------------------------------------------------------------------
-
 
 def test_rmsecv_equals_sqrt_press_over_n():
     """RMSECV must equal sqrt(PRESS/N) computed over ALL pooled OOF predictions.
@@ -87,7 +85,6 @@ def test_rmsecv_equals_sqrt_press_over_n():
     assert computed_rmsecv is not None
     assert computed_rmsecv == pytest.approx(expected_rmsecv, rel=1e-10)
 
-
 def test_rmsecv_pooled_differs_from_fold_averaged():
     """Pooled RMSECV differs from the mean of per-fold RMSE when fold sizes differ.
 
@@ -144,11 +141,9 @@ def test_rmsecv_pooled_differs_from_fold_averaged():
     assert computed == pytest.approx(pooled_rmsecv, rel=1e-10)
     assert computed != pytest.approx(mean_of_folds_rmse, rel=1e-3)
 
-
 # ---------------------------------------------------------------------------
 # 2. No double-sqrt bug: _fmt() only formats, never transforms
 # ---------------------------------------------------------------------------
-
 
 def test_fmt_only_formats_no_transform():
     """_fmt() in TabReportManager must only round/format, never apply sqrt or other transforms.
@@ -174,7 +169,6 @@ def test_fmt_only_formats_no_transform():
 
     # None handling
     assert (lambda v: "N/A" if v is None else f"{v:.4f}")(None) == "N/A"
-
 
 def test_per_model_summary_fmt_preserves_values():
     """generate_per_model_summary must output values unchanged (no sqrt applied).
@@ -207,11 +201,9 @@ def test_per_model_summary_fmt_preserves_values():
     # Ensure no sqrt was applied
     assert "2.0000" not in report
 
-
 # ---------------------------------------------------------------------------
 # 3. Fold avg score uses fold_id="avg" entry
 # ---------------------------------------------------------------------------
-
 
 def test_best_val_comes_from_avg_fold():
     """best_val must come from the fold_id='avg' entry, not individual folds.
@@ -260,7 +252,6 @@ def test_best_val_comes_from_avg_fold():
     # The avg value (4.2) differs from the best individual fold (3.0)
     assert avg_rmsecv != 3.0
 
-
 def test_best_val_avg_not_best_individual_fold():
     """When fold_id='avg' exists, its score may differ from the best individual fold.
 
@@ -301,11 +292,9 @@ def test_best_val_avg_not_best_individual_fold():
     assert best_any["val_score"] == pytest.approx(2.0)
     assert best_any["fold_id"] == "0"
 
-
 # ---------------------------------------------------------------------------
 # 4. None scores preserved (not coerced to 0.0)
 # ---------------------------------------------------------------------------
-
 
 def test_none_val_score_preserved_in_buffer():
     """Predictions.add_prediction must preserve None for val_score, not coerce to 0.0."""
@@ -323,7 +312,6 @@ def test_none_val_score_preserved_in_buffer():
     entry = predictions._buffer[0]
     assert entry["val_score"] is None
 
-
 def test_none_test_score_preserved_in_buffer():
     """Predictions.add_prediction must preserve None for test_score."""
     predictions = Predictions()
@@ -340,7 +328,6 @@ def test_none_test_score_preserved_in_buffer():
     entry = predictions._buffer[0]
     assert entry["test_score"] is None
     assert entry["val_score"] == pytest.approx(3.14)
-
 
 def test_none_scores_not_coerced_in_flush_row():
     """The flush method must pass None scores to save_prediction, not 0.0.
@@ -365,11 +352,9 @@ def test_none_scores_not_coerced_in_flush_row():
     assert row.get("test_score") is None
     assert row.get("train_score") is None
 
-
 # ---------------------------------------------------------------------------
 # 5. Naming conventions
 # ---------------------------------------------------------------------------
-
 
 def test_nirs_regression_naming():
     """NIRS regression naming must use RMSECV/RMSEP and CV-phase metrics."""
@@ -385,7 +370,6 @@ def test_nirs_regression_naming():
     assert "wmean_fold_test" not in names
     assert "wmean_fold_cv" not in names
 
-
 def test_ml_regression_naming():
     """ML regression naming must use CV_Score/Test_Score and CV-phase metrics."""
     names = get_metric_names("ml", "regression")
@@ -400,13 +384,11 @@ def test_ml_regression_naming():
     assert "wmean_fold_test" not in names
     assert "wmean_fold_cv" not in names
 
-
 def test_nirs_classification_naming():
     """NIRS classification naming must format metric into template."""
     names = get_metric_names("nirs", "classification", "balanced_accuracy")
     assert names["cv_score"] == "CV_BalAcc"
     assert names["test_score"] == "Test_BalAcc"
-
 
 def test_ml_classification_naming():
     """ML classification naming uses generic Score names."""
@@ -414,13 +396,11 @@ def test_ml_classification_naming():
     assert names["cv_score"] == "CV_Score"
     assert names["test_score"] == "Test_Score"
 
-
 def test_auto_mode_defaults_to_nirs():
     """Auto naming mode must default to NIRS convention."""
     names = get_metric_names("auto", "regression")
     assert names["cv_score"] == "RMSECV"
     assert names["test_score"] == "RMSEP"
-
 
 def test_format_metric_display():
     """_format_metric_display must produce standard abbreviations."""
@@ -430,11 +410,9 @@ def test_format_metric_display():
     assert _format_metric_display("r2") == "R2"
     assert _format_metric_display("f1_score") == "F1"
 
-
 # ---------------------------------------------------------------------------
 # 6. Multi-criteria independent selection
 # ---------------------------------------------------------------------------
-
 
 def test_extract_top_configs_independent_selection():
     """Each refit criterion must independently fill its top_k quota.
@@ -488,7 +466,6 @@ def test_extract_top_configs_independent_selection():
     assert pid_to_criteria["C"] == ["mean_val(top2)"]
     assert pid_to_criteria["D"] == ["mean_val(top2)"]
 
-
 def test_refit_criterion_defaults():
     """RefitCriterion defaults must be top_k=1, ranking='rmsecv'."""
     crit = RefitCriterion()
@@ -496,11 +473,9 @@ def test_refit_criterion_defaults():
     assert crit.ranking == "rmsecv"
     assert crit.metric == ""
 
-
 # ---------------------------------------------------------------------------
 # 7. RefitConfig uses selection_score (not best_score)
 # ---------------------------------------------------------------------------
-
 
 def test_refit_config_has_selection_score():
     """RefitConfig must have 'selection_score', not 'best_score'."""
@@ -512,7 +487,6 @@ def test_refit_config_has_selection_score():
 
     # best_score must NOT exist as an attribute
     assert not hasattr(config, "best_score")
-
 
 def test_refit_config_selection_score_set():
     """RefitConfig.selection_score must store the value used for selection."""
@@ -527,7 +501,6 @@ def test_refit_config_selection_score_set():
     assert config.selection_scores == {"rmsecv": 3.21, "mean_val": 3.25}
     assert config.primary_selection_criterion == "rmsecv"
 
-
 def test_refit_config_selected_by_criteria():
     """RefitConfig.selected_by_criteria tracks which criteria chose this config."""
     config = RefitConfig(
@@ -541,11 +514,9 @@ def test_refit_config_selected_by_criteria():
     default_config = RefitConfig(expanded_steps=[])
     assert default_config.selected_by_criteria == []
 
-
 # ---------------------------------------------------------------------------
 # 8. Final scores table sorted by RMSEP with correct columns
 # ---------------------------------------------------------------------------
-
 
 def test_per_model_summary_sorted_by_rmsep():
     """generate_per_model_summary must sort entries by RMSEP (test_score), not RMSECV."""
@@ -584,7 +555,6 @@ def test_per_model_summary_sorted_by_rmsep():
     assert report.index("3.0000") < report.index("5.0000")
     # Sorting indicator should mention RMSEP, not RMSECV
     assert "Sorted by: RMSEP" in report
-
 
 def test_per_model_summary_has_correct_columns():
     """Final scores table must have RMSEP, Ens_Test, W_Ens_Test, RMSECV, MF_Val columns."""
@@ -625,7 +595,6 @@ def test_per_model_summary_has_correct_columns():
     assert "2.5000" in report  # rmsecv
     assert "2.6000" in report  # mf_val
 
-
 def test_per_model_summary_star_markers():
     """Multi-criteria refit models should have star markers for best per criterion."""
     entries = [
@@ -663,11 +632,9 @@ def test_per_model_summary_star_markers():
     assert "1*" in report
     assert "2*" in report
 
-
 # ---------------------------------------------------------------------------
 # 9. Enrichment: ens_test, w_ens_test, mf_val
 # ---------------------------------------------------------------------------
-
 
 def test_enrich_refit_entries_populates_ens_test_and_mf_val():
     """enrich_refit_entries must populate ens_test, w_ens_test, and mf_val."""

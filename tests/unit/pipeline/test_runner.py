@@ -1,6 +1,7 @@
 """Tests for pipeline runner."""
 
 import pytest
+
 from nirs4all.pipeline.runner import PipelineRunner
 
 

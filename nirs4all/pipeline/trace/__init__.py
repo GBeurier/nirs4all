@@ -37,18 +37,17 @@ Usage:
 """
 
 from nirs4all.pipeline.trace.execution_trace import (
-    ExecutionTrace,
     ExecutionStep,
+    ExecutionTrace,
     StepArtifacts,
     StepExecutionMode,
 )
-from nirs4all.pipeline.trace.recorder import TraceRecorder
 from nirs4all.pipeline.trace.extractor import (
-    TraceBasedExtractor,
     MinimalPipeline,
     MinimalPipelineStep,
+    TraceBasedExtractor,
 )
-
+from nirs4all.pipeline.trace.recorder import TraceRecorder
 
 __all__ = [
     "ExecutionTrace",

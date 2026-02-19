@@ -13,14 +13,10 @@ Components:
 """
 
 from .identifier_generator import ModelIdentifierGenerator, ModelIdentifiers
-from .prediction_transformer import PredictionTransformer
-from .prediction_assembler import (
-    PredictionDataAssembler,
-    PartitionPrediction,
-    PredictionRecord
-)
-from .score_calculator import ScoreCalculator, PartitionScores
 from .index_normalizer import IndexNormalizer
+from .prediction_assembler import PartitionPrediction, PredictionDataAssembler, PredictionRecord
+from .prediction_transformer import PredictionTransformer
+from .score_calculator import PartitionScores, ScoreCalculator
 
 __all__ = [
     'ModelIdentifierGenerator',

@@ -18,28 +18,28 @@ The registry works with centralized storage at workspace/binaries/<dataset>/.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Optional, Union
 
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import (
-    to_bytes,
-    from_bytes,
     _format_to_extension,
     _get_library_version,
     _get_nirs4all_version,
+    from_bytes,
+    to_bytes,
 )
+from nirs4all.pipeline.storage.artifacts.operator_chain import (
+    OperatorChain,
+    OperatorNode,
+    compute_chain_hash,
+    generate_artifact_id_v3,
+)
+from nirs4all.pipeline.storage.artifacts.query_service import ArtifactQuerySpec
 from nirs4all.pipeline.storage.artifacts.types import (
     ArtifactRecord,
     ArtifactType,
     MetaModelConfig,
-)
-from nirs4all.pipeline.storage.artifacts.query_service import ArtifactQuerySpec
-from nirs4all.pipeline.storage.artifacts.operator_chain import (
-    OperatorChain,
-    OperatorNode,
-    generate_artifact_id_v3,
-    compute_chain_hash,
 )
 from nirs4all.pipeline.storage.artifacts.utils import (
     compute_content_hash,
@@ -48,9 +48,7 @@ from nirs4all.pipeline.storage.artifacts.utils import (
     get_short_hash,
 )
 
-
 logger = logging.getLogger(__name__)
-
 
 class DependencyGraph:
     """Tracks artifact dependencies for stacking and transfer.
@@ -59,12 +57,12 @@ class DependencyGraph:
     Supports transitive dependency resolution with cycle detection.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize empty dependency graph."""
         # Map: artifact_id -> list of artifact_ids it depends on
-        self._dependencies: Dict[str, List[str]] = {}
+        self._dependencies: dict[str, list[str]] = {}
         # Reverse map: artifact_id -> list of artifact_ids that depend on it
-        self._dependents: Dict[str, List[str]] = {}
+        self._dependents: dict[str, list[str]] = {}
 
     def add_dependency(self, artifact_id: str, depends_on: str) -> None:
         """Add a dependency relationship.
@@ -86,7 +84,7 @@ class DependencyGraph:
         if artifact_id not in self._dependents[depends_on]:
             self._dependents[depends_on].append(artifact_id)
 
-    def add_dependencies(self, artifact_id: str, depends_on: List[str]) -> None:
+    def add_dependencies(self, artifact_id: str, depends_on: list[str]) -> None:
         """Add multiple dependencies at once.
 
         Args:
@@ -96,7 +94,7 @@ class DependencyGraph:
         for dep in depends_on:
             self.add_dependency(artifact_id, dep)
 
-    def get_dependencies(self, artifact_id: str) -> List[str]:
+    def get_dependencies(self, artifact_id: str) -> list[str]:
         """Get direct dependencies of an artifact.
 
         Args:
@@ -107,7 +105,7 @@ class DependencyGraph:
         """
         return self._dependencies.get(artifact_id, []).copy()
 
-    def get_dependents(self, artifact_id: str) -> List[str]:
+    def get_dependents(self, artifact_id: str) -> list[str]:
         """Get artifacts that directly depend on this artifact.
 
         Args:
@@ -122,7 +120,7 @@ class DependencyGraph:
         self,
         artifact_id: str,
         max_depth: int = 100
-    ) -> List[str]:
+    ) -> list[str]:
         """Get all transitive dependencies (topologically sorted).
 
         Returns dependencies in order suitable for loading - dependencies
@@ -138,9 +136,9 @@ class DependencyGraph:
         Raises:
             ValueError: If cycle detected or max depth exceeded
         """
-        visited: Set[str] = set()
-        result: List[str] = []
-        stack: Set[str] = set()  # For cycle detection
+        visited: set[str] = set()
+        result: list[str] = []
+        stack: set[str] = set()  # For cycle detection
 
         def visit(aid: str, depth: int) -> None:
             if depth > max_depth:
@@ -199,7 +197,6 @@ class DependencyGraph:
         self._dependencies.clear()
         self._dependents.clear()
 
-
 class ArtifactRegistry:
     """Central registry for artifact management (V3).
 
@@ -250,17 +247,17 @@ class ArtifactRegistry:
         # Note: Directory is created in _ensure_binaries_dir() when first artifact is saved
 
         # In-memory registries
-        self._artifacts: Dict[str, ArtifactRecord] = {}
-        self._by_content_hash: Dict[str, str] = {}  # hash -> artifact_id
-        self._by_path: Dict[str, str] = {}  # path -> artifact_id
-        self._by_chain_path: Dict[str, str] = {}  # chain_path -> artifact_id (V3)
-        self._by_chain_and_data: Dict[Tuple[str, str], str] = {}  # (chain_path_hash, input_data_hash) -> artifact_id
+        self._artifacts: dict[str, ArtifactRecord] = {}
+        self._by_content_hash: dict[str, str] = {}  # hash -> artifact_id
+        self._by_path: dict[str, str] = {}  # path -> artifact_id
+        self._by_chain_path: dict[str, str] = {}  # chain_path -> artifact_id (V3)
+        self._by_chain_and_data: dict[tuple[str, str], str] = {}  # (chain_path_hash, input_data_hash) -> artifact_id
 
         # Dependency tracking
         self.dependency_graph = DependencyGraph()
 
         # Run-specific tracking for cleanup on failure
-        self._current_run_artifacts: List[str] = []
+        self._current_run_artifacts: list[str] = []
 
         # Deferred write state: when active, register() serializes objects
         # and updates in-memory indexes but buffers disk writes.  The
@@ -268,8 +265,8 @@ class ArtifactRegistry:
         # comparing the pipeline config's validation score with the best
         # seen so far.
         self._deferred_mode: bool = False
-        self._deferred_writes: Dict[str, bytes] = {}  # relative path -> content bytes
-        self._deferred_artifact_ids: List[str] = []  # artifact IDs in current deferred session
+        self._deferred_writes: dict[str, bytes] = {}  # relative path -> content bytes
+        self._deferred_artifact_ids: list[str] = []  # artifact IDs in current deferred session
 
     def begin_deferred(self) -> None:
         """Begin a deferred write session.
@@ -319,9 +316,9 @@ class ArtifactRegistry:
 
     def generate_id(
         self,
-        chain: Union[OperatorChain, str],
-        fold_id: Optional[int] = None,
-        pipeline_id: Optional[str] = None
+        chain: OperatorChain | str,
+        fold_id: int | None = None,
+        pipeline_id: str | None = None
     ) -> str:
         """Generate deterministic V3 artifact ID from operator chain.
 
@@ -347,20 +344,20 @@ class ArtifactRegistry:
     def register_with_chain(
         self,
         obj: Any,
-        chain: Union[OperatorChain, str],
+        chain: OperatorChain | str,
         artifact_type: ArtifactType,
         step_index: int,
-        branch_path: Optional[List[int]] = None,
-        source_index: Optional[int] = None,
-        fold_id: Optional[int] = None,
-        substep_index: Optional[int] = None,
-        depends_on: Optional[List[str]] = None,
-        params: Optional[Dict[str, Any]] = None,
-        meta_config: Optional[MetaModelConfig] = None,
-        format_hint: Optional[str] = None,
-        custom_name: Optional[str] = None,
-        pipeline_id: Optional[str] = None,
-        input_data_hash: Optional[str] = None
+        branch_path: list[int] | None = None,
+        source_index: int | None = None,
+        fold_id: int | None = None,
+        substep_index: int | None = None,
+        depends_on: list[str] | None = None,
+        params: dict[str, Any] | None = None,
+        meta_config: MetaModelConfig | None = None,
+        format_hint: str | None = None,
+        custom_name: str | None = None,
+        pipeline_id: str | None = None,
+        input_data_hash: str | None = None
     ) -> ArtifactRecord:
         """Register and persist an artifact using V3 chain-based identification.
 
@@ -398,10 +395,7 @@ class ArtifactRegistry:
         pid = pipeline_id or self.pipeline_id
 
         # Get chain path string
-        if isinstance(chain, OperatorChain):
-            chain_path = chain.to_path()
-        else:
-            chain_path = chain
+        chain_path = chain.to_path() if isinstance(chain, OperatorChain) else chain
 
         # Generate V3 artifact ID
         artifact_id = self.generate_id(chain_path, fold_id, pid)
@@ -472,7 +466,7 @@ class ArtifactRegistry:
             format_version=_get_library_version(obj),
             nirs4all_version=_get_nirs4all_version(),
             size_bytes=len(content),
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
             params=params,
             meta_config=meta_config,
             version=3,  # V3 schema version
@@ -502,9 +496,9 @@ class ArtifactRegistry:
 
     def get_by_chain(
         self,
-        chain: Union[OperatorChain, str],
-        fold_id: Optional[int] = None
-    ) -> Optional[ArtifactRecord]:
+        chain: OperatorChain | str,
+        fold_id: int | None = None
+    ) -> ArtifactRecord | None:
         """Get artifact by exact chain path match.
 
         Args:
@@ -514,10 +508,7 @@ class ArtifactRegistry:
         Returns:
             ArtifactRecord or None if not found
         """
-        if isinstance(chain, OperatorChain):
-            chain_path = chain.to_path()
-        else:
-            chain_path = chain
+        chain_path = chain.to_path() if isinstance(chain, OperatorChain) else chain
 
         artifact_id = self._by_chain_path.get(chain_path)
         if artifact_id:
@@ -528,9 +519,9 @@ class ArtifactRegistry:
 
     def get_by_chain_and_data(
         self,
-        chain: Union[OperatorChain, str],
+        chain: OperatorChain | str,
         data_hash: str
-    ) -> Optional[ArtifactRecord]:
+    ) -> ArtifactRecord | None:
         """Get artifact by (chain_path, data_hash) cache-key pair.
 
         Enables cache lookups to find an artifact produced by a specific
@@ -543,10 +534,7 @@ class ArtifactRegistry:
         Returns:
             ArtifactRecord if a matching artifact exists, None otherwise.
         """
-        if isinstance(chain, OperatorChain):
-            chain_path = chain.to_path()
-        else:
-            chain_path = chain
+        chain_path = chain.to_path() if isinstance(chain, OperatorChain) else chain
 
         chain_path_hash = compute_chain_hash(chain_path)
         artifact_id = self._by_chain_and_data.get((chain_path_hash, data_hash))
@@ -557,9 +545,9 @@ class ArtifactRegistry:
     def get_chain_prefix(
         self,
         prefix: str,
-        branch_path: Optional[List[int]] = None,
-        source_index: Optional[int] = None
-    ) -> List[ArtifactRecord]:
+        branch_path: list[int] | None = None,
+        source_index: int | None = None
+    ) -> list[ArtifactRecord]:
         """Get all artifacts whose chain path starts with the given prefix.
 
         Useful for finding all artifacts in a chain for prediction replay.
@@ -590,13 +578,13 @@ class ArtifactRegistry:
         obj: Any,
         artifact_id: str,
         artifact_type: ArtifactType,
-        depends_on: Optional[List[str]] = None,
-        params: Optional[Dict[str, Any]] = None,
-        meta_config: Optional[MetaModelConfig] = None,
-        format_hint: Optional[str] = None,
-        custom_name: Optional[str] = None,
+        depends_on: list[str] | None = None,
+        params: dict[str, Any] | None = None,
+        meta_config: MetaModelConfig | None = None,
+        format_hint: str | None = None,
+        custom_name: str | None = None,
         chain_path: str = "",
-        source_index: Optional[int] = None
+        source_index: int | None = None
     ) -> ArtifactRecord:
         """Register and persist an artifact.
 
@@ -636,15 +624,15 @@ class ArtifactRegistry:
 
         # Extract pipeline_id and fold_id from V3 artifact ID
         from nirs4all.pipeline.storage.artifacts.operator_chain import (
-            parse_artifact_id_v3,
             is_v3_artifact_id,
+            parse_artifact_id_v3,
         )
 
         if is_v3_artifact_id(artifact_id):
             pipeline_id, _, fold_id = parse_artifact_id_v3(artifact_id)
             # Extract step_index and branch_path from chain_path if available
             step_index = 0
-            branch_path: List[int] = []
+            branch_path: list[int] = []
             substep_index = None
             if chain_path:
                 # Parse last node for step_index and branch_path
@@ -731,7 +719,7 @@ class ArtifactRegistry:
             format_version=_get_library_version(obj),
             nirs4all_version=_get_nirs4all_version(),
             size_bytes=len(content),
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
             params=params,
             meta_config=meta_config,
             version=3,  # V3 schema version
@@ -755,7 +743,7 @@ class ArtifactRegistry:
 
         return record
 
-    def resolve(self, artifact_id: str) -> Optional[ArtifactRecord]:
+    def resolve(self, artifact_id: str) -> ArtifactRecord | None:
         """Resolve artifact ID to record.
 
         Args:
@@ -766,7 +754,7 @@ class ArtifactRegistry:
         """
         return self._artifacts.get(artifact_id)
 
-    def resolve_by_hash(self, content_hash: str) -> Optional[ArtifactRecord]:
+    def resolve_by_hash(self, content_hash: str) -> ArtifactRecord | None:
         """Resolve content hash to artifact record.
 
         Args:
@@ -780,7 +768,7 @@ class ArtifactRegistry:
             return self._artifacts.get(artifact_id)
         return None
 
-    def get_dependencies(self, artifact_id: str) -> List[str]:
+    def get_dependencies(self, artifact_id: str) -> list[str]:
         """Get direct dependencies of an artifact.
 
         Args:
@@ -791,7 +779,7 @@ class ArtifactRegistry:
         """
         return self.dependency_graph.get_dependencies(artifact_id)
 
-    def resolve_dependencies(self, artifact_id: str) -> List[ArtifactRecord]:
+    def resolve_dependencies(self, artifact_id: str) -> list[ArtifactRecord]:
         """Get all transitive dependencies as records.
 
         Args:
@@ -807,10 +795,10 @@ class ArtifactRegistry:
         self,
         obj: Any,
         artifact_id: str,
-        source_model_ids: List[str],
-        feature_columns: Optional[List[str]] = None,
-        params: Optional[Dict[str, Any]] = None,
-        format_hint: Optional[str] = None
+        source_model_ids: list[str],
+        feature_columns: list[str] | None = None,
+        params: dict[str, Any] | None = None,
+        format_hint: str | None = None
     ) -> ArtifactRecord:
         """Register a stacking meta-model with source model references.
 
@@ -880,9 +868,9 @@ class ArtifactRegistry:
         self,
         pipeline_id: str,
         step_index: int,
-        branch_path: Optional[List[int]] = None,
-        fold_id: Optional[int] = None
-    ) -> List[ArtifactRecord]:
+        branch_path: list[int] | None = None,
+        fold_id: int | None = None
+    ) -> list[ArtifactRecord]:
         """Get all artifacts for a specific step context.
 
         Args:
@@ -915,8 +903,8 @@ class ArtifactRegistry:
         self,
         pipeline_id: str,
         step_index: int,
-        branch_path: Optional[List[int]] = None
-    ) -> List[ArtifactRecord]:
+        branch_path: list[int] | None = None
+    ) -> list[ArtifactRecord]:
         """Get all fold-specific model artifacts for CV averaging.
 
         Args:
@@ -969,7 +957,7 @@ class ArtifactRegistry:
 
     def import_from_manifest(
         self,
-        manifest: Dict[str, Any],
+        manifest: dict[str, Any],
         results_dir: Path
     ) -> None:
         """Import artifact records from a manifest.
@@ -1009,7 +997,7 @@ class ArtifactRegistry:
                     record.depends_on
                 )
 
-    def export_to_manifest(self) -> Dict[str, Any]:
+    def export_to_manifest(self) -> dict[str, Any]:
         """Export registry to manifest V3 format.
 
         Returns:
@@ -1020,7 +1008,7 @@ class ArtifactRegistry:
             "items": [record.to_dict() for record in self._artifacts.values()]
         }
 
-    def get_all_records(self) -> List[ArtifactRecord]:
+    def get_all_records(self) -> list[ArtifactRecord]:
         """Get all registered artifacts.
 
         Returns:
@@ -1032,7 +1020,7 @@ class ArtifactRegistry:
     # Cleanup Utilities
     # =========================================================================
 
-    def find_orphaned_artifacts(self, scan_all_manifests: bool = True) -> List[str]:
+    def find_orphaned_artifacts(self, scan_all_manifests: bool = True) -> list[str]:
         """Find artifact files not referenced by any manifest.
 
         Scans binaries directory and compares with all referenced artifacts
@@ -1055,16 +1043,13 @@ class ArtifactRegistry:
         }
 
         # Get referenced files
-        if scan_all_manifests:
-            referenced = self._scan_all_manifest_references()
-        else:
-            referenced = {record.path for record in self._artifacts.values()}
+        referenced = self._scan_all_manifest_references() if scan_all_manifests else {record.path for record in self._artifacts.values()}
 
         # Find orphans
         orphans = all_files - referenced
         return sorted(orphans)
 
-    def _scan_all_manifest_references(self) -> Set[str]:
+    def _scan_all_manifest_references(self) -> set[str]:
         """Scan all manifests in workspace for artifact references.
 
         Searches workspace/runs/<dataset>/**/manifest.yaml for artifact paths.
@@ -1074,7 +1059,7 @@ class ArtifactRegistry:
         """
         import yaml
 
-        referenced: Set[str] = set()
+        referenced: set[str] = set()
 
         # Add in-memory references
         referenced.update(record.path for record in self._artifacts.values())
@@ -1124,7 +1109,7 @@ class ArtifactRegistry:
         self,
         dry_run: bool = True,
         scan_all_manifests: bool = True
-    ) -> Tuple[List[str], int]:
+    ) -> tuple[list[str], int]:
         """Delete artifacts not referenced by any manifest.
 
         Args:
@@ -1188,13 +1173,11 @@ class ArtifactRegistry:
                 self.dependency_graph.remove_artifact(artifact_id)
 
                 # Optionally delete file if not referenced elsewhere
-                if delete_files:
-                    # Check if any other artifact uses this file
-                    if record.path not in self._by_path:
-                        filepath = self.binaries_dir / record.path
-                        if filepath.exists():
-                            filepath.unlink()
-                            logger.info(f"Deleted artifact file: {record.path}")
+                if delete_files and record.path not in self._by_path:
+                    filepath = self.binaries_dir / record.path
+                    if filepath.exists():
+                        filepath.unlink()
+                        logger.info(f"Deleted artifact file: {record.path}")
 
                 count += 1
 
@@ -1230,7 +1213,7 @@ class ArtifactRegistry:
             logger.info(f"Cleaned up {count} artifacts from failed run")
         return count
 
-    def purge_dataset_artifacts(self, confirm: bool = False) -> Tuple[int, int]:
+    def purge_dataset_artifacts(self, confirm: bool = False) -> tuple[int, int]:
         """Delete ALL artifacts for this dataset.
 
         This is a destructive operation that removes all artifacts in the
@@ -1318,8 +1301,8 @@ class ArtifactRegistry:
     def _validate_meta_model_dependencies(
         self,
         artifact_id: str,
-        depends_on: List[str],
-        meta_config: Optional[MetaModelConfig]
+        depends_on: list[str],
+        meta_config: MetaModelConfig | None
     ) -> None:
         """Validate dependencies for meta-model artifacts.
 
@@ -1357,7 +1340,7 @@ class ArtifactRegistry:
                 f"Ensure source models are registered before the meta-model."
             )
 
-    def _find_existing_by_hash(self, content_hash: str) -> Optional[str]:
+    def _find_existing_by_hash(self, content_hash: str) -> str | None:
         """Find existing artifact path by content hash.
 
         Checks both in-memory registry and filesystem for deduplication.
@@ -1393,7 +1376,7 @@ class ArtifactRegistry:
 
         return None
 
-    def get_stats(self, scan_all_manifests: bool = True) -> Dict[str, Any]:
+    def get_stats(self, scan_all_manifests: bool = True) -> dict[str, Any]:
         """Get storage statistics.
 
         Args:
@@ -1410,11 +1393,11 @@ class ArtifactRegistry:
             - disk_usage_bytes: Actual disk usage in binaries directory
         """
         total_artifacts = len(self._artifacts)
-        unique_files = len(set(r.path for r in self._artifacts.values()))
+        unique_files = len({r.path for r in self._artifacts.values()})
         total_size = sum(r.size_bytes for r in self._artifacts.values())
 
         # Count by type
-        by_type: Dict[str, int] = {}
+        by_type: dict[str, int] = {}
         for record in self._artifacts.values():
             type_name = record.artifact_type.value
             by_type[type_name] = by_type.get(type_name, 0) + 1

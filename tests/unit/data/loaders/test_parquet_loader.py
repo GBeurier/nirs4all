@@ -5,15 +5,14 @@ Tests loading .parquet files with various configurations.
 Requires pyarrow or fastparquet to be installed.
 """
 
-import pytest
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from nirs4all.data.loaders.parquet_loader import ParquetLoader, load_parquet
-
 
 # Skip all tests if no Parquet engine is available
 pytestmark = pytest.mark.skipif(
@@ -22,7 +21,6 @@ pytestmark = pytest.mark.skipif(
     ]),
     reason="No Parquet engine available"
 )
-
 
 @pytest.fixture
 def parquet_engine():
@@ -38,7 +36,6 @@ def parquet_engine():
     except ImportError:
         pass
     pytest.skip("No Parquet engine available")
-
 
 class TestParquetLoaderSupports:
     """Tests for ParquetLoader.supports() method."""
@@ -56,7 +53,6 @@ class TestParquetLoaderSupports:
         """Test that ParquetLoader doesn't support other formats."""
         assert not ParquetLoader.supports(Path("data.csv"))
         assert not ParquetLoader.supports(Path("data.xlsx"))
-
 
 class TestParquetLoaderLoad:
     """Tests for ParquetLoader.load() method."""
@@ -128,7 +124,6 @@ class TestParquetLoaderLoad:
         result = loader.load(sample_parquet_file)
 
         assert result.report["engine"] == parquet_engine
-
 
 class TestLoadParquetFunction:
     """Tests for the load_parquet convenience function."""

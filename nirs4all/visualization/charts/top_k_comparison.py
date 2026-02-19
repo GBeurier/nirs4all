@@ -1,15 +1,16 @@
 """
 TopKComparisonChart - Scatter plots comparing predicted vs observed values for top K models.
 """
-import numpy as np
+from typing import TYPE_CHECKING, Optional
+
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.figure import Figure
-from typing import Optional, TYPE_CHECKING
+
 from nirs4all.visualization.charts.base import BaseChart
 
 if TYPE_CHECKING:
     from nirs4all.visualization.predictions import PredictionAnalyzer
-
 
 class TopKComparisonChart(BaseChart):
     """Scatter plots comparing predicted vs observed values for top K models.
@@ -21,7 +22,7 @@ class TopKComparisonChart(BaseChart):
     def __init__(
         self,
         predictions,
-        dataset_name_override: Optional[str] = None,
+        dataset_name_override: str | None = None,
         config=None,
         analyzer: Optional['PredictionAnalyzer'] = None
     ):
@@ -35,7 +36,7 @@ class TopKComparisonChart(BaseChart):
         """
         super().__init__(predictions, dataset_name_override, config, analyzer=analyzer)
 
-    def validate_inputs(self, k: int, rank_metric: Optional[str], **kwargs) -> None:
+    def validate_inputs(self, k: int, rank_metric: str | None, **kwargs) -> None:
         """Validate top K comparison inputs.
 
         Args:
@@ -51,12 +52,12 @@ class TopKComparisonChart(BaseChart):
         if rank_metric and not isinstance(rank_metric, str):
             raise ValueError("rank_metric must be a string")
 
-    def render(self, k: int = 5, rank_metric: Optional[str] = None,
+    def render(self, k: int = 5, rank_metric: str | None = None,
                rank_partition: str = 'val', display_metric: str = '',
                display_partition: str = 'all', show_scores: bool = True,
-               dataset_name: Optional[str] = None,
-               figsize: Optional[tuple] = None,
-               aggregate: Optional[str] = None,
+               dataset_name: str | None = None,
+               figsize: tuple | None = None,
+               aggregate: str | None = None,
                **filters) -> Figure:
         """Plot top K models with predicted vs true and residuals.
 
@@ -96,10 +97,7 @@ class TopKComparisonChart(BaseChart):
         # Determine which partitions to display
         show_all_partitions = display_partition in ['all', 'ALL', 'All', '_all_', '']
 
-        if show_all_partitions:
-            partitions_to_display = ['train', 'val', 'test']
-        else:
-            partitions_to_display = [display_partition]
+        partitions_to_display = ['train', 'val', 'test'] if show_all_partitions else [display_partition]
 
         # Get top models using common helper with group_by for deduplication
         top_predictions = self._get_ranked_predictions(
@@ -128,9 +126,7 @@ class TopKComparisonChart(BaseChart):
         fig, axes = plt.subplots(rows, cols, figsize=figsize)
 
         # Handle different subplot configurations
-        if n_plots == 1:
-            axes = axes.reshape(1, -1)
-        elif rows == 1:
+        if n_plots == 1 or rows == 1:
             axes = axes.reshape(1, -1)
 
         # Check if aggregation was actually applied (check first model's partitions)
@@ -286,10 +282,7 @@ class TopKComparisonChart(BaseChart):
                 residual_title = '\n'.join(title_lines)
             else:
                 # Build residual title with partition info
-                if show_all_partitions:
-                    residual_title = 'Residuals [train/val/test]'
-                else:
-                    residual_title = f'Residuals [{display_partition}]'
+                residual_title = 'Residuals [train/val/test]' if show_all_partitions else f'Residuals [{display_partition}]'
 
             ax_residuals.set_title(residual_title, fontsize=self.config.label_fontsize)
             ax_residuals.legend(fontsize=self.config.legend_fontsize)

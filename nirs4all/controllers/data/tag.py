@@ -6,7 +6,8 @@ on samples without removing them. Tags can later be used for branching,
 analysis, or conditional processing.
 """
 
-from typing import Any, List, Tuple, Optional, Dict, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional, Union
+
 import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
@@ -22,7 +23,6 @@ if TYPE_CHECKING:
     from nirs4all.pipeline.config.context import ExecutionContext
     from nirs4all.pipeline.steps.parser import ParsedStep
     from nirs4all.pipeline.steps.runtime import RuntimeContext
-
 
 @register_controller
 class TagController(OperatorController):
@@ -84,9 +84,9 @@ class TagController(OperatorController):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple['ExecutionContext', List]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple['ExecutionContext', list]:
         """
         Execute tagging operation.
 
@@ -204,8 +204,8 @@ class TagController(OperatorController):
 
     def _parse_taggers(
         self,
-        config: Union[Any, List[Any], Dict[str, Any]]
-    ) -> List[Tuple[str, SampleFilter]]:
+        config: Any | list[Any] | dict[str, Any]
+    ) -> list[tuple[str, SampleFilter]]:
         """
         Parse tagger configuration into list of (tag_name, filter) tuples.
 
@@ -246,10 +246,7 @@ class TagController(OperatorController):
             # Named dict format: {"tag_name": Filter()}
             for tag_name, filter_def in config.items():
                 # Handle both live instances and serialized components
-                if isinstance(filter_def, SampleFilter):
-                    filter_obj = filter_def
-                else:
-                    filter_obj = deserialize_component(filter_def)
+                filter_obj = filter_def if isinstance(filter_def, SampleFilter) else deserialize_component(filter_def)
                 if not isinstance(filter_obj, SampleFilter):
                     raise TypeError(
                         f"Tag filter must be a SampleFilter instance, "
@@ -261,10 +258,7 @@ class TagController(OperatorController):
             # List format: [Filter1(), Filter2()]
             for filter_def in config:
                 # Handle both live instances and serialized components
-                if isinstance(filter_def, SampleFilter):
-                    filter_obj = filter_def
-                else:
-                    filter_obj = deserialize_component(filter_def)
+                filter_obj = filter_def if isinstance(filter_def, SampleFilter) else deserialize_component(filter_def)
                 if not isinstance(filter_obj, SampleFilter):
                     raise TypeError(
                         f"Tag filter must be a SampleFilter instance, "

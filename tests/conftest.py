@@ -29,7 +29,6 @@ os.environ["NIRS4ALL_WORKSPACE"] = _TEST_WORKSPACE_DIR
 
 # Now safe to import other modules
 from pathlib import Path
-from typing import Tuple
 
 import matplotlib
 import numpy as np
@@ -48,7 +47,6 @@ def pytest_configure(config):
     """
     # Use non-interactive backend for all tests
     matplotlib.use('Agg')
-
 
 def pytest_unconfigure(config):
     """
@@ -69,34 +67,28 @@ def pytest_unconfigure(config):
     if "NIRS4ALL_WORKSPACE" in os.environ:
         del os.environ["NIRS4ALL_WORKSPACE"]
 
-
 # =============================================================================
 # Lazy imports for synthetic module (avoid import errors if module missing)
 # =============================================================================
-
 
 def _get_builder():
     """Lazy import of SyntheticDatasetBuilder."""
     from nirs4all.synthesis import SyntheticDatasetBuilder
     return SyntheticDatasetBuilder
 
-
 def _get_generator():
     """Lazy import of SyntheticNIRSGenerator."""
     from nirs4all.synthesis import SyntheticNIRSGenerator
     return SyntheticNIRSGenerator
-
 
 def _get_csv_variation_generator():
     """Lazy import of CSVVariationGenerator."""
     from nirs4all.synthesis import CSVVariationGenerator
     return CSVVariationGenerator
 
-
 # =============================================================================
 # Session-Scoped Fixtures (Shared Across All Tests)
 # =============================================================================
-
 
 @pytest.fixture(scope="session")
 def test_workspace():
@@ -110,7 +102,6 @@ def test_workspace():
         Path: Path to the shared test workspace directory.
     """
     return Path(_TEST_WORKSPACE_DIR)
-
 
 @pytest.fixture(scope="session")
 def synthetic_builder_factory():
@@ -141,7 +132,6 @@ def synthetic_builder_factory():
         )
     return _factory
 
-
 @pytest.fixture(scope="session")
 def synthetic_generator_factory():
     """
@@ -161,7 +151,6 @@ def synthetic_generator_factory():
             **kwargs
         )
     return _factory
-
 
 @pytest.fixture(scope="session")
 def standard_regression_dataset():
@@ -191,7 +180,6 @@ def standard_regression_dataset():
         .build()
     )
 
-
 @pytest.fixture(scope="session")
 def standard_classification_dataset():
     """
@@ -214,7 +202,6 @@ def standard_classification_dataset():
         .build()
     )
 
-
 @pytest.fixture(scope="session")
 def standard_binary_dataset():
     """
@@ -236,7 +223,6 @@ def standard_binary_dataset():
         .with_partitions(train_ratio=0.8)
         .build()
     )
-
 
 @pytest.fixture(scope="session")
 def multi_target_dataset():
@@ -263,7 +249,6 @@ def multi_target_dataset():
         .build()
     )
 
-
 @pytest.fixture(scope="session")
 def multi_source_dataset():
     """
@@ -288,7 +273,6 @@ def multi_source_dataset():
         .with_partitions(train_ratio=0.8)
         .build()
     )
-
 
 @pytest.fixture(scope="session")
 def dataset_with_metadata():
@@ -318,7 +302,6 @@ def dataset_with_metadata():
         .build()
     )
 
-
 @pytest.fixture(scope="session")
 def dataset_with_batch_effects():
     """
@@ -343,7 +326,6 @@ def dataset_with_batch_effects():
         .build()
     )
 
-
 @pytest.fixture(scope="session")
 def small_regression_arrays():
     """
@@ -365,7 +347,6 @@ def small_regression_arrays():
         .build()
     )
 
-
 @pytest.fixture(scope="session")
 def sample_wavelengths():
     """
@@ -376,11 +357,9 @@ def sample_wavelengths():
     """
     return np.arange(1000, 2502, 2)
 
-
 # =============================================================================
 # Function-Scoped Fixtures (Fresh Per Test)
 # =============================================================================
-
 
 @pytest.fixture
 def fresh_regression_dataset(synthetic_builder_factory):
@@ -400,7 +379,6 @@ def fresh_regression_dataset(synthetic_builder_factory):
         .build()
     )
 
-
 @pytest.fixture
 def fresh_classification_dataset(synthetic_builder_factory):
     """
@@ -417,9 +395,8 @@ def fresh_classification_dataset(synthetic_builder_factory):
         .build()
     )
 
-
 @pytest.fixture
-def regression_arrays(synthetic_builder_factory) -> Tuple[np.ndarray, np.ndarray]:
+def regression_arrays(synthetic_builder_factory) -> tuple[np.ndarray, np.ndarray]:
     """
     Regression data as numpy arrays.
 
@@ -433,9 +410,8 @@ def regression_arrays(synthetic_builder_factory) -> Tuple[np.ndarray, np.ndarray
         .build_arrays()
     )
 
-
 @pytest.fixture
-def classification_arrays(synthetic_builder_factory) -> Tuple[np.ndarray, np.ndarray]:
+def classification_arrays(synthetic_builder_factory) -> tuple[np.ndarray, np.ndarray]:
     """
     Classification data as numpy arrays.
 
@@ -449,11 +425,9 @@ def classification_arrays(synthetic_builder_factory) -> Tuple[np.ndarray, np.nda
         .build_arrays()
     )
 
-
 # =============================================================================
 # File-Based Fixtures (For Loader Testing)
 # =============================================================================
-
 
 @pytest.fixture
 def synthetic_dataset_folder(tmp_path, synthetic_builder_factory) -> Path:
@@ -480,7 +454,6 @@ def synthetic_dataset_folder(tmp_path, synthetic_builder_factory) -> Path:
         .export(tmp_path / "dataset", format="standard")
     )
 
-
 @pytest.fixture
 def synthetic_single_file_folder(tmp_path, synthetic_builder_factory) -> Path:
     """
@@ -496,7 +469,6 @@ def synthetic_single_file_folder(tmp_path, synthetic_builder_factory) -> Path:
         .export(tmp_path / "dataset", format="single")
     )
 
-
 @pytest.fixture
 def synthetic_csv_file(tmp_path, synthetic_builder_factory) -> Path:
     """
@@ -511,14 +483,12 @@ def synthetic_csv_file(tmp_path, synthetic_builder_factory) -> Path:
         .export_to_csv(tmp_path / "data.csv")
     )
 
-
 # =============================================================================
 # Base Data Fixtures for Format Variation Testing
 # =============================================================================
 
-
 @pytest.fixture(scope="module")
-def base_synthetic_data() -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def base_synthetic_data() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Base synthetic data for CSV format tests.
 
@@ -541,11 +511,9 @@ def base_synthetic_data() -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     wavelengths = np.arange(1000, 2001, 10)
     return X, y, wavelengths
 
-
 # =============================================================================
 # Parametrized Fixtures for Comprehensive Testing
 # =============================================================================
-
 
 @pytest.fixture(params=["simple", "realistic", "complex"])
 def dataset_all_complexities(request, synthetic_builder_factory):
@@ -567,7 +535,6 @@ def dataset_all_complexities(request, synthetic_builder_factory):
         .with_partitions(train_ratio=0.8)
         .build()
     )
-
 
 @pytest.fixture(params=[2, 3, 5])
 def classification_n_classes(request, synthetic_builder_factory):
@@ -591,11 +558,9 @@ def classification_n_classes(request, synthetic_builder_factory):
         .build()
     )
 
-
 # =============================================================================
 # CSV Variation Fixtures (For Loader Testing)
 # =============================================================================
-
 
 @pytest.fixture
 def csv_variation_generator():
@@ -607,7 +572,6 @@ def csv_variation_generator():
     """
     CSVVariationGenerator = _get_csv_variation_generator()
     return CSVVariationGenerator()
-
 
 @pytest.fixture
 def csv_semicolon_format(tmp_path, base_synthetic_data, csv_variation_generator) -> Path:
@@ -621,7 +585,6 @@ def csv_semicolon_format(tmp_path, base_synthetic_data, csv_variation_generator)
         random_state=42,
     )
 
-
 @pytest.fixture
 def csv_comma_format(tmp_path, base_synthetic_data, csv_variation_generator) -> Path:
     """CSV with comma delimiter."""
@@ -633,7 +596,6 @@ def csv_comma_format(tmp_path, base_synthetic_data, csv_variation_generator) -> 
         train_ratio=0.8,
         random_state=42,
     )
-
 
 @pytest.fixture
 def csv_tab_format(tmp_path, base_synthetic_data, csv_variation_generator) -> Path:
@@ -647,7 +609,6 @@ def csv_tab_format(tmp_path, base_synthetic_data, csv_variation_generator) -> Pa
         random_state=42,
     )
 
-
 @pytest.fixture
 def csv_no_headers_format(tmp_path, base_synthetic_data, csv_variation_generator) -> Path:
     """CSV without column headers."""
@@ -658,7 +619,6 @@ def csv_no_headers_format(tmp_path, base_synthetic_data, csv_variation_generator
         train_ratio=0.8,
         random_state=42,
     )
-
 
 @pytest.fixture
 def csv_with_index_format(tmp_path, base_synthetic_data, csv_variation_generator) -> Path:
@@ -671,7 +631,6 @@ def csv_with_index_format(tmp_path, base_synthetic_data, csv_variation_generator
         train_ratio=0.8,
         random_state=42,
     )
-
 
 @pytest.fixture
 def csv_all_variations(tmp_path, base_synthetic_data, csv_variation_generator) -> dict:
@@ -689,5 +648,4 @@ def csv_all_variations(tmp_path, base_synthetic_data, csv_variation_generator) -
         train_ratio=0.8,
         random_state=42,
     )
-
 

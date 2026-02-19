@@ -12,44 +12,43 @@ The schema supports:
 """
 
 from .config import (
+    AggregateMethod,
+    CategoricalMode,
+    ColumnConfig,
+    ColumnSelection,
     # Core config models
     DatasetConfigSchema,
     FileConfig,
-    ColumnConfig,
-    PartitionConfig,
-    LoadingParams,
     FoldConfig,
     FoldDefinition,
+    HeaderUnit,
+    LoadingParams,
+    NAFillConfig,
+    NAFillMethod,
+    NAPolicy,
+    PartitionConfig,
+    PartitionType,
+    # Type aliases
+    PathOrArray,
+    PreprocessingApplied,
+    SharedMetadataConfig,
+    SharedTargetsConfig,
+    SignalTypeEnum,
     # Source config models (Phase 6)
     SourceConfig,
     SourceFileConfig,
-    SharedTargetsConfig,
-    SharedMetadataConfig,
+    # Enums
+    TaskType,
     # Variation config models (Phase 7)
     VariationConfig,
     VariationFileConfig,
-    PreprocessingApplied,
-    # Enums
-    TaskType,
-    HeaderUnit,
-    SignalTypeEnum,
-    PartitionType,
-    NAPolicy,
-    NAFillMethod,
-    NAFillConfig,
-    CategoricalMode,
-    AggregateMethod,
     VariationMode,
-    # Type aliases
-    PathOrArray,
-    ColumnSelection,
 )
-
 from .validation import (
     ConfigValidator,
     ValidationError,
-    ValidationWarning,
     ValidationResult,
+    ValidationWarning,
 )
 
 __all__ = [

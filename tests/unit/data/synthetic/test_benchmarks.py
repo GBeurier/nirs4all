@@ -2,18 +2,18 @@
 Unit tests for Phase 4 benchmarks module.
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.synthesis.benchmarks import (
-    BenchmarkDomain,
-    BenchmarkDatasetInfo,
     BENCHMARK_DATASETS,
-    list_benchmark_datasets,
-    get_benchmark_info,
-    get_datasets_by_domain,
-    get_benchmark_spectral_properties,
+    BenchmarkDatasetInfo,
+    BenchmarkDomain,
     create_synthetic_matching_benchmark,
+    get_benchmark_info,
+    get_benchmark_spectral_properties,
+    get_datasets_by_domain,
+    list_benchmark_datasets,
 )
 
 
@@ -63,7 +63,6 @@ class TestBenchmarkDatasetInfo:
         with pytest.raises(KeyError):
             get_benchmark_info("nonexistent_dataset")
 
-
 class TestBenchmarkRegistry:
     """Tests for benchmark dataset registry."""
 
@@ -88,7 +87,6 @@ class TestBenchmarkRegistry:
 
         agri = get_datasets_by_domain(BenchmarkDomain.AGRICULTURE)
         assert "corn" in agri
-
 
 class TestBenchmarkDatasetProperties:
     """Tests for all registered datasets."""
@@ -131,7 +129,6 @@ class TestBenchmarkDatasetProperties:
         assert high > low
         assert high < 50  # Reasonable upper bound for peaks per 100 nm
 
-
 class TestBenchmarkDomain:
     """Tests for BenchmarkDomain enum."""
 
@@ -146,7 +143,6 @@ class TestBenchmarkDomain:
         """Test creating domain from string."""
         domain = BenchmarkDomain("food")
         assert domain == BenchmarkDomain.FOOD
-
 
 class TestBenchmarkSpectralProperties:
     """Tests for getting spectral properties from benchmarks."""
@@ -169,7 +165,6 @@ class TestBenchmarkSpectralProperties:
         props = get_benchmark_spectral_properties("tecator")
 
         assert len(props["typical_components"]) > 0
-
 
 class TestCreateSyntheticMatchingBenchmark:
     """Tests for creating synthetic data matching benchmark."""

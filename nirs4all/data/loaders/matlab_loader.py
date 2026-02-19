@@ -6,7 +6,7 @@ supporting both older (v4, v6, v7) and newer (v7.3 HDF5) MATLAB file formats.
 """
 
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union
+from typing import Any, ClassVar, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -15,8 +15,8 @@ from nirs4all.core.exceptions import NAError
 from nirs4all.data.schema.config import NAFillConfig
 
 from .base import (
-    FileLoadError,
     FileLoader,
+    FileLoadError,
     LoaderResult,
     apply_na_policy,
     register_loader,
@@ -31,7 +31,6 @@ def _check_scipy_available() -> bool:
     except ImportError:
         return False
 
-
 def _check_h5py_available() -> bool:
     """Check if h5py is available (for v7.3 MAT files)."""
     try:
@@ -39,7 +38,6 @@ def _check_h5py_available() -> bool:
         return True
     except ImportError:
         return False
-
 
 @register_loader
 class MatlabLoader(FileLoader):
@@ -63,7 +61,7 @@ class MatlabLoader(FileLoader):
         ... )
     """
 
-    supported_extensions: ClassVar[Tuple[str, ...]] = (".mat",)
+    supported_extensions: ClassVar[tuple[str, ...]] = (".mat",)
     name: ClassVar[str] = "MATLAB Loader"
     priority: ClassVar[int] = 45
 
@@ -75,13 +73,13 @@ class MatlabLoader(FileLoader):
     def load(
         self,
         path: Path,
-        variable: Optional[str] = None,
+        variable: str | None = None,
         squeeze_me: bool = True,
         struct_as_record: bool = False,
         header_unit: str = "index",
         data_type: str = "x",
         na_policy: str = "auto",
-        na_fill_config: Optional[NAFillConfig] = None,
+        na_fill_config: NAFillConfig | None = None,
         **params: Any,
     ) -> LoaderResult:
         """Load data from a MATLAB .mat file.
@@ -100,7 +98,7 @@ class MatlabLoader(FileLoader):
         Returns:
             LoaderResult with the loaded data.
         """
-        report: Dict[str, Any] = {
+        report: dict[str, Any] = {
             "file_path": str(path),
             "format": "matlab",
             "mat_version": None,
@@ -232,10 +230,7 @@ class MatlabLoader(FileLoader):
 
             # Generate column headers
             n_cols = array.shape[1]
-            if header_unit == "index":
-                headers = [str(i) for i in range(n_cols)]
-            else:
-                headers = [f"feature_{i}" for i in range(n_cols)]
+            headers = [str(i) for i in range(n_cols)] if header_unit == "index" else [f"feature_{i}" for i in range(n_cols)]
 
             # Convert to DataFrame
             try:
@@ -287,7 +282,7 @@ class MatlabLoader(FileLoader):
             report["error"] = f"Error loading MATLAB file: {e}\n{traceback.format_exc()}"
             return LoaderResult(report=report, header_unit=header_unit)
 
-    def _load_v73(self, path: Path) -> Dict[str, np.ndarray]:
+    def _load_v73(self, path: Path) -> dict[str, np.ndarray]:
         """Load a MATLAB v7.3 (HDF5) file.
 
         Args:
@@ -311,7 +306,7 @@ class MatlabLoader(FileLoader):
 
         with h5py.File(path, "r") as f:
             # Walk through all items
-            for key in f.keys():
+            for key in f:
                 if not key.startswith("#"):  # Skip HDF5 refs
                     item = f[key]
                     if isinstance(item, h5py.Dataset):
@@ -321,7 +316,7 @@ class MatlabLoader(FileLoader):
                         result[key] = data
                     elif isinstance(item, h5py.Group):
                         # For structs, just get the first suitable array
-                        for subkey in item.keys():
+                        for subkey in item:
                             subitem = item[subkey]
                             if isinstance(subitem, h5py.Dataset):
                                 data = subitem[()]
@@ -332,10 +327,9 @@ class MatlabLoader(FileLoader):
 
         return result
 
-
 def load_matlab(
     path,
-    variable: Optional[str] = None,
+    variable: str | None = None,
     squeeze_me: bool = True,
     header_unit: str = "index",
     **params,

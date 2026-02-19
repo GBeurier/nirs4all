@@ -26,7 +26,6 @@ class TestExecutionPhase:
         assert ExecutionPhase.CV == ExecutionPhase.CV
         assert ExecutionPhase.CV != ExecutionPhase.REFIT
 
-
 class TestRuntimeContextPhase:
     """Tests for the phase field on RuntimeContext."""
 

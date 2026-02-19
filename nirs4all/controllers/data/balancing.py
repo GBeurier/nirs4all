@@ -4,7 +4,8 @@ Balancing utilities for sample augmentation.
 This module provides utilities to calculate augmentation counts for balanced datasets
 and to apply random transformer selection strategies.
 """
-from typing import List, Dict, Optional
+from typing import Optional
+
 import numpy as np
 
 
@@ -17,11 +18,11 @@ class BalancingCalculator:
         base_sample_indices: np.ndarray,
         all_labels: np.ndarray,
         all_sample_indices: np.ndarray,
-        target_size: Optional[int] = None,
-        max_factor: Optional[float] = None,
-        ref_percentage: Optional[float] = None,
-        random_state: Optional[int] = None
-    ) -> Dict[int, int]:
+        target_size: int | None = None,
+        max_factor: float | None = None,
+        ref_percentage: float | None = None,
+        random_state: int | None = None
+    ) -> dict[int, int]:
         """
         Calculate augmentations per BASE sample considering ALL samples for target.
 
@@ -84,7 +85,7 @@ class BalancingCalculator:
 
         # Build mapping: label → list of BASE sample_ids
         label_to_base_samples = {}
-        for sample_id, label in zip(base_sample_indices, base_labels):
+        for sample_id, label in zip(base_sample_indices, base_labels, strict=False):
             label_key = label.item() if hasattr(label, 'item') else label
             label_to_base_samples.setdefault(label_key, []).append(int(sample_id))
 
@@ -162,11 +163,11 @@ class BalancingCalculator:
         base_values: np.ndarray,
         all_labels: np.ndarray,
         all_sample_indices: np.ndarray,
-        target_size: Optional[int] = None,
-        max_factor: Optional[float] = None,
-        ref_percentage: Optional[float] = None,
-        random_state: Optional[int] = None
-    ) -> Dict[int, int]:
+        target_size: int | None = None,
+        max_factor: float | None = None,
+        ref_percentage: float | None = None,
+        random_state: int | None = None
+    ) -> dict[int, int]:
         """
         Calculate augmentations per BASE sample with value-aware distribution.
 
@@ -216,7 +217,7 @@ class BalancingCalculator:
 
         # Build mapping: label → list of (sample_id, value) pairs
         label_to_samples_with_values = {}
-        for sample_id, label, value in zip(base_sample_indices, base_labels, base_values):
+        for sample_id, label, value in zip(base_sample_indices, base_labels, base_values, strict=False):
             label_key = label.item() if hasattr(label, 'item') else label
             value_key = value.item() if hasattr(value, 'item') else value
             label_to_samples_with_values.setdefault(label_key, []).append((int(sample_id), value_key))
@@ -305,7 +306,7 @@ class BalancingCalculator:
         return augmentation_map
 
     @staticmethod
-    def apply_random_transformer_selection(transformers: List, augmentation_counts: Dict[int, int], random_state: Optional[int] = None) -> Dict[int, List[int]]:
+    def apply_random_transformer_selection(transformers: list, augmentation_counts: dict[int, int], random_state: int | None = None) -> dict[int, list[int]]:
         """
         Randomly select transformers for each augmentation.
 

@@ -12,43 +12,39 @@ Key features:
 - Framework-specific models (sklearn, tensorflow) handle their own details
 """
 
-from abc import ABC, abstractmethod
-from tabnanny import verbose
-from typing import Any, Dict, List, Tuple, Optional, Union, TYPE_CHECKING
-import numpy as np
 import copy
-from joblib import Parallel, delayed
 import multiprocessing
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any, Optional, Union
+
+import numpy as np
+from joblib import Parallel, delayed
 
 from nirs4all.controllers.controller import OperatorController
-from ...optimization.optuna import OptunaManager, FinetuneResult
-from nirs4all.core.exceptions import NAError
-from nirs4all.data.predictions import Predictions
-from nirs4all.data.ensemble_utils import EnsembleUtils
-from nirs4all.core.task_type import TaskType
-from .utilities import ModelControllerUtils as ModelUtils
 from nirs4all.core import metrics as evaluator
+from nirs4all.core.exceptions import NAError
 from nirs4all.core.logging import get_logger
-from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
+from nirs4all.core.task_type import TaskType
+from nirs4all.data.ensemble_utils import EnsembleUtils
+from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.context import ExecutionPhase
+from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
+
+from ...optimization.optuna import FinetuneResult, OptunaManager
+from .utilities import ModelControllerUtils as ModelUtils
 
 logger = get_logger(__name__)
+import contextlib
+
 from nirs4all.pipeline.storage.artifacts.types import ArtifactType
-from .components import (
-    ModelIdentifierGenerator,
-    PredictionTransformer,
-    PredictionDataAssembler,
-    ScoreCalculator,
-    IndexNormalizer,
-    PartitionScores
-)
+
+from .components import IndexNormalizer, ModelIdentifierGenerator, PartitionScores, PredictionDataAssembler, PredictionTransformer, ScoreCalculator
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.pipeline.steps.parser import ParsedStep
-    from nirs4all.pipeline.config.context import ExecutionContext
-
 
 class BaseModelController(OperatorController, ABC):
     """Abstract base controller for machine learning model training and prediction.
@@ -99,7 +95,7 @@ class BaseModelController(OperatorController, ABC):
 
     # Abstract methods that subclasses must implement for their frameworks
     @abstractmethod
-    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> Any:
+    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: dict[str, Any], force_params: dict[str, Any] | None = None) -> Any:
         """Create model instance from configuration using framework-specific builder.
 
         Args:
@@ -144,7 +140,7 @@ class BaseModelController(OperatorController, ABC):
         pass
 
     @abstractmethod
-    def _prepare_data(self, X: Any, y: Any, context: 'ExecutionContext') -> Tuple[Any, Any]:
+    def _prepare_data(self, X: Any, y: Any, context: 'ExecutionContext') -> tuple[Any, Any]:
         """Prepare data in framework-specific format (e.g., tensors, DataFrames).
 
         Args:
@@ -175,7 +171,7 @@ class BaseModelController(OperatorController, ABC):
         pass
 
     @abstractmethod
-    def _evaluate_model(self, model: Any, X_val: Any, y_val: Any, metric: Optional[str] = None, direction: str = "minimize") -> float:
+    def _evaluate_model(self, model: Any, X_val: Any, y_val: Any, metric: str | None = None, direction: str = "minimize") -> float:
         """Evaluate model performance for hyperparameter optimization.
 
         When ``metric`` is provided, uses ``nirs4all.core.metrics.eval()`` to
@@ -197,7 +193,7 @@ class BaseModelController(OperatorController, ABC):
         """
         pass
 
-    def _predict_proba_model(self, model: Any, X: Any) -> Optional[np.ndarray]:
+    def _predict_proba_model(self, model: Any, X: Any) -> np.ndarray | None:
         """Get class probabilities for classification models.
 
         Returns probability distributions for each sample. Used for soft voting
@@ -231,7 +227,7 @@ class BaseModelController(OperatorController, ABC):
             filepath: Path to save (without extension, will be added by implementation).
         """
         from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
-        persist(model, filepath)
+        persist(model, filepath, name="model")
 
     def load_model(self, filepath: str) -> Any:
         """Optional: Load model from framework-specific format.
@@ -248,7 +244,7 @@ class BaseModelController(OperatorController, ABC):
         from nirs4all.pipeline.storage.artifacts.artifact_persistence import load
         return load(filepath)
 
-    def get_xy(self, dataset: 'SpectroDataset', context: 'ExecutionContext') -> Tuple[Any, Any, Any, Any, Any, Any]:
+    def get_xy(self, dataset: 'SpectroDataset', context: 'ExecutionContext') -> tuple[Any, Any, Any, Any, Any, Any]:
         """Extract train/test splits with scaled and unscaled targets.
 
         For classification tasks, both scaled and unscaled targets are transformed.
@@ -373,7 +369,7 @@ class BaseModelController(OperatorController, ABC):
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
         mode: str
-    ) -> List[Tuple[List[int], List[int]]]:
+    ) -> list[tuple[list[int], list[int]]]:
         """Convert fold sample IDs to positional indices for the current active samples.
 
         Folds are stored with absolute sample IDs (from the indexer), which remain
@@ -457,7 +453,7 @@ class BaseModelController(OperatorController, ABC):
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
         mode: str
-    ) -> Tuple[List[int], List[int]]:
+    ) -> tuple[list[int], list[int]]:
         """Get sample IDs for train and test partitions.
 
         For OOF reconstruction and stacking, we need the actual sample IDs
@@ -507,9 +503,9 @@ class BaseModelController(OperatorController, ABC):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
+        loaded_binaries: list[tuple[str, bytes]] | None = None,
         prediction_store: 'Predictions' = None
-    ) -> Tuple['ExecutionContext', List['ArtifactMeta']]:
+    ) -> tuple['ExecutionContext', list['ArtifactMeta']]:
         """Execute model training, finetuning, or prediction.
 
         This is the main entry point for model execution. It handles:
@@ -545,15 +541,13 @@ class BaseModelController(OperatorController, ABC):
             target_step = None
             if hasattr(runtime_context, 'target_model') and runtime_context.target_model:
                 target_step = runtime_context.target_model.get("step_idx")
-            if target_step is not None and runtime_context.step_number != int(target_step):
-                if not runtime_context.artifact_provider.has_artifacts_for_step(runtime_context.step_number):
-                    return context, []
+            if target_step is not None and runtime_context.step_number != int(target_step) and not runtime_context.artifact_provider.has_artifacts_for_step(runtime_context.step_number):
+                return context, []
 
         # In predict/explain mode, restore task_type from target_model if not set
-        if mode in ("predict", "explain") and dataset.task_type is None:
-            if hasattr(runtime_context, 'target_model') and runtime_context.target_model:
-                task_type_str = runtime_context.target_model.get('task_type', 'regression')
-                dataset.set_task_type(task_type_str)
+        if mode in ("predict", "explain") and dataset.task_type is None and hasattr(runtime_context, 'target_model') and runtime_context.target_model:
+            task_type_str = runtime_context.target_model.get('task_type', 'regression')
+            dataset.set_task_type(task_type_str)
 
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled = self.get_xy(dataset, context)
 
@@ -710,17 +704,17 @@ class BaseModelController(OperatorController, ABC):
     def finetune(
         self,
         dataset: 'SpectroDataset',
-        model_config: Dict[str, Any],
+        model_config: dict[str, Any],
         X_train: Any,
         y_train: Any,
         X_test: Any,
         y_test: Any,
-        folds: Optional[List],
-        finetune_params: Dict[str, Any],
-        predictions: Dict,
+        folds: list | None,
+        finetune_params: dict[str, Any],
+        predictions: dict,
         context: 'ExecutionContext',
         runtime_context: 'RuntimeContext',
-    ) -> Union[FinetuneResult, List[FinetuneResult]]:
+    ) -> FinetuneResult | list[FinetuneResult]:
         """Optimize hyperparameters using Optuna.
 
         Delegates to OptunaManager for Bayesian hyperparameter optimization.
@@ -759,15 +753,13 @@ class BaseModelController(OperatorController, ABC):
             controller=self
         )
 
-
-
     def train(
         self,
         dataset, model_config, context, runtime_context, prediction_store,
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
         best_params=None, loaded_binaries=None, mode="train",
         train_sample_ids=None, test_sample_ids=None
-    ) -> List['ArtifactMeta']:
+    ) -> list['ArtifactMeta']:
         """Orchestrate model training across folds with prediction tracking.
 
         Manages the complete training workflow:
@@ -975,7 +967,7 @@ class BaseModelController(OperatorController, ABC):
 
         return binaries
 
-    def process_hyperparameters(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def process_hyperparameters(self, params: dict[str, Any]) -> dict[str, Any]:
         """Process hyperparameters before use.
 
         Can be overridden by subclasses to structure parameters (e.g. nesting for TensorFlow).
@@ -992,7 +984,7 @@ class BaseModelController(OperatorController, ABC):
         self,
         runtime_context: 'RuntimeContext',
         warm_start_fold: str,
-    ) -> Optional[int]:
+    ) -> int | None:
         """Resolve the warm-start fold specification to a concrete fold index.
 
         Args:
@@ -1060,10 +1052,8 @@ class BaseModelController(OperatorController, ABC):
             # Copy fitted state from source model
             for attr in dir(source_model):
                 if attr.endswith('_') and not attr.startswith('__'):
-                    try:
+                    with contextlib.suppress(AttributeError, TypeError):
                         setattr(model, attr, getattr(source_model, attr))
-                    except (AttributeError, TypeError):
-                        pass
             return model
 
         # For non-sklearn models without warm_start attribute, do nothing.
@@ -1162,9 +1152,8 @@ class BaseModelController(OperatorController, ABC):
                 )
 
             # Capture model for SHAP explanation
-            if mode == "explain" and self._should_capture_for_explanation(runtime_context, identifiers):
-                if hasattr(runtime_context, 'explainer') and hasattr(runtime_context.explainer, 'capture_model'):
-                    runtime_context.explainer.capture_model(model, self)
+            if mode == "explain" and self._should_capture_for_explanation(runtime_context, identifiers) and hasattr(runtime_context, 'explainer') and hasattr(runtime_context.explainer, 'capture_model'):
+                runtime_context.explainer.capture_model(model, self)
 
             trained_model = model
         else:
@@ -1176,10 +1165,7 @@ class BaseModelController(OperatorController, ABC):
             else:
                 # Support model_params for customizing NN architecture at training time
                 model_params = model_config.get('model_params', {})
-                if model_params:
-                    base_model = self._get_model_instance(dataset, model_config, force_params=model_params)
-                else:
-                    base_model = self._get_model_instance(dataset, model_config)
+                base_model = self._get_model_instance(dataset, model_config, force_params=model_params) if model_params else self._get_model_instance(dataset, model_config)
                 model = self._clone_model(base_model)
 
             # === 2b. WARM-START (REFIT PHASE ONLY) ===
@@ -1346,8 +1332,6 @@ class BaseModelController(OperatorController, ABC):
         return (target["model_name"] == identifiers.name and
                 target_step == ident_step)
 
-
-
     def _print_prediction_summary(self, prediction_data, pred_id, mode):
         """Print formatted summary for a single prediction.
 
@@ -1368,10 +1352,7 @@ class BaseModelController(OperatorController, ABC):
         from nirs4all.core.logging.formatters import get_symbols
         direction = get_symbols().direction(metric in ['r2', 'accuracy', 'balanced_accuracy'])
 
-        if val_score is not None:
-            summary = f"{model_name} {metric} {direction} [test: {test_score:.4f}], [val: {val_score:.4f}]"
-        else:
-            summary = f"{model_name} {metric} {direction} [test: {test_score:.4f}]"
+        summary = f"{model_name} {metric} {direction} [test: {test_score:.4f}], [val: {val_score:.4f}]" if val_score is not None else f"{model_name} {metric} {direction} [test: {test_score:.4f}]"
         if fold_id not in [None, 'None', 'avg', 'w_avg']:
             summary += f", (fold: {fold_id}, id: {op_counter})"
         elif fold_id in ['avg', 'w_avg']:
@@ -1414,7 +1395,7 @@ class BaseModelController(OperatorController, ABC):
         partition: str = "test",
         model_name: str = "model",
         show_detailed_scores: bool = True
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Calculate evaluation scores and print formatted output.
 
         Args:
@@ -1433,14 +1414,14 @@ class BaseModelController(OperatorController, ABC):
 
         # Calculate all default metrics
         scores_list = evaluator.eval_list(y_true, y_pred, default_metrics)
-        scores = dict(zip(default_metrics, scores_list))
+        scores = dict(zip(default_metrics, scores_list, strict=False))
 
         if scores and show_detailed_scores:
             score_str = ModelUtils.format_scores(scores)
             logger.info(f"{model_name} {partition} scores: {score_str}")
         return scores
 
-    def _extract_model_config(self, step: Any, operator: Any = None) -> Dict[str, Any]:
+    def _extract_model_config(self, step: Any, operator: Any = None) -> dict[str, Any]:
         """Extract and normalize model configuration from step or operator.
 
         Handles various configuration formats:
@@ -1503,15 +1484,13 @@ class BaseModelController(OperatorController, ABC):
         else:
             return {'model_instance': step}
 
-
-
     def _create_fold_averages(
         self,
         base_model_name, dataset, model_config, context, runtime_context, prediction_store, model_classname,
         folds_models, fold_val_indices, scores,
         X_train, X_test, y_train_unscaled, y_test_unscaled,
         mode="train", best_params=None, test_sample_ids=None
-    ) -> Tuple[Dict, Dict]:
+    ) -> tuple[dict, dict]:
         """Create simple and weighted fold-averaged predictions.
 
         Generates two averaged predictions:
@@ -1638,7 +1617,7 @@ class BaseModelController(OperatorController, ABC):
         self,
         folds_models, X_train, X_val, X_test, weights, dataset, context, mode,
         fold_val_indices=None,
-    ) -> Tuple[Dict, Dict]:
+    ) -> tuple[dict, dict]:
         """Create fold-averaged predictions for regression using arithmetic mean.
 
         For the validation partition, uses concatenated OOF predictions (each
@@ -1697,9 +1676,9 @@ class BaseModelController(OperatorController, ABC):
 
         # Weighted average (train/test weighted, val = same OOF concat)
         w_avg_preds = {
-            'train': np.sum([w * p for w, p in zip(weights, all_train_preds)], axis=0),
+            'train': np.sum([w * p for w, p in zip(weights, all_train_preds, strict=False)], axis=0),
             'val': oof_val if mode not in ("predict", "explain") else np.array([]),
-            'test': np.sum([w * p for w, p in zip(weights, all_test_preds)], axis=0)
+            'test': np.sum([w * p for w, p in zip(weights, all_test_preds, strict=False)], axis=0)
         }
 
         return avg_preds, w_avg_preds
@@ -1708,7 +1687,7 @@ class BaseModelController(OperatorController, ABC):
         self,
         folds_models, X_train, X_val, X_test, weights, mode,
         fold_val_indices=None,
-    ) -> Tuple[Dict, Dict]:
+    ) -> tuple[dict, dict]:
         """Create fold-averaged predictions for classification using soft voting.
 
         Uses probability averaging (soft voting) when probabilities are available,
@@ -1831,7 +1810,7 @@ class BaseModelController(OperatorController, ABC):
         self,
         all_train_probs, all_val_probs, all_test_probs, weights, mode,
         use_confidence_weighting: bool = False
-    ) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+    ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
         """Apply soft voting to each partition.
 
         Args:
@@ -1880,7 +1859,7 @@ class BaseModelController(OperatorController, ABC):
     def _hard_vote_partitions(
         self,
         all_train_preds, all_val_preds, all_test_preds, weights, mode
-    ) -> Dict[str, np.ndarray]:
+    ) -> dict[str, np.ndarray]:
         """Apply hard voting (majority vote) to each partition.
 
         Args:
@@ -1995,10 +1974,8 @@ class BaseModelController(OperatorController, ABC):
 
         # Cache train metadata since val samples come from train
         train_meta_df = None
-        try:
+        with contextlib.suppress(KeyError, AttributeError, ValueError, TypeError):
             train_meta_df = dataset.metadata({"partition": "train"})
-        except (KeyError, AttributeError, ValueError, TypeError):
-            pass
 
         for partition_name in ['train', 'val', 'test']:
             if partition_name in predictions:
@@ -2093,7 +2070,7 @@ class BaseModelController(OperatorController, ABC):
             weights: Optional array of fold weights (applied to all predictions).
             mode: Execution mode ('train', 'finetune', 'predict', 'explain').
         """
-        for idx, prediction_data in enumerate(all_predictions):
+        for _idx, prediction_data in enumerate(all_predictions):
             if not prediction_data:
                 continue
 
@@ -2161,12 +2138,12 @@ class BaseModelController(OperatorController, ABC):
         runtime_context: 'RuntimeContext',
         model: Any,
         model_id: str,
-        branch_id: Optional[int] = None,
-        branch_name: Optional[str] = None,
-        branch_path: Optional[List[int]] = None,
-        fold_id: Optional[int] = None,
-        params: Optional[Dict[str, Any]] = None,
-        custom_name: Optional[str] = None
+        branch_id: int | None = None,
+        branch_name: str | None = None,
+        branch_path: list[int] | None = None,
+        fold_id: int | None = None,
+        params: dict[str, Any] | None = None,
+        custom_name: str | None = None
     ) -> 'ArtifactMeta':
         """Persist trained model to disk using registry or legacy saver.
 
@@ -2219,13 +2196,10 @@ class BaseModelController(OperatorController, ABC):
             substep_index = runtime_context.substep_number if runtime_context.substep_number >= 0 else None
 
             # V3: Build operator chain for this artifact
-            from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorNode, OperatorChain
+            from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, OperatorNode
 
             # Get the current chain from trace recorder or build new one
-            if runtime_context.trace_recorder is not None:
-                current_chain = runtime_context.trace_recorder.current_chain()
-            else:
-                current_chain = OperatorChain(pipeline_id=pipeline_id)
+            current_chain = runtime_context.trace_recorder.current_chain() if runtime_context.trace_recorder is not None else OperatorChain(pipeline_id=pipeline_id)
 
             # Create node for this model
             model_node = OperatorNode(
@@ -2244,7 +2218,7 @@ class BaseModelController(OperatorController, ABC):
             # Generate V3 artifact ID using chain
             artifact_id = registry.generate_id(chain_path, fold_id, pipeline_id)
 
-            trace_fold_id: Optional[int | str] = fold_id
+            trace_fold_id: int | str | None = fold_id
             if runtime_context.phase == ExecutionPhase.REFIT and fold_id is not None:
                 trace_fold_id = runtime_context.refit_fold_id or "final"
 

@@ -10,26 +10,20 @@ for efficient data access and avoids redundant calculations.
 Includes a caching layer (PredictionCache) to avoid recomputing expensive aggregations
 when multiple charts use the same parameters.
 """
-from matplotlib.figure import Figure
-from pathlib import Path
-from typing import Any, Dict, Optional, Union, List
+import glob
 import os
 import re
-import glob
+from pathlib import Path
+from typing import Any, Optional, Union
+
 import numpy as np
 import pandas as pd
 import polars as pl
+from matplotlib.figure import Figure
 
 from nirs4all.data.predictions import Predictions
+from nirs4all.visualization.charts import CandlestickChart, ChartConfig, ConfusionMatrixChart, HeatmapChart, ScoreHistogramChart, TopKComparisonChart
 from nirs4all.visualization.prediction_cache import PredictionCache
-from nirs4all.visualization.charts import (
-    ChartConfig,
-    ScoreHistogramChart,
-    CandlestickChart,
-    ConfusionMatrixChart,
-    TopKComparisonChart,
-    HeatmapChart
-)
 
 
 def _get_default_figures_dir() -> str:
@@ -45,12 +39,13 @@ def _get_default_figures_dir() -> str:
     if env_workspace:
         return str(Path(env_workspace) / "figures")
     return "workspace/figures"
+import contextlib
+
 from nirs4all.core import metrics as evaluator
-from nirs4all.core.metrics import abbreviate_metric
 from nirs4all.core.logging import get_logger
+from nirs4all.core.metrics import abbreviate_metric
 
 logger = get_logger(__name__)
-
 
 class PredictionAnalyzer:
     """Orchestrator for prediction analysis and visualization.
@@ -99,12 +94,12 @@ class PredictionAnalyzer:
     def __init__(
         self,
         predictions_obj: Predictions,
-        dataset_name_override: Optional[str] = None,
-        config: Optional[ChartConfig] = None,
-        output_dir: Optional[str] = None,
+        dataset_name_override: str | None = None,
+        config: ChartConfig | None = None,
+        output_dir: str | None = None,
         cache_size: int = 50,
-        default_aggregate: Optional[str] = None,
-        default_aggregate_method: Optional[str] = None,
+        default_aggregate: str | None = None,
+        default_aggregate_method: str | None = None,
         default_aggregate_exclude_outliers: bool = False
     ):
         """Initialize analyzer with predictions object.
@@ -157,7 +152,7 @@ class PredictionAnalyzer:
         if callable(clear_caches):
             clear_caches()
 
-    def _resolve_aggregate(self, aggregate: Optional[str]) -> Optional[str]:
+    def _resolve_aggregate(self, aggregate: str | None) -> str | None:
         """Resolve effective aggregate value, considering default.
 
         Args:
@@ -179,7 +174,7 @@ class PredictionAnalyzer:
         # Otherwise, fall back to default
         return self.default_aggregate
 
-    def _resolve_aggregate_method(self, method: Optional[str]) -> Optional[str]:
+    def _resolve_aggregate_method(self, method: str | None) -> str | None:
         """Resolve effective aggregate method, considering default.
 
         Args:
@@ -194,7 +189,7 @@ class PredictionAnalyzer:
             return method
         return self.default_aggregate_method
 
-    def _resolve_aggregate_exclude_outliers(self, exclude: Optional[bool]) -> bool:
+    def _resolve_aggregate_exclude_outliers(self, exclude: bool | None) -> bool:
         """Resolve effective aggregate exclude_outliers, considering default.
 
         Args:
@@ -209,7 +204,7 @@ class PredictionAnalyzer:
             return exclude
         return self.default_aggregate_exclude_outliers
 
-    def get_cache_stats(self) -> Dict[str, Any]:
+    def get_cache_stats(self) -> dict[str, Any]:
         """Get cache performance statistics.
 
         Returns:
@@ -232,11 +227,11 @@ class PredictionAnalyzer:
         rank_partition: str = 'val',
         score_scope: str = 'mix',
         display_partition: str = 'test',
-        display_metrics: Optional[List[str]] = None,
-        aggregate: Optional[str] = None,
-        aggregate_method: Optional[str] = None,
-        aggregate_exclude_outliers: Optional[bool] = None,
-        group_by: Optional[Union[str, List[str]]] = None,
+        display_metrics: list[str] | None = None,
+        aggregate: str | None = None,
+        aggregate_method: str | None = None,
+        aggregate_exclude_outliers: bool | None = None,
+        group_by: str | list[str] | None = None,
         aggregate_partitions: bool = True,
         **filters
     ):
@@ -371,7 +366,7 @@ class PredictionAnalyzer:
         ]
         return metric_lower in higher_is_better
 
-    def _save_figure(self, fig: Figure, chart_type: str, dataset_name: str = None):
+    def _save_figure(self, fig: Figure, chart_type: str, dataset_name: str | None = None):
         """Save figure to disk with versioning.
 
         Args:
@@ -393,10 +388,7 @@ class PredictionAnalyzer:
         else:
             # Try to infer from predictions if single dataset
             datasets = self.predictions.get_datasets()
-            if len(datasets) == 1:
-                ds_name = datasets[0]
-            else:
-                ds_name = "combined"
+            ds_name = datasets[0] if len(datasets) == 1 else "combined"
 
         # Sanitize names
         ds_name = re.sub(r'[^\w\-]', '_', str(ds_name))
@@ -432,15 +424,15 @@ class PredictionAnalyzer:
     def plot_top_k(
         self,
         k: int = 5,
-        rank_metric: Optional[str] = None,
+        rank_metric: str | None = None,
         rank_partition: str = 'val',
         display_metric: str = '',
         display_partition: str = 'all',
         show_scores: bool = True,
-        aggregate: Optional[str] = None,
-        config: Optional[ChartConfig] = None,
+        aggregate: str | None = None,
+        config: ChartConfig | None = None,
         **kwargs
-    ) -> Union[Figure, List[Figure]]:
+    ) -> Figure | list[Figure]:
         """Plot top K model comparison (scatter + residuals).
 
         Models are ranked by rank_metric on rank_partition, then predictions
@@ -514,21 +506,21 @@ class PredictionAnalyzer:
             aggregate=effective_aggregate,
             **kwargs
         )
-        self._save_figure(fig, "top_k", kwargs.get('dataset_name'))
+        self._save_figure(fig, "top_k", str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None)
         return fig
 
     def plot_confusion_matrix(
         self,
         k: int = 5,
-        rank_metric: Optional[str] = None,
+        rank_metric: str | None = None,
         rank_partition: str = 'val',
-        display_metric: Union[str, List[str]] = '',
+        display_metric: str | list[str] = '',
         display_partition: str = 'test',
         show_scores: bool = True,
-        aggregate: Optional[str] = None,
-        config: Optional[ChartConfig] = None,
+        aggregate: str | None = None,
+        config: ChartConfig | None = None,
         **kwargs
-    ) -> Union[Figure, List[Figure]]:
+    ) -> Figure | list[Figure]:
         """Plot confusion matrices for top K classification models.
 
         When multiple datasets are present and no dataset_name is specified,
@@ -576,7 +568,7 @@ class PredictionAnalyzer:
 
             # If multiple datasets, create one figure per dataset
             if len(datasets) > 1:
-                figures = []
+                figures: list[Figure | list[Figure]] = []
                 for dataset in datasets:
                     fig = chart.render(
                         k=k,
@@ -589,7 +581,8 @@ class PredictionAnalyzer:
                         dataset_name=dataset,
                         **kwargs
                     )
-                    self._save_figure(fig, "confusion_matrix", dataset)
+                    if isinstance(fig, Figure):
+                        self._save_figure(fig, "confusion_matrix", dataset)
                     figures.append(fig)
                 return figures
 
@@ -604,17 +597,18 @@ class PredictionAnalyzer:
             aggregate=effective_aggregate,
             **kwargs
         )
-        self._save_figure(fig, "confusion_matrix", kwargs.get('dataset_name'))
+        if isinstance(fig, Figure):
+            self._save_figure(fig, "confusion_matrix", str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None)
         return fig
 
     def plot_histogram(
         self,
-        display_metric: Optional[str] = None,
+        display_metric: str | None = None,
         display_partition: str = 'test',
-        aggregate: Optional[str] = None,
-        config: Optional[ChartConfig] = None,
+        aggregate: str | None = None,
+        config: ChartConfig | None = None,
         **kwargs
-    ) -> Union[Figure, List[Figure]]:
+    ) -> Figure | list[Figure]:
         """Plot score distribution histogram.
 
         When multiple datasets are present and no dataset_name is specified,
@@ -673,14 +667,14 @@ class PredictionAnalyzer:
             aggregate=effective_aggregate,
             **kwargs
         )
-        self._save_figure(fig, "histogram", kwargs.get('dataset_name'))
+        self._save_figure(fig, "histogram", str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None)
         return fig
 
     def plot_heatmap(
         self,
         x_var: str,
         y_var: str,
-        rank_metric: Optional[str] = None,
+        rank_metric: str | None = None,
         rank_partition: str = 'val',
         display_metric: str = '',
         display_partition: str = 'test',
@@ -690,11 +684,11 @@ class PredictionAnalyzer:
         show_counts: bool = True,
         local_scale: bool = False,
         column_scale: bool = False,
-        aggregate: Optional[str] = None,
-        top_k: Optional[int] = None,
+        aggregate: str | None = None,
+        top_k: int | None = None,
         sort_by_value: bool = False,
-        sort_by: Optional[str] = None,
-        config: Optional[ChartConfig] = None,
+        sort_by: str | None = None,
+        config: ChartConfig | None = None,
         **kwargs
     ) -> Figure:
         """Plot performance heatmap across two variables.
@@ -793,16 +787,16 @@ class PredictionAnalyzer:
             sort_by=sort_by,
             **kwargs
         )
-        self._save_figure(fig, "heatmap", kwargs.get('dataset_name'))
+        self._save_figure(fig, "heatmap", str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None)
         return fig
 
     def plot_candlestick(
         self,
         variable: str,
-        display_metric: Optional[str] = None,
+        display_metric: str | None = None,
         display_partition: str = 'test',
-        aggregate: Optional[str] = None,
-        config: Optional[ChartConfig] = None,
+        aggregate: str | None = None,
+        config: ChartConfig | None = None,
         **kwargs
     ) -> Figure:
         """Plot candlestick chart for score distribution by variable.
@@ -840,7 +834,7 @@ class PredictionAnalyzer:
             aggregate=effective_aggregate,
             **kwargs
         )
-        self._save_figure(fig, "candlestick", kwargs.get('dataset_name'))
+        self._save_figure(fig, "candlestick", str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None)
         return fig
 
     # # Backward compatibility aliases
@@ -928,7 +922,7 @@ class PredictionAnalyzer:
     # BRANCH ANALYSIS METHODS (Phase 4)
     # =========================================================================
 
-    def get_branches(self) -> List[str]:
+    def get_branches(self) -> list[str]:
         """Get list of unique branch names in predictions.
 
         Returns:
@@ -943,7 +937,7 @@ class PredictionAnalyzer:
         except (ValueError, KeyError):
             return []
 
-    def get_branch_ids(self) -> List[int]:
+    def get_branch_ids(self) -> list[int]:
         """Get list of unique branch IDs in predictions.
 
         Returns:
@@ -962,12 +956,12 @@ class PredictionAnalyzer:
 
     def branch_summary(
         self,
-        metrics: Optional[List[str]] = None,
+        metrics: list[str] | None = None,
         display_partition: str = 'test',
-        aggregate: Optional[str] = None,
+        aggregate: str | None = None,
         as_dataframe: bool = True,
         **filters
-    ) -> Union[pd.DataFrame, Dict[str, Dict[str, Any]]]:
+    ) -> pd.DataFrame | dict[str, dict[str, Any]]:
         """Generate summary statistics comparing branch performance.
 
         Computes mean, std, min, max for each metric across branches.
@@ -1026,7 +1020,7 @@ class PredictionAnalyzer:
             return {}
 
         # Group predictions by branch
-        branch_data: Dict[str, List[Dict[str, Any]]] = {}
+        branch_data: dict[str, list[dict[str, Any]]] = {}
 
         for pred in all_preds:
             branch_name = pred.get('branch_name', 'no_branch')
@@ -1062,10 +1056,8 @@ class PredictionAnalyzer:
                         y_true = partition_data.get('y_true')
                         y_pred = partition_data.get('y_pred')
                         if y_true is not None and y_pred is not None:
-                            try:
+                            with contextlib.suppress(Exception):
                                 score = evaluator.eval(y_true, y_pred, metric)
-                            except Exception:
-                                pass
 
                     if score is not None:
                         scores.append(float(score))
@@ -1091,14 +1083,14 @@ class PredictionAnalyzer:
 
     def plot_branch_comparison(
         self,
-        rank_metric: Optional[str] = None,
-        display_metric: Optional[str] = None,
+        rank_metric: str | None = None,
+        display_metric: str | None = None,
         display_partition: str = 'test',
-        aggregate: Optional[str] = None,
+        aggregate: str | None = None,
         show_ci: bool = True,
         ci_level: float = 0.95,
-        figsize: Optional[tuple] = None,
-        config: Optional[ChartConfig] = None,
+        figsize: tuple | None = None,
+        config: ChartConfig | None = None,
         **filters
     ) -> Figure:
         """Plot bar chart comparing branch performance with confidence intervals.
@@ -1150,6 +1142,7 @@ class PredictionAnalyzer:
             **filters
         )
 
+        assert isinstance(summary_df, pd.DataFrame)
         if summary_df.empty:
             if figsize is None:
                 figsize = effective_config.get_figsize('small')
@@ -1160,15 +1153,15 @@ class PredictionAnalyzer:
             return fig
 
         # Prepare data
-        branch_names = summary_df['branch_name'].tolist()
-        means = summary_df[f'{display_metric}_mean'].tolist()
-        stds = summary_df[f'{display_metric}_std'].tolist()
-        counts = summary_df['count'].tolist()
+        branch_names: list[str] = summary_df['branch_name'].tolist()
+        means: list[float] = summary_df[f'{display_metric}_mean'].tolist()
+        stds: list[float] = summary_df[f'{display_metric}_std'].tolist()
+        counts: list[int] = summary_df['count'].tolist()
 
         # Compute confidence intervals
         if show_ci:
             errors = []
-            for std, n in zip(stds, counts):
+            for std, n in zip(stds, counts, strict=False):
                 if n > 1 and not np.isnan(std):
                     # Use t-distribution for small samples
                     t_crit = stats.t.ppf((1 + ci_level) / 2, n - 1)
@@ -1190,10 +1183,7 @@ class PredictionAnalyzer:
         higher_better = self._is_higher_better(display_metric)
 
         # Color bars based on ranking
-        if higher_better:
-            best_idx = np.nanargmax(means)
-        else:
-            best_idx = np.nanargmin(means)
+        best_idx = np.nanargmax(means) if higher_better else np.nanargmin(means)
 
         colors = ['#2ecc71' if i == best_idx else '#3498db'
                   for i in range(len(branch_names))]
@@ -1226,7 +1216,7 @@ class PredictionAnalyzer:
         ax.set_title(title, fontsize=effective_config.title_fontsize)
 
         # Add value labels on bars
-        for bar, mean, count in zip(bars, means, counts):
+        for bar, mean, count in zip(bars, means, counts, strict=False):
             if not np.isnan(mean):
                 ax.text(
                     bar.get_x() + bar.get_width() / 2, bar.get_height(),
@@ -1242,12 +1232,12 @@ class PredictionAnalyzer:
 
     def plot_branch_boxplot(
         self,
-        rank_metric: Optional[str] = None,
-        display_metric: Optional[str] = None,
+        rank_metric: str | None = None,
+        display_metric: str | None = None,
         display_partition: str = 'test',
-        aggregate: Optional[str] = None,
-        figsize: Optional[tuple] = None,
-        config: Optional[ChartConfig] = None,
+        aggregate: str | None = None,
+        figsize: tuple | None = None,
+        config: ChartConfig | None = None,
         **filters
     ) -> Figure:
         """Plot boxplot comparing score distributions across branches.
@@ -1307,7 +1297,7 @@ class PredictionAnalyzer:
             return fig
 
         # Group scores by branch
-        branch_scores: Dict[str, List[float]] = {}
+        branch_scores: dict[str, list[float]] = {}
 
         for pred in all_preds:
             branch_name = pred.get('branch_name', 'no_branch')
@@ -1320,10 +1310,8 @@ class PredictionAnalyzer:
                 y_true = partition_data.get('y_true')
                 y_pred = partition_data.get('y_pred')
                 if y_true is not None and y_pred is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         score = evaluator.eval(y_true, y_pred, display_metric)
-                    except Exception:
-                        pass
 
             if score is not None:
                 if branch_name not in branch_scores:
@@ -1356,11 +1344,11 @@ class PredictionAnalyzer:
 
         # Create boxplot
         data = [branch_scores[b] for b in sorted_branches]
-        bp = ax.boxplot(data, labels=sorted_branches, patch_artist=True)
+        bp = ax.boxplot(data, tick_labels=sorted_branches, patch_artist=True)
 
         # Color boxes
-        colors = plt.cm.viridis(np.linspace(0.2, 0.8, len(sorted_branches)))
-        for patch, color in zip(bp['boxes'], colors):
+        colors = plt.get_cmap("viridis")(np.linspace(0.2, 0.8, len(sorted_branches)))
+        for patch, color in zip(bp['boxes'], colors, strict=False):
             patch.set_facecolor(color)
             patch.set_alpha(0.7)
 
@@ -1394,11 +1382,11 @@ class PredictionAnalyzer:
     def plot_branch_heatmap(
         self,
         y_var: str = 'fold_id',
-        rank_metric: Optional[str] = None,
-        display_metric: Optional[str] = None,
+        rank_metric: str | None = None,
+        display_metric: str | None = None,
         display_partition: str = 'test',
-        aggregate: Optional[str] = None,
-        config: Optional[ChartConfig] = None,
+        aggregate: str | None = None,
+        config: ChartConfig | None = None,
         **kwargs
     ) -> Figure:
         """Plot heatmap of branch performance across folds or other variable.
@@ -1444,11 +1432,11 @@ class PredictionAnalyzer:
     def plot_branch_diagram(
         self,
         show_metrics: bool = True,
-        metric: Optional[str] = None,
+        metric: str | None = None,
         partition: str = 'test',
-        figsize: Optional[tuple] = None,
-        title: Optional[str] = None,
-        config: Optional[Dict[str, Any]] = None
+        figsize: tuple | None = None,
+        title: str | None = None,
+        config: dict[str, Any] | None = None
     ) -> Figure:
         """Plot DAG diagram showing the branching structure of the pipeline.
 
@@ -1494,11 +1482,11 @@ class PredictionAnalyzer:
         self,
         level1_var: str = 'branch_path_level1',
         level2_var: str = 'branch_path_level2',
-        metric: Optional[str] = None,
+        metric: str | None = None,
         partition: str = 'test',
         plot_type: str = 'grouped_bar',
-        figsize: Optional[tuple] = None,
-        config: Optional[ChartConfig] = None,
+        figsize: tuple | None = None,
+        config: ChartConfig | None = None,
         **filters
     ) -> Figure:
         """Plot nested branch comparison for hierarchical experiments.
@@ -1555,7 +1543,7 @@ class PredictionAnalyzer:
 
         # Group data by level1 and level2
         # For branch_path, we extract levels from the tuple
-        nested_data: Dict[str, Dict[str, List[float]]] = {}
+        nested_data: dict[str, dict[str, list[float]]] = {}
 
         for pred in all_preds:
             # Try to get level variables from prediction
@@ -1618,9 +1606,9 @@ class PredictionAnalyzer:
 
         # Create grouped bar chart
         level1_labels = sorted(nested_data.keys())
-        level2_labels = sorted(set(
-            l2 for l1_data in nested_data.values() for l2 in l1_data.keys()
-        ))
+        level2_labels = sorted({
+            l2 for l1_data in nested_data.values() for l2 in l1_data
+        })
 
         if figsize is None:
             width = max(8, len(level1_labels) * len(level2_labels) * 0.5)
@@ -1630,19 +1618,19 @@ class PredictionAnalyzer:
 
         x = np.arange(len(level1_labels))
         width_bar = 0.8 / len(level2_labels)
-        colors = plt.cm.Set2(np.linspace(0, 1, len(level2_labels)))
+        colors = plt.get_cmap("Set2")(np.linspace(0, 1, len(level2_labels)))
 
         for i, level2 in enumerate(level2_labels):
-            means = []
-            stds = []
+            means: list[float] = []
+            stds: list[float] = []
             for level1 in level1_labels:
                 scores = nested_data.get(level1, {}).get(level2, [])
                 if scores:
-                    means.append(np.mean(scores))
-                    stds.append(np.std(scores))
+                    means.append(float(np.mean(scores)))
+                    stds.append(float(np.std(scores)))
                 else:
-                    means.append(0)
-                    stds.append(0)
+                    means.append(0.0)
+                    stds.append(0.0)
 
             offset = (i - len(level2_labels) / 2 + 0.5) * width_bar
             ax.bar(x + offset, means, width_bar, label=level2,
@@ -1678,9 +1666,9 @@ class PredictionAnalyzer:
         branch_comparison: bool = True,
         include_diagrams: bool = True,
         include_tables: bool = True,
-        metrics: Optional[List[str]] = None,
+        metrics: list[str] | None = None,
         partition: str = 'test',
-        title: Optional[str] = None
+        title: str | None = None
     ) -> str:
         """Generate HTML report with branch analysis.
 
@@ -1706,9 +1694,10 @@ class PredictionAnalyzer:
             ...     metrics=['rmse', 'r2', 'mae']
             ... )
         """
-        import os
         import base64
+        import os
         from io import BytesIO
+
         import matplotlib.pyplot as plt
 
         if metrics is None:
@@ -1858,7 +1847,7 @@ class PredictionAnalyzer:
         from datetime import datetime
         return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    def _summary_to_html_table(self, summary, metrics: List[str]) -> str:
+    def _summary_to_html_table(self, summary, metrics: list[str]) -> str:
         """Convert branch summary to HTML table.
 
         Args:

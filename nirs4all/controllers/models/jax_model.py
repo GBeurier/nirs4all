@@ -13,14 +13,16 @@ Lazy loading pattern: JAX is only imported when actually needed
 for training or prediction, not at module import time.
 """
 
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
-import numpy as np
 import copy
+from typing import TYPE_CHECKING, Any, Optional
 
-from ..models.base_model import BaseModelController
+import numpy as np
+
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
-from nirs4all.utils.backend import is_available, require_backend, is_gpu_available
+from nirs4all.utils.backend import is_available, is_gpu_available, require_backend
+
+from ..models.base_model import BaseModelController
 
 logger = get_logger(__name__)
 
@@ -28,23 +30,22 @@ logger = get_logger(__name__)
 JAX_AVAILABLE = is_available('jax')
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
-    from nirs4all.pipeline.config.context import ExecutionContext
+    from nirs4all.data.predictions import Predictions
+    from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.pipeline.steps.parser import ParsedStep
     try:
+        import flax.linen as nn
         import jax
         import jax.numpy as jnp
-        import flax.linen as nn
         import optax
         from flax.training import train_state
     except ImportError:
         pass
 
-
 # Lazy-loaded module cache
-_jax_modules: Dict[str, Any] = {}
-
+_jax_modules: dict[str, Any] = {}
 
 def _get_jax():
     """Lazy load JAX with caching."""
@@ -56,7 +57,6 @@ def _get_jax():
         _jax_modules['jnp'] = jnp
     return _jax_modules['jax']
 
-
 def _get_flax():
     """Lazy load Flax with caching."""
     if 'flax' not in _jax_modules:
@@ -65,7 +65,6 @@ def _get_flax():
         _jax_modules['flax'] = nn
     return _jax_modules['flax']
 
-
 def _get_optax():
     """Lazy load Optax with caching."""
     if 'optax' not in _jax_modules:
@@ -73,7 +72,6 @@ def _get_optax():
         import optax
         _jax_modules['optax'] = optax
     return _jax_modules['optax']
-
 
 @register_controller
 class JaxModelController(BaseModelController):
@@ -107,10 +105,7 @@ class JaxModelController(BaseModelController):
             return True
 
         # Check operator if provided
-        if operator is not None and cls._is_jax_model(operator):
-            return True
-
-        return False
+        return bool(operator is not None and cls._is_jax_model(operator))
 
     @classmethod
     def _is_jax_model(cls, obj: Any) -> bool:
@@ -144,7 +139,7 @@ class JaxModelController(BaseModelController):
         except Exception:
             return False
 
-    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> Any:
+    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: dict[str, Any], force_params: dict[str, Any] | None = None) -> Any:
         """Create JAX model instance from configuration."""
         require_backend('jax', feature='JAX/Flax models')
 
@@ -157,7 +152,7 @@ class JaxModelController(BaseModelController):
             force_params or {}
         )
 
-    def _create_train_state(self, rng, model, input_shape, learning_rate):
+    def _create_train_state(self, rng: Any, model: Any, input_shape: tuple[int, ...], learning_rate: float) -> Any:
         """Create initial training state."""
         jnp = _jax_modules['jnp']
         optax = _get_optax()
@@ -180,8 +175,8 @@ class JaxModelController(BaseModelController):
         model: Any,
         X_train: Any,
         y_train: Any,
-        X_val: Optional[Any] = None,
-        y_val: Optional[Any] = None,
+        X_val: Any | None = None,
+        y_val: Any | None = None,
         **kwargs
     ) -> Any:
         """Train JAX model with custom training loop."""
@@ -370,7 +365,7 @@ class JaxModelController(BaseModelController):
         else:
             raise ValueError("Model must be a JaxModelWrapper instance for prediction")
 
-    def _predict_proba_model(self, model: Any, X: Any) -> Optional[np.ndarray]:
+    def _predict_proba_model(self, model: Any, X: Any) -> np.ndarray | None:
         """Get class probabilities from JAX classification model.
 
         Returns softmax probabilities for classification models.
@@ -412,15 +407,15 @@ class JaxModelController(BaseModelController):
     def _prepare_data(
         self,
         X: np.ndarray,
-        y: Optional[np.ndarray],
+        y: np.ndarray | None,
         context: 'ExecutionContext'
-    ) -> Tuple[Any, Optional[Any]]:
+    ) -> tuple[Any, Any | None]:
         """Prepare data for JAX."""
         # Import here to avoid loading JAX at module import time
         from .jax.data_prep import JaxDataPreparation
         return JaxDataPreparation.prepare_data(X, y)
 
-    def _evaluate_model(self, model: Any, X_val: Any, y_val: Any, metric: Optional[str] = None, direction: str = "minimize") -> float:
+    def _evaluate_model(self, model: Any, X_val: Any, y_val: Any, metric: str | None = None, direction: str = "minimize") -> float:
         """Evaluate JAX model."""
         # Import wrapper here (lazy)
         from .jax_wrapper import JaxModelWrapper
@@ -478,15 +473,14 @@ class JaxModelController(BaseModelController):
 
         # Check if source is a JaxModelWrapper with stored params
         from .jax_wrapper import JaxModelWrapper
-        if isinstance(source_model, JaxModelWrapper):
-            if hasattr(source_model, 'params') and source_model.params is not None:
-                # Attach warm-start params to the model for _train_model to pick up
-                model._warm_start_params = source_model.params
-                return model
+        if isinstance(source_model, JaxModelWrapper) and hasattr(source_model, 'params') and source_model.params is not None:
+            # Attach warm-start params to the model for _train_model to pick up
+            model._warm_start_params = source_model.params
+            return model
 
         return model
 
-    def process_hyperparameters(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def process_hyperparameters(self, params: dict[str, Any]) -> dict[str, Any]:
         """Process hyperparameters for JAX model tuning."""
         # JAX implementation is simple, no complex nesting needed yet
         return params
@@ -499,9 +493,9 @@ class JaxModelController(BaseModelController):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
+        loaded_binaries: list[tuple[str, bytes]] | None = None,
         prediction_store: 'Predictions' = None
-    ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
+    ) -> tuple['ExecutionContext', list[tuple[str, bytes]]]:
         """Execute JAX model controller."""
         if not JAX_AVAILABLE:
             raise ImportError(

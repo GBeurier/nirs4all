@@ -32,23 +32,27 @@ import json
 
 # Third-party imports
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.linear_model import Ridge, ElasticNet
+from sklearn.linear_model import ElasticNet, Ridge
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 import nirs4all
 from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
     FirstDerivative,
 )
+from nirs4all.operators.transforms import (
+    MultiplicativeScatterCorrection as MSC,
+)
+from nirs4all.operators.transforms import (
+    StandardNormalVariate as SNV,
+)
 from nirs4all.pipeline.config.generator import (
-    expand_spec,
-    count_combinations,
-    register_preset,
-    list_presets,
     clear_presets,
+    count_combinations,
+    expand_spec,
+    list_presets,
+    register_preset,
     resolve_presets_recursive,
 )
 
@@ -57,7 +61,6 @@ parser = argparse.ArgumentParser(description='D02 Generator Advanced Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -75,7 +78,6 @@ Basic generators can explode combinatorially. Advanced features help:
     Zip:          Paired parameter sweeps
     Sample:       Random subset of search space
 """)
-
 
 # =============================================================================
 # Section 1: _mutex_ - Mutually Exclusive Options
@@ -99,12 +101,11 @@ spec_mutex = {
 }
 
 print(f"Spec: {json.dumps(spec_mutex, indent=2)}")
-print(f"Without _mutex_: C(4,2) = 6 combinations")
+print("Without _mutex_: C(4,2) = 6 combinations")
 results = expand_spec(spec_mutex)
 print(f"With _mutex_: {len(results)} combinations")
 for i, r in enumerate(results):
     print(f"  [{i}]: {r}")
-
 
 # =============================================================================
 # Section 2: _requires_ - Dependency Constraints
@@ -133,7 +134,6 @@ print(f"With _requires_: {len(results)} combinations")
 for i, r in enumerate(results):
     print(f"  [{i}]: {r}")
 
-
 # =============================================================================
 # Section 3: _exclude_ - Explicit Exclusion
 # =============================================================================
@@ -160,7 +160,6 @@ results = expand_spec(spec_exclude)
 print(f"With _exclude_: {len(results)} combinations")
 for i, r in enumerate(results):
     print(f"  [{i}]: {r}")
-
 
 # =============================================================================
 # Section 4: _grid_ - Full Grid Search
@@ -196,7 +195,6 @@ for i, r in enumerate(results[:6]):
 if len(results) > 6:
     print(f"  ... and {len(results) - 6} more")
 
-
 # =============================================================================
 # Section 5: _zip_ - Paired Parameters
 # =============================================================================
@@ -228,7 +226,6 @@ results = expand_spec(spec_zip)
 print(f"_zip_ generates: {len(results)} paired combinations")
 for i, r in enumerate(results):
     print(f"  [{i}]: {r}")
-
 
 # =============================================================================
 # Section 6: _chain_ - Sequential Generators
@@ -262,7 +259,6 @@ results = expand_spec(spec_chain)
 print(f"_chain_ generates: {len(results)} configurations in order")
 for i, r in enumerate(results):
     print(f"  [{i}]: {r}")
-
 
 # =============================================================================
 # Section 7: _sample_ - Random Sampling
@@ -299,7 +295,6 @@ print(f"Normal (mean=0, std=1): {[round(x, 3) for x in results]}")
 spec_choice = {"_sample_": {"distribution": "choice", "values": ["A", "B", "C", "D", "E"], "num": 3}}
 results = expand_spec(spec_choice, seed=42)
 print(f"Choice from [A,B,C,D,E]: {results}")
-
 
 # =============================================================================
 # Section 8: Presets - Named Configurations
@@ -338,7 +333,6 @@ print(f"\nConfig with preset: {json.dumps(config_with_preset, indent=2)}")
 resolved = resolve_presets_recursive(config_with_preset)
 print(f"Resolved: {json.dumps(resolved, indent=2)}")
 
-
 # =============================================================================
 # Section 9: Running Pipeline with Generators
 # =============================================================================
@@ -370,7 +364,6 @@ result = nirs4all.run(
 )
 
 print(f"\nTotal predictions: {result.num_predictions}")
-
 
 # =============================================================================
 # Summary

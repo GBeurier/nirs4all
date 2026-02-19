@@ -16,15 +16,13 @@ import numpy as np
 import pytest
 from sklearn.base import clone
 
-from nirs4all.operators.models.sklearn.aom_pls import IdentityOperator, SavitzkyGolayOperator, DetrendProjectionOperator
+from nirs4all.operators.models.sklearn.aom_pls import DetrendProjectionOperator, IdentityOperator, SavitzkyGolayOperator
 from nirs4all.operators.models.sklearn.pop_pls import POPPLSRegressor
 from nirs4all.operators.models.sklearn.pop_pls_classifier import POPPLSClassifier
-
 
 # =============================================================================
 # Fixtures
 # =============================================================================
-
 
 @pytest.fixture
 def regression_data():
@@ -37,7 +35,6 @@ def regression_data():
     y = X[:, 30:50].mean(axis=1) + 0.5 * X[:, 100:120].mean(axis=1) + 0.1 * rng.randn(n_samples)
     return X, y
 
-
 @pytest.fixture
 def small_data():
     """Small dataset for quick tests."""
@@ -46,7 +43,6 @@ def small_data():
     y = X[:, :5].sum(axis=1) + 0.1 * rng.randn(50)
     return X, y
 
-
 @pytest.fixture
 def val_data():
     """Validation data."""
@@ -54,7 +50,6 @@ def val_data():
     X = rng.randn(30, 100)
     y = X[:, :5].sum(axis=1) + 0.1 * rng.randn(30)
     return X, y
-
 
 @pytest.fixture
 def binary_data():
@@ -65,7 +60,6 @@ def binary_data():
     labels = np.array(["classA", "classB"])
     return X, labels[y]
 
-
 @pytest.fixture
 def multiclass_data():
     """3-class classification data."""
@@ -75,11 +69,9 @@ def multiclass_data():
     y = np.where(scores < -0.5, "low", np.where(scores > 0.5, "high", "mid"))
     return X, y
 
-
 # =============================================================================
 # POPPLSRegressor Tests
 # =============================================================================
-
 
 class TestPOPPLSRegressor:
     """Test POPPLSRegressor basic functionality."""
@@ -152,11 +144,9 @@ class TestPOPPLSRegressor:
         preds = model.predict(X)
         assert preds.shape == Y.shape
 
-
 # =============================================================================
 # Per-Component Operator Selection Tests
 # =============================================================================
-
 
 class TestPerComponentSelection:
     """Test that POP-PLS selects different operators per component."""
@@ -214,11 +204,9 @@ class TestPerComponentSelection:
         # With a small diverse bank, we should see at least 1 operator used
         assert len(set(ops)) >= 1
 
-
 # =============================================================================
 # Auto-Select and Validation Tests
 # =============================================================================
-
 
 class TestAutoSelect:
     """Test holdout-based and validation-based component selection."""
@@ -253,11 +241,9 @@ class TestAutoSelect:
         assert model.n_components_ <= 25
         assert model.n_components_ >= 1
 
-
 # =============================================================================
 # Auto n_orth Tests
 # =============================================================================
-
 
 class TestAutoNOrth:
     """Test automatic n_orth tuning."""
@@ -283,11 +269,9 @@ class TestAutoNOrth:
         model.fit(X, y)
         assert model._P_orth is not None
 
-
 # =============================================================================
 # OPLS Pre-filter Tests
 # =============================================================================
-
 
 class TestOPLS:
     """Test OPLS orthogonal pre-filter integration."""
@@ -307,11 +291,9 @@ class TestOPLS:
         assert preds.shape == y.shape
         assert not np.any(np.isnan(preds))
 
-
 # =============================================================================
 # sklearn Compatibility Tests
 # =============================================================================
-
 
 class TestSklearnCompat:
     """Test sklearn API compatibility."""
@@ -347,11 +329,9 @@ class TestSklearnCompat:
         model = POPPLSRegressor()
         assert model._estimator_type == "regressor"
 
-
 # =============================================================================
 # Determinism Tests
 # =============================================================================
-
 
 class TestDeterminism:
     """Test deterministic outputs."""
@@ -378,11 +358,9 @@ class TestDeterminism:
 
         np.testing.assert_array_equal(model1.gamma_, model2.gamma_)
 
-
 # =============================================================================
 # Edge Cases
 # =============================================================================
-
 
 class TestEdgeCases:
     """Test edge cases."""
@@ -413,11 +391,9 @@ class TestEdgeCases:
         # Identity should be auto-added
         assert any("identity" in name for name in model.block_names_)
 
-
 # =============================================================================
 # POPPLSClassifier Tests
 # =============================================================================
-
 
 class TestPOPPLSClassifier:
     """Test POPPLSClassifier for binary and multiclass tasks."""

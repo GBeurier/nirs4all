@@ -8,21 +8,22 @@ folder paths, artifact IDs, bundles, and trace IDs are resolved via
 PredictionResolver.
 """
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 
+from nirs4all.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
-from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata, LoaderArtifactProvider
+from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, LoaderArtifactProvider, PipelineState, StepMetadata
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
-
-from nirs4all.core.logging import get_logger
+from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
 
 logger = get_logger(__name__)
-
 
 class Explainer:
     """Handles SHAP explanation generation for trained models.
@@ -47,21 +48,21 @@ class Explainer:
             runner: Parent PipelineRunner instance.
         """
         self.runner = runner
-        self.pipeline_uid: Optional[str] = None
-        self.artifact_loader: Optional[ArtifactLoader] = None
-        self.config_path: Optional[str] = None
-        self.target_model: Optional[Dict[str, Any]] = None
-        self.captured_model: Optional[Tuple[Any, Any]] = None
+        self.pipeline_uid: str | None = None
+        self.artifact_loader: ArtifactLoader | None = None
+        self.config_path: str | None = None
+        self.target_model: dict[str, Any] | None = None
+        self.captured_model: tuple[Any, Any] | None = None
 
     def explain(
         self,
-        prediction_obj: Union[Dict[str, Any], str],
-        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        prediction_obj: dict[str, Any] | str,
+        dataset: DatasetConfigs | SpectroDataset | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         dataset_name: str = "explain_dataset",
-        shap_params: Optional[Dict[str, Any]] = None,
+        shap_params: dict[str, Any] | None = None,
         verbose: int = 0,
         plots_visible: bool = True,
-    ) -> Tuple[Dict[str, Any], str]:
+    ) -> tuple[dict[str, Any], str]:
         """Generate SHAP explanations for a saved model.
 
         Args:
@@ -229,10 +230,10 @@ class Explainer:
 
     def _prepare_replay(
         self,
-        selection_obj: Union[Dict[str, Any], str],
+        selection_obj: dict[str, Any] | str,
         dataset_config: DatasetConfigs,
         verbose: int = 0,
-    ) -> List[Any]:
+    ) -> list[Any]:
         """Prepare pipeline replay from saved configuration using PredictionResolver.
 
         Uses PredictionResolver to resolve the prediction source, then extracts
@@ -260,10 +261,7 @@ class Explainer:
         resolved = resolver.resolve(selection_obj, verbose=verbose)
 
         # Extract target model metadata
-        if isinstance(selection_obj, dict):
-            target_model = {k: v for k, v in selection_obj.items() if k not in ("y_pred", "y_true", "X")}
-        else:
-            target_model = dict(resolved.target_model) if resolved.target_model else {}
+        target_model = {k: v for k, v in selection_obj.items() if k not in ("y_pred", "y_true", "X")} if isinstance(selection_obj, dict) else dict(resolved.target_model) if resolved.target_model else {}
 
         self.target_model = target_model
         self.runner.target_model = target_model

@@ -36,7 +36,7 @@ Bibliography / references:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 
@@ -75,17 +75,17 @@ class AggregateComponent:
     """
 
     name: str
-    components: Dict[str, float]
+    components: dict[str, float]
     description: str
     domain: str
     category: str = ""
     spectral_category: str = ""  # Primary chemical/spectral category (proteins, lipids, carbohydrates, alcohols, minerals, etc.)
-    variability: Dict[str, Tuple[float, float]] = field(default_factory=dict)
-    correlations: List[Tuple[str, str, float]] = field(default_factory=list)
-    tags: List[str] = field(default_factory=list)
-    references: List[str] = field(default_factory=list)
+    variability: dict[str, tuple[float, float]] = field(default_factory=dict)
+    correlations: list[tuple[str, str, float]] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    references: list[str] = field(default_factory=list)
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         """
         Validate aggregate definition.
 
@@ -140,12 +140,11 @@ class AggregateComponent:
             lines.append(f"Tags: {', '.join(self.tags)}")
         return "\n".join(lines)
 
-
 # =============================================================================
 # Predefined Aggregate Components
 # =============================================================================
 
-AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
+AGGREGATE_COMPONENTS: dict[str, AggregateComponent] = {
     # =========================================================================
     # AGRICULTURAL - Grains
     # =========================================================================
@@ -438,7 +437,6 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
         tags=["legume", "pulse", "agriculture"],
         references=["USDA_FDC_2019"],
     ),
-
 
     # =========================================================================
     # AGRICULTURAL - Plant Tissue
@@ -1735,11 +1733,9 @@ AGGREGATE_COMPONENTS: Dict[str, AggregateComponent] = {
     ),
 }
 
-
 # =============================================================================
 # API Functions
 # =============================================================================
-
 
 def get_aggregate(name: str) -> AggregateComponent:
     """
@@ -1764,12 +1760,11 @@ def get_aggregate(name: str) -> AggregateComponent:
         raise ValueError(f"Unknown aggregate: '{name}'. Available: {available}")
     return AGGREGATE_COMPONENTS[name]
 
-
 def list_aggregates(
-    domain: Optional[str] = None,
-    category: Optional[str] = None,
-    tags: Optional[List[str]] = None,
-) -> List[str]:
+    domain: str | None = None,
+    category: str | None = None,
+    tags: list[str] | None = None,
+) -> list[str]:
     """
     List available aggregate components with optional filtering.
 
@@ -1798,20 +1793,18 @@ def list_aggregates(
             continue
         if category and agg.category != category:
             continue
-        if tags:
-            if not any(t in agg.tags for t in tags):
-                continue
+        if tags and not any(t in agg.tags for t in tags):
+            continue
         results.append(name)
 
     return sorted(results)
 
-
 def expand_aggregate(
     name: str,
     variability: bool = False,
-    random_state: Optional[int] = None,
+    random_state: int | None = None,
     renormalize: bool = True,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Expand an aggregate into component weights.
 
@@ -1889,7 +1882,6 @@ def expand_aggregate(
 
     return result
 
-
 def aggregate_info(name: str) -> str:
     """
     Return formatted information about an aggregate.
@@ -1906,8 +1898,7 @@ def aggregate_info(name: str) -> str:
     agg = get_aggregate(name)
     return agg.info()
 
-
-def list_domains() -> List[str]:
+def list_domains() -> list[str]:
     """
     List all unique domains across aggregates.
 
@@ -1924,8 +1915,7 @@ def list_domains() -> List[str]:
         domains.add(agg.domain)
     return sorted(domains)
 
-
-def list_categories(domain: Optional[str] = None) -> Dict[str, List[str]]:
+def list_categories(domain: str | None = None) -> dict[str, list[str]]:
     """
     List categories and their aggregates, optionally filtered by domain.
 
@@ -1940,7 +1930,7 @@ def list_categories(domain: Optional[str] = None) -> Dict[str, List[str]]:
         >>> for cat, aggs in cats.items():
         ...     print(f"{cat}: {aggs}")
     """
-    categories: Dict[str, List[str]] = {}
+    categories: dict[str, list[str]] = {}
 
     for name, agg in AGGREGATE_COMPONENTS.items():
         if domain and agg.domain != domain:
@@ -1954,8 +1944,7 @@ def list_categories(domain: Optional[str] = None) -> Dict[str, List[str]]:
 
     return categories
 
-
-def validate_aggregates() -> List[str]:
+def validate_aggregates() -> list[str]:
     """
     Validate all predefined aggregates.
 

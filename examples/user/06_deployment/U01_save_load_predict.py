@@ -35,7 +35,7 @@ from sklearn.preprocessing import MinMaxScaler
 # NIRS4All imports
 import nirs4all
 from nirs4all.data import DatasetConfigs
-from nirs4all.operators.transforms import StandardNormalVariate, FirstDerivative
+from nirs4all.operators.transforms import FirstDerivative, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 # Parse command-line arguments
@@ -43,7 +43,6 @@ parser = argparse.ArgumentParser(description='U01 Save Load Predict Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Why Model Persistence?
@@ -71,7 +70,6 @@ Model persistence allows you to:
      ✓ Share models with colleagues
      ✓ Compare predictions over time
 """)
-
 
 # =============================================================================
 # Section 2: Training with Model Saving
@@ -121,7 +119,6 @@ print(f"Test MSE: {test_mse:.4f}" if test_mse is not None else "Test MSE: (see d
 reference_predictions = best_prediction['y_pred'][:5].flatten()
 print(f"Reference predictions (first 5): {reference_predictions}")
 
-
 # =============================================================================
 # Section 3: Prediction with Prediction Entry
 # =============================================================================
@@ -150,7 +147,6 @@ print(f"New predictions (first 5): {new_predictions[:5].flatten()}")
 is_identical = np.allclose(new_predictions[:5].flatten(), reference_predictions)
 print(f"Identical to training: {'YES ✓' if is_identical else 'NO ✗'}")
 
-
 # =============================================================================
 # Section 4: Prediction with Model ID
 # =============================================================================
@@ -175,7 +171,6 @@ print(f"Predictions (first 5): {id_predictions[:5].flatten()}")
 # Verify consistency
 is_identical = np.allclose(id_predictions[:5].flatten(), reference_predictions)
 print(f"Identical to training: {'YES ✓' if is_identical else 'NO ✗'}")
-
 
 # =============================================================================
 # Section 5: Prediction on New Data
@@ -203,7 +198,6 @@ print(f"New data shape: {X_new.shape}")
 print(f"Predictions shape: {synthetic_predictions.shape}")
 print(f"Predictions: {synthetic_predictions.flatten()}")
 
-
 # =============================================================================
 # Section 6: Accessing Full Prediction Metadata
 # =============================================================================
@@ -228,13 +222,12 @@ print(f"Number of prediction entries: {len(preds_obj)}")
 # Access prediction metadata - predictions from predict() may have different structure
 if hasattr(preds_obj, 'predictions') and preds_obj.predictions:
     pred_entry = preds_obj.predictions[0]
-    print(f"\nPrediction metadata:")
+    print("\nPrediction metadata:")
     print(f"   Model: {pred_entry.get('model_name', 'N/A')}")
     print(f"   Preprocessings: {pred_entry.get('preprocessings', 'N/A')}")
     print(f"   Partition: {pred_entry.get('partition', 'N/A')}")
 else:
     print("\nPrediction complete successfully")
-
 
 # =============================================================================
 # Section 7: Multiple Model Predictions
@@ -254,7 +247,6 @@ print("Comparing top 3 models on new data:")
 for i, pred_entry in enumerate(top_models, 1):
     model_predictions, _ = predictor.predict(pred_entry, prediction_dataset, verbose=0)
     print(f"   {i}. {pred_entry['model_name']}: {model_predictions[:3].flatten()}")
-
 
 # =============================================================================
 # Summary

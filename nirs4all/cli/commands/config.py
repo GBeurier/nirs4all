@@ -11,13 +11,9 @@ from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-
 def config_validate(args):
     """Validate a configuration file."""
-    from nirs4all.config.validator import (
-        validate_config_file,
-        get_validation_summary
-    )
+    from nirs4all.config.validator import get_validation_summary, validate_config_file
 
     config_path = args.config_file
 
@@ -49,19 +45,15 @@ def config_validate(args):
     else:
         sys.exit(1)
 
-
 def config_show_schema(args):
     """Display the JSON schema for a configuration type."""
     import json
-    from nirs4all.config.validator import PIPELINE_SCHEMA, DATASET_SCHEMA
 
-    if args.schema_type == 'pipeline':
-        schema = PIPELINE_SCHEMA
-    else:
-        schema = DATASET_SCHEMA
+    from nirs4all.config.validator import DATASET_SCHEMA, PIPELINE_SCHEMA
+
+    schema = PIPELINE_SCHEMA if args.schema_type == 'pipeline' else DATASET_SCHEMA
 
     print(json.dumps(schema, indent=2))
-
 
 def add_config_commands(subparsers):
     """Add config commands to CLI."""

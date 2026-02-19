@@ -1,16 +1,15 @@
 """Step runner for executing individual pipeline steps."""
-from typing import Any, List, Optional, Tuple
+from typing import Any, Optional
 
+from nirs4all.core.logging import get_logger
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.context import ExecutionContext
-from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.execution.result import ArtifactMeta, StepResult
 from nirs4all.pipeline.steps.parser import ParsedStep, StepParser, StepType
 from nirs4all.pipeline.steps.router import ControllerRouter
 
 logger = get_logger(__name__)
-
 
 class StepRunner:
     """Executes a single pipeline step.
@@ -30,8 +29,8 @@ class StepRunner:
 
     def __init__(
         self,
-        parser: Optional[StepParser] = None,
-        router: Optional[ControllerRouter] = None,
+        parser: StepParser | None = None,
+        router: ControllerRouter | None = None,
         verbose: int = 0,
         mode: str = "train",
         show_spinner: bool = True,
@@ -61,8 +60,8 @@ class StepRunner:
         dataset: SpectroDataset,
         context: ExecutionContext,
         runtime_context: Any,  # RuntimeContext
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Predictions] = None
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Predictions | None = None
     ) -> StepResult:
         """Execute a single pipeline step.
 

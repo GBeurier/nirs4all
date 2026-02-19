@@ -3,11 +3,13 @@ Step 5 Tests: Dataset Configuration Persistence
 Test that header_unit is properly threaded through dataset_config.py
 and persisted in the dataset.
 """
+import os
+import tempfile
+from pathlib import Path
+
 import numpy as np
 import pytest
-from pathlib import Path
-import tempfile
-import os
+
 from nirs4all.data.config import DatasetConfigs
 
 
@@ -30,7 +32,6 @@ def write_csv(path, data, header=None, delimiter=';'):
                 f.write(delimiter.join(str(v) for v in row) + '\n')
             else:
                 f.write(str(row) + '\n')
-
 
 class TestDatasetConfigHeaderUnit:
     """Test header_unit persistence through DatasetConfigs"""

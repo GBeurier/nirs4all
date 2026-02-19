@@ -6,12 +6,14 @@ including the configure_logging() function and related utilities.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Optional, Union
+from typing import Any, Optional, Union
 
 from .context import LogContext, get_current_state, inject_context
 from .events import Phase, Status
@@ -27,11 +29,9 @@ from .formatters import (
 )
 from .handlers import RotatingRunFileHandler, ThrottledHandler
 
-
 # Custom log level for TRACE (below DEBUG)
 TRACE = 5
 logging.addLevelName(TRACE, "TRACE")
-
 
 class LogConfig:
     """Global logging configuration."""
@@ -40,7 +40,7 @@ class LogConfig:
         """Initialize with defaults."""
         self.verbose: int = 1
         self.log_file: bool = False
-        self.log_dir: Optional[Path] = None
+        self.log_dir: Path | None = None
         self.log_format: str = "pretty"
         self.use_unicode: bool = True
         self.use_colors: bool = True
@@ -48,26 +48,24 @@ class LogConfig:
         self.show_progress: bool = True
         self.show_progress_bar: bool = True
         self.json_output: bool = False
-        self.run_id: Optional[str] = None
+        self.run_id: str | None = None
 
         # File rotation settings
         self.max_log_runs: int = 100
-        self.max_log_age_days: Optional[int] = 30
-        self.max_log_bytes: Optional[int] = None
+        self.max_log_age_days: int | None = 30
+        self.max_log_bytes: int | None = None
         self.compress_logs: bool = True
 
         # Handlers
-        self._console_handler: Optional[logging.Handler] = None
-        self._file_handler: Optional[RotatingRunFileHandler] = None
-        self._throttle_handler: Optional[ThrottledHandler] = None
+        self._console_handler: logging.Handler | None = None
+        self._file_handler: RotatingRunFileHandler | None = None
+        self._throttle_handler: ThrottledHandler | None = None
 
         # Configured flag
         self._configured: bool = False
 
-
 # Global configuration instance
 _config = LogConfig()
-
 
 def _get_level_from_verbose(verbose: int) -> int:
     """Convert verbose level to logging level.
@@ -85,7 +83,6 @@ def _get_level_from_verbose(verbose: int) -> int:
         3: TRACE,
     }
     return mapping.get(verbose, logging.INFO)
-
 
 def _detect_color_support() -> bool:
     """Detect if terminal supports ANSI colors.
@@ -109,11 +106,7 @@ def _detect_color_support() -> bool:
 
     # Check for dumb terminal
     term = os.environ.get("TERM", "")
-    if term == "dumb":
-        return False
-
-    return True
-
+    return term != "dumb"
 
 def _detect_unicode_support() -> bool:
     """Detect if terminal supports Unicode.
@@ -145,22 +138,21 @@ def _detect_unicode_support() -> bool:
 
     return False
 
-
 def configure_logging(
     verbose: int = 1,
     log_file: bool = False,
-    log_dir: Optional[Union[str, Path]] = None,
+    log_dir: str | Path | None = None,
     log_format: str = "pretty",
-    use_unicode: Optional[bool] = None,
-    use_colors: Optional[bool] = None,
+    use_unicode: bool | None = None,
+    use_colors: bool | None = None,
     show_elapsed: bool = False,
     show_progress: bool = True,
     show_progress_bar: bool = True,
     json_output: bool = False,
-    run_id: Optional[str] = None,
+    run_id: str | None = None,
     max_log_runs: int = 100,
-    max_log_age_days: Optional[int] = 30,
-    max_log_bytes: Optional[int] = None,
+    max_log_age_days: int | None = 30,
+    max_log_bytes: int | None = None,
     compress_logs: bool = True,
 ) -> None:
     """Configure the nirs4all logging system.
@@ -298,7 +290,6 @@ def configure_logging(
 
     _config._configured = True
 
-
 def get_config() -> LogConfig:
     """Get the current logging configuration.
 
@@ -307,7 +298,6 @@ def get_config() -> LogConfig:
     """
     return _config
 
-
 def is_configured() -> bool:
     """Check if logging has been configured.
 
@@ -315,7 +305,6 @@ def is_configured() -> bool:
         True if configure_logging() has been called.
     """
     return _config._configured
-
 
 def reset_logging() -> None:
     """Reset logging configuration to defaults.
@@ -337,31 +326,24 @@ def reset_logging() -> None:
         _config._file_handler = None
 
     if _config._throttle_handler is not None:
-        try:
+        with contextlib.suppress(Exception):
             _config._throttle_handler.close()
-        except Exception:
-            pass
         _config._throttle_handler = None
 
     if _config._console_handler is not None:
-        try:
+        with contextlib.suppress(Exception):
             _config._console_handler.close()
-        except Exception:
-            pass
         _config._console_handler = None
 
     # Clear handlers from root logger
     root_logger = logging.getLogger("nirs4all")
     for handler in root_logger.handlers[:]:
-        try:
+        with contextlib.suppress(Exception):
             handler.close()
-        except Exception:
-            pass
         root_logger.removeHandler(handler)
 
     # Reset configuration
     _config = LogConfig()
-
 
 class Nirs4allLogger(logging.Logger):
     """Extended logger with nirs4all-specific methods.
@@ -383,8 +365,8 @@ class Nirs4allLogger(logging.Logger):
         self,
         level: int,
         msg: str,
-        status: Optional[Status] = None,
-        extra_fields: Optional[dict[str, Any]] = None,
+        status: Status | None = None,
+        extra_fields: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
         """Log a message with context injection.
@@ -416,9 +398,9 @@ class Nirs4allLogger(logging.Logger):
         msg: object,
         args: tuple,
         exc_info: Any,
-        func: Optional[str] = None,
-        extra: Optional[dict[str, Any]] = None,
-        sinfo: Optional[str] = None,
+        func: str | None = None,
+        extra: dict[str, Any] | None = None,
+        sinfo: str | None = None,
     ) -> logging.LogRecord:
         """Create a LogRecord with context injection.
 
@@ -441,7 +423,7 @@ class Nirs4allLogger(logging.Logger):
             self._log(TRACE, msg, args, **kwargs)
 
     def success(
-        self, msg: str, *args: Any, extra_fields: Optional[dict[str, Any]] = None, **kwargs: Any
+        self, msg: str, *args: Any, extra_fields: dict[str, Any] | None = None, **kwargs: Any
     ) -> None:
         """Log a success message.
 
@@ -456,7 +438,7 @@ class Nirs4allLogger(logging.Logger):
         )
 
     def starting(
-        self, msg: str, *args: Any, extra_fields: Optional[dict[str, Any]] = None, **kwargs: Any
+        self, msg: str, *args: Any, extra_fields: dict[str, Any] | None = None, **kwargs: Any
     ) -> None:
         """Log a starting/beginning message.
 
@@ -475,9 +457,9 @@ class Nirs4allLogger(logging.Logger):
         operation: str,
         current: int,
         total: int,
-        best_score: Optional[float] = None,
+        best_score: float | None = None,
         is_new_best: bool = False,
-        extra_fields: Optional[dict[str, Any]] = None,
+        extra_fields: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
         """Log a progress update.
@@ -517,8 +499,8 @@ class Nirs4allLogger(logging.Logger):
         name: str,
         value: float,
         scope: str = "cv",
-        fold: Optional[int] = None,
-        pipeline: Optional[str] = None,
+        fold: int | None = None,
+        pipeline: str | None = None,
         **kwargs: Any,
     ) -> None:
         """Log a metric value.
@@ -545,7 +527,7 @@ class Nirs4allLogger(logging.Logger):
         )
 
     def artifact(
-        self, artifact_type: str, path: Union[str, Path], size_bytes: Optional[int] = None, **kwargs: Any
+        self, artifact_type: str, path: str | Path, size_bytes: int | None = None, **kwargs: Any
     ) -> None:
         """Log an artifact save.
 
@@ -593,7 +575,7 @@ class Nirs4allLogger(logging.Logger):
         self.starting(f"{msg}...", extra_fields=extra_fields or None)
 
     def phase_complete(
-        self, phase: Phase, duration_seconds: Optional[float] = None, **extra_fields: Any
+        self, phase: Phase, duration_seconds: float | None = None, **extra_fields: Any
     ) -> None:
         """Log the completion of a workflow phase.
 
@@ -616,8 +598,8 @@ class Nirs4allLogger(logging.Logger):
     def run_header(
         self,
         run_name: str,
-        environment_info: Optional[dict[str, str]] = None,
-        reproducibility_info: Optional[dict[str, str]] = None,
+        environment_info: dict[str, str] | None = None,
+        reproducibility_info: dict[str, str] | None = None,
     ) -> None:
         """Log the run header block.
 
@@ -640,8 +622,8 @@ class Nirs4allLogger(logging.Logger):
         self,
         status: Status,
         duration_seconds: float,
-        best_pipeline: Optional[str] = None,
-        metrics: Optional[dict[str, float]] = None,
+        best_pipeline: str | None = None,
+        metrics: dict[str, float] | None = None,
     ) -> None:
         """Log the run footer block.
 
@@ -661,10 +643,8 @@ class Nirs4allLogger(logging.Logger):
         # Print footer directly to avoid formatting
         print(footer)
 
-
 # Replace default logger class
 logging.setLoggerClass(Nirs4allLogger)
-
 
 def get_logger(name: str) -> Nirs4allLogger:
     """Get a logger for the specified module.

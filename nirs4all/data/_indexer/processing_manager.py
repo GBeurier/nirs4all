@@ -5,7 +5,8 @@ This module provides the ProcessingManager class for managing processing
 lists using native Polars List(Utf8) type - no eval() needed!
 """
 
-from typing import List
+from typing import Any
+
 import polars as pl
 
 
@@ -35,7 +36,7 @@ class ProcessingManager:
         """
         self._store = store
 
-    def replace_processings(self, old_names: List[str], new_names: List[str]) -> None:
+    def replace_processings(self, old_names: list[str], new_names: list[str]) -> None:
         """
         Replace processing names across all samples.
 
@@ -78,7 +79,7 @@ class ProcessingManager:
             )
 
         # Create replacement mapping
-        replacement_map = {old: new for old, new in zip(old_names, new_names)}
+        replacement_map = dict(zip(old_names, new_names, strict=False))
 
         # Use map_elements for clean replacement
         def replace_in_list(proc_list):
@@ -97,7 +98,7 @@ class ProcessingManager:
         )
         self._store._df = updated_df
 
-    def reset_processings(self, new_processings: List[str]) -> None:
+    def reset_processings(self, new_processings: list[str]) -> None:
         """
         Reset processing names for all samples to a new list.
 
@@ -133,7 +134,7 @@ class ProcessingManager:
         )
         self._store._df = updated_df
 
-    def add_processings(self, new_processings: List[str]) -> None:
+    def add_processings(self, new_processings: list[str]) -> None:
         """
         Append processing names to all existing processing lists.
 
@@ -172,7 +173,7 @@ class ProcessingManager:
         )
         self._store._df = updated_df
 
-    def get_processings_for_sample(self, sample_id: int) -> List[str]:
+    def get_processings_for_sample(self, sample_id: int) -> list[str]:
         """
         Get the processing list for a specific sample.
 
@@ -195,7 +196,7 @@ class ProcessingManager:
         proc_list = row.select(pl.col("processings")).item()
         return proc_list if proc_list is not None else []
 
-    def validate_processing_format(self, processings: any) -> List[str]:
+    def validate_processing_format(self, processings: Any) -> list[str]:
         """
         Validate and normalize processing input to a list of strings.
 

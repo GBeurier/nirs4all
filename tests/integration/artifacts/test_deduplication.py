@@ -8,9 +8,10 @@ Tests the content-addressed storage deduplication:
 - Cross-run deduplication works correctly
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+import pytest
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import StandardScaler
@@ -18,8 +19,8 @@ from sklearn.preprocessing import StandardScaler
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
+from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 
 
 def create_test_dataset(n_samples: int = 100, n_features: int = 50) -> SpectroDataset:
@@ -35,7 +36,6 @@ def create_test_dataset(n_samples: int = 100, n_features: int = 50) -> SpectroDa
     dataset.add_targets(y[80:])
 
     return dataset
-
 
 class TestRegistryDeduplication:
     """Tests for ArtifactRegistry deduplication."""
@@ -173,7 +173,6 @@ class TestRegistryDeduplication:
         assert stats["unique_files"] == 1
         assert stats["deduplication_ratio"] == 0.8  # (5-1)/5
 
-
 class TestPersistDeduplication:
     """Tests for persist-level deduplication."""
 
@@ -200,7 +199,6 @@ class TestPersistDeduplication:
         # Only one file
         files = list(binaries_dir.glob("*"))
         assert len(files) == 1
-
 
 class TestCrossRunDeduplication:
     """Tests for deduplication across pipeline runs."""
@@ -284,7 +282,6 @@ class TestCrossRunDeduplication:
         assert len(artifact_files) >= 2, \
             "Different model params should produce different artifact files"
 
-
 class TestHashCollisionHandling:
     """Tests for handling hash collisions (edge case)."""
 
@@ -330,7 +327,6 @@ class TestHashCollisionHandling:
             # Verify the mean is correct (based on training data)
             expected_mean = np.array([i + 1])  # mean of [i, i+1, i+2]
             np.testing.assert_array_almost_equal(loaded.mean_, expected_mean)
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

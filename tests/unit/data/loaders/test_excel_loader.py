@@ -5,15 +5,14 @@ Tests loading .xlsx and .xls files with various configurations.
 Requires openpyxl to be installed for .xlsx files.
 """
 
-import pytest
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from nirs4all.data.loaders.excel_loader import ExcelLoader, load_excel
-
 
 # Check if openpyxl is available
 try:
@@ -21,7 +20,6 @@ try:
     HAS_OPENPYXL = True
 except ImportError:
     HAS_OPENPYXL = False
-
 
 class TestExcelLoaderSupports:
     """Tests for ExcelLoader.supports() method."""
@@ -39,7 +37,6 @@ class TestExcelLoaderSupports:
         """Test that ExcelLoader doesn't support other formats."""
         assert not ExcelLoader.supports(Path("data.csv"))
         assert not ExcelLoader.supports(Path("data.ods"))
-
 
 @pytest.mark.skipif(not HAS_OPENPYXL, reason="openpyxl not installed")
 class TestExcelLoaderLoad:
@@ -158,7 +155,6 @@ class TestExcelLoaderLoad:
         result = loader.load(simple_xlsx_file)
 
         assert result.report["engine"] == "openpyxl"
-
 
 @pytest.mark.skipif(not HAS_OPENPYXL, reason="openpyxl not installed")
 class TestLoadExcelFunction:

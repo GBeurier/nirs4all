@@ -5,13 +5,13 @@ Unit tests for configuration dataclasses.
 import pytest
 
 from nirs4all.synthesis.config import (
-    SyntheticDatasetConfig,
-    FeatureConfig,
-    TargetConfig,
-    MetadataConfig,
-    PartitionConfig,
     BatchEffectConfig,
+    FeatureConfig,
+    MetadataConfig,
     OutputConfig,
+    PartitionConfig,
+    SyntheticDatasetConfig,
+    TargetConfig,
 )
 
 
@@ -41,7 +41,6 @@ class TestFeatureConfig:
         assert config.complexity == "realistic"
         assert config.component_names == ["water", "protein"]
 
-
 class TestTargetConfig:
     """Tests for TargetConfig dataclass."""
 
@@ -65,7 +64,6 @@ class TestTargetConfig:
         assert config.range == (0, 100)
         assert config.transform == "log"
 
-
 class TestMetadataConfig:
     """Tests for MetadataConfig dataclass."""
 
@@ -83,7 +81,6 @@ class TestMetadataConfig:
         """Test repetition as range tuple."""
         config = MetadataConfig(n_repetitions=(2, 5))
         assert config.n_repetitions == (2, 5)
-
 
 class TestPartitionConfig:
     """Tests for PartitionConfig dataclass."""
@@ -107,7 +104,6 @@ class TestPartitionConfig:
         assert config.stratify is True
         assert config.shuffle is False
 
-
 class TestBatchEffectConfig:
     """Tests for BatchEffectConfig dataclass."""
 
@@ -125,7 +121,6 @@ class TestBatchEffectConfig:
         assert config.enabled is True
         assert config.n_batches == 5
 
-
 class TestOutputConfig:
     """Tests for OutputConfig dataclass."""
 
@@ -135,7 +130,6 @@ class TestOutputConfig:
         assert config.as_dataset is True
         assert config.include_metadata is False
         assert config.include_wavelengths is True
-
 
 class TestSyntheticDatasetConfig:
     """Tests for SyntheticDatasetConfig dataclass."""

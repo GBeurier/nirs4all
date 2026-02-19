@@ -1,10 +1,11 @@
 """Tests for data content hashing utility and SpectroDataset.content_hash()."""
 
-import numpy as np
 from unittest.mock import patch
 
-from nirs4all.utils.hashing import compute_data_hash
+import numpy as np
+
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.utils.hashing import compute_data_hash
 
 
 class TestComputeDataHash:
@@ -54,7 +55,6 @@ class TestComputeDataHash:
         """3D arrays hash deterministically."""
         X = np.random.RandomState(7).rand(20, 3, 100)
         assert compute_data_hash(X) == compute_data_hash(X.copy())
-
 
 class TestSpectroDatasetContentHash:
     """Tests for SpectroDataset.content_hash()."""
@@ -125,7 +125,6 @@ class TestSpectroDatasetContentHash:
         assert h1 == h2
         # Verify the internal cache is set
         assert ds._content_hash_cache is not None
-
 
 class TestDatasetMetadataHashing:
     """Tests metadata hashing path for get_dataset_metadata()."""

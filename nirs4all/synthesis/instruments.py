@@ -26,16 +26,16 @@ References:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union
+from enum import Enum, StrEnum
+from typing import Any, Optional, Union
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 
-from .wavenumber import wavenumber_to_wavelength, wavelength_to_wavenumber
+from .wavenumber import wavelength_to_wavenumber, wavenumber_to_wavelength
 
 
-class InstrumentCategory(str, Enum):
+class InstrumentCategory(StrEnum):
     """Categories of NIR instruments."""
     BENCHTOP = "benchtop"           # High-end laboratory instruments
     HANDHELD = "handheld"           # Portable/mobile instruments
@@ -45,8 +45,7 @@ class InstrumentCategory(str, Enum):
     FILTER = "filter"              # Discrete filter instruments
     DIODE_ARRAY = "diode_array"    # Diode array detectors
 
-
-class DetectorType(str, Enum):
+class DetectorType(StrEnum):
     """Types of NIR detectors."""
     SI = "si"                       # Silicon (400-1100 nm)
     INGAAS = "ingaas"              # InGaAs (900-1700 nm)
@@ -56,8 +55,7 @@ class DetectorType(str, Enum):
     MEMS = "mems"                   # MEMS-based spectrometers
     MCT = "mct"                     # Mercury cadmium telluride (cooled)
 
-
-class MonochromatorType(str, Enum):
+class MonochromatorType(StrEnum):
     """Types of wavelength selection mechanisms."""
     GRATING = "grating"             # Diffraction grating
     FT = "fourier_transform"        # Interferometer (FTIR)
@@ -66,7 +64,6 @@ class MonochromatorType(str, Enum):
     LVF = "lvf"                     # Linear variable filter
     DMD = "dmd"                     # Digital micromirror device
     FABRY_PEROT = "fabry_perot"    # MEMS Fabry-Perot
-
 
 @dataclass
 class SensorConfig:
@@ -86,12 +83,11 @@ class SensorConfig:
         overlap_range: Wavelength overlap with adjacent sensor for stitching (nm).
     """
     detector_type: DetectorType
-    wavelength_range: Tuple[float, float]
+    wavelength_range: tuple[float, float]
     spectral_resolution: float = 8.0
     noise_level: float = 1.0
     gain: float = 1.0
     overlap_range: float = 20.0  # nm of overlap for smooth stitching
-
 
 @dataclass
 class MultiSensorConfig:
@@ -111,12 +107,11 @@ class MultiSensorConfig:
         artifact_intensity: Intensity of stitching artifacts (0-1).
     """
     enabled: bool = False
-    sensors: List[SensorConfig] = field(default_factory=list)
+    sensors: list[SensorConfig] = field(default_factory=list)
     stitch_method: str = "weighted"  # weighted, average, first, last, optimal
     stitch_smoothing: float = 10.0   # nm
     add_stitch_artifacts: bool = True
     artifact_intensity: float = 0.02
-
 
 @dataclass
 class MultiScanConfig:
@@ -143,7 +138,6 @@ class MultiScanConfig:
     wavelength_jitter: float = 0.05    # nm of wavelength shift between scans
     discard_outliers: bool = False
     outlier_threshold: float = 3.0     # Z-score threshold
-
 
 @dataclass
 class EdgeArtifactsConfig:
@@ -203,7 +197,6 @@ class EdgeArtifactsConfig:
     left_curvature_severity: float = 0.0
     right_curvature_severity: float = 0.0
 
-
 @dataclass
 class InstrumentArchetype:
     """
@@ -238,11 +231,11 @@ class InstrumentArchetype:
     category: InstrumentCategory
     detector_type: DetectorType
     monochromator_type: MonochromatorType
-    wavelength_range: Tuple[float, float]
+    wavelength_range: tuple[float, float]
     spectral_resolution: float = 8.0
     wavelength_accuracy: float = 0.5
     photometric_noise: float = 0.0001  # AU
-    photometric_range: Tuple[float, float] = (0.0, 3.0)
+    photometric_range: tuple[float, float] = (0.0, 3.0)
     snr: float = 10000.0
     stray_light: float = 0.0001
     warm_up_drift: float = 0.1
@@ -254,7 +247,7 @@ class InstrumentArchetype:
     multi_scan: MultiScanConfig = field(default_factory=MultiScanConfig)
     description: str = ""
 
-    def get_noise_model_params(self) -> Dict[str, float]:
+    def get_noise_model_params(self) -> dict[str, float]:
         """Get noise model parameters based on detector type."""
         params = {
             "shot_noise_factor": 1.0,
@@ -282,7 +275,6 @@ class InstrumentArchetype:
             params["read_noise_factor"] = 1.5
 
         return params
-
 
 # ============================================================================
 # Predefined Instrument Archetypes
@@ -320,7 +312,6 @@ def _create_benchtop_foss_xds() -> InstrumentArchetype:
         description="High-end benchtop dispersive NIR with Si+PbS dual detector",
     )
 
-
 def _create_benchtop_bruker_mpa() -> InstrumentArchetype:
     """Bruker MPA-style FT-NIR benchtop."""
     return InstrumentArchetype(
@@ -343,7 +334,6 @@ def _create_benchtop_bruker_mpa() -> InstrumentArchetype:
         description="Research-grade FT-NIR with extended InGaAs detector",
     )
 
-
 def _create_benchtop_perkin_spectrum() -> InstrumentArchetype:
     """PerkinElmer Spectrum Two-style FTIR/NIR."""
     return InstrumentArchetype(
@@ -361,7 +351,6 @@ def _create_benchtop_perkin_spectrum() -> InstrumentArchetype:
         multi_scan=MultiScanConfig(enabled=True, n_scans=32),
         description="General-purpose benchtop FT-NIR",
     )
-
 
 def _create_handheld_viavi_micronir() -> InstrumentArchetype:
     """VIAVI MicroNIR-style handheld dispersive."""
@@ -387,7 +376,6 @@ def _create_handheld_viavi_micronir() -> InstrumentArchetype:
         description="Compact handheld NIR with LVF technology",
     )
 
-
 def _create_handheld_scio() -> InstrumentArchetype:
     """SCiO-style consumer handheld."""
     return InstrumentArchetype(
@@ -412,7 +400,6 @@ def _create_handheld_scio() -> InstrumentArchetype:
         description="Consumer-grade MEMS-based miniature NIR",
     )
 
-
 def _create_handheld_tellspec() -> InstrumentArchetype:
     """TellSpec-style food scanner."""
     return InstrumentArchetype(
@@ -431,7 +418,6 @@ def _create_handheld_tellspec() -> InstrumentArchetype:
         description="Handheld food analysis NIR scanner",
     )
 
-
 def _create_handheld_linkam() -> InstrumentArchetype:
     """LinkSquare-style portable NIR."""
     return InstrumentArchetype(
@@ -449,7 +435,6 @@ def _create_handheld_linkam() -> InstrumentArchetype:
         multi_scan=MultiScanConfig(enabled=True, n_scans=50),
         description="Compact portable NIR for material identification",
     )
-
 
 def _create_process_niro() -> InstrumentArchetype:
     """NIR-O-style process NIR probe."""
@@ -475,7 +460,6 @@ def _create_process_niro() -> InstrumentArchetype:
         ),
         description="Robust process NIR with fiber-coupled probe",
     )
-
 
 def _create_process_asd_fieldspec() -> InstrumentArchetype:
     """ASD FieldSpec-style portable/process spectrometer."""
@@ -505,7 +489,6 @@ def _create_process_asd_fieldspec() -> InstrumentArchetype:
         description="Field portable full-range spectrometer with 3 detectors",
     )
 
-
 def _create_embedded_neospectra() -> InstrumentArchetype:
     """NeoSpectra Micro-style MEMS FT-NIR module."""
     return InstrumentArchetype(
@@ -529,7 +512,6 @@ def _create_embedded_neospectra() -> InstrumentArchetype:
         description="Ultra-compact MEMS FT-NIR chip module",
     )
 
-
 def _create_embedded_innospectra() -> InstrumentArchetype:
     """InnoSpectra-style compact MEMS spectrometer."""
     return InstrumentArchetype(
@@ -547,7 +529,6 @@ def _create_embedded_innospectra() -> InstrumentArchetype:
         multi_scan=MultiScanConfig(enabled=True, n_scans=25),
         description="Compact MEMS NIR for embedded applications",
     )
-
 
 def _create_ft_thermo_antaris() -> InstrumentArchetype:
     """Thermo Antaris-style research FT-NIR."""
@@ -571,7 +552,6 @@ def _create_ft_thermo_antaris() -> InstrumentArchetype:
         description="High-resolution research-grade FT-NIR",
     )
 
-
 def _create_ft_abb_mb3600() -> InstrumentArchetype:
     """ABB MB3600-style FT-NIR analyzer."""
     return InstrumentArchetype(
@@ -590,7 +570,6 @@ def _create_ft_abb_mb3600() -> InstrumentArchetype:
         description="QC/QA laboratory FT-NIR analyzer",
     )
 
-
 def _create_filter_foss_infratec() -> InstrumentArchetype:
     """FOSS Infratec-style discrete filter instrument."""
     return InstrumentArchetype(
@@ -608,7 +587,6 @@ def _create_filter_foss_infratec() -> InstrumentArchetype:
         multi_scan=MultiScanConfig(enabled=True, n_scans=5),
         description="Discrete filter grain analyzer",
     )
-
 
 def _create_filter_perten_da7200() -> InstrumentArchetype:
     """Perten DA7200-style diode array."""
@@ -632,7 +610,6 @@ def _create_filter_perten_da7200() -> InstrumentArchetype:
         description="Diode array NIR for grain/food analysis",
     )
 
-
 def _create_benchtop_unity() -> InstrumentArchetype:
     """Unity Scientific SpectraStar-style benchtop."""
     return InstrumentArchetype(
@@ -650,7 +627,6 @@ def _create_benchtop_unity() -> InstrumentArchetype:
         multi_scan=MultiScanConfig(enabled=True, n_scans=16),
         description="Post-dispersive benchtop NIR analyzer",
     )
-
 
 def _create_handheld_si_ware() -> InstrumentArchetype:
     """Si-Ware NeoSpectra Scanner-style handheld."""
@@ -675,7 +651,6 @@ def _create_handheld_si_ware() -> InstrumentArchetype:
         description="MEMS FT-NIR handheld scanner",
     )
 
-
 def _create_process_buchi() -> InstrumentArchetype:
     """BUCHI NIRMaster-style process NIR."""
     return InstrumentArchetype(
@@ -694,7 +669,6 @@ def _create_process_buchi() -> InstrumentArchetype:
         multi_scan=MultiScanConfig(enabled=True, n_scans=16),
         description="Industrial process NIR analyzer",
     )
-
 
 def _create_benchtop_metrohm() -> InstrumentArchetype:
     """Metrohm NIRS DS2500-style benchtop."""
@@ -722,10 +696,8 @@ def _create_benchtop_metrohm() -> InstrumentArchetype:
         description="Vis-NIR benchtop with dual detector",
     )
 
-
 # Registry of all predefined instrument archetypes
-INSTRUMENT_ARCHETYPES: Dict[str, InstrumentArchetype] = {}
-
+INSTRUMENT_ARCHETYPES: dict[str, InstrumentArchetype] = {}
 
 def _register_archetypes() -> None:
     """Register all predefined instrument archetypes."""
@@ -757,10 +729,8 @@ def _register_archetypes() -> None:
         archetype = creator()
         INSTRUMENT_ARCHETYPES[archetype.name] = archetype
 
-
 # Register archetypes on module load
 _register_archetypes()
-
 
 def get_instrument_archetype(name: str) -> InstrumentArchetype:
     """
@@ -788,10 +758,9 @@ def get_instrument_archetype(name: str) -> InstrumentArchetype:
         )
     return INSTRUMENT_ARCHETYPES[name]
 
-
 def list_instrument_archetypes(
-    category: Optional[InstrumentCategory] = None
-) -> List[str]:
+    category: InstrumentCategory | None = None
+) -> list[str]:
     """
     List available instrument archetype names.
 
@@ -812,15 +781,14 @@ def list_instrument_archetypes(
         if arch.category == category
     ]
 
-
-def get_instruments_by_category() -> Dict[str, List[str]]:
+def get_instruments_by_category() -> dict[str, list[str]]:
     """
     Get all instruments organized by category.
 
     Returns:
         Dictionary mapping category name to list of instrument names.
     """
-    result: Dict[str, List[str]] = {}
+    result: dict[str, list[str]] = {}
     for name, arch in INSTRUMENT_ARCHETYPES.items():
         cat_name = arch.category.value
         if cat_name not in result:
@@ -828,14 +796,13 @@ def get_instruments_by_category() -> Dict[str, List[str]]:
         result[cat_name].append(name)
     return result
 
-
 # ============================================================================
 # Phase 6: Instrument Wavelength Grids
 # ============================================================================
 
 # Predefined wavelength grids for common NIR instruments.
 # These allow generating synthetic data that exactly matches real instrument wavelengths.
-INSTRUMENT_WAVELENGTHS: Dict[str, np.ndarray] = {
+INSTRUMENT_WAVELENGTHS: dict[str, np.ndarray] = {
     # Handheld/portable instruments
     "micronir_onsite": np.linspace(908, 1676, 125),          # VIAVI MicroNIR OnSite
     "scio": np.linspace(740, 1070, 331),                     # Consumer Scio scanner
@@ -863,7 +830,6 @@ INSTRUMENT_WAVELENGTHS: Dict[str, np.ndarray] = {
     "buchi_nirflex": np.arange(1000, 2500, 4),               # BUCHI NIRFlex FT-NIR
     "thermo_antaris": np.arange(833, 2500, 1),               # Thermo Antaris II
 }
-
 
 def get_instrument_wavelengths(instrument: str) -> np.ndarray:
     """
@@ -901,8 +867,7 @@ def get_instrument_wavelengths(instrument: str) -> np.ndarray:
         )
     return INSTRUMENT_WAVELENGTHS[instrument].copy()
 
-
-def list_instrument_wavelength_grids() -> List[str]:
+def list_instrument_wavelength_grids() -> list[str]:
     """
     List all available predefined instrument wavelength grids.
 
@@ -916,8 +881,7 @@ def list_instrument_wavelength_grids() -> List[str]:
     """
     return list(INSTRUMENT_WAVELENGTHS.keys())
 
-
-def get_instrument_wavelength_info() -> Dict[str, Dict[str, Any]]:
+def get_instrument_wavelength_info() -> dict[str, dict[str, Any]]:
     """
     Get detailed information about all instrument wavelength grids.
 
@@ -943,7 +907,6 @@ def get_instrument_wavelength_info() -> Dict[str, Dict[str, Any]]:
             "mean_step": float(np.mean(np.diff(wl_arr))) if len(wl_arr) > 1 else 0.0,
         }
     return result
-
 
 # ============================================================================
 # Instrument Simulation
@@ -975,7 +938,7 @@ class InstrumentSimulator:
     def __init__(
         self,
         archetype: InstrumentArchetype,
-        random_state: Optional[int] = None
+        random_state: int | None = None
     ) -> None:
         """
         Initialize the instrument simulator.
@@ -993,7 +956,7 @@ class InstrumentSimulator:
         spectra: np.ndarray,
         wavelengths: np.ndarray,
         temperature_offset: float = 0.0,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Apply all instrument effects to spectra.
 
@@ -1042,7 +1005,7 @@ class InstrumentSimulator:
         self,
         spectra: np.ndarray,
         wavelengths: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Resample spectra to instrument wavelength range."""
         wl_min, wl_max = self.archetype.wavelength_range
 
@@ -1326,7 +1289,6 @@ class InstrumentSimulator:
         """Clip spectra to instrument photometric range."""
         pmin, pmax = self.archetype.photometric_range
         return np.clip(spectra, pmin, pmax)
-
 
 # ============================================================================
 # Module-level exports

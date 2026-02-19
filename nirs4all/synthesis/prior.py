@@ -27,32 +27,30 @@ References:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union
+from enum import Enum, StrEnum
+from typing import Any, Optional, Union
 
 import numpy as np
 
 from .domains import (
-    DomainCategory,
     APPLICATION_DOMAINS,
+    DomainCategory,
     get_domain_config,
     list_domains,
 )
 from .instruments import (
-    InstrumentCategory,
     INSTRUMENT_ARCHETYPES,
+    InstrumentCategory,
     get_instrument_archetype,
     list_instrument_archetypes,
 )
 from .measurement_modes import MeasurementMode
 
-
 # ============================================================================
 # Matrix Types
 # ============================================================================
 
-
-class MatrixType(str, Enum):
+class MatrixType(StrEnum):
     """Physical matrix types that affect spectral properties."""
     LIQUID = "liquid"
     POWDER = "powder"
@@ -65,11 +63,9 @@ class MatrixType(str, Enum):
     FILM = "film"
     GRANULAR = "granular"
 
-
 # ============================================================================
 # Prior Configuration
 # ============================================================================
-
 
 @dataclass
 class NIRSPriorConfig:
@@ -96,7 +92,7 @@ class NIRSPriorConfig:
     """
 
     # Domain prior weights
-    domain_weights: Dict[str, float] = field(default_factory=lambda: {
+    domain_weights: dict[str, float] = field(default_factory=lambda: {
         "grain": 0.15,
         "forage": 0.08,
         "oilseeds": 0.07,
@@ -119,7 +115,7 @@ class NIRSPriorConfig:
     })
 
     # P(instrument_category | domain)
-    instrument_given_domain: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
+    instrument_given_domain: dict[str, dict[str, float]] = field(default_factory=lambda: {
         # Agriculture domains prefer robust instruments
         "grain": {
             "benchtop": 0.5, "handheld": 0.2, "process": 0.2,
@@ -206,7 +202,7 @@ class NIRSPriorConfig:
     })
 
     # P(measurement_mode | instrument_category)
-    mode_given_category: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
+    mode_given_category: dict[str, dict[str, float]] = field(default_factory=lambda: {
         "benchtop": {
             "reflectance": 0.5, "transmittance": 0.3,
             "transflectance": 0.15, "atr": 0.05
@@ -238,7 +234,7 @@ class NIRSPriorConfig:
     })
 
     # P(matrix_type | domain)
-    matrix_given_domain: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
+    matrix_given_domain: dict[str, dict[str, float]] = field(default_factory=lambda: {
         "grain": {"granular": 0.7, "powder": 0.2, "solid": 0.1},
         "forage": {"solid": 0.5, "powder": 0.3, "granular": 0.2},
         "oilseeds": {"granular": 0.6, "solid": 0.3, "powder": 0.1},
@@ -261,36 +257,34 @@ class NIRSPriorConfig:
     })
 
     # Continuous parameter ranges
-    temperature_range: Tuple[float, float] = (15.0, 40.0)
-    particle_size_range: Tuple[float, float] = (5.0, 200.0)
-    noise_level_range: Tuple[float, float] = (0.5, 2.0)
-    n_samples_range: Tuple[int, int] = (100, 2000)
+    temperature_range: tuple[float, float] = (15.0, 40.0)
+    particle_size_range: tuple[float, float] = (5.0, 200.0)
+    noise_level_range: tuple[float, float] = (0.5, 2.0)
+    n_samples_range: tuple[int, int] = (100, 2000)
 
     # Target configuration
-    target_type_weights: Dict[str, float] = field(default_factory=lambda: {
+    target_type_weights: dict[str, float] = field(default_factory=lambda: {
         "regression": 0.7,
         "classification": 0.3,
     })
 
-    n_targets_range: Tuple[int, int] = (1, 5)
-    n_classes_range: Tuple[int, int] = (2, 5)
+    n_targets_range: tuple[int, int] = (1, 5)
+    n_classes_range: tuple[int, int] = (2, 5)
 
     def get_domain_weight(self, domain: str) -> float:
         """Get prior weight for a domain."""
         return self.domain_weights.get(domain, 0.0)
 
-    def normalize_weights(self, weights: Dict[str, float]) -> Dict[str, float]:
+    def normalize_weights(self, weights: dict[str, float]) -> dict[str, float]:
         """Normalize weights to sum to 1."""
         total = sum(weights.values())
         if total == 0:
             return weights
         return {k: v / total for k, v in weights.items()}
 
-
 # ============================================================================
 # Prior Sampler
 # ============================================================================
-
 
 class PriorSampler:
     """
@@ -317,15 +311,15 @@ class PriorSampler:
 
     def __init__(
         self,
-        config: Optional[NIRSPriorConfig] = None,
-        random_state: Optional[int] = None,
+        config: NIRSPriorConfig | None = None,
+        random_state: int | None = None,
     ):
         self.config = config or NIRSPriorConfig()
         self.rng = np.random.default_rng(random_state)
 
     def _sample_categorical(
         self,
-        weights: Dict[str, float],
+        weights: dict[str, float],
     ) -> str:
         """Sample from a categorical distribution defined by weights."""
         # Normalize weights
@@ -350,9 +344,7 @@ class PriorSampler:
             weights = self.config.instrument_given_domain[domain]
         else:
             # Default uniform over all categories
-            weights = {cat: 1.0 for cat in [
-                "benchtop", "handheld", "process", "embedded", "ft_nir"
-            ]}
+            weights = dict.fromkeys(["benchtop", "handheld", "process", "embedded", "ft_nir"], 1.0)
         return self._sample_categorical(weights)
 
     def sample_instrument(self, category: str) -> str:
@@ -371,21 +363,12 @@ class PriorSampler:
 
     def sample_measurement_mode(self, instrument_category: str) -> str:
         """Sample a measurement mode given the instrument category."""
-        if instrument_category in self.config.mode_given_category:
-            weights = self.config.mode_given_category[instrument_category]
-        else:
-            weights = {
-                "reflectance": 0.5, "transmittance": 0.3,
-                "transflectance": 0.15, "atr": 0.05
-            }
+        weights = self.config.mode_given_category.get(instrument_category, {"reflectance": 0.5, "transmittance": 0.3, "transflectance": 0.15, "atr": 0.05})
         return self._sample_categorical(weights)
 
     def sample_matrix_type(self, domain: str) -> str:
         """Sample a matrix type given the domain."""
-        if domain in self.config.matrix_given_domain:
-            weights = self.config.matrix_given_domain[domain]
-        else:
-            weights = {"powder": 0.3, "liquid": 0.3, "solid": 0.4}
+        weights = self.config.matrix_given_domain.get(domain, {"powder": 0.3, "liquid": 0.3, "solid": 0.4})
         return self._sample_categorical(weights)
 
     def sample_temperature(self) -> float:
@@ -431,7 +414,7 @@ class PriorSampler:
         low, high = self.config.n_samples_range
         return int(self.rng.integers(low, high + 1))
 
-    def sample_target_config(self) -> Dict[str, Any]:
+    def sample_target_config(self) -> dict[str, Any]:
         """Sample target generation configuration."""
         target_type = self._sample_categorical(self.config.target_type_weights)
 
@@ -456,7 +439,7 @@ class PriorSampler:
                 "separation": self.rng.choice(["easy", "moderate", "hard"]),
             }
 
-    def sample_components(self, domain: str, n_components: Optional[int] = None) -> List[str]:
+    def sample_components(self, domain: str, n_components: int | None = None) -> list[str]:
         """Sample component set based on domain."""
         try:
             domain_config = get_domain_config(domain)
@@ -471,7 +454,7 @@ class PriorSampler:
         n_components = min(n_components, len(available))
         return list(self.rng.choice(available, size=n_components, replace=False))
 
-    def sample(self) -> Dict[str, Any]:
+    def sample(self) -> dict[str, Any]:
         """
         Sample a complete dataset configuration from the prior.
 
@@ -536,7 +519,7 @@ class PriorSampler:
         except Exception:
             return "research"
 
-    def sample_batch(self, n: int) -> List[Dict[str, Any]]:
+    def sample_batch(self, n: int) -> list[dict[str, Any]]:
         """
         Sample multiple configurations from the prior.
 
@@ -551,8 +534,8 @@ class PriorSampler:
     def sample_for_domain(
         self,
         domain: str,
-        n_samples: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        n_samples: int | None = None,
+    ) -> dict[str, Any]:
         """
         Sample a configuration constrained to a specific domain.
 
@@ -593,8 +576,8 @@ class PriorSampler:
     def sample_for_instrument(
         self,
         instrument: str,
-        n_samples: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        n_samples: int | None = None,
+    ) -> dict[str, Any]:
         """
         Sample a configuration constrained to a specific instrument.
 
@@ -615,10 +598,7 @@ class PriorSampler:
             if cat_weights.get(instrument_category, 0) > 0.1:
                 compatible_domains.append(domain)
 
-        if compatible_domains:
-            domain = self.rng.choice(compatible_domains)
-        else:
-            domain = self.sample_domain()
+        domain = self.rng.choice(compatible_domains) if compatible_domains else self.sample_domain()
 
         measurement_mode = self.sample_measurement_mode(instrument_category)
         matrix_type = self.sample_matrix_type(domain)
@@ -641,17 +621,15 @@ class PriorSampler:
             "random_state": int(self.rng.integers(0, 2**31)),
         }
 
-
 # ============================================================================
 # Convenience Functions
 # ============================================================================
 
-
 def sample_prior(
-    domain: Optional[str] = None,
-    instrument: Optional[str] = None,
-    random_state: Optional[int] = None,
-) -> Dict[str, Any]:
+    domain: str | None = None,
+    instrument: str | None = None,
+    random_state: int | None = None,
+) -> dict[str, Any]:
     """
     Quick function to sample a single configuration from default prior.
 
@@ -675,11 +653,10 @@ def sample_prior(
     else:
         return sampler.sample()
 
-
 def sample_prior_batch(
     n: int,
-    random_state: Optional[int] = None,
-) -> List[Dict[str, Any]]:
+    random_state: int | None = None,
+) -> list[dict[str, Any]]:
     """
     Quick function to sample multiple configurations from default prior.
 
@@ -698,8 +675,7 @@ def sample_prior_batch(
     sampler = PriorSampler(random_state=random_state)
     return sampler.sample_batch(n)
 
-
-def get_domain_compatible_instruments(domain: str) -> List[str]:
+def get_domain_compatible_instruments(domain: str) -> list[str]:
     """
     Get list of instruments commonly used with a domain.
 
@@ -729,8 +705,7 @@ def get_domain_compatible_instruments(domain: str) -> List[str]:
 
     return instruments
 
-
-def get_instrument_typical_modes(instrument: str) -> List[str]:
+def get_instrument_typical_modes(instrument: str) -> list[str]:
     """
     Get typical measurement modes for an instrument.
 

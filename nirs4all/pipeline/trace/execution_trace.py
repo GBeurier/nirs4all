@@ -28,16 +28,15 @@ Architecture:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from datetime import UTC, datetime, timezone
+from enum import Enum, StrEnum
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import uuid4
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain
 
-
-class StepExecutionMode(str, Enum):
+class StepExecutionMode(StrEnum):
     """Mode of step execution.
 
     Attributes:
@@ -53,9 +52,7 @@ class StepExecutionMode(str, Enum):
     def __str__(self) -> str:
         return self.value
 
-
 _SPECIAL_FOLD_IDS = {"final", "avg", "w_avg"}
-
 
 def normalize_fold_key(fold_id: Any) -> str:
     """Normalize fold keys to canonical ``fold_*`` string form."""
@@ -68,8 +65,7 @@ def normalize_fold_key(fold_id: Any) -> str:
         return f"fold_{int(text)}"
     return f"fold_{text}"
 
-
-def fold_key_candidates(fold_id: Any) -> List[str]:
+def fold_key_candidates(fold_id: Any) -> list[str]:
     """Return canonical and legacy lookup keys for a fold identifier."""
     canonical = normalize_fold_key(fold_id)
     legacy = canonical[5:] if canonical.startswith("fold_") else canonical
@@ -77,15 +73,13 @@ def fold_key_candidates(fold_id: Any) -> List[str]:
         return [canonical]
     return [canonical, legacy]
 
-
-def parse_numeric_fold_key(fold_key: Any) -> Optional[int]:
+def parse_numeric_fold_key(fold_key: Any) -> int | None:
     """Parse a canonical/legacy fold key into an integer fold index."""
     canonical = normalize_fold_key(fold_key)
     suffix = canonical[5:] if canonical.startswith("fold_") else canonical
     if suffix.lstrip("-").isdigit():
         return int(suffix)
     return None
-
 
 @dataclass
 class StepArtifacts:
@@ -108,19 +102,19 @@ class StepArtifacts:
         metadata: Additional artifact metadata (types, paths, etc.)
     """
 
-    artifact_ids: List[str] = field(default_factory=list)
-    primary_artifact_id: Optional[str] = None
-    fold_artifact_ids: Dict[str, str] = field(default_factory=dict)
+    artifact_ids: list[str] = field(default_factory=list)
+    primary_artifact_id: str | None = None
+    fold_artifact_ids: dict[str, str] = field(default_factory=dict)
 
     # V3 indexes
-    primary_artifacts: Dict[str, str] = field(default_factory=dict)
-    by_branch: Dict[Tuple[int, ...], List[str]] = field(default_factory=dict)
-    by_source: Dict[int, List[str]] = field(default_factory=dict)
-    by_chain: Dict[str, str] = field(default_factory=dict)
+    primary_artifacts: dict[str, str] = field(default_factory=dict)
+    by_branch: dict[tuple[int, ...], list[str]] = field(default_factory=dict)
+    by_source: dict[int, list[str]] = field(default_factory=dict)
+    by_chain: dict[str, str] = field(default_factory=dict)
 
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for YAML serialization.
 
         Returns:
@@ -144,7 +138,7 @@ class StepArtifacts:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "StepArtifacts":
+    def from_dict(cls, data: dict[str, Any]) -> "StepArtifacts":
         """Create StepArtifacts from dictionary.
 
         Args:
@@ -162,12 +156,9 @@ class StepArtifacts:
 
         # Handle by_branch with string keys from YAML
         by_branch_raw = data.get("by_branch", {})
-        by_branch: Dict[Tuple[int, ...], List[str]] = {}
+        by_branch: dict[tuple[int, ...], list[str]] = {}
         for k, v in by_branch_raw.items():
-            if isinstance(k, str):
-                branch_tuple = tuple(int(b) for b in k.split(".")) if k else ()
-            else:
-                branch_tuple = tuple(k) if k else ()
+            branch_tuple = tuple(int(b) for b in k.split(".")) if k else () if isinstance(k, str) else tuple(k) if k else ()
             by_branch[branch_tuple] = v
 
         # Handle by_source with potential string keys
@@ -189,9 +180,9 @@ class StepArtifacts:
         self,
         artifact_id: str,
         is_primary: bool = False,
-        chain_path: Optional[str] = None,
-        branch_path: Optional[List[int]] = None,
-        source_index: Optional[int] = None,
+        chain_path: str | None = None,
+        branch_path: list[int] | None = None,
+        source_index: int | None = None,
     ) -> None:
         """Add an artifact ID to this step's artifacts (V3).
 
@@ -231,8 +222,8 @@ class StepArtifacts:
         self,
         fold_id: int | str,
         artifact_id: str,
-        chain_path: Optional[str] = None,
-        branch_path: Optional[List[int]] = None,
+        chain_path: str | None = None,
+        branch_path: list[int] | None = None,
     ) -> None:
         """Add a fold-specific artifact.
 
@@ -251,7 +242,7 @@ class StepArtifacts:
             branch_path=branch_path,
         )
 
-    def get_fold_artifact_id(self, fold_id: int | str) -> Optional[str]:
+    def get_fold_artifact_id(self, fold_id: int | str) -> str | None:
         """Get a fold-specific artifact ID using canonical/legacy lookup keys."""
         for key in fold_key_candidates(fold_id):
             artifact_id = self.fold_artifact_ids.get(key)
@@ -261,8 +252,8 @@ class StepArtifacts:
 
     def get_artifacts_for_branch(
         self,
-        branch_path: List[int]
-    ) -> List[str]:
+        branch_path: list[int]
+    ) -> list[str]:
         """Get artifact IDs matching a branch path.
 
         Includes artifacts from:
@@ -276,14 +267,12 @@ class StepArtifacts:
         Returns:
             List of matching artifact IDs
         """
-        results: List[str] = []
+        results: list[str] = []
         target_tuple = tuple(branch_path)
 
         for branch_key, ids in self.by_branch.items():
             # Include if exact match, empty (shared), or prefix
-            if not branch_key:  # Empty = shared
-                results.extend(ids)
-            elif branch_key == target_tuple:
+            if not branch_key or branch_key == target_tuple:  # Empty = shared
                 results.extend(ids)
             elif len(branch_key) < len(target_tuple) and target_tuple[:len(branch_key)] == branch_key:
                 # Parent branch
@@ -293,7 +282,7 @@ class StepArtifacts:
         seen = set()
         return [x for x in results if not (x in seen or seen.add(x))]
 
-    def get_artifacts_for_source(self, source_index: int) -> List[str]:
+    def get_artifacts_for_source(self, source_index: int) -> list[str]:
         """Get artifact IDs for a specific source.
 
         Args:
@@ -304,7 +293,7 @@ class StepArtifacts:
         """
         return self.by_source.get(source_index, []).copy()
 
-    def get_artifact_by_chain(self, chain_path: str) -> Optional[str]:
+    def get_artifact_by_chain(self, chain_path: str) -> str | None:
         """Get artifact ID by exact chain path match.
 
         Args:
@@ -367,7 +356,6 @@ class StepArtifacts:
         # Merge metadata
         self.metadata.update(other.metadata)
 
-
 @dataclass
 class ExecutionStep:
     """Record of a single step's execution in the trace (V3).
@@ -404,30 +392,30 @@ class ExecutionStep:
     step_index: int
     operator_type: str = ""
     operator_class: str = ""
-    operator_config: Dict[str, Any] = field(default_factory=dict)
+    operator_config: dict[str, Any] = field(default_factory=dict)
     execution_mode: StepExecutionMode = StepExecutionMode.TRAIN
     artifacts: StepArtifacts = field(default_factory=StepArtifacts)
-    branch_path: List[int] = field(default_factory=list)
+    branch_path: list[int] = field(default_factory=list)
     branch_name: str = ""
     duration_ms: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     # V3 chain tracking
     input_chain_path: str = ""
-    output_chain_paths: List[str] = field(default_factory=list)
+    output_chain_paths: list[str] = field(default_factory=list)
     source_count: int = 1
     produces_branches: bool = False
-    substep_index: Optional[int] = None
+    substep_index: int | None = None
 
     # V4 shape tracking
     # Input/output shapes are 2D layout (samples, features)
-    input_shape: Optional[Tuple[int, int]] = None
-    output_shape: Optional[Tuple[int, int]] = None
+    input_shape: tuple[int, int] | None = None
+    output_shape: tuple[int, int] | None = None
     # Features shape is 3D per-source: List of (samples, processings, features) per source
-    input_features_shape: Optional[List[Tuple[int, int, int]]] = None
-    output_features_shape: Optional[List[Tuple[int, int, int]]] = None
+    input_features_shape: list[tuple[int, int, int]] | None = None
+    output_features_shape: list[tuple[int, int, int]] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for YAML serialization.
 
         Returns:
@@ -456,7 +444,7 @@ class ExecutionStep:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ExecutionStep":
+    def from_dict(cls, data: dict[str, Any]) -> "ExecutionStep":
         """Create ExecutionStep from dictionary.
 
         Args:
@@ -467,17 +455,11 @@ class ExecutionStep:
         """
         # Handle execution_mode enum
         mode_value = data.get("execution_mode", "train")
-        if isinstance(mode_value, str):
-            execution_mode = StepExecutionMode(mode_value)
-        else:
-            execution_mode = mode_value
+        execution_mode = StepExecutionMode(mode_value) if isinstance(mode_value, str) else mode_value
 
         # Handle artifacts
         artifacts_data = data.get("artifacts", {})
-        if isinstance(artifacts_data, dict):
-            artifacts = StepArtifacts.from_dict(artifacts_data)
-        else:
-            artifacts = StepArtifacts()
+        artifacts = StepArtifacts.from_dict(artifacts_data) if isinstance(artifacts_data, dict) else StepArtifacts()
 
         # Parse shape fields
         input_shape = data.get("input_shape")
@@ -524,7 +506,6 @@ class ExecutionStep:
         if chain_path and chain_path not in self.output_chain_paths:
             self.output_chain_paths.append(chain_path)
 
-
 @dataclass
 class ExecutionTrace:
     """Complete trace of a pipeline execution path.
@@ -550,15 +531,15 @@ class ExecutionTrace:
     trace_id: str = field(default_factory=lambda: str(uuid4())[:12])
     pipeline_uid: str = ""
     created_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
-    steps: List[ExecutionStep] = field(default_factory=list)
-    model_step_index: Optional[int] = None
-    fold_weights: Optional[Dict[int, float]] = None
+    steps: list[ExecutionStep] = field(default_factory=list)
+    model_step_index: int | None = None
+    fold_weights: dict[int, float] | None = None
     preprocessing_chain: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for YAML serialization.
 
         Returns:
@@ -576,7 +557,7 @@ class ExecutionTrace:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ExecutionTrace":
+    def from_dict(cls, data: dict[str, Any]) -> "ExecutionTrace":
         """Create ExecutionTrace from dictionary.
 
         Args:
@@ -614,7 +595,7 @@ class ExecutionTrace:
         """
         self.steps.append(step)
 
-    def get_step(self, step_index: int) -> Optional[ExecutionStep]:
+    def get_step(self, step_index: int) -> ExecutionStep | None:
         """Get a step by its index.
 
         Args:
@@ -628,7 +609,7 @@ class ExecutionTrace:
                 return step
         return None
 
-    def get_steps_before(self, step_index: int) -> List[ExecutionStep]:
+    def get_steps_before(self, step_index: int) -> list[ExecutionStep]:
         """Get all steps before a given step index.
 
         Args:
@@ -639,7 +620,7 @@ class ExecutionTrace:
         """
         return [s for s in self.steps if s.step_index < step_index]
 
-    def get_steps_up_to_model(self) -> List[ExecutionStep]:
+    def get_steps_up_to_model(self) -> list[ExecutionStep]:
         """Get all steps up to and including the model step.
 
         Returns:
@@ -649,7 +630,7 @@ class ExecutionTrace:
             return self.steps.copy()
         return [s for s in self.steps if s.step_index <= self.model_step_index]
 
-    def get_artifact_ids(self) -> List[str]:
+    def get_artifact_ids(self) -> list[str]:
         """Get all artifact IDs in this trace.
 
         Returns:
@@ -660,7 +641,7 @@ class ExecutionTrace:
             artifact_ids.extend(step.artifacts.artifact_ids)
         return artifact_ids
 
-    def get_artifacts_by_step(self, step_index: int) -> Optional[StepArtifacts]:
+    def get_artifacts_by_step(self, step_index: int) -> StepArtifacts | None:
         """Get artifacts for a specific step.
 
         Args:
@@ -672,7 +653,7 @@ class ExecutionTrace:
         step = self.get_step(step_index)
         return step.artifacts if step else None
 
-    def get_model_artifact_id(self) -> Optional[str]:
+    def get_model_artifact_id(self) -> str | None:
         """Get the primary model artifact ID.
 
         Returns:
@@ -685,7 +666,7 @@ class ExecutionTrace:
             return step.artifacts.primary_artifact_id
         return None
 
-    def get_fold_artifact_ids(self) -> Dict[str, str]:
+    def get_fold_artifact_ids(self) -> dict[str, str]:
         """Get per-fold model artifact IDs.
 
         Returns:
@@ -701,7 +682,7 @@ class ExecutionTrace:
     def set_model_step(
         self,
         step_index: int,
-        fold_weights: Optional[Dict[int, float]] = None
+        fold_weights: dict[int, float] | None = None
     ) -> None:
         """Set the model step index and optional fold weights.
 
@@ -714,8 +695,8 @@ class ExecutionTrace:
 
     def finalize(
         self,
-        preprocessing_chain: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        preprocessing_chain: str | None = None,
+        metadata: dict[str, Any] | None = None
     ) -> None:
         """Finalize the trace with summary information.
 

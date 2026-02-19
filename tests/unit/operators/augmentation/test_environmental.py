@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from sklearn.base import clone
 
-from nirs4all.operators import TemperatureAugmenter, MoistureAugmenter
+from nirs4all.operators import MoistureAugmenter, TemperatureAugmenter
 from nirs4all.operators.base import SpectraTransformerMixin
 
 
@@ -57,7 +57,6 @@ class TestTemperatureAugmenterInit:
         """Test that _requires_wavelengths is True."""
         aug = TemperatureAugmenter()
         assert aug._requires_wavelengths is True
-
 
 class TestTemperatureAugmenterTransform:
     """Tests for TemperatureAugmenter transform method."""
@@ -141,7 +140,6 @@ class TestTemperatureAugmenterTransform:
         row_diffs = np.diff(X_transformed, axis=0)
         assert np.any(row_diffs != 0)
 
-
 class TestTemperatureAugmenterRegionSpecific:
     """Tests for region-specific temperature effects."""
 
@@ -190,7 +188,6 @@ class TestTemperatureAugmenterRegionSpecific:
         # Just verify it runs without error and produces different output
         assert X_transformed.shape == X.shape
         assert not np.allclose(X_transformed, X)
-
 
 class TestTemperatureAugmenterEffects:
     """Tests for individual temperature effects."""
@@ -250,7 +247,6 @@ class TestTemperatureAugmenterEffects:
         # Broadening effect may be subtle, but should produce some change
         assert X_transformed.shape == X.shape
 
-
 class TestTemperatureAugmenterSklearnCompatibility:
     """Tests for sklearn compatibility."""
 
@@ -292,7 +288,6 @@ class TestTemperatureAugmenterSklearnCompatibility:
         tags = aug._more_tags()
 
         assert tags["requires_wavelengths"] is True
-
 
 class TestMoistureAugmenterInit:
     """Tests for MoistureAugmenter initialization."""
@@ -342,7 +337,6 @@ class TestMoistureAugmenterInit:
         """Test that _requires_wavelengths is True."""
         aug = MoistureAugmenter()
         assert aug._requires_wavelengths is True
-
 
 class TestMoistureAugmenterTransform:
     """Tests for MoistureAugmenter transform method."""
@@ -416,7 +410,6 @@ class TestMoistureAugmenterTransform:
         row_diffs = np.diff(X_transformed, axis=0)
         assert np.any(row_diffs != 0)
 
-
 class TestMoistureAugmenterWaterBands:
     """Tests for water band effects."""
 
@@ -449,7 +442,6 @@ class TestMoistureAugmenterWaterBands:
         # Transformation does affect all regions due to interpolation, but water bands more
 
         assert X_transformed.shape == X.shape
-
 
 class TestMoistureAugmenterEffects:
     """Tests for individual moisture effects."""
@@ -490,7 +482,6 @@ class TestMoistureAugmenterEffects:
         X_transformed = aug.transform(X, wavelengths=wavelengths)
 
         assert not np.allclose(X_transformed, X)
-
 
 class TestMoistureAugmenterSklearnCompatibility:
     """Tests for sklearn compatibility."""
@@ -534,14 +525,13 @@ class TestMoistureAugmenterSklearnCompatibility:
 
         assert tags["requires_wavelengths"] is True
 
-
 class TestEnvironmentalAugmentersImport:
     """Tests for import paths."""
 
     def test_import_from_operators(self):
         """Test that augmenters can be imported from operators."""
-        from nirs4all.operators import TemperatureAugmenter as TA
         from nirs4all.operators import MoistureAugmenter as MA
+        from nirs4all.operators import TemperatureAugmenter as TA
 
         assert TA is TemperatureAugmenter
         assert MA is MoistureAugmenter
@@ -549,8 +539,10 @@ class TestEnvironmentalAugmentersImport:
     def test_import_from_augmentation_module(self):
         """Test that augmenters can be imported from augmentation module."""
         from nirs4all.operators.augmentation.environmental import (
-            TemperatureAugmenter as TA,
             MoistureAugmenter as MA,
+        )
+        from nirs4all.operators.augmentation.environmental import (
+            TemperatureAugmenter as TA,
         )
 
         assert TA is TemperatureAugmenter

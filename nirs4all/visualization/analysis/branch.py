@@ -17,8 +17,9 @@ Example:
     >>> print(summary.to_markdown())
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union
 from collections import defaultdict
+from typing import Any, Optional, Union
+
 import numpy as np
 
 try:
@@ -33,7 +34,6 @@ try:
 except ImportError:
     HAS_SCIPY = False
 
-
 class BranchSummary:
     """Branch summary statistics container with export capabilities.
 
@@ -47,8 +47,8 @@ class BranchSummary:
 
     def __init__(
         self,
-        data: List[Dict[str, Any]],
-        metrics: List[str]
+        data: list[dict[str, Any]],
+        metrics: list[str]
     ):
         """Initialize BranchSummary.
 
@@ -58,7 +58,7 @@ class BranchSummary:
         """
         self.data = data
         self.metrics = metrics
-        self._df: Optional['pd.DataFrame'] = None
+        self._df: pd.DataFrame | None = None
 
         # Define column order
         base_cols = ['branch_name', 'branch_id', 'count']
@@ -90,7 +90,7 @@ class BranchSummary:
 
         return self._df
 
-    def to_dict(self) -> Dict[str, Dict[str, Any]]:
+    def to_dict(self) -> dict[str, dict[str, Any]]:
         """Convert to dictionary keyed by branch name.
 
         Returns:
@@ -280,7 +280,7 @@ class BranchSummary:
         """Number of branches."""
         return len(self.data)
 
-    def __getitem__(self, key: Union[int, str]) -> Dict[str, Any]:
+    def __getitem__(self, key: int | str) -> dict[str, Any]:
         """Get branch by index or name.
 
         Args:
@@ -296,7 +296,6 @@ class BranchSummary:
                 if row.get('branch_name') == key:
                     return row
             raise KeyError(f"Branch '{key}' not found")
-
 
 class BranchAnalyzer:
     """Analyze and compare performance across pipeline branches.
@@ -318,9 +317,9 @@ class BranchAnalyzer:
 
     def summary(
         self,
-        metrics: Optional[List[str]] = None,
+        metrics: list[str] | None = None,
         partition: str = 'test',
-        aggregate: Optional[str] = None
+        aggregate: str | None = None
     ) -> BranchSummary:
         """Generate summary statistics for each branch.
 
@@ -345,7 +344,7 @@ class BranchAnalyzer:
             return BranchSummary([], metrics)
 
         # Group by branch
-        branch_groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        branch_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for pred in all_preds:
             branch_name = pred.get('branch_name', 'no_branch')
             branch_groups[branch_name].append(pred)
@@ -383,12 +382,12 @@ class BranchAnalyzer:
 
     def compare(
         self,
-        branch1: Union[str, int],
-        branch2: Union[str, int],
+        branch1: str | int,
+        branch2: str | int,
         metric: str = 'rmse',
         partition: str = 'test',
         test: str = 'ttest'
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Statistical comparison between two branches.
 
         Performs hypothesis testing to determine if there's a significant
@@ -443,8 +442,8 @@ class BranchAnalyzer:
         else:
             raise ValueError(f"Unknown test: {test}")
 
-        statistic = result.statistic  # type: ignore[union-attr]
-        p_value = result.pvalue  # type: ignore[union-attr]
+        statistic = result.statistic
+        p_value = result.pvalue
 
         # Compute effect size (Cohen's d)
         var1 = (len(scores1) - 1) * np.var(scores1)
@@ -474,8 +473,8 @@ class BranchAnalyzer:
         self,
         metric: str = 'rmse',
         partition: str = 'test',
-        ascending: Optional[bool] = None
-    ) -> List[Dict[str, Any]]:
+        ascending: bool | None = None
+    ) -> list[dict[str, Any]]:
         """Rank branches by mean performance.
 
         Args:
@@ -549,7 +548,7 @@ class BranchAnalyzer:
 
         return pd.DataFrame(p_values, index=branches, columns=branches)
 
-    def get_branch_names(self) -> List[str]:
+    def get_branch_names(self) -> list[str]:
         """Get list of unique branch names.
 
         Returns:
@@ -561,7 +560,7 @@ class BranchAnalyzer:
         except (ValueError, KeyError):
             return []
 
-    def get_branch_ids(self) -> List[int]:
+    def get_branch_ids(self) -> list[int]:
         """Get list of unique branch IDs.
 
         Returns:
@@ -575,8 +574,8 @@ class BranchAnalyzer:
 
     def _get_predictions(
         self,
-        aggregate: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        aggregate: str | None = None
+    ) -> list[dict[str, Any]]:
         """Get all predictions, optionally aggregated.
 
         Args:
@@ -603,8 +602,8 @@ class BranchAnalyzer:
 
     def _get_branch_predictions(
         self,
-        branch: Union[str, int]
-    ) -> List[Dict[str, Any]]:
+        branch: str | int
+    ) -> list[dict[str, Any]]:
         """Get predictions for a specific branch.
 
         Args:
@@ -620,10 +619,10 @@ class BranchAnalyzer:
 
     def _collect_scores(
         self,
-        predictions: List[Dict[str, Any]],
+        predictions: list[dict[str, Any]],
         metric: str,
         partition: str
-    ) -> List[float]:
+    ) -> list[float]:
         """Collect scores from predictions.
 
         Args:

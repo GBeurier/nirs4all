@@ -32,11 +32,11 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import (
     KFold,
-    ShuffleSplit,
+    LeaveOneOut,
     RepeatedKFold,
+    ShuffleSplit,
     StratifiedKFold,
     StratifiedShuffleSplit,
-    LeaveOneOut,
     TimeSeriesSplit,
 )
 from sklearn.preprocessing import MinMaxScaler
@@ -50,7 +50,6 @@ parser = argparse.ArgumentParser(description='U01 CV Strategies Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Overview of CV Strategies
@@ -78,7 +77,6 @@ Choose the right CV strategy based on your data structure:
   🔍 EXHAUSTIVE CV (small datasets)
      LeaveOneOut     - Leave one sample out each fold
 """)
-
 
 # =============================================================================
 # Section 2: KFold - Standard K-Fold
@@ -111,7 +109,6 @@ result_kfold = nirs4all.run(
 
 print(f"\nKFold (5 splits) - RMSE: {result_kfold.best_score:.4f}")
 
-
 # =============================================================================
 # Section 3: ShuffleSplit - Random Splits
 # =============================================================================
@@ -143,7 +140,6 @@ result_shuffle = nirs4all.run(
 
 print(f"\nShuffleSplit (10 splits, 25% test) - RMSE: {result_shuffle.best_score:.4f}")
 
-
 # =============================================================================
 # Section 4: RepeatedKFold - Multiple Repetitions
 # =============================================================================
@@ -174,7 +170,6 @@ result_repeated = nirs4all.run(
 )
 
 print(f"\nRepeatedKFold (5×3 = 15 folds) - RMSE: {result_repeated.best_score:.4f}")
-
 
 # =============================================================================
 # Section 5: StratifiedKFold - Classification
@@ -213,7 +208,6 @@ result_stratified = nirs4all.run(
 accuracy = (1 - result_stratified.best_score) * 100 if not np.isnan(result_stratified.best_score) else float('nan')
 print(f"\nStratifiedKFold - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nStratifiedKFold - (see detailed metrics)")
 
-
 # =============================================================================
 # Section 6: StratifiedShuffleSplit
 # =============================================================================
@@ -246,7 +240,6 @@ result_strat_shuffle = nirs4all.run(
 
 accuracy = (1 - result_strat_shuffle.best_score) * 100 if not np.isnan(result_strat_shuffle.best_score) else float('nan')
 print(f"\nStratifiedShuffleSplit - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nStratifiedShuffleSplit - (see detailed metrics)")
-
 
 # =============================================================================
 # Section 7: TimeSeriesSplit
@@ -281,7 +274,6 @@ result_timeseries = nirs4all.run(
 print(f"\nTimeSeriesSplit - RMSE: {result_timeseries.best_score:.4f}")
 print("Note: For truly temporal data, use TimeSeriesSplit to avoid look-ahead bias.")
 
-
 # =============================================================================
 # Section 8: LeaveOneOut
 # =============================================================================
@@ -296,6 +288,7 @@ N samples = N folds. Exhaustive but slow for large datasets.
 
 # Use small dataset for LOO demo
 import numpy as np
+
 np.random.seed(42)
 X_small = np.random.randn(30, 100)
 y_small = np.random.randn(30)
@@ -317,7 +310,6 @@ result_loo = nirs4all.run(
 )
 
 print(f"\nLeaveOneOut (30 folds) - RMSE: {result_loo.best_score:.4f}")
-
 
 # =============================================================================
 # Section 9: Comparing CV Strategies
@@ -350,7 +342,6 @@ for name, cv in cv_strategies:
         verbose=0
     )
     print(f"   {name:20s}: RMSE={result.best_score:.4f}")
-
 
 # =============================================================================
 # Summary

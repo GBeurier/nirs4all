@@ -6,7 +6,7 @@ Requires pyarrow or fastparquet as a dependency.
 """
 
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union
+from typing import Any, ClassVar, Optional, Union
 
 import pandas as pd
 
@@ -14,8 +14,8 @@ from nirs4all.core.exceptions import NAError
 from nirs4all.data.schema.config import NAFillConfig
 
 from .base import (
-    FileLoadError,
     FileLoader,
+    FileLoadError,
     LoaderResult,
     apply_na_policy,
     register_loader,
@@ -48,7 +48,6 @@ def _check_parquet_available() -> str:
         "pip install pyarrow  # or pip install fastparquet"
     )
 
-
 @register_loader
 class ParquetLoader(FileLoader):
     """Loader for Apache Parquet files.
@@ -74,7 +73,7 @@ class ParquetLoader(FileLoader):
         ... )
     """
 
-    supported_extensions: ClassVar[Tuple[str, ...]] = (".parquet", ".pq")
+    supported_extensions: ClassVar[tuple[str, ...]] = (".parquet", ".pq")
     name: ClassVar[str] = "Parquet Loader"
     priority: ClassVar[int] = 35  # Higher priority for Parquet
 
@@ -99,13 +98,13 @@ class ParquetLoader(FileLoader):
     def load(
         self,
         path: Path,
-        columns: Optional[List[str]] = None,
+        columns: list[str] | None = None,
         engine: str = "auto",
-        filters: Optional[List] = None,
+        filters: list | None = None,
         header_unit: str = "text",
         data_type: str = "x",
         na_policy: str = "auto",
-        na_fill_config: Optional[NAFillConfig] = None,
+        na_fill_config: NAFillConfig | None = None,
         **params: Any,
     ) -> LoaderResult:
         """Load data from a Parquet file.
@@ -124,7 +123,7 @@ class ParquetLoader(FileLoader):
         Returns:
             LoaderResult with the loaded data.
         """
-        report: Dict[str, Any] = {
+        report: dict[str, Any] = {
             "file_path": str(path),
             "format": "parquet",
             "engine": None,
@@ -152,7 +151,7 @@ class ParquetLoader(FileLoader):
             report["engine"] = engine
 
             # Build read_parquet kwargs
-            read_kwargs: Dict[str, Any] = {
+            read_kwargs: dict[str, Any] = {
                 "engine": engine,
             }
 
@@ -239,10 +238,9 @@ class ParquetLoader(FileLoader):
             report["error"] = f"Error loading Parquet file: {e}\n{traceback.format_exc()}"
             return LoaderResult(report=report, header_unit=header_unit)
 
-
 def load_parquet(
     path,
-    columns: Optional[List[str]] = None,
+    columns: list[str] | None = None,
     engine: str = "auto",
     header_unit: str = "text",
     **params,

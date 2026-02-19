@@ -4,24 +4,25 @@ Tests for the schema module (Phase 1).
 Tests the Pydantic-based schema models, validation, and normalization.
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 from nirs4all.data.schema import (
+    AggregateMethod,
+    ColumnConfig,
+    ConfigValidator,
     DatasetConfigSchema,
     FileConfig,
-    ColumnConfig,
-    PartitionConfig,
-    LoadingParams,
-    TaskType,
     HeaderUnit,
-    SignalTypeEnum,
+    LoadingParams,
     NAPolicy,
-    AggregateMethod,
-    ConfigValidator,
-    ValidationResult,
+    PartitionConfig,
+    SignalTypeEnum,
+    TaskType,
     ValidationError,
+    ValidationResult,
     ValidationWarning,
 )
 
@@ -94,7 +95,6 @@ class TestLoadingParams:
         # Extra field should be accessible via model_dump
         data = params.model_dump()
         assert data.get("custom_field") == "value"
-
 
 class TestDatasetConfigSchema:
     """Test suite for DatasetConfigSchema model."""
@@ -212,7 +212,6 @@ class TestDatasetConfigSchema:
         assert isinstance(config.global_params, LoadingParams)
         assert config.global_params.delimiter == ";"
 
-
 class TestFileConfig:
     """Test suite for FileConfig model (stub)."""
 
@@ -231,7 +230,6 @@ class TestFileConfig:
             partition=PartitionType.TRAIN
         )
         assert config.partition == PartitionType.TRAIN
-
 
 class TestConfigValidator:
     """Test suite for ConfigValidator."""
@@ -384,7 +382,6 @@ class TestConfigValidator:
         result = ValidationResult(is_valid=True)
         result.raise_if_invalid()  # Should not raise
 
-
 class TestValidationError:
     """Test suite for ValidationError."""
 
@@ -412,7 +409,6 @@ class TestValidationError:
         error_str = str(error)
         assert "Something went wrong" in error_str
 
-
 class TestValidationWarning:
     """Test suite for ValidationWarning."""
 
@@ -427,7 +423,6 @@ class TestValidationWarning:
         warning_str = str(warning)
         assert "[global_params]" in warning_str
         assert "This might be an issue" in warning_str
-
 
 class TestSchemaIntegration:
     """Integration tests for schema with real data structures."""
@@ -467,7 +462,6 @@ class TestSchemaIntegration:
         # Pydantic might convert to string, but should work
         assert config.train_x is not None
         assert config.train_y is not None
-
 
 class TestNAPolicyEnum:
     """Test suite for NAPolicy enum — canonical values and structure."""
@@ -513,7 +507,6 @@ class TestNAPolicyEnum:
         assert NAPolicy.REPLACE == "replace"
         assert NAPolicy.IGNORE == "ignore"
 
-
 class TestNAFillConfig:
     """Test suite for NAFillConfig model."""
 
@@ -534,7 +527,6 @@ class TestNAFillConfig:
         assert config.method == NAFillMethod.MEAN
         assert config.fill_value == 99.0
         assert config.per_column is False
-
 
 class TestNAError:
     """Test suite for NAError exception."""

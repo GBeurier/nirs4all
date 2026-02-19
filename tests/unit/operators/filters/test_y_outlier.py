@@ -69,7 +69,6 @@ class TestYOutlierFilterInitialization:
         filter_obj = YOutlierFilter()
         assert isinstance(filter_obj, SampleFilter)
 
-
 class TestYOutlierFilterIQR:
     """Tests for IQR (Interquartile Range) method."""
 
@@ -126,7 +125,6 @@ class TestYOutlierFilterIQR:
 
         assert mask[0] == False  # -100 should be excluded  # noqa: E712
 
-
 class TestYOutlierFilterZscore:
     """Tests for Z-score method."""
 
@@ -167,7 +165,6 @@ class TestYOutlierFilterZscore:
         # All samples should be kept (no variation)
         assert mask.sum() == 5
 
-
 class TestYOutlierFilterPercentile:
     """Tests for percentile method."""
 
@@ -202,7 +199,6 @@ class TestYOutlierFilterPercentile:
         # Roughly 80% should be kept
         assert 75 <= mask.sum() <= 85
 
-
 class TestYOutlierFilterMAD:
     """Tests for MAD (Median Absolute Deviation) method."""
 
@@ -229,7 +225,6 @@ class TestYOutlierFilterMAD:
 
         # The outlier should be excluded
         assert mask[-1] == False  # noqa: E712
-
 
 class TestYOutlierFilterEdgeCases:
     """Tests for edge cases and error handling."""
@@ -294,7 +289,6 @@ class TestYOutlierFilterEdgeCases:
         assert len(mask) == 5
         assert mask[-1] == False  # Outlier excluded  # noqa: E712
 
-
 class TestYOutlierFilterHelperMethods:
     """Tests for helper methods."""
 
@@ -355,7 +349,6 @@ class TestYOutlierFilterHelperMethods:
         assert "YOutlierFilter" in repr_str
         assert "iqr" in repr_str
         assert "2.0" in repr_str
-
 
 class TestYOutlierFilterTransform:
     """Tests for transform method (should be no-op)."""

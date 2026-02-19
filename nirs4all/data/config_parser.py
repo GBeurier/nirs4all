@@ -17,12 +17,12 @@ For specialized parsers, see nirs4all.data.parsers.
 
 import json
 from pathlib import Path
-from typing import Dict, Any, Tuple, Optional
+from typing import Any, Optional
+
 import numpy as np
 import yaml
 
 from nirs4all.core.logging import get_logger
-
 from nirs4all.data.parsers.normalizer import ConfigNormalizer
 
 logger = get_logger(__name__)
@@ -30,8 +30,7 @@ logger = get_logger(__name__)
 # Create shared normalizer instance
 _normalizer = ConfigNormalizer()
 
-
-def _load_config_from_file(file_path: str) -> Tuple[Dict[str, Any], str]:
+def _load_config_from_file(file_path: str) -> tuple[dict[str, Any], str]:
     """Load dataset config from JSON/YAML file.
 
     Args:
@@ -46,7 +45,6 @@ def _load_config_from_file(file_path: str) -> Tuple[Dict[str, Any], str]:
     """
     return _normalizer._load_config_file(file_path)
 
-
 def _s_(path):
     """Convert path(s) to POSIX format. Handles both single paths and lists of paths."""
     if path is None:
@@ -54,7 +52,6 @@ def _s_(path):
     if isinstance(path, list):
         return [Path(p).as_posix() for p in path]
     return Path(path).as_posix()
-
 
 def browse_folder(folder_path, global_params=None):
     """Scan a folder for data files matching standard naming conventions.
@@ -73,10 +70,7 @@ def browse_folder(folder_path, global_params=None):
     parser = FolderParser()
 
     # Create input for parser
-    if global_params is not None:
-        input_data = {"folder": folder_path, "global_params": global_params}
-    else:
-        input_data = folder_path
+    input_data = {"folder": folder_path, "global_params": global_params} if global_params is not None else folder_path
 
     result = parser.parse(input_data)
 
@@ -97,7 +91,6 @@ def browse_folder(folder_path, global_params=None):
         "global_params": global_params
     }
 
-
 def folder_to_name(folder_path):
     """Extract a dataset name from a folder path.
 
@@ -113,7 +106,6 @@ def folder_to_name(folder_path):
         if clean_part:
             return clean_part.lower()
     return "Unknown_dataset"
-
 
 def parse_config(data_config):
     """Parse a dataset configuration.
@@ -133,7 +125,4 @@ def parse_config(data_config):
     """
     # Use the new normalizer for unified handling
     return _normalizer.normalize(data_config)
-
-
-
 

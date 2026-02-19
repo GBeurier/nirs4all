@@ -22,7 +22,7 @@ Designed for ~4k samples with typical NIR spectral dimensions (100-2000 waveleng
 """
 
 import math
-from typing import Optional, List, Tuple, Dict, Any, Union
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -82,7 +82,6 @@ class PatchEmbedding1D(nn.Module):
         x = self.dropout(x)
         return x
 
-
 class LearnablePositionalEncoding(nn.Module):
     """
     Learnable positional encoding for sequence data.
@@ -110,8 +109,8 @@ class LearnablePositionalEncoding(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Add positional encoding to input."""
-        return self.dropout(x + self.pos_embed[:, :x.size(1)])
-
+        result: torch.Tensor = self.dropout(x + self.pos_embed[:, :x.size(1)])
+        return result
 
 class MultiHeadSelfAttention(nn.Module):
     """
@@ -170,7 +169,6 @@ class MultiHeadSelfAttention(nn.Module):
 
         return x
 
-
 class FeedForward(nn.Module):
     """
     Feed-forward network with GELU activation.
@@ -202,7 +200,6 @@ class FeedForward(nn.Module):
         x = self.fc2(x)
         x = self.dropout(x)
         return x
-
 
 class TransformerBlock(nn.Module):
     """
@@ -243,7 +240,6 @@ class TransformerBlock(nn.Module):
         x = x + self.drop_path(self.ff(self.norm2(x)))
         return x
 
-
 class DropPath(nn.Module):
     """
     Stochastic Depth (drop path) regularization.
@@ -269,7 +265,6 @@ class DropPath(nn.Module):
         random_tensor.floor_()  # Binarize
         output = x.div(keep_prob) * random_tensor
         return output
-
 
 class SpectralTransformer(nn.Module):
     """
@@ -297,7 +292,7 @@ class SpectralTransformer(nn.Module):
 
     def __init__(
         self,
-        input_shape: Tuple[int, int],
+        input_shape: tuple[int, int],
         num_classes: int = 1,
         embed_dim: int = 64,
         depth: int = 4,
@@ -433,18 +428,15 @@ class SpectralTransformer(nn.Module):
         x = self.norm(x)
 
         # Pooling
-        if self.pool == 'cls':
-            x = x[:, 0]  # Use CLS token
-        else:
-            x = x[:, 1:].mean(dim=1)  # Mean pooling (exclude CLS)
+        x = x[:, 0]  # Use CLS token if self.pool == 'cls' else x[:, 1:].mean(dim=1)  # Mean pooling (exclude CLS)
 
         # Classification/Regression head
-        return self.head(x)
-
+        result: torch.Tensor = self.head(x)
+        return result
 
 def _build_spectral_transformer(
-    input_shape: Tuple[int, int],
-    params: Dict[str, Any],
+    input_shape: tuple[int, int],
+    params: dict[str, Any],
     num_classes: int = 1
 ) -> SpectralTransformer:
     """
@@ -478,13 +470,12 @@ def _build_spectral_transformer(
         pool=params.get('pool', 'mean')  # Mean pooling often works better for spectral data
     )
 
-
 # -----------------------------------------------------------------------------
 #  Public API - Framework-decorated factory functions
 # -----------------------------------------------------------------------------
 
 @framework("pytorch")
-def spectral_transformer(input_shape: Tuple[int, int], params: Dict[str, Any] = None) -> SpectralTransformer:
+def spectral_transformer(input_shape: tuple[int, int], params: dict[str, Any] | None = None) -> SpectralTransformer:
     """
     Create a SpectralTransformer for regression.
 
@@ -508,12 +499,11 @@ def spectral_transformer(input_shape: Tuple[int, int], params: Dict[str, Any] = 
     params = params or {}
     return _build_spectral_transformer(input_shape, params, num_classes=1)
 
-
 @framework("pytorch")
 def spectral_transformer_classification(
-    input_shape: Tuple[int, int],
+    input_shape: tuple[int, int],
     num_classes: int = 2,
-    params: Dict[str, Any] = None
+    params: dict[str, Any] | None = None
 ) -> SpectralTransformer:
     """
     Create a SpectralTransformer for classification.
@@ -531,9 +521,8 @@ def spectral_transformer_classification(
     params = params or {}
     return _build_spectral_transformer(input_shape, params, num_classes=num_classes)
 
-
 @framework("pytorch")
-def spectral_transformer_small(input_shape: Tuple[int, int], params: Dict[str, Any] = None) -> SpectralTransformer:
+def spectral_transformer_small(input_shape: tuple[int, int], params: dict[str, Any] | None = None) -> SpectralTransformer:
     """
     Small SpectralTransformer variant - faster training, less overfitting risk.
 
@@ -556,12 +545,11 @@ def spectral_transformer_small(input_shape: Tuple[int, int], params: Dict[str, A
     default_params.update(params or {})
     return _build_spectral_transformer(input_shape, default_params, num_classes=1)
 
-
 @framework("pytorch")
 def spectral_transformer_small_classification(
-    input_shape: Tuple[int, int],
+    input_shape: tuple[int, int],
     num_classes: int = 2,
-    params: Dict[str, Any] = None
+    params: dict[str, Any] | None = None
 ) -> SpectralTransformer:
     """
     Small SpectralTransformer for classification.
@@ -584,9 +572,8 @@ def spectral_transformer_small_classification(
     default_params.update(params or {})
     return _build_spectral_transformer(input_shape, default_params, num_classes=num_classes)
 
-
 @framework("pytorch")
-def spectral_transformer_large(input_shape: Tuple[int, int], params: Dict[str, Any] = None) -> SpectralTransformer:
+def spectral_transformer_large(input_shape: tuple[int, int], params: dict[str, Any] | None = None) -> SpectralTransformer:
     """
     Large SpectralTransformer variant - higher capacity for larger datasets.
 
@@ -610,12 +597,11 @@ def spectral_transformer_large(input_shape: Tuple[int, int], params: Dict[str, A
     default_params.update(params or {})
     return _build_spectral_transformer(input_shape, default_params, num_classes=1)
 
-
 @framework("pytorch")
 def spectral_transformer_large_classification(
-    input_shape: Tuple[int, int],
+    input_shape: tuple[int, int],
     num_classes: int = 2,
-    params: Dict[str, Any] = None
+    params: dict[str, Any] | None = None
 ) -> SpectralTransformer:
     """
     Large SpectralTransformer for classification.
@@ -638,7 +624,6 @@ def spectral_transformer_large_classification(
     }
     default_params.update(params or {})
     return _build_spectral_transformer(input_shape, default_params, num_classes=num_classes)
-
 
 # Export all public functions
 __all__ = [

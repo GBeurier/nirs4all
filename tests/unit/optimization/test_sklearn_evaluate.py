@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.linear_model import LogisticRegression
 from sklearn.datasets import make_classification
+from sklearn.linear_model import LogisticRegression
 
 
 class TestEvaluateModelRegressor:
@@ -61,7 +61,6 @@ class TestEvaluateModelRegressor:
         score = controller._evaluate_model(model, X_val, y_val_2d)
         assert score >= 0.0
 
-
 class TestEvaluateModelClassifier:
     """Tests for _evaluate_model with classifiers — should use negative balanced accuracy."""
 
@@ -80,7 +79,6 @@ class TestEvaluateModelClassifier:
 
         # Negative balanced accuracy: should be in [-1, 0]
         assert -1.0 <= score <= 0.0
-
 
 class TestEvaluateModelErrorHandling:
     """Tests for error handling in _evaluate_model."""

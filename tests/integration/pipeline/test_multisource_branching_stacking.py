@@ -8,21 +8,17 @@ Based on investigation of Roadmap.md concern:
 > [multisource] with reload, branches and stack
 """
 
-import pytest
 import numpy as np
-
+import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
-from sklearn.model_selection import ShuffleSplit, KFold
+from sklearn.model_selection import KFold, ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.data import DatasetConfigs
+from nirs4all.operators.transforms import FirstDerivative, SavitzkyGolay, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.transforms import (
-    StandardNormalVariate, SavitzkyGolay, FirstDerivative
-)
-
 from tests.fixtures.data_generators import TestDataManager
 
 
@@ -149,7 +145,6 @@ class TestMultisourceBranching:
             f"Reloaded predictions do not match original.\n" \
             f"Original: {original_preds}\nReloaded: {reloaded_for_samples}"
 
-
 class TestMultisourceStacking:
     """Test stacking with multi-source datasets."""
 
@@ -247,7 +242,6 @@ class TestMultisourceStacking:
             f"Stacking reload predictions do not match.\n" \
             f"Original: {original_preds}\nReloaded: {reloaded_for_samples}"
 
-
 class TestMultisourceBranchingStacking:
     """Test combined branching + stacking with multi-source datasets."""
 
@@ -336,7 +330,6 @@ class TestMultisourceBranchingStacking:
             branch_preds = predictions.filter_predictions(branch_name=branch)
             assert len(branch_preds) > 0, f"No predictions for {branch}"
 
-
 class TestMultisourceMetaModel:
     """Test MetaModel stacking with multi-source datasets."""
 
@@ -406,7 +399,6 @@ class TestMultisourceMetaModel:
         # MetaModel should work per branch
         branch_names = predictions.get_unique_values('branch_name')
         assert len(branch_names) >= 2, f"Expected branches, got {branch_names}"
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

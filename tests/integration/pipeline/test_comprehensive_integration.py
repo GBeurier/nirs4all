@@ -5,30 +5,26 @@ This test suite validates the entire nirs4all pipeline based on the Q examples,
 testing regression, classification, preprocessing, predictions, and multi-dataset scenarios.
 """
 
-import pytest
-import numpy as np
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
 
+import numpy as np
+import pytest
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, GradientBoostingRegressor
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from sklearn.model_selection import ShuffleSplit, RepeatedKFold
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import ElasticNet
-from sklearn.svm import SVR
+from sklearn.model_selection import RepeatedKFold, ShuffleSplit
 from sklearn.neural_network import MLPRegressor
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.svm import SVR
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
-from nirs4all.operators.transforms import (
-    Detrend, FirstDerivative, SecondDerivative, Gaussian,
-    StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
-)
+from nirs4all.operators.transforms import Detrend, FirstDerivative, Gaussian, Haar, MultiplicativeScatterCorrection, SavitzkyGolay, SecondDerivative, StandardNormalVariate
 from nirs4all.operators.transforms.targets import RangeDiscretizer
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.visualization.predictions import PredictionAnalyzer
-
 from tests.fixtures.data_generators import TestDataManager
 
 

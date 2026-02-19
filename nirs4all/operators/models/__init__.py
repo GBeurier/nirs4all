@@ -10,48 +10,46 @@ from typing import TYPE_CHECKING
 
 from .base import BaseModelOperator
 
-# Import sklearn models (lightweight, always available)
-from .sklearn import PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS, SIMPLS, LWPLS, IntervalPLS, RobustPLS, RecursivePLS, KOPLS
-from .sklearn.nlpls import KernelPLS, NLPLS, KPLS
-from .sklearn.oklmpls import OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
-from .sklearn.fckpls import FCKPLS, FractionalPLS, FractionalConvFeaturizer
-from .sklearn.aom_pls import (
-    AOMPLSRegressor,
-    LinearOperator,
-    IdentityOperator,
-    SavitzkyGolayOperator,
-    DetrendProjectionOperator,
-    ComposedOperator,
-    NorrisWilliamsOperator,
-    FiniteDifferenceOperator,
-    WaveletProjectionOperator,
-    FFTBandpassOperator,
-    default_operator_bank,
-    extended_operator_bank,
-)
-from .sklearn.pop_pls import POPPLSRegressor, pop_pls_operator_bank
-from .sklearn.aom_pls_classifier import AOMPLSClassifier
-from .sklearn.pop_pls_classifier import POPPLSClassifier
-
 # TensorFlow models are loaded lazily to avoid importing TensorFlow at startup
 # Use: from nirs4all.operators.models.tensorflow import nicon, generic
 # Or access via __getattr__ below
-
 # Import meta-model stacking
-from .meta import MetaModel, StackingConfig, CoverageStrategy, TestAggregation, BranchScope, StackingLevel
+from .meta import BranchScope, CoverageStrategy, MetaModel, StackingConfig, StackingLevel, TestAggregation
 from .selection import (
-    SourceModelSelector,
     AllPreviousModelsSelector,
-    ExplicitModelSelector,
-    TopKByMetricSelector,
     DiversitySelector,
-    SelectorFactory,
+    ExplicitModelSelector,
     ModelCandidate,
+    SelectorFactory,
+    SourceModelSelector,
+    TopKByMetricSelector,
 )
+
+# Import sklearn models (lightweight, always available)
+from .sklearn import IKPLS, KOPLS, LWPLS, MBPLS, OPLS, OPLSDA, PLSDA, SIMPLS, DiPLS, IntervalPLS, RecursivePLS, RobustPLS, SparsePLS
+from .sklearn.aom_pls import (
+    AOMPLSRegressor,
+    ComposedOperator,
+    DetrendProjectionOperator,
+    FFTBandpassOperator,
+    FiniteDifferenceOperator,
+    IdentityOperator,
+    LinearOperator,
+    NorrisWilliamsOperator,
+    SavitzkyGolayOperator,
+    WaveletProjectionOperator,
+    default_operator_bank,
+    extended_operator_bank,
+)
+from .sklearn.aom_pls_classifier import AOMPLSClassifier
+from .sklearn.fckpls import FCKPLS, FractionalConvFeaturizer, FractionalPLS
+from .sklearn.nlpls import KPLS, NLPLS, KernelPLS
+from .sklearn.oklmpls import OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
+from .sklearn.pop_pls import POPPLSRegressor, pop_pls_operator_bank
+from .sklearn.pop_pls_classifier import POPPLSClassifier
 
 # Lazy loading for TensorFlow models
 _tensorflow_exports = None
-
 
 def _get_tensorflow_exports():
     """Lazily load TensorFlow model exports."""
@@ -59,7 +57,7 @@ def _get_tensorflow_exports():
     if _tensorflow_exports is None:
         from nirs4all.utils.backend import is_available
         if is_available('tensorflow'):
-            from .tensorflow import nicon, generic
+            from .tensorflow import generic, nicon
             _tensorflow_exports = {}
             # Collect all exported names from tensorflow modules
             for mod in [nicon, generic]:
@@ -69,14 +67,12 @@ def _get_tensorflow_exports():
             _tensorflow_exports = {}
     return _tensorflow_exports
 
-
 def __getattr__(name):
     """Lazy attribute access for TensorFlow models."""
     tf_exports = _get_tensorflow_exports()
     if name in tf_exports:
         return tf_exports[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
 
 __all__ = [
     "BaseModelOperator",

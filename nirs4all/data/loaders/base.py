@@ -9,13 +9,12 @@ Phase 2 Implementation - Dataset Configuration Roadmap
 """
 
 import gzip
-import io
 import tarfile
 import warnings
 import zipfile
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
+from typing import IO, Any, ClassVar, Optional
 
 import numpy as np
 import pandas as pd
@@ -23,15 +22,13 @@ import pandas as pd
 from nirs4all.core.exceptions import NAError
 from nirs4all.data.schema.config import NAFillConfig, NAFillMethod
 
-
 _VALID_NA_POLICIES = {"auto", "abort", "remove_sample", "remove_feature", "replace", "ignore"}
-
 
 def apply_na_policy(
     data: pd.DataFrame,
     na_policy: str,
-    na_fill_config: Optional[NAFillConfig] = None,
-) -> Tuple[pd.DataFrame, dict]:
+    na_fill_config: NAFillConfig | None = None,
+) -> tuple[pd.DataFrame, dict]:
     """Apply NA policy to loaded data.
 
     Args:
@@ -151,21 +148,17 @@ def apply_na_policy(
     # Should never reach here due to validation at the top
     raise ValueError(f"Unhandled na_policy: {na_policy}")  # pragma: no cover
 
-
 class LoaderError(Exception):
     """Base exception for loader errors."""
     pass
-
 
 class FormatNotSupportedError(LoaderError):
     """Raised when a file format is not supported."""
     pass
 
-
 class FileLoadError(LoaderError):
     """Raised when a file cannot be loaded."""
     pass
-
 
 class LoaderResult:
     """Result container for file loading operations.
@@ -180,10 +173,10 @@ class LoaderResult:
 
     def __init__(
         self,
-        data: Optional[pd.DataFrame] = None,
-        report: Optional[Dict[str, Any]] = None,
-        na_mask: Optional[pd.Series] = None,
-        headers: Optional[List[str]] = None,
+        data: pd.DataFrame | None = None,
+        report: dict[str, Any] | None = None,
+        na_mask: pd.Series | None = None,
+        headers: list[str] | None = None,
         header_unit: str = "cm-1",
     ):
         self.data = data
@@ -198,10 +191,9 @@ class LoaderResult:
         return self.data is not None and self.report.get("error") is None
 
     @property
-    def error(self) -> Optional[str]:
+    def error(self) -> str | None:
         """Get error message if loading failed."""
         return self.report.get("error")
-
 
 class FileLoader(ABC):
     """Abstract base class for file loaders.
@@ -229,7 +221,7 @@ class FileLoader(ABC):
         ...         pass
     """
 
-    supported_extensions: ClassVar[Tuple[str, ...]] = ()
+    supported_extensions: ClassVar[tuple[str, ...]] = ()
     name: ClassVar[str] = "Base Loader"
     priority: ClassVar[int] = 50
 
@@ -267,7 +259,7 @@ class FileLoader(ABC):
         pass
 
     @classmethod
-    def detect_format(cls, path: Path) -> Optional[str]:
+    def detect_format(cls, path: Path) -> str | None:
         """Detect the file format from the path.
 
         Args:
@@ -298,7 +290,6 @@ class FileLoader(ABC):
         while result.suffix.lower() in compression_suffixes:
             result = result.with_suffix("")
         return result
-
 
 class ArchiveHandler:
     """Utility class for handling compressed files and archives.
@@ -350,7 +341,7 @@ class ArchiveHandler:
             return f.read()
 
     @staticmethod
-    def list_zip_members(path: Path) -> List[str]:
+    def list_zip_members(path: Path) -> list[str]:
         """List members in a zip archive.
 
         Args:
@@ -365,7 +356,7 @@ class ArchiveHandler:
     @staticmethod
     def extract_from_zip(
         path: Path,
-        member: Optional[str] = None,
+        member: str | None = None,
         encoding: str = "utf-8",
     ) -> str:
         """Extract a file from a zip archive.
@@ -400,7 +391,7 @@ class ArchiveHandler:
                     warnings.warn(
                         f"Multiple CSV files in {path}. Using {csv_files[0]}. "
                         f"Specify 'member' parameter to choose a specific file.",
-                        UserWarning
+                        UserWarning, stacklevel=2
                     )
                 return z.read(csv_files[0]).decode(encoding)
 
@@ -414,7 +405,7 @@ class ArchiveHandler:
     @staticmethod
     def extract_bytes_from_zip(
         path: Path,
-        member: Optional[str] = None,
+        member: str | None = None,
     ) -> bytes:
         """Extract a file from a zip archive as bytes.
 
@@ -444,7 +435,7 @@ class ArchiveHandler:
             return z.read(data_files[0])
 
     @staticmethod
-    def list_tar_members(path: Path) -> List[str]:
+    def list_tar_members(path: Path) -> list[str]:
         """List members in a tar archive.
 
         Args:
@@ -453,14 +444,13 @@ class ArchiveHandler:
         Returns:
             List of member names in the archive.
         """
-        mode = ArchiveHandler._get_tar_mode(path)
-        with tarfile.open(path, mode) as t:
-            return t.getnames()
+        with tarfile.open(path, mode="r:*") as t:
+            return list(t.getnames())
 
     @staticmethod
     def extract_from_tar(
         path: Path,
-        member: Optional[str] = None,
+        member: str | None = None,
         encoding: str = "utf-8",
     ) -> str:
         """Extract a file from a tar archive.
@@ -476,8 +466,7 @@ class ArchiveHandler:
         Raises:
             FileLoadError: If no suitable member is found.
         """
-        mode = ArchiveHandler._get_tar_mode(path)
-        with tarfile.open(path, mode) as t:
+        with tarfile.open(path, mode="r:*") as t:
             members = t.getnames()
 
             if member is not None:
@@ -486,10 +475,10 @@ class ArchiveHandler:
                         f"Member '{member}' not found in {path}. "
                         f"Available: {members}"
                     )
-                f = t.extractfile(member)
+                f: IO[bytes] | None = t.extractfile(member)
                 if f is None:
                     raise FileLoadError(f"Cannot extract '{member}' from {path}")
-                return f.read().decode(encoding)
+                return str(f.read().decode(encoding))
 
             # Auto-detect: find first CSV, then any file
             csv_files = [m for m in members if m.lower().endswith(".csv")]
@@ -499,12 +488,12 @@ class ArchiveHandler:
                     warnings.warn(
                         f"Multiple CSV files in {path}. Using {csv_files[0]}. "
                         f"Specify 'member' parameter to choose a specific file.",
-                        UserWarning
+                        UserWarning, stacklevel=2
                     )
                 f = t.extractfile(csv_files[0])
                 if f is None:
                     raise FileLoadError(f"Cannot extract '{csv_files[0]}' from {path}")
-                return f.read().decode(encoding)
+                return str(f.read().decode(encoding))
 
             # Fall back to first regular file
             for name in members:
@@ -512,14 +501,14 @@ class ArchiveHandler:
                 if info.isfile():
                     f = t.extractfile(name)
                     if f is not None:
-                        return f.read().decode(encoding)
+                        return str(f.read().decode(encoding))
 
             raise FileLoadError(f"No extractable files found in {path}")
 
     @staticmethod
     def extract_bytes_from_tar(
         path: Path,
-        member: Optional[str] = None,
+        member: str | None = None,
     ) -> bytes:
         """Extract a file from a tar archive as bytes.
 
@@ -530,8 +519,7 @@ class ArchiveHandler:
         Returns:
             Content of the extracted file as bytes.
         """
-        mode = ArchiveHandler._get_tar_mode(path)
-        with tarfile.open(path, mode) as t:
+        with tarfile.open(path, mode="r:*") as t:
             members = t.getnames()
 
             if member is not None:
@@ -540,10 +528,10 @@ class ArchiveHandler:
                         f"Member '{member}' not found in {path}. "
                         f"Available: {members}"
                     )
-                f = t.extractfile(member)
+                f: IO[bytes] | None = t.extractfile(member)
                 if f is None:
                     raise FileLoadError(f"Cannot extract '{member}' from {path}")
-                return f.read()
+                return bytes(f.read())
 
             # Fall back to first regular file
             for name in members:
@@ -551,7 +539,7 @@ class ArchiveHandler:
                 if info.isfile():
                     f = t.extractfile(name)
                     if f is not None:
-                        return f.read()
+                        return bytes(f.read())
 
             raise FileLoadError(f"No extractable files found in {path}")
 
@@ -591,7 +579,7 @@ class LoaderRegistry:
     """
 
     _instance: Optional["LoaderRegistry"] = None
-    _loaders: List[Type[FileLoader]]
+    _loaders: list[type[FileLoader]]
 
     def __new__(cls) -> "LoaderRegistry":
         """Implement singleton pattern."""
@@ -605,7 +593,7 @@ class LoaderRegistry:
         """Get the singleton registry instance."""
         return cls()
 
-    def register(self, loader_class: Type[FileLoader]) -> None:
+    def register(self, loader_class: type[FileLoader]) -> None:
         """Register a file loader.
 
         Args:
@@ -616,7 +604,7 @@ class LoaderRegistry:
             # Sort by priority (lower = higher priority)
             self._loaders.sort(key=lambda x: x.priority)
 
-    def unregister(self, loader_class: Type[FileLoader]) -> None:
+    def unregister(self, loader_class: type[FileLoader]) -> None:
         """Unregister a file loader.
 
         Args:
@@ -625,7 +613,7 @@ class LoaderRegistry:
         if loader_class in self._loaders:
             self._loaders.remove(loader_class)
 
-    def get_loader(self, path: Union[str, Path]) -> FileLoader:
+    def get_loader(self, path: str | Path) -> FileLoader:
         """Get the appropriate loader for a file.
 
         Args:
@@ -648,18 +636,18 @@ class LoaderRegistry:
             f"Supported formats: {self.get_supported_extensions()}"
         )
 
-    def get_supported_extensions(self) -> List[str]:
+    def get_supported_extensions(self) -> list[str]:
         """Get all supported file extensions.
 
         Returns:
             List of supported extensions across all registered loaders.
         """
-        extensions = set()
+        extensions: set[str] = set()
         for loader in self._loaders:
             extensions.update(loader.supported_extensions)
         return sorted(extensions)
 
-    def get_registered_loaders(self) -> List[Type[FileLoader]]:
+    def get_registered_loaders(self) -> list[type[FileLoader]]:
         """Get all registered loader classes.
 
         Returns:
@@ -673,7 +661,7 @@ class LoaderRegistry:
 
     def load(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         **params: Any,
     ) -> LoaderResult:
         """Load a file using the appropriate loader.
@@ -694,8 +682,7 @@ class LoaderRegistry:
         loader = self.get_loader(path)
         return loader.load(Path(path), **params)
 
-
-def register_loader(cls: Type[FileLoader]) -> Type[FileLoader]:
+def register_loader(cls: type[FileLoader]) -> type[FileLoader]:
     """Decorator to register a loader with the global registry.
 
     Example:

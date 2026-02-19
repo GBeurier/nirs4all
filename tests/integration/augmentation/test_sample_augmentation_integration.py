@@ -5,18 +5,17 @@ Tests standard and balanced augmentation with leak prevention in CV.
 Based on Q12_sample_augmentation.py example.
 """
 
-import pytest
-import numpy as np
-import pandas as pd
 from pathlib import Path
 
-from sklearn.model_selection import GroupKFold
+import numpy as np
+import pandas as pd
+import pytest
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GroupKFold
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.operators.transforms import Rotate_Translate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-
 from tests.fixtures.data_generators import TestDataManager
 
 

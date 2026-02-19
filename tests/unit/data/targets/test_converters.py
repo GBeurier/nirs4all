@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from sklearn.preprocessing import StandardScaler
 
-from nirs4all.data._targets.converters import NumericConverter, ColumnWiseTransformer
+from nirs4all.data._targets.converters import ColumnWiseTransformer, NumericConverter
 
 
 class TestNumericConverter:
@@ -78,7 +78,6 @@ class TestNumericConverter:
         result, transformer = NumericConverter.convert(data)
 
         assert len(result) == 0
-
 
 class TestColumnWiseTransformer:
     """Test suite for ColumnWiseTransformer class."""

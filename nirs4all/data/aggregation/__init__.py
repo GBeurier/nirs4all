@@ -6,9 +6,9 @@ including custom aggregation functions and column-based aggregation.
 """
 
 from .aggregator import (
-    Aggregator,
     AggregationConfig,
     AggregationMethod,
+    Aggregator,
     aggregate_data,
 )
 

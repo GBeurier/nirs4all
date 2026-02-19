@@ -5,17 +5,15 @@ Tests GroupKFold and StratifiedGroupKFold with Sample_ID metadata.
 Based on Q1_groupsplit.py example.
 """
 
-import pytest
 import numpy as np
 import pandas as pd
-
-from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
-from sklearn.ensemble import RandomForestClassifier
+import pytest
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-
 from tests.fixtures.data_generators import TestDataManager
 
 
@@ -169,6 +167,7 @@ class TestGroupSplitIntegration:
         dataset_folder = str(test_data_with_groups.get_temp_directory() / "classification")
 
         from sklearn.preprocessing import StandardScaler
+
         from nirs4all.operators.transforms import Gaussian
 
         pipeline = [

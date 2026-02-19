@@ -40,7 +40,6 @@ def test_execute_passes_dataset_content_hash_to_begin_pipeline():
     assert store.begin_pipeline.call_count == 1
     assert store.begin_pipeline.call_args.kwargs["dataset_hash"] == "dataset-hash-123"
 
-
 def test_flush_predictions_uses_refit_runtime_overrides():
     """Refit runtime labels should be applied before saving predictions."""
     store = Mock()
@@ -85,7 +84,6 @@ def test_flush_predictions_uses_refit_runtime_overrides():
     assert kwargs["fold_id"] == "final"
     assert kwargs["refit_context"] == "standalone"
 
-
 def test_record_dataset_shapes_is_gated_by_verbose_level():
     """Shape tracing should not materialize arrays unless verbose>=2."""
     executor = PipelineExecutor(step_runner=Mock(), mode="train", verbose=1)
@@ -104,7 +102,6 @@ def test_record_dataset_shapes_is_gated_by_verbose_level():
     )
 
     dataset.x.assert_not_called()
-
 
 def test_record_dataset_shapes_reuses_cached_selector_shapes():
     """Repeated shape tracing for unchanged selector should reuse cache."""
@@ -135,7 +132,6 @@ def test_record_dataset_shapes_reuses_cached_selector_shapes():
     assert dataset.x.call_count == 2
     runtime_context.record_input_shapes.assert_called_once()
     runtime_context.record_output_shapes.assert_called_once()
-
 
 def test_flush_predictions_uses_preindexed_chain_matching():
     """Chain selection should resolve by step/branch/class/preprocessing."""

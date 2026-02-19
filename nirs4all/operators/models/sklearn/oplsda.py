@@ -8,6 +8,7 @@ from sklearn.preprocessing import LabelEncoder
 
 from .plsda import PLSDA
 
+
 def _check_pyopls_available():
     """Check if pyopls package is available."""
     try:

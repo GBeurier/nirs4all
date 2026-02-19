@@ -25,7 +25,6 @@ from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 # Fixtures
 # =========================================================================
 
-
 @pytest.fixture
 def conn():
     """Create an in-memory DuckDB connection with schema."""
@@ -34,17 +33,14 @@ def conn():
     yield connection
     connection.close()
 
-
 @pytest.fixture
 def store(tmp_path: Path) -> WorkspaceStore:
     """Create a WorkspaceStore rooted at a temp directory."""
     return WorkspaceStore(tmp_path / "workspace")
 
-
 # =========================================================================
 # Schema tests
 # =========================================================================
-
 
 class TestCacheKeySchema:
     """Verify the artifacts table has cache key columns."""
@@ -95,11 +91,9 @@ class TestCacheKeySchema:
         index_names = [row[0] for row in result]
         assert "idx_artifacts_dataset_hash" in index_names
 
-
 # =========================================================================
 # Schema migration tests
 # =========================================================================
-
 
 class TestCacheKeyMigration:
     """Verify schema migration adds cache key columns to existing databases."""
@@ -257,11 +251,9 @@ class TestCacheKeyMigration:
 
         conn.close()
 
-
 # =========================================================================
 # WorkspaceStore cache method tests
 # =========================================================================
-
 
 class TestSaveArtifactWithCacheKey:
     """Test saving artifacts with cross-run cache keys."""
@@ -312,7 +304,6 @@ class TestSaveArtifactWithCacheKey:
         assert row["input_data_hash"] is None
         assert row["dataset_hash"] is None
 
-
 class TestUpdateArtifactCacheKey:
     """Test retrofitting cache keys onto existing artifacts."""
 
@@ -342,7 +333,6 @@ class TestUpdateArtifactCacheKey:
         assert row["chain_path_hash"] == "chain_abc"
         assert row["input_data_hash"] == "data_123"
         assert row["dataset_hash"] == "dset_xyz"
-
 
 class TestFindCachedArtifact:
     """Test cache lookup by (chain_path_hash, input_data_hash) key."""
@@ -428,7 +418,6 @@ class TestFindCachedArtifact:
         # Now it should be found
         found = store.find_cached_artifact("chain_retro", "data_retro")
         assert found == art_id
-
 
 class TestInvalidateDatasetCache:
     """Test cache invalidation by dataset hash."""
@@ -526,11 +515,9 @@ class TestInvalidateDatasetCache:
         count = store.invalidate_dataset_cache("some_hash")
         assert count == 0
 
-
 # =========================================================================
 # Artifact loading backward compatibility
 # =========================================================================
-
 
 class TestBackwardCompatibility:
     """Verify existing artifacts without cache keys still work."""

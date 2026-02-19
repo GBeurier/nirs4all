@@ -31,11 +31,11 @@ import numpy as np
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import (
+    GroupKFold,
     KFold,
     ShuffleSplit,
-    StratifiedKFold,
-    GroupKFold,
     StratifiedGroupKFold,
+    StratifiedKFold,
 )
 
 # NIRS4All imports
@@ -48,7 +48,6 @@ parser = argparse.ArgumentParser(description='U02 Group Splitting Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Why Group Splitting?
@@ -79,7 +78,6 @@ Without proper group splitting:
   ❌ Overly optimistic performance estimates
   ❌ Poor generalization to new samples
 """)
-
 
 # =============================================================================
 # Section 2: GroupKFold - Native Group Splitter
@@ -118,7 +116,6 @@ accuracy = (1 - result_groupkfold.best_rmse) * 100 if not np.isnan(result_groupk
 print(f"\nGroupKFold - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nGroupKFold - (see detailed metrics)")
 print("Note: Groups (Sample_ID) are never split across train/test!")
 
-
 # =============================================================================
 # Section 3: StratifiedGroupKFold - Groups + Stratification
 # =============================================================================
@@ -153,7 +150,6 @@ result_strat_group = nirs4all.run(
 accuracy = (1 - result_strat_group.best_rmse) * 100 if not np.isnan(result_strat_group.best_rmse) else float('nan')
 print(f"\nStratifiedGroupKFold - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nStratifiedGroupKFold - (see detailed metrics)")
 print("Note: Groups respected AND class proportions preserved!")
-
 
 # =============================================================================
 # Section 4: Automatic Group Support via repetition
@@ -194,7 +190,6 @@ result_auto = nirs4all.run(
 accuracy = (1 - result_auto.best_rmse) * 100 if not np.isnan(result_auto.best_rmse) else float('nan')
 print(f"\nKFold + repetition - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nKFold + repetition - (see detailed metrics)")
 
-
 # =============================================================================
 # Section 5: ShuffleSplit with repetition
 # =============================================================================
@@ -224,7 +219,6 @@ result_shuffle_group = nirs4all.run(
 
 accuracy = (1 - result_shuffle_group.best_rmse) * 100 if not np.isnan(result_shuffle_group.best_rmse) else float('nan')
 print(f"\nShuffleSplit + repetition - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nShuffleSplit + repetition - (see detailed metrics)")
-
 
 # =============================================================================
 # Section 6: StratifiedKFold with repetition
@@ -256,7 +250,6 @@ result_strat_auto = nirs4all.run(
 
 accuracy = (1 - result_strat_auto.best_rmse) * 100 if not np.isnan(result_strat_auto.best_rmse) else float('nan')
 print(f"\nStratifiedKFold + repetition - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nStratifiedKFold + repetition - (see detailed metrics)")
-
 
 # =============================================================================
 # Section 7: Comparison Without vs With Group Splitting
@@ -301,13 +294,12 @@ result_with_group = nirs4all.run(
 acc_no_group = (1 - result_no_group.best_rmse) * 100 if not np.isnan(result_no_group.best_rmse) else float('nan')
 acc_with_group = (1 - result_with_group.best_rmse) * 100 if not np.isnan(result_with_group.best_rmse) else float('nan')
 
-print(f"\nResults comparison:")
+print("\nResults comparison:")
 print(f"   WITHOUT group splitting: {acc_no_group:.1f}% (may be optimistic)" if not np.isnan(acc_no_group) else "   WITHOUT group splitting: (see detailed metrics)")
 print(f"   WITH group splitting:    {acc_with_group:.1f}% (realistic)" if not np.isnan(acc_with_group) else "   WITH group splitting:    (see detailed metrics)")
 
 if acc_no_group > acc_with_group:
     print("\n   ⚠️  Without groups appears better - likely due to data leakage!")
-
 
 # =============================================================================
 # Summary

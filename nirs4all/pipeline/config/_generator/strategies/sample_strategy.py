@@ -16,11 +16,12 @@ Examples:
 
 import math
 import random
-from typing import Any, Dict, FrozenSet, List, Optional
+from collections.abc import Callable
+from typing import Any, Optional
 
-from .base import ExpansionStrategy, GeneratorNode, ExpandedResult
+from ..keywords import COUNT_KEYWORD, PURE_SAMPLE_KEYS, SAMPLE_KEYWORD, SEED_KEYWORD
+from .base import ExpandedResult, ExpansionStrategy, GeneratorNode
 from .registry import register_strategy
-from ..keywords import SAMPLE_KEYWORD, COUNT_KEYWORD, SEED_KEYWORD, PURE_SAMPLE_KEYS
 
 
 @register_strategy
@@ -41,7 +42,7 @@ class SampleStrategy(ExpansionStrategy):
         priority: 24 (between log_range and range)
     """
 
-    keywords: FrozenSet[str] = PURE_SAMPLE_KEYS
+    keywords: frozenset[str] = PURE_SAMPLE_KEYS
     priority: int = 24
 
     SUPPORTED_DISTRIBUTIONS = {"uniform", "log_uniform", "normal", "gaussian", "choice"}
@@ -63,8 +64,8 @@ class SampleStrategy(ExpansionStrategy):
     def expand(
         self,
         node: GeneratorNode,
-        seed: Optional[int] = None,
-        expand_nested: Optional[callable] = None
+        seed: int | None = None,
+        expand_nested: Callable | None = None
     ) -> ExpandedResult:
         """Expand a sample node to list of sampled values.
 
@@ -90,10 +91,7 @@ class SampleStrategy(ExpansionStrategy):
             )
 
         # Initialize RNG with seed
-        if node_seed is not None:
-            rng = random.Random(node_seed)
-        else:
-            rng = random
+        rng = random.Random(node_seed) if node_seed is not None else random
 
         distribution = sample_spec.get("distribution", "uniform")
         num = sample_spec.get("num", 10)
@@ -120,8 +118,8 @@ class SampleStrategy(ExpansionStrategy):
         return results
 
     def _sample_uniform(
-        self, spec: Dict[str, Any], num: int, rng: random.Random
-    ) -> List[float]:
+        self, spec: dict[str, Any], num: int, rng: random.Random
+    ) -> list[float]:
         """Sample from uniform distribution."""
         low = spec.get("from", 0)
         high = spec.get("to", 1)
@@ -129,8 +127,8 @@ class SampleStrategy(ExpansionStrategy):
         return [round(rng.uniform(low, high), 10) for _ in range(num)]
 
     def _sample_log_uniform(
-        self, spec: Dict[str, Any], num: int, rng: random.Random
-    ) -> List[float]:
+        self, spec: dict[str, Any], num: int, rng: random.Random
+    ) -> list[float]:
         """Sample from log-uniform distribution."""
         low = spec.get("from", 0.001)
         high = spec.get("to", 1)
@@ -148,8 +146,8 @@ class SampleStrategy(ExpansionStrategy):
         return results
 
     def _sample_normal(
-        self, spec: Dict[str, Any], num: int, rng: random.Random
-    ) -> List[float]:
+        self, spec: dict[str, Any], num: int, rng: random.Random
+    ) -> list[float]:
         """Sample from normal distribution."""
         mean = spec.get("mean", 0)
         std = spec.get("std", 1)
@@ -157,8 +155,8 @@ class SampleStrategy(ExpansionStrategy):
         return [round(rng.gauss(mean, std), 10) for _ in range(num)]
 
     def _sample_choice(
-        self, spec: Dict[str, Any], num: int, rng: random.Random
-    ) -> List[Any]:
+        self, spec: dict[str, Any], num: int, rng: random.Random
+    ) -> list[Any]:
         """Sample from a list of choices."""
         values = spec.get("values", [])
 
@@ -167,7 +165,7 @@ class SampleStrategy(ExpansionStrategy):
 
         return [rng.choice(values) for _ in range(num)]
 
-    def count(self, node: GeneratorNode, count_nested: Optional[callable] = None) -> int:
+    def count(self, node: GeneratorNode, count_nested: Callable | None = None) -> int:
         """Count sample results (simply returns num).
 
         Args:
@@ -190,7 +188,7 @@ class SampleStrategy(ExpansionStrategy):
             return min(count_limit, num)
         return num
 
-    def validate(self, node: GeneratorNode) -> List[str]:
+    def validate(self, node: GeneratorNode) -> list[str]:
         """Validate sample node specification.
 
         Args:

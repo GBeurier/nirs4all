@@ -6,14 +6,14 @@ for buffer/flush, ranking, filtering, and array round-trip operations.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import polars as pl
 import pytest
-from pathlib import Path
 
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -22,7 +22,6 @@ from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 def _make_store(tmp_path: Path) -> WorkspaceStore:
     """Create a WorkspaceStore rooted at *tmp_path*."""
     return WorkspaceStore(tmp_path / "workspace")
-
 
 def _setup_store_hierarchy(store: WorkspaceStore, dataset_name: str = "wheat") -> tuple[str, str]:
     """Create run -> pipeline -> chain hierarchy and return (pipeline_id, chain_id).
@@ -55,7 +54,6 @@ def _setup_store_hierarchy(store: WorkspaceStore, dataset_name: str = "wheat") -
     )
     return pipeline_id, chain_id
 
-
 def _make_predictions_with_store(tmp_path: Path) -> tuple[Predictions, WorkspaceStore, str, str]:
     """Create a Predictions instance backed by a WorkspaceStore.
 
@@ -66,7 +64,6 @@ def _make_predictions_with_store(tmp_path: Path) -> tuple[Predictions, Workspace
     pipeline_id, chain_id = _setup_store_hierarchy(store)
     preds = Predictions(store=store)
     return preds, store, pipeline_id, chain_id
-
 
 def _add_sample_predictions(preds: Predictions, n: int = 10) -> list[str]:
     """Add *n* sample predictions to the buffer and return their IDs."""
@@ -96,7 +93,6 @@ def _add_sample_predictions(preds: Predictions, n: int = 10) -> list[str]:
         )
         ids.append(pred_id)
     return ids
-
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -217,7 +213,6 @@ class TestPredictionsBufferFlush:
         assert len(df) == 2
         assert set(df["chain_id"].to_list()) == {chain_id_1, chain_id_2}
 
-
 class TestPredictionsTop:
     """Test top() ranking from in-memory buffer."""
 
@@ -254,7 +249,6 @@ class TestPredictionsTop:
         preds = Predictions()
         results = preds.top(5, rank_metric="rmse", rank_partition="val")
         assert len(results) == 0
-
 
 class TestPredictionsFilter:
     """Test filter_predictions on in-memory buffer."""
@@ -303,7 +297,6 @@ class TestPredictionsFilter:
 
         corn_preds = preds.filter_predictions(dataset_name="corn")
         assert len(corn_preds) == 2
-
 
 class TestPredictionsArraysRoundtrip:
     """Test array storage and retrieval through flush."""
@@ -372,7 +365,6 @@ class TestPredictionsArraysRoundtrip:
         loaded = store.get_prediction(pred_id, load_arrays=True)
         assert loaded is not None
         np.testing.assert_array_almost_equal(loaded["weights"], weights)
-
 
 class TestResultBestScore:
     """Test that result scores are correctly computed from store-backed predictions."""
@@ -452,7 +444,6 @@ class TestResultBestScore:
         assert len(results_r2) == 1
         assert results_r2[0]["rank_score"] == 0.01
 
-
 class TestFlushAndQueryStore:
     """End-to-end: buffer -> flush -> query store."""
 
@@ -524,7 +515,6 @@ class TestFlushAndQueryStore:
         assert loaded_scores["val"]["r2"] == 0.85
         assert loaded_scores["test"]["mae"] == 0.14
 
-
 # ---------------------------------------------------------------------------
 # Phase 3 — User-Facing API tests
 # ---------------------------------------------------------------------------
@@ -557,7 +547,6 @@ def _flush_predictions_to_store(
     preds.flush(pipeline_id=pipeline_id, chain_id=chain_id)
     return preds
 
-
 class TestPredictionsFromWorkspacePath:
     """Test Predictions(db_path=workspace_dir)."""
 
@@ -585,7 +574,6 @@ class TestPredictionsFromWorkspacePath:
         preds = Predictions.from_file(db_file)
         assert preds.num_predictions == 3
         preds.close()
-
 
 class TestPredictionsFromParquet:
     """Test Predictions.from_parquet() portable mode."""
@@ -665,7 +653,6 @@ class TestPredictionsFromParquet:
         with pytest.raises(RuntimeError, match="requires a workspace store"):
             preds.store_stats()
 
-
 class TestMergeStores:
     """Test Predictions.merge_stores()."""
 
@@ -722,7 +709,6 @@ class TestMergeStores:
         assert report.predictions_merged == 3
         assert report.datasets_merged == ["wheat"]
 
-
 class TestCleanDeadLinks:
     """Test clean_dead_links maintenance helper."""
 
@@ -738,7 +724,6 @@ class TestCleanDeadLinks:
         assert result["metadata_orphans_removed"] == 0
         assert result["array_orphans_found"] == 0
         store.close()
-
 
 class TestRemoveBottom:
     """Test remove_bottom maintenance helper."""
@@ -760,7 +745,6 @@ class TestRemoveBottom:
         df = store.query_predictions()
         assert len(df) == 8
         store.close()
-
 
 class TestRemoveDataset:
     """Test remove_dataset maintenance helper."""
@@ -807,7 +791,6 @@ class TestRemoveDataset:
         assert len(df) == 5
         store.close()
 
-
 class TestRemoveRun:
     """Test remove_run maintenance helper."""
 
@@ -849,7 +832,6 @@ class TestRemoveRun:
         assert len(df) == 0
         store.close()
 
-
 class TestCompact:
     """Test compact() maintenance helper."""
 
@@ -872,7 +854,6 @@ class TestCompact:
         assert stats["wheat"]["rows_removed"] >= 2
         store.close()
 
-
 class TestStoreStats:
     """Test store_stats() helper."""
 
@@ -894,7 +875,6 @@ class TestStoreStats:
         assert stats["arrays"]["total_rows"] == 5
         store.close()
 
-
 class TestQuerySQL:
     """Test query() method."""
 
@@ -914,7 +894,6 @@ class TestQuerySQL:
         assert len(result2) == 1
         assert result2["n"][0] == 5
         store.close()
-
 
 class TestContextManager:
     """Test context manager protocol."""

@@ -48,19 +48,17 @@ def _check_jax_available():
     except ImportError:
         return False
 
-
 # =============================================================================
 # Kernel Functions (NumPy)
 # =============================================================================
 
-def _linear_kernel(X: NDArray, Y: NDArray = None) -> NDArray:
+def _linear_kernel(X: NDArray, Y: NDArray | None = None) -> NDArray:
     """Compute linear kernel: K(x, y) = x^T y."""
     if Y is None:
         Y = X
-    return X @ Y.T
+    return np.asarray(X @ Y.T)
 
-
-def _rbf_kernel(X: NDArray, Y: NDArray = None, gamma: float = None) -> NDArray:
+def _rbf_kernel(X: NDArray, Y: NDArray | None = None, gamma: float | None = None) -> NDArray:
     """Compute RBF (Gaussian) kernel: K(x, y) = exp(-gamma ||x - y||^2).
 
     Parameters
@@ -88,14 +86,13 @@ def _rbf_kernel(X: NDArray, Y: NDArray = None, gamma: float = None) -> NDArray:
     sq_dists = X_norm_sq + Y_norm_sq.T - 2 * (X @ Y.T)
     sq_dists = np.maximum(sq_dists, 0)  # Ensure non-negative
 
-    return np.exp(-gamma * sq_dists)
-
+    return np.asarray(np.exp(-gamma * sq_dists))
 
 def _polynomial_kernel(
     X: NDArray,
-    Y: NDArray = None,
+    Y: NDArray | None = None,
     degree: int = 3,
-    gamma: float = None,
+    gamma: float | None = None,
     coef0: float = 1.0,
 ) -> NDArray:
     """Compute polynomial kernel: K(x, y) = (gamma * x^T y + coef0)^degree.
@@ -123,13 +120,12 @@ def _polynomial_kernel(
     if gamma is None:
         gamma = 1.0 / X.shape[1]
 
-    return (gamma * (X @ Y.T) + coef0) ** degree
-
+    return np.asarray((gamma * (X @ Y.T) + coef0) ** degree)
 
 def _sigmoid_kernel(
     X: NDArray,
-    Y: NDArray = None,
-    gamma: float = None,
+    Y: NDArray | None = None,
+    gamma: float | None = None,
     coef0: float = 1.0,
 ) -> NDArray:
     """Compute sigmoid kernel: K(x, y) = tanh(gamma * x^T y + coef0).
@@ -155,8 +151,7 @@ def _sigmoid_kernel(
     if gamma is None:
         gamma = 1.0 / X.shape[1]
 
-    return np.tanh(gamma * (X @ Y.T) + coef0)
-
+    return np.asarray(np.tanh(gamma * (X @ Y.T) + coef0))
 
 def _normalize_kernel_train(K: NDArray) -> tuple[NDArray, NDArray]:
     """Normalize kernel matrix to have unit diagonal (cosine normalization).
@@ -184,7 +179,6 @@ def _normalize_kernel_train(K: NDArray) -> tuple[NDArray, NDArray]:
     K_normalized = K / np.outer(diag_sqrt, diag_sqrt)
     return K_normalized, diag_sqrt
 
-
 def _normalize_kernel_test(
     K_test: NDArray,
     diag_sqrt_test: NDArray,
@@ -210,11 +204,10 @@ def _normalize_kernel_test(
     K_normalized = K_test / np.outer(diag_sqrt_test, diag_sqrt_train)
     return K_normalized
 
-
 def _compute_kernel_diagonal(
     X: NDArray,
     kernel: str,
-    gamma: float = None,
+    gamma: float | None = None,
     degree: int = 3,
     coef0: float = 1.0,
 ) -> NDArray:
@@ -261,8 +254,7 @@ def _compute_kernel_diagonal(
     else:
         raise ValueError(f"Unknown kernel '{kernel}'")
 
-    return diag
-
+    return np.asarray(diag)
 
 # =============================================================================
 # Kernel Centering Functions
@@ -288,8 +280,7 @@ def _center_kernel_train(K: NDArray) -> NDArray:
     ones_n = np.ones((n, n)) / n
 
     K_centered = K - ones_n @ K - K @ ones_n + ones_n @ K @ ones_n
-    return K_centered
-
+    return np.asarray(K_centered)
 
 def _center_kernel_test(K_test: NDArray, K_train: NDArray) -> NDArray:
     """Center test kernel matrix using training kernel statistics.
@@ -320,8 +311,7 @@ def _center_kernel_test(K_test: NDArray, K_train: NDArray) -> NDArray:
         + ones_test @ K_train @ ones_train
     )
 
-    return K_centered
-
+    return np.asarray(K_centered)
 
 # =============================================================================
 # NumPy Kernel PLS Implementation
@@ -440,7 +430,6 @@ def _simpls_fit_numpy(
 
     return T, U, W, P, Q, B
 
-
 def _kernel_pls_predict_numpy(
     K_test: NDArray,
     B: NDArray,
@@ -464,8 +453,7 @@ def _kernel_pls_predict_numpy(
     """
     B_coef = B[n_components - 1]
     Y_pred = K_test @ B_coef
-    return Y_pred
-
+    return np.asarray(Y_pred)
 
 # =============================================================================
 # JAX Kernel PLS Functions
@@ -627,10 +615,8 @@ def _get_jax_kernel_pls_functions():
         'kernel_pls_predict': kernel_pls_predict_jax,
     }
 
-
 # Cache for JAX functions
 _JAX_KERNEL_PLS_FUNCS = None
-
 
 def _get_cached_jax_kernel_pls():
     """Get cached JAX Kernel PLS functions."""
@@ -638,7 +624,6 @@ def _get_cached_jax_kernel_pls():
     if _JAX_KERNEL_PLS_FUNCS is None:
         _JAX_KERNEL_PLS_FUNCS = _get_jax_kernel_pls_functions()
     return _JAX_KERNEL_PLS_FUNCS
-
 
 # =============================================================================
 # KernelPLS Estimator Class
@@ -757,6 +742,8 @@ class KernelPLS(BaseEstimator, RegressorMixin):
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 
+    _kdiag_sqrt_train_: NDArray | None
+
     def __init__(
         self,
         n_components: int = 10,
@@ -781,7 +768,7 @@ class KernelPLS(BaseEstimator, RegressorMixin):
     def _compute_kernel(
         self,
         X: NDArray,
-        Y: NDArray = None,
+        Y: NDArray | None = None,
     ) -> NDArray:
         """Compute kernel matrix between X and Y.
 
@@ -837,7 +824,7 @@ class KernelPLS(BaseEstimator, RegressorMixin):
         self,
         X: ArrayLike,
         y: ArrayLike,
-    ) -> "KernelPLS":
+    ) -> KernelPLS:
         """Fit the Kernel PLS model.
 
         Parameters
@@ -965,7 +952,7 @@ class KernelPLS(BaseEstimator, RegressorMixin):
     def predict(
         self,
         X: ArrayLike,
-        n_components: Union[int, None] = None,
+        n_components: int | None = None,
     ) -> NDArray[np.floating]:
         """Predict using the Kernel PLS model.
 
@@ -986,10 +973,7 @@ class KernelPLS(BaseEstimator, RegressorMixin):
 
         X = np.asarray(X, dtype=np.float64)
 
-        if n_components is None:
-            n_components = self.n_components_
-        else:
-            n_components = min(n_components, self.n_components_)
+        n_components = self.n_components_ if n_components is None else min(n_components, self.n_components_)
 
         # Compute test kernel
         K_test = self._compute_kernel(X, self.X_train_)
@@ -1003,8 +987,8 @@ class KernelPLS(BaseEstimator, RegressorMixin):
             )
             diag_test = np.maximum(diag_test, 1e-12)
             diag_sqrt_test = np.sqrt(diag_test)
-            # Type ignore: _kdiag_sqrt_train_ is set in fit() when kernel != 'rbf'
-            K_test = _normalize_kernel_test(K_test, diag_sqrt_test, self._kdiag_sqrt_train_)  # type: ignore[arg-type]
+            # _kdiag_sqrt_train_ is set in fit() when kernel != 'rbf'
+            K_test = _normalize_kernel_test(K_test, diag_sqrt_test, self._kdiag_sqrt_train_)
 
         # Center test kernel
         if self.center_kernel:
@@ -1041,7 +1025,7 @@ class KernelPLS(BaseEstimator, RegressorMixin):
         if self._y_1d:
             y_pred = y_pred.ravel()
 
-        return y_pred
+        return np.asarray(y_pred)
 
     def transform(
         self,
@@ -1075,8 +1059,8 @@ class KernelPLS(BaseEstimator, RegressorMixin):
             )
             diag_test = np.maximum(diag_test, 1e-12)
             diag_sqrt_test = np.sqrt(diag_test)
-            # Type ignore: _kdiag_sqrt_train_ is set in fit() when kernel != 'rbf'
-            K_test = _normalize_kernel_test(K_test, diag_sqrt_test, self._kdiag_sqrt_train_)  # type: ignore[arg-type]
+            # _kdiag_sqrt_train_ is set in fit() when kernel != 'rbf'
+            K_test = _normalize_kernel_test(K_test, diag_sqrt_test, self._kdiag_sqrt_train_)
 
         # Center test kernel
         if self.center_kernel:
@@ -1095,7 +1079,7 @@ class KernelPLS(BaseEstimator, RegressorMixin):
         # Compute scores: T = K_test @ W
         T = K_test @ self._W
 
-        return T
+        return np.asarray(T)
 
     def get_params(self, deep: bool = True) -> dict:
         """Get parameters for this estimator.
@@ -1122,7 +1106,7 @@ class KernelPLS(BaseEstimator, RegressorMixin):
             'backend': self.backend,
         }
 
-    def set_params(self, **params) -> "KernelPLS":
+    def set_params(self, **params) -> KernelPLS:
         """Set the parameters of this estimator.
 
         Parameters
@@ -1149,7 +1133,6 @@ class KernelPLS(BaseEstimator, RegressorMixin):
             f"scale_y={self.scale_y}, "
             f"backend='{self.backend}')"
         )
-
 
 # Alias for backward compatibility and user convenience
 NLPLS = KernelPLS

@@ -36,14 +36,13 @@ from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import StandardNormalVariate, SavitzkyGolay
+from nirs4all.operators.transforms import SavitzkyGolay, StandardNormalVariate
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U03 Workspace Management Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Why Sessions and Workspace Management?
@@ -72,7 +71,6 @@ Sessions and workspace management help you:
      ├── exports/        # Exported best results
      └── library/        # Saved pipeline templates
 """)
-
 
 # =============================================================================
 # Section 2: Basic Session Usage
@@ -119,7 +117,6 @@ with nirs4all.session(verbose=0, save_artifacts=True, plots_visible=False) as s:
 
 print("Session closed - resources cleaned up")
 
-
 # =============================================================================
 # Section 3: Preprocessing Comparison with Session
 # =============================================================================
@@ -164,7 +161,6 @@ with nirs4all.session(verbose=0, save_artifacts=False, plots_visible=False) as s
 best_name = min(results, key=results.get)
 print(f"\nBest preprocessing: {best_name}")
 
-
 # =============================================================================
 # Section 4: Hyperparameter Sweep with Session
 # =============================================================================
@@ -201,7 +197,6 @@ with nirs4all.session(verbose=0, save_artifacts=False, plots_visible=False) as s
 # Find optimal
 best_n = min(sweep_results, key=sweep_results.get)
 print(f"\nOptimal n_components: {best_n} (RMSE = {sweep_results[best_n]:.4f})")
-
 
 # =============================================================================
 # Section 5: Workspace Structure
@@ -253,7 +248,6 @@ if demo_workspace.exists():
 # Cleanup
 if demo_workspace.exists():
     shutil.rmtree(demo_workspace)
-
 
 # =============================================================================
 # Section 6: Session Best Practices
@@ -311,7 +305,6 @@ with nirs4all.session(verbose=0, plots_visible=False) as s:
 
 print("  Per-run verbose levels applied")
 
-
 # =============================================================================
 # Section 7: When to Use Sessions
 # =============================================================================
@@ -331,7 +324,6 @@ print("""
   - Independent experiments
   - Quick tests
 """)
-
 
 # =============================================================================
 # Summary

@@ -8,7 +8,6 @@ from typing import Literal
 
 NamingMode = Literal["nirs", "ml", "auto"]
 
-
 NAMING_CONVENTIONS = {
     "nirs": {
         # Regression metrics (chemometrics standard)
@@ -43,7 +42,6 @@ NAMING_CONVENTIONS = {
         "mean_fold_cv_classification": "MF_CV_Score",
     },
 }
-
 
 def get_metric_names(
     mode: NamingMode,
@@ -92,7 +90,6 @@ def get_metric_names(
             "w_ens_test": convention["w_ens_test_classification"].format(metric=metric_display),
             "mean_fold_cv": convention["mean_fold_cv_classification"].format(metric=metric_display),
         }
-
 
 def _format_metric_display(metric: str) -> str:
     """Format a metric name for display.

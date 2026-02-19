@@ -6,16 +6,16 @@ name resolution, loader calls, and caching to avoid reloading the same dataset.
 """
 
 import copy
-import json
 import hashlib
-from typing import List, Union, Dict, Any, Optional
+import json
+from typing import Any, Optional, Union
 
 from nirs4all.core.logging import get_logger
 from nirs4all.data.dataset import SpectroDataset
 
 logger = get_logger(__name__)
-from nirs4all.data.loaders.loader import handle_data
 from nirs4all.data.config_parser import parse_config
+from nirs4all.data.loaders.loader import handle_data
 from nirs4all.data.signal_type import SignalType, SignalTypeInput, normalize_signal_type
 
 
@@ -23,12 +23,12 @@ class DatasetConfigs:
 
     def __init__(
         self,
-        configurations: Union[Dict[str, Any], List[Dict[str, Any]], str, List[str]],
-        task_type: Union[str, List[str]] = "auto",
-        signal_type: Union[SignalTypeInput, List[SignalTypeInput], None] = None,
-        repetition: Union[str, List[Optional[str]], None] = None,
-        aggregate_method: Union[str, List[str], None] = None,
-        aggregate_exclude_outliers: Union[bool, List[bool], None] = None
+        configurations: dict[str, Any] | list[dict[str, Any]] | str | list[str],
+        task_type: str | list[str] = "auto",
+        signal_type: SignalTypeInput | list[SignalTypeInput] | None = None,
+        repetition: str | list[str | None] | None = None,
+        aggregate_method: str | list[str] | None = None,
+        aggregate_exclude_outliers: bool | list[bool] | None = None
     ):
         '''Initialize dataset configurations.
 
@@ -103,11 +103,11 @@ class DatasetConfigs:
         '''
         user_configs = configurations if isinstance(configurations, list) else [configurations]
         self.configs = []
-        self._config_task_types: List[Optional[str]] = []  # task_type from config dicts
-        self._config_aggregates: List[Optional[Union[str, bool]]] = []  # aggregate from config dicts
-        self._config_aggregate_methods: List[Optional[str]] = []  # aggregate_method from config dicts
-        self._config_aggregate_exclude_outliers: List[Optional[bool]] = []  # aggregate_exclude_outliers from config dicts
-        self._config_repetitions: List[Optional[str]] = []  # repetition from config dicts
+        self._config_task_types: list[str | None] = []  # task_type from config dicts
+        self._config_aggregates: list[str | bool | None] = []  # aggregate from config dicts
+        self._config_aggregate_methods: list[str | None] = []  # aggregate_method from config dicts
+        self._config_aggregate_exclude_outliers: list[bool | None] = []  # aggregate_exclude_outliers from config dicts
+        self._config_repetitions: list[str | None] = []  # repetition from config dicts
         for config in user_configs:
             parsed_config, dataset_name = parse_config(config)
             if parsed_config is not None:
@@ -136,8 +136,8 @@ class DatasetConfigs:
                 logger.error(f"Skipping invalid dataset config: {config}")
 
         self.max_cache_bytes: int = 2 * 1024 ** 3  # 2 GB default
-        self.cache: Dict[str, Any] = {}
-        self._cache_sizes: Dict[str, int] = {}  # byte size per cache key
+        self.cache: dict[str, Any] = {}
+        self._cache_sizes: dict[str, int] = {}  # byte size per cache key
         self._cache_total_bytes: int = 0
 
         # Normalize task_type to a list matching configs length
@@ -167,7 +167,7 @@ class DatasetConfigs:
         # Normalize signal_type override to a list matching configs length
         # Note: This is an override; config-level signal_type is handled during loading
         if signal_type is None:
-            self._signal_type_overrides: List[Optional[SignalType]] = [None] * len(self.configs)
+            self._signal_type_overrides: list[SignalType | None] = [None] * len(self.configs)
         elif isinstance(signal_type, (str, SignalType)):
             normalized = normalize_signal_type(signal_type)
             self._signal_type_overrides = [normalized] * len(self.configs)
@@ -183,11 +183,11 @@ class DatasetConfigs:
             ]
 
         # Use config-level aggregate if available, otherwise None
-        self._aggregates: List[Optional[Union[str, bool]]] = list(self._config_aggregates)
+        self._aggregates: list[str | bool | None] = list(self._config_aggregates)
 
         # Normalize aggregate_method to a list matching configs length
         if aggregate_method is None:
-            self._aggregate_methods: List[Optional[str]] = list(self._config_aggregate_methods)
+            self._aggregate_methods: list[str | None] = list(self._config_aggregate_methods)
         elif isinstance(aggregate_method, str):
             self._aggregate_methods = [aggregate_method] * len(self.configs)
         else:
@@ -203,7 +203,7 @@ class DatasetConfigs:
 
         # Normalize aggregate_exclude_outliers to a list matching configs length
         if aggregate_exclude_outliers is None:
-            self._aggregate_exclude_outliers: List[bool] = [
+            self._aggregate_exclude_outliers: list[bool] = [
                 val if val is not None else False
                 for val in self._config_aggregate_exclude_outliers
             ]
@@ -224,7 +224,7 @@ class DatasetConfigs:
         # Priority: constructor parameter > config dict > None
         if repetition is None:
             # Use config-level repetition if available
-            self._repetitions: List[Optional[str]] = list(self._config_repetitions)
+            self._repetitions: list[str | None] = list(self._config_repetitions)
         elif isinstance(repetition, str):
             # Constructor parameter overrides config for all datasets
             self._repetitions = [repetition] * len(self.configs)
@@ -241,6 +241,34 @@ class DatasetConfigs:
                 for i, rep in enumerate(repetition)
             ]
 
+    @classmethod
+    def from_spectrodataset(cls, dataset: "SpectroDataset") -> "DatasetConfigs":
+        """Create a DatasetConfigs wrapping a single pre-loaded SpectroDataset."""
+        return cls.from_spectrodatasets([dataset])
+
+    @classmethod
+    def from_spectrodatasets(cls, datasets: list["SpectroDataset"]) -> "DatasetConfigs":
+        """Create a DatasetConfigs wrapping a list of pre-loaded SpectroDatasets."""
+        n = len(datasets)
+        configs = cls.__new__(cls)
+        configs.configs = [({"_preloaded_dataset": ds}, ds.name) for ds in datasets]
+        configs.cache = {}
+        configs.max_cache_bytes = 2 * 1024 ** 3
+        configs._cache_sizes = {}
+        configs._cache_total_bytes = 0
+        configs._task_types = ["auto"] * n
+        configs._signal_type_overrides = [None] * n
+        configs._aggregates = [None] * n
+        configs._aggregate_methods = [None] * n
+        configs._aggregate_exclude_outliers = [False] * n
+        configs._config_task_types = [None] * n
+        configs._config_aggregates = [None] * n
+        configs._config_aggregate_methods = [None] * n
+        configs._config_aggregate_exclude_outliers = [None] * n
+        configs._config_repetitions = [None] * n
+        configs._repetitions = [None] * n
+        return configs
+
     def iter_datasets(self):
         for idx, (config, name) in enumerate(self.configs):
             dataset = self._get_dataset_with_types(
@@ -255,11 +283,11 @@ class DatasetConfigs:
         config,
         name,
         task_type: str,
-        signal_type_override: Optional[SignalType],
-        aggregate: Optional[Union[str, bool]] = None,
-        aggregate_method: Optional[str] = None,
+        signal_type_override: SignalType | None,
+        aggregate: str | bool | None = None,
+        aggregate_method: str | None = None,
         aggregate_exclude_outliers: bool = False,
-        repetition: Optional[str] = None
+        repetition: str | None = None
     ) -> SpectroDataset:
         """Internal method to get dataset with specific task and signal types.
 
@@ -436,7 +464,7 @@ class DatasetConfigs:
         For proper per-dataset task_type handling, use iter_datasets() or get_dataset_at().
         """
         # Find the index of this config to get the right task_type, signal_type, and aggregate
-        for idx, (cfg, cfg_name) in enumerate(self.configs):
+        for idx, (_cfg, cfg_name) in enumerate(self.configs):
             if cfg_name == name:
                 return self._get_dataset_with_types(
                     config, name, self._task_types[idx], self._signal_type_overrides[idx],
@@ -457,7 +485,7 @@ class DatasetConfigs:
         )
 
     @property
-    def repetition(self) -> Optional[str]:
+    def repetition(self) -> str | None:
         """Get the repetition column name for the first dataset.
 
         For multi-dataset configurations, use repetitions property instead.
@@ -468,7 +496,7 @@ class DatasetConfigs:
         return self._repetitions[0] if self._repetitions else None
 
     @property
-    def repetitions(self) -> List[Optional[str]]:
+    def repetitions(self) -> list[str | None]:
         """Get repetition column names for all datasets.
 
         Returns:
@@ -476,6 +504,6 @@ class DatasetConfigs:
         """
         return self._repetitions
 
-    def get_datasets(self) -> List[SpectroDataset]:
+    def get_datasets(self) -> list[SpectroDataset]:
         return list(self.iter_datasets())
 

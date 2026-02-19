@@ -1,4 +1,5 @@
 import tensorflow as tf
+from keras.models import Model, Sequential
 from tensorflow.keras.layers import (
     BatchNormalization,
     Conv1D,
@@ -15,12 +16,11 @@ from tensorflow.keras.layers import (
     SpatialDropout1D,
 )
 
-from keras.models import Model, Sequential
 from nirs4all.utils import framework
 
 
 @framework('tensorflow')
-def decon(input_shape, params={}):
+def decon(input_shape, params=None):
     """
     Builds a CNN model with depthwise and separable convolutions.
 
@@ -31,6 +31,8 @@ def decon(input_shape, params={}):
     Returns:
         keras.Sequential: Compiled model.
     """
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
     model.add(SpatialDropout1D(params.get('spatial_dropout', 0.2)))
@@ -98,8 +100,7 @@ def decon(input_shape, params={}):
     model.add(Dense(units=1, activation="sigmoid"))
     return model
 
-
-def decon_Sep(input_shape, params={}):
+def decon_Sep(input_shape, params=None):
     """
     Builds a CNN model with separable convolutions.
 
@@ -110,6 +111,8 @@ def decon_Sep(input_shape, params={}):
     Returns:
         keras.Sequential: Compiled model.
     """
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
     model.add(SpatialDropout1D(params.get('spatial_dropout', 0.2)))
@@ -161,9 +164,8 @@ def decon_Sep(input_shape, params={}):
     model.add(Dense(units=1, activation="sigmoid"))
     return model
 
-
 @framework('tensorflow')
-def nicon(input_shape, params={}):
+def nicon(input_shape, params=None):
     """
     Builds a custom CNN model with depthwise convolutions.
 
@@ -174,6 +176,8 @@ def nicon(input_shape, params={}):
     Returns:
         keras.Sequential: Compiled model.
     """
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
     model.add(SpatialDropout1D(params.get('spatial_dropout', 0.08)))
@@ -188,9 +192,8 @@ def nicon(input_shape, params={}):
     model.add(Dense(1, activation="sigmoid"))
     return model
 
-
 @framework('tensorflow')
-def customizable_nicon(input_shape, params={}):
+def customizable_nicon(input_shape, params=None):
     """
     Builds a custom CNN model with depthwise convolutions.
 
@@ -201,6 +204,8 @@ def customizable_nicon(input_shape, params={}):
     Returns:
         keras.Sequential: Compiled model.
     """
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
     model.add(SpatialDropout1D(params.get('spatial_dropout', 0.08)))
@@ -237,7 +242,7 @@ nicon_sample_finetune = {
 }
 
 @framework('tensorflow')
-def thin_nicon(input_shape, params={}):
+def thin_nicon(input_shape, params=None):
     """
     Builds a custom CNN model with depthwise convolutions.
 
@@ -248,6 +253,8 @@ def thin_nicon(input_shape, params={}):
     Returns:
         keras.Sequential: Compiled model.
     """
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
     model.add(SpatialDropout1D(params.get('spatial_dropout', 0.08)))
@@ -262,9 +269,8 @@ def thin_nicon(input_shape, params={}):
     model.add(Dense(1, activation="sigmoid"))
     return model
 
-
 @framework('tensorflow')
-def nicon_VG(input_shape, params={}):
+def nicon_VG(input_shape, params=None):
     """
     Builds a custom CNN model.
 
@@ -275,6 +281,8 @@ def nicon_VG(input_shape, params={}):
     Returns:
         keras.Sequential: Compiled CNN model.
     """
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
     model.add(SpatialDropout1D(params.get('spatial_dropout', 0.2)))
@@ -293,9 +301,8 @@ def nicon_VG(input_shape, params={}):
     model.add(Dense(units=1, activation="sigmoid"))
     return model
 
-
 @framework('tensorflow')
-def customizable_decon(input_shape, params={}):
+def customizable_decon(input_shape, params=None):
     """
     Builds a model using depthwise separable convolutions and layer normalization.
 
@@ -306,6 +313,8 @@ def customizable_decon(input_shape, params={}):
     Returns:
         keras.Model: Compiled deconvolutional model.
     """
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
 
@@ -450,9 +459,7 @@ decon_sample_finetune = {
     'activationDense3': ['sigmoid', 'softmax'],  # Activation functions for the output layer
 }
 
-
-
-def transformer_model(input_shape, params={}):
+def transformer_model(input_shape, params=None):
     """
     Builds a transformer model for 1D data.
 
@@ -463,6 +470,8 @@ def transformer_model(input_shape, params={}):
     Returns:
         keras.Model: Compiled transformer model.
     """
+    if params is None:
+        params = {}
     def transformer_encoder(inputs, head_size, num_heads, ff_dim, dropout=0):
         x = MultiHeadAttention(key_dim=head_size, num_heads=num_heads, dropout=dropout)(inputs, inputs)
         x = LayerNormalization(epsilon=1e-6)(x)
@@ -499,9 +508,10 @@ def transformer_model(input_shape, params={}):
     outputs = Dense(units=1, activation="sigmoid")(x)
     return Model(inputs, outputs)
 
-
 @framework('tensorflow')
-def transformer_VG(input_shape, params={}):
+def transformer_VG(input_shape, params=None):
+    if params is None:
+        params = {}
     return transformer_model(input_shape, {
                             'head_size': params.get('head_size', 16),
                             'num_heads': params.get('num_heads', 32),
@@ -512,9 +522,10 @@ def transformer_VG(input_shape, params={}):
                             'mlp_dropout': params.get('mlp_dropout', 0.1),
                         })
 
-
 @framework('tensorflow')
-def transformer(input_shape, params={}):
+def transformer(input_shape, params=None):
+    if params is None:
+        params = {}
     return transformer_model(input_shape, {
                             'head_size': params.get('head_size', 8),
                             'num_heads': params.get('num_heads', 2),
@@ -525,9 +536,8 @@ def transformer(input_shape, params={}):
                             'mlp_dropout': params.get('mlp_dropout', 0.1),
                         })
 
-
 @framework('tensorflow')
-def decon_classification(input_shape, num_classes=2, params={}):
+def decon_classification(input_shape, num_classes=2, params=None):
     """
     Builds a CNN model with depthwise and separable convolutions for classification.
 
@@ -539,6 +549,8 @@ def decon_classification(input_shape, num_classes=2, params={}):
     Returns:
         keras.Sequential: Compiled classification model.
     """
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
     model.add(SpatialDropout1D(params.get('spatial_dropout', 0.2)))
@@ -609,8 +621,7 @@ def decon_classification(input_shape, num_classes=2, params={}):
         model.add(Dense(units=num_classes, activation="softmax"))
     return model
 
-
-def decon_Sep_classification(input_shape, num_classes=2, params={}):
+def decon_Sep_classification(input_shape, num_classes=2, params=None):
     """
     Builds a CNN model with separable convolutions for classification.
 
@@ -622,6 +633,8 @@ def decon_Sep_classification(input_shape, num_classes=2, params={}):
     Returns:
         keras.Sequential: Compiled classification model.
     """
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
     model.add(SpatialDropout1D(params.get('spatial_dropout', 0.2)))
@@ -676,9 +689,8 @@ def decon_Sep_classification(input_shape, num_classes=2, params={}):
         model.add(Dense(units=num_classes, activation="softmax"))
     return model
 
-
 @framework('tensorflow')
-def nicon_classification(input_shape, num_classes=2, params={}):
+def nicon_classification(input_shape, num_classes=2, params=None):
     """
     Builds a custom CNN model with depthwise convolutions for classification.
 
@@ -690,6 +702,8 @@ def nicon_classification(input_shape, num_classes=2, params={}):
     Returns:
         keras.Sequential: Compiled classification model.
     """
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
     model.add(SpatialDropout1D(params.get('spatial_dropout', 0.08)))
@@ -707,9 +721,8 @@ def nicon_classification(input_shape, num_classes=2, params={}):
         model.add(Dense(units=num_classes, activation="softmax"))
     return model
 
-
 @framework('tensorflow')
-def customizable_nicon_classification(input_shape, num_classes=2, params={}):
+def customizable_nicon_classification(input_shape, num_classes=2, params=None):
     """
     Builds a custom CNN model with depthwise convolutions for classification.
 
@@ -721,6 +734,8 @@ def customizable_nicon_classification(input_shape, num_classes=2, params={}):
     Returns:
         keras.Sequential: Compiled classification model.
     """
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
     model.add(SpatialDropout1D(params.get('spatial_dropout', 0.08)))
@@ -738,9 +753,8 @@ def customizable_nicon_classification(input_shape, num_classes=2, params={}):
         model.add(Dense(units=num_classes, activation="softmax"))
     return model
 
-
 @framework('tensorflow')
-def nicon_VG_classification(input_shape, num_classes=2, params={}):
+def nicon_VG_classification(input_shape, num_classes=2, params=None):
     """
     Builds a custom CNN model for classification.
 
@@ -752,6 +766,8 @@ def nicon_VG_classification(input_shape, num_classes=2, params={}):
     Returns:
         keras.Sequential: Compiled classification model.
     """
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
     model.add(SpatialDropout1D(params.get('spatial_dropout', 0.2)))
@@ -773,9 +789,8 @@ def nicon_VG_classification(input_shape, num_classes=2, params={}):
         model.add(Dense(units=num_classes, activation="softmax"))
     return model
 
-
 @framework('tensorflow')
-def customizable_decon_classification(input_shape, num_classes=2, params={}):
+def customizable_decon_classification(input_shape, num_classes=2, params=None):
     """
     Builds a customizable model using depthwise separable convolutions for classification.
 
@@ -787,6 +802,8 @@ def customizable_decon_classification(input_shape, num_classes=2, params={}):
     Returns:
         keras.Model: Compiled classification model.
     """
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
 
@@ -869,9 +886,8 @@ def customizable_decon_classification(input_shape, num_classes=2, params={}):
 
     return model
 
-
 @framework('tensorflow')
-def decon_layer_classification(input_shape, num_classes=2, params={}):
+def decon_layer_classification(input_shape, num_classes=2, params=None):
     """
     Builds a model using depthwise separable convolutions and layer normalization for classification.
     Alias for customizable_decon_classification for backward compatibility.
@@ -884,10 +900,11 @@ def decon_layer_classification(input_shape, num_classes=2, params={}):
     Returns:
         keras.Model: Compiled classification model.
     """
+    if params is None:
+        params = {}
     return customizable_decon_classification(input_shape, num_classes, params)
 
-
-def transformer_model_classification(input_shape, num_classes=2, params={}):
+def transformer_model_classification(input_shape, num_classes=2, params=None):
     """
     Builds a transformer model for 1D data classification.
 
@@ -899,6 +916,8 @@ def transformer_model_classification(input_shape, num_classes=2, params={}):
     Returns:
         keras.Model: Compiled transformer classification model.
     """
+    if params is None:
+        params = {}
     def transformer_encoder(inputs, head_size, num_heads, ff_dim, dropout=0):
         x = MultiHeadAttention(key_dim=head_size, num_heads=num_heads, dropout=dropout)(inputs, inputs)
         x = LayerNormalization(epsilon=1e-6)(x)
@@ -932,16 +951,14 @@ def transformer_model_classification(input_shape, num_classes=2, params={}):
         x = Dense(dim, activation="relu")(x)
         x = Dropout(params.get('mlp_dropout', 0.1))(x)
 
-    if num_classes == 2:
-        outputs = Dense(units=1, activation="sigmoid")(x)
-    else:
-        outputs = Dense(units=num_classes, activation="softmax")(x)
+    outputs = Dense(units=1, activation="sigmoid")(x) if num_classes == 2 else Dense(units=num_classes, activation="softmax")(x)
 
     return Model(inputs, outputs)
 
-
 @framework('tensorflow')
-def transformer_VG_classification(input_shape, num_classes=2, params={}):
+def transformer_VG_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return transformer_model_classification(input_shape, num_classes, {
         'head_size': params.get('head_size', 16),
         'num_heads': params.get('num_heads', 32),
@@ -952,9 +969,10 @@ def transformer_VG_classification(input_shape, num_classes=2, params={}):
         'mlp_dropout': params.get('mlp_dropout', 0.1),
     })
 
-
 @framework('tensorflow')
-def transformer_classification(input_shape, num_classes=2, params={}):
+def transformer_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return transformer_model_classification(input_shape, num_classes, {
         'head_size': params.get('head_size', 8),
         'num_heads': params.get('num_heads', 2),
@@ -964,7 +982,6 @@ def transformer_classification(input_shape, num_classes=2, params={}):
         'dropout': params.get('dropout', 0.05),
         'mlp_dropout': params.get('mlp_dropout', 0.1),
     })
-
 
 # def build_model(input_shape, params, task_type='regression', num_classes=1):
 #     # ... build your model layers ...

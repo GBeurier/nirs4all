@@ -1,4 +1,4 @@
-from typing import Any, List, Tuple, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 from sklearn.base import TransformerMixin
 
@@ -10,17 +10,17 @@ from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
 from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 
 if TYPE_CHECKING:
-    from nirs4all.spectra.spectra_dataset import SpectroDataset
     from nirs4all.pipeline.steps.parser import ParsedStep
+    from nirs4all.spectra.spectra_dataset import SpectroDataset
 
 import warnings
+
 import numpy as np
 from sklearn.base import clone
 
 from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
-
 
 @register_controller
 class TransformerMixinController(OperatorController):
@@ -147,8 +147,8 @@ class TransformerMixinController(OperatorController):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
     ):
         """Execute transformer - handles normal, feature augmentation, and sample augmentation modes.
 
@@ -246,7 +246,7 @@ class TransformerMixinController(OperatorController):
             y_fit = y_fit.ravel()
 
         # Loop through each data source
-        for sd_idx, (fit_x, all_x) in enumerate(zip(fit_data, all_data)):
+        for sd_idx, (fit_x, all_x) in enumerate(zip(fit_data, all_data, strict=False)):
             # print(f"Processing source {sd_idx}: fit shape {fit_x.shape}, all shape {all_x.shape}")
 
             # Extract wavelengths for this source if needed
@@ -368,10 +368,7 @@ class TransformerMixinController(OperatorController):
                         else:
                             transformer.fit(fit_2d)
 
-                if needs_wavelengths:
-                    transformed_2d = transformer.transform(all_2d, wavelengths=wavelengths)
-                else:
-                    transformed_2d = transformer.transform(all_2d)
+                transformed_2d = transformer.transform(all_2d, wavelengths=wavelengths) if needs_wavelengths else transformer.transform(all_2d)
 
                 # --- Post-transform NaN detection ---
                 if not had_nan_before and np.any(np.isnan(transformed_2d)):
@@ -380,7 +377,7 @@ class TransformerMixinController(OperatorController):
                     warnings.warn(
                         f"Transform '{operator_name}' introduced "
                         f"{n_new_nan} NaN values in {m_samples} samples.",
-                        UserWarning,
+                        UserWarning, stacklevel=2,
                     )
                     dataset._may_contain_nan = True
 
@@ -418,7 +415,7 @@ class TransformerMixinController(OperatorController):
             new_processing_names.append(source_new_processing_names)
             processing_names.append(source_processing_names)
 
-        for sd_idx, (source_features, src_new_processing_names) in enumerate(zip(transformed_features_list, new_processing_names)):
+        for sd_idx, (source_features, src_new_processing_names) in enumerate(zip(transformed_features_list, new_processing_names, strict=False)):
             if context.metadata.add_feature:
                 dataset.add_features(source_features, src_new_processing_names, source=sd_idx)
                 # Update processing in context (requires creating new list)
@@ -448,10 +445,10 @@ class TransformerMixinController(OperatorController):
         context: ExecutionContext,
         runtime_context: 'RuntimeContext',
         mode: str,
-        loaded_binaries: Optional[List[Tuple[str, Any]]],
-        prediction_store: Optional[Any],
+        loaded_binaries: list[tuple[str, Any]] | None,
+        prediction_store: Any | None,
         fit_on_all: bool = False
-    ) -> Tuple[ExecutionContext, List]:
+    ) -> tuple[ExecutionContext, list]:
         """
         Apply transformer to origin samples and add augmented samples.
 
@@ -618,10 +615,7 @@ class TransformerMixinController(OperatorController):
                     transformer = fitted_transformers_cache[cache_key]
 
                 # Batch transform all samples at once
-                if needs_wavelengths:
-                    transformed_data = transformer.transform(proc_data, wavelengths=wavelengths)
-                else:
-                    transformed_data = transformer.transform(proc_data)
+                transformed_data = transformer.transform(proc_data, wavelengths=wavelengths) if needs_wavelengths else transformer.transform(proc_data)
                 source_transformed.append(transformed_data)
 
             all_transformed.append(source_transformed)
@@ -661,10 +655,10 @@ class TransformerMixinController(OperatorController):
         context: ExecutionContext,
         runtime_context: 'RuntimeContext',
         mode: str,
-        loaded_binaries: Optional[List[Tuple[str, Any]]],
-        prediction_store: Optional[Any],
+        loaded_binaries: list[tuple[str, Any]] | None,
+        prediction_store: Any | None,
         fit_on_all: bool = False
-    ) -> Tuple[ExecutionContext, List]:
+    ) -> tuple[ExecutionContext, list]:
         """
         Fallback sequential implementation for sample augmentation.
         Used when batch processing is not possible due to data shape mismatches.
@@ -797,10 +791,7 @@ class TransformerMixinController(OperatorController):
                             )
                             fitted_transformers.append(artifact)
 
-                    if needs_wavelengths:
-                        transformed_data = transformer.transform(proc_data, wavelengths=wavelengths)
-                    else:
-                        transformed_data = transformer.transform(proc_data)
+                    transformed_data = transformer.transform(proc_data, wavelengths=wavelengths) if needs_wavelengths else transformer.transform(proc_data)
                     source_2d_list.append(transformed_data)
 
                 source_3d = np.stack(source_2d_list, axis=1)
@@ -813,10 +804,7 @@ class TransformerMixinController(OperatorController):
                 "augmentation": operator_name
             }
 
-            if len(transformed_sources) == 1:
-                data_to_add = transformed_sources[0][0, :, :]
-            else:
-                data_to_add = [src[0, :, :] for src in transformed_sources]
+            data_to_add = transformed_sources[0][0, :, :] if len(transformed_sources) == 1 else [src[0, :, :] for src in transformed_sources]
 
             dataset.add_samples(data=data_to_add, indexes=index_dict)
 
@@ -868,7 +856,7 @@ class TransformerMixinController(OperatorController):
         operator_name: str,
         source_index: int,
         operator: Any = None,
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """Check the artifact registry for a previously fitted transformer with the same chain and data.
 
         Builds the chain path that ``_persist_transformer`` would produce
@@ -904,7 +892,7 @@ class TransformerMixinController(OperatorController):
         # Peek at the processing counter without incrementing
         substep_index = runtime_context.processing_counter
 
-        from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorNode, OperatorChain
+        from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, OperatorNode
 
         if runtime_context.trace_recorder is not None:
             current_chain = runtime_context.trace_recorder.current_chain()
@@ -926,10 +914,7 @@ class TransformerMixinController(OperatorController):
 
         # For stateless operators, use params hash instead of data hash
         stateless = operator is not None and self._is_stateless(operator)
-        if stateless:
-            lookup_hash = self._compute_operator_params_hash(operator)
-        else:
-            lookup_hash = dataset.content_hash()
+        lookup_hash = self._compute_operator_params_hash(operator) if stateless else dataset.content_hash()
 
         # Lookup
         record = registry.get_by_chain_and_data(chain_path, lookup_hash)
@@ -962,9 +947,9 @@ class TransformerMixinController(OperatorController):
         transformer: Any,
         name: str,
         context: ExecutionContext,
-        source_index: Optional[int] = None,
-        processing_index: Optional[int] = None,
-        input_data_hash: Optional[str] = None,
+        source_index: int | None = None,
+        processing_index: int | None = None,
+        input_data_hash: str | None = None,
     ) -> Any:
         """Persist fitted transformer using V3 chain-based artifact registry.
 
@@ -1004,13 +989,10 @@ class TransformerMixinController(OperatorController):
                 substep_index = None
 
             # V3: Build operator chain for this artifact
-            from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorNode, OperatorChain
+            from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, OperatorNode
 
             # Get the current chain from trace recorder or build new one
-            if runtime_context.trace_recorder is not None:
-                current_chain = runtime_context.trace_recorder.current_chain()
-            else:
-                current_chain = OperatorChain(pipeline_id=pipeline_id)
+            current_chain = runtime_context.trace_recorder.current_chain() if runtime_context.trace_recorder is not None else OperatorChain(pipeline_id=pipeline_id)
 
             # Create node for this transformer with source_index for multi-source
             transformer_node = OperatorNode(

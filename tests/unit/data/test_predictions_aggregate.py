@@ -1,7 +1,8 @@
 """Tests for Predictions.aggregate() method with method and exclude_outliers parameters."""
 
-import pytest
 import numpy as np
+import pytest
+
 from nirs4all.data.predictions import Predictions
 
 
@@ -90,7 +91,6 @@ class TestPredictionsAggregateMethod:
         # Median: 2.1
         assert result_mean['y_true'][0] == pytest.approx(4.0666, rel=1e-2)
         assert result_median['y_true'][0] == pytest.approx(2.1)
-
 
 class TestPredictionsAggregateExcludeOutliers:
     """Test suite for exclude_outliers parameter with MAD-based detection."""
@@ -183,7 +183,6 @@ class TestPredictionsAggregateExcludeOutliers:
         # y_true should exclude the sample corresponding to y_pred outlier
         # Mean of [1.1, 1.4, 1.2] = 1.233...
         assert result['y_true'][0] == pytest.approx(1.2333, rel=1e-2)
-
 
 class TestPredictionsAggregateEdgeCases:
     """Test edge cases for Predictions.aggregate()."""

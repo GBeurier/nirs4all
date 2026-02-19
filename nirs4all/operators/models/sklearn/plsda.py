@@ -7,6 +7,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
+
 class PLSDA(BaseEstimator, ClassifierMixin):
     """PLS Discriminant Analysis (PLS-DA) classifier.
     (See pls.py for full docstring)

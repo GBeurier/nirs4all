@@ -1,8 +1,10 @@
-from typing import Any, Callable, Sequence, Optional, Tuple, Union, List
+from collections.abc import Callable, Sequence
+from typing import Any, Optional, Union
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
+
 from nirs4all.utils import framework
 
 # -----------------------------------------------------------------------------
@@ -24,7 +26,7 @@ class DepthwiseConv1D(nn.Module):
     strides: int = 1
     padding: str = 'SAME'
     depth_multiplier: int = 1
-    activation: Optional[Callable] = None
+    activation: Callable | None = None
 
     @nn.compact
     def __call__(self, x):
@@ -47,7 +49,7 @@ class SeparableConv1D(nn.Module):
     strides: int = 1
     padding: str = 'SAME'
     depth_multiplier: int = 1
-    activation: Optional[Callable] = None
+    activation: Callable | None = None
 
     @nn.compact
     def __call__(self, x):
@@ -68,8 +70,8 @@ class GlobalAveragePooling1D(nn.Module):
         return jnp.mean(x, axis=1)
 
 class MaxPooling1D(nn.Module):
-    window_shape: Tuple[int] = (2,)
-    strides: Tuple[int] = (2,)
+    window_shape: tuple[int] = (2,)
+    strides: tuple[int] = (2,)
     padding: str = 'SAME'
 
     @nn.compact
@@ -92,22 +94,16 @@ def get_activation(name: str):
     if name is None:
         return None
     name = name.lower()
-    if name == "swish":
-        return nn.swish
-    elif name == "selu":
-        return nn.selu
-    elif name == "elu":
-        return nn.elu
-    elif name == "relu":
-        return nn.relu
-    elif name == "sigmoid":
-        return nn.sigmoid
-    elif name == "softmax":
-        return nn.softmax
-    elif name == "tanh":
-        return nn.tanh
-    else:
-        return nn.relu
+    activations = {
+        "swish": nn.swish,
+        "selu": nn.selu,
+        "elu": nn.elu,
+        "relu": nn.relu,
+        "sigmoid": nn.sigmoid,
+        "softmax": nn.softmax,
+        "tanh": nn.tanh,
+    }
+    return activations.get(name, nn.relu)
 
 def get_norm(method: str):
     if method == "LayerNormalization":
@@ -122,9 +118,7 @@ class DynamicModel(nn.Module):
         for layer in self.layers:
             if isinstance(layer, nn.BatchNorm):
                 x = layer(x, use_running_average=not train)
-            elif isinstance(layer, (nn.Dropout, SpatialDropout1D)):
-                x = layer(x, deterministic=not train)
-            elif isinstance(layer, TransformerBlock):
+            elif isinstance(layer, (nn.Dropout, SpatialDropout1D, TransformerBlock)):
                 x = layer(x, deterministic=not train)
             else:
                 x = layer(x)
@@ -196,10 +190,7 @@ def _build_decon(input_shape, params, num_classes=1):
     layers.append(Activation(nn.relu))
     layers.append(nn.Dropout(rate=0.2))
 
-    if num_classes == 1:
-        layers.append(nn.Dense(features=1))
-        layers.append(Activation(nn.sigmoid))
-    elif num_classes == 2:
+    if num_classes == 1 or num_classes == 2:
         layers.append(nn.Dense(features=1))
         layers.append(Activation(nn.sigmoid))
     else:
@@ -257,10 +248,7 @@ def _build_decon_sep(input_shape, params, num_classes=1):
     layers.append(Activation(nn.relu))
     layers.append(nn.Dropout(rate=params.get('dropout_rate', 0.2)))
 
-    if num_classes == 1:
-        layers.append(nn.Dense(features=1))
-        layers.append(Activation(nn.sigmoid))
-    elif num_classes == 2:
+    if num_classes == 1 or num_classes == 2:
         layers.append(nn.Dense(features=1))
         layers.append(Activation(nn.sigmoid))
     else:
@@ -295,10 +283,7 @@ def _build_nicon(input_shape, params, num_classes=1):
     layers.append(nn.Dense(features=du))
     layers.append(Activation(nn.sigmoid))
 
-    if num_classes == 1:
-        layers.append(nn.Dense(features=1))
-        layers.append(Activation(nn.sigmoid))
-    elif num_classes == 2:
+    if num_classes == 1 or num_classes == 2:
         layers.append(nn.Dense(features=1))
         layers.append(Activation(nn.sigmoid))
     else:
@@ -316,7 +301,8 @@ def _build_customizable_nicon(input_shape, params, num_classes=1):
     s1 = params.get('strides1', 5)
     act1 = get_activation(params.get('activation1', "selu"))
     layers.append(nn.Conv(features=f1, kernel_size=(k1,), strides=(s1,)))
-    if act1: layers.append(Activation(act1))
+    if act1:
+        layers.append(Activation(act1))
 
     layers.append(nn.Dropout(rate=params.get('dropout_rate', 0.2)))
 
@@ -325,7 +311,8 @@ def _build_customizable_nicon(input_shape, params, num_classes=1):
     s2 = params.get('strides2', 3)
     act2 = get_activation(params.get('activation2', "relu"))
     layers.append(nn.Conv(features=f2, kernel_size=(k2,), strides=(s2,)))
-    if act2: layers.append(Activation(act2))
+    if act2:
+        layers.append(Activation(act2))
     norm1 = get_norm(params.get('normalization_method1', "BatchNormalization"))
     layers.append(norm1)
 
@@ -334,7 +321,8 @@ def _build_customizable_nicon(input_shape, params, num_classes=1):
     s3 = params.get('strides3', 3)
     act3 = get_activation(params.get('activation3', "elu"))
     layers.append(nn.Conv(features=f3, kernel_size=(k3,), strides=(s3,)))
-    if act3: layers.append(Activation(act3))
+    if act3:
+        layers.append(Activation(act3))
     norm2 = get_norm(params.get('normalization_method2', "BatchNormalization"))
     layers.append(norm2)
 
@@ -343,12 +331,10 @@ def _build_customizable_nicon(input_shape, params, num_classes=1):
     du = params.get('dense_units', 16)
     act_d = get_activation(params.get('dense_activation', "sigmoid"))
     layers.append(nn.Dense(features=du))
-    if act_d: layers.append(Activation(act_d))
+    if act_d:
+        layers.append(Activation(act_d))
 
-    if num_classes == 1:
-        layers.append(nn.Dense(features=1))
-        layers.append(Activation(nn.sigmoid))
-    elif num_classes == 2:
+    if num_classes == 1 or num_classes == 2:
         layers.append(nn.Dense(features=1))
         layers.append(Activation(nn.sigmoid))
     else:
@@ -383,10 +369,7 @@ def _build_thin_nicon(input_shape, params, num_classes=1):
     layers.append(nn.Dense(features=du))
     layers.append(Activation(nn.sigmoid))
 
-    if num_classes == 1:
-        layers.append(nn.Dense(features=1))
-        layers.append(Activation(nn.sigmoid))
-    elif num_classes == 2:
+    if num_classes == 1 or num_classes == 2:
         layers.append(nn.Dense(features=1))
         layers.append(Activation(nn.sigmoid))
     else:
@@ -434,10 +417,7 @@ def _build_nicon_vg(input_shape, params, num_classes=1):
     layers.append(nn.Dense(features=du2))
     layers.append(Activation(nn.relu))
 
-    if num_classes == 1:
-        layers.append(nn.Dense(features=1))
-        layers.append(Activation(nn.sigmoid))
-    elif num_classes == 2:
+    if num_classes == 1 or num_classes == 2:
         layers.append(nn.Dense(features=1))
         layers.append(Activation(nn.sigmoid))
     else:
@@ -523,12 +503,14 @@ def _build_customizable_decon(input_shape, params, num_classes=1):
     du1 = params.get('dense_units1', 128)
     act_d1 = get_activation(params.get('activationDense1', "relu"))
     layers.append(nn.Dense(features=du1))
-    if act_d1: layers.append(Activation(act_d1))
+    if act_d1:
+        layers.append(Activation(act_d1))
 
     du2 = params.get('dense_units2', 32)
     act_d2 = get_activation(params.get('activationDense2', "relu"))
     layers.append(nn.Dense(features=du2))
-    if act_d2: layers.append(Activation(act_d2))
+    if act_d2:
+        layers.append(Activation(act_d2))
 
     layers.append(nn.Dropout(rate=params.get('dropout_rate', 0.2)))
 
@@ -537,7 +519,8 @@ def _build_customizable_decon(input_shape, params, num_classes=1):
 
     if num_classes == 1:
         layers.append(nn.Dense(features=out_units))
-        if act_out: layers.append(Activation(act_out))
+        if act_out:
+            layers.append(Activation(act_out))
     elif num_classes == 2:
         layers.append(nn.Dense(features=1))
         layers.append(Activation(nn.sigmoid))
@@ -580,10 +563,7 @@ def _build_transformer(input_shape, params, num_classes=1):
         layers.append(Activation(nn.relu))
         layers.append(nn.Dropout(rate=mlp_dropout))
 
-    if num_classes == 1:
-        layers.append(nn.Dense(features=1))
-        layers.append(Activation(nn.sigmoid))
-    elif num_classes == 2:
+    if num_classes == 1 or num_classes == 2:
         layers.append(nn.Dense(features=1))
         layers.append(Activation(nn.sigmoid))
     else:
@@ -597,81 +577,121 @@ def _build_transformer(input_shape, params, num_classes=1):
 # -----------------------------------------------------------------------------
 
 @framework("jax")
-def decon(input_shape, params={}):
+def decon(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_decon(input_shape, params, num_classes=1)
 
 @framework("jax")
-def decon_classification(input_shape, num_classes=2, params={}):
+def decon_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_decon(input_shape, params, num_classes=num_classes)
 
 @framework("jax")
-def decon_Sep(input_shape, params={}):
+def decon_Sep(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_decon_sep(input_shape, params, num_classes=1)
 
 @framework("jax")
-def decon_Sep_classification(input_shape, num_classes=2, params={}):
+def decon_Sep_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_decon_sep(input_shape, params, num_classes=num_classes)
 
 @framework("jax")
-def nicon(input_shape, params={}):
+def nicon(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_nicon(input_shape, params, num_classes=1)
 
 @framework("jax")
-def nicon_classification(input_shape, num_classes=2, params={}):
+def nicon_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_nicon(input_shape, params, num_classes=num_classes)
 
 @framework("jax")
-def customizable_nicon(input_shape, params={}):
+def customizable_nicon(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_customizable_nicon(input_shape, params, num_classes=1)
 
 @framework("jax")
-def customizable_nicon_classification(input_shape, num_classes=2, params={}):
+def customizable_nicon_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_customizable_nicon(input_shape, params, num_classes=num_classes)
 
 @framework("jax")
-def thin_nicon(input_shape, params={}):
+def thin_nicon(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_thin_nicon(input_shape, params, num_classes=1)
 
 @framework("jax")
-def nicon_VG(input_shape, params={}):
+def nicon_VG(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_nicon_vg(input_shape, params, num_classes=1)
 
 @framework("jax")
-def nicon_VG_classification(input_shape, num_classes=2, params={}):
+def nicon_VG_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_nicon_vg(input_shape, params, num_classes=num_classes)
 
 @framework("jax")
-def customizable_decon(input_shape, params={}):
+def customizable_decon(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_customizable_decon(input_shape, params, num_classes=1)
 
 @framework("jax")
-def customizable_decon_classification(input_shape, num_classes=2, params={}):
+def customizable_decon_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_customizable_decon(input_shape, params, num_classes=num_classes)
 
 @framework("jax")
-def decon_layer_classification(input_shape, num_classes=2, params={}):
+def decon_layer_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_customizable_decon(input_shape, params, num_classes=num_classes)
 
 @framework("jax")
-def transformer(input_shape, params={}):
+def transformer(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_transformer(input_shape, params, num_classes=1)
 
 @framework("jax")
-def transformer_VG(input_shape, params={}):
+def transformer_VG(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_transformer(input_shape, params, num_classes=1)
 
 @framework("jax")
-def transformer_classification(input_shape, num_classes=2, params={}):
+def transformer_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_transformer(input_shape, params, num_classes=num_classes)
 
 @framework("jax")
-def transformer_VG_classification(input_shape, num_classes=2, params={}):
+def transformer_VG_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_transformer(input_shape, params, num_classes=num_classes)
 
 @framework("jax")
-def transformer_model(input_shape, params={}):
+def transformer_model(input_shape, params=None):
+    if params is None:
+        params = {}
     return _build_transformer(input_shape, params, num_classes=1)
 
 @framework("jax")
-def transformer_model_classification(input_shape, num_classes=2, params={}):
+def transformer_model_classification(input_shape, num_classes=2, params=None):
+    if params is None:
+        params = {}
     return _build_transformer(input_shape, params, num_classes=num_classes)

@@ -11,11 +11,10 @@ Provides:
 - Score formatting utilities
 """
 
-from typing import Dict, List, Tuple
 import numpy as np
 
-from nirs4all.core.task_type import TaskType
 from nirs4all.core.task_detection import detect_task_type as _detect_task_type
+from nirs4all.core.task_type import TaskType
 
 
 class ModelControllerUtils:
@@ -78,15 +77,13 @@ class ModelControllerUtils:
             # Sklearn uses different naming conventions
             if base_loss == "mse":
                 return "squared_error"
-            elif base_loss == "binary_crossentropy":
-                return "log_loss"
-            elif base_loss == "categorical_crossentropy":
+            elif base_loss == "binary_crossentropy" or base_loss == "categorical_crossentropy":
                 return "log_loss"
 
         return base_loss
 
     @staticmethod
-    def get_default_metrics(task_type: TaskType, framework: str = "sklearn") -> List[str]:
+    def get_default_metrics(task_type: TaskType, framework: str = "sklearn") -> list[str]:
         """
         Get default metrics for task type and framework.
 
@@ -167,7 +164,7 @@ class ModelControllerUtils:
             return loss.lower() in classification_losses
 
     @staticmethod
-    def get_best_score_metric(task_type: TaskType) -> Tuple[str, bool]:
+    def get_best_score_metric(task_type: TaskType) -> tuple[str, bool]:
         """
         Get the primary metric for determining "best" score.
 
@@ -183,7 +180,7 @@ class ModelControllerUtils:
             return "balanced_accuracy", True  # Higher balanced accuracy is better
 
     @staticmethod
-    def format_scores(scores: Dict[str, float], precision: int = 4) -> str:
+    def format_scores(scores: dict[str, float], precision: int = 4) -> str:
         """
         Format scores dictionary for pretty printing.
 
@@ -202,7 +199,6 @@ class ModelControllerUtils:
             formatted_items.append(f"{metric}: {score:.{precision}f}")
 
         return ", ".join(formatted_items)
-
 
 # Backward compatibility - keep ModelUtils as alias
 ModelUtils = ModelControllerUtils

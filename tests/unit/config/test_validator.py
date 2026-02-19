@@ -4,19 +4,20 @@ Tests the JSON Schema validation for pipeline and dataset configurations.
 """
 
 import json
-import pytest
 import tempfile
 from pathlib import Path
+
+import pytest
 import yaml
 
 from nirs4all.config.validator import (
-    validate_pipeline_config,
-    validate_dataset_config,
-    validate_config_file,
-    get_validation_summary,
-    ConfigValidationError,
-    PIPELINE_SCHEMA,
     DATASET_SCHEMA,
+    PIPELINE_SCHEMA,
+    ConfigValidationError,
+    get_validation_summary,
+    validate_config_file,
+    validate_dataset_config,
+    validate_pipeline_config,
 )
 
 
@@ -145,7 +146,6 @@ pipeline:
         # or as warnings - either is acceptable
         has_feedback = len(warnings) > 0 or len(errors) > 0
         assert has_feedback, "Null step should generate a warning or error"
-
 
 class TestValidateDatasetConfig:
     """Test suite for dataset configuration validation."""
@@ -278,7 +278,6 @@ global_params:
         assert len(warnings) >= 2
         assert any("not found" in w.lower() for w in warnings)
 
-
 class TestValidateConfigFile:
     """Test suite for auto-detecting config type validation."""
 
@@ -349,7 +348,6 @@ class TestValidateConfigFile:
         assert is_valid is False
         assert any("cannot determine" in e.lower() for e in errors)
 
-
 class TestGetValidationSummary:
     """Test suite for validation summary formatting."""
 
@@ -377,7 +375,6 @@ class TestGetValidationSummary:
         assert "valid" in summary.lower()
         assert "warnings" in summary.lower()
         assert "File not found" in summary
-
 
 class TestConfigValidationError:
     """Test suite for ConfigValidationError exception."""

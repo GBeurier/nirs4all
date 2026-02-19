@@ -5,7 +5,8 @@ This component handles conversion of sample indices to consistent format
 and validates them. Extracted from launch_training() lines 448-454.
 """
 
-from typing import List, Optional, Union
+from typing import Optional, Union
+
 import numpy as np
 
 
@@ -24,11 +25,11 @@ class IndexNormalizer:
 
     def normalize(
         self,
-        indices: Optional[Union[List, np.ndarray]],
+        indices: list | np.ndarray | None,
         n_samples: int,
         default_range: bool = True,
         validate: bool = False
-    ) -> List[int]:
+    ) -> list[int]:
         """Normalize indices to Python int list.
 
         Args:
@@ -62,7 +63,7 @@ class IndexNormalizer:
 
         return normalized
 
-    def _validate_indices(self, indices: List[int], n_samples: int) -> None:
+    def _validate_indices(self, indices: list[int], n_samples: int) -> None:
         """Validate that indices are within valid range.
 
         Args:

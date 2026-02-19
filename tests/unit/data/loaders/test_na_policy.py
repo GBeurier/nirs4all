@@ -13,11 +13,9 @@ from nirs4all.core.exceptions import NAError
 from nirs4all.data.loaders.base import apply_na_policy
 from nirs4all.data.schema.config import NAFillConfig, NAFillMethod
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
-
 
 @pytest.fixture
 def df_with_nan():
@@ -28,7 +26,6 @@ def df_with_nan():
         "f3": [100.0, 200.0, 300.0, 400.0, 500.0],
     })
 
-
 @pytest.fixture
 def df_clean():
     """DataFrame without any NaN values."""
@@ -38,11 +35,9 @@ def df_clean():
         "f3": [100.0, 200.0, 300.0],
     })
 
-
 # =============================================================================
 # Test: abort policy
 # =============================================================================
-
 
 class TestAbortPolicy:
     """Tests for na_policy='abort'."""
@@ -63,11 +58,9 @@ class TestAbortPolicy:
         pd.testing.assert_frame_equal(result, df_clean)
         assert report["na_detected"] is False
 
-
 # =============================================================================
 # Test: auto policy (resolves to abort)
 # =============================================================================
-
 
 class TestAutoPolicy:
     """Tests for na_policy='auto' (resolves to 'abort')."""
@@ -83,11 +76,9 @@ class TestAutoPolicy:
         pd.testing.assert_frame_equal(result, df_clean)
         assert report["na_detected"] is False
 
-
 # =============================================================================
 # Test: remove_sample policy
 # =============================================================================
-
 
 class TestRemoveSamplePolicy:
     """Tests for na_policy='remove_sample'."""
@@ -113,11 +104,9 @@ class TestRemoveSamplePolicy:
         pd.testing.assert_frame_equal(result, df_clean)
         assert report["removed_samples"] == []
 
-
 # =============================================================================
 # Test: remove_feature policy
 # =============================================================================
-
 
 class TestRemoveFeaturePolicy:
     """Tests for na_policy='remove_feature'."""
@@ -152,11 +141,9 @@ class TestRemoveFeaturePolicy:
         pd.testing.assert_frame_equal(result, df_clean)
         assert report["removed_features"] == []
 
-
 # =============================================================================
 # Test: replace policy
 # =============================================================================
-
 
 class TestReplacePolicy:
     """Tests for na_policy='replace' with various NAFillMethod options."""
@@ -240,11 +227,9 @@ class TestReplacePolicy:
         result, report = apply_na_policy(df_clean, "replace", config)
         pd.testing.assert_frame_equal(result, df_clean)
 
-
 # =============================================================================
 # Test: ignore policy
 # =============================================================================
-
 
 class TestIgnorePolicy:
     """Tests for na_policy='ignore'."""
@@ -266,11 +251,9 @@ class TestIgnorePolicy:
         pd.testing.assert_frame_equal(result, df_clean)
         assert report["na_preserved"] is False
 
-
 # =============================================================================
 # Test: clean data (no NaN) for all policies
 # =============================================================================
-
 
 class TestCleanDataAllPolicies:
     """Verify that all policies return clean data unchanged when there are no NaN values."""
@@ -284,11 +267,9 @@ class TestCleanDataAllPolicies:
         pd.testing.assert_frame_equal(result, df_clean)
         assert report["na_detected"] is False
 
-
 # =============================================================================
 # Test: unknown policy
 # =============================================================================
-
 
 class TestUnknownPolicy:
     """Tests for invalid/unknown policy values."""
@@ -318,11 +299,9 @@ class TestUnknownPolicy:
         with pytest.raises(ValueError, match="Invalid na_policy"):
             apply_na_policy(df_clean, "fill_mean")
 
-
 # =============================================================================
 # Test: report structure
 # =============================================================================
-
 
 class TestReportStructure:
     """Tests for the structure of the na_handling report dict."""

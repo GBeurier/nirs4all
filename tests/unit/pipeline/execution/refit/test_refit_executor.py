@@ -37,7 +37,6 @@ from nirs4all.pipeline.storage.store_schema import (
 # Helpers
 # =========================================================================
 
-
 class _DummyModel:
     """Minimal sklearn-like model for testing."""
 
@@ -61,7 +60,6 @@ class _DummyModel:
     def get_params(self, deep=True):
         return {"n_components": self.n_components, "alpha": self.alpha}
 
-
 class _DummySplitter:
     """Minimal CV splitter for testing."""
 
@@ -72,7 +70,6 @@ class _DummySplitter:
 
     def get_n_splits(self, X=None, y=None, groups=None) -> int:
         return 1
-
 
 class _DummyDataset:
     """Minimal SpectroDataset stand-in for testing."""
@@ -94,11 +91,9 @@ class _DummyDataset:
     def features_sources(self) -> int:
         return 1
 
-
 # =========================================================================
 # Task 2.4: RefitResult dataclass
 # =========================================================================
-
 
 class TestRefitResult:
     """Tests for the RefitResult dataclass."""
@@ -129,11 +124,9 @@ class TestRefitResult:
         assert result.metric == "rmse"
         assert result.predictions_count == 3
 
-
 # =========================================================================
 # Task 2.4: _FullTrainFoldSplitter
 # =========================================================================
-
 
 class TestFullTrainFoldSplitter:
     """Tests for the _FullTrainFoldSplitter dummy splitter."""
@@ -158,11 +151,9 @@ class TestFullTrainFoldSplitter:
         splitter = _FullTrainFoldSplitter(10)
         assert splitter.get_n_splits() == 1
 
-
 # =========================================================================
 # Task 2.4: _step_is_splitter
 # =========================================================================
-
 
 class TestStepIsSplitter:
     """Tests for splitter detection logic."""
@@ -208,11 +199,9 @@ class TestStepIsSplitter:
         """A custom splitter with split(X) is detected."""
         assert _step_is_splitter(_DummySplitter()) is True
 
-
 # =========================================================================
 # Task 2.4: _make_full_train_fold_step
 # =========================================================================
-
 
 class TestMakeFullTrainFoldStep:
     """Tests for _make_full_train_fold_step."""
@@ -225,18 +214,17 @@ class TestMakeFullTrainFoldStep:
         assert splitter._n_samples == 42
 
     def test_fallback_on_dataset_error(self):
-        """Falls back to 100 if dataset.x() fails."""
+        """Falls back to dataset.num_samples if dataset.x() fails."""
         dataset = MagicMock()
         dataset.x.side_effect = RuntimeError("no data")
+        dataset.num_samples = 75
         splitter = _make_full_train_fold_step(dataset)
         assert isinstance(splitter, _FullTrainFoldSplitter)
-        assert splitter._n_samples == 100
-
+        assert splitter._n_samples == 75
 
 # =========================================================================
 # Task 2.4: _inject_best_params
 # =========================================================================
-
 
 class TestInjectBestParams:
     """Tests for best parameter injection into model steps."""
@@ -293,11 +281,9 @@ class TestInjectBestParams:
         assert model.n_components == 10
         assert model.alpha == 0.1  # refit_params override
 
-
 # =========================================================================
 # Task 2.4: _apply_params_to_model
 # =========================================================================
-
 
 class TestApplyParamsToModel:
     """Tests for safe parameter application."""
@@ -326,11 +312,9 @@ class TestApplyParamsToModel:
         obj = object()
         _apply_params_to_model(obj, {"n_components": 10})  # Should not raise
 
-
 # =========================================================================
 # Task 2.4: _relabel_refit_predictions
 # =========================================================================
-
 
 class TestRelabelRefitPredictions:
     """Tests for prediction relabeling."""
@@ -362,11 +346,9 @@ class TestRelabelRefitPredictions:
         preds = Predictions()
         _relabel_refit_predictions(preds)  # Should not raise
 
-
 # =========================================================================
 # Task 2.4: _extract_test_score
 # =========================================================================
-
 
 class TestExtractTestScore:
     """Tests for test score extraction from refit predictions."""
@@ -404,11 +386,9 @@ class TestExtractTestScore:
         score = _extract_test_score(preds)
         assert score is None
 
-
 # =========================================================================
 # Task 2.4: execute_simple_refit
 # =========================================================================
-
 
 class TestExecuteSimpleRefit:
     """Tests for the execute_simple_refit function."""
@@ -630,11 +610,9 @@ class TestExecuteSimpleRefit:
         call_kwargs = executor.execute.call_args[1]
         assert call_kwargs["config_name"] == "my_pipeline_refit"
 
-
 # =========================================================================
 # Task 2.5: Orchestrator refit pass
 # =========================================================================
-
 
 class TestOrchestratorRefitPass:
     """Tests for PipelineOrchestrator._execute_refit_pass."""
@@ -772,7 +750,7 @@ class TestOrchestratorRefitPass:
 
         # Should dispatch to execute_stacking_refit for stacking pipelines
         with patch(
-            "nirs4all.pipeline.execution.refit.stacking_refit.execute_stacking_refit"
+            "nirs4all.pipeline.execution.orchestrator.execute_stacking_refit"
         ) as mock_stacking:
             mock_stacking.return_value = RefitResult(success=True, predictions_count=0)
 
@@ -789,11 +767,9 @@ class TestOrchestratorRefitPass:
 
         store.close()
 
-
 # =========================================================================
 # Task 2.5: PipelineRunner.run() refit parameter
 # =========================================================================
-
 
 class TestRunnerRefitParameter:
     """Tests for refit parameter in PipelineRunner.run()."""
@@ -816,11 +792,9 @@ class TestRunnerRefitParameter:
         sig = inspect.signature(PipelineRunner.run)
         assert sig.parameters["refit"].default is True
 
-
 # =========================================================================
 # Task 2.5: nirs4all.run() API refit parameter
 # =========================================================================
-
 
 class TestApiRunRefitParameter:
     """Tests for refit parameter in nirs4all.run() API."""
@@ -853,11 +827,9 @@ class TestApiRunRefitParameter:
         param = sig.parameters["refit"]
         assert param.kind == inspect.Parameter.KEYWORD_ONLY
 
-
 # =========================================================================
 # Task 2.5: Refit enable/disable logic in orchestrator
 # =========================================================================
-
 
 class TestRefitEnableLogic:
     """Tests for refit enable/disable logic in the orchestrator."""
@@ -904,11 +876,9 @@ class TestRefitEnableLogic:
         refit_enabled = refit is True or (isinstance(refit, dict) and refit) or (isinstance(refit, list) and refit)
         assert not refit_enabled
 
-
 # =========================================================================
 # Refit aggregation reporting
 # =========================================================================
-
 
 def _make_refit_prediction_entry(
     partition: str,
@@ -952,7 +922,6 @@ def _make_refit_prediction_entry(
         "n_features": 100,
         "refit_context": REFIT_CONTEXT_STANDALONE,
     }
-
 
 class TestRefitAggregation:
     """Tests for aggregation scores in refit reports."""
@@ -1058,11 +1027,9 @@ class TestRefitAggregation:
         assert "RMSEP" in summary
         assert "RMSEP*" not in summary
 
-
 # =========================================================================
 # RefitCriterion and parse_refit_param
 # =========================================================================
-
 
 class TestRefitCriterion:
     """Tests for the RefitCriterion dataclass."""
@@ -1080,7 +1047,6 @@ class TestRefitCriterion:
         assert c.top_k == 3
         assert c.ranking == "mean_val"
         assert c.metric == "r2"
-
 
 class TestParseRefitParam:
     """Tests for parse_refit_param normalization."""
@@ -1114,7 +1080,7 @@ class TestParseRefitParam:
         assert result[0].top_k == 2
 
     def test_list_returns_multiple_criteria(self):
-        """List[dict] → multiple criteria."""
+        """list[dict] → multiple criteria."""
         result = parse_refit_param([
             {"top_k": 3, "ranking": "rmsecv"},
             {"top_k": 1, "ranking": "mean_val"},
@@ -1133,11 +1099,9 @@ class TestParseRefitParam:
         """Empty list returns empty list."""
         assert parse_refit_param([]) == []
 
-
 # =========================================================================
 # extract_top_configs
 # =========================================================================
-
 
 class TestExtractTopConfigs:
     """Tests for extract_top_configs with store-backed pipelines."""

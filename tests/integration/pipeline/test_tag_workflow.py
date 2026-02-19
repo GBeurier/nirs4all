@@ -9,19 +9,17 @@ Tests the full tag workflow including:
 - Interaction with other pipeline steps
 """
 
-import pytest
 import numpy as np
-
+import pytest
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.data import DatasetConfigs
-from nirs4all.operators.filters.y_outlier import YOutlierFilter
 from nirs4all.operators.filters.x_outlier import XOutlierFilter
+from nirs4all.operators.filters.y_outlier import YOutlierFilter
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.pipeline.config.context import DataSelector
-
 from tests.fixtures.data_generators import TestDataManager
 
 
@@ -110,7 +108,6 @@ class TestTagWorkflowBasic:
         assert "y_outliers" in tag_columns
         assert "x_outliers" in tag_columns
 
-
 class TestTagDataSelectorIntegration:
     """Test tag_filters in DataSelector."""
 
@@ -144,7 +141,6 @@ class TestTagDataSelectorIntegration:
         # Verify it's a copy not a reference
         copied.tag_filters["new"] = False
         assert "new" not in selector.tag_filters
-
 
 class TestTagWorkflowWithFiltering:
     """Test tag workflow combined with filtering."""
@@ -188,7 +184,6 @@ class TestTagWorkflowWithFiltering:
         dataset = list(predictions_per_datasets.values())[0]["dataset"]
         tag_columns = dataset._indexer._store.get_tag_column_names()
         assert "y_outliers" in tag_columns
-
 
 class TestTagMultipleFilters:
     """Test tag step with multiple filters."""

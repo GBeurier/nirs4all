@@ -9,10 +9,11 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Generator, Optional
+from typing import Any, Optional
 
 from .events import Phase, Status
 
@@ -32,11 +33,10 @@ class BranchContext:
 
     name: str
     path: list[str] = field(default_factory=list)
-    index: Optional[int] = None
-    total: Optional[int] = None
-    parent: Optional[str] = None
+    index: int | None = None
+    total: int | None = None
+    parent: str | None = None
     depth: int = 0
-
 
 @dataclass
 class SourceContext:
@@ -49,9 +49,8 @@ class SourceContext:
     """
 
     name: str
-    index: Optional[int] = None
-    total: Optional[int] = None
-
+    index: int | None = None
+    total: int | None = None
 
 @dataclass
 class StackContext:
@@ -64,9 +63,8 @@ class StackContext:
     """
 
     n_branches: int
-    meta_model: Optional[str] = None
+    meta_model: str | None = None
     branch_sources: list[str] = field(default_factory=list)
-
 
 @dataclass
 class RunState:
@@ -85,17 +83,17 @@ class RunState:
     """
 
     run_id: str
-    run_name: Optional[str] = None
-    project: Optional[str] = None
+    run_name: str | None = None
+    project: str | None = None
     start_time: datetime = field(default_factory=datetime.now)
-    current_phase: Optional[Phase] = None
+    current_phase: Phase | None = None
     branch_stack: list[BranchContext] = field(default_factory=list)
-    source_context: Optional[SourceContext] = None
-    stack_context: Optional[StackContext] = None
+    source_context: SourceContext | None = None
+    stack_context: StackContext | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
-    def current_branch(self) -> Optional[BranchContext]:
+    def current_branch(self) -> BranchContext | None:
         """Get the current (innermost) branch context."""
         return self.branch_stack[-1] if self.branch_stack else None
 
@@ -109,20 +107,17 @@ class RunState:
         """Get the full branch path."""
         return [b.name for b in self.branch_stack]
 
-
 class _ContextStorage(threading.local):
     """Thread-local storage for run context."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.run_state: Optional[RunState] = None
-
+        self.run_state: RunState | None = None
 
 # Global context storage
 _context = _ContextStorage()
 
-
-def get_current_state() -> Optional[RunState]:
+def get_current_state() -> RunState | None:
     """Get the current run state.
 
     Returns:
@@ -130,8 +125,7 @@ def get_current_state() -> Optional[RunState]:
     """
     return _context.run_state
 
-
-def get_run_id() -> Optional[str]:
+def get_run_id() -> str | None:
     """Get the current run ID.
 
     Returns:
@@ -139,7 +133,6 @@ def get_run_id() -> Optional[str]:
     """
     state = get_current_state()
     return state.run_id if state else None
-
 
 def _generate_run_id() -> str:
     """Generate a unique run ID.
@@ -151,7 +144,6 @@ def _generate_run_id() -> str:
     timestamp = now.strftime("%Y%m%d-%H%M%S")
     suffix = uuid.uuid4().hex[:4]
     return f"R-{timestamp}-{suffix}"
-
 
 class LogContext:
     """Context manager for run-level logging context.
@@ -168,9 +160,9 @@ class LogContext:
 
     def __init__(
         self,
-        run_id: Optional[str] = None,
-        run_name: Optional[str] = None,
-        project: Optional[str] = None,
+        run_id: str | None = None,
+        run_name: str | None = None,
+        project: str | None = None,
         **extra: Any,
     ) -> None:
         """Initialize log context.
@@ -185,9 +177,9 @@ class LogContext:
         self.run_name = run_name or self.run_id
         self.project = project
         self.extra = extra
-        self._previous_state: Optional[RunState] = None
+        self._previous_state: RunState | None = None
 
-    def __enter__(self) -> "LogContext":
+    def __enter__(self) -> LogContext:
         """Enter the context, setting up run state."""
         self._previous_state = _context.run_state
         _context.run_state = RunState(
@@ -230,9 +222,9 @@ class LogContext:
     @contextmanager
     def branch(
         name: str,
-        index: Optional[int] = None,
-        total: Optional[int] = None,
-        parent: Optional[str] = None,
+        index: int | None = None,
+        total: int | None = None,
+        parent: str | None = None,
     ) -> Generator[BranchContext, None, None]:
         """Context manager for tracking branch execution.
 
@@ -282,8 +274,8 @@ class LogContext:
     @contextmanager
     def source(
         name: str,
-        index: Optional[int] = None,
-        total: Optional[int] = None,
+        index: int | None = None,
+        total: int | None = None,
     ) -> Generator[SourceContext, None, None]:
         """Context manager for tracking source processing in multi-source pipelines.
 
@@ -313,8 +305,8 @@ class LogContext:
     @contextmanager
     def stack(
         n_branches: int,
-        meta_model: Optional[str] = None,
-        branch_sources: Optional[list[str]] = None,
+        meta_model: str | None = None,
+        branch_sources: list[str] | None = None,
     ) -> Generator[StackContext, None, None]:
         """Context manager for tracking stacking operations.
 
@@ -344,7 +336,6 @@ class LogContext:
         finally:
             state.stack_context = previous_stack
 
-
 def inject_context(record: logging.LogRecord) -> logging.LogRecord:
     """Inject current context into a log record.
 
@@ -362,33 +353,33 @@ def inject_context(record: logging.LogRecord) -> logging.LogRecord:
         return record
 
     # Add run context
-    record.run_id = state.run_id  # type: ignore
-    record.run_name = state.run_name  # type: ignore
+    record.run_id = state.run_id
+    record.run_name = state.run_name
 
     if state.current_phase:
-        record.phase = state.current_phase  # type: ignore
+        record.phase = state.current_phase
 
     # Add branch context
     if state.current_branch:
         branch = state.current_branch
-        record.branch_name = branch.name  # type: ignore
-        record.branch_path = branch.path  # type: ignore
-        record.branch_index = branch.index  # type: ignore
-        record.total_branches = branch.total  # type: ignore
-        record.branch_depth = branch.depth  # type: ignore
+        record.branch_name = branch.name
+        record.branch_path = branch.path
+        record.branch_index = branch.index
+        record.total_branches = branch.total
+        record.branch_depth = branch.depth
 
     # Add source context
     if state.source_context:
         source = state.source_context
-        record.source_name = source.name  # type: ignore
-        record.source_index = source.index  # type: ignore
-        record.total_sources = source.total  # type: ignore
+        record.source_name = source.name
+        record.source_index = source.index
+        record.total_sources = source.total
 
     # Add stack context
     if state.stack_context:
         stack = state.stack_context
-        record.stack_n_branches = stack.n_branches  # type: ignore
-        record.stack_meta_model = stack.meta_model  # type: ignore
-        record.stack_branch_sources = stack.branch_sources  # type: ignore
+        record.stack_n_branches = stack.n_branches
+        record.stack_meta_model = stack.meta_model
+        record.stack_branch_sources = stack.branch_sources
 
     return record

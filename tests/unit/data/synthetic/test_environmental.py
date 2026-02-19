@@ -13,12 +13,12 @@ from __future__ import annotations
 import pytest
 
 from nirs4all.synthesis.environmental import (
-    SpectralRegion,
-    TemperatureEffectParams,
-    TemperatureConfig,
-    MoistureConfig,
-    EnvironmentalEffectsConfig,
     TEMPERATURE_EFFECT_PARAMS,
+    EnvironmentalEffectsConfig,
+    MoistureConfig,
+    SpectralRegion,
+    TemperatureConfig,
+    TemperatureEffectParams,
     get_temperature_effect_regions,
 )
 
@@ -36,7 +36,6 @@ class TestSpectralRegion:
         """Test that all regions have temperature effect parameters."""
         for region in SpectralRegion:
             assert region in TEMPERATURE_EFFECT_PARAMS
-
 
 class TestTemperatureEffectParams:
     """Tests for TemperatureEffectParams dataclass."""
@@ -67,7 +66,6 @@ class TestTemperatureEffectParams:
 
         assert abs(ch_params.shift_per_degree) < abs(oh_params.shift_per_degree)
 
-
 class TestTemperatureConfig:
     """Tests for TemperatureConfig dataclass."""
 
@@ -97,7 +95,6 @@ class TestTemperatureConfig:
         assert config.sample_temperature == 50.0
         assert config.delta_temperature == 25.0
         assert config.enable_broadening is False
-
 
 class TestMoistureConfig:
     """Tests for MoistureConfig dataclass."""
@@ -131,7 +128,6 @@ class TestMoistureConfig:
         assert config.water_activity == 0.8
         assert config.moisture_content == 0.20
 
-
 class TestEnvironmentalEffectsConfig:
     """Tests for EnvironmentalEffectsConfig dataclass."""
 
@@ -153,7 +149,6 @@ class TestEnvironmentalEffectsConfig:
         )
         assert config.temperature.sample_temperature == 40.0
         assert config.enable_moisture is False
-
 
 class TestGetTemperatureEffectRegions:
     """Tests for get_temperature_effect_regions function."""

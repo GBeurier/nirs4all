@@ -4,11 +4,12 @@ Tests the concat merge mode for separation branches and the
 unified source merge syntax via the merge keyword.
 """
 
-import pytest
-import numpy as np
 from unittest.mock import MagicMock, patch
 
-from nirs4all.controllers.data.merge import MergeController, MergeConfigParser
+import numpy as np
+import pytest
+
+from nirs4all.controllers.data.merge import MergeConfigParser, MergeController
 from nirs4all.operators.data.merge import MergeConfig, SourceMergeConfig
 
 
@@ -36,7 +37,6 @@ class TestMergeConfigParserConcatMode:
 
         # Should default to collecting features from all branches
         assert config.feature_branches == "all"
-
 
 class TestMergeConfigParserSourcesMerge:
     """Tests for sources merge via merge keyword."""
@@ -91,7 +91,6 @@ class TestMergeConfigParserSourcesMerge:
         # With features key, should not short-circuit
         assert config.collect_features is True
 
-
 class TestMergeConfigSerialization:
     """Tests for serialization with new fields."""
 
@@ -145,7 +144,6 @@ class TestMergeConfigSerialization:
         assert config.source_merge is not None
         assert config.source_merge.strategy == "concat"
 
-
 class TestBranchTypeValidation:
     """Tests for branch type validation logic."""
 
@@ -196,7 +194,6 @@ class TestBranchTypeValidation:
         )
         # Should not raise
 
-
 class TestConcatMergeFunctionalTests:
     """Functional tests for concat merge integration."""
 
@@ -219,7 +216,6 @@ class TestConcatMergeFunctionalTests:
         assert config.collect_features is True
         assert config.collect_predictions is True
         assert config.is_separation_merge is True
-
 
 class TestSourceMergeFromMergeKeyword:
     """Tests for source merge via merge keyword."""
@@ -244,7 +240,6 @@ class TestSourceMergeFromMergeKeyword:
         assert config.source_merge is not None
         assert config.collect_features is True
         assert config.on_missing == "warn"
-
 
 class TestMergeStrategyModes:
     """Tests for understanding the different merge modes."""

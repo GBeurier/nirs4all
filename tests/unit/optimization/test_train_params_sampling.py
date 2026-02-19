@@ -1,7 +1,7 @@
 """Unit tests for train_params sampling in OptunaManager (Phase 3 - ISSUE-4)."""
 
-import pytest
 import optuna
+import pytest
 
 from nirs4all.optimization.optuna import OptunaManager
 
@@ -119,7 +119,6 @@ class TestTrainParamsSampling:
         model_params, train_params = manager.sample_hyperparameters(trial, fp)
         assert model_params == {}
         assert train_params == {}
-
 
 class TestIsSampable:
     """Tests for _is_sampable helper."""

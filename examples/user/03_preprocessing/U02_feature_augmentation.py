@@ -34,13 +34,13 @@ from sklearn.preprocessing import MinMaxScaler
 # NIRS4All imports
 import nirs4all
 from nirs4all.operators.transforms import (
-    StandardNormalVariate,
-    MultiplicativeScatterCorrection,
     Detrend,
     FirstDerivative,
-    SecondDerivative,
-    SavitzkyGolay,
     Gaussian,
+    MultiplicativeScatterCorrection,
+    SavitzkyGolay,
+    SecondDerivative,
+    StandardNormalVariate,
 )
 
 # Parse command-line arguments
@@ -48,7 +48,6 @@ parser = argparse.ArgumentParser(description='U02 Feature Augmentation Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: What is Feature Augmentation?
@@ -76,7 +75,6 @@ Three action modes control HOW variants are generated:
      Chain on all existing, discard originals
      MinMax → REPLACE [SNV] → MinMax_SNV (1 variant)
 """)
-
 
 # =============================================================================
 # Section 2: EXTEND Mode - Independent Preprocessing Options
@@ -117,7 +115,6 @@ print("\nTop preprocessing variants:")
 for pred in result_extend.top(3, display_metrics=['rmse']):
     print(f"   {pred.get('preprocessings', 'N/A')}: RMSE={pred.get('rmse', 0):.4f}")
 
-
 # =============================================================================
 # Section 3: ADD Mode - Chain While Keeping Originals
 # =============================================================================
@@ -154,7 +151,6 @@ print("Variants include: SNV alone, SNV + FirstDerivative")
 
 for pred in result_add.top(5, display_metrics=['rmse']):
     print(f"   {pred.get('preprocessings', 'N/A')}: RMSE={pred.get('rmse', 0):.4f}")
-
 
 # =============================================================================
 # Section 4: REPLACE Mode - Pure Chaining
@@ -195,7 +191,6 @@ print("Both variants end with: _FirstDerivative_SNV")
 
 for pred in result_replace.top(5, display_metrics=['rmse']):
     print(f"   {pred.get('preprocessings', 'N/A')}: RMSE={pred.get('rmse', 0):.4f}")
-
 
 # =============================================================================
 # Section 5: Comprehensive Preprocessing Search
@@ -242,7 +237,6 @@ print("\nAll preprocessing variants (ranked by RMSE):")
 for i, pred in enumerate(result_search.top(20, display_metrics=['rmse']), 1):
     print(f"   {i}. {pred.get('preprocessings', 'N/A')}: RMSE={pred.get('rmse', 0):.4f}")
 
-
 # =============================================================================
 # Section 5b: Best Preprocessing Chain Analysis
 # =============================================================================
@@ -258,14 +252,14 @@ This is crucial for understanding which preprocessing combinations work best.
 # Get the best prediction
 best = result_search.best
 
-print(f"\n🏆 Best Preprocessing Chain:")
+print("\n🏆 Best Preprocessing Chain:")
 print(f"   Chain: {best.get('preprocessings', 'N/A')}")
 print(f"   Model: {best.get('model_name', 'N/A')}")
 print(f"   Dataset: {best.get('dataset_name', 'N/A')}")
 print(f"   Fold: {best.get('fold_id', 'N/A')}")
 
 # Get detailed metrics
-print(f"\n📊 Performance Metrics:")
+print("\n📊 Performance Metrics:")
 print(f"   Primary metric ({best.get('metric', 'mse')}):")
 print(f"   • Train: {best.get('train_score', float('nan')):.6f}")
 print(f"   • Val:   {best.get('val_score', float('nan')):.6f}")
@@ -275,26 +269,25 @@ print(f"   • Test:  {best.get('test_score', float('nan')):.6f}")
 top_with_metrics = result_search.top(n=1, display_metrics=['rmse', 'r2', 'mae'])
 if top_with_metrics:
     best_with_metrics = top_with_metrics[0]
-    print(f"\n   Additional metrics:")
+    print("\n   Additional metrics:")
     print(f"   • RMSE: {best_with_metrics.get('rmse', float('nan')):.4f}")
     print(f"   • R²:   {best_with_metrics.get('r2', float('nan')):.4f}")
     print(f"   • MAE:  {best_with_metrics.get('mae', float('nan')):.4f}")
 
 # Show sample/feature info
-print(f"\n📋 Data Information:")
+print("\n📋 Data Information:")
 print(f"   • Samples: {best.get('n_samples', 'N/A')}")
 print(f"   • Features: {best.get('n_features', 'N/A')}")
 print(f"   • Task type: {best.get('task_type', 'N/A')}")
 
 # Compare top 3 preprocessing chains
-print(f"\n🔍 Top 3 Preprocessing Chains Comparison:")
+print("\n🔍 Top 3 Preprocessing Chains Comparison:")
 for i, pred in enumerate(result_search.top(n=3, display_metrics=['rmse', 'r2']), 1):
     preproc = pred.get('preprocessings', 'N/A')
     rmse = pred.get('rmse', float('nan'))
     r2 = pred.get('r2', float('nan'))
     print(f"   {i}. {preproc}")
     print(f"      RMSE: {rmse:.4f} | R²: {r2:.4f}")
-
 
 # =============================================================================
 # Section 6: Comparing Action Modes
@@ -343,7 +336,6 @@ EXTEND       {res_ext.num_predictions}      raw_MinMax, raw_FirstDeriv, raw_Seco
 ADD          {res_add.num_predictions}      MinMax, MinMax_FirstDeriv, MinMax_SecondDeriv
 REPLACE      {res_rep.num_predictions}      MinMax_FirstDeriv, MinMax_SecondDeriv (no MinMax-only)
 """)
-
 
 # =============================================================================
 # Summary

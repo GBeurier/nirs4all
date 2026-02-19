@@ -14,7 +14,6 @@ class MockSpectraTransformer(SpectraTransformerMixin):
     def _transform_impl(self, X, wavelengths):
         return X * 2
 
-
 class MockOptionalWavelengthsTransformer(SpectraTransformerMixin):
     """Mock transformer that doesn't require wavelengths."""
 
@@ -29,7 +28,6 @@ class MockOptionalWavelengthsTransformer(SpectraTransformerMixin):
             return X * self.scale * (wavelengths.mean() / 1000)
         return X * self.scale
 
-
 class MockDisabledWavelengthsTransformer(SpectraTransformerMixin):
     """Mock transformer that ignores wavelengths."""
 
@@ -40,7 +38,6 @@ class MockDisabledWavelengthsTransformer(SpectraTransformerMixin):
 
     def _transform_impl(self, X, wavelengths):
         return X * self.scale
-
 
 class MockWavelengthDependentTransformer(SpectraTransformerMixin):
     """Mock transformer that uses wavelengths to modify spectra."""
@@ -54,7 +51,6 @@ class MockWavelengthDependentTransformer(SpectraTransformerMixin):
         mask = (wavelengths >= self.region_start) & (wavelengths <= self.region_end)
         X_out[:, mask] = X_out[:, mask] * 1.5
         return X_out
-
 
 class TestSpectraTransformerMixinAbstract:
     """Tests for abstract method behavior."""
@@ -75,7 +71,6 @@ class TestSpectraTransformerMixinAbstract:
     def test_abstract_method_exists(self):
         """Test that the abstract method exists."""
         assert hasattr(SpectraTransformerMixin, "_transform_impl")
-
 
 class TestSpectraTransformerMixinFit:
     """Tests for fit method."""
@@ -125,7 +120,6 @@ class TestSpectraTransformerMixinFit:
 
         with pytest.raises(ValueError, match="wavelengths length"):
             transformer.fit(X, wavelengths=wavelengths)
-
 
 class TestSpectraTransformerMixinTransform:
     """Tests for transform method."""
@@ -177,7 +171,6 @@ class TestSpectraTransformerMixinTransform:
         with pytest.raises(ValueError, match="wavelengths length"):
             transformer.transform(X, wavelengths=wavelengths)
 
-
 class TestSpectraTransformerMixinOptionalWavelengths:
     """Tests for operators with optional wavelengths."""
 
@@ -220,7 +213,6 @@ class TestSpectraTransformerMixinOptionalWavelengths:
 
         np.testing.assert_array_almost_equal(X_transformed, X * 2.0)
 
-
 class TestSpectraTransformerMixinWavelengthDependent:
     """Tests for wavelength-dependent transformations."""
 
@@ -247,7 +239,6 @@ class TestSpectraTransformerMixinWavelengthDependent:
 
         with pytest.raises(ValueError, match="wavelengths length"):
             transformer.transform(X, wavelengths=wavelengths)
-
 
 class TestSpectraTransformerMixinSklearnCompatibility:
     """Tests for sklearn compatibility."""
@@ -320,7 +311,6 @@ class TestSpectraTransformerMixinSklearnCompatibility:
 
         assert cloned.scale == 7.0
         assert cloned is not transformer
-
 
 class TestSpectraTransformerMixinImport:
     """Tests for import paths."""

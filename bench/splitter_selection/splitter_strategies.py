@@ -20,14 +20,14 @@ Strategies implemented:
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Tuple, List, Optional, Dict, Any
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold
+from scipy.spatial.distance import cdist
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
-from scipy.spatial.distance import cdist
+from sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold
 
 # Import nirs4all splitters
 try:
@@ -39,15 +39,13 @@ except ImportError:
     N4AKennardStone = None
     N4ASPXY = None
 
-
 @dataclass
 class SplitResult:
     """Container for split results."""
     train_ids: np.ndarray
     test_ids: np.ndarray
     fold_assignments: pd.DataFrame  # columns: ID, fold, split (train/val/test)
-    strategy_info: Dict[str, Any]
-
+    strategy_info: dict[str, Any]
 
 class BaseSplitter(ABC):
     """Base class for all splitting strategies."""
@@ -91,7 +89,7 @@ class BaseSplitter(ABC):
         """
         pass
 
-    def get_stratification_info(self) -> Dict[str, Any]:
+    def get_stratification_info(self) -> dict[str, Any]:
         """Return information about the stratification strategy."""
         return {
             'strategy_name': self.__class__.__name__,
@@ -105,7 +103,7 @@ class BaseSplitter(ABC):
         X: np.ndarray,
         y: np.ndarray,
         sample_ids: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Aggregate data by sample ID (mean of repetitions).
 
@@ -124,7 +122,6 @@ class BaseSplitter(ABC):
         unique_ids = df.groupby('id').first().reset_index()['id'].values
 
         return X_agg, y_agg, unique_ids
-
 
 class SimpleSplitter(BaseSplitter):
     """
@@ -186,7 +183,6 @@ class SimpleSplitter(BaseSplitter):
             fold_assignments=fold_df,
             strategy_info=self.get_stratification_info()
         )
-
 
 class TargetStratifiedSplitter(BaseSplitter):
     """
@@ -276,7 +272,6 @@ class TargetStratifiedSplitter(BaseSplitter):
             fold_assignments=fold_df,
             strategy_info={**self.get_stratification_info(), 'n_bins': self.n_bins}
         )
-
 
 class SpectralPCASplitter(BaseSplitter):
     """
@@ -372,7 +367,6 @@ class SpectralPCASplitter(BaseSplitter):
             }
         )
 
-
 class SpectralDistanceSplitter(BaseSplitter):
     """
     Splitting that maximizes spectral diversity in the test set.
@@ -452,7 +446,6 @@ class SpectralDistanceSplitter(BaseSplitter):
                 'sampling_method': 'farthest_point'
             }
         )
-
 
 class HybridSplitter(BaseSplitter):
     """
@@ -559,7 +552,6 @@ class HybridSplitter(BaseSplitter):
             }
         )
 
-
 class AdversarialSplitter(BaseSplitter):
     """
     Adversarial splitting for robustness evaluation.
@@ -640,7 +632,6 @@ class AdversarialSplitter(BaseSplitter):
                 'n_adversarial_samples': n_adversarial
             }
         )
-
 
 class KennardStoneSplitter(BaseSplitter):
     """
@@ -747,7 +738,6 @@ class KennardStoneSplitter(BaseSplitter):
             }
         )
 
-
 class StratifiedGroupKFoldSplitter(BaseSplitter):
     """
     Splitter using sklearn's StratifiedGroupKFold.
@@ -830,7 +820,6 @@ class StratifiedGroupKFoldSplitter(BaseSplitter):
             }
         )
 
-
 class Nirs4allKennardStoneSplitter(BaseSplitter):
     """
     Wrapper for nirs4all's KennardStoneSplitter.
@@ -902,7 +891,6 @@ class Nirs4allKennardStoneSplitter(BaseSplitter):
                 'algorithm': 'nirs4all_kennard_stone'
             }
         )
-
 
 class Nirs4allSPXYSplitter(BaseSplitter):
     """
@@ -977,17 +965,8 @@ class Nirs4allSPXYSplitter(BaseSplitter):
             }
         )
 
-
 # Import unsupervised sample selection splitters (imported after class definitions to avoid circular imports)
-from unsupervised_splitters import (
-    PuchweinSplitter,
-    DuplexSplitter,
-    ShenkWestSplitter,
-    HonigsSplitter,
-    HierarchicalClusteringSplitter,
-    KMedoidsSplitter
-)
-
+from unsupervised_splitters import DuplexSplitter, HierarchicalClusteringSplitter, HonigsSplitter, KMedoidsSplitter, PuchweinSplitter, ShenkWestSplitter
 
 # Strategy registry
 SPLITTING_STRATEGIES = {
@@ -1089,7 +1068,6 @@ SPLITTING_STRATEGIES = {
     }
 }
 
-
 def get_splitter(
     strategy_name: str,
     test_size: float = 0.2,
@@ -1122,8 +1100,7 @@ def get_splitter(
         **kwargs
     )
 
-
-def list_strategies() -> Dict[str, Dict[str, str]]:
+def list_strategies() -> dict[str, dict[str, str]]:
     """List all available splitting strategies with descriptions."""
     return {
         key: {

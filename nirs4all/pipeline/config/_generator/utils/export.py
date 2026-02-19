@@ -11,11 +11,11 @@ Main Functions:
 """
 
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 
 def to_dataframe(
-    configs: List[Any],
+    configs: list[Any],
     flatten: bool = True,
     prefix_sep: str = ".",
     include_index: bool = True
@@ -46,11 +46,11 @@ def to_dataframe(
     """
     try:
         import pandas as pd
-    except ImportError:
+    except ImportError as e:
         raise ImportError(
             "pandas is required for to_dataframe(). "
             "Install with: pip install pandas"
-        )
+        ) from e
 
     if not configs:
         return pd.DataFrame()
@@ -71,12 +71,11 @@ def to_dataframe(
 
     return pd.DataFrame(rows)
 
-
 def _flatten_dict(
-    d: Dict[str, Any],
+    d: dict[str, Any],
     parent_key: str = "",
     prefix_sep: str = "."
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Flatten a nested dictionary.
 
     Args:
@@ -96,12 +95,11 @@ def _flatten_dict(
             items.append((new_key, v))
     return dict(items)
 
-
 def diff_configs(
     config1: Any,
     config2: Any,
     path: str = ""
-) -> Dict[str, Tuple[Any, Any]]:
+) -> dict[str, tuple[Any, Any]]:
     """Find differences between two configurations.
 
     Args:
@@ -148,11 +146,10 @@ def diff_configs(
 
     return diffs
 
-
 def summarize_configs(
-    configs: List[Any],
+    configs: list[Any],
     max_unique: int = 10
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Summarize a list of configurations.
 
     Args:
@@ -181,7 +178,7 @@ def summarize_configs(
     }
 
     # Collect values for each key
-    key_values: Dict[str, List[Any]] = {}
+    key_values: dict[str, list[Any]] = {}
     for config in configs:
         if not isinstance(config, dict):
             continue
@@ -192,7 +189,7 @@ def summarize_configs(
 
     # Summarize each key
     for key, values in key_values.items():
-        unique = list(set(str(v) for v in values))
+        unique = list({str(v) for v in values})
         summary["keys"][key] = {
             "count": len(values),
             "unique_count": len(unique),
@@ -201,7 +198,6 @@ def summarize_configs(
         }
 
     return summary
-
 
 # =============================================================================
 # Tree Visualization
@@ -215,8 +211,8 @@ class ExpansionTreeNode:
         key: str,
         node_type: str,
         count: int,
-        children: Optional[List["ExpansionTreeNode"]] = None,
-        details: Optional[Dict[str, Any]] = None
+        children: list["ExpansionTreeNode"] | None = None,
+        details: dict[str, Any] | None = None
     ):
         """Initialize tree node.
 
@@ -233,7 +229,7 @@ class ExpansionTreeNode:
         self.children = children or []
         self.details = details or {}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert tree to dict representation."""
         result = {
             "key": self.key,
@@ -245,7 +241,6 @@ class ExpansionTreeNode:
         if self.children:
             result["children"] = [c.to_dict() for c in self.children]
         return result
-
 
 def get_expansion_tree(
     spec: Any,
@@ -266,13 +261,9 @@ def get_expansion_tree(
         >>> tree.count
         6  # 2 x 3
     """
-    from ..keywords import (
-        OR_KEYWORD, RANGE_KEYWORD, LOG_RANGE_KEYWORD,
-        GRID_KEYWORD, ZIP_KEYWORD, CHAIN_KEYWORD, SAMPLE_KEYWORD,
-        PICK_KEYWORD, ARRANGE_KEYWORD
-    )
     # Late import to avoid circular dependency
     from ..core import count_combinations
+    from ..keywords import ARRANGE_KEYWORD, CHAIN_KEYWORD, GRID_KEYWORD, LOG_RANGE_KEYWORD, OR_KEYWORD, PICK_KEYWORD, RANGE_KEYWORD, SAMPLE_KEYWORD, ZIP_KEYWORD
 
     if not isinstance(spec, dict):
         if isinstance(spec, list):
@@ -393,12 +384,11 @@ def get_expansion_tree(
         details={"keys": len(spec)}
     )
 
-
 def print_expansion_tree(
     spec: Any,
     indent: str = "  ",
     show_counts: bool = True,
-    max_depth: Optional[int] = None
+    max_depth: int | None = None
 ) -> str:
     """Format expansion tree as a printable string.
 
@@ -425,14 +415,13 @@ def print_expansion_tree(
     _format_tree_node(tree, lines, "", True, show_counts, max_depth, 0)
     return "\n".join(lines)
 
-
 def _format_tree_node(
     node: ExpansionTreeNode,
-    lines: List[str],
+    lines: list[str],
     prefix: str,
     is_last: bool,
     show_counts: bool,
-    max_depth: Optional[int],
+    max_depth: int | None,
     current_depth: int
 ) -> None:
     """Recursively format tree node.
@@ -481,10 +470,9 @@ def _format_tree_node(
             show_counts, max_depth, current_depth + 1
         )
 
-
 def format_config_table(
-    configs: List[Dict[str, Any]],
-    columns: Optional[List[str]] = None,
+    configs: list[dict[str, Any]],
+    columns: list[str] | None = None,
     max_rows: int = 20
 ) -> str:
     """Format configurations as an ASCII table.
@@ -505,7 +493,7 @@ def format_config_table(
         columns = []
         for config in configs:
             if isinstance(config, dict):
-                for key in config.keys():
+                for key in config:
                     if key not in columns:
                         columns.append(key)
 
@@ -531,13 +519,7 @@ def format_config_table(
         if i >= max_rows:
             lines.append(f"... ({len(configs) - max_rows} more rows)")
             break
-        if isinstance(config, dict):
-            row = " | ".join(
-                str(config.get(col, ""))[:30].ljust(col_widths[col])
-                for col in columns
-            )
-        else:
-            row = str(config)[:80]
+        row = " | ".join(str(config.get(col, ""))[:30].ljust(col_widths[col]) for col in columns) if isinstance(config, dict) else str(config)[:80]
         lines.append(row)
 
     return "\n".join(lines)

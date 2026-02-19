@@ -11,8 +11,8 @@ Usage:
     python run_integration_tests.py --coverage   # Run with coverage report
 """
 
-import sys
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -26,7 +26,6 @@ def run_tests(args):
 
     result = subprocess.run(cmd)
     return result.returncode
-
 
 def main():
     """Main test runner."""
@@ -63,7 +62,6 @@ def main():
 
     # Run tests
     return run_tests(pytest_args)
-
 
 if __name__ == "__main__":
     sys.exit(main())

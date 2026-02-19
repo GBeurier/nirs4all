@@ -15,29 +15,29 @@ Tests cover all aspects of the disjoint merge specification:
 See: docs/reports/disjoint_sample_branch_merging.md
 """
 
-import pytest
-import numpy as np
-from unittest.mock import Mock, MagicMock, patch
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import Any, Optional
+from unittest.mock import MagicMock, Mock, patch
 
-from nirs4all.data._features.feature_source import FeatureSource
+import numpy as np
+import pytest
+
 from nirs4all.controllers.data.merge import (
-    MergeController,
-    MergeConfigParser,
-    is_disjoint_branch,
-    detect_disjoint_branches,
     DisjointBranchAnalysis,
     DisjointMergeResult,
+    MergeConfigParser,
+    MergeController,
+    detect_disjoint_branches,
+    is_disjoint_branch,
 )
+from nirs4all.data._features.feature_source import FeatureSource
 from nirs4all.operators.data.merge import (
-    MergeConfig,
     BranchType,
-    DisjointSelectionCriterion,
     DisjointBranchInfo,
     DisjointMergeMetadata,
+    DisjointSelectionCriterion,
+    MergeConfig,
 )
-
 
 # =============================================================================
 # Test Fixtures and Helpers
@@ -51,20 +51,19 @@ def create_feature_source(n_samples: int, n_features: int, seed: int = 42) -> Fe
     fs.add_samples(X)
     return fs
 
-
 def create_disjoint_branch_context(
     branch_id: int,
     branch_name: str,
-    sample_indices: List[int],
+    sample_indices: list[int],
     n_features: int = 30,
     partition_type: str = "metadata",
     partition_column: str = "region",
     seed: int = 42,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create a branch context for disjoint sample branching."""
 
     class MockInnerContext:
-        def __init__(self, sample_indices: List[int], partition_type: str, column: str):
+        def __init__(self, sample_indices: list[int], partition_type: str, column: str):
             self.custom = {}
             if partition_type == "metadata":
                 self.custom["metadata_partition"] = {
@@ -92,14 +91,13 @@ def create_disjoint_branch_context(
         },
     }
 
-
 def create_copy_branch_context(
     branch_id: int,
     branch_name: str,
     n_samples: int = 50,
     n_features: int = 30,
     seed: int = 42,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create a branch context for copy (non-disjoint) branching."""
 
     class MockInnerContext:
@@ -115,9 +113,8 @@ def create_copy_branch_context(
         "features_snapshot": [fs],
     }
 
-
 def create_mock_context_with_branches(
-    branch_contexts: List[Dict[str, Any]],
+    branch_contexts: list[dict[str, Any]],
     in_branch_mode: bool = True,
 ) -> Mock:
     """Create mock execution context with branch contexts."""
@@ -140,9 +137,8 @@ def create_mock_context_with_branches(
 
     return MockContext()
 
-
 def create_mock_prediction_store(
-    branch_models: Dict[int, List[Dict[str, Any]]],
+    branch_models: dict[int, list[dict[str, Any]]],
 ) -> Mock:
     """Create mock prediction store.
 
@@ -182,7 +178,6 @@ def create_mock_prediction_store(
             ]
 
     return MockPredictionStore(branch_models)
-
 
 # =============================================================================
 # P5.1: Symmetric Feature Merge Tests
@@ -290,7 +285,6 @@ class TestDisjointSymmetricFeatureMerge:
 
         assert output.metadata.get("disjoint_merge") is True
 
-
 # =============================================================================
 # P5.1: Asymmetric Feature Merge Tests (Error Case)
 # =============================================================================
@@ -359,7 +353,6 @@ class TestDisjointAsymmetricFeatureMerge:
         # Should mention both dimensions
         assert "100" in error_msg or "50" in error_msg
 
-
 # =============================================================================
 # P5.1: Selection Criteria Tests
 # =============================================================================
@@ -407,7 +400,6 @@ class TestDisjointSelectionCriteria:
         with pytest.raises(ValueError, match="select_by must be one of"):
             MergeConfig(select_by="invalid_metric")
 
-
 # =============================================================================
 # P5.1: n_columns Override Tests
 # =============================================================================
@@ -443,7 +435,6 @@ class TestNColumnsOverride:
 
         assert restored.n_columns == 5
         assert restored.select_by == "r2"
-
 
 # =============================================================================
 # P5.1: Trainability Validation Tests
@@ -515,7 +506,6 @@ class TestTrainabilityValidation:
         # Inf should be replaced
         assert np.isfinite(merged[0, 0])
 
-
 # =============================================================================
 # P5.1: Leakage Validation Tests
 # =============================================================================
@@ -547,7 +537,6 @@ class TestLeakageValidation:
 
         # No overlap
         assert branch_0_samples.isdisjoint(branch_1_samples)
-
 
 # =============================================================================
 # P5.1: Edge Case Tests
@@ -653,7 +642,6 @@ class TestDisjointMergeEdgeCases:
         assert analysis.is_disjoint is True
         assert analysis.branch_type == BranchType.SAMPLE_PARTITIONER
 
-
 # =============================================================================
 # P5.1: DisjointBranchInfo and DisjointMergeMetadata Tests
 # =============================================================================
@@ -694,7 +682,6 @@ class TestDisjointBranchInfoExtended:
         assert info.n_models_selected == 0
         assert info.selected_models == []
         assert info.dropped_models == []
-
 
 class TestDisjointMergeMetadataExtended:
     """Extended tests for DisjointMergeMetadata dataclass."""
@@ -765,7 +752,6 @@ class TestDisjointMergeMetadataExtended:
         assert "150 samples" in messages[1]
         assert "3 columns" in messages[1]
 
-
 # =============================================================================
 # P5.1: Merge Config Parsing for Disjoint Options
 # =============================================================================
@@ -804,7 +790,6 @@ class TestMergeConfigParsingDisjoint:
         assert config.collect_predictions is True
         assert config.n_columns == 3
         assert config.select_by == "mae"
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

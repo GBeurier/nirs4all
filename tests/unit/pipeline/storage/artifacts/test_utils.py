@@ -4,25 +4,24 @@ Unit tests for artifact utility functions (V3).
 Tests the V3 artifact ID utilities, execution path helpers, and file utilities.
 """
 
-import pytest
 from pathlib import Path
 
+import pytest
+
+from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, OperatorNode, generate_artifact_id_v3
 from nirs4all.pipeline.storage.artifacts.utils import (
     ExecutionPath,
+    artifact_id_matches_context,
+    compute_content_hash,
+    extract_pipeline_id_from_artifact_id,
+    generate_filename,
+    get_binaries_path,
+    get_short_hash,
+    is_v3_artifact_id,
     parse_artifact_id,
     parse_artifact_id_v3,
-    is_v3_artifact_id,
-    generate_filename,
     parse_filename,
-    compute_content_hash,
-    get_short_hash,
-    get_binaries_path,
     validate_artifact_id,
-    extract_pipeline_id_from_artifact_id,
-    artifact_id_matches_context,
-)
-from nirs4all.pipeline.storage.artifacts.operator_chain import (
-    OperatorChain, OperatorNode, generate_artifact_id_v3
 )
 
 
@@ -81,7 +80,6 @@ class TestGenerateArtifactIdV3:
         assert is_v3_artifact_id(artifact_id)
         assert artifact_id.endswith(":2")
 
-
 class TestParseArtifactIdV3:
     """Tests for parse_artifact_id function (V3 only)."""
 
@@ -134,7 +132,6 @@ class TestParseArtifactIdV3:
             assert parsed_pipeline_id == "0001_pls"
             assert parsed_fold_id == fold_id
 
-
 class TestIsV3ArtifactId:
     """Tests for is_v3_artifact_id function."""
 
@@ -147,7 +144,6 @@ class TestIsV3ArtifactId:
         """Test V2 format is not detected as V3."""
         assert is_v3_artifact_id("0001_pls:3:all") is False
         assert is_v3_artifact_id("0001_pls:0:3:0") is False
-
 
 class TestExecutionPath:
     """Tests for ExecutionPath dataclass."""
@@ -215,7 +211,6 @@ class TestExecutionPath:
         # The artifact IDs should match when chain_path is preserved
         assert restored.to_artifact_id() == artifact_id
 
-
 class TestGenerateFilename:
     """Tests for generate_filename function."""
 
@@ -250,7 +245,6 @@ class TestGenerateFilename:
         assert "abcdef123456" in filename
         assert "extra" not in filename
 
-
 class TestParseFilename:
     """Tests for parse_filename function."""
 
@@ -276,7 +270,6 @@ class TestParseFilename:
         result = parse_filename("invalid.pkl")
         assert result is None
 
-
 class TestComputeContentHash:
     """Tests for compute_content_hash function."""
 
@@ -299,7 +292,6 @@ class TestComputeContentHash:
         hash2 = compute_content_hash(b"content 2")
         assert hash1 != hash2
 
-
 class TestGetShortHash:
     """Tests for get_short_hash function."""
 
@@ -319,7 +311,6 @@ class TestGetShortHash:
         assert len(short) == 12
         assert short == "abcdef123456"
 
-
 class TestGetBinariesPath:
     """Tests for get_binaries_path function."""
 
@@ -332,7 +323,6 @@ class TestGetBinariesPath:
         workspace = Path("/home/user/workspace")
         path = get_binaries_path(workspace, "corn_m5")
         assert path == Path("/home/user/workspace/artifacts")
-
 
 class TestValidateArtifactId:
     """Tests for validate_artifact_id function (V3 only)."""
@@ -349,7 +339,6 @@ class TestValidateArtifactId:
         assert validate_artifact_id("0001:3:all") is False  # V2 format
         assert validate_artifact_id("") is False
 
-
 class TestExtractPipelineId:
     """Tests for extract_pipeline_id_from_artifact_id function."""
 
@@ -364,7 +353,6 @@ class TestExtractPipelineId:
         assert extract_pipeline_id_from_artifact_id(
             "0001_pls_abc123$xyz789012345:3"
         ) == "0001_pls_abc123"
-
 
 class TestArtifactIdMatchesContext:
     """Tests for artifact_id_matches_context function (V3 only)."""

@@ -5,6 +5,7 @@ using xxhash (preferred for speed) with a SHA-256 fallback.
 """
 
 import hashlib
+
 import numpy as np
 
 try:
@@ -12,7 +13,6 @@ try:
     _HAS_XXHASH = True
 except ImportError:
     _HAS_XXHASH = False
-
 
 def compute_data_hash(X: np.ndarray) -> str:
     """Compute a deterministic hex digest for a numpy array.

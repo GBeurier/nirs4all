@@ -14,51 +14,49 @@ Example:
     >>> print(f"Best RMSE: {result.best_rmse:.4f}")
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
-from nirs4all.pipeline import PipelineRunner, PipelineConfigs
 from nirs4all.config.cache_config import CacheConfig
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 from .result import RunResult
 from .session import Session
 
-
 # Type aliases for a single pipeline or dataset (not lists)
-SinglePipelineSpec = Union[
-    List[Any],                    # List of steps (most common)
-    Dict[str, Any],               # Dict configuration
-    str,                          # Path to YAML/JSON config
-    Path,                         # Path to config file
-    PipelineConfigs               # Backward compat: existing PipelineConfigs
-]
+SinglePipelineSpec = (
+    list[Any]                    # List of steps (most common)
+    | dict[str, Any]               # Dict configuration
+    | str                          # Path to YAML/JSON config
+    | Path                         # Path to config file
+    | PipelineConfigs               # Backward compat: existing PipelineConfigs
+)
 
-SingleDatasetSpec = Union[
-    str,                          # Path to data folder
-    Path,                         # Path to data folder
-    np.ndarray,                   # X array (y inferred or None)
-    Tuple[np.ndarray, ...],       # (X,) or (X, y) or (X, y, metadata)
-    Dict[str, Any],               # Dict with X, y, metadata keys
-    SpectroDataset,               # Direct SpectroDataset instance
-    DatasetConfigs,               # Backward compat: existing DatasetConfigs
-]
+SingleDatasetSpec = (
+    str                          # Path to data folder
+    | Path                         # Path to data folder
+    | np.ndarray                   # X array (y inferred or None)
+    | tuple[np.ndarray, ...]       # (X,) or (X, y) or (X, y, metadata)
+    | dict[str, Any]               # Dict with X, y, metadata keys
+    | SpectroDataset               # Direct SpectroDataset instance
+    | DatasetConfigs               # Backward compat: existing DatasetConfigs
+)
 
 # Type aliases that also support lists for batch execution
-PipelineSpec = Union[
-    SinglePipelineSpec,
-    List[SinglePipelineSpec],     # List of pipelines for batch execution
-]
+PipelineSpec = (
+    SinglePipelineSpec
+    | list[SinglePipelineSpec]     # List of pipelines for batch execution
+)
 
-DatasetSpec = Union[
-    SingleDatasetSpec,
-    List[SingleDatasetSpec],      # List of datasets for batch execution
-]
-
+DatasetSpec = (
+    SingleDatasetSpec
+    | list[SingleDatasetSpec]      # List of datasets for batch execution
+)
 
 def _is_single_pipeline(pipeline: Any) -> bool:
     """Check if pipeline is a single pipeline definition (not a list of pipelines).
@@ -91,20 +89,17 @@ def _is_single_pipeline(pipeline: Any) -> bool:
         # (dicts with known keys like "model", "preprocessing", etc., or class instances),
         # it's likely a list of pipelines.
 
-        if isinstance(first, list):
-            # Check if the inner list looks like a pipeline (list of steps)
-            if len(first) > 0:
-                inner_first = first[0]
-                # If inner elements are dicts, classes, instances, etc., it's likely
-                # that the outer list is a list of pipelines
-                if isinstance(inner_first, (dict, str)) or _looks_like_step(inner_first):
-                    return False  # It's a list of pipelines
+        if isinstance(first, list) and len(first) > 0:
+            inner_first = first[0]
+            # If inner elements are dicts, classes, instances, etc., it's likely
+            # that the outer list is a list of pipelines
+            if isinstance(inner_first, (dict, str)) or _looks_like_step(inner_first):
+                return False  # It's a list of pipelines
 
         # Otherwise, treat as a single pipeline
         return True
 
     return True
-
 
 def _looks_like_step(obj: Any) -> bool:
     """Check if an object looks like a pipeline step.
@@ -125,10 +120,7 @@ def _looks_like_step(obj: Any) -> bool:
     if hasattr(obj, 'fit') or hasattr(obj, 'transform') or hasattr(obj, 'predict'):
         return True
     # Check for nirs4all transforms
-    if hasattr(obj, '__class__') and obj.__class__.__module__.startswith('nirs4all'):
-        return True
-    return False
-
+    return bool(hasattr(obj, '__class__') and obj.__class__.__module__.startswith('nirs4all'))
 
 def _is_single_dataset(dataset: Any) -> bool:
     """Check if dataset is a single dataset definition (not a list of datasets).
@@ -168,22 +160,15 @@ def _is_single_dataset(dataset: Any) -> bool:
             return False
 
         # List of dicts where each dict is a dataset config -> multi-dataset
-        if isinstance(first, dict):
-            # Check if it looks like a dataset config (has path, X, etc.)
-            if 'path' in first or 'X' in first or 'features' in first:
-                return False
-
-        # List of arrays or tuples -> multi-dataset
-        if isinstance(first, (np.ndarray, tuple)):
+        if isinstance(first, dict) and ('path' in first or 'X' in first or 'features' in first):
             return False
 
-        # Otherwise, it might be something else, treat as single
-        return True
+        # List of arrays or tuples -> multi-dataset
+        return not isinstance(first, (np.ndarray, tuple))
 
     return True
 
-
-def _normalize_to_list(spec: Any, is_single_fn) -> List[Any]:
+def _normalize_to_list(spec: Any, is_single_fn) -> list[Any]:
     """Normalize a spec (pipeline or dataset) to a list of specs.
 
     If it's a single spec, wrap it in a list.
@@ -194,22 +179,21 @@ def _normalize_to_list(spec: Any, is_single_fn) -> List[Any]:
     else:
         return spec
 
-
 def run(
     pipeline: PipelineSpec,
     dataset: DatasetSpec,
     *,
     name: str = "",
-    session: Optional[Session] = None,
+    session: Session | None = None,
     # Common runner options (shortcuts for most-used parameters)
     verbose: int = 1,
     save_artifacts: bool = True,
     save_charts: bool = True,
     plots_visible: bool = False,
-    random_state: Optional[int] = None,
-    refit: Union[bool, Dict[str, Any], List[Dict[str, Any]], None] = True,
-    cache: Optional[Any] = None,
-    project: Optional[str] = None,
+    random_state: int | None = None,
+    refit: bool | dict[str, Any] | list[dict[str, Any]] | None = True,
+    cache: Any | None = None,
+    project: str | None = None,
     report_naming: str = "nirs",
     # All other PipelineRunner options
     **runner_kwargs: Any
@@ -387,7 +371,7 @@ def run(
     datasets = _normalize_to_list(dataset, _is_single_dataset)
 
     # Extract store_run_id before passing runner_kwargs to PipelineRunner
-    caller_store_run_id: Optional[str] = runner_kwargs.pop("store_run_id", None)
+    caller_store_run_id: str | None = runner_kwargs.pop("store_run_id", None)
 
     # If session provided, use its runner
     if session is not None:
@@ -416,12 +400,12 @@ def run(
 
     # Execute the cartesian product: each pipeline × each dataset
     all_predictions = Predictions()
-    all_per_dataset: Dict[str, Any] = {}
+    all_per_dataset: dict[str, Any] = {}
     total_combos = len(pipelines) * len(datasets)
 
     # When multiple combos or caller provided a store_run_id, group all
     # pipeline×dataset executions under a single store run.
-    shared_run_id: Optional[str] = caller_store_run_id
+    shared_run_id: str | None = caller_store_run_id
     caller_owns_run = caller_store_run_id is not None  # Caller manages lifecycle
     multi_run = total_combos > 1 or shared_run_id is not None
 
@@ -448,12 +432,9 @@ def run(
 
     try:
         for pipeline_idx, single_pipeline in enumerate(pipelines):
-            for dataset_idx, single_dataset in enumerate(datasets):
+            for _dataset_idx, single_dataset in enumerate(datasets):
                 # Generate name with index if multiple pipelines
-                if len(pipelines) > 1:
-                    pipeline_name = f"{name}_p{pipeline_idx}" if name else f"pipeline_{pipeline_idx}"
-                else:
-                    pipeline_name = name
+                pipeline_name = f"{name}_p{pipeline_idx}" if name else f"pipeline_{pipeline_idx}" if len(pipelines) > 1 else name
 
                 # Convert Path to str for compatibility with type hints
                 pipeline_arg = str(single_pipeline) if isinstance(single_pipeline, Path) else single_pipeline
@@ -486,7 +467,7 @@ def run(
         if multi_run and shared_run_id is not None and not caller_owns_run:
             store = getattr(getattr(runner, 'orchestrator', None), 'store', None)
             if store is not None and hasattr(store, 'complete_run'):
-                summary: Dict[str, Any] = {"total_pipelines": total_combos}
+                summary: dict[str, Any] = {"total_pipelines": total_combos}
                 if all_predictions.num_predictions > 0:
                     best = all_predictions.get_best(ascending=None)
                     if best:

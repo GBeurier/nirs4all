@@ -12,6 +12,7 @@ Tests cover:
 import numpy as np
 import polars as pl
 import pytest
+
 from nirs4all.data._indexer.index_store import IndexStore
 
 
@@ -73,7 +74,6 @@ class TestAddTagColumn:
         store.add_tag_column("my_tag")
 
         assert store.get_tag_dtype("my_tag") == pl.Boolean
-
 
 class TestSetAndGetTags:
     """Tests for set_tags and get_tags methods."""
@@ -155,7 +155,6 @@ class TestSetAndGetTags:
         # Get tags for train partition only
         train_tags = store.get_tags("is_outlier", pl.col("partition") == "train")
         assert train_tags == [True, False]
-
 
 class TestTagColumnSerialization:
     """Tests for tag column serialization and deserialization."""
@@ -246,7 +245,6 @@ class TestTagColumnSerialization:
         assert restored.get_tags("tag2") == ["a", "b", "c"]
         assert restored.get_tags("tag3") == [1, 2, 3]
 
-
 class TestDuplicateTagColumnError:
     """Tests for duplicate tag column handling."""
 
@@ -265,7 +263,6 @@ class TestDuplicateTagColumnError:
 
         with pytest.raises(ValueError, match="already exists"):
             store.add_tag_column("my_tag", pl.Int32)
-
 
 class TestRemoveTagColumn:
     """Tests for remove_tag_column method."""
@@ -290,7 +287,6 @@ class TestRemoveTagColumn:
         with pytest.raises(ValueError, match="not found"):
             store.remove_tag_column("nonexistent")
 
-
 class TestGetTagColumnNames:
     """Tests for get_tag_column_names method."""
 
@@ -309,7 +305,6 @@ class TestGetTagColumnNames:
         names = store.get_tag_column_names()
         assert set(names) == {"tag1", "tag2", "tag3"}
 
-
 class TestCoreColumnConflict:
     """Tests for core column name conflict detection."""
 
@@ -323,7 +318,6 @@ class TestCoreColumnConflict:
 
         with pytest.raises(ValueError, match="conflicts with core column"):
             store.add_tag_column(core_column, pl.Boolean)
-
 
 class TestEdgeCases:
     """Tests for edge cases in tag column operations."""

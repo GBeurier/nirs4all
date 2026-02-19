@@ -31,11 +31,9 @@ from nirs4all.pipeline.execution.refit.stacking_refit import (
 )
 from nirs4all.pipeline.storage.store_schema import REFIT_CONTEXT_STACKING
 
-
 # =========================================================================
 # Helpers
 # =========================================================================
-
 
 class _DummyDataset:
     """Minimal SpectroDataset stand-in for testing."""
@@ -61,7 +59,6 @@ class _DummyDataset:
         new = _DummyDataset(self._n_train, name=self.name)
         return new
 
-
 def _make_config(**overrides) -> RefitConfig:
     """Create a RefitConfig with sensible defaults."""
     defaults = {
@@ -76,7 +73,6 @@ def _make_config(**overrides) -> RefitConfig:
     defaults.update(overrides)
     return RefitConfig(**defaults)
 
-
 def _make_mock_executor() -> MagicMock:
     """Create a mock PipelineExecutor."""
     executor = MagicMock()
@@ -84,11 +80,9 @@ def _make_mock_executor() -> MagicMock:
     executor.execute.return_value = None
     return executor
 
-
 # =========================================================================
 # Task 4.1: Nested stacking refit
 # =========================================================================
-
 
 class TestBranchContainsStacking:
     """Tests for _branch_contains_stacking helper."""
@@ -167,7 +161,6 @@ class TestBranchContainsStacking:
     def test_non_dict_steps(self):
         """Non-dict steps (live objects) are not stacking."""
         assert _branch_contains_stacking(["something", 42]) is False
-
 
 class TestNestedStackingRefit:
     """Tests for nested stacking refit (Task 4.1)."""
@@ -331,11 +324,9 @@ class TestNestedStackingRefit:
         # It should fall through to simple base model refit
         assert runtime_context.phase == ExecutionPhase.CV
 
-
 # =========================================================================
 # Task 4.2: Separation branch refit
 # =========================================================================
-
 
 class TestSeparationRefit:
     """Tests for separation branch refit (Task 4.2)."""
@@ -457,11 +448,9 @@ class TestSeparationRefit:
 
             mock_stacking.assert_called_once()
 
-
 # =========================================================================
 # Task 4.5: Branches without merge (competing branches)
 # =========================================================================
-
 
 class TestInferAscending:
     """Tests for _infer_ascending_for_metric helper."""
@@ -477,7 +466,6 @@ class TestInferAscending:
 
     def test_empty_metric_defaults_to_ascending(self):
         assert _infer_ascending_for_metric("") is True
-
 
 class TestSelectWinningBranch:
     """Tests for _select_winning_branch helper."""
@@ -532,7 +520,6 @@ class TestSelectWinningBranch:
         config = _make_config(metric="rmse")
         result = _select_winning_branch(config, store, [[], []])
         assert result == 0  # Clamped to 0
-
 
 class TestCompetingBranchesRefit:
     """Tests for execute_competing_branches_refit (Task 4.5)."""
@@ -684,11 +671,9 @@ class TestCompetingBranchesRefit:
                 if isinstance(step, dict):
                     assert "merge" not in step
 
-
 # =========================================================================
 # Orchestrator dispatch
 # =========================================================================
-
 
 class TestOrchestratorDispatch:
     """Tests for the orchestrator's refit strategy dispatch."""
@@ -776,7 +761,7 @@ class TestOrchestratorDispatch:
         executor = MagicMock()
 
         with patch(
-            "nirs4all.pipeline.execution.refit.stacking_refit"
+            "nirs4all.pipeline.execution.orchestrator"
             ".execute_competing_branches_refit"
         ) as mock_competing:
             mock_competing.return_value = RefitResult(
@@ -876,7 +861,7 @@ class TestOrchestratorDispatch:
         executor = MagicMock()
 
         with patch(
-            "nirs4all.pipeline.execution.refit.stacking_refit"
+            "nirs4all.pipeline.execution.orchestrator"
             ".execute_separation_refit"
         ) as mock_separation:
             mock_separation.return_value = RefitResult(

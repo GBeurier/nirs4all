@@ -5,8 +5,9 @@ Storage uses per-processing 2D blocks instead of a monolithic 3D array.
 A 3D view is computed lazily and cached for consumers that need it.
 """
 
+from typing import Optional
+
 import numpy as np
-from typing import List, Optional
 
 
 class SharedBlocks:
@@ -65,7 +66,6 @@ class SharedBlocks:
     def __repr__(self) -> str:
         return f"SharedBlocks(shape={self._array.shape}, refcount={self._refcount})"
 
-
 class ArrayStorage:
     """Block-based array storage with per-processing 2D blocks.
 
@@ -92,9 +92,9 @@ class ArrayStorage:
         """
         self.padding = padding
         self.pad_value = pad_value
-        self._blocks: List[np.ndarray] = []
-        self._cached_3d: Optional[np.ndarray] = None
-        self._shared: Optional[SharedBlocks] = None
+        self._blocks: list[np.ndarray] = []
+        self._cached_3d: np.ndarray | None = None
+        self._shared: SharedBlocks | None = None
 
     # ------------------------------------------------------------------
     # State management
@@ -426,7 +426,7 @@ class ArrayStorage:
         self._blocks.append(prepared_data.astype(np.float32))
         return len(self._blocks) - 1
 
-    def add_processings_batch(self, blocks: List[np.ndarray]) -> List[int]:
+    def add_processings_batch(self, blocks: list[np.ndarray]) -> list[int]:
         """Add multiple processing blocks in one call.
 
         More efficient than calling ``add_processing()`` in a loop — invalidates
@@ -527,7 +527,7 @@ class ArrayStorage:
         self,
         sample_indices: list,
         count_list: list,
-        new_proc_data: Optional[np.ndarray] = None
+        new_proc_data: np.ndarray | None = None
     ) -> None:
         """Augment samples by duplicating them.
 
@@ -544,7 +544,7 @@ class ArrayStorage:
 
         # Build index array for augmented rows
         aug_indices = []
-        for orig_idx, aug_count in zip(sample_indices, count_list):
+        for orig_idx, aug_count in zip(sample_indices, count_list, strict=False):
             aug_indices.extend([orig_idx] * aug_count)
         aug_indices_arr = np.array(aug_indices)
 

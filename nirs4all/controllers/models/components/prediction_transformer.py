@@ -8,13 +8,13 @@ Extracted from launch_training() lines 427-447 and _create_fold_averages()
 to eliminate duplicate logic.
 """
 
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
+
 import numpy as np
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.config.context import ExecutionContext
-
 
 class PredictionTransformer:
     """Transforms predictions between scaled and unscaled spaces.

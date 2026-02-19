@@ -34,39 +34,35 @@ import numpy as np
 
 # NIRS4All imports
 from nirs4all.synthesis import (
-    # Validation
-    compute_spectral_realism_scorecard,
-    quick_realism_check,
-    compute_correlation_length,
-    compute_peak_density,
-    compute_snr,
-    compute_adversarial_validation_auc,
-    SpectralRealismScore,
-    RealismMetric,
-
-    # Benchmarks
-    list_benchmark_datasets,
-    get_benchmark_info,
-    get_datasets_by_domain,
-    get_benchmark_spectral_properties,
+    AcceleratedGenerator,
+    # GPU acceleration
+    AcceleratorBackend,
     BenchmarkDomain,
-
     # Prior sampling
     NIRSPriorConfig,
     PriorSampler,
-    sample_prior,
-    sample_prior_batch,
-
-    # GPU acceleration
-    AcceleratorBackend,
-    AcceleratedGenerator,
-    detect_best_backend,
-    is_gpu_available,
-    benchmark_backends,
-    get_backend_info,
-
+    RealismMetric,
+    SpectralRealismScore,
     # Core generator
     SyntheticNIRSGenerator,
+    benchmark_backends,
+    compute_adversarial_validation_auc,
+    compute_correlation_length,
+    compute_peak_density,
+    compute_snr,
+    # Validation
+    compute_spectral_realism_scorecard,
+    detect_best_backend,
+    get_backend_info,
+    get_benchmark_info,
+    get_benchmark_spectral_properties,
+    get_datasets_by_domain,
+    is_gpu_available,
+    # Benchmarks
+    list_benchmark_datasets,
+    quick_realism_check,
+    sample_prior,
+    sample_prior_batch,
 )
 
 
@@ -75,7 +71,6 @@ def print_header(title: str) -> None:
     print(f"\n{'=' * 60}")
     print(f"  {title}")
     print(f"{'=' * 60}\n")
-
 
 def example_quick_realism_check():
     """
@@ -121,7 +116,6 @@ def example_quick_realism_check():
             print(f"    - {w}")
 
     print("  ✓ Quick realism check complete")
-
 
 def example_spectral_realism_scorecard():
     """
@@ -177,7 +171,6 @@ def example_spectral_realism_scorecard():
 
     print("  ✓ Scorecard computation complete")
 
-
 def example_adversarial_validation():
     """
     Adversarial validation to detect distribution shift.
@@ -197,7 +190,7 @@ def example_adversarial_validation():
         X1, X2, cv_folds=3, random_state=42
     )
     print(f"Similar data - AUC: {mean_auc:.3f} ± {std_auc:.3f}")
-    print(f"  (Should be close to 0.5 = random guessing)")
+    print("  (Should be close to 0.5 = random guessing)")
 
     # Case 2: Different distributions (should be easy to distinguish)
     X3 = X1 + 5.0  # Shift the data significantly
@@ -205,10 +198,9 @@ def example_adversarial_validation():
         X1, X3, cv_folds=3, random_state=42
     )
     print(f"Shifted data - AUC: {mean_auc2:.3f} ± {std_auc2:.3f}")
-    print(f"  (Should be close to 1.0 = easily distinguishable)")
+    print("  (Should be close to 1.0 = easily distinguishable)")
 
     print("  ✓ Adversarial validation complete")
-
 
 def example_individual_metrics():
     """
@@ -228,24 +220,23 @@ def example_individual_metrics():
 
     # Correlation length
     corr_lengths = compute_correlation_length(X)
-    print(f"Correlation Length:")
+    print("Correlation Length:")
     print(f"  Mean: {corr_lengths.mean():.1f}")
     print(f"  Std: {corr_lengths.std():.1f}")
 
     # Peak density
     peak_densities = compute_peak_density(X, wavelengths)
-    print(f"\nPeak Density (per 100 nm):")
+    print("\nPeak Density (per 100 nm):")
     print(f"  Mean: {peak_densities.mean():.2f}")
     print(f"  Std: {peak_densities.std():.2f}")
 
     # Signal-to-noise ratio
     snr_values = compute_snr(X)
-    print(f"\nSignal-to-Noise Ratio:")
+    print("\nSignal-to-Noise Ratio:")
     print(f"  Mean: {snr_values.mean():.1f}")
     print(f"  Std: {snr_values.std():.1f}")
 
     print("  ✓ Individual metrics complete")
-
 
 def example_benchmark_datasets():
     """
@@ -282,13 +273,12 @@ def example_benchmark_datasets():
 
     # Get properties for synthetic generation
     props = get_benchmark_spectral_properties("corn")
-    print(f"\n  Properties for matching 'corn':")
+    print("\n  Properties for matching 'corn':")
     print(f"    wavelength_start: {props['wavelength_start']}")
     print(f"    wavelength_end: {props['wavelength_end']}")
     print(f"    typical_components: {props['typical_components']}")
 
     print("  ✓ Benchmark exploration complete")
-
 
 def example_prior_sampling():
     """
@@ -332,7 +322,6 @@ def example_prior_sampling():
 
     print("  ✓ Prior sampling complete")
 
-
 def example_gpu_acceleration():
     """
     GPU-accelerated generation for large datasets.
@@ -351,7 +340,7 @@ def example_gpu_acceleration():
 
     # Get detailed backend info
     info = get_backend_info()
-    print(f"\nBackend Details:")
+    print("\nBackend Details:")
     print(f"  JAX available: {info['jax_available']}")
     print(f"  CuPy available: {info['cupy_available']}")
 
@@ -399,7 +388,6 @@ def example_gpu_acceleration():
 
     print("  ✓ GPU acceleration demo complete")
 
-
 def main():
     """Run all Phase 4 validation examples."""
     print("=" * 70)
@@ -418,7 +406,6 @@ def main():
     print("\n" + "=" * 70)
     print("All Phase 4 examples completed successfully!")
     print("=" * 70)
-
 
 if __name__ == "__main__":
     main()

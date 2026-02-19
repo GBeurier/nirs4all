@@ -8,22 +8,22 @@ expected behavior that must be preserved.
 IMPORTANT: All tests in this file must pass both before and after refactoring.
 """
 
-import pytest
-import numpy as np
-from pathlib import Path
 import json
+from pathlib import Path
 
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from sklearn.linear_model import LinearRegression
+import numpy as np
+import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
-from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+from nirs4all.pipeline.runner import PipelineRunner
 from tests.fixtures.data_generators import TestDataManager
 
 
@@ -34,7 +34,6 @@ def baseline_test_data(tmp_path):
     manager.create_regression_dataset("regression", n_train=50, n_val=20)
     yield manager
     manager.cleanup()
-
 
 class TestCriticalBehavior:
     """Critical behavior that must be preserved."""
@@ -208,7 +207,6 @@ class TestCriticalBehavior:
         predictions = result[0]
 
         # CRITICAL ASSERTION: All predictions must have y_true and y_pred
-        import json
         for pred in predictions.to_dicts():
             assert 'y_true' in pred
             assert 'y_pred' in pred
@@ -561,7 +559,6 @@ class TestCriticalBehavior:
         assert isinstance(result, tuple)
         assert len(result) == 2
 
-
 class TestAPIStability:
     """Test that public API remains stable."""
 
@@ -607,7 +604,6 @@ class TestAPIStability:
         runner5 = PipelineRunner(random_state=42)
 
         assert all([runner1, runner2, runner3, runner4, runner5])
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

@@ -1,19 +1,20 @@
 """SpectralDistributionController - Spectral envelope visualization for train/test/folds."""
 
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING
-import matplotlib.pyplot as plt
+import io
+from typing import TYPE_CHECKING, Any
+
 import matplotlib.cm as cm
+import matplotlib.pyplot as plt
 import numpy as np
+
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.header_units import get_axis_label
-import io
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.config.context import ExecutionContext
     from nirs4all.pipeline.steps.parser import ParsedStep
-
 
 @register_controller
 class SpectralDistributionController(OperatorController):
@@ -48,7 +49,7 @@ class SpectralDistributionController(OperatorController):
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ) -> Tuple['ExecutionContext', Any]:
+    ) -> tuple['ExecutionContext', Any]:
         """Execute spectral distribution envelope visualization.
 
         Creates envelope plots showing min/max/mean/IQR for train vs test.
@@ -153,10 +154,10 @@ class SpectralDistributionController(OperatorController):
         x: np.ndarray,
         wavelengths: np.ndarray,
         x_label: str,
-        processing_ids: List[str],
+        processing_ids: list[str],
         source_idx: int,
         train_color, train_color_dark, test_color, test_color_dark
-    ) -> Tuple[Any, str]:
+    ) -> tuple[Any, str]:
         """Create simple train vs test spectral distribution plot."""
         n_processings = x.shape[1]
 
@@ -166,10 +167,7 @@ class SpectralDistributionController(OperatorController):
 
         fig, axes = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 4 * n_rows))
 
-        if n_processings == 1:
-            axes = [axes]
-        else:
-            axes = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+        axes = [axes] if n_processings == 1 else axes.flatten() if hasattr(axes, 'flatten') else [axes]
 
         # Get train and test indices
         train_context = context.with_partition("train")
@@ -205,14 +203,14 @@ class SpectralDistributionController(OperatorController):
         self,
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
-        folds: List[Tuple[List[int], List[int]]],
+        folds: list[tuple[list[int], list[int]]],
         x: np.ndarray,
         wavelengths: np.ndarray,
         x_label: str,
-        processing_ids: List[str],
+        processing_ids: list[str],
         source_idx: int,
         train_color, train_color_dark, test_color, test_color_dark
-    ) -> Tuple[Any, str]:
+    ) -> tuple[Any, str]:
         """Create grid of spectral distribution plots for each fold."""
         n_folds = len(folds)
         n_processings = x.shape[1]
@@ -235,10 +233,7 @@ class SpectralDistributionController(OperatorController):
 
         fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
 
-        if n_plots == 1:
-            axes = [axes]
-        else:
-            axes = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+        axes = [axes] if n_plots == 1 else axes.flatten() if hasattr(axes, 'flatten') else [axes]
 
         # Get base sample IDs for mapping fold indices
         train_context = context.with_partition("train")
@@ -309,7 +304,7 @@ class SpectralDistributionController(OperatorController):
         x_label: str,
         title: str,
         train_color, train_color_dark, test_color, test_color_dark,
-        legend_labels: Tuple[str, str] = ('Train', 'Test')
+        legend_labels: tuple[str, str] = ('Train', 'Test')
     ) -> None:
         """Plot spectral distribution showing envelope (min/max/mean/IQR) for train and test.
 

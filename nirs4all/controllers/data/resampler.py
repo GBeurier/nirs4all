@@ -5,7 +5,8 @@ This controller handles the Resampler operator, extracting wavelengths from
 dataset headers and managing the resampling process across multiple sources.
 """
 
-from typing import Any, List, Tuple, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
+
 import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
@@ -16,11 +17,10 @@ from nirs4all.operators.transforms.resampler import Resampler
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
-    from nirs4all.pipeline.config.context import ExecutionContext
+    from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.pipeline.steps.parser import ParsedStep
-
 
 @register_controller
 class ResamplerController(OperatorController):
@@ -145,9 +145,9 @@ class ResamplerController(OperatorController):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple['ExecutionContext', List]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple['ExecutionContext', list]:
         """
         Execute resampling operation.
 
@@ -189,7 +189,7 @@ class ResamplerController(OperatorController):
         new_headers_list = []
 
         # Loop through each data source
-        for sd_idx, (train_x, all_x) in enumerate(zip(train_data, all_data)):
+        for sd_idx, (train_x, all_x) in enumerate(zip(train_data, all_data, strict=False)):
             # Get processing names for this source
             processing_ids = dataset.features_processings(sd_idx)
             source_processings = processing_ids
@@ -300,7 +300,7 @@ class ResamplerController(OperatorController):
         # Update dataset with resampled features
         new_processing_list = list(context.selector.processing)
         for sd_idx, (source_features, src_new_processing_names, new_headers) in enumerate(
-            zip(transformed_features_list, new_processing_names, new_headers_list)
+            zip(transformed_features_list, new_processing_names, new_headers_list, strict=False)
         ):
             # Replace features first (resampling changes the wavelength grid)
             # Note: When feature count changes, the dataset system will handle it properly

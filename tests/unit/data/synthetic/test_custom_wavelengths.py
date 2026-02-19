@@ -83,7 +83,6 @@ class TestInstrumentWavelengths:
         assert "wavelength_end" in micro_info
         assert "mean_step" in micro_info
 
-
 class TestSyntheticNIRSGeneratorWavelengths:
     """Tests for custom wavelengths in SyntheticNIRSGenerator."""
 
@@ -184,7 +183,6 @@ class TestSyntheticNIRSGeneratorWavelengths:
                 random_state=42,
             )
 
-
 class TestSyntheticDatasetBuilderWavelengths:
     """Tests for with_wavelengths() in SyntheticDatasetBuilder."""
 
@@ -282,7 +280,6 @@ class TestSyntheticDatasetBuilderWavelengths:
 
         # Should build successfully
         assert hasattr(dataset, "x")
-
 
 class TestWavelengthInterpolation:
     """Tests for wavelength interpolation behavior."""

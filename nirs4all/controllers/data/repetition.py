@@ -45,7 +45,7 @@ Keywords: "rep_to_sources", "rep_to_pp"
 Priority: 3 (early in pipeline, before CV)
 """
 
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
@@ -59,7 +59,6 @@ if TYPE_CHECKING:
     from nirs4all.pipeline.steps.parser import ParsedStep
 
 logger = get_logger(__name__)
-
 
 @register_controller
 class RepToSourcesController(OperatorController):
@@ -122,9 +121,9 @@ class RepToSourcesController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute rep_to_sources transformation.
 
         Reshapes the dataset by grouping samples by the specified column
@@ -177,7 +176,6 @@ class RepToSourcesController(OperatorController):
         })
 
         return context, output
-
 
 @register_controller
 class RepToPPController(OperatorController):
@@ -237,9 +235,9 @@ class RepToPPController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute rep_to_pp transformation.
 
         Reshapes the dataset by grouping samples by the specified column
@@ -292,7 +290,6 @@ class RepToPPController(OperatorController):
         })
 
         return context, output
-
 
 # Expose for imports
 __all__ = [

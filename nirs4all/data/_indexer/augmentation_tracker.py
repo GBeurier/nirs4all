@@ -5,7 +5,8 @@ This module provides the AugmentationTracker class for managing the
 relationships between base samples and their augmented versions.
 """
 
-from typing import List, Optional
+from typing import Optional
+
 import numpy as np
 import polars as pl
 
@@ -38,7 +39,7 @@ class AugmentationTracker:
         self._store = store
         self._query_builder = query_builder
 
-    def get_augmented_for_origins(self, origin_ids: List[int], additional_filter: Optional[pl.Expr] = None) -> np.ndarray:
+    def get_augmented_for_origins(self, origin_ids: list[int], additional_filter: pl.Expr | None = None) -> np.ndarray:
         """
         Get all augmented samples for given origin sample IDs.
 
@@ -85,7 +86,7 @@ class AugmentationTracker:
         augmented_df = self._store.query(condition)
         return augmented_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
 
-    def get_origin_for_sample(self, sample_id: int) -> Optional[int]:
+    def get_origin_for_sample(self, sample_id: int) -> int | None:
         """
         Get origin sample ID for a given sample.
 
@@ -166,7 +167,7 @@ class AugmentationTracker:
         filtered_df = self._store.query(combined)
         return filtered_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
 
-    def get_all_samples_with_augmentations(self, base_condition: pl.Expr, additional_filter: Optional[pl.Expr] = None) -> np.ndarray:
+    def get_all_samples_with_augmentations(self, base_condition: pl.Expr, additional_filter: pl.Expr | None = None) -> np.ndarray:
         """
         Get base samples and their augmentations in two phases (leak prevention).
 

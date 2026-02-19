@@ -10,29 +10,29 @@ Tests cover:
 - Error handling for invalid artifacts
 """
 
-import pytest
 import json
 from datetime import datetime
 
-from nirs4all.controllers.models.stacking.serialization import (
-    SourceModelReference,
-    MetaModelArtifact,
-    MetaModelSerializer,
-    stacking_config_to_dict,
-    stacking_config_from_dict,
-)
-from nirs4all.operators.models.meta import (
-    MetaModel,
-    StackingConfig,
-    CoverageStrategy,
-    TestAggregation,
-    BranchScope,
-)
-from nirs4all.operators.models.selection import ModelCandidate
+import pytest
+
 from nirs4all.controllers.models.stacking.exceptions import (
     InvalidMetaModelArtifactError,
 )
-
+from nirs4all.controllers.models.stacking.serialization import (
+    MetaModelArtifact,
+    MetaModelSerializer,
+    SourceModelReference,
+    stacking_config_from_dict,
+    stacking_config_to_dict,
+)
+from nirs4all.operators.models.meta import (
+    BranchScope,
+    CoverageStrategy,
+    MetaModel,
+    StackingConfig,
+    TestAggregation,
+)
+from nirs4all.operators.models.selection import ModelCandidate
 
 # =============================================================================
 # SourceModelReference Tests
@@ -131,7 +131,6 @@ class TestSourceModelReference:
         assert restored.branch_path == original.branch_path
         assert restored.val_score == original.val_score
         assert restored.metric == original.metric
-
 
 # =============================================================================
 # MetaModelArtifact Tests
@@ -446,7 +445,6 @@ class TestMetaModelArtifact:
         assert restored.task_type == "multiclass_classification"
         assert restored.n_classes == 5
 
-
 # =============================================================================
 # StackingConfig Serialization Tests
 # =============================================================================
@@ -514,7 +512,6 @@ class TestStackingConfigSerialization:
         assert restored.coverage_strategy == original.coverage_strategy
         assert restored.test_aggregation == original.test_aggregation
         assert restored.min_coverage_ratio == original.min_coverage_ratio
-
 
 # =============================================================================
 # MetaModelSerializer Tests
@@ -755,7 +752,6 @@ class TestMetaModelSerializer:
         errors = serializer.validate_artifact(artifact)
         assert any("count" in e.lower() for e in errors)
 
-
 # =============================================================================
 # Full Roundtrip Tests
 # =============================================================================
@@ -878,7 +874,6 @@ class TestSerializationRoundtrip:
         assert restored_config.test_aggregation == original_config.test_aggregation
         assert restored_config.branch_scope == original_config.branch_scope
         assert restored_config.min_coverage_ratio == original_config.min_coverage_ratio
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

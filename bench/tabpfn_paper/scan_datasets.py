@@ -21,18 +21,19 @@ import sys
 import traceback
 from pathlib import Path
 
+import matplotlib
 import numpy as np
 from scipy.stats import kurtosis as scipy_kurtosis
 
-import matplotlib
 matplotlib.use("Agg")
+import contextlib
+
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.gridspec import GridSpec
 
-from nirs4all.data.parsers.folder_parser import FolderParser
 from nirs4all.data.config import DatasetConfigs
-
+from nirs4all.data.parsers.folder_parser import FolderParser
 
 DATA_ROOT = Path(__file__).parent / "data"
 SELECTION_XLSX = DATA_ROOT / "DatabaseDetail.xlsx"
@@ -54,7 +55,6 @@ COLORS = {
     "error_bg": "#FEF2F2",
     "error_text": "#B91C1C",
 }
-
 
 def load_selected_suffixes(xlsx_path: Path) -> set[str]:
     """Load selected Database/Dataset pairs from the Excel file.
@@ -82,7 +82,6 @@ def load_selected_suffixes(xlsx_path: Path) -> set[str]:
     print(suffixes)
     return suffixes
 
-
 def find_datasets(root: Path, selected_suffixes: set[str] | None = None) -> list[dict]:
     """Recursively find dataset folders using FolderParser (same logic as webapp scan).
 
@@ -96,7 +95,6 @@ def find_datasets(root: Path, selected_suffixes: set[str] | None = None) -> list
         datasets = [d for d in datasets if _matches_selection(d["path"], selected_suffixes)]
     return datasets
 
-
 def _matches_selection(dataset_path: str, suffixes: set[str]) -> bool:
     """Return True if *dataset_path* ends with one of the selected Database/Dataset suffixes."""
     parts = Path(dataset_path).parts
@@ -104,7 +102,6 @@ def _matches_selection(dataset_path: str, suffixes: set[str]) -> bool:
         return False
     tail = f"{parts[-2]}/{parts[-1]}"
     return tail in suffixes
-
 
 def _recurse(folder: Path, parser: FolderParser, results: list, groups: list[str]):
     """Recurse into folder tree. If a folder is a valid dataset, stop recursion there."""
@@ -126,7 +123,6 @@ def _recurse(folder: Path, parser: FolderParser, results: list, groups: list[str
     for child in sorted(folder.iterdir()):
         if child.is_dir() and not child.name.startswith('.'):
             _recurse(child, parser, results, groups + [folder.name])
-
 
 def build_id_card(info: dict) -> dict:
     """Load dataset and compute statistical ID card."""
@@ -196,10 +192,8 @@ def build_id_card(info: dict) -> dict:
     category = _detect_category(info["path"])
     if category == "regression":
         ds.set_task_type("regression", forced=True)
-    elif category == "classification":
-        # Keep the specific classification sub-type if already detected
-        if not ds.is_classification:
-            ds.set_task_type("multiclass_classification", forced=True)
+    elif category == "classification" and not ds.is_classification:
+        ds.set_task_type("multiclass_classification", forced=True)
     task_type = ds.task_type.value if ds.task_type else "unknown"
 
     # Signal type — use library detection, then heuristic fallback from X value range
@@ -259,7 +253,7 @@ def build_id_card(info: dict) -> dict:
                 target_stats["kurtosis"] = None
             if ds.is_classification:
                 unique, counts = np.unique(y_all, return_counts=True)
-                target_stats["classes"] = {str(u): int(c) for u, c in zip(unique, counts)}
+                target_stats["classes"] = {str(u): int(c) for u, c in zip(unique, counts, strict=False)}
                 target_stats["n_classes"] = len(unique)
 
     # Wavelength range + axis values for plotting
@@ -270,10 +264,8 @@ def build_id_card(info: dict) -> dict:
         if headers:
             numeric_headers = []
             for h in headers:
-                try:
+                with contextlib.suppress(ValueError, TypeError):
                     numeric_headers.append(float(h))
-                except (ValueError, TypeError):
-                    pass
             if len(numeric_headers) > 1:
                 wavelengths = numeric_headers
                 wavelength_range = {
@@ -319,7 +311,6 @@ def build_id_card(info: dict) -> dict:
     }
     return card
 
-
 def _is_repetition_column(ds, col: str, y_all: np.ndarray, partitions: list[str]) -> bool:
     """Check if a metadata column identifies sample repetitions.
 
@@ -345,7 +336,7 @@ def _is_repetition_column(ds, col: str, y_all: np.ndarray, partitions: list[str]
     # Group by column value, check y is constant within each group
     y_flat = y_all.ravel().astype(float)
     groups: dict[str, list[float]] = {}
-    for cval, yval in zip(col_all, y_flat):
+    for cval, yval in zip(col_all, y_flat, strict=False):
         key = str(cval)
         groups.setdefault(key, []).append(yval)
 
@@ -360,7 +351,6 @@ def _is_repetition_column(ds, col: str, y_all: np.ndarray, partitions: list[str]
 
     return has_repeated  # True only if at least one group had >1 sample
 
-
 def _extract_target_name(config: dict) -> str:
     """Extract target column name from Y file header."""
     y_path = config.get("train_y") or config.get("test_y")
@@ -370,7 +360,7 @@ def _extract_target_name(config: dict) -> str:
         p = Path(y_path)
         if not p.exists():
             return "unknown"
-        with open(p, "r", encoding="utf-8") as f:
+        with open(p, encoding="utf-8") as f:
             first_line = f.readline().strip()
         # If the first line is not numeric, it's a header
         try:
@@ -386,7 +376,6 @@ def _extract_target_name(config: dict) -> str:
     except Exception:
         return "unknown"
 
-
 def _detect_category(path: str) -> str:
     """Detect if dataset is regression or classification from path."""
     path_lower = path.lower().replace("\\", "/")
@@ -395,7 +384,6 @@ def _detect_category(path: str) -> str:
     if "/regression/" in path_lower:
         return "regression"
     return "unknown"
-
 
 # ── Figure rendering ──────────────────────────────────────────────────
 
@@ -406,7 +394,6 @@ def _fmt(v, precision=4):
     if isinstance(v, int) or (isinstance(v, float) and v == int(v) and abs(v) < 1e6):
         return str(int(v))
     return f"{v:.{precision}g}"
-
 
 def render_card_figure(card: dict, output_path: Path):
     """Render a single dataset ID card as a PNG figure."""
@@ -461,7 +448,7 @@ def render_card_figure(card: dict, output_path: Path):
             ax_spectra.text(0.02, 0.97, stats_txt, transform=ax_spectra.transAxes,
                             fontsize=7, fontfamily="monospace", verticalalignment="top",
                             color=COLORS["muted"],
-                            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=COLORS["grid"], alpha=0.9))
+                            bbox={"boxstyle": "round,pad=0.3", "fc": "white", "ec": COLORS["grid"], "alpha": 0.9})
     else:
         ax_spectra.text(0.5, 0.5, "No spectra data", ha="center", va="center",
                         fontsize=11, color=COLORS["muted"])
@@ -487,7 +474,7 @@ def render_card_figure(card: dict, output_path: Path):
             ax_hist.set_xlabel("Class", fontsize=9, color=COLORS["muted"])
             ax_hist.set_ylabel("Count", fontsize=9, color=COLORS["muted"])
             # Annotate counts on bars
-            for bar, c in zip(bars, counts):
+            for bar, c in zip(bars, counts, strict=False):
                 ax_hist.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
                              str(c), ha="center", va="bottom", fontsize=7, color=COLORS["muted"])
         else:
@@ -522,7 +509,7 @@ def render_card_figure(card: dict, output_path: Path):
             ax_hist.text(0.02, 0.97, stats_txt, transform=ax_hist.transAxes,
                          fontsize=7, fontfamily="monospace", verticalalignment="top",
                          color=COLORS["muted"],
-                         bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=COLORS["grid"], alpha=0.9))
+                         bbox={"boxstyle": "round,pad=0.3", "fc": "white", "ec": COLORS["grid"], "alpha": 0.9})
     else:
         ax_hist.text(0.5, 0.5, "No target data", ha="center", va="center",
                      fontsize=11, color=COLORS["muted"])
@@ -563,7 +550,6 @@ def render_card_figure(card: dict, output_path: Path):
     fig.savefig(output_path, dpi=150, facecolor=COLORS["bg"])
     plt.close(fig)
 
-
 def _build_info_lines(card: dict) -> list[tuple[str, str]]:
     """Build label-value pairs for the info panel."""
     lines = []
@@ -598,7 +584,6 @@ def _build_info_lines(card: dict) -> list[tuple[str, str]]:
 
     return lines
 
-
 def _style_axis(ax):
     """Apply consistent axis styling."""
     ax.set_facecolor(COLORS["panel"])
@@ -607,7 +592,6 @@ def _style_axis(ax):
     for spine in ax.spines.values():
         spine.set_color(COLORS["divider"])
         spine.set_linewidth(0.5)
-
 
 def render_error_figure(error: dict, output_path: Path):
     """Render a single error page as a PNG figure."""
@@ -628,7 +612,6 @@ def render_error_figure(error: dict, output_path: Path):
 
     fig.savefig(output_path, dpi=150, facecolor=COLORS["error_bg"])
     plt.close(fig)
-
 
 def render_pdf(cards: list[dict], errors: list[dict], pdf_path: Path, png_dir: Path):
     """Combine all card PNGs + error PNGs into a single PDF."""
@@ -654,7 +637,6 @@ def render_pdf(cards: list[dict], errors: list[dict], pdf_path: Path, png_dir: P
                 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
                 pdf.savefig(fig, dpi=150)
                 plt.close(fig)
-
 
 def print_card(card: dict):
     """Print a nicely formatted ID card."""
@@ -703,7 +685,6 @@ def print_card(card: dict):
 
     print("=" * 72)
 
-
 def print_error(info: dict, error: str):
     """Print a dataset that failed to load."""
     print("!" * 72)
@@ -711,7 +692,6 @@ def print_error(info: dict, error: str):
     print(f"  Path  : {info['path']}")
     print(f"  {error}")
     print("!" * 72)
-
 
 def main():
     parser = argparse.ArgumentParser(description="Scan and profile all NIRS datasets")
@@ -736,7 +716,7 @@ def main():
         if not src.exists():
             print(f"JSON file not found: {src}")
             sys.exit(1)
-        with open(src, "r", encoding="utf-8") as f:
+        with open(src, encoding="utf-8") as f:
             data = json.load(f)
         cards = data.get("datasets", [])
         errors = data.get("errors", [])
@@ -833,7 +813,6 @@ def main():
     if not args.no_plots:
         _generate_figures(cards, errors, png_dir, pdf_path)
 
-
 def _generate_figures(cards: list[dict], errors: list[dict], png_dir: Path, pdf_path: Path):
     """Generate PNG per dataset + combined PDF."""
     png_dir.mkdir(exist_ok=True)
@@ -863,7 +842,6 @@ def _generate_figures(cards: list[dict], errors: list[dict], png_dir: Path, pdf_
     print(f"\nBuilding PDF: {pdf_path} ...", end=" ", flush=True)
     render_pdf(cards, errors, pdf_path, png_dir)
     print("OK")
-
 
 if __name__ == "__main__":
     main()

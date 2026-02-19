@@ -25,13 +25,13 @@ References:
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
 from scipy.spatial import distance
+from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.metrics import pairwise_distances
 
 
@@ -41,8 +41,7 @@ class SplitResult:
     train_ids: np.ndarray
     test_ids: np.ndarray
     fold_assignments: pd.DataFrame  # columns: ID, fold, split (train/val/test)
-    strategy_info: Dict[str, Any]
-
+    strategy_info: dict[str, Any]
 
 class BaseSplitter(ABC):
     """Base class for all splitting strategies."""
@@ -86,7 +85,7 @@ class BaseSplitter(ABC):
         """
         pass
 
-    def get_stratification_info(self) -> Dict[str, Any]:
+    def get_stratification_info(self) -> dict[str, Any]:
         """Return information about the stratification strategy."""
         return {
             'strategy_name': self.__class__.__name__,
@@ -100,7 +99,7 @@ class BaseSplitter(ABC):
         X: np.ndarray,
         y: np.ndarray,
         sample_ids: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Aggregate data by sample ID (mean of repetitions).
 
@@ -119,7 +118,6 @@ class BaseSplitter(ABC):
         unique_ids = df.groupby('id').first().reset_index()['id'].values
 
         return X_agg, y_agg, unique_ids
-
 
 class PuchweinSplitter(BaseSplitter):
     """
@@ -140,7 +138,7 @@ class PuchweinSplitter(BaseSplitter):
         n_folds: int = 3,
         random_state: int = 42,
         factor_k: float = 0.05,
-        pca_components: Optional[int] = None
+        pca_components: int | None = None
     ):
         """
         Initialize Puchwein splitter.
@@ -260,7 +258,6 @@ class PuchweinSplitter(BaseSplitter):
             }
         )
 
-
 class DuplexSplitter(BaseSplitter):
     """
     Duplex algorithm for sample selection.
@@ -279,7 +276,7 @@ class DuplexSplitter(BaseSplitter):
         test_size: float = 0.2,
         n_folds: int = 3,
         random_state: int = 42,
-        pca_components: Optional[int] = None
+        pca_components: int | None = None
     ):
         super().__init__(test_size, n_folds, random_state)
         self.pca_components = pca_components
@@ -307,10 +304,7 @@ class DuplexSplitter(BaseSplitter):
         n_test = n - n_train
 
         # Handle edge cases
-        if n_train <= half:
-            temp_n = n_train
-        else:
-            temp_n = n_test
+        temp_n = n_train if n_train <= half else n_test
 
         def furthest_point_to_set(xp, xs):
             """Find point in xp furthest from all points in xs."""
@@ -415,7 +409,6 @@ class DuplexSplitter(BaseSplitter):
             }
         )
 
-
 class ShenkWestSplitter(BaseSplitter):
     """
     Shenk & Westerhaus algorithm for sample selection.
@@ -435,7 +428,7 @@ class ShenkWestSplitter(BaseSplitter):
         test_size: float = 0.2,
         n_folds: int = 3,
         random_state: int = 42,
-        pca_components: Optional[int] = None,
+        pca_components: int | None = None,
         remove_outliers: bool = False
     ):
         super().__init__(test_size, n_folds, random_state)
@@ -573,7 +566,6 @@ class ShenkWestSplitter(BaseSplitter):
             }
         )
 
-
 class HonigsSplitter(BaseSplitter):
     """
     Honigs algorithm for sample selection.
@@ -687,7 +679,6 @@ class HonigsSplitter(BaseSplitter):
             }
         )
 
-
 class HierarchicalClusteringSplitter(BaseSplitter):
     """
     Hierarchical clustering-based sample selection.
@@ -701,7 +692,7 @@ class HierarchicalClusteringSplitter(BaseSplitter):
         test_size: float = 0.2,
         n_folds: int = 3,
         random_state: int = 42,
-        pca_components: Optional[int] = None,
+        pca_components: int | None = None,
         linkage: str = 'complete'
     ):
         super().__init__(test_size, n_folds, random_state)
@@ -783,7 +774,6 @@ class HierarchicalClusteringSplitter(BaseSplitter):
             }
         )
 
-
 class KMedoidsSplitter(BaseSplitter):
     """
     K-Medoids based sample selection.
@@ -798,7 +788,7 @@ class KMedoidsSplitter(BaseSplitter):
         test_size: float = 0.2,
         n_folds: int = 3,
         random_state: int = 42,
-        pca_components: Optional[int] = None
+        pca_components: int | None = None
     ):
         super().__init__(test_size, n_folds, random_state)
         self.pca_components = pca_components
@@ -872,7 +862,6 @@ class KMedoidsSplitter(BaseSplitter):
                 'algorithm': 'kmedoids'
             }
         )
-
 
 # Export all splitters
 __all__ = [

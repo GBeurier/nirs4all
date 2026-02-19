@@ -15,12 +15,13 @@ Examples:
 """
 
 import math
-from typing import Any, Dict, FrozenSet, List, Optional, Union
+from collections.abc import Callable
+from typing import Any, Optional, Union
 
-from .base import ExpansionStrategy, GeneratorNode, ExpandedResult
-from .registry import register_strategy
-from ..keywords import LOG_RANGE_KEYWORD, COUNT_KEYWORD, SEED_KEYWORD, PURE_LOG_RANGE_KEYS
+from ..keywords import COUNT_KEYWORD, LOG_RANGE_KEYWORD, PURE_LOG_RANGE_KEYS, SEED_KEYWORD
 from ..utils.sampling import sample_with_seed
+from .base import ExpandedResult, ExpansionStrategy, GeneratorNode
+from .registry import register_strategy
 
 
 @register_strategy
@@ -41,7 +42,7 @@ class LogRangeStrategy(ExpansionStrategy):
         priority: 25 (checked before range and or strategies)
     """
 
-    keywords: FrozenSet[str] = PURE_LOG_RANGE_KEYS
+    keywords: frozenset[str] = PURE_LOG_RANGE_KEYS
     priority: int = 25  # High priority
 
     @classmethod
@@ -63,8 +64,8 @@ class LogRangeStrategy(ExpansionStrategy):
     def expand(
         self,
         node: GeneratorNode,
-        seed: Optional[int] = None,
-        expand_nested: Optional[callable] = None
+        seed: int | None = None,
+        expand_nested: Callable | None = None
     ) -> ExpandedResult:
         """Expand a log range node to list of numeric values.
 
@@ -98,7 +99,7 @@ class LogRangeStrategy(ExpansionStrategy):
 
         return log_values
 
-    def count(self, node: GeneratorNode, count_nested: Optional[callable] = None) -> int:
+    def count(self, node: GeneratorNode, count_nested: Callable | None = None) -> int:
         """Count log range elements without generating them.
 
         Args:
@@ -119,7 +120,7 @@ class LogRangeStrategy(ExpansionStrategy):
             return min(count_limit, log_range_size)
         return log_range_size
 
-    def validate(self, node: GeneratorNode) -> List[str]:
+    def validate(self, node: GeneratorNode) -> list[str]:
         """Validate log range node specification.
 
         Args:
@@ -187,8 +188,8 @@ class LogRangeStrategy(ExpansionStrategy):
         return errors
 
     def _generate_log_range(
-        self, log_range_spec: Union[list, Dict[str, Any]]
-    ) -> List[float]:
+        self, log_range_spec: list | dict[str, Any]
+    ) -> list[float]:
         """Generate logarithmically-spaced values from specification.
 
         Args:
@@ -241,7 +242,7 @@ class LogRangeStrategy(ExpansionStrategy):
 
         return result
 
-    def _count_log_range(self, log_range_spec: Union[list, Dict[str, Any]]) -> int:
+    def _count_log_range(self, log_range_spec: list | dict[str, Any]) -> int:
         """Count elements in a log range without generating them.
 
         Args:

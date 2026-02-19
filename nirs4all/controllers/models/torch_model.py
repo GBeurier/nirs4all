@@ -14,14 +14,16 @@ Lazy loading pattern: PyTorch is only imported when actually needed
 for training or prediction, not at module import time.
 """
 
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
-import numpy as np
 import copy
+from typing import TYPE_CHECKING, Any, Optional
 
-from ..models.base_model import BaseModelController
+import numpy as np
+
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
-from nirs4all.utils.backend import is_available, require_backend, is_gpu_available
+from nirs4all.utils.backend import is_available, is_gpu_available, require_backend
+
+from ..models.base_model import BaseModelController
 
 logger = get_logger(__name__)
 
@@ -29,9 +31,10 @@ logger = get_logger(__name__)
 PYTORCH_AVAILABLE = is_available('torch')
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
-    from nirs4all.pipeline.config.context import ExecutionContext
+    from nirs4all.data.predictions import Predictions
+    from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.pipeline.steps.parser import ParsedStep
     try:
         import torch
@@ -41,10 +44,8 @@ if TYPE_CHECKING:
     except ImportError:
         pass
 
-
 # Lazy-loaded module cache
-_torch_modules: Dict[str, Any] = {}
-
+_torch_modules: dict[str, Any] = {}
 
 def _get_torch():
     """Lazy load PyTorch with caching."""
@@ -56,13 +57,11 @@ def _get_torch():
         _torch_modules['optim'] = torch.optim
     return _torch_modules['torch']
 
-
 def _get_nn():
     """Lazy load torch.nn with caching."""
     if 'nn' not in _torch_modules:
         _get_torch()
     return _torch_modules['nn']
-
 
 @register_controller
 class PyTorchModelController(BaseModelController):
@@ -96,10 +95,7 @@ class PyTorchModelController(BaseModelController):
             return True
 
         # Check operator if provided
-        if operator is not None and cls._is_pytorch_model(operator):
-            return True
-
-        return False
+        return bool(operator is not None and cls._is_pytorch_model(operator))
 
     @classmethod
     def _is_pytorch_model(cls, obj: Any) -> bool:
@@ -133,7 +129,7 @@ class PyTorchModelController(BaseModelController):
         except Exception:
             return False
 
-    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> 'nn.Module':
+    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: dict[str, Any], force_params: dict[str, Any] | None = None) -> 'nn.Module':
         """Create PyTorch model instance from configuration."""
         require_backend('torch', feature='PyTorch models')
 
@@ -151,8 +147,8 @@ class PyTorchModelController(BaseModelController):
         model: 'nn.Module',
         X_train: Any,
         y_train: Any,
-        X_val: Optional[Any] = None,
-        y_val: Optional[Any] = None,
+        X_val: Any | None = None,
+        y_val: Any | None = None,
         **kwargs
     ) -> 'nn.Module':
         """Train PyTorch model with custom training loop."""
@@ -315,10 +311,7 @@ class PyTorchModelController(BaseModelController):
         device = next(model.parameters()).device
 
         # Ensure X is a tensor
-        if not isinstance(X, torch.Tensor):
-             X = PyTorchDataPreparation.prepare_features(X, device)
-        else:
-             X = X.to(device)
+        X = PyTorchDataPreparation.prepare_features(X, device) if not isinstance(X, torch.Tensor) else X.to(device)
 
         model.eval()
         with torch.no_grad():
@@ -335,7 +328,7 @@ class PyTorchModelController(BaseModelController):
 
         return predictions
 
-    def _predict_proba_model(self, model: 'nn.Module', X: Any) -> Optional[np.ndarray]:
+    def _predict_proba_model(self, model: 'nn.Module', X: Any) -> np.ndarray | None:
         """Get class probabilities from PyTorch classification model.
 
         Returns softmax probabilities for classification models.
@@ -358,10 +351,7 @@ class PyTorchModelController(BaseModelController):
         device = next(model.parameters()).device
 
         # Ensure X is a tensor
-        if not isinstance(X, torch.Tensor):
-            X = PyTorchDataPreparation.prepare_features(X, device)
-        else:
-            X = X.to(device)
+        X = PyTorchDataPreparation.prepare_features(X, device) if not isinstance(X, torch.Tensor) else X.to(device)
 
         model.eval()
         with torch.no_grad():
@@ -386,15 +376,15 @@ class PyTorchModelController(BaseModelController):
     def _prepare_data(
         self,
         X: np.ndarray,
-        y: Optional[np.ndarray],
+        y: np.ndarray | None,
         context: 'ExecutionContext'
-    ) -> Tuple[Any, Optional[Any]]:
+    ) -> tuple[Any, Any | None]:
         """Prepare data for PyTorch (convert to tensors)."""
         # Import here to avoid loading PyTorch at module import time
         from .torch.data_prep import PyTorchDataPreparation
         return PyTorchDataPreparation.prepare_data(X, y)
 
-    def _evaluate_model(self, model: 'nn.Module', X_val: Any, y_val: Any, metric: Optional[str] = None, direction: str = "minimize") -> float:
+    def _evaluate_model(self, model: 'nn.Module', X_val: Any, y_val: Any, metric: str | None = None, direction: str = "minimize") -> float:
         """Evaluate PyTorch model."""
         try:
             torch = _get_torch()
@@ -473,7 +463,7 @@ class PyTorchModelController(BaseModelController):
                 )
         return model
 
-    def process_hyperparameters(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def process_hyperparameters(self, params: dict[str, Any]) -> dict[str, Any]:
         """Process hyperparameters for PyTorch model tuning."""
         torch_params = {}
 
@@ -498,9 +488,9 @@ class PyTorchModelController(BaseModelController):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
+        loaded_binaries: list[tuple[str, bytes]] | None = None,
         prediction_store: 'Predictions' = None
-    ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
+    ) -> tuple['ExecutionContext', list[tuple[str, bytes]]]:
         """Execute PyTorch model controller."""
         if not PYTORCH_AVAILABLE:
             raise ImportError(

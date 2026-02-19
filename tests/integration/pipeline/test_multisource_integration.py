@@ -5,21 +5,17 @@ Tests multi-source regression (multiple X arrays) and model reuse.
 Based on Q6_multisource.py example.
 """
 
-import pytest
 import numpy as np
-
+import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import ElasticNet
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.data import DatasetConfigs
-from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.operators.transforms import (
-    Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
-)
+from nirs4all.operators.transforms import Gaussian, Haar, SavitzkyGolay, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-
+from nirs4all.visualization.predictions import PredictionAnalyzer
 from tests.fixtures.data_generators import TestDataManager
 
 

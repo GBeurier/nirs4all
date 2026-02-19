@@ -34,15 +34,14 @@ from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 import nirs4all
+from nirs4all.operators.filters import XOutlierFilter, YOutlierFilter
 from nirs4all.operators.transforms import StandardNormalVariate as SNV
-from nirs4all.operators.filters import YOutlierFilter, XOutlierFilter
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U05 Tagging Analysis Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Why Tagging?
@@ -63,7 +62,6 @@ When to use tagging:
   - Create reports showing outlier characteristics
   - Stratify analysis by sample categories
 """)
-
 
 # =============================================================================
 # Section 2: Basic Tagging
@@ -101,7 +99,6 @@ result_tagged = nirs4all.run(
 )
 
 print(f"\nPredictions: {result_tagged.num_predictions}")
-
 
 # =============================================================================
 # Section 3: Multiple Tags
@@ -141,8 +138,7 @@ result_multi = nirs4all.run(
     plots_visible=args.plots
 )
 
-print(f"\nMultiple tags applied")
-
+print("\nMultiple tags applied")
 
 # =============================================================================
 # Section 4: Tag vs Exclude Comparison
@@ -202,7 +198,6 @@ if result_without.best_rmse < result_with.best_rmse:
 else:
     print("Excluding outliers did not improve performance")
 
-
 # =============================================================================
 # Section 5: Tagging for Stratified Analysis
 # =============================================================================
@@ -218,7 +213,6 @@ Example use cases:
   - Stratify by metadata (instrument, batch, etc.)
   - Identify problematic sample categories
 """)
-
 
 # =============================================================================
 # Section 6: Custom Tag Names
@@ -253,7 +247,6 @@ pipeline_custom = [
 ]
 
 print("Custom tag 'extreme_concentration' will appear in predictions")
-
 
 # =============================================================================
 # Summary

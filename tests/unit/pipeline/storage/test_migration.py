@@ -20,7 +20,6 @@ from nirs4all.pipeline.storage.migration import (
 )
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
-
 # =========================================================================
 # Helpers
 # =========================================================================
@@ -36,7 +35,6 @@ CREATE TABLE IF NOT EXISTS prediction_arrays (
     weights DOUBLE[]
 )
 """
-
 
 def _create_legacy_store(workspace: Path, *, n_predictions: int = 10, n_datasets: int = 1) -> dict:
     """Create a workspace with the legacy prediction_arrays DuckDB table populated with data.
@@ -125,11 +123,9 @@ def _create_legacy_store(workspace: Path, *, n_predictions: int = 10, n_datasets
         "datasets": datasets,
     }
 
-
 # =========================================================================
 # Tests
 # =========================================================================
-
 
 class TestMigrationRoundtrip:
     """Create DuckDB store with arrays -> migrate -> verify all data accessible via Parquet."""
@@ -220,7 +216,6 @@ class TestMigrationRoundtrip:
 
         store.close()
 
-
 class TestMigrationDryRun:
     """Dry run leaves store unchanged."""
 
@@ -252,7 +247,6 @@ class TestMigrationDryRun:
         conn.close()
         assert has_table is not None
         assert row_count == 10
-
 
 class TestMigrationVerification:
     """Inject a bad row -> verify migration detects mismatch."""
@@ -298,7 +292,6 @@ class TestMigrationVerification:
         assert verify_report.verification_mismatches > 0
         assert len(verify_report.errors) > 0
 
-
 class TestMigrationEmptyTable:
     """Handle empty prediction_arrays table."""
 
@@ -329,7 +322,6 @@ class TestMigrationEmptyTable:
         conn.close()
         assert has_table is None
 
-
 class TestMigrationNoLegacyTable:
     """Handle workspace with no prediction_arrays table."""
 
@@ -345,7 +337,6 @@ class TestMigrationNoLegacyTable:
         assert len(report.errors) == 1
         assert "No prediction_arrays" in report.errors[0]
 
-
 class TestMigrationNoDuckDB:
     """Handle workspace with no store.duckdb file."""
 
@@ -358,7 +349,6 @@ class TestMigrationNoDuckDB:
 
         assert len(report.errors) == 1
         assert "DuckDB file not found" in report.errors[0]
-
 
 class TestAutoMigrationOnOpen:
     """WorkspaceStore auto-migrates legacy prediction_arrays on open."""

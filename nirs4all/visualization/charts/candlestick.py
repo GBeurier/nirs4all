@@ -1,20 +1,22 @@
 """
 CandlestickChart - Candlestick/box plot for score distributions by variable.
 """
+import contextlib
+import time
+from typing import TYPE_CHECKING, Any, Optional
+
+import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
-import time
-import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from typing import Optional, Dict, Any, TYPE_CHECKING
-from nirs4all.visualization.charts.base import BaseChart
+
 from nirs4all.core.logging import get_logger
+from nirs4all.visualization.charts.base import BaseChart
 
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.visualization.predictions import PredictionAnalyzer
-
 
 class CandlestickChart(BaseChart):
     """Candlestick/box plot for score distributions by variable.
@@ -26,7 +28,7 @@ class CandlestickChart(BaseChart):
     def __init__(
         self,
         predictions,
-        dataset_name_override: Optional[str] = None,
+        dataset_name_override: str | None = None,
         config=None,
         analyzer: Optional['PredictionAnalyzer'] = None
     ):
@@ -40,7 +42,7 @@ class CandlestickChart(BaseChart):
         """
         super().__init__(predictions, dataset_name_override, config, analyzer=analyzer)
 
-    def validate_inputs(self, variable: str, display_metric: Optional[str], **kwargs) -> None:
+    def validate_inputs(self, variable: str, display_metric: str | None, **kwargs) -> None:
         """Validate candlestick inputs.
 
         Args:
@@ -56,9 +58,9 @@ class CandlestickChart(BaseChart):
         if display_metric and not isinstance(display_metric, str):
             raise ValueError("display_metric must be a string")
 
-    def render(self, variable: str, display_metric: Optional[str] = None,
-               display_partition: str = 'test', dataset_name: Optional[str] = None,
-               figsize: Optional[tuple] = None, aggregate: Optional[str] = None,
+    def render(self, variable: str, display_metric: str | None = None,
+               display_partition: str = 'test', dataset_name: str | None = None,
+               figsize: tuple | None = None, aggregate: str | None = None,
                clip_outliers: bool = True, iqr_factor: float = 1.5,
                **filters) -> Figure:
         """Render candlestick chart showing metric distribution by variable (Optimized with Polars).
@@ -300,10 +302,8 @@ class CandlestickChart(BaseChart):
                 y_true = partition_data.get('y_true')
                 y_pred = partition_data.get('y_pred')
                 if y_true is not None and y_pred is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         score = evaluator.eval(y_true, y_pred, display_metric)
-                    except Exception:
-                        pass
 
             if score is not None:
                 if var_value not in data_by_variable:

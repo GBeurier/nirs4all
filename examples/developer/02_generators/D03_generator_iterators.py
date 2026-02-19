@@ -39,20 +39,24 @@ from sklearn.preprocessing import MinMaxScaler
 # NIRS4All imports
 import nirs4all
 from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
     FirstDerivative,
 )
+from nirs4all.operators.transforms import (
+    MultiplicativeScatterCorrection as MSC,
+)
+from nirs4all.operators.transforms import (
+    StandardNormalVariate as SNV,
+)
 from nirs4all.pipeline.config.generator import (
-    expand_spec,
-    expand_spec_iter,
     batch_iter,
     count_combinations,
-    is_generator_node,
-    to_dataframe,
     diff_configs,
-    summarize_configs,
+    expand_spec,
+    expand_spec_iter,
+    is_generator_node,
     print_expansion_tree,
+    summarize_configs,
+    to_dataframe,
 )
 
 # Parse command-line arguments
@@ -60,7 +64,6 @@ parser = argparse.ArgumentParser(description='D03 Generator Iterators Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -78,7 +81,6 @@ For large search spaces, you need programmatic control:
     to_dataframe():      Export to pandas
     summarize_configs(): Get statistics
 """)
-
 
 # =============================================================================
 # Section 1: Counting Combinations
@@ -110,10 +112,9 @@ spec_nested = {
         }
     }
 }
-print(f"\nNested spec:")
+print("\nNested spec:")
 print(json.dumps(spec_nested, indent=2))
 print(f"Total combinations: {count_combinations(spec_nested)}")
-
 
 # =============================================================================
 # Section 2: Lazy Iteration with expand_spec_iter
@@ -131,13 +132,11 @@ large_spec = {"_range_": [1, 1000]}
 print(f"Spec with {count_combinations(large_spec)} variants")
 
 # Use islice to get first N without generating all
-from itertools import islice
 first_10 = list(islice(expand_spec_iter(large_spec), 10))
 print(f"First 10 (lazy): {first_10}")
 
 last_10 = list(islice(expand_spec_iter(large_spec), 990, 1000))
 print(f"Last 10 (lazy): {last_10}")
-
 
 # =============================================================================
 # Section 3: Batch Processing with batch_iter
@@ -158,7 +157,6 @@ print(f"Processing {count_combinations(batch_spec)} items in batches of 5:")
 
 for i, batch in enumerate(batch_iter(batch_spec, batch_size=5)):
     print(f"  Batch {i}: {batch}")
-
 
 # =============================================================================
 # Section 4: Detecting Generator Nodes
@@ -186,7 +184,6 @@ for node in test_nodes:
     is_gen = is_generator_node(node)
     print(f"  {first_key:20} -> {is_gen}")
 
-
 # =============================================================================
 # Section 5: Export to DataFrame
 # =============================================================================
@@ -212,7 +209,6 @@ try:
 except ImportError:
     print("(pandas not available)")
 
-
 # =============================================================================
 # Section 6: Summarize Configurations
 # =============================================================================
@@ -229,7 +225,6 @@ print(f"Count: {summary['count']} configurations")
 print("Keys:")
 for key, info in summary['keys'].items():
     print(f"  {key}: {info['unique_count']} unique values: {info['unique_values']}")
-
 
 # =============================================================================
 # Section 7: Compare Configurations
@@ -249,12 +244,11 @@ print(f"Config 1: {config1}")
 print(f"Config 2: {config2}")
 
 diff = diff_configs(config1, config2)
-print(f"\nDifferences:")
+print("\nDifferences:")
 print(f"  Left only:  {diff.get('left_only', {})}")
 print(f"  Right only: {diff.get('right_only', {})}")
 print(f"  Different:  {diff.get('different', {})}")
 print(f"  Same:       {diff.get('same', {})}")
-
 
 # =============================================================================
 # Section 8: Expansion Tree Visualization
@@ -281,7 +275,6 @@ print(f"Spec: {json.dumps(tree_spec, indent=2)}")
 print("\nExpansion Tree:")
 print(print_expansion_tree(tree_spec))
 
-
 # =============================================================================
 # Section 9: Practical Example - Progressive Search
 # =============================================================================
@@ -303,7 +296,6 @@ print(f"Coarse search: {expand_spec(coarse_spec)}")
 # Assume n_components=10 was best, now fine-tune
 fine_spec = {"_range_": [8, 12]}  # 8, 9, 10, 11, 12
 print(f"Fine search around 10: {expand_spec(fine_spec)}")
-
 
 # =============================================================================
 # Section 10: Running with Generator API
@@ -332,7 +324,6 @@ result = nirs4all.run(
 )
 
 print(f"\nPredictions: {result.num_predictions}")
-
 
 # =============================================================================
 # Summary

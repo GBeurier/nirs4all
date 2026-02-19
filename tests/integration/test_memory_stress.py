@@ -20,7 +20,6 @@ from nirs4all.utils.memory import format_bytes, get_process_rss_mb
 
 pytestmark = [pytest.mark.stress, pytest.mark.sklearn]
 
-
 def _make_dataset(n_samples: int, n_features: int, seed: int = 42) -> SpectroDataset:
     """Create a synthetic regression dataset with train/test split."""
     np.random.seed(seed)
@@ -35,12 +34,10 @@ def _make_dataset(n_samples: int, n_features: int, seed: int = 42) -> SpectroDat
     dataset.add_targets(y[n_train:])
     return dataset
 
-
 def _print_rss(label: str) -> float:
     rss = get_process_rss_mb()
     print(f"  [{label}] RSS: {rss:.1f} MB")
     return rss
-
 
 class TestGeneratorVariantExplosion:
     """Scenario 1: Large dataset + many generated preprocessing variants.
@@ -74,7 +71,6 @@ class TestGeneratorVariantExplosion:
         print(f"  RSS delta: {peak_delta:.1f} MB")
 
         assert len(predictions) > 0
-
 
 class TestBranchHeavyPipeline:
     """Scenario 2: 6 duplication branches with post-branch model steps.
@@ -114,7 +110,6 @@ class TestBranchHeavyPipeline:
         print(f"  RSS delta: {peak_delta:.1f} MB")
 
         assert len(predictions) > 0
-
 
 class TestFeatureAugmentationGrowth:
     """Scenario 3: Feature augmentation with many operations in add mode.

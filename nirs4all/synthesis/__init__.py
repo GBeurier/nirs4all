@@ -40,401 +40,290 @@ References:
 
 from __future__ import annotations
 
-# Core generator
-from .generator import SyntheticNIRSGenerator
+# Aggregate components (Phase 4 - Roadmap Phase 4)
+from ._aggregates import (
+    AGGREGATE_COMPONENTS,
+    AggregateComponent,
+    aggregate_info,
+    expand_aggregate,
+    get_aggregate,
+    list_aggregates,
+    validate_aggregates,
+)
+from ._aggregates import (
+    list_categories as list_aggregate_categories,
+)
+from ._aggregates import (
+    list_domains as list_aggregate_domains,
+)
+
+# Band assignments dictionary (comprehensive NIR band reference)
+from ._bands import (
+    # Band dictionary
+    NIR_BANDS,
+    # Core dataclass
+    BandAssignment,
+    band_info,
+    generate_band_spectrum,
+    # API functions
+    get_band,
+    get_bands_by_compound,
+    get_bands_by_overtone,
+    get_bands_by_tag,
+    get_bands_in_range,
+    list_all_tags,
+    list_bands,
+    list_functional_groups,
+    validate_bands,
+)
+from ._bands import (
+    summary as band_summary,
+)
+
+# Predefined components constant
+from ._constants import (
+    COMPLEXITY_PARAMS,
+    DEFAULT_NIR_ZONES,
+    DEFAULT_REALISTIC_COMPONENTS,
+    DEFAULT_WAVELENGTH_END,
+    DEFAULT_WAVELENGTH_START,
+    DEFAULT_WAVELENGTH_STEP,
+    get_predefined_components,
+)
+
+# GPU acceleration (Phase 4.4)
+from .accelerated import (
+    # Dataclasses
+    AcceleratedArrays,
+    # Classes
+    AcceleratedGenerator,
+    # Enums
+    AcceleratorBackend,
+    benchmark_backends,
+    # Functions
+    detect_best_backend,
+    get_acceleration_speedup_estimate,
+    get_backend_info,
+    is_gpu_available,
+)
+
+# Benchmark datasets (Phase 4.2)
+from .benchmarks import (
+    # Registry
+    BENCHMARK_DATASETS,
+    # Dataclasses
+    BenchmarkDatasetInfo,
+    # Enums
+    BenchmarkDomain,
+    LoadedBenchmarkDataset,
+    create_synthetic_matching_benchmark,
+    get_benchmark_info,
+    get_benchmark_spectral_properties,
+    get_datasets_by_domain,
+    # Functions
+    list_benchmark_datasets,
+    load_benchmark_dataset,
+)
 
 # Builder for fluent construction
 from .builder import SyntheticDatasetBuilder
 
 # Spectral components
 from .components import (
+    ComponentLibrary,
     NIRBand,
     SpectralComponent,
-    ComponentLibrary,
     # Discovery API (Phase 1 enhancement)
     available_components,
-    get_component,
-    search_components,
-    list_categories,
     component_info,
-    validate_predefined_components,
-    validate_component_coverage,
+    get_component,
+    list_categories,
     normalize_component_amplitudes,
-)
-
-# Predefined components constant
-from ._constants import (
-    get_predefined_components,
-    COMPLEXITY_PARAMS,
-    DEFAULT_WAVELENGTH_START,
-    DEFAULT_WAVELENGTH_END,
-    DEFAULT_WAVELENGTH_STEP,
-    DEFAULT_NIR_ZONES,
-    DEFAULT_REALISTIC_COMPONENTS,
+    search_components,
+    validate_component_coverage,
+    validate_predefined_components,
 )
 
 # Configuration classes
 from .config import (
-    SyntheticDatasetConfig,
-    FeatureConfig,
-    TargetConfig,
-    MetadataConfig,
-    PartitionConfig,
     BatchEffectConfig,
-    OutputConfig,
     ComplexityLevel,
     ConcentrationMethod,
-)
-
-# Validation utilities
-from .validation import (
-    ValidationError,
-    validate_spectra,
-    validate_concentrations,
-    validate_wavelengths,
-    validate_synthetic_output,
-)
-
-# Metadata generation (Phase 3)
-from .metadata import (
-    MetadataGenerator,
-    MetadataGenerationResult,
-    generate_sample_metadata,
-)
-
-# Target generation (Phase 3)
-from .targets import (
-    TargetGenerator,
-    ClassSeparationConfig,
-    generate_regression_targets,
-    generate_classification_targets,
-)
-
-# Multi-source generation (Phase 3)
-from .sources import (
-    MultiSourceGenerator,
-    SourceConfig,
-    MultiSourceResult,
-    generate_multi_source,
-)
-
-# Export capabilities (Phase 4)
-from .exporter import (
-    DatasetExporter,
-    CSVVariationGenerator,
-    ExportConfig,
-    export_to_folder,
-    export_to_csv,
-)
-
-# Real data fitting (Phase 4)
-from .fitter import (
-    RealDataFitter,
-    FittedParameters,
-    SpectralProperties,
-    compute_spectral_properties,
-    fit_to_real_data,
-    compare_datasets,
-    # Phase 1-4 enhanced inference classes
-    InstrumentInference,
-    DomainInference,
-    EnvironmentalInference,
-    ScatteringInference,
-    MeasurementModeInference,
-    # Phase 5: Spectral fitting tools
-    ComponentFitter,
-    ComponentFitResult,
-    fit_components,
-    # Phase 5: Optimized spectral fitting (greedy selection)
-    OptimizedComponentFitter,
-    OptimizedFitResult,
-    fit_components_optimized,
-    COMPONENT_CATEGORIES,
-    EXCLUDED_COMPONENTS,
-    UNIVERSAL_COMPONENTS,
-    # Phase 5: Preprocessing detection
-    PreprocessingType,
-    PreprocessingInference,
-    # Phase 5: Real band fitting (NIR_BANDS)
-    RealBandFitter,
-    RealBandFitResult,
-    fit_real_bands,
-    # Phase 5: Variance fitting
-    VarianceFitter,
-    VarianceFitResult,
-    OperatorVarianceParams,
-    PCAVarianceParams,
-    fit_variance,
-    # Physical forward model fitting
-    InstrumentChain,
-    ForwardModelFitter,
-    DerivativeAwareForwardModelFitter,
-    multiscale_fit,
-    multiscale_derivative_fit,
-)
-
-# ================================================================
-# Phase 1: Enhanced Component Generation
-# ================================================================
-
-# Wavenumber-based band placement utilities (Phase 1.1)
-from .wavenumber import (
-    # Core conversion functions
-    wavenumber_to_wavelength,
-    wavelength_to_wavenumber,
-    convert_bandwidth_to_wavelength,
-    # NIR zones and regions
-    NIR_ZONES_WAVENUMBER,
-    classify_wavelength_zone,
-    classify_wavelength_zone as get_nir_zone,  # Alias for backward compatibility
-    get_zone_wavelength_range,
-    get_all_zones_wavelength,
-    # Visible-NIR extended zones (Phase 2)
-    EXTENDED_SPECTRAL_ZONES,
-    VISIBLE_ZONES_WAVENUMBER,
-    classify_wavelength_extended,
-    get_all_zones_extended,
-    is_visible_region,
-    is_nir_region,
-    # Overtone and combination band calculations
-    FUNDAMENTAL_VIBRATIONS,
-    calculate_overtone_position,
-    calculate_combination_band,
-    apply_hydrogen_bonding_shift,
-    # Result dataclasses
-    OvertoneResult,
-    CombinationBandResult,
-)
-
-# Procedural component generator (Phase 1.2)
-from .procedural import (
-    # Functional group types and properties
-    FunctionalGroupType,
-    FUNCTIONAL_GROUP_PROPERTIES,
-    # Configuration
-    ProceduralComponentConfig,
-    # Generator class
-    ProceduralComponentGenerator,
-)
-
-# Application domain priors (Phase 1.3)
-from .domains import (
-    # Domain categories
-    DomainCategory,
-    # Configuration classes
-    ConcentrationPrior,
-    DomainConfig,
-    # Domain registry
-    APPLICATION_DOMAINS,
-    # Utility functions
-    get_domain_config,
-    list_domains,
-    get_domain_components,
-    get_domains_for_component,
-    create_domain_aware_library,
-)
-
-# Aggregate components (Phase 4 - Roadmap Phase 4)
-from ._aggregates import (
-    AggregateComponent,
-    AGGREGATE_COMPONENTS,
-    get_aggregate,
-    list_aggregates,
-    expand_aggregate,
-    aggregate_info,
-    list_domains as list_aggregate_domains,
-    list_categories as list_aggregate_categories,
-    validate_aggregates,
-)
-
-# Band assignments dictionary (comprehensive NIR band reference)
-from ._bands import (
-    # Core dataclass
-    BandAssignment,
-    # Band dictionary
-    NIR_BANDS,
-    # API functions
-    get_band,
-    list_functional_groups,
-    list_bands,
-    get_bands_in_range,
-    get_bands_by_tag,
-    get_bands_by_overtone,
-    get_bands_by_compound,
-    generate_band_spectrum,
-    band_info,
-    list_all_tags,
-    validate_bands,
-    summary as band_summary,
-)
-
-# Product-level generation (Phase 7 - Roadmap Phase 7)
-from .products import (
-    # Enums
-    VariationType,
-    # Dataclasses
-    ComponentVariation,
-    ProductTemplate,
-    # Registry
-    PRODUCT_TEMPLATES,
-    # Generator classes
-    ProductGenerator,
-    CategoryGenerator,
-    # Convenience functions
-    list_product_templates,
-    get_product_template,
-    generate_product_samples,
-    product_template_info,
-    list_product_categories,
-    list_product_domains,
-)
-
-
-# ================================================================
-# Phase 2: Instrument Simulation Enhancement
-# ================================================================
-
-# Instrument archetypes and simulation (Phase 2.1)
-from .instruments import (
-    # Enums
-    InstrumentCategory,
-    DetectorType,
-    MonochromatorType,
-    # Dataclasses
-    SensorConfig,
-    MultiSensorConfig,
-    MultiScanConfig,
-    EdgeArtifactsConfig,
-    InstrumentArchetype,
-    # Registry and utilities
-    INSTRUMENT_ARCHETYPES,
-    get_instrument_archetype,
-    list_instrument_archetypes,
-    get_instruments_by_category,
-    # Simulator
-    InstrumentSimulator,
-    # Phase 6: Instrument wavelength grids
-    INSTRUMENT_WAVELENGTHS,
-    get_instrument_wavelengths,
-    list_instrument_wavelength_grids,
-    get_instrument_wavelength_info,
-)
-
-# Measurement modes and physics (Phase 2.2)
-from .measurement_modes import (
-    # Enums
-    MeasurementMode,
-    # Configurations
-    TransmittanceConfig,
-    ReflectanceConfig,
-    TransflectanceConfig,
-    ATRConfig,
-    ScatteringConfig,
-    # Simulator
-    MeasurementModeSimulator,
-    # Factory functions
-    create_transmittance_simulator,
-    create_reflectance_simulator,
-    create_atr_simulator,
+    FeatureConfig,
+    MetadataConfig,
+    OutputConfig,
+    PartitionConfig,
+    SyntheticDatasetConfig,
+    TargetConfig,
 )
 
 # Detector models and noise (Phase 2.3)
 from .detectors import (
-    # Response curves
-    DetectorSpectralResponse,
-    DETECTOR_RESPONSES,
-    get_detector_response,
-    # Noise configuration
-    NoiseModelConfig,
-    DetectorConfig,
     DETECTOR_NOISE_DEFAULTS,
-    get_default_noise_config,
+    DETECTOR_RESPONSES,
+    DetectorConfig,
     # Simulator
     DetectorSimulator,
-    # Convenience functions
-    simulate_detector_effects,
+    # Response curves
+    DetectorSpectralResponse,
+    # Noise configuration
+    NoiseModelConfig,
+    get_default_noise_config,
+    get_detector_response,
     get_detector_wavelength_range,
     list_detector_types,
+    # Convenience functions
+    simulate_detector_effects,
+)
+
+# Application domain priors (Phase 1.3)
+from .domains import (
+    # Domain registry
+    APPLICATION_DOMAINS,
+    # Configuration classes
+    ConcentrationPrior,
+    # Domain categories
+    DomainCategory,
+    DomainConfig,
+    create_domain_aware_library,
+    get_domain_components,
+    # Utility functions
+    get_domain_config,
+    get_domains_for_component,
+    list_domains,
 )
 
 # ================================================================
 # Phase 3: Matrix and Environmental Effects
 # ================================================================
-
 # Environmental effects (Phase 3.1, 3.4) - Configuration classes only
 # NOTE: Use nirs4all.operators.augmentation for applying effects:
 #   - TemperatureAugmenter for temperature effects
 #   - MoistureAugmenter for moisture effects
 from .environmental import (
-    # Enums
-    SpectralRegion,
-    # Dataclasses
-    TemperatureEffectParams,
-    TemperatureConfig,
-    MoistureConfig,
-    EnvironmentalEffectsConfig,
     # Constants
     TEMPERATURE_EFFECT_PARAMS,
+    EnvironmentalEffectsConfig,
+    MoistureConfig,
+    # Enums
+    SpectralRegion,
+    TemperatureConfig,
+    # Dataclasses
+    TemperatureEffectParams,
     # Utility functions
     get_temperature_effect_regions,
 )
 
-# Scattering effects (Phase 3.2, 3.3) - Configuration classes only
-# NOTE: Use nirs4all.operators.augmentation for applying effects:
-#   - ParticleSizeAugmenter for particle size effects
-#   - EMSCDistortionAugmenter for EMSC-style distortions
-from .scattering import (
-    # Enums
-    ScatteringModel,
-    # Dataclasses
-    ParticleSizeDistribution,
-    ParticleSizeConfig,
-    EMSCConfig,
-    ScatteringCoefficientConfig,
-    ScatteringEffectsConfig,
+# Export capabilities (Phase 4)
+from .exporter import (
+    CSVVariationGenerator,
+    DatasetExporter,
+    ExportConfig,
+    export_to_csv,
+    export_to_folder,
 )
 
-# ================================================================
-# Phase 4: Validation and Infrastructure
-# ================================================================
-
-# Spectral realism scorecard (Phase 4.1)
-from .validation import (
-    # Enums
-    RealismMetric,
-    # Dataclasses
-    MetricResult,
-    SpectralRealismScore,
-    DatasetComparisonResult,
-    # Core metric functions
-    compute_correlation_length,
-    compute_derivative_statistics,
-    compute_peak_density,
-    compute_baseline_curvature,
-    compute_snr,
-    compute_distribution_overlap,
-    compute_adversarial_validation_auc,
-    compute_spectral_realism_scorecard,
-    validate_against_benchmark,
-    quick_realism_check,
+# Real data fitting (Phase 4)
+from .fitter import (
+    COMPONENT_CATEGORIES,
+    EXCLUDED_COMPONENTS,
+    UNIVERSAL_COMPONENTS,
+    ComponentFitResult,
+    # Phase 5: Spectral fitting tools
+    ComponentFitter,
+    DerivativeAwareForwardModelFitter,
+    DomainInference,
+    EnvironmentalInference,
+    FittedParameters,
+    ForwardModelFitter,
+    # Physical forward model fitting
+    InstrumentChain,
+    # Phase 1-4 enhanced inference classes
+    InstrumentInference,
+    MeasurementModeInference,
+    OperatorVarianceParams,
+    # Phase 5: Optimized spectral fitting (greedy selection)
+    OptimizedComponentFitter,
+    OptimizedFitResult,
+    PCAVarianceParams,
+    PreprocessingInference,
+    # Phase 5: Preprocessing detection
+    PreprocessingType,
+    RealBandFitResult,
+    # Phase 5: Real band fitting (NIR_BANDS)
+    RealBandFitter,
+    RealDataFitter,
+    ScatteringInference,
+    SpectralProperties,
+    VarianceFitResult,
+    # Phase 5: Variance fitting
+    VarianceFitter,
+    compare_datasets,
+    compute_spectral_properties,
+    fit_components,
+    fit_components_optimized,
+    fit_real_bands,
+    fit_to_real_data,
+    fit_variance,
+    multiscale_derivative_fit,
+    multiscale_fit,
 )
 
-# Benchmark datasets (Phase 4.2)
-from .benchmarks import (
+# Core generator
+from .generator import SyntheticNIRSGenerator
+
+# ================================================================
+# Phase 2: Instrument Simulation Enhancement
+# ================================================================
+# Instrument archetypes and simulation (Phase 2.1)
+from .instruments import (
+    # Registry and utilities
+    INSTRUMENT_ARCHETYPES,
+    # Phase 6: Instrument wavelength grids
+    INSTRUMENT_WAVELENGTHS,
+    DetectorType,
+    EdgeArtifactsConfig,
+    InstrumentArchetype,
     # Enums
-    BenchmarkDomain,
+    InstrumentCategory,
+    # Simulator
+    InstrumentSimulator,
+    MonochromatorType,
+    MultiScanConfig,
+    MultiSensorConfig,
     # Dataclasses
-    BenchmarkDatasetInfo,
-    LoadedBenchmarkDataset,
-    # Registry
-    BENCHMARK_DATASETS,
-    # Functions
-    list_benchmark_datasets,
-    get_benchmark_info,
-    get_datasets_by_domain,
-    load_benchmark_dataset,
-    get_benchmark_spectral_properties,
-    create_synthetic_matching_benchmark,
+    SensorConfig,
+    get_instrument_archetype,
+    get_instrument_wavelength_info,
+    get_instrument_wavelengths,
+    get_instruments_by_category,
+    list_instrument_archetypes,
+    list_instrument_wavelength_grids,
+)
+
+# Measurement modes and physics (Phase 2.2)
+from .measurement_modes import (
+    ATRConfig,
+    # Enums
+    MeasurementMode,
+    # Simulator
+    MeasurementModeSimulator,
+    ReflectanceConfig,
+    ScatteringConfig,
+    TransflectanceConfig,
+    # Configurations
+    TransmittanceConfig,
+    create_atr_simulator,
+    create_reflectance_simulator,
+    # Factory functions
+    create_transmittance_simulator,
+)
+
+# Metadata generation (Phase 3)
+from .metadata import (
+    MetadataGenerationResult,
+    MetadataGenerator,
+    generate_sample_metadata,
 )
 
 # Conditional prior sampling (Phase 4.3)
@@ -445,35 +334,146 @@ from .prior import (
     NIRSPriorConfig,
     # Classes
     PriorSampler,
+    get_domain_compatible_instruments,
+    get_instrument_typical_modes,
     # Convenience functions
     sample_prior,
     sample_prior_batch,
-    get_domain_compatible_instruments,
-    get_instrument_typical_modes,
 )
 
-# GPU acceleration (Phase 4.4)
-from .accelerated import (
-    # Enums
-    AcceleratorBackend,
-    # Dataclasses
-    AcceleratedArrays,
-    # Classes
-    AcceleratedGenerator,
-    # Functions
-    detect_best_backend,
-    get_backend_info,
-    is_gpu_available,
-    get_acceleration_speedup_estimate,
-    benchmark_backends,
+# Procedural component generator (Phase 1.2)
+from .procedural import (
+    FUNCTIONAL_GROUP_PROPERTIES,
+    # Functional group types and properties
+    FunctionalGroupType,
+    # Configuration
+    ProceduralComponentConfig,
+    # Generator class
+    ProceduralComponentGenerator,
 )
+
+# Product-level generation (Phase 7 - Roadmap Phase 7)
+from .products import (
+    # Registry
+    PRODUCT_TEMPLATES,
+    CategoryGenerator,
+    # Dataclasses
+    ComponentVariation,
+    # Generator classes
+    ProductGenerator,
+    ProductTemplate,
+    # Enums
+    VariationType,
+    generate_product_samples,
+    get_product_template,
+    list_product_categories,
+    list_product_domains,
+    # Convenience functions
+    list_product_templates,
+    product_template_info,
+)
+
+# Scattering effects (Phase 3.2, 3.3) - Configuration classes only
+# NOTE: Use nirs4all.operators.augmentation for applying effects:
+#   - ParticleSizeAugmenter for particle size effects
+#   - EMSCDistortionAugmenter for EMSC-style distortions
+from .scattering import (
+    EMSCConfig,
+    ParticleSizeConfig,
+    # Dataclasses
+    ParticleSizeDistribution,
+    ScatteringCoefficientConfig,
+    ScatteringEffectsConfig,
+    # Enums
+    ScatteringModel,
+)
+
+# Multi-source generation (Phase 3)
+from .sources import (
+    MultiSourceGenerator,
+    MultiSourceResult,
+    SourceConfig,
+    generate_multi_source,
+)
+
+# Target generation (Phase 3)
+from .targets import (
+    ClassSeparationConfig,
+    TargetGenerator,
+    generate_classification_targets,
+    generate_regression_targets,
+)
+
+# Validation utilities
+# ================================================================
+# Phase 4: Validation and Infrastructure
+# ================================================================
+# Spectral realism scorecard (Phase 4.1)
+from .validation import (
+    DatasetComparisonResult,
+    # Dataclasses
+    MetricResult,
+    # Enums
+    RealismMetric,
+    SpectralRealismScore,
+    ValidationError,
+    compute_adversarial_validation_auc,
+    compute_baseline_curvature,
+    # Core metric functions
+    compute_correlation_length,
+    compute_derivative_statistics,
+    compute_distribution_overlap,
+    compute_peak_density,
+    compute_snr,
+    compute_spectral_realism_scorecard,
+    quick_realism_check,
+    validate_against_benchmark,
+    validate_concentrations,
+    validate_spectra,
+    validate_synthetic_output,
+    validate_wavelengths,
+)
+
+# ================================================================
+# Phase 1: Enhanced Component Generation
+# ================================================================
+# Wavenumber-based band placement utilities (Phase 1.1)
+from .wavenumber import (
+    # Visible-NIR extended zones (Phase 2)
+    EXTENDED_SPECTRAL_ZONES,
+    # Overtone and combination band calculations
+    FUNDAMENTAL_VIBRATIONS,
+    # NIR zones and regions
+    NIR_ZONES_WAVENUMBER,
+    VISIBLE_ZONES_WAVENUMBER,
+    CombinationBandResult,
+    # Result dataclasses
+    OvertoneResult,
+    apply_hydrogen_bonding_shift,
+    calculate_combination_band,
+    calculate_overtone_position,
+    classify_wavelength_extended,
+    classify_wavelength_zone,
+    convert_bandwidth_to_wavelength,
+    get_all_zones_extended,
+    get_all_zones_wavelength,
+    get_zone_wavelength_range,
+    is_nir_region,
+    is_visible_region,
+    wavelength_to_wavenumber,
+    # Core conversion functions
+    wavenumber_to_wavelength,
+)
+from .wavenumber import (
+    classify_wavelength_zone as get_nir_zone,  # Alias for backward compatibility
+)
+
 
 # Backward-compatible alias for predefined components
 # Note: This is a function call, not a constant, to avoid circular imports
 def _get_predefined_components():
     """Get predefined components (lazy loading to avoid circular imports)."""
     return get_predefined_components()
-
 
 # Make PREDEFINED_COMPONENTS available as a module-level name for backward compat
 # Users should prefer get_predefined_components() for explicit behavior
@@ -504,9 +504,7 @@ class _PredefinedComponentsProxy:
     def __repr__(self):
         return repr(get_predefined_components())
 
-
 PREDEFINED_COMPONENTS = _PredefinedComponentsProxy()
-
 
 __all__ = [
     # Core generator

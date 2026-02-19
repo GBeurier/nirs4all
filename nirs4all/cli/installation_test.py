@@ -2,20 +2,19 @@
 Installation testing utilities for nirs4all CLI.
 """
 
-import sys
 import importlib
 import os
+import sys
 import tempfile
 import time
-from typing import Dict, List, Tuple
+
 import numpy as np
 
 from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-
-def check_dependency(name: str, min_version: str = None) -> Tuple[bool, str]:
+def check_dependency(name: str, min_version: str | None = None) -> tuple[bool, str]:
     """
     Check if a dependency is installed and optionally verify minimum version.
 
@@ -43,7 +42,6 @@ def check_dependency(name: str, min_version: str = None) -> Tuple[bool, str]:
         return True, version
     except ImportError:
         return False, "Not installed"
-
 
 def test_installation() -> bool:
     """
@@ -75,7 +73,7 @@ def test_installation() -> bool:
     }
 
     # Optional ML framework dependencies
-    optional_deps = {
+    optional_deps: dict[str, str | None] = {
         'tensorflow': '2.0.0',
         'torch': '1.4.0',
         'keras': None,
@@ -85,10 +83,6 @@ def test_installation() -> bool:
     # Test Python version
     python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     logger.success(f"Python: {python_version}")
-
-    if sys.version_info < (3, 7):
-        logger.error(f"Python version {python_version} is not supported (requires >=3.7)")
-        return False
 
     logger.info("")
 
@@ -131,18 +125,15 @@ def test_installation() -> bool:
         logger.success("  nirs4all.dataset.dataset: OK")
 
         # Test controller system
-        from nirs4all.controllers import register_controller, CONTROLLER_REGISTRY
+        from nirs4all.controllers import CONTROLLER_REGISTRY, register_controller
         logger.success(f"  nirs4all.controllers: OK ({len(CONTROLLER_REGISTRY)} controllers registered)")
 
         # Test operators
-        from nirs4all.operators.transforms import StandardNormalVariate, SavitzkyGolay
+        from nirs4all.operators.transforms import SavitzkyGolay, StandardNormalVariate
         logger.success("  nirs4all.operators.transforms: OK")
 
         # Test backend utils
-        from nirs4all.utils.backend import (
-            is_tensorflow_available, is_torch_available,
-            is_gpu_available
-        )
+        from nirs4all.utils.backend import is_gpu_available, is_tensorflow_available, is_torch_available
         logger.success("  nirs4all.utils.backend_utils: OK")
 
     except ImportError as e:
@@ -168,7 +159,6 @@ def test_installation() -> bool:
         logger.info("Please install missing dependencies using:")
         logger.info("  pip install nirs4all")
         return False
-
 
 def test_integration() -> bool:
     """
@@ -198,13 +188,14 @@ def test_integration() -> bool:
 
     try:
         # Import required modules based on examples
-        from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-        from nirs4all.data import DatasetConfigs
-        from sklearn.preprocessing import MinMaxScaler
-        from sklearn.model_selection import ShuffleSplit
-        from sklearn.ensemble import RandomForestRegressor
         from sklearn.cross_decomposition import PLSRegression
+        from sklearn.ensemble import RandomForestRegressor
+        from sklearn.model_selection import ShuffleSplit
+        from sklearn.preprocessing import MinMaxScaler
+
+        from nirs4all.data import DatasetConfigs
         from nirs4all.operators.transforms import StandardNormalVariate
+        from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
         logger.success("Successfully imported NIRS4ALL modules")
 
@@ -336,6 +327,7 @@ def test_integration() -> bool:
         """Test TensorFlow-based pipeline (based on Q2.py)."""
         try:
             import tensorflow as tf
+
             from nirs4all.operators.models.tensorflow.nicon import nicon
         except ImportError:
             logger.warning("    TensorFlow/NIRS models not available, skipping test")
@@ -487,10 +479,4 @@ def test_integration() -> bool:
             logger.error("Integration test FAILED!")
             logger.error("Pipeline execution is not working properly")
             return False
-
-
-
-
-
-
 

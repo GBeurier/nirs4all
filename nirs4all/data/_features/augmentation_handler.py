@@ -1,7 +1,8 @@
 """Handles sample augmentation operations."""
 
+from typing import Any
+
 import numpy as np
-from typing import List
 
 
 class AugmentationHandler:
@@ -13,9 +14,9 @@ class AugmentationHandler:
 
     @staticmethod
     def validate_augmentation_inputs(
-        sample_indices: List[int],
+        sample_indices: list[int],
         data: np.ndarray,
-        count_list: List[int],
+        count_list: list[int],
         num_samples: int
     ) -> int:
         """Validate augmentation inputs and return total augmentations.
@@ -64,7 +65,7 @@ class AugmentationHandler:
         return total_augmentations
 
     @staticmethod
-    def normalize_processings(processings: any) -> List[str]:
+    def normalize_processings(processings: Any) -> list[str]:
         """Normalize processings to list of strings.
 
         Args:

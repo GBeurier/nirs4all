@@ -4,9 +4,10 @@ Test that Resampler properly handles nm and cm-1 data with automatic conversion.
 """
 import numpy as np
 import pytest
+
+from nirs4all.controllers.data.resampler import ResamplerController
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.operators.transforms.resampler import Resampler
-from nirs4all.controllers.data.resampler import ResamplerController
 
 
 class TestResamplerHeaderUnit:

@@ -71,7 +71,6 @@ class TestMetadataBasics:
         meta.add_metadata(data, ['col1', 'col2'])
         assert meta.num_rows == 0
 
-
 class TestMetadataRetrieval:
     """Test metadata retrieval operations."""
 
@@ -117,7 +116,6 @@ class TestMetadataRetrieval:
         """Test error when getting nonexistent column."""
         with pytest.raises(ValueError, match="Column 'nonexistent' not found"):
             self.meta.get_column('nonexistent')
-
 
 class TestMetadataNumericConversion:
     """Test numeric conversion of metadata."""
@@ -177,7 +175,6 @@ class TestMetadataNumericConversion:
         with pytest.raises(ValueError, match="Unknown method"):
             self.meta.to_numeric('categorical_col', method='invalid')
 
-
 class TestMetadataModification:
     """Test metadata modification operations."""
 
@@ -217,7 +214,6 @@ class TestMetadataModification:
         """Test error when adding duplicate column."""
         with pytest.raises(ValueError, match="already exists"):
             self.meta.add_column('batch', [1, 2, 3, 4])
-
 
 class TestMetadataEdgeCases:
     """Test edge cases and error handling."""
@@ -262,13 +258,13 @@ class TestMetadataEdgeCases:
         assert "rows=2" in repr(meta)
         assert "col1" in repr(meta)
 
-
 # ========================================================================
 # Tests merged from test_metadata_loading.py
 # ========================================================================
 
 import tempfile
 from pathlib import Path
+
 from nirs4all.data.config import DatasetConfigs
 
 
@@ -450,5 +446,4 @@ class TestMetadataLoading:
         assert 'quality' in dataset.metadata_columns
         quality_values = dataset.metadata_column('quality')
         assert len(quality_values) == 15
-
 

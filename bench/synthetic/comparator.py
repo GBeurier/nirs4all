@@ -14,13 +14,14 @@ Key Features:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
+
+import matplotlib.cm as cm
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
-from scipy.signal import find_peaks, savgol_filter
 from scipy.ndimage import gaussian_filter1d
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
+from scipy.signal import find_peaks, savgol_filter
 
 
 @dataclass
@@ -73,23 +74,23 @@ class SpectralProperties:
     name: str
     n_samples: int
     n_wavelengths: int
-    wavelengths: Optional[np.ndarray] = None
+    wavelengths: np.ndarray | None = None
 
     # Basic statistics
-    mean_spectrum: Optional[np.ndarray] = None
-    std_spectrum: Optional[np.ndarray] = None
-    min_spectrum: Optional[np.ndarray] = None
-    max_spectrum: Optional[np.ndarray] = None
+    mean_spectrum: np.ndarray | None = None
+    std_spectrum: np.ndarray | None = None
+    min_spectrum: np.ndarray | None = None
+    max_spectrum: np.ndarray | None = None
 
     # Global properties
     global_mean: float = 0.0
     global_std: float = 0.0
-    global_range: Tuple[float, float] = (0.0, 0.0)
+    global_range: tuple[float, float] = (0.0, 0.0)
 
     # Slope analysis
     mean_slope: float = 0.0
     slope_std: float = 0.0
-    slopes: Optional[np.ndarray] = None
+    slopes: np.ndarray | None = None
 
     # Curvature
     mean_curvature: float = 0.0
@@ -104,17 +105,16 @@ class SpectralProperties:
     snr_estimate: float = 0.0
 
     # PCA properties
-    pca_explained_variance: Optional[np.ndarray] = None
+    pca_explained_variance: np.ndarray | None = None
     pca_n_components_95: int = 0
 
     # Peak analysis
     n_peaks_mean: float = 0.0
-    peak_positions: Optional[np.ndarray] = None
-
+    peak_positions: np.ndarray | None = None
 
 def compute_spectral_properties(
     X: np.ndarray,
-    wavelengths: Optional[np.ndarray] = None,
+    wavelengths: np.ndarray | None = None,
     name: str = "dataset",
     n_pca_components: int = 20,
 ) -> SpectralProperties:
@@ -227,7 +227,6 @@ def compute_spectral_properties(
 
     return props
 
-
 class SyntheticRealComparator:
     """
     Compare synthetic spectra with real datasets to assess realism.
@@ -258,14 +257,14 @@ class SyntheticRealComparator:
 
     def __init__(self):
         """Initialize the comparator."""
-        self.real_datasets: Dict[str, SpectralProperties] = {}
-        self.synthetic_datasets: Dict[str, SpectralProperties] = {}
-        self.comparison_results: Optional[Dict[str, Any]] = None
+        self.real_datasets: dict[str, SpectralProperties] = {}
+        self.synthetic_datasets: dict[str, SpectralProperties] = {}
+        self.comparison_results: dict[str, Any] | None = None
 
     def add_real_dataset(
         self,
         X: np.ndarray,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
         name: str = "real",
     ) -> 'SyntheticRealComparator':
         """
@@ -286,7 +285,7 @@ class SyntheticRealComparator:
     def add_synthetic_dataset(
         self,
         X: np.ndarray,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
         name: str = "synthetic",
     ) -> 'SyntheticRealComparator':
         """
@@ -304,7 +303,7 @@ class SyntheticRealComparator:
         self.synthetic_datasets[name] = props
         return self
 
-    def compute_comparison(self) -> Dict[str, Any]:
+    def compute_comparison(self) -> dict[str, Any]:
         """
         Compute comparison metrics between all real and synthetic datasets.
 
@@ -333,7 +332,7 @@ class SyntheticRealComparator:
         self.comparison_results = results
         return results
 
-    def _props_to_dict(self, props: SpectralProperties) -> Dict[str, Any]:
+    def _props_to_dict(self, props: SpectralProperties) -> dict[str, Any]:
         """Convert SpectralProperties to a summary dictionary."""
         return {
             "n_samples": props.n_samples,
@@ -356,7 +355,7 @@ class SyntheticRealComparator:
         self,
         real: SpectralProperties,
         synth: SpectralProperties,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compare a pair of real and synthetic datasets."""
         comparison = {}
 
@@ -469,7 +468,7 @@ class SyntheticRealComparator:
 
         print("\n" + "=" * 80)
 
-    def get_tuning_recommendations(self) -> Dict[str, List[str]]:
+    def get_tuning_recommendations(self) -> dict[str, list[str]]:
         """
         Get recommendations for tuning synthetic generation parameters.
 
@@ -518,8 +517,8 @@ class SyntheticRealComparator:
 
     def plot_comparison(
         self,
-        figsize: Tuple[float, float] = (16, 12),
-        save_path: Optional[str] = None,
+        figsize: tuple[float, float] = (16, 12),
+        save_path: str | None = None,
         show: bool = True,
     ) -> plt.Figure:
         """
@@ -709,7 +708,7 @@ class SyntheticRealComparator:
         ax6.grid(True, alpha=0.3, axis='x')
 
         # Add score labels
-        for bar, score in zip(bars, scores):
+        for bar, score in zip(bars, scores, strict=False):
             ax6.text(bar.get_width() + 1, bar.get_y() + bar.get_height() / 2,
                      f'{score:.1f}', va='center', fontsize=9)
 
@@ -718,14 +717,14 @@ class SyntheticRealComparator:
 
         # Show sample spectra from each dataset
         n_show = 20
-        for i, (name, props) in enumerate(list(self.real_datasets.items())[:1]):
+        for _i, (name, props) in enumerate(list(self.real_datasets.items())[:1]):
             # Need to get actual spectra - for now just show envelope
             ax7.fill_between(props.wavelengths, props.min_spectrum, props.max_spectrum,
                              alpha=0.3, color=cmap_real(0.7), label=f"{name} range (real)")
             ax7.plot(props.wavelengths, props.mean_spectrum, color=cmap_real(0.9),
                      linewidth=2, label=f"{name} mean (real)")
 
-        for i, (name, props) in enumerate(list(self.synthetic_datasets.items())[:1]):
+        for _i, (name, props) in enumerate(list(self.synthetic_datasets.items())[:1]):
             ax7.fill_between(props.wavelengths, props.min_spectrum, props.max_spectrum,
                              alpha=0.3, color=cmap_synth(0.7), label=f"{name} range (synth)")
             ax7.plot(props.wavelengths, props.mean_spectrum, color=cmap_synth(0.9),
@@ -749,12 +748,11 @@ class SyntheticRealComparator:
 
         return fig
 
-
 def compare_with_real_data(
     X_synthetic: np.ndarray,
     X_real: np.ndarray,
-    wavelengths_synth: Optional[np.ndarray] = None,
-    wavelengths_real: Optional[np.ndarray] = None,
+    wavelengths_synth: np.ndarray | None = None,
+    wavelengths_real: np.ndarray | None = None,
     synth_name: str = "synthetic",
     real_name: str = "real",
     show_plot: bool = True,

@@ -4,40 +4,39 @@ This module provides wrappers and utilities for using scikit-learn models
 as operators in nirs4all pipelines.
 """
 
-from .lwpls import LWPLS
-from .ipls import IntervalPLS
-from .robust_pls import RobustPLS
-from .recursive_pls import RecursivePLS
-from .kopls import KOPLS
-from .plsda import PLSDA
-from .ikpls import IKPLS
-from .opls import OPLS
-from .oplsda import OPLSDA
-from .mbpls import MBPLS
-from .dipls import DiPLS
-from .sparsepls import SparsePLS
-from .simpls import SIMPLS
-from .nlpls import KernelPLS, NLPLS, KPLS
-from .oklmpls import OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
-from .fckpls import FCKPLS, FractionalPLS, FractionalConvFeaturizer
 from .aom_pls import (
     AOMPLSRegressor,
-    LinearOperator,
-    IdentityOperator,
-    SavitzkyGolayOperator,
-    DetrendProjectionOperator,
     ComposedOperator,
-    NorrisWilliamsOperator,
-    FiniteDifferenceOperator,
-    WaveletProjectionOperator,
+    DetrendProjectionOperator,
     FFTBandpassOperator,
+    FiniteDifferenceOperator,
+    IdentityOperator,
+    LinearOperator,
+    NorrisWilliamsOperator,
+    SavitzkyGolayOperator,
+    WaveletProjectionOperator,
     default_operator_bank,
     extended_operator_bank,
 )
-from .pop_pls import POPPLSRegressor, pop_pls_operator_bank
 from .aom_pls_classifier import AOMPLSClassifier
+from .dipls import DiPLS
+from .fckpls import FCKPLS, FractionalConvFeaturizer, FractionalPLS
+from .ikpls import IKPLS
+from .ipls import IntervalPLS
+from .kopls import KOPLS
+from .lwpls import LWPLS
+from .mbpls import MBPLS
+from .nlpls import KPLS, NLPLS, KernelPLS
+from .oklmpls import OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
+from .opls import OPLS
+from .oplsda import OPLSDA
+from .plsda import PLSDA
+from .pop_pls import POPPLSRegressor, pop_pls_operator_bank
 from .pop_pls_classifier import POPPLSClassifier
-
+from .recursive_pls import RecursivePLS
+from .robust_pls import RobustPLS
+from .simpls import SIMPLS
+from .sparsepls import SparsePLS
 
 __all__ = [
     "PLSDA",

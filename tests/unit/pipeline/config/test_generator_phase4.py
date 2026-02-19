@@ -7,43 +7,43 @@ This module tests the features introduced in Phase 4:
 - Export utilities (to_dataframe, diff_configs, print_expansion_tree)
 """
 
-import pytest
 from itertools import islice
 
+import pytest
+
 from nirs4all.pipeline.config.generator import (
-    # Core API
-    expand_spec,
-    count_combinations,
-    # Iterator API (Phase 4)
-    expand_spec_iter,
-    batch_iter,
-    iter_with_progress,
+    # Presets (Phase 4)
+    PRESET_KEYWORD,
+    apply_all_constraints,
+    apply_exclude_constraint,
     # Constraints (Phase 4)
     apply_mutex_constraint,
     apply_requires_constraint,
-    apply_exclude_constraint,
-    apply_all_constraints,
-    parse_constraints,
-    validate_constraints,
-    # Presets (Phase 4)
-    PRESET_KEYWORD,
-    register_preset,
-    unregister_preset,
-    get_preset,
-    list_presets,
+    batch_iter,
     clear_presets,
-    has_preset,
-    is_preset_reference,
-    resolve_preset,
-    resolve_presets_recursive,
+    count_combinations,
     # Export utilities (Phase 4)
     diff_configs,
-    summarize_configs,
-    get_expansion_tree,
-    print_expansion_tree,
+    # Core API
+    expand_spec,
+    # Iterator API (Phase 4)
+    expand_spec_iter,
     format_config_table,
+    get_expansion_tree,
+    get_preset,
+    has_preset,
+    is_preset_reference,
+    iter_with_progress,
+    list_presets,
+    parse_constraints,
+    print_expansion_tree,
+    register_preset,
+    resolve_preset,
+    resolve_presets_recursive,
+    summarize_configs,
+    unregister_preset,
+    validate_constraints,
 )
-
 
 # =============================================================================
 # Iterator Tests
@@ -71,7 +71,7 @@ class TestExpandSpecIter:
         spec = {"_or_": ["A", "B", "C"], "pick": 2}
         eager = expand_spec(spec)
         lazy = list(expand_spec_iter(spec))
-        assert set(tuple(x) for x in eager) == set(tuple(x) for x in lazy)
+        assert {tuple(x) for x in eager} == {tuple(x) for x in lazy}
 
     def test_iter_with_nested_dict(self):
         """Iterator with nested dict expansion."""
@@ -106,7 +106,6 @@ class TestExpandSpecIter:
         """Iterator with empty list."""
         assert list(expand_spec_iter([])) == [[]]
 
-
 class TestBatchIter:
     """Tests for batch_iter utility."""
 
@@ -127,7 +126,6 @@ class TestBatchIter:
         assert batches[1] == [4, 5, 6]
         assert batches[2] == [7]
 
-
 class TestIterWithProgress:
     """Tests for iter_with_progress utility."""
 
@@ -136,7 +134,6 @@ class TestIterWithProgress:
         spec = {"_or_": ["A", "B", "C"]}
         results = list(iter_with_progress(spec))
         assert results == [(0, "A"), (1, "B"), (2, "C")]
-
 
 # =============================================================================
 # Constraint Tests
@@ -169,7 +166,6 @@ class TestMutexConstraint:
         result = apply_mutex_constraint(combos, [])
         assert result == combos
 
-
 class TestRequiresConstraint:
     """Tests for dependency requirement constraints."""
 
@@ -193,7 +189,6 @@ class TestRequiresConstraint:
         # A requires both B and C
         assert result == [["A", "B", "C"], ["B", "C"]]
 
-
 class TestExcludeConstraint:
     """Tests for explicit exclusion constraints."""
 
@@ -208,7 +203,6 @@ class TestExcludeConstraint:
         combos = [["A", "B"], ["A", "C"], ["B", "C"]]
         result = apply_exclude_constraint(combos, [["A", "B"], ["B", "C"]])
         assert result == [["A", "C"]]
-
 
 class TestApplyAllConstraints:
     """Tests for combined constraint application."""
@@ -228,7 +222,6 @@ class TestApplyAllConstraints:
             exclude_combos=[["C", "D"]]
         )
         assert result == [["B", "C"]]
-
 
 class TestConstraintsInExpandSpec:
     """Tests for constraint integration with expand_spec."""
@@ -270,7 +263,6 @@ class TestConstraintsInExpandSpec:
         assert ["A", "C"] not in result
         assert ["A", "B"] in result
         assert ["B", "C"] in result
-
 
 # =============================================================================
 # Preset Tests
@@ -333,7 +325,6 @@ class TestPresetRegistry:
         with pytest.raises(KeyError):
             get_preset("nonexistent")
 
-
 class TestPresetResolution:
     """Tests for preset reference resolution."""
 
@@ -376,7 +367,6 @@ class TestPresetResolution:
         with pytest.raises(ValueError, match="Circular"):
             resolve_presets_recursive({"_preset_": "a"})
 
-
 # =============================================================================
 # Export Utility Tests
 # =============================================================================
@@ -417,7 +407,6 @@ class TestDiffConfigs:
         diff = diff_configs(c1, c2)
         assert diff == {"b": (2, None)}
 
-
 class TestSummarizeConfigs:
     """Tests for config summarization."""
 
@@ -432,7 +421,6 @@ class TestSummarizeConfigs:
         assert summary["count"] == 3
         assert summary["keys"]["model"]["unique_count"] == 2
         assert summary["keys"]["n"]["unique_count"] == 3
-
 
 class TestExpansionTree:
     """Tests for expansion tree visualization."""
@@ -464,7 +452,6 @@ class TestExpansionTree:
         assert "_or_" in output
         assert "2 variants" in output
 
-
 class TestFormatConfigTable:
     """Tests for ASCII table formatting."""
 
@@ -483,7 +470,6 @@ class TestFormatConfigTable:
         """Empty configs."""
         table = format_config_table([])
         assert "no configurations" in table
-
 
 # =============================================================================
 # Integration Tests
@@ -541,7 +527,6 @@ class TestPhase4Integration:
         # Count should reflect constraints aren't pre-applied in tree
         # (tree shows theoretical count, constraints filter at expand time)
         assert tree.count >= 2  # At least 2 valid combinations
-
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

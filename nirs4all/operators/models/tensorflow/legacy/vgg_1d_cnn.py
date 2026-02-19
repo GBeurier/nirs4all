@@ -1,7 +1,6 @@
 # VGG 1D-Convolution Architecture in Keras - For both Classification and Regression Problems
 """Reference: [Very Deep Convolutional Networks for Large-Scale Image Recognition] (https://arxiv.org/abs/1409.1556)"""
 
-
 import tensorflow as tf
 
 
@@ -12,7 +11,6 @@ def Conv_1D_Block(x, model_width, kernel):
     x = tf.keras.layers.Activation('relu')(x)
 
     return x
-
 
 class VGG:
     def __init__(self, length, num_channel, num_filters, problem_type='Regression', output_nums=1, dropout_rate=False):
@@ -27,41 +25,26 @@ class VGG:
         inputs = tf.keras.Input((self.length, self.num_channel))  # The input tensor
         # Block 1
         x = Conv_1D_Block(inputs, self.num_filters * (2 ** 0), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 2
         x = Conv_1D_Block(x, self.num_filters * (2 ** 1), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 3
         x = Conv_1D_Block(x, self.num_filters * (2 ** 2), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 2), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 4
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 5
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Fully Connected (MLP) block
         x = tf.keras.layers.Flatten(name='flatten')(x)
@@ -83,42 +66,27 @@ class VGG:
         # Block 1
         x = Conv_1D_Block(inputs, self.num_filters * (2 ** 0), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 0), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 2
         x = Conv_1D_Block(x, self.num_filters * (2 ** 1), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 1), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 3
         x = Conv_1D_Block(x, self.num_filters * (2 ** 2), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 2), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 4
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 5
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Fully Connected (MLP) block
         x = tf.keras.layers.Flatten(name='flatten')(x)
@@ -140,45 +108,30 @@ class VGG:
         # Block 1
         x = Conv_1D_Block(inputs, self.num_filters * (2 ** 0), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 0), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 2
         x = Conv_1D_Block(x, self.num_filters * (2 ** 1), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 1), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 3
         x = Conv_1D_Block(x, self.num_filters * (2 ** 2), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 2), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 2), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 4
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 5
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Fully Connected (MLP) block
         x = tf.keras.layers.Flatten(name='flatten')(x)
@@ -200,45 +153,30 @@ class VGG:
         # Block 1
         x = Conv_1D_Block(inputs, self.num_filters * (2 ** 0), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 0), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 2
         x = Conv_1D_Block(x, self.num_filters * (2 ** 1), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 1), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 3
         x = Conv_1D_Block(x, self.num_filters * (2 ** 2), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 2), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 2), 1)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 4
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 1)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 5
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 1)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Fully Connected (MLP) block
         x = tf.keras.layers.Flatten(name='flatten')(x)
@@ -260,48 +198,33 @@ class VGG:
         # Block 1
         x = Conv_1D_Block(inputs, self.num_filters * (2 ** 0), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 0), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 2
         x = Conv_1D_Block(x, self.num_filters * (2 ** 1), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 1), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 3
         x = Conv_1D_Block(x, self.num_filters * (2 ** 2), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 2), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 2), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 2), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 4
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Block 5
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
         x = Conv_1D_Block(x, self.num_filters * (2 ** 3), 3)
-        if x.shape[1] <= 2:
-            x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x)
-        else:
-            x = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
+        x = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(x) if x.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(x)
 
         # Fully Connected (MLP) block
         x = tf.keras.layers.Flatten(name='flatten')(x)
@@ -317,7 +240,6 @@ class VGG:
         model = tf.keras.Model(inputs=inputs, outputs=outputs)
 
         return model
-
 
 if __name__ == '__main__':
     # Configurations

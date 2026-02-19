@@ -1,26 +1,27 @@
 """FoldChartController - Visualizes cross-validation folds with y-value color coding."""
 
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Union
+import copy
+import io
 from collections import Counter
-import matplotlib.pyplot as plt
+from typing import TYPE_CHECKING, Any, Union
+
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
 import numpy as np
-import copy
+
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.config.context import ExecutionContext
-import io
 
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
-    from nirs4all.pipeline.steps.parser import ParsedStep
     from nirs4all.pipeline.config.context import ExecutionContext
-
+    from nirs4all.pipeline.runner import PipelineRunner
+    from nirs4all.pipeline.steps.parser import ParsedStep
 
 @register_controller
 class FoldChartController(OperatorController):
@@ -50,7 +51,7 @@ class FoldChartController(OperatorController):
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ) -> Tuple['ExecutionContext', Any]:
+    ) -> tuple['ExecutionContext', Any]:
         """
         Execute fold visualization showing train/test splits with y-value color coding.
         Skips execution in prediction mode.
@@ -162,10 +163,7 @@ class FoldChartController(OperatorController):
                 meta_test = base_meta[test_origin_indices]
 
                 # Concatenate train and test for visualization
-                if len(meta_test) > 0:
-                    color_values = np.concatenate([meta_train, meta_test])
-                else:
-                    color_values = meta_train
+                color_values = np.concatenate([meta_train, meta_test]) if len(meta_test) > 0 else meta_train
 
         else:
             # Use y values for colors (default behavior)
@@ -183,10 +181,7 @@ class FoldChartController(OperatorController):
                 y_test = dataset.y(test_ctx, include_augmented=True)
 
                 # Concatenate train and test for visualization
-                if len(y_test) > 0:
-                    color_values = np.concatenate([y_train, y_test])
-                else:
-                    color_values = y_train
+                color_values = np.concatenate([y_train, y_test]) if len(y_test) > 0 else y_train
 
         color_values_flat = color_values.flatten() if color_values.ndim > 1 else color_values
 
@@ -195,10 +190,7 @@ class FoldChartController(OperatorController):
         # Always fetch train partition for this debug print to compare with sample augmentation
         train_debug_context = context.with_partition("train")
 
-        if metadata_column:
-            debug_values = dataset.metadata_column(metadata_column, train_debug_context.selector, include_augmented=True)
-        else:
-            debug_values = dataset.y(train_debug_context.selector, include_augmented=True)
+        debug_values = dataset.metadata_column(metadata_column, train_debug_context.selector, include_augmented=True) if metadata_column else dataset.y(train_debug_context.selector, include_augmented=True)
 
         debug_values_flat = debug_values.flatten() if debug_values.ndim > 1 else debug_values
 
@@ -242,9 +234,9 @@ class FoldChartController(OperatorController):
 
         return context, step_output
 
-    def _create_fold_chart(self, folds: List[Tuple[List[int], List[int]]], y_values: np.ndarray, n_samples: int, partition: str = "train",
-                           original_folds: List = None, dataset: 'SpectroDataset' = None, metadata_column: str = None,
-                           base_sample_ids: np.ndarray = None) -> Tuple[Any, Dict[str, Any]]:
+    def _create_fold_chart(self, folds: list[tuple[list[int], list[int]]], y_values: np.ndarray, n_samples: int, partition: str = "train",
+                           original_folds: list = None, dataset: 'SpectroDataset' = None, metadata_column: str = None,
+                           base_sample_ids: np.ndarray = None) -> tuple[Any, dict[str, Any]]:
         """
         Create a fold visualization chart with stacked bars showing y-value distribution.
 
@@ -268,10 +260,7 @@ class FoldChartController(OperatorController):
         if is_cv_folds and dataset is not None:
             test_ctx = {"partition": "test"}
             test_partition_indices = dataset._indexer.x_indices(test_ctx)
-            if len(test_partition_indices) > 0:
-                test_partition_indices = test_partition_indices.tolist()
-            else:
-                test_partition_indices = None
+            test_partition_indices = test_partition_indices.tolist() if len(test_partition_indices) > 0 else None
 
         # Calculate figure width including test partition if present
         extra_bars = 1 if test_partition_indices else 0
@@ -314,10 +303,7 @@ class FoldChartController(OperatorController):
             y_min, y_max = y_values.min(), y_values.max()
             colormap = plt.colormaps['viridis']
             # Normalize y values to [0, 1] for colormap
-            if y_max != y_min:
-                y_normalized = (y_values - y_min) / (y_max - y_min)
-            else:
-                y_normalized = np.zeros_like(y_values)
+            y_normalized = (y_values - y_min) / (y_max - y_min) if y_max != y_min else np.zeros_like(y_values)
 
         bar_width = 0.8
         gap_between_folds = 0.4
@@ -469,10 +455,7 @@ class FoldChartController(OperatorController):
         ax.set_xlabel(xlabel, fontsize=12)
         ax.set_ylabel('Number of Samples', fontsize=12)
 
-        if is_cv_folds:
-            title = f'Distribution Across {n_folds} CV Folds (Partition: {partition.upper()})\n'
-        else:
-            title = f'Distribution - Train/Test Split (Partition: {partition.upper()})\n'
+        title = f'Distribution Across {n_folds} CV Folds (Partition: {partition.upper()})\n' if is_cv_folds else f'Distribution - Train/Test Split (Partition: {partition.upper()})\n'
 
         # Adjust title based on whether using metadata, classification, or regression
         if metadata_column:
@@ -496,10 +479,7 @@ class FoldChartController(OperatorController):
         elif is_classification_task:
             color_label = 'class labels'
             unique_values = np.unique(y_values)
-            if len(unique_values) <= 20:
-                title_suffix = f'{len(unique_values)} unique classes'
-            else:
-                title_suffix = f'{len(unique_values)} unique classes'
+            title_suffix = f'{len(unique_values)} unique classes' if len(unique_values) <= 20 else f'{len(unique_values)} unique classes'
         else:
             color_label = 'target values (y)'
             title_suffix = f'{y_min:.2f} - {y_max:.2f}'
@@ -510,7 +490,7 @@ class FoldChartController(OperatorController):
         # Configurer les ticks x
         x_positions = []
         x_labels = []
-        for fold_idx, (train_idx, test_idx) in enumerate(folds):
+        for fold_idx, (_train_idx, test_idx) in enumerate(folds):
             base_pos = fold_idx * (2 + gap_between_folds)
             if is_cv_folds:
                 x_positions.extend([base_pos, base_pos + 1] if len(test_idx) > 0 else [base_pos])
@@ -618,13 +598,10 @@ class FoldChartController(OperatorController):
             y_normalized = np.array([value_to_index[val] / max(n_unique - 1, 1) for val in y_values_sorted])
         else:
             # For continuous y values
-            if y_max != y_min:
-                y_normalized = (y_values_sorted - y_min) / (y_max - y_min)
-            else:
-                y_normalized = np.zeros_like(y_values_sorted)
+            y_normalized = (y_values_sorted - y_min) / (y_max - y_min) if y_max != y_min else np.zeros_like(y_values_sorted)
 
         # Créer chaque segment de la barre empilée
-        for i, (y_val, y_norm) in enumerate(zip(y_values_sorted, y_normalized)):
+        for i, (_y_val, y_norm) in enumerate(zip(y_values_sorted, y_normalized, strict=False)):
             color = colormap(y_norm)
 
             # Create darker edge color (same hue but darker)
@@ -633,5 +610,4 @@ class FoldChartController(OperatorController):
 
             ax.bar(position, 1, bottom=i, width=bar_width,
                    color=color, edgecolor=darker_color, linewidth=0.5)
-
 

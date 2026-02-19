@@ -5,7 +5,7 @@ import copy
 import numpy as np
 import pytest
 
-from nirs4all.data._features.array_storage import SharedBlocks, ArrayStorage
+from nirs4all.data._features.array_storage import ArrayStorage, SharedBlocks
 
 
 class TestSharedBlocks:
@@ -71,7 +71,6 @@ class TestSharedBlocks:
         arr = np.ones((2, 3))
         sb = SharedBlocks(arr)
         assert sb.array is arr
-
 
 class TestArrayStorageBlockBased:
     """Tests for block-based ArrayStorage internals."""
@@ -237,7 +236,6 @@ class TestArrayStorageBlockBased:
         assert len(copied._blocks) == 1  # decomposed from shared
         assert copied._shared is None
 
-
 class TestArrayStorageCoW:
     """Tests for ArrayStorage CoW integration via ensure_shared/restore_from_shared."""
 
@@ -377,7 +375,6 @@ class TestArrayStorageCoW:
         assert storage._shared is None
         assert len(storage._blocks) == 1
         np.testing.assert_array_almost_equal(storage.array, new_data, decimal=5)
-
 
 class TestArrayStorageAugmentation:
     """Tests for sample augmentation with block-based storage."""

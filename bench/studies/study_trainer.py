@@ -8,13 +8,12 @@ This module wraps study_full_training.py to support both CLI and function call m
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-
-def run_study(config: Dict[str, Any]) -> None:
+def run_study(config: dict[str, Any]) -> None:
     """Run the full study with advanced configuration.
 
     This function is called directly from the base runner in advanced mode,

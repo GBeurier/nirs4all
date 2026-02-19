@@ -5,7 +5,7 @@ Unit tests for SampleFilter base class and CompositeFilter.
 import numpy as np
 import pytest
 
-from nirs4all.operators.filters.base import SampleFilter, CompositeFilter
+from nirs4all.operators.filters.base import CompositeFilter, SampleFilter
 
 
 class MockKeepAllFilter(SampleFilter):
@@ -14,13 +14,11 @@ class MockKeepAllFilter(SampleFilter):
     def get_mask(self, X, y=None):
         return np.ones(len(X), dtype=bool)
 
-
 class MockKeepNoneFilter(SampleFilter):
     """Mock filter that excludes all samples."""
 
     def get_mask(self, X, y=None):
         return np.zeros(len(X), dtype=bool)
-
 
 class MockKeepEvenFilter(SampleFilter):
     """Mock filter that keeps samples at even indices."""
@@ -30,7 +28,6 @@ class MockKeepEvenFilter(SampleFilter):
         mask[::2] = True
         return mask
 
-
 class MockKeepOddFilter(SampleFilter):
     """Mock filter that keeps samples at odd indices."""
 
@@ -38,7 +35,6 @@ class MockKeepOddFilter(SampleFilter):
         mask = np.zeros(len(X), dtype=bool)
         mask[1::2] = True
         return mask
-
 
 class TestSampleFilterBase:
     """Tests for SampleFilter base class."""
@@ -113,7 +109,6 @@ class TestSampleFilterBase:
 
         assert stats["n_samples"] == 0
         assert stats["exclusion_rate"] == 0.0
-
 
 class TestCompositeFilter:
     """Tests for CompositeFilter class."""

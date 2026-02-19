@@ -5,12 +5,11 @@ from math import ceil, floor
 
 import numpy as np
 from scipy.spatial.distance import cdist
-from sklearn.model_selection import BaseCrossValidator
-from sklearn.utils.validation import _num_samples
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
-from sklearn.model_selection import StratifiedShuffleSplit, StratifiedGroupKFold
+from sklearn.model_selection import BaseCrossValidator, StratifiedGroupKFold, StratifiedShuffleSplit
 from sklearn.preprocessing import KBinsDiscretizer
+from sklearn.utils.validation import _num_samples
 from twinning import twin
 
 
@@ -32,9 +31,9 @@ def _validate_shuffle_split(n_samples, test_size, train_size, default_test_size=
         and (test_size <= 0 or test_size >= 1)
     ):
         raise ValueError(
-            "test_size={0} should be either positive and smaller"
-            " than the number of samples {1} or a float in the "
-            "(0, 1) range".format(test_size, n_samples)
+            f"test_size={test_size} should be either positive and smaller"
+            f" than the number of samples {n_samples} or a float in the "
+            "(0, 1) range"
         )
 
     if (
@@ -44,20 +43,20 @@ def _validate_shuffle_split(n_samples, test_size, train_size, default_test_size=
         and (train_size <= 0 or train_size >= 1)
     ):
         raise ValueError(
-            "train_size={0} should be either positive and smaller"
-            " than the number of samples {1} or a float in the "
-            "(0, 1) range".format(train_size, n_samples)
+            f"train_size={train_size} should be either positive and smaller"
+            f" than the number of samples {n_samples} or a float in the "
+            "(0, 1) range"
         )
 
     if train_size is not None and train_size_type not in ("i", "f"):
-        raise ValueError("Invalid value for train_size: {}".format(train_size))
+        raise ValueError(f"Invalid value for train_size: {train_size}")
     if test_size is not None and test_size_type not in ("i", "f"):
-        raise ValueError("Invalid value for test_size: {}".format(test_size))
+        raise ValueError(f"Invalid value for test_size: {test_size}")
 
     if train_size_type == "f" and test_size_type == "f" and train_size + test_size > 1:
         raise ValueError(
-            "The sum of test_size and train_size = {}, should be in the (0, 1)"
-            " range. Reduce test_size and/or train_size.".format(train_size + test_size)
+            f"The sum of test_size and train_size = {train_size + test_size}, should be in the (0, 1)"
+            " range. Reduce test_size and/or train_size."
         )
 
     if test_size_type == "f":
@@ -77,19 +76,19 @@ def _validate_shuffle_split(n_samples, test_size, train_size, default_test_size=
 
     if n_train + n_test > n_samples:
         raise ValueError(
-            "The sum of train_size and test_size = %d, "
+            f"The sum of train_size and test_size = {n_train + n_test}, "
             "should be smaller than the number of "
-            "samples %d. Reduce test_size and/or "
-            "train_size." % (n_train + n_test, n_samples)
+            f"samples {n_samples}. Reduce test_size and/or "
+            "train_size."
         )
 
     n_train, n_test = int(n_train), int(n_test)
 
     if n_train == 0:
         raise ValueError(
-            "With n_samples={}, test_size={} and train_size={}, the "
+            f"With n_samples={n_samples}, test_size={test_size} and train_size={train_size}, the "
             "resulting train set will be empty. Adjust any of the "
-            "aforementioned parameters.".format(n_samples, test_size, train_size)
+            "aforementioned parameters."
         )
 
     # Ensure that the sum of n_train and n_test equals n_samples
@@ -97,7 +96,6 @@ def _validate_shuffle_split(n_samples, test_size, train_size, default_test_size=
         n_test = n_samples - n_train
 
     return n_train, n_test
-
 
 class CustomSplitter(BaseCrossValidator, ABC):
     """
@@ -114,7 +112,6 @@ class CustomSplitter(BaseCrossValidator, ABC):
     @abstractmethod
     def get_n_splits(self, X=None, y=None, groups=None):
         pass
-
 
 class SystematicCircularSplitter(CustomSplitter):
     """
@@ -156,7 +153,6 @@ class SystematicCircularSplitter(CustomSplitter):
     def get_n_splits(self, X=None, y=None, groups=None):
         return self.n_splits
 
-
 class KBinsStratifiedSplitter(CustomSplitter):
     """
     Implements stratified sampling using KBins discretization.
@@ -191,12 +187,10 @@ class KBinsStratifiedSplitter(CustomSplitter):
             random_state=self.random_state,
         )
 
-        for train_idx, test_idx in split_model.split(X, y_discrete):
-            yield train_idx, test_idx
+        yield from split_model.split(X, y_discrete)
 
     def get_n_splits(self, X=None, y=None, groups=None):
         return self.n_splits
-
 
 class BinnedStratifiedGroupKFold(CustomSplitter):
     """
@@ -347,8 +341,7 @@ class BinnedStratifiedGroupKFold(CustomSplitter):
             random_state=self.random_state
         )
 
-        for train_idx, test_idx in sgkf.split(X, y_binned, groups):
-            yield train_idx, test_idx
+        yield from sgkf.split(X, y_binned, groups)
 
     def get_n_splits(self, X=None, y=None, groups=None):
         """Return the number of splitting iterations.
@@ -368,7 +361,6 @@ class BinnedStratifiedGroupKFold(CustomSplitter):
             Number of folds.
         """
         return self.n_splits
-
 
 class KMeansSplitter(CustomSplitter):
     """
@@ -422,7 +414,6 @@ class KMeansSplitter(CustomSplitter):
 
     def get_n_splits(self, X=None, y=None, groups=None):
         return self.n_splits
-
 
 class KennardStoneSplitter(CustomSplitter):
     """
@@ -484,7 +475,6 @@ class KennardStoneSplitter(CustomSplitter):
 
     def get_n_splits(self, X=None, y=None, groups=None):
         return self.n_splits
-
 
 class SPXYSplitter(CustomSplitter):
     """
@@ -568,7 +558,6 @@ class SPXYSplitter(CustomSplitter):
     def get_n_splits(self, X=None, y=None, groups=None):
         return self.n_splits
 
-
 class SPlitSplitter(CustomSplitter):
     """
     Implements the SPlit sampling.
@@ -598,7 +587,6 @@ class SPlitSplitter(CustomSplitter):
 
     def get_n_splits(self, X=None, y=None, groups=None):
         return self.n_splits
-
 
 class SPXYFold(CustomSplitter):
     """
@@ -766,7 +754,7 @@ class SPXYFold(CustomSplitter):
         target_size = n_samples // n_splits
         max_size = target_size + (1 if n_samples % n_splits > 0 else 0)
 
-        fold_members = [list([idx]) for idx in init_indices]
+        fold_members = [[idx] for idx in init_indices]
 
         # Alternating assignment: cycle through folds
         while remaining:
@@ -840,7 +828,6 @@ class SPXYFold(CustomSplitter):
     def get_n_splits(self, X=None, y=None, groups=None):
         """Return the number of splitting iterations."""
         return self.n_splits
-
 
 class SPXYGFold(CustomSplitter):
     """
@@ -1126,7 +1113,7 @@ class SPXYGFold(CustomSplitter):
         max_size = target_size + (1 if n_samples % n_splits > 0 else 0)
 
         # Lists of samples in each fold
-        fold_members = [list([idx]) for idx in init_indices]
+        fold_members = [[idx] for idx in init_indices]
 
         # Alternating assignment: cycle through folds
         while remaining:

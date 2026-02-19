@@ -18,17 +18,16 @@ Example:
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 import pandas as pd
 
-from .column_selector import ColumnSelector, ColumnSelectionError, ColumnSpec
+from .column_selector import ColumnSelectionError, ColumnSelector, ColumnSpec
 
 
 class RoleAssignmentError(Exception):
     """Raised when role assignment fails."""
     pass
-
 
 @dataclass
 class RoleAssignmentResult:
@@ -42,27 +41,25 @@ class RoleAssignmentResult:
         target_indices: Indices of target columns in original DataFrame.
         metadata_indices: Indices of metadata columns in original DataFrame.
     """
-    features: Optional[pd.DataFrame]
-    targets: Optional[pd.DataFrame]
-    metadata: Optional[pd.DataFrame]
-    feature_indices: List[int]
-    target_indices: List[int]
-    metadata_indices: List[int]
+    features: pd.DataFrame | None
+    targets: pd.DataFrame | None
+    metadata: pd.DataFrame | None
+    feature_indices: list[int]
+    target_indices: list[int]
+    metadata_indices: list[int]
 
     @property
-    def X(self) -> Optional[pd.DataFrame]:
+    def X(self) -> pd.DataFrame | None:
         """Alias for features."""
         return self.features
 
     @property
-    def y(self) -> Optional[pd.DataFrame]:
+    def y(self) -> pd.DataFrame | None:
         """Alias for targets."""
         return self.targets
 
-
 # Type alias for role specification
-RoleSpec = Dict[str, ColumnSpec]
-
+RoleSpec = dict[str, ColumnSpec]
 
 class RoleAssigner:
     """Assign columns to data roles (features, targets, metadata).
@@ -127,30 +124,30 @@ class RoleAssigner:
         metadata_spec = normalized_roles.get("metadata")
 
         # Resolve each selection
-        feature_indices: List[int] = []
-        target_indices: List[int] = []
-        metadata_indices: List[int] = []
+        feature_indices: list[int] = []
+        target_indices: list[int] = []
+        metadata_indices: list[int] = []
 
         try:
             if feature_spec is not None:
                 result = self.selector.select(df, feature_spec)
                 feature_indices = result.indices
         except ColumnSelectionError as e:
-            raise RoleAssignmentError(f"Error selecting features: {e}")
+            raise RoleAssignmentError(f"Error selecting features: {e}") from e
 
         try:
             if target_spec is not None:
                 result = self.selector.select(df, target_spec)
                 target_indices = result.indices
         except ColumnSelectionError as e:
-            raise RoleAssignmentError(f"Error selecting targets: {e}")
+            raise RoleAssignmentError(f"Error selecting targets: {e}") from e
 
         try:
             if metadata_spec is not None:
                 result = self.selector.select(df, metadata_spec)
                 metadata_indices = result.indices
         except ColumnSelectionError as e:
-            raise RoleAssignmentError(f"Error selecting metadata: {e}")
+            raise RoleAssignmentError(f"Error selecting metadata: {e}") from e
 
         # Check for overlap (unless allowed)
         if not self.allow_overlap:
@@ -173,8 +170,8 @@ class RoleAssigner:
     def assign_auto(
         self,
         df: pd.DataFrame,
-        target_columns: Optional[ColumnSpec] = None,
-        metadata_columns: Optional[ColumnSpec] = None,
+        target_columns: ColumnSpec | None = None,
+        metadata_columns: ColumnSpec | None = None,
     ) -> RoleAssignmentResult:
         """Auto-assign roles with specified targets and metadata.
 
@@ -192,24 +189,24 @@ class RoleAssigner:
         used_indices = set()
 
         # Resolve targets
-        target_indices: List[int] = []
+        target_indices: list[int] = []
         if target_columns is not None:
             try:
                 result = self.selector.select(df, target_columns)
                 target_indices = result.indices
                 used_indices.update(target_indices)
             except ColumnSelectionError as e:
-                raise RoleAssignmentError(f"Error selecting targets: {e}")
+                raise RoleAssignmentError(f"Error selecting targets: {e}") from e
 
         # Resolve metadata
-        metadata_indices: List[int] = []
+        metadata_indices: list[int] = []
         if metadata_columns is not None:
             try:
                 result = self.selector.select(df, metadata_columns)
                 metadata_indices = result.indices
                 used_indices.update(metadata_indices)
             except ColumnSelectionError as e:
-                raise RoleAssignmentError(f"Error selecting metadata: {e}")
+                raise RoleAssignmentError(f"Error selecting metadata: {e}") from e
 
         # Features are all remaining columns
         feature_indices = [i for i in range(n_cols) if i not in used_indices]
@@ -251,7 +248,7 @@ class RoleAssigner:
         """
         return self.assign_auto(df, target_columns=y_columns)
 
-    def _normalize_role_keys(self, roles: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize_role_keys(self, roles: dict[str, Any]) -> dict[str, Any]:
         """Normalize role keys to standard names."""
         normalized = {}
 
@@ -292,9 +289,9 @@ class RoleAssigner:
 
     def _check_overlap(
         self,
-        feature_indices: List[int],
-        target_indices: List[int],
-        metadata_indices: List[int],
+        feature_indices: list[int],
+        target_indices: list[int],
+        metadata_indices: list[int],
         df: pd.DataFrame,
     ) -> None:
         """Check for column overlap between roles."""
@@ -333,7 +330,7 @@ class RoleAssigner:
         self,
         df: pd.DataFrame,
         roles: RoleSpec,
-    ) -> List[str]:
+    ) -> list[str]:
         """Validate a role specification without performing assignment.
 
         Args:

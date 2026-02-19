@@ -9,8 +9,10 @@ Tests cover:
 - JSON compatibility of serialized state
 """
 import json
+
 import polars as pl
 import pytest
+
 from nirs4all.data._indexer.index_store import IndexStore
 
 
@@ -107,7 +109,6 @@ class TestTagSerializationRoundtrip:
         assert tags[1] is None
         assert tags[2] == 3
 
-
 class TestJsonCompatibility:
     """Tests for JSON compatibility of serialized state."""
 
@@ -169,7 +170,6 @@ class TestJsonCompatibility:
         # Verify
         assert restored.get_tags("is_outlier") == [True, False]
         assert restored.get_tags("cluster") == [1, 2]
-
 
 class TestAllDataTypes:
     """Tests for serialization of all supported tag data types."""
@@ -273,7 +273,6 @@ class TestAllDataTypes:
 
         restored = IndexStore.from_dict(state)
         assert restored.get_tags("score") == [pytest.approx(3.14159)]
-
 
 class TestEdgeCases:
     """Tests for edge cases in serialization."""

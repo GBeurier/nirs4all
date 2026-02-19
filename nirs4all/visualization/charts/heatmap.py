@@ -9,25 +9,27 @@ CORE LOGIC:
 5. Normalize per dataset if requested
 6. Render with color based on normalized scores
 """
+import contextlib
+import time
+from typing import TYPE_CHECKING, Any, Optional
+
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
-import time
 from matplotlib.figure import Figure
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
-from nirs4all.visualization.charts.base import BaseChart
-from nirs4all.visualization.chart_utils.normalizer import ScoreNormalizer
+
+from nirs4all.core import metrics as evaluator
+from nirs4all.core.logging import get_logger
+from nirs4all.core.metrics import abbreviate_metric
 from nirs4all.visualization.chart_utils.annotator import ChartAnnotator
 from nirs4all.visualization.chart_utils.matrix_builder import MatrixBuilder
-from nirs4all.core import metrics as evaluator
-from nirs4all.core.metrics import abbreviate_metric
-from nirs4all.core.logging import get_logger
+from nirs4all.visualization.chart_utils.normalizer import ScoreNormalizer
+from nirs4all.visualization.charts.base import BaseChart
 
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.visualization.predictions import PredictionAnalyzer
-
 
 class HeatmapChart(BaseChart):
     """Heatmap visualization of performance across two variables.
@@ -39,7 +41,7 @@ class HeatmapChart(BaseChart):
     def __init__(
         self,
         predictions,
-        dataset_name_override: Optional[str] = None,
+        dataset_name_override: str | None = None,
         config=None,
         analyzer: Optional['PredictionAnalyzer'] = None
     ):
@@ -59,7 +61,7 @@ class HeatmapChart(BaseChart):
     def _select_top_k_by_borda(
         self,
         matrix: np.ndarray,
-        y_labels: List[str],
+        y_labels: list[str],
         top_k: int,
         higher_better: bool
     ) -> tuple:
@@ -117,10 +119,7 @@ class HeatmapChart(BaseChart):
             col = matrix[:, j]
             valid_mask = ~np.isnan(col)
             if valid_mask.any():
-                if higher_better:
-                    best_idx = np.nanargmax(col)
-                else:
-                    best_idx = np.nanargmin(col)
+                best_idx = np.nanargmax(col) if higher_better else np.nanargmin(col)
                 top1_indices.add(best_idx)
 
         # Step 2: Compute Borda count for all models (lower is better - sum of ranks)
@@ -167,10 +166,7 @@ class HeatmapChart(BaseChart):
                 ranks[:, j] = n_models
                 continue
 
-            if higher_better:
-                order = np.argsort(-col)
-            else:
-                order = np.argsort(col)
+            order = np.argsort(-col) if higher_better else np.argsort(col)
 
             for rank_pos, idx in enumerate(order):
                 if valid_mask[idx]:
@@ -184,8 +180,8 @@ class HeatmapChart(BaseChart):
         self,
         matrix: np.ndarray,
         count_matrix: np.ndarray,
-        y_labels: List[str],
-        x_labels: List[str],
+        y_labels: list[str],
+        x_labels: list[str],
         rank_partition: str,
         higher_better: bool,
         method: str = 'value'
@@ -214,10 +210,7 @@ class HeatmapChart(BaseChart):
 
         if method == 'value':
             # Original behavior: sort by single column
-            if rank_partition in x_labels:
-                rank_col_idx = x_labels.index(rank_partition)
-            else:
-                rank_col_idx = 0
+            rank_col_idx = x_labels.index(rank_partition) if rank_partition in x_labels else 0
 
             rank_scores = matrix[:, rank_col_idx]
             sort_scores = np.where(
@@ -226,10 +219,7 @@ class HeatmapChart(BaseChart):
                 rank_scores
             )
 
-            if higher_better:
-                sorted_indices = np.argsort(-sort_scores)
-            else:
-                sorted_indices = np.argsort(sort_scores)
+            sorted_indices = np.argsort(-sort_scores) if higher_better else np.argsort(sort_scores)
 
         elif method == 'mean':
             # Mean score across all columns
@@ -239,10 +229,7 @@ class HeatmapChart(BaseChart):
                 float('-inf') if higher_better else float('inf'),
                 mean_scores
             )
-            if higher_better:
-                sorted_indices = np.argsort(-sort_scores)
-            else:
-                sorted_indices = np.argsort(sort_scores)
+            sorted_indices = np.argsort(-sort_scores) if higher_better else np.argsort(sort_scores)
 
         elif method == 'median':
             # Median score across all columns
@@ -252,10 +239,7 @@ class HeatmapChart(BaseChart):
                 float('-inf') if higher_better else float('inf'),
                 median_scores
             )
-            if higher_better:
-                sorted_indices = np.argsort(-sort_scores)
-            else:
-                sorted_indices = np.argsort(sort_scores)
+            sorted_indices = np.argsort(-sort_scores) if higher_better else np.argsort(sort_scores)
 
         elif method == 'borda':
             # Borda count: sum of ranks (lower = better)
@@ -355,21 +339,21 @@ class HeatmapChart(BaseChart):
         self,
         x_var: str,
         y_var: str,
-        rank_metric: Optional[str] = None,
+        rank_metric: str | None = None,
         rank_partition: str = 'val',
         display_metric: str = '',
         display_partition: str = 'test',
-        figsize: Optional[tuple] = None,
+        figsize: tuple | None = None,
         normalize: bool = False,
         rank_agg: str = 'best',
         display_agg: str = 'mean',
         show_counts: bool = True,
         local_scale: bool = False,
         column_scale: bool = False,
-        aggregate: Optional[str] = None,
-        top_k: Optional[int] = None,
+        aggregate: str | None = None,
+        top_k: int | None = None,
         sort_by_value: bool = False,
-        sort_by: Optional[str] = None,
+        sort_by: str | None = None,
         **filters
     ) -> Figure:
         """Render performance heatmap (Optimized with Polars).
@@ -415,10 +399,7 @@ class HeatmapChart(BaseChart):
 
         # Auto-detect metric if not provided
         if rank_metric is None:
-            if display_metric:
-                rank_metric = display_metric
-            else:
-                rank_metric = self._get_default_metric()
+            rank_metric = display_metric if display_metric else self._get_default_metric()
 
         self.validate_inputs(x_var, y_var, rank_metric)
 
@@ -724,9 +705,9 @@ class HeatmapChart(BaseChart):
         rank_metric: str,
         rank_partition: str,
         column_scale: bool = False,
-        top_k: Optional[int] = None,
-        sort_by: Optional[str] = None,
-        aggregate: Optional[str] = None
+        top_k: int | None = None,
+        sort_by: str | None = None,
+        aggregate: str | None = None
     ) -> tuple:
         """Build compact heatmap title with optional two-line layout.
 
@@ -789,10 +770,7 @@ class HeatmapChart(BaseChart):
 
         # If title is too long, use two lines and reduce font
         if len(full_title) > 60:
-            if rank_info:
-                title = f"{line1}\n{rank_info}"
-            else:
-                title = line1
+            title = f"{line1}\n{rank_info}" if rank_info else line1
             title_fontsize = self.config.title_fontsize - 2
         else:
             title = full_title
@@ -821,8 +799,8 @@ class HeatmapChart(BaseChart):
         matrix: np.ndarray,
         normalized_matrix: np.ndarray,
         count_matrix: np.ndarray,
-        x_labels: List[str],
-        y_labels: List[str],
+        x_labels: list[str],
+        y_labels: list[str],
         x_var: str,
         y_var: str,
         rank_metric: str,
@@ -837,8 +815,8 @@ class HeatmapChart(BaseChart):
         local_scale: bool,
         display_higher_better: bool,
         column_scale: bool = False,
-        top_k: Optional[int] = None,
-        sort_by: Optional[str] = None
+        top_k: int | None = None,
+        sort_by: str | None = None
     ) -> Figure:
         """Render the heatmap figure."""
         fig, ax = plt.subplots(figsize=figsize)
@@ -987,8 +965,8 @@ class HeatmapChart(BaseChart):
         local_scale: bool,
         column_scale: bool,
         aggregate: str,
-        top_k: Optional[int] = None,
-        sort_by: Optional[str] = None,
+        top_k: int | None = None,
+        sort_by: str | None = None,
         **filters
     ) -> Figure:
         """Render heatmap with aggregation support.
@@ -1035,10 +1013,7 @@ class HeatmapChart(BaseChart):
             raise ValueError(f"No predictions found with filters: {all_filters}")
 
         # Get unique combinations of x_var and y_var
-        if is_partition_grouped:
-            source_df = df
-        else:
-            source_df = df.filter(pl.col("partition") == display_partition)
+        source_df = df if is_partition_grouped else df.filter(pl.col("partition") == display_partition)
 
         if source_df.height == 0:
             raise ValueError(f"No predictions found for partition: {display_partition}")
@@ -1074,7 +1049,7 @@ class HeatmapChart(BaseChart):
                 **all_filters
             )
         except Exception as e:
-            raise ValueError(f"Failed to get aggregated predictions: {e}")
+            raise ValueError(f"Failed to get aggregated predictions: {e}") from e
 
         if not all_top_preds:
             raise ValueError("No predictions found after aggregation")
@@ -1129,10 +1104,8 @@ class HeatmapChart(BaseChart):
                         y_true = partition_data.get('y_true')
                         y_pred = partition_data.get('y_pred')
                         if y_true is not None and y_pred is not None:
-                            try:
+                            with contextlib.suppress(Exception):
                                 score = evaluator.eval(y_true, y_pred, display_metric)
-                            except Exception:
-                                pass
 
                     if score is not None:
                         matrix[y_idx, x_idx] = score
@@ -1147,10 +1120,8 @@ class HeatmapChart(BaseChart):
                     y_true = partition_data.get('y_true')
                     y_pred = partition_data.get('y_pred')
                     if y_true is not None and y_pred is not None:
-                        try:
+                        with contextlib.suppress(Exception):
                             score = evaluator.eval(y_true, y_pred, display_metric)
-                        except Exception:
-                            pass
 
                 # For non-partition grouped, we have a single x column
                 if x_labels:
@@ -1217,8 +1188,8 @@ class HeatmapChart(BaseChart):
         matrix: np.ndarray,
         normalized_matrix: np.ndarray,
         count_matrix: np.ndarray,
-        x_labels: List[str],
-        y_labels: List[str],
+        x_labels: list[str],
+        y_labels: list[str],
         x_var: str,
         y_var: str,
         rank_metric: str,
@@ -1234,8 +1205,8 @@ class HeatmapChart(BaseChart):
         display_higher_better: bool,
         aggregate: str,
         column_scale: bool = False,
-        top_k: Optional[int] = None,
-        sort_by: Optional[str] = None
+        top_k: int | None = None,
+        sort_by: str | None = None
     ) -> Figure:
         """Render the heatmap figure with aggregation note."""
         fig, ax = plt.subplots(figsize=figsize)

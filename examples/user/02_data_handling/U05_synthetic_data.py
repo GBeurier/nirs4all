@@ -28,13 +28,14 @@ import argparse
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+
 # Third-party imports
 import numpy as np
-import matplotlib.pyplot as plt
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.model_selection import ShuffleSplit, KFold
-from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import KFold, ShuffleSplit
+from sklearn.preprocessing import StandardScaler
 
 # NIRS4All imports
 import nirs4all
@@ -52,7 +53,6 @@ args = parser.parse_args()
 # Example name for output directory
 EXAMPLE_NAME = "U05_synthetic_data"
 
-
 # =============================================================================
 # Section 1: Basic Generation
 # =============================================================================
@@ -67,7 +67,7 @@ print("-" * 60)
 # Generate a simple dataset
 dataset = nirs4all.generate(n_samples=500, random_state=42)
 
-print(f"\n📊 Generated dataset:")
+print("\n📊 Generated dataset:")
 print(f"   Type: {type(dataset).__name__}")
 print(f"   Samples: {dataset.num_samples}")
 
@@ -77,7 +77,6 @@ y_train = dataset.y({"partition": "train"})
 
 print(f"   Training features: {X_train.shape}")
 print(f"   Training targets: {y_train.shape}")
-
 
 # =============================================================================
 # Section 2: Get Raw Arrays
@@ -89,11 +88,10 @@ print("-" * 60)
 # For quick experiments, get numpy arrays directly
 X, y = nirs4all.generate(n_samples=300, as_dataset=False, random_state=42)
 
-print(f"\n📊 Generated arrays:")
+print("\n📊 Generated arrays:")
 print(f"   Features shape: {X.shape}")
 print(f"   Targets shape: {y.shape}")
 print(f"   Target range: [{y.min():.3f}, {y.max():.3f}]")
-
 
 # =============================================================================
 # Section 3: Regression Datasets
@@ -113,7 +111,7 @@ dataset_reg = nirs4all.generate.regression(
 )
 
 y_all = dataset_reg.y({})
-print(f"\n📊 Regression dataset:")
+print("\n📊 Regression dataset:")
 print(f"   Samples: {dataset_reg.num_samples}")
 print(f"   Target range: [{y_all.min():.1f}, {y_all.max():.1f}]")
 
@@ -131,7 +129,6 @@ result_reg = nirs4all.run(
 
 print(f"   Pipeline RMSE: {result_reg.best_rmse:.2f}")
 
-
 # =============================================================================
 # Section 4: Classification Datasets
 # =============================================================================
@@ -147,7 +144,7 @@ dataset_binary = nirs4all.generate.classification(
     random_state=42
 )
 
-print(f"\n📊 Binary classification:")
+print("\n📊 Binary classification:")
 y_classes = dataset_binary.y({})
 unique, counts = np.unique(y_classes, return_counts=True)
 print(f"   Classes: {unique.tolist()}")
@@ -162,7 +159,7 @@ dataset_multi = nirs4all.generate.classification(
     random_state=42
 )
 
-print(f"\n📊 Multiclass (imbalanced):")
+print("\n📊 Multiclass (imbalanced):")
 y_multi = dataset_multi.y({})
 unique, counts = np.unique(y_multi, return_counts=True)
 print(f"   Classes: {unique.tolist()}")
@@ -181,7 +178,6 @@ result_clf = nirs4all.run(
 )
 
 print(f"\n   Classification accuracy: {result_clf.best_score:.3f}")
-
 
 # =============================================================================
 # Section 5: Complexity Levels
@@ -213,7 +209,6 @@ for complexity in ["simple", "realistic", "complex"]:
 
     print(f"   {complexity:10s}: RMSE = {result.best_rmse:.4f}")
 
-
 # =============================================================================
 # Section 6: Using Specific Components
 # =============================================================================
@@ -229,10 +224,9 @@ dataset_food = nirs4all.generate(
     random_state=42
 )
 
-print(f"\n📊 Food-like composition dataset:")
-print(f"   Components: water, protein, lipid, starch")
+print("\n📊 Food-like composition dataset:")
+print("   Components: water, protein, lipid, starch")
 print(f"   Samples: {dataset_food.num_samples}")
-
 
 # =============================================================================
 # Section 7: Direct Pipeline Integration
@@ -263,7 +257,6 @@ result_direct = nirs4all.run(
 )
 
 print(f"   Generated and trained: RMSE = {result_direct.best_rmse:.3f}")
-
 
 # =============================================================================
 # Section 8: Visualization of Generated Data
@@ -335,7 +328,6 @@ plt.tight_layout()
 plot_path = get_example_output_path(EXAMPLE_NAME, "synthetic_data_overview.png")
 plt.savefig(plot_path, dpi=150, bbox_inches="tight")
 print_output_location(plot_path, "Overview plot")
-
 
 # =============================================================================
 # Summary

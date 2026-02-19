@@ -23,7 +23,7 @@ Difficulty: ★★★★★
 
 # Standard library imports
 import argparse
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 # Third-party imports
 import numpy as np
@@ -41,7 +41,6 @@ parser = argparse.ArgumentParser(description='D02 Custom Controllers Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -67,7 +66,6 @@ Each controller:
   - Implements execute() for training
   - Optionally supports prediction mode
 """)
-
 
 # =============================================================================
 # Section 1: Controller Architecture
@@ -99,7 +97,6 @@ print("\nRegistered controllers (first 10):")
 for controller in CONTROLLER_REGISTRY[:10]:
     print(f"  {controller.__name__}: priority={controller.priority}")
 
-
 # =============================================================================
 # Section 2: Simple Custom Controller
 # =============================================================================
@@ -123,13 +120,11 @@ Create a custom controller by inheriting OperatorController:
             return dataset
 """)
 
-
 class PrintDatasetInfo:
     """Custom operator that prints dataset information."""
 
     def __init__(self, message: str = "Dataset Info"):
         self.message = message
-
 
 @register_controller
 class PrintDatasetInfoController(OperatorController):
@@ -175,9 +170,7 @@ class PrintDatasetInfoController(OperatorController):
         """This controller runs during prediction too."""
         return True
 
-
 print("\nCustom controller registered: PrintDatasetInfoController")
-
 
 # =============================================================================
 # Section 3: Using Custom Controllers
@@ -214,7 +207,6 @@ result = nirs4all.run(
 
 print(f"\nResult: {result.num_predictions} predictions")
 
-
 # =============================================================================
 # Section 4: Keyword-Based Controllers
 # =============================================================================
@@ -234,13 +226,11 @@ The controller matches based on the keyword:
         return keyword == "my_transform"
 """)
 
-
 class LogTransformOperator:
     """Apply log transform to features."""
 
     def __init__(self, offset: float = 1.0):
         self.offset = offset
-
 
 @register_controller
 class LogTransformController(OperatorController):
@@ -276,9 +266,7 @@ class LogTransformController(OperatorController):
     def supports_prediction_mode(cls) -> bool:
         return True
 
-
 print("LogTransformController registered for 'log_transform' keyword")
-
 
 # =============================================================================
 # Section 5: Controller Priority
@@ -307,7 +295,6 @@ print("  20-39: High-priority custom controllers")
 print("  40-59: Standard custom controllers")
 print("  60-79: Default built-in controllers")
 print("  80-99: Fallback controllers")
-
 
 # =============================================================================
 # Section 6: Execution Context
@@ -338,11 +325,9 @@ Controllers receive context objects:
         .fold_index        # Current fold (during CV)
 """)
 
-
 class ContextAwareOperator:
     """Operator that uses context information."""
     pass
-
 
 @register_controller
 class ContextAwareController(OperatorController):
@@ -371,9 +356,7 @@ class ContextAwareController(OperatorController):
         print(f"  Fold: {getattr(runtime_context, 'fold_index', 'N/A')}")
         return context, []
 
-
 print("ContextAwareController registered")
-
 
 # =============================================================================
 # Section 7: Stateful Controllers
@@ -407,7 +390,6 @@ print("  - Sklearn transformers use fit/transform")
 print("  - Custom state via runtime_context")
 print("  - Models saved to artifacts for export")
 
-
 # =============================================================================
 # Section 8: Prediction Mode
 # =============================================================================
@@ -440,7 +422,6 @@ print("  ModelController: Uses trained model")
 print("  SplitterController: Skipped (no folds in prediction)")
 print("  Custom: Depends on supports_prediction_mode()")
 
-
 # =============================================================================
 # Section 9: Controller Registration
 # =============================================================================
@@ -471,7 +452,6 @@ print(f"  Total registered: {len(CONTROLLER_REGISTRY)} controllers")
 print("  Import: from nirs4all.controllers import register_controller")
 print("  Access: from nirs4all.controllers.registry import CONTROLLER_REGISTRY")
 
-
 # =============================================================================
 # Section 10: Complete Custom Controller
 # =============================================================================
@@ -487,13 +467,11 @@ Complete example: A debug logging controller
             self.label = label
 """)
 
-
 class DebugLog:
     """Simple debug logging operator."""
 
     def __init__(self, label: str = "Debug"):
         self.label = label
-
 
 @register_controller
 class DebugLogController(OperatorController):
@@ -530,11 +508,9 @@ class DebugLogController(OperatorController):
     def supports_prediction_mode(cls) -> bool:
         return True
 
-
 print("DebugLogController registered")
 print("\nUsage in pipeline:")
 print('  [DebugLog("After preprocessing"), MinMaxScaler(), ...]')
-
 
 # =============================================================================
 # Summary

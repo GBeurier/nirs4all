@@ -45,20 +45,19 @@ References:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Optional
 
 import numpy as np
 
 
-class ScatteringModel(str, Enum):
+class ScatteringModel(StrEnum):
     """Available scattering models."""
     EMSC = "emsc"                    # Extended Multiplicative Scatter Correction style
     RAYLEIGH = "rayleigh"            # Rayleigh-like (λ⁻⁴ dependence)
     MIE_APPROX = "mie_approx"        # Simplified Mie approximation
     KUBELKA_MUNK = "kubelka_munk"    # K-M scattering coefficient model
     POLYNOMIAL = "polynomial"        # Polynomial baseline scattering
-
 
 # ============================================================================
 # Scattering Model Parameters
@@ -102,7 +101,6 @@ class ParticleSizeDistribution:
         # Clip to valid range
         return np.clip(sizes, self.min_size_um, self.max_size_um)
 
-
 @dataclass
 class ParticleSizeConfig:
     """
@@ -128,7 +126,6 @@ class ParticleSizeConfig:
     include_path_length_effect: bool = True
     path_length_sensitivity: float = 0.5
 
-
 @dataclass
 class EMSCConfig:
     """
@@ -153,8 +150,7 @@ class EMSCConfig:
     additive_scatter_std: float = 0.05
     include_wavelength_terms: bool = True
     wavelength_coef_std: float = 0.02
-    reference_spectrum: Optional[np.ndarray] = None
-
+    reference_spectrum: np.ndarray | None = None
 
 @dataclass
 class ScatteringCoefficientConfig:
@@ -178,7 +174,6 @@ class ScatteringCoefficientConfig:
     sample_variation: float = 0.15
     wavelength_reference_nm: float = 1500.0
 
-
 @dataclass
 class ScatteringEffectsConfig:
     """
@@ -200,7 +195,6 @@ class ScatteringEffectsConfig:
     )
     enable_particle_size: bool = True
     enable_emsc: bool = True
-
 
 # ============================================================================
 # Module-level exports

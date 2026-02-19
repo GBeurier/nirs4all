@@ -9,22 +9,22 @@ Controllers follow the operator-controller pattern where:
 - Controllers (here) define HOW to execute them
 """
 
-from .base_model import BaseModelController
-from .sklearn_model import SklearnModelController
-from .tensorflow_model import TensorFlowModelController
-from .torch_model import PyTorchModelController
-from .jax_model import JaxModelController
 from .autogluon_model import AutoGluonModelController
+from .base_model import BaseModelController
+from .jax_model import JaxModelController
 from .meta_model import MetaModelController
+from .sklearn_model import SklearnModelController
 
 # Phase 2: Stacking subpackage
 from .stacking import (
-    TrainingSetReconstructor,
     FoldAlignmentValidator,
-    ValidationResult,
     ReconstructionResult,
     ReconstructorConfig,
+    TrainingSetReconstructor,
+    ValidationResult,
 )
+from .tensorflow_model import TensorFlowModelController
+from .torch_model import PyTorchModelController
 
 __all__ = [
     'BaseModelController',

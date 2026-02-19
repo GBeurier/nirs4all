@@ -2,10 +2,11 @@
 Unit tests for the Resampler operator and ResamplerController.
 """
 
-import pytest
 import numpy as np
-from nirs4all.operators.transforms import Resampler
+import pytest
+
 from nirs4all.controllers.data.resampler import ResamplerController
+from nirs4all.operators.transforms import Resampler
 
 
 class TestResampler:
@@ -125,7 +126,6 @@ class TestResampler:
         with pytest.raises(ValueError, match="must match number of features"):
             resampler.fit(X, wavelengths=original_wl)
 
-
 class TestResamplerController:
     """Test the ResamplerController."""
 
@@ -160,7 +160,6 @@ class TestResamplerController:
     def test_controller_prediction_mode_support(self):
         """Test that controller supports prediction mode."""
         assert ResamplerController.supports_prediction_mode() is True
-
 
 class TestResamplerIntegration:
     """Integration tests with synthetic datasets."""
@@ -209,7 +208,6 @@ class TestResamplerIntegration:
         # All resampled spectra should be identical
         for i in range(1, 20):
             np.testing.assert_allclose(X_resampled[0], X_resampled[i], rtol=1e-10)
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

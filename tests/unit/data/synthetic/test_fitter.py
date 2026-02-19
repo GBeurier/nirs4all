@@ -5,9 +5,10 @@ Tests real data fitting and parameter estimation for synthetic generation.
 """
 
 import json
+from pathlib import Path
+
 import numpy as np
 import pytest
-from pathlib import Path
 
 
 class TestSpectralProperties:
@@ -35,7 +36,6 @@ class TestSpectralProperties:
         )
         assert props.name == "test"
         assert props.n_samples == 100
-
 
 class TestFittedParameters:
     """Tests for FittedParameters dataclass."""
@@ -114,7 +114,6 @@ class TestFittedParameters:
         assert loaded.wavelength_start == 1100
         assert loaded.global_slope_mean == 0.03
         assert loaded.source_name == "test_data"
-
 
 class TestComputeSpectralProperties:
     """Tests for compute_spectral_properties function."""
@@ -199,7 +198,6 @@ class TestComputeSpectralProperties:
 
         assert props.wavelengths is not None
         assert len(props.wavelengths) == 200
-
 
 class TestRealDataFitter:
     """Tests for RealDataFitter class."""
@@ -325,7 +323,6 @@ class TestRealDataFitter:
         recs = fitter.get_tuning_recommendations()
         assert "fit()" in recs[0]
 
-
 class TestFitToRealData:
     """Tests for fit_to_real_data convenience function."""
 
@@ -342,7 +339,6 @@ class TestFitToRealData:
         assert params is not None
         assert params.source_name == "quick_test"
 
-
 class TestCompareDatasets:
     """Tests for compare_datasets convenience function."""
 
@@ -358,7 +354,6 @@ class TestCompareDatasets:
 
         assert "overall_score" in metrics
         assert metrics["overall_score"] >= 0
-
 
 class TestBuilderFitTo:
     """Tests for SyntheticDatasetBuilder.fit_to method."""
@@ -392,7 +387,6 @@ class TestBuilderFitTo:
         )
 
         assert isinstance(result, SyntheticDatasetBuilder)
-
 
 class TestGenerateFromTemplate:
     """Tests for generate.from_template function."""
@@ -434,11 +428,9 @@ class TestGenerateFromTemplate:
         assert isinstance(y, np.ndarray)
         assert X.shape[0] == 100
 
-
 # ============================================================================
 # Phase 5: Spectral Fitting Tools (ComponentFitter)
 # ============================================================================
-
 
 class TestComponentFitResult:
     """Tests for ComponentFitResult dataclass."""
@@ -520,7 +512,6 @@ class TestComponentFitResult:
         assert "R²" in summary
         assert "water" in summary
         assert "Baseline" in summary
-
 
 class TestComponentFitter:
     """Tests for ComponentFitter class."""
@@ -699,13 +690,12 @@ class TestComponentFitter:
         assert C.shape == (5, 3)
         assert len(names) == 3
 
-
 class TestFitComponentsConvenience:
     """Tests for fit_components convenience function."""
 
     def test_convenience_function(self):
         """Test the convenience function."""
-        from nirs4all.synthesis import fit_components, SyntheticNIRSGenerator
+        from nirs4all.synthesis import SyntheticNIRSGenerator, fit_components
 
         wavelengths = np.arange(1000, 2500, 2)
         gen = SyntheticNIRSGenerator(
@@ -726,7 +716,6 @@ class TestFitComponentsConvenience:
         assert isinstance(result.r_squared, float)
         assert len(result.component_names) == 2
 
-
 class TestPreprocessingInference:
     """Tests for preprocessing type detection."""
 
@@ -741,7 +730,7 @@ class TestPreprocessingInference:
 
     def test_detect_second_derivative(self):
         """Test detection of second derivative data."""
-        from nirs4all.synthesis import RealDataFitter, PreprocessingType
+        from nirs4all.synthesis import PreprocessingType, RealDataFitter
 
         np.random.seed(42)
         n_samples, n_wl = 100, 200
@@ -761,7 +750,7 @@ class TestPreprocessingInference:
 
     def test_detect_raw_absorbance(self):
         """Test detection of raw absorbance data."""
-        from nirs4all.synthesis import RealDataFitter, PreprocessingType
+        from nirs4all.synthesis import PreprocessingType, RealDataFitter
 
         np.random.seed(42)
         n_samples, n_wl = 100, 200
@@ -781,7 +770,7 @@ class TestPreprocessingInference:
 
     def test_detect_snv(self):
         """Test detection of SNV-corrected data."""
-        from nirs4all.synthesis import RealDataFitter, PreprocessingType
+        from nirs4all.synthesis import PreprocessingType, RealDataFitter
 
         np.random.seed(42)
         n_samples, n_wl = 100, 200

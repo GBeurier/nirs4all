@@ -1,6 +1,6 @@
 """Processing chain management for target transformations."""
 
-from typing import Dict, List, Optional, Set
+from typing import Optional
 
 from sklearn.base import TransformerMixin
 
@@ -30,18 +30,18 @@ class ProcessingChain:
     (['scaled', 'numeric', 'raw'], 'inverse')
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize empty processing chain."""
-        self._processing_ids: List[str] = []
-        self._processing_set: Set[str] = set()
-        self._ancestors: Dict[str, str] = {}
-        self._transformers: Dict[str, TransformerMixin] = {}
-        self._ancestry_cache: Dict[str, List[str]] = {}
+        self._processing_ids: list[str] = []
+        self._processing_set: set[str] = set()
+        self._ancestors: dict[str, str] = {}
+        self._transformers: dict[str, TransformerMixin] = {}
+        self._ancestry_cache: dict[str, list[str]] = {}
 
     def add_processing(self,
                       name: str,
-                      ancestor: Optional[str] = None,
-                      transformer: Optional[TransformerMixin] = None) -> None:
+                      ancestor: str | None = None,
+                      transformer: TransformerMixin | None = None) -> None:
         """
         Register a new processing step in the chain.
 
@@ -87,7 +87,7 @@ class ProcessingChain:
         """
         return name in self._processing_set
 
-    def get_transformer(self, name: str) -> Optional[TransformerMixin]:
+    def get_transformer(self, name: str) -> TransformerMixin | None:
         """
         Get the transformer for a processing.
 
@@ -99,7 +99,7 @@ class ProcessingChain:
         """
         return self._transformers.get(name)
 
-    def get_ancestry(self, name: str) -> List[str]:
+    def get_ancestry(self, name: str) -> list[str]:
         """
         Get the full ancestry chain for a processing.
 
@@ -139,7 +139,7 @@ class ProcessingChain:
 
     def get_path(self,
                 from_processing: str,
-                to_processing: str) -> tuple[List[str], str]:
+                to_processing: str) -> tuple[list[str], str]:
         """
         Find transformation path between two processings.
 
@@ -218,7 +218,7 @@ class ProcessingChain:
         return path, direction
 
     @property
-    def processing_ids(self) -> List[str]:
+    def processing_ids(self) -> list[str]:
         """
         Get list of all processing IDs.
 

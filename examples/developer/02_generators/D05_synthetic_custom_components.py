@@ -24,16 +24,17 @@ import argparse
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+
 # Third-party imports
 import numpy as np
-import matplotlib.pyplot as plt
 
 # NIRS4All imports
 from nirs4all.synthesis import (
-    SyntheticNIRSGenerator,
     ComponentLibrary,
-    SpectralComponent,
     NIRBand,
+    SpectralComponent,
+    SyntheticNIRSGenerator,
     get_predefined_components,
 )
 
@@ -49,7 +50,6 @@ args = parser.parse_args()
 
 # Example name for output directory
 EXAMPLE_NAME = "D05_synthetic_custom_components"
-
 
 # =============================================================================
 # Section 1: Understanding NIRBand
@@ -73,7 +73,7 @@ water_oh_band = NIRBand(
     name="O-H 1st overtone"
 )
 
-print(f"\n📊 NIRBand example:")
+print("\n📊 NIRBand example:")
 print(f"   Band: {water_oh_band.name}")
 print(f"   Center: {water_oh_band.center} nm")
 print(f"   Sigma (Gaussian): {water_oh_band.sigma}")
@@ -83,10 +83,9 @@ print(f"   Amplitude: {water_oh_band.amplitude}")
 # Compute the band shape
 wavelengths = np.linspace(1300, 1600, 300)
 # Note: In practice, the generator computes this internally
-print(f"\n   Voigt profile combines Gaussian peak with Lorentzian tails")
-print(f"   - Higher sigma = broader Gaussian core")
-print(f"   - Higher gamma = heavier tails")
-
+print("\n   Voigt profile combines Gaussian peak with Lorentzian tails")
+print("   - Higher sigma = broader Gaussian core")
+print("   - Higher gamma = heavier tails")
 
 # =============================================================================
 # Section 2: Creating Custom SpectralComponent
@@ -115,7 +114,6 @@ print(f"   Correlation group: {aspirin_like.correlation_group}")
 for band in aspirin_like.bands:
     print(f"   - {band.center} nm: {band.name}")
 
-
 # =============================================================================
 # Section 3: Exploring Predefined Components
 # =============================================================================
@@ -131,7 +129,6 @@ for name, component in predefined.items():
     bands_info = ", ".join([f"{b.center}nm" for b in component.bands])
     print(f"\n   {name}:")
     print(f"   Bands: {bands_info}")
-
 
 # =============================================================================
 # Section 4: Building Custom Component Library
@@ -158,10 +155,9 @@ pharma_library.add_random_component(
     wavelength_range=(1400, 2200)
 )
 
-print(f"\n📊 Custom pharmaceutical library:")
+print("\n📊 Custom pharmaceutical library:")
 print(f"   Components: {pharma_library.component_names}")
 print(f"   Total bands: {sum(len(c.bands) for c in pharma_library.components.values())}")
-
 
 # =============================================================================
 # Section 5: Using Custom Library with Generator
@@ -183,15 +179,14 @@ generator = SyntheticNIRSGenerator(
 # Generate data
 X, C, E = generator.generate(n_samples=500)
 
-print(f"\n📊 Generated data:")
+print("\n📊 Generated data:")
 print(f"   Spectra shape: {X.shape}")
 print(f"   Concentrations shape: {C.shape}")
 print(f"   Pure component spectra: {E.shape}")
-print(f"\n   Component concentrations (first 5 samples):")
+print("\n   Component concentrations (first 5 samples):")
 for i, name in enumerate(pharma_library.component_names):
     conc = C[:5, i]
     print(f"   {name}: {np.array2string(conc, precision=3)}")
-
 
 # =============================================================================
 # Section 6: Custom Concentration Distributions
@@ -208,7 +203,7 @@ C_dirichlet = generator.generate_concentrations(
     method="dirichlet",
     alpha=np.array([0.5, 2.0, 3.0, 0.3])  # Favor starch/cellulose
 )
-print(f"\n📊 Dirichlet (alpha=[0.5, 2.0, 3.0, 0.3]):")
+print("\n📊 Dirichlet (alpha=[0.5, 2.0, 3.0, 0.3]):")
 print(f"   Mean concentrations: {C_dirichlet.mean(axis=0).round(3)}")
 
 # Correlated concentrations
@@ -228,12 +223,11 @@ C_correlated = generator.generate_concentrations(
 
 # Verify correlation structure
 actual_corr = np.corrcoef(C_correlated.T)
-print(f"\n📊 Correlated concentrations:")
-print(f"   Target aspirin-impurity correlation: -0.6")
+print("\n📊 Correlated concentrations:")
+print("   Target aspirin-impurity correlation: -0.6")
 print(f"   Actual aspirin-impurity correlation: {actual_corr[0, 3]:.3f}")
-print(f"   Target starch-cellulose correlation: 0.8")
+print("   Target starch-cellulose correlation: 0.8")
 print(f"   Actual starch-cellulose correlation: {actual_corr[1, 2]:.3f}")
-
 
 # =============================================================================
 # Section 7: Visualization (always generate, optionally show)
@@ -303,7 +297,6 @@ plt.tight_layout()
 plot_path = get_example_output_path(EXAMPLE_NAME, "custom_components_overview.png")
 plt.savefig(plot_path, dpi=150, bbox_inches="tight")
 print_output_location(plot_path, "Custom components plot")
-
 
 # =============================================================================
 # Summary

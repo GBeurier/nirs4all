@@ -1,9 +1,10 @@
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 import numpy as np
 
 from nirs4all.data._features import FeatureSource
 from nirs4all.data.types import InputData, InputFeatures, ProcessingList, SampleIndices
+
 
 class Features:
     """Manages N aligned NumPy sources + a Polars index.
@@ -16,12 +17,12 @@ class Features:
         sources: List of FeatureSource objects managing individual feature arrays.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize empty feature block."""
-        self.sources: List[FeatureSource] = []
+        self.sources: list[FeatureSource] = []
 
-    def add_samples(self, data: InputData, headers: Optional[Union[List[str], List[List[str]]]] = None,
-                    header_unit: Optional[Union[str, List[str]]] = None) -> None:
+    def add_samples(self, data: InputData, headers: list[str] | list[list[str]] | None = None,
+                    header_unit: str | list[str] | None = None) -> None:
         """Add samples to all sources, ensuring alignment.
 
         Args:
@@ -46,10 +47,7 @@ class Features:
 
         # Prepare headers list
         if headers is not None:
-            if isinstance(headers[0], str):
-                headers_list = [headers] * n_sources
-            else:
-                headers_list = headers
+            headers_list = [headers] * n_sources if isinstance(headers[0], str) else headers
             if len(headers_list) != n_sources:
                 raise ValueError(f"Expected {n_sources} headers lists, got {len(headers_list)}")
         else:
@@ -57,22 +55,19 @@ class Features:
 
         # Prepare header_unit list
         if header_unit is not None:
-            if isinstance(header_unit, str):
-                units_list = [header_unit] * n_sources
-            else:
-                units_list = header_unit
+            units_list = [header_unit] * n_sources if isinstance(header_unit, str) else header_unit
             if len(units_list) != n_sources:
                 raise ValueError(f"Expected {n_sources} header units, got {len(units_list)}")
         else:
             units_list = [None] * n_sources
 
         # Add samples and set headers with units
-        for src, arr, hdr, unit in zip(self.sources, data, headers_list, units_list):
+        for src, arr, hdr, unit in zip(self.sources, data, headers_list, units_list, strict=False):
             src.add_samples(arr, hdr)
             if hdr is not None and unit is not None:
                 src.set_headers(hdr, unit=unit)
 
-    def add_samples_batch_3d(self, data: Union[np.ndarray, List[np.ndarray]]) -> None:
+    def add_samples_batch_3d(self, data: np.ndarray | list[np.ndarray]) -> None:
         """Add multiple samples with 3D data in a single operation - O(N) instead of O(N²).
 
         This method is optimized for bulk insertion of augmented samples where
@@ -97,7 +92,7 @@ class Features:
             raise ValueError(f"Expected {len(self.sources)} sources, got {n_sources}")
 
         # Add samples to each source using batch method
-        for src, arr in zip(self.sources, data):
+        for src, arr in zip(self.sources, data, strict=False):
             src.add_samples_batch_3d(arr)
 
     def update_features(self, source_processings: ProcessingList, features: InputFeatures, processings: ProcessingList, source: int = -1) -> None:
@@ -126,7 +121,7 @@ class Features:
         return self.sources[0].num_samples
 
     @property
-    def num_processings(self) -> Union[List[int], int]:
+    def num_processings(self) -> list[int] | int:
         """Get the number of unique processing IDs per source.
 
         Returns:
@@ -142,7 +137,7 @@ class Features:
         return res
 
     @property
-    def preprocessing_str(self) -> Union[List[List[str]], List[str]]:
+    def preprocessing_str(self) -> list[list[str]] | list[str]:
         """Get the list of processing IDs per source.
 
         Returns:
@@ -156,7 +151,7 @@ class Features:
         return res
 
     @property
-    def headers_list(self) -> Union[List[List[str]], List[str]]:
+    def headers_list(self) -> list[list[str]] | list[str]:
         """Get the list of feature headers per source.
 
         Returns:
@@ -169,7 +164,7 @@ class Features:
             res.append(src.headers)
         return res
 
-    def headers(self, src: int) -> List[str]:
+    def headers(self, src: int) -> list[str]:
         """Get the list of feature headers for a specific source.
 
         Args:
@@ -183,7 +178,7 @@ class Features:
         return self.sources[src].headers
 
     @property
-    def num_features(self) -> Union[List[int], int]:
+    def num_features(self) -> list[int] | int:
         """Get the number of features per source.
 
         Returns:
@@ -199,10 +194,10 @@ class Features:
         return res
 
     def augment_samples(self,
-                        sample_indices: List[int],
+                        sample_indices: list[int],
                         data: InputData,
                         processings: ProcessingList,
-                        count: Union[int, List[int]]) -> None:
+                        count: int | list[int]) -> None:
         """
         Create augmented samples from existing ones.
 
@@ -227,10 +222,10 @@ class Features:
                 raise ValueError("count must be an int or a list with the same length as sample_indices")
 
         # Add augmented data to each source
-        for src, arr in zip(self.sources, data):
+        for src, arr in zip(self.sources, data, strict=False):
             src.augment_samples(sample_indices, arr, processings, count_list)
 
-    def keep_sources(self, source_indices: Union[int, List[int]]) -> None:
+    def keep_sources(self, source_indices: int | list[int]) -> None:
         """Keep only specified sources, removing all others.
 
         Used after merge operations with output_as="features" to consolidate
@@ -258,7 +253,7 @@ class Features:
         # Keep only specified sources
         self.sources = [self.sources[i] for i in source_indices]
 
-    def x(self, indices: SampleIndices, layout: str = "2d", concat_source: bool = True) -> Union[np.ndarray, list[np.ndarray]]:
+    def x(self, indices: SampleIndices, layout: str = "2d", concat_source: bool = True) -> np.ndarray | list[np.ndarray]:
         """Retrieve feature data for specified samples.
 
         Args:

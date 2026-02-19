@@ -17,10 +17,8 @@ from nirs4all.pipeline.storage.array_store import ArrayStore
 # Helpers
 # =========================================================================
 
-
 def _make_store(tmp_path: Path) -> ArrayStore:
     return ArrayStore(tmp_path / "workspace")
-
 
 def _make_record(
     prediction_id: str = "pred_001",
@@ -56,11 +54,9 @@ def _make_record(
         rec["task_type"] = "classification"
     return rec
 
-
 # =========================================================================
 # Tests
 # =========================================================================
-
 
 class TestArrayStoreSaveLoad:
     """Round-trip: save_batch → load_batch, verify numpy equality."""
@@ -107,7 +103,6 @@ class TestArrayStoreSaveLoad:
         store = _make_store(tmp_path)
         assert store.save_batch([]) == 0
 
-
 class TestArrayStoreSingleFilePerDataset:
     """Two datasets → two `.parquet` files, correct content in each."""
 
@@ -137,7 +132,6 @@ class TestArrayStoreSingleFilePerDataset:
         ])
         datasets = store.list_datasets()
         assert datasets == ["corn", "wheat"]
-
 
 class TestArrayStoreDeleteCompact:
     """Tombstone → compact → verify rows removed, file shrinks."""
@@ -203,7 +197,6 @@ class TestArrayStoreDeleteCompact:
         # corn is untouched (no tombstones)
         assert stats["corn"]["rows_after"] == 1
 
-
 class TestArrayStoreIntegrityCheck:
     """Inject orphans/missing → check detected."""
 
@@ -233,7 +226,6 @@ class TestArrayStoreIntegrityCheck:
         assert "p2" in result["missing_ids"]
         assert "p3" in result["missing_ids"]
 
-
 class TestArrayStoreYProbaShape:
     """2D y_proba survives round-trip with correct shape."""
 
@@ -257,7 +249,6 @@ class TestArrayStoreYProbaShape:
         arrays = store.load_single("pred_001", dataset_name="wheat")
         assert arrays is not None
         assert arrays["y_proba"] is None
-
 
 class TestArrayStorePortableColumns:
     """Parquet contains model_name, fold_id, partition, metric, val_score, task_type."""
@@ -291,7 +282,6 @@ class TestArrayStorePortableColumns:
         with pytest.raises(FileNotFoundError):
             store.load_dataset("nonexistent")
 
-
 class TestArrayStoreStats:
     """Stats returns correct counts and sizes."""
 
@@ -319,7 +309,6 @@ class TestArrayStoreStats:
         assert s["total_rows"] == 0
         assert s["total_bytes"] == 0
 
-
 class TestArrayStoreAppend:
     """Verify that multiple save_batch calls append to existing files."""
 
@@ -333,7 +322,6 @@ class TestArrayStoreAppend:
 
         s = store.stats()
         assert s["datasets"]["wheat"]["rows"] == 2
-
 
 class TestArrayStoreLoadWithoutDatasetName:
     """load_batch/load_single without dataset_name scans all files."""

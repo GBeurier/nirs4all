@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 from sklearn.base import TransformerMixin
 
@@ -12,7 +12,9 @@ if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.steps.parser import ParsedStep
 
+import contextlib
 import warnings
+
 import numpy as np
 
 
@@ -28,7 +30,6 @@ def _is_transformer_like(obj: Any) -> bool:
     if hasattr(obj, '__class__') and hasattr(obj.__class__, '__mro__'):
         return TransformerMixin in obj.__class__.__mro__
     return False
-
 
 @register_controller
 class YTransformerMixinController(OperatorController):
@@ -92,7 +93,7 @@ class YTransformerMixinController(OperatorController):
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ) -> Tuple[ExecutionContext, List[Any]]:
+    ) -> tuple[ExecutionContext, list[Any]]:
         """
         Execute transformer(s) on dataset targets, fitting on train targets and transforming all targets.
 
@@ -134,7 +135,7 @@ class YTransformerMixinController(OperatorController):
 
         return current_context, all_artifacts
 
-    def _normalize_operators(self, operator: Any) -> List[TransformerMixin]:
+    def _normalize_operators(self, operator: Any) -> list[TransformerMixin]:
         """Normalize operator(s) to a list of instantiated TransformerMixin objects.
 
         Args:
@@ -144,10 +145,7 @@ class YTransformerMixinController(OperatorController):
             List of instantiated TransformerMixin objects
         """
         # Handle single transformer
-        if not isinstance(operator, (list, tuple)):
-            operators = [operator]
-        else:
-            operators = list(operator)
+        operators = [operator] if not isinstance(operator, (list, tuple)) else list(operator)
 
         # Instantiate class types (e.g., StandardScaler vs StandardScaler())
         instantiated = []
@@ -167,7 +165,7 @@ class YTransformerMixinController(OperatorController):
         context: ExecutionContext,
         runtime_context: 'RuntimeContext',
         mode: str
-    ) -> Tuple[ExecutionContext, List[Any]]:
+    ) -> tuple[ExecutionContext, list[Any]]:
         """Execute a single transformer on dataset targets.
 
         Args:
@@ -275,7 +273,7 @@ class YTransformerMixinController(OperatorController):
             warnings.warn(
                 f"Y-transform '{operator_name}' introduced "
                 f"{n_new_nan} NaN values in targets.",
-                UserWarning,
+                UserWarning, stacklevel=2,
             )
             dataset._may_contain_nan = True
 
@@ -306,9 +304,9 @@ class YTransformerMixinController(OperatorController):
     def _match_transformer_by_class(
         self,
         class_name: str,
-        artifacts: List[Tuple[str, Any]],
+        artifacts: list[tuple[str, Any]],
         target_index: int = 0
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """Select the nth transformer whose class matches class_name."""
         match_count = 0
         for _, obj in artifacts:
@@ -349,19 +347,14 @@ class YTransformerMixinController(OperatorController):
             # Extract the operation counter from the name (e.g., "y_MinMaxScaler_1" -> 1)
             substep_index = None
             if "_" in name:
-                try:
+                with contextlib.suppress(ValueError, IndexError):
                     substep_index = int(name.rsplit("_", 1)[1])
-                except (ValueError, IndexError):
-                    pass
 
             # V3: Build operator chain for this artifact
-            from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorNode, OperatorChain
+            from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, OperatorNode
 
             # Get the current chain from trace recorder or build new one
-            if runtime_context.trace_recorder is not None:
-                current_chain = runtime_context.trace_recorder.current_chain()
-            else:
-                current_chain = OperatorChain(pipeline_id=pipeline_id)
+            current_chain = runtime_context.trace_recorder.current_chain() if runtime_context.trace_recorder is not None else OperatorChain(pipeline_id=pipeline_id)
 
             # Create node for this Y transformer
             transformer_node = OperatorNode(

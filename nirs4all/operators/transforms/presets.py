@@ -1,18 +1,16 @@
 from sklearn.pipeline import Pipeline
+
 import nirs4all.operators.transforms as pp
 
 
 def id_preprocessing():
     return pp.IdentityTransformer()
 
-
 def savgol_only():
     return pp.SavitzkyGolay()
 
-
 def haar_only():
     return pp.Wavelet("haar")
-
 
 def nicon_set():
     return [
@@ -29,7 +27,6 @@ def nicon_set():
         pp.Derivate(2, 1),
         pp.Wavelet("haar"),
     ]
-
 
 def decon_set():
     return [
@@ -57,7 +54,6 @@ def decon_set():
         pp.Wavelet("coif3"),
     ]
 
-
 def senseen_set():
     return [
         pp.StandardNormalVariate(),
@@ -78,7 +74,6 @@ def senseen_set():
         [pp.Wavelet("haar"), pp.Gaussian(order=2, sigma=1)],
     ]
 
-
 def transf_set():
     return [
         pp.StandardNormalVariate(),
@@ -94,7 +89,6 @@ def transf_set():
         pp.Derivate(2, 2),
     ]
 
-
 def special_set():
     return [
         pp.SavitzkyGolay(),
@@ -106,7 +100,6 @@ def special_set():
         pp.Wavelet("haar"),
     ]
 
-
 def small_set():
     return [
         pp.StandardNormalVariate(),
@@ -114,7 +107,6 @@ def small_set():
         pp.Wavelet("haar"),
         pp.Detrend(),
     ]
-
 
 def dumb_set():
     pp_list = [
@@ -139,7 +131,6 @@ def dumb_set():
     for i in pp_list:
         preprocessings.append(i)
     return preprocessings
-
 
 def dumb_and_dumber_set():
     pp_list = [
@@ -166,7 +157,6 @@ def dumb_and_dumber_set():
         preprocessings.append(i)
 
     return preprocessings
-
 
 def dumb_set_2D():
     pp_list = [
@@ -212,7 +202,6 @@ def list_of_2D_sets():
 
     return optimal_set
 
-
 def optimal_set_2D():
     optimal = ['dv3', 'dv2', 'dv1', 'msc', 'detrend', 'coif3', 'haar', 'gaussian2', 'gaussian1', 'savgol', 'baseline', 'id', 'dv3_baseline', 'dv3_id', 'dv2_dv3', 'dv2_dv2',
                'dv2_dv1', 'dv2_msc', 'dv2_detrend', 'dv2_coif3', 'dv2_haar', 'dv2_gaussian2', 'dv2_gaussian1', 'dv2_savgol', 'dv2_baseline', 'dv2_id', 'dv1_dv3', 'dv1_dv2',
@@ -233,7 +222,6 @@ def optimal_set_2D():
 
     return optimal_set
 
-
 def preprocessing_list():
     # return [id_preprocessing, savgol, haar, nicon_set, decon_set]
     # return [id_preprocessing, transf_set, decon_set]
@@ -241,7 +229,6 @@ def preprocessing_list():
     # return [transf_set]
     return [decon_set]
     # return [id_preprocessing]
-
 
 def fat_set():
     fat_list = [

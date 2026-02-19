@@ -35,16 +35,15 @@ from sklearn.model_selection import KFold
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import StandardNormalVariate
 from nirs4all.operators.filters import YOutlierFilter
 from nirs4all.operators.filters.base import CompositeFilter
+from nirs4all.operators.transforms import StandardNormalVariate
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U03 Sample Filtering Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Why Sample Exclusion?
@@ -78,7 +77,6 @@ Benefits:
   ✓ Improve model robustness
   ✓ More realistic performance estimates
 """)
-
 
 # =============================================================================
 # Section 2: Y-Based Outlier Filtering
@@ -124,7 +122,6 @@ for name, filter_obj in methods:
     outliers_caught = (~mask[-n_outliers:]).sum()
     print(f"   {name:10s}: Excluded {excluded}, Outliers caught: {outliers_caught}/{n_outliers}")
 
-
 # =============================================================================
 # Section 3: Pipeline Integration
 # =============================================================================
@@ -168,7 +165,6 @@ result_filtered = nirs4all.run(
 
 print(f"\nFiltered pipeline RMSE: {result_filtered.best_rmse:.4f}")
 
-
 # =============================================================================
 # Section 4: Composite Filters
 # =============================================================================
@@ -211,7 +207,6 @@ mask_all = composite_all.get_mask(X, y)
 print(f"Mode 'any' (stricter):  Excluded {(~mask_any).sum()}")
 print(f"Mode 'all' (lenient):   Excluded {(~mask_all).sum()}")
 
-
 # =============================================================================
 # Section 5: Comparing Filtering Methods
 # =============================================================================
@@ -239,7 +234,6 @@ for name, filter_obj in thresholds:
     excluded = (~mask).sum()
     rate = 100 * excluded / len(X)
     print(f"   {name:20s}: {excluded:2d} excluded ({rate:.1f}%)")
-
 
 # =============================================================================
 # Section 6: Visualizing Exclusions
@@ -278,7 +272,6 @@ result_visual = nirs4all.run(
 )
 
 print("Charts generated (use --plots to view)")
-
 
 # =============================================================================
 # Section 7: Effect on Model Performance
@@ -322,7 +315,6 @@ result_yes = nirs4all.run(
 
 print(f"\nWithout filtering: RMSE = {result_no.best_rmse:.4f}")
 print(f"With filtering:    RMSE = {result_yes.best_rmse:.4f}")
-
 
 # =============================================================================
 # Summary

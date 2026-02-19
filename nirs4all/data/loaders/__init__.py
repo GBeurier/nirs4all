@@ -46,15 +46,17 @@ Adding Custom Loaders:
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Optional, Union
 
 import pandas as pd
+
+from .archive_loader import EnhancedZipLoader, TarLoader, list_archive_members
 
 # Base classes and utilities
 from .base import (
     ArchiveHandler,
-    FileLoadError,
     FileLoader,
+    FileLoadError,
     FormatNotSupportedError,
     LoaderError,
     LoaderRegistry,
@@ -66,20 +68,18 @@ from .base import (
 # Format-specific loaders
 # Note: Importing these modules automatically registers them via @register_loader
 from .csv_loader_new import CSVLoader, load_csv
-from .numpy_loader import NumpyLoader, load_numpy
-from .parquet_loader import ParquetLoader, load_parquet
 from .excel_loader import ExcelLoader, load_excel
 from .matlab_loader import MatlabLoader, load_matlab
-from .archive_loader import TarLoader, EnhancedZipLoader, list_archive_members
+from .numpy_loader import NumpyLoader, load_numpy
+from .parquet_loader import ParquetLoader, load_parquet
 
 # Backward-compatible alias kept for callers using the old symbol name.
 load_csv_new = load_csv
 
-
 def load_file(
-    path: Union[str, Path],
+    path: str | Path,
     **params: Any,
-) -> Tuple[Optional[pd.DataFrame], Dict[str, Any], Optional[pd.Series], List[str], str]:
+) -> tuple[pd.DataFrame | None, dict[str, Any], pd.Series | None, list[str], str]:
     """Load a data file with automatic format detection.
 
     This is the main entry point for loading files. It automatically detects
@@ -124,8 +124,7 @@ def load_file(
         result.header_unit,
     )
 
-
-def get_supported_formats() -> Dict[str, List[str]]:
+def get_supported_formats() -> dict[str, list[str]]:
     """Get all supported file formats and their extensions.
 
     Returns:
@@ -144,8 +143,7 @@ def get_supported_formats() -> Dict[str, List[str]]:
 
     return result
 
-
-def get_loader_for_file(path: Union[str, Path]) -> FileLoader:
+def get_loader_for_file(path: str | Path) -> FileLoader:
     """Get the appropriate loader for a file.
 
     Args:
@@ -159,7 +157,6 @@ def get_loader_for_file(path: Union[str, Path]) -> FileLoader:
     """
     registry = LoaderRegistry.get_instance()
     return registry.get_loader(path)
-
 
 __all__ = [
     # Base classes

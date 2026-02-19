@@ -8,12 +8,13 @@ Tests nested branch behavior:
 - Branch path encoding and naming
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+import pytest
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import ShuffleSplit
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
@@ -35,7 +36,6 @@ def create_test_dataset(n_samples: int = 96, n_features: int = 40) -> SpectroDat
     dataset.add_targets(y[n_train:])
 
     return dataset
-
 
 class TestNestedBranchBasics:
     """
@@ -168,7 +168,6 @@ class TestNestedBranchBasics:
         leaf_branches = [b for b in branch_names if not any(other.startswith(b + "_") for other in branch_names)]
         assert len(leaf_branches) == 8, f"Expected 8 branch combinations, got {len(leaf_branches)}"
 
-
 class TestNestedBranchRoundtrip:
     """
     Test roundtrip with nested branches.
@@ -254,7 +253,6 @@ class TestNestedBranchRoundtrip:
         assert y_pred_reloaded.shape[0] == dataset.num_samples, \
             f"Expected {dataset.num_samples} predictions, got {y_pred_reloaded.shape[0]}"
 
-
 class TestNestedBranchWithGenerators:
     """
     Test nested branches combined with generators.
@@ -303,7 +301,6 @@ class TestNestedBranchWithGenerators:
         # Should have 2 × 2 = 4 unique branch combinations
         branch_names = [b for b in predictions.get_unique_values("branch_name") if b]
         assert len(branch_names) == 4, f"Expected 4 branches, got {len(branch_names)}"
-
 
 class TestNestedBranchArtifacts:
     """
@@ -364,7 +361,6 @@ class TestNestedBranchArtifacts:
                 branch_id=branch_id, partition="test"
             )
             assert len(branch_preds) > 0, f"No predictions for nested branch {branch_id}"
-
 
 class TestNestedBranchEdgeCases:
     """

@@ -9,19 +9,14 @@ Tests the core branching functionality including:
 - Generator syntax integration (Phase 3)
 """
 
-import pytest
-import numpy as np
 from copy import deepcopy
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
+
+import numpy as np
+import pytest
 
 from nirs4all.controllers.data.branch import BranchController
-from nirs4all.pipeline.config.context import (
-    DataSelector,
-    PipelineState,
-    StepMetadata,
-    ExecutionContext,
-    RuntimeContext
-)
+from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
 from nirs4all.pipeline.execution.result import StepOutput, StepResult
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
 
@@ -60,7 +55,6 @@ class TestDataSelectorBranchFields:
         assert copied.branch_name == "msc_d1"
         assert copied.partition == "test"
 
-
 class TestExecutionContextBranch:
     """Test branch methods in ExecutionContext."""
 
@@ -86,7 +80,6 @@ class TestExecutionContextBranch:
         assert copied.selector.branch_id == 3
         assert copied.selector.branch_name == "test_branch"
 
-
 class TestBranchControllerMatches:
     """Test BranchController.matches() method."""
 
@@ -100,7 +93,6 @@ class TestBranchControllerMatches:
         assert BranchController.matches({}, None, "model") is False
         assert BranchController.matches({}, None, "preprocessing") is False
         assert BranchController.matches({}, None, "feature_augmentation") is False
-
 
 class TestBranchControllerParsing:
     """Test branch definition parsing."""
@@ -159,7 +151,6 @@ class TestBranchControllerParsing:
 
         result = controller._parse_branch_definitions(mock_step_info)
         assert result == []
-
 
 class TestBranchControllerExecution:
     """Test BranchController.execute() method."""
@@ -291,7 +282,6 @@ class TestBranchControllerExecution:
 
         assert result_context.custom.get("in_branch_mode") is True
 
-
 class TestBranchContextIsolation:
     """Test that branch contexts are properly isolated."""
 
@@ -349,7 +339,6 @@ class TestBranchContextIsolation:
         # Each branch should have different processing
         assert branches[0]["context"].selector.processing != branches[1]["context"].selector.processing
 
-
 class TestBranchControllerSupportsPredict:
     """Test that BranchController works in prediction mode."""
 
@@ -360,7 +349,6 @@ class TestBranchControllerSupportsPredict:
     def test_use_multi_source(self):
         """Controller should support multi-source datasets."""
         assert BranchController.use_multi_source() is True
-
 
 class TestBranchMultiplication:
     """Test nested branch context multiplication."""
@@ -411,7 +399,6 @@ class TestBranchMultiplication:
         # Check flattened IDs are sequential
         ids = [r["branch_id"] for r in result]
         assert ids == [0, 1, 2, 3]
-
 
 class TestBranchGeneratorIntegration:
     """Test generator syntax integration with branching (Phase 3)."""
@@ -585,7 +572,6 @@ class TestBranchGeneratorIntegration:
         # Should be limited to 2 branches
         assert len(result) == 2
 
-
 class TestBranchGeneratorNaming:
     """Test branch name generation from different step types."""
 
@@ -637,7 +623,6 @@ class TestBranchGeneratorNaming:
         step = None
         name = controller._generate_step_name(step, 5)
         assert name == "branch_5"
-
 
 class TestBranchGeneratorExpansion:
     """Test internal generator expansion methods."""
@@ -728,7 +713,6 @@ class TestBranchGeneratorExpansion:
         assert result[0] == ["A1", "A2", "model1", "model2"]
         # Second option [B1] should be flattened: [B1, model1, model2]
         assert result[1] == ["B1", "model1", "model2"]
-
 
 class TestBranchGeneratorInNamedBranches:
     """Test generator expansion inside named branch step lists."""

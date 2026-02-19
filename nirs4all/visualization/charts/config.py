@@ -5,7 +5,8 @@ Provides customization options for colors, fonts, and figure sizes.
 All parameters have sensible defaults for seamless usage.
 """
 from dataclasses import dataclass, field
-from typing import Optional, Dict
+from typing import Optional
+
 import matplotlib.pyplot as plt
 
 
@@ -36,10 +37,10 @@ class ChartConfig:
     # Color schemes
     colormap: str = 'viridis'
     heatmap_colormap: str = 'RdYlGn'
-    partition_colors: Optional[Dict[str, str]] = None
+    partition_colors: dict[str, str] | None = None
 
     # Font settings
-    font_family: Optional[str] = None
+    font_family: str | None = None
     title_fontsize: int = 14
     label_fontsize: int = 10
     tick_fontsize: int = 9

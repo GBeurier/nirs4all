@@ -26,31 +26,32 @@ Difficulty: ★★★☆☆
 # Standard library imports
 import argparse
 import os
+
 import matplotlib.pyplot as plt
 
 # Third-party imports
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.ensemble import (
-    StackingRegressor,
-    StackingClassifier,
-    VotingRegressor,
-    VotingClassifier,
-    RandomForestRegressor,
-    RandomForestClassifier,
-    GradientBoostingRegressor,
     GradientBoostingClassifier,
+    GradientBoostingRegressor,
+    RandomForestClassifier,
+    RandomForestRegressor,
+    StackingClassifier,
+    StackingRegressor,
+    VotingClassifier,
+    VotingRegressor,
 )
-from sklearn.linear_model import Ridge, LogisticRegression
+from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # NIRS4All imports
 import nirs4all
 from nirs4all.operators.transforms import (
-    StandardNormalVariate,
-    FirstDerivative,
     Detrend,
+    FirstDerivative,
+    StandardNormalVariate,
 )
 from nirs4all.visualization.predictions import PredictionAnalyzer
 
@@ -60,9 +61,7 @@ parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
-
 FAST_MODE = os.environ.get("NIRS4ALL_EXAMPLE_FAST", "0").strip().lower() not in {"", "0", "false", "no", "off"}
-
 
 # =============================================================================
 # Section 1: Introduction to Stacking
@@ -91,7 +90,6 @@ Stacking combines multiple models (base learners) using a meta-learner.
      ✓ Reduces overfitting through diversity
      ✓ Combines strengths of different model types
 """)
-
 
 # =============================================================================
 # Section 2: Stacking Regressor
@@ -145,11 +143,10 @@ result_stacking = nirs4all.run(
     verbose=1
 )
 
-print(f"\nResults comparison:")
+print("\nResults comparison:")
 for pred in result_stacking.top(5, display_metrics=['rmse', 'r2']):
     model = pred.get('model_name', 'Unknown')
     print(f"   {model}: RMSE={pred.get('rmse', 0):.4f}")
-
 
 # =============================================================================
 # Section 3: Voting Regressor
@@ -187,10 +184,9 @@ result_voting = nirs4all.run(
     verbose=1
 )
 
-print(f"\nVoting results:")
+print("\nVoting results:")
 for pred in result_voting.top(5, display_metrics=['rmse', 'r2']):
     print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
-
 
 # =============================================================================
 # Section 4: Stacking Classifier
@@ -240,12 +236,11 @@ Stacking for classification with Logistic Regression meta-learner.
         verbose=1
     )
 
-    print(f"\nClassification results:")
+    print("\nClassification results:")
     for pred in result_stacking_clf.top(5, display_metrics=['rmse', 'r2']):
         model = pred.get('model_name', 'Unknown')
         accuracy = (1 - pred.get('rmse', 0)) * 100
         print(f"   {model}: Accuracy={accuracy:.1f}%")
-
 
 # =============================================================================
 # Section 5: Voting Classifier
@@ -293,12 +288,11 @@ VotingClassifier supports:
         verbose=1
     )
 
-    print(f"\nVoting classifier results:")
+    print("\nVoting classifier results:")
     for pred in result_voting_clf.top(5, display_metrics=['rmse', 'r2']):
         model = pred.get('model_name', 'Unknown')
         accuracy = (1 - pred.get('rmse', 0)) * 100
         print(f"   {model}: Accuracy={accuracy:.1f}%")
-
 
 # =============================================================================
 # Section 6: Custom Ensemble Configuration
@@ -348,10 +342,9 @@ Customize ensemble parameters:
         verbose=1
     )
 
-    print(f"\nCustom ensemble results:")
+    print("\nCustom ensemble results:")
     for pred in result_custom.top(5, display_metrics=['rmse', 'r2']):
         print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
-
 
 # =============================================================================
 # Section 7: Visualization
@@ -373,7 +366,6 @@ if args.plots:
         plt.show()
 else:
     print("Use --plots to generate visualization charts")
-
 
 # =============================================================================
 # Summary

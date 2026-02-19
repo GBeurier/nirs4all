@@ -8,16 +8,17 @@ prototype spectra (median + quantiles + k-medoids).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
-from scipy.optimize import minimize, differential_evolution
+from scipy.optimize import differential_evolution, minimize
 
+if TYPE_CHECKING:
+    from .forward import ForwardChain
 
 # =============================================================================
 # Calibration Result
 # =============================================================================
-
 
 @dataclass
 class CalibrationResult:
@@ -42,11 +43,11 @@ class CalibrationResult:
     stray_light: float = 0.0
     gain: float = 1.0
     offset: float = 0.0
-    prototype_residuals: Optional[np.ndarray] = None
-    prototype_r2: Optional[np.ndarray] = None
+    prototype_residuals: np.ndarray | None = None
+    prototype_r2: np.ndarray | None = None
     total_loss: float = float("inf")
 
-    def to_dict(self) -> Dict[str, float]:
+    def to_dict(self) -> dict[str, float]:
         """Convert to parameter dictionary."""
         return {
             "wl_shift": self.wl_shift,
@@ -58,7 +59,7 @@ class CalibrationResult:
         }
 
     @classmethod
-    def from_array(cls, params: np.ndarray) -> "CalibrationResult":
+    def from_array(cls, params: np.ndarray) -> CalibrationResult:
         """Create from parameter array [wl_shift, wl_stretch, ils_sigma]."""
         return cls(
             wl_shift=params[0],
@@ -66,11 +67,9 @@ class CalibrationResult:
             ils_sigma=params[2] if len(params) > 2 else 4.0,
         )
 
-
 # =============================================================================
 # Prototype Selector
 # =============================================================================
-
 
 @dataclass
 class PrototypeSelector:
@@ -94,7 +93,7 @@ class PrototypeSelector:
     include_quantiles: bool = True
     pca_components: int = 5
 
-    def select(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def select(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """
         Select prototype spectra.
 
@@ -159,8 +158,8 @@ class PrototypeSelector:
         self,
         scores: np.ndarray,
         n_select: int,
-        exclude: List[int],
-    ) -> List[int]:
+        exclude: list[int],
+    ) -> list[int]:
         """Select diverse samples using k-medoids-like approach."""
         n_samples = scores.shape[0]
         available = [i for i in range(n_samples) if i not in exclude]
@@ -205,11 +204,9 @@ class PrototypeSelector:
 
         return selected
 
-
 # =============================================================================
 # Global Calibrator
 # =============================================================================
-
 
 @dataclass
 class GlobalCalibrator:
@@ -229,17 +226,17 @@ class GlobalCalibrator:
         use_global_search: Use differential evolution for global search.
     """
 
-    wl_shift_bounds: Tuple[float, float] = (-10.0, 10.0)
-    wl_stretch_bounds: Tuple[float, float] = (0.98, 1.02)
-    ils_sigma_bounds: Tuple[float, float] = (2.0, 20.0)
+    wl_shift_bounds: tuple[float, float] = (-10.0, 10.0)
+    wl_stretch_bounds: tuple[float, float] = (0.98, 1.02)
+    ils_sigma_bounds: tuple[float, float] = (2.0, 20.0)
     regularization: float = 1e-6
     use_global_search: bool = False
 
     def calibrate(
         self,
         prototypes: np.ndarray,
-        forward_chain: "ForwardChain",
-        initial_guess: Optional[np.ndarray] = None,
+        forward_chain: ForwardChain,
+        initial_guess: np.ndarray | None = None,
     ) -> CalibrationResult:
         """
         Calibrate global parameters on prototype spectra.
@@ -384,7 +381,7 @@ class GlobalCalibrator:
         self,
         current_result: CalibrationResult,
         prototypes: np.ndarray,
-        forward_chain: "ForwardChain",
+        forward_chain: ForwardChain,
     ) -> CalibrationResult:
         """
         Refine calibration with tighter bounds around current estimate.
@@ -420,15 +417,13 @@ class GlobalCalibrator:
 
         return self.calibrate(prototypes, forward_chain, initial_guess=initial)
 
-
 # =============================================================================
 # Multi-stage Calibration
 # =============================================================================
 
-
 def multistage_calibration(
     X: np.ndarray,
-    forward_chain: "ForwardChain",
+    forward_chain: ForwardChain,
     n_prototypes: int = 5,
     stages: int = 2,
 ) -> CalibrationResult:
@@ -460,14 +455,8 @@ def multistage_calibration(
     result = None
 
     for sigma in smooth_sigmas:
-        if sigma > 0:
-            protos_smooth = gaussian_filter1d(prototypes, sigma=sigma, axis=1)
-        else:
-            protos_smooth = prototypes
+        protos_smooth = gaussian_filter1d(prototypes, sigma=sigma, axis=1) if sigma > 0 else prototypes
 
-        if result is None:
-            result = calibrator.calibrate(protos_smooth, forward_chain)
-        else:
-            result = calibrator.refine(result, protos_smooth, forward_chain)
+        result = calibrator.calibrate(protos_smooth, forward_chain) if result is None else calibrator.refine(result, protos_smooth, forward_chain)
 
     return result

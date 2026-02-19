@@ -18,10 +18,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 FAST_ENV = "NIRS4ALL_EXAMPLE_FAST"
 FAST_DEFAULT = "1"
-
 
 def _set_thread_limits() -> None:
     # Keep worker processes lightweight and reduce CPU oversubscription.
@@ -34,11 +32,9 @@ def _set_thread_limits() -> None:
     os.environ.setdefault("TF_NUM_INTEROP_THREADS", "1")
     os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
-
 def _is_fast_mode() -> bool:
     value = os.environ.get(FAST_ENV, FAST_DEFAULT).strip().lower()
     return value not in {"", "0", "false", "no", "off"}
-
 
 def _cap_int(value: Any, cap: int) -> Any:
     try:
@@ -47,14 +43,12 @@ def _cap_int(value: Any, cap: int) -> Any:
         return value
     return min(ivalue, cap)
 
-
 def _cap_float(value: Any, cap: float) -> Any:
     try:
         fvalue = float(value)
     except (TypeError, ValueError):
         return value
     return min(fvalue, cap)
-
 
 def _cap_param_map(params: dict[str, Any]) -> dict[str, Any]:
     capped = copy.deepcopy(params)
@@ -82,12 +76,10 @@ def _cap_param_map(params: dict[str, Any]) -> dict[str, Any]:
             capped[key] = _cap_float(capped[key], cap)
     return capped
 
-
 def _shrink_list(items: list[Any], cap: int) -> list[Any]:
     if len(items) <= cap:
         return items
     return items[:cap]
-
 
 def _looks_like_model_step(step: Any) -> bool:
     if not isinstance(step, dict):
@@ -98,7 +90,6 @@ def _looks_like_model_step(step: Any) -> bool:
         values = step.get("_or_")
         return isinstance(values, list)
     return False
-
 
 def _optimize_object(obj: Any) -> Any:
     if isinstance(obj, list):
@@ -168,7 +159,6 @@ def _optimize_object(obj: Any) -> Any:
             pass
     return obj
 
-
 def _optimize_pipeline_spec(pipeline: Any) -> Any:
     optimized = _optimize_object(pipeline)
     if isinstance(optimized, list):
@@ -191,13 +181,11 @@ def _optimize_pipeline_spec(pipeline: Any) -> Any:
             optimized = _shrink_list(optimized, 3)
     return optimized
 
-
 def _optimize_dataset_spec(dataset: Any) -> Any:
     optimized = _optimize_object(dataset)
     if isinstance(optimized, list):
         optimized = _shrink_list(optimized, 2)
     return optimized
-
 
 def _patch_nirs4all_fast_mode(*, plots: bool = False) -> None:
     import nirs4all
@@ -240,7 +228,6 @@ def _patch_nirs4all_fast_mode(*, plots: bool = False) -> None:
     PipelineRunner.__init__ = fast_pr_init
     PipelineRunner.run = fast_pr_run
 
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run examples with CI fast mode.")
     parser.add_argument("example", help="Path to the example script")
@@ -277,7 +264,6 @@ def main() -> int:
         code = exc.code if isinstance(exc.code, int) else 1
         return code
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -17,61 +17,53 @@ Expected evaluation time: 30-60 minutes for typical NIRS datasets (depends on da
 """
 
 import argparse
-import warnings
-from pathlib import Path
-from typing import Dict, Any, Optional
 import json
 import time
+import warnings
+from pathlib import Path
+from typing import Any, Optional
 
+import matplotlib
 import numpy as np
 import pandas as pd
-import matplotlib
+
 matplotlib.use('Agg')  # Non-interactive backend for saving figures
 import matplotlib.pyplot as plt
-
+from splitter_evaluation_enhanced import EnhancedStrategyResult, compare_strategies_enhanced, compute_statistical_tests_enhanced, evaluate_strategy_enhanced, get_model_suite, identify_best_strategies_enhanced
 from splitter_strategies import (
+    HAS_NIRS4ALL_SPLITTERS,
     SPLITTING_STRATEGIES,
-    get_splitter,
-    list_strategies,
-    SimpleSplitter,
-    TargetStratifiedSplitter,
-    SpectralPCASplitter,
-    SpectralDistanceSplitter,
-    HybridSplitter,
     AdversarialSplitter,
+    DuplexSplitter,
+    HierarchicalClusteringSplitter,
+    HonigsSplitter,
+    HybridSplitter,
     KennardStoneSplitter,
-    StratifiedGroupKFoldSplitter,
+    KMedoidsSplitter,
     Nirs4allKennardStoneSplitter,
     Nirs4allSPXYSplitter,
-    HAS_NIRS4ALL_SPLITTERS,
     PuchweinSplitter,
-    DuplexSplitter,
     ShenkWestSplitter,
-    HonigsSplitter,
-    HierarchicalClusteringSplitter,
-    KMedoidsSplitter,
-    SplitResult
-)
-from splitter_evaluation_enhanced import (
-    evaluate_strategy_enhanced,
-    compare_strategies_enhanced,
-    identify_best_strategies_enhanced,
-    compute_statistical_tests_enhanced,
-    EnhancedStrategyResult,
-    get_model_suite
+    SimpleSplitter,
+    SpectralDistanceSplitter,
+    SpectralPCASplitter,
+    SplitResult,
+    StratifiedGroupKFoldSplitter,
+    TargetStratifiedSplitter,
+    get_splitter,
+    list_strategies,
 )
 from splitter_visualization_enhanced import (
-    plot_comparison_enhanced,
-    plot_model_comparison,
-    plot_representativeness,
+    create_summary_report_enhanced,
     plot_bootstrap_confidence,
+    plot_comparison_enhanced,
     plot_cv_distribution_enhanced,
+    plot_model_comparison,
     plot_predictions_enhanced,
-    create_summary_report_enhanced
+    plot_representativeness,
 )
 
 warnings.filterwarnings('ignore')
-
 
 def load_data(data_dir: Path) -> tuple:
     """
@@ -110,12 +102,11 @@ def load_data(data_dir: Path) -> tuple:
 
     return X, y, sample_ids, metadata
 
-
 def get_configured_strategies(
     test_size: float = 0.2,
     n_folds: int = 3,
     random_state: int = 42
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """
     Get all configured splitting strategies.
 
@@ -361,12 +352,11 @@ def get_configured_strategies(
 
     return strategies
 
-
 def run_enhanced_evaluation(
     X: np.ndarray,
     y: np.ndarray,
     sample_ids: np.ndarray,
-    strategies: Dict[str, Dict[str, Any]],
+    strategies: dict[str, dict[str, Any]],
     n_repeats: int = 3,
     n_bootstrap: int = 1000,
     verbose: bool = True
@@ -396,7 +386,7 @@ def run_enhanced_evaluation(
     print("\n" + "=" * 80)
     print("ENHANCED SPLITTER SELECTION EVALUATION")
     print("=" * 80)
-    print(f"\n📊 Configuration:")
+    print("\n📊 Configuration:")
     print(f"   Models: {', '.join(model_names)}")
     print(f"   CV Repeats: {n_repeats}")
     print(f"   Bootstrap Samples: {n_bootstrap}")
@@ -450,11 +440,10 @@ def run_enhanced_evaluation(
 
     return results, split_results
 
-
 def save_enhanced_results(
     results: list,
     comparison_df: pd.DataFrame,
-    best_strategies: Dict[str, Dict[str, Any]],
+    best_strategies: dict[str, dict[str, Any]],
     output_dir: Path
 ) -> None:
     """
@@ -513,7 +502,6 @@ def save_enhanced_results(
         json.dump(detailed, f, indent=2, default=str)
 
     print(f"\nResults saved to: {output_dir}")
-
 
 def export_best_split_regression(
     X: np.ndarray,
@@ -601,9 +589,8 @@ def export_best_split_regression(
     print(f"   - Y_test.csv: {Y_test_df.shape}")
     print(f"   - M_train.csv: {M_train.shape}")
     print(f"   - M_test.csv: {M_test.shape}")
-    print(f"   - fold_assignments.csv")
-    print(f"   - split_info.json")
-
+    print("   - fold_assignments.csv")
+    print("   - split_info.json")
 
 def main(
     data_dir: str,
@@ -614,7 +601,7 @@ def main(
     n_bootstrap: int = 1000,
     random_state: int = 42,
     verbose: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Main function for enhanced splitter selection.
 
@@ -632,10 +619,7 @@ def main(
         Dictionary with results summary
     """
     data_path = Path(data_dir)
-    if output_dir is None:
-        output_path = data_path / 'splitter_selection_enhanced'
-    else:
-        output_path = Path(output_dir)
+    output_path = data_path / 'splitter_selection_enhanced' if output_dir is None else Path(output_dir)
 
     output_path.mkdir(parents=True, exist_ok=True)
     figures_dir = output_path / 'figures'
@@ -797,7 +781,6 @@ def main(
         'results': results,
         'output_dir': str(output_path)
     }
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(

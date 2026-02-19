@@ -13,11 +13,11 @@ ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 import numpy as np
-from sklearn.cross_decomposition import PLSRegression
-from sklearn.metrics import mean_squared_error, r2_score
 
 # Local imports
 from fckpls_torch import FCKPLSTorch, TrainConfig, create_fckpls_v1, create_fckpls_v2
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.metrics import mean_squared_error, r2_score
 
 
 def generate_simple_data(n_samples=200, n_features=500, n_components=5, noise=0.1, seed=42):
@@ -38,7 +38,6 @@ def generate_simple_data(n_samples=200, n_features=500, n_components=5, noise=0.
         X[i] += 0.1 * np.sin(wavelengths / 200 + rng.random())
 
     return X, y
-
 
 def test_v1_basic():
     """Test V1 (learnable kernels) basic functionality."""
@@ -72,7 +71,7 @@ def test_v1_basic():
     train_r2 = r2_score(y_train, y_train_pred)
     test_r2 = r2_score(y_test, y_test_pred)
 
-    print(f"\nResults V1:")
+    print("\nResults V1:")
     print(f"  Train RMSE: {train_rmse:.4f}, R²: {train_r2:.4f}")
     print(f"  Test  RMSE: {test_rmse:.4f}, R²: {test_r2:.4f}")
 
@@ -85,7 +84,6 @@ def test_v1_basic():
     print(f"  Transform output shape: {T.shape}")
 
     return test_r2 > 0.5  # Basic sanity check
-
 
 def test_v2_basic():
     """Test V2 (alpha/sigma parametric) basic functionality."""
@@ -120,7 +118,7 @@ def test_v2_basic():
     train_r2 = r2_score(y_train, y_train_pred)
     test_r2 = r2_score(y_test, y_test_pred)
 
-    print(f"\nResults V2:")
+    print("\nResults V2:")
     print(f"  Train RMSE: {train_rmse:.4f}, R²: {train_r2:.4f}")
     print(f"  Test  RMSE: {test_rmse:.4f}, R²: {test_r2:.4f}")
 
@@ -131,7 +129,6 @@ def test_v2_basic():
     print(f"  Learned sigmas: {sigmas}")
 
     return test_r2 > 0.3  # V2 might be less stable
-
 
 def test_compare_pls():
     """Compare with standard PLS."""
@@ -161,7 +158,6 @@ def test_compare_pls():
 
     return True
 
-
 def test_different_init_modes():
     """Test different kernel initialization modes."""
     print("\n" + "="*50)
@@ -187,7 +183,6 @@ def test_different_init_modes():
         print(f"  init_mode={init_mode}: R²={r2:.4f}")
 
     return True
-
 
 def main():
     print("FCK-PLS Torch Quick Test")
@@ -244,7 +239,6 @@ def main():
     else:
         print("Some tests failed!")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

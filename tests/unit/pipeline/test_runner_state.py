@@ -5,17 +5,17 @@ This test file focuses on internal state tracking, step numbering,
 operation counting, and state transitions throughout execution.
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
 
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+import numpy as np
+import pytest
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
-from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.predictions import Predictions
+from nirs4all.pipeline.runner import PipelineRunner
 from tests.fixtures.data_generators import TestDataManager
 
 
@@ -29,7 +29,6 @@ def runner_with_workspace(tmp_path):
         enable_tab_reports=False
     )
 
-
 @pytest.fixture
 def test_data(tmp_path):
     """Create test dataset."""
@@ -37,7 +36,6 @@ def test_data(tmp_path):
     manager.create_regression_dataset("regression", n_train=50, n_val=20)
     yield manager
     manager.cleanup()
-
 
 class TestStateInitialization:
     """Test initial state of runner."""
@@ -73,7 +71,6 @@ class TestStateInitialization:
         assert runner._capture_model is False
         assert runner.plots_visible is False
         assert runner.keep_datasets is False
-
 
 class TestStepNumbering:
     """Test step number tracking through execution."""
@@ -153,7 +150,6 @@ class TestStepNumbering:
         # Operation count should have been incremented
         assert first_count > 0
 
-
 class TestStateTransitions:
     """Test state transitions during execution."""
 
@@ -202,7 +198,6 @@ class TestStateTransitions:
 
         assert runner_with_workspace.pipeline_uid is not None
         assert isinstance(runner_with_workspace.pipeline_uid, str)
-
 
 class TestDataCapture:
     """Test data capture functionality."""
@@ -317,7 +312,6 @@ class TestDataCapture:
         dataset_name = next(iter(runner.pp_data.keys()))
         assert len(runner.pp_data[dataset_name]) == 1
 
-
 class TestStateConsistency:
     """Test state consistency across operations."""
 
@@ -350,11 +344,9 @@ class TestStateConsistency:
 
         assert runner_with_workspace.verbose == original_verbose
 
-
 # TestStepBinariesTracking class removed - step_binaries attribute was intentionally
 # removed during refactoring as binary tracking is now handled internally by the
 # artifact management system.
-
 
 class TestModelCaptureState:
     """Test model capture state management."""
@@ -374,7 +366,6 @@ class TestModelCaptureState:
 
         runner._capture_model = False
         assert runner._capture_model is False
-
 
 class TestFigureReferences:
     """Test figure reference tracking."""
@@ -400,7 +391,6 @@ class TestFigureReferences:
         # Should be cleared at start of run
         # (may have new refs added during run, but old ones gone)
         # We can't easily verify this without mocking, but the clear() call happens
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

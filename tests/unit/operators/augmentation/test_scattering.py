@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from sklearn.base import clone
 
-from nirs4all.operators import ParticleSizeAugmenter, EMSCDistortionAugmenter
+from nirs4all.operators import EMSCDistortionAugmenter, ParticleSizeAugmenter
 from nirs4all.operators.base import SpectraTransformerMixin
 
 
@@ -60,7 +60,6 @@ class TestParticleSizeAugmenterInit:
         """Test that _requires_wavelengths is True."""
         aug = ParticleSizeAugmenter()
         assert aug._requires_wavelengths is True
-
 
 class TestParticleSizeAugmenterTransform:
     """Tests for ParticleSizeAugmenter transform method."""
@@ -133,7 +132,6 @@ class TestParticleSizeAugmenterTransform:
         # Different samples should have different transformations
         row_diffs = np.diff(X_transformed, axis=0)
         assert np.any(row_diffs != 0)
-
 
 class TestParticleSizeAugmenterEffects:
     """Tests for particle size effects on spectra."""
@@ -208,7 +206,6 @@ class TestParticleSizeAugmenterEffects:
 
         assert strong_dev > weak_dev
 
-
 class TestParticleSizeAugmenterSklearnCompatibility:
     """Tests for sklearn compatibility."""
 
@@ -251,7 +248,6 @@ class TestParticleSizeAugmenterSklearnCompatibility:
 
         assert tags["requires_wavelengths"] is True
 
-
 class TestEMSCDistortionAugmenterInit:
     """Tests for EMSCDistortionAugmenter initialization."""
 
@@ -291,7 +287,6 @@ class TestEMSCDistortionAugmenterInit:
         """Test that _requires_wavelengths is True."""
         aug = EMSCDistortionAugmenter()
         assert aug._requires_wavelengths is True
-
 
 class TestEMSCDistortionAugmenterTransform:
     """Tests for EMSCDistortionAugmenter transform method."""
@@ -353,7 +348,6 @@ class TestEMSCDistortionAugmenterTransform:
         X2 = aug2.transform(X, wavelengths=wavelengths)
 
         assert not np.allclose(X1, X2)
-
 
 class TestEMSCDistortionAugmenterEffects:
     """Tests for EMSC distortion effects on spectra."""
@@ -447,7 +441,6 @@ class TestEMSCDistortionAugmenterEffects:
         # Just verify it works without error
         assert X_transformed.shape == X.shape
 
-
 class TestEMSCDistortionAugmenterPolynomial:
     """Tests for EMSC polynomial distortion behavior."""
 
@@ -509,7 +502,6 @@ class TestEMSCDistortionAugmenterPolynomial:
 
         assert strong_dev > weak_dev
 
-
 class TestEMSCDistortionAugmenterSklearnCompatibility:
     """Tests for sklearn compatibility."""
 
@@ -555,14 +547,13 @@ class TestEMSCDistortionAugmenterSklearnCompatibility:
 
         assert tags["requires_wavelengths"] is True
 
-
 class TestScatteringAugmentersImport:
     """Tests for import paths."""
 
     def test_import_from_operators(self):
         """Test that augmenters can be imported from operators."""
-        from nirs4all.operators import ParticleSizeAugmenter as PSA
         from nirs4all.operators import EMSCDistortionAugmenter as EDA
+        from nirs4all.operators import ParticleSizeAugmenter as PSA
 
         assert PSA is ParticleSizeAugmenter
         assert EDA is EMSCDistortionAugmenter
@@ -570,8 +561,10 @@ class TestScatteringAugmentersImport:
     def test_import_from_augmentation_module(self):
         """Test that augmenters can be imported from augmentation module."""
         from nirs4all.operators.augmentation.scattering import (
-            ParticleSizeAugmenter as PSA,
             EMSCDistortionAugmenter as EDA,
+        )
+        from nirs4all.operators.augmentation.scattering import (
+            ParticleSizeAugmenter as PSA,
         )
 
         assert PSA is ParticleSizeAugmenter

@@ -5,9 +5,10 @@ This module provides validation logic for dataset configurations,
 checking for consistency, required fields, file existence, and other rules.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 
@@ -26,9 +27,9 @@ class ValidationError:
 
     code: str
     message: str
-    field: Optional[str] = None
+    field: str | None = None
     value: Any = None
-    suggestion: Optional[str] = None
+    suggestion: str | None = None
 
     def __str__(self) -> str:
         parts = [self.message]
@@ -37,7 +38,6 @@ class ValidationError:
         if self.suggestion:
             parts.append(f"Suggestion: {self.suggestion}")
         return " ".join(parts)
-
 
 @dataclass
 class ValidationWarning:
@@ -51,13 +51,12 @@ class ValidationWarning:
 
     code: str
     message: str
-    field: Optional[str] = None
+    field: str | None = None
 
     def __str__(self) -> str:
         if self.field:
             return f"[{self.field}] {self.message}"
         return self.message
-
 
 @dataclass
 class ValidationResult:
@@ -71,9 +70,9 @@ class ValidationResult:
     """
 
     is_valid: bool
-    errors: List[ValidationError] = field(default_factory=list)
-    warnings: List[ValidationWarning] = field(default_factory=list)
-    normalized_config: Optional[Dict[str, Any]] = None
+    errors: list[ValidationError] = field(default_factory=list)
+    warnings: list[ValidationWarning] = field(default_factory=list)
+    normalized_config: dict[str, Any] | None = None
 
     def __str__(self) -> str:
         if self.is_valid:
@@ -88,10 +87,9 @@ class ValidationResult:
         if not self.is_valid:
             error_messages = [str(e) for e in self.errors]
             raise ValueError(
-                f"Invalid configuration:\n" +
+                "Invalid configuration:\n" +
                 "\n".join(f"  - {msg}" for msg in error_messages)
             )
-
 
 class ConfigValidator:
     """Validator for dataset configurations.
@@ -112,7 +110,7 @@ class ConfigValidator:
     def __init__(
         self,
         check_file_existence: bool = False,
-        custom_validators: Optional[List[Callable]] = None
+        custom_validators: list[Callable] | None = None
     ):
         """Initialize the validator.
 
@@ -126,7 +124,7 @@ class ConfigValidator:
         self.check_file_existence = check_file_existence
         self.custom_validators = custom_validators or []
 
-    def validate(self, config: Dict[str, Any]) -> ValidationResult:
+    def validate(self, config: dict[str, Any]) -> ValidationResult:
         """Validate a configuration dictionary.
 
         Args:
@@ -135,8 +133,8 @@ class ConfigValidator:
         Returns:
             ValidationResult with errors, warnings, and normalized config.
         """
-        errors: List[ValidationError] = []
-        warnings: List[ValidationWarning] = []
+        errors: list[ValidationError] = []
+        warnings: list[ValidationWarning] = []
 
         # Create a copy for normalization
         normalized = dict(config)
@@ -163,9 +161,9 @@ class ConfigValidator:
 
     def _validate_data_sources(
         self,
-        config: Dict[str, Any],
-        errors: List[ValidationError],
-        warnings: List[ValidationWarning]
+        config: dict[str, Any],
+        errors: list[ValidationError],
+        warnings: list[ValidationWarning]
     ) -> None:
         """Validate that data sources are properly specified."""
         has_train_x = config.get("train_x") is not None
@@ -192,22 +190,19 @@ class ConfigValidator:
 
         # Validate multi-source consistency
         train_x = config.get("train_x")
-        if isinstance(train_x, list):
-            # Check all paths are same type
-            if not all(isinstance(p, (str, Path)) for p in train_x):
-                if not all(isinstance(p, np.ndarray) for p in train_x):
-                    errors.append(ValidationError(
-                        code="MIXED_SOURCE_TYPES",
-                        message="Multi-source train_x contains mixed types.",
-                        field="train_x",
-                        suggestion="Use either all file paths or all numpy arrays."
-                    ))
+        if isinstance(train_x, list) and not all(isinstance(p, (str, Path)) for p in train_x) and not all(isinstance(p, np.ndarray) for p in train_x):
+            errors.append(ValidationError(
+                    code="MIXED_SOURCE_TYPES",
+                    message="Multi-source train_x contains mixed types.",
+                    field="train_x",
+                    suggestion="Use either all file paths or all numpy arrays."
+                ))
 
     def _validate_task_type(
         self,
-        config: Dict[str, Any],
-        errors: List[ValidationError],
-        warnings: List[ValidationWarning]
+        config: dict[str, Any],
+        errors: list[ValidationError],
+        warnings: list[ValidationWarning]
     ) -> None:
         """Validate task_type configuration."""
         task_type = config.get("task_type")
@@ -224,9 +219,9 @@ class ConfigValidator:
 
     def _validate_loading_params(
         self,
-        config: Dict[str, Any],
-        errors: List[ValidationError],
-        warnings: List[ValidationWarning]
+        config: dict[str, Any],
+        errors: list[ValidationError],
+        warnings: list[ValidationWarning]
     ) -> None:
         """Validate loading parameters."""
         # Check global_params
@@ -252,8 +247,8 @@ class ConfigValidator:
         self,
         params: Any,
         field_name: str,
-        errors: List[ValidationError],
-        warnings: List[ValidationWarning]
+        errors: list[ValidationError],
+        warnings: list[ValidationWarning]
     ) -> None:
         """Validate a params dictionary."""
         if not isinstance(params, dict):
@@ -307,9 +302,9 @@ class ConfigValidator:
 
     def _validate_aggregation(
         self,
-        config: Dict[str, Any],
-        errors: List[ValidationError],
-        warnings: List[ValidationWarning]
+        config: dict[str, Any],
+        errors: list[ValidationError],
+        warnings: list[ValidationWarning]
     ) -> None:
         """Validate aggregation settings."""
         aggregate = config.get("aggregate")
@@ -337,9 +332,9 @@ class ConfigValidator:
 
     def _validate_file_existence(
         self,
-        config: Dict[str, Any],
-        errors: List[ValidationError],
-        warnings: List[ValidationWarning]
+        config: dict[str, Any],
+        errors: list[ValidationError],
+        warnings: list[ValidationWarning]
     ) -> None:
         """Validate that referenced files exist."""
         file_fields = [
@@ -365,17 +360,15 @@ class ConfigValidator:
                             message=f"File not found: {path}",
                             field=f"{field_name}[{i}]"
                         ))
-            elif isinstance(value, (str, Path)):
-                if not Path(value).exists():
-                    warnings.append(ValidationWarning(
-                        code="FILE_NOT_FOUND",
-                        message=f"File not found: {value}",
-                        field=field_name
-                    ))
-
+            elif isinstance(value, (str, Path)) and not Path(value).exists():
+                warnings.append(ValidationWarning(
+                    code="FILE_NOT_FOUND",
+                    message=f"File not found: {value}",
+                    field=field_name
+                ))
 
 def validate_config(
-    config: Dict[str, Any],
+    config: dict[str, Any],
     check_file_existence: bool = False
 ) -> ValidationResult:
     """Convenience function to validate a configuration.

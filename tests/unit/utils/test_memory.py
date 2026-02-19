@@ -54,7 +54,6 @@ class TestEstimateDatasetBytes:
         dataset = SpectroDataset("empty")
         assert estimate_dataset_bytes(dataset) == 0
 
-
 class TestEstimateCacheEntryBytes:
     """Test estimate_cache_entry_bytes for various types."""
 
@@ -89,7 +88,6 @@ class TestEstimateCacheEntryBytes:
         expected = a.nbytes + a.nbytes + a.nbytes
         assert estimate_cache_entry_bytes(entry) == expected
 
-
 class TestGetProcessRssMb:
     """Test get_process_rss_mb returns a positive value."""
 
@@ -100,7 +98,6 @@ class TestGetProcessRssMb:
     def test_returns_float(self):
         rss = get_process_rss_mb()
         assert isinstance(rss, float)
-
 
 class TestFormatBytes:
     """Test format_bytes for various scales."""

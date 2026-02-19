@@ -11,8 +11,9 @@ merged output. This is intentional as merge operations exit branch mode
 and create a new unified feature set for subsequent steps.
 """
 
-import pytest
 import numpy as np
+import pytest
+
 from nirs4all.data.dataset import SpectroDataset
 
 
@@ -141,7 +142,6 @@ class TestAddMergedFeatures:
         processings = dataset.features_processings(0)
         assert processings == ["merge_step_2"]
 
-
 class TestGetMergedFeatures:
     """Test suite for get_merged_features method."""
 
@@ -205,7 +205,6 @@ class TestGetMergedFeatures:
 
         retrieved = dataset.get_merged_features("test_merge")
         np.testing.assert_array_almost_equal(retrieved, merged)
-
 
 class TestMergedFeaturesIntegration:
     """Integration tests for merged features workflow."""

@@ -1,7 +1,7 @@
 """Step parser for pipeline step configurations."""
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from nirs4all.pipeline.config.component_serialization import deserialize_component
 
@@ -13,7 +13,6 @@ class StepType(Enum):
     SUBPIPELINE = "subpipeline"  # nested list of steps
     DIRECT = "direct"  # direct operator instance
     UNKNOWN = "unknown"
-
 
 @dataclass
 class ParsedStep:
@@ -31,9 +30,8 @@ class ParsedStep:
     keyword: str
     step_type: StepType
     original_step: Any
-    metadata: Dict[str, Any]
-    force_layout: Optional[str] = None
-
+    metadata: dict[str, Any]
+    force_layout: str | None = None
 
 class StepParser:
     """Parses pipeline step configurations into normalized format.
@@ -122,7 +120,7 @@ class StepParser:
             metadata={}
         )
 
-    def _parse_dict_step(self, step: Dict[str, Any]) -> ParsedStep:
+    def _parse_dict_step(self, step: dict[str, Any]) -> ParsedStep:
         """Parse dictionary step configuration."""
         # Extract and validate force_layout if present
         force_layout = step.get("force_layout")
@@ -148,7 +146,7 @@ class StepParser:
         # Look for potential workflow operators
         # Prioritize known workflow keywords, then fall back to any non-reserved key
         candidates = [
-            k for k in step.keys()
+            k for k in step
             if k not in self.RESERVED_KEYWORDS and k not in self.SERIALIZATION_OPERATORS
         ]
 
@@ -225,8 +223,7 @@ class StepParser:
                 metadata={}
             )
 
-
-    def _deserialize_operator(self, value: Any) -> Optional[Any]:
+    def _deserialize_operator(self, value: Any) -> Any | None:
         """Deserialize an operator value if needed.
 
         Handles:

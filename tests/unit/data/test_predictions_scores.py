@@ -1,10 +1,13 @@
 """Tests for predictions scores management."""
 
 import json
+
 import numpy as np
 import pytest
-from nirs4all.data.predictions import Predictions
+
 from nirs4all.core import metrics as evaluator
+from nirs4all.data.predictions import Predictions
+
 
 @pytest.fixture
 def base_prediction_params():

@@ -38,7 +38,6 @@ def _check_jax_available():
     except ImportError:
         return False
 
-
 # =============================================================================
 # NumPy Backend Implementation
 # =============================================================================
@@ -288,7 +287,6 @@ def _ipls_fit_numpy(
         final_pls,
     )
 
-
 def _ipls_predict_numpy(
     X: NDArray[np.floating],
     interval_starts: NDArray[np.int_],
@@ -333,7 +331,6 @@ def _ipls_predict_numpy(
     X_selected = X[:, feature_mask]
     return final_pls.predict(X_selected)
 
-
 # =============================================================================
 # JAX Backend Implementation (Optimized with vmap and JIT)
 # =============================================================================
@@ -341,17 +338,17 @@ def _ipls_predict_numpy(
 # Global cache for JIT-compiled JAX functions
 _JAX_IPLS_CACHE: dict | None = None
 
-
 def _build_jax_ipls_functions():
     """Build and JIT-compile all JAX iPLS functions.
 
     Returns a dictionary of compiled functions. This is called once and cached.
     The functions use vmap for parallel evaluation across intervals and CV folds.
     """
+    from functools import partial as functools_partial
+
     import jax
     import jax.numpy as jnp
     from jax import lax
-    from functools import partial as functools_partial
 
     # Enable float64 for numerical precision
     jax.config.update("jax_enable_x64", True)
@@ -795,14 +792,12 @@ def _build_jax_ipls_functions():
         'pls_predict': pls_predict,
     }
 
-
 def _get_jax_ipls_functions():
     """Get cached JAX iPLS functions (with lazy initialization)."""
     global _JAX_IPLS_CACHE
     if _JAX_IPLS_CACHE is None:
         _JAX_IPLS_CACHE = _build_jax_ipls_functions()
     return _JAX_IPLS_CACHE
-
 
 def _ipls_fit_jax(
     X: np.ndarray,
@@ -1048,7 +1043,6 @@ def _ipls_fit_jax(
         feature_mask,
     )
 
-
 # =============================================================================
 # IntervalPLS Estimator Class
 # =============================================================================
@@ -1214,7 +1208,7 @@ class IntervalPLS(BaseEstimator, RegressorMixin):
         self,
         X: ArrayLike,
         y: ArrayLike,
-    ) -> "IntervalPLS":
+    ) -> IntervalPLS:
         """Fit the IntervalPLS model.
 
         Parameters
@@ -1265,10 +1259,7 @@ class IntervalPLS(BaseEstimator, RegressorMixin):
 
         # Handle 1D y
         self._y_1d = y.ndim == 1
-        if self._y_1d:
-            y_fit = y.reshape(-1, 1)
-        else:
-            y_fit = y
+        y_fit = y.reshape(-1, 1) if self._y_1d else y
 
         n_samples, n_features = X.shape
         self.n_features_in_ = n_features
@@ -1474,7 +1465,7 @@ class IntervalPLS(BaseEstimator, RegressorMixin):
             'backend': self.backend,
         }
 
-    def set_params(self, **params) -> "IntervalPLS":
+    def set_params(self, **params) -> IntervalPLS:
         """Set the parameters of this estimator.
 
         Parameters

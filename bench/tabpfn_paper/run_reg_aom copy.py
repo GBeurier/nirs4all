@@ -20,23 +20,31 @@ from nirs4all.data.config import DatasetConfigs
 from nirs4all.operators.models import AOMPLSRegressor, POPPLSRegressor
 from nirs4all.operators.splitters.splitters import SPXYFold
 from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    ExtendedMultiplicativeScatterCorrection as EMSC,
-    MultiplicativeScatterCorrection as MSC,
-    SavitzkyGolay,
-    SavitzkyGolay as SG,
-    ASLSBaseline,
-    Detrend,
-    Gaussian,
-    ToAbsorbance,
-    KubelkaMunk,
-    Haar,
     AreaNormalization,
-    IdentityTransformer,
-    Derivate,
+    ASLSBaseline,
     Baseline,
-    Normalize,
+    Derivate,
+    Detrend,
     FlexiblePCA,
+    Gaussian,
+    Haar,
+    IdentityTransformer,
+    KubelkaMunk,
+    Normalize,
+    SavitzkyGolay,
+    ToAbsorbance,
+)
+from nirs4all.operators.transforms import (
+    ExtendedMultiplicativeScatterCorrection as EMSC,
+)
+from nirs4all.operators.transforms import (
+    MultiplicativeScatterCorrection as MSC,
+)
+from nirs4all.operators.transforms import (
+    SavitzkyGolay as SG,
+)
+from nirs4all.operators.transforms import (
+    StandardNormalVariate as SNV,
 )
 
 parser = argparse.ArgumentParser()
@@ -52,14 +60,7 @@ from oom import OOMPLSRegressorTorch
 # =============================================================================
 SMOKE = args.smoke
 
-if SMOKE:
-    CFG = dict(
-        aom_finetune_trials=2,
-    )
-else:
-    CFG = dict(
-        aom_finetune_trials=100,
-    )
+CFG = {"aom_finetune_trials": 2} if SMOKE else {"aom_finetune_trials": 100}
 
 print(f"Running in {'SMOKE' if SMOKE else 'FULL'} mode")
 

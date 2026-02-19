@@ -12,47 +12,40 @@ Core functionality has been moved to appropriate modules:
 """
 
 from .backend import (
-    # Availability checks (fast, no imports)
-    is_available,
-    is_tensorflow_available,
-    is_torch_available,
-    is_keras_available,
-    is_jax_available,
-    is_gpu_available,
-
-    # Requirement enforcement
-    require_backend,
-    check_backend_available,
-    BackendNotAvailableError,
-
-    # Framework decorator
-    framework,
-
+    JAX_AVAILABLE,
+    KERAS_AVAILABLE,
     # Lazy constants (for backward compat)
     TF_AVAILABLE,
     TORCH_AVAILABLE,
-    JAX_AVAILABLE,
-    KERAS_AVAILABLE,
-
+    BackendNotAvailableError,
+    check_backend_available,
+    # Cache management
+    clear_availability_cache,
+    # Framework decorator
+    framework,
     # Info utilities
     get_backend_info,
     get_gpu_info,
-    print_backend_status,
-
+    # Availability checks (fast, no imports)
+    is_available,
+    is_gpu_available,
+    is_jax_available,
+    is_keras_available,
+    is_tensorflow_available,
+    is_torch_available,
     # Lazy import helper
     lazy_import,
-
-    # Cache management
-    clear_availability_cache,
+    print_backend_status,
+    # Requirement enforcement
+    require_backend,
 )
-
 from .header_units import (
     AXIS_LABELS,
     DEFAULT_AXIS_LABEL,
+    apply_x_axis_limits,
     get_axis_label,
     get_x_values_and_label,
     should_invert_x_axis,
-    apply_x_axis_limits,
 )
 
 __all__ = [

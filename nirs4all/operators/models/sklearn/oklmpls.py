@@ -128,7 +128,6 @@ def _check_jax_available():
     except ImportError:
         return False
 
-
 # =============================================================================
 # Featurizers
 # =============================================================================
@@ -169,7 +168,6 @@ class IdentityFeaturizer(BaseEstimator, TransformerMixin):
             Same as input.
         """
         return np.asarray(X)
-
 
 class PolynomialFeaturizer(BaseEstimator, TransformerMixin):
     """Polynomial featurizer for OKLM-PLS.
@@ -227,7 +225,6 @@ class PolynomialFeaturizer(BaseEstimator, TransformerMixin):
             features.append(X ** d)
 
         return np.hstack(features)
-
 
 class RBFFeaturizer(BaseEstimator, TransformerMixin):
     """Random Fourier Features (RBF approximation) featurizer for OKLM-PLS.
@@ -305,7 +302,6 @@ class RBFFeaturizer(BaseEstimator, TransformerMixin):
 
         return np.sqrt(2 / self.n_components) * np.cos(projection)
 
-
 # =============================================================================
 # NumPy Backend Implementation
 # =============================================================================
@@ -373,10 +369,7 @@ def _oklmpls_fit_numpy(
         W = rng.normal(size=(d, r))
         W, _ = np.linalg.qr(W)
 
-    if B_init is not None:
-        B = B_init.copy()
-    else:
-        B = np.zeros((r, n_targets), dtype=np.float64)
+    B = B_init.copy() if B_init is not None else np.zeros((r, n_targets), dtype=np.float64)
 
     # Initialize F as identity
     F = np.eye(r, dtype=np.float64)
@@ -472,7 +465,6 @@ def _oklmpls_fit_numpy(
 
     return W, F, B, iteration + 1
 
-
 def _oklmpls_predict_numpy(
     Z: NDArray[np.floating],
     W: NDArray[np.floating],
@@ -497,7 +489,6 @@ def _oklmpls_predict_numpy(
     T = Z @ W
     return T @ B
 
-
 # =============================================================================
 # JAX Backend Implementation
 # =============================================================================
@@ -507,7 +498,6 @@ def _get_jax_oklmpls_functions():
     import jax
     import jax.numpy as jnp
     from jax import lax
-    from functools import partial
 
     jax.config.update("jax_enable_x64", True)
 
@@ -587,9 +577,7 @@ def _get_jax_oklmpls_functions():
         'predict': predict_jax,
     }
 
-
 _JAX_OKLMPLS_FUNCS = None
-
 
 def _get_cached_jax_oklmpls():
     """Get cached JAX OKLM-PLS functions."""
@@ -597,7 +585,6 @@ def _get_cached_jax_oklmpls():
     if _JAX_OKLMPLS_FUNCS is None:
         _JAX_OKLMPLS_FUNCS = _get_jax_oklmpls_functions()
     return _JAX_OKLMPLS_FUNCS
-
 
 def _oklmpls_fit_jax(
     Z: NDArray[np.floating],
@@ -637,10 +624,7 @@ def _oklmpls_fit_jax(
         W_np, _ = np.linalg.qr(W_np)
         W = jnp.asarray(W_np)
 
-    if B_init is not None:
-        B = jnp.asarray(B_init)
-    else:
-        B = jnp.zeros((r, n_targets), dtype=jnp.float64)
+    B = jnp.asarray(B_init) if B_init is not None else jnp.zeros((r, n_targets), dtype=jnp.float64)
 
     F = jnp.eye(r, dtype=jnp.float64)
 
@@ -678,7 +662,6 @@ def _oklmpls_fit_jax(
         prev_loss = loss
 
     return np.asarray(W), np.asarray(F), np.asarray(B), iteration + 1
-
 
 # =============================================================================
 # OKLMPLS Estimator Class
@@ -880,7 +863,7 @@ class OKLMPLS(BaseEstimator, RegressorMixin):
         self,
         X: ArrayLike,
         y: ArrayLike,
-    ) -> "OKLMPLS":
+    ) -> OKLMPLS:
         """Fit the OKLM-PLS model.
 
         Parameters
@@ -997,10 +980,7 @@ class OKLMPLS(BaseEstimator, RegressorMixin):
             Y_proc = _oklmpls_predict_numpy(Z, self.W_, self.B_)
 
         # Inverse transform
-        if self.y_scaler_ is not None:
-            Y = self.y_scaler_.inverse_transform(Y_proc)
-        else:
-            Y = Y_proc
+        Y = self.y_scaler_.inverse_transform(Y_proc) if self.y_scaler_ is not None else Y_proc
 
         if self._y_1d:
             Y = Y.ravel()
@@ -1092,7 +1072,7 @@ class OKLMPLS(BaseEstimator, RegressorMixin):
             'random_state': self.random_state,
         }
 
-    def set_params(self, **params) -> "OKLMPLS":
+    def set_params(self, **params) -> OKLMPLS:
         """Set the parameters of this estimator."""
         for key, value in params.items():
             setattr(self, key, value)

@@ -22,7 +22,8 @@ Example usage:
 """
 
 import re
-from typing import Any, Callable, Dict, List, Optional, Union
+from collections.abc import Callable
+from typing import Any, Optional, Union
 
 
 def parse_value_condition(condition: Any) -> Callable[[Any], bool]:
@@ -73,7 +74,6 @@ def parse_value_condition(condition: Any) -> Callable[[Any], bool]:
         f"Expected callable, bool, list, str, int, or float."
     )
 
-
 def _parse_string_condition(s: str) -> Callable[[Any], bool]:
     """Parse string conditions like '> 0.8', '0..50', etc.
 
@@ -114,7 +114,6 @@ def _parse_string_condition(s: str) -> Callable[[Any], bool]:
     # Try as a literal string value for equality
     return lambda x: x == s
 
-
 def _create_range_predicate(
     start_str: str,
     end_str: str
@@ -152,7 +151,6 @@ def _create_range_predicate(
         # Open-start range: ..end (up to and including end)
         return lambda x: x <= end
 
-
 def _create_comparison_predicate(
     operator: str,
     value_str: str
@@ -179,8 +177,7 @@ def _create_comparison_predicate(
 
     return operators[operator]
 
-
-def _parse_number(s: str) -> Union[int, float]:
+def _parse_number(s: str) -> int | float:
     """Parse a string as int or float.
 
     Args:
@@ -200,11 +197,10 @@ def _parse_number(s: str) -> Union[int, float]:
         return float(s)
     return int(s)
 
-
 def group_samples_by_value_mapping(
-    values: List[Any],
-    value_mapping: Dict[str, Any]
-) -> Dict[str, List[int]]:
+    values: list[Any],
+    value_mapping: dict[str, Any]
+) -> dict[str, list[int]]:
     """Group sample indices by value mapping conditions.
 
     Given a list of values and a mapping of branch names to conditions,
@@ -234,8 +230,8 @@ def group_samples_by_value_mapping(
     }
 
     # Group samples
-    result: Dict[str, List[int]] = {name: [] for name in value_mapping}
-    assigned_samples: Dict[int, str] = {}
+    result: dict[str, list[int]] = {name: [] for name in value_mapping}
+    assigned_samples: dict[int, str] = {}
 
     for idx, value in enumerate(values):
         for branch_name, predicate in predicates.items():
@@ -251,10 +247,9 @@ def group_samples_by_value_mapping(
 
     return result
 
-
 def validate_disjoint_conditions(
-    value_mapping: Dict[str, Any],
-    sample_values: Optional[List[Any]] = None
+    value_mapping: dict[str, Any],
+    sample_values: list[Any] | None = None
 ) -> bool:
     """Validate that value mapping conditions are disjoint.
 
@@ -282,7 +277,6 @@ def validate_disjoint_conditions(
     # Without sample values, we can only do basic checks
     # For now, assume disjoint - actual validation happens at runtime
     return True
-
 
 __all__ = [
     "parse_value_condition",

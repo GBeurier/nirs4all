@@ -28,7 +28,6 @@ from nirs4all.pipeline.analysis.topology import PipelineTopology
 
 logger = get_logger(__name__)
 
-
 @dataclass
 class PerModelSelection:
     """Selection result for a single model node.
@@ -50,7 +49,6 @@ class PerModelSelection:
     best_params: dict[str, Any] = field(default_factory=dict)
     expanded_steps: list[Any] = field(default_factory=list)
     branch_path: list[int] = field(default_factory=list)
-
 
 def select_best_per_model(
     predictions: list[dict[str, Any]],
@@ -179,7 +177,6 @@ def select_best_per_model(
 
     return result
 
-
 def _single_variant_selection(
     topology: PipelineTopology,
     variant_configs: list[dict[str, Any]],
@@ -198,7 +195,6 @@ def _single_variant_selection(
             branch_path=list(model_node.branch_path),
         )
     return result
-
 
 def _resolve_variant_index(
     pred: dict[str, Any],
@@ -237,7 +233,6 @@ def _resolve_variant_index(
 
     return 0
 
-
 def _aggregate_scores_per_variant(
     scores: list[tuple[int, float, dict[str, Any]]],
 ) -> dict[int, float]:
@@ -259,7 +254,6 @@ def _aggregate_scores_per_variant(
         counts[variant_idx] += 1
 
     return {vi: sums[vi] / counts[vi] for vi in sums}
-
 
 def _infer_ascending(metric: str) -> bool:
     """Infer whether lower-is-better from the metric name.

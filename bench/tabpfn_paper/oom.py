@@ -1,14 +1,14 @@
 # oom_pls_torch.py
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Any, List, Optional, Tuple, Dict
 
 import math
+from dataclasses import dataclass
+from typing import Any, Optional
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 from sklearn.base import BaseEstimator, RegressorMixin
-
 
 # ----------------------------
 # Utils
@@ -68,7 +68,6 @@ def conv1d_full_conv_1d(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     w = torch.flip(b, dims=[0]).view(1, 1, -1)
     return F.conv1d(x, w, padding=b.numel() - 1).view(-1)
 
-
 # ----------------------------
 # Kernel builders (SG, Norris-Williams)
 # ----------------------------
@@ -112,7 +111,6 @@ def norris_williams_kernel(gap: int, segment: int, deriv: int, delta: float, dev
         k = conv1d_full_conv_1d(k, gk)
     return k.to(dtype=dtype)
 
-
 # ----------------------------
 # Detrend projector (low-rank, self-adjoint)
 # ----------------------------
@@ -143,7 +141,6 @@ class DetrendProjector:
         Q = self.Q
         return V - (V @ Q) @ Q.transpose(0, 1)
 
-
 # ----------------------------
 # Convolution family bank (Option A: sparse mixture of kernels)
 # ----------------------------
@@ -168,7 +165,7 @@ class ConvKernelFamily:
         self.M, self.K = kernels.shape
 
     @staticmethod
-    def from_list(k_list: List[torch.Tensor], device, dtype) -> "ConvKernelFamily":
+    def from_list(k_list: list[torch.Tensor], device, dtype) -> ConvKernelFamily:
         # pad all to same odd length (max)
         maxK = max(int(k.numel()) for k in k_list)
         if maxK % 2 == 0:
@@ -209,7 +206,6 @@ class ConvKernelFamily:
         y = conv1d_same_corr_single(v.view(1, 1, -1), k_eff).view(-1)
         return y
 
-
 # ----------------------------
 # Block spec: order of detrend around a family
 # ----------------------------
@@ -225,7 +221,6 @@ class BlockSpec:
         pre = "none" if self.pre_deg < 0 else f"deg{self.pre_deg}"
         post = "none" if self.post_deg < 0 else f"deg{self.post_deg}"
         return f"{self.family_name}[pre={pre},post={post}]"
-
 
 # ----------------------------
 # OOM-PLS core
@@ -249,12 +244,12 @@ class OOMPLSRegressorTorch(BaseEstimator, RegressorMixin):
         n_components: int = 15,
         tau_kernel: float = 0.5,
         tau_block: float = 0.5,
-        degrees: Tuple[int, ...] = (0, 1),   # detrend degrees to consider (0=mean,1=linear); add 2 if needed
-        families: Tuple[str, ...] = ("SG", "NW"),
-        degrees_mode: Optional[int] = None,  # 0->(0,), 1->(0,1), 2->(0,1,2)
-        families_mode: Optional[int] = None, # 0->("SG",), 1->("NW",), 2->("SG","NW")
-        top_m_kernels: Optional[int] = 8,    # restrict kernel selection inside a family for speed
-        top_m_blocks: Optional[int] = 8,     # restrict block selection for speed
+        degrees: tuple[int, ...] = (0, 1),   # detrend degrees to consider (0=mean,1=linear); add 2 if needed
+        families: tuple[str, ...] = ("SG", "NW"),
+        degrees_mode: int | None = None,  # 0->(0,), 1->(0,1), 2->(0,1,2)
+        families_mode: int | None = None, # 0->("SG",), 1->("NW",), 2->("SG","NW")
+        top_m_kernels: int | None = 8,    # restrict kernel selection inside a family for speed
+        top_m_blocks: int | None = 8,     # restrict block selection for speed
         device: str = "cuda",
         dtype: torch.dtype = torch.float32,
     ):
@@ -313,8 +308,8 @@ class OOMPLSRegressorTorch(BaseEstimator, RegressorMixin):
     def _build_families(
         self,
         p: int,
-        wavelengths_nm: Optional[torch.Tensor],
-    ) -> Dict[str, ConvKernelFamily]:
+        wavelengths_nm: torch.Tensor | None,
+    ) -> dict[str, ConvKernelFamily]:
         """
         Build kernel families. Windows are defined in nm-widths if wavelengths are provided,
         otherwise in points (fallback).
@@ -329,7 +324,7 @@ class OOMPLSRegressorTorch(BaseEstimator, RegressorMixin):
             # fallback: assume unit spacing
             delta = 1.0
 
-        fams: Dict[str, ConvKernelFamily] = {}
+        fams: dict[str, ConvKernelFamily] = {}
 
         if "SG" in self.families:
             # Define widths in nm that are "scale-stable" across varying p
@@ -370,8 +365,8 @@ class OOMPLSRegressorTorch(BaseEstimator, RegressorMixin):
 
         return fams
 
-    def _build_blocks(self) -> List[BlockSpec]:
-        blocks: List[BlockSpec] = []
+    def _build_blocks(self) -> list[BlockSpec]:
+        blocks: list[BlockSpec] = []
         # detrend degrees: include "none" as -1
         degs = [-1] + list(self.degrees)
         for fam in self.families:
@@ -385,22 +380,16 @@ class OOMPLSRegressorTorch(BaseEstimator, RegressorMixin):
     def _norm_sq(v: torch.Tensor) -> torch.Tensor:
         return torch.sum(v * v)
 
-    def fit(self, X: Any, y: Any, wavelengths_nm: Optional[Any] = None) -> "OOMPLSRegressorTorch":
+    def fit(self, X: Any, y: Any, wavelengths_nm: Any | None = None) -> OOMPLSRegressorTorch:
         """
         X: (n,p) torch tensor (cpu or cuda)
         y: (n,) or (n,1)
         wavelengths_nm: optional (p,) to build scale-stable kernels
         """
         device, dtype = self.device, self.dtype
-        if not torch.is_tensor(X):
-            X = torch.as_tensor(np.asarray(X), device=device, dtype=dtype)
-        else:
-            X = X.to(device=device, dtype=dtype)
+        X = torch.as_tensor(np.asarray(X), device=device, dtype=dtype) if not torch.is_tensor(X) else X.to(device=device, dtype=dtype)
 
-        if not torch.is_tensor(y):
-            y = torch.as_tensor(np.asarray(y), device=device, dtype=dtype)
-        else:
-            y = y.to(device=device, dtype=dtype)
+        y = torch.as_tensor(np.asarray(y), device=device, dtype=dtype) if not torch.is_tensor(y) else y.to(device=device, dtype=dtype)
 
         if y.dim() == 1:
             y = y.view(-1, 1)
@@ -423,7 +412,7 @@ class OOMPLSRegressorTorch(BaseEstimator, RegressorMixin):
         B = len(self.blocks_)
 
         # detrend projectors (cache)
-        detrenders: Dict[int, DetrendProjector] = {}
+        detrenders: dict[int, DetrendProjector] = {}
         for deg in self.degrees:
             detrenders[deg] = DetrendProjector(p=p, degree=deg, device=device, dtype=dtype)
 
@@ -433,7 +422,7 @@ class OOMPLSRegressorTorch(BaseEstimator, RegressorMixin):
         P = torch.zeros((p, Kmax), device=device, dtype=dtype)
         Q = torch.zeros((1, Kmax), device=device, dtype=dtype)
         Gamma = torch.zeros((Kmax, B), device=device, dtype=dtype)
-        block_alphas: List[Dict[int, torch.Tensor]] = []
+        block_alphas: list[dict[int, torch.Tensor]] = []
 
         Xres = Xc
         yres = yc
@@ -447,7 +436,7 @@ class OOMPLSRegressorTorch(BaseEstimator, RegressorMixin):
             # Per-block g and alpha
             g_blocks = torch.zeros((B, p), device=device, dtype=dtype)
             s_blocks = torch.zeros((B,), device=device, dtype=dtype)
-            alphas_k: Dict[int, torch.Tensor] = {}
+            alphas_k: dict[int, torch.Tensor] = {}
 
             # (speed) precompute per family and post-degree: G0 = C^T(D_post(c))
             # We do it naively per block here for readability; optimize later.
@@ -584,16 +573,13 @@ class OOMPLSRegressorTorch(BaseEstimator, RegressorMixin):
         if self.coef_ is None or self.x_mean_ is None or self.y_mean_ is None:
             raise RuntimeError("Model is not fitted. Call fit() before predict().")
 
-        if not torch.is_tensor(X):
-            X = torch.as_tensor(np.asarray(X), device=self.device, dtype=self.dtype)
-        else:
-            X = X.to(device=self.device, dtype=self.dtype)
+        X = torch.as_tensor(np.asarray(X), device=self.device, dtype=self.dtype) if not torch.is_tensor(X) else X.to(device=self.device, dtype=self.dtype)
 
         Xc = X - self.x_mean_
         yhat = Xc @ self.coef_ + self.y_mean_
         return yhat.view(-1).detach().cpu().numpy()
 
-    def preprocessing_report(self, topk_blocks: int = 5, topk_kernels: int = 5) -> List[dict]:
+    def preprocessing_report(self, topk_blocks: int = 5, topk_kernels: int = 5) -> list[dict]:
         """
         Human-readable report:
         - top blocks per component (gamma)
@@ -605,13 +591,13 @@ class OOMPLSRegressorTorch(BaseEstimator, RegressorMixin):
             gamma = self.gamma_[k].detach().cpu()
             vals, idxs = torch.topk(gamma, k=min(topk_blocks, B))
             blocks = []
-            for v, b_idx in zip(vals.tolist(), idxs.tolist()):
+            for v, b_idx in zip(vals.tolist(), idxs.tolist(), strict=False):
                 if v <= 0:
                     continue
                 name = self.block_names_[b_idx]
                 alpha = self.block_alphas_[k][b_idx].cpu()
                 avals, aidxs = torch.topk(alpha, k=min(topk_kernels, alpha.numel()))
-                kernels = [{"idx": int(i), "w": float(a)} for a, i in zip(avals.tolist(), aidxs.tolist()) if a > 0]
+                kernels = [{"idx": int(i), "w": float(a)} for a, i in zip(avals.tolist(), aidxs.tolist(), strict=False) if a > 0]
                 blocks.append({"block": name, "gamma": float(v), "kernels": kernels})
             report.append({"component": k + 1, "blocks": blocks})
         return report

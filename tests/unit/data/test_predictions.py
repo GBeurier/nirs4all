@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+
 from nirs4all.data.predictions import Predictions
 
 
@@ -22,7 +23,6 @@ def base_prediction_params():
         "n_samples": 3,
         "n_features": 10,
     }
-
 
 class TestPredictions:
     """Test suite for Predictions class."""
@@ -454,14 +454,15 @@ class TestPredictions:
         grouped = predictions.top(n=3, group_by="dataset_name", return_grouped=True)
         assert len(grouped) == 0  # Empty dict or empty list
 
-
 # ========================================================================
 # Tests merged from test_predictions_header_units.py
 # ========================================================================
 
 import matplotlib
+
 matplotlib.use('Agg')  # Use non-GUI backend for testing
 import matplotlib.pyplot as plt
+
 from nirs4all.controllers.charts.spectra import SpectraChartController
 
 

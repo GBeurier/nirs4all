@@ -6,14 +6,17 @@ spectral importance visualizations that highlight which wavelengths contribute
 most to predictions.
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
-from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
+from typing import Any, Optional
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+CROSS = "[X] "
 
 # Try to import SHAP
 try:
@@ -22,7 +25,6 @@ try:
 except ImportError:
     SHAP_AVAILABLE = False
     shap = None
-
 
 class ShapAnalyzer:
     """
@@ -54,19 +56,19 @@ class ShapAnalyzer:
         self,
         model: Any,
         X: np.ndarray,
-        y: Optional[np.ndarray] = None,
-        feature_names: Optional[List[str]] = None,
-        sample_indices: Optional[List[int]] = None,
+        y: np.ndarray | None = None,
+        feature_names: list[str] | None = None,
+        sample_indices: list[int] | None = None,
         task_type: str = "regression",
         n_background: int = 100,
         explainer_type: str = "auto",
-        output_dir: Optional[str] = None,
-        visualizations: Optional[List[str]] = None,
+        output_dir: str | None = None,
+        visualizations: list[str] | None = None,
         bin_size = 20,
         bin_stride = 10,
         bin_aggregation = 'sum',
         plots_visible = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Explain model predictions using SHAP values.
 
@@ -99,10 +101,7 @@ class ShapAnalyzer:
         logger.info("=" * 80)
 
         # Select samples if specified
-        if sample_indices is not None:
-            X_explain = X[sample_indices]
-        else:
-            X_explain = X
+        X_explain = X[sample_indices] if sample_indices is not None else X
 
         logger.info(f"Analyzing {X_explain.shape[0]} samples with {X_explain.shape[1]} features")
 
@@ -297,8 +296,8 @@ class ShapAnalyzer:
         if explainer_type == "deep":
             try:
                 # Suppress verbose TensorFlow warnings during explainer creation
-                import warnings
                 import logging
+                import warnings
 
                 # Temporarily suppress TensorFlow logging
                 tf_logger = logging.getLogger('tensorflow')
@@ -368,9 +367,9 @@ class ShapAnalyzer:
 
     def plot_spectral_importance(
         self,
-        feature_names: Optional[List[str]] = None,
-        output_path: Optional[str] = None,
-        figsize: Tuple[int, int] = (16, 10),
+        feature_names: list[str] | None = None,
+        output_path: str | None = None,
+        figsize: tuple[int, int] = (16, 10),
         plots_visible: bool = True
     ):
         """
@@ -528,8 +527,8 @@ class ShapAnalyzer:
 
     def plot_summary(
         self,
-        feature_names: Optional[List[str]] = None,
-        output_path: Optional[str] = None,
+        feature_names: list[str] | None = None,
+        output_path: str | None = None,
         max_display: int = 20,
         plots_visible: bool = True
     ):
@@ -559,8 +558,8 @@ class ShapAnalyzer:
 
     def plot_beeswarm(
         self,
-        feature_names: Optional[List[str]] = None,
-        output_path: Optional[str] = None,
+        feature_names: list[str] | None = None,
+        output_path: str | None = None,
         max_display: int = 20,
         plots_visible: bool = True
     ):
@@ -593,8 +592,8 @@ class ShapAnalyzer:
     def plot_waterfall(
         self,
         sample_idx: int = 0,
-        feature_names: Optional[List[str]] = None,
-        output_path: Optional[str] = None,
+        feature_names: list[str] | None = None,
+        output_path: str | None = None,
         max_display: int = 20,
         plots_visible: bool = True
     ):
@@ -629,8 +628,8 @@ class ShapAnalyzer:
     def plot_force(
         self,
         sample_idx: int = 0,
-        feature_names: Optional[List[str]] = None,
-        output_path: Optional[str] = None,
+        feature_names: list[str] | None = None,
+        output_path: str | None = None,
         plots_visible: bool = True
     ):
         """Create SHAP force plot for a single sample."""
@@ -664,9 +663,9 @@ class ShapAnalyzer:
     def plot_dependence(
         self,
         feature_idx: int,
-        feature_names: Optional[List[str]] = None,
-        output_path: Optional[str] = None,
-        interaction_index: Optional[int] = None,
+        feature_names: list[str] | None = None,
+        output_path: str | None = None,
+        interaction_index: int | None = None,
         plots_visible: bool = True
     ):
         """Create SHAP dependence plot for a specific feature."""
@@ -687,14 +686,12 @@ class ShapAnalyzer:
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
 
-
         if not plots_visible:
             plt.close()
         else:
             plt.show()  # Blocking
 
-
-    def _aggregate_shap_bins(self, shap_values: np.ndarray) -> Tuple[np.ndarray, List[str]]:
+    def _aggregate_shap_bins(self, shap_values: np.ndarray) -> tuple[np.ndarray, list[str]]:
         """
         Aggregate SHAP values into bins based on configured parameters.
 
@@ -754,7 +751,7 @@ class ShapAnalyzer:
 
     def plot_beeswarm_binned(
         self,
-        output_path: Optional[str] = None,
+        output_path: str | None = None,
         max_display: int = 20,
         plots_visible: bool = True
     ):
@@ -795,7 +792,7 @@ class ShapAnalyzer:
             show=False
         )
 
-        title = f'SHAP Beeswarm Plot (Binned)\n'
+        title = 'SHAP Beeswarm Plot (Binned)\n'
         title += f'Bin Size: {self.bin_size}, Stride: {self.bin_stride}, '
         title += f'Aggregation: {self.bin_aggregation}'
         plt.title(title, fontsize=14, fontweight='bold', pad=20)
@@ -813,7 +810,7 @@ class ShapAnalyzer:
     def plot_waterfall_binned(
         self,
         sample_idx: int = 0,
-        output_path: Optional[str] = None,
+        output_path: str | None = None,
         max_display: int = 20,
         plots_visible: bool = True
     ):
@@ -869,7 +866,7 @@ class ShapAnalyzer:
         else:
             plt.show()  # Blocking
 
-    def get_feature_importance(self, top_n: Optional[int] = None) -> Dict[str, float]:
+    def get_feature_importance(self, top_n: int | None = None) -> dict[str, float]:
         """
         Get feature importance ranking based on mean absolute SHAP values.
 
@@ -890,7 +887,7 @@ class ShapAnalyzer:
 
         return {int(idx): float(mean_shap[idx]) for idx in indices}
 
-    def save_results(self, results: Dict[str, Any], output_path: str):
+    def save_results(self, results: dict[str, Any], output_path: str):
         """Save SHAP results to disk using the new serializer."""
         from nirs4all.pipeline.storage.artifacts.artifact_persistence import to_bytes
 
@@ -900,13 +897,11 @@ class ShapAnalyzer:
         logger.info(f"Results saved to: {output_path}")
 
     @staticmethod
-    def load_results(input_path: str) -> Dict[str, Any]:
+    def load_results(input_path: str) -> dict[str, Any]:
         """Load SHAP results from disk using the new serializer."""
         from nirs4all.pipeline.storage.artifacts.artifact_persistence import from_bytes
 
         with open(input_path, 'rb') as f:
             data = f.read()
         return from_bytes(data, 'cloudpickle')
-
-
 

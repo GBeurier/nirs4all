@@ -29,7 +29,6 @@ from nirs4all.pipeline.storage.store_schema import REFIT_CONTEXT_STANDALONE
 
 logger = get_logger(__name__)
 
-
 @dataclass
 class RefitResult:
     """Result of a refit execution.
@@ -51,7 +50,6 @@ class RefitResult:
     fold_id: str = "final"
     refit_context: str = REFIT_CONTEXT_STANDALONE
     predictions_count: int = 0
-
 
 def execute_simple_refit(
     refit_config: RefitConfig,
@@ -199,11 +197,9 @@ def execute_simple_refit(
     logger.success("Refit pass completed successfully")
     return result
 
-
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
 
 def _step_is_splitter(step: Any) -> bool:
     """Check if a step is a CV splitter.
@@ -233,7 +229,6 @@ def _step_is_splitter(step: Any) -> bool:
 
     return False
 
-
 class _FullTrainFoldSplitter:
     """Dummy splitter that yields a single fold with all samples in train."""
 
@@ -260,7 +255,6 @@ class _FullTrainFoldSplitter:
         """Return 1 (single fold)."""
         return 1
 
-
 def _make_full_train_fold_step(dataset: Any) -> Any:
     """Create a splitter step that assigns all training samples to a single fold.
 
@@ -274,15 +268,26 @@ def _make_full_train_fold_step(dataset: Any) -> Any:
         X_train = dataset.x({"partition": "train"}, layout="2d")
         n_train = int(X_train.shape[0])
     except Exception:
-        n_train = 100
-
+        n_train = dataset.num_samples
+        logger.debug("Could not extract train partition size; using dataset.num_samples=%d as fallback", n_train)
     # The splitter re-measures from X at execution time so it remains valid
     # when upstream refit steps change active sample count.
     return _FullTrainFoldSplitter(n_train)
 
-
 def _inject_best_params(steps: list[Any], best_params: dict[str, Any]) -> None:
     """Inject best hyperparameters and refit_params into model steps.
+
+    WARNING: This applies ``best_params`` globally to ALL model-like steps
+    in the pipeline.  In mixed-model pipelines (e.g., stacking with base
+    models and a meta-model), the same ``best_params`` dict is offered to
+    every model.  Safety is maintained because ``_apply_params_to_model``
+    uses ``set_params()`` and catches ``TypeError``/``ValueError`` on a
+    per-key basis, so parameters that do not match a model's valid
+    parameter names are silently skipped.  However, if two different
+    models share a parameter name with different intended values, the
+    same value will be applied to both.  Callers should ensure
+    ``best_params`` are scoped to the correct model when pipelines
+    contain multiple heterogeneous models.
 
     Modifies the step list in place.  For each model step:
     1. Apply ``best_params`` (from Optuna/finetuning).
@@ -328,7 +333,6 @@ def _inject_best_params(steps: list[Any], best_params: dict[str, Any]) -> None:
             # (PyTorch, TensorFlow, etc. read train_params, not set_params).
             step["train_params"] = resolved
 
-
 def _apply_params_to_model(model: Any, params: dict[str, Any]) -> None:
     """Safely apply parameters to a model, skipping refit-only keys.
 
@@ -353,7 +357,6 @@ def _apply_params_to_model(model: Any, params: dict[str, Any]) -> None:
                 model.set_params(**{key: value})
             except (TypeError, ValueError):
                 logger.debug(f"Skipping unsupported param {key}={value}: {e}")
-
 
 def _relabel_refit_predictions(
     predictions: Any,
@@ -395,23 +398,21 @@ def _relabel_refit_predictions(
         if cv_n_folds is not None:
             refit_metadata["cv_n_folds"] = cv_n_folds
 
-    for entry in predictions._buffer:
-        entry["fold_id"] = "final"
-        entry["refit_context"] = REFIT_CONTEXT_STANDALONE
-        # Inject the CV selection score so final entries can be ranked
-        # in mix mode by their originating chain's selection score.
-        # Also set val_score to selection_score (the CV-based score that
-        # selected this config) so consumer code sees a meaningful value.
-        if refit_config is not None and refit_config.selection_score:
-            entry["selection_score"] = refit_config.selection_score
-            entry["val_score"] = refit_config.selection_score
-        else:
-            entry["val_score"] = None
-        if refit_metadata:
+    # Set common fields on all entries
+    common_updates: dict[str, Any] = {"fold_id": "final", "refit_context": REFIT_CONTEXT_STANDALONE}
+    if refit_config is not None and refit_config.selection_score:
+        common_updates["selection_score"] = refit_config.selection_score
+        common_updates["val_score"] = refit_config.selection_score
+    else:
+        common_updates["val_score"] = None
+    predictions.mutate_entries(common_updates)
+
+    # Merge metadata into each entry
+    if refit_metadata:
+        for entry in predictions.iter_entries():
             existing = entry.get("metadata") or {}
             existing.update(refit_metadata)
             entry["metadata"] = existing
-
 
 def _extract_cv_strategy(steps: list[Any]) -> tuple[str, int | None]:
     """Extract CV strategy description from pipeline steps.
@@ -456,7 +457,6 @@ def _extract_cv_strategy(steps: list[Any]) -> tuple[str, int | None]:
 
     return "", None
 
-
 def _extract_test_score(predictions: Any) -> float | None:
     """Extract the test score from refit predictions.
 
@@ -469,7 +469,7 @@ def _extract_test_score(predictions: Any) -> float | None:
     Returns:
         Test score as float, or ``None`` if no test score available.
     """
-    for entry in predictions._buffer:
+    for entry in predictions.iter_entries():
         test_score = entry.get("test_score")
         if test_score is not None:
             return float(test_score)

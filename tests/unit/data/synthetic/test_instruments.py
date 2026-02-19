@@ -14,18 +14,18 @@ import numpy as np
 import pytest
 
 from nirs4all.synthesis.instruments import (
-    InstrumentCategory,
-    DetectorType,
-    MonochromatorType,
-    SensorConfig,
-    MultiSensorConfig,
-    MultiScanConfig,
-    InstrumentArchetype,
     INSTRUMENT_ARCHETYPES,
-    get_instrument_archetype,
-    list_instrument_archetypes,
-    get_instruments_by_category,
+    DetectorType,
+    InstrumentArchetype,
+    InstrumentCategory,
     InstrumentSimulator,
+    MonochromatorType,
+    MultiScanConfig,
+    MultiSensorConfig,
+    SensorConfig,
+    get_instrument_archetype,
+    get_instruments_by_category,
+    list_instrument_archetypes,
 )
 
 
@@ -55,7 +55,6 @@ class TestEnums:
         assert "fourier_transform" in monos
         assert "dmd" in monos
 
-
 class TestSensorConfig:
     """Tests for SensorConfig dataclass."""
 
@@ -82,7 +81,6 @@ class TestSensorConfig:
         assert config.noise_level == 1.0  # Default
         assert config.gain == 1.0  # Default
         assert config.overlap_range == 20.0  # Default
-
 
 class TestMultiSensorConfig:
     """Tests for MultiSensorConfig dataclass."""
@@ -115,7 +113,6 @@ class TestMultiSensorConfig:
             config = MultiSensorConfig(enabled=True, sensors=sensors, stitch_method=method)
             assert config.stitch_method == method
 
-
 class TestMultiScanConfig:
     """Tests for MultiScanConfig dataclass."""
 
@@ -139,7 +136,6 @@ class TestMultiScanConfig:
         for method in ["mean", "median", "weighted", "savgol"]:
             config = MultiScanConfig(enabled=True, n_scans=16, averaging_method=method)
             assert config.averaging_method == method
-
 
 class TestInstrumentArchetype:
     """Tests for InstrumentArchetype dataclass."""
@@ -194,7 +190,6 @@ class TestInstrumentArchetype:
         assert archetype.multi_scan is not None
         assert archetype.multi_scan.n_scans == 32
 
-
 class TestInstrumentRegistry:
     """Tests for instrument archetype registry."""
 
@@ -242,7 +237,6 @@ class TestInstrumentRegistry:
         available = list_instrument_archetypes()
         for name in expected:
             assert name in available, f"{name} should be in registry"
-
 
 class TestInstrumentSimulator:
     """Tests for InstrumentSimulator class."""
@@ -306,7 +300,6 @@ class TestInstrumentSimulator:
         # Results should differ
         assert not np.allclose(result1, result2)
 
-
 class TestMultiSensorInstruments:
     """Tests for instruments with multi-sensor configurations."""
 
@@ -331,7 +324,6 @@ class TestMultiSensorInstruments:
             sensor2_start = sensors[i + 1].wavelength_range[0]
             # Either overlap or adjacent
             assert sensor1_end >= sensor2_start or sensor2_start - sensor1_end < 100
-
 
 class TestMultiScanInstruments:
     """Tests for instruments with multi-scan configurations."""

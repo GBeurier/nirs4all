@@ -4,23 +4,24 @@ Tests for the SourcesParser and multi-source configuration (Phase 6).
 Tests the parser classes and schema models for multi-source datasets.
 """
 
-import pytest
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from nirs4all.data.parsers import (
-    SourcesParser,
     ConfigNormalizer,
+    SourcesParser,
     normalize_config,
 )
 from nirs4all.data.schema import (
-    SourceConfig,
-    SourceFileConfig,
-    SharedTargetsConfig,
-    SharedMetadataConfig,
     DatasetConfigSchema,
     LoadingParams,
     PartitionType,
+    SharedMetadataConfig,
+    SharedTargetsConfig,
+    SourceConfig,
+    SourceFileConfig,
 )
 
 
@@ -116,7 +117,6 @@ class TestSourceConfig:
                 train_x="data/other.csv"
             )
 
-
 class TestSourceFileConfig:
     """Test suite for SourceFileConfig schema model."""
 
@@ -141,7 +141,6 @@ class TestSourceFileConfig:
             params=LoadingParams(delimiter=";")
         )
         assert file.params.delimiter == ";"
-
 
 class TestSharedTargetsConfig:
     """Test suite for SharedTargetsConfig schema model."""
@@ -175,7 +174,6 @@ class TestSharedTargetsConfig:
         )
         assert targets.partition == PartitionType.TRAIN
 
-
 class TestSharedMetadataConfig:
     """Test suite for SharedMetadataConfig schema model."""
 
@@ -191,7 +189,6 @@ class TestSharedMetadataConfig:
             link_by="sample_id"
         )
         assert metadata.link_by == "sample_id"
-
 
 class TestSourcesParser:
     """Test suite for SourcesParser."""
@@ -407,7 +404,6 @@ class TestSourcesParser:
         assert result.config.sources[0].name == "source_0"
         assert result.config.sources[1].name == "source_1"
 
-
 class TestDatasetConfigSchemaSourcesMethods:
     """Test suite for DatasetConfigSchema sources-related methods."""
 
@@ -506,7 +502,6 @@ class TestDatasetConfigSchemaSourcesMethods:
         # Single source should not be wrapped in list
         assert legacy['train_x'] == "data/NIR_train.csv"
 
-
 class TestConfigNormalizerWithSources:
     """Test suite for ConfigNormalizer with sources format."""
 
@@ -584,7 +579,6 @@ class TestConfigNormalizerWithSources:
         result, name = normalizer.normalize(config)
 
         assert "NIR" in name or "multisource" in name.lower()
-
 
 class TestSourcesParserIntegration:
     """Integration tests for sources parser with file creation."""

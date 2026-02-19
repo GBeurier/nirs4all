@@ -1,8 +1,8 @@
 """
 Analysis utilities for visualization.
 """
-from nirs4all.visualization.analysis.transfer import PreprocPCAEvaluator
 from nirs4all.visualization.analysis.branch import BranchAnalyzer, BranchSummary
+from nirs4all.visualization.analysis.transfer import PreprocPCAEvaluator
 
 # Import ShapAnalyzer conditionally to handle numpy 2.x compatibility
 try:

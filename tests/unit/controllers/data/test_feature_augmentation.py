@@ -7,23 +7,24 @@ Tests the three action modes:
 - replace: Chain on all + discard originals (multiplicative without originals)
 """
 
-import pytest
-import numpy as np
 from copy import deepcopy
-from unittest.mock import Mock, MagicMock, patch, call
 from dataclasses import dataclass
-from typing import Any, List, Tuple, Optional
+from typing import Any, Optional
+from unittest.mock import MagicMock, Mock, call, patch
+
+import numpy as np
+import pytest
 
 from nirs4all.controllers.data.feature_augmentation import (
-    FeatureAugmentationController,
     VALID_ACTIONS,
+    FeatureAugmentationController,
 )
 from nirs4all.pipeline.config.context import (
     DataSelector,
-    PipelineState,
-    StepMetadata,
     ExecutionContext,
+    PipelineState,
     RuntimeContext,
+    StepMetadata,
 )
 from nirs4all.pipeline.execution.result import StepResult
 
@@ -35,13 +36,11 @@ class MockParsedStep:
     original_step: dict
     step_type: str = "feature_augmentation"
 
-
 class MockStepResult:
     """Mock step execution result."""
-    def __init__(self, updated_context: ExecutionContext, artifacts: List = None):
+    def __init__(self, updated_context: ExecutionContext, artifacts: list = None):
         self.updated_context = updated_context
         self.artifacts = artifacts or []
-
 
 class TestFeatureAugmentationControllerMatches:
     """Test FeatureAugmentationController.matches() method."""
@@ -56,7 +55,6 @@ class TestFeatureAugmentationControllerMatches:
         assert FeatureAugmentationController.matches({}, None, "model") is False
         assert FeatureAugmentationController.matches({}, None, "transform") is False
         assert FeatureAugmentationController.matches({}, None, "sample_augmentation") is False
-
 
 class TestValidActions:
     """Test action validation."""
@@ -96,7 +94,6 @@ class TestValidActions:
 
         with pytest.raises(ValueError, match="Invalid action"):
             controller.execute(step_info, mock_dataset, context, runtime_context)
-
 
 class TestExtendMode:
     """Test 'extend' action mode."""
@@ -197,7 +194,6 @@ class TestExtendMode:
         # Only one operation should be executed (the non-None one)
         assert execution_count[0] == 1
 
-
 class TestAddMode:
     """Test 'add' action mode (current/legacy behavior)."""
 
@@ -286,7 +282,6 @@ class TestAddMode:
 
         # Should behave like add mode (chain from original)
         assert execution_log[0]["processing"] == [["raw"]]
-
 
 class TestReplaceMode:
     """Test 'replace' action mode."""
@@ -390,7 +385,6 @@ class TestReplaceMode:
         assert "raw_B" not in updated_context.selector.processing[1]
         assert "raw_B_SNV" in updated_context.selector.processing[1]
 
-
 class TestEmptyOperations:
     """Test edge cases with empty operations."""
 
@@ -424,7 +418,6 @@ class TestEmptyOperations:
 
         # No changes should occur
         assert artifacts == []
-
 
 class TestArtifactCollection:
     """Test artifact collection across all modes."""
@@ -478,7 +471,6 @@ class TestArtifactCollection:
         assert artifact1 in artifacts
         assert artifact2 in artifacts
 
-
 class TestSubstepNumberIncrement:
     """Test that substep_number is incremented correctly."""
 
@@ -519,7 +511,6 @@ class TestSubstepNumberIncrement:
         # substep_number should have been incremented each time
         assert substep_numbers == [1, 2, 3]
         assert runtime_context.substep_number == 3
-
 
 class TestNormalizeGeneratorSpec:
     """Test normalize_generator_spec static method."""

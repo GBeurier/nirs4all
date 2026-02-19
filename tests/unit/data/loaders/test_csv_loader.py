@@ -2,10 +2,12 @@
 Test CSV loader with header unit parameter - Step 3
 """
 
-import pytest
-import pandas as pd
 import tempfile
 from pathlib import Path
+
+import pandas as pd
+import pytest
+
 from nirs4all.data.loaders import load_csv
 
 
@@ -146,7 +148,6 @@ class TestCSVLoaderHeaderUnit:
             assert headers == ["4000", "5000"]
         finally:
             Path(temp_path).unlink()
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

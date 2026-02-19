@@ -2,17 +2,17 @@
 Unit tests for Phase 4 prior module - conditional prior sampling.
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.synthesis.prior import (
     MatrixType,
     NIRSPriorConfig,
     PriorSampler,
-    sample_prior,
-    sample_prior_batch,
     get_domain_compatible_instruments,
     get_instrument_typical_modes,
+    sample_prior,
+    sample_prior_batch,
 )
 
 
@@ -57,7 +57,6 @@ class TestNIRSPriorConfig:
         assert normalized["a"] == 0.2
         assert normalized["b"] == 0.3
         assert normalized["c"] == 0.5
-
 
 class TestPriorSampler:
     """Tests for PriorSampler class."""
@@ -232,7 +231,6 @@ class TestPriorSampler:
         # At least some should be in the list
         assert len(components) > 0
 
-
 class TestConvenienceFunctions:
     """Tests for convenience functions."""
 
@@ -267,7 +265,6 @@ class TestConvenienceFunctions:
         assert len(modes) > 0
         # Handheld should support reflectance
         assert "reflectance" in modes
-
 
 class TestMatrixType:
     """Tests for MatrixType enum."""

@@ -20,8 +20,9 @@ Example:
 """
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -31,18 +32,16 @@ class ColumnSelectionError(Exception):
     """Raised when column selection fails."""
     pass
 
-
 # Type alias for column selection specification
-ColumnSpec = Union[
-    int,                     # Single index
-    str,                     # Single name or range string
-    List[int],               # List of indices
-    List[str],               # List of names
-    Dict[str, Any],          # Complex selection (regex, exclude, etc.)
-    slice,                   # Python slice object
-    None,                    # Select all columns
-]
-
+ColumnSpec = (
+    int                     # Single index
+    | str                     # Single name or range string
+    | list[int]               # List of indices
+    | list[str]               # List of names
+    | dict[str, Any]          # Complex selection (regex, exclude, etc.)
+    | slice                   # Python slice object
+    | None                    # Select all columns
+)
 
 @dataclass
 class SelectionResult:
@@ -53,10 +52,9 @@ class SelectionResult:
         names: List of selected column names.
         data: The selected DataFrame subset.
     """
-    indices: List[int]
-    names: List[str]
+    indices: list[int]
+    names: list[str]
     data: pd.DataFrame
-
 
 class ColumnSelector:
     """Flexible column selector for DataFrames.
@@ -242,7 +240,7 @@ class ColumnSelector:
         except ValueError as e:
             raise ColumnSelectionError(
                 f"Invalid range values in '{range_str}': {e}"
-            )
+            ) from e
 
         # Create slice and select
         slc = slice(start, stop, step)
@@ -294,7 +292,7 @@ class ColumnSelector:
     def _select_by_index_list(
         self,
         df: pd.DataFrame,
-        indices: List[int],
+        indices: list[int],
     ) -> SelectionResult:
         """Select columns by list of indices."""
         n_cols = len(df.columns)
@@ -321,7 +319,7 @@ class ColumnSelector:
     def _select_by_name_list(
         self,
         df: pd.DataFrame,
-        names: List[str],
+        names: list[str],
     ) -> SelectionResult:
         """Select columns by list of names."""
         col_names = df.columns.tolist()
@@ -363,7 +361,7 @@ class ColumnSelector:
     def _select_by_dict(
         self,
         df: pd.DataFrame,
-        selection: Dict[str, Any],
+        selection: dict[str, Any],
     ) -> SelectionResult:
         """Select columns by dictionary specification.
 
@@ -393,7 +391,7 @@ class ColumnSelector:
             try:
                 regex = re.compile(pattern, flags)
             except re.error as e:
-                raise ColumnSelectionError(f"Invalid regex pattern '{pattern}': {e}")
+                raise ColumnSelectionError(f"Invalid regex pattern '{pattern}': {e}") from e
 
             matching = {i for i, name in enumerate(col_names) if regex.search(name)}
             selected_indices &= matching
@@ -401,28 +399,19 @@ class ColumnSelector:
         # Apply startswith filter
         if "startswith" in selection:
             prefix = selection["startswith"]
-            if self.case_sensitive:
-                matching = {i for i, name in enumerate(col_names) if name.startswith(prefix)}
-            else:
-                matching = {i for i, name in enumerate(col_names) if name.lower().startswith(prefix.lower())}
+            matching = {i for i, name in enumerate(col_names) if name.startswith(prefix)} if self.case_sensitive else {i for i, name in enumerate(col_names) if name.lower().startswith(prefix.lower())}
             selected_indices &= matching
 
         # Apply endswith filter
         if "endswith" in selection:
             suffix = selection["endswith"]
-            if self.case_sensitive:
-                matching = {i for i, name in enumerate(col_names) if name.endswith(suffix)}
-            else:
-                matching = {i for i, name in enumerate(col_names) if name.lower().endswith(suffix.lower())}
+            matching = {i for i, name in enumerate(col_names) if name.endswith(suffix)} if self.case_sensitive else {i for i, name in enumerate(col_names) if name.lower().endswith(suffix.lower())}
             selected_indices &= matching
 
         # Apply contains filter
         if "contains" in selection:
             substring = selection["contains"]
-            if self.case_sensitive:
-                matching = {i for i, name in enumerate(col_names) if substring in name}
-            else:
-                matching = {i for i, name in enumerate(col_names) if substring.lower() in name.lower()}
+            matching = {i for i, name in enumerate(col_names) if substring in name} if self.case_sensitive else {i for i, name in enumerate(col_names) if substring.lower() in name.lower()}
             selected_indices &= matching
 
         # Apply dtype filter
@@ -483,8 +472,8 @@ class ColumnSelector:
     def parse_selection(
         self,
         selection: Any,
-        available_columns: List[str],
-    ) -> List[int]:
+        available_columns: list[str],
+    ) -> list[int]:
         """Parse a selection specification and return column indices.
 
         This is a convenience method for when you don't have a DataFrame

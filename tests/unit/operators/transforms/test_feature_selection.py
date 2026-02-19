@@ -182,7 +182,6 @@ class TestCARS:
         assert 'n_in=' in repr_str
         assert 'n_out=' in repr_str
 
-
 class TestMCUVE:
     """Tests for MC-UVE (Monte-Carlo Uninformative Variable Elimination)."""
 
@@ -367,7 +366,6 @@ class TestMCUVE:
         assert 'n_in=' in repr_str
         assert 'n_out=' in repr_str
 
-
 class TestFeatureSelectionController:
     """Tests for FeatureSelectionController."""
 
@@ -401,7 +399,6 @@ class TestFeatureSelectionController:
         """Test that controller supports prediction mode."""
         from nirs4all.controllers.data.feature_selection import FeatureSelectionController
         assert FeatureSelectionController.supports_prediction_mode() is True
-
 
 class TestFeatureSelectionWithNIRSData:
     """Integration tests with NIRS-like data."""

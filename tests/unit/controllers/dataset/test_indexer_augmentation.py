@@ -10,6 +10,7 @@ Tests cover:
 """
 import numpy as np
 import pytest
+
 from nirs4all.data.indexer import Indexer
 
 
@@ -97,7 +98,6 @@ class TestGetAugmentedForOrigins:
         assert len(augmented) == 2
         assert set(augmented) == {2, 3}
 
-
 class TestGetOriginForSample:
     """Tests for get_origin_for_sample method."""
 
@@ -151,7 +151,6 @@ class TestGetOriginForSample:
         # All should point back to origin 0
         assert indexer.get_origin_for_sample(1) == 0
         assert indexer.get_origin_for_sample(2) == 0
-
 
 class TestXIndicesWithAugmentation:
     """Tests for x_indices with include_augmented parameter."""
@@ -276,7 +275,6 @@ class TestXIndicesWithAugmentation:
         # Since augmented samples have origin != None, they won't be selected as base
         assert len(indices) == 0
 
-
 class TestLeakPrevention:
     """Tests to ensure data leakage prevention across folds."""
 
@@ -327,7 +325,6 @@ class TestLeakPrevention:
         assert len(base_samples) == 5
         assert set(base_samples) == {0, 1, 2, 3, 4}
 
-
 class TestBackwardCompatibility:
     """Tests to ensure backward compatibility with existing code."""
 
@@ -370,7 +367,6 @@ class TestBackwardCompatibility:
         assert sample_to_y[2] == 2
         assert sample_to_y[3] == 0  # Augmented maps to origin
         assert sample_to_y[4] == 0  # Augmented maps to origin
-
 
 class TestEdgeCases:
     """Tests for edge cases and boundary conditions."""

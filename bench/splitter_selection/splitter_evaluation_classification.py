@@ -19,26 +19,23 @@ Metrics computed:
 
 import time
 import warnings
-from typing import Dict, List, Tuple, Any, Optional
 from dataclasses import dataclass, field
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
 from scipy import stats
 from scipy.spatial import ConvexHull
 from scipy.spatial.distance import cdist
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.neural_network import MLPClassifier
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import (
-    accuracy_score, f1_score, precision_score, recall_score,
-    balanced_accuracy_score, confusion_matrix, classification_report
-)
-from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, balanced_accuracy_score, classification_report, confusion_matrix, f1_score, precision_score, recall_score
 from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
 
 try:
     from xgboost import XGBClassifier
@@ -50,7 +47,6 @@ except ImportError:
 from splitter_strategies import SplitResult
 
 warnings.filterwarnings('ignore')
-
 
 # ============================================================================
 # DATA CLASSES
@@ -71,8 +67,7 @@ class ClassificationModelResult:
     val_balanced_accuracy: float
     train_time: float
     y_val_pred: np.ndarray
-    y_val_proba: Optional[np.ndarray]
-
+    y_val_proba: np.ndarray | None
 
 @dataclass
 class ClassificationFoldResult:
@@ -81,13 +76,12 @@ class ClassificationFoldResult:
     repeat_idx: int
     n_train: int
     n_val: int
-    model_results: Dict[str, ClassificationModelResult]
+    model_results: dict[str, ClassificationModelResult]
     ensemble_val_accuracy: float
     ensemble_val_f1_macro: float
     ensemble_val_f1_weighted: float
     y_val_true: np.ndarray
     y_val_pred_ensemble: np.ndarray
-
 
 @dataclass
 class ClassificationBootstrapMetrics:
@@ -105,19 +99,17 @@ class ClassificationBootstrapMetrics:
     balanced_accuracy_ci_lower: float
     balanced_accuracy_ci_upper: float
 
-
 @dataclass
 class ClassificationRepresentativenessMetrics:
     """Metrics for evaluating split representativeness for classification."""
     spectral_coverage: float  # Ratio of test spectral space covered by train
-    train_class_distribution: Dict[int, float]  # Class proportions in train
-    test_class_distribution: Dict[int, float]  # Class proportions in test
+    train_class_distribution: dict[int, float]  # Class proportions in train
+    test_class_distribution: dict[int, float]  # Class proportions in test
     class_balance_similarity: float  # How similar train/test class distributions are
     leverage_mean: float
     leverage_max: float
     n_high_leverage: int
     hotelling_t2_mean: float
-
 
 @dataclass
 class ClassificationStrategyResult:
@@ -127,12 +119,12 @@ class ClassificationStrategyResult:
     category: str
 
     # Fold results (all repeats)
-    fold_results: List[ClassificationFoldResult]
+    fold_results: list[ClassificationFoldResult]
     n_repeats: int
     n_folds: int
 
     # Per-model test results
-    model_test_results: Dict[str, Dict[str, float]]
+    model_test_results: dict[str, dict[str, float]]
 
     # Ensemble test results
     test_accuracy: float
@@ -161,7 +153,7 @@ class ClassificationStrategyResult:
     representativeness: ClassificationRepresentativenessMetrics
 
     # Strategy info
-    strategy_info: Dict[str, Any]
+    strategy_info: dict[str, Any]
 
     # Timing
     total_time: float
@@ -170,12 +162,11 @@ class ClassificationStrategyResult:
     train_indices: np.ndarray = None
     test_indices: np.ndarray = None
 
-
 # ============================================================================
 # MODEL DEFINITIONS
 # ============================================================================
 
-def get_classification_model_suite(n_classes: int = 2) -> Dict[str, Any]:
+def get_classification_model_suite(n_classes: int = 2) -> dict[str, Any]:
     """
     Get the full suite of classification models.
 
@@ -273,11 +264,10 @@ def get_classification_model_suite(n_classes: int = 2) -> Dict[str, Any]:
 
     return models
 
-
 class ClassificationModelWrapper:
     """Wrapper for different classification model types with scaling."""
 
-    def __init__(self, model_name: str, model_config: Dict[str, Any], random_state: int = 42):
+    def __init__(self, model_name: str, model_config: dict[str, Any], random_state: int = 42):
         self.model_name = model_name
         self.model_config = model_config
         self.random_state = random_state
@@ -306,13 +296,12 @@ class ClassificationModelWrapper:
         X_scaled = self.scaler.transform(X)
         return self.model.predict(X_scaled)
 
-    def predict_proba(self, X: np.ndarray) -> Optional[np.ndarray]:
+    def predict_proba(self, X: np.ndarray) -> np.ndarray | None:
         """Predict probabilities if available."""
         if hasattr(self.model, 'predict_proba'):
             X_scaled = self.scaler.transform(X)
             return self.model.predict_proba(X_scaled)
         return None
-
 
 # ============================================================================
 # REPRESENTATIVENESS METRICS (CLASSIFICATION)
@@ -348,7 +337,7 @@ def compute_spectral_coverage(
             train_delaunay = Delaunay(X_train_hull)
             inside = train_delaunay.find_simplex(X_test_hull) >= 0
             coverage = np.mean(inside)
-        except:
+        except Exception:
             distances = cdist(X_test_hull, X_train_hull, 'euclidean')
             min_distances = np.min(distances, axis=1)
             train_radius = np.max(cdist(X_train_hull, X_train_hull.mean(axis=0, keepdims=True)))
@@ -362,13 +351,11 @@ def compute_spectral_coverage(
 
     return float(coverage)
 
-
-def compute_class_distribution(y: np.ndarray) -> Dict[int, float]:
+def compute_class_distribution(y: np.ndarray) -> dict[int, float]:
     """Compute class distribution as proportions."""
     classes, counts = np.unique(y, return_counts=True)
     total = len(y)
-    return {int(c): float(cnt / total) for c, cnt in zip(classes, counts)}
-
+    return {int(c): float(cnt / total) for c, cnt in zip(classes, counts, strict=False)}
 
 def compute_class_balance_similarity(
     y_train: np.ndarray,
@@ -395,12 +382,11 @@ def compute_class_balance_similarity(
 
     return 1.0 - tv_normalized
 
-
 def compute_leverage_metrics(
     X_train: np.ndarray,
     X_test: np.ndarray,
     n_components: int = 10
-) -> Tuple[float, float, int, float]:
+) -> tuple[float, float, int, float]:
     """Compute leverage analysis for test samples."""
     n_comp = min(n_components, X_train.shape[0] - 1, X_train.shape[1])
     pca = PCA(n_components=n_comp)
@@ -437,7 +423,6 @@ def compute_leverage_metrics(
         float(np.mean(t2_scores))
     )
 
-
 def compute_representativeness_classification(
     X_train: np.ndarray,
     X_test: np.ndarray,
@@ -464,7 +449,6 @@ def compute_representativeness_classification(
         n_high_leverage=n_high,
         hotelling_t2_mean=t2_mean
     )
-
 
 # ============================================================================
 # BOOTSTRAP CONFIDENCE INTERVALS
@@ -531,7 +515,6 @@ def bootstrap_classification_metrics(
         balanced_accuracy_ci_upper=ba_hi
     )
 
-
 # ============================================================================
 # TRAINING AND EVALUATION
 # ============================================================================
@@ -541,9 +524,9 @@ def train_classification_models_on_fold(
     y_train: np.ndarray,
     X_val: np.ndarray,
     y_val: np.ndarray,
-    models: Dict[str, Any],
+    models: dict[str, Any],
     random_state: int = 42
-) -> Tuple[Dict[str, ClassificationModelResult], Dict[str, ClassificationModelWrapper]]:
+) -> tuple[dict[str, ClassificationModelResult], dict[str, ClassificationModelWrapper]]:
     """Train all classification models on a single fold."""
     results = {}
     fitted_models = {}
@@ -582,7 +565,6 @@ def train_classification_models_on_fold(
             continue
 
     return results, fitted_models
-
 
 def evaluate_classification_strategy(
     X: np.ndarray,
@@ -630,7 +612,7 @@ def evaluate_classification_strategy(
 
     n_folds = split_result.strategy_info.get('n_folds', 3)
     all_fold_results = []
-    all_fold_models = {model_name: [] for model_name in models.keys()}
+    all_fold_models = {model_name: [] for model_name in models}
 
     base_seeds = [42, 123, 456, 789, 1011]
 
@@ -643,8 +625,7 @@ def evaluate_classification_strategy(
         # Use StratifiedGroupKFold for CV within training set
         sgkf = StratifiedGroupKFold(n_splits=n_folds, shuffle=True, random_state=repeat_seed)
 
-        fold_idx = 0
-        for train_idx, val_idx in sgkf.split(X_train_full, y_train_full, sample_ids_train):
+        for fold_idx, (train_idx, val_idx) in enumerate(sgkf.split(X_train_full, y_train_full, sample_ids_train)):
             X_train_fold = X_train_full[train_idx]
             y_train_fold = y_train_full[train_idx]
             X_val_fold = X_train_full[val_idx]
@@ -696,11 +677,10 @@ def evaluate_classification_strategy(
                 ])
                 print(f"    Fold {fold_idx + 1}: Ens={ensemble_accuracy:.3f} | {model_str}")
 
-            fold_idx += 1
 
     # Aggregate test predictions
     if verbose:
-        print(f"\n  Computing test predictions...")
+        print("\n  Computing test predictions...")
 
     model_test_results = {}
     all_test_preds = []
@@ -742,7 +722,7 @@ def evaluate_classification_strategy(
     conf_matrix = confusion_matrix(y_test, final_ensemble_pred)
 
     if verbose:
-        print(f"\n  📊 Per-model test performance:")
+        print("\n  📊 Per-model test performance:")
         for model_name, results in model_test_results.items():
             print(f"     {model_name:12s}: Acc={results['accuracy']:.4f}, F1m={results['f1_macro']:.4f}")
         print(f"     {'ENSEMBLE':12s}: Acc={test_accuracy:.4f}, F1m={test_f1_macro:.4f}")
@@ -770,7 +750,7 @@ def evaluate_classification_strategy(
 
     # Representativeness metrics
     if verbose:
-        print(f"  Computing representativeness metrics...")
+        print("  Computing representativeness metrics...")
 
     repr_metrics = compute_representativeness_classification(
         X_train_full, X_test,
@@ -821,13 +801,12 @@ def evaluate_classification_strategy(
         test_indices=test_indices
     )
 
-
 # ============================================================================
 # COMPARISON AND ANALYSIS
 # ============================================================================
 
 def compare_classification_strategies(
-    results: List[ClassificationStrategyResult]
+    results: list[ClassificationStrategyResult]
 ) -> pd.DataFrame:
     """Create comprehensive comparison DataFrame for classification."""
     comparison_data = []
@@ -887,10 +866,9 @@ def compare_classification_strategies(
 
     return df
 
-
 def identify_best_classification_strategies(
     comparison_df: pd.DataFrame
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """Identify best strategies by multiple criteria for classification."""
     best = {}
 

@@ -19,16 +19,13 @@ import pytest
 
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore, _infer_metric_ascending
 
-
 # =========================================================================
 # Helpers
 # =========================================================================
 
-
 def _make_store(tmp_path: Path) -> WorkspaceStore:
     """Create a WorkspaceStore rooted at *tmp_path*."""
     return WorkspaceStore(tmp_path / "workspace")
-
 
 def _populate_store(store: WorkspaceStore, *, n_folds: int = 3) -> dict:
     """Populate a store with a run containing multiple folds and partitions.
@@ -129,7 +126,6 @@ def _populate_store(store: WorkspaceStore, *, n_folds: int = 3) -> dict:
         "prediction_ids": prediction_ids,
     }
 
-
 def _populate_multi_model_store(store: WorkspaceStore) -> dict:
     """Populate a store with multiple chains (models) for ranking tests.
 
@@ -203,11 +199,9 @@ def _populate_multi_model_store(store: WorkspaceStore) -> dict:
         "chains": chains,
     }
 
-
 # =========================================================================
 # VIEW creation and schema
 # =========================================================================
-
 
 class TestViewCreation:
     """Verify the v_chain_summary VIEW is created correctly."""
@@ -243,11 +237,9 @@ class TestViewCreation:
         assert len(df) == 0
         store.close()
 
-
 # =========================================================================
 # Chain summary correctness
 # =========================================================================
-
 
 class TestAggregation:
     """Verify chain summary contains correct data."""
@@ -350,11 +342,9 @@ class TestAggregation:
         assert best_params == {"n_components": 10}
         store.close()
 
-
 # =========================================================================
 # Filtering
 # =========================================================================
-
 
 class TestFiltering:
     """Verify query filters work correctly."""
@@ -414,11 +404,9 @@ class TestFiltering:
         assert len(df2) == 0
         store.close()
 
-
 # =========================================================================
 # Metric-aware ranking
 # =========================================================================
-
 
 class TestMetricAwareRanking:
     """Verify metric-direction-aware ranking."""
@@ -472,11 +460,9 @@ class TestMetricAwareRanking:
         assert len(df) == 3
         store.close()
 
-
 # =========================================================================
 # Drill-down: chain → partition → fold → arrays
 # =========================================================================
-
 
 class TestDrillDown:
     """Verify drill-down from chain summary to individual predictions."""
@@ -538,11 +524,9 @@ class TestDrillDown:
         assert result is None
         store.close()
 
-
 # =========================================================================
 # Deletion cascade
 # =========================================================================
-
 
 class TestDeletionCascade:
     """Verify VIEW reflects deletions immediately."""
