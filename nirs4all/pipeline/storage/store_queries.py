@@ -583,12 +583,13 @@ _CHAIN_SUMMARY_COLUMNS: frozenset[str] = frozenset({
 
 def build_chain_summary_query(
     *,
-    run_id: str | None = None,
-    pipeline_id: str | None = None,
-    chain_id: str | None = None,
-    dataset_name: str | None = None,
-    model_class: str | None = None,
+    run_id: str | list[str] | None = None,
+    pipeline_id: str | list[str] | None = None,
+    chain_id: str | list[str] | None = None,
+    dataset_name: str | list[str] | None = None,
+    model_class: str | list[str] | None = None,
     metric: str | None = None,
+    task_type: str | None = None,
 ) -> tuple[str, list[object]]:
     """Build a query against the ``v_chain_summary`` VIEW.
 
@@ -596,6 +597,7 @@ def build_chain_summary_query(
     multi-metric JSON, and chain metadata.
 
     All filters are optional and combined with ``AND``.
+    String filters accept a single value or a list of values (``IN``).
 
     Returns:
         ``(sql, params)`` ready for ``conn.execute(sql, params)``.
@@ -611,15 +613,30 @@ def build_chain_summary_query(
         ("dataset_name", dataset_name),
         ("model_class", model_class),
         ("metric", metric),
+        ("task_type", task_type),
     ]:
         if val is None:
             continue
-        if isinstance(val, str) and "%" in val:
+        if isinstance(val, (list, tuple)):
+            if len(val) == 0:
+                continue
+            if len(val) == 1:
+                conditions.append(f"{col} = ${idx}")
+                params.append(val[0])
+                idx += 1
+            else:
+                placeholders = ", ".join(f"${idx + i}" for i in range(len(val)))
+                conditions.append(f"{col} IN ({placeholders})")
+                params.extend(val)
+                idx += len(val)
+        elif isinstance(val, str) and "%" in val:
             conditions.append(f"{col} LIKE ${idx}")
+            params.append(val)
+            idx += 1
         else:
             conditions.append(f"{col} = ${idx}")
-        params.append(val)
-        idx += 1
+            params.append(val)
+            idx += 1
 
     where = ""
     if conditions:
