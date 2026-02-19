@@ -106,7 +106,7 @@ jobs:
           sphinx-build -b html source _build/html --keep-going
 
       - name: Upload documentation artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.docs-artifact-name }}
           path: docs/_build/html/
