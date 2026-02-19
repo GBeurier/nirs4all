@@ -4,21 +4,19 @@ Pytest configuration for synthetic data generation tests.
 Uses session-scoped fixtures where possible for faster test execution.
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.synthesis import (
-    SyntheticNIRSGenerator,
     ComponentLibrary,
     NIRBand,
     SpectralComponent,
+    SyntheticNIRSGenerator,
 )
-
 
 # =============================================================================
 # Session-scoped fixtures (created once per test session)
 # =============================================================================
-
 
 @pytest.fixture(scope="session")
 def shared_simple_generator():
@@ -28,7 +26,6 @@ def shared_simple_generator():
         random_state=42,
     )
 
-
 @pytest.fixture(scope="session")
 def shared_realistic_generator():
     """Session-scoped realistic generator (read-only use)."""
@@ -36,7 +33,6 @@ def shared_realistic_generator():
         complexity="realistic",
         random_state=42,
     )
-
 
 @pytest.fixture(scope="session")
 def shared_predefined_library():
@@ -46,12 +42,10 @@ def shared_predefined_library():
         random_state=42,
     )
 
-
 @pytest.fixture(scope="session")
 def sample_wavelengths():
     """Session-scoped sample wavelength array."""
     return np.arange(1000, 2500, 2)
-
 
 @pytest.fixture(scope="session")
 def sample_band():
@@ -63,7 +57,6 @@ def sample_band():
         amplitude=0.8,
         name="O-H 1st overtone",
     )
-
 
 @pytest.fixture(scope="session")
 def sample_component():
@@ -77,11 +70,9 @@ def sample_component():
         correlation_group=1,
     )
 
-
 # =============================================================================
 # Function-scoped fixtures (fresh per test - for tests that modify state)
 # =============================================================================
-
 
 @pytest.fixture
 def simple_generator():
@@ -91,7 +82,6 @@ def simple_generator():
         random_state=42,
     )
 
-
 @pytest.fixture
 def realistic_generator():
     """Create a realistic complexity generator with fixed seed."""
@@ -99,7 +89,6 @@ def realistic_generator():
         complexity="realistic",
         random_state=42,
     )
-
 
 @pytest.fixture
 def complex_generator():
@@ -109,7 +98,6 @@ def complex_generator():
         random_state=42,
     )
 
-
 @pytest.fixture
 def predefined_library():
     """Create a library from predefined components."""
@@ -117,7 +105,6 @@ def predefined_library():
         ["water", "protein", "lipid"],
         random_state=42,
     )
-
 
 @pytest.fixture
 def random_library():

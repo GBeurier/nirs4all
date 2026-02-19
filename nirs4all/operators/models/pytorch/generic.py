@@ -13,15 +13,15 @@ Notes
 """
 
 from __future__ import annotations
+
 import math
-from typing import Tuple, Any, Optional, List
+from typing import Any, Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from nirs4all.utils.backend import framework
-
 
 # # --------------------------------------------------------------------------- #
 # #                                Helper layers                                #
@@ -35,7 +35,6 @@ from nirs4all.utils.backend import framework
 
 #     def forward(self, x: torch.Tensor) -> torch.Tensor:
 #         return x.transpose(1, 2)  # works both ways
-
 
 # class DepthwiseConv1d(nn.Module):
 #     """Depth‑wise 1‑D convolution (groups = in_channels)."""
@@ -68,7 +67,6 @@ from nirs4all.utils.backend import framework
 
 #     def forward(self, x: torch.Tensor) -> torch.Tensor:  # (N,C,L)
 #         return self.conv(x)
-
 
 # class SeparableConv1d(nn.Module):
 #     """Depthwise + Pointwise separation as in Keras ``SeparableConv1D``."""
@@ -104,7 +102,6 @@ from nirs4all.utils.backend import framework
 #     def forward(self, x: torch.Tensor) -> torch.Tensor:
 #         return self.point(self.depth(x))
 
-
 # class SpatialDropout1d(nn.Module):
 #     """Drop whole feature maps (channels) instead of individual timesteps."""
 
@@ -120,21 +117,17 @@ from nirs4all.utils.backend import framework
 #         x = F.dropout2d(x, self.p, self.training, inplace=False)
 #         return x.transpose(1, 2)
 
-
 # class GlobalAveragePooling1d(nn.Module):
 #     def forward(self, x: torch.Tensor) -> torch.Tensor:  # (N,C,L)
 #         return x.mean(dim=-1)
-
 
 # class GlobalMaxPooling1d(nn.Module):
 #     def forward(self, x: torch.Tensor) -> torch.Tensor:
 #         return x.amax(dim=-1)
 
-
 # class Flatten(nn.Module):
 #     def forward(self, x: torch.Tensor) -> torch.Tensor:
 #         return torch.flatten(x, start_dim=1)
-
 
 # class Lambda(nn.Module):
 #     """Wrap an arbitrary lambda (for quick hacks)."""
@@ -146,7 +139,6 @@ from nirs4all.utils.backend import framework
 #     def forward(self, x):
 #         return self.fn(x)
 
-
 # def _activation(act: str) -> nn.Module:
 #     return {
 #         "relu": nn.ReLU(),
@@ -154,7 +146,6 @@ from nirs4all.utils.backend import framework
 #         "swish": nn.SiLU(),
 #         "linear": nn.Identity(),
 #     }.get(act.lower(), nn.ReLU())
-
 
 # # --------------------------------------------------------------------------- #
 # #                             Utility building blocks                         #
@@ -178,7 +169,6 @@ from nirs4all.utils.backend import framework
 #         _activation(act),
 #     )
 
-
 # # --------------------------------------------------------------------------- #
 # #                               Model builders                                #
 # # --------------------------------------------------------------------------- #
@@ -200,7 +190,6 @@ from nirs4all.utils.backend import framework
 #         dropout_rate=dropout_rate,
 #     ).VGG11()
 
-
 # # --------------------------------------------------------------------------- #
 # #                               VGG‑style block                               #
 # # --------------------------------------------------------------------------- #
@@ -218,7 +207,6 @@ from nirs4all.utils.backend import framework
 
 #     def forward(self, x):
 #         return self.block(x)
-
 
 # class _VGG1DPyTorch(nn.Module):
 #     def __init__(self, input_shape: Tuple[int, int], params: dict[str, Any]):
@@ -259,12 +247,10 @@ from nirs4all.utils.backend import framework
 #         x = self.act1(x)
 #         return self.dense2(x)
 
-
 # @framework("pytorch")
 # def VGG_1D(input_shape: Tuple[int, int], params: dict[str, Any]):
 #     """VGG‑like 1‑D CNN rewritten for PyTorch."""
 #     return _VGG1DPyTorch(input_shape, params)
-
 
 # # --------------------------------------------------------------------------- #
 # #                         CONV + LSTM multi‑path model                        #
@@ -354,11 +340,9 @@ from nirs4all.utils.backend import framework
 #         cat = torch.cat([x1, x2, x3, x4], dim=1)
 #         return self.head(cat)
 
-
 # @framework("pytorch")
 # def CONV_LSTM(input_shape: Tuple[int, int], params: dict[str, Any]):
 #     return _CONV_LSTM(input_shape, params)
-
 
 # # --------------------------------------------------------------------------- #
 # #                              Lite U‑Net variant                             #
@@ -371,7 +355,6 @@ from nirs4all.utils.backend import framework
 #     if use_se:
 #         layers.append(_SEBlock(ch))
 #     return nn.Sequential(*layers)
-
 
 # class _SEBlock(nn.Module):
 #     def __init__(self, ch: int, r: int = 8):
@@ -389,7 +372,6 @@ from nirs4all.utils.backend import framework
 #         w = self.pool(x).unsqueeze(-1)  # (N,C,1)
 #         w = self.fc(w.squeeze(-1)).unsqueeze(-1)
 #         return x * w
-
 
 # class _UNET(nn.Module):
 #     def __init__(self, input_shape: Tuple[int, int], p: dict[str, Any]):
@@ -446,11 +428,9 @@ from nirs4all.utils.backend import framework
 
 #         return self.reg_head(e3)
 
-
 # @framework("pytorch")
 # def UNET(input_shape: Tuple[int, int], params: dict[str, Any]):
 #     return _UNET(input_shape, params)
-
 
 # # --------------------------------------------------------------------------- #
 # #                                bard model                                   #
@@ -512,11 +492,9 @@ from nirs4all.utils.backend import framework
 #         cat = torch.cat([conv, lstm_out], dim=1)
 #         return self.fc(cat)
 
-
 # @framework("pytorch")
 # def bard(input_shape: Tuple[int, int], params: dict[str, Any]):
 #     return _Bard(input_shape, params)
-
 
 # # --------------------------------------------------------------------------- #
 # #                          Xception‑like depthwise CNN                        #
@@ -578,7 +556,6 @@ from nirs4all.utils.backend import framework
 #             prev = x
 #         return x
 
-
 # class _XceptionMiddle(nn.Module):
 #     def __init__(self, num_blocks: int = 8):
 #         super().__init__()
@@ -601,7 +578,6 @@ from nirs4all.utils.backend import framework
 
 #     def forward(self, x):
 #         return self.blk(x)
-
 
 # class _XceptionExit(nn.Module):
 #     def __init__(self):
@@ -634,7 +610,6 @@ from nirs4all.utils.backend import framework
 #         x = x + self.residual(prev)
 #         return self.tail(x)
 
-
 # class _Xception1D(nn.Module):
 #     def __init__(self, input_shape, p):
 #         super().__init__()
@@ -649,11 +624,9 @@ from nirs4all.utils.backend import framework
 #         x = self.middle(x)
 #         return self.exit(x)
 
-
 # @framework("pytorch")
 # def XCeption1D(input_shape: Tuple[int, int], params: dict[str, Any]):
 #     return _Xception1D(input_shape, params)
-
 
 # # --------------------------------------------------------------------------- #
 # #                                    MLP                                      #
@@ -679,11 +652,9 @@ from nirs4all.utils.backend import framework
 #     def forward(self, x):
 #         return self.seq(self.flat(x))
 
-
 # @framework("pytorch")
 # def MLP(input_shape, params):
 #     return _MLP(input_shape, params)
-
 
 # # --------------------------------------------------------------------------- #
 # #  Remaining builder wrappers around legacy presets (SEResNet, ResNetv2, etc) #
@@ -710,7 +681,6 @@ from nirs4all.utils.backend import framework
 #         dropout_rate=dropout_rate,
 #     ).SEResNet101()
 
-
 # @framework("pytorch")
 # def ResNetV2_model(input_shape: Tuple[int, int], params: dict[str, Any]):
 #     length = input_shape[0]
@@ -730,7 +700,6 @@ from nirs4all.utils.backend import framework
 #         pooling=pooling,
 #         dropout_rate=dropout_rate,
 #     ).ResNet34()
-
 
 # # --------------------------------------------------------------------------- #
 # #                             FFT + Conv variant                               #
@@ -786,11 +755,9 @@ from nirs4all.utils.backend import framework
 #         x = torch.fft.fft(x.to(torch.complex64), dim=1).real.to(x.dtype)
 #         return self.conv_block(self.permute(x))
 
-
 # @framework("pytorch")
 # def FFT_Conv(input_shape, params):
 #     return _FFTConv(input_shape, params)
-
 
 # # --------------------------------------------------------------------------- #
 # #                              Inception wrapper                               #
@@ -806,7 +773,6 @@ from nirs4all.utils.backend import framework
 #     return Inception(
 #         length, num_channel, model_width, problem_type=problem_type, output_nums=output_number
 #     ).Inception_v3()
-
 
 # # --------------------------------------------------------------------------- #
 # #                       Lightweight radial‑style models                       #

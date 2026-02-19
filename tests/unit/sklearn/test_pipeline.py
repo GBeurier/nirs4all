@@ -10,11 +10,12 @@ This module tests the sklearn-compatible wrapper functionality:
 - get_params() and set_params() sklearn interface
 """
 
-import pytest
-import numpy as np
-from pathlib import Path
 import tempfile
-from unittest.mock import Mock, MagicMock, patch
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
+import numpy as np
+import pytest
 
 from nirs4all.sklearn import NIRSPipeline, NIRSPipelineClassifier
 
@@ -68,7 +69,6 @@ class TestNIRSPipelineInit:
         pipe = NIRSPipeline()
         assert "not fitted" in repr(pipe)
 
-
 class TestNIRSPipelineFromBundle:
     """Test NIRSPipeline.from_bundle() functionality."""
 
@@ -111,7 +111,6 @@ class TestNIRSPipelineFromBundle:
                 assert pipe.model_step_index == 3
                 assert pipe.n_folds == 2
 
-
 class TestNIRSPipelineFromResult:
     """Test NIRSPipeline.from_result() functionality."""
 
@@ -153,7 +152,6 @@ class TestNIRSPipelineFromResult:
 
             assert pipe.is_fitted_
 
-
 class TestNIRSPipelinePredict:
     """Test NIRSPipeline.predict() functionality."""
 
@@ -183,7 +181,6 @@ class TestNIRSPipelinePredict:
         assert y_pred.shape == (3,)
         mock_loader.predict.assert_called_once()
 
-
 class TestNIRSPipelineScore:
     """Test NIRSPipeline.score() functionality."""
 
@@ -211,7 +208,6 @@ class TestNIRSPipelineScore:
 
         assert isinstance(score, float)
         assert score == pytest.approx(1.0, rel=1e-5)
-
 
 class TestNIRSPipelineModelAccess:
     """Test NIRSPipeline.model_ property."""
@@ -266,7 +262,6 @@ class TestNIRSPipelineModelAccess:
 
         assert pipe.shap_model is pipe.model_
 
-
 class TestNIRSPipelineClassifier:
     """Test NIRSPipelineClassifier functionality."""
 
@@ -317,7 +312,6 @@ class TestNIRSPipelineClassifier:
         assert "NIRSPipelineClassifier" in repr(clf)
         assert "not fitted" in repr(clf)
 
-
 # Fixtures
 
 @pytest.fixture
@@ -327,7 +321,6 @@ def mock_bundle(tmp_path):
         path.touch()
         return path
     return _create
-
 
 @pytest.fixture
 def sample_data():

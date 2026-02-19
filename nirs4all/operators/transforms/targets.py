@@ -2,6 +2,7 @@ import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import KBinsDiscretizer
 
+
 class IntegerKBinsDiscretizer(BaseEstimator, TransformerMixin):
     """KBinsDiscretizer qui retourne des entiers au lieu de floats"""
 
@@ -27,7 +28,6 @@ class IntegerKBinsDiscretizer(BaseEstimator, TransformerMixin):
 
     def inverse_transform(self, X):
         return self.discretizer.inverse_transform(X)
-
 
 class RangeDiscretizer(BaseEstimator, TransformerMixin):
 

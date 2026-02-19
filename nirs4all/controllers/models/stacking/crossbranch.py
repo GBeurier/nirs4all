@@ -29,25 +29,25 @@ Example:
     ...     aligned_features = validator.align_branch_features(...)
 """
 
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
-import warnings
+from typing import TYPE_CHECKING, Any, Optional
+
 import numpy as np
 
 from .branch_validator import BranchType, detect_branch_type
 from .exceptions import (
-    IncompatibleBranchSamplesError,
     BranchFeatureAlignmentError,
     CrossPartitionStackingError,
+    IncompatibleBranchSamplesError,
 )
 
 if TYPE_CHECKING:
-    from nirs4all.data.predictions import Predictions
     from nirs4all.data.dataset import SpectroDataset
-    from nirs4all.pipeline.config.context import ExecutionContext
+    from nirs4all.data.predictions import Predictions
     from nirs4all.operators.models.selection import ModelCandidate
-
+    from nirs4all.pipeline.config.context import ExecutionContext
 
 class CrossBranchCompatibility(Enum):
     """Compatibility level for cross-branch stacking."""
@@ -57,7 +57,6 @@ class CrossBranchCompatibility(Enum):
     INCOMPATIBLE_SAMPLES = "incompatible_samples"
     INCOMPATIBLE_PARTITIONS = "incompatible_partitions"
     NOT_APPLICABLE = "not_applicable"
-
 
 @dataclass
 class BranchPredictionInfo:
@@ -73,13 +72,12 @@ class BranchPredictionInfo:
         branch_type: Type of branching.
     """
     branch_id: int
-    branch_name: Optional[str]
-    model_names: List[str]
-    sample_indices: Set[int]
+    branch_name: str | None
+    model_names: list[str]
+    sample_indices: set[int]
     n_samples: int
     n_folds: int
     branch_type: BranchType = BranchType.UNKNOWN
-
 
 @dataclass
 class CrossBranchValidationResult:
@@ -96,11 +94,11 @@ class CrossBranchValidationResult:
     """
     is_compatible: bool = True
     compatibility: CrossBranchCompatibility = CrossBranchCompatibility.NOT_APPLICABLE
-    branches: Dict[int, BranchPredictionInfo] = field(default_factory=dict)
-    common_samples: Set[int] = field(default_factory=set)
-    alignment_issues: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    errors: List[str] = field(default_factory=list)
+    branches: dict[int, BranchPredictionInfo] = field(default_factory=dict)
+    common_samples: set[int] = field(default_factory=set)
+    alignment_issues: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     def add_warning(self, message: str) -> None:
         """Add a warning message."""
@@ -115,7 +113,6 @@ class CrossBranchValidationResult:
     def total_models(self) -> int:
         """Total number of models across all branches."""
         return sum(len(b.model_names) for b in self.branches.values())
-
 
 class CrossBranchValidator:
     """Validates and supports cross-branch stacking.
@@ -144,7 +141,7 @@ class CrossBranchValidator:
 
     def validate_cross_branch_stacking(
         self,
-        source_candidates: List['ModelCandidate'],
+        source_candidates: list['ModelCandidate'],
         context: 'ExecutionContext',
         dataset: Optional['SpectroDataset'] = None
     ) -> CrossBranchValidationResult:
@@ -256,15 +253,15 @@ class CrossBranchValidator:
         # Emit warnings
         if self.log_warnings:
             for warning in result.warnings:
-                warnings.warn(warning)
+                warnings.warn(warning, stacklevel=2)
 
         return result
 
     def get_cross_branch_sources(
         self,
-        source_candidates: List['ModelCandidate'],
+        source_candidates: list['ModelCandidate'],
         context: 'ExecutionContext'
-    ) -> List['ModelCandidate']:
+    ) -> list['ModelCandidate']:
         """Get source models from all branches for cross-branch stacking.
 
         Filters and orders candidates for cross-branch stacking,
@@ -305,10 +302,10 @@ class CrossBranchValidator:
 
     def align_branch_features(
         self,
-        branch_features: Dict[int, np.ndarray],
-        branch_sample_indices: Dict[int, List[int]],
-        target_sample_indices: List[int]
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        branch_features: dict[int, np.ndarray],
+        branch_sample_indices: dict[int, list[int]],
+        target_sample_indices: list[int]
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Align features from multiple branches to common sample order.
 
         Combines features from different branches into a single feature matrix,
@@ -379,8 +376,8 @@ class CrossBranchValidator:
 
     def _group_by_branch(
         self,
-        candidates: List['ModelCandidate']
-    ) -> Dict[Optional[int], List['ModelCandidate']]:
+        candidates: list['ModelCandidate']
+    ) -> dict[int | None, list['ModelCandidate']]:
         """Group candidates by branch_id.
 
         Args:
@@ -389,7 +386,7 @@ class CrossBranchValidator:
         Returns:
             Dict mapping branch_id to list of candidates.
         """
-        groups: Dict[Optional[int], List['ModelCandidate']] = {}
+        groups: dict[int | None, list[ModelCandidate]] = {}
 
         for c in candidates:
             branch_id = c.branch_id
@@ -402,7 +399,7 @@ class CrossBranchValidator:
     def _collect_branch_info(
         self,
         branch_id: int,
-        candidates: List['ModelCandidate'],
+        candidates: list['ModelCandidate'],
         context: 'ExecutionContext'
     ) -> BranchPredictionInfo:
         """Collect information about predictions in a branch.
@@ -416,8 +413,8 @@ class CrossBranchValidator:
             BranchPredictionInfo with branch metadata.
         """
         model_names = list(dict.fromkeys(c.model_name for c in candidates))
-        sample_indices: Set[int] = set()
-        fold_ids: Set[str] = set()
+        sample_indices: set[int] = set()
+        fold_ids: set[str] = set()
         branch_name = None
 
         for c in candidates:
@@ -462,10 +459,9 @@ class CrossBranchValidator:
             branch_type=branch_type
         )
 
-
 def validate_all_branches_scope(
     prediction_store: 'Predictions',
-    source_candidates: List['ModelCandidate'],
+    source_candidates: list['ModelCandidate'],
     context: 'ExecutionContext'
 ) -> CrossBranchValidationResult:
     """Convenience function for validating BranchScope.ALL_BRANCHES.

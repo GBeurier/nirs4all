@@ -2,15 +2,15 @@
 Unit tests for validation utilities.
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.synthesis.validation import (
     ValidationError,
-    validate_spectra,
     validate_concentrations,
-    validate_wavelengths,
+    validate_spectra,
     validate_synthetic_output,
+    validate_wavelengths,
 )
 
 
@@ -66,7 +66,6 @@ class TestValidateSpectra:
         warnings = validate_spectra(X, value_range=(-1, 1))
         assert len(warnings) > 0
 
-
 class TestValidateConcentrations:
     """Tests for validate_concentrations function."""
 
@@ -104,7 +103,6 @@ class TestValidateConcentrations:
         warnings = validate_concentrations(C, check_normalized=True)
         assert len(warnings) > 0
         assert "normalized" in warnings[0].lower()
-
 
 class TestValidateWavelengths:
     """Tests for validate_wavelengths function."""
@@ -152,7 +150,6 @@ class TestValidateWavelengths:
         warnings = validate_wavelengths(wl, check_uniform=True)
         assert len(warnings) > 0
 
-
 class TestValidateSyntheticOutput:
     """Tests for validate_synthetic_output function."""
 
@@ -186,7 +183,6 @@ class TestValidateSyntheticOutput:
 
         with pytest.raises(ValidationError, match="does not match"):
             validate_synthetic_output(X, C, E, wl)
-
 
 class TestValidationError:
     """Tests for ValidationError exception."""

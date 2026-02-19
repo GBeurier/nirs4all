@@ -34,7 +34,6 @@ from nirs4all.pipeline.execution.refit.model_selector import (
 # Helpers
 # =========================================================================
 
-
 def _make_topology(
     *model_specs: tuple[str, list[int], str | None],
     has_stacking: bool = False,
@@ -56,7 +55,6 @@ def _make_topology(
         )
     return topo
 
-
 def _make_predictions(
     entries: list[dict],
 ) -> list[dict]:
@@ -77,7 +75,6 @@ def _make_predictions(
         result.append(pred)
     return result
 
-
 def _make_variant_configs(n: int) -> list[dict]:
     """Create n variant config dicts."""
     return [
@@ -90,11 +87,9 @@ def _make_variant_configs(n: int) -> list[dict]:
         for i in range(n)
     ]
 
-
 # =========================================================================
 # Single variant
 # =========================================================================
-
 
 class TestSingleVariant:
     """All models share variant 0 when there's only one variant."""
@@ -135,11 +130,9 @@ class TestSingleVariant:
         result = select_best_per_model(preds, topo, configs)
         assert result["PLSRegression"].branch_path == [0, 1]
 
-
 # =========================================================================
 # Multiple variants with single model
 # =========================================================================
-
 
 class TestMultiVariantSingleModel:
     """Select best variant for a single model across multiple variants."""
@@ -189,11 +182,9 @@ class TestMultiVariantSingleModel:
         # Variant 1 wins, its best_params should be {"n_components": 6}
         assert result["PLSRegression"].best_params == {"n_components": 6}
 
-
 # =========================================================================
 # Multiple variants with multiple models (independent selection)
 # =========================================================================
-
 
 class TestMultiVariantMultiModel:
     """Each model independently selects its best variant."""
@@ -240,11 +231,9 @@ class TestMultiVariantMultiModel:
         assert result["ModelA"].variant_index == 0
         assert result["ModelB"].variant_index == 1
 
-
 # =========================================================================
 # Branching scenarios
 # =========================================================================
-
 
 class TestBranching:
     """Branch-related selection scenarios."""
@@ -298,11 +287,9 @@ class TestBranching:
         assert result["RandomForest"].variant_index == 0  # 0.2 < 0.5
         assert result["Ridge"].variant_index == 0  # 0.25 < 0.35
 
-
 # =========================================================================
 # Edge cases
 # =========================================================================
-
 
 class TestEdgeCases:
     """Edge cases and fallbacks."""
@@ -347,11 +334,9 @@ class TestEdgeCases:
         result = select_best_per_model(preds, topo, configs, ascending=True)
         assert result["PLSRegression"].variant_index == 1
 
-
 # =========================================================================
 # Score aggregation
 # =========================================================================
-
 
 class TestScoreAggregation:
     """Aggregation of scores across folds."""
@@ -375,11 +360,9 @@ class TestScoreAggregation:
         assert result[0] == pytest.approx(0.3)
         assert result[1] == pytest.approx(0.5)
 
-
 # =========================================================================
 # Metric inference
 # =========================================================================
-
 
 class TestMetricInference:
     """Inferring ascending/descending from metric name."""
@@ -402,11 +385,9 @@ class TestMetricInference:
     def test_f1_is_descending(self):
         assert _infer_ascending("f1") is False
 
-
 # =========================================================================
 # Variant resolution
 # =========================================================================
-
 
 class TestVariantResolution:
     """Resolving variant_index from prediction fields."""

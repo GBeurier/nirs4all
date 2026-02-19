@@ -10,24 +10,23 @@ Tests:
 These tests verify the Phase 5 implementation from the branching_concat_merge_design.
 """
 
-import pytest
 import numpy as np
-from sklearn.model_selection import ShuffleSplit
+import pytest
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.linear_model import Ridge, LinearRegression
+from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import StandardScaler
 
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.operators.transforms import (
+    MultiplicativeScatterCorrection,
+    StandardNormalVariate,
+)
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.operators.transforms import (
-    StandardNormalVariate,
-    MultiplicativeScatterCorrection,
-)
 
 # Mark all tests in this module as sklearn-only (no deep learning dependencies)
 pytestmark = pytest.mark.sklearn
-
 
 def create_test_dataset(n_samples: int = 100, n_features: int = 50, seed: int = 42) -> SpectroDataset:
     """Create a synthetic dataset for integration testing."""
@@ -45,7 +44,6 @@ def create_test_dataset(n_samples: int = 100, n_features: int = 50, seed: int = 
     dataset.add_targets(y[n_train:])
 
     return dataset
-
 
 class TestModelSelectionStrategies:
     """Test model selection strategies (all, best, top_k, explicit)."""
@@ -174,7 +172,6 @@ class TestModelSelectionStrategies:
         assert predictions is not None
         assert len(predictions) > 0
 
-
 class TestAggregationStrategies:
     """Test prediction aggregation strategies (separate, mean, weighted_mean, proba_mean)."""
 
@@ -276,7 +273,6 @@ class TestAggregationStrategies:
         assert predictions is not None
         assert len(predictions) > 0
 
-
 class TestMixedStrategies:
     """Test mixed selection and aggregation strategies across branches."""
 
@@ -350,7 +346,6 @@ class TestMixedStrategies:
 
         assert predictions is not None
         assert len(predictions) > 0
-
 
 class TestModelRankingMetrics:
     """Test model ranking by different validation metrics."""
@@ -444,7 +439,6 @@ class TestModelRankingMetrics:
 
         assert predictions is not None
         assert len(predictions) > 0
-
 
 class TestEdgeCases:
     """Test edge cases and error handling."""

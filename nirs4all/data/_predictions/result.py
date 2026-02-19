@@ -21,7 +21,6 @@ from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-
 class PredictionResult(dict):
     """
     Enhanced dictionary for a single prediction with convenience methods.
@@ -324,7 +323,6 @@ class PredictionResult(dict):
     def __str__(self) -> str:
         """String representation showing key info."""
         return self.__repr__()
-
 
 class PredictionResultsList(list):
     """

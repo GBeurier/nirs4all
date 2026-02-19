@@ -17,40 +17,40 @@ Lazy loading pattern: AutoGluon is only imported when actually needed
 for training or prediction, not at module import time.
 """
 
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
+import copy
+import os
+import shutil
+import tempfile
+from typing import TYPE_CHECKING, Any, Optional
+
 import numpy as np
 import pandas as pd
-import copy
-import tempfile
-import shutil
-import os
 
-from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
-from nirs4all.utils.backend import is_available, require_backend, BackendNotAvailableError
+from nirs4all.utils.backend import BackendNotAvailableError, is_available, require_backend
+
+from ..models.base_model import BaseModelController
 
 logger = get_logger(__name__)
 
-from nirs4all.pipeline.steps.parser import ParsedStep
+import contextlib
+
 from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+from nirs4all.pipeline.steps.parser import ParsedStep
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
 
 # Fast availability check at module level - no imports
 AUTOGLUON_AVAILABLE = is_available('autogluon')
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
-    try:
+    from nirs4all.pipeline.runner import PipelineRunner
+    with contextlib.suppress(ImportError):
         from autogluon.tabular import TabularPredictor
-    except ImportError:
-        pass
-
 
 # Lazy-loaded module cache
-_ag_modules: Dict[str, Any] = {}
-
+_ag_modules: dict[str, Any] = {}
 
 def _get_tabular_predictor():
     """Lazy load AutoGluon TabularPredictor with caching."""
@@ -59,7 +59,6 @@ def _get_tabular_predictor():
         from autogluon.tabular import TabularPredictor
         _ag_modules['TabularPredictor'] = TabularPredictor
     return _ag_modules['TabularPredictor']
-
 
 def _is_autogluon_predictor(obj: Any) -> bool:
     """Check if an object is an AutoGluon TabularPredictor.
@@ -107,7 +106,6 @@ def _is_autogluon_predictor(obj: Any) -> bool:
         pass
 
     return False
-
 
 @register_controller
 class AutoGluonModelController(BaseModelController):
@@ -166,16 +164,13 @@ class AutoGluonModelController(BaseModelController):
             return True
 
         # Check if step itself is AutoGluon predictor
-        if _is_autogluon_predictor(step):
-            return True
-
-        return False
+        return bool(_is_autogluon_predictor(step))
 
     def _get_model_instance(
         self,
         dataset: 'SpectroDataset',
-        model_config: Dict[str, Any],
-        force_params: Optional[Dict[str, Any]] = None
+        model_config: dict[str, Any],
+        force_params: dict[str, Any] | None = None
     ) -> Any:
         """Create AutoGluon TabularPredictor instance from configuration.
 
@@ -203,13 +198,7 @@ class AutoGluonModelController(BaseModelController):
         # Determine problem type from dataset
         problem_type = None
         if dataset.task_type:
-            if dataset.task_type.is_classification:
-                if dataset.task_type.value == 'binary_classification':
-                    problem_type = 'binary'
-                else:
-                    problem_type = 'multiclass'
-            else:
-                problem_type = 'regression'
+            problem_type = ('binary' if dataset.task_type.value == 'binary_classification' else 'multiclass') if dataset.task_type.is_classification else 'regression'
 
         # Create temporary directory for AutoGluon models
         # This will be managed by nirs4all's artifact system
@@ -247,8 +236,8 @@ class AutoGluonModelController(BaseModelController):
         model: Any,
         X_train: np.ndarray,
         y_train: np.ndarray,
-        X_val: Optional[np.ndarray] = None,
-        y_val: Optional[np.ndarray] = None,
+        X_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
         **kwargs
     ) -> Any:
         """Train AutoGluon TabularPredictor.
@@ -373,7 +362,7 @@ class AutoGluonModelController(BaseModelController):
 
         return predictions
 
-    def _predict_proba_model(self, model: Any, X: np.ndarray) -> Optional[np.ndarray]:
+    def _predict_proba_model(self, model: Any, X: np.ndarray) -> np.ndarray | None:
         """Get class probabilities for AutoGluon classification models.
 
         Args:
@@ -405,7 +394,7 @@ class AutoGluonModelController(BaseModelController):
         X: np.ndarray,
         y: np.ndarray,
         context: 'ExecutionContext'
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Prepare data for AutoGluon (ensure 2D arrays).
 
         Args:
@@ -439,7 +428,7 @@ class AutoGluonModelController(BaseModelController):
         model: Any,
         X_val: np.ndarray,
         y_val: np.ndarray,
-        metric: Optional[str] = None,
+        metric: str | None = None,
         direction: str = "minimize"
     ) -> float:
         """Evaluate AutoGluon model using its internal evaluation.
@@ -537,8 +526,8 @@ class AutoGluonModelController(BaseModelController):
     def _sample_hyperparameters(
         self,
         trial,
-        finetune_params: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        finetune_params: dict[str, Any]
+    ) -> dict[str, Any]:
         """Sample hyperparameters for AutoGluon.
 
         AutoGluon has its own internal hyperparameter tuning, so this method
@@ -639,9 +628,9 @@ class AutoGluonModelController(BaseModelController):
         runtime_context: RuntimeContext,
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple[ExecutionContext, List[ArtifactMeta]]:
+        loaded_binaries: list[tuple[str, bytes]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple[ExecutionContext, list[ArtifactMeta]]:
         """Execute AutoGluon model controller.
 
         Main entry point for AutoGluon model execution in the pipeline.

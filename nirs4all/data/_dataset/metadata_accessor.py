@@ -5,13 +5,14 @@ This module provides a dedicated interface for all metadata-related
 operations, including retrieval, updates, and column management.
 """
 
-import polars as pl
-import numpy as np
-from typing import Optional, List, Union, Tuple, Dict, Literal
+from typing import Literal, Optional, Union
 
-from nirs4all.data.types import Selector
+import numpy as np
+import polars as pl
+
 from nirs4all.data.indexer import Indexer
 from nirs4all.data.metadata import Metadata
+from nirs4all.data.types import Selector
 
 
 class MetadataAccessor:
@@ -43,8 +44,8 @@ class MetadataAccessor:
         self._block = metadata_block
 
     def get(self,
-            selector: Optional[Selector] = None,
-            columns: Optional[List[str]] = None,
+            selector: Selector | None = None,
+            columns: list[str] | None = None,
             include_augmented: bool = True) -> pl.DataFrame:
         """
         Get metadata as Polars DataFrame.
@@ -70,15 +71,12 @@ class MetadataAccessor:
             ...     columns=["sample_id", "quality"]
             ... )
         """
-        if selector:
-            indices = self._indexer.x_indices(selector, include_augmented)
-        else:
-            indices = None
+        indices = self._indexer.x_indices(selector, include_augmented) if selector else None
         return self._block.get(indices, columns)
 
     def column(self,
                column: str,
-               selector: Optional[Selector] = None,
+               selector: Selector | None = None,
                include_augmented: bool = True) -> np.ndarray:
         """
         Get single metadata column as array.
@@ -95,17 +93,14 @@ class MetadataAccessor:
             >>> # Get batch info for train samples
             >>> batches = dataset.metadata_column("batch", {"partition": "train"})
         """
-        if selector:
-            indices = self._indexer.x_indices(selector, include_augmented)
-        else:
-            indices = None
+        indices = self._indexer.x_indices(selector, include_augmented) if selector else None
         return self._block.get_column(column, indices)
 
     def to_numeric(self,
                    column: str,
-                   selector: Optional[Selector] = None,
+                   selector: Selector | None = None,
                    method: Literal["label", "onehot"] = "label",
-                   include_augmented: bool = True) -> Tuple[np.ndarray, Dict]:
+                   include_augmented: bool = True) -> tuple[np.ndarray, dict]:
         """
         Get numeric encoding of metadata column.
 
@@ -126,15 +121,12 @@ class MetadataAccessor:
             ...     method="label"
             ... )
         """
-        if selector:
-            indices = self._indexer.x_indices(selector, include_augmented)
-        else:
-            indices = None
+        indices = self._indexer.x_indices(selector, include_augmented) if selector else None
         return self._block.to_numeric(column, indices, method)
 
     def add_metadata(self,
-                     data: Union[np.ndarray, pl.DataFrame],
-                     headers: Optional[List[str]] = None) -> None:
+                     data: np.ndarray | pl.DataFrame,
+                     headers: list[str] | None = None) -> None:
         """
         Add metadata rows (aligns with add_samples call order).
 
@@ -154,8 +146,8 @@ class MetadataAccessor:
 
     def update_metadata(self,
                         column: str,
-                        values: Union[List, np.ndarray],
-                        selector: Optional[Selector] = None,
+                        values: list | np.ndarray,
+                        selector: Selector | None = None,
                         include_augmented: bool = True) -> None:
         """
         Update metadata values for selected samples.
@@ -174,15 +166,12 @@ class MetadataAccessor:
             ...     {"partition": "train"}
             ... )
         """
-        if selector:
-            indices = self._indexer.x_indices(selector, include_augmented)
-        else:
-            indices = list(range(self._block.num_rows))
+        indices = self._indexer.x_indices(selector, include_augmented) if selector else list(range(self._block.num_rows))
         self._block.update_metadata(indices, column, values)
 
     def add_column(self,
                    column: str,
-                   values: Union[List, np.ndarray]) -> None:
+                   values: list | np.ndarray) -> None:
         """
         Add new metadata column.
 
@@ -198,7 +187,7 @@ class MetadataAccessor:
         self._block.add_column(column, values)
 
     @property
-    def columns(self) -> List[str]:
+    def columns(self) -> list[str]:
         """Get list of metadata column names."""
         return self._block.columns
 

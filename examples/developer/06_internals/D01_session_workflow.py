@@ -44,7 +44,6 @@ parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
-
 # =============================================================================
 # Introduction
 # =============================================================================
@@ -70,7 +69,6 @@ Session API is useful for:
   - Prediction on new data
   - Complex workflows
 """)
-
 
 # =============================================================================
 # Section 1: Creating a Session
@@ -107,7 +105,6 @@ print(f"\nSession created: {session.name}")
 print(f"  Pipeline steps: {len(session.pipeline)}")
 print(f"  Status: {session.status}")
 
-
 # =============================================================================
 # Section 2: Running a Session
 # =============================================================================
@@ -126,11 +123,10 @@ result = session.run(
     plots_visible=args.plots
 )
 
-print(f"\nSession run complete")
+print("\nSession run complete")
 print(f"  Status: {session.status}")
 print(f"  Predictions: {result.num_predictions}")
 print(f"  Best RMSE: {result.best_rmse:.4f}")
-
 
 # =============================================================================
 # Section 3: Making Predictions
@@ -153,10 +149,9 @@ predictions = session.predict(
     dataset="sample_data/regression"
 )
 
-print(f"\nPredictions on new data:")
+print("\nPredictions on new data:")
 print(f"  Model: {predictions.model_name}")
 print(f"  Predictions shape: {predictions.shape}")
-
 
 # =============================================================================
 # Section 4: Session Introspection
@@ -174,13 +169,12 @@ Inspect session state:
     session.history       # Run history
 """)
 
-print(f"\nSession introspection:")
+print("\nSession introspection:")
 print(f"  Name: {session.name}")
 print(f"  Status: {session.status}")
 print(f"  Pipeline steps: {len(session.pipeline)}")
 print(f"  Is trained: {session.is_trained}")
 print(f"  History entries: {len(session.history)}")
-
 
 # =============================================================================
 # Section 5: Saving a Session
@@ -208,7 +202,6 @@ session.save(str(save_path))
 print(f"\nSession saved to: {save_path}")
 print(f"  File size: {save_path.stat().st_size / 1024:.1f} KB")
 
-
 # =============================================================================
 # Section 6: Loading a Session
 # =============================================================================
@@ -228,7 +221,6 @@ loaded_session = nirs4all.load_session(str(save_path))
 print(f"\nSession loaded: {loaded_session.name}")
 print(f"  Status: {loaded_session.status}")
 print(f"  Is trained: {loaded_session.is_trained}")
-
 
 # =============================================================================
 # Section 7: Session Retraining
@@ -251,11 +243,10 @@ retrain_result = session.retrain(
     mode='transfer'
 )
 
-print(f"\nSession retrained:")
-print(f"  Mode: transfer")
+print("\nSession retrained:")
+print("  Mode: transfer")
 print(f"  Predictions: {retrain_result.num_predictions}")
 print(f"  Best RMSE: {retrain_result.best_rmse:.4f}")
-
 
 # =============================================================================
 # Section 8: Context Manager Usage
@@ -287,10 +278,9 @@ with nirs4all.session(verbose=0, save_artifacts=False) as s:
         dataset="sample_data/regression",
         session=s
     )
-    print(f"\nContext manager comparison:")
+    print("\nContext manager comparison:")
     print(f"  PLS(5):  RMSE = {r1.best_rmse:.4f}")
     print(f"  PLS(10): RMSE = {r2.best_rmse:.4f}")
-
 
 # =============================================================================
 # Section 9: Session Lifecycle
@@ -322,7 +312,6 @@ Methods available by state:
   trained: predict(), retrain(), save(), run()
   loaded: predict(), retrain(), save(), run()
 """)
-
 
 # =============================================================================
 # Summary

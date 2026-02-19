@@ -35,18 +35,15 @@ from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative
-)
+from nirs4all.operators.transforms import FirstDerivative
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='D07 Value Mapping Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -72,7 +69,6 @@ Benefits:
   - Different preprocessing per group
   - Better organization and documentation
 """)
-
 
 # =============================================================================
 # Section 1: Basic Value Mapping
@@ -115,7 +111,6 @@ print("""Value mapping:
   "portable" branch: samples with instrument=NIR_100 OR NIR_200
   "benchtop" branch: samples with instrument=NIR_500 OR NIR_700
 """)
-
 
 # =============================================================================
 # Section 2: Per-Group Steps with Value Mapping
@@ -165,7 +160,6 @@ print("""Per-group preprocessing:
   benchtop devices → SNV only (stable instruments)
 """)
 
-
 # =============================================================================
 # Section 3: Quality-Based Grouping
 # =============================================================================
@@ -212,7 +206,6 @@ print("""Quality grouping:
   standard (B, B+, C) → more aggressive preprocessing
 """)
 
-
 # =============================================================================
 # Section 4: Geographic/Farm Grouping
 # =============================================================================
@@ -254,7 +247,6 @@ print("""Geographic grouping:
   north_region: Farm_A, Farm_B, Farm_C
   south_region: Farm_D, Farm_E
 """)
-
 
 # =============================================================================
 # Section 5: Season Grouping
@@ -309,7 +301,6 @@ print("""Season grouping:
   winter (Dec-Feb) → MSC
 """)
 
-
 # =============================================================================
 # Section 6: Instrument Type + Year Grouping
 # =============================================================================
@@ -359,7 +350,6 @@ print("""Complex grouping:
   new_portable (P010, P011) → medium preprocessing
   lab_equipment (L001, L002, L003) → minimal preprocessing
 """)
-
 
 # =============================================================================
 # Summary

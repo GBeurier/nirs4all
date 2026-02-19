@@ -1,17 +1,18 @@
 """Tests for header_units utility functions."""
 
+from unittest.mock import MagicMock
+
 import numpy as np
 import pytest
-from unittest.mock import MagicMock
 
 from nirs4all.data._features import HeaderUnit
 from nirs4all.utils.header_units import (
     AXIS_LABELS,
     DEFAULT_AXIS_LABEL,
+    apply_x_axis_limits,
     get_axis_label,
     get_x_values_and_label,
     should_invert_x_axis,
-    apply_x_axis_limits,
 )
 
 
@@ -35,7 +36,6 @@ class TestAxisLabels:
         """Index-type units should use consistent label."""
         assert AXIS_LABELS[HeaderUnit.NONE] == "Feature Index"
         assert AXIS_LABELS[HeaderUnit.INDEX] == "Feature Index"
-
 
 class TestGetAxisLabel:
     """Test get_axis_label function."""
@@ -69,7 +69,6 @@ class TestGetAxisLabel:
         """Invalid unit string should return default label."""
         assert get_axis_label("invalid_unit") == DEFAULT_AXIS_LABEL
         assert get_axis_label("") == DEFAULT_AXIS_LABEL
-
 
 class TestGetXValuesAndLabel:
     """Test get_x_values_and_label function."""
@@ -153,35 +152,33 @@ class TestGetXValuesAndLabel:
         np.testing.assert_array_almost_equal(x_vals, [4000, 4500, 5000])
         assert label == "Feature Index"
 
-
 class TestShouldInvertXAxis:
     """Test should_invert_x_axis function."""
 
     def test_descending_values_should_invert(self):
         """Descending x values should indicate inversion needed."""
         x_values = np.array([5000, 4500, 4000])
-        assert should_invert_x_axis(x_values) == True
+        assert should_invert_x_axis(x_values)
 
     def test_ascending_values_no_invert(self):
         """Ascending x values should not indicate inversion."""
         x_values = np.array([4000, 4500, 5000])
-        assert should_invert_x_axis(x_values) == False
+        assert not should_invert_x_axis(x_values)
 
     def test_single_value_no_invert(self):
         """Single value should not indicate inversion."""
         x_values = np.array([4000])
-        assert should_invert_x_axis(x_values) == False
+        assert not should_invert_x_axis(x_values)
 
     def test_empty_array_no_invert(self):
         """Empty array should not indicate inversion."""
         x_values = np.array([])
-        assert should_invert_x_axis(x_values) == False
+        assert not should_invert_x_axis(x_values)
 
     def test_equal_values_no_invert(self):
         """Equal values should not indicate inversion."""
         x_values = np.array([4000, 4000, 4000])
-        assert should_invert_x_axis(x_values) == False
-
+        assert not should_invert_x_axis(x_values)
 
 class TestApplyXAxisLimits:
     """Test apply_x_axis_limits function."""
@@ -213,7 +210,6 @@ class TestApplyXAxisLimits:
 
         ax.set_xlim.assert_not_called()
 
-
 class TestIntegration:
     """Integration tests combining multiple functions."""
 
@@ -227,7 +223,7 @@ class TestIntegration:
 
         assert label == "Wavenumber (cm⁻¹)"
         np.testing.assert_array_almost_equal(x_vals, [5000, 4500, 4000, 3500])
-        assert should_invert_x_axis(x_vals) == True
+        assert should_invert_x_axis(x_vals)
 
     def test_typical_wavelength_workflow(self):
         """Test typical wavelength data workflow."""
@@ -239,7 +235,7 @@ class TestIntegration:
 
         assert label == "Wavelength (nm)"
         np.testing.assert_array_almost_equal(x_vals, [800, 1000, 1200, 1400])
-        assert should_invert_x_axis(x_vals) == False
+        assert not should_invert_x_axis(x_vals)
 
     def test_no_headers_workflow(self):
         """Test workflow when no headers are available."""
@@ -248,4 +244,4 @@ class TestIntegration:
         assert label == DEFAULT_AXIS_LABEL
         assert len(x_vals) == 100
         np.testing.assert_array_equal(x_vals, np.arange(100))
-        assert should_invert_x_axis(x_vals) == False
+        assert not should_invert_x_axis(x_vals)

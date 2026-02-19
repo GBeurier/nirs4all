@@ -21,7 +21,7 @@ Example:
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 from .base import BaseModelOperator
 
@@ -46,7 +46,6 @@ class CoverageStrategy(Enum):
     IMPUTE_MEAN = "impute_mean"
     IMPUTE_FOLD_MEAN = "impute_fold_mean"
 
-
 class TestAggregation(Enum):
     """Strategy for aggregating test predictions from multiple folds.
 
@@ -63,7 +62,6 @@ class TestAggregation(Enum):
     WEIGHTED_MEAN = "weighted"
     BEST_FOLD = "best"
 
-
 class BranchScope(Enum):
     """Which branches to include as source models.
 
@@ -79,7 +77,6 @@ class BranchScope(Enum):
     CURRENT_ONLY = "current_only"
     ALL_BRANCHES = "all_branches"
     SPECIFIED = "specified"
-
 
 class StackingLevel(Enum):
     """Level of stacking in multi-level stacking architecture.
@@ -98,7 +95,6 @@ class StackingLevel(Enum):
     LEVEL_1 = 1
     LEVEL_2 = 2
     LEVEL_3 = 3
-
 
 @dataclass
 class StackingConfig:
@@ -162,7 +158,6 @@ class StackingConfig:
                 self.level = StackingLevel(int(self.level))
         if isinstance(self.level, int):
             self.level = StackingLevel(self.level)
-
 
 class MetaModel(BaseModelOperator):
     """Wrapper for meta-model stacking using pipeline predictions.
@@ -247,12 +242,12 @@ class MetaModel(BaseModelOperator):
     def __init__(
         self,
         model: Any,
-        source_models: Union[str, List[str]] = "all",
+        source_models: str | list[str] = "all",
         use_proba: bool = False,
-        stacking_config: Optional[StackingConfig] = None,
-        selector: Optional[Any] = None,
-        name: Optional[str] = None,
-        finetune_space: Optional[Dict[str, Any]] = None,
+        stacking_config: StackingConfig | None = None,
+        selector: Any | None = None,
+        name: str | None = None,
+        finetune_space: dict[str, Any] | None = None,
     ):
         """Initialize MetaModel operator.
 
@@ -293,9 +288,8 @@ class MetaModel(BaseModelOperator):
                 f"got {type(source_models).__name__}"
             )
 
-        if isinstance(source_models, list):
-            if not all(isinstance(s, str) for s in source_models):
-                raise ValueError("All source_models entries must be strings")
+        if isinstance(source_models, list) and not all(isinstance(s, str) for s in source_models):
+            raise ValueError("All source_models entries must be strings")
 
         self.model = model
         self.source_models = source_models
@@ -306,7 +300,7 @@ class MetaModel(BaseModelOperator):
         self.finetune_space = finetune_space
 
         # Track detected level (will be set during execution)
-        self._detected_level: Optional[int] = None
+        self._detected_level: int | None = None
 
     def get_controller_type(self) -> str:
         """Return the type of controller that handles this operator.
@@ -336,7 +330,7 @@ class MetaModel(BaseModelOperator):
         'direction', 'force_params', 'phases', 'metric',
     })
 
-    def get_finetune_params(self) -> Optional[Dict[str, Any]]:
+    def get_finetune_params(self) -> dict[str, Any] | None:
         """Get finetuning parameters for Optuna optimization.
 
         Separates control keys (n_trials, sampler, approach, etc.) from
@@ -373,7 +367,7 @@ class MetaModel(BaseModelOperator):
 
         return result
 
-    def get_params(self, deep: bool = True) -> Dict[str, Any]:
+    def get_params(self, deep: bool = True) -> dict[str, Any]:
         """Get parameters for this operator.
 
         Parameters:

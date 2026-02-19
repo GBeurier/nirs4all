@@ -6,7 +6,6 @@ Inception_v3: http://arxiv.org/abs/1512.00567 [Rethinking the Inception Architec
 Inception_v4: https://arxiv.org/abs/1602.07261 [Inception-v4, Inception-ResNet and the Impact of Residual Connections on Learning]
 """
 
-
 import tensorflow as tf
 
 
@@ -18,7 +17,6 @@ def Conv_1D_Block(x, model_width, kernel, strides=1, padding="same"):
 
     return x
 
-
 def classifier(inputs, class_number):
     # Construct the Classifier Group
     # inputs       : input vector
@@ -26,14 +24,12 @@ def classifier(inputs, class_number):
     out = tf.keras.layers.Dense(class_number, activation='softmax')(inputs)
     return out
 
-
 def regressor(inputs, feature_number):
     # Construct the Regressor Group
     # inputs         : input vector
     # feature_number : number of output features
     out = tf.keras.layers.Dense(feature_number, activation='linear')(inputs)
     return out
-
 
 def Inceptionv1_Module(inputs, filterB1_1, filterB2_1, filterB2_2, filterB3_1, filterB3_2, filterB4_1, i):
     # Inception Block i
@@ -50,7 +46,6 @@ def Inceptionv1_Module(inputs, filterB1_1, filterB2_1, filterB2_2, filterB3_1, f
     out = tf.keras.layers.concatenate([branch1x1, branch3x3, branch5x5, branch_pool], axis=-1, name='Inception_Block_'+str(i))
 
     return out
-
 
 def Inceptionv2_Module(inputs, filterB1_1, filterB2_1, filterB2_2, filterB3_1, filterB3_2, filterB3_3, filterB4_1, i):
     # Inception Block i
@@ -70,7 +65,6 @@ def Inceptionv2_Module(inputs, filterB1_1, filterB2_1, filterB2_2, filterB3_1, f
 
     return out
 
-
 def Inception_Module_A(inputs, filterB1_1, filterB2_1, filterB2_2, filterB3_1, filterB3_2, filterB3_3, filterB4_1, i):
     # Inception Block i
     branch1x1 = Conv_1D_Block(inputs, filterB1_1, 1)
@@ -88,7 +82,6 @@ def Inception_Module_A(inputs, filterB1_1, filterB2_1, filterB2_2, filterB3_1, f
     out = tf.keras.layers.concatenate([branch1x1, branch3x3, branch3x3dbl, branch_pool], axis=-1, name='Inception_Block_A'+str(i))
 
     return out
-
 
 def Inception_Module_B(inputs, filterB1_1, filterB2_1, filterB2_2, filterB3_1, filterB3_2, filterB3_3, filterB4_1, i):
     # Inception Block i
@@ -108,7 +101,6 @@ def Inception_Module_B(inputs, filterB1_1, filterB2_1, filterB2_2, filterB3_1, f
 
     return out
 
-
 def Inception_Module_C(inputs, filterB1_1, filterB2_1, filterB2_2, filterB3_1, filterB3_2, filterB3_3, filterB4_1, i):
     # Inception Block i
     branch1x1 = Conv_1D_Block(inputs, filterB1_1, 1)
@@ -127,7 +119,6 @@ def Inception_Module_C(inputs, filterB1_1, filterB2_1, filterB2_2, filterB3_1, f
 
     return out
 
-
 def Reduction_Block_A(inputs, filterB1_1, filterB1_2, filterB2_1, filterB2_2, filterB2_3, i):
     # Reduction Block A (i)
     branch3x3 = Conv_1D_Block(inputs, filterB1_1, 1)
@@ -142,7 +133,6 @@ def Reduction_Block_A(inputs, filterB1_1, filterB1_2, filterB2_1, filterB2_2, fi
 
     return out
 
-
 def Reduction_Block_B(inputs, filterB1_1, filterB1_2, filterB2_1, filterB2_2, filterB2_3, i):
     # Reduction Block B (i)
     branch3x3 = Conv_1D_Block(inputs, filterB1_1, 1)
@@ -156,7 +146,6 @@ def Reduction_Block_B(inputs, filterB1_1, filterB1_2, filterB2_1, filterB2_2, fi
     out = tf.keras.layers.concatenate([branch3x3, branch3x3dbl, branch_pool], axis=-1, name='Reduction_Block_'+str(i))
 
     return out
-
 
 class Inception:
     def __init__(self, length, num_channel, num_filters, problem_type='Regression',

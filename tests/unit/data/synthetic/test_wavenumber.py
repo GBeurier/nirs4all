@@ -14,24 +14,24 @@ import numpy as np
 import pytest
 
 from nirs4all.synthesis.wavenumber import (
-    wavenumber_to_wavelength,
-    wavelength_to_wavenumber,
-    convert_bandwidth_to_wavelength,
-    NIR_ZONES_WAVENUMBER,
     EXTENDED_SPECTRAL_ZONES,
-    VISIBLE_ZONES_WAVENUMBER,
-    classify_wavelength_zone,
-    classify_wavelength_extended,
-    get_zone_wavelength_range,
-    get_all_zones_extended,
-    is_visible_region,
-    is_nir_region,
     FUNDAMENTAL_VIBRATIONS,
-    calculate_overtone_position,
-    calculate_combination_band,
-    apply_hydrogen_bonding_shift,
-    OvertoneResult,
+    NIR_ZONES_WAVENUMBER,
+    VISIBLE_ZONES_WAVENUMBER,
     CombinationBandResult,
+    OvertoneResult,
+    apply_hydrogen_bonding_shift,
+    calculate_combination_band,
+    calculate_overtone_position,
+    classify_wavelength_extended,
+    classify_wavelength_zone,
+    convert_bandwidth_to_wavelength,
+    get_all_zones_extended,
+    get_zone_wavelength_range,
+    is_nir_region,
+    is_visible_region,
+    wavelength_to_wavenumber,
+    wavenumber_to_wavelength,
 )
 
 
@@ -81,7 +81,6 @@ class TestWavenumberConversion:
         with pytest.raises((ZeroDivisionError, FloatingPointError, ValueError)):
             wavelength_to_wavenumber(0)
 
-
 class TestBandwidthConversion:
     """Tests for bandwidth conversion (wavenumber FWHM to wavelength)."""
 
@@ -110,7 +109,6 @@ class TestBandwidthConversion:
         result_100 = convert_bandwidth_to_wavelength(100, center)
         # Should be approximately 2x
         assert result_100 == pytest.approx(2 * result_50, rel=0.1)
-
 
 class TestNIRZones:
     """Tests for NIR zone classification."""
@@ -159,7 +157,6 @@ class TestNIRZones:
         assert low < 3000  # NIR range
         assert high < 3000
 
-
 class TestFundamentalVibrations:
     """Tests for the FUNDAMENTAL_VIBRATIONS dictionary."""
 
@@ -179,7 +176,6 @@ class TestFundamentalVibrations:
         expected_groups = ["O-H_stretch_free", "N-H_stretch_primary", "C-H_stretch_CH3_asym"]
         for group in expected_groups:
             assert group in FUNDAMENTAL_VIBRATIONS
-
 
 class TestOvertoneCalculation:
     """Tests for overtone position calculations."""
@@ -230,7 +226,6 @@ class TestOvertoneCalculation:
         with pytest.raises(ValueError):
             calculate_overtone_position("O-H_stretch_free", 0)
 
-
 class TestCombinationBandCalculation:
     """Tests for combination band calculations."""
 
@@ -262,7 +257,6 @@ class TestCombinationBandCalculation:
 
         # Allow for some deviation due to anharmonicity
         assert result.wavenumber_cm == pytest.approx(expected_sum, rel=0.15)
-
 
 class TestHydrogenBondingShift:
     """Tests for hydrogen bonding shift calculations."""
@@ -296,7 +290,6 @@ class TestHydrogenBondingShift:
         result_max = apply_hydrogen_bonding_shift(original, h_bond_strength=1.0)
         assert result_max < original
 
-
 class TestVisibleRegion:
     """Tests for visible region functions (Phase 2)."""
 
@@ -327,7 +320,7 @@ class TestVisibleRegion:
         assert is_visible_region(650)
         assert not is_visible_region(800)
         assert not is_visible_region(1450)
-        assert not is_visible_region(350) is False or is_visible_region(350) is True  # boundary
+        assert is_visible_region(350) is not False or is_visible_region(350) is True  # boundary
 
     def test_is_nir_region(self):
         """Test is_nir_region function."""
@@ -377,7 +370,6 @@ class TestVisibleRegion:
         # Should cover approximately 350-2500 nm
         assert min(all_wavelengths) < 500  # Covers visible
         assert max(all_wavelengths) > 2400  # Covers NIR
-
 
 class TestIntegration:
     """Integration tests for wavenumber module."""

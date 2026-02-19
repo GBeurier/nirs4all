@@ -8,16 +8,17 @@ then samples from these distributions for synthetic generation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import numpy as np
 from scipy import stats
 
+if TYPE_CHECKING:
+    from .inversion import InversionResult
 
 # =============================================================================
 # Distribution Result
 # =============================================================================
-
 
 @dataclass
 class DistributionResult:
@@ -33,11 +34,11 @@ class DistributionResult:
         n_samples_fitted: Number of samples used for fitting.
     """
 
-    param_names: List[str]
-    distributions: Dict[str, Dict[str, Any]]
-    correlations: Optional[np.ndarray] = None
-    factor_loadings: Optional[np.ndarray] = None
-    transform_params: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    param_names: list[str]
+    distributions: dict[str, dict[str, Any]]
+    correlations: np.ndarray | None = None
+    factor_loadings: np.ndarray | None = None
+    transform_params: dict[str, dict[str, Any]] = field(default_factory=dict)
     n_samples_fitted: int = 0
 
     def summary(self) -> str:
@@ -75,11 +76,9 @@ class DistributionResult:
         lines.append("=" * 60)
         return "\n".join(lines)
 
-
 # =============================================================================
 # Parameter Distribution Fitter
 # =============================================================================
-
 
 @dataclass
 class ParameterDistributionFitter:
@@ -104,18 +103,18 @@ class ParameterDistributionFitter:
         min_std: Minimum standard deviation to avoid degenerate distributions.
     """
 
-    positive_params: List[str] = field(
+    positive_params: list[str] = field(
         default_factory=lambda: ["concentrations", "path_lengths"]
     )
-    bounded_params: Dict[str, Tuple[float, float]] = field(default_factory=dict)
+    bounded_params: dict[str, tuple[float, float]] = field(default_factory=dict)
     use_factor_model: bool = False
     n_factors: int = 3
     min_std: float = 1e-6
 
     def fit(
         self,
-        params: Dict[str, np.ndarray],
-        param_names: Optional[List[str]] = None,
+        params: dict[str, np.ndarray],
+        param_names: list[str] | None = None,
     ) -> DistributionResult:
         """
         Fit distributions to parameter samples.
@@ -204,7 +203,7 @@ class ParameterDistributionFitter:
 
     def _fit_positive(
         self, data: np.ndarray, name: str
-    ) -> Tuple[Dict[str, Any], np.ndarray]:
+    ) -> tuple[dict[str, Any], np.ndarray]:
         """Fit distribution for positive parameter (log-normal)."""
         # Remove zeros/negatives
         valid = data > 0
@@ -242,8 +241,8 @@ class ParameterDistributionFitter:
         }, np.log(np.maximum(data, 1e-10))
 
     def _fit_bounded(
-        self, data: np.ndarray, name: str, bounds: Tuple[float, float]
-    ) -> Tuple[Dict[str, Any], np.ndarray]:
+        self, data: np.ndarray, name: str, bounds: tuple[float, float]
+    ) -> tuple[dict[str, Any], np.ndarray]:
         """Fit distribution for bounded parameter (truncated normal or beta)."""
         lower, upper = bounds
 
@@ -275,7 +274,7 @@ class ParameterDistributionFitter:
 
     def _fit_gaussian(
         self, data: np.ndarray, name: str
-    ) -> Tuple[Dict[str, Any], np.ndarray]:
+    ) -> tuple[dict[str, Any], np.ndarray]:
         """Fit Gaussian distribution."""
         mean = float(np.mean(data))
         std = max(float(np.std(data)), self.min_std)
@@ -300,11 +299,9 @@ class ParameterDistributionFitter:
 
         return fa.components_.T  # (n_features, n_factors)
 
-
 # =============================================================================
 # Parameter Sampler
 # =============================================================================
-
 
 @dataclass
 class ParameterSampler:
@@ -323,8 +320,8 @@ class ParameterSampler:
     use_correlations: bool = True
 
     def sample(
-        self, n_samples: int, random_state: Optional[int] = None
-    ) -> Dict[str, np.ndarray]:
+        self, n_samples: int, random_state: int | None = None
+    ) -> dict[str, np.ndarray]:
         """
         Sample parameters from fitted distributions.
 
@@ -401,8 +398,8 @@ class ParameterSampler:
         return self._reorganize_samples(samples)
 
     def _reorganize_samples(
-        self, flat_samples: Dict[str, np.ndarray]
-    ) -> Dict[str, np.ndarray]:
+        self, flat_samples: dict[str, np.ndarray]
+    ) -> dict[str, np.ndarray]:
         """Reorganize flat samples into original parameter structure."""
         # Group by base name
         grouped = {}
@@ -440,23 +437,21 @@ class ParameterSampler:
         return result
 
     def sample_single(
-        self, random_state: Optional[int] = None
-    ) -> Dict[str, np.ndarray]:
+        self, random_state: int | None = None
+    ) -> dict[str, np.ndarray]:
         """Sample a single parameter set."""
         samples = self.sample(1, random_state)
         return {k: v[0] if v.ndim > 1 else v[0] for k, v in samples.items()}
-
 
 # =============================================================================
 # Convenience Functions
 # =============================================================================
 
-
 def fit_parameter_distributions(
-    inversion_results: List["InversionResult"],
-    component_names: Optional[List[str]] = None,
+    inversion_results: list[InversionResult],
+    component_names: list[str] | None = None,
     include_environmental: bool = False,
-) -> Tuple[DistributionResult, ParameterSampler]:
+) -> tuple[DistributionResult, ParameterSampler]:
     """
     Fit distributions from inversion results.
 

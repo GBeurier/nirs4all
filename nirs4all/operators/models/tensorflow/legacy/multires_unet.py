@@ -11,7 +11,6 @@ def Conv_Block(inputs, model_width, kernel, multiplier):
 
     return x
 
-
 def trans_conv1D(inputs, model_width, multiplier):
     # 1D Transposed Convolutional Block, used instead of UpSampling
     x = tf.keras.layers.Conv1DTranspose(model_width * multiplier, 2, strides=2, padding='same')(inputs)  # Stride = 2, Kernel Size = 2
@@ -19,7 +18,6 @@ def trans_conv1D(inputs, model_width, multiplier):
     x = tf.keras.layers.Activation('relu')(x)
 
     return x
-
 
 def Concat_Block(input1, *argv):
     # Concatenation Block from the KERAS Library
@@ -29,13 +27,11 @@ def Concat_Block(input1, *argv):
 
     return cat
 
-
 def upConv_Block(inputs, size=2):
     # 1D UpSampling Block
     up = tf.keras.layers.UpSampling1D(size=size)(inputs)
 
     return up
-
 
 def Feature_Extraction_Block(inputs, model_width, feature_number):
     # Feature Extraction Block for the AutoEncoder Mode
@@ -47,14 +43,12 @@ def Feature_Extraction_Block(inputs, model_width, feature_number):
 
     return latent
 
-
 def dense_block(x, num_filters, num_layers, bottleneck=True):
-    for i in range(num_layers):
+    for _ in range(num_layers):
         cb = Conv_Block(x, num_filters, bottleneck=bottleneck)
         x = tf.keras.layers.concatenate([x, cb], axis=-1)
 
     return x
-
 
 def Attention_Block(skip_connection, gating_signal, num_filters, multiplier):
     # Attention Block
@@ -73,7 +67,6 @@ def Attention_Block(skip_connection, gating_signal, num_filters, multiplier):
     out = skip_connection * resampler
 
     return out
-
 
 def MultiResBlock(inputs, model_width, kernel, multiplier, alpha):
     # MultiRes Block
@@ -96,7 +89,6 @@ def MultiResBlock(inputs, model_width, kernel, multiplier, alpha):
     out = tf.keras.layers.BatchNormalization()(out)
 
     return out
-
 
 def ResPath(inputs, model_depth, model_width, kernel, multiplier):
     # ResPath
@@ -122,7 +114,6 @@ def ResPath(inputs, model_depth, model_width, kernel, multiplier):
         out = tf.keras.layers.BatchNormalization()(out)
 
     return out
-
 
 class UNet:
     def __init__(self, length, model_depth, num_channel, model_width, kernel_size, problem_type='Regression',
@@ -155,7 +146,6 @@ class UNet:
         self.feature_number = feature_number
         self.is_transconv = is_transconv
 
-
     def MultiResUNet(self):
         """Variable MultiResUNet Model Design"""
         if self.length == 0 or self.model_depth == 0 or self.model_width == 0 or self.num_channel == 0 or self.kernel_size == 0:
@@ -171,7 +161,7 @@ class UNet:
         for i in range(1, (self.model_depth + 1)):
             mresblock = MultiResBlock(pool, self.model_width, self.kernel_size, 2 ** (i - 1), self.alpha)
             pool = tf.keras.layers.MaxPooling1D(pool_size=2)(mresblock)
-            mresblocks["mres%s" % i] = ResPath(mresblock, (self.model_depth - i + 1), self.model_width, self.kernel_size, 2 ** (i - 1))
+            mresblocks[f"mres{i}"] = ResPath(mresblock, (self.model_depth - i + 1), self.model_width, self.kernel_size, 2 ** (i - 1))
 
         if self.A_E == 1:
             # Collect Latent Features or Embeddings from AutoEncoders
@@ -218,7 +208,6 @@ class UNet:
             model = tf.keras.Model(inputs=[inputs], outputs=levels)
 
         return model
-
 
 if __name__ == '__main__':
     # Configurations

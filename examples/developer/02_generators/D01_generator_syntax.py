@@ -36,16 +36,12 @@ from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative,
-    SecondDerivative,
-    Detrend
-)
+from nirs4all.operators.transforms import Detrend, FirstDerivative, SecondDerivative
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 from nirs4all.pipeline.config.generator import (
-    expand_spec,
     count_combinations,
+    expand_spec,
     is_generator_node,
 )
 
@@ -54,7 +50,6 @@ parser = argparse.ArgumentParser(description='D01 Generator Syntax Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -80,7 +75,6 @@ Use generators to express all variants compactly:
 This expands to 2 × 3 = 6 pipeline variants automatically!
 """)
 
-
 # =============================================================================
 # Section 1: Basic _or_ for Alternatives
 # =============================================================================
@@ -100,7 +94,6 @@ print(f"Spec: {spec_or}")
 print(f"Count: {count_combinations(spec_or)}")
 results = expand_spec(spec_or)
 print(f"Expanded: {results}")
-
 
 # =============================================================================
 # Section 2: _range_ for Numeric Sweeps
@@ -129,7 +122,6 @@ print(f"\nDict syntax: {spec_range_dict}")
 results = expand_spec(spec_range_dict)
 print(f"Expanded: {results}")
 
-
 # =============================================================================
 # Section 3: Nested Generators (Cartesian Product)
 # =============================================================================
@@ -154,7 +146,6 @@ results = expand_spec(spec_nested)
 for i, r in enumerate(results):
     print(f"  [{i}]: {r}")
 
-
 # =============================================================================
 # Section 4: pick - Select k Items (Combinations)
 # =============================================================================
@@ -176,7 +167,6 @@ print(f"Count: {count_combinations(spec_pick)}")
 results = expand_spec(spec_pick)
 for i, r in enumerate(results):
     print(f"  [{i}]: {r}")
-
 
 # =============================================================================
 # Section 5: arrange - Select k Items (Permutations)
@@ -200,7 +190,6 @@ results = expand_spec(spec_arrange)
 for i, r in enumerate(results):
     print(f"  [{i}]: {r}")
 
-
 # =============================================================================
 # Section 6: count - Limit Expansion
 # =============================================================================
@@ -223,7 +212,6 @@ print(f"Count (before limit): 5, Count (after limit): {count_combinations(spec_c
 results = expand_spec(spec_count, seed=42)
 print(f"Expanded (seed=42): {results}")
 
-
 # =============================================================================
 # Section 7: _log_range_ for Logarithmic Sweeps
 # =============================================================================
@@ -244,7 +232,6 @@ print(f"Spec: {spec_log}")
 print(f"Count: {count_combinations(spec_log)}")
 results = expand_spec(spec_log)
 print(f"Expanded: {results}")
-
 
 # =============================================================================
 # Section 8: _grid_ for Grid Search
@@ -270,7 +257,6 @@ print(f"Count: {count_combinations(spec_grid)}")
 results = expand_spec(spec_grid)
 for i, r in enumerate(results):
     print(f"  [{i}]: {r}")
-
 
 # =============================================================================
 # Section 9: _zip_ for Parallel Iteration
@@ -298,7 +284,6 @@ zip_result = expand_spec({"_zip_": {"x": [1, 2], "y": ["A", "B"]}})
 grid_result = expand_spec({"_grid_": {"x": [1, 2], "y": ["A", "B"]}})
 print(f"_zip_ (2 pairs):  {zip_result}")
 print(f"_grid_ (4 combos): {grid_result}")
-
 
 # =============================================================================
 # Section 10: Running Pipelines with Generator Syntax
@@ -329,7 +314,6 @@ result = nirs4all.run(
 
 print(f"\nTotal predictions: {result.num_predictions}")
 
-
 # =============================================================================
 # Section 11: Utility Function - is_generator_node
 # =============================================================================
@@ -355,7 +339,6 @@ for tc in test_cases:
     first_key = list(tc.keys())[0]
     is_gen = is_generator_node(tc)
     print(f"  {first_key:15} -> is_generator_node: {is_gen}")
-
 
 # =============================================================================
 # Summary

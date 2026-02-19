@@ -36,18 +36,15 @@ from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative
-)
+from nirs4all.operators.transforms import FirstDerivative
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='D03 Repetition Transform Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -70,7 +67,6 @@ Options to handle:
   2. rep_to_pp: Create preprocessing variations
   3. Aggregate: Mean/median across repetitions
 """)
-
 
 # =============================================================================
 # Section 1: The Repeated Measurements Problem
@@ -107,7 +103,6 @@ for i in range(n_repetitions):
 
 print(f"Simulated data shape: {X_repeated.shape}")
 print(f"  = {n_samples} samples × ({n_wavelengths} wavelengths × {n_repetitions} reps)")
-
 
 # =============================================================================
 # Section 2: rep_to_sources - Convert to Multi-Source
@@ -151,7 +146,6 @@ print("  1. Split into 3 sources (one per rep)")
 print("  2. SNV each source independently")
 print("  3. Merge sources back together")
 
-
 # =============================================================================
 # Section 3: rep_to_pp - Preprocessing Variations
 # =============================================================================
@@ -191,7 +185,6 @@ print("  2. Apply SNV to each")
 print("  3. Average across repetitions")
 print("  Result: (100, 200) - single clean spectrum")
 
-
 # =============================================================================
 # Section 4: Aggregation Strategies
 # =============================================================================
@@ -230,7 +223,6 @@ for method in aggregation_methods:
 
     print(f"  {method}: shape = {X_agg.shape}, mean = {X_agg.mean():.4f}")
 
-
 # =============================================================================
 # Section 5: Quality-Based Selection
 # =============================================================================
@@ -249,7 +241,6 @@ Select best repetition based on quality metric:
 
 Automatically picks the cleanest repetition per sample.
 """)
-
 
 # =============================================================================
 # Section 6: Combining with Source Branching
@@ -294,7 +285,6 @@ pipeline_complex = [
 
 print("Complex repetition handling pipeline defined")
 
-
 # =============================================================================
 # Section 7: Time Series Repetitions
 # =============================================================================
@@ -316,7 +306,6 @@ Features:
   - delta: Change from previous
   - trend: Linear trend across repetitions
 """)
-
 
 # =============================================================================
 # Section 8: Practical Recommendations
@@ -344,7 +333,6 @@ print("""
 │                     │ (keep all repetitions)              │
 └─────────────────────┴─────────────────────────────────────┘
 """)
-
 
 # =============================================================================
 # Summary

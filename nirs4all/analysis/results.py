@@ -14,7 +14,7 @@ Classes:
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 
@@ -25,11 +25,9 @@ from nirs4all.analysis.transfer_utils import (
     normalize_preprocessing,
 )
 
-
 # =============================================================================
 # Result Dataclasses
 # =============================================================================
-
 
 @dataclass
 class TransferResult:
@@ -49,12 +47,12 @@ class TransferResult:
 
     name: str
     pipeline_type: str
-    components: List[str]
+    components: list[str]
     transfer_score: float
-    metrics: Dict[str, float]
+    metrics: dict[str, float]
     improvement_pct: float
-    signal_score: Optional[float] = None
-    transforms: Optional[List[Any]] = None
+    signal_score: float | None = None
+    transforms: list[Any] | None = None
 
     def __post_init__(self):
         """Validate fields after initialization."""
@@ -65,7 +63,7 @@ class TransferResult:
                 f"got '{self.pipeline_type}'"
             )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "name": self.name,
@@ -79,8 +77,8 @@ class TransferResult:
 
     def get_transforms(
         self,
-        preprocessings: Optional[Dict[str, Any]] = None,
-    ) -> List[Any]:
+        preprocessings: dict[str, Any] | None = None,
+    ) -> list[Any]:
         """
         Get the transformer objects for this result.
 
@@ -105,7 +103,6 @@ class TransferResult:
             for name in self.components
         ]
 
-
 @dataclass
 class TransferSelectionResults:
     """
@@ -120,9 +117,9 @@ class TransferSelectionResults:
         timing: Dictionary of execution time per stage.
     """
 
-    ranking: List[TransferResult]
-    raw_metrics: Dict[str, float]
-    timing: Dict[str, float] = field(default_factory=dict)
+    ranking: list[TransferResult]
+    raw_metrics: dict[str, float]
+    timing: dict[str, float] = field(default_factory=dict)
 
     @property
     def best(self) -> TransferResult:
@@ -139,7 +136,7 @@ class TransferSelectionResults:
             raise ValueError("No results available")
         return self.ranking[0]
 
-    def top_k(self, k: int = 5) -> List[TransferResult]:
+    def top_k(self, k: int = 5) -> list[TransferResult]:
         """
         Get top-K recommendations.
 
@@ -154,8 +151,8 @@ class TransferSelectionResults:
     def to_preprocessing_list(
         self,
         top_k: int = 10,
-        preprocessings: Optional[Dict[str, Any]] = None,
-    ) -> List[List[Any]]:
+        preprocessings: dict[str, Any] | None = None,
+    ) -> list[list[Any]]:
         """
         Convert top-K results to a list of preprocessing transform pipelines.
 
@@ -187,7 +184,7 @@ class TransferSelectionResults:
         if preprocessings is None:
             preprocessings = get_base_preprocessings()
 
-        result_list: List[List[Any]] = []
+        result_list: list[list[Any]] = []
         top_results = self.ranking[:top_k]
 
         for r in top_results:
@@ -204,7 +201,7 @@ class TransferSelectionResults:
 
     def to_pipeline_spec(
         self, top_k: int = 1, use_augmentation: bool = False
-    ) -> Union[str, List[str], Dict[str, List[str]]]:
+    ) -> str | list[str] | dict[str, list[str]]:
         """
         Convert results to nirs4all pipeline specification.
 
@@ -315,7 +312,7 @@ class TransferSelectionResults:
         self,
         top_k: int = 15,
         show_signal_score: bool = True,
-        figsize: Tuple[int, int] = (14, 8),
+        figsize: tuple[int, int] = (14, 8),
     ):
         """
         Plot ranked bar chart of preprocessing recommendations.
@@ -367,7 +364,7 @@ class TransferSelectionResults:
         ax.invert_yaxis()  # Best at top
 
         # Add value labels
-        for bar, val in zip(bars, scores):
+        for bar, val in zip(bars, scores, strict=False):
             ax.text(
                 val + 0.01, bar.get_y() + bar.get_height() / 2,
                 f"{val:.3f}", ha="left", va="center", fontsize=8
@@ -393,7 +390,7 @@ class TransferSelectionResults:
         ax.invert_yaxis()
 
         # Add value labels
-        for bar, val in zip(bars, improvements):
+        for bar, val in zip(bars, improvements, strict=False):
             label_x = val + (2 if val > 0 else -2)
             ha = "left" if val > 0 else "right"
             ax.text(
@@ -424,8 +421,8 @@ class TransferSelectionResults:
     def plot_metrics_comparison(
         self,
         top_k: int = 10,
-        metrics: Optional[List[str]] = None,
-        figsize: Tuple[int, int] = (16, 10),
+        metrics: list[str] | None = None,
+        figsize: tuple[int, int] = (16, 10),
     ):
         """
         Plot comparison of all metrics for top-K preprocessings.
@@ -481,10 +478,7 @@ class TransferSelectionResults:
 
             # Color based on metric type
             is_distance = metric in distance_metrics
-            if is_distance:
-                cmap = plt.cm.RdYlGn_r  # Red=high (bad), Green=low (good)
-            else:
-                cmap = plt.cm.RdYlGn  # Red=low (bad), Green=high (good)
+            cmap = plt.cm.RdYlGn_r  # Red=high (bad), Green=low (good) if is_distance else plt.cm.RdYlGn  # Red=low (bad), Green=high (good)
 
             # Normalize values for coloring
             valid_values = [v for v in values if not np.isnan(v)]
@@ -495,7 +489,7 @@ class TransferSelectionResults:
                 ]
                 colors = [
                     cmap(nv) if not np.isnan(v) else "#cccccc"
-                    for v, nv in zip(values, norm_values)
+                    for v, nv in zip(values, norm_values, strict=False)
                 ]
             else:
                 colors = ["#cccccc"] * len(values)
@@ -533,7 +527,7 @@ class TransferSelectionResults:
     def plot_improvement_heatmap(
         self,
         top_k: int = 15,
-        figsize: Tuple[int, int] = (12, 10),
+        figsize: tuple[int, int] = (12, 10),
     ):
         """
         Plot heatmap of metric improvements vs raw data.

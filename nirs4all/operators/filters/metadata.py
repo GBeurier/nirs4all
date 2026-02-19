@@ -5,7 +5,9 @@ This module provides the MetadataFilter class for filtering samples based on
 metadata column values using custom conditions.
 """
 
-from typing import Optional, Dict, Any, Callable, Union, List
+from collections.abc import Callable
+from typing import Any, Optional, Union
+
 import numpy as np
 
 from .base import SampleFilter
@@ -82,12 +84,12 @@ class MetadataFilter(SampleFilter):
     def __init__(
         self,
         column: str,
-        condition: Optional[Callable[[Any], bool]] = None,
-        values_to_exclude: Optional[List[Any]] = None,
-        values_to_keep: Optional[List[Any]] = None,
+        condition: Callable[[Any], bool] | None = None,
+        values_to_exclude: list[Any] | None = None,
+        values_to_keep: list[Any] | None = None,
         exclude_missing: bool = True,
-        reason: Optional[str] = None,
-        tag_name: Optional[str] = None
+        reason: str | None = None,
+        tag_name: str | None = None
     ):
         """
         Initialize the metadata filter.
@@ -151,7 +153,7 @@ class MetadataFilter(SampleFilter):
             return self.reason
         return f"metadata_{self.column}"
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> "MetadataFilter":
+    def fit(self, X: np.ndarray, y: np.ndarray | None = None) -> "MetadataFilter":
         """
         Fit the filter (no-op for metadata filter).
 
@@ -169,8 +171,8 @@ class MetadataFilter(SampleFilter):
     def get_mask(
         self,
         X: np.ndarray,
-        y: Optional[np.ndarray] = None,
-        metadata: Optional[Union[Dict[str, np.ndarray], Any]] = None
+        y: np.ndarray | None = None,
+        metadata: dict[str, np.ndarray] | Any | None = None
     ) -> np.ndarray:
         """
         Compute boolean mask indicating which samples to KEEP.
@@ -264,9 +266,9 @@ class MetadataFilter(SampleFilter):
     def get_filter_stats(
         self,
         X: np.ndarray,
-        y: Optional[np.ndarray] = None,
-        metadata: Optional[Dict[str, np.ndarray]] = None
-    ) -> Dict[str, Any]:
+        y: np.ndarray | None = None,
+        metadata: dict[str, np.ndarray] | None = None
+    ) -> dict[str, Any]:
         """
         Get statistics about filter application.
 
@@ -331,7 +333,7 @@ class MetadataFilter(SampleFilter):
                 unique, counts = np.unique(column_values, return_counts=True)
                 stats["value_distribution"] = dict(zip(
                     [str(u) for u in unique],
-                    [int(c) for c in counts]
+                    [int(c) for c in counts], strict=False
                 ))
             except Exception:
                 pass

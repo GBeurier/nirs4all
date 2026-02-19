@@ -75,7 +75,6 @@ class TestSpectralQualityFilterInitialization:
         filter_obj = SpectralQualityFilter()
         assert isinstance(filter_obj, SampleFilter)
 
-
 class TestSpectralQualityFilterNaN:
     """Tests for NaN ratio checking."""
 
@@ -112,7 +111,6 @@ class TestSpectralQualityFilterNaN:
 
         assert mask[0] == False  # noqa: E712
 
-
 class TestSpectralQualityFilterInf:
     """Tests for Inf value checking."""
 
@@ -144,7 +142,6 @@ class TestSpectralQualityFilterInf:
         # This will pass if only inf check is relevant
         breakdown = filter_obj2.get_quality_breakdown(X)
         assert breakdown["passes_inf"][0] == True  # noqa: E712
-
 
 class TestSpectralQualityFilterZero:
     """Tests for zero ratio checking."""
@@ -182,7 +179,6 @@ class TestSpectralQualityFilterZero:
         # Excluded due to both zero ratio and low variance
         assert mask[0] == False  # noqa: E712
 
-
 class TestSpectralQualityFilterVariance:
     """Tests for minimum variance checking."""
 
@@ -215,7 +211,6 @@ class TestSpectralQualityFilterVariance:
 
         assert mask[0] == False  # noqa: E712
 
-
 class TestSpectralQualityFilterValueRange:
     """Tests for value range checking."""
 
@@ -247,7 +242,6 @@ class TestSpectralQualityFilterValueRange:
         mask = filter_obj.get_mask(X)
 
         assert mask.sum() == 10
-
 
 class TestSpectralQualityFilterMultipleChecks:
     """Tests for multiple simultaneous quality checks."""
@@ -290,7 +284,6 @@ class TestSpectralQualityFilterMultipleChecks:
         assert breakdown["passes_zero"][1] == False # noqa: E712
 
         assert breakdown["passes_variance"][2] == False  # noqa: E712
-
 
 class TestSpectralQualityFilterEdgeCases:
     """Tests for edge cases."""
@@ -339,7 +332,6 @@ class TestSpectralQualityFilterEdgeCases:
         result = filter_obj.fit(X)
 
         assert result is filter_obj
-
 
 class TestSpectralQualityFilterHelperMethods:
     """Tests for helper methods."""
@@ -393,7 +385,6 @@ class TestSpectralQualityFilterHelperMethods:
         filter_obj = SpectralQualityFilter()
         repr_str = repr(filter_obj)
         assert "SpectralQualityFilter()" == repr_str
-
 
 class TestSpectralQualityFilterTransform:
     """Tests for transform method (should be no-op)."""

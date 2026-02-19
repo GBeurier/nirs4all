@@ -8,13 +8,14 @@ Tests artifact persistence and loading:
 - DuckDB store contains correct chain and artifact records
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
+
 import joblib
+import numpy as np
+import pytest
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import ShuffleSplit
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
@@ -35,7 +36,6 @@ def create_test_dataset(n_samples: int = 100, n_features: int = 50) -> SpectroDa
     dataset.add_targets(y[80:])
 
     return dataset
-
 
 class TestBranchArtifactCompleteness:
     """
@@ -136,7 +136,6 @@ class TestBranchArtifactCompleteness:
         # Should have artifacts from both branches
         assert len(artifact_files) >= 2, f"Expected at least 2 artifacts, got {len(artifact_files)}"
 
-
 class TestBranchArtifactUniqueness:
     """
     Test that artifacts from different branches have unique paths.
@@ -227,7 +226,6 @@ class TestBranchArtifactUniqueness:
         # Deduplication may reduce count (same class on same data = same hash)
         assert len(artifact_files) >= 1, f"Expected at least 1 artifact, got {len(artifact_files)}"
 
-
 class TestBranchArtifactIsolation:
     """
     Test that branch artifacts are isolated (no cross-contamination).
@@ -296,7 +294,6 @@ class TestBranchArtifactIsolation:
 
         # Verify prediction succeeded (implying correct artifacts loaded)
         assert y_pred is not None
-
 
 class TestManifestBranchMetadata:
     """
@@ -383,7 +380,6 @@ class TestManifestBranchMetadata:
         artifacts_dir = workspace_path / "artifacts"
         artifact_files = list(artifacts_dir.glob("**/*.joblib")) + list(artifacts_dir.glob("**/*.pkl"))
         assert len(artifact_files) >= 1, "Should have artifact files"
-
 
 class TestArtifactLoaderBranchSupport:
     """

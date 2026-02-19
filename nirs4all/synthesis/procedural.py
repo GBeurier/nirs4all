@@ -39,8 +39,8 @@ References:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Dict, List, Optional, Tuple, Union
+from enum import Enum, StrEnum
+from typing import Optional, Union
 
 import numpy as np
 
@@ -53,12 +53,12 @@ from .wavenumber import (
     calculate_overtone_position,
     convert_bandwidth_to_wavelength,
     estimate_bandwidth_broadening,
-    wavenumber_to_wavelength,
     wavelength_to_wavenumber,
+    wavenumber_to_wavelength,
 )
 
 
-class FunctionalGroupType(str, Enum):
+class FunctionalGroupType(StrEnum):
     """Types of functional groups for component generation."""
     HYDROXYL = "hydroxyl"           # O-H (alcohols, phenols, carboxylic acids)
     AMINE = "amine"                 # N-H (primary, secondary amines, amides)
@@ -70,7 +70,6 @@ class FunctionalGroupType(str, Enum):
     CARBOXYL = "carboxyl"           # COOH (combination of C=O and O-H)
     THIOL = "thiol"                 # S-H
     WATER = "water"                 # H2O (special case)
-
 
 # Functional group fundamental frequencies and properties
 FUNCTIONAL_GROUP_PROPERTIES = {
@@ -147,7 +146,6 @@ FUNCTIONAL_GROUP_PROPERTIES = {
     },
 }
 
-
 @dataclass
 class ProceduralComponentConfig:
     """
@@ -192,10 +190,9 @@ class ProceduralComponentConfig:
     anharmonicity_variability: float = 0.005
     amplitude_variability: float = 0.3
     bandwidth_variability: float = 0.2
-    wavelength_range: Tuple[float, float] = (900, 2500)
-    functional_groups: Optional[List[FunctionalGroupType]] = None
+    wavelength_range: tuple[float, float] = (900, 2500)
+    functional_groups: list[FunctionalGroupType] | None = None
     combination_amplitude_factor: float = 0.2
-
 
 class ProceduralComponentGenerator:
     """
@@ -222,7 +219,7 @@ class ProceduralComponentGenerator:
         >>> component = generator.generate_component("complex_compound", config)
     """
 
-    def __init__(self, random_state: Optional[int] = None) -> None:
+    def __init__(self, random_state: int | None = None) -> None:
         """
         Initialize the procedural component generator.
 
@@ -235,8 +232,8 @@ class ProceduralComponentGenerator:
     def _select_functional_groups(
         self,
         n_groups: int,
-        allowed_groups: Optional[List[FunctionalGroupType]] = None
-    ) -> List[FunctionalGroupType]:
+        allowed_groups: list[FunctionalGroupType] | None = None
+    ) -> list[FunctionalGroupType]:
         """
         Randomly select functional groups for a component.
 
@@ -264,8 +261,8 @@ class ProceduralComponentGenerator:
             FunctionalGroupType.WATER: 1,
         }
 
-        group_weights = [weights.get(g, 1) for g in allowed_groups]
-        group_weights = np.array(group_weights) / sum(group_weights)
+        raw_weights = [weights.get(g, 1) for g in allowed_groups]
+        group_weights = np.array(raw_weights) / sum(raw_weights)
 
         # Select with replacement allowed (can have multiple of same type)
         indices = self.rng.choice(
@@ -282,7 +279,7 @@ class ProceduralComponentGenerator:
         functional_group: FunctionalGroupType,
         config: ProceduralComponentConfig,
         band_index: int
-    ) -> Tuple[NIRBand, float]:
+    ) -> tuple[NIRBand | None, float]:
         """
         Generate a fundamental band for a functional group.
 
@@ -292,23 +289,25 @@ class ProceduralComponentGenerator:
             band_index: Index of this band (for naming).
 
         Returns:
-            Tuple of (NIRBand, fundamental_wavenumber_cm).
+            Tuple of (NIRBand or None, fundamental_wavenumber_cm).
             Returns the band and its fundamental wavenumber for overtone calculation.
         """
         props = FUNCTIONAL_GROUP_PROPERTIES[functional_group]
 
         # Sample fundamental wavenumber within range
-        nu_min, nu_max = props["fundamental_range"]
-        fundamental_cm = self.rng.uniform(nu_min, nu_max)
+        nu_min: float
+        nu_max: float
+        nu_min, nu_max = (float(props["fundamental_range"][0]), float(props["fundamental_range"][1]))  # type: ignore[index]
+        fundamental_cm: float = float(self.rng.uniform(nu_min, nu_max))
 
         # Apply hydrogen bonding shift if applicable
-        h_bond = props["h_bond_susceptibility"]
+        h_bond = float(props["h_bond_susceptibility"])
         if h_bond > 0:
             actual_h_bond = self.rng.normal(
                 config.h_bond_strength * h_bond,
                 config.h_bond_variability * h_bond
             )
-            actual_h_bond = np.clip(actual_h_bond, 0, 1)
+            actual_h_bond = float(np.clip(actual_h_bond, 0, 1))
             fundamental_cm = apply_hydrogen_bonding_shift(
                 fundamental_cm,
                 actual_h_bond,
@@ -331,7 +330,7 @@ class ProceduralComponentGenerator:
         band_wavelength = None
 
         for order in range(2, config.max_overtone_order + 1):
-            ot = calculate_overtone_position(fundamental_cm, order, anharmonicity)
+            ot = calculate_overtone_position(fundamental_cm, order, float(anharmonicity))
             if wl_min <= ot.wavelength_nm <= wl_max:
                 band_wavelength = ot.wavelength_nm
                 amplitude_factor = ot.amplitude_factor
@@ -342,10 +341,10 @@ class ProceduralComponentGenerator:
             return None, fundamental_cm
 
         # Calculate bandwidth in wavelength units
-        base_bandwidth_cm = props["bandwidth_cm"]
+        base_bandwidth_cm = float(props["bandwidth_cm"])
         if h_bond > 0 and actual_h_bond > 0:
             base_bandwidth_cm = estimate_bandwidth_broadening(
-                base_bandwidth_cm, actual_h_bond
+                base_bandwidth_cm, float(actual_h_bond)
             )
 
         bandwidth_cm = base_bandwidth_cm * bandwidth_factor
@@ -356,10 +355,10 @@ class ProceduralComponentGenerator:
         )
 
         # Convert to wavelength
-        sigma_nm = convert_bandwidth_to_wavelength(bandwidth_cm, band_wavelength) / 2.355
+        sigma_nm = convert_bandwidth_to_wavelength(float(bandwidth_cm), band_wavelength) / 2.355
 
         # Calculate amplitude
-        amplitude = props["typical_amplitude"] * amplitude_factor
+        amplitude = float(props["typical_amplitude"]) * amplitude_factor
         amplitude *= self.rng.uniform(
             1 - config.amplitude_variability,
             1 + config.amplitude_variability
@@ -385,7 +384,7 @@ class ProceduralComponentGenerator:
         functional_group: FunctionalGroupType,
         config: ProceduralComponentConfig,
         base_index: int
-    ) -> List[NIRBand]:
+    ) -> list[NIRBand]:
         """
         Generate overtone bands for a fundamental.
 
@@ -409,11 +408,11 @@ class ProceduralComponentGenerator:
         anharmonicity = np.clip(anharmonicity, 0.005, 0.05)
 
         for order in range(2, config.max_overtone_order + 1):
-            ot = calculate_overtone_position(fundamental_cm, order, anharmonicity)
+            ot = calculate_overtone_position(fundamental_cm, order, float(anharmonicity))
 
             if wl_min <= ot.wavelength_nm <= wl_max:
                 # Calculate bandwidth
-                base_bandwidth_cm = props["bandwidth_cm"] * ot.bandwidth_factor
+                base_bandwidth_cm = float(props["bandwidth_cm"]) * ot.bandwidth_factor
                 base_bandwidth_cm *= self.rng.uniform(
                     1 - config.bandwidth_variability,
                     1 + config.bandwidth_variability
@@ -424,7 +423,7 @@ class ProceduralComponentGenerator:
                 ) / 2.355
 
                 # Calculate amplitude
-                amplitude = props["typical_amplitude"] * ot.amplitude_factor
+                amplitude = float(props["typical_amplitude"]) * ot.amplitude_factor
                 amplitude *= self.rng.uniform(
                     1 - config.amplitude_variability,
                     1 + config.amplitude_variability
@@ -448,9 +447,9 @@ class ProceduralComponentGenerator:
 
     def _generate_combination_bands(
         self,
-        fundamentals: List[Tuple[float, FunctionalGroupType]],
+        fundamentals: list[tuple[float, FunctionalGroupType]],
         config: ProceduralComponentConfig
-    ) -> List[NIRBand]:
+    ) -> list[NIRBand]:
         """
         Generate combination bands from pairs of fundamentals.
 
@@ -480,7 +479,7 @@ class ProceduralComponentGenerator:
                     props2 = FUNCTIONAL_GROUP_PROPERTIES[fg2]
 
                     # Combination band width is roughly the sum of individual widths
-                    base_bandwidth_cm = (props1["bandwidth_cm"] + props2["bandwidth_cm"]) / 2
+                    base_bandwidth_cm = (float(props1["bandwidth_cm"]) + float(props2["bandwidth_cm"])) / 2
                     base_bandwidth_cm *= self.rng.uniform(0.8, 1.2)
 
                     sigma_nm = convert_bandwidth_to_wavelength(
@@ -538,9 +537,9 @@ class ProceduralComponentGenerator:
     def generate_component(
         self,
         name: str,
-        config: Optional[ProceduralComponentConfig] = None,
-        functional_groups: Optional[List[FunctionalGroupType]] = None,
-        correlation_group: Optional[int] = None
+        config: ProceduralComponentConfig | None = None,
+        functional_groups: list[FunctionalGroupType] | None = None,
+        correlation_group: int | None = None
     ) -> SpectralComponent:
         """
         Generate a single spectral component.
@@ -577,8 +576,8 @@ class ProceduralComponentGenerator:
                 None
             )
 
-        bands: List[NIRBand] = []
-        fundamentals: List[Tuple[float, FunctionalGroupType]] = []
+        bands: list[NIRBand] = []
+        fundamentals: list[tuple[float, FunctionalGroupType]] = []
 
         # Generate fundamental-derived bands
         for i, group in enumerate(groups):
@@ -617,7 +616,7 @@ class ProceduralComponentGenerator:
     def generate_library(
         self,
         n_components: int,
-        config: Optional[ProceduralComponentConfig] = None,
+        config: ProceduralComponentConfig | None = None,
         name_prefix: str = "component"
     ) -> ComponentLibrary:
         """
@@ -675,7 +674,7 @@ class ProceduralComponentGenerator:
         self,
         base_component: SpectralComponent,
         variation_scale: float = 0.1,
-        name: Optional[str] = None
+        name: str | None = None
     ) -> SpectralComponent:
         """
         Generate a variant of an existing component.
@@ -735,8 +734,8 @@ class ProceduralComponentGenerator:
     def generate_from_functional_groups(
         self,
         name: str,
-        functional_groups: List[Union[FunctionalGroupType, str]],
-        config: Optional[ProceduralComponentConfig] = None
+        functional_groups: list[FunctionalGroupType | str],
+        config: ProceduralComponentConfig | None = None
     ) -> SpectralComponent:
         """
         Generate a component with specified functional groups.
@@ -776,7 +775,6 @@ class ProceduralComponentGenerator:
             config=config,
             functional_groups=groups
         )
-
 
 # ============================================================================
 # Module-level exports

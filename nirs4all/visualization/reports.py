@@ -5,32 +5,32 @@ This module provides a clean interface for generating standardized tab-based CSV
 using pre-calculated metrics and statistics from the evaluator module.
 """
 
-from typing import Dict, Any, Optional, Tuple, Union
-import numpy as np
 import csv
-import os
 import io
+import os
+from typing import Any, Optional, Union
+
+import numpy as np
 
 # Import evaluator functions
 import nirs4all.core.metrics as evaluator
-from nirs4all.core.task_type import TaskType
-from nirs4all.core.task_detection import detect_task_type
 from nirs4all.core.logging import get_logger
+from nirs4all.core.task_detection import detect_task_type
+from nirs4all.core.task_type import TaskType
 from nirs4all.visualization.naming import get_metric_names
 
 logger = get_logger(__name__)
-
 
 class TabReportManager:
     """Generate standardized tab-based CSV reports with pre-calculated data."""
 
     @staticmethod
     def generate_best_score_tab_report(
-        best_by_partition: Dict[str, Dict[str, Any]],
-        aggregate: Optional[Union[str, bool]] = None,
-        aggregate_method: Optional[str] = None,
+        best_by_partition: dict[str, dict[str, Any]],
+        aggregate: str | bool | None = None,
+        aggregate_method: str | None = None,
         aggregate_exclude_outliers: bool = False
-    ) -> Tuple[str, Optional[str]]:
+    ) -> tuple[str, str | None]:
         """
         Generate best score tab report from partition data.
 
@@ -68,7 +68,7 @@ class TabReportManager:
         n_features = first_entry.get('n_features', 0)
 
         # Normalize aggregate parameter: True -> 'y', str -> str, None/False -> None
-        effective_aggregate: Optional[str] = None
+        effective_aggregate: str | None = None
         if aggregate is True:
             effective_aggregate = 'y'
         elif isinstance(aggregate, str):
@@ -126,11 +126,11 @@ class TabReportManager:
         refit_entries: list,
         ascending: bool = True,
         metric: str = "rmse",
-        aggregate: Optional[Union[str, bool]] = None,
-        aggregate_method: Optional[str] = None,
+        aggregate: str | bool | None = None,
+        aggregate_method: str | None = None,
         aggregate_exclude_outliers: bool = False,
-        predictions: Optional[Any] = None,
-        pred_index: Optional[dict] = None,
+        predictions: Any | None = None,
+        pred_index: dict | None = None,
         report_naming: str = "nirs",
         verbose: int = 0,
     ) -> str:
@@ -196,7 +196,7 @@ class TabReportManager:
         mf_val_name = metric_names["mean_fold_cv"]
 
         # Normalize aggregate parameter
-        effective_aggregate: Optional[str] = None
+        effective_aggregate: str | None = None
         if aggregate is True:
             effective_aggregate = 'y'
         elif isinstance(aggregate, str):
@@ -232,7 +232,7 @@ class TabReportManager:
             return text[:max_len-3] + "..."
 
         # Check if we have multiple datasets (global summary)
-        datasets = set(e.get("dataset_name") for e in entries)
+        datasets = {e.get("dataset_name") for e in entries}
         show_dataset = len(datasets) > 1
 
         # Check if we have multi-criteria refit (extract from config_name)
@@ -248,7 +248,7 @@ class TabReportManager:
         # Determine best model per criterion (first in RMSEP-sorted order)
         best_per_criterion: dict[str, int] = {}
         if has_multi_criteria:
-            for idx, entry in enumerate(entries):
+            for idx, _entry in enumerate(entries):
                 label = criteria_labels.get(idx, "")
                 for part in label.split(", "):
                     key = part.split("(")[0]  # "rmsecv" or "mean_val"
@@ -494,7 +494,7 @@ class TabReportManager:
         are correctly separated in the index.
 
         Args:
-            predictions: ``Predictions`` instance whose ``_buffer`` will be
+            predictions: ``Predictions`` instance whose entries will be
                 scanned.
 
         Returns:
@@ -521,7 +521,7 @@ class TabReportManager:
         test_index: dict[tuple, list] = {}
         w_avg_index: dict[tuple, dict[str, dict]] = {}
 
-        for row in predictions._buffer:
+        for row in predictions.iter_entries():
             dataset_name = row.get("dataset_name")
             config_name = row.get("config_name", "")
             model_name = row.get("model_name")
@@ -579,10 +579,10 @@ class TabReportManager:
         predictions: Any,
         pred_index: dict,
         aggregate: str,
-        aggregate_method: Optional[str],
+        aggregate_method: str | None,
         aggregate_exclude_outliers: bool,
         metric: str,
-    ) -> Optional[float]:
+    ) -> float | None:
         """Compute aggregated test score using pre-built index.
 
         Args:
@@ -714,7 +714,7 @@ class TabReportManager:
         pred_index: dict,
         metric: str = "rmse",
         task_type: str = "regression",
-    ) -> Optional[float]:
+    ) -> float | None:
         """Compute the pooled out-of-fold cross-validation metric.
 
         Collects all individual-fold validation predictions for the pipeline
@@ -830,7 +830,7 @@ class TabReportManager:
     def _compute_ensemble_test_scores_indexed(
         entry: dict,
         pred_index: dict,
-    ) -> tuple[Optional[float], Optional[float]]:
+    ) -> tuple[float | None, float | None]:
         """Look up ensemble test scores (Ens_Test and W_Ens_Test) from CV phase.
 
         Retrieves the ``test_score`` from the ``fold_id="avg"`` entry
@@ -896,7 +896,7 @@ class TabReportManager:
     def _compute_mf_val_indexed(
         entry: dict,
         pred_index: dict,
-    ) -> Optional[float]:
+    ) -> float | None:
         """Compute MF_Val: arithmetic mean of per-fold validation scores.
 
         Looks up individual-fold validation predictions for the pipeline
@@ -956,11 +956,11 @@ class TabReportManager:
         y_true: np.ndarray,
         y_pred: np.ndarray,
         aggregate: str,
-        metadata: Dict[str, Any],
+        metadata: dict[str, Any],
         partition_name: str = "",
-        method: Optional[str] = None,
+        method: str | None = None,
         exclude_outliers: bool = False
-    ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    ) -> tuple[np.ndarray, np.ndarray] | None:
         """
         Aggregate predictions by a group column.
 
@@ -1015,7 +1015,7 @@ class TabReportManager:
             return None
 
     @staticmethod
-    def _get_task_type_from_entry(entry: Dict[str, Any]) -> TaskType:
+    def _get_task_type_from_entry(entry: dict[str, Any]) -> TaskType:
         """
         Get task type from a prediction entry's metadata.
 
@@ -1049,11 +1049,11 @@ class TabReportManager:
 
     @staticmethod
     def _format_as_table_string(
-        partitions_data: Dict[str, Dict[str, Any]],
+        partitions_data: dict[str, dict[str, Any]],
         n_features: int,
         task_type: TaskType,
-        aggregated_partitions_data: Optional[Dict[str, Dict[str, Any]]] = None,
-        aggregate_column: Optional[str] = None
+        aggregated_partitions_data: dict[str, dict[str, Any]] | None = None,
+        aggregate_column: str | None = None
     ) -> str:
         """Format the report data as a table string (matching PredictionHelpers format).
 
@@ -1148,7 +1148,7 @@ class TabReportManager:
     @staticmethod
     def _build_table_row(
         display_name: str,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         n_features: int,
         task_type: TaskType,
         is_binary: bool = False,
@@ -1231,11 +1231,11 @@ class TabReportManager:
 
     @staticmethod
     def _format_as_csv_string(
-        partitions_data: Dict[str, Dict[str, Any]],
+        partitions_data: dict[str, dict[str, Any]],
         n_features: int,
         task_type: TaskType,
-        aggregated_partitions_data: Optional[Dict[str, Dict[str, Any]]] = None,
-        aggregate_column: Optional[str] = None
+        aggregated_partitions_data: dict[str, dict[str, Any]] | None = None,
+        aggregate_column: str | None = None
     ) -> str:
         """Generate CSV string content.
 
@@ -1307,12 +1307,12 @@ class TabReportManager:
     @staticmethod
     def _build_csv_row(
         display_name: str,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         n_features: int,
         task_type: TaskType,
         is_binary: bool = False,
         is_aggregated: bool = False,
-        aggregate_column: Optional[str] = None
+        aggregate_column: str | None = None
     ) -> list:
         """Build a single CSV row for either raw or aggregated data.
 
@@ -1398,7 +1398,7 @@ class TabReportManager:
         y_true: np.ndarray,
         y_pred: np.ndarray,
         task_type: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Calculate metrics and statistics for a single partition."""
         # Get descriptive statistics for y_true
         stats = evaluator.get_stats(y_true)
@@ -1420,7 +1420,7 @@ class TabReportManager:
 
         # Convert metrics list to dictionary
         if metrics_list and len(metrics_list) == len(metric_names):
-            metrics_dict = dict(zip(metric_names, metrics_list))
+            metrics_dict = dict(zip(metric_names, metrics_list, strict=False))
             partition_data.update(metrics_dict)
 
         # Add additional regression-specific calculations

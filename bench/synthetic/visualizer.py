@@ -10,10 +10,11 @@ the generated synthetic spectra, including:
 - Noise analysis
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union
-import numpy as np
-import matplotlib.pyplot as plt
+from typing import Any, Optional, Union
+
 import matplotlib.cm as cm
+import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.colors import Normalize
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
@@ -47,9 +48,9 @@ class SyntheticSpectraVisualizer:
         spectra: np.ndarray,
         concentrations: np.ndarray,
         wavelengths: np.ndarray,
-        component_names: Optional[List[str]] = None,
-        component_spectra: Optional[np.ndarray] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        component_names: list[str] | None = None,
+        component_spectra: np.ndarray | None = None,
+        metadata: dict[str, Any] | None = None,
     ):
         """
         Initialize the visualizer.
@@ -77,8 +78,8 @@ class SyntheticSpectraVisualizer:
         color_by: str = "component",
         component_idx: int = 0,
         alpha: float = 0.5,
-        ax: Optional[plt.Axes] = None,
-        figsize: Tuple[float, float] = (12, 6),
+        ax: plt.Axes | None = None,
+        figsize: tuple[float, float] = (12, 6),
     ) -> plt.Figure:
         """
         Plot overview of generated spectra with concentration-based coloring.
@@ -145,7 +146,7 @@ class SyntheticSpectraVisualizer:
         self,
         n_display: int = 100,
         color_by_component: int = 0,
-        figsize: Tuple[float, float] = (14, 8),
+        figsize: tuple[float, float] = (14, 8),
         elevation: float = 25,
         azimuth: float = -60,
     ) -> plt.Figure:
@@ -210,7 +211,7 @@ class SyntheticSpectraVisualizer:
     def plot_spectral_envelope(
         self,
         show_percentiles: bool = True,
-        figsize: Tuple[float, float] = (12, 6),
+        figsize: tuple[float, float] = (12, 6),
     ) -> plt.Figure:
         """
         Plot spectral envelope showing mean, std, and percentiles.
@@ -258,7 +259,7 @@ class SyntheticSpectraVisualizer:
         self,
         normalize: bool = True,
         stacked: bool = False,
-        figsize: Tuple[float, float] = (12, 6),
+        figsize: tuple[float, float] = (12, 6),
     ) -> plt.Figure:
         """
         Plot pure component spectra from the library.
@@ -303,7 +304,7 @@ class SyntheticSpectraVisualizer:
 
     def plot_concentration_distributions(
         self,
-        figsize: Optional[Tuple[float, float]] = None,
+        figsize: tuple[float, float] | None = None,
     ) -> plt.Figure:
         """
         Plot concentration distributions for all components.
@@ -356,7 +357,7 @@ class SyntheticSpectraVisualizer:
 
     def plot_concentration_correlations(
         self,
-        figsize: Tuple[float, float] = (10, 8),
+        figsize: tuple[float, float] = (10, 8),
     ) -> plt.Figure:
         """
         Plot concentration correlation matrix.
@@ -396,9 +397,9 @@ class SyntheticSpectraVisualizer:
 
     def plot_batch_effects(
         self,
-        batch_ids: Optional[np.ndarray] = None,
-        figsize: Tuple[float, float] = (14, 5),
-    ) -> Optional[plt.Figure]:
+        batch_ids: np.ndarray | None = None,
+        figsize: tuple[float, float] = (14, 5),
+    ) -> plt.Figure | None:
         """
         Visualize batch effects in the spectra.
 
@@ -481,7 +482,7 @@ class SyntheticSpectraVisualizer:
     def plot_noise_analysis(
         self,
         n_samples_for_residuals: int = 100,
-        figsize: Tuple[float, float] = (14, 5),
+        figsize: tuple[float, float] = (14, 5),
     ) -> plt.Figure:
         """
         Analyze noise characteristics of the spectra.
@@ -568,7 +569,7 @@ class SyntheticSpectraVisualizer:
         self,
         n_components_max: int = 10,
         color_by_component: int = 0,
-        figsize: Tuple[float, float] = (14, 5),
+        figsize: tuple[float, float] = (14, 5),
     ) -> plt.Figure:
         """
         PCA analysis of the synthetic spectra.
@@ -632,8 +633,8 @@ class SyntheticSpectraVisualizer:
     def plot_all(
         self,
         show: bool = True,
-        save_prefix: Optional[str] = None,
-    ) -> List[plt.Figure]:
+        save_prefix: str | None = None,
+    ) -> list[plt.Figure]:
         """
         Generate all visualization plots.
 
@@ -696,7 +697,6 @@ class SyntheticSpectraVisualizer:
 
         return [fig for _, fig in figures]
 
-
 # ============================================================================
 # Convenience functions for quick plotting
 # ============================================================================
@@ -707,9 +707,9 @@ def plot_synthetic_spectra(
     wavelengths: np.ndarray,
     n_display: int = 100,
     color_by_component: int = 0,
-    component_names: Optional[List[str]] = None,
-    title: Optional[str] = None,
-    figsize: Tuple[float, float] = (12, 6),
+    component_names: list[str] | None = None,
+    title: str | None = None,
+    figsize: tuple[float, float] = (12, 6),
     show: bool = True,
 ) -> plt.Figure:
     """
@@ -745,13 +745,12 @@ def plot_synthetic_spectra(
 
     return fig
 
-
 def plot_component_library(
     E: np.ndarray,
     wavelengths: np.ndarray,
-    component_names: Optional[List[str]] = None,
+    component_names: list[str] | None = None,
     stacked: bool = True,
-    figsize: Tuple[float, float] = (12, 6),
+    figsize: tuple[float, float] = (12, 6),
     show: bool = True,
 ) -> plt.Figure:
     """
@@ -783,11 +782,10 @@ def plot_component_library(
 
     return fig
 
-
 def plot_concentration_distributions(
     Y: np.ndarray,
-    component_names: Optional[List[str]] = None,
-    figsize: Optional[Tuple[float, float]] = None,
+    component_names: list[str] | None = None,
+    figsize: tuple[float, float] | None = None,
     show: bool = True,
 ) -> plt.Figure:
     """
@@ -817,12 +815,11 @@ def plot_concentration_distributions(
 
     return fig
 
-
 def plot_batch_effects(
     X: np.ndarray,
     wavelengths: np.ndarray,
     batch_ids: np.ndarray,
-    figsize: Tuple[float, float] = (14, 5),
+    figsize: tuple[float, float] = (14, 5),
     show: bool = True,
 ) -> plt.Figure:
     """
@@ -852,11 +849,10 @@ def plot_batch_effects(
 
     return fig
 
-
 def plot_noise_analysis(
     X: np.ndarray,
     wavelengths: np.ndarray,
-    figsize: Tuple[float, float] = (14, 5),
+    figsize: tuple[float, float] = (14, 5),
     show: bool = True,
 ) -> plt.Figure:
     """

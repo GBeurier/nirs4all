@@ -56,7 +56,6 @@ class TestGridSearchSuitability:
         params = {"model_params": {"n_components": ["int", 1, 30]}}
         assert manager._is_grid_search_suitable(params) is False
 
-
 class TestCreateGridSearchSpace:
     """Tests for _create_grid_search_space method."""
 

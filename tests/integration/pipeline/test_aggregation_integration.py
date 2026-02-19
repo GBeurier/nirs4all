@@ -6,22 +6,21 @@ Verifies that aggregation settings propagate correctly from DatasetConfigs
 through the pipeline to the TabReportManager.
 """
 
-import pytest
-import numpy as np
 import tempfile
-import pandas as pd
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+import pytest
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.pipeline.config.context import ExecutionContext
-
 from tests.fixtures.data_generators import SyntheticNIRSDataGenerator, TestDataManager
 
 
@@ -236,7 +235,6 @@ class TestAggregationIntegration:
 
         assert dataset_config._aggregates[0] == "sample_id"
         assert dataset_config._aggregates[1] == "batch_id"
-
 
 class TestAggregationReporting:
     """Test aggregated reporting in pipeline output."""

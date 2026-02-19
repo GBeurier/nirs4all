@@ -4,18 +4,18 @@ Unit tests for archive loaders (Tar and enhanced Zip).
 Tests loading data from .tar, .tar.gz, .tgz, and .zip archives.
 """
 
-import pytest
-from pathlib import Path
-import tempfile
 import tarfile
+import tempfile
 import zipfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from nirs4all.data.loaders.archive_loader import (
-    TarLoader,
     EnhancedZipLoader,
+    TarLoader,
     list_archive_members,
 )
 
@@ -44,7 +44,6 @@ class TestTarLoaderSupports:
         assert not TarLoader.supports(Path("data.zip"))
         assert not TarLoader.supports(Path("data.gz"))  # Plain gz without tar
         assert not TarLoader.supports(Path("data.csv"))
-
 
 class TestTarLoaderLoad:
     """Tests for TarLoader.load() method."""
@@ -146,7 +145,6 @@ class TestTarLoaderLoad:
         assert "file1.csv" in result.report.get("members_available", [])
         assert "file2.csv" in result.report.get("members_available", [])
 
-
 class TestEnhancedZipLoaderSupports:
     """Tests for EnhancedZipLoader.supports() method."""
 
@@ -162,7 +160,6 @@ class TestEnhancedZipLoaderSupports:
         """Test that EnhancedZipLoader doesn't support other formats."""
         assert not EnhancedZipLoader.supports(Path("data.tar"))
         assert not EnhancedZipLoader.supports(Path("data.csv"))
-
 
 class TestEnhancedZipLoaderLoad:
     """Tests for EnhancedZipLoader.load() method."""
@@ -221,7 +218,6 @@ class TestEnhancedZipLoaderLoad:
 
         assert not result.success
         assert "not found" in result.error.lower()
-
 
 class TestListArchiveMembers:
     """Tests for list_archive_members function."""

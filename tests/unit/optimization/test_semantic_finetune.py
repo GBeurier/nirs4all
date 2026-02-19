@@ -6,13 +6,13 @@ These tests verify that the optimization pipeline integrates correctly:
 - Optimization summary is stored in predictions
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.optimization.optuna import (
-    OptunaManager,
-    FinetuneResult,
     METRIC_DIRECTION,
+    FinetuneResult,
+    OptunaManager,
 )
 
 
@@ -23,7 +23,6 @@ class MockDataset:
         self.task_type = task_type
         self.name = "mock_dataset"
 
-
 class MockContext:
     """Minimal mock for ExecutionContext."""
 
@@ -31,7 +30,6 @@ class MockContext:
         step_number = 1
 
     state = State()
-
 
 class MockController:
     """Minimal mock controller that trains a simple linear model."""
@@ -62,16 +60,13 @@ class MockController:
         from sklearn.metrics import mean_squared_error
         return mean_squared_error(y_val_1d, y_pred)
 
-
 @pytest.fixture
 def manager():
     return OptunaManager()
 
-
 @pytest.fixture
 def controller():
     return MockController()
-
 
 @pytest.fixture
 def sample_data():
@@ -80,7 +75,6 @@ def sample_data():
     y = X[:, 0] * 2 + X[:, 1] * 0.5 + np.random.randn(50) * 0.1
     return X, y
 
-
 @pytest.fixture
 def folds(sample_data):
     X, y = sample_data
@@ -88,7 +82,6 @@ def folds(sample_data):
     idx = np.arange(n)
     mid = n // 2
     return [(idx[:mid], idx[mid:])]
-
 
 class TestFinetuneReturnsFinetuneResult:
     """Verify that finetune() returns FinetuneResult, not raw dicts."""
@@ -197,7 +190,6 @@ class TestFinetuneReturnsFinetuneResult:
         assert isinstance(result, FinetuneResult)
         assert result.n_trials == 4  # 2 + 2 from both phases
 
-
 class TestCustomMetricChangesObjective:
     """Verify that setting metric= changes the objective function."""
 
@@ -256,7 +248,6 @@ class TestCustomMetricChangesObjective:
         assert result.metric == "rmse"
         # RMSE should be a small positive value
         assert 0 < result.best_value < 10.0
-
 
 class TestToSummaryDictIntegration:
     """Verify that to_summary_dict produces correct output from real runs."""

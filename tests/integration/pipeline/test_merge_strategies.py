@@ -7,18 +7,23 @@ Note: Full integration tests for separation branches with by_tag
 require Phase 4 branch execution to be complete.
 """
 
-import pytest
-import numpy as np
 from unittest.mock import patch
+
+import numpy as np
+import pytest
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.preprocessing import MinMaxScaler
 
 import nirs4all
 from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
     MultiplicativeScatterCorrection as MSC,
+)
+from nirs4all.operators.transforms import (
     SavitzkyGolay,
 )
-from sklearn.cross_decomposition import PLSRegression
-from sklearn.preprocessing import MinMaxScaler
+from nirs4all.operators.transforms import (
+    StandardNormalVariate as SNV,
+)
 
 
 class TestMergeAutoDetectsBranchType:
@@ -62,7 +67,6 @@ class TestMergeAutoDetectsBranchType:
         )
 
         assert result is not None
-
 
 class TestSourceMergeUnifiedSyntax:
     """Tests for source merge via merge keyword configuration."""
@@ -112,7 +116,6 @@ class TestSourceMergeUnifiedSyntax:
         assert config.source_merge.sources == ["source_0", "source_1"]
         assert config.source_merge.on_incompatible == "pad"
         assert config.source_merge.output_name == "merged_features"
-
 
 class TestMergeModesCombination:
     """Tests for combining different merge modes."""
@@ -168,7 +171,6 @@ class TestMergeModesCombination:
 
         assert result is not None
 
-
 class TestMergeDictConfig:
     """Tests for dict-style merge configuration."""
 
@@ -201,7 +203,6 @@ class TestMergeDictConfig:
 
         assert config.collect_features is True
         assert config.is_separation_merge is True
-
 
 class TestConcatModeConfigParsing:
     """Tests for concat merge mode configuration parsing."""
@@ -240,7 +241,6 @@ class TestConcatModeConfigParsing:
 
         assert restored.is_separation_merge is True
         assert restored.collect_features is True
-
 
 class TestMergeStrategyValidation:
     """Tests for merge strategy validation."""

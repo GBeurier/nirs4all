@@ -2,7 +2,9 @@
 
 import numpy as np
 import pytest
+
 from nirs4all.core import metrics as evaluator
+
 
 class TestMetricsDefaults:
     """Test suite for metrics defaults."""

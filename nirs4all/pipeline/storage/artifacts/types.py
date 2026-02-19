@@ -17,15 +17,14 @@ Key V3 improvements:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from datetime import UTC, datetime, timezone
+from enum import Enum, StrEnum
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain
 
-
-class ArtifactType(str, Enum):
+class ArtifactType(StrEnum):
     """Classification of artifact types.
 
     Each type has specific handling:
@@ -45,7 +44,6 @@ class ArtifactType(str, Enum):
     def __str__(self) -> str:
         return self.value
 
-
 @dataclass
 class MetaModelConfig:
     """Configuration for meta-model source tracking.
@@ -58,10 +56,10 @@ class MetaModelConfig:
         feature_columns: Feature column names in the meta-model input order
     """
 
-    source_models: List[Dict[str, Any]] = field(default_factory=list)
-    feature_columns: List[str] = field(default_factory=list)
+    source_models: list[dict[str, Any]] = field(default_factory=list)
+    feature_columns: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for YAML serialization."""
         return {
             "source_models": self.source_models,
@@ -69,13 +67,12 @@ class MetaModelConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MetaModelConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "MetaModelConfig":
         """Create from dictionary."""
         return cls(
             source_models=data.get("source_models", []),
             feature_columns=data.get("feature_columns", [])
         )
-
 
 @dataclass
 class ArtifactRecord:
@@ -138,14 +135,14 @@ class ArtifactRecord:
 
     # Chain tracking (V3)
     chain_path: str = ""
-    source_index: Optional[int] = None
+    source_index: int | None = None
 
     # Context
     pipeline_id: str = ""
-    branch_path: List[int] = field(default_factory=list)
+    branch_path: list[int] = field(default_factory=list)
     step_index: int = 0
-    substep_index: Optional[int] = None
-    fold_id: Optional[int] = None
+    substep_index: int | None = None
+    fold_id: int | None = None
 
     # Classification
     artifact_type: ArtifactType = ArtifactType.MODEL
@@ -153,7 +150,7 @@ class ArtifactRecord:
     custom_name: str = ""
 
     # Dependencies
-    depends_on: List[str] = field(default_factory=list)
+    depends_on: list[str] = field(default_factory=list)
 
     # Serialization
     format: str = "joblib"
@@ -163,17 +160,17 @@ class ArtifactRecord:
     # Metadata
     size_bytes: int = 0
     created_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
-    params: Dict[str, Any] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
 
     # Meta-model specific
-    meta_config: Optional[MetaModelConfig] = None
+    meta_config: MetaModelConfig | None = None
 
     # Schema version
     version: int = 3
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for YAML serialization.
 
         Handles enum conversion and nested dataclass serialization.
@@ -211,7 +208,7 @@ class ArtifactRecord:
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ArtifactRecord":
+    def from_dict(cls, data: dict[str, Any]) -> "ArtifactRecord":
         """Create ArtifactRecord from dictionary.
 
         Args:
@@ -222,10 +219,7 @@ class ArtifactRecord:
         """
         # Handle artifact_type enum
         artifact_type_value = data.get("artifact_type", "model")
-        if isinstance(artifact_type_value, str):
-            artifact_type = ArtifactType(artifact_type_value)
-        else:
-            artifact_type = artifact_type_value
+        artifact_type = ArtifactType(artifact_type_value) if isinstance(artifact_type_value, str) else artifact_type_value
 
         # Handle meta_config
         meta_config = None
@@ -338,10 +332,10 @@ class ArtifactRecord:
 
     def matches_context(
         self,
-        step_index: Optional[int] = None,
-        branch_path: Optional[List[int]] = None,
-        source_index: Optional[int] = None,
-        fold_id: Optional[int] = None,
+        step_index: int | None = None,
+        branch_path: list[int] | None = None,
+        source_index: int | None = None,
+        fold_id: int | None = None,
     ) -> bool:
         """Check if artifact matches a given context.
 
@@ -360,9 +354,7 @@ class ArtifactRecord:
             return False
         if source_index is not None and self.source_index != source_index:
             return False
-        if fold_id is not None and self.fold_id != fold_id:
-            return False
-        return True
+        return not (fold_id is not None and self.fold_id != fold_id)
 
     def __repr__(self) -> str:
         name_part = self.custom_name if self.custom_name else self.class_name

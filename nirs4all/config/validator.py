@@ -7,13 +7,13 @@ with detailed error messages including line numbers and suggestions.
 
 import json
 from pathlib import Path
-from typing import Tuple, List, Any, Dict, Optional, Union
-import yaml
+from typing import Any, Optional, Union
+
+import yaml  # type: ignore[import-untyped]
 
 from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
-
 
 class ConfigValidationError(Exception):
     """Exception raised when configuration validation fails.
@@ -23,15 +23,14 @@ class ConfigValidationError(Exception):
         config_path: Path to the configuration file (if any).
     """
 
-    def __init__(self, errors: List[str], config_path: Optional[str] = None):
+    def __init__(self, errors: list[str], config_path: str | None = None):
         self.errors = errors
         self.config_path = config_path
-        message = f"Configuration validation failed"
+        message = "Configuration validation failed"
         if config_path:
             message += f" for {config_path}"
         message += f": {'; '.join(errors)}"
         super().__init__(message)
-
 
 # =============================================================================
 # JSON Schemas for configuration validation
@@ -261,12 +260,11 @@ DATASET_SCHEMA = {
     ]
 }
 
-
 # =============================================================================
 # Validation Functions
 # =============================================================================
 
-def _load_config_content(config_path: str) -> Tuple[Dict[str, Any], str]:
+def _load_config_content(config_path: str) -> tuple[dict[str, Any], str]:
     """Load and parse a configuration file.
 
     Args:
@@ -295,7 +293,7 @@ def _load_config_content(config_path: str) -> Tuple[Dict[str, Any], str]:
         )
 
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             content = f.read()
 
         if not content.strip():
@@ -335,15 +333,14 @@ def _load_config_content(config_path: str) -> Tuple[Dict[str, Any], str]:
 
         return config, suffix
 
-    except (IOError, OSError) as exc:
+    except OSError as exc:
         raise ValueError(f"Error reading file {config_path}: {exc}") from exc
 
-
 def _validate_against_schema(
-    config: Dict[str, Any],
-    schema: Dict[str, Any],
+    config: dict[str, Any],
+    schema: dict[str, Any],
     config_type: str
-) -> List[str]:
+) -> list[str]:
     """Validate config against JSON schema.
 
     Args:
@@ -372,8 +369,7 @@ def _validate_against_schema(
 
     return errors
 
-
-def _basic_validate(config: Dict[str, Any], config_type: str) -> List[str]:
+def _basic_validate(config: dict[str, Any], config_type: str) -> list[str]:
     """Basic validation without jsonschema dependency.
 
     Args:
@@ -417,8 +413,7 @@ def _basic_validate(config: Dict[str, Any], config_type: str) -> List[str]:
 
     return errors
 
-
-def _check_file_paths(config: Dict[str, Any], base_path: Optional[Path] = None) -> List[str]:
+def _check_file_paths(config: dict[str, Any], base_path: Path | None = None) -> list[str]:
     """Check that referenced data files exist.
 
     Args:
@@ -451,11 +446,10 @@ def _check_file_paths(config: Dict[str, Any], base_path: Optional[Path] = None) 
 
     return warnings
 
-
 def validate_pipeline_config(
-    config_source: Union[str, Dict[str, Any]],
+    config_source: str | dict[str, Any],
     check_class_paths: bool = False
-) -> Tuple[bool, List[str], List[str]]:
+) -> tuple[bool, list[str], list[str]]:
     """Validate a pipeline configuration.
 
     Args:
@@ -465,8 +459,8 @@ def validate_pipeline_config(
     Returns:
         Tuple of (is_valid, errors, warnings).
     """
-    errors: List[str] = []
-    warnings: List[str] = []
+    errors: list[str] = []
+    warnings: list[str] = []
 
     # Load config if path
     if isinstance(config_source, str):
@@ -507,11 +501,10 @@ def validate_pipeline_config(
 
     return len(errors) == 0, errors, warnings
 
-
 def validate_dataset_config(
-    config_source: Union[str, Dict[str, Any]],
+    config_source: str | dict[str, Any],
     check_files: bool = True
-) -> Tuple[bool, List[str], List[str]]:
+) -> tuple[bool, list[str], list[str]]:
     """Validate a dataset configuration.
 
     Args:
@@ -521,9 +514,9 @@ def validate_dataset_config(
     Returns:
         Tuple of (is_valid, errors, warnings).
     """
-    errors: List[str] = []
-    warnings: List[str] = []
-    base_path: Optional[Path] = None
+    errors: list[str] = []
+    warnings: list[str] = []
+    base_path: Path | None = None
 
     # Load config if path
     if isinstance(config_source, str):
@@ -546,13 +539,12 @@ def validate_dataset_config(
 
     return len(errors) == 0, errors, warnings
 
-
 def validate_config_file(
     config_path: str,
-    config_type: Optional[str] = None,
+    config_type: str | None = None,
     check_files: bool = True,
     check_class_paths: bool = False
-) -> Tuple[bool, List[str], List[str]]:
+) -> tuple[bool, list[str], list[str]]:
     """Validate a configuration file, auto-detecting type if not specified.
 
     Args:
@@ -592,12 +584,11 @@ def validate_config_file(
             check_files=check_files
         )
 
-
 def get_validation_summary(
     is_valid: bool,
-    errors: List[str],
-    warnings: List[str],
-    config_path: Optional[str] = None
+    errors: list[str],
+    warnings: list[str],
+    config_path: str | None = None
 ) -> str:
     """Generate a human-readable validation summary.
 

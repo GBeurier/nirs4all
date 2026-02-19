@@ -6,7 +6,7 @@ PipelineOrchestrator and provides prediction/explanation capabilities via
 Predictor and Explainer classes.
 """
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 
@@ -16,13 +16,12 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.execution.orchestrator import PipelineOrchestrator
-from nirs4all.pipeline.predictor import Predictor
 from nirs4all.pipeline.explainer import Explainer
-from nirs4all.pipeline.retrainer import Retrainer, StepMode, ExtractedPipeline
+from nirs4all.pipeline.predictor import Predictor
+from nirs4all.pipeline.retrainer import ExtractedPipeline, Retrainer, StepMode
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.storage.library import PipelineLibrary
-
 
 def _get_default_workspace_path() -> Path:
     """Get the default workspace path.
@@ -38,8 +37,7 @@ def _get_default_workspace_path() -> Path:
     from nirs4all.workspace import get_active_workspace
     return get_active_workspace()
 
-
-def init_global_random_state(seed: Optional[int] = None):
+def init_global_random_state(seed: int | None = None):
     """Initialize global random state for reproducibility.
 
     Sets random seeds for numpy, Python's random module, TensorFlow, PyTorch, and sklearn
@@ -78,7 +76,6 @@ def init_global_random_state(seed: Optional[int] = None):
         _ = check_random_state(seed)
     except ImportError:
         pass
-
 
 class PipelineRunner:
     """Main pipeline execution interface.
@@ -124,7 +121,7 @@ class PipelineRunner:
 
     def __init__(
         self,
-        workspace_path: Optional[Union[str, Path]] = None,
+        workspace_path: str | Path | None = None,
         verbose: int = 0,
         mode: str = "train",
         save_artifacts: bool = True,
@@ -135,14 +132,14 @@ class PipelineRunner:
         keep_datasets: bool = False,
         max_preprocessed_snapshots_per_dataset: int = 3,
         plots_visible: bool = False,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         n_jobs: int = 1,
         report_naming: str = "nirs",
         # Logging configuration
         log_file: bool = True,
         log_format: str = "pretty",
-        use_unicode: Optional[bool] = None,
-        use_colors: Optional[bool] = None,
+        use_unicode: bool | None = None,
+        use_colors: bool | None = None,
         show_progress_bar: bool = True,
         json_output: bool = False,
     ):
@@ -255,8 +252,8 @@ class PipelineRunner:
         self._capture_model: bool = False
 
         # Last run aggregate settings (for visualization integration)
-        self._last_aggregate_column: Optional[str] = None
-        self._last_aggregate_method: Optional[str] = None
+        self._last_aggregate_column: str | None = None
+        self._last_aggregate_method: str | None = None
         self._last_aggregate_exclude_outliers: bool = False
 
         # Execution state (synchronized from executor during execution)
@@ -266,8 +263,8 @@ class PipelineRunner:
 
         # Runtime components (set during execution)
         self.artifact_loader: Any = None  # ArtifactLoader for predict/explain modes
-        self.pipeline_uid: Optional[str] = None  # Current pipeline UID
-        self.target_model: Optional[Dict] = None  # Target model for predict/explain modes
+        self.pipeline_uid: str | None = None  # Current pipeline UID
+        self.target_model: dict | None = None  # Target model for predict/explain modes
         self.last_execution_trace: Any = None  # ExecutionTrace from last run
 
         # Cache configuration (set via nirs4all.run(cache=...))
@@ -278,15 +275,15 @@ class PipelineRunner:
 
     def run(
         self,
-        pipeline: Union[PipelineConfigs, List[Any], Dict, str],
-        dataset: Union[DatasetConfigs, SpectroDataset, List[SpectroDataset], np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        pipeline: PipelineConfigs | list[Any] | dict | str,
+        dataset: DatasetConfigs | SpectroDataset | list[SpectroDataset] | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         pipeline_name: str = "",
         dataset_name: str = "dataset",
         max_generation_count: int = 10000,
-        refit: Union[bool, Dict[str, Any], List[Dict[str, Any]], None] = True,
-        store_run_id: Optional[str] = None,
+        refit: bool | dict[str, Any] | list[dict[str, Any]] | None = True,
+        store_run_id: str | None = None,
         manage_store_run: bool = True,
-    ) -> Tuple[Predictions, Dict[str, Any]]:
+    ) -> tuple[Predictions, dict[str, Any]]:
         """Execute pipeline on dataset(s).
 
         Main entry point for training workflows. Executes one or more pipeline
@@ -337,11 +334,10 @@ class PipelineRunner:
             self.pipeline_uid = self.orchestrator.last_pipeline_uid
 
         # Sync execution state from last executor (via orchestrator)
-        if hasattr(self.orchestrator, 'last_executor'):
-            if self.orchestrator.last_executor:
-                self.step_number = self.orchestrator.last_executor.step_number
-                self.substep_number = self.orchestrator.last_executor.substep_number
-                self.operation_count = self.orchestrator.last_executor.operation_count
+        if hasattr(self.orchestrator, 'last_executor') and self.orchestrator.last_executor:
+            self.step_number = self.orchestrator.last_executor.step_number
+            self.substep_number = self.orchestrator.last_executor.substep_number
+            self.operation_count = self.orchestrator.last_executor.operation_count
 
         # Sync aggregate column from last dataset for visualization integration
         if hasattr(self.orchestrator, 'last_aggregate_column'):
@@ -359,12 +355,12 @@ class PipelineRunner:
 
     def predict(
         self,
-        prediction_obj: Union[Dict[str, Any], str],
-        dataset: Union[DatasetConfigs, SpectroDataset, List[SpectroDataset], np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        prediction_obj: dict[str, Any] | str,
+        dataset: DatasetConfigs | SpectroDataset | list[SpectroDataset] | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         dataset_name: str = "prediction_dataset",
         all_predictions: bool = False,
         verbose: int = 0
-    ) -> Union[Tuple[np.ndarray, Predictions], Tuple[Dict[str, Any], Predictions]]:
+    ) -> tuple[np.ndarray, Predictions] | tuple[dict[str, Any], Predictions]:
         """Run prediction using a saved model on new dataset.
 
         Delegates to Predictor class for actual execution.
@@ -390,13 +386,13 @@ class PipelineRunner:
 
     def explain(
         self,
-        prediction_obj: Union[Dict[str, Any], str],
-        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        prediction_obj: dict[str, Any] | str,
+        dataset: DatasetConfigs | SpectroDataset | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         dataset_name: str = "explain_dataset",
-        shap_params: Optional[Dict[str, Any]] = None,
+        shap_params: dict[str, Any] | None = None,
         verbose: int = 0,
         plots_visible: bool = True
-    ) -> Tuple[Dict[str, Any], str]:
+    ) -> tuple[dict[str, Any], str]:
         """Generate SHAP explanations for a saved model.
 
         Delegates to Explainer class for actual execution.
@@ -440,7 +436,7 @@ class PipelineRunner:
         return self.workspace_path
 
     @property
-    def last_aggregate(self) -> Optional[str]:
+    def last_aggregate(self) -> str | None:
         """Get aggregate column from the last executed dataset.
 
         Returns the aggregation setting from the last dataset processed by run().
@@ -459,7 +455,7 @@ class PipelineRunner:
         return self._last_aggregate_column
 
     @property
-    def last_aggregate_method(self) -> Optional[str]:
+    def last_aggregate_method(self) -> str | None:
         """Get aggregate method from the last executed dataset.
 
         Returns:
@@ -499,8 +495,8 @@ class PipelineRunner:
 
     def export(
         self,
-        source: Union[Dict[str, Any], str, Path],
-        output_path: Union[str, Path],
+        source: dict[str, Any] | str | Path,
+        output_path: str | Path,
         format: str = "n4a",
         include_metadata: bool = True,
         compress: bool = True
@@ -564,10 +560,10 @@ class PipelineRunner:
 
     def export_model(
         self,
-        source: Union[Dict[str, Any], str, Path],
-        output_path: Union[str, Path],
-        format: Optional[str] = None,
-        fold: Optional[int] = None
+        source: dict[str, Any] | str | Path,
+        output_path: str | Path,
+        format: str | None = None,
+        fold: int | None = None
     ) -> Path:
         """Export only the model artifact from a trained pipeline.
 
@@ -680,16 +676,16 @@ class PipelineRunner:
 
     def retrain(
         self,
-        source: Union[Dict[str, Any], str, Path],
-        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        source: dict[str, Any] | str | Path,
+        dataset: DatasetConfigs | SpectroDataset | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         mode: str = "full",
         dataset_name: str = "retrain_dataset",
-        new_model: Optional[Any] = None,
-        epochs: Optional[int] = None,
-        step_modes: Optional[List[StepMode]] = None,
+        new_model: Any | None = None,
+        epochs: int | None = None,
+        step_modes: list[StepMode] | None = None,
         verbose: int = 0,
         **kwargs
-    ) -> Tuple[Predictions, Dict[str, Any]]:
+    ) -> tuple[Predictions, dict[str, Any]]:
         """Retrain a pipeline on new data.
 
         Enables retraining trained pipelines with various modes:
@@ -733,7 +729,7 @@ class PipelineRunner:
 
     def extract(
         self,
-        source: Union[Dict[str, Any], str, Path]
+        source: dict[str, Any] | str | Path
     ) -> ExtractedPipeline:
         """Extract a trained pipeline for inspection or modification.
 

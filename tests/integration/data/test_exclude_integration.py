@@ -12,8 +12,8 @@ the ExcludeController (`exclude` keyword) in pipelines.
 
 import numpy as np
 import pytest
-from sklearn.model_selection import KFold
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import KFold
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.operators.filters import YOutlierFilter
@@ -213,7 +213,6 @@ class TestExclusionIntegration:
         # Composite should exclude at most as many as loose (less restrictive)
         assert len(excluded_composite) <= len(excluded_loose)
 
-
 class TestExclusionWithAugmentation:
     """Tests for exclusion with augmented samples."""
 
@@ -283,7 +282,6 @@ class TestExclusionWithAugmentation:
         summary = dataset._indexer.get_exclusion_summary()
         assert summary["total_excluded"] == 6
         assert "test_outlier" in summary["by_reason"]
-
 
 class TestFilterStats:
     """Tests for filter statistics and reporting."""

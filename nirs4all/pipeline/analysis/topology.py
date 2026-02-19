@@ -67,7 +67,6 @@ _SPLITTER_CLASS_FRAGMENTS = frozenset({
     "LeaveP",
 })
 
-
 @dataclass
 class ModelNodeInfo:
     """Describes a single model node found in the pipeline.
@@ -85,7 +84,6 @@ class ModelNodeInfo:
     step_index: int
     merge_type: str | None
     branch_depth: int
-
 
 @dataclass
 class PipelineTopology:
@@ -123,7 +121,6 @@ class PipelineTopology:
     has_sequential_models: bool = False
     has_multi_source: bool = False
 
-
 def analyze_topology(steps: list[Any]) -> PipelineTopology:
     """Walk an expanded pipeline step list and produce a topology descriptor.
 
@@ -142,11 +139,9 @@ def analyze_topology(steps: list[Any]) -> PipelineTopology:
     _walk_steps(steps, topo, branch_path=[], stacking_depth=0, pending_merge_type=None)
     return topo
 
-
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
 
 def _walk_steps(
     steps: list[Any],
@@ -327,7 +322,6 @@ def _walk_steps(
         # Default: other dict step (transform, y_processing, etc.)
         consecutive_models = 0
 
-
 def _primary_keyword(step: dict[str, Any]) -> str | None:
     """Return the primary actionable keyword of a dict step.
 
@@ -339,7 +333,6 @@ def _primary_keyword(step: dict[str, Any]) -> str | None:
         if kw in step:
             return kw
     return None
-
 
 def _find_next_merge_type(steps: list[Any], branch_idx: int) -> str | None:
     """Look ahead in the step list for the merge step following a branch.
@@ -363,7 +356,6 @@ def _find_next_merge_type(steps: list[Any], branch_idx: int) -> str | None:
                 break
     return None
 
-
 def _classify_merge_value(merge_value: Any) -> str:
     """Classify a merge step's value into a canonical type string."""
     if isinstance(merge_value, str):
@@ -381,7 +373,6 @@ def _classify_merge_value(merge_value: Any) -> str:
         return "dict"
     return "unknown"
 
-
 def _record_merge(topo: PipelineTopology, merge_value: Any, stacking_depth: int) -> None:
     """Update topology flags based on a merge step's value."""
     merge_type = _classify_merge_value(merge_value)
@@ -398,16 +389,13 @@ def _record_merge(topo: PipelineTopology, merge_value: Any, stacking_depth: int)
     elif merge_type == "concat":
         topo.has_concat_merge = True
 
-
 # ---------------------------------------------------------------------------
 # Model / Splitter detection helpers
 # ---------------------------------------------------------------------------
 
-
 def _is_model_instance(obj: Any) -> bool:
     """Check if a non-dict object is a model instance (has fit + predict)."""
     return hasattr(obj, "fit") and hasattr(obj, "predict") and not _is_splitter_instance(obj)
-
 
 def _is_splitter_instance(obj: Any) -> bool:
     """Check if a non-dict object is a CV splitter (has split(X, ...))."""
@@ -426,7 +414,6 @@ def _is_splitter_instance(obj: Any) -> bool:
     ]
     return bool(params) and params[0].name == "X"
 
-
 def _is_serialized_model(step: dict[str, Any]) -> bool:
     """Check if a serialized dict step represents a model.
 
@@ -438,7 +425,6 @@ def _is_serialized_model(step: dict[str, Any]) -> bool:
         return False
     class_path_lower = class_path.lower()
     return any(frag in class_path_lower for frag in _MODEL_MODULE_FRAGMENTS)
-
 
 def _is_serialized_splitter(step: dict[str, Any]) -> bool:
     """Check if a serialized dict step represents a splitter.
@@ -456,12 +442,10 @@ def _is_serialized_splitter(step: dict[str, Any]) -> bool:
         return True
     return any(frag in class_name for frag in _SPLITTER_CLASS_FRAGMENTS)
 
-
 def _extract_class_name(obj: Any) -> str:
     """Get the class name string from a live object."""
     cls = type(obj)
     return f"{cls.__module__}.{cls.__qualname__}"
-
 
 def _extract_model_class(step: dict[str, Any], keyword: str) -> str:
     """Extract the model class name from a model step dict."""
@@ -475,7 +459,6 @@ def _extract_model_class(step: dict[str, Any], keyword: str) -> str:
         return model_value
     # Live instance
     return _extract_class_name(model_value)
-
 
 def _extract_serialized_class_name(step: dict[str, Any]) -> str:
     """Extract a class name from a serialized step dict."""

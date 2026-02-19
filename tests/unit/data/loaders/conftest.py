@@ -20,22 +20,19 @@ See Also:
 """
 
 from pathlib import Path
-from typing import Dict, Tuple
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from nirs4all.synthesis import SyntheticDatasetBuilder, CSVVariationGenerator
-
+from nirs4all.synthesis import CSVVariationGenerator, SyntheticDatasetBuilder
 
 # =============================================================================
 # Module-scoped Base Data (Shared Across All Tests in This Module)
 # =============================================================================
 
-
 @pytest.fixture(scope="module")
-def loader_base_data() -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def loader_base_data() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Base synthetic data for all loader CSV format tests.
 
@@ -63,9 +60,8 @@ def loader_base_data() -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         y = y[:, 0]
     return X, y, wavelengths
 
-
 @pytest.fixture(scope="module")
-def loader_multi_target_data() -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def loader_multi_target_data() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Multi-target data for loader tests.
 
@@ -89,17 +85,14 @@ def loader_multi_target_data() -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         y = y.reshape(-1, 1)
     return X, y, wavelengths
 
-
 @pytest.fixture(scope="module")
 def loader_csv_generator() -> CSVVariationGenerator:
     """Get a shared CSVVariationGenerator instance."""
     return CSVVariationGenerator()
 
-
 # =============================================================================
 # Individual Format Fixtures
 # =============================================================================
-
 
 @pytest.fixture
 def csv_standard_format(tmp_path, loader_base_data, loader_csv_generator) -> Path:
@@ -120,7 +113,6 @@ def csv_standard_format(tmp_path, loader_base_data, loader_csv_generator) -> Pat
         random_state=42,
     )
 
-
 @pytest.fixture
 def csv_comma_delimiter(tmp_path, loader_base_data, loader_csv_generator) -> Path:
     """CSV with comma delimiter (common international format)."""
@@ -132,7 +124,6 @@ def csv_comma_delimiter(tmp_path, loader_base_data, loader_csv_generator) -> Pat
         train_ratio=0.8,
         random_state=42,
     )
-
 
 @pytest.fixture
 def csv_tab_delimiter(tmp_path, loader_base_data, loader_csv_generator) -> Path:
@@ -146,7 +137,6 @@ def csv_tab_delimiter(tmp_path, loader_base_data, loader_csv_generator) -> Path:
         random_state=42,
     )
 
-
 @pytest.fixture
 def csv_no_headers(tmp_path, loader_base_data, loader_csv_generator) -> Path:
     """CSV without column headers."""
@@ -157,7 +147,6 @@ def csv_no_headers(tmp_path, loader_base_data, loader_csv_generator) -> Path:
         train_ratio=0.8,
         random_state=42,
     )
-
 
 @pytest.fixture
 def csv_with_index(tmp_path, loader_base_data, loader_csv_generator) -> Path:
@@ -171,7 +160,6 @@ def csv_with_index(tmp_path, loader_base_data, loader_csv_generator) -> Path:
         random_state=42,
     )
 
-
 @pytest.fixture
 def csv_single_file(tmp_path, loader_base_data, loader_csv_generator) -> Path:
     """Single CSV file with all data and partition column."""
@@ -184,7 +172,6 @@ def csv_single_file(tmp_path, loader_base_data, loader_csv_generator) -> Path:
         random_state=42,
     )
 
-
 @pytest.fixture
 def csv_fragmented(tmp_path, loader_base_data, loader_csv_generator) -> Path:
     """Fragmented dataset with multiple small files."""
@@ -196,7 +183,6 @@ def csv_fragmented(tmp_path, loader_base_data, loader_csv_generator) -> Path:
         train_ratio=0.8,
         random_state=42,
     )
-
 
 @pytest.fixture
 def csv_low_precision(tmp_path, loader_base_data, loader_csv_generator) -> Path:
@@ -211,7 +197,6 @@ def csv_low_precision(tmp_path, loader_base_data, loader_csv_generator) -> Path:
         precision=2,
     )
 
-
 @pytest.fixture
 def csv_high_precision(tmp_path, loader_base_data, loader_csv_generator) -> Path:
     """CSV with high floating point precision (10 decimals)."""
@@ -225,14 +210,12 @@ def csv_high_precision(tmp_path, loader_base_data, loader_csv_generator) -> Path
         precision=10,
     )
 
-
 # =============================================================================
 # Edge Case Fixtures
 # =============================================================================
 
-
 @pytest.fixture
-def csv_with_missing_values(tmp_path, loader_base_data) -> Tuple[Path, float]:
+def csv_with_missing_values(tmp_path, loader_base_data) -> tuple[Path, float]:
     """
     CSV with random missing values (NaN).
 
@@ -269,7 +252,6 @@ def csv_with_missing_values(tmp_path, loader_base_data) -> Tuple[Path, float]:
 
     return path, missing_ratio
 
-
 @pytest.fixture
 def csv_with_text_headers(tmp_path, loader_base_data) -> Path:
     """CSV with text column headers instead of wavelengths."""
@@ -300,7 +282,6 @@ def csv_with_text_headers(tmp_path, loader_base_data) -> Path:
     df_y_test.to_csv(path / "Yval.csv", sep=";", index=False)
 
     return path
-
 
 @pytest.fixture
 def csv_european_decimals(tmp_path, loader_base_data) -> Path:
@@ -336,7 +317,6 @@ def csv_european_decimals(tmp_path, loader_base_data) -> Path:
     save_european(path / "Yval.csv", y[n_train:].reshape(-1, 1), ["target"])
 
     return path
-
 
 @pytest.fixture
 def csv_multi_source(tmp_path, loader_base_data) -> Path:
@@ -386,7 +366,6 @@ def csv_multi_source(tmp_path, loader_base_data) -> Path:
 
     return path
 
-
 @pytest.fixture
 def csv_single_file_all_data(tmp_path, loader_base_data) -> Path:
     """
@@ -430,11 +409,9 @@ def csv_single_file_all_data(tmp_path, loader_base_data) -> Path:
 
     return path
 
-
 # =============================================================================
 # Parametrized Fixtures for Comprehensive Testing
 # =============================================================================
-
 
 @pytest.fixture(params=[
     "standard",
@@ -448,7 +425,7 @@ def csv_basic_variations(
     tmp_path,
     loader_base_data,
     loader_csv_generator,
-) -> Tuple[Path, Dict]:
+) -> tuple[Path, dict]:
     """
     Parametrized fixture for basic CSV format variations.
 
@@ -502,14 +479,13 @@ def csv_basic_variations(
 
     return path, config["info"]
 
-
 @pytest.fixture(params=["standard", "single_file", "fragmented"])
 def csv_file_structures(
     request,
     tmp_path,
     loader_base_data,
     loader_csv_generator,
-) -> Tuple[Path, str]:
+) -> tuple[Path, str]:
     """
     Parametrized fixture for different file structure variations.
 
@@ -537,14 +513,13 @@ def csv_file_structures(
 
     return path, request.param
 
-
 @pytest.fixture(params=[2, 6, 10])
 def csv_precision_levels(
     request,
     tmp_path,
     loader_base_data,
     loader_csv_generator,
-) -> Tuple[Path, int]:
+) -> tuple[Path, int]:
     """
     Parametrized fixture for different precision levels.
 
@@ -566,18 +541,16 @@ def csv_precision_levels(
 
     return path, request.param
 
-
 # =============================================================================
 # All Variations Fixture
 # =============================================================================
-
 
 @pytest.fixture
 def csv_all_loader_variations(
     tmp_path,
     loader_base_data,
     loader_csv_generator,
-) -> Dict[str, Path]:
+) -> dict[str, Path]:
     """
     Generate all CSV format variations for comprehensive testing.
 

@@ -1,7 +1,8 @@
+from typing import Optional, Union
+
 import numpy as np
-from sklearn.base import BaseEstimator, TransformerMixin
 from scipy.interpolate import interp1d
-from typing import List, Optional, Union
+from sklearn.base import BaseEstimator, TransformerMixin
 
 
 class CropTransformer(BaseEstimator, TransformerMixin):
@@ -14,7 +15,7 @@ class CropTransformer(BaseEstimator, TransformerMixin):
 
     _stateless = True
 
-    def __init__(self, start: int = 0, end: int = None):
+    def __init__(self, start: int = 0, end: int | None = None):
         self.start = start
         self.end = end
 
@@ -27,7 +28,6 @@ class CropTransformer(BaseEstimator, TransformerMixin):
         if self.end is None or self.end > X.shape[1]:
             self.end = X.shape[1]
         return X[:, self.start:self.end]
-
 
 class ResampleTransformer(BaseEstimator, TransformerMixin):
 
@@ -60,7 +60,6 @@ class ResampleTransformer(BaseEstimator, TransformerMixin):
                 resampled.append(f(np.linspace(0, 1, self.num_samples)))
 
         return np.array(resampled)
-
 
 class FlattenPreprocessing(BaseEstimator, TransformerMixin):
     """Flatten the preprocessing dimension of a 3D feature array.
@@ -104,7 +103,7 @@ class FlattenPreprocessing(BaseEstimator, TransformerMixin):
 
     def __init__(
         self,
-        sources: Union[str, int, List[int]] = "all",
+        sources: str | int | list[int] = "all",
     ):
         self.sources = sources
 
@@ -161,7 +160,6 @@ class FlattenPreprocessing(BaseEstimator, TransformerMixin):
         if isinstance(self.sources, list):
             return source_idx in self.sources
         return True
-
 
 # # Example usage:
 # if __name__ == "__main__":

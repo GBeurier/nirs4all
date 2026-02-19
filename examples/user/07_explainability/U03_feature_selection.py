@@ -29,12 +29,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 from nirs4all.data import DatasetConfigs
-from nirs4all.operators.transforms import (
-    FirstDerivative,
-    StandardNormalVariate,
-    CARS,
-    MCUVE
-)
+from nirs4all.operators.transforms import CARS, MCUVE, FirstDerivative, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.visualization.predictions import PredictionAnalyzer
 
@@ -43,7 +38,6 @@ parser = argparse.ArgumentParser(description='U03 Feature Selection Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Why Feature Selection?
@@ -71,7 +65,6 @@ Feature selection for NIRS data:
      - Sensor optimization
      - Variable importance analysis
 """)
-
 
 # =============================================================================
 # Section 2: CARS Feature Selection
@@ -130,12 +123,11 @@ predictions_cars, _ = runner.run(pipeline_config, dataset_config)
 
 # Get results
 best_cars = predictions_cars.top(1, rank_metric='mse')[0]
-print(f"\nCARS Results:")
+print("\nCARS Results:")
 cars_mse = best_cars.get('test_mse', best_cars.get('mse'))
 cars_r2 = best_cars.get('test_r2', best_cars.get('r2'))
 print(f"  MSE: {cars_mse:.4f}" if cars_mse is not None else "  MSE: (see detailed metrics)")
 print(f"  R²: {cars_r2:.4f}" if cars_r2 is not None else "  R²: (see detailed metrics)")
-
 
 # =============================================================================
 # Section 3: MC-UVE Feature Selection
@@ -185,12 +177,11 @@ predictions_mcuve, _ = runner.run(pipeline_config_mcuve, dataset_config)
 
 # Get results
 best_mcuve = predictions_mcuve.top(1, rank_metric='mse')[0]
-print(f"\nMC-UVE Results:")
+print("\nMC-UVE Results:")
 mcuve_mse = best_mcuve.get('test_mse', best_mcuve.get('mse'))
 mcuve_r2 = best_mcuve.get('test_r2', best_mcuve.get('r2'))
 print(f"  MSE: {mcuve_mse:.4f}" if mcuve_mse is not None else "  MSE: (see detailed metrics)")
 print(f"  R²: {mcuve_r2:.4f}" if mcuve_r2 is not None else "  R²: (see detailed metrics)")
-
 
 # =============================================================================
 # Section 4: Baseline (No Selection)
@@ -215,12 +206,11 @@ print("Running baseline pipeline...")
 predictions_baseline, _ = runner.run(pipeline_config_baseline, dataset_config)
 
 best_baseline = predictions_baseline.top(1, rank_metric='mse')[0]
-print(f"\nBaseline Results:")
+print("\nBaseline Results:")
 baseline_mse = best_baseline.get('test_mse', best_baseline.get('mse'))
 baseline_r2 = best_baseline.get('test_r2', best_baseline.get('r2'))
 print(f"  MSE: {baseline_mse:.4f}" if baseline_mse is not None else "  MSE: (see detailed metrics)")
 print(f"  R²: {baseline_r2:.4f}" if baseline_r2 is not None else "  R²: (see detailed metrics)")
-
 
 # =============================================================================
 # Section 5: Compare Methods
@@ -250,7 +240,6 @@ for name, mse, r2 in results_sorted:
 
 best_method = results_sorted[0][0]
 print(f"\nBest method: {best_method}")
-
 
 # =============================================================================
 # Section 6: CARS and MC-UVE Parameters
@@ -295,7 +284,6 @@ MC-UVE Parameters:
       Random seed for reproducibility
 """)
 
-
 # =============================================================================
 # Section 7: When to Use Each Method
 # =============================================================================
@@ -323,7 +311,6 @@ General Guidelines:
   - Use MC-UVE for noise removal
   - Combine with domain knowledge
 """)
-
 
 # =============================================================================
 # Summary

@@ -39,11 +39,9 @@ from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 # Helpers
 # =========================================================================
 
-
 def _make_store(tmp_path: Path) -> WorkspaceStore:
     """Create a WorkspaceStore rooted at *tmp_path*."""
     return WorkspaceStore(tmp_path / "workspace")
-
 
 class _DummyModel:
     """Minimal sklearn-like model for testing."""
@@ -67,7 +65,6 @@ class _DummyModel:
     def get_params(self, deep=True):
         return {"n_components": self.n_components}
 
-
 class _DummySplitter:
     """Minimal CV splitter for testing."""
 
@@ -80,7 +77,6 @@ class _DummySplitter:
 
     def get_n_splits(self, X=None, y=None, groups=None) -> int:
         return self.n_splits
-
 
 class _DummyDataset:
     """Minimal SpectroDataset stand-in for testing."""
@@ -101,7 +97,6 @@ class _DummyDataset:
 
     def features_sources(self) -> int:
         return 1
-
 
 def _setup_run_with_artifacts(store: WorkspaceStore, *, n_variants: int = 2) -> dict:
     """Create a run with pipelines that have fold artifacts.
@@ -174,11 +169,9 @@ def _setup_run_with_artifacts(store: WorkspaceStore, *, n_variants: int = 2) -> 
         "fold_artifact_ids": fold_artifact_ids,
     }
 
-
 # =========================================================================
 # Task 2.6: cleanup_transient_artifacts
 # =========================================================================
-
 
 class TestCleanupTransientArtifacts:
     """Task 2.6: WorkspaceStore.cleanup_transient_artifacts."""
@@ -369,7 +362,6 @@ class TestCleanupTransientArtifacts:
 
         store.close()
 
-
 class TestOrchestratorCleanupIntegration:
     """Task 2.6: Orchestrator calls cleanup_transient_artifacts after refit."""
 
@@ -382,11 +374,9 @@ class TestOrchestratorCleanupIntegration:
         source = inspect.getsource(PipelineOrchestrator._execute_refit_pass)
         assert "cleanup_transient_artifacts" in source
 
-
 # =========================================================================
 # Task 2.7: ModelRefitResult + RunResult refit properties
 # =========================================================================
-
 
 class TestModelRefitResult:
     """Task 2.7: ModelRefitResult dataclass."""
@@ -423,7 +413,6 @@ class TestModelRefitResult:
         assert result.model_name == "PLSRegression"
         assert result.final_score == 0.04
         assert result.cv_score == 0.05
-
 
 class TestRunResultRefitProperties:
     """Task 2.7: RunResult refit properties (.final, .final_score, .cv_best, etc.)."""
@@ -555,11 +544,9 @@ class TestRunResultRefitProperties:
         call_kwargs = runner.export.call_args[1]
         assert call_kwargs["source"]["fold_id"] == "final"
 
-
 # =========================================================================
 # Task 2.8: Bundle export/replay for single refit model
 # =========================================================================
-
 
 class TestExportChainRefit:
     """Task 2.8: export_chain detects refit and exports single model."""
@@ -626,7 +613,6 @@ class TestExportChainRefit:
 
         store.close()
 
-
 class TestReplayChainRefit:
     """Task 2.8: replay_chain uses single refit model when available."""
 
@@ -683,11 +669,9 @@ class TestReplayChainRefit:
         assert result.shape == (5,)
         store2.close()
 
-
 # =========================================================================
 # Task 2.9: Predict mode dispatch for refit model
 # =========================================================================
-
 
 class TestArtifactProviderGetRefitArtifact:
     """Task 2.9: get_refit_artifact on ArtifactProvider implementations."""
@@ -758,7 +742,6 @@ class TestArtifactProviderGetRefitArtifact:
         provider = LoaderArtifactProvider(mock_loader, mock_trace)
         assert provider.get_refit_artifact(2) is None
 
-
 class TestBaseModelControllerRefitDispatch:
     """Task 2.9: BaseModelController.train predict mode refit dispatch."""
 
@@ -787,11 +770,9 @@ class TestBaseModelControllerRefitDispatch:
         assert refit_pos > -1, "get_refit_artifact should be called in launch_training"
         assert refit_pos < fallback_pos, "Refit artifact should be tried before general artifacts"
 
-
 # =========================================================================
 # Task 2.10: Refit metadata enrichment
 # =========================================================================
-
 
 class TestRelabelRefitPredictionsMetadata:
     """Task 2.10: _relabel_refit_predictions enriches metadata."""
@@ -947,7 +928,6 @@ class TestRelabelRefitPredictionsMetadata:
             assert entry["fold_id"] == "final"
             assert entry["refit_context"] == REFIT_CONTEXT_STANDALONE
             assert entry.get("metadata", {}).get("best_params") == {"n_components": 7}
-
 
 class TestExtractCvStrategy:
     """Task 2.10: _extract_cv_strategy helper."""

@@ -14,7 +14,7 @@ Example:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Optional, Union
 
 import pandas as pd
 
@@ -22,7 +22,6 @@ import pandas as pd
 class LinkingError(Exception):
     """Raised when sample linking fails."""
     pass
-
 
 @dataclass
 class LinkingResult:
@@ -36,13 +35,12 @@ class LinkingResult:
         sample_count: Number of linked samples.
         report: Detailed linking report.
     """
-    linked_data: Dict[str, pd.DataFrame]
+    linked_data: dict[str, pd.DataFrame]
     key_column: str
-    matched_keys: Set[Any]
-    missing_keys: Dict[str, Set[Any]]
+    matched_keys: set[Any]
+    missing_keys: dict[str, set[Any]]
     sample_count: int
-    report: Dict[str, Any] = field(default_factory=dict)
-
+    report: dict[str, Any] = field(default_factory=dict)
 
 class SampleLinker:
     """Link samples across multiple data files by key column.
@@ -87,7 +85,7 @@ class SampleLinker:
 
     def link(
         self,
-        sources: Dict[str, pd.DataFrame],
+        sources: dict[str, pd.DataFrame],
         link_by: str,
         keep_key_column: bool = False,
     ) -> LinkingResult:
@@ -138,7 +136,7 @@ class SampleLinker:
                 )
 
         # Get key sets from each source
-        key_sets: Dict[str, Set[Any]] = {}
+        key_sets: dict[str, set[Any]] = {}
         for name, df in sources.items():
             key_sets[name] = set(df[link_by].unique())
 
@@ -157,7 +155,7 @@ class SampleLinker:
             matched_keys = all_keys
 
         # Calculate missing keys for each source
-        missing_keys: Dict[str, Set[Any]] = {}
+        missing_keys: dict[str, set[Any]] = {}
         for name, keys in key_sets.items():
             missing_keys[name] = matched_keys - keys
 
@@ -174,12 +172,12 @@ class SampleLinker:
                 warnings.warn(
                     f"Missing keys detected during linking. "
                     f"Total missing: {total_missing}. "
-                    f"Use on_missing='ignore' to suppress this warning."
+                    f"Use on_missing='ignore' to suppress this warning.", stacklevel=2
                 )
 
         # Filter and align DataFrames
-        linked_data: Dict[str, pd.DataFrame] = {}
-        report: Dict[str, Any] = {
+        linked_data: dict[str, pd.DataFrame] = {}
+        report: dict[str, Any] = {
             "mode": self.mode,
             "original_counts": {name: len(df) for name, df in sources.items()},
             "matched_key_count": len(matched_keys),
@@ -221,9 +219,9 @@ class SampleLinker:
 
     def link_aligned(
         self,
-        sources: Dict[str, pd.DataFrame],
+        sources: dict[str, pd.DataFrame],
         validate: bool = True,
-    ) -> Dict[str, pd.DataFrame]:
+    ) -> dict[str, pd.DataFrame]:
         """Link sources that are already aligned by row index.
 
         This is a simpler linking method for sources that are guaranteed
@@ -253,7 +251,7 @@ class SampleLinker:
 
     def create_sample_index(
         self,
-        sources: Dict[str, pd.DataFrame],
+        sources: dict[str, pd.DataFrame],
         link_by: str,
     ) -> pd.DataFrame:
         """Create a sample index showing key presence across sources.
@@ -265,7 +263,7 @@ class SampleLinker:
         Returns:
             DataFrame with keys as index and boolean columns per source.
         """
-        key_sets: Dict[str, Set[Any]] = {}
+        key_sets: dict[str, set[Any]] = {}
         for name, df in sources.items():
             if link_by in df.columns:
                 key_sets[name] = set(df[link_by].unique())
@@ -285,7 +283,6 @@ class SampleLinker:
         result = result.set_index(link_by)
 
         return result
-
 
 def link_xy(
     x_df: pd.DataFrame,
@@ -308,7 +305,6 @@ def link_xy(
     result = linker.link({"X": x_df, "Y": y_df}, link_by=link_by)
 
     return result.linked_data["X"], result.linked_data["Y"]
-
 
 def link_xym(
     x_df: pd.DataFrame,

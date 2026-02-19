@@ -25,35 +25,33 @@ Example:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 
-from nirs4all.pipeline import PipelineRunner
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.pipeline import PipelineRunner
 
 from .result import PredictResult
 from .session import Session
 
-
 # Type aliases for clarity
-ModelSpec = Union[
-    Dict[str, Any],               # Prediction dict from previous run
-    str,                          # Path to bundle (.n4a) or config
-    Path                          # Path to bundle or config
-]
+ModelSpec = (
+    dict[str, Any]               # Prediction dict from previous run
+    | str                          # Path to bundle (.n4a) or config
+    | Path                          # Path to bundle or config
+)
 
-DataSpec = Union[
-    str,                          # Path to data folder
-    Path,                         # Path to data folder
-    np.ndarray,                   # X array
-    Tuple[np.ndarray, ...],       # (X,) or (X, y)
-    Dict[str, Any],               # Dict with X key
-    SpectroDataset,               # Direct SpectroDataset instance
-    DatasetConfigs                # Backward compat
-]
-
+DataSpec = (
+    str                          # Path to data folder
+    | Path                         # Path to data folder
+    | np.ndarray                   # X array
+    | tuple[np.ndarray, ...]       # (X,) or (X, y)
+    | dict[str, Any]               # Dict with X key
+    | SpectroDataset               # Direct SpectroDataset instance
+    | DatasetConfigs                # Backward compat
+)
 
 def predict(
     model: ModelSpec | None = None,
@@ -63,7 +61,7 @@ def predict(
     workspace_path: str | Path | None = None,
     name: str = "prediction_dataset",
     all_predictions: bool = False,
-    session: Optional[Session] = None,
+    session: Session | None = None,
     verbose: int = 0,
     **runner_kwargs: Any,
 ) -> PredictResult:
@@ -191,7 +189,6 @@ def predict(
         **runner_kwargs,
     )
 
-
 # -----------------------------------------------------------------
 # Private helpers
 # -----------------------------------------------------------------
@@ -200,13 +197,13 @@ def _predict_from_chain(
     chain_id: str,
     data: DataSpec,
     workspace_path: str | Path | None,
-    session: Optional[Session],
+    session: Session | None,
     verbose: int,
     **runner_kwargs: Any,
 ) -> PredictResult:
     """Replay a stored chain on new data via WorkspaceStore."""
-    from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
     from nirs4all.pipeline.storage.chain_replay import replay_chain
+    from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
     # Resolve workspace path
     if session is not None:
@@ -235,13 +232,12 @@ def _predict_from_chain(
         preprocessing_steps=[],
     )
 
-
 def _predict_from_model(
     model: ModelSpec,
     data: DataSpec,
     name: str,
     all_predictions: bool,
-    session: Optional[Session],
+    session: Session | None,
     verbose: int,
     workspace_path: str | Path | None = None,
     **runner_kwargs: Any,
@@ -297,7 +293,6 @@ def _predict_from_model(
         model_name=model_name,
         preprocessing_steps=preprocessing_steps,
     )
-
 
 def _extract_X(data: DataSpec) -> np.ndarray:
     """Extract feature matrix X from various data formats.

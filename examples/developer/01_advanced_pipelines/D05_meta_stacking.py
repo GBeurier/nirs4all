@@ -30,33 +30,23 @@ import argparse
 
 # Third-party imports
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.linear_model import Ridge, ElasticNet
-from sklearn.model_selection import ShuffleSplit, KFold
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.linear_model import ElasticNet, Ridge
+from sklearn.model_selection import KFold, ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative,
-    SavitzkyGolay
-)
-from nirs4all.operators.models import (
-    MetaModel,
-    StackingConfig,
-    StackingLevel,
-    BranchScope,
-    CoverageStrategy
-)
+from nirs4all.operators.models import BranchScope, CoverageStrategy, MetaModel, StackingConfig, StackingLevel
+from nirs4all.operators.transforms import FirstDerivative, SavitzkyGolay
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='D05 Meta Stacking Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -75,7 +65,6 @@ Meta-stacking with MetaModel provides:
     - Coverage strategies (per-fold, per-branch, etc.)
     - Nested stacking architectures
 """)
-
 
 # =============================================================================
 # Section 1: MetaModel Basics
@@ -126,7 +115,6 @@ result_basic = nirs4all.run(
 
 print(f"\nMeta-stacking predictions: {result_basic.num_predictions}")
 
-
 # =============================================================================
 # Section 2: Understanding Stacking Levels
 # =============================================================================
@@ -172,7 +160,6 @@ print("""
                          ▼
                    predictions
 """)
-
 
 # =============================================================================
 # Section 3: Branch Scope Control
@@ -220,7 +207,6 @@ result_cross = nirs4all.run(
 
 print(f"\nCross-branch stacking predictions: {result_cross.num_predictions}")
 
-
 # =============================================================================
 # Section 4: Coverage Strategies
 # =============================================================================
@@ -262,7 +248,6 @@ result_coverage = nirs4all.run(
 )
 
 print(f"\nWith coverage strategy: {result_coverage.num_predictions} predictions")
-
 
 # =============================================================================
 # Section 5: Multi-Level Stacking (3 Levels)
@@ -307,7 +292,6 @@ result_3level = nirs4all.run(
 
 print(f"\nMulti-level stacking predictions: {result_3level.num_predictions}")
 
-
 # =============================================================================
 # Section 6: Stacking with Feature Augmentation
 # =============================================================================
@@ -325,7 +309,6 @@ The meta-model sees both base predictions AND original features.
 
 # Skip this example as it uses advanced merge syntax
 print("(Skipped - advanced merge syntax demonstration)")
-
 
 # =============================================================================
 # Section 7: Multi-Dataset Stacking Concept
@@ -349,7 +332,6 @@ print("Multi-dataset stacking pattern:")
 print("  Dataset A: Train base models")
 print("  Dataset B: Train base models")
 print("  Meta-model: Learns to combine predictions across datasets")
-
 
 # =============================================================================
 # Section 8: Blending vs. Stacking
@@ -381,7 +363,6 @@ print("Stacking (OOF):")
 print("  - 5-fold CV for base models")
 print("  - OOF predictions for meta-model training")
 print("  - No data leakage")
-
 
 # =============================================================================
 # Section 9: Heterogeneous Stacking
@@ -428,7 +409,6 @@ result_heterogeneous = nirs4all.run(
 )
 
 print(f"\nHeterogeneous stacking predictions: {result_heterogeneous.num_predictions}")
-
 
 # =============================================================================
 # Summary

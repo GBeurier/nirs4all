@@ -11,7 +11,7 @@ Supports both object-based and string-based preprocessing definitions:
 
 from copy import deepcopy
 from itertools import combinations, permutations
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 
@@ -30,13 +30,13 @@ from nirs4all.operators.transforms import (
 )
 from nirs4all.operators.transforms.nirs import (
     AreaNormalization,
+)
+from nirs4all.operators.transforms.nirs import (
     ExtendedMultiplicativeScatterCorrection as EMSC,
 )
 
-
 # Type alias for preprocessing items (object or string)
-PreprocessingItem = Union[Any, str, None]
-
+PreprocessingItem = Any | str | None
 
 def get_transform_name(obj: Any) -> str:
     """
@@ -61,7 +61,6 @@ def get_transform_name(obj: Any) -> str:
     if isinstance(obj, list):
         return ">".join(get_transform_name(t) for t in obj)
     return type(obj).__name__
-
 
 def get_transform_signature(obj: Any) -> str:
     """
@@ -98,10 +97,9 @@ def get_transform_signature(obj: Any) -> str:
             pass
     return name
 
-
 def normalize_preprocessing(
     item: PreprocessingItem,
-    registry: Optional[Dict[str, Any]] = None,
+    registry: dict[str, Any] | None = None,
 ) -> Any:
     """
     Normalize a preprocessing item to a transformer object.
@@ -144,11 +142,10 @@ def normalize_preprocessing(
 
     return registry[item]
 
-
 def normalize_preprocessing_list(
-    items: List[PreprocessingItem],
-    registry: Optional[Dict[str, Any]] = None,
-) -> List[Any]:
+    items: list[PreprocessingItem],
+    registry: dict[str, Any] | None = None,
+) -> list[Any]:
     """
     Normalize a list of preprocessing items to transformer objects.
 
@@ -169,8 +166,7 @@ def normalize_preprocessing_list(
             result.append(normalized)
     return result
 
-
-def get_base_preprocessings() -> Dict[str, Any]:
+def get_base_preprocessings() -> dict[str, Any]:
     """
     Get the base set of preprocessing transforms.
 
@@ -204,8 +200,7 @@ def get_base_preprocessings() -> Dict[str, Any]:
         "identity": IdentityTransformer(),
     }
 
-
-def apply_pipeline(X: np.ndarray, transforms: List[Any]) -> np.ndarray:
+def apply_pipeline(X: np.ndarray, transforms: list[Any]) -> np.ndarray:
     """
     Apply a sequence of transforms to X.
 
@@ -229,10 +224,9 @@ def apply_pipeline(X: np.ndarray, transforms: List[Any]) -> np.ndarray:
         X_out = t_copy.fit_transform(X_out)
     return X_out
 
-
 def apply_preprocessing_objects(
     X: np.ndarray,
-    transforms: Union[Any, List[Any]],
+    transforms: Any | list[Any],
 ) -> np.ndarray:
     """
     Apply preprocessing object(s) to X.
@@ -259,11 +253,10 @@ def apply_preprocessing_objects(
 
     return apply_pipeline(X, transforms)
 
-
 def apply_single_preprocessing(
     X: np.ndarray,
     pp_name: str,
-    preprocessings: Optional[Dict[str, Any]] = None,
+    preprocessings: dict[str, Any] | None = None,
 ) -> np.ndarray:
     """
     Apply a single preprocessing by name.
@@ -288,12 +281,11 @@ def apply_single_preprocessing(
     transform = preprocessings[pp_name]
     return apply_pipeline(X, [transform])
 
-
 def generate_stacked_pipelines(
-    preprocessings: Dict[str, Any],
+    preprocessings: dict[str, Any],
     max_depth: int = 2,
-    exclude: Optional[List[str]] = None,
-) -> List[Tuple[str, List[str], List[Any]]]:
+    exclude: list[str] | None = None,
+) -> list[tuple[str, list[str], list[Any]]]:
     """
     Generate stacked pipeline combinations.
 
@@ -315,7 +307,7 @@ def generate_stacked_pipelines(
     if exclude is None:
         exclude = []
 
-    names = [n for n in preprocessings.keys() if n not in exclude]
+    names = [n for n in preprocessings if n not in exclude]
     pipelines = []
 
     for depth in range(1, max_depth + 1):
@@ -326,12 +318,11 @@ def generate_stacked_pipelines(
 
     return pipelines
 
-
 def generate_top_k_stacked_pipelines(
-    top_k_names: List[str],
-    preprocessings: Dict[str, Any],
+    top_k_names: list[str],
+    preprocessings: dict[str, Any],
     max_depth: int = 2,
-) -> List[Tuple[str, List[str], List[Any]]]:
+) -> list[tuple[str, list[str], list[Any]]]:
     """
     Generate stacked pipeline combinations from top-K selected preprocessings.
 
@@ -360,11 +351,10 @@ def generate_top_k_stacked_pipelines(
 
     return pipelines
 
-
 def apply_stacked_pipeline(
     X: np.ndarray,
-    pipeline: Union[str, List[Any]],
-    preprocessings: Optional[Dict[str, Any]] = None,
+    pipeline: str | list[Any],
+    preprocessings: dict[str, Any] | None = None,
 ) -> np.ndarray:
     """
     Apply a stacked pipeline to X.
@@ -405,11 +395,10 @@ def apply_stacked_pipeline(
 
     return apply_pipeline(X, transforms)
 
-
 def generate_augmentation_combinations(
-    top_k_names: List[str],
+    top_k_names: list[str],
     max_order: int = 2,
-) -> List[Tuple[str, List[str]]]:
+) -> list[tuple[str, list[str]]]:
     """
     Generate feature augmentation combinations from top-K pipelines.
 
@@ -436,11 +425,10 @@ def generate_augmentation_combinations(
 
     return results
 
-
 def generate_object_stacked_pipelines(
-    transforms: List[Any],
+    transforms: list[Any],
     max_depth: int = 2,
-) -> List[Tuple[str, List[Any]]]:
+) -> list[tuple[str, list[Any]]]:
     """
     Generate stacked pipeline combinations from transformer objects.
 
@@ -471,11 +459,10 @@ def generate_object_stacked_pipelines(
 
     return pipelines
 
-
 def generate_object_augmentation_combinations(
-    transforms: List[Any],
+    transforms: list[Any],
     max_order: int = 2,
-) -> List[Tuple[str, List[Any]]]:
+) -> list[tuple[str, list[Any]]]:
     """
     Generate augmentation combinations from transformer objects.
 
@@ -498,11 +485,10 @@ def generate_object_augmentation_combinations(
 
     return results
 
-
 def apply_augmentation(
     X: np.ndarray,
-    pipelines: List[Union[str, List[Any], Any]],
-    preprocessings: Optional[Dict[str, Any]] = None,
+    pipelines: list[str | list[Any] | Any],
+    preprocessings: dict[str, Any] | None = None,
 ) -> np.ndarray:
     """
     Apply multiple pipelines and concatenate their outputs.
@@ -544,12 +530,11 @@ def apply_augmentation(
 
     return np.hstack(transformed)
 
-
 def validate_datasets(
     X_source: np.ndarray,
     X_target: np.ndarray,
     require_same_features: bool = True,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Validate and prepare source/target datasets for transfer analysis.
 
@@ -584,7 +569,6 @@ def validate_datasets(
         raise ValueError(f"X_target needs at least 3 samples, got {X_target.shape[0]}")
 
     return X_source, X_target
-
 
 def format_pipeline_name(name: str, max_length: int = 40) -> str:
     """

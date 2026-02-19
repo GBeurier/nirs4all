@@ -21,10 +21,10 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
-from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
-from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.pipeline.storage.chain_builder import ChainBuilder
+from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 
 @pytest.fixture
@@ -33,7 +33,6 @@ def temp_workspace(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     return workspace
-
 
 @pytest.fixture
 def regression_data():
@@ -44,7 +43,6 @@ def regression_data():
     X = rng.randn(n_samples, n_features)
     y = X[:, 0] * 2 + X[:, 1] * 0.5 + rng.randn(n_samples) * 0.1
     return X, y
-
 
 class TestBasicPipeline:
     """Test that nirs4all.run() produces valid RunResult with WorkspaceStore."""
@@ -93,7 +91,6 @@ class TestBasicPipeline:
         assert predictions.num_predictions > 0
         best = predictions.get_best(ascending=None)
         assert best is not None
-
 
 class TestNoFileHierarchy:
     """Test that no legacy filesystem hierarchy is created."""
@@ -155,7 +152,6 @@ class TestNoFileHierarchy:
         store_file = temp_workspace / "store.duckdb"
         assert store_file.exists(), f"store.duckdb should exist at {store_file}"
 
-
 class TestArtifactsFlat:
     """Test that artifacts are saved in flat content-addressed structure."""
 
@@ -180,7 +176,6 @@ class TestArtifactsFlat:
                     # Parent should be a 2-character shard directory
                     shard = f.parent.name
                     assert len(shard) == 2, f"Artifact shard directory should be 2 chars, got: {shard}"
-
 
 class TestChainFromTrace:
     """Test that chains are built correctly from ExecutionTrace."""
@@ -240,7 +235,6 @@ class TestChainFromTrace:
             assert isinstance(chain_row["model_step_idx"], int)
         finally:
             store.close()
-
 
 class TestStoreContents:
     """Test that WorkspaceStore contains expected records."""
@@ -310,7 +304,6 @@ class TestStoreContents:
                 assert run_row["status"] in ("failed", "completed"), f"Unexpected run status: {run_row['status']}"
         finally:
             store.close()
-
 
 class TestChainBuilder:
     """Unit-level tests for ChainBuilder."""

@@ -76,7 +76,7 @@ class SpectraTransformerMixin(TransformerMixin, BaseEstimator):
     Wavelengths are extracted from the dataset using ``dataset.wavelengths_nm(source)``.
     """
 
-    _requires_wavelengths: Union[bool, str] = True
+    _requires_wavelengths: bool | str = True
     _stateless: ClassVar[bool] = False
 
     def fit(self, X, y=None, **kwargs):

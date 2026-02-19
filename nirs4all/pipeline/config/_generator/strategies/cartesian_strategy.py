@@ -29,30 +29,31 @@ Examples:
     {"_cartesian_": [...], "pick": (1, 3), "count": 20}
 """
 
+from collections.abc import Callable
 from itertools import combinations, permutations
 from math import comb, factorial
-from typing import Any, FrozenSet, List, Optional, Tuple
+from typing import Any, Optional
 
-from .base import ExpansionStrategy, GeneratorNode, ExpandedResult, SizeSpec
-from .registry import register_strategy
 from ..keywords import (
-    COUNT_KEYWORD,
-    SEED_KEYWORD,
-    PICK_KEYWORD,
     ARRANGE_KEYWORD,
-    MUTEX_KEYWORD,
-    REQUIRES_KEYWORD,
+    COUNT_KEYWORD,
     EXCLUDE_KEYWORD,
-    TAGS_KEYWORD,
     METADATA_KEYWORD,
+    MUTEX_KEYWORD,
+    PICK_KEYWORD,
+    REQUIRES_KEYWORD,
+    SEED_KEYWORD,
+    TAGS_KEYWORD,
 )
 from ..utils.sampling import sample_with_seed
+from .base import ExpandedResult, ExpansionStrategy, GeneratorNode, SizeSpec
+from .registry import register_strategy
 
 # Define the keyword
 CARTESIAN_KEYWORD: str = "_cartesian_"
 
 # Valid keys for a pure cartesian node
-PURE_CARTESIAN_KEYS: FrozenSet[str] = frozenset({
+PURE_CARTESIAN_KEYS: frozenset[str] = frozenset({
     CARTESIAN_KEYWORD,
     PICK_KEYWORD,
     ARRANGE_KEYWORD,
@@ -64,7 +65,6 @@ PURE_CARTESIAN_KEYS: FrozenSet[str] = frozenset({
     TAGS_KEYWORD,
     METADATA_KEYWORD,
 })
-
 
 @register_strategy
 class CartesianStrategy(ExpansionStrategy):
@@ -89,7 +89,7 @@ class CartesianStrategy(ExpansionStrategy):
         priority: 35 (high priority, checked before grid)
     """
 
-    keywords: FrozenSet[str] = PURE_CARTESIAN_KEYS
+    keywords: frozenset[str] = PURE_CARTESIAN_KEYS
     priority: int = 35  # High priority
 
     @classmethod
@@ -109,8 +109,8 @@ class CartesianStrategy(ExpansionStrategy):
     def expand(
         self,
         node: GeneratorNode,
-        seed: Optional[int] = None,
-        expand_nested: Optional[callable] = None
+        seed: int | None = None,
+        expand_nested: Callable | None = None
     ) -> ExpandedResult:
         """Expand a cartesian node to list of pipeline combinations.
 
@@ -162,10 +162,7 @@ class CartesianStrategy(ExpansionStrategy):
         # Step 1: Expand each stage to get its options
         expanded_stages = []
         for stage in stages:
-            if expand_nested and isinstance(stage, (dict, list)):
-                stage_options = expand_nested(stage)
-            else:
-                stage_options = [stage]
+            stage_options = expand_nested(stage) if expand_nested and isinstance(stage, (dict, list)) else [stage]
             expanded_stages.append(stage_options)
 
         # Step 2: Compute Cartesian product -> complete pipelines
@@ -195,7 +192,7 @@ class CartesianStrategy(ExpansionStrategy):
 
     def _apply_pick(
         self,
-        pipelines: List[List[Any]],
+        pipelines: list[list[Any]],
         pick_spec: SizeSpec
     ) -> ExpandedResult:
         """Apply pick (combinations) to the list of pipelines.
@@ -223,7 +220,7 @@ class CartesianStrategy(ExpansionStrategy):
 
     def _apply_arrange(
         self,
-        pipelines: List[List[Any]],
+        pipelines: list[list[Any]],
         arrange_spec: SizeSpec
     ) -> ExpandedResult:
         """Apply arrange (permutations) to the list of pipelines.
@@ -249,7 +246,7 @@ class CartesianStrategy(ExpansionStrategy):
 
         return result
 
-    def _normalize_spec(self, spec: SizeSpec) -> Tuple[int, int]:
+    def _normalize_spec(self, spec: SizeSpec) -> tuple[int, int]:
         """Normalize size specification to (from, to) tuple."""
         if isinstance(spec, int):
             return (spec, spec)
@@ -261,9 +258,9 @@ class CartesianStrategy(ExpansionStrategy):
     def _apply_constraints(
         self,
         results: ExpandedResult,
-        mutex_groups: List[List[Any]],
-        requires_groups: List[List[Any]],
-        exclude_combos: List[List[Any]]
+        mutex_groups: list[list[Any]],
+        requires_groups: list[list[Any]],
+        exclude_combos: list[list[Any]]
     ) -> ExpandedResult:
         """Apply constraint filters to expanded results.
 
@@ -282,7 +279,7 @@ class CartesianStrategy(ExpansionStrategy):
             exclude_combos=exclude_combos
         )
 
-    def count(self, node: GeneratorNode, count_nested: Optional[callable] = None) -> int:
+    def count(self, node: GeneratorNode, count_nested: Callable | None = None) -> int:
         """Count cartesian combinations without generating them.
 
         Args:
@@ -306,10 +303,7 @@ class CartesianStrategy(ExpansionStrategy):
         # Count total pipelines (Cartesian product)
         total_pipelines = 1
         for stage in stages:
-            if count_nested and isinstance(stage, (dict, list)):
-                stage_count = count_nested(stage)
-            else:
-                stage_count = 1
+            stage_count = count_nested(stage) if count_nested and isinstance(stage, (dict, list)) else 1
             total_pipelines *= stage_count
 
         # Apply pick/arrange selection count
@@ -343,7 +337,7 @@ class CartesianStrategy(ExpansionStrategy):
                 total += factorial(n) // factorial(n - size)
         return total
 
-    def validate(self, node: GeneratorNode) -> List[str]:
+    def validate(self, node: GeneratorNode) -> list[str]:
         """Validate cartesian node specification.
 
         Args:

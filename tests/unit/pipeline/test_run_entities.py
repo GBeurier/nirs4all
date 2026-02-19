@@ -1,5 +1,6 @@
-import nirs4all
 import pytest
+
+import nirs4all
 import nirs4all.pipeline as pipeline_module
 from nirs4all.pipeline import (
     DatasetInfo,
@@ -35,12 +36,10 @@ def test_run_roundtrip_and_transitions() -> None:
     assert loaded.status == RunStatus.COMPLETED
     assert loaded.total_results_expected == 2
 
-
 def test_run_invalid_transition_raises() -> None:
     run = Run(name="invalid")
     with pytest.raises(ValueError):
         run.transition_to(RunStatus.COMPLETED)
-
 
 def test_metric_metadata_and_comparison_helpers() -> None:
     rmse_info = get_metric_info("rmse")
@@ -51,7 +50,6 @@ def test_metric_metadata_and_comparison_helpers() -> None:
     acc_info = get_metric_info("accuracy")
     assert acc_info["higher_is_better"] is True
     assert is_better_score(0.9, 0.8, "accuracy") is True
-
 
 def test_run_entities_are_public_api() -> None:
     assert hasattr(pipeline_module, "Run")

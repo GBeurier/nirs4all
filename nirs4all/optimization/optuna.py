@@ -7,24 +7,27 @@ hyperparameter optimization across different strategies and frameworks.
 """
 
 import os
+
 os.environ['DISABLE_EMOJIS'] = '1'  # Set to '1' to disable emojis in print statements
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional, Union
+
 import numpy as np
+
 from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.config.context import ExecutionContext
+    from nirs4all.pipeline.runner import PipelineRunner
 
 try:
     import optuna
-    from optuna.samplers import TPESampler, GridSampler, RandomSampler, CmaEsSampler, BaseSampler
-    from optuna.pruners import MedianPruner, SuccessiveHalvingPruner, HyperbandPruner
+    from optuna.pruners import HyperbandPruner, MedianPruner, SuccessiveHalvingPruner
+    from optuna.samplers import BaseSampler, CmaEsSampler, GridSampler, RandomSampler, TPESampler
     OPTUNA_AVAILABLE = True
 except ImportError:
     OPTUNA_AVAILABLE = False
@@ -55,11 +58,9 @@ METRIC_DIRECTION = {
 _EVAL_MODE_ALIASES = {"avg": "mean"}
 _SAMPLER_ALIASES = {"sample": "sampler"}
 
-
 # ============================================================================
 # Binary Search Sampler for Unimodal Integer Parameters
 # ============================================================================
-
 
 class BinarySearchSampler(BaseSampler):
     """Gradient-based binary search sampler for unimodal integer parameters.
@@ -112,18 +113,18 @@ class BinarySearchSampler(BaseSampler):
         sampling to others.
     """
 
-    def __init__(self, seed: Optional[int] = None):
+    def __init__(self, seed: int | None = None):
         """Initialize binary search sampler.
 
         Args:
             seed: Random seed (for API compatibility, currently unused).
         """
-        self._search_space: Dict[str, Any] = {}
+        self._search_space: dict[str, Any] = {}
         self._rng = np.random.RandomState(seed)
 
     def infer_relative_search_space(
         self, study: "optuna.Study", trial: "optuna.trial.FrozenTrial"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Infer relative search space (not used by binary search).
 
         Args:
@@ -139,8 +140,8 @@ class BinarySearchSampler(BaseSampler):
         self,
         study: "optuna.Study",
         trial: "optuna.trial.FrozenTrial",
-        search_space: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        search_space: dict[str, Any],
+    ) -> dict[str, Any]:
         """Sample relative parameters (not used by binary search).
 
         Args:
@@ -286,7 +287,6 @@ class BinarySearchSampler(BaseSampler):
         space["tested"].add(candidate)
         return candidate
 
-
 @dataclass
 class TrialSummary:
     """Summary of a single Optuna trial.
@@ -300,11 +300,10 @@ class TrialSummary:
     """
 
     number: int
-    params: Dict[str, Any]
-    value: Optional[float]
+    params: dict[str, Any]
+    value: float | None
     duration_seconds: float
     state: str
-
 
 @dataclass
 class FinetuneResult:
@@ -325,17 +324,17 @@ class FinetuneResult:
         direction: Optimization direction ('minimize' or 'maximize').
     """
 
-    best_params: Dict[str, Any]
+    best_params: dict[str, Any]
     best_value: float
     n_trials: int
     n_pruned: int = 0
     n_failed: int = 0
-    trials: List[TrialSummary] = field(default_factory=list)
-    study_name: Optional[str] = None
-    metric: Optional[str] = None
+    trials: list[TrialSummary] = field(default_factory=list)
+    study_name: str | None = None
+    metric: str | None = None
     direction: str = "minimize"
 
-    def to_summary_dict(self) -> Dict[str, Any]:
+    def to_summary_dict(self) -> dict[str, Any]:
         """Return a lightweight dict suitable for prediction payload storage."""
         return {
             "n_trials": self.n_trials,
@@ -346,7 +345,6 @@ class FinetuneResult:
             "metric": self.metric,
             "direction": self.direction,
         }
-
 
 class OptunaManager:
     """
@@ -369,7 +367,7 @@ class OptunaManager:
         if not self.is_available:
             logger.warning("Optuna not available - finetuning will be skipped")
 
-    def _validate_and_normalize_finetune_params(self, finetune_params: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_and_normalize_finetune_params(self, finetune_params: dict[str, Any]) -> dict[str, Any]:
         """Validate and normalize finetune_params, raising on unknown values.
 
         Normalizes legacy aliases:
@@ -445,7 +443,7 @@ class OptunaManager:
 
         return params
 
-    def _build_finetune_result(self, study: Any, finetune_params: Dict[str, Any]) -> FinetuneResult:
+    def _build_finetune_result(self, study: Any, finetune_params: dict[str, Any]) -> FinetuneResult:
         """Build a FinetuneResult from a completed Optuna study.
 
         Args:
@@ -495,16 +493,16 @@ class OptunaManager:
     def finetune(
         self,
         dataset: 'SpectroDataset',
-        model_config: Dict[str, Any],
+        model_config: dict[str, Any],
         X_train: Any,
         y_train: Any,
         X_test: Any,
         y_test: Any,
-        folds: Optional[List],
-        finetune_params: Dict[str, Any],
+        folds: list | None,
+        finetune_params: dict[str, Any],
         context: 'ExecutionContext',
         controller: Any  # The model controller instance
-    ) -> Union[FinetuneResult, List[FinetuneResult]]:
+    ) -> FinetuneResult | list[FinetuneResult]:
         """
         Main finetune entry point - delegates to appropriate optimization strategy.
 
@@ -588,7 +586,7 @@ class OptunaManager:
                 finetune_params, n_trials, context, controller, verbose
             )
 
-    def _resolve_metric_direction(self, finetune_params: Dict[str, Any], dataset: 'SpectroDataset') -> Dict[str, Any]:
+    def _resolve_metric_direction(self, finetune_params: dict[str, Any], dataset: 'SpectroDataset') -> dict[str, Any]:
         """Resolve metric name and direction from finetune_params and dataset task_type.
 
         When ``metric`` is set, auto-infers ``direction`` from METRIC_DIRECTION
@@ -629,16 +627,16 @@ class OptunaManager:
     def _optimize_individual_folds(
         self,
         dataset: 'SpectroDataset',
-        model_config: Dict[str, Any],
+        model_config: dict[str, Any],
         X_train: Any,
         y_train: Any,
-        folds: List,
-        finetune_params: Dict[str, Any],
+        folds: list,
+        finetune_params: dict[str, Any],
         n_trials: int,
         context: 'ExecutionContext',
         controller: Any,
         verbose: int
-    ) -> List[FinetuneResult]:
+    ) -> list[FinetuneResult]:
         """
         Optimize each fold individually.
 
@@ -673,11 +671,11 @@ class OptunaManager:
     def _optimize_grouped_folds(
         self,
         dataset: 'SpectroDataset',
-        model_config: Dict[str, Any],
+        model_config: dict[str, Any],
         X_train: Any,
         y_train: Any,
-        folds: List,
-        finetune_params: Dict[str, Any],
+        folds: list,
+        finetune_params: dict[str, Any],
         n_trials: int,
         context: 'ExecutionContext',
         controller: Any,
@@ -771,12 +769,12 @@ class OptunaManager:
     def _optimize_single(
         self,
         dataset: 'SpectroDataset',
-        model_config: Dict[str, Any],
+        model_config: dict[str, Any],
         X_train: Any,
         y_train: Any,
         X_val: Any,
         y_val: Any,
-        finetune_params: Dict[str, Any],
+        finetune_params: dict[str, Any],
         n_trials: int,
         context: 'ExecutionContext',
         controller: Any,
@@ -792,13 +790,13 @@ class OptunaManager:
     def _optimize_multiphase(
         self,
         dataset: 'SpectroDataset',
-        model_config: Dict[str, Any],
+        model_config: dict[str, Any],
         X_train: Any,
         y_train: Any,
         X_test: Any,
         y_test: Any,
-        folds: Optional[List],
-        finetune_params: Dict[str, Any],
+        folds: list | None,
+        finetune_params: dict[str, Any],
         context: 'ExecutionContext',
         controller: Any,
         eval_mode: str,
@@ -905,7 +903,7 @@ class OptunaManager:
         for phase_idx, phase_config in enumerate(phases):
             phase_n_trials = phase_config['n_trials']
             phase_sampler_type = phase_config.get('sampler', 'tpe')
-            seed = finetune_params.get('seed', None)
+            seed = finetune_params.get('seed')
 
             # Create new sampler for this phase
             sampler = self._create_sampler(phase_sampler_type, finetune_params, seed)
@@ -924,7 +922,7 @@ class OptunaManager:
 
         return self._build_finetune_result(study, finetune_params)
 
-    def _create_sampler(self, sampler_type: str, finetune_params: Dict[str, Any], seed: Optional[int] = None) -> Any:
+    def _create_sampler(self, sampler_type: str, finetune_params: dict[str, Any], seed: int | None = None) -> Any:
         """Create an Optuna sampler instance.
 
         Args:
@@ -961,12 +959,12 @@ class OptunaManager:
     def _run_single_optimization(
         self,
         dataset: 'SpectroDataset',
-        model_config: Dict[str, Any],
+        model_config: dict[str, Any],
         X_train: Any,
         y_train: Any,
         X_val: Any,
         y_val: Any,
-        finetune_params: Dict[str, Any],
+        finetune_params: dict[str, Any],
         n_trials: int,
         context: 'ExecutionContext',
         controller: Any,
@@ -1033,7 +1031,7 @@ class OptunaManager:
 
         return self._build_finetune_result(study, finetune_params)
 
-    def _create_study(self, finetune_params: Dict[str, Any]) -> Any:
+    def _create_study(self, finetune_params: dict[str, Any]) -> Any:
         """
         Create an Optuna study with appropriate sampler, pruner, storage, and seed.
 
@@ -1048,7 +1046,7 @@ class OptunaManager:
             raise ImportError("Optuna is not available")
 
         # Extract seed for reproducible sampling
-        seed = finetune_params.get('seed', None)
+        seed = finetune_params.get('seed')
 
         # Determine optimal sampler strategy (already normalized by _validate_and_normalize_finetune_params)
         sampler_type = finetune_params.get('sampler', 'auto')
@@ -1085,8 +1083,8 @@ class OptunaManager:
         direction = finetune_params.get('direction', 'minimize')
 
         # Storage/resume support
-        storage = finetune_params.get('storage', None)
-        study_name = finetune_params.get('study_name', None)
+        storage = finetune_params.get('storage')
+        study_name = finetune_params.get('study_name')
         resume = finetune_params.get('resume', False)
 
         # Create study
@@ -1131,7 +1129,7 @@ class OptunaManager:
         if verbose < 2 and optuna is not None:
             optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-    def _aggregate_scores(self, scores: List[float], eval_mode: str) -> float:
+    def _aggregate_scores(self, scores: list[float], eval_mode: str) -> float:
         """
         Aggregate fold scores based on evaluation mode.
 
@@ -1156,8 +1154,8 @@ class OptunaManager:
     def sample_hyperparameters(
         self,
         trial: Any,
-        finetune_params: Dict[str, Any]
-    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        finetune_params: dict[str, Any]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """
         Sample hyperparameters for an Optuna trial.
 
@@ -1230,7 +1228,7 @@ class OptunaManager:
             return False
         return 'type' in value or 'min' in value or 'low' in value or 'choices' in value or 'values' in value
 
-    def _flatten_nested_params(self, params: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
+    def _flatten_nested_params(self, params: dict[str, Any], prefix: str = "") -> dict[str, Any]:
         """Flatten nested parameter dicts into flat keys with ``__`` separator.
 
         Nested dicts that are NOT parameter specs (no ``type``/``min``/``max`` keys)
@@ -1257,7 +1255,7 @@ class OptunaManager:
                 flat[full_key] = value
         return flat
 
-    def _unflatten_params(self, flat_params: Dict[str, Any]) -> Dict[str, Any]:
+    def _unflatten_params(self, flat_params: dict[str, Any]) -> dict[str, Any]:
         """Reconstruct nested dict from flat ``__``-separated keys.
 
         Args:
@@ -1274,7 +1272,7 @@ class OptunaManager:
             >>> _unflatten_params({"inference_config__PARAM_A": True})
             {"inference_config": {"PARAM_A": True}}
         """
-        nested: Dict[str, Any] = {}
+        nested: dict[str, Any] = {}
         for key, value in flat_params.items():
             parts = key.split("__")
             current = nested
@@ -1405,7 +1403,7 @@ class OptunaManager:
         param_type: Any,
         min_val: float,
         max_val: float,
-        step: Optional[float] = None,
+        step: float | None = None,
         log: bool = False
     ) -> Any:
         """
@@ -1441,7 +1439,7 @@ class OptunaManager:
                 f"Supported types: 'int', 'int_log', 'float', 'float_log' (or Python int/float types)"
             )
 
-    def _suggest_from_dict(self, trial: Any, param_name: str, param_config: Dict[str, Any]) -> Any:
+    def _suggest_from_dict(self, trial: Any, param_name: str, param_config: dict[str, Any]) -> Any:
         """
         Suggest a parameter value from a dictionary configuration.
 
@@ -1499,7 +1497,7 @@ class OptunaManager:
                 f"Supported types: 'categorical', 'int', 'int_log', 'float', 'float_log', 'sorted_tuple'"
             )
 
-    def _suggest_sorted_tuple(self, trial: Any, param_name: str, param_config: Dict[str, Any]) -> tuple:
+    def _suggest_sorted_tuple(self, trial: Any, param_name: str, param_config: dict[str, Any]) -> tuple:
         """
         Suggest a sorted tuple of values.
 
@@ -1561,7 +1559,7 @@ class OptunaManager:
         # Sort and return as tuple
         return tuple(sorted(values))
 
-    def _is_grid_search_suitable(self, finetune_params: Dict[str, Any]) -> bool:
+    def _is_grid_search_suitable(self, finetune_params: dict[str, Any]) -> bool:
         """
         Check if grid search is suitable (all parameters are categorical).
 
@@ -1605,7 +1603,7 @@ class OptunaManager:
 
         return len(model_params) > 0
 
-    def _create_grid_search_space(self, finetune_params: Dict[str, Any]) -> Dict[str, List]:
+    def _create_grid_search_space(self, finetune_params: dict[str, Any]) -> dict[str, list]:
         """
         Create grid search space for categorical parameters only.
 
@@ -1631,16 +1629,14 @@ class OptunaManager:
 
         return search_space
 
-
 # ============================================================================
 # Parameter helpers for complex sklearn models
 # ============================================================================
 
-
 def stack_params(
-    final_estimator_params: Optional[Dict[str, Any]] = None,
+    final_estimator_params: dict[str, Any] | None = None,
     **other_params: Any
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create Optuna-compatible parameter structure for sklearn Stacking models.
 
     Helper to finetune the final_estimator (metamodel) of a StackingRegressor

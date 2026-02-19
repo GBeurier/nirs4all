@@ -4,14 +4,14 @@ Unit tests for the new CSVLoader class.
 Tests the refactored CSV loader with the FileLoader interface.
 """
 
-import pytest
-from pathlib import Path
-import tempfile
 import gzip
+import tempfile
 import zipfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from nirs4all.data.loaders.csv_loader_new import CSVLoader, load_csv
 
@@ -37,7 +37,6 @@ class TestCSVLoaderSupports:
         assert not CSVLoader.supports(Path("data.xlsx"))
         assert not CSVLoader.supports(Path("data.parquet"))
         assert not CSVLoader.supports(Path("data.npy"))
-
 
 class TestCSVLoaderLoad:
     """Tests for CSVLoader.load() method."""
@@ -185,7 +184,6 @@ class TestCSVLoaderLoad:
         assert result.report["delimiter"] == ";"
         assert result.report["has_header"] is True
 
-
 class TestLoadCsvFunction:
     """Tests for the load_csv convenience function."""
 
@@ -205,7 +203,6 @@ class TestLoadCsvFunction:
             assert headers == ["a", "b"]
         finally:
             path.unlink()
-
 
 class TestCSVLoaderDataTypes:
     """Tests for data type handling in CSVLoader."""

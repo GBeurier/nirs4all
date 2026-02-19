@@ -4,8 +4,9 @@ Unit tests for ArtifactRecord and ArtifactType.
 Tests the v2 artifact type definitions and data structures.
 """
 
-import pytest
 from datetime import datetime, timezone
+
+import pytest
 
 from nirs4all.pipeline.storage.artifacts.types import (
     ArtifactRecord,
@@ -34,7 +35,6 @@ class TestArtifactType:
         """Test creating type from string."""
         assert ArtifactType("model") == ArtifactType.MODEL
         assert ArtifactType("meta_model") == ArtifactType.META_MODEL
-
 
 class TestMetaModelConfig:
     """Tests for MetaModelConfig dataclass."""
@@ -76,7 +76,6 @@ class TestMetaModelConfig:
         config = MetaModelConfig.from_dict(data)
         assert len(config.source_models) == 1
         assert config.feature_columns == ["col1", "col2"]
-
 
 class TestArtifactRecord:
     """Tests for ArtifactRecord dataclass."""

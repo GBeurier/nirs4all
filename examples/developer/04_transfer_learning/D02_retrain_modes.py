@@ -43,7 +43,6 @@ parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
-
 # =============================================================================
 # Introduction
 # =============================================================================
@@ -62,7 +61,6 @@ nirs4all.retrain() provides different modes for model adaptation:
 
 Each mode suits different scenarios.
 """)
-
 
 # =============================================================================
 # Section 1: Initial Training
@@ -97,7 +95,6 @@ export_path.parent.mkdir(parents=True, exist_ok=True)
 result.export(export_path)
 print(f"Model exported to: {export_path}")
 
-
 # =============================================================================
 # Section 2: Full Retrain Mode
 # =============================================================================
@@ -127,7 +124,6 @@ result_full = nirs4all.retrain(
 print(f"\nFull retrain: RMSE = {result_full.best_rmse:.4f}")
 print("  All steps retrained from scratch")
 
-
 # =============================================================================
 # Section 3: Transfer Mode
 # =============================================================================
@@ -155,7 +151,6 @@ result_transfer = nirs4all.retrain(
 
 print(f"\nTransfer retrain: RMSE = {result_transfer.best_rmse:.4f}")
 print("  Preprocessing frozen, only model retrained")
-
 
 # =============================================================================
 # Section 4: Finetune Mode
@@ -187,7 +182,6 @@ result_finetune = nirs4all.retrain(
 print(f"\nFinetune: RMSE = {result_finetune.best_rmse:.4f}")
 print("  Model fine-tuned from trained weights")
 
-
 # =============================================================================
 # Section 5: Retrain from Exported Bundle
 # =============================================================================
@@ -217,7 +211,6 @@ result_from_bundle = nirs4all.retrain(
 
 print(f"\nRetrain from bundle: RMSE = {result_from_bundle.best_rmse:.4f}")
 print("  Loaded pipeline from .n4a bundle and retrained model")
-
 
 # =============================================================================
 # Section 6: Retraining Workflow
@@ -249,7 +242,6 @@ print("""
       ▼
   mode='full'
 """)
-
 
 # =============================================================================
 # Section 7: Retraining with Different Models
@@ -286,7 +278,6 @@ result_new_model = nirs4all.retrain(
 print(f"\nTransfer with RF: RMSE = {result_new_model.best_rmse:.4f}")
 print("  Same preprocessing, different model")
 
-
 # =============================================================================
 # Section 8: Mode Comparison
 # =============================================================================
@@ -305,7 +296,6 @@ print("""
 │ finetune   │ Frozen      │ Fine-tune   │ Minor adaptation       │
 └────────────┴─────────────┴─────────────┴────────────────────────┘
 """)
-
 
 # =============================================================================
 # Summary

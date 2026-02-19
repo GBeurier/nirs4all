@@ -27,7 +27,7 @@ Example:
     >>> print(selected)  # ["PLS"] (assuming PLS has best RMSE)
 """
 
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
@@ -42,7 +42,6 @@ if TYPE_CHECKING:
     from nirs4all.pipeline.config.context import ExecutionContext
 
 logger = get_logger(__name__)
-
 
 class ModelSelector:
     """Utility class for selecting models based on validation metrics.
@@ -75,14 +74,14 @@ class ModelSelector:
         """
         self.prediction_store = prediction_store
         self.context = context
-        self._score_cache: Dict[str, Dict[str, float]] = {}
+        self._score_cache: dict[str, dict[str, float]] = {}
 
     def select_models(
         self,
-        available_models: List[str],
+        available_models: list[str],
         config: BranchPredictionConfig,
         branch_id: int,
-    ) -> List[str]:
+    ) -> list[str]:
         """Select models from available models based on config.
 
         Args:
@@ -131,10 +130,10 @@ class ModelSelector:
 
     def _select_best(
         self,
-        available_models: List[str],
-        metric: Optional[str],
+        available_models: list[str],
+        metric: str | None,
         branch_id: int,
-    ) -> List[str]:
+    ) -> list[str]:
         """Select the single best model by validation metric.
 
         Args:
@@ -152,11 +151,11 @@ class ModelSelector:
 
     def _select_top_k(
         self,
-        available_models: List[str],
+        available_models: list[str],
         k: int,
-        metric: Optional[str],
+        metric: str | None,
         branch_id: int,
-    ) -> List[str]:
+    ) -> list[str]:
         """Select top K models by validation metric.
 
         Args:
@@ -175,10 +174,10 @@ class ModelSelector:
 
     def _select_explicit(
         self,
-        available_models: List[str],
-        model_names: List[str],
+        available_models: list[str],
+        model_names: list[str],
         branch_id: int,
-    ) -> List[str]:
+    ) -> list[str]:
         """Select explicitly named models.
 
         Args:
@@ -208,10 +207,10 @@ class ModelSelector:
 
     def _rank_models_by_metric(
         self,
-        available_models: List[str],
+        available_models: list[str],
         metric: str,
         branch_id: int,
-    ) -> List[str]:
+    ) -> list[str]:
         """Rank models by validation metric score.
 
         Args:
@@ -222,7 +221,7 @@ class ModelSelector:
         Returns:
             List of model names sorted by metric (best first).
         """
-        model_scores: List[Tuple[str, float]] = []
+        model_scores: list[tuple[str, float]] = []
 
         for model_name in available_models:
             score = self._get_model_validation_score(model_name, metric, branch_id)
@@ -254,7 +253,7 @@ class ModelSelector:
         model_name: str,
         metric: str,
         branch_id: int,
-    ) -> Optional[float]:
+    ) -> float | None:
         """Get validation score for a model.
 
         Uses caching to avoid repeated prediction store queries.
@@ -333,10 +332,10 @@ class ModelSelector:
 
     def get_model_scores(
         self,
-        model_names: List[str],
+        model_names: list[str],
         metric: str,
         branch_id: int,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Get validation scores for multiple models.
 
         Used for weighted aggregation.
@@ -358,10 +357,10 @@ class ModelSelector:
 
     def select_models_global(
         self,
-        available_models: List[str],
+        available_models: list[str],
         selection: Any,
-        metric: Optional[str] = None,
-    ) -> List[str]:
+        metric: str | None = None,
+    ) -> list[str]:
         """Select models globally (without branch context).
 
         This is used by MetaModelController for pipelines without branches.
@@ -387,13 +386,12 @@ class ModelSelector:
             )
             return [ranked[0]] if ranked else []
 
-        if isinstance(selection, dict):
-            if "top_k" in selection:
-                k = selection["top_k"]
-                ranked = self._rank_models_by_metric_global(
-                    available_models, metric or "rmse"
-                )
-                return ranked[:min(k, len(ranked))]
+        if isinstance(selection, dict) and "top_k" in selection:
+            k = selection["top_k"]
+            ranked = self._rank_models_by_metric_global(
+                available_models, metric or "rmse"
+            )
+            return ranked[:min(k, len(ranked))]
 
         if isinstance(selection, list):
             # Explicit list
@@ -411,9 +409,9 @@ class ModelSelector:
 
     def _rank_models_by_metric_global(
         self,
-        available_models: List[str],
+        available_models: list[str],
         metric: str,
-    ) -> List[str]:
+    ) -> list[str]:
         """Rank models globally (across all branches) by validation metric.
 
         Args:
@@ -423,7 +421,7 @@ class ModelSelector:
         Returns:
             List of model names sorted by metric (best first).
         """
-        model_scores: List[Tuple[str, float]] = []
+        model_scores: list[tuple[str, float]] = []
         current_step = getattr(self.context.state, 'step_number', float('inf'))
 
         for model_name in available_models:

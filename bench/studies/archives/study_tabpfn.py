@@ -25,36 +25,42 @@ from pathlib import Path
 
 # Load environment variables from .env file (in project root)
 from dotenv import load_dotenv
+
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 os.environ['DISABLE_EMOJIS'] = '0'
 
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA, TruncatedSVD
+from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
-
-# NIRS4All imports
-from nirs4all.data import DatasetConfigs
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.operators.transforms import (
-    Wavelet, WaveletFeatures, WaveletPCA, WaveletSVD,
-    StandardNormalVariate, FirstDerivative, SavitzkyGolay,
-)
-from nirs4all.operators.splitters import SPXYGFold, BinnedStratifiedGroupKFold
-from sklearn.model_selection import StratifiedGroupKFold, GroupKFold
 from sklearn.random_projection import GaussianRandomProjection, SparseRandomProjection
 
 # TabPFN config module (local)
 from tabpfn_config import (
-    get_model_class,
-    create_model,
-    get_model_path_options,
-    generate_inference_configs,
-    TABPFN_AVAILABLE,
-    REGRESSOR_MODELS,
     CLASSIFIER_MODELS,
+    REGRESSOR_MODELS,
+    TABPFN_AVAILABLE,
+    create_model,
+    generate_inference_configs,
+    get_model_class,
+    get_model_path_options,
 )
+
+# NIRS4All imports
+from nirs4all.data import DatasetConfigs
+from nirs4all.operators.splitters import BinnedStratifiedGroupKFold, SPXYGFold
+from nirs4all.operators.transforms import (
+    FirstDerivative,
+    SavitzkyGolay,
+    StandardNormalVariate,
+    Wavelet,
+    WaveletFeatures,
+    WaveletPCA,
+    WaveletSVD,
+)
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Hugging Face login for TabPFN
 try:
@@ -66,9 +72,6 @@ try:
         print("Warning: HF_TOKEN not set. TabPFN may not work properly.")
 except ImportError:
     print("Warning: huggingface_hub not installed.")
-
-
-
 
 # CLASSIFIER_MODELS = {
 #     'default': 'tabpfn-v2.5-classifier-v2.5_default.ckpt',
@@ -102,7 +105,6 @@ parser.add_argument("--verbose", type=int, default=1, help="Verbosity level (0-2
 parser.add_argument("--device", type=str, default="cuda", help="Device: 'cuda' or 'cpu'")
 args = parser.parse_args()
 
-
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -117,7 +119,6 @@ N_TRIALS = 10  # Number of Optuna trials for finetuning
 
 # Model variants to test
 MODEL_VARIANTS = ['default', 'real', 'low-skew'] if TASK_TYPE == 'regression' else ['default', 'real']
-
 
 # =============================================================================
 # Feature Extraction Pipeline Components
@@ -157,7 +158,6 @@ tabpfn_transformers = [
         WaveletSVD(wavelet='db4', max_level=4, n_components_per_level=5),
         WaveletSVD(wavelet='haar', max_level=5, n_components_per_level=4),
     ]
-
 
 # =============================================================================
 # Main Study
@@ -231,7 +231,7 @@ def main():
         },
     ]
 
-    n_feature_options = len(create_feature_extraction_options())
+    n_feature_options = len(tabpfn_transformers)
     print(f"Pipeline configured with {n_feature_options} feature extraction options")
     print(f"Models: {len(MODEL_VARIANTS)} TabPFN variants")
     print()
@@ -328,7 +328,7 @@ def main():
     print("=" * 70)
     print("SUMMARY")
     print("=" * 70)
-    n_feature_options = len(create_feature_extraction_options())
+    n_feature_options = len(tabpfn_transformers)
     print(f"  Feature extraction options: {n_feature_options}")
     print(f"  Model variants explored: {MODEL_VARIANTS}")
     print(f"  Finetuning trials: {N_TRIALS}")
@@ -375,7 +375,6 @@ def main():
 
     # if args.show:
     #     plt.show()
-
 
 if __name__ == "__main__":
     main()

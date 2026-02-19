@@ -44,8 +44,8 @@ Design Principles:
 """
 
 from nirs4all.pipeline.bundle.generator import (
-    BundleGenerator,
     BundleFormat,
+    BundleGenerator,
 )
 from nirs4all.pipeline.bundle.loader import (
     BundleLoader,

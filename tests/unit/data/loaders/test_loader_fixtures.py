@@ -5,10 +5,11 @@ These tests verify that the loader-specific fixtures work correctly
 and create valid CSV files in various formats.
 """
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
-from pathlib import Path
 
 
 class TestLoaderBaseData:
@@ -32,7 +33,6 @@ class TestLoaderBaseData:
         assert wavelengths[-1] == 2000
         assert len(wavelengths) == 101  # 1000 to 2000, step 10
 
-
 class TestCsvStandardFormat:
     """Tests for csv_standard_format fixture."""
 
@@ -53,10 +53,9 @@ class TestCsvStandardFormat:
     def test_xcal_has_correct_delimiter(self, csv_standard_format):
         """Xcal should use semicolon delimiter."""
         xcal = csv_standard_format / "Xcal.csv"
-        with open(xcal, 'r') as f:
+        with open(xcal) as f:
             first_line = f.readline()
         assert ';' in first_line
-
 
 class TestCsvCommaDelimiter:
     """Tests for csv_comma_delimiter fixture."""
@@ -68,11 +67,10 @@ class TestCsvCommaDelimiter:
     def test_uses_comma_delimiter(self, csv_comma_delimiter):
         """Files should use comma delimiter."""
         xcal = csv_comma_delimiter / "Xcal.csv"
-        with open(xcal, 'r') as f:
+        with open(xcal) as f:
             first_line = f.readline()
         # Should have commas but not semicolons (except if in data)
         assert ',' in first_line
-
 
 class TestCsvTabDelimiter:
     """Tests for csv_tab_delimiter fixture."""
@@ -89,10 +87,9 @@ class TestCsvTabDelimiter:
     def test_uses_tab_delimiter(self, csv_tab_delimiter):
         """Files should use tab delimiter."""
         xcal = csv_tab_delimiter / "Xcal.tsv"
-        with open(xcal, 'r') as f:
+        with open(xcal) as f:
             first_line = f.readline()
         assert '\t' in first_line
-
 
 class TestCsvNoHeaders:
     """Tests for csv_no_headers fixture."""
@@ -104,7 +101,7 @@ class TestCsvNoHeaders:
     def test_first_line_is_data(self, csv_no_headers):
         """First line should be data, not headers."""
         xcal = csv_no_headers / "Xcal.csv"
-        with open(xcal, 'r') as f:
+        with open(xcal) as f:
             first_line = f.readline().strip()
 
         # First line should parse as numbers
@@ -114,7 +111,6 @@ class TestCsvNoHeaders:
                 float(val)
             except ValueError:
                 pytest.fail(f"First line contains non-numeric value: {val}")
-
 
 class TestCsvWithIndex:
     """Tests for csv_with_index fixture."""
@@ -129,7 +125,6 @@ class TestCsvWithIndex:
         df = pd.read_csv(xcal, sep=';')
         # pandas adds Unnamed: 0 for index column
         assert 'Unnamed: 0' in df.columns or df.columns[0].isdigit() is False
-
 
 class TestCsvSingleFile:
     """Tests for csv_single_file fixture."""
@@ -149,7 +144,6 @@ class TestCsvSingleFile:
         df = pd.read_csv(data_file, sep=';')
         assert 'partition' in df.columns
 
-
 class TestCsvFragmented:
     """Tests for csv_fragmented fixture."""
 
@@ -167,7 +161,6 @@ class TestCsvFragmented:
         train_folder = csv_fragmented / "train"
         x_files = list(train_folder.glob("X_part*.csv"))
         assert len(x_files) >= 2  # Should be fragmented
-
 
 class TestCsvPrecision:
     """Tests for precision variation fixtures."""
@@ -191,7 +184,6 @@ class TestCsvPrecision:
             decimals = len(sample_val.split('.')[1])
             assert decimals <= 3  # Allow some rounding variation
 
-
 class TestCsvWithMissingValues:
     """Tests for csv_with_missing_values fixture."""
 
@@ -213,7 +205,6 @@ class TestCsvWithMissingValues:
         # Should have some NaN values
         assert df.isna().any().any()
 
-
 class TestCsvWithTextHeaders:
     """Tests for csv_with_text_headers fixture."""
 
@@ -228,7 +219,6 @@ class TestCsvWithTextHeaders:
         # Check that columns are named feature_N
         assert df.columns[0].startswith('feature_')
 
-
 class TestCsvEuropeanDecimals:
     """Tests for csv_european_decimals fixture."""
 
@@ -239,7 +229,7 @@ class TestCsvEuropeanDecimals:
     def test_uses_comma_as_decimal(self, csv_european_decimals):
         """Should use comma as decimal separator."""
         xcal = csv_european_decimals / "Xcal.csv"
-        with open(xcal, 'r') as f:
+        with open(xcal) as f:
             content = f.read()
 
         # Should contain commas within numbers (as decimal separators)
@@ -252,7 +242,6 @@ class TestCsvEuropeanDecimals:
             values = data_line.split(';')
             for val in values[:3]:
                 assert ',' in val, f"Expected comma decimal in {val}"
-
 
 class TestCsvMultiSource:
     """Tests for csv_multi_source fixture."""
@@ -271,7 +260,6 @@ class TestCsvMultiSource:
         ycal_files = list(csv_multi_source.glob("Ycal*.csv"))
         # Should have exactly one Ycal file (not Ycal_1, Ycal_2, etc.)
         assert any(f.name == "Ycal.csv" for f in ycal_files)
-
 
 class TestCsvSingleFileAllData:
     """Tests for csv_single_file_all_data fixture."""
@@ -295,7 +283,6 @@ class TestCsvSingleFileAllData:
         assert 'group' in df.columns
         assert 'target' in df.columns
 
-
 class TestCsvBasicVariations:
     """Tests for csv_basic_variations parametrized fixture."""
 
@@ -311,7 +298,6 @@ class TestCsvBasicVariations:
         assert 'delimiter' in info
         assert 'has_header' in info
 
-
 class TestCsvFileStructures:
     """Tests for csv_file_structures parametrized fixture."""
 
@@ -325,7 +311,6 @@ class TestCsvFileStructures:
         path, structure_type = csv_file_structures
         assert structure_type in ['standard', 'single_file', 'fragmented']
 
-
 class TestCsvPrecisionLevels:
     """Tests for csv_precision_levels parametrized fixture."""
 
@@ -338,7 +323,6 @@ class TestCsvPrecisionLevels:
         """Should return precision integer."""
         path, precision = csv_precision_levels
         assert precision in [2, 6, 10]
-
 
 class TestCsvAllLoaderVariations:
     """Tests for csv_all_loader_variations fixture."""
@@ -363,7 +347,6 @@ class TestCsvAllLoaderVariations:
         """All paths should exist."""
         for name, path in csv_all_loader_variations.items():
             assert path.exists(), f"Path for {name} does not exist"
-
 
 class TestLoaderCsvGenerator:
     """Tests for loader_csv_generator fixture."""

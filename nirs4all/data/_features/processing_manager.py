@@ -1,6 +1,7 @@
 """Processing ID management and tracking."""
 
-from typing import List, Dict, Optional
+from typing import Optional
+
 from nirs4all.data._features.feature_constants import DEFAULT_PROCESSING
 
 
@@ -15,13 +16,13 @@ class ProcessingManager:
         processing_id_to_index: Dictionary mapping processing names to indices.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize with default 'raw' processing."""
-        self._processing_ids: List[str] = [DEFAULT_PROCESSING]
-        self._processing_id_to_index: Dict[str, int] = {DEFAULT_PROCESSING: 0}
+        self._processing_ids: list[str] = [DEFAULT_PROCESSING]
+        self._processing_id_to_index: dict[str, int] = {DEFAULT_PROCESSING: 0}
 
     @property
-    def processing_ids(self) -> List[str]:
+    def processing_ids(self) -> list[str]:
         """Get a copy of the processing ID list.
 
         Returns:
@@ -38,7 +39,7 @@ class ProcessingManager:
         """
         return len(self._processing_ids)
 
-    def get_index(self, processing_id: str) -> Optional[int]:
+    def get_index(self, processing_id: str) -> int | None:
         """Get the index for a processing ID.
 
         Args:
@@ -126,7 +127,7 @@ class ProcessingManager:
         }
         return idx
 
-    def reset_processings(self, new_processings: List[str]) -> None:
+    def reset_processings(self, new_processings: list[str]) -> None:
         """Reset processing IDs to a new list.
 
         Args:

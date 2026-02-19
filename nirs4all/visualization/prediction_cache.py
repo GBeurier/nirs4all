@@ -7,7 +7,8 @@ redundant computations when multiple charts use the same data.
 import hashlib
 import json
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from collections.abc import Callable
+from typing import Any, Optional, Union
 
 
 class CacheKey:
@@ -17,12 +18,12 @@ class CacheKey:
 
     def __init__(
         self,
-        aggregate: Optional[str],
+        aggregate: str | None,
         rank_metric: str,
         rank_partition: str,
         display_partition: str,
-        group_by: Optional[Tuple[str, ...]],
-        filters: Tuple[Tuple[str, Any], ...]
+        group_by: tuple[str, ...] | None,
+        filters: tuple[tuple[str, Any], ...]
     ):
         """Create a cache key from query parameters.
 
@@ -56,7 +57,6 @@ class CacheKey:
     def __repr__(self):
         return f"CacheKey({self._repr})"
 
-
 class PredictionCache:
     """LRU-style cache for prediction query results.
 
@@ -86,8 +86,8 @@ class PredictionCache:
         Args:
             max_entries: Maximum number of cached entries before LRU eviction.
         """
-        self._cache: Dict[CacheKey, Any] = {}
-        self._access_order: List[CacheKey] = []
+        self._cache: dict[CacheKey, Any] = {}
+        self._access_order: list[CacheKey] = []
         self._max_entries = max_entries
         self._stats = {
             'hits': 0,
@@ -98,11 +98,11 @@ class PredictionCache:
 
     @staticmethod
     def make_key(
-        aggregate: Optional[str],
+        aggregate: str | None,
         rank_metric: str,
         rank_partition: str = 'val',
         display_partition: str = 'test',
-        group_by: Optional[Union[str, List[str]]] = None,
+        group_by: str | list[str] | None = None,
         **filters
     ) -> CacheKey:
         """Create a cache key from query parameters.
@@ -146,7 +146,7 @@ class PredictionCache:
             filters=tuple(filter_items)
         )
 
-    def get(self, key: CacheKey) -> Optional[Any]:
+    def get(self, key: CacheKey) -> Any | None:
         """Get cached result if available.
 
         Args:
@@ -182,7 +182,7 @@ class PredictionCache:
             self._access_order.remove(key)
         self._access_order.append(key)
 
-    def get_or_compute(self, key: CacheKey, compute_fn: callable) -> Any:
+    def get_or_compute(self, key: CacheKey, compute_fn: Callable) -> Any:
         """Get cached result or compute and cache.
 
         This is the primary method for cache usage. It handles
@@ -221,7 +221,7 @@ class PredictionCache:
         self._cache.clear()
         self._access_order.clear()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get cache statistics.
 
         Returns:

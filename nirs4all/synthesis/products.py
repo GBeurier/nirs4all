@@ -41,7 +41,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import numpy as np
 
@@ -49,7 +49,6 @@ from .components import ComponentLibrary
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
-
 
 class VariationType(Enum):
     """
@@ -70,7 +69,6 @@ class VariationType(Enum):
     LOGNORMAL = auto()
     CORRELATED = auto()
     COMPUTED = auto()
-
 
 @dataclass
 class ComponentVariation:
@@ -110,14 +108,14 @@ class ComponentVariation:
 
     component: str
     variation_type: VariationType
-    value: Optional[float] = None
-    min_value: Optional[float] = None
-    max_value: Optional[float] = None
-    mean: Optional[float] = None
-    std: Optional[float] = None
-    correlated_with: Optional[str] = None
-    correlation: Optional[float] = None
-    compute_as: Optional[str] = None
+    value: float | None = None
+    min_value: float | None = None
+    max_value: float | None = None
+    mean: float | None = None
+    std: float | None = None
+    correlated_with: str | None = None
+    correlation: float | None = None
+    compute_as: str | None = None
 
     def __post_init__(self) -> None:
         """Validate specification based on variation type."""
@@ -149,10 +147,8 @@ class ComponentVariation:
             if not -1.0 <= self.correlation <= 1.0:
                 raise ValueError("correlation must be between -1 and 1")
 
-        elif vtype == VariationType.COMPUTED:
-            if self.compute_as is None:
-                raise ValueError("COMPUTED variation requires 'compute_as'")
-
+        elif vtype == VariationType.COMPUTED and self.compute_as is None:
+            raise ValueError("COMPUTED variation requires 'compute_as'")
 
 @dataclass
 class ProductTemplate:
@@ -195,10 +191,10 @@ class ProductTemplate:
     description: str
     category: str
     domain: str
-    components: List[ComponentVariation]
+    components: list[ComponentVariation]
     default_target: str = ""
-    tags: List[str] = field(default_factory=list)
-    references: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    references: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """Validate template consistency."""
@@ -210,15 +206,14 @@ class ProductTemplate:
 
         # Check correlated components reference valid sources
         for comp_var in self.components:
-            if comp_var.variation_type == VariationType.CORRELATED:
-                if comp_var.correlated_with not in comp_names:
-                    raise ValueError(
-                        f"Component '{comp_var.component}' correlates with "
-                        f"'{comp_var.correlated_with}' which is not in template"
-                    )
+            if comp_var.variation_type == VariationType.CORRELATED and comp_var.correlated_with not in comp_names:
+                raise ValueError(
+                    f"Component '{comp_var.component}' correlates with "
+                    f"'{comp_var.correlated_with}' which is not in template"
+                )
 
     @property
-    def component_names(self) -> List[str]:
+    def component_names(self) -> list[str]:
         """Return list of component names in this template."""
         return [c.component for c in self.components]
 
@@ -253,13 +248,11 @@ class ProductTemplate:
             lines.append(f"Tags: {', '.join(self.tags)}")
         return "\n".join(lines)
 
-
 # =============================================================================
 # Predefined Product Templates
 # =============================================================================
 
-PRODUCT_TEMPLATES: Dict[str, ProductTemplate] = {}
-
+PRODUCT_TEMPLATES: dict[str, ProductTemplate] = {}
 
 def _register_templates() -> None:
     """Register all predefined product templates."""
@@ -600,15 +593,12 @@ def _register_templates() -> None:
         references=["USDA FoodData Central"],
     )
 
-
 # Register templates on module load
 _register_templates()
-
 
 # =============================================================================
 # ProductGenerator Class
 # =============================================================================
-
 
 class ProductGenerator:
     """
@@ -652,14 +642,14 @@ class ProductGenerator:
 
     def __init__(
         self,
-        template: Union[str, ProductTemplate],
-        random_state: Optional[int] = None,
+        template: str | ProductTemplate,
+        random_state: int | None = None,
         wavelength_start: float = 1000.0,
         wavelength_end: float = 2500.0,
         wavelength_step: float = 2.0,
-        wavelengths: Optional[np.ndarray] = None,
-        instrument_wavelength_grid: Optional[str] = None,
-        complexity: str = "realistic",
+        wavelengths: np.ndarray | None = None,
+        instrument_wavelength_grid: str | None = None,
+        complexity: Literal["simple", "realistic", "complex"] = "realistic",
     ) -> None:
         """Initialize the product generator."""
         # Get template
@@ -670,7 +660,7 @@ class ProductGenerator:
 
         self._random_state = random_state
         self.rng = np.random.default_rng(random_state)
-        self.complexity = complexity
+        self.complexity: Literal["simple", "realistic", "complex"] = complexity
 
         # Store wavelength config
         self._wavelength_start = wavelength_start
@@ -719,12 +709,14 @@ class ProductGenerator:
                 sampled.add(comp_var.component)
 
             elif vtype == VariationType.UNIFORM:
+                assert comp_var.min_value is not None and comp_var.max_value is not None
                 concentrations[:, i] = self.rng.uniform(
                     comp_var.min_value, comp_var.max_value, n_samples
                 )
                 sampled.add(comp_var.component)
 
             elif vtype == VariationType.NORMAL:
+                assert comp_var.mean is not None and comp_var.std is not None
                 values = self.rng.normal(comp_var.mean, comp_var.std, n_samples)
                 if comp_var.min_value is not None and comp_var.max_value is not None:
                     values = np.clip(values, comp_var.min_value, comp_var.max_value)
@@ -733,6 +725,7 @@ class ProductGenerator:
 
             elif vtype == VariationType.LOGNORMAL:
                 # Convert mean/std to log-space parameters
+                assert comp_var.mean is not None and comp_var.std is not None
                 mean, std = comp_var.mean, comp_var.std
                 sigma_sq = np.log(1 + (std / mean) ** 2)
                 mu = np.log(mean) - sigma_sq / 2
@@ -751,6 +744,7 @@ class ProductGenerator:
                 continue
 
             # Get source component values
+            assert comp_var.correlated_with is not None
             source_name = comp_var.correlated_with
             source_idx = comp_names.index(source_name)
             source_values = concentrations[:, source_idx]
@@ -773,6 +767,7 @@ class ProductGenerator:
                 source_normalized = source_values / source_values.max()
 
             # Generate correlated values
+            assert comp_var.correlation is not None
             correlation = comp_var.correlation
             mean = comp_var.mean if comp_var.mean is not None else 0.5
             std = comp_var.std if comp_var.std is not None else 0.1
@@ -820,12 +815,12 @@ class ProductGenerator:
     def generate(
         self,
         n_samples: int = 1000,
-        target: Optional[str] = None,
+        target: str | None = None,
         train_ratio: float = 0.8,
         include_batch_effects: bool = False,
         n_batches: int = 1,
         return_concentrations: bool = False,
-    ) -> Union["SpectroDataset", Tuple["SpectroDataset", np.ndarray]]:
+    ) -> SpectroDataset | tuple[SpectroDataset, np.ndarray]:
         """
         Generate synthetic product samples.
 
@@ -847,8 +842,9 @@ class ProductGenerator:
             >>> dataset = generator.generate(n_samples=1000, target="lipid")
             >>> print(f"Train: {dataset.n_train}, Test: {dataset.n_test}")
         """
-        from .generator import SyntheticNIRSGenerator
         from nirs4all.data.dataset import SpectroDataset
+
+        from .generator import SyntheticNIRSGenerator
 
         # Determine target component
         if target is None:
@@ -918,9 +914,9 @@ class ProductGenerator:
         self,
         target: str,
         n_samples: int = 1000,
-        target_range: Optional[Tuple[float, float]] = None,
+        target_range: tuple[float, float] | None = None,
         **kwargs: Any,
-    ) -> "SpectroDataset":
+    ) -> SpectroDataset:
         """
         Generate dataset optimized for a specific target component.
 
@@ -945,12 +941,14 @@ class ProductGenerator:
             ... )
         """
         # Generate with return_concentrations to get the target component
-        dataset, concentrations = self.generate(
+        result = self.generate(
             n_samples=n_samples,
             target=target,
             return_concentrations=True,
             **kwargs
         )
+        assert isinstance(result, tuple)
+        dataset, concentrations = result
 
         if target_range is not None:
             # Get target values from concentrations
@@ -963,6 +961,7 @@ class ProductGenerator:
 
                 # Re-create dataset with scaled targets
                 from nirs4all.data.dataset import SpectroDataset as DS
+
                 from .generator import SyntheticNIRSGenerator
 
                 # Get wavelengths from generator
@@ -982,7 +981,9 @@ class ProductGenerator:
                 n_train = int(n_samples * train_ratio)
 
                 # Get X from original dataset
-                X = dataset.x({}, layout="2d")
+                X_data = dataset.x({}, layout="2d")
+                assert isinstance(X_data, np.ndarray)
+                X = X_data
 
                 # Create new dataset with scaled y
                 new_dataset = DS(name=f"synthetic_{self.template.name}")
@@ -1018,11 +1019,9 @@ class ProductGenerator:
             f"default_target='{self.template.default_target}')"
         )
 
-
 # =============================================================================
 # CategoryGenerator Class
 # =============================================================================
-
 
 class CategoryGenerator:
     """
@@ -1057,8 +1056,8 @@ class CategoryGenerator:
 
     def __init__(
         self,
-        templates: List[Union[str, ProductTemplate]],
-        random_state: Optional[int] = None,
+        templates: list[str | ProductTemplate],
+        random_state: int | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize the category generator."""
@@ -1066,7 +1065,7 @@ class CategoryGenerator:
         self.rng = np.random.default_rng(random_state)
 
         # Convert template names to ProductTemplate objects
-        self.templates: List[ProductTemplate] = []
+        self.templates: list[ProductTemplate] = []
         for template in templates:
             if isinstance(template, str):
                 self.templates.append(get_product_template(template))
@@ -1075,7 +1074,7 @@ class CategoryGenerator:
 
         # Create generators for each template
         # Use different random states for each generator
-        self.generators: List[ProductGenerator] = []
+        self.generators: list[ProductGenerator] = []
         for i, template in enumerate(self.templates):
             seed = random_state + i if random_state is not None else None
             self.generators.append(
@@ -1085,12 +1084,12 @@ class CategoryGenerator:
     def generate(
         self,
         n_samples: int = 1000,
-        target: Optional[str] = None,
-        samples_per_template: Optional[List[int]] = None,
+        target: str | None = None,
+        samples_per_template: list[int] | None = None,
         train_ratio: float = 0.8,
         shuffle: bool = True,
         include_template_labels: bool = False,
-    ) -> "SpectroDataset":
+    ) -> SpectroDataset:
         """
         Generate combined dataset from multiple templates.
 
@@ -1122,12 +1121,12 @@ class CategoryGenerator:
             samples_per_template[-1] += n_samples % n_templates
 
         # Collect data from all templates
-        all_X: List[np.ndarray] = []
-        all_y: List[np.ndarray] = []
-        all_template_ids: List[np.ndarray] = []
+        all_X: list[np.ndarray] = []
+        all_y: list[np.ndarray] = []
+        all_template_ids: list[np.ndarray] = []
         wavelengths = None
 
-        for i, (gen, n) in enumerate(zip(self.generators, samples_per_template)):
+        for i, (gen, n) in enumerate(zip(self.generators, samples_per_template, strict=False)):
             # Use target from first template if not specified
             t = target if target else gen.template.default_target
 
@@ -1139,21 +1138,24 @@ class CategoryGenerator:
                 )
 
             # Generate with 100% train ratio (we'll split later)
-            dataset, concentrations = gen.generate(
+            result = gen.generate(
                 n_samples=n,
                 target=t,
                 train_ratio=1.0,
                 return_concentrations=True,
             )
+            assert isinstance(result, tuple)
+            dataset, concentrations = result
 
             # Get X
-            X = dataset.x({}, layout="2d")
+            X_data = dataset.x({}, layout="2d")
+            assert isinstance(X_data, np.ndarray)
 
             # Get y from concentrations (using the target index for this template)
             target_idx = gen.template.component_names.index(t)
             y = concentrations[:, target_idx]
 
-            all_X.append(X)
+            all_X.append(X_data)
             all_y.append(y)
             all_template_ids.append(np.full(n, i))
 
@@ -1180,6 +1182,7 @@ class CategoryGenerator:
         dataset = SpectroDataset(name="synthetic_category")
 
         # Create wavelength headers
+        assert wavelengths is not None
         headers = [str(int(wl)) for wl in wavelengths]
 
         # Add training samples
@@ -1213,17 +1216,15 @@ class CategoryGenerator:
         template_names = [t.name for t in self.templates]
         return f"CategoryGenerator(templates={template_names})"
 
-
 # =============================================================================
 # Convenience Functions
 # =============================================================================
 
-
 def list_product_templates(
-    category: Optional[str] = None,
-    domain: Optional[str] = None,
-    tags: Optional[List[str]] = None,
-) -> List[str]:
+    category: str | None = None,
+    domain: str | None = None,
+    tags: list[str] | None = None,
+) -> list[str]:
     """
     List available product templates with optional filtering.
 
@@ -1252,13 +1253,11 @@ def list_product_templates(
             continue
         if domain and template.domain != domain:
             continue
-        if tags:
-            if not any(t in template.tags for t in tags):
-                continue
+        if tags and not any(t in template.tags for t in tags):
+            continue
         results.append(name)
 
     return sorted(results)
-
 
 def get_product_template(name: str) -> ProductTemplate:
     """
@@ -1283,14 +1282,13 @@ def get_product_template(name: str) -> ProductTemplate:
         raise ValueError(f"Unknown product template: '{name}'. Available: {available}")
     return PRODUCT_TEMPLATES[name]
 
-
 def generate_product_samples(
-    template: Union[str, ProductTemplate],
+    template: str | ProductTemplate,
     n_samples: int = 1000,
-    target: Optional[str] = None,
-    random_state: Optional[int] = None,
+    target: str | None = None,
+    random_state: int | None = None,
     **kwargs: Any,
-) -> "SpectroDataset":
+) -> SpectroDataset:
     """
     Generate synthetic product samples (convenience function).
 
@@ -1318,8 +1316,10 @@ def generate_product_samples(
         ... )
     """
     generator = ProductGenerator(template, random_state=random_state)
-    return generator.generate(n_samples=n_samples, target=target, **kwargs)
-
+    result = generator.generate(n_samples=n_samples, target=target, **kwargs)
+    if isinstance(result, tuple):
+        return result[0]
+    return result
 
 def product_template_info(name: str) -> str:
     """
@@ -1337,8 +1337,7 @@ def product_template_info(name: str) -> str:
     template = get_product_template(name)
     return template.info()
 
-
-def list_product_categories() -> List[str]:
+def list_product_categories() -> list[str]:
     """
     List all unique product categories.
 
@@ -1355,8 +1354,7 @@ def list_product_categories() -> List[str]:
         categories.add(template.category)
     return sorted(categories)
 
-
-def list_product_domains() -> List[str]:
+def list_product_domains() -> list[str]:
     """
     List all unique product domains.
 

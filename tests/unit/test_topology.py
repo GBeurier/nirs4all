@@ -31,14 +31,12 @@ def _splitter(cls_name: str = "sklearn.model_selection._split.KFold", **params) 
         step["params"] = params
     return step
 
-
 def _transform(cls_name: str = "sklearn.preprocessing._data.MinMaxScaler", **params) -> dict:
     """Create a serialized transformer step."""
     step = {"class": cls_name}
     if params:
         step["params"] = params
     return step
-
 
 def _model(cls_name: str = "sklearn.cross_decomposition._pls.PLSRegression", **params) -> dict:
     """Create a model step with explicit ``model`` keyword."""
@@ -47,31 +45,24 @@ def _model(cls_name: str = "sklearn.cross_decomposition._pls.PLSRegression", **p
         inner["params"] = params
     return {"model": inner}
 
-
 def _snv() -> dict:
     return {"class": "nirs4all.operators.transforms.snv.SNV"}
-
 
 def _msc() -> dict:
     return {"class": "nirs4all.operators.transforms.msc.MSC"}
 
-
 def _pls(n: int = 10) -> dict:
     return _model("sklearn.cross_decomposition._pls.PLSRegression", n_components=n)
-
 
 def _rf() -> dict:
     return _model("sklearn.ensemble._forest.RandomForestRegressor")
 
-
 def _ridge() -> dict:
     return _model("sklearn.linear_model._ridge.Ridge")
-
 
 # ---------------------------------------------------------------------------
 # Test: Simple pipeline
 # ---------------------------------------------------------------------------
-
 
 class TestSimplePipeline:
     """Test topology analysis of simple linear pipelines."""
@@ -121,11 +112,9 @@ class TestSimplePipeline:
         assert topo.splitter_step_index is None
         assert len(topo.model_nodes) == 1
 
-
 # ---------------------------------------------------------------------------
 # Test: Stacking
 # ---------------------------------------------------------------------------
-
 
 class TestStacking:
     """Test topology analysis of stacking pipelines."""
@@ -190,11 +179,9 @@ class TestStacking:
         topo = analyze_topology(steps)
         assert topo.max_stacking_depth == 1
 
-
 # ---------------------------------------------------------------------------
 # Test: Nested stacking
 # ---------------------------------------------------------------------------
-
 
 class TestNestedStacking:
     """Test topology analysis of nested stacking pipelines."""
@@ -226,11 +213,9 @@ class TestNestedStacking:
         # Inner: PLS + RF + Ridge; Outer branch 1: RF; Top-level meta: Ridge = 5 models
         assert len(topo.model_nodes) == 5
 
-
 # ---------------------------------------------------------------------------
 # Test: Separation branches
 # ---------------------------------------------------------------------------
-
 
 class TestSeparationBranch:
     """Test topology analysis with separation branches."""
@@ -283,11 +268,9 @@ class TestSeparationBranch:
         # 2 models: one per source branch
         assert len(topo.model_nodes) == 2
 
-
 # ---------------------------------------------------------------------------
 # Test: Feature merge
 # ---------------------------------------------------------------------------
-
 
 class TestFeatureMerge:
     """Test feature merge detection."""
@@ -305,11 +288,9 @@ class TestFeatureMerge:
         assert not topo.has_stacking
         assert not topo.has_concat_merge
 
-
 # ---------------------------------------------------------------------------
 # Test: Mixed merge
 # ---------------------------------------------------------------------------
-
 
 class TestMixedMerge:
     """Test mixed merge detection (features + predictions in one merge step)."""
@@ -332,11 +313,9 @@ class TestMixedMerge:
         # (but has_stacking is specifically for merge:"predictions", so it stays False)
         assert not topo.has_stacking
 
-
 # ---------------------------------------------------------------------------
 # Test: Branches without merge (competing branches)
 # ---------------------------------------------------------------------------
-
 
 class TestBranchesWithoutMerge:
     """Test detection of duplication branches with no subsequent merge."""
@@ -369,11 +348,9 @@ class TestBranchesWithoutMerge:
 
         assert topo.has_branches_without_merge
 
-
 # ---------------------------------------------------------------------------
 # Test: Sequential models
 # ---------------------------------------------------------------------------
-
 
 class TestSequentialModels:
     """Test detection of sequential model steps (no branch/merge between them)."""
@@ -406,11 +383,9 @@ class TestSequentialModels:
 
         assert not topo.has_sequential_models
 
-
 # ---------------------------------------------------------------------------
 # Test: Multi-source
 # ---------------------------------------------------------------------------
-
 
 class TestMultiSource:
     """Test multi-source detection."""
@@ -428,11 +403,9 @@ class TestMultiSource:
         assert topo.has_multi_source
         assert topo.has_separation_branch
 
-
 # ---------------------------------------------------------------------------
 # Test: Edge cases
 # ---------------------------------------------------------------------------
-
 
 class TestEdgeCases:
     """Test edge cases and unusual configurations."""

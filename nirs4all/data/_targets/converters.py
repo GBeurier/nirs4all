@@ -1,6 +1,6 @@
 """Numeric conversion utilities for target data."""
 
-from typing import Dict, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 from sklearn.base import TransformerMixin
@@ -33,8 +33,8 @@ class NumericConverter:
 
     @staticmethod
     def convert(data: np.ndarray,
-                existing_transformer: Optional[TransformerMixin] = None
-                ) -> Tuple[np.ndarray, TransformerMixin]:
+                existing_transformer: TransformerMixin | None = None
+                ) -> tuple[np.ndarray, TransformerMixin]:
         """
         Convert raw target data to numeric format.
 
@@ -70,10 +70,9 @@ class NumericConverter:
         array([0., 1., 0., 2.])  # Re-encoded to 0-based
         """
         # Reuse existing transformer if provided
-        if existing_transformer is not None:
-            if hasattr(existing_transformer, 'transform'):
-                numeric = existing_transformer.transform(data)
-                return numeric.astype(np.float32), existing_transformer
+        if existing_transformer is not None and hasattr(existing_transformer, 'transform'):
+            numeric = existing_transformer.transform(data)
+            return numeric.astype(np.float32), existing_transformer
 
         # Ensure 2D shape
         data = np.asarray(data)
@@ -88,7 +87,7 @@ class NumericConverter:
         return NumericConverter._handle_mixed_data(data)
 
     @staticmethod
-    def _handle_numeric_data(data: np.ndarray) -> Tuple[np.ndarray, TransformerMixin]:
+    def _handle_numeric_data(data: np.ndarray) -> tuple[np.ndarray, TransformerMixin]:
         """
         Handle already numeric data.
 
@@ -123,7 +122,7 @@ class NumericConverter:
             return data.astype(np.float32), transformer
 
     @staticmethod
-    def _handle_mixed_data(data: np.ndarray) -> Tuple[np.ndarray, TransformerMixin]:
+    def _handle_mixed_data(data: np.ndarray) -> tuple[np.ndarray, TransformerMixin]:
         """
         Handle mixed or non-numeric data column by column.
 
@@ -134,7 +133,7 @@ class NumericConverter:
             Tuple[np.ndarray, TransformerMixin]: Tuple of (numeric_data, transformer)
         """
         numeric = np.empty_like(data, dtype=np.float32)
-        column_transformers: Dict[int, Optional[TransformerMixin]] = {}
+        column_transformers: dict[int, TransformerMixin | None] = {}
 
         for col in range(data.shape[1]):
             col_data = data[:, col]
@@ -158,7 +157,6 @@ class NumericConverter:
         transformer = ColumnWiseTransformer(column_transformers)
         return numeric, transformer
 
-
 class ColumnWiseTransformer(TransformerMixin):
     """
     Applies different transformers to different columns.
@@ -175,7 +173,7 @@ class ColumnWiseTransformer(TransformerMixin):
     >>> result = transformer.transform(data)
     """
 
-    def __init__(self, column_transformers: Dict[int, Optional[TransformerMixin]]):
+    def __init__(self, column_transformers: dict[int, TransformerMixin | None]):
         """
         Initialize with column transformer mapping.
 
@@ -184,7 +182,7 @@ class ColumnWiseTransformer(TransformerMixin):
         """
         self.column_transformers = column_transformers
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> 'ColumnWiseTransformer':
+    def fit(self, X: np.ndarray, y: np.ndarray | None = None) -> 'ColumnWiseTransformer':
         """
         Fit transformer (no-op, already fitted).
 

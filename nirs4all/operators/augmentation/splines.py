@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.interpolate as interpolate
-from sklearn.base import TransformerMixin, BaseEstimator
+from sklearn.base import BaseEstimator, TransformerMixin
 
 
 def segment_length(x1, y1, x2, y2):
@@ -24,7 +24,6 @@ def segment_length(x1, y1, x2, y2):
         Length of the line segment.
     """
     return np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-
 
 def X_length(x, y):
     """
@@ -55,7 +54,6 @@ def X_length(x, y):
     SpecLen_seg_cumsum = np.cumsum(SpecLen_seg)
     return SpecLen, SpecLen_seg, SpecLen_seg_cumsum
 
-
 def segment_pt_coord(x1, y1, x2, y2, fracL, L):
     """
     Compute the coordinates of a point on a line segment given the fraction of its length.
@@ -85,7 +83,6 @@ def segment_pt_coord(x1, y1, x2, y2, fracL, L):
     yp = y1 + propL * (y2 - y1)
     return xp, yp
 
-
 def interval_selection(n_l, CumVect):
     """
     Select the interval indices that bound a given value in an array.
@@ -105,7 +102,6 @@ def interval_selection(n_l, CumVect):
     i1 = np.where(n_l <= CumVect)
     i2 = np.where(n_l >= CumVect)
     return np.min(i1), np.max(i2)
-
 
 class Spline_Smoothing(TransformerMixin, BaseEstimator):
     """
@@ -155,7 +151,6 @@ class Spline_Smoothing(TransformerMixin, BaseEstimator):
             result[i] = spl(x_abs)
 
         return result
-
 
 class Spline_X_Perturbations(TransformerMixin, BaseEstimator):
     """
@@ -236,7 +231,6 @@ class Spline_X_Perturbations(TransformerMixin, BaseEstimator):
 
         return result
 
-
 class Spline_Y_Perturbations(TransformerMixin, BaseEstimator):
     """
     Augment the data with a perturbation on the y-axis using B-spline interpolation.
@@ -313,7 +307,6 @@ class Spline_Y_Perturbations(TransformerMixin, BaseEstimator):
             result[i] = X[i] + distor
 
         return result
-
 
 class Spline_X_Simplification(TransformerMixin, BaseEstimator):
     """
@@ -396,7 +389,6 @@ class Spline_X_Simplification(TransformerMixin, BaseEstimator):
 
         return result
 
-
 class Spline_Curve_Simplification(TransformerMixin, BaseEstimator):
     """
     Class to simplify a 1D signal using B-spline interpolation along the curve.
@@ -453,14 +445,7 @@ class Spline_Curve_Simplification(TransformerMixin, BaseEstimator):
         simplified_X = np.empty_like(X)
 
         for i in range(n_samples):
-            if self.uniform:
-                control_point_indices = np.linspace(0, n_features - 1, nb_points).astype(int)
-            else:
-                control_point_indices = np.unique(np.concatenate((
-                    [0],
-                    rng.choice(range(n_features), nb_points, replace=False),
-                    [n_features - 1]
-                )))
+            control_point_indices = np.linspace(0, n_features - 1, nb_points).astype(int) if self.uniform else np.unique(np.concatenate(([0], rng.choice(range(n_features), nb_points, replace=False), [n_features - 1])))
 
             control_point_indices = np.unique(control_point_indices)
             y = X[i]

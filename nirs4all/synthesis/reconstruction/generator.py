@@ -10,15 +10,18 @@ Generates realistic synthetic spectra by:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
+if TYPE_CHECKING:
+    from .distributions import DistributionResult, ParameterSampler
+    from .forward import ForwardChain
+    from .inversion import InversionResult
 
 # =============================================================================
 # Generation Result
 # =============================================================================
-
 
 @dataclass
 class GenerationResult:
@@ -45,12 +48,12 @@ class GenerationResult:
     baseline_coeffs: np.ndarray
     wavelengths: np.ndarray
     noise_level: float = 0.0
-    wl_shifts: Optional[np.ndarray] = None
+    wl_shifts: np.ndarray | None = None
     # Environmental parameters
-    temperature_deltas: Optional[np.ndarray] = None
-    water_activities: Optional[np.ndarray] = None
-    scattering_powers: Optional[np.ndarray] = None
-    scattering_amplitudes: Optional[np.ndarray] = None
+    temperature_deltas: np.ndarray | None = None
+    water_activities: np.ndarray | None = None
+    scattering_powers: np.ndarray | None = None
+    scattering_amplitudes: np.ndarray | None = None
 
     @property
     def n_samples(self) -> int:
@@ -62,11 +65,9 @@ class GenerationResult:
         """Number of wavelengths."""
         return self.X.shape[1]
 
-
 # =============================================================================
 # Reconstruction Generator
 # =============================================================================
-
 
 @dataclass
 class ReconstructionGenerator:
@@ -93,9 +94,9 @@ class ReconstructionGenerator:
     def generate(
         self,
         n_samples: int,
-        forward_chain: "ForwardChain",
-        sampler: "ParameterSampler",
-        random_state: Optional[int] = None,
+        forward_chain: ForwardChain,
+        sampler: ParameterSampler,
+        random_state: int | None = None,
     ) -> GenerationResult:
         """
         Generate synthetic spectra.
@@ -153,10 +154,7 @@ class ReconstructionGenerator:
                 forward_chain.environmental_model.scattering_amplitude = scattering_amplitudes[i]
 
             # Get baseline coeffs for this sample
-            if baseline_coeffs is not None:
-                bl_coeffs = baseline_coeffs[i]
-            else:
-                bl_coeffs = None
+            bl_coeffs = baseline_coeffs[i] if baseline_coeffs is not None else None
 
             # Forward model
             spectrum = forward_chain.forward(
@@ -212,9 +210,9 @@ class ReconstructionGenerator:
     def generate_matched(
         self,
         X_real: np.ndarray,
-        forward_chain: "ForwardChain",
-        sampler: "ParameterSampler",
-        random_state: Optional[int] = None,
+        forward_chain: ForwardChain,
+        sampler: ParameterSampler,
+        random_state: int | None = None,
     ) -> GenerationResult:
         """
         Generate synthetic data matched to real data statistics.
@@ -234,15 +232,13 @@ class ReconstructionGenerator:
         n_samples = X_real.shape[0]
         return self.generate(n_samples, forward_chain, sampler, random_state)
 
-
 # =============================================================================
 # Noise Estimation
 # =============================================================================
 
-
 def estimate_noise_from_residuals(
-    inversion_results: List["InversionResult"],
-) -> Tuple[float, float]:
+    inversion_results: list[InversionResult],
+) -> tuple[float, float]:
     """
     Estimate noise parameters from inversion residuals.
 
@@ -286,19 +282,17 @@ def estimate_noise_from_residuals(
 
     return additive_std, multiplicative_std
 
-
 # =============================================================================
 # Complete Generation Pipeline
 # =============================================================================
 
-
 def generate_synthetic_dataset(
-    forward_chain: "ForwardChain",
-    distribution_result: "DistributionResult",
+    forward_chain: ForwardChain,
+    distribution_result: DistributionResult,
     n_samples: int,
     noise_level: float = 0.001,
     multiplicative_noise: float = 0.01,
-    random_state: Optional[int] = None,
+    random_state: int | None = None,
 ) -> GenerationResult:
     """
     Complete pipeline to generate synthetic dataset.

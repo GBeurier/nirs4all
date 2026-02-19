@@ -11,17 +11,18 @@ Uses multiscale schedule to avoid local minima.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
-from scipy.optimize import minimize, lsq_linear
 from scipy.ndimage import gaussian_filter1d
+from scipy.optimize import lsq_linear, minimize
 
+if TYPE_CHECKING:
+    from .forward import ForwardChain
 
 # =============================================================================
 # Inversion Result
 # =============================================================================
-
 
 @dataclass
 class InversionResult:
@@ -48,12 +49,12 @@ class InversionResult:
 
     concentrations: np.ndarray
     baseline_coeffs: np.ndarray
-    continuum_coeffs: Optional[np.ndarray] = None
+    continuum_coeffs: np.ndarray | None = None
     path_length: float = 1.0
     wl_shift_residual: float = 0.0
-    scatter_coeffs: Optional[np.ndarray] = None
-    fitted_spectrum: Optional[np.ndarray] = None
-    residuals: Optional[np.ndarray] = None
+    scatter_coeffs: np.ndarray | None = None
+    fitted_spectrum: np.ndarray | None = None
+    residuals: np.ndarray | None = None
     r_squared: float = 0.0
     rmse: float = float("inf")
     converged: bool = False
@@ -63,7 +64,7 @@ class InversionResult:
     scattering_power: float = 1.5
     scattering_amplitude: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "concentrations": self.concentrations.tolist(),
@@ -92,11 +93,9 @@ class InversionResult:
             params.append(self.continuum_coeffs)
         return np.concatenate(params)
 
-
 # =============================================================================
 # Multiscale Schedule
 # =============================================================================
-
 
 @dataclass
 class MultiscaleSchedule:
@@ -115,12 +114,12 @@ class MultiscaleSchedule:
         max_iterations: Max iterations at each stage.
     """
 
-    smooth_sigmas: List[float] = field(default_factory=lambda: [15, 8, 4, 0])
-    derivative_weights: List[float] = field(default_factory=lambda: [0.0, 0.3, 0.7, 1.0])
-    baseline_regularization: List[float] = field(
+    smooth_sigmas: list[float] = field(default_factory=lambda: [15, 8, 4, 0])
+    derivative_weights: list[float] = field(default_factory=lambda: [0.0, 0.3, 0.7, 1.0])
+    baseline_regularization: list[float] = field(
         default_factory=lambda: [1e-3, 1e-4, 1e-5, 1e-6]
     )
-    max_iterations: List[int] = field(default_factory=lambda: [50, 100, 100, 200])
+    max_iterations: list[int] = field(default_factory=lambda: [50, 100, 100, 200])
 
     @property
     def n_stages(self) -> int:
@@ -128,7 +127,7 @@ class MultiscaleSchedule:
         return len(self.smooth_sigmas)
 
     @classmethod
-    def quick(cls) -> "MultiscaleSchedule":
+    def quick(cls) -> MultiscaleSchedule:
         """Quick schedule for fast fitting."""
         return cls(
             smooth_sigmas=[10, 0],
@@ -138,7 +137,7 @@ class MultiscaleSchedule:
         )
 
     @classmethod
-    def thorough(cls) -> "MultiscaleSchedule":
+    def thorough(cls) -> MultiscaleSchedule:
         """Thorough schedule for best accuracy."""
         return cls(
             smooth_sigmas=[20, 12, 6, 3, 0],
@@ -147,11 +146,9 @@ class MultiscaleSchedule:
             max_iterations=[50, 100, 100, 150, 200],
         )
 
-
 # =============================================================================
 # Variable Projection Solver
 # =============================================================================
-
 
 @dataclass
 class VariableProjectionSolver:
@@ -176,26 +173,26 @@ class VariableProjectionSolver:
         environmental_prior_weight: Weight for environmental parameter priors.
     """
 
-    path_length_bounds: Tuple[float, float] = (0.5, 2.0)
-    wl_shift_bounds: Tuple[float, float] = (-2.0, 2.0)
+    path_length_bounds: tuple[float, float] = (0.5, 2.0)
+    wl_shift_bounds: tuple[float, float] = (-2.0, 2.0)
     concentration_regularization: float = 1e-6
     baseline_smoothness_penalty: float = 1e-4
     use_derivatives: bool = False
     verbose: bool = False
     # Environmental fitting options
     fit_environmental: bool = False
-    temperature_bounds: Tuple[float, float] = (-15.0, 15.0)
-    water_activity_bounds: Tuple[float, float] = (0.1, 0.9)
-    scattering_power_bounds: Tuple[float, float] = (0.5, 3.0)
-    scattering_amplitude_bounds: Tuple[float, float] = (0.0, 0.2)
+    temperature_bounds: tuple[float, float] = (-15.0, 15.0)
+    water_activity_bounds: tuple[float, float] = (0.1, 0.9)
+    scattering_power_bounds: tuple[float, float] = (0.5, 3.0)
+    scattering_amplitude_bounds: tuple[float, float] = (0.0, 0.2)
     environmental_prior_weight: float = 0.1
 
     def fit(
         self,
         target: np.ndarray,
-        forward_chain: "ForwardChain",
-        schedule: Optional[MultiscaleSchedule] = None,
-        initial_params: Optional[Dict[str, float]] = None,
+        forward_chain: ForwardChain,
+        schedule: MultiscaleSchedule | None = None,
+        initial_params: dict[str, float] | None = None,
     ) -> InversionResult:
         """
         Fit forward model to target spectrum.
@@ -229,12 +226,7 @@ class VariableProjectionSolver:
             scatter_amp = initial_params.get("scattering_amplitude", 0.0)
 
         # Build parameter vector
-        if self.fit_environmental:
-            current_params = np.array([
-                path_length, wl_shift, temp_delta, water_act, scatter_power, scatter_amp
-            ])
-        else:
-            current_params = np.array([path_length, wl_shift])
+        current_params = np.array([path_length, wl_shift, temp_delta, water_act, scatter_power, scatter_amp]) if self.fit_environmental else np.array([path_length, wl_shift])
 
         # Run multiscale schedule
         for stage in range(schedule.n_stages):
@@ -244,10 +236,7 @@ class VariableProjectionSolver:
             max_iter = schedule.max_iterations[stage]
 
             # Smooth target for this stage
-            if sigma > 0:
-                target_stage = gaussian_filter1d(target, sigma=sigma)
-            else:
-                target_stage = target
+            target_stage = gaussian_filter1d(target, sigma=sigma) if sigma > 0 else target
 
             # Optimize nonlinear params
             result = self._optimize_stage(
@@ -283,7 +272,7 @@ class VariableProjectionSolver:
     def _optimize_stage(
         self,
         target: np.ndarray,
-        forward_chain: "ForwardChain",
+        forward_chain: ForwardChain,
         initial_params: np.ndarray,
         deriv_weight: float = 1.0,
         baseline_reg: float = 1e-6,
@@ -441,9 +430,9 @@ class VariableProjectionSolver:
         self,
         A: np.ndarray,
         target: np.ndarray,
-        forward_chain: "ForwardChain",
+        forward_chain: ForwardChain,
         baseline_reg: float,
-    ) -> Tuple[np.ndarray, float]:
+    ) -> tuple[np.ndarray, float]:
         """
         Solve inner linear problem with constraints.
 
@@ -485,7 +474,7 @@ class VariableProjectionSolver:
     def _final_fit(
         self,
         target: np.ndarray,
-        forward_chain: "ForwardChain",
+        forward_chain: ForwardChain,
         params: np.ndarray,
     ) -> InversionResult:
         """Final fit with full resolution and statistics."""
@@ -568,10 +557,10 @@ class VariableProjectionSolver:
     def fit_batch(
         self,
         X: np.ndarray,
-        forward_chain: "ForwardChain",
-        schedule: Optional[MultiscaleSchedule] = None,
+        forward_chain: ForwardChain,
+        schedule: MultiscaleSchedule | None = None,
         n_jobs: int = 1,
-    ) -> List[InversionResult]:
+    ) -> list[InversionResult]:
         """
         Fit multiple spectra.
 
@@ -600,19 +589,17 @@ class VariableProjectionSolver:
 
         return results
 
-
 # =============================================================================
 # Batch Inversion Helper
 # =============================================================================
 
-
 def invert_dataset(
     X: np.ndarray,
-    forward_chain: "ForwardChain",
-    schedule: Optional[MultiscaleSchedule] = None,
+    forward_chain: ForwardChain,
+    schedule: MultiscaleSchedule | None = None,
     verbose: bool = False,
     fit_environmental: bool = False,
-) -> Tuple[List[InversionResult], Dict[str, np.ndarray]]:
+) -> tuple[list[InversionResult], dict[str, np.ndarray]]:
     """
     Invert full dataset and collect parameter arrays.
 

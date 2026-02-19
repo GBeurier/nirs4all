@@ -7,18 +7,19 @@ This module tests:
 - MergeConfigParser for all syntax variants
 """
 
-import pytest
 import warnings
 
+import pytest
+
+from nirs4all.controllers.data.merge import MergeConfigParser
 from nirs4all.operators.data.merge import (
-    MergeMode,
-    SelectionStrategy,
     AggregationStrategy,
-    ShapeMismatchStrategy,
     BranchPredictionConfig,
     MergeConfig,
+    MergeMode,
+    SelectionStrategy,
+    ShapeMismatchStrategy,
 )
-from nirs4all.controllers.data.merge import MergeConfigParser
 
 
 class TestMergeMode:
@@ -42,7 +43,6 @@ class TestMergeMode:
         assert MergeMode("predictions") == MergeMode.PREDICTIONS
         assert MergeMode("all") == MergeMode.ALL
 
-
 class TestSelectionStrategy:
     """Test suite for SelectionStrategy enum."""
 
@@ -61,7 +61,6 @@ class TestSelectionStrategy:
     def test_explicit_strategy(self):
         """Test EXPLICIT strategy value."""
         assert SelectionStrategy.EXPLICIT.value == "explicit"
-
 
 class TestAggregationStrategy:
     """Test suite for AggregationStrategy enum."""
@@ -82,7 +81,6 @@ class TestAggregationStrategy:
         """Test PROBA_MEAN strategy value."""
         assert AggregationStrategy.PROBA_MEAN.value == "proba_mean"
 
-
 class TestShapeMismatchStrategy:
     """Test suite for ShapeMismatchStrategy enum."""
 
@@ -101,7 +99,6 @@ class TestShapeMismatchStrategy:
     def test_truncate_strategy(self):
         """Test TRUNCATE strategy value."""
         assert ShapeMismatchStrategy.TRUNCATE.value == "truncate"
-
 
 class TestBranchPredictionConfig:
     """Test suite for BranchPredictionConfig dataclass."""
@@ -214,7 +211,6 @@ class TestBranchPredictionConfig:
         """Test get_aggregation_strategy returns correct enum."""
         config = BranchPredictionConfig(branch=0, aggregate="weighted_mean")
         assert config.get_aggregation_strategy() == AggregationStrategy.WEIGHTED_MEAN
-
 
 class TestMergeConfig:
     """Test suite for MergeConfig dataclass."""
@@ -400,7 +396,6 @@ class TestMergeConfig:
         """Test get_shape_mismatch_strategy returns correct enum."""
         config = MergeConfig(on_shape_mismatch="pad")
         assert config.get_shape_mismatch_strategy() == ShapeMismatchStrategy.PAD
-
 
 class TestMergeConfigParser:
     """Test suite for MergeConfigParser."""
@@ -641,7 +636,6 @@ class TestMergeConfigParser:
             """Test empty predictions list raises ValueError."""
             with pytest.raises(ValueError, match="cannot be empty"):
                 MergeConfigParser.parse({"predictions": []})
-
 
 class TestMergeConfigParserIntegration:
     """Integration tests for complex parsing scenarios."""

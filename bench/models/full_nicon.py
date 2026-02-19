@@ -9,83 +9,105 @@ Generates top_k plots, heatmaps, candlestick plots, and histograms.
 # Standard library imports
 import argparse
 import os
+
 os.environ['DISABLE_EMOJIS'] = '0'
 
+import tensorflow as tf
+from keras.initializers import he_normal, lecun_normal
 from matplotlib import pyplot as plt
 
 # Third-party imports - ML Models
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.ensemble import (
-    RandomForestRegressor, ExtraTreesRegressor, StackingRegressor, RandomForestClassifier
-)
+from sklearn.ensemble import ExtraTreesRegressor, RandomForestClassifier, RandomForestRegressor, StackingRegressor
 from sklearn.linear_model import Ridge
+from sklearn.model_selection import GroupKFold, KFold, StratifiedGroupKFold
 from sklearn.neighbors import KNeighborsRegressor
-from sklearn.svm import SVR
 from sklearn.neural_network import MLPRegressor
-from sklearn.model_selection import KFold, StratifiedGroupKFold, GroupKFold
-from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
-
-# NIRS4All imports - Sample augmentation transforms
-from nirs4all.operators.transforms import (
-    Rotate_Translate,
-    Spline_Y_Perturbations,
-    Spline_X_Simplification,
-    GaussianAdditiveNoise,
-    MultiplicativeNoise,
-    LinearBaselineDrift,
-    PolynomialBaselineDrift,
-    WavelengthShift,
-    WavelengthStretch,
-    LocalWavelengthWarp,
-    SmoothMagnitudeWarp,
-    GaussianSmoothingJitter,
-    UnsharpSpectralMask,
-    ChannelDropout,
-    MixupAugmenter,
-    ScatterSimulationMSC,
-    # Feature augmentation transforms (commented - uncomment if using feature_augmentation)
-    Detrend, FirstDerivative, SecondDerivative,
-    Gaussian, StandardNormalVariate, SavitzkyGolay,
-    Haar, MultiplicativeScatterCorrection,
-    RobustStandardNormalVariate, LocalStandardNormalVariate, Wavelet,
+from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
+from sklearn.svm import SVR
+from tensorflow.keras.layers import (
+    Activation,
+    Add,
+    AlphaDropout,
+    Average,
+    AveragePooling1D,
+    BatchNormalization,
+    Concatenate,
+    Conv1D,
+    Dense,
+    Dropout,
+    Flatten,
+    GlobalAveragePooling1D,
+    GlobalMaxPooling1D,
+    Input,
+    Lambda,
+    Multiply,
+    Reshape,
+    SpatialDropout1D,
+    ZeroPadding1D,
 )
-
-from nirs4all.operators.transforms import (
-    Detrend, FirstDerivative as FstDer, SecondDerivative as SndDer,
-    Gaussian, StandardNormalVariate as SNV, SavitzkyGolay as SavGol,
-    Haar, MultiplicativeScatterCorrection as MSC, Derivate,
-    RobustStandardNormalVariate as RSNV, LocalStandardNormalVariate as LSNV, Wavelet,
-    CARS,
-    MCUVE
-)
-from nirs4all.operators.transforms.nirs import (
-    AreaNormalization, ExtendedMultiplicativeScatterCorrection as EMSC
-)
-from nirs4all.operators.transforms.nirs import (
-    AreaNormalization, ExtendedMultiplicativeScatterCorrection as EMSC
-)
-from nirs4all.operators.models.sklearn.fckpls import FCKPLS
+from tensorflow.keras.models import Model, Sequential
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
-from nirs4all.visualization.predictions import PredictionAnalyzer
+from nirs4all.operators.models.pytorch.nicon import customizable_decon as customizable_decon_torch
+from nirs4all.operators.models.pytorch.nicon import customizable_nicon as customizable_nicon_torch
+from nirs4all.operators.models.pytorch.nicon import customizable_nicon_classification as customizable_nicon_classification_torch
+from nirs4all.operators.models.pytorch.nicon import nicon as nicon_torch
+from nirs4all.operators.models.sklearn import IKPLS, MBPLS, OPLS, OPLSDA, PLSDA, SIMPLS, DiPLS, SparsePLS
+from nirs4all.operators.models.sklearn.fckpls import FCKPLS
+from nirs4all.operators.models.tensorflow.nicon import customizable_decon as customizable_decon_tf
+from nirs4all.operators.models.tensorflow.nicon import customizable_nicon as customizable_nicon_tf
+from nirs4all.operators.models.tensorflow.nicon import customizable_nicon_classification as customizable_nicon_classification_tf
+from nirs4all.operators.models.tensorflow.nicon import nicon as nicon_tf
+from nirs4all.operators.splitters import BinnedStratifiedGroupKFold, SPXYGFold, SPXYSplitter
+
+# NIRS4All imports - Sample augmentation transforms
+from nirs4all.operators.transforms import (
+    CARS,
+    MCUVE,
+    ChannelDropout,
+    Derivate,
+    # Feature augmentation transforms (commented - uncomment if using feature_augmentation)
+    Detrend,
+    FirstDerivative,
+    Gaussian,
+    GaussianAdditiveNoise,
+    GaussianSmoothingJitter,
+    Haar,
+    LinearBaselineDrift,
+    LocalStandardNormalVariate,
+    LocalWavelengthWarp,
+    MixupAugmenter,
+    MultiplicativeNoise,
+    MultiplicativeScatterCorrection,
+    PolynomialBaselineDrift,
+    RobustStandardNormalVariate,
+    Rotate_Translate,
+    SavitzkyGolay,
+    ScatterSimulationMSC,
+    SecondDerivative,
+    SmoothMagnitudeWarp,
+    Spline_X_Simplification,
+    Spline_Y_Perturbations,
+    StandardNormalVariate,
+    UnsharpSpectralMask,
+    WavelengthShift,
+    WavelengthStretch,
+    Wavelet,
+)
+from nirs4all.operators.transforms import FirstDerivative as FstDer
+from nirs4all.operators.transforms import LocalStandardNormalVariate as LSNV
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import RobustStandardNormalVariate as RSNV
+from nirs4all.operators.transforms import SavitzkyGolay as SavGol
+from nirs4all.operators.transforms import SecondDerivative as SndDer
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
+from nirs4all.operators.transforms.nirs import AreaNormalization
+from nirs4all.operators.transforms.nirs import ExtendedMultiplicativeScatterCorrection as EMSC
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.models.pytorch.nicon import nicon as nicon_torch, customizable_nicon as customizable_nicon_torch, customizable_decon as customizable_decon_torch, customizable_nicon_classification as customizable_nicon_classification_torch
-from nirs4all.operators.models.tensorflow.nicon import nicon as nicon_tf, customizable_nicon as customizable_nicon_tf, customizable_nicon_classification as customizable_nicon_classification_tf, customizable_decon as customizable_decon_tf
-from nirs4all.operators.splitters import SPXYSplitter, SPXYGFold, BinnedStratifiedGroupKFold
-from tensorflow.keras.models import Model, Sequential
-from tensorflow.keras.layers import (
-    Input, Conv1D, Dense, Dropout, BatchNormalization,
-    SpatialDropout1D, GlobalAveragePooling1D, GlobalMaxPooling1D,
-    Add, Multiply, Concatenate, Reshape, Average, Lambda,
-    AveragePooling1D, ZeroPadding1D, Activation, AlphaDropout, Flatten
-)
-import tensorflow as tf
-from keras.initializers import lecun_normal, he_normal
 from nirs4all.utils.backend import framework
-from nirs4all.operators.models.sklearn import (
-    PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS, SIMPLS
-)
+from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Batch Regression Analysis')
@@ -117,7 +139,6 @@ data_paths = [
     # 'sample_data/nitro_classif_merged/Tannin_custom3',
 ]
 
-
 pipeline = [
     {
         "split": SPXYGFold,
@@ -132,7 +153,6 @@ pipeline = [
     {"model": PLSDA}
 ]
 
-
 # ============================================================================
 # RUN PIPELINE
 # ============================================================================
@@ -141,8 +161,6 @@ dataset_config = DatasetConfigs(data_paths)
 
 runner = PipelineRunner(save_artifacts=True, verbose=1, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
-
-
 
 if args.show:
     plt.show()

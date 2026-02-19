@@ -25,6 +25,7 @@ Difficulty: ★★☆☆☆
 
 # Standard library imports
 import argparse
+
 import matplotlib.pyplot as plt
 
 # Third-party imports
@@ -34,10 +35,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    Detrend, FirstDerivative, Gaussian, SavitzkyGolay,
-    StandardNormalVariate, Haar, MultiplicativeScatterCorrection
-)
+from nirs4all.operators.transforms import Detrend, FirstDerivative, Gaussian, Haar, MultiplicativeScatterCorrection, SavitzkyGolay, StandardNormalVariate
 from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
@@ -45,7 +43,6 @@ parser = argparse.ArgumentParser(description='U02 Basic Regression Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Define Preprocessing Options
@@ -62,7 +59,6 @@ print("   • FirstDerivative - removes baseline, enhances peaks")
 print("   • SavitzkyGolay - smoothing with differentiation")
 print("   • Gaussian - smoothing filter")
 print("   • Haar - wavelet transform")
-
 
 # =============================================================================
 # Section 2: Build the Pipeline
@@ -108,7 +104,6 @@ print("   • MinMaxScaler for feature and target scaling")
 print("   • Feature augmentation with 3 preprocessing combinations")
 print("   • 3 PLS models (5, 10, 15 components)")
 
-
 # =============================================================================
 # Section 3: Train the Pipeline
 # =============================================================================
@@ -125,10 +120,9 @@ result = nirs4all.run(
     plots_visible=args.plots
 )
 
-print(f"\n📊 Training complete!")
+print("\n📊 Training complete!")
 print(f"   Generated {result.num_predictions} predictions")
 print(f"   Best Score (MSE): {result.best_score:.4f}")
-
 
 # =============================================================================
 # Section 4: Display Top Models
@@ -145,7 +139,6 @@ for i, pred in enumerate(result.top(n=5, display_metrics=['rmse', 'r2']), 1):
     r2 = pred.get('r2', 0)
     print(f"{i}. {model_name} | RMSE: {rmse:.4f} | R²: {r2:.4f}")
     print(f"   Preprocessing: {preproc}")
-
 
 # =============================================================================
 # Section 5: Visualize Results
@@ -184,19 +177,18 @@ print("   ✓ Created candlestick chart")
 fig4 = analyzer.plot_histogram(display_partition="test")
 print("   ✓ Created histogram")
 
-
 # =============================================================================
 # Validation: Ensure results are valid (no NaN metrics)
 # =============================================================================
-import sys
 import os
+import sys
+
 # Add examples dir to find example_utils
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from example_utils import validate_result
 
 # Validate results - will exit with code 1 if NaN metrics found
 validate_result(result, "BasicRegression")
-
 
 # =============================================================================
 # Summary

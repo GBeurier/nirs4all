@@ -9,27 +9,28 @@ Tests cover:
 - Sample alignment validation
 """
 
-import pytest
-import numpy as np
-from unittest.mock import MagicMock, patch
 from dataclasses import asdict
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pytest
 
 from nirs4all.controllers.models.stacking.branch_validator import (
-    BranchValidator,
-    BranchType,
     BranchInfo,
+    BranchType,
     BranchValidationResult,
+    BranchValidator,
     StackingCompatibility,
     detect_branch_type,
     is_stacking_compatible,
 )
 from nirs4all.controllers.models.stacking.exceptions import (
-    IncompatibleBranchTypeError,
     CrossPartitionStackingError,
-    NestedBranchStackingError,
-    FoldMismatchAcrossBranchesError,
     DisjointSampleSetsError,
+    FoldMismatchAcrossBranchesError,
     GeneratorSyntaxStackingWarning,
+    IncompatibleBranchTypeError,
+    NestedBranchStackingError,
 )
 
 
@@ -41,13 +42,11 @@ class MockSelector:
         self.branch_name = branch_name
         self.branch_path = branch_path or []
 
-
 class MockState:
     """Mock state for testing."""
 
     def __init__(self, step_number=5):
         self.step_number = step_number
-
 
 class MockContext:
     """Mock execution context for testing."""
@@ -60,7 +59,6 @@ class MockContext:
 
     def with_partition(self, partition):
         return self
-
 
 class MockPredictionStore:
     """Mock prediction store for testing."""
@@ -82,7 +80,6 @@ class MockPredictionStore:
             if match:
                 results.append(pred)
         return results if results else self._predictions
-
 
 class TestBranchTypeDetection:
     """Tests for detect_branch_type function."""
@@ -125,7 +122,6 @@ class TestBranchTypeDetection:
         context = MockContext(branch_id=0)
         assert detect_branch_type(context) == BranchType.UNKNOWN
 
-
 class TestIsStackingCompatible:
     """Tests for is_stacking_compatible function."""
 
@@ -162,7 +158,6 @@ class TestIsStackingCompatible:
         )
         assert is_stacking_compatible(context) is False
 
-
 class TestBranchValidatorNoBranching:
     """Tests for BranchValidator with no branching."""
 
@@ -178,7 +173,6 @@ class TestBranchValidatorNoBranching:
         assert result.compatibility == StackingCompatibility.COMPATIBLE
         assert result.branch_info.branch_type == BranchType.NONE
         assert len(result.errors) == 0
-
 
 class TestBranchValidatorPreprocessing:
     """Tests for BranchValidator with preprocessing branches."""
@@ -215,7 +209,6 @@ class TestBranchValidatorPreprocessing:
 
         assert len(result.warnings) > 0
         assert 'snv' in result.warnings[0]
-
 
 class TestBranchValidatorSamplePartitioner:
     """Tests for BranchValidator with sample_partitioner."""
@@ -273,7 +266,6 @@ class TestBranchValidatorSamplePartitioner:
         assert len(result.warnings) > 0
         assert 'inliers' in result.warnings[0].lower() or 'partition' in result.warnings[0].lower()
 
-
 class TestBranchValidatorOutlierExcluder:
     """Tests for BranchValidator with outlier_excluder."""
 
@@ -319,7 +311,6 @@ class TestBranchValidatorOutlierExcluder:
         # Should have warning about exclusions
         assert len(result.warnings) > 0
 
-
 class TestBranchValidatorNestedBranching:
     """Tests for BranchValidator with nested branching."""
 
@@ -356,7 +347,6 @@ class TestBranchValidatorNestedBranching:
         assert result.is_valid is False
         assert result.compatibility == StackingCompatibility.NOT_SUPPORTED
         assert len(result.errors) > 0
-
 
 class TestBranchValidatorSampleAlignment:
     """Tests for sample alignment validation."""
@@ -412,7 +402,6 @@ class TestBranchValidatorSampleAlignment:
         # Should detect low overlap (40%)
         assert len(result.errors) > 0
 
-
 class TestBranchInfoExtraction:
     """Tests for branch info extraction."""
 
@@ -461,7 +450,6 @@ class TestBranchInfoExtraction:
         assert info.branch_type == BranchType.OUTLIER_EXCLUDER
         assert info.exclusion_info['n_excluded'] == 5
 
-
 class TestBranchValidationWarnings:
     """Tests for warning generation."""
 
@@ -484,7 +472,6 @@ class TestBranchValidationWarnings:
         # Generator with many variants should generate warning
         if result.branch_info.branch_type == BranchType.GENERATOR:
             assert result.compatibility == StackingCompatibility.COMPATIBLE_WITH_WARNINGS
-
 
 class TestExceptionMessages:
     """Tests for exception message formatting."""
@@ -556,7 +543,6 @@ class TestExceptionMessages:
         assert '_or_' in msg
         assert '20' in msg
         assert 'variants' in msg
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

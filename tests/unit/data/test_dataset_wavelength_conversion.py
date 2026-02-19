@@ -2,8 +2,9 @@
 Test wavelength conversion methods in Dataset - Step 2
 """
 
-import pytest
 import numpy as np
+import pytest
+
 from nirs4all.data.dataset import SpectroDataset
 
 
@@ -192,7 +193,6 @@ class TestDatasetWavelengthConversion:
         float_hdrs = dataset.float_headers(0)
 
         np.testing.assert_array_equal(float_hdrs, [1000.5, 2000.3, 3000.7])
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

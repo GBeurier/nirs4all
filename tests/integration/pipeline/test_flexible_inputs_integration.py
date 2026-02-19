@@ -5,15 +5,14 @@ Tests direct numpy arrays, tuple inputs, and different pipeline formats.
 Based on Q11_flexible_inputs.py example.
 """
 
-import pytest
 import numpy as np
-
-from sklearn.preprocessing import StandardScaler
+import pytest
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
+from sklearn.preprocessing import StandardScaler
 
-from nirs4all.pipeline import PipelineRunner, PipelineConfigs
 from nirs4all.data import DatasetConfigs
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 
 class TestFlexibleInputsIntegration:

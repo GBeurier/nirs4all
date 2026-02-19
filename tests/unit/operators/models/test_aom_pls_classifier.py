@@ -15,11 +15,9 @@ from sklearn.base import clone
 from nirs4all.operators.models.sklearn.aom_pls import IdentityOperator
 from nirs4all.operators.models.sklearn.aom_pls_classifier import AOMPLSClassifier
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
-
 
 @pytest.fixture
 def binary_data():
@@ -30,7 +28,6 @@ def binary_data():
     labels = np.array(["classA", "classB"])
     return X, labels[y]
 
-
 @pytest.fixture
 def multiclass_data():
     """3-class classification data."""
@@ -40,11 +37,9 @@ def multiclass_data():
     y = np.where(scores < -0.5, "low", np.where(scores > 0.5, "high", "mid"))
     return X, y
 
-
 # =============================================================================
 # Binary Classification Tests
 # =============================================================================
-
 
 class TestBinaryClassification:
     """Test binary classification."""
@@ -86,11 +81,9 @@ class TestBinaryClassification:
         assert hasattr(model, "classes_")
         np.testing.assert_array_equal(model.classes_, np.unique(y))
 
-
 # =============================================================================
 # Multiclass Classification Tests
 # =============================================================================
-
 
 class TestMulticlassClassification:
     """Test multiclass classification."""
@@ -125,11 +118,9 @@ class TestMulticlassClassification:
         proba = model.predict_proba(X)
         assert np.all(proba >= 0)
 
-
 # =============================================================================
 # Delegated Method Tests
 # =============================================================================
-
 
 class TestDelegatedMethods:
     """Test methods delegated to underlying AOMPLSRegressor."""
@@ -150,11 +141,9 @@ class TestDelegatedMethods:
         assert isinstance(report, list)
         assert len(report) > 0
 
-
 # =============================================================================
 # sklearn Compatibility Tests
 # =============================================================================
-
 
 class TestSklearnCompat:
     """Test sklearn API compatibility."""

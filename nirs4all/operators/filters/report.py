@@ -5,17 +5,18 @@ Provides utilities to generate comprehensive reports about sample filtering,
 including statistics, visualizations, and export capabilities.
 """
 
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING, Any, Optional, Union
+
 import numpy as np
-import json
 
 if TYPE_CHECKING:
-    from nirs4all.data.dataset import SpectroDataset
-    from nirs4all.operators.filters.base import SampleFilter
     import polars as pl
 
+    from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.operators.filters.base import SampleFilter
 
 @dataclass
 class FilterResult:
@@ -39,10 +40,10 @@ class FilterResult:
     n_excluded: int
     n_kept: int
     exclusion_rate: float
-    excluded_indices: List[int] = field(default_factory=list)
-    stats: Dict[str, Any] = field(default_factory=dict)
+    excluded_indices: list[int] = field(default_factory=list)
+    stats: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "filter_name": self.filter_name,
@@ -54,7 +55,6 @@ class FilterResult:
             "excluded_indices": self.excluded_indices,
             "stats": self.stats,
         }
-
 
 @dataclass
 class FilteringReport:
@@ -80,7 +80,7 @@ class FilteringReport:
     dataset_name: str
     partition: str
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
-    filter_results: List[FilterResult] = field(default_factory=list)
+    filter_results: list[FilterResult] = field(default_factory=list)
     combined_mode: str = "any"
     n_total_samples: int = 0
     n_final_excluded: int = 0
@@ -99,7 +99,7 @@ class FilteringReport:
         """Add a filter result to the report."""
         self.filter_results.append(result)
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(self) -> dict[str, Any]:
         """
         Get a summary dictionary of the filtering report.
 
@@ -120,7 +120,7 @@ class FilteringReport:
             "n_augmented_excluded": self.n_augmented_excluded,
         }
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert the full report to a dictionary."""
         return {
             **self.summary(),
@@ -184,7 +184,6 @@ class FilteringReport:
 
         print("\n" + "=" * 60 + "\n")
 
-
 class FilteringReportGenerator:
     """
     Generator for creating comprehensive filtering reports.
@@ -213,7 +212,7 @@ class FilteringReportGenerator:
 
     def create_report(
         self,
-        filters: List['SampleFilter'],
+        filters: list['SampleFilter'],
         X: np.ndarray,
         y: np.ndarray,
         sample_indices: np.ndarray,
@@ -306,7 +305,7 @@ class FilteringReportGenerator:
 
     def generate_from_indexer(
         self,
-        partition: Optional[str] = "train"
+        partition: str | None = "train"
     ) -> FilteringReport:
         """
         Generate a report from current indexer exclusion state.
@@ -360,10 +359,10 @@ class FilteringReportGenerator:
 
     def compare_filters(
         self,
-        filters: List['SampleFilter'],
+        filters: list['SampleFilter'],
         X: np.ndarray,
         y: np.ndarray,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Compare multiple filters on the same data without applying them.
 

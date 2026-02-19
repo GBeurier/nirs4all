@@ -1,7 +1,6 @@
 # ResNet models for Keras.
 # Reference for ResNet_v2 - [Identity Mappings in Deep Residual Networks](https://arxiv.org/pdf/1603.05027.pdf))
 
-
 import tensorflow as tf
 
 
@@ -13,19 +12,14 @@ def Conv_1D_Block(x, model_width, kernel, strides):
 
     return x
 
-
 def stem(inputs, num_filters):
     # Construct the Stem Convolution Group
     # inputs : input vector
     # First Convolutional layer, where pooled feature maps will be reduced by 75%
     conv = Conv_1D_Block(inputs, num_filters, 7, 2)
-    if conv.shape[1] <= 2:
-        pool = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(conv)
-    else:
-        pool = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(conv)
+    pool = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(conv) if conv.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(conv)
 
     return pool
-
 
 def conv_block(inputs, num_filters):
     # Construct Block of Convolutions without Pooling
@@ -35,7 +29,6 @@ def conv_block(inputs, num_filters):
     conv = Conv_1D_Block(conv, num_filters, 3, 1)
 
     return conv
-
 
 def residual_block(inputs, num_filters):
     # Construct a Residual Block of Convolutions
@@ -50,14 +43,13 @@ def residual_block(inputs, num_filters):
 
     return out
 
-
 def residual_group(inputs, num_filters, n_blocks, conv=True):
     # x        : input to the group
     # n_filters: number of filters
     # n_blocks : number of blocks in the group
     # conv     : flag to include the convolution block connector
     out = inputs
-    for i in range(n_blocks):
+    for _ in range(n_blocks):
         out = residual_block(out, num_filters)
 
     # Double the size of filters and reduce feature maps by 75% (strides=2, 2) to fit the next Residual Group
@@ -66,19 +58,14 @@ def residual_group(inputs, num_filters, n_blocks, conv=True):
 
     return out
 
-
 def stem_bottleneck(inputs, num_filters):
     # Construct the Stem Convolution Group
     # inputs : input vector
     # First Convolutional layer, where pooled feature maps will be reduced by 75%
     conv = Conv_1D_Block(inputs, num_filters, 7, 2)
-    if conv.shape[1] <= 2:
-        pool = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(conv)
-    else:
-        pool = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(conv)
+    pool = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(conv) if conv.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(conv)
 
     return pool
-
 
 def residual_block_bottleneck(inputs, num_filters):
     # Construct a Residual Block of Convolutions
@@ -94,14 +81,13 @@ def residual_block_bottleneck(inputs, num_filters):
 
     return out
 
-
 def residual_group_bottleneck(inputs, num_filters, n_blocks, conv=True):
     # x        : input to the group
     # n_filters: number of filters
     # n_blocks : number of blocks in the group
     # conv     : flag to include the convolution block connector
     out = inputs
-    for i in range(n_blocks):
+    for _ in range(n_blocks):
         out = residual_block_bottleneck(out, num_filters)
 
     # Double the size of filters and reduce feature maps by 75% (strides=2, 2) to fit the next Residual Group
@@ -109,7 +95,6 @@ def residual_group_bottleneck(inputs, num_filters, n_blocks, conv=True):
         out = conv_block(out, num_filters * 2)
 
     return out
-
 
 def learner18(inputs, num_filters):
     # Construct the Learner
@@ -119,7 +104,6 @@ def learner18(inputs, num_filters):
     out = residual_group(x, num_filters * 8, 1, False)  # Fourth Residual Block Group of 512 filters
     return out
 
-
 def learner34(inputs, num_filters):
     # Construct the Learner
     x = residual_group(inputs, num_filters, 3)          # First Residual Block Group of 64 filters
@@ -127,7 +111,6 @@ def learner34(inputs, num_filters):
     x = residual_group(x, num_filters * 4, 5)           # Third Residual Block Group of 256 filters
     out = residual_group(x, num_filters * 8, 2, False)  # Fourth Residual Block Group of 512 filters
     return out
-
 
 def learner50(inputs, num_filters):
     # Construct the Learner
@@ -137,7 +120,6 @@ def learner50(inputs, num_filters):
     out = residual_group_bottleneck(x, num_filters * 8, 2, False)  # Fourth Residual Block Group of 512 filters
     return out
 
-
 def learner101(inputs, num_filters):
     # Construct the Learner
     x = residual_group_bottleneck(inputs, num_filters, 3)  # First Residual Block Group of 64 filters
@@ -145,7 +127,6 @@ def learner101(inputs, num_filters):
     x = residual_group_bottleneck(x, num_filters * 4, 22)  # Third Residual Block Group of 256 filters
     out = residual_group_bottleneck(x, num_filters * 8, 2, False)  # Fourth Residual Block Group of 512 filters
     return out
-
 
 def learner152(inputs, num_filters):
     # Construct the Learner
@@ -155,7 +136,6 @@ def learner152(inputs, num_filters):
     out = residual_group_bottleneck(x, num_filters * 8, 2, False)  # Fourth Residual Block Group of 512 filters
     return out
 
-
 def classifier(inputs, class_number):
     # Construct the Classifier Group
     # inputs       : input vector
@@ -163,14 +143,12 @@ def classifier(inputs, class_number):
     out = tf.keras.layers.Dense(class_number, activation='softmax')(inputs)
     return out
 
-
 def regressor(inputs, feature_number):
     # Construct the Regressor Group
     # inputs       : input vector
     # feature_number : number of output features
     out = tf.keras.layers.Dense(feature_number, activation='linear')(inputs)
     return out
-
 
 class ResNetv2:
     def __init__(self, length, num_channel, num_filters, problem_type='Regression',
@@ -247,7 +225,6 @@ class ResNetv2:
         model = tf.keras.Model(inputs, outputs)
 
         return model
-
 
 if __name__ == '__main__':
     # Configurations

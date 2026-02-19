@@ -30,7 +30,7 @@ Example:
     >>> print(aggregated.shape)  # (3, 1)
 """
 
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
@@ -41,7 +41,6 @@ if TYPE_CHECKING:
     pass
 
 logger = get_logger(__name__)
-
 
 class PredictionAggregator:
     """Utility class for aggregating predictions from multiple models.
@@ -60,11 +59,11 @@ class PredictionAggregator:
 
     @staticmethod
     def aggregate(
-        predictions: Dict[str, np.ndarray],
+        predictions: dict[str, np.ndarray],
         strategy: AggregationStrategy,
-        model_scores: Optional[Dict[str, float]] = None,
+        model_scores: dict[str, float] | None = None,
         proba: bool = False,
-        metric: Optional[str] = None,
+        metric: str | None = None,
     ) -> np.ndarray:
         """Aggregate predictions from multiple models.
 
@@ -110,8 +109,8 @@ class PredictionAggregator:
 
     @staticmethod
     def _aggregate_separate(
-        predictions: Dict[str, np.ndarray],
-        model_names: List[str],
+        predictions: dict[str, np.ndarray],
+        model_names: list[str],
     ) -> np.ndarray:
         """Stack predictions as separate features.
 
@@ -137,8 +136,8 @@ class PredictionAggregator:
 
     @staticmethod
     def _aggregate_mean(
-        predictions: Dict[str, np.ndarray],
-        model_names: List[str],
+        predictions: dict[str, np.ndarray],
+        model_names: list[str],
         proba: bool = False,
     ) -> np.ndarray:
         """Simple average of predictions.
@@ -178,10 +177,10 @@ class PredictionAggregator:
 
     @staticmethod
     def _aggregate_weighted_mean(
-        predictions: Dict[str, np.ndarray],
-        model_names: List[str],
-        model_scores: Optional[Dict[str, float]],
-        metric: Optional[str],
+        predictions: dict[str, np.ndarray],
+        model_names: list[str],
+        model_scores: dict[str, float] | None,
+        metric: str | None,
         proba: bool = False,
     ) -> np.ndarray:
         """Weighted average of predictions based on validation scores.
@@ -233,7 +232,7 @@ class PredictionAggregator:
         weights = [w / total for w in weights]
 
         logger.debug(
-            f"Weighted mean weights: {list(zip(valid_models, [f'{w:.3f}' for w in weights]))}"
+            f"Weighted mean weights: {list(zip(valid_models, [f'{w:.3f}' for w in weights], strict=False))}"
         )
 
         if proba:
@@ -245,7 +244,7 @@ class PredictionAggregator:
             n_samples = predictions[valid_models[0]].shape[0]
             weighted_proba = np.zeros((n_samples, max_classes))
 
-            for name, weight in zip(valid_models, weights):
+            for name, weight in zip(valid_models, weights, strict=False):
                 arr = predictions[name]
                 if arr.ndim == 1:
                     arr = arr.reshape(-1, 1)
@@ -260,15 +259,15 @@ class PredictionAggregator:
             n_samples = predictions[valid_models[0]].shape[0]
             weighted_sum = np.zeros(n_samples)
 
-            for name, weight in zip(valid_models, weights):
+            for name, weight in zip(valid_models, weights, strict=False):
                 weighted_sum += weight * predictions[name].flatten()
 
             return weighted_sum.reshape(-1, 1)
 
     @staticmethod
     def _aggregate_proba_mean(
-        predictions: Dict[str, np.ndarray],
-        model_names: List[str],
+        predictions: dict[str, np.ndarray],
+        model_names: list[str],
     ) -> np.ndarray:
         """Average class probabilities from classifiers.
 
@@ -299,10 +298,10 @@ class PredictionAggregator:
 
     @staticmethod
     def aggregate_folds(
-        fold_predictions: List[np.ndarray],
-        fold_scores: Optional[List[float]] = None,
+        fold_predictions: list[np.ndarray],
+        fold_scores: list[float] | None = None,
         strategy: str = "mean",
-        metric: Optional[str] = None,
+        metric: str | None = None,
     ) -> np.ndarray:
         """Aggregate predictions across CV folds.
 
@@ -336,18 +335,12 @@ class PredictionAggregator:
 
             weights = []
             for score in fold_scores:
-                if lower_is_better:
-                    weight = 1.0 / (score + 1e-10) if score >= 0 else abs(score)
-                else:
-                    weight = max(score, 0.0)
+                weight = 1.0 / (score + 1e-10) if score >= 0 else abs(score) if lower_is_better else max(score, 0.0)
                 weights.append(weight)
 
             # Normalize
             total = sum(weights)
-            if total > 0:
-                weights = [w / total for w in weights]
-            else:
-                weights = [1.0 / len(weights)] * len(weights)
+            weights = [w / total for w in weights] if total > 0 else [1.0 / len(weights)] * len(weights)
 
             return np.average(fold_predictions, axis=0, weights=weights)
 
@@ -357,10 +350,7 @@ class PredictionAggregator:
 
             lower_is_better = (metric or "rmse").lower() in PredictionAggregator.LOWER_IS_BETTER_METRICS
 
-            if lower_is_better:
-                best_idx = np.argmin(fold_scores)
-            else:
-                best_idx = np.argmax(fold_scores)
+            best_idx = np.argmin(fold_scores) if lower_is_better else np.argmax(fold_scores)
 
             return fold_predictions[best_idx]
 

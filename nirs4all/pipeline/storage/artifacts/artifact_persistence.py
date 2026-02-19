@@ -12,12 +12,12 @@ Architecture:
 """
 
 import hashlib
+import importlib.util
 import pickle
 import warnings
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, TypedDict, Union
-import importlib.util
+from typing import Any, Optional, TypedDict, Union
 
 
 class ArtifactMeta(TypedDict):
@@ -31,9 +31,8 @@ class ArtifactMeta(TypedDict):
     size: int           # Size in bytes
     saved_at: str       # ISO timestamp
     step: int           # Pipeline step number (set by caller)
-    branch_id: Optional[int]      # Branch ID for pipeline branching (None if not in branch)
-    branch_name: Optional[str]    # Human-readable branch name
-
+    branch_id: int | None      # Branch ID for pipeline branching (None if not in branch)
+    branch_name: str | None    # Human-readable branch name
 
 # Framework detection cache
 _FRAMEWORK_CACHE = {
@@ -48,13 +47,11 @@ _FRAMEWORK_CACHE = {
     'joblib': None
 }
 
-
 def _check_framework(name: str) -> bool:
     """Check if a framework is available (cached)."""
     if _FRAMEWORK_CACHE[name] is None:
         _FRAMEWORK_CACHE[name] = importlib.util.find_spec(name) is not None
     return _FRAMEWORK_CACHE[name]
-
 
 def _detect_framework(obj: Any) -> str:
     """
@@ -107,7 +104,6 @@ def _detect_framework(obj: Any) -> str:
     # Generic fallback
     return 'pickle'
 
-
 def _format_to_extension(format: str) -> str:
     """Map format string to file extension."""
     ext_map = {
@@ -127,11 +123,9 @@ def _format_to_extension(format: str) -> str:
     }
     return ext_map.get(format, 'pkl')
 
-
 def compute_hash(data: bytes) -> str:
     """Compute SHA256 hash of data."""
     return hashlib.sha256(data).hexdigest()
-
 
 def _get_library_version(obj: Any) -> str:
     """Get version of the library that created the object.
@@ -171,7 +165,6 @@ def _get_library_version(obj: Any) -> str:
 
     return ""
 
-
 def _get_nirs4all_version() -> str:
     """Get current nirs4all version.
 
@@ -184,8 +177,7 @@ def _get_nirs4all_version() -> str:
     except (ImportError, AttributeError):
         return ""
 
-
-def to_bytes(obj: Any, format_hint: Optional[str] = None) -> Tuple[bytes, str]:
+def to_bytes(obj: Any, format_hint: str | None = None) -> tuple[bytes, str]:
     """
     Serialize object to bytes using appropriate format.
 
@@ -197,17 +189,15 @@ def to_bytes(obj: Any, format_hint: Optional[str] = None) -> Tuple[bytes, str]:
         (bytes, format_string) tuple
     """
     # Determine format
-    if format_hint:
-        format = f"{format_hint}_pickle"  # Simple mapping for hints
-    else:
-        format = _detect_framework(obj)
+    format = f"{format_hint}_pickle" if format_hint else _detect_framework(obj)
 
     try:
         # Sklearn objects - use joblib if available, else pickle
         if format == 'sklearn_pickle':
             if _check_framework('joblib'):
-                import joblib
                 import io
+
+                import joblib
                 buffer = io.BytesIO()
                 joblib.dump(obj, buffer, compress=3)
                 return buffer.getvalue(), 'joblib'
@@ -216,10 +206,11 @@ def to_bytes(obj: Any, format_hint: Optional[str] = None) -> Tuple[bytes, str]:
 
         # TensorFlow Keras models - save to .keras format
         elif format == 'tensorflow_keras':
-            import tensorflow as tf
             import io
             import tempfile
             import zipfile
+
+            import tensorflow as tf
 
             # Save to temporary file then read as bytes
             with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp:
@@ -235,8 +226,9 @@ def to_bytes(obj: Any, format_hint: Optional[str] = None) -> Tuple[bytes, str]:
 
         # PyTorch state dict
         elif format == 'pytorch_state_dict':
-            import torch
             import io
+
+            import torch
 
             buffer = io.BytesIO()
             torch.save(obj.state_dict(), buffer)
@@ -252,7 +244,7 @@ def to_bytes(obj: Any, format_hint: Optional[str] = None) -> Tuple[bytes, str]:
 
             try:
                 obj.save_model(tmp_path)
-                with open(tmp_path, 'r') as f:
+                with open(tmp_path) as f:
                     json_str = f.read()
                 return json_str.encode('utf-8'), 'xgboost_json'
             finally:
@@ -282,7 +274,7 @@ def to_bytes(obj: Any, format_hint: Optional[str] = None) -> Tuple[bytes, str]:
 
             try:
                 obj.save_model(tmp_path)
-                with open(tmp_path, 'r') as f:
+                with open(tmp_path) as f:
                     text = f.read()
                 return text.encode('utf-8'), 'lightgbm_txt'
             finally:
@@ -290,8 +282,9 @@ def to_bytes(obj: Any, format_hint: Optional[str] = None) -> Tuple[bytes, str]:
 
         # Numpy arrays
         elif format == 'numpy_npy':
-            import numpy as np
             import io
+
+            import numpy as np
 
             buffer = io.BytesIO()
             np.save(buffer, obj)
@@ -307,9 +300,8 @@ def to_bytes(obj: Any, format_hint: Optional[str] = None) -> Tuple[bytes, str]:
 
     except Exception as e:
         # Fallback to pickle if specialized serialization fails
-        warnings.warn(f"Failed to serialize with format {format}, falling back to pickle: {e}")
+        warnings.warn(f"Failed to serialize with format {format}, falling back to pickle: {e}", stacklevel=2)
         return pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL), 'pickle'
-
 
 def from_bytes(data: bytes, format: str) -> Any:
     """
@@ -325,8 +317,9 @@ def from_bytes(data: bytes, format: str) -> Any:
     try:
         # Joblib format
         if format == 'joblib':
-            import joblib
             import io
+
+            import joblib
             buffer = io.BytesIO(data)
             return joblib.load(buffer)
 
@@ -336,8 +329,9 @@ def from_bytes(data: bytes, format: str) -> Any:
 
         # TensorFlow Keras
         elif format == 'tensorflow_keras':
-            import tensorflow as tf
             import tempfile
+
+            import tensorflow as tf
 
             with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp:
                 tmp.write(data)
@@ -351,8 +345,9 @@ def from_bytes(data: bytes, format: str) -> Any:
 
         # PyTorch state dict
         elif format == 'pytorch_state_dict':
-            import torch
             import io
+
+            import torch
 
             buffer = io.BytesIO(data)
             state_dict = torch.load(buffer)
@@ -362,8 +357,9 @@ def from_bytes(data: bytes, format: str) -> Any:
 
         # XGBoost JSON
         elif format == 'xgboost_json':
-            import xgboost as xgb
             import tempfile
+
+            import xgboost as xgb
 
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
                 tmp.write(data.decode('utf-8'))
@@ -378,8 +374,9 @@ def from_bytes(data: bytes, format: str) -> Any:
 
         # CatBoost
         elif format == 'catboost_cbm':
-            from catboost import CatBoost
             import tempfile
+
+            from catboost import CatBoost
 
             with tempfile.NamedTemporaryFile(suffix='.cbm', delete=False) as tmp:
                 tmp.write(data)
@@ -394,8 +391,9 @@ def from_bytes(data: bytes, format: str) -> Any:
 
         # LightGBM
         elif format == 'lightgbm_txt':
-            import lightgbm as lgb
             import tempfile
+
+            import lightgbm as lgb
 
             with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as tmp:
                 tmp.write(data.decode('utf-8'))
@@ -409,8 +407,9 @@ def from_bytes(data: bytes, format: str) -> Any:
 
         # Numpy arrays
         elif format == 'numpy_npy':
-            import numpy as np
             import io
+
+            import numpy as np
 
             buffer = io.BytesIO(data)
             return np.load(buffer, allow_pickle=False)
@@ -426,9 +425,8 @@ def from_bytes(data: bytes, format: str) -> Any:
 
     except Exception as e:
         # Try generic pickle as last resort
-        warnings.warn(f"Failed to deserialize with format {format}, trying pickle: {e}")
+        warnings.warn(f"Failed to deserialize with format {format}, trying pickle: {e}", stacklevel=2)
         return pickle.loads(data)
-
 
 def is_serializable(obj: Any) -> bool:
     """
@@ -446,14 +444,13 @@ def is_serializable(obj: Any) -> bool:
     except Exception:
         return False
 
-
 def persist(
     obj: Any,
-    artifacts_dir: Union[str, Path],
+    artifacts_dir: str | Path,
     name: str,
-    format_hint: Optional[str] = None,
-    branch_id: Optional[int] = None,
-    branch_name: Optional[str] = None
+    format_hint: str | None = None,
+    branch_id: int | None = None,
+    branch_name: str | None = None
 ) -> ArtifactMeta:
     """
     Persist object to _binaries storage with meaningful names.
@@ -516,17 +513,16 @@ def persist(
         "format_version": _get_library_version(obj),
         "nirs4all_version": _get_nirs4all_version(),
         "size": len(data),
-        "saved_at": datetime.now(timezone.utc).isoformat(),
+        "saved_at": datetime.now(UTC).isoformat(),
         "step": -1,  # Caller must set this
         "branch_id": branch_id,
         "branch_name": branch_name
     }
 
-
 def load(
     artifact_meta: ArtifactMeta,
-    results_dir: Union[str, Path],
-    binaries_dir: Optional[Union[str, Path]] = None
+    results_dir: str | Path,
+    binaries_dir: str | Path | None = None
 ) -> Any:
     """
     Load object from artifact metadata.
@@ -561,8 +557,7 @@ def load(
 
     raise FileNotFoundError(f"Artifact not found: {artifact_path}")
 
-
-def get_artifact_size(artifact_meta: ArtifactMeta, results_dir: Union[str, Path]) -> int:
+def get_artifact_size(artifact_meta: ArtifactMeta, results_dir: str | Path) -> int:
     """Get the actual size of an artifact file on disk."""
     results_dir = Path(results_dir)
     artifact_path = results_dir / "artifacts" / artifact_meta["path"]

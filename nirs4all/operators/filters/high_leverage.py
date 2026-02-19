@@ -5,7 +5,8 @@ This module provides the HighLeverageFilter class for detecting and excluding
 samples that have high leverage (influence) on model fitting.
 """
 
-from typing import Optional, Dict, Any, Literal
+from typing import Any, Literal, Optional
+
 import numpy as np
 from sklearn.decomposition import PCA
 
@@ -75,11 +76,11 @@ class HighLeverageFilter(SampleFilter):
         self,
         method: Literal["hat", "pca"] = "hat",
         threshold_multiplier: float = 2.0,
-        absolute_threshold: Optional[float] = None,
-        n_components: Optional[int] = None,
+        absolute_threshold: float | None = None,
+        n_components: int | None = None,
         center: bool = True,
-        reason: Optional[str] = None,
-        tag_name: Optional[str] = None
+        reason: str | None = None,
+        tag_name: str | None = None
     ):
         """
         Initialize the high leverage filter.
@@ -126,19 +127,18 @@ class HighLeverageFilter(SampleFilter):
                 f"threshold_multiplier must be positive, got {threshold_multiplier}"
             )
 
-        if absolute_threshold is not None:
-            if not (0 < absolute_threshold < 1):
-                raise ValueError(
-                    f"absolute_threshold must be in (0, 1), got {absolute_threshold}"
-                )
+        if absolute_threshold is not None and not (0 < absolute_threshold < 1):
+            raise ValueError(
+                f"absolute_threshold must be in (0, 1), got {absolute_threshold}"
+            )
 
         # Fitted attributes
-        self.threshold_: Optional[float] = None
-        self.mean_: Optional[np.ndarray] = None
-        self.pca_: Optional[PCA] = None
-        self.precision_: Optional[np.ndarray] = None
-        self.n_effective_features_: Optional[int] = None
-        self._leverages_: Optional[np.ndarray] = None
+        self.threshold_: float | None = None
+        self.mean_: np.ndarray | None = None
+        self.pca_: PCA | None = None
+        self.precision_: np.ndarray | None = None
+        self.n_effective_features_: int | None = None
+        self._leverages_: np.ndarray | None = None
 
     @property
     def exclusion_reason(self) -> str:
@@ -147,7 +147,7 @@ class HighLeverageFilter(SampleFilter):
             return self.reason
         return "high_leverage"
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> "HighLeverageFilter":
+    def fit(self, X: np.ndarray, y: np.ndarray | None = None) -> "HighLeverageFilter":
         """
         Compute leverage statistics from training data.
 
@@ -235,10 +235,7 @@ class HighLeverageFilter(SampleFilter):
         n_samples, n_features = X.shape
 
         # Determine number of components
-        if self.n_components is not None:
-            n_comp = min(self.n_components, n_samples - 1, n_features)
-        else:
-            n_comp = min(n_samples - 1, n_features, 50)
+        n_comp = min(self.n_components, n_samples - 1, n_features) if self.n_components is not None else min(n_samples - 1, n_features, 50)
 
         self.pca_ = PCA(n_components=n_comp)
         scores = self.pca_.fit_transform(X)
@@ -260,10 +257,7 @@ class HighLeverageFilter(SampleFilter):
     def _compute_leverages(self, X: np.ndarray) -> np.ndarray:
         """Compute leverage values for samples."""
         # Transform to PCA space if using PCA
-        if self.pca_ is not None:
-            X_proj = self.pca_.transform(X)
-        else:
-            X_proj = X
+        X_proj = self.pca_.transform(X) if self.pca_ is not None else X
 
         # Compute diagonal of hat matrix: h_ii = x_i' (X'X)^(-1) x_i
         # This is more efficient than computing the full hat matrix
@@ -272,7 +266,7 @@ class HighLeverageFilter(SampleFilter):
 
         return leverages
 
-    def get_mask(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> np.ndarray:
+    def get_mask(self, X: np.ndarray, y: np.ndarray | None = None) -> np.ndarray:
         """
         Compute boolean mask indicating which samples to KEEP.
 
@@ -296,10 +290,7 @@ class HighLeverageFilter(SampleFilter):
             X = X.reshape(-1, 1)
 
         # Center data
-        if self.center:
-            X_centered = X - self.mean_
-        else:
-            X_centered = X
+        X_centered = X - self.mean_ if self.center else X
 
         # Compute leverages
         leverages = self._compute_leverages(X_centered)
@@ -330,14 +321,11 @@ class HighLeverageFilter(SampleFilter):
         if X.ndim == 1:
             X = X.reshape(-1, 1)
 
-        if self.center:
-            X_centered = X - self.mean_
-        else:
-            X_centered = X
+        X_centered = X - self.mean_ if self.center else X
 
         return self._compute_leverages(X_centered)
 
-    def get_filter_stats(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> Dict[str, Any]:
+    def get_filter_stats(self, X: np.ndarray, y: np.ndarray | None = None) -> dict[str, Any]:
         """
         Get statistics about filter application.
 

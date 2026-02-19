@@ -17,82 +17,83 @@ Phase 3 Enhancement: Implements prediction mode with dependency resolution
 and meta-model artifact persistence with source model references.
 """
 
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
-import numpy as np
 import warnings
+from typing import TYPE_CHECKING, Any, Optional
 
-from .base_model import BaseModelController
-from .sklearn_model import SklearnModelController
-from .stacking import (
-    TrainingSetReconstructor,
-    ReconstructionResult,
-    MetaModelArtifact,
-    MetaModelSerializer,
-    SourceModelReference,
-    stacking_config_to_dict,
-    stacking_config_from_dict,
-    # Phase 4 - Branch Validation
-    BranchValidator,
-    BranchType,
-    BranchValidationResult,
-    StackingCompatibility,
-    detect_branch_type,
-    is_stacking_compatible,
-    # Phase 7 - Multi-Level Stacking
-    MultiLevelValidator,
-    ModelLevelInfo,
-    LevelValidationResult,
-    # Phase 7 - Cross-Branch Stacking
-    CrossBranchValidator,
-    CrossBranchValidationResult,
-    CrossBranchCompatibility,
-    BranchPredictionInfo,
-    # Exceptions
-    MetaModelPredictionError,
-    MissingSourceModelError,
-    SourcePredictionError,
-    FeatureOrderMismatchError,
-    BranchMismatchError,
-    NoSourcePredictionsError,
-    # Phase 4 - Branching Exceptions
-    IncompatibleBranchTypeError,
-    CrossPartitionStackingError,
-    NestedBranchStackingError,
-    DisjointSampleSetsError,
-    # Phase 7 - Multi-Level Stacking Exceptions
-    CircularDependencyError,
-    MaxStackingLevelExceededError,
-    InconsistentLevelError,
-    # Phase 7 - Cross-Branch Stacking Exceptions
-    IncompatibleBranchSamplesError,
-    BranchFeatureAlignmentError,
-)
-from .stacking.config import ReconstructorConfig
+import numpy as np
+
 from nirs4all.controllers.registry import register_controller
+from nirs4all.core.logging import get_logger
 from nirs4all.operators.models.meta import (
+    BranchScope,
+    CoverageStrategy,
     MetaModel,
     StackingConfig,
-    CoverageStrategy,
-    TestAggregation,
-    BranchScope,
     StackingLevel,
+    TestAggregation,
 )
 from nirs4all.operators.models.selection import (
-    SourceModelSelector,
     AllPreviousModelsSelector,
     ExplicitModelSelector,
     ModelCandidate,
     SelectorFactory,
+    SourceModelSelector,
 )
-from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.storage.artifacts.types import ArtifactType, MetaModelConfig
+
+from .base_model import BaseModelController
+from .sklearn_model import SklearnModelController
+from .stacking import (
+    BranchFeatureAlignmentError,
+    BranchMismatchError,
+    BranchPredictionInfo,
+    BranchType,
+    BranchValidationResult,
+    # Phase 4 - Branch Validation
+    BranchValidator,
+    # Phase 7 - Multi-Level Stacking Exceptions
+    CircularDependencyError,
+    CrossBranchCompatibility,
+    CrossBranchValidationResult,
+    # Phase 7 - Cross-Branch Stacking
+    CrossBranchValidator,
+    CrossPartitionStackingError,
+    DisjointSampleSetsError,
+    FeatureOrderMismatchError,
+    # Phase 7 - Cross-Branch Stacking Exceptions
+    IncompatibleBranchSamplesError,
+    # Phase 4 - Branching Exceptions
+    IncompatibleBranchTypeError,
+    InconsistentLevelError,
+    LevelValidationResult,
+    MaxStackingLevelExceededError,
+    MetaModelArtifact,
+    # Exceptions
+    MetaModelPredictionError,
+    MetaModelSerializer,
+    MissingSourceModelError,
+    ModelLevelInfo,
+    # Phase 7 - Multi-Level Stacking
+    MultiLevelValidator,
+    NestedBranchStackingError,
+    NoSourcePredictionsError,
+    ReconstructionResult,
+    SourceModelReference,
+    SourcePredictionError,
+    StackingCompatibility,
+    TrainingSetReconstructor,
+    detect_branch_type,
+    is_stacking_compatible,
+    stacking_config_from_dict,
+    stacking_config_to_dict,
+)
+from .stacking.config import ReconstructorConfig
 
 logger = get_logger(__name__)
 
-
 def build_unique_source_names(
-    source_models: List[ModelCandidate]
-) -> Tuple[List[str], Dict[str, Tuple[str, Optional[int]]]]:
+    source_models: list[ModelCandidate]
+) -> tuple[list[str], dict[str, tuple[str, int | None]]]:
     """Build unique source model names with branch disambiguation.
 
     When the same model_name appears in multiple branches (e.g., 3 Ridge_MetaModel
@@ -135,8 +136,8 @@ def build_unique_source_names(
         name_branch_pairs.add((m.model_name, m.branch_id))
 
     # Count unique branches per model_name
-    branch_count_per_name: Dict[str, int] = {}
-    for name, branch_id in name_branch_pairs:
+    branch_count_per_name: dict[str, int] = {}
+    for name, _branch_id in name_branch_pairs:
         branch_count_per_name[name] = branch_count_per_name.get(name, 0) + 1
 
     # Models needing branch suffix are those appearing in multiple branches
@@ -144,8 +145,8 @@ def build_unique_source_names(
         name for name, count in branch_count_per_name.items() if count > 1
     }
 
-    unique_names: List[str] = []
-    branch_map: Dict[str, Tuple[str, Optional[int]]] = {}
+    unique_names: list[str] = []
+    branch_map: dict[str, tuple[str, int | None]] = {}
     seen_unique: set = set()
 
     for m in source_models:
@@ -154,10 +155,7 @@ def build_unique_source_names(
 
         if model_name in needs_branch_suffix:
             # Create unique name with branch suffix
-            if branch_id is not None:
-                unique_name = f"{model_name}_br{branch_id}"
-            else:
-                unique_name = f"{model_name}_br_none"
+            unique_name = f"{model_name}_br{branch_id}" if branch_id is not None else f"{model_name}_br_none"
             # Record mapping for lookup
             branch_map[unique_name] = (model_name, branch_id)
         else:
@@ -174,15 +172,13 @@ def build_unique_source_names(
 
     return unique_names, branch_map
 
-
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
-    from nirs4all.pipeline.steps.parser import ParsedStep
-    from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
     from nirs4all.data.predictions import Predictions
+    from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+    from nirs4all.pipeline.runner import PipelineRunner
+    from nirs4all.pipeline.steps.parser import ParsedStep
     from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRecord
-
 
 @register_controller
 class MetaModelController(SklearnModelController):
@@ -258,8 +254,8 @@ class MetaModelController(SklearnModelController):
     def _get_model_instance(
         self,
         dataset: 'SpectroDataset',
-        model_config: Dict[str, Any],
-        force_params: Optional[Dict[str, Any]] = None
+        model_config: dict[str, Any],
+        force_params: dict[str, Any] | None = None
     ) -> Any:
         """Get the underlying meta-learner model instance.
 
@@ -301,7 +297,7 @@ class MetaModelController(SklearnModelController):
         self,
         dataset: 'SpectroDataset',
         context: 'ExecutionContext'
-    ) -> Tuple[Any, Any, Any, Any, Any, Any]:
+    ) -> tuple[Any, Any, Any, Any, Any, Any]:
         """Extract train/test splits using meta-features from predictions.
 
         Instead of using the original dataset features, this constructs
@@ -387,7 +383,7 @@ class MetaModelController(SklearnModelController):
         context: 'ExecutionContext',
         y_train: np.ndarray,
         y_test: np.ndarray
-    ) -> Optional[ReconstructionResult]:
+    ) -> ReconstructionResult | None:
         """Use TrainingSetReconstructor for OOF feature construction.
 
         This is the Phase 2 implementation that provides cleaner separation
@@ -466,7 +462,7 @@ class MetaModelController(SklearnModelController):
     def _validate_multi_level_stacking(
         self,
         prediction_store: 'Predictions',
-        source_models: List['ModelCandidate'],
+        source_models: list['ModelCandidate'],
         meta_operator: 'MetaModel',
         context: 'ExecutionContext',
         stacking_config: 'StackingConfig',
@@ -516,7 +512,7 @@ class MetaModelController(SklearnModelController):
         self,
         level_result: 'LevelValidationResult',
         stacking_config: 'StackingConfig',
-        unique_source_names: List[str]
+        unique_source_names: list[str]
     ) -> None:
         """Raise appropriate error based on multi-level validation result."""
         for error_msg in level_result.errors:
@@ -541,7 +537,7 @@ class MetaModelController(SklearnModelController):
     def _validate_cross_branch_stacking(
         self,
         prediction_store: 'Predictions',
-        source_candidates: List['ModelCandidate'],
+        source_candidates: list['ModelCandidate'],
         context: 'ExecutionContext',
         stacking_config: 'StackingConfig',
         verbose: int
@@ -575,9 +571,8 @@ class MetaModelController(SklearnModelController):
         if not cross_branch_result.is_compatible:
             self._raise_cross_branch_error(cross_branch_result)
 
-        if cross_branch_result.compatibility == CrossBranchCompatibility.COMPATIBLE_WITH_ALIGNMENT:
-            if verbose > 0:
-                logger.warning("Cross-branch stacking requires feature alignment")
+        if cross_branch_result.compatibility == CrossBranchCompatibility.COMPATIBLE_WITH_ALIGNMENT and verbose > 0:
+            logger.warning("Cross-branch stacking requires feature alignment")
 
         # Store aligned sources for later use
         aligned_sources = cross_branch_validator.get_cross_branch_sources(
@@ -635,7 +630,7 @@ class MetaModelController(SklearnModelController):
         self,
         prediction_store: 'Predictions',
         dataset: 'SpectroDataset',
-        unique_source_names: List[str],
+        unique_source_names: list[str],
         context: 'ExecutionContext',
         verbose: int
     ) -> None:
@@ -679,7 +674,7 @@ class MetaModelController(SklearnModelController):
         for warning in branch_result.warnings:
             if verbose > 0:
                 logger.warning(warning)
-            warnings.warn(warning)
+            warnings.warn(warning, stacklevel=2)
 
         if branch_type == BranchType.SAMPLE_PARTITIONER:
             self._validate_sample_alignment(
@@ -718,7 +713,7 @@ class MetaModelController(SklearnModelController):
         self,
         branch_validator: 'BranchValidator',
         dataset: 'SpectroDataset',
-        unique_source_names: List[str],
+        unique_source_names: list[str],
         context: 'ExecutionContext'
     ) -> None:
         """Validate sample alignment for sample_partitioner branches."""
@@ -735,19 +730,19 @@ class MetaModelController(SklearnModelController):
         )
         if not sample_result.is_valid:
             for error in sample_result.errors:
-                warnings.warn(f"Sample alignment warning: {error}")
+                warnings.warn(f"Sample alignment warning: {error}", stacklevel=2)
 
     def _run_reconstructor(
         self,
         prediction_store: 'Predictions',
         dataset: 'SpectroDataset',
-        unique_source_names: List[str],
+        unique_source_names: list[str],
         meta_operator: MetaModel,
         context: 'ExecutionContext',
         y_train: np.ndarray,
         y_test: np.ndarray,
         verbose: int,
-        source_branch_map: Optional[Dict[str, Tuple[str, Optional[int]]]] = None
+        source_branch_map: dict[str, tuple[str, int | None]] | None = None
     ) -> ReconstructionResult:
         """Run the TrainingSetReconstructor.
 
@@ -783,7 +778,7 @@ class MetaModelController(SklearnModelController):
         branch_validation = reconstructor.validate_branch_compatibility(context)
         for warning in branch_validation.warnings:
             if reconstructor_config.log_warnings:
-                warnings.warn(f"[{warning.code}] {warning.message}")
+                warnings.warn(f"[{warning.code}] {warning.message}", stacklevel=2)
 
         result = reconstructor.reconstruct(
             dataset=dataset,
@@ -800,7 +795,7 @@ class MetaModelController(SklearnModelController):
 
         if not result.validation_result.is_valid:
             for error in result.validation_result.errors:
-                warnings.warn(f"[{error.code}] {error.message}")
+                warnings.warn(f"[{error.code}] {error.message}", stacklevel=2)
 
         return result
 
@@ -884,7 +879,7 @@ class MetaModelController(SklearnModelController):
         model_name: str,
         prediction_store: 'Predictions',
         context: 'ExecutionContext',
-        id_to_pos: Dict[int, int],
+        id_to_pos: dict[int, int],
         n_samples: int,
         use_proba: bool = False
     ) -> np.ndarray:
@@ -1127,10 +1122,7 @@ class MetaModelController(SklearnModelController):
         elif aggregation == TestAggregation.WEIGHTED_MEAN:
             # Weighted average by validation scores
             weights = np.clip(all_scores, 0, None)
-            if weights.sum() > 0:
-                weights = weights / weights.sum()
-            else:
-                weights = np.ones(len(all_preds)) / len(all_preds)
+            weights = weights / weights.sum() if weights.sum() > 0 else np.ones(len(all_preds)) / len(all_preds)
             return np.average(all_preds, axis=0, weights=weights)
         else:
             # Simple mean (default)
@@ -1141,7 +1133,7 @@ class MetaModelController(SklearnModelController):
         meta_operator: MetaModel,
         context: 'ExecutionContext',
         prediction_store: 'Predictions'
-    ) -> List[ModelCandidate]:
+    ) -> list[ModelCandidate]:
         """Get list of source models using the configured selector.
 
         Respects BranchScope configuration:
@@ -1225,7 +1217,7 @@ class MetaModelController(SklearnModelController):
         self,
         context: 'ExecutionContext',
         prediction_store: 'Predictions'
-    ) -> List[ModelCandidate]:
+    ) -> list[ModelCandidate]:
         """Build ModelCandidate list from prediction store.
 
         Args:
@@ -1380,7 +1372,7 @@ class MetaModelController(SklearnModelController):
             if not complete_mask.all():
                 n_dropped = (~complete_mask).sum()
                 warnings.warn(
-                    f"Dropping {n_dropped}/{n_samples} samples with incomplete predictions"
+                    f"Dropping {n_dropped}/{n_samples} samples with incomplete predictions", stacklevel=2
                 )
             # Replace NaN with 0 for now (samples will be masked later)
             X_meta = np.nan_to_num(X_meta, nan=0.0)
@@ -1415,9 +1407,9 @@ class MetaModelController(SklearnModelController):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
+        loaded_binaries: list[tuple[str, bytes]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple['ExecutionContext', list[tuple[str, bytes]]]:
         """Execute meta-model controller.
 
         Stores MetaModel operator and prediction_store in context for use by get_xy().
@@ -1484,7 +1476,7 @@ class MetaModelController(SklearnModelController):
             source, mode, loaded_binaries, prediction_store
         )
 
-    def _extract_model_config(self, step: Any, operator: Any = None) -> Dict[str, Any]:
+    def _extract_model_config(self, step: Any, operator: Any = None) -> dict[str, Any]:
         """Extract model configuration from MetaModel step.
 
         Extracts configuration including finetune_space for Optuna integration.
@@ -1593,7 +1585,7 @@ class MetaModelController(SklearnModelController):
             if not isinstance(meta_operator, MetaModel):
                 raise MetaModelPredictionError(
                     "Cannot find MetaModel operator for prediction"
-                )
+                ) from None
 
         # Try to load meta-model configuration from artifacts
         meta_artifact = self._load_meta_artifact_config(
@@ -1627,8 +1619,8 @@ class MetaModelController(SklearnModelController):
         self,
         runtime_context: 'RuntimeContext',
         context: 'ExecutionContext',
-        loaded_binaries: Optional[List[Tuple[str, Any]]]
-    ) -> Optional[MetaModelArtifact]:
+        loaded_binaries: list[tuple[str, Any]] | None
+    ) -> MetaModelArtifact | None:
         """Load meta-model artifact configuration.
 
         Attempts to load the MetaModelArtifact from:
@@ -1755,7 +1747,7 @@ class MetaModelController(SklearnModelController):
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
         meta_operator: MetaModel,
-        meta_artifact: Optional[MetaModelArtifact],
+        meta_artifact: MetaModelArtifact | None,
         prediction_store: 'Predictions'
     ) -> np.ndarray:
         """Build meta-features from source model predictions for prediction mode.
@@ -1818,14 +1810,14 @@ class MetaModelController(SklearnModelController):
         model: Any,
         model_id: str,
         meta_operator: MetaModel,
-        source_models: List[ModelCandidate],
-        reconstruction_result: Optional[ReconstructionResult],
+        source_models: list[ModelCandidate],
+        reconstruction_result: ReconstructionResult | None,
         context: 'ExecutionContext',
-        branch_id: Optional[int] = None,
-        branch_name: Optional[str] = None,
-        branch_path: Optional[List[int]] = None,
-        fold_id: Optional[int] = None,
-        custom_name: Optional[str] = None,
+        branch_id: int | None = None,
+        branch_name: str | None = None,
+        branch_path: list[int] | None = None,
+        fold_id: int | None = None,
+        custom_name: str | None = None,
     ) -> Any:
         """Persist meta-model with source model references.
 
@@ -1863,13 +1855,10 @@ class MetaModelController(SklearnModelController):
 
         if runtime_context.artifact_registry is not None:
             # V3: Build operator chain for this meta-model
-            from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorNode, OperatorChain
+            from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, OperatorNode
 
             # Get the current chain from trace recorder or build new one
-            if runtime_context.trace_recorder is not None:
-                current_chain = runtime_context.trace_recorder.current_chain()
-            else:
-                current_chain = OperatorChain(pipeline_id=pipeline_id)
+            current_chain = runtime_context.trace_recorder.current_chain() if runtime_context.trace_recorder is not None else OperatorChain(pipeline_id=pipeline_id)
 
             # Create node for this meta-model
             meta_node = OperatorNode(
@@ -1904,7 +1893,7 @@ class MetaModelController(SklearnModelController):
         validation_errors = serializer.validate_artifact(meta_artifact)
         if validation_errors:
             warnings.warn(
-                f"Meta-model artifact validation warnings: {validation_errors}"
+                f"Meta-model artifact validation warnings: {validation_errors}", stacklevel=2
             )
 
         # Use artifact registry if available
@@ -1980,10 +1969,10 @@ class MetaModelController(SklearnModelController):
 
     def _get_source_artifact_ids(
         self,
-        source_models: List[ModelCandidate],
+        source_models: list[ModelCandidate],
         context: 'ExecutionContext',
         runtime_context: 'RuntimeContext'
-    ) -> List[str]:
+    ) -> list[str]:
         """Get artifact IDs for source models.
 
         Attempts to find the artifact IDs for each source model in the
@@ -2040,13 +2029,13 @@ class MetaModelController(SklearnModelController):
         runtime_context: 'RuntimeContext',
         model: Any,
         model_id: str,
-        branch_id: Optional[int] = None,
-        branch_name: Optional[str] = None,
-        branch_path: Optional[List[int]] = None,
-        fold_id: Optional[int] = None,
-        params: Optional[Dict[str, Any]] = None,
-        custom_name: Optional[str] = None
-    ) -> Optional[Any]:
+        branch_id: int | None = None,
+        branch_name: str | None = None,
+        branch_path: list[int] | None = None,
+        fold_id: int | None = None,
+        params: dict[str, Any] | None = None,
+        custom_name: str | None = None
+    ) -> Any | None:
         """Override to persist meta-model with source references.
 
         Extends parent _persist_model to include source model dependencies

@@ -15,7 +15,7 @@ Exception Hierarchy:
         └── MissingDependencyError (dependency not serialized)
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 
 class MetaModelError(Exception):
@@ -32,7 +32,7 @@ class MetaModelError(Exception):
     def __init__(
         self,
         message: str,
-        details: Optional[Dict[str, Any]] = None
+        details: dict[str, Any] | None = None
     ):
         self.message = message
         self.details = details or {}
@@ -44,11 +44,9 @@ class MetaModelError(Exception):
             return f"{self.message} ({detail_str})"
         return self.message
 
-
 # =============================================================================
 # Prediction Errors
 # =============================================================================
-
 
 class MetaModelPredictionError(MetaModelError):
     """Base exception for meta-model prediction errors.
@@ -56,7 +54,6 @@ class MetaModelPredictionError(MetaModelError):
     Raised when prediction mode fails for a meta-model.
     """
     pass
-
 
 class MissingSourceModelError(MetaModelPredictionError):
     """Raised when a source model binary is not found.
@@ -75,7 +72,7 @@ class MissingSourceModelError(MetaModelPredictionError):
         self,
         source_model_id: str,
         meta_model_id: str,
-        all_missing: Optional[List[str]] = None
+        all_missing: list[str] | None = None
     ):
         self.source_model_id = source_model_id
         self.meta_model_id = meta_model_id
@@ -96,7 +93,6 @@ class MissingSourceModelError(MetaModelPredictionError):
             }
         )
 
-
 class SourcePredictionError(MetaModelPredictionError):
     """Raised when a source model fails to produce predictions.
 
@@ -114,7 +110,7 @@ class SourcePredictionError(MetaModelPredictionError):
         self,
         source_model_id: str,
         source_model_name: str,
-        original_error: Optional[Exception] = None
+        original_error: Exception | None = None
     ):
         self.source_model_id = source_model_id
         self.source_model_name = source_model_name
@@ -136,7 +132,6 @@ class SourcePredictionError(MetaModelPredictionError):
             }
         )
 
-
 class FeatureOrderMismatchError(MetaModelPredictionError):
     """Raised when feature columns don't match expected order.
 
@@ -151,8 +146,8 @@ class FeatureOrderMismatchError(MetaModelPredictionError):
 
     def __init__(
         self,
-        expected_columns: List[str],
-        actual_columns: List[str],
+        expected_columns: list[str],
+        actual_columns: list[str],
         meta_model_id: str
     ):
         self.expected_columns = expected_columns
@@ -173,7 +168,6 @@ class FeatureOrderMismatchError(MetaModelPredictionError):
             }
         )
 
-
 class BranchMismatchError(MetaModelPredictionError):
     """Raised when prediction branch doesn't match training branch.
 
@@ -188,8 +182,8 @@ class BranchMismatchError(MetaModelPredictionError):
 
     def __init__(
         self,
-        training_branch: Dict[str, Any],
-        prediction_branch: Dict[str, Any],
+        training_branch: dict[str, Any],
+        prediction_branch: dict[str, Any],
         meta_model_id: str
     ):
         self.training_branch = training_branch
@@ -214,7 +208,6 @@ class BranchMismatchError(MetaModelPredictionError):
             }
         )
 
-
 class NoSourcePredictionsError(MetaModelPredictionError):
     """Raised when no source model predictions are available.
 
@@ -228,7 +221,7 @@ class NoSourcePredictionsError(MetaModelPredictionError):
 
     def __init__(
         self,
-        expected_sources: List[str],
+        expected_sources: list[str],
         meta_model_id: str
     ):
         self.expected_sources = expected_sources
@@ -251,11 +244,9 @@ class NoSourcePredictionsError(MetaModelPredictionError):
             }
         )
 
-
 # =============================================================================
 # Serialization Errors
 # =============================================================================
-
 
 class MetaModelSerializationError(MetaModelError):
     """Base exception for meta-model serialization errors.
@@ -263,7 +254,6 @@ class MetaModelSerializationError(MetaModelError):
     Raised when persistence or loading of meta-model artifacts fails.
     """
     pass
-
 
 class MissingDependencyError(MetaModelSerializationError):
     """Raised when a dependency is not serialized.
@@ -281,7 +271,7 @@ class MissingDependencyError(MetaModelSerializationError):
         self,
         dependency_id: str,
         meta_model_id: str,
-        dependency_name: Optional[str] = None
+        dependency_name: str | None = None
     ):
         self.dependency_id = dependency_id
         self.meta_model_id = meta_model_id
@@ -302,7 +292,6 @@ class MissingDependencyError(MetaModelSerializationError):
             }
         )
 
-
 class InvalidMetaModelArtifactError(MetaModelSerializationError):
     """Raised when a meta-model artifact is invalid or corrupted.
 
@@ -317,7 +306,7 @@ class InvalidMetaModelArtifactError(MetaModelSerializationError):
     def __init__(
         self,
         artifact_id: str,
-        validation_errors: List[str]
+        validation_errors: list[str]
     ):
         self.artifact_id = artifact_id
         self.validation_errors = validation_errors
@@ -337,16 +326,13 @@ class InvalidMetaModelArtifactError(MetaModelSerializationError):
             }
         )
 
-
 # =============================================================================
 # Branching Errors (Phase 4)
 # =============================================================================
 
-
 class BranchingError(MetaModelError):
     """Base exception for branching-related errors in meta-model stacking."""
     pass
-
 
 class IncompatibleBranchTypeError(BranchingError):
     """Raised when stacking is attempted with incompatible branch type.
@@ -364,7 +350,7 @@ class IncompatibleBranchTypeError(BranchingError):
         self,
         branch_type: str,
         reason: str,
-        suggestions: Optional[List[str]] = None
+        suggestions: list[str] | None = None
     ):
         self.branch_type = branch_type
         self.reason = reason
@@ -383,7 +369,6 @@ class IncompatibleBranchTypeError(BranchingError):
                 "reason": reason
             }
         )
-
 
 class CrossPartitionStackingError(BranchingError):
     """Raised when attempting cross-partition stacking with sample_partitioner.
@@ -426,7 +411,6 @@ class CrossPartitionStackingError(BranchingError):
             }
         )
 
-
 class NestedBranchStackingError(BranchingError):
     """Raised when stacking is attempted with complex nested branching.
 
@@ -442,7 +426,7 @@ class NestedBranchStackingError(BranchingError):
     def __init__(
         self,
         branch_depth: int,
-        branch_path: List[int],
+        branch_path: list[int],
         reason: str
     ):
         self.branch_depth = branch_depth
@@ -465,7 +449,6 @@ class NestedBranchStackingError(BranchingError):
             }
         )
 
-
 class FoldMismatchAcrossBranchesError(BranchingError):
     """Raised when source models from different branches have mismatched folds.
 
@@ -479,8 +462,8 @@ class FoldMismatchAcrossBranchesError(BranchingError):
 
     def __init__(
         self,
-        fold_structures: Dict[int, int],
-        affected_models: List[str]
+        fold_structures: dict[int, int],
+        affected_models: list[str]
     ):
         self.fold_structures = fold_structures
         self.affected_models = affected_models
@@ -505,7 +488,6 @@ class FoldMismatchAcrossBranchesError(BranchingError):
                 "affected_models_count": len(affected_models)
             }
         )
-
 
 class DisjointSampleSetsError(BranchingError):
     """Raised when source models have disjoint sample sets.
@@ -549,7 +531,6 @@ class DisjointSampleSetsError(BranchingError):
             }
         )
 
-
 class GeneratorSyntaxStackingWarning(BranchingError):
     """Raised as warning for generator syntax with stacking.
 
@@ -583,16 +564,13 @@ class GeneratorSyntaxStackingWarning(BranchingError):
             }
         )
 
-
 # =============================================================================
 # Multi-Level Stacking Errors (Phase 7)
 # =============================================================================
 
-
 class MultiLevelStackingError(MetaModelError):
     """Base exception for multi-level stacking errors."""
     pass
-
 
 class CircularDependencyError(MultiLevelStackingError):
     """Raised when circular dependencies are detected in multi-level stacking.
@@ -610,7 +588,7 @@ class CircularDependencyError(MultiLevelStackingError):
         self,
         source_model: str,
         meta_model: str,
-        dependency_chain: List[str]
+        dependency_chain: list[str]
     ):
         self.source_model = source_model
         self.meta_model = meta_model
@@ -631,7 +609,6 @@ class CircularDependencyError(MultiLevelStackingError):
             }
         )
 
-
 class MaxStackingLevelExceededError(MultiLevelStackingError):
     """Raised when the maximum stacking level is exceeded.
 
@@ -648,7 +625,7 @@ class MaxStackingLevelExceededError(MultiLevelStackingError):
         self,
         current_level: int,
         max_level: int,
-        source_models: Optional[List[str]] = None
+        source_models: list[str] | None = None
     ):
         self.current_level = current_level
         self.max_level = max_level
@@ -673,7 +650,6 @@ class MaxStackingLevelExceededError(MultiLevelStackingError):
             }
         )
 
-
 class InconsistentLevelError(MultiLevelStackingError):
     """Raised when source models have inconsistent stacking levels.
 
@@ -688,9 +664,9 @@ class InconsistentLevelError(MultiLevelStackingError):
 
     def __init__(
         self,
-        expected_levels: List[int],
-        found_levels: Dict[str, int],
-        problematic_models: List[str]
+        expected_levels: list[int],
+        found_levels: dict[str, int],
+        problematic_models: list[str]
     ):
         self.expected_levels = expected_levels
         self.found_levels = found_levels
@@ -712,16 +688,13 @@ class InconsistentLevelError(MultiLevelStackingError):
             }
         )
 
-
 # =============================================================================
 # Cross-Branch Stacking Errors (Phase 7)
 # =============================================================================
 
-
 class CrossBranchStackingError(BranchingError):
     """Base exception for cross-branch stacking errors."""
     pass
-
 
 class IncompatibleBranchSamplesError(CrossBranchStackingError):
     """Raised when branches have incompatible sample sets for cross-branch stacking.
@@ -736,8 +709,8 @@ class IncompatibleBranchSamplesError(CrossBranchStackingError):
 
     def __init__(
         self,
-        branches: Dict[int, int],
-        overlap_matrix: Optional[Dict[tuple, float]] = None
+        branches: dict[int, int],
+        overlap_matrix: dict[tuple, float] | None = None
     ):
         self.branches = branches
         self.overlap_matrix = overlap_matrix
@@ -758,7 +731,6 @@ class IncompatibleBranchSamplesError(CrossBranchStackingError):
             }
         )
 
-
 class BranchFeatureAlignmentError(CrossBranchStackingError):
     """Raised when cross-branch features cannot be aligned.
 
@@ -775,8 +747,8 @@ class BranchFeatureAlignmentError(CrossBranchStackingError):
     def __init__(
         self,
         expected_features: int,
-        branch_features: Dict[int, int],
-        alignment_issues: Optional[List[str]] = None
+        branch_features: dict[int, int],
+        alignment_issues: list[str] | None = None
     ):
         self.expected_features = expected_features
         self.branch_features = branch_features

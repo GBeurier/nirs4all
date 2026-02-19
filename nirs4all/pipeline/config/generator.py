@@ -96,155 +96,154 @@ Architecture:
 """
 
 # Re-export core API from _generator package
-from ._generator.core import expand_spec, expand_spec_with_choices, count_combinations
+# Re-export constraints (Phase 4)
+from ._generator.constraints import (  # noqa: F401
+    apply_all_constraints,
+    apply_exclude_constraint,
+    apply_mutex_constraint,
+    apply_requires_constraint,
+    parse_constraints,
+    validate_constraints,
+)
+from ._generator.core import count_combinations, expand_spec, expand_spec_with_choices
 
 # Re-export iterator API (Phase 4)
 from ._generator.iterator import (  # noqa: F401
-    expand_spec_iter,
     batch_iter,
+    expand_spec_iter,
     iter_with_progress,
 )
 
 # Re-export keyword constants for external use
 from ._generator.keywords import (  # noqa: F401
-    # Core keywords
-    OR_KEYWORD,
-    RANGE_KEYWORD,
-    LOG_RANGE_KEYWORD,
-    GRID_KEYWORD,
-    ZIP_KEYWORD,
-    CHAIN_KEYWORD,
-    SAMPLE_KEYWORD,
+    ALL_KEYWORDS,
+    ARRANGE_KEYWORD,
     CARTESIAN_KEYWORD,
+    CHAIN_KEYWORD,
+    CONSTRAINT_KEYWORDS,
     # Modifier keywords
     COUNT_KEYWORD,
-    SEED_KEYWORD,
-    WEIGHTS_KEYWORD,
-    # Selection keywords
-    PICK_KEYWORD,
-    ARRANGE_KEYWORD,
-    THEN_PICK_KEYWORD,
-    THEN_ARRANGE_KEYWORD,
-    # Metadata keywords
-    TAGS_KEYWORD,
-    METADATA_KEYWORD,
-    # Constraint keywords
-    MUTEX_KEYWORD,
-    REQUIRES_KEYWORD,
     DEPENDS_ON_KEYWORD,
     EXCLUDE_KEYWORD,
+    GENERATION_KEYWORDS,
+    GRID_KEYWORD,
+    LOG_RANGE_KEYWORD,
+    METADATA_KEYWORD,
+    METADATA_KEYWORDS,
+    MODIFIER_KEYWORDS,
+    # Constraint keywords
+    MUTEX_KEYWORD,
+    # Core keywords
+    OR_KEYWORD,
+    # Selection keywords
+    PICK_KEYWORD,
+    PURE_CARTESIAN_KEYS,
+    PURE_CHAIN_KEYS,
+    PURE_GRID_KEYS,
+    PURE_LOG_RANGE_KEYS,
     # Keyword groups
     PURE_OR_KEYS,
     PURE_RANGE_KEYS,
-    PURE_LOG_RANGE_KEYS,
-    PURE_GRID_KEYS,
-    PURE_ZIP_KEYS,
-    PURE_CHAIN_KEYS,
     PURE_SAMPLE_KEYS,
-    PURE_CARTESIAN_KEYS,
-    GENERATION_KEYWORDS,
+    PURE_ZIP_KEYS,
+    RANGE_KEYWORD,
+    REQUIRES_KEYWORD,
+    SAMPLE_KEYWORD,
+    SEED_KEYWORD,
     SELECTION_KEYWORDS,
-    MODIFIER_KEYWORDS,
-    METADATA_KEYWORDS,
-    CONSTRAINT_KEYWORDS,
-    ALL_KEYWORDS,
-    # Detection functions
-    is_generator_node,
-    has_nested_generator_keywords,
-    is_pure_or_node,
-    is_pure_range_node,
-    is_pure_log_range_node,
-    is_pure_grid_node,
-    is_pure_zip_node,
-    is_pure_chain_node,
-    is_pure_sample_node,
-    is_pure_cartesian_node,
-    has_or_keyword,
-    has_range_keyword,
-    has_log_range_keyword,
-    has_grid_keyword,
-    has_zip_keyword,
-    has_chain_keyword,
-    has_sample_keyword,
-    has_cartesian_keyword,
+    # Metadata keywords
+    TAGS_KEYWORD,
+    THEN_ARRANGE_KEYWORD,
+    THEN_PICK_KEYWORD,
+    WEIGHTS_KEYWORD,
+    ZIP_KEYWORD,
+    extract_base_node,
+    extract_constraints,
+    extract_metadata,
     # Extraction functions
     extract_modifiers,
-    extract_base_node,
     extract_or_choices,
     extract_range_spec,
     extract_tags,
-    extract_metadata,
-    extract_constraints,
+    has_cartesian_keyword,
+    has_chain_keyword,
+    has_grid_keyword,
+    has_log_range_keyword,
+    has_nested_generator_keywords,
+    has_or_keyword,
+    has_range_keyword,
+    has_sample_keyword,
+    has_zip_keyword,
+    # Detection functions
+    is_generator_node,
+    is_pure_cartesian_node,
+    is_pure_chain_node,
+    is_pure_grid_node,
+    is_pure_log_range_node,
+    is_pure_or_node,
+    is_pure_range_node,
+    is_pure_sample_node,
+    is_pure_zip_node,
+)
+
+# Re-export presets (Phase 4)
+from ._generator.presets import (  # noqa: F401
+    PRESET_KEYWORD,
+    clear_presets,
+    export_presets,
+    get_preset,
+    get_preset_info,
+    has_preset,
+    import_presets,
+    is_preset_reference,
+    list_presets,
+    register_builtin_presets,
+    register_preset,
+    resolve_preset,
+    resolve_presets_recursive,
+    unregister_preset,
 )
 
 # Re-export strategies for advanced usage
 from ._generator.strategies import (  # noqa: F401
-    ExpansionStrategy,
-    get_strategy,
-    register_strategy,
-    # Phase 2 strategies
-    RangeStrategy,
-    OrStrategy,
-    # Phase 3 strategies
-    LogRangeStrategy,
-    GridStrategy,
-    ZipStrategy,
-    ChainStrategy,
-    SampleStrategy,
     # Phase 4+ strategies
     CartesianStrategy,
+    ChainStrategy,
+    ExpansionStrategy,
+    GridStrategy,
+    # Phase 3 strategies
+    LogRangeStrategy,
+    OrStrategy,
+    # Phase 2 strategies
+    RangeStrategy,
+    SampleStrategy,
+    ZipStrategy,
+    get_strategy,
+    register_strategy,
 )
+
+# Re-export export utilities (Phase 4)
+from ._generator.utils.export import (  # noqa: F401
+    ExpansionTreeNode,
+    diff_configs,
+    format_config_table,
+    get_expansion_tree,
+    print_expansion_tree,
+    summarize_configs,
+    to_dataframe,
+)
+
+# Re-export utilities (used by tests and advanced usage)
+from ._generator.utils.sampling import sample_with_seed  # noqa: F401
 
 # Re-export validators (Phase 3)
 from ._generator.validators import (  # noqa: F401
     ValidationError,
     ValidationResult,
     ValidationSeverity,
-    validate_spec,
     validate_config,
     validate_expanded_configs,
-)
-
-# Re-export utilities (used by tests and advanced usage)
-from ._generator.utils.sampling import sample_with_seed  # noqa: F401
-
-# Re-export constraints (Phase 4)
-from ._generator.constraints import (  # noqa: F401
-    apply_mutex_constraint,
-    apply_requires_constraint,
-    apply_exclude_constraint,
-    apply_all_constraints,
-    parse_constraints,
-    validate_constraints,
-)
-
-# Re-export presets (Phase 4)
-from ._generator.presets import (  # noqa: F401
-    PRESET_KEYWORD,
-    register_preset,
-    unregister_preset,
-    get_preset,
-    get_preset_info,
-    list_presets,
-    clear_presets,
-    has_preset,
-    is_preset_reference,
-    resolve_preset,
-    resolve_presets_recursive,
-    export_presets,
-    import_presets,
-    register_builtin_presets,
-)
-
-# Re-export export utilities (Phase 4)
-from ._generator.utils.export import (  # noqa: F401
-    to_dataframe,
-    diff_configs,
-    summarize_configs,
-    get_expansion_tree,
-    print_expansion_tree,
-    format_config_table,
-    ExpansionTreeNode,
+    validate_spec,
 )
 
 __all__ = [

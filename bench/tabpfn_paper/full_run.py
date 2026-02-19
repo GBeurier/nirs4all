@@ -8,16 +8,18 @@ Usage:
 
 # Standard library imports
 import argparse
-from pathlib import Path
 import time
+from pathlib import Path
+
+# Third-party model imports
+from catboost import CatBoostRegressor
+from optuna.pruners import SuccessiveHalvingPruner
 
 # Third-party imports
-
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
-
-from optuna.pruners import SuccessiveHalvingPruner
+from tabpfn import TabPFNRegressor
 
 # NIRS4All imports
 import nirs4all
@@ -26,34 +28,37 @@ from nirs4all.data.config import DatasetConfigs
 from nirs4all.operators.models.pytorch.nicon import customizable_nicon as nicon
 from nirs4all.operators.splitters.splitters import SPXYGFold
 from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    ExtendedMultiplicativeScatterCorrection as EMSC,
-    MultiplicativeScatterCorrection as MSC,
-    SavitzkyGolay,
-    SavitzkyGolay as SG,
-    ASLSBaseline,
-    Detrend,
-    Gaussian,
-    ToAbsorbance,
-    KubelkaMunk,
-    Haar,
     AreaNormalization,
-    IdentityTransformer,
-    Derivate,
+    ASLSBaseline,
     Baseline,
-    Normalize,
+    Derivate,
+    Detrend,
     FlexiblePCA,
+    Gaussian,
+    Haar,
+    IdentityTransformer,
+    KubelkaMunk,
+    Normalize,
+    SavitzkyGolay,
+    ToAbsorbance,
+)
+from nirs4all.operators.transforms import (
+    ExtendedMultiplicativeScatterCorrection as EMSC,
+)
+from nirs4all.operators.transforms import (
+    MultiplicativeScatterCorrection as MSC,
+)
+from nirs4all.operators.transforms import (
+    SavitzkyGolay as SG,
+)
+from nirs4all.operators.transforms import (
+    StandardNormalVariate as SNV,
 )
 from nirs4all.operators.transforms.nirs import Wavelet
 from nirs4all.operators.transforms.orthogonalization import OSC
 from nirs4all.operators.transforms.wavelet_denoise import WaveletDenoise
+from nirs4all.visualization.analysis.branch import BranchAnalyzer, BranchSummary
 from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.visualization.analysis.branch import BranchAnalyzer
-from nirs4all.visualization.analysis.branch import BranchSummary
-
-# Third-party model imports
-from catboost import CatBoostRegressor
-from tabpfn import TabPFNRegressor
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--smoke", action="store_true", help="Run smoke (minimal) configuration")
@@ -67,43 +72,43 @@ args = parser.parse_args()
 SMOKE = args.smoke
 
 if SMOKE:
-    CFG = dict(
-        linear_cartesian_count=2,
-        pls_finetune_trials=2,
-        ridge_finetune_trials=2,
-        linear_refit_max_iter=100,
-        ridge_refit_max_iter=500,
-        nicon_train_epochs=10,
-        nicon_train_patience=5,
-        nicon_finetune_trials=2,
-        nicon_finetune_epochs=5,
-        nicon_finetune_patience=3,
-        nicon_refit_epochs=20,
-        nicon_refit_patience=10,
-        tabular_cartesian_count=2,
-        catboost_iterations=10,
-        catboost_refit_iterations=20,
-        tabpfn_refit_estimators=2,
-    )
+    CFG = {
+        "linear_cartesian_count": 2,
+        "pls_finetune_trials": 2,
+        "ridge_finetune_trials": 2,
+        "linear_refit_max_iter": 100,
+        "ridge_refit_max_iter": 500,
+        "nicon_train_epochs": 10,
+        "nicon_train_patience": 5,
+        "nicon_finetune_trials": 2,
+        "nicon_finetune_epochs": 5,
+        "nicon_finetune_patience": 3,
+        "nicon_refit_epochs": 20,
+        "nicon_refit_patience": 10,
+        "tabular_cartesian_count": 2,
+        "catboost_iterations": 10,
+        "catboost_refit_iterations": 20,
+        "tabpfn_refit_estimators": 2,
+    }
 else:
-    CFG = dict(
-        linear_cartesian_count=-1,  # all combinations
-        pls_finetune_trials=25,
-        ridge_finetune_trials=60,
-        linear_refit_max_iter=2000,
-        ridge_refit_max_iter=10000,
-        nicon_train_epochs=600,
-        nicon_train_patience=250,
-        nicon_finetune_trials=50,
-        nicon_finetune_epochs=100,
-        nicon_finetune_patience=50,
-        nicon_refit_epochs=300,
+    CFG = {
+        "linear_cartesian_count": -1,  # all combinations
+        "pls_finetune_trials": 25,
+        "ridge_finetune_trials": 60,
+        "linear_refit_max_iter": 2000,
+        "ridge_refit_max_iter": 10000,
+        "nicon_train_epochs": 600,
+        "nicon_train_patience": 250,
+        "nicon_finetune_trials": 50,
+        "nicon_finetune_epochs": 100,
+        "nicon_finetune_patience": 50,
+        "nicon_refit_epochs": 300,
         # nicon_refit_patience=500,
-        tabular_cartesian_count=-1,  # all combinations
-        catboost_iterations=150,
-        catboost_refit_iterations=600,
-        tabpfn_refit_estimators=20,
-    )
+        "tabular_cartesian_count": -1,  # all combinations
+        "catboost_iterations": 150,
+        "catboost_refit_iterations": 600,
+        "tabpfn_refit_estimators": 20,
+    }
 
 print(f"Running in {'SMOKE' if SMOKE else 'FULL'} mode")
 
@@ -298,13 +303,10 @@ result = nirs4all.run(
 duration = time.time() - start_time
 print(f"\nPipeline completed in {duration:.2f} seconds")
 
-
-
 # # =============================================================================
 # # Section 1: BranchAnalyzer for Statistical Comparison
 # # =============================================================================
 # predictions = result.predictions
-
 
 # print("\n" + "-" * 60)
 # print("Example 1: BranchAnalyzer for Statistical Comparison")
@@ -328,7 +330,6 @@ print(f"\nPipeline completed in {duration:.2f} seconds")
 # # Print as markdown table
 # print(summary.to_markdown())
 
-
 # # =============================================================================
 # # Section 2: Branch Ranking
 # # =============================================================================
@@ -348,7 +349,6 @@ print(f"\nPipeline completed in {duration:.2f} seconds")
 # for rank_info in rankings:
 #     print(f"  #{rank_info['rank']}: {rank_info['branch_name']} "
 #           f"(RMSE: {rank_info['rmse_mean']:.4f} ± {rank_info['rmse_std']:.4f})")
-
 
 # # =============================================================================
 # # Section 3: Pairwise Statistical Comparison
@@ -384,7 +384,6 @@ print(f"\nPipeline completed in {duration:.2f} seconds")
 #     except ValueError as e:
 #         print(f"  Could not compare: {e}")
 
-
 # # =============================================================================
 # # Section 4: Pairwise Comparison Matrix
 # # =============================================================================
@@ -410,7 +409,6 @@ print(f"\nPipeline completed in {duration:.2f} seconds")
 # except Exception as e:
 #     print(f"Could not compute pairwise comparison: {e}")
 
-
 # # =============================================================================
 # # Section 5: LaTeX Export for Publications
 # # =============================================================================
@@ -433,7 +431,6 @@ print(f"\nPipeline completed in {duration:.2f} seconds")
 # print("\n📄 LaTeX Output:")
 # print(latex_output)
 
-
 # # =============================================================================
 # # Section 6: CSV Export
 # # =============================================================================
@@ -448,7 +445,6 @@ print(f"\nPipeline completed in {duration:.2f} seconds")
 # summary_full = analyzer.summary(metrics=['rmse', 'r2', 'mae'], partition='test')
 # summary_full.to_csv("reports/branch_summary.csv")
 # print("📄 Exported branch summary to reports/branch_summary.csv")
-
 
 # # =============================================================================
 # # Section 7: Visualization with PredictionAnalyzer
@@ -485,6 +481,4 @@ print(f"\nPipeline completed in {duration:.2f} seconds")
 #         display_partition='test'
 #     )
 #     print("Created branch boxplot")
-
-
 

@@ -8,7 +8,7 @@ including support for compressed CSV files (.csv.gz, .csv.zip).
 import csv
 import io
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Optional
 
 import numpy as np
 import pandas as pd
@@ -18,8 +18,8 @@ from nirs4all.data.schema.config import NAFillConfig
 
 from .base import (
     ArchiveHandler,
-    FileLoadError,
     FileLoader,
+    FileLoadError,
     LoaderResult,
     apply_na_policy,
     register_loader,
@@ -58,8 +58,7 @@ def _can_be_float(value: str, decimal_sep: str) -> bool:
     except ValueError:
         return False
 
-
-def _detect_delimiter(lines: List[str], possible_delimiters: Optional[List[str]] = None) -> Optional[str]:
+def _detect_delimiter(lines: list[str], possible_delimiters: list[str] | None = None) -> str | None:
     """Detect the delimiter by looking at column count consistency.
 
     Args:
@@ -102,11 +101,10 @@ def _detect_delimiter(lines: List[str], possible_delimiters: Optional[List[str]]
 
     return best_delim
 
-
 def _detect_decimal_and_header(
-    parsed_rows: List[List[str]],
+    parsed_rows: list[list[str]],
     data_type: str = "x",
-) -> Tuple[str, bool]:
+) -> tuple[str, bool]:
     """Detect decimal separator and header presence.
 
     Args:
@@ -159,24 +157,20 @@ def _detect_decimal_and_header(
                 best_decimal_sep = decimal_sep
                 best_has_header = has_header_option
             elif abs(current_score - max_numeric_score) < 1e-6:
-                if best_decimal_sep == "," and decimal_sep == ".":
-                    best_decimal_sep = decimal_sep
-                    best_has_header = has_header_option
-                elif best_has_header and (not has_header_option):
+                if best_decimal_sep == "," and decimal_sep == "." or best_has_header and (not has_header_option):
                     best_decimal_sep = decimal_sep
                     best_has_header = has_header_option
 
     return best_decimal_sep, best_has_header
 
-
 def _determine_csv_parameters(
     csv_content: str,
     sample_lines: int = 20,
     data_type: str = "x",
-    user_params: Optional[Dict[str, Any]] = None,
+    user_params: dict[str, Any] | None = None,
     *,
     bypass_auto_detection: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Determine CSV parameters with defaults or auto-detection.
 
     Args:
@@ -236,7 +230,6 @@ def _determine_csv_parameters(
         "has_header": has_header,
     }
 
-
 @register_loader
 class CSVLoader(FileLoader):
     """Loader for CSV files.
@@ -258,7 +251,7 @@ class CSVLoader(FileLoader):
         member: For zip files, specific member to extract
     """
 
-    supported_extensions: ClassVar[Tuple[str, ...]] = (".csv",)
+    supported_extensions: ClassVar[tuple[str, ...]] = (".csv",)
     name: ClassVar[str] = "CSV Loader"
     priority: ClassVar[int] = 50
 
@@ -281,9 +274,8 @@ class CSVLoader(FileLoader):
             return True
 
         # Plain .gz files (not tar archives) — assume gzip-compressed CSV
-        if path.suffix.lower() == ".gz":
-            if not name_lower.endswith((".tar.gz", ".tgz")):
-                return True
+        if path.suffix.lower() == ".gz" and not name_lower.endswith((".tar.gz", ".tgz")):
+            return True
 
         if path.suffix.lower() == ".zip":
             # Could check if zip contains CSV, but for now assume yes
@@ -297,12 +289,12 @@ class CSVLoader(FileLoader):
         self,
         path: Path,
         na_policy: str = "auto",
-        na_fill_config: Optional[NAFillConfig] = None,
+        na_fill_config: NAFillConfig | None = None,
         data_type: str = "x",
         categorical_mode: str = "auto",
         header_unit: str = "cm-1",
         encoding: str = "utf-8",
-        member: Optional[str] = None,
+        member: str | None = None,
         **user_params: Any,
     ) -> LoaderResult:
         """Load data from a CSV file.
@@ -324,7 +316,7 @@ class CSVLoader(FileLoader):
         if categorical_mode not in ["auto", "preserve", "none"]:
             raise ValueError("Invalid categorical mode - only 'auto', 'preserve', or 'none' are supported.")
 
-        report: Dict[str, Any] = {
+        report: dict[str, Any] = {
             "file_path": str(path),
             "detection_params": None,
             "delimiter": None,
@@ -421,11 +413,8 @@ class CSVLoader(FileLoader):
 
                     if categorical_mode == "auto":
                         should_treat_as_categorical = False
-                        if original_is_object:
+                        if original_is_object or not pd.api.types.is_numeric_dtype(data[col].dtype) and numeric_representation.isna().sum() > original_col_series.isna().sum():
                             should_treat_as_categorical = True
-                        elif not pd.api.types.is_numeric_dtype(data[col].dtype):
-                            if numeric_representation.isna().sum() > original_col_series.isna().sum():
-                                should_treat_as_categorical = True
 
                         if should_treat_as_categorical:
                             if col.isdigit() or (col.count(".") == 1 and col.replace(".", "", 1).isdigit()):
@@ -439,10 +428,7 @@ class CSVLoader(FileLoader):
                         else:
                             data[col] = numeric_representation
 
-                    elif categorical_mode == "preserve":
-                        data[col] = numeric_representation
-
-                    elif categorical_mode == "none":
+                    elif categorical_mode == "preserve" or categorical_mode == "none":
                         data[col] = numeric_representation
 
                 report["categorical_info"] = local_categorical_mappings
@@ -474,9 +460,7 @@ class CSVLoader(FileLoader):
             report["na_handling"] = na_report
 
             # Update na_mask based on policy
-            if na_report["strategy"] == "remove_sample":
-                na_mask = na_mask_before
-            elif na_report["strategy"] in ("replace", "ignore"):
+            if na_report["strategy"] == "remove_sample" or na_report["strategy"] in ("replace", "ignore"):
                 na_mask = na_mask_before
             elif na_report["strategy"] == "remove_feature":
                 na_mask = data.isna().any(axis=1)
@@ -512,7 +496,7 @@ class CSVLoader(FileLoader):
         self,
         path: Path,
         encoding: str = "utf-8",
-        member: Optional[str] = None,
+        member: str | None = None,
     ) -> str:
         """Read file content, handling compression.
 
@@ -535,19 +519,18 @@ class CSVLoader(FileLoader):
         else:
             # Plain text file
             try:
-                with open(path, "r", encoding=encoding, newline="") as f:
+                with open(path, encoding=encoding, newline="") as f:
                     return f.read()
             except UnicodeDecodeError:
                 # Fall back to latin-1
-                with open(path, "r", encoding="latin-1", newline="") as f:
+                with open(path, encoding="latin-1", newline="") as f:
                     return f.read()
-
 
 # Backward compatibility function
 def load_csv(
     path,
     na_policy: str = "auto",
-    na_fill_config: Optional[NAFillConfig] = None,
+    na_fill_config: NAFillConfig | None = None,
     data_type: str = "x",
     categorical_mode: str = "auto",
     header_unit: str = "cm-1",

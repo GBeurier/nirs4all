@@ -43,7 +43,6 @@ parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
-
 # =============================================================================
 # Section 1: Why SHAP?
 # =============================================================================
@@ -69,7 +68,6 @@ SHAP explains model predictions:
      - Positive value: Increases prediction
      - Negative value: Decreases prediction
 """)
-
 
 # =============================================================================
 # Section 2: Train a Model
@@ -106,7 +104,6 @@ print(f"\nBest model: {best_prediction['model_name']}")
 test_mse = best_prediction.get('test_mse', best_prediction.get('mse'))
 print(f"Test MSE: {test_mse:.4f}" if test_mse is not None else "Test MSE: (see detailed metrics)")
 
-
 # =============================================================================
 # Section 3: Basic SHAP Analysis
 # =============================================================================
@@ -133,9 +130,8 @@ shap_results, output_dir = runner.explain(
     plots_visible=args.plots
 )
 
-print(f"\n✓ SHAP analysis complete")
+print("\n✓ SHAP analysis complete")
 print(f"  Output directory: {output_dir}")
-
 
 # =============================================================================
 # Section 4: Advanced SHAP Configuration
@@ -186,8 +182,7 @@ shap_results_adv, output_dir_adv = runner.explain(
     plots_visible=args.plots
 )
 
-print(f"\n✓ Advanced SHAP analysis complete")
-
+print("\n✓ Advanced SHAP analysis complete")
 
 # =============================================================================
 # Section 5: Understanding SHAP Visualizations
@@ -217,7 +212,6 @@ Each visualization serves a different purpose:
      - Color indicates feature value
      - Reveals feature importance patterns
 """)
-
 
 # =============================================================================
 # Section 6: SHAP Configuration Reference
@@ -260,7 +254,6 @@ SHAP Parameter Reference:
       'mean_abs': Average absolute SHAP
       'sum_abs': Total absolute SHAP
 """)
-
 
 # =============================================================================
 # Summary

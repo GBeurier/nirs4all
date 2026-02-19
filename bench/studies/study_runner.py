@@ -12,24 +12,34 @@ Just edit the configuration below and run this file.
 """
 
 import os
+
 from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.discriminant_analysis import StandardScaler
 from sklearn.random_projection import GaussianRandomProjection, SparseRandomProjection
-
-from nirs4all.operators.transforms import (
-    Wavelet, WaveletFeatures, WaveletPCA, WaveletSVD,
-    StandardNormalVariate, FirstDerivative, SecondDerivative, SavitzkyGolay,
-    MultiplicativeScatterCorrection, Detrend, Gaussian, Haar,
-    RobustStandardNormalVariate,
-)
-from nirs4all.operators.transforms.nirs import (
-    ASLSBaseline,
-    AreaNormalization,
-    ExtendedMultiplicativeScatterCorrection as EMSC,
-)
-
 from study_base_runner import StudyRunner
 
+from nirs4all.operators.transforms import (
+    Detrend,
+    FirstDerivative,
+    Gaussian,
+    Haar,
+    MultiplicativeScatterCorrection,
+    RobustStandardNormalVariate,
+    SavitzkyGolay,
+    SecondDerivative,
+    StandardNormalVariate,
+    Wavelet,
+    WaveletFeatures,
+    WaveletPCA,
+    WaveletSVD,
+)
+from nirs4all.operators.transforms.nirs import (
+    AreaNormalization,
+    ASLSBaseline,
+)
+from nirs4all.operators.transforms.nirs import (
+    ExtendedMultiplicativeScatterCorrection as EMSC,
+)
 
 # ============================================================================
 # CONFIGURATION
@@ -144,57 +154,14 @@ class MyStudy(StudyRunner):
 
         # --- GLOBAL_PP: Preprocessing search space for TransferPreprocessingSelector ---
         self.global_pp = {
-            "_cartesian_": [ # 240 | 729 * 3 folds * 20 trials = 43740 * 2 models = 87480 runs
-                {"_or_": [None, StandardScaler, MinMaxScaler]},
-                {"_or_": [None, ASLSBaseline, Detrend]},
-                {"_or_": [None, StandardNormalVariate, EMSC]},
-                {"_or_": [None, SavitzkyGolay(window_length=15), Gaussian(order=1, sigma=2)]},
-                # {"_or_": [None, SavitzkyGolay(window_length=15, deriv=1), SavitzkyGolay(window_length=15, deriv=2)]},
-                {"_or_": [None, Haar(), AreaNormalization()]},
-                # PLS finetune 20 trials
-                # Ridge finetune 20 trials
-            ]
-
-            # nicon_set * 3 folds * 20 trials = 60 runs
-            # nicon + finetune 20 trials
-
             "_cartesian_": [
                 # 24 combinations * 3 folds = 72 runs per model + extra
                 {"_or_": [None, StandardScaler]},
                 {"_or_": [None, ASLSBaseline]},
-                {"_or_": [None, Haar(), AreaNormalization()]}, #subset top3
-                {"_or_": [None, PCA_features(0.25)]},
-                #CatboostRefgressor(iterations=200, depth=6, learning_rate=0.1) # Extra iter 500 + depth 10
-                #Tabpfn_real # Extra with large / std / etc.
-            ]
-        #
-        #       CatBoostRegressor(iterations=200,
-        #                   depth=6,
-        #                   learning_rate=0.1,
-        #                   verbose=0,
-        #                   allow_writing_files=False,
-        #                   train_dir=None,
-        #                   task_type="GPU",
-        #                   devices="0",
-        #                   used_ram_limit="20GB",
-        #                   gpu_cat_features_storage='CpuPinnedMemory'),
-        #       CatBoostRegressor(iterations=400,
-        #                   depth=8,
-        #                   learning_rate=0.05,
-        #                   verbose=0,
-        #                   allow_writing_files=False,
-        #                   train_dir=None,
-        #                   task_type="GPU",
-        #                   devices="0",
-        #                   used_ram_limit="20GB",
-        #                   gpu_cat_features_storage='CpuPinnedMemory'),
-
-
-                # {"_or_": [None, SavitzkyGolay(window_length=15, deriv=1), SavitzkyGolay(window_length=15, deriv=2)]},
+                {"_or_": [None, Haar(), AreaNormalization()]},
+                {"_or_": [None, PCA(n_components=0.25)]},
             ],
         }
-
-
 
         # self.global_pp = {
         #     "_cartesian_": [
@@ -224,14 +191,12 @@ class MyStudy(StudyRunner):
 
         # --- TRANSFER_PP_CONFIG: Full TransferPreprocessingSelector configuration ---
 
-
         # ====================================================================
         # EXECUTION CONTROL (optional)
         # ====================================================================
 
         # self.skip_training = False
         # self.skip_reporting = False
-
 
 # ============================================================================
 # RUN

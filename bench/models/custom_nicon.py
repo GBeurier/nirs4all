@@ -1,17 +1,35 @@
-from tensorflow.keras.models import Model, Sequential
-from tensorflow.keras.layers import (
-    Input, Conv1D, Dense, Dropout, BatchNormalization,
-    SpatialDropout1D, GlobalAveragePooling1D, GlobalMaxPooling1D,
-    Add, Multiply, Concatenate, Reshape, Average, Lambda,
-    AveragePooling1D, ZeroPadding1D, Activation, AlphaDropout, Flatten
-)
 import tensorflow as tf
-from keras.initializers import lecun_normal, he_normal
+from keras.initializers import he_normal, lecun_normal
+from tensorflow.keras.layers import (
+    Activation,
+    Add,
+    AlphaDropout,
+    Average,
+    AveragePooling1D,
+    BatchNormalization,
+    Concatenate,
+    Conv1D,
+    Dense,
+    Dropout,
+    Flatten,
+    GlobalAveragePooling1D,
+    GlobalMaxPooling1D,
+    Input,
+    Lambda,
+    Multiply,
+    Reshape,
+    SpatialDropout1D,
+    ZeroPadding1D,
+)
+from tensorflow.keras.models import Model, Sequential
+
 from nirs4all.utils.backend import framework
 
 
 @framework('tensorflow')
-def nicon_auto_norm(input_shape, params={}):
+def nicon_auto_norm(input_shape, params=None):
+    if params is None:
+        params = {}
     model = Sequential([
         Input(shape=input_shape),
         SpatialDropout1D(params.get('spatial_dropout', 0.08)),
@@ -32,9 +50,10 @@ def nicon_auto_norm(input_shape, params={}):
     ])
     return model
 
-
 @framework('tensorflow')
-def nicon_batch_norm(input_shape, params={}):
+def nicon_batch_norm(input_shape, params=None):
+    if params is None:
+        params = {}
     model = Sequential([
         Input(shape=input_shape),
         SpatialDropout1D(params.get('spatial_dropout', 0.08)),
@@ -58,9 +77,8 @@ def nicon_batch_norm(input_shape, params={}):
     ])
     return model
 
-
 @framework('tensorflow')
-def nicon_improved(input_shape, params={}):
+def nicon_improved(input_shape, params=None):
     """
     NIRS-optimized CNN with spectral-aware features:
     - Residual connections to preserve baseline
@@ -69,6 +87,8 @@ def nicon_improved(input_shape, params={}):
     - Derivative-aware branches
     - Minimal aggressive downsampling
     """
+    if params is None:
+        params = {}
     inputs = Input(shape=input_shape)
 
     # Wavelength positional encoding
@@ -176,13 +196,14 @@ def nicon_improved(input_shape, params={}):
 
     return Model(inputs, outputs, name="NICON_Improved")
 
-
 @framework('tensorflow')
-def nicon_lightweight(input_shape, params={}):
+def nicon_lightweight(input_shape, params=None):
     """
     Lighter version with key improvements but faster training.
     Good for quick iterations or smaller datasets.
     """
+    if params is None:
+        params = {}
     inputs = Input(shape=input_shape)
 
     x = SpatialDropout1D(params.get('spatial_dropout', 0.1))(inputs)
@@ -234,17 +255,18 @@ def nicon_lightweight(input_shape, params={}):
 
     return Model(inputs, outputs, name="NICON_Lightweight")
 
-
 @framework('tensorflow')
-def nicon_experimental(input_shape, params={}):
+def nicon_experimental(input_shape, params=None):
     """
     Experimental architecture with:
     - Self-attention for global spectral context
     - Explicit derivative learning
     - Adaptive receptive fields
     """
-    from tensorflow.keras.layers import MultiHeadAttention, LayerNormalization
+    from tensorflow.keras.layers import LayerNormalization, MultiHeadAttention
 
+    if params is None:
+        params = {}
     inputs = Input(shape=input_shape)
 
     x = SpatialDropout1D(params.get('spatial_dropout', 0.1))(inputs)
@@ -303,7 +325,6 @@ def nicon_experimental(input_shape, params={}):
     outputs = Dense(1, activation='sigmoid')(x)
 
     return Model(inputs, outputs, name="NICON_Experimental")
-
 
 # ============================================================
 # USAGE RECOMMENDATIONS

@@ -5,9 +5,10 @@ These tests verify that the core fixtures work correctly,
 are reproducible, and provide the expected data structures.
 """
 
+from pathlib import Path
+
 import numpy as np
 import pytest
-from pathlib import Path
 
 
 class TestSyntheticBuilderFactory:
@@ -41,7 +42,6 @@ class TestSyntheticBuilderFactory:
 
         assert not np.allclose(X1, X2)
 
-
 class TestStandardRegressionDataset:
     """Tests for standard_regression_dataset fixture."""
 
@@ -74,7 +74,6 @@ class TestStandardRegressionDataset:
         X2 = standard_regression_dataset.x({})
         np.testing.assert_array_equal(X1, X2)
 
-
 class TestStandardClassificationDataset:
     """Tests for standard_classification_dataset fixture."""
 
@@ -94,7 +93,6 @@ class TestStandardClassificationDataset:
         # Check if all values are close to integers
         assert np.allclose(y, np.round(y))
 
-
 class TestStandardBinaryDataset:
     """Tests for standard_binary_dataset fixture."""
 
@@ -107,7 +105,6 @@ class TestStandardBinaryDataset:
         y = standard_binary_dataset.y({})
         unique_classes = np.unique(y)
         assert len(unique_classes) == 2
-
 
 class TestMultiSourceDataset:
     """Tests for multi_source_dataset fixture."""
@@ -123,7 +120,6 @@ class TestMultiSourceDataset:
         assert X.shape[0] == 200
         assert X.shape[1] > 0
 
-
 class TestFreshRegressionDataset:
     """Tests for fresh_regression_dataset fixture."""
 
@@ -136,7 +132,6 @@ class TestFreshRegressionDataset:
     def test_has_correct_samples(self, fresh_regression_dataset):
         """Should have 100 samples."""
         assert fresh_regression_dataset.num_samples == 100
-
 
 class TestRegressionArrays:
     """Tests for regression_arrays fixture."""
@@ -161,7 +156,6 @@ class TestRegressionArrays:
         # y can be 1D (single target) or 2D (multi-target or single target column)
         assert y.ndim in [1, 2]
 
-
 class TestClassificationArrays:
     """Tests for classification_arrays fixture."""
 
@@ -175,7 +169,6 @@ class TestClassificationArrays:
         X, y = classification_arrays
         unique = np.unique(y)
         assert len(unique) == 3  # 3 classes
-
 
 class TestSyntheticDatasetFolder:
     """Tests for synthetic_dataset_folder fixture."""
@@ -209,7 +202,6 @@ class TestSyntheticDatasetFolder:
         yval_files = list(synthetic_dataset_folder.glob("Yval*"))
         assert len(yval_files) > 0
 
-
 class TestSyntheticCsvFile:
     """Tests for synthetic_csv_file fixture."""
 
@@ -225,7 +217,6 @@ class TestSyntheticCsvFile:
     def test_file_has_csv_extension(self, synthetic_csv_file):
         """File should have .csv extension."""
         assert synthetic_csv_file.suffix == '.csv'
-
 
 class TestBaseSyntheticData:
     """Tests for base_synthetic_data fixture."""
@@ -254,7 +245,6 @@ class TestBaseSyntheticData:
         assert wavelengths[0] == 1000
         assert wavelengths[-1] == 2000
 
-
 class TestSampleWavelengths:
     """Tests for sample_wavelengths fixture."""
 
@@ -272,7 +262,6 @@ class TestSampleWavelengths:
         diff = np.diff(sample_wavelengths)
         assert np.all(diff == 2)
 
-
 class TestDatasetAllComplexities:
     """Tests for dataset_all_complexities parametrized fixture."""
 
@@ -280,7 +269,6 @@ class TestDatasetAllComplexities:
         """Each complexity level should produce valid dataset."""
         assert dataset_all_complexities is not None
         assert dataset_all_complexities.num_samples == 100
-
 
 class TestClassificationNClasses:
     """Tests for classification_n_classes parametrized fixture."""
@@ -292,7 +280,6 @@ class TestClassificationNClasses:
         # Number of classes should be 2, 3, or 5 based on param
         assert len(unique) in [2, 3, 5]
 
-
 class TestCsvVariationGenerator:
     """Tests for csv_variation_generator fixture."""
 
@@ -302,7 +289,6 @@ class TestCsvVariationGenerator:
         assert hasattr(csv_variation_generator, 'generate_all_variations')
         assert hasattr(csv_variation_generator, 'with_semicolon_delimiter')
         assert hasattr(csv_variation_generator, 'with_comma_delimiter')
-
 
 class TestCsvFormatFixtures:
     """Tests for CSV format variation fixtures."""
@@ -332,7 +318,6 @@ class TestCsvFormatFixtures:
         assert csv_with_index_format.exists()
         assert csv_with_index_format.is_dir()
 
-
 class TestCsvAllVariations:
     """Tests for csv_all_variations fixture."""
 
@@ -348,7 +333,6 @@ class TestCsvAllVariations:
         """All variation paths should exist."""
         for name, path in csv_all_variations.items():
             assert path.exists(), f"Path for '{name}' does not exist: {path}"
-
 
 class TestFixtureReproducibility:
     """Tests to ensure fixtures produce reproducible results."""
@@ -366,7 +350,6 @@ class TestFixtureReproducibility:
         # Check first few values are consistent
         first_sample_sum = X[0].sum()
         assert first_sample_sum != 0  # Should have non-zero values
-
 
 class TestFixtureIntegration:
     """Integration tests for fixtures with nirs4all components."""

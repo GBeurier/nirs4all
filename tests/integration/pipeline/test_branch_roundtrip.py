@@ -7,14 +7,15 @@ Tests deterministic roundtrip behavior:
 - Transformer states are correctly restored
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+import pytest
 import yaml
-from sklearn.linear_model import Ridge
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.linear_model import Ridge
 from sklearn.model_selection import ShuffleSplit
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
@@ -36,7 +37,6 @@ def create_reproducible_dataset(n_samples: int = 100, n_features: int = 50, seed
 
     return dataset
 
-
 def create_new_data_for_prediction(n_samples: int = 20, n_features: int = 50, seed: int = 123) -> SpectroDataset:
     """Create new data for prediction that wasn't seen during training."""
     np.random.seed(seed)
@@ -47,7 +47,6 @@ def create_new_data_for_prediction(n_samples: int = 20, n_features: int = 50, se
     new_dataset.add_targets(np.zeros(n_samples))
 
     return new_dataset
-
 
 class TestDeterministicRoundtrip:
     """
@@ -184,7 +183,6 @@ class TestDeterministicRoundtrip:
             assert y_pred_reloaded.shape[0] == dataset.num_samples, \
                 f"Expected {dataset.num_samples} predictions for {branch_name}"
 
-
 class TestNumericalPrecision:
     """
     Test numerical precision across save/load.
@@ -303,7 +301,6 @@ class TestNumericalPrecision:
 
             assert y_pred_reloaded is not None, f"Failed to predict for branch {branch_id}"
 
-
 class TestMultipleBranchRoundtrip:
     """Test roundtrip with multiple branches and complex scenarios."""
 
@@ -419,7 +416,6 @@ class TestMultipleBranchRoundtrip:
             assert y_pred_reloaded is not None, f"Prediction failed for branch {branch_id}"
             assert y_pred_reloaded.shape[0] == fresh_dataset.num_samples, \
                 f"Expected {fresh_dataset.num_samples} predictions for branch {branch_id}"
-
 
 class TestEdgeCaseRoundtrip:
     """

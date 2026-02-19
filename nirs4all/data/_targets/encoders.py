@@ -1,6 +1,6 @@
 """Label encoders for target data."""
 
-from typing import Dict, Optional
+from typing import Optional
 
 import numpy as np
 from sklearn.base import TransformerMixin
@@ -33,10 +33,10 @@ class FlexibleLabelEncoder(TransformerMixin):
     - Thread-safe for transform after fit
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize label encoder with empty state."""
-        self.classes_: Optional[np.ndarray] = None
-        self.class_to_idx: Dict = {}
+        self.classes_: np.ndarray | None = None
+        self.class_to_idx: dict = {}
 
     def fit(self, y: np.ndarray) -> 'FlexibleLabelEncoder':
         """
@@ -53,10 +53,7 @@ class FlexibleLabelEncoder(TransformerMixin):
         """
         y = np.asarray(y).ravel()
         # Filter NaN only for numeric types
-        if np.issubdtype(y.dtype, np.number):
-            mask = ~np.isnan(y)
-        else:
-            mask = np.ones(len(y), dtype=bool)
+        mask = ~np.isnan(y) if np.issubdtype(y.dtype, np.number) else np.ones(len(y), dtype=bool)
         self.classes_ = np.unique(y[mask])
         self.class_to_idx = {cls: idx for idx, cls in enumerate(self.classes_)}
         return self
@@ -86,7 +83,7 @@ class FlexibleLabelEncoder(TransformerMixin):
         result = np.empty_like(y_flat, dtype=np.float32)
 
         next_idx = len(self.classes_)
-        unseen_map: Dict = {}
+        unseen_map: dict = {}
 
         for i, label in enumerate(y_flat):
             # Check for NaN only on numeric types

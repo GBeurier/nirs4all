@@ -20,14 +20,14 @@ Examples:
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any, Optional
 
 # Import core V3 functions from operator_chain to avoid duplication
 from nirs4all.pipeline.storage.artifacts.operator_chain import (
     compute_chain_hash,
     generate_artifact_id_v3,
-    parse_artifact_id_v3,
     is_v3_artifact_id,
+    parse_artifact_id_v3,
 )
 
 
@@ -50,11 +50,11 @@ class ExecutionPath:
 
     pipeline_id: str
     chain_path: str = ""
-    branch_path: List[int] = None
+    branch_path: list[int] = None
     step_index: int = 0
-    source_index: Optional[int] = None
-    fold_id: Optional[int] = None
-    substep_index: Optional[int] = None
+    source_index: int | None = None
+    fold_id: int | None = None
+    substep_index: int | None = None
 
     def __post_init__(self):
         if self.branch_path is None:
@@ -88,10 +88,9 @@ class ExecutionPath:
             fold_id=fold_id,
         )
 
-
 def parse_artifact_id(
     artifact_id: str
-) -> Tuple[str, List[int], int, Optional[int], Optional[int]]:
+) -> tuple[str, list[int], int, int | None, int | None]:
     """Parse an artifact ID into its components (V3 only).
 
     V3 format: {pipeline_id}${chain_hash}:{fold_id}
@@ -116,7 +115,6 @@ def parse_artifact_id(
     pipeline_id, chain_hash, fold_id = parse_artifact_id_v3(artifact_id)
     # For V3, detailed info (step, branch, substep) is in ArtifactRecord
     return pipeline_id, [], 0, fold_id, None
-
 
 def generate_filename(
     artifact_type: str,
@@ -149,8 +147,7 @@ def generate_filename(
 
     return f"{artifact_type}_{class_name}_{short_hash}.{extension}"
 
-
-def parse_filename(filename: str) -> Optional[Tuple[str, str, str]]:
+def parse_filename(filename: str) -> tuple[str, str, str] | None:
     """Parse artifact filename into components.
 
     Handles new format: <type>_<class>_<short_hash>.<ext>
@@ -182,7 +179,6 @@ def parse_filename(filename: str) -> Optional[Tuple[str, str, str]]:
 
     return None
 
-
 def compute_content_hash(content: bytes) -> str:
     """Compute SHA256 hash of binary content.
 
@@ -194,7 +190,6 @@ def compute_content_hash(content: bytes) -> str:
     """
     hash_value = hashlib.sha256(content).hexdigest()
     return f"sha256:{hash_value}"
-
 
 def get_short_hash(content_hash: str, length: int = 12) -> str:
     """Extract short hash from full content hash.
@@ -211,7 +206,6 @@ def get_short_hash(content_hash: str, length: int = 12) -> str:
         hash_value = hash_value[7:]
     return hash_value[:length]
 
-
 def get_binaries_path(workspace: Path, dataset: str) -> Path:
     """Get the centralized artifacts directory.
 
@@ -227,7 +221,6 @@ def get_binaries_path(workspace: Path, dataset: str) -> Path:
         Path to artifacts directory
     """
     return workspace / "artifacts"
-
 
 def validate_artifact_id(artifact_id: str) -> bool:
     """Validate artifact ID format (V3 only).
@@ -246,7 +239,6 @@ def validate_artifact_id(artifact_id: str) -> bool:
     except (ValueError, IndexError):
         return False
 
-
 def extract_pipeline_id_from_artifact_id(artifact_id: str) -> str:
     """Extract pipeline ID from artifact ID (V2 or V3).
 
@@ -260,8 +252,7 @@ def extract_pipeline_id_from_artifact_id(artifact_id: str) -> str:
         return artifact_id.split("$")[0]
     return artifact_id.split(":")[0]
 
-
-def extract_fold_id_from_artifact_id(artifact_id: str) -> Optional[int]:
+def extract_fold_id_from_artifact_id(artifact_id: str) -> int | None:
     """Extract fold ID from artifact ID (V2 or V3).
 
     Args:
@@ -275,13 +266,12 @@ def extract_fold_id_from_artifact_id(artifact_id: str) -> Optional[int]:
         return fold_id
     raise ValueError(f"V2 artifact format not supported: {artifact_id}")
 
-
 def artifact_id_matches_context(
     artifact_id: str,
-    pipeline_id: Optional[str] = None,
-    branch_path: Optional[List[int]] = None,
-    step_index: Optional[int] = None,
-    fold_id: Optional[int] = None
+    pipeline_id: str | None = None,
+    branch_path: list[int] | None = None,
+    step_index: int | None = None,
+    fold_id: int | None = None
 ) -> bool:
     """Check if a V3 artifact ID matches a given context.
 
@@ -305,9 +295,7 @@ def artifact_id_matches_context(
         aid_pipeline, _, aid_fold = parse_artifact_id_v3(artifact_id)
         if pipeline_id is not None and aid_pipeline != pipeline_id:
             return False
-        if fold_id is not None and aid_fold != fold_id:
-            return False
         # branch_path and step_index require ArtifactRecord for V3
-        return True
+        return fold_id is None or aid_fold == fold_id
     except ValueError:
         return False

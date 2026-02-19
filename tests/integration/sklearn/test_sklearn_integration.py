@@ -9,23 +9,24 @@ These tests verify end-to-end functionality:
 - SHAP integration (optional, depends on shap being installed)
 """
 
-import pytest
-import numpy as np
-from pathlib import Path
-import tempfile
 import os
+import tempfile
+from pathlib import Path
+
+import numpy as np
+import pytest
 
 # Skip all tests if running in minimal environment
 pytest.importorskip("sklearn")
 
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.metrics import r2_score
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import r2_score
 
 import nirs4all
-from nirs4all.sklearn import NIRSPipeline, NIRSPipelineClassifier
 from nirs4all.operators.transforms import StandardNormalVariate
+from nirs4all.sklearn import NIRSPipeline, NIRSPipelineClassifier
 
 
 class TestNIRSPipelineIntegration:
@@ -180,7 +181,6 @@ class TestNIRSPipelineIntegration:
 
         assert y_fold0.shape == y_fold1.shape
 
-
 class TestNIRSPipelineSklearnCompatibility:
     """Test sklearn tool compatibility."""
 
@@ -243,7 +243,6 @@ class TestNIRSPipelineSklearnCompatibility:
         pipe.set_params(fold=1)
         new_params = pipe.get_params()
         assert new_params["fold"] == 1
-
 
 class TestShapIntegration:
     """Test SHAP integration (optional, skipped if shap not installed)."""

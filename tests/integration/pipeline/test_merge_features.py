@@ -11,22 +11,22 @@ Tests:
 These tests verify the Phase 3 implementation from the branching_concat_merge_design.
 """
 
-import pytest
 import numpy as np
-from sklearn.model_selection import ShuffleSplit
+import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
-from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.operators.transforms import (
-    StandardNormalVariate,
+    FirstDerivative,
     MultiplicativeScatterCorrection,
     SavitzkyGolay,
-    FirstDerivative,
+    StandardNormalVariate,
 )
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+from nirs4all.pipeline.runner import PipelineRunner
 
 
 def create_test_dataset(n_samples: int = 100, n_features: int = 50, seed: int = 42) -> SpectroDataset:
@@ -45,7 +45,6 @@ def create_test_dataset(n_samples: int = 100, n_features: int = 50, seed: int = 
     dataset.add_targets(y[n_train:])
 
     return dataset
-
 
 class TestBasicFeatureMerge:
     """Test basic feature merge operations."""
@@ -103,7 +102,6 @@ class TestBasicFeatureMerge:
         assert predictions is not None
         assert len(predictions) > 0
 
-
 class TestSelectiveBranchMerge:
     """Test selective branch merging (specific indices)."""
 
@@ -156,7 +154,6 @@ class TestSelectiveBranchMerge:
         assert predictions is not None
         assert len(predictions) > 0
 
-
 class TestMergeWithPreprocessing:
     """Test merge combined with various preprocessing steps."""
 
@@ -184,7 +181,6 @@ class TestMergeWithPreprocessing:
         assert predictions is not None
         assert len(predictions) > 0
 
-
 class TestMergeMetadata:
     """Test that merge step produces correct metadata."""
 
@@ -211,7 +207,6 @@ class TestMergeMetadata:
         # This test verifies the pipeline runs - metadata inspection
         # would require access to step outputs which is internal
         assert predictions is not None
-
 
 class TestMergeShapeHandling:
     """Test feature shape handling during merge."""
@@ -244,7 +239,6 @@ class TestMergeShapeHandling:
         )
 
         assert predictions is not None
-
 
 class TestMergeModelIntegration:
     """Test merge followed by model training."""
@@ -297,7 +291,6 @@ class TestMergeModelIntegration:
         # Should have predictions from both models
         assert len(predictions) >= 2
 
-
 class TestMergeOnMissing:
     """Test on_missing handling strategies."""
 
@@ -310,7 +303,6 @@ class TestMergeOnMissing:
         """Test that on_missing='skip' silently skips missing branches."""
         # This would require a mock scenario - tested at unit level
         pass
-
 
 class TestMergeEdgeCases:
     """Test edge cases and error handling."""

@@ -2,7 +2,7 @@ import numpy as np
 import scipy
 from scipy import signal
 from scipy.ndimage import gaussian_filter1d
-from sklearn.base import TransformerMixin, BaseEstimator
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils import check_array
 from sklearn.utils.validation import FLOAT_DTYPES, check_is_fitted
 
@@ -92,7 +92,6 @@ class Baseline(TransformerMixin, BaseEstimator):
     def _more_tags(self):
         return {"allow_nan": False}
 
-
 def baseline(spectra):
     """
     Removes baseline (mean) from each spectrum.
@@ -109,7 +108,6 @@ def baseline(spectra):
     """
 
     return spectra - np.mean(spectra, axis=0)
-
 
 def detrend(spectra, bp=0):
     """
@@ -130,7 +128,6 @@ def detrend(spectra, bp=0):
     """
 
     return signal.detrend(spectra, bp=bp)
-
 
 class Detrend(TransformerMixin, BaseEstimator):
     """
@@ -224,7 +221,6 @@ class Detrend(TransformerMixin, BaseEstimator):
 
         return {"allow_nan": False}
 
-
 def gaussian(spectra, order=2, sigma=1):
     """
     Computes 1D gaussian filter using scipy.ndimage gaussian 1d filter.
@@ -245,7 +241,6 @@ def gaussian(spectra, order=2, sigma=1):
     """
 
     return gaussian_filter1d(spectra, order=order, sigma=sigma)
-
 
 class Gaussian(TransformerMixin, BaseEstimator):
 

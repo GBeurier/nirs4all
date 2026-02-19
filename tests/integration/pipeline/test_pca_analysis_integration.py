@@ -5,19 +5,14 @@ Tests PCA-based preprocessing evaluation and cross-dataset metrics.
 Based on Q9_acp_spread.py example.
 """
 
-import pytest
 import numpy as np
-
+import pytest
 from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.data import DatasetConfigs
-from nirs4all.operators.transforms import (
-    Detrend, FirstDerivative, SecondDerivative, Gaussian,
-    StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
-)
+from nirs4all.operators.transforms import Detrend, FirstDerivative, Gaussian, Haar, MultiplicativeScatterCorrection, SavitzkyGolay, SecondDerivative, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.visualization.analysis.transfer import PreprocPCAEvaluator
-
 from tests.fixtures.data_generators import TestDataManager
 
 

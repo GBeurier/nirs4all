@@ -5,6 +5,7 @@ See pls.py for full documentation and usage examples.
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 
+
 def _check_trendfitter_available():
     """Check if trendfitter package is available."""
     try:

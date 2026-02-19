@@ -14,15 +14,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import numpy as np
 
+if TYPE_CHECKING:
+    from .calibration import CalibrationResult
+    from .distributions import DistributionResult
+    from .forward import ForwardChain
+    from .inversion import InversionResult
+    from .validation import ValidationResult
 
 # =============================================================================
 # Dataset Configuration
 # =============================================================================
-
 
 @dataclass
 class DatasetConfig:
@@ -61,7 +66,7 @@ class DatasetConfig:
         X: np.ndarray,
         wavelengths: np.ndarray,
         name: str = "dataset",
-    ) -> "DatasetConfig":
+    ) -> DatasetConfig:
         """
         Create configuration by auto-detecting properties from data.
 
@@ -100,9 +105,9 @@ class DatasetConfig:
             return "unknown"  # Derivative data
 
         # Reflectance: typically 0-1 or 0-100
-        if 0 <= min_val and max_val <= 1.1:
+        if min_val >= 0 and max_val <= 1.1:
             return "reflectance"
-        if 0 <= min_val and 20 < mean_val < 80:
+        if min_val >= 0 and 20 < mean_val < 80:
             return "reflectance"  # Percent reflectance
 
         # Absorbance: positive, typical range 0-3
@@ -131,9 +136,8 @@ class DatasetConfig:
             return "second_derivative"
 
         # First derivative: bipolar, near-zero mean
-        if min_val < -0.001 and max_val > 0.001 and abs(mean_val) < 0.1:
-            if global_range < 1.0 or zero_crossing_ratio > 0.05:
-                return "first_derivative"
+        if min_val < -0.001 and max_val > 0.001 and abs(mean_val) < 0.1 and (global_range < 1.0 or zero_crossing_ratio > 0.05):
+            return "first_derivative"
 
         # SNV: per-sample std ~1
         sample_stds = X.std(axis=1)
@@ -148,11 +152,9 @@ class DatasetConfig:
 
         return "unknown"
 
-
 # =============================================================================
 # Pipeline Result
 # =============================================================================
-
 
 @dataclass
 class PipelineResult:
@@ -177,12 +179,12 @@ class PipelineResult:
     """
 
     config: DatasetConfig
-    calibration: Optional["CalibrationResult"] = None
-    inversion_results: Optional[List["InversionResult"]] = None
-    distribution: Optional["DistributionResult"] = None
-    X_synthetic: Optional[np.ndarray] = None
-    validation: Optional["ValidationResult"] = None
-    forward_chain: Optional["ForwardChain"] = None
+    calibration: CalibrationResult | None = None
+    inversion_results: list[InversionResult] | None = None
+    distribution: DistributionResult | None = None
+    X_synthetic: np.ndarray | None = None
+    validation: ValidationResult | None = None
+    forward_chain: ForwardChain | None = None
 
     def summary(self) -> str:
         """Generate pipeline summary."""
@@ -231,11 +233,9 @@ class PipelineResult:
         lines.append("=" * 70)
         return "\n".join(lines)
 
-
 # =============================================================================
 # Reconstruction Pipeline
 # =============================================================================
-
 
 @dataclass
 class ReconstructionPipeline:
@@ -261,7 +261,7 @@ class ReconstructionPipeline:
     """
 
     config: DatasetConfig
-    component_names: Optional[List[str]] = None
+    component_names: list[str] | None = None
     canonical_resolution: float = 0.5
     baseline_order: int = 5
     continuum_order: int = 3
@@ -274,7 +274,7 @@ class ReconstructionPipeline:
         if self.component_names is None:
             self.component_names = self._select_components_for_domain()
 
-    def _select_components_for_domain(self) -> List[str]:
+    def _select_components_for_domain(self) -> list[str]:
         """Select appropriate components based on domain."""
         # Default components that appear in most NIR datasets
         default_components = [
@@ -294,10 +294,7 @@ class ReconstructionPipeline:
         }
 
         domain = self.config.domain
-        if domain in domain_components:
-            components = domain_components[domain]
-        else:
-            components = default_components
+        components = domain_components.get(domain, default_components)
 
         # Filter to available components
         from ..components import available_components
@@ -308,7 +305,7 @@ class ReconstructionPipeline:
     def fit(
         self,
         X: np.ndarray,
-        max_samples: Optional[int] = None,
+        max_samples: int | None = None,
     ) -> PipelineResult:
         """
         Run full reconstruction pipeline.
@@ -320,11 +317,11 @@ class ReconstructionPipeline:
         Returns:
             PipelineResult with all outputs.
         """
-        from .forward import ForwardChain
-        from .calibration import PrototypeSelector, GlobalCalibrator, multistage_calibration
-        from .inversion import VariableProjectionSolver, MultiscaleSchedule
+        from .calibration import GlobalCalibrator, PrototypeSelector, multistage_calibration
         from .distributions import ParameterDistributionFitter, ParameterSampler
+        from .forward import ForwardChain
         from .generator import ReconstructionGenerator, estimate_noise_from_residuals
+        from .inversion import MultiscaleSchedule, VariableProjectionSolver
         from .validation import ReconstructionValidator
 
         n_samples = X.shape[0]
@@ -489,7 +486,7 @@ class ReconstructionPipeline:
         self,
         n_samples: int,
         result: PipelineResult,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ) -> np.ndarray:
         """
         Generate additional synthetic samples using fitted pipeline.
@@ -526,21 +523,19 @@ class ReconstructionPipeline:
 
         return gen_result.X
 
-
 # =============================================================================
 # Convenience Functions
 # =============================================================================
 
-
 def reconstruct_and_generate(
     X: np.ndarray,
     wavelengths: np.ndarray,
-    n_synthetic: Optional[int] = None,
+    n_synthetic: int | None = None,
     domain: str = "unknown",
-    component_names: Optional[List[str]] = None,
+    component_names: list[str] | None = None,
     fit_environmental: bool = False,
     verbose: bool = True,
-) -> Tuple[np.ndarray, PipelineResult]:
+) -> tuple[np.ndarray, PipelineResult]:
     """
     Convenience function for end-to-end reconstruction and generation.
 
@@ -572,9 +567,6 @@ def reconstruct_and_generate(
     result = pipeline.fit(X)
 
     # Generate additional samples if requested
-    if n_synthetic is not None and n_synthetic != len(X):
-        X_synth = pipeline.generate(n_synthetic, result)
-    else:
-        X_synth = result.X_synthetic
+    X_synth = pipeline.generate(n_synthetic, result) if n_synthetic is not None and n_synthetic != len(X) else result.X_synthetic
 
     return X_synth, result

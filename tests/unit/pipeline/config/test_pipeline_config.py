@@ -33,7 +33,6 @@ def _make_seeded_definition(seed: int) -> dict:
         ],
     }
 
-
 class TestPipelineConfig:
     """Test suite for PipelineConfigs."""
 

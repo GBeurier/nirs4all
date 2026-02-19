@@ -13,16 +13,16 @@ Key components:
 - FeatureNameGenerator: Creates descriptive feature names for meta-features
 """
 
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
+
 import numpy as np
-import warnings
 
 if TYPE_CHECKING:
     from nirs4all.data.predictions import Predictions
     from nirs4all.pipeline.config.context import ExecutionContext
-
 
 class StackingTaskType(Enum):
     """Task type for stacking.
@@ -48,14 +48,13 @@ class StackingTaskType(Enum):
         )
 
     @property
-    def n_classes(self) -> Optional[int]:
+    def n_classes(self) -> int | None:
         """Return expected number of classes or None for regression."""
         if self == StackingTaskType.BINARY_CLASSIFICATION:
             return 2
         elif self == StackingTaskType.MULTICLASS_CLASSIFICATION:
             return None  # Variable
         return None
-
 
 @dataclass
 class ClassificationInfo:
@@ -70,10 +69,10 @@ class ClassificationInfo:
     """
 
     task_type: StackingTaskType
-    n_classes: Optional[int] = None
-    class_labels: Optional[List[Any]] = None
+    n_classes: int | None = None
+    class_labels: list[Any] | None = None
     has_probabilities: bool = False
-    proba_shape: Optional[Tuple[int, ...]] = None
+    proba_shape: tuple[int, ...] | None = None
 
     @property
     def is_classification(self) -> bool:
@@ -114,7 +113,6 @@ class ClassificationInfo:
 
         return 1  # Fallback
 
-
 class TaskTypeDetector:
     """Detects task type from prediction metadata.
 
@@ -132,7 +130,7 @@ class TaskTypeDetector:
 
     def detect(
         self,
-        source_model_names: List[str],
+        source_model_names: list[str],
         context: 'ExecutionContext'
     ) -> ClassificationInfo:
         """Detect task type from source model predictions.
@@ -188,9 +186,9 @@ class TaskTypeDetector:
     def _get_model_task_info(
         self,
         model_name: str,
-        branch_id: Optional[int],
+        branch_id: int | None,
         max_step: int
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get task type info for a single model.
 
         Args:
@@ -285,7 +283,7 @@ class TaskTypeDetector:
 
     def _resolve_task_type(
         self,
-        task_types: List[StackingTaskType]
+        task_types: list[StackingTaskType]
     ) -> StackingTaskType:
         """Resolve conflicting task types from multiple models.
 
@@ -322,11 +320,10 @@ class TaskTypeDetector:
         warnings.warn(
             f"Mixed task types detected in source models: {unique_types}. "
             f"Using most common: {most_common.value}. "
-            f"All source models should have the same task type for proper stacking."
+            f"All source models should have the same task type for proper stacking.", stacklevel=2
         )
 
         return most_common
-
 
 class ClassificationFeatureExtractor:
     """Extracts classification features from predictions.
@@ -351,7 +348,7 @@ class ClassificationFeatureExtractor:
 
     def extract_features(
         self,
-        pred: Dict[str, Any],
+        pred: dict[str, Any],
         n_samples: int
     ) -> np.ndarray:
         """Extract features from a single prediction entry.
@@ -370,7 +367,7 @@ class ClassificationFeatureExtractor:
 
     def _extract_pred_features(
         self,
-        pred: Dict[str, Any],
+        pred: dict[str, Any],
         n_samples: int
     ) -> np.ndarray:
         """Extract y_pred as features.
@@ -395,7 +392,7 @@ class ClassificationFeatureExtractor:
 
     def _extract_proba_features(
         self,
-        pred: Dict[str, Any],
+        pred: dict[str, Any],
         n_samples: int
     ) -> np.ndarray:
         """Extract probability features.
@@ -416,7 +413,7 @@ class ClassificationFeatureExtractor:
         if y_proba is None or (hasattr(y_proba, 'size') and y_proba.size == 0):
             warnings.warn(
                 f"use_proba=True but no y_proba available for model "
-                f"{pred.get('model_name', 'unknown')}. Falling back to y_pred."
+                f"{pred.get('model_name', 'unknown')}. Falling back to y_pred.", stacklevel=2
             )
             return self._extract_pred_features(pred, n_samples)
 
@@ -457,7 +454,7 @@ class ClassificationFeatureExtractor:
                 # More than 2 classes - should be multiclass, take positive
                 warnings.warn(
                     f"Expected binary probabilities but got shape {y_proba.shape}. "
-                    f"Using column 1 as positive class."
+                    f"Using column 1 as positive class.", stacklevel=2
                 )
                 proba_1d = y_proba[:, 1] if y_proba.shape[1] > 1 else y_proba[:, 0]
         else:
@@ -514,7 +511,6 @@ class ClassificationFeatureExtractor:
         """
         return self.classification_info.get_n_features_per_model(self.use_proba)
 
-
 class FeatureNameGenerator:
     """Generates meaningful feature names for meta-model.
 
@@ -541,8 +537,8 @@ class FeatureNameGenerator:
 
     def generate_names(
         self,
-        source_model_names: List[str]
-    ) -> List[str]:
+        source_model_names: list[str]
+    ) -> list[str]:
         """Generate feature names for all source models.
 
         Args:
@@ -559,7 +555,7 @@ class FeatureNameGenerator:
 
         return names
 
-    def _generate_model_names(self, model_name: str) -> List[str]:
+    def _generate_model_names(self, model_name: str) -> list[str]:
         """Generate feature names for a single source model.
 
         Args:
@@ -612,8 +608,8 @@ class FeatureNameGenerator:
 
     def get_feature_importance_mapping(
         self,
-        source_model_names: List[str]
-    ) -> Dict[str, List[str]]:
+        source_model_names: list[str]
+    ) -> dict[str, list[str]]:
         """Get mapping from source models to their feature names.
 
         Useful for feature importance analysis.
@@ -632,7 +628,6 @@ class FeatureNameGenerator:
 
         return mapping
 
-
 @dataclass
 class MetaFeatureInfo:
     """Information about generated meta-features.
@@ -647,13 +642,13 @@ class MetaFeatureInfo:
         n_features_per_model: Number of features from each model.
     """
 
-    feature_names: List[str]
-    source_models: List[str]
-    feature_to_model: Dict[str, str]
+    feature_names: list[str]
+    source_models: list[str]
+    feature_to_model: dict[str, str]
     classification_info: ClassificationInfo
-    n_features_per_model: Dict[str, int] = field(default_factory=dict)
+    n_features_per_model: dict[str, int] = field(default_factory=dict)
 
-    def get_model_for_feature(self, feature_name: str) -> Optional[str]:
+    def get_model_for_feature(self, feature_name: str) -> str | None:
         """Get source model name for a feature.
 
         Args:
@@ -666,8 +661,8 @@ class MetaFeatureInfo:
 
     def aggregate_importance_by_model(
         self,
-        feature_importances: Dict[str, float]
-    ) -> Dict[str, float]:
+        feature_importances: dict[str, float]
+    ) -> dict[str, float]:
         """Aggregate feature importances by source model.
 
         Sums importance scores for all features from the same source model.
@@ -678,7 +673,7 @@ class MetaFeatureInfo:
         Returns:
             Mapping from model name to aggregated importance.
         """
-        model_importance = {model: 0.0 for model in self.source_models}
+        model_importance = dict.fromkeys(self.source_models, 0.0)
 
         for feature_name, importance in feature_importances.items():
             model_name = self.get_model_for_feature(feature_name)
@@ -687,9 +682,8 @@ class MetaFeatureInfo:
 
         return model_importance
 
-
 def build_meta_feature_info(
-    source_model_names: List[str],
+    source_model_names: list[str],
     classification_info: ClassificationInfo,
     use_proba: bool = False,
     name_pattern: str = "{model_name}_pred"

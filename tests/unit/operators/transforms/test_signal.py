@@ -1,18 +1,11 @@
 """Tests for signal processing and conversion transforms."""
 
-import pytest
 import numpy as np
-from numpy.testing import assert_array_almost_equal, assert_allclose
+import pytest
+from numpy.testing import assert_allclose, assert_array_almost_equal
 
-from nirs4all.operators.transforms.signal_conversion import (
-    ToAbsorbance,
-    FromAbsorbance,
-    PercentToFraction,
-    FractionToPercent,
-    KubelkaMunk,
-    SignalTypeConverter
-)
 from nirs4all.data.signal_type import SignalType
+from nirs4all.operators.transforms.signal_conversion import FractionToPercent, FromAbsorbance, KubelkaMunk, PercentToFraction, SignalTypeConverter, ToAbsorbance
 
 
 class TestToAbsorbance:
@@ -119,7 +112,6 @@ class TestToAbsorbance:
         assert A.shape == R.shape
         assert np.all(np.isfinite(A))
 
-
 class TestFromAbsorbance:
     """Test FromAbsorbance transformer."""
 
@@ -172,7 +164,6 @@ class TestFromAbsorbance:
         with pytest.raises(ValueError, match="target_type must be one of"):
             transformer.fit(np.array([[0.5]]))
 
-
 class TestPercentToFraction:
     """Test PercentToFraction transformer."""
 
@@ -196,7 +187,6 @@ class TestPercentToFraction:
 
         assert_array_almost_equal(X_recovered, X_pct)
 
-
 class TestFractionToPercent:
     """Test FractionToPercent transformer."""
 
@@ -219,7 +209,6 @@ class TestFractionToPercent:
         X_recovered = transformer.inverse_transform(X_pct)
 
         assert_array_almost_equal(X_recovered, X_frac)
-
 
 class TestKubelkaMunk:
     """Test KubelkaMunk transformer."""
@@ -287,7 +276,6 @@ class TestKubelkaMunk:
 
         # Should not have inf or nan
         assert np.all(np.isfinite(F_R))
-
 
 class TestSignalTypeConverter:
     """Test SignalTypeConverter general-purpose converter."""
@@ -441,7 +429,6 @@ class TestSignalTypeConverter:
         expected = -np.log10(R)
         assert_array_almost_equal(A, expected)
 
-
 class TestRoundTripConversions:
     """Test round-trip conversions maintain data integrity."""
 
@@ -484,7 +471,6 @@ class TestRoundTripConversions:
         R_recovered = km.inverse_transform(F_R)
 
         assert_array_almost_equal(R_recovered, R_original, decimal=10)
-
 
 class TestEdgeCases:
     """Test edge cases and numerical stability."""
@@ -529,7 +515,6 @@ class TestEdgeCases:
         A = transformer.fit_transform(R)
 
         assert A.shape == (3,)
-
 
 class TestSignalTransforms:
     """Test suite for signal processing transforms (placeholder for future)."""

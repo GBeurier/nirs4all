@@ -7,7 +7,6 @@ variant_data and use a module-level function (not bound method) for dispatch.
 """
 
 import numpy as np
-
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
@@ -24,7 +23,6 @@ def _make_dataset():
         .with_partitions(train_ratio=0.8)
         .build()
     )
-
 
 class TestParallelExecution:
     """Tests that parallel execution (n_jobs != 1) works without pickling errors."""

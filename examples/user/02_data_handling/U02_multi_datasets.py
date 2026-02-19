@@ -25,6 +25,7 @@ Difficulty: ★★☆☆☆
 
 # Standard library imports
 import argparse
+
 import matplotlib.pyplot as plt
 
 # Third-party imports
@@ -36,9 +37,7 @@ from sklearn.preprocessing import MinMaxScaler
 # NIRS4All imports
 import nirs4all
 from nirs4all.data.predictions import Predictions
-from nirs4all.operators.transforms import (
-    Gaussian, SavitzkyGolay, StandardNormalVariate, Haar, MultiplicativeScatterCorrection
-)
+from nirs4all.operators.transforms import Gaussian, Haar, MultiplicativeScatterCorrection, SavitzkyGolay, StandardNormalVariate
 from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
@@ -46,7 +45,6 @@ parser = argparse.ArgumentParser(description='U02 Multi-Datasets Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Define the Pipeline
@@ -86,7 +84,6 @@ print("   • MinMaxScaler + 5 preprocessing options")
 print("   • 3-fold ShuffleSplit")
 print("   • 3 models: PLS-5, PLS-10, ElasticNet")
 
-
 # =============================================================================
 # Section 2: Define Multiple Datasets
 # =============================================================================
@@ -104,7 +101,6 @@ data_paths = [
 print("Datasets:")
 for i, path in enumerate(data_paths, 1):
     print(f"   {i}. {path}")
-
 
 # =============================================================================
 # Section 3: Run Pipeline Across All Datasets
@@ -124,10 +120,9 @@ result = nirs4all.run(
 predictions = result.predictions
 per_dataset = result.per_dataset
 
-print(f"\n📊 Training complete!")
+print("\n📊 Training complete!")
 print(f"   Total predictions: {predictions.num_predictions}")
 print(f"   Datasets processed: {len(per_dataset)}")
-
 
 # =============================================================================
 # Section 4: Per-Dataset Results
@@ -150,7 +145,6 @@ for dataset_name, dataset_info in per_dataset.items():
             rmse = model.get('rmse', 0)
             r2 = model.get('r2', 0)
             print(f"   {idx}. {model['model_name']} - RMSE: {rmse:.4f}, R²: {r2:.4f}")
-
 
 # =============================================================================
 # Section 5: Cross-Dataset Visualizations
@@ -194,7 +188,6 @@ fig4 = analyzer.plot_candlestick(
 )
 print("   ✓ Candlestick: dataset difficulty comparison")
 
-
 # =============================================================================
 # Section 6: Best Model Selection
 # =============================================================================
@@ -206,7 +199,7 @@ print("-" * 60)
 best_list = predictions.top(n=1, rank_metric='rmse', display_metrics=['rmse', 'r2'])
 if best_list:
     best = best_list[0]
-    print(f"\n🏆 Overall Best Model:")
+    print("\n🏆 Overall Best Model:")
     print(f"   Model: {best.get('model_name')}")
     print(f"   Dataset: {best.get('dataset_name')}")
     print(f"   RMSE: {best.get('rmse', 0):.4f}")
@@ -222,7 +215,6 @@ for dataset_name, dataset_info in per_dataset.items():
             best_for_ds = best_for_ds_list[0]
             rmse = best_for_ds.get('rmse', 0)
             print(f"   {dataset_name}: {best_for_ds.get('model_name')} (RMSE: {rmse:.4f})")
-
 
 # =============================================================================
 # Summary

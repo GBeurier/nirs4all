@@ -46,20 +46,19 @@ Examples:
 """
 
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Optional
 
 # Global preset registry
-_PRESET_REGISTRY: Dict[str, Any] = {}
+_PRESET_REGISTRY: dict[str, Any] = {}
 
 # Keyword for preset reference
 PRESET_KEYWORD: str = "_preset_"
 
-
 def register_preset(
     name: str,
     spec: Any,
-    description: Optional[str] = None,
-    tags: Optional[List[str]] = None,
+    description: str | None = None,
+    tags: list[str] | None = None,
     overwrite: bool = False
 ) -> None:
     """Register a named preset configuration.
@@ -89,7 +88,6 @@ def register_preset(
         'tags': tags or [],
     }
 
-
 def unregister_preset(name: str) -> bool:
     """Remove a preset from the registry.
 
@@ -103,7 +101,6 @@ def unregister_preset(name: str) -> bool:
         del _PRESET_REGISTRY[name]
         return True
     return False
-
 
 def get_preset(name: str) -> Any:
     """Retrieve a preset specification by name.
@@ -121,8 +118,7 @@ def get_preset(name: str) -> Any:
         raise KeyError(f"Preset '{name}' not found. Available: {list_presets()}")
     return deepcopy(_PRESET_REGISTRY[name]['spec'])
 
-
-def get_preset_info(name: str) -> Dict[str, Any]:
+def get_preset_info(name: str) -> dict[str, Any]:
     """Get full preset info including metadata.
 
     Args:
@@ -138,8 +134,7 @@ def get_preset_info(name: str) -> Dict[str, Any]:
         raise KeyError(f"Preset '{name}' not found.")
     return deepcopy(_PRESET_REGISTRY[name])
 
-
-def list_presets(tags: Optional[List[str]] = None) -> List[str]:
+def list_presets(tags: list[str] | None = None) -> list[str]:
     """List all registered preset names.
 
     Args:
@@ -158,7 +153,6 @@ def list_presets(tags: Optional[List[str]] = None) -> List[str]:
             result.append(name)
     return result
 
-
 def clear_presets() -> int:
     """Clear all registered presets.
 
@@ -168,7 +162,6 @@ def clear_presets() -> int:
     count = len(_PRESET_REGISTRY)
     _PRESET_REGISTRY.clear()
     return count
-
 
 def has_preset(name: str) -> bool:
     """Check if a preset exists.
@@ -181,7 +174,6 @@ def has_preset(name: str) -> bool:
     """
     return name in _PRESET_REGISTRY
 
-
 def is_preset_reference(node: Any) -> bool:
     """Check if a node is a preset reference.
 
@@ -193,8 +185,7 @@ def is_preset_reference(node: Any) -> bool:
     """
     return isinstance(node, dict) and PRESET_KEYWORD in node
 
-
-def resolve_preset(node: Dict[str, Any]) -> Any:
+def resolve_preset(node: dict[str, Any]) -> Any:
     """Resolve a single preset reference.
 
     Args:
@@ -214,8 +205,7 @@ def resolve_preset(node: Dict[str, Any]) -> Any:
         )
     return get_preset(preset_name)
 
-
-def resolve_presets_recursive(node: Any, resolved: Optional[Set[str]] = None) -> Any:
+def resolve_presets_recursive(node: Any, resolved: set[str] | None = None) -> Any:
     """Recursively resolve all preset references in a configuration.
 
     Handles circular reference detection.
@@ -261,8 +251,7 @@ def resolve_presets_recursive(node: Any, resolved: Optional[Set[str]] = None) ->
     # Scalar - return as-is
     return node
 
-
-def export_presets() -> Dict[str, Any]:
+def export_presets() -> dict[str, Any]:
     """Export all presets for serialization.
 
     Returns:
@@ -270,9 +259,8 @@ def export_presets() -> Dict[str, Any]:
     """
     return deepcopy(_PRESET_REGISTRY)
 
-
 def import_presets(
-    presets: Dict[str, Any],
+    presets: dict[str, Any],
     overwrite: bool = False
 ) -> int:
     """Import presets from a dict.
@@ -300,7 +288,6 @@ def import_presets(
             register_preset(name, value, overwrite=overwrite)
         count += 1
     return count
-
 
 # =============================================================================
 # Built-in Presets

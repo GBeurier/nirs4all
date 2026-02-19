@@ -7,16 +7,18 @@ This module tests the modular architecture introduced in Phase 2:
 - Core module with strategy dispatch
 """
 
-import pytest
 from math import comb, factorial
 
+import pytest
+
 from nirs4all.pipeline.config.generator import (
-    expand_spec, count_combinations,
     # Strategy exports
     ExpansionStrategy,
-    get_strategy,
-    RangeStrategy,
     OrStrategy,
+    RangeStrategy,
+    count_combinations,
+    expand_spec,
+    get_strategy,
 )
 
 
@@ -60,7 +62,6 @@ class TestStrategyPattern:
         strategy1 = get_strategy(node1)
         strategy2 = get_strategy(node2)
         assert strategy1 is strategy2  # Same instance
-
 
 class TestRangeStrategy:
     """Tests for RangeStrategy."""
@@ -117,7 +118,6 @@ class TestRangeStrategy:
         strategy = RangeStrategy()
         errors = strategy.validate({"_range_": [1, 2, 3, 4]})  # Too many elements
         assert len(errors) > 0
-
 
 class TestOrStrategy:
     """Tests for OrStrategy."""
@@ -185,7 +185,6 @@ class TestOrStrategy:
         errors = strategy.validate({"_or_": "not a list"})
         assert len(errors) > 0
 
-
 class TestCoreIntegration:
     """Tests for core module integration with strategies."""
 
@@ -237,7 +236,6 @@ class TestCoreIntegration:
         })
         assert count == 4  # 2 x 2
 
-
 class TestSecondOrderOperations:
     """Tests for second-order (then_pick/then_arrange) operations."""
 
@@ -285,7 +283,6 @@ class TestSecondOrderOperations:
         # Then arrange 2 from 2: P(2,2) = 2
         assert len(result) == 2
 
-
 class TestFloatRanges:
     """Tests for float range support in RangeStrategy."""
 
@@ -302,7 +299,6 @@ class TestFloatRanges:
         """Float range count should work."""
         count = count_combinations({"_range_": [0.1, 1.0, 0.1]})
         assert count == 10
-
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

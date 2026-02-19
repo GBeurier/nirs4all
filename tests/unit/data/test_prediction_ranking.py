@@ -10,8 +10,10 @@ This module tests the core ranking logic in PredictionRanker, including:
 
 import json
 import warnings
+
 import numpy as np
 import pytest
+
 from nirs4all.data.predictions import Predictions, _make_group_key
 
 
@@ -31,7 +33,6 @@ def base_prediction_params():
         "task_type": "regression",
         "metric": "rmse",
     }
-
 
 @pytest.fixture
 def predictions_with_multiple_models(base_prediction_params):
@@ -74,7 +75,6 @@ def predictions_with_multiple_models(base_prediction_params):
                 )
 
     return predictions
-
 
 @pytest.fixture
 def predictions_with_metadata_for_aggregation(base_prediction_params):
@@ -129,7 +129,6 @@ def predictions_with_metadata_for_aggregation(base_prediction_params):
 
     return predictions
 
-
 class TestRankingWithRepetition:
     """Test ranking with by_repetition parameter (new name for aggregate)."""
 
@@ -174,7 +173,7 @@ class TestRankingWithRepetition:
             )
 
             # No warnings - context was set
-            all_warnings = [x for x in w]
+            all_warnings = list(w)
             assert len(all_warnings) == 0
 
         assert len(results) == 2
@@ -213,7 +212,6 @@ class TestRankingWithRepetition:
         # Set column
         predictions.set_repetition_column("ID")
         assert predictions.repetition_column == "ID"
-
 
 class TestRankingWithAggregation:
     """Test ranking uses aggregated scores when by_repetition is provided."""
@@ -264,7 +262,6 @@ class TestRankingWithAggregation:
         assert len(results_agg[0]["y_pred"]) == 3
         # Without aggregation: 12 samples
         assert len(results_no_agg[0]["y_pred"]) == 12
-
 
 class TestGroupByFiltering:
     """Test group_by filtering for ranking."""
@@ -432,7 +429,6 @@ class TestGroupByFiltering:
         for key, count in group_counts.items():
             assert count <= 2
 
-
 class TestMakeGroupKey:
     """Test the _make_group_key helper function."""
 
@@ -480,7 +476,6 @@ class TestMakeGroupKey:
         key = _make_group_key(row, ["model_name", "some_list"])
         assert isinstance(key, tuple)
 
-
 class TestConsistentResults:
     """Test consistent results across multiple calls."""
 
@@ -506,7 +501,6 @@ class TestConsistentResults:
         for r1, r2 in zip(results1, results2):
             assert r1["model_name"] == r2["model_name"]
             assert r1["rank_score"] == r2["rank_score"]
-
 
 class TestMetricDirection:
     """Test ascending/descending based on metric type."""
@@ -566,7 +560,6 @@ class TestMetricDirection:
         # Scores should be in descending order (higher R2 is better)
         scores = [r["rank_score"] for r in results if r["rank_score"] is not None]
         assert scores == sorted(scores, reverse=True)
-
 
 class TestEdgeCases:
     """Test edge cases and error handling."""

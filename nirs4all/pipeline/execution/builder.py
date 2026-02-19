@@ -30,7 +30,7 @@ class ExecutorBuilder:
     def __init__(self) -> None:
         """Initialize builder with default values."""
         # Required parameters
-        self._workspace: Optional[Path] = None
+        self._workspace: Path | None = None
 
         # Optional parameters with defaults
         self._verbose: int = 0
@@ -45,7 +45,7 @@ class ExecutorBuilder:
         self._store: Any = None  # WorkspaceStore
 
         # Components (will be created if not provided)
-        self._step_runner: Optional[StepRunner] = None
+        self._step_runner: StepRunner | None = None
 
     def with_workspace(self, workspace: Path) -> "ExecutorBuilder":
         """Set workspace root path for artifact storage.
@@ -230,7 +230,7 @@ class ExecutorBuilder:
         )
 
     @property
-    def workspace(self) -> Optional[Path]:
+    def workspace(self) -> Path | None:
         """Get the workspace path."""
         return self._workspace
 

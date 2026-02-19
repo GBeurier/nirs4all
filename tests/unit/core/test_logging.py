@@ -69,7 +69,6 @@ class TestSymbols:
         assert symbols.get_status_symbol(Status.STARTING) == ">"
         assert symbols.get_status_symbol(None) == ""
 
-
 class TestFormatters:
     """Test log formatters."""
 
@@ -143,7 +142,6 @@ class TestFormatters:
         assert "RMSE=" in footer
         assert "=" * 80 in footer
 
-
 class TestConsoleFormatter:
     """Test console formatter."""
 
@@ -181,7 +179,6 @@ class TestConsoleFormatter:
         assert "[OK]" in result
         assert "Done" in result
 
-
 class TestJsonFormatter:
     """Test JSON formatter."""
 
@@ -207,7 +204,6 @@ class TestJsonFormatter:
         assert data["message"] == "Test message"
         assert data["run_id"] == "test-123"
         assert "ts" in data
-
 
 class TestLogContext:
     """Test log context management."""
@@ -259,7 +255,6 @@ class TestLogContext:
                 assert stack.meta_model == "Ridge"
                 assert stack.branch_sources == ["snv", "msc"]
 
-
 class TestConfiguration:
     """Test logging configuration."""
 
@@ -302,7 +297,6 @@ class TestConfiguration:
         assert hasattr(logger, "artifact")
         assert hasattr(logger, "phase_start")
         assert hasattr(logger, "phase_complete")
-
 
 class TestThrottledHandler:
     """Test throttled handler."""
@@ -366,7 +360,6 @@ class TestThrottledHandler:
 
         assert len(records) == 2
 
-
 class TestFileLogging:
     """Test file logging functionality."""
 
@@ -389,7 +382,6 @@ class TestFileLogging:
             assert log_file.exists()
 
             reset_logging()
-
 
 class TestProgressBar:
     """Test progress bar functionality."""
@@ -422,7 +414,6 @@ class TestProgressBar:
         pbar = progress_bar(total=10, description="Factory test", disable=True)
         assert pbar.total == 10
         assert pbar.description == "Factory test"
-
 
 class TestEvaluationProgress:
     """Test ML-specific evaluation progress."""
@@ -478,7 +469,6 @@ class TestEvaluationProgress:
         assert progress.metric_name == "MAE"
         assert progress.higher_is_better is False
 
-
 class TestMultiLevelProgress:
     """Test multi-level progress tracking."""
 
@@ -513,7 +503,6 @@ class TestMultiLevelProgress:
 
         progress.close_all()
 
-
 class TestSpinnerProgress:
     """Test spinner for indeterminate progress."""
 
@@ -527,7 +516,6 @@ class TestSpinnerProgress:
         """Test spinner() factory function."""
         s = spinner(description="Processing", disable=True)
         assert s.description == "Processing"
-
 
 class TestProgressConfig:
     """Test progress configuration."""

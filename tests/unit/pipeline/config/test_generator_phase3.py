@@ -8,17 +8,19 @@ This module tests the new strategies introduced in Phase 3:
 - SampleStrategy: Statistical sampling
 """
 
-import pytest
 import math
 
+import pytest
+
 from nirs4all.pipeline.config.generator import (
-    expand_spec, count_combinations,
+    ChainStrategy,
+    GridStrategy,
     # Phase 3 strategies
     LogRangeStrategy,
-    GridStrategy,
-    ZipStrategy,
-    ChainStrategy,
     SampleStrategy,
+    ZipStrategy,
+    count_combinations,
+    expand_spec,
     get_strategy,
 )
 
@@ -97,7 +99,6 @@ class TestLogRangeStrategy:
         errors = strategy.validate({"_log_range_": [0.001, 1]})
         assert len(errors) > 0
 
-
 class TestGridStrategy:
     """Tests for GridStrategy."""
 
@@ -166,7 +167,6 @@ class TestGridStrategy:
         errors = strategy.validate({"_grid_": [1, 2, 3]})
         assert len(errors) > 0
 
-
 class TestZipStrategy:
     """Tests for ZipStrategy."""
 
@@ -226,7 +226,6 @@ class TestZipStrategy:
         strategy = ZipStrategy()
         result = strategy.expand({"_zip_": {}})
         assert result == [{}]
-
 
 class TestChainStrategy:
     """Tests for ChainStrategy."""
@@ -296,7 +295,6 @@ class TestChainStrategy:
         strategy = ChainStrategy()
         result = strategy.expand({"_chain_": []})
         assert result == []
-
 
 class TestSampleStrategy:
     """Tests for SampleStrategy."""
@@ -388,7 +386,6 @@ class TestSampleStrategy:
         errors = strategy.validate({"_sample_": {"distribution": "normal", "std": -1}})
         assert len(errors) > 0
 
-
 class TestPhase3Integration:
     """Integration tests for Phase 3 strategies with expand_spec."""
 
@@ -439,7 +436,6 @@ class TestPhase3Integration:
         assert count_combinations({"_chain_": [1, 2, 3, 4, 5]}) == 5
         assert count_combinations({"_sample_": {"num": 20}}) == 20
 
-
 class TestStrategyPriority:
     """Tests for strategy priority ordering."""
 
@@ -456,7 +452,6 @@ class TestStrategyPriority:
         assert isinstance(get_strategy({"_zip_": {"x": [1, 2]}}), ZipStrategy)
         assert isinstance(get_strategy({"_chain_": [1, 2]}), ChainStrategy)
         assert isinstance(get_strategy({"_sample_": {"num": 10}}), SampleStrategy)
-
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

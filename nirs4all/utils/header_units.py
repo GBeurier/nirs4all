@@ -9,11 +9,11 @@ This module provides a single source of truth for:
 All visualization code should use these utilities instead of inline logic.
 """
 
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Union
+
 import numpy as np
 
 from nirs4all.data._features import HeaderUnit, normalize_header_unit
-
 
 # Canonical axis labels - single source of truth
 AXIS_LABELS = {
@@ -27,8 +27,7 @@ AXIS_LABELS = {
 # Default label when unit unknown or invalid
 DEFAULT_AXIS_LABEL = "Features"
 
-
-def get_axis_label(unit: Union[str, HeaderUnit]) -> str:
+def get_axis_label(unit: str | HeaderUnit) -> str:
     """Get the appropriate axis label for a given unit type.
 
     Args:
@@ -51,12 +50,11 @@ def get_axis_label(unit: Union[str, HeaderUnit]) -> str:
     except ValueError:
         return DEFAULT_AXIS_LABEL
 
-
 def get_x_values_and_label(
-    headers: Optional[List[str]],
-    header_unit: Union[str, HeaderUnit],
+    headers: list[str] | None,
+    header_unit: str | HeaderUnit,
     n_features: int
-) -> Tuple[np.ndarray, str]:
+) -> tuple[np.ndarray, str]:
     """Get x-axis values and label from headers and unit.
 
     This is the main utility function for chart x-axis setup. It handles:
@@ -107,7 +105,6 @@ def get_x_values_and_label(
     # For TEXT unit - use indices but with TEXT label
     return np.arange(n_features), AXIS_LABELS.get(normalized, DEFAULT_AXIS_LABEL)
 
-
 def should_invert_x_axis(x_values: np.ndarray) -> bool:
     """Check if x-axis should be inverted (for wavenumber convention).
 
@@ -123,7 +120,6 @@ def should_invert_x_axis(x_values: np.ndarray) -> bool:
     if len(x_values) < 2:
         return False
     return x_values[0] > x_values[-1]
-
 
 def apply_x_axis_limits(ax, x_values: np.ndarray) -> None:
     """Apply appropriate x-axis limits to preserve data ordering.

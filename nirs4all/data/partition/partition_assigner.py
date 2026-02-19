@@ -24,9 +24,10 @@ Example:
     ... })
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Sequence, Union
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -36,17 +37,15 @@ class PartitionError(Exception):
     """Raised when partition assignment fails."""
     pass
 
-
 # Type alias for partition specification
-PartitionSpec = Union[
-    str,                     # Static partition: "train", "test", "predict"
-    Dict[str, Any],          # Complex partition specification
-    None,                    # Auto-detect (based on file naming, not implemented here)
-]
+PartitionSpec = (
+    str                     # Static partition: "train", "test", "predict"
+    | dict[str, Any]          # Complex partition specification
+    | None                    # Auto-detect (based on file naming, not implemented here)
+)
 
 # Partition types
 PartitionName = Literal["train", "test", "predict"]
-
 
 @dataclass
 class PartitionResult:
@@ -61,13 +60,13 @@ class PartitionResult:
         predict_data: DataFrame subset for prediction.
         partition_column: Name of column used for partitioning (if column-based).
     """
-    train_indices: List[int] = field(default_factory=list)
-    test_indices: List[int] = field(default_factory=list)
-    predict_indices: List[int] = field(default_factory=list)
-    train_data: Optional[pd.DataFrame] = None
-    test_data: Optional[pd.DataFrame] = None
-    predict_data: Optional[pd.DataFrame] = None
-    partition_column: Optional[str] = None
+    train_indices: list[int] = field(default_factory=list)
+    test_indices: list[int] = field(default_factory=list)
+    predict_indices: list[int] = field(default_factory=list)
+    train_data: pd.DataFrame | None = None
+    test_data: pd.DataFrame | None = None
+    predict_data: pd.DataFrame | None = None
+    partition_column: str | None = None
 
     @property
     def has_train(self) -> bool:
@@ -84,7 +83,7 @@ class PartitionResult:
         """Check if predict data exists."""
         return len(self.predict_indices) > 0
 
-    def get_indices(self, partition: PartitionName) -> List[int]:
+    def get_indices(self, partition: PartitionName) -> list[int]:
         """Get indices for a specific partition."""
         if partition == "train":
             return self.train_indices
@@ -95,7 +94,7 @@ class PartitionResult:
         else:
             raise PartitionError(f"Unknown partition: {partition}")
 
-    def get_data(self, partition: PartitionName) -> Optional[pd.DataFrame]:
+    def get_data(self, partition: PartitionName) -> pd.DataFrame | None:
         """Get data for a specific partition."""
         if partition == "train":
             return self.train_data
@@ -105,7 +104,6 @@ class PartitionResult:
             return self.predict_data
         else:
             raise PartitionError(f"Unknown partition: {partition}")
-
 
 class PartitionAssigner:
     """Flexible partition assigner for DataFrames.
@@ -137,8 +135,8 @@ class PartitionAssigner:
 
     def __init__(
         self,
-        default_random_state: Optional[int] = None,
-        base_path: Optional[Path] = None,
+        default_random_state: int | None = None,
+        base_path: Path | None = None,
     ):
         """Initialize the partition assigner.
 
@@ -224,7 +222,7 @@ class PartitionAssigner:
     def _assign_from_dict(
         self,
         df: pd.DataFrame,
-        partition: Dict[str, Any],
+        partition: dict[str, Any],
     ) -> PartitionResult:
         """Assign based on dictionary specification.
 
@@ -273,7 +271,7 @@ class PartitionAssigner:
     def _assign_by_column(
         self,
         df: pd.DataFrame,
-        partition: Dict[str, Any],
+        partition: dict[str, Any],
     ) -> PartitionResult:
         """Assign based on column values.
 
@@ -353,7 +351,7 @@ class PartitionAssigner:
     def _assign_by_percentage(
         self,
         df: pd.DataFrame,
-        partition: Dict[str, Any],
+        partition: dict[str, Any],
     ) -> PartitionResult:
         """Assign based on percentage splits.
 
@@ -480,7 +478,7 @@ class PartitionAssigner:
     def _assign_by_indices(
         self,
         df: pd.DataFrame,
-        partition: Dict[str, Any],
+        partition: dict[str, Any],
     ) -> PartitionResult:
         """Assign based on explicit index lists.
 
@@ -517,7 +515,7 @@ class PartitionAssigner:
     def _assign_by_index_file(
         self,
         df: pd.DataFrame,
-        partition: Dict[str, Any],
+        partition: dict[str, Any],
     ) -> PartitionResult:
         """Assign based on index files.
 
@@ -555,7 +553,7 @@ class PartitionAssigner:
             predict_data=df.iloc[predict_indices].copy() if predict_indices else None,
         )
 
-    def _load_indices_from_file(self, file_path: str) -> List[int]:
+    def _load_indices_from_file(self, file_path: str) -> list[int]:
         """Load indices from a file.
 
         Supports:
@@ -575,7 +573,7 @@ class PartitionAssigner:
         try:
             if suffix == ".json":
                 import json
-                with open(path, "r") as f:
+                with open(path) as f:
                     indices = json.load(f)
                 if not isinstance(indices, list):
                     raise PartitionError(
@@ -585,7 +583,7 @@ class PartitionAssigner:
 
             elif suffix in (".yaml", ".yml"):
                 import yaml
-                with open(path, "r") as f:
+                with open(path) as f:
                     indices = yaml.safe_load(f)
                 if not isinstance(indices, list):
                     raise PartitionError(
@@ -599,19 +597,19 @@ class PartitionAssigner:
 
             else:
                 # Assume text file with one index per line
-                with open(path, "r") as f:
+                with open(path) as f:
                     lines = f.readlines()
                 return [int(line.strip()) for line in lines if line.strip()]
 
         except Exception as e:
-            raise PartitionError(f"Failed to load indices from {path}: {e}")
+            raise PartitionError(f"Failed to load indices from {path}: {e}") from e
 
     def _validate_indices(
         self,
-        indices: List[int],
+        indices: list[int],
         n_rows: int,
         partition_name: str,
-    ) -> List[int]:
+    ) -> list[int]:
         """Validate and normalize index list."""
         if not isinstance(indices, (list, tuple)):
             indices = [indices]
@@ -635,9 +633,9 @@ class PartitionAssigner:
 
     def _validate_no_overlap(
         self,
-        train_indices: List[int],
-        test_indices: List[int],
-        predict_indices: List[int],
+        train_indices: list[int],
+        test_indices: list[int],
+        predict_indices: list[int],
     ) -> None:
         """Validate that partition indices don't overlap."""
         train_set = set(train_indices)
@@ -649,7 +647,7 @@ class PartitionAssigner:
         if train_test_overlap:
             raise PartitionError(
                 f"Train and test partitions overlap at indices: "
-                f"{sorted(list(train_test_overlap))[:10]}"
+                f"{sorted(train_test_overlap)[:10]}"
             )
 
         # Check train-predict overlap
@@ -657,7 +655,7 @@ class PartitionAssigner:
         if train_predict_overlap:
             raise PartitionError(
                 f"Train and predict partitions overlap at indices: "
-                f"{sorted(list(train_predict_overlap))[:10]}"
+                f"{sorted(train_predict_overlap)[:10]}"
             )
 
         # Check test-predict overlap
@@ -665,14 +663,14 @@ class PartitionAssigner:
         if test_predict_overlap:
             raise PartitionError(
                 f"Test and predict partitions overlap at indices: "
-                f"{sorted(list(test_predict_overlap))[:10]}"
+                f"{sorted(test_predict_overlap)[:10]}"
             )
 
     def _stratified_shuffle(
         self,
         df: pd.DataFrame,
         stratify_column: str,
-        random_state: Optional[int],
+        random_state: int | None,
     ) -> np.ndarray:
         """Create stratified shuffled indices.
 
@@ -696,7 +694,7 @@ class PartitionAssigner:
 
         # Collect and shuffle indices for each group
         group_indices_list = []
-        for name, group in groups:
+        for _name, group in groups:
             group_positions = [
                 df.index.get_loc(idx)
                 for idx in group.index.tolist()

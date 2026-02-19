@@ -43,19 +43,16 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative
-)
 from nirs4all.operators.filters import YOutlierFilter
+from nirs4all.operators.transforms import FirstDerivative
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='D06 Separation Branches Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -78,7 +75,6 @@ Separation branch types:
 
 IMPORTANT: Separation branches require "concat" merge to reassemble samples.
 """)
-
 
 # =============================================================================
 # Section 1: by_tag Branching
@@ -124,7 +120,6 @@ print("""Pipeline structure:
   4. Single PLS model on all samples
 """)
 
-
 # =============================================================================
 # Section 2: by_metadata Branching
 # =============================================================================
@@ -169,7 +164,6 @@ print("""Pipeline structure:
   5. Single model trained on all samples
 """)
 
-
 # =============================================================================
 # Section 3: by_metadata with Per-Value Steps
 # =============================================================================
@@ -210,7 +204,6 @@ print("""Per-value preprocessing:
   portable → SNV → FirstDerivative (aggressive)
   benchtop → SNV (minimal)
 """)
-
 
 # =============================================================================
 # Section 4: by_filter Branching
@@ -254,7 +247,6 @@ print("""by_filter creates two branches:
   "pass": samples NOT flagged by filter
   "fail": samples flagged by filter
 """)
-
 
 # =============================================================================
 # Section 5: by_source Branching
@@ -300,7 +292,6 @@ print("""by_source:
   merge sources → concatenate features
 """)
 
-
 # =============================================================================
 # Section 6: Per-Branch Model Training
 # =============================================================================
@@ -337,7 +328,6 @@ print("""Per-branch models:
   - Predictions from all farms concatenated
   - Useful when groups have different calibrations
 """)
-
 
 # =============================================================================
 # Section 7: Combining Separation and Duplication
@@ -383,7 +373,6 @@ print("""Combined workflow:
   2. Concat merge: reassemble samples
   3. Duplication branch: compare PLS variants
 """)
-
 
 # =============================================================================
 # Summary

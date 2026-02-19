@@ -10,18 +10,17 @@ Tests cover:
 - Serialization/prediction mode
 """
 
+from unittest.mock import MagicMock, Mock
+
 import numpy as np
 import pytest
-from unittest.mock import Mock, MagicMock
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA, TruncatedSVD
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.controllers.data.concat_transform import ConcatAugmentationController
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
-from nirs4all.pipeline.config.context import (
-    ExecutionContext, DataSelector, PipelineState, StepMetadata, RuntimeContext
-)
 
 
 def make_step_info(step_dict):
@@ -33,7 +32,6 @@ def make_step_info(step_dict):
         original_step=step_dict,
         metadata={}
     )
-
 
 @pytest.fixture
 def mock_runtime_context():
@@ -49,7 +47,6 @@ def mock_runtime_context():
 
     return runtime_ctx
 
-
 @pytest.fixture
 def simple_dataset():
     """Create a simple dataset with 10 samples and 50 features."""
@@ -62,7 +59,6 @@ def simple_dataset():
     dataset.add_samples(x_data, {"partition": "train"})
 
     return dataset
-
 
 @pytest.fixture
 def multi_processing_dataset():
@@ -84,7 +80,6 @@ def multi_processing_dataset():
 
     return dataset
 
-
 class TestControllerMatching:
     """Test the matches() method."""
 
@@ -102,7 +97,6 @@ class TestControllerMatching:
         assert controller.matches({}, None, "model") is False
         assert controller.matches({}, None, "feature_augmentation") is False
         assert controller.matches({}, None, "preprocessing") is False
-
 
 class TestReplaceMode:
     """Test replace mode (top-level, add_feature=False)."""
@@ -174,7 +168,6 @@ class TestReplaceMode:
         assert len(multi_processing_dataset.features_processings(0)) == 3
         assert multi_processing_dataset.num_features == 8  # 5 + 3
 
-
 class TestAddMode:
     """Test add mode (inside feature_augmentation, add_feature=True)."""
 
@@ -203,7 +196,6 @@ class TestAddMode:
         assert len(processings) == 2
         assert "raw" in processings
         assert any("concat" in p for p in processings)
-
 
 class TestChainedTransformers:
     """Test chained transformer execution."""
@@ -256,7 +248,6 @@ class TestChainedTransformers:
 
         # Output should be 15 features (10 + 5)
         assert simple_dataset.num_features == 15
-
 
 class TestSerialization:
     """Test serialization and prediction mode."""
@@ -316,7 +307,6 @@ class TestSerialization:
         assert not mock_runtime_context.saver.persist_artifact.called
         # Should have called artifact_provider
         assert mock_runtime_context.artifact_provider.get_artifacts_for_step.called
-
 
 class TestConfigParsing:
     """Test configuration parsing."""
@@ -386,7 +376,6 @@ class TestConfigParsing:
 
         # No changes should have been made
         assert simple_dataset.num_features == original_features
-
 
 class TestEdgeCases:
     """Test edge cases and error handling."""

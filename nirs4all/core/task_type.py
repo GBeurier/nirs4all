@@ -5,10 +5,10 @@ This module provides the TaskType enum that is shared across data, controllers, 
 Kept as a minimal standalone module to avoid circular import issues.
 """
 
-from enum import Enum
+from enum import Enum, StrEnum
 
 
-class TaskType(str, Enum):
+class TaskType(StrEnum):
     """Enumeration of machine learning task types."""
     REGRESSION = "regression"
     BINARY_CLASSIFICATION = "binary_classification"

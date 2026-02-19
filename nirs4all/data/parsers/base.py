@@ -8,7 +8,7 @@ All parsers should inherit from BaseParser and implement the required methods.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 
 @dataclass
@@ -25,17 +25,16 @@ class ParserResult:
     """
 
     success: bool
-    config: Optional[Dict[str, Any]] = None
-    dataset_name: Optional[str] = None
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    source_type: Optional[str] = None
+    config: dict[str, Any] | None = None
+    dataset_name: str | None = None
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    source_type: str | None = None
 
     def __str__(self) -> str:
         if self.success:
             return f"ParserResult(success=True, name='{self.dataset_name}')"
         return f"ParserResult(success=False, errors={self.errors})"
-
 
 class BaseParser(ABC):
     """Abstract base class for configuration parsers.
@@ -69,7 +68,7 @@ class BaseParser(ABC):
         """
         pass
 
-    def _extract_name_from_path(self, path: Union[str, Path]) -> str:
+    def _extract_name_from_path(self, path: str | Path) -> str:
         """Extract a dataset name from a file or folder path.
 
         Args:

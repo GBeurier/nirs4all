@@ -2,31 +2,31 @@
 Unit tests for Phase 4 validation module - spectral realism scorecard.
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.synthesis.validation import (
-    # Existing validation
-    ValidationError,
-    validate_spectra,
-    validate_concentrations,
-    validate_wavelengths,
-    validate_synthetic_output,
+    DatasetComparisonResult,
+    MetricResult,
     # Phase 4: Realism scorecard
     RealismMetric,
-    MetricResult,
     SpectralRealismScore,
+    # Existing validation
+    ValidationError,
+    compute_adversarial_validation_auc,
+    compute_baseline_curvature,
     compute_correlation_length,
     compute_derivative_statistics,
-    compute_peak_density,
-    compute_baseline_curvature,
-    compute_snr,
     compute_distribution_overlap,
-    compute_adversarial_validation_auc,
+    compute_peak_density,
+    compute_snr,
     compute_spectral_realism_scorecard,
-    DatasetComparisonResult,
-    validate_against_benchmark,
     quick_realism_check,
+    validate_against_benchmark,
+    validate_concentrations,
+    validate_spectra,
+    validate_synthetic_output,
+    validate_wavelengths,
 )
 
 
@@ -147,7 +147,6 @@ class TestRealismMetrics:
         overlap = compute_distribution_overlap(dist1, dist2)
         assert overlap < 0.1
 
-
 class TestAdversarialValidation:
     """Tests for adversarial validation AUC."""
 
@@ -179,7 +178,6 @@ class TestAdversarialValidation:
 
         # Should be close to 1.0 (easy to distinguish)
         assert mean_auc > 0.9
-
 
 class TestSpectralRealismScorecard:
     """Tests for the complete spectral realism scorecard."""
@@ -276,7 +274,6 @@ class TestSpectralRealismScorecard:
         assert isinstance(strict, SpectralRealismScore)
         assert isinstance(lenient, SpectralRealismScore)
 
-
 class TestMetricResult:
     """Tests for MetricResult dataclass."""
 
@@ -306,7 +303,6 @@ class TestMetricResult:
 
         repr_str = repr(result)
         assert "✗" in repr_str
-
 
 class TestQuickRealismCheck:
     """Tests for quick realism check."""
@@ -342,7 +338,6 @@ class TestQuickRealismCheck:
         passed, issues = quick_realism_check(spectra)
         assert not passed
         assert any("Inf" in issue for issue in issues)
-
 
 class TestValidateAgainstBenchmark:
     """Tests for benchmark validation."""

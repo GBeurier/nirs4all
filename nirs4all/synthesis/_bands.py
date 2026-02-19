@@ -94,7 +94,7 @@ Primary References:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import numpy as np
 
@@ -140,21 +140,21 @@ class BandAssignment:
     overtone_level: str
     assignment: str = ""
     description: str = ""
-    sigma_range: Tuple[float, float] = (15, 30)
-    gamma_range: Tuple[float, float] = (0, 5)
+    sigma_range: tuple[float, float] = (15, 30)
+    gamma_range: tuple[float, float] = (0, 5)
     intensity: str = "medium"
     chemical_context: str = ""
-    affected_by: List[str] = field(default_factory=list)
-    common_compounds: List[str] = field(default_factory=list)
-    references: List[str] = field(default_factory=list)
-    tags: List[str] = field(default_factory=list)
+    affected_by: list[str] = field(default_factory=list)
+    common_compounds: list[str] = field(default_factory=list)
+    references: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
     @property
     def wavenumber(self) -> float:
         """Convert wavelength (nm) to wavenumber (cm⁻¹)."""
         return 1e7 / self.center
 
-    def to_nir_band(self, amplitude: float = 1.0, sigma: Optional[float] = None, gamma: Optional[float] = None):
+    def to_nir_band(self, amplitude: float = 1.0, sigma: float | None = None, gamma: float | None = None):
         """
         Convert to NIRBand object for spectral generation.
 
@@ -200,14 +200,13 @@ class BandAssignment:
             lines.append(f"  References: {', '.join(self.references)}")
         return "\n".join(line for line in lines if line)
 
-
 # =============================================================================
 # NIR BAND ASSIGNMENTS DICTIONARY
 # =============================================================================
 # Organized by functional group and overtone level
 # All wavelengths in nm, wavenumbers in cm⁻¹
 
-NIR_BANDS: Dict[str, Dict[str, BandAssignment]] = {
+NIR_BANDS: dict[str, dict[str, BandAssignment]] = {
     # =========================================================================
     # O-H BANDS (Hydroxyl groups)
     # Fundamental: ~3400 cm⁻¹ (2941 nm) - IR region
@@ -1593,11 +1592,9 @@ NIR_BANDS: Dict[str, Dict[str, BandAssignment]] = {
     },
 }
 
-
 # =============================================================================
 # API FUNCTIONS
 # =============================================================================
-
 
 def get_band(functional_group: str, band_key: str) -> BandAssignment:
     """
@@ -1626,8 +1623,7 @@ def get_band(functional_group: str, band_key: str) -> BandAssignment:
                        f"Available: {list(NIR_BANDS[functional_group].keys())}")
     return NIR_BANDS[functional_group][band_key]
 
-
-def list_functional_groups() -> List[str]:
+def list_functional_groups() -> list[str]:
     """
     List all available functional groups.
 
@@ -1641,8 +1637,7 @@ def list_functional_groups() -> List[str]:
     """
     return sorted(NIR_BANDS.keys())
 
-
-def list_bands(functional_group: Optional[str] = None) -> List[str]:
+def list_bands(functional_group: str | None = None) -> list[str]:
     """
     List available bands, optionally filtered by functional group.
 
@@ -1673,12 +1668,11 @@ def list_bands(functional_group: Optional[str] = None) -> List[str]:
             result.append(f"{group}/{key}")
     return sorted(result)
 
-
 def get_bands_in_range(
     wavelength_min: float,
     wavelength_max: float,
-    functional_groups: Optional[List[str]] = None,
-) -> List[BandAssignment]:
+    functional_groups: list[str] | None = None,
+) -> list[BandAssignment]:
     """
     Get all bands with centers in a wavelength range.
 
@@ -1709,8 +1703,7 @@ def get_bands_in_range(
 
     return sorted(result, key=lambda b: b.center)
 
-
-def get_bands_by_tag(tag: str) -> List[BandAssignment]:
+def get_bands_by_tag(tag: str) -> list[BandAssignment]:
     """
     Get all bands with a specific tag.
 
@@ -1732,8 +1725,7 @@ def get_bands_by_tag(tag: str) -> List[BandAssignment]:
                 result.append(band)
     return sorted(result, key=lambda b: b.center)
 
-
-def get_bands_by_overtone(overtone_level: str) -> List[BandAssignment]:
+def get_bands_by_overtone(overtone_level: str) -> list[BandAssignment]:
     """
     Get all bands of a specific overtone level.
 
@@ -1755,8 +1747,7 @@ def get_bands_by_overtone(overtone_level: str) -> List[BandAssignment]:
                 result.append(band)
     return sorted(result, key=lambda b: b.center)
 
-
-def get_bands_by_compound(compound: str) -> List[BandAssignment]:
+def get_bands_by_compound(compound: str) -> list[BandAssignment]:
     """
     Get all bands commonly found in a specific compound.
 
@@ -1780,13 +1771,12 @@ def get_bands_by_compound(compound: str) -> List[BandAssignment]:
                 result.append(band)
     return sorted(result, key=lambda b: b.center)
 
-
 def generate_band_spectrum(
     band: BandAssignment,
     wavelengths: np.ndarray,
     amplitude: float = 1.0,
-    sigma: Optional[float] = None,
-    gamma: Optional[float] = None,
+    sigma: float | None = None,
+    gamma: float | None = None,
 ) -> np.ndarray:
     """
     Generate a spectrum for a single band.
@@ -1809,7 +1799,6 @@ def generate_band_spectrum(
     nir_band = band.to_nir_band(amplitude=amplitude, sigma=sigma, gamma=gamma)
     return nir_band.compute(wavelengths)
 
-
 def band_info(functional_group: str, band_key: str) -> str:
     """
     Return formatted information about a specific band.
@@ -1827,8 +1816,7 @@ def band_info(functional_group: str, band_key: str) -> str:
     band = get_band(functional_group, band_key)
     return band.info()
 
-
-def list_all_tags() -> List[str]:
+def list_all_tags() -> list[str]:
     """
     List all unique tags used across all bands.
 
@@ -1845,8 +1833,7 @@ def list_all_tags() -> List[str]:
             tags.update(band.tags)
     return sorted(tags)
 
-
-def validate_bands() -> List[str]:
+def validate_bands() -> list[str]:
     """
     Validate all band assignments.
 
@@ -1881,7 +1868,6 @@ def validate_bands() -> List[str]:
                 issues.append(f"{group}/{key}: invalid intensity '{band.intensity}'")
 
     return issues
-
 
 def summary() -> str:
     """

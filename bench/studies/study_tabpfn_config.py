@@ -12,16 +12,15 @@ This module provides:
 
 from __future__ import annotations
 
-from typing import Optional
 from pathlib import Path
+from typing import Optional
 
-from tabpfn import TabPFNClassifier, TabPFNRegressor
-from tabpfn.model_loading import get_cache_dir
-# TabPFN imports - lazy loaded to avoid import errors when not installed
+from tabpfn import TabPFNClassifier, TabPFNRegressor  # noqa: F401
+from tabpfn.model_loading import get_cache_dir  # noqa: F811
 
-def get_cache_dir():
+
+def get_cache_dir():  # noqa: F811
     return Path(".")
-
 
 # =============================================================================
 # Model Variants
@@ -49,7 +48,6 @@ REGRESSOR_MODELS = {
     'variant': 'tabpfn-v2.5-regressor-v2.5_variant.ckpt',
 }
 
-
 # =============================================================================
 # Model Path Utilities
 # =============================================================================
@@ -58,12 +56,10 @@ def get_model_dict(task_type: str) -> dict:
     """Get the model dictionary for a given task type."""
     return CLASSIFIER_MODELS if task_type == 'classification' else REGRESSOR_MODELS
 
-
 def get_model_class(task_type: str):
     return TabPFNClassifier if task_type == 'classification' else TabPFNRegressor
 
-
-def get_model_paths(task_type: str, variants: Optional[list[str]] = None) -> list[Optional[str]]:
+def get_model_paths(task_type: str, variants: list[str] | None = None) -> list[str | None]:
     """
     Get full paths to model checkpoints for specified variants.
 
@@ -91,8 +87,7 @@ def get_model_paths(task_type: str, variants: Optional[list[str]] = None) -> lis
             paths.append(str(cache_dir / ckpt_name))
     return paths
 
-
-def get_model_path_options(task_type: str, variants: Optional[list[str]] = None) -> Optional[list[str]]:
+def get_model_path_options(task_type: str, variants: list[str] | None = None) -> list[str] | None:
     """
     Get model paths for Optuna categorical search (excludes None).
 
@@ -109,7 +104,6 @@ def get_model_path_options(task_type: str, variants: Optional[list[str]] = None)
     # Return None if all paths were None (e.g., only 'default' variant)
     # This signals to callers that model_path should not be included in hyperparameter search
     return filtered if filtered else None
-
 
 def create_model(task_type: str, variant: str = 'default', device: str = 'cuda', **kwargs):
     """
@@ -136,7 +130,6 @@ def create_model(task_type: str, variant: str = 'default', device: str = 'cuda',
     else:
         return model_class(device=device, **kwargs)
 
-
 # =============================================================================
 # Inference Config Builders
 # =============================================================================
@@ -153,10 +146,9 @@ GLOBAL_TRANSFORMERS_MINIMAL = [None]
 CATEGORICAL_NAMES = ["numeric"]
 CATEGORICAL_NAMES_MINIMAL = ["numeric"]
 
-
 def build_preprocess_transform(
     name: str,
-    global_transformer: Optional[str] = None,
+    global_transformer: str | None = None,
     categorical_name: str = "numeric",
     append_original: bool = True,
 ) -> dict:
@@ -168,13 +160,12 @@ def build_preprocess_transform(
         "append_original": append_original,
     }
 
-
 def build_inference_config(
     fingerprint_feature: bool = True,
-    outlier_removal_std: Optional[float] = None,
+    outlier_removal_std: float | None = None,
     min_unique_for_numerical: int = 5,
-    preprocess_transforms: Optional[list] = None,
-    regression_y_preprocess: Optional[tuple] = None,
+    preprocess_transforms: list | None = None,
+    regression_y_preprocess: tuple | None = None,
 ) -> dict:
     """
     Build a single inference_config dictionary.
@@ -208,7 +199,6 @@ def build_inference_config(
         config["REGRESSION_Y_PREPROCESS_TRANSFORMS"] = regression_y_preprocess
 
     return config
-
 
 def generate_inference_configs(
     task_type: str = 'regression',
@@ -260,14 +250,13 @@ def generate_inference_configs(
 
     return configs
 
-
 # =============================================================================
 # Finetune Params Builders
 # =============================================================================
 
 def build_model_params(
     task_type: str,
-    model_variants: Optional[list[str]] = None,
+    model_variants: list[str] | None = None,
     inference_config_mode: str = 'minimal',
     include_model_path: bool = True,
     include_inference_config: bool = True,
@@ -304,7 +293,6 @@ def build_model_params(
 
     return params
 
-
 def build_finetune_params(
     task_type: str,
     n_trials: int = 50,
@@ -312,7 +300,7 @@ def build_finetune_params(
     approach: str = 'grouped',
     eval_mode: str = 'avg',
     sample: str = 'tpe',
-    model_variants: Optional[list[str]] = None,
+    model_variants: list[str] | None = None,
     inference_config_mode: str = 'minimal',
 ) -> dict:
     """

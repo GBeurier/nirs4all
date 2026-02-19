@@ -33,7 +33,6 @@ class TestRefitSkipsFinetuneGuard:
             "BUG-4: execute() must skip _execute_finetune when is_refit is True"
         )
 
-
 class TestInjectBestParamsStripsFinetuneParams:
     """Tests that _inject_best_params removes finetune_params from step dicts."""
 

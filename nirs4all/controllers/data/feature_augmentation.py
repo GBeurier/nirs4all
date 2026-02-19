@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple, Optional, Set, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 from sklearn.base import TransformerMixin
 
@@ -9,16 +9,14 @@ from nirs4all.core.logging import get_logger
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
-    from nirs4all.spectra.spectra_dataset import SpectroDataset
     from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.pipeline.steps.parser import ParsedStep
+    from nirs4all.spectra.spectra_dataset import SpectroDataset
 import copy
-
 
 # Valid action modes for feature_augmentation
 VALID_ACTIONS = ("extend", "add", "replace")
-
 
 @register_controller
 class FeatureAugmentationController(OperatorController):
@@ -92,9 +90,9 @@ class FeatureAugmentationController(OperatorController):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple['ExecutionContext', list[tuple[str, bytes]]]:
         """Execute feature augmentation with specified action mode.
 
         Args:
@@ -157,14 +155,14 @@ class FeatureAugmentationController(OperatorController):
 
     def _execute_extend_mode(
         self,
-        operations: List[Any],
+        operations: list[Any],
         dataset: 'SpectroDataset',
         initial_context: 'ExecutionContext',
         runtime_context: 'RuntimeContext',
-        original_source_processings: List[List[str]],
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
+        original_source_processings: list[list[str]],
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple['ExecutionContext', list[tuple[str, bytes]]]:
         """Execute extend mode: add new processings to set (no chaining).
 
         Each operation runs independently on the base processing (typically "raw").
@@ -186,7 +184,7 @@ class FeatureAugmentationController(OperatorController):
         all_artifacts = []
 
         # Track existing processings per source (use set for deduplication)
-        existing_processings_per_source: List[Set[str]] = [
+        existing_processings_per_source: list[set[str]] = [
             set(procs) for procs in original_source_processings
         ]
 
@@ -197,7 +195,7 @@ class FeatureAugmentationController(OperatorController):
             base = src_procs[0] if src_procs else "raw"
             base_processings.append([base])
 
-        for i, operation in enumerate(operations):
+        for _i, operation in enumerate(operations):
             if operation is None:
                 continue
 
@@ -233,14 +231,14 @@ class FeatureAugmentationController(OperatorController):
 
     def _execute_add_mode(
         self,
-        operations: List[Any],
+        operations: list[Any],
         dataset: 'SpectroDataset',
         initial_context: 'ExecutionContext',
         runtime_context: 'RuntimeContext',
-        original_source_processings: List[List[str]],
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
+        original_source_processings: list[list[str]],
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple['ExecutionContext', list[tuple[str, bytes]]]:
         """Execute add mode: chain operations on all existing, keep originals.
 
         Each operation is chained on top of ALL existing processings. Original
@@ -263,7 +261,7 @@ class FeatureAugmentationController(OperatorController):
         """
         all_artifacts = []
 
-        for i, operation in enumerate(operations):
+        for _i, operation in enumerate(operations):
             if operation is None:
                 continue
 
@@ -293,14 +291,14 @@ class FeatureAugmentationController(OperatorController):
 
     def _execute_replace_mode(
         self,
-        operations: List[Any],
+        operations: list[Any],
         dataset: 'SpectroDataset',
         initial_context: 'ExecutionContext',
         runtime_context: 'RuntimeContext',
-        original_source_processings: List[List[str]],
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
+        original_source_processings: list[list[str]],
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple['ExecutionContext', list[tuple[str, bytes]]]:
         """Execute replace mode: chain operations on all existing, discard originals.
 
         Each operation is chained on top of ALL existing processings. Original
@@ -325,11 +323,11 @@ class FeatureAugmentationController(OperatorController):
         all_artifacts = []
 
         # Track which processings existed before this step (to exclude them)
-        original_processing_sets: List[Set[str]] = [
+        original_processing_sets: list[set[str]] = [
             set(procs) for procs in original_source_processings
         ]
 
-        for i, operation in enumerate(operations):
+        for _i, operation in enumerate(operations):
             if operation is None:
                 continue
 

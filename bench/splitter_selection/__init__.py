@@ -25,25 +25,24 @@ Usage:
 
 from .splitter_strategies import (
     SPLITTING_STRATEGIES,
+    AdversarialSplitter,
+    HybridSplitter,
+    KennardStoneSplitter,
+    SimpleSplitter,
+    SpectralDistanceSplitter,
+    SpectralPCASplitter,
+    StratifiedGroupKFoldSplitter,
+    TargetStratifiedSplitter,
     get_splitter,
     list_strategies,
-    SimpleSplitter,
-    TargetStratifiedSplitter,
-    SpectralPCASplitter,
-    SpectralDistanceSplitter,
-    HybridSplitter,
-    AdversarialSplitter,
-    KennardStoneSplitter,
-    StratifiedGroupKFoldSplitter,
 )
-
 from .unsupervised_splitters import (
-    PuchweinSplitter,
     DuplexSplitter,
-    ShenkWestSplitter,
-    HonigsSplitter,
     HierarchicalClusteringSplitter,
+    HonigsSplitter,
     KMedoidsSplitter,
+    PuchweinSplitter,
+    ShenkWestSplitter,
 )
 
 __all__ = [

@@ -18,7 +18,6 @@ class _ShiftTransformer:
     def transform(self, X):  # noqa: ANN001
         return np.asarray(X, dtype=float) + self.shift
 
-
 class _ScaledSumModel:
     """Simple model used for replay assertions."""
 
@@ -27,7 +26,6 @@ class _ScaledSumModel:
 
     def predict(self, X):  # noqa: ANN001
         return np.asarray(X, dtype=float).sum(axis=1) * self.scale
-
 
 def test_fold_key_roundtrip_trace_chain_store_replay(tmp_path):
     """Fold keys stay canonical across trace -> chain -> store -> replay."""

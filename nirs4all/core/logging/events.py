@@ -6,11 +6,11 @@ for consistent logging throughout the pipeline execution.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any, Optional
 
 
-class Phase(str, Enum):
+class Phase(StrEnum):
     """Major workflow phases for high-level tracking."""
 
     INIT = "init"
@@ -26,8 +26,7 @@ class Phase(str, Enum):
     EXPORT = "export"
     COMPLETE = "complete"
 
-
-class EventType(str, Enum):
+class EventType(StrEnum):
     """Event types within phases."""
 
     # General events
@@ -79,8 +78,7 @@ class EventType(str, Enum):
     CONFIG_LOAD = "config_load"
     ENVIRONMENT = "environment"
 
-
-class Status(str, Enum):
+class Status(StrEnum):
     """Status indicators for log messages."""
 
     STARTING = "starting"
@@ -89,7 +87,6 @@ class Status(str, Enum):
     SKIPPED = "skipped"
     WARNING = "warning"
     ERROR = "error"
-
 
 @dataclass
 class LogEvent:
@@ -115,17 +112,17 @@ class LogEvent:
 
     timestamp: datetime
     level: str
-    phase: Optional[Phase]
+    phase: Phase | None
     event_type: EventType
     message: str
-    run_id: Optional[str] = None
-    status: Optional[Status] = None
-    branch_name: Optional[str] = None
-    branch_path: Optional[list[str]] = None
-    branch_index: Optional[int] = None
-    source_index: Optional[int] = None
-    source_name: Optional[str] = None
-    duration_ms: Optional[float] = None
+    run_id: str | None = None
+    status: Status | None = None
+    branch_name: str | None = None
+    branch_path: list[str] | None = None
+    branch_index: int | None = None
+    source_index: int | None = None
+    source_name: str | None = None
+    duration_ms: float | None = None
     metrics: dict[str, Any] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
 

@@ -1,0 +1,31 @@
+name: Free Disk Space
+description: Remove large pre-installed tools to free disk space on GitHub-hosted Linux runners.
+
+runs:
+  using: composite
+  steps:
+    - name: Free disk space
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        echo "=== Initial disk space ==="
+        df -h /
+        echo "=== Removing unnecessary tools ==="
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /opt/hostedtoolcache/CodeQL
+        sudo rm -rf /opt/hostedtoolcache/go
+        sudo rm -rf /opt/hostedtoolcache/Ruby
+        sudo rm -rf /opt/hostedtoolcache/node
+        sudo rm -rf /usr/local/share/powershell
+        sudo rm -rf /usr/share/swift
+        sudo rm -rf /usr/local/share/chromium
+        sudo rm -rf /usr/local/share/edge_driver
+        sudo rm -rf /usr/local/share/gecko_driver
+        sudo rm -rf /usr/local/share/chromedriver-linux64
+        sudo rm -rf /opt/microsoft
+        sudo docker image prune --all --force
+        sudo apt-get clean
+        echo "=== Final disk space ==="
+        df -h /

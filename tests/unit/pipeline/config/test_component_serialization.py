@@ -5,25 +5,17 @@ Tests framework-aware serialization, content-addressed storage,
 and deduplication for sklearn, numpy, and generic objects.
 """
 
-import pytest
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
+
 import numpy as np
-from sklearn.preprocessing import StandardScaler
+import pytest
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
 
-from nirs4all.pipeline.storage.artifacts.artifact_persistence import (
-    persist,
-    load,
-    compute_hash,
-    to_bytes,
-    from_bytes,
-    is_serializable,
-    _detect_framework,
-    ArtifactMeta
-)
+from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta, _detect_framework, compute_hash, from_bytes, is_serializable, load, persist, to_bytes
 
 
 @pytest.fixture
@@ -35,7 +27,6 @@ def artifacts_dir():
     yield artifacts_path
     shutil.rmtree(temp_dir)
 
-
 @pytest.fixture
 def results_dir():
     """Create temporary results directory."""
@@ -44,7 +35,6 @@ def results_dir():
     (results_path / "artifacts" / "objects").mkdir(parents=True, exist_ok=True)
     yield results_path
     shutil.rmtree(temp_dir)
-
 
 class TestFrameworkDetection:
     """Test automatic framework detection."""
@@ -73,7 +63,6 @@ class TestFrameworkDetection:
         format = _detect_framework(obj)
         assert format == 'pickle'
 
-
 class TestHashComputation:
     """Test content hashing."""
 
@@ -90,7 +79,6 @@ class TestHashComputation:
         hash1 = compute_hash(b"data1")
         hash2 = compute_hash(b"data2")
         assert hash1 != hash2
-
 
 class TestSerialization:
     """Test to_bytes and from_bytes."""
@@ -152,7 +140,6 @@ class TestSerialization:
         # Deserialize
         loaded_obj = from_bytes(data, format)
         assert loaded_obj == obj
-
 
 class TestPersistLoad:
     """Test persist and load with content-addressed storage."""
@@ -269,7 +256,6 @@ class TestPersistLoad:
         assert hasattr(loaded_model, 'coef_')
         np.testing.assert_array_equal(loaded_arr, arr)
 
-
 class TestIsSerializable:
     """Test is_serializable check."""
 
@@ -290,12 +276,12 @@ class TestIsSerializable:
 
     def test_lambda_serializable_with_cloudpickle(self):
         """Test that lambdas are serializable (cloudpickle fallback)."""
-        func = lambda x: x + 1
+        def func(x):
+            return x + 1
         # This should work with cloudpickle fallback
         result = is_serializable(func)
         # Just check it doesn't crash - result depends on cloudpickle availability
         assert isinstance(result, bool)
-
 
 class TestContentAddressedStorage:
     """Test content-addressed storage properties."""
@@ -348,7 +334,6 @@ class TestContentAddressedStorage:
         # File should be the same (not overwritten)
         assert path1 == path2
         assert mtime1 == mtime2
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

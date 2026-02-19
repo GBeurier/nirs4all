@@ -106,7 +106,6 @@ class ThrottledHandler(logging.Handler):
             pass
         super().close()
 
-
 class RotatingRunFileHandler(logging.Handler):
     """Handler that writes logs to run-specific files with rotation.
 
@@ -128,8 +127,8 @@ class RotatingRunFileHandler(logging.Handler):
         log_dir: Path,
         run_id: str,
         max_runs: int = 100,
-        max_age_days: Optional[int] = 30,
-        max_bytes: Optional[int] = None,
+        max_age_days: int | None = 30,
+        max_bytes: int | None = None,
         compress_rotated: bool = True,
         json_output: bool = False,
     ) -> None:
@@ -161,12 +160,12 @@ class RotatingRunFileHandler(logging.Handler):
 
         # Create file handlers
         self._log_file = self.log_dir / f"{run_id}.log"
-        self._log_handle = open(self._log_file, "w", encoding="utf-8")
+        self._log_handle = open(self._log_file, "w", encoding="utf-8")  # noqa: SIM115
         self._current_size = 0
 
         if json_output:
             self._json_file = self.log_dir / f"{run_id}.jsonl"
-            self._json_handle = open(self._json_file, "w", encoding="utf-8")
+            self._json_handle = open(self._json_file, "w", encoding="utf-8")  # noqa: SIM115
         else:
             self._json_handle = None
             self._json_file = None
@@ -244,7 +243,7 @@ class RotatingRunFileHandler(logging.Handler):
                 self._compress_file(rotated_name)
 
             # Open new file
-            self._log_handle = open(self._log_file, "w", encoding="utf-8")
+            self._log_handle = open(self._log_file, "w", encoding="utf-8")  # noqa: SIM115
             self._current_size = 0
 
     def _compress_file(self, file_path: Path) -> None:
@@ -255,9 +254,8 @@ class RotatingRunFileHandler(logging.Handler):
         """
         try:
             gz_path = file_path.with_suffix(file_path.suffix + ".gz")
-            with open(file_path, "rb") as f_in:
-                with gzip.open(gz_path, "wb") as f_out:
-                    shutil.copyfileobj(f_in, f_out)
+            with open(file_path, "rb") as f_in, gzip.open(gz_path, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
             file_path.unlink()
         except Exception:
             pass  # Keep uncompressed if compression fails
@@ -316,14 +314,13 @@ class RotatingRunFileHandler(logging.Handler):
         """
         return self._log_file
 
-    def get_json_file_path(self) -> Optional[Path]:
+    def get_json_file_path(self) -> Path | None:
         """Get the path to the current JSON log file.
 
         Returns:
             Path to JSON log file, or None if not enabled.
         """
         return self._json_file
-
 
 class NullHandler(logging.Handler):
     """Handler that discards all log records.
@@ -338,7 +335,6 @@ class NullHandler(logging.Handler):
             record: Log record (ignored).
         """
         pass
-
 
 class BufferedHandler(logging.Handler):
     """Handler that buffers log records for batch processing.

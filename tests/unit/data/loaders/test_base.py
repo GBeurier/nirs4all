@@ -5,17 +5,17 @@ Tests the FileLoader base class, LoaderRegistry, LoaderResult,
 and ArchiveHandler utilities.
 """
 
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from nirs4all.data.loaders.base import (
     ArchiveHandler,
-    FileLoadError,
     FileLoader,
+    FileLoadError,
     FormatNotSupportedError,
     LoaderError,
     LoaderRegistry,
@@ -59,7 +59,6 @@ class TestLoaderResult:
         assert result.headers == []
         assert result.header_unit == "cm-1"
 
-
 class TestFileLoaderBase:
     """Tests for FileLoader abstract base class."""
 
@@ -74,7 +73,6 @@ class TestFileLoaderBase:
         assert FileLoader.get_base_path(Path("data.csv.gz")) == Path("data.csv")
         assert FileLoader.get_base_path(Path("data.csv.zip")) == Path("data.csv")
         assert FileLoader.get_base_path(Path("data.npy.gz")) == Path("data.npy")
-
 
 class TestLoaderRegistry:
     """Tests for LoaderRegistry class."""
@@ -171,7 +169,6 @@ class TestLoaderRegistry:
         low_idx = loaders.index(LowPriorityLoader)
         assert high_idx < low_idx
 
-
 class TestRegisterLoaderDecorator:
     """Tests for the @register_loader decorator."""
 
@@ -197,7 +194,6 @@ class TestRegisterLoaderDecorator:
 
         # Clean up
         registry.unregister(DecoratedLoader)
-
 
 class TestArchiveHandler:
     """Tests for ArchiveHandler utility class."""

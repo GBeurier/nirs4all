@@ -16,20 +16,15 @@ Syntax examples:
     {"_or_": [...], "pick": 2, "_mutex_": [["A", "B"]]} -> A and B can't be together
 """
 
+from collections.abc import Callable
 from itertools import combinations, permutations, product
 from math import comb, factorial
-from typing import Any, FrozenSet, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
-from .base import ExpansionStrategy, GeneratorNode, ExpandedResult, SizeSpec
-from .registry import register_strategy
-from ..keywords import (
-    OR_KEYWORD, COUNT_KEYWORD,
-    PICK_KEYWORD, ARRANGE_KEYWORD,
-    THEN_PICK_KEYWORD, THEN_ARRANGE_KEYWORD,
-    MUTEX_KEYWORD, REQUIRES_KEYWORD, EXCLUDE_KEYWORD,
-    PURE_OR_KEYS
-)
+from ..keywords import ARRANGE_KEYWORD, COUNT_KEYWORD, EXCLUDE_KEYWORD, MUTEX_KEYWORD, OR_KEYWORD, PICK_KEYWORD, PURE_OR_KEYS, REQUIRES_KEYWORD, THEN_ARRANGE_KEYWORD, THEN_PICK_KEYWORD
 from ..utils.sampling import sample_with_seed
+from .base import ExpandedResult, ExpansionStrategy, GeneratorNode, SizeSpec
+from .registry import register_strategy
 
 
 @register_strategy
@@ -50,7 +45,7 @@ class OrStrategy(ExpansionStrategy):
         priority: 10 (standard priority)
     """
 
-    keywords: FrozenSet[str] = PURE_OR_KEYS
+    keywords: frozenset[str] = PURE_OR_KEYS
     priority: int = 10
 
     @classmethod
@@ -72,8 +67,8 @@ class OrStrategy(ExpansionStrategy):
     def expand(
         self,
         node: GeneratorNode,
-        seed: Optional[int] = None,
-        expand_nested: Optional[callable] = None
+        seed: int | None = None,
+        expand_nested: Callable | None = None
     ) -> ExpandedResult:
         """Expand an OR node to list of variants.
 
@@ -122,7 +117,7 @@ class OrStrategy(ExpansionStrategy):
 
         return result
 
-    def count(self, node: GeneratorNode, count_nested: Optional[callable] = None) -> int:
+    def count(self, node: GeneratorNode, count_nested: Callable | None = None) -> int:
         """Count OR node variants without generating them.
 
         Args:
@@ -162,7 +157,7 @@ class OrStrategy(ExpansionStrategy):
             return min(count_limit, total)
         return total
 
-    def validate(self, node: GeneratorNode) -> List[str]:
+    def validate(self, node: GeneratorNode) -> list[str]:
         """Validate OR node specification.
 
         Args:
@@ -204,8 +199,8 @@ class OrStrategy(ExpansionStrategy):
 
     def _expand_basic(
         self,
-        choices: List[Any],
-        expand_nested: Optional[callable]
+        choices: list[Any],
+        expand_nested: Callable | None
     ) -> ExpandedResult:
         """Expand basic OR (each choice is a variant).
 
@@ -231,12 +226,12 @@ class OrStrategy(ExpansionStrategy):
 
     def _expand_with_pick(
         self,
-        choices: List[Any],
+        choices: list[Any],
         pick_spec: SizeSpec,
-        then_pick: Optional[SizeSpec],
-        then_arrange: Optional[SizeSpec],
-        expand_nested: Optional[callable],
-        seed: Optional[int]
+        then_pick: SizeSpec | None,
+        then_arrange: SizeSpec | None,
+        expand_nested: Callable | None,
+        seed: int | None
     ) -> ExpandedResult:
         """Expand using pick (combinations).
 
@@ -278,11 +273,11 @@ class OrStrategy(ExpansionStrategy):
 
     def _count_with_pick(
         self,
-        choices: List[Any],
+        choices: list[Any],
         pick_spec: SizeSpec,
-        then_pick: Optional[SizeSpec],
-        then_arrange: Optional[SizeSpec],
-        count_nested: Optional[callable]
+        then_pick: SizeSpec | None,
+        then_arrange: SizeSpec | None,
+        count_nested: Callable | None
     ) -> int:
         """Count pick (combinations) variants.
 
@@ -321,12 +316,12 @@ class OrStrategy(ExpansionStrategy):
 
     def _expand_with_arrange(
         self,
-        choices: List[Any],
+        choices: list[Any],
         arrange_spec: SizeSpec,
-        then_pick: Optional[SizeSpec],
-        then_arrange: Optional[SizeSpec],
-        expand_nested: Optional[callable],
-        seed: Optional[int]
+        then_pick: SizeSpec | None,
+        then_arrange: SizeSpec | None,
+        expand_nested: Callable | None,
+        seed: int | None
     ) -> ExpandedResult:
         """Expand using arrange (permutations).
 
@@ -368,11 +363,11 @@ class OrStrategy(ExpansionStrategy):
 
     def _count_with_arrange(
         self,
-        choices: List[Any],
+        choices: list[Any],
         arrange_spec: SizeSpec,
-        then_pick: Optional[SizeSpec],
-        then_arrange: Optional[SizeSpec],
-        count_nested: Optional[callable]
+        then_pick: SizeSpec | None,
+        then_arrange: SizeSpec | None,
+        count_nested: Callable | None
     ) -> int:
         """Count arrange (permutations) variants.
 
@@ -410,7 +405,7 @@ class OrStrategy(ExpansionStrategy):
 
     def _handle_pick_then_pick(
         self,
-        choices: List[Any],
+        choices: list[Any],
         primary_spec: SizeSpec,
         then_spec: SizeSpec
     ) -> ExpandedResult:
@@ -462,7 +457,7 @@ class OrStrategy(ExpansionStrategy):
 
     def _handle_pick_then_arrange(
         self,
-        choices: List[Any],
+        choices: list[Any],
         primary_spec: SizeSpec,
         then_spec: SizeSpec
     ) -> ExpandedResult:
@@ -514,7 +509,7 @@ class OrStrategy(ExpansionStrategy):
 
     def _handle_arrange_then_pick(
         self,
-        choices: List[Any],
+        choices: list[Any],
         primary_spec: SizeSpec,
         then_spec: SizeSpec
     ) -> ExpandedResult:
@@ -567,7 +562,7 @@ class OrStrategy(ExpansionStrategy):
 
     def _handle_arrange_then_arrange(
         self,
-        choices: List[Any],
+        choices: list[Any],
         primary_spec: SizeSpec,
         then_spec: SizeSpec
     ) -> ExpandedResult:
@@ -622,7 +617,7 @@ class OrStrategy(ExpansionStrategy):
     # Helper Methods
     # -------------------------------------------------------------------------
 
-    def _normalize_spec(self, spec: SizeSpec) -> Tuple[int, int]:
+    def _normalize_spec(self, spec: SizeSpec) -> tuple[int, int]:
         """Normalize size specification to (from, to) tuple.
 
         Args:
@@ -652,8 +647,8 @@ class OrStrategy(ExpansionStrategy):
     def _expand_combination(
         self,
         combo: tuple,
-        expand_nested: Optional[callable]
-    ) -> List[List[Any]]:
+        expand_nested: Callable | None
+    ) -> list[list[Any]]:
         """Expand a combination by taking Cartesian product of expanded elements.
 
         Args:
@@ -663,10 +658,7 @@ class OrStrategy(ExpansionStrategy):
         Returns:
             List of expanded combinations.
         """
-        if expand_nested:
-            expanded_elements = [expand_nested(item) for item in combo]
-        else:
-            expanded_elements = [[item] for item in combo]
+        expanded_elements = [expand_nested(item) for item in combo] if expand_nested else [[item] for item in combo]
 
         # Take Cartesian product
         results = []
@@ -682,9 +674,9 @@ class OrStrategy(ExpansionStrategy):
     def _apply_constraints(
         self,
         results: ExpandedResult,
-        mutex_groups: List[List[Any]],
-        requires_groups: List[List[Any]],
-        exclude_combos: List[List[Any]]
+        mutex_groups: list[list[Any]],
+        requires_groups: list[list[Any]],
+        exclude_combos: list[list[Any]]
     ) -> ExpandedResult:
         """Apply constraint filters to expanded results.
 

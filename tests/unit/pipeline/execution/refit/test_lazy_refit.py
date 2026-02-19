@@ -22,11 +22,9 @@ from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
 from nirs4all.pipeline.execution.refit.model_selector import PerModelSelection
 
-
 # =========================================================================
 # Helpers
 # =========================================================================
-
 
 def _make_selection(
     variant_index: int = 0,
@@ -42,7 +40,6 @@ def _make_selection(
         branch_path=[],
     )
 
-
 def _make_refit_config(metric: str = "rmse") -> RefitConfig:
     """Create a RefitConfig for testing."""
     return RefitConfig(
@@ -52,7 +49,6 @@ def _make_refit_config(metric: str = "rmse") -> RefitConfig:
         metric=metric,
         selection_score=0.5,
     )
-
 
 def _make_lazy_result(
     model_name: str = "PLSRegression",
@@ -77,11 +73,9 @@ def _make_lazy_result(
         prediction_store=MagicMock(),
     )
 
-
 # =========================================================================
 # Tests: LazyModelRefitResult basic properties
 # =========================================================================
-
 
 class TestLazyModelRefitResultBasicProperties:
     """Test properties available without triggering refit."""
@@ -109,11 +103,9 @@ class TestLazyModelRefitResultBasicProperties:
         assert "pending" in repr(result)
         assert "PLS" in repr(result)
 
-
 # =========================================================================
 # Tests: LazyModelRefitResult lazy execution
 # =========================================================================
-
 
 class TestLazyModelRefitResultLazyExecution:
     """Test that refit is triggered on first access to score/final_entry."""
@@ -203,11 +195,9 @@ class TestLazyModelRefitResultLazyExecution:
         _ = result.score
         assert "resolved" in repr(result)
 
-
 # =========================================================================
 # Tests: Error handling
 # =========================================================================
-
 
 class TestLazyModelRefitResultErrorHandling:
     """Test behavior when refit fails or resources are destroyed."""
@@ -236,11 +226,9 @@ class TestLazyModelRefitResultErrorHandling:
 
         assert result.metric == "r2"
 
-
 # =========================================================================
 # Tests: RunResult.models integration
 # =========================================================================
-
 
 class TestRunResultModelsLazy:
     """Test RunResult.models returns LazyModelRefitResult when selections are available."""

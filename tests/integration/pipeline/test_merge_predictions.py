@@ -12,23 +12,24 @@ Tests:
 These tests verify the Phase 4 implementation from the branching_concat_merge_design.
 """
 
-import pytest
-import numpy as np
 import warnings
-from sklearn.model_selection import ShuffleSplit, KFold
+
+import numpy as np
+import pytest
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.linear_model import Ridge, Lasso
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import Lasso, Ridge
+from sklearn.model_selection import KFold, ShuffleSplit
 from sklearn.preprocessing import StandardScaler
 
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
-from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.operators.transforms import (
-    StandardNormalVariate,
     MultiplicativeScatterCorrection,
     SavitzkyGolay,
+    StandardNormalVariate,
 )
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+from nirs4all.pipeline.runner import PipelineRunner
 
 
 def create_test_dataset(n_samples: int = 100, n_features: int = 50, seed: int = 42) -> SpectroDataset:
@@ -47,7 +48,6 @@ def create_test_dataset(n_samples: int = 100, n_features: int = 50, seed: int = 
     dataset.add_targets(y[n_train:])
 
     return dataset
-
 
 class TestBasicPredictionMerge:
     """Test basic prediction merge operations with OOF reconstruction."""
@@ -104,7 +104,6 @@ class TestBasicPredictionMerge:
         assert predictions is not None
         assert len(predictions) > 0
 
-
 class TestSelectivePredictionMerge:
     """Test selective branch prediction merging (specific indices)."""
 
@@ -132,7 +131,6 @@ class TestSelectivePredictionMerge:
         # Verify predictions were generated
         assert predictions is not None
         assert len(predictions) > 0
-
 
 class TestMixedMerge:
     """Test mixed features + predictions merge."""
@@ -168,7 +166,6 @@ class TestMixedMerge:
         # - 1 OOF prediction from PLS (branch 0)
         # - 50 scaled features (branch 1)
 
-
 class TestUnsafeMode:
     """Test unsafe mode prediction merge (with data leakage warning)."""
 
@@ -200,7 +197,6 @@ class TestUnsafeMode:
         assert predictions is not None
         assert len(predictions) > 0
 
-
 class TestPredictionMergeMetadata:
     """Test that prediction merge produces correct metadata."""
 
@@ -227,7 +223,6 @@ class TestPredictionMergeMetadata:
         # This test verifies the pipeline runs - metadata inspection
         # would require access to step outputs which is internal
         assert predictions is not None
-
 
 class TestPredictionMergeErrors:
     """Test error handling for prediction merge."""
@@ -275,7 +270,6 @@ class TestPredictionMergeErrors:
                 dataset
             )
 
-
 class TestPredictionMergeEquivalences:
     """Test equivalences between explicit merge and MetaModel."""
 
@@ -315,7 +309,6 @@ class TestPredictionMergeEquivalences:
                 assert np.all(np.isfinite(y_pred)), "Predictions should be finite"
                 break
 
-
 class TestMultipleModelsPerBranch:
     """Test prediction merge when branches have multiple models."""
 
@@ -352,7 +345,6 @@ class TestMultipleModelsPerBranch:
 
         # Branch 0 has 2 models, Branch 1 has 1 model
         # So merge should produce 3 features for the meta-learner
-
 
 class TestIncludeOriginalWithPredictions:
     """Test include_original flag with prediction merge."""

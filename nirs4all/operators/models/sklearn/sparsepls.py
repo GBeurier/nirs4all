@@ -14,7 +14,6 @@ def _check_jax_available():
     except ImportError:
         return False
 
-
 # =============================================================================
 # NumPy Backend Implementation
 # =============================================================================
@@ -22,7 +21,6 @@ def _check_jax_available():
 def _soft_threshold_numpy(z, alpha):
     """Soft thresholding operator for L1 regularization (NumPy)."""
     return np.sign(z) * np.maximum(np.abs(z) - alpha, 0.0)
-
 
 def _sparse_pls_fit_numpy(X, y, n_components, alpha, max_iter, tol):
     """Fit Sparse PLS using pure NumPy.
@@ -156,14 +154,12 @@ def _sparse_pls_fit_numpy(X, y, n_components, alpha, max_iter, tol):
 
     return B_final, W, P, Q, X_mean, X_std, y_mean, y_std
 
-
 def _sparse_pls_predict_numpy(X, B, X_mean, X_std, y_mean, y_std):
     """Predict using Sparse PLS coefficients (NumPy)."""
     X = np.asarray(X, dtype=np.float64)
     X_scaled = (X - X_mean) / X_std
     y_pred_scaled = X_scaled @ B
     return y_pred_scaled * y_std + y_mean
-
 
 def _sparse_pls_transform_numpy(X, W, X_mean, X_std):
     """Transform X to latent space using Sparse PLS weights (NumPy)."""
@@ -176,10 +172,11 @@ def _get_jax_sparse_pls_functions():
 
     Implements the same algorithm as the sparse-pls package for identical results.
     """
+    from functools import partial
+
     import jax
     import jax.numpy as jnp
     from jax import lax
-    from functools import partial
 
     jax.config.update("jax_enable_x64", True)
 

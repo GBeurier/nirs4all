@@ -8,10 +8,11 @@ These tests verify:
 """
 
 import json
-import numpy as np
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pytest
 
 from nirs4all.controllers.splitters.fold_file_loader import (
     FoldFileLoaderController,
@@ -181,7 +182,6 @@ class TestFoldFileParser:
         assert parser._detect_format(Path("folds.yaml")) == "yaml"
         assert parser._detect_format(Path("folds.yml")) == "yaml"
         assert parser._detect_format(Path("folds.txt")) == "txt"
-
 
 class TestFoldFileLoaderController:
     """Tests for FoldFileLoaderController class."""
@@ -387,7 +387,6 @@ class TestFoldFileLoaderController:
         """Test that FoldFileLoaderController has higher priority than CrossValidatorController."""
         from nirs4all.controllers.splitters.split import CrossValidatorController
         assert FoldFileLoaderController.priority < CrossValidatorController.priority
-
 
 class TestFoldConfigSchema:
     """Tests for FoldConfig schema."""

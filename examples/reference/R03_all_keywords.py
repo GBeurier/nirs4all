@@ -44,8 +44,8 @@ import numpy as np
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.ensemble import (
-    RandomForestRegressor,
     GradientBoostingRegressor,
+    RandomForestRegressor,
 )
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
@@ -56,18 +56,23 @@ from sklearn.preprocessing import (
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative,
-    Detrend,
-)
+
 # Note: sample_augmentation imports (Rotate_Translate, GaussianAdditiveNoise)
 # removed due to known interaction issues with tag columns
 from nirs4all.operators.filters import YOutlierFilter
 from nirs4all.operators.models import MetaModel
 from nirs4all.operators.models.meta import StackingConfig
+from nirs4all.operators.transforms import (
+    Detrend,
+    FirstDerivative,
+)
+from nirs4all.operators.transforms import (
+    MultiplicativeScatterCorrection as MSC,
+)
+from nirs4all.operators.transforms import (
+    StandardNormalVariate as SNV,
+)
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description="R03 All Keywords Integration Test")
@@ -76,13 +81,11 @@ parser.add_argument("--show", action="store_true", help="Show all plots")
 parser.add_argument("--verbose", "-v", type=int, default=1, help="Verbosity level")
 args = parser.parse_args()
 
-
 def print_section(title: str):
     """Print a formatted section header."""
     print(f"\n{'='*80}")
     print(f"  {title}")
     print(f"{'='*80}\n")
-
 
 # =============================================================================
 # COMPLEX PIPELINE DEFINITION
@@ -114,7 +117,6 @@ Expected outcome:
 - Predictions are generated successfully
 - Meta-learner combines branch outputs
 """)
-
 
 # =============================================================================
 # DEFINE THE COMPREHENSIVE PIPELINE
@@ -249,7 +251,6 @@ complex_pipeline = [
     )},
 ]
 
-
 # =============================================================================
 # RUN THE PIPELINE
 # =============================================================================
@@ -308,7 +309,7 @@ try:
             improvement = (best_base - best_meta) / best_base * 100
             print(f"  → Meta-learner improved by {improvement:.1f}%")
         else:
-            print(f"  → No improvement from meta-learner")
+            print("  → No improvement from meta-learner")
 
     # =========================================================================
     # KEYWORD VERIFICATION
@@ -342,7 +343,6 @@ except Exception as e:
     traceback.print_exc()
     raise
 
-
 # =============================================================================
 # OPTIONAL: VISUALIZATION
 # =============================================================================
@@ -375,6 +375,5 @@ if args.show and predictions:
 
     import matplotlib.pyplot as plt
     plt.show()
-
 
 print("\n✓ R03_all_keywords.py completed!")

@@ -9,11 +9,11 @@ Section 8.4: Error Handling & Diagnostics
 """
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Dict, List, Optional, Type
+from enum import Enum, StrEnum
+from typing import Any, Optional
 
 
-class ErrorCategory(str, Enum):
+class ErrorCategory(StrEnum):
     """Categories of configuration errors."""
     SCHEMA = "schema"           # Schema validation errors
     FILE = "file"               # File-related errors
@@ -25,13 +25,11 @@ class ErrorCategory(str, Enum):
     FOLD = "fold"               # Cross-validation fold errors
     RUNTIME = "runtime"         # Runtime errors
 
-
-class ErrorSeverity(str, Enum):
+class ErrorSeverity(StrEnum):
     """Severity levels for errors."""
     ERROR = "error"         # Fatal error, cannot proceed
     WARNING = "warning"     # Non-fatal issue
     INFO = "info"           # Informational message
-
 
 @dataclass
 class ErrorCode:
@@ -49,9 +47,8 @@ class ErrorCode:
     category: ErrorCategory
     severity: ErrorSeverity
     message_template: str
-    suggestion_template: Optional[str] = None
-    documentation_url: Optional[str] = None
-
+    suggestion_template: str | None = None
+    documentation_url: str | None = None
 
 # =============================================================================
 # Error Code Registry
@@ -60,7 +57,7 @@ class ErrorCode:
 class ErrorRegistry:
     """Registry of all error codes."""
 
-    _codes: Dict[str, ErrorCode] = {}
+    _codes: dict[str, ErrorCode] = {}
 
     # Schema Errors (E1xx)
     E100 = ErrorCode(
@@ -352,19 +349,18 @@ class ErrorRegistry:
     )
 
     @classmethod
-    def get(cls, code: str) -> Optional[ErrorCode]:
+    def get(cls, code: str) -> ErrorCode | None:
         """Get error code by code string."""
         return getattr(cls, code, None)
 
     @classmethod
-    def all_codes(cls) -> Dict[str, ErrorCode]:
+    def all_codes(cls) -> dict[str, ErrorCode]:
         """Get all error codes."""
         return {
             name: value
             for name, value in cls.__dict__.items()
             if isinstance(value, ErrorCode)
         }
-
 
 @dataclass
 class DiagnosticMessage:
@@ -379,9 +375,9 @@ class DiagnosticMessage:
     """
     error_code: ErrorCode
     message: str
-    suggestion: Optional[str] = None
-    context: Dict[str, Any] = field(default_factory=dict)
-    location: Optional[str] = None
+    suggestion: str | None = None
+    context: dict[str, Any] = field(default_factory=dict)
+    location: str | None = None
 
     @property
     def code(self) -> str:
@@ -406,7 +402,7 @@ class DiagnosticMessage:
             parts.append(f"\n  Suggestion: {self.suggestion}")
         return " ".join(parts)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "code": self.code,
@@ -417,7 +413,6 @@ class DiagnosticMessage:
             "location": self.location,
             "context": self.context,
         }
-
 
 class DiagnosticBuilder:
     """Builder for diagnostic messages.
@@ -445,7 +440,7 @@ class DiagnosticBuilder:
     def create(
         self,
         error_code: ErrorCode,
-        location: Optional[str] = None,
+        location: str | None = None,
         **kwargs,
     ) -> DiagnosticMessage:
         """Create a diagnostic message.
@@ -488,7 +483,7 @@ class DiagnosticBuilder:
         self,
         field: str,
         value: Any,
-        valid_values: List[Any],
+        valid_values: list[Any],
     ) -> DiagnosticMessage:
         """Create invalid value error."""
         return self.create(
@@ -516,7 +511,6 @@ class DiagnosticBuilder:
             actual=actual,
         )
 
-
 @dataclass
 class DiagnosticReport:
     """Collection of diagnostic messages.
@@ -525,8 +519,8 @@ class DiagnosticReport:
         messages: List of diagnostic messages.
         config_path: Path to the configuration file (if any).
     """
-    messages: List[DiagnosticMessage] = field(default_factory=list)
-    config_path: Optional[str] = None
+    messages: list[DiagnosticMessage] = field(default_factory=list)
+    config_path: str | None = None
 
     def add(self, message: DiagnosticMessage) -> None:
         """Add a diagnostic message."""
@@ -535,7 +529,7 @@ class DiagnosticReport:
     def add_error(
         self,
         error_code: ErrorCode,
-        location: Optional[str] = None,
+        location: str | None = None,
         **kwargs,
     ) -> DiagnosticMessage:
         """Create and add an error message."""
@@ -545,12 +539,12 @@ class DiagnosticReport:
         return message
 
     @property
-    def errors(self) -> List[DiagnosticMessage]:
+    def errors(self) -> list[DiagnosticMessage]:
         """Get all error messages."""
         return [m for m in self.messages if m.severity == ErrorSeverity.ERROR]
 
     @property
-    def warnings(self) -> List[DiagnosticMessage]:
+    def warnings(self) -> list[DiagnosticMessage]:
         """Get all warning messages."""
         return [m for m in self.messages if m.severity == ErrorSeverity.WARNING]
 
@@ -592,7 +586,7 @@ class DiagnosticReport:
 
         return "\n".join(lines)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "config_path": self.config_path,

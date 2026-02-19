@@ -31,6 +31,7 @@ import time
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
@@ -104,8 +105,7 @@ from nirs4all.pipeline.storage.store_schema import create_schema
 _MAX_RETRIES = 5
 _BASE_DELAY = 0.1
 
-
-def _retry_on_lock(func):
+def _retry_on_lock(func: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator that retries the wrapped method on DuckDB lock errors.
 
     DuckDB uses process-level file locks that can conflict when another
@@ -118,7 +118,7 @@ def _retry_on_lock(func):
     import functools
 
     @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
         if self._degraded:
             return None
         last_error: Exception | None = None
@@ -140,9 +140,8 @@ def _retry_on_lock(func):
             "All subsequent store writes will be skipped. Predictions are still tracked in-memory.",
             func.__name__,
         )
-        raise last_error  # type: ignore[misc]
+        raise last_error
     return wrapper
-
 
 def _to_json(obj: Any) -> str | None:
     """Serialize *obj* to a JSON string, or return ``None``."""
@@ -150,13 +149,11 @@ def _to_json(obj: Any) -> str | None:
         return None
     return json.dumps(obj, default=str)
 
-
 def _from_json(val: str | None) -> Any:
     """Deserialize a JSON string back to a Python object."""
     if val is None:
         return None
     return json.loads(val)
-
 
 def _serialize_artifact(obj: Any, fmt: str) -> bytes:
     """Serialize a Python object to bytes using *fmt* as the strategy."""
@@ -170,7 +167,6 @@ def _serialize_artifact(obj: Any, fmt: str) -> bytes:
 
     return pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
 
-
 def _deserialize_artifact(data: bytes, fmt: str) -> Any:
     """Deserialize bytes produced by :func:`_serialize_artifact`."""
     if fmt == "joblib":
@@ -181,11 +177,9 @@ def _deserialize_artifact(data: bytes, fmt: str) -> Any:
 
     return pickle.loads(data)  # noqa: S301
 
-
 def _format_to_ext(fmt: str) -> str:
     """Map serialisation format to file extension."""
     return {"joblib": "joblib", "pickle": "pkl", "cloudpickle": "pkl"}.get(fmt, "bin")
-
 
 # ---- Metric direction heuristics ----------------------------------------
 
@@ -194,7 +188,6 @@ _HIGHER_IS_BETTER_METRICS: frozenset[str] = frozenset({
     "auc", "roc_auc", "balanced_accuracy", "kappa",
     "rpd", "rpiq",
 })
-
 
 def _infer_metric_ascending(metric: str) -> bool:
     """Infer sort direction from a metric name.
@@ -207,7 +200,6 @@ def _infer_metric_ascending(metric: str) -> bool:
         ``False`` if higher is better (descending sort).
     """
     return metric.lower() not in _HIGHER_IS_BETTER_METRICS
-
 
 class WorkspaceStore:
     """Database-backed workspace storage.
@@ -339,7 +331,7 @@ class WorkspaceStore:
                 "DuckDB store entering degraded mode after persistent lock failure. "
                 "All subsequent store writes will be skipped. Predictions are still tracked in-memory.",
             )
-            raise last_error  # type: ignore[misc]
+            raise last_error
 
     def _safe_execute(self, sql: str, params: list[object] | None = None) -> None:
         """Execute a write statement, suppressing DuckDB lock errors after retries.

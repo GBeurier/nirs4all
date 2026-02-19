@@ -1,8 +1,10 @@
 """Script to remove the trait_class column from all M.csv files in nitro_classif_merged."""
 
 import os
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
+
 
 def fix_merged_csv_files(base_dir: str = "sample_data/nitro_classif_merged"):
     """Remove trait_class column from all M.csv files."""

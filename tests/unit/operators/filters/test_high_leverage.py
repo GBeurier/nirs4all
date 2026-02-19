@@ -75,7 +75,6 @@ class TestHighLeverageFilterInitialization:
         filter_obj = HighLeverageFilter()
         assert isinstance(filter_obj, SampleFilter)
 
-
 class TestHighLeverageFilterHatMethod:
     """Tests for hat matrix method."""
 
@@ -127,7 +126,6 @@ class TestHighLeverageFilterHatMethod:
         filter_obj.fit(X)
 
         assert filter_obj.threshold_ == 0.5
-
 
 class TestHighLeverageFilterPCAMethod:
     """Tests for PCA-based method."""
@@ -181,7 +179,6 @@ class TestHighLeverageFilterPCAMethod:
         # Should use min(n_samples-1, n_features, 50)
         assert filter_obj.pca_.n_components_ <= 49
 
-
 class TestHighLeverageFilterHighDimensional:
     """Tests for high-dimensional data (n_features >= n_samples)."""
 
@@ -207,7 +204,6 @@ class TestHighLeverageFilterHighDimensional:
 
         assert len(mask) == 30
         assert mask.sum() > 0
-
 
 class TestHighLeverageFilterCentering:
     """Tests for data centering."""
@@ -237,7 +233,6 @@ class TestHighLeverageFilterCentering:
 
         # Mean should be zeros
         np.testing.assert_array_equal(filter_obj.mean_, np.zeros(5))
-
 
 class TestHighLeverageFilterEdgeCases:
     """Tests for edge cases."""
@@ -281,7 +276,7 @@ class TestHighLeverageFilterEdgeCases:
         filter_obj.fit(X)
         mask = filter_obj.get_mask(X)
         assert len(mask) == 1
-        assert mask[0] == True  # Single sample should not be considered an outlier
+        assert mask[0]  # Single sample should not be considered an outlier
 
     def test_two_samples(self):
         """Test with minimal (2) samples."""
@@ -293,7 +288,6 @@ class TestHighLeverageFilterEdgeCases:
         mask = filter_obj.get_mask(X)
 
         assert len(mask) == 2
-
 
 class TestHighLeverageFilterGetLeverages:
     """Tests for get_leverages method."""
@@ -331,7 +325,6 @@ class TestHighLeverageFilterGetLeverages:
 
         # High leverage point should have highest leverage
         assert leverages[-1] == np.max(leverages)
-
 
 class TestHighLeverageFilterHelperMethods:
     """Tests for helper methods."""
@@ -387,7 +380,6 @@ class TestHighLeverageFilterHelperMethods:
         filter_obj = HighLeverageFilter(absolute_threshold=0.5)
         repr_str = repr(filter_obj)
         assert "absolute_threshold=0.5" in repr_str
-
 
 class TestHighLeverageFilterTransform:
     """Tests for transform method (should be no-op)."""

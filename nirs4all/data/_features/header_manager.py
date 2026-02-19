@@ -1,6 +1,7 @@
 """Feature header and unit management."""
 
-from typing import Optional, List
+from typing import Optional
+
 from nirs4all.data._features.feature_constants import HeaderUnit, normalize_header_unit
 
 
@@ -15,13 +16,13 @@ class HeaderManager:
         header_unit: Unit type for the headers.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize with no headers."""
-        self._headers: Optional[List[str]] = None
+        self._headers: list[str] | None = None
         self._header_unit: HeaderUnit = HeaderUnit.WAVENUMBER
 
     @property
-    def headers(self) -> Optional[List[str]]:
+    def headers(self) -> list[str] | None:
         """Get the feature headers.
 
         Returns:
@@ -38,7 +39,7 @@ class HeaderManager:
         """
         return self._header_unit.value
 
-    def set_headers(self, headers: Optional[List[str]], unit: str = "cm-1") -> None:
+    def set_headers(self, headers: list[str] | None, unit: str = "cm-1") -> None:
         """Set feature headers with unit metadata.
 
         Args:

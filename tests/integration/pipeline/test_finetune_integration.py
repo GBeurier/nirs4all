@@ -5,19 +5,15 @@ Tests Optuna-based hyperparameter optimization with different strategies.
 Based on Q3_finetune.py example.
 """
 
-import pytest
 import numpy as np
-
+import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.data import DatasetConfigs
-from nirs4all.operators.transforms import (
-    Detrend, FirstDerivative, Gaussian, StandardNormalVariate
-)
+from nirs4all.operators.transforms import Detrend, FirstDerivative, Gaussian, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-
 from tests.fixtures.data_generators import TestDataManager
 
 
@@ -286,6 +282,7 @@ class TestFinetuneIntegration:
         pytest.importorskip("optuna")
         from sklearn.ensemble import StackingRegressor
         from sklearn.linear_model import Ridge
+
         from nirs4all.optimization.optuna import stack_params
 
         dataset_folder = str(test_data_manager.get_temp_directory() / "regression")

@@ -90,7 +90,7 @@ class GroupedSplitterWrapper(BaseCrossValidator):
         "tags": ["splitter", "grouped", "wrapper", "group-awareness"],
     }
 
-    def __init__(self, splitter, aggregation="mean", y_aggregation=None):
+    def __init__(self, splitter: BaseCrossValidator, aggregation: str = "mean", y_aggregation: str | None = None) -> None:
         self.splitter = splitter
         self.aggregation = aggregation
         self.y_aggregation = y_aggregation
@@ -109,7 +109,7 @@ class GroupedSplitterWrapper(BaseCrossValidator):
                 f"y_aggregation must be one of {valid_y_aggregations}, got '{y_aggregation}'"
             )
 
-    def _aggregate(self, X, y, groups):
+    def _aggregate(self, X: np.ndarray, y: np.ndarray | None, groups: np.ndarray) -> tuple[np.ndarray, np.ndarray | None, list[list[int]], np.ndarray]:
         """Aggregate samples by group into representative virtual samples.
 
         Parameters

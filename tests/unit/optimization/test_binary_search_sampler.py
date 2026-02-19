@@ -2,17 +2,18 @@
 Tests for BinarySearchSampler integration with OptunaManager.
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
+
 import nirs4all
 from nirs4all.operators.transforms import StandardNormalVariate
 
 # Get path to sample data relative to project root
 SAMPLE_DATA_PATH = Path(__file__).parent.parent.parent.parent / "examples" / "sample_data" / "regression"
-
 
 def test_binary_sampler_basic():
     """Test basic binary search sampler functionality."""
@@ -46,7 +47,6 @@ def test_binary_sampler_basic():
     # Binary search creates one prediction per trial (8 in this case)
     assert result.num_predictions > 0
 
-
 def test_binary_sampler_with_seed():
     """Test that binary sampler produces reproducible results with seed."""
     pipeline = [
@@ -72,7 +72,6 @@ def test_binary_sampler_with_seed():
 
     # Results should be similar (not necessarily identical due to sklearn randomness)
     assert abs(result1.best_score - result2.best_score) < 0.1
-
 
 def test_binary_sampler_multiphase():
     """Test binary sampler in multi-phase configuration."""
@@ -106,7 +105,6 @@ def test_binary_sampler_multiphase():
     # Multiphase creates predictions across all trials (5 + 3 = 8)
     assert result.num_predictions > 0
 
-
 def test_binary_sampler_grouped_approach():
     """Test binary sampler with grouped approach (preprocessing variants)."""
     pipeline = [
@@ -137,7 +135,6 @@ def test_binary_sampler_grouped_approach():
     # Grouped approach creates predictions for each preprocessing variant × trials
     assert result.num_predictions > 0
 
-
 def test_binary_sampler_with_categorical():
     """Test binary sampler with mixed parameter types."""
     pipeline = [
@@ -167,13 +164,11 @@ def test_binary_sampler_with_categorical():
 
     assert result.best_score is not None
 
-
 def test_binary_sampler_validation():
     """Test that binary sampler is recognized as valid."""
     from nirs4all.optimization.optuna import VALID_SAMPLERS
 
     assert "binary" in VALID_SAMPLERS
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

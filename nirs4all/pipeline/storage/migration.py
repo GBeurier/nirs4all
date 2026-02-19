@@ -28,7 +28,6 @@ from nirs4all.pipeline.storage.array_store import ArrayStore
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass
 class MigrationReport:
     """Result of a migration run."""
@@ -45,7 +44,6 @@ class MigrationReport:
     duration_seconds: float = 0.0
     errors: list[str] = field(default_factory=list)
 
-
 def _table_exists(conn: duckdb.DuckDBPyConnection, table_name: str) -> bool:
     """Check whether a table exists in the DuckDB database."""
     result = conn.execute(
@@ -55,7 +53,6 @@ def _table_exists(conn: duckdb.DuckDBPyConnection, table_name: str) -> bool:
     ).fetchone()
     return result is not None
 
-
 def _array_checksum(arr: list | np.ndarray | None) -> str:
     """Compute a stable checksum for an array (or None)."""
     if arr is None:
@@ -63,7 +60,6 @@ def _array_checksum(arr: list | np.ndarray | None) -> str:
     if isinstance(arr, list):
         arr = np.array(arr, dtype=np.float64)
     return hashlib.md5(np.ascontiguousarray(arr, dtype=np.float64).tobytes()).hexdigest()
-
 
 def migrate_arrays_to_parquet(
     workspace_path: str | Path,
@@ -201,7 +197,6 @@ def migrate_arrays_to_parquet(
 
     return report
 
-
 def _migrate_dataset(
     conn: duckdb.DuckDBPyConnection,
     array_store: ArrayStore,
@@ -261,7 +256,6 @@ def _migrate_dataset(
             len(records), dataset_name, report.rows_migrated, report.total_rows,
         )
 
-
 def _verify_migration(
     conn: duckdb.DuckDBPyConnection,
     array_store: ArrayStore,
@@ -311,7 +305,6 @@ def _verify_migration(
             )
 
     report.verification_mismatches = mismatches
-
 
 def verify_migrated_store(workspace_path: str | Path) -> MigrationReport:
     """Verify an already-migrated workspace.
@@ -369,7 +362,6 @@ def verify_migrated_store(workspace_path: str | Path) -> MigrationReport:
         report.duration_seconds = time.monotonic() - start_time
 
     return report
-
 
 # =========================================================================
 # CLI entry point

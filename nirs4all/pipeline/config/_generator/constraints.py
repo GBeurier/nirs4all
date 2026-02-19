@@ -20,13 +20,14 @@ Usage:
      "_requires_": [["B", "D"]]}
 """
 
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from collections.abc import Callable
+from typing import Any, Optional, Union
 
 
 def apply_mutex_constraint(
-    combinations: List[List[Any]],
-    mutex_groups: List[List[Any]]
-) -> List[List[Any]]:
+    combinations: list[list[Any]],
+    mutex_groups: list[list[Any]]
+) -> list[list[Any]]:
     """Filter combinations that violate mutual exclusion constraints.
 
     A mutex constraint [A, B] means A and B cannot both be present
@@ -57,10 +58,9 @@ def apply_mutex_constraint(
             result.append(combo)
     return result
 
-
 def _satisfies_mutex(
-    combo: List[Any],
-    mutex_groups: List[List[Any]]
+    combo: list[Any],
+    mutex_groups: list[list[Any]]
 ) -> bool:
     """Check if a combination satisfies all mutex constraints.
 
@@ -71,20 +71,19 @@ def _satisfies_mutex(
     Returns:
         True if combo satisfies all mutex constraints.
     """
-    combo_set = set(_normalize_item(item) for item in combo)
+    combo_set = {_normalize_item(item) for item in combo}
 
     for mutex_group in mutex_groups:
-        mutex_set = set(_normalize_item(item) for item in mutex_group)
+        mutex_set = {_normalize_item(item) for item in mutex_group}
         # If all items from mutex group are in combo, it violates the constraint
         if mutex_set.issubset(combo_set):
             return False
     return True
 
-
 def apply_requires_constraint(
-    combinations: List[List[Any]],
-    requires_groups: List[List[Any]]
-) -> List[List[Any]]:
+    combinations: list[list[Any]],
+    requires_groups: list[list[Any]]
+) -> list[list[Any]]:
     """Filter combinations that violate dependency requirements.
 
     A requires constraint [A, B] means if A is present, B must also be present.
@@ -114,10 +113,9 @@ def apply_requires_constraint(
             result.append(combo)
     return result
 
-
 def _satisfies_requires(
-    combo: List[Any],
-    requires_groups: List[List[Any]]
+    combo: list[Any],
+    requires_groups: list[list[Any]]
 ) -> bool:
     """Check if a combination satisfies all requires constraints.
 
@@ -128,26 +126,23 @@ def _satisfies_requires(
     Returns:
         True if combo satisfies all requires constraints.
     """
-    combo_set = set(_normalize_item(item) for item in combo)
+    combo_set = {_normalize_item(item) for item in combo}
 
     for requires_pair in requires_groups:
         if len(requires_pair) < 2:
             continue
         # First item requires subsequent items
         trigger = _normalize_item(requires_pair[0])
-        required = set(_normalize_item(item) for item in requires_pair[1:])
+        required = {_normalize_item(item) for item in requires_pair[1:]}
 
-        if trigger in combo_set:
-            # Trigger is present, check if all required items are present
-            if not required.issubset(combo_set):
-                return False
+        if trigger in combo_set and not required.issubset(combo_set):
+            return False
     return True
 
-
 def apply_exclude_constraint(
-    combinations: List[List[Any]],
-    exclude_combos: List[List[Any]]
-) -> List[List[Any]]:
+    combinations: list[list[Any]],
+    exclude_combos: list[list[Any]]
+) -> list[list[Any]]:
     """Filter specific combinations from results.
 
     Args:
@@ -178,13 +173,12 @@ def apply_exclude_constraint(
             result.append(combo)
     return result
 
-
 def apply_all_constraints(
-    combinations: List[List[Any]],
-    mutex_groups: Optional[List[List[Any]]] = None,
-    requires_groups: Optional[List[List[Any]]] = None,
-    exclude_combos: Optional[List[List[Any]]] = None
-) -> List[List[Any]]:
+    combinations: list[list[Any]],
+    mutex_groups: list[list[Any]] | None = None,
+    requires_groups: list[list[Any]] | None = None,
+    exclude_combos: list[list[Any]] | None = None
+) -> list[list[Any]]:
     """Apply all constraints in sequence.
 
     Args:
@@ -209,7 +203,6 @@ def apply_all_constraints(
 
     return result
 
-
 def _normalize_item(item: Any) -> Any:
     """Normalize an item for comparison.
 
@@ -232,8 +225,7 @@ def _normalize_item(item: Any) -> Any:
     else:
         return item
 
-
-def parse_constraints(node: Dict[str, Any]) -> Dict[str, List[List[Any]]]:
+def parse_constraints(node: dict[str, Any]) -> dict[str, list[list[Any]]]:
     """Extract constraint specifications from a node.
 
     Args:
@@ -248,11 +240,10 @@ def parse_constraints(node: Dict[str, Any]) -> Dict[str, List[List[Any]]]:
         'exclude': node.get('_exclude_', []),
     }
 
-
 def validate_constraints(
-    constraints: Dict[str, List[List[Any]]],
-    choices: List[Any]
-) -> List[str]:
+    constraints: dict[str, list[list[Any]]],
+    choices: list[Any]
+) -> list[str]:
     """Validate constraint specifications against available choices.
 
     Args:
@@ -263,7 +254,7 @@ def validate_constraints(
         List of validation error messages.
     """
     errors = []
-    normalized_choices = set(_normalize_item(c) for c in choices)
+    normalized_choices = {_normalize_item(c) for c in choices}
 
     # Validate mutex groups
     for i, group in enumerate(constraints.get('mutex', [])):

@@ -26,20 +26,19 @@ Difficulty: ★★☆☆☆
 
 # Standard library imports
 import argparse
+
 import matplotlib.pyplot as plt
 
 # Third-party imports
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.linear_model import ElasticNet, Ridge
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
-)
+from nirs4all.operators.transforms import Gaussian, Haar, SavitzkyGolay, StandardNormalVariate
 from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
@@ -47,7 +46,6 @@ parser = argparse.ArgumentParser(description='U04 Visualization Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Build Pipeline with Multiple Models
@@ -95,7 +93,6 @@ result = nirs4all.run(
 predictions = result.predictions
 print(f"   Generated {result.num_predictions} predictions")
 
-
 # =============================================================================
 # Section 2: PredictionAnalyzer Basics
 # =============================================================================
@@ -114,7 +111,6 @@ PredictionAnalyzer provides:
   • plot_histogram()   - Score distribution
   • plot_confusion_matrix() - For classification tasks
 """)
-
 
 # =============================================================================
 # Section 3: Top-K Comparison Plots
@@ -137,7 +133,6 @@ print("     Ranks models by test RMSE (not validation)")
 fig3 = analyzer.plot_top_k(k=3, rank_metric='r2', rank_partition='val')
 print("   ✓ plot_top_k(k=3, rank_metric='r2')")
 print("     Ranks models by R² instead of RMSE")
-
 
 # =============================================================================
 # Section 4: Heatmap Visualizations
@@ -174,7 +169,6 @@ fig6 = analyzer.plot_heatmap(
 )
 print("   ✓ Heatmap: model_name vs fold_id (with counts)")
 
-
 # =============================================================================
 # Section 5: Candlestick Charts
 # =============================================================================
@@ -203,7 +197,6 @@ fig9 = analyzer.plot_candlestick(
 )
 print("   ✓ Candlestick: RMSE distribution per fold")
 
-
 # =============================================================================
 # Section 6: Histograms
 # =============================================================================
@@ -222,7 +215,6 @@ print("   ✓ Histogram: R² distribution")
 # Histogram of MAE
 fig12 = analyzer.plot_histogram(display_metric='mae')
 print("   ✓ Histogram: MAE distribution")
-
 
 # =============================================================================
 # Section 7: Understanding Rank vs Display
@@ -263,7 +255,6 @@ fig13 = analyzer.plot_heatmap(
 )
 print("   ✓ Created heatmap: rank by val, display test")
 
-
 # =============================================================================
 # Section 8: Score Scope (Refit-Aware Ranking)
 # =============================================================================
@@ -300,7 +291,6 @@ fig16 = analyzer.plot_heatmap(
     score_scope='final',
 )
 print("   ✓ plot_heatmap(score_scope='final') - Refit entries only")
-
 
 # =============================================================================
 # Summary

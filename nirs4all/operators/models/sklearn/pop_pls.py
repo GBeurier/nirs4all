@@ -61,11 +61,9 @@ from nirs4all.operators.models.sklearn.aom_pls import (
     _opls_prefilter,
 )
 
-
 # =============================================================================
 # POP-PLS Operator Bank
 # =============================================================================
-
 
 def pop_pls_operator_bank() -> list[LinearOperator]:
     """Build a dedicated operator bank optimized for POP-PLS.
@@ -125,7 +123,6 @@ def pop_pls_operator_bank() -> list[LinearOperator]:
         ),
     ]
 
-
 # =============================================================================
 # POP-PLS Core Algorithms
 # =============================================================================
@@ -146,7 +143,6 @@ def _compute_weight(op: LinearOperator, c_k: NDArray, eps: float) -> NDArray | N
         return None
     return a_w / a_w_norm
 
-
 def _compute_prefix_B(W: NDArray, P: NDArray, Q: NDArray, k: int) -> NDArray:
     """Compute prefix regression coefficient matrix B_k = W @ inv(P^T W) @ Q^T."""
     PtW = P[:, :k].T @ W[:, :k]
@@ -155,7 +151,6 @@ def _compute_prefix_B(W: NDArray, P: NDArray, Q: NDArray, k: int) -> NDArray:
     except np.linalg.LinAlgError:
         R_k = W[:, :k] @ np.linalg.pinv(PtW)
     return R_k @ Q[:, :k].T
-
 
 def _poppls_fit_greedy(
     X: NDArray, Y: NDArray, operators: list[LinearOperator],
@@ -263,7 +258,6 @@ def _poppls_fit_greedy(
         "B_coefs": B_coefs, "P_orth": P_orth,
         "component_operators": component_operators,
     }
-
 
 def _poppls_holdout_pass(
     X_train: NDArray, Y_train: NDArray, operators: list[LinearOperator],
@@ -390,7 +384,6 @@ def _poppls_holdout_pass(
         "operator_indices": operator_indices,
         "best_rmse": best_rmse,
     }
-
 
 def _poppls_press_pass(
     X: NDArray, Y: NDArray, operators: list[LinearOperator],
@@ -564,7 +557,6 @@ def _poppls_press_pass(
         "best_press": best_press,
     }
 
-
 def _poppls_refit(
     X: NDArray, Y: NDArray, operators: list[LinearOperator],
     config: dict, eps: float = 1e-12,
@@ -650,7 +642,6 @@ def _poppls_refit(
         "component_operators": component_operators,
     }
 
-
 def _poppls_fit_numpy(
     X: NDArray, Y: NDArray, operators: list[LinearOperator],
     n_components: int, n_orth: int, auto_select: bool,
@@ -685,10 +676,7 @@ def _poppls_fit_numpy(
     has_external_val = X_val is not None and Y_val is not None and X_val.shape[0] > 0
 
     # Auto-tune n_orth: search [0..5] when n_orth=0, [0..n_orth] otherwise
-    if n_orth > 0:
-        n_orth_candidates = list(range(n_orth + 1))
-    else:
-        n_orth_candidates = [0, 1, 2, 3, 4, 5]
+    n_orth_candidates = list(range(n_orth + 1)) if n_orth > 0 else [0, 1, 2, 3, 4, 5]
 
     if has_external_val:
         # External validation path: holdout selection + refit.
@@ -741,7 +729,6 @@ def _poppls_fit_numpy(
             "Gamma": np.empty((0, B)), "B_coefs": np.empty((0, p, q)),
             "P_orth": None, "component_operators": [],
         }
-
 
 # =============================================================================
 # POPPLSRegressor
@@ -892,7 +879,7 @@ class POPPLSRegressor(BaseEstimator, RegressorMixin):
         y: ArrayLike,
         X_val: ArrayLike | None = None,
         y_val: ArrayLike | None = None,
-    ) -> "POPPLSRegressor":
+    ) -> POPPLSRegressor:
         """Fit the POP-PLS model.
 
         Parameters
@@ -1121,7 +1108,7 @@ class POPPLSRegressor(BaseEstimator, RegressorMixin):
             "random_state": self.random_state,
         }
 
-    def set_params(self, **params) -> "POPPLSRegressor":
+    def set_params(self, **params) -> POPPLSRegressor:
         """Set the parameters of this estimator."""
         for key, value in params.items():
             setattr(self, key, value)

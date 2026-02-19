@@ -4,13 +4,13 @@ Unit tests for nirs4all.api.result module.
 Tests the RunResult, PredictResult, and ExplainResult dataclasses.
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
-from unittest.mock import Mock, MagicMock
+from unittest.mock import MagicMock, Mock
 
-from nirs4all.api.result import RunResult, PredictResult, ExplainResult
+import numpy as np
+import pytest
 
+from nirs4all.api.result import ExplainResult, PredictResult, RunResult
 
 # =============================================================================
 # Fixtures
@@ -60,7 +60,6 @@ def mock_predictions():
 
     return mock
 
-
 @pytest.fixture
 def mock_runner():
     """Create a mock PipelineRunner."""
@@ -70,7 +69,6 @@ def mock_runner():
     runner.export_model.return_value = Path('/tmp/exports/model.joblib')
     return runner
 
-
 @pytest.fixture
 def run_result(mock_predictions, mock_runner):
     """Create a RunResult instance with mocks."""
@@ -79,7 +77,6 @@ def run_result(mock_predictions, mock_runner):
         per_dataset={'wheat': {'status': 'success'}},
         _runner=mock_runner
     )
-
 
 # =============================================================================
 # RunResult Tests
@@ -265,7 +262,6 @@ class TestRunResult:
         mock_predictions.top.return_value = [{'model_name': 'test'}]
         assert str(run_result) == run_result.summary()
 
-
 # =============================================================================
 # PredictResult Tests
 # =============================================================================
@@ -426,7 +422,6 @@ class TestPredictResult:
         str_output = str(result)
         assert 'PredictResult' in str_output
         assert 'PLS' in str_output
-
 
 # =============================================================================
 # ExplainResult Tests
@@ -647,7 +642,6 @@ class TestExplainResult:
         assert 'ExplainResult' in str_output
         assert 'PLS' in str_output
         assert 'samples' in str_output
-
 
 # =============================================================================
 # Integration Tests

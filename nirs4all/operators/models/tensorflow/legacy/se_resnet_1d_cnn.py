@@ -2,7 +2,6 @@
 # Reference for ResNets - [Deep Residual Learning for Image Recognition](https://arxiv.org/pdf/1512.03385.pdf))
 # Reference for SE-Nets - [Squeeze-and-Excitation Networks](https://arxiv.org/pdf/1709.01507.pdf))
 
-
 import tensorflow as tf
 
 
@@ -13,7 +12,6 @@ def Conv_1D_Block(inputs, num_filters, kernel, strides):
     x = tf.keras.layers.Activation('relu')(x)
 
     return x
-
 
 def SE_Block(inputs, num_filters, ratio):
     squeeze = tf.keras.layers.GlobalAveragePooling1D()(inputs)
@@ -28,19 +26,14 @@ def SE_Block(inputs, num_filters, ratio):
 
     return scale
 
-
 def stem(inputs, num_filters):
     # Construct the Stem Convolution Group
     # inputs : input vector
     # First Convolutional layer, where pooled feature maps will be reduced by 75%
     conv = Conv_1D_Block(inputs, num_filters, 7, 2)
-    if conv.shape[1] <= 2:
-        pool = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(conv)
-    else:
-        pool = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(conv)
+    pool = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(conv) if conv.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(conv)
 
     return pool
-
 
 def conv_block(inputs, num_filters):
     # Construct Block of Convolutions without Pooling
@@ -50,7 +43,6 @@ def conv_block(inputs, num_filters):
     conv = Conv_1D_Block(conv, num_filters, 3, 1)
 
     return conv
-
 
 def residual_block(inputs, num_filters, ratio):
     # Construct a Residual Block of Convolutions
@@ -65,7 +57,6 @@ def residual_block(inputs, num_filters, ratio):
     out = tf.keras.layers.Activation('relu')(conv)
 
     return out
-
 
 def residual_group(inputs, n_filters, ratio, n_blocks, conv=True):
     # x        : input to the group
@@ -82,19 +73,14 @@ def residual_group(inputs, n_filters, ratio, n_blocks, conv=True):
 
     return out
 
-
 def stem_bottleneck(inputs, num_filters):
     # Construct the Stem Convolution Group
     # inputs : input vector
     # First Convolutional layer, where pooled feature maps will be reduced by 75%
     conv = Conv_1D_Block(inputs, num_filters, 7, 2)
-    if conv.shape[1] <= 2:
-        pool = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(conv)
-    else:
-        pool = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(conv)
+    pool = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(conv) if conv.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(conv)
 
     return pool
-
 
 def residual_block_bottleneck(inputs, num_filters, ratio):
     # Construct a Residual Block of Convolutions
@@ -111,7 +97,6 @@ def residual_block_bottleneck(inputs, num_filters, ratio):
 
     return out
 
-
 def residual_group_bottleneck(inputs, n_filters, ratio, n_blocks, conv=True):
     # x        : input to the group
     # n_filters: number of filters
@@ -127,7 +112,6 @@ def residual_group_bottleneck(inputs, n_filters, ratio, n_blocks, conv=True):
 
     return out
 
-
 def learner18(inputs, num_filters, ratio):
     # Construct the Learner
     x = residual_group(inputs, num_filters, ratio, 2)          # First Residual Block Group of 64 filters
@@ -136,7 +120,6 @@ def learner18(inputs, num_filters, ratio):
     out = residual_group(x, num_filters * 8, ratio, 1, False)  # Fourth Residual Block Group of 512 filters
 
     return out
-
 
 def learner34(inputs, num_filters, ratio):
     # Construct the Learner
@@ -147,7 +130,6 @@ def learner34(inputs, num_filters, ratio):
 
     return out
 
-
 def learner50(inputs, num_filters, ratio):
     # Construct the Learner
     x = residual_group_bottleneck(inputs, num_filters, ratio, 3)  # First Residual Block Group of 64 filters
@@ -156,7 +138,6 @@ def learner50(inputs, num_filters, ratio):
     out = residual_group_bottleneck(x, num_filters * 8, ratio, 2, False)  # Fourth Residual Block Group of 512 filters
 
     return out
-
 
 def learner101(inputs, num_filters, ratio):
     # Construct the Learner
@@ -167,7 +148,6 @@ def learner101(inputs, num_filters, ratio):
 
     return out
 
-
 def learner152(inputs, num_filters, ratio):
     # Construct the Learner
     x = residual_group_bottleneck(inputs, num_filters, ratio, 3)  # First Residual Block Group of 64 filters
@@ -177,7 +157,6 @@ def learner152(inputs, num_filters, ratio):
 
     return out
 
-
 def classifier(inputs, class_number):
     # Construct the Classifier Group
     # inputs       : input vector
@@ -185,7 +164,6 @@ def classifier(inputs, class_number):
     out = tf.keras.layers.Dense(class_number, activation='softmax')(inputs)
 
     return out
-
 
 def regressor(inputs, feature_number):
     # Construct the Regressor Group
@@ -195,7 +173,6 @@ def regressor(inputs, feature_number):
 
     return out
 
-
 def SqueezeExcite(x, ratio=16):
     nb_chan = tf.keras.backend.int_shape(x)[-1]
     y = tf.keras.layers.GlobalAveragePooling1D()(x)
@@ -204,7 +181,6 @@ def SqueezeExcite(x, ratio=16):
     y = tf.keras.layers.Multiply()([x, y])
 
     return y
-
 
 class SEResNet:
     def __init__(self, length, num_channel, num_filters, ratio=16, problem_type='Regression', output_nums=1,
@@ -234,7 +210,6 @@ class SEResNet:
             outputs = tf.keras.layers.Dense(self.output_nums, activation='softmax')(x)
 
         return outputs
-
 
     def SEResNet18(self):
         inputs = tf.keras.Input((self.length, self.num_channel))  # The input tensor
@@ -285,7 +260,6 @@ class SEResNet:
         model = tf.keras.Model(inputs, outputs)
 
         return model
-
 
 if __name__ == '__main__':
     # Configurations

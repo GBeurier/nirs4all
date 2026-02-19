@@ -5,16 +5,14 @@ Tests SHAP explainer with different types and visualizations.
 Based on Q8_shap.py example.
 """
 
-import pytest
 import numpy as np
-
+import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.operators.transforms import Gaussian, SavitzkyGolay, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-
 from tests.fixtures.data_generators import TestDataManager
 
 

@@ -17,7 +17,6 @@ def _check_jax_available():
     except ImportError:
         return False
 
-
 # =============================================================================
 # NumPy Backend Implementation
 # =============================================================================
@@ -122,7 +121,6 @@ def _mbpls_fit_numpy(X, y, n_components, standardize=True):
 
     return B_final, W, P, Q, T, X_mean, X_std, y_mean, y_std
 
-
 def _mbpls_fit_multiblock_numpy(X_blocks, y, n_components, standardize=True):
     """Fit multiblock MBPLS using pure NumPy.
 
@@ -212,10 +210,7 @@ def _mbpls_fit_multiblock_numpy(X_blocks, y, n_components, standardize=True):
         for b, X_res in enumerate(X_res_blocks):
             # Block weight
             w_b = X_res.T @ y_res
-            if n_targets == 1:
-                w_b = w_b.ravel()
-            else:
-                w_b = w_b[:, 0]
+            w_b = w_b.ravel() if n_targets == 1 else w_b[:, 0]
             w_norm = np.linalg.norm(w_b)
             if w_norm > 1e-10:
                 w_b = w_b / w_norm
@@ -236,7 +231,7 @@ def _mbpls_fit_multiblock_numpy(X_blocks, y, n_components, standardize=True):
 
         # Compute loadings for each block and concatenate
         p_concat = []
-        for b, X_res in enumerate(X_res_blocks):
+        for _b, X_res in enumerate(X_res_blocks):
             p_b = X_res.T @ t / t_dot
             p_concat.append(p_b)
 
@@ -266,14 +261,12 @@ def _mbpls_fit_multiblock_numpy(X_blocks, y, n_components, standardize=True):
 
     return B_final, W, P, Q, T, block_weights, X_means, X_stds, y_mean, y_std
 
-
 def _mbpls_predict_numpy(X, B, X_mean, X_std, y_mean, y_std):
     """Predict using MBPLS coefficients (NumPy)."""
     X = np.asarray(X, dtype=np.float64)
     X_centered = (X - X_mean) / X_std
     y_pred_centered = X_centered @ B
     return y_pred_centered * y_std + y_mean
-
 
 def _mbpls_predict_multiblock_numpy(X_blocks, B, X_means, X_stds, y_mean, y_std):
     """Predict using multiblock MBPLS coefficients (NumPy)."""
@@ -288,13 +281,11 @@ def _mbpls_predict_multiblock_numpy(X_blocks, B, X_means, X_stds, y_mean, y_std)
     y_pred_centered = X_concat @ B
     return y_pred_centered * y_std + y_mean
 
-
 def _mbpls_transform_numpy(X, W, X_mean, X_std):
     """Transform X to latent space (NumPy)."""
     X = np.asarray(X, dtype=np.float64)
     X_centered = (X - X_mean) / X_std
     return X_centered @ W
-
 
 def _mbpls_transform_multiblock_numpy(X_blocks, W, X_means, X_stds, block_sizes):
     """Transform multiblock X to latent space (NumPy)."""
@@ -313,10 +304,11 @@ def _mbpls_transform_multiblock_numpy(X_blocks, W, X_means, X_stds, block_sizes)
 
 def _get_jax_mbpls_functions():
     """Get JAX-accelerated MBPLS functions (single block)."""
+    from functools import partial
+
     import jax
     import jax.numpy as jnp
     from jax import lax
-    from functools import partial
 
     jax.config.update("jax_enable_x64", True)
 

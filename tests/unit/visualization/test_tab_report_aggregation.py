@@ -7,8 +7,9 @@ Tests Phase 2 of the aggregation by sample ID feature:
 - Regression and classification task types
 """
 
-import pytest
 import numpy as np
+import pytest
+
 from nirs4all.visualization.reports import TabReportManager
 
 
@@ -295,7 +296,6 @@ class TestTabReportManagerAggregation:
         assert "Train" not in formatted
         assert "Test" not in formatted
 
-
 class TestTabReportAggregationHelper:
     """Test the _aggregate_predictions helper method."""
 
@@ -355,7 +355,6 @@ class TestTabReportAggregationHelper:
         )
 
         assert result is None
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -10,22 +10,23 @@ Tests cover:
 - Sample overlap detection
 """
 
-import pytest
-import numpy as np
-from unittest.mock import Mock, MagicMock, patch
-from typing import Dict, List, Any, Set
+from typing import Any
+from unittest.mock import MagicMock, Mock, patch
 
+import numpy as np
+import pytest
+
+from nirs4all.controllers.models.stacking.branch_validator import BranchType
 from nirs4all.controllers.models.stacking.crossbranch import (
-    CrossBranchValidator,
-    CrossBranchValidationResult,
-    CrossBranchCompatibility,
     BranchPredictionInfo,
+    CrossBranchCompatibility,
+    CrossBranchValidationResult,
+    CrossBranchValidator,
     validate_all_branches_scope,
 )
-from nirs4all.controllers.models.stacking.branch_validator import BranchType
 from nirs4all.controllers.models.stacking.exceptions import (
-    IncompatibleBranchSamplesError,
     BranchFeatureAlignmentError,
+    IncompatibleBranchSamplesError,
 )
 from nirs4all.operators.models.meta import BranchScope
 
@@ -56,7 +57,6 @@ class TestCrossBranchCompatibility:
         """NOT_APPLICABLE should indicate cross-branch not needed."""
         compat = CrossBranchCompatibility.NOT_APPLICABLE
         assert compat.value == "not_applicable"
-
 
 class TestBranchPredictionInfo:
     """Test BranchPredictionInfo dataclass."""
@@ -90,7 +90,6 @@ class TestBranchPredictionInfo:
             branch_type=BranchType.SAMPLE_PARTITIONER
         )
         assert info.branch_type == BranchType.SAMPLE_PARTITIONER
-
 
 class TestCrossBranchValidationResult:
     """Test CrossBranchValidationResult dataclass."""
@@ -160,7 +159,6 @@ class TestCrossBranchValidationResult:
         )
         assert result.total_models == 3
 
-
 class TestCrossBranchValidator:
     """Test CrossBranchValidator class."""
 
@@ -229,7 +227,6 @@ class TestCrossBranchValidator:
 
         assert result.compatibility == CrossBranchCompatibility.NOT_APPLICABLE
 
-
 class TestFeatureAlignment:
     """Test feature alignment functionality."""
 
@@ -297,7 +294,6 @@ class TestFeatureAlignment:
         # Sample 1 should be valid (in both branches)
         assert valid_mask[1] == True  # noqa: E712 - numpy bool comparison
 
-
 class TestGetCrossBranchSources:
     """Test get_cross_branch_sources method."""
 
@@ -344,7 +340,6 @@ class TestGetCrossBranchSources:
         unique_keys = {(c.model_name, c.branch_id) for c in result}
         assert len(unique_keys) == 2
 
-
 class TestConvenienceFunctions:
     """Test convenience functions."""
 
@@ -382,7 +377,6 @@ class TestConvenienceFunctions:
         )
 
         assert isinstance(result, CrossBranchValidationResult)
-
 
 class TestCrossBranchExceptions:
     """Test cross-branch stacking exceptions."""

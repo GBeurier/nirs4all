@@ -13,7 +13,6 @@ def Conv_Block(inputs, model_width, kernel_size, strides, multiplier, is_batchno
 
     return x
 
-
 def trans_conv1D(inputs, model_width, kernel_size, strides, multiplier, is_batchnorm=True, is_relu=True):
     # 1D Transposed Convolutional Block, used instead of UpSampling
     x = tf.keras.layers.Conv1DTranspose(model_width * multiplier, kernel_size, strides=strides, padding='same')(inputs)  # Stride = 2, Kernel Size = 2
@@ -24,13 +23,11 @@ def trans_conv1D(inputs, model_width, kernel_size, strides, multiplier, is_batch
 
     return x
 
-
 def upConv_Block(inputs):
     # 1D UpSampling Block
     up = tf.keras.layers.UpSampling1D(size=2)(inputs)
 
     return up
-
 
 def Concat_Block(input1, *argv):
     # Concatenation Block from the KERAS Library
@@ -39,7 +36,6 @@ def Concat_Block(input1, *argv):
         cat = tf.keras.layers.concatenate([cat, argv[arg]], axis=-1)
 
     return cat
-
 
 def Feature_Extraction_Block(inputs, model_width, feature_number):
     # Feature Extraction Block for the AutoEncoder Mode
@@ -50,7 +46,6 @@ def Feature_Extraction_Block(inputs, model_width, feature_number):
     latent = tf.keras.layers.Reshape((shape[1], model_width))(latent)
 
     return latent
-
 
 def Attention_Block(skip_connection, gating_signal, num_filters, multiplier):
     # Attention Block
@@ -70,7 +65,6 @@ def Attention_Block(skip_connection, gating_signal, num_filters, multiplier):
 
     return out
 
-
 def Downsampling_Block(inputs, model_width, multiplier):
     # Downsampling Block
     pool = tf.keras.layers.MaxPooling1D(pool_size=2)(inputs)
@@ -86,7 +80,6 @@ def Downsampling_Block(inputs, model_width, multiplier):
     out = Conv_Block(branch_concat, model_width, 1, 1, multiplier)
 
     return out
-
 
 def Upsampling_Block(inputs, model_width, multiplier):
     # Upsampling Block
@@ -122,7 +115,6 @@ def Inception_Res_Block(inputs, model_width, multiplier):
 
     return out
 
-
 def Inception_Res_Block_2(inputs, model_width, multiplier):
     # Inception Residual Block
     conv1x1 = Conv_Block(inputs, model_width, 1, 1, multiplier)
@@ -141,14 +133,12 @@ def Inception_Res_Block_2(inputs, model_width, multiplier):
 
     return out
 
-
 def Dense_Inception_Block(x, model_width, multiplier, num_dense_loop):
     for _ in range(0, num_dense_loop):
         IRU = Inception_Res_Block_2(x, model_width, multiplier)
         x = tf.keras.layers.concatenate([x, IRU], axis=-1)
 
     return x
-
 
 class Dense_Inception_UNet:
     def __init__(self, length, model_depth, num_channel, model_width, kernel_size, problem_type='Regression',
@@ -194,11 +184,11 @@ class Dense_Inception_UNet:
             if i == self.model_depth:
                 conv = Dense_Inception_Block(pool, self.model_width, 2 ** (i - 1), self.num_dense_loop)
                 pool = Downsampling_Block(conv, self.model_width, 2 ** (i - 1))
-                convs["conv%s" % i] = conv
+                convs[f"conv{i}"] = conv
                 continue
             conv = Inception_Res_Block(pool, self.model_width, 2 ** (i - 1))
             pool = Downsampling_Block(conv, self.model_width, 2 ** (i - 1))
-            convs["conv%s" % i] = conv
+            convs[f"conv{i}"] = conv
 
         # Collect Latent Features or Embeddings from AutoEncoders
         if self.A_E == 1:
@@ -220,10 +210,7 @@ class Dense_Inception_UNet:
                 levels.append(level)
             deconv = Upsampling_Block(deconv, self.model_width, 2 ** (layer_num - 1))
             deconv = Concat_Block(deconv, skip_connection)
-            if layer_num == self.model_depth:
-                deconv = Dense_Inception_Block(deconv, self.model_width, 2 ** (layer_num - 1), self.num_dense_loop)
-            else:
-                deconv = Inception_Res_Block(deconv, self.model_width, 2 ** (layer_num - 1))
+            deconv = Dense_Inception_Block(deconv, self.model_width, 2 ** (layer_num - 1), self.num_dense_loop) if layer_num == self.model_depth else Inception_Res_Block(deconv, self.model_width, 2 ** (layer_num - 1))
 
         deconv = Inception_Res_Block(deconv, self.model_width, 0.5)
         # Output
@@ -241,7 +228,6 @@ class Dense_Inception_UNet:
             model = tf.keras.Model(inputs=[inputs], outputs=levels)
 
         return model
-
 
 if __name__ == '__main__':
     # Configurations

@@ -6,7 +6,7 @@ including .xlsx (modern) and .xls (legacy) formats.
 """
 
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union
+from typing import Any, ClassVar, Optional, Union
 
 import pandas as pd
 
@@ -14,8 +14,8 @@ from nirs4all.core.exceptions import NAError
 from nirs4all.data.schema.config import NAFillConfig
 
 from .base import (
-    FileLoadError,
     FileLoader,
+    FileLoadError,
     LoaderResult,
     apply_na_policy,
     register_loader,
@@ -38,23 +38,22 @@ def _check_excel_engine(suffix: str) -> str:
         try:
             import openpyxl
             return "openpyxl"
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
                 "openpyxl is required for .xlsx files. Install it with: "
                 "pip install openpyxl"
-            )
+            ) from e
     elif suffix.lower() == ".xls":
         try:
             import xlrd
             return "xlrd"
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
                 "xlrd is required for .xls files. Install it with: "
                 "pip install xlrd"
-            )
+            ) from e
     else:
         raise ValueError(f"Unsupported Excel format: {suffix}")
-
 
 @register_loader
 class ExcelLoader(FileLoader):
@@ -84,7 +83,7 @@ class ExcelLoader(FileLoader):
         ... )
     """
 
-    supported_extensions: ClassVar[Tuple[str, ...]] = (".xlsx", ".xls")
+    supported_extensions: ClassVar[tuple[str, ...]] = (".xlsx", ".xls")
     name: ClassVar[str] = "Excel Loader"
     priority: ClassVar[int] = 45
 
@@ -96,16 +95,16 @@ class ExcelLoader(FileLoader):
     def load(
         self,
         path: Path,
-        sheet_name: Union[str, int, None] = 0,
-        header: Optional[int] = 0,
-        skip_rows: Optional[int] = None,
+        sheet_name: str | int | None = 0,
+        header: int | None = 0,
+        skip_rows: int | None = None,
         skip_footer: int = 0,
-        usecols: Optional[Union[List[str], List[int], str]] = None,
+        usecols: list[str] | list[int] | str | None = None,
         engine: str = "auto",
         header_unit: str = "text",
         data_type: str = "x",
         na_policy: str = "auto",
-        na_fill_config: Optional[NAFillConfig] = None,
+        na_fill_config: NAFillConfig | None = None,
         **params: Any,
     ) -> LoaderResult:
         """Load data from an Excel file.
@@ -127,7 +126,7 @@ class ExcelLoader(FileLoader):
         Returns:
             LoaderResult with the loaded data.
         """
-        report: Dict[str, Any] = {
+        report: dict[str, Any] = {
             "file_path": str(path),
             "format": "excel",
             "engine": None,
@@ -155,7 +154,7 @@ class ExcelLoader(FileLoader):
             report["engine"] = engine
 
             # Build read_excel kwargs
-            read_kwargs: Dict[str, Any] = {
+            read_kwargs: dict[str, Any] = {
                 "engine": engine,
                 "sheet_name": sheet_name,
                 "header": header,
@@ -240,10 +239,7 @@ class ExcelLoader(FileLoader):
             report["na_handling"] = na_report
 
             # Update headers after potential column removal (remove_feature)
-            if na_report.get("removed_features"):
-                headers = data.columns.tolist()
-            else:
-                headers = data.columns.tolist()
+            headers = data.columns.tolist() if na_report.get("removed_features") else data.columns.tolist()
 
             report["final_shape"] = data.shape
 
@@ -263,14 +259,13 @@ class ExcelLoader(FileLoader):
             report["error"] = f"Error loading Excel file: {e}\n{traceback.format_exc()}"
             return LoaderResult(report=report, header_unit=header_unit)
 
-
 def load_excel(
     path,
-    sheet_name: Union[str, int, None] = 0,
-    header: Optional[int] = 0,
-    skip_rows: Optional[int] = None,
+    sheet_name: str | int | None = 0,
+    header: int | None = 0,
+    skip_rows: int | None = None,
     skip_footer: int = 0,
-    usecols: Optional[Union[List[str], List[int], str]] = None,
+    usecols: list[str] | list[int] | str | None = None,
     engine: str = "auto",
     header_unit: str = "text",
     **params,

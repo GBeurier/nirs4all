@@ -10,11 +10,12 @@ Usage:
 """
 
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import StandardScaler
 
 import nirs4all
-from nirs4all.operators.transforms import StandardNormalVariate as SNV, MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # =============================================================================
 # Test 1: Parallel Variant Execution

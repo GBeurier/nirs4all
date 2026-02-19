@@ -8,47 +8,61 @@ Shows confusion matrix visualization for model performance evaluation.
 # Standard library imports
 import argparse
 import os
+
 os.environ['DISABLE_EMOJIS'] = '0'
 
 import matplotlib.pyplot as plt
-
-from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
-from sklearn.model_selection import ShuffleSplit, KFold, RepeatedKFold
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.cross_decomposition import PLSRegression
-
-from xgboost import XGBRegressor
-
+from custom_NN import (
+    attention_cnn1d,
+    cnn_pls_head,
+    conv_transformer,
+    convmixer1d,
+    deep_resnet1d,
+    hybrid_cnn_lstm,
+    inception1d,
+    inception_time,
+    nicon_enhanced,
+    nirs_inception,
+    nirs_resnet,
+    nirs_transformer_cnn,
+    resnet1d,
+    resnet_nirs,
+    resnet_se,
+    se_resnet,
+    senet1d,
+    # additional tensorflow model builders from examples/custom_NN
+    sota_cnn_attention,
+    spectraformer,
+    spectratr_transformer,
+    tcn1d,
+    tcn_noncausal,
+    transformer_nirs,
+)
+from examples.custom_nicon import nicon_auto_norm, nicon_batch_norm, nicon_experimental, nicon_improved, nicon_lightweight
 from lightgbm import LGBMRegressor
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import KFold, RepeatedKFold, ShuffleSplit
+from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
+from xgboost import XGBRegressor
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
-from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.operators.transforms import (
-    Detrend, FirstDerivative as FstDer, SecondDerivative as SndDer, Gaussian as Gauss,
-    StandardNormalVariate as SNV, SavitzkyGolay as SavGol, Haar, MultiplicativeScatterCorrection as MSC,
-    RobustStandardNormalVariate as RSNV, LocalStandardNormalVariate as LSNV, Wavelet, Derivate
-)
-
-from nirs4all.operators.transforms.nirs import AreaNormalization, ExtendedMultiplicativeScatterCorrection as EMSC
-
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from nirs4all.operators.models.tensorflow.nicon import customizable_nicon, decon, nicon, transformer, transformer_VG
 from nirs4all.operators.splitters import SPXYSplitter
-from nirs4all.operators.models.tensorflow.nicon import nicon, transformer_VG, transformer, decon, customizable_nicon
-
-from custom_NN import (
-    resnet_se, inception_time, tcn_noncausal, conv_transformer,
-    convmixer1d, cnn_pls_head, spectraformer,
-    # additional tensorflow model builders from examples/custom_NN
-    sota_cnn_attention, hybrid_cnn_lstm,
-    resnet1d, senet1d, inception1d, tcn1d, attention_cnn1d, deep_resnet1d,
-    transformer_nirs, resnet_nirs, nirs_resnet, nirs_inception, nirs_transformer_cnn,
-    nicon_enhanced, se_resnet, spectratr_transformer
-)
-
-from examples.custom_nicon import (
-    nicon_improved, nicon_lightweight, nicon_experimental, nicon_auto_norm, nicon_batch_norm
-)
+from nirs4all.operators.transforms import Derivate, Detrend, Haar, Wavelet
+from nirs4all.operators.transforms import FirstDerivative as FstDer
+from nirs4all.operators.transforms import Gaussian as Gauss
+from nirs4all.operators.transforms import LocalStandardNormalVariate as LSNV
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import RobustStandardNormalVariate as RSNV
+from nirs4all.operators.transforms import SavitzkyGolay as SavGol
+from nirs4all.operators.transforms import SecondDerivative as SndDer
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
+from nirs4all.operators.transforms.nirs import AreaNormalization
+from nirs4all.operators.transforms.nirs import ExtendedMultiplicativeScatterCorrection as EMSC
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='X3 Hiba Full Example')
@@ -57,8 +71,8 @@ parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
 
 import tensorflow as tf
-print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 
+print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 
 data_path = 'sample_data/Hiba23'
 pipeline = [
@@ -124,8 +138,6 @@ pipeline = [
         [Detrend, MSC, SavGol(deriv=3)],
         [AreaNormalization, SavGol, Derivate(order=3)], # si tu as AreaNormalization
         [Haar, SNV], # rupture/franges, parcimonieux
-
-
 
         ## FAT PREPROCESSING PIPELINE ##
         # MSC,  # Important for fat scatter
@@ -386,7 +398,6 @@ dataset_config = DatasetConfigs(data_path)
 # Run the pipeline
 runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
-
 
 # Analysis and visualization
 best_model_count = 5

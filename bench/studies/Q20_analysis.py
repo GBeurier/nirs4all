@@ -9,32 +9,23 @@ Generates confusion matrices, heatmaps, candlestick plots, and histograms.
 # Standard library imports
 import argparse
 import os
+
 os.environ['DISABLE_EMOJIS'] = '0'
 
 from matplotlib import pyplot as plt
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
 
 # Third-party imports - ML Models
-from sklearn.ensemble import (
-    RandomForestClassifier, GradientBoostingClassifier,
-    AdaBoostClassifier, ExtraTreesClassifier, BaggingClassifier,
-    StackingClassifier
-)
-from sklearn.linear_model import (
-    LogisticRegression, RidgeClassifier, SGDClassifier
-)
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.svm import SVC
+from sklearn.ensemble import AdaBoostClassifier, BaggingClassifier, ExtraTreesClassifier, GradientBoostingClassifier, RandomForestClassifier, StackingClassifier
+from sklearn.linear_model import LogisticRegression, RidgeClassifier, SGDClassifier
+from sklearn.model_selection import KFold, RepeatedKFold, ShuffleSplit, StratifiedGroupKFold, StratifiedKFold
 from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
-from sklearn.discriminant_analysis import (
-    LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
-)
-from sklearn.model_selection import ShuffleSplit, KFold, RepeatedKFold, StratifiedKFold, StratifiedGroupKFold
-from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
+from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
+from sklearn.svm import SVC
 
-from nirs4all.operators.models.sklearn import (
-    PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS, SIMPLS
-)
+from nirs4all.operators.models.sklearn import IKPLS, MBPLS, OPLS, OPLSDA, PLSDA, SIMPLS, DiPLS, SparsePLS
 from nirs4all.operators.transforms import Rotate_Translate
 
 # Optional boosting libraries
@@ -54,51 +45,53 @@ except ImportError:
     CatBoostClassifier = None
 
 # NIRS4All imports
-from nirs4all.operators.transforms import (
-    Rotate_Translate,
-    Random_X_Operation,
-    Spline_Y_Perturbations,
-    Spline_X_Perturbations,
-    Spline_X_Simplification,
-    Spline_Curve_Simplification,
-    GaussianAdditiveNoise,
-    MultiplicativeNoise,
-    LinearBaselineDrift,
-    PolynomialBaselineDrift,
-    WavelengthShift,
-    WavelengthStretch,
-    LocalWavelengthWarp,
-    SmoothMagnitudeWarp,
-    BandPerturbation,
-    GaussianSmoothingJitter,
-    UnsharpSpectralMask,
-    BandMasking,
-    ChannelDropout,
-    SpikeNoise,
-    LocalClipping,
-    MixupAugmenter,
-    LocalMixupAugmenter,
-    ScatterSimulationMSC,
-)
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
-from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.operators.transforms import (
-    Detrend, FirstDerivative as FstDer, SecondDerivative as SndDer,
-    Gaussian, StandardNormalVariate as SNV, SavitzkyGolay as SavGol,
-    Haar, MultiplicativeScatterCorrection as MSC, Derivate,
-    RobustStandardNormalVariate as RSNV, LocalStandardNormalVariate as LSNV, Wavelet,
-    CARS,
-    MCUVE
-)
-from nirs4all.operators.transforms.nirs import (
-    AreaNormalization, ExtendedMultiplicativeScatterCorrection as EMSC
-)
-from nirs4all.operators.models.pytorch.spectral_transformer import (
-    spectral_transformer_classification
-)
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.models.pytorch.nicon import nicon_classification
+from nirs4all.operators.models.pytorch.spectral_transformer import spectral_transformer_classification
+from nirs4all.operators.transforms import (
+    CARS,
+    MCUVE,
+    BandMasking,
+    BandPerturbation,
+    ChannelDropout,
+    Derivate,
+    Detrend,
+    Gaussian,
+    GaussianAdditiveNoise,
+    GaussianSmoothingJitter,
+    Haar,
+    LinearBaselineDrift,
+    LocalClipping,
+    LocalMixupAugmenter,
+    LocalWavelengthWarp,
+    MixupAugmenter,
+    MultiplicativeNoise,
+    PolynomialBaselineDrift,
+    Random_X_Operation,
+    ScatterSimulationMSC,
+    SmoothMagnitudeWarp,
+    SpikeNoise,
+    Spline_Curve_Simplification,
+    Spline_X_Perturbations,
+    Spline_X_Simplification,
+    Spline_Y_Perturbations,
+    UnsharpSpectralMask,
+    WavelengthShift,
+    WavelengthStretch,
+    Wavelet,
+)
+from nirs4all.operators.transforms import FirstDerivative as FstDer
+from nirs4all.operators.transforms import LocalStandardNormalVariate as LSNV
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import RobustStandardNormalVariate as RSNV
+from nirs4all.operators.transforms import SavitzkyGolay as SavGol
+from nirs4all.operators.transforms import SecondDerivative as SndDer
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
+from nirs4all.operators.transforms.nirs import AreaNormalization
+from nirs4all.operators.transforms.nirs import ExtendedMultiplicativeScatterCorrection as EMSC
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Batch Classification Analysis')
@@ -367,7 +360,7 @@ for dataset_name, dataset_prediction in predictions_per_dataset.items():
                 y_true = best_agg.get('y_true')
                 y_pred = best_agg.get('y_pred')
                 if y_true is not None and y_pred is not None:
-                    print(f"\n  Best aggregated model details:")
+                    print("\n  Best aggregated model details:")
                     print(f"    Model: {best_agg.get('model_name')}")
                     print(f"    Samples after aggregation: {len(y_pred)}")
         else:
@@ -454,7 +447,6 @@ fig_confusion_matrix_val = analyzer.plot_confusion_matrix(
 #     rank_metric='f1',
 #     display_metric='f1',
 # )
-
 
 if args.show:
     plt.show()

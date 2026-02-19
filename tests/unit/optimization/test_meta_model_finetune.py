@@ -1,7 +1,7 @@
 """Unit tests for MetaModel finetune parameter handling (Phase 5 - ISSUE-9/16b)."""
 
 import pytest
-from sklearn.linear_model import Ridge, Lasso
+from sklearn.linear_model import Lasso, Ridge
 
 
 class TestMetaModelGetFinetuneParams:
@@ -80,7 +80,6 @@ class TestMetaModelGetFinetuneParams:
 
         # Model params should only have the alpha spec
         assert list(fp["model_params"].keys()) == ["model__alpha"]
-
 
 class TestMetaModelControllerModelPrefix:
     """Tests for MetaModelController._get_model_instance model__ prefix stripping."""

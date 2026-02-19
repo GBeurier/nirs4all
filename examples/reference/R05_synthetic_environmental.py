@@ -45,36 +45,37 @@ import argparse
 import sys
 from pathlib import Path
 
-# Third-party imports
-import numpy as np
 import matplotlib.pyplot as plt
 
-# NIRS4All imports
-from nirs4all.synthesis import (
-    SyntheticNIRSGenerator,
-    # Phase 3: Environmental effects configuration
-    SpectralRegion,
-    TemperatureEffectParams,
-    TemperatureConfig,
-    MoistureConfig,
-    EnvironmentalEffectsConfig,
-    TEMPERATURE_EFFECT_PARAMS,
-    get_temperature_effect_regions,
-    # Phase 3: Scattering effects configuration
-    ScatteringModel,
-    ParticleSizeDistribution,
-    ParticleSizeConfig,
-    EMSCConfig,
-    ScatteringCoefficientConfig,
-    ScatteringEffectsConfig,
-)
+# Third-party imports
+import numpy as np
 
 # Operators for applying effects
 from nirs4all.operators.augmentation import (
-    TemperatureAugmenter,
+    EMSCDistortionAugmenter,
     MoistureAugmenter,
     ParticleSizeAugmenter,
-    EMSCDistortionAugmenter,
+    TemperatureAugmenter,
+)
+
+# NIRS4All imports
+from nirs4all.synthesis import (
+    TEMPERATURE_EFFECT_PARAMS,
+    EMSCConfig,
+    EnvironmentalEffectsConfig,
+    MoistureConfig,
+    ParticleSizeConfig,
+    ParticleSizeDistribution,
+    ScatteringCoefficientConfig,
+    ScatteringEffectsConfig,
+    # Phase 3: Scattering effects configuration
+    ScatteringModel,
+    # Phase 3: Environmental effects configuration
+    SpectralRegion,
+    SyntheticNIRSGenerator,
+    TemperatureConfig,
+    TemperatureEffectParams,
+    get_temperature_effect_regions,
 )
 
 # Add examples directory to path for example_utils
@@ -89,7 +90,6 @@ args = parser.parse_args()
 
 # Example name for output directory
 EXAMPLE_NAME = "R05_synthetic_environmental"
-
 
 # =============================================================================
 # Section 1: Temperature Effects Overview
@@ -122,7 +122,6 @@ for region in SpectralRegion:
 # Get regions sorted by sensitivity
 regions = get_temperature_effect_regions()
 print(f"\nAll affected wavelength regions: {len(regions)} regions")
-
 
 # =============================================================================
 # Section 2: Temperature Effect Simulation with Operators
@@ -173,7 +172,6 @@ for temp in temps_test:
     temp_results[temp] = result
     print(f"   Applied T={temp}C (delta={delta:+.1f}C): shape {result.shape}")
 
-
 # =============================================================================
 # Section 3: Moisture and Water Activity Effects
 # =============================================================================
@@ -210,7 +208,6 @@ for aw in aw_levels:
     idx_1940 = np.abs(wavelengths - 1940).argmin()
     print(f"   aw={aw:.1f}: mean absorbance at 1940nm = {result[:, idx_1940].mean():.4f}")
 
-
 # =============================================================================
 # Section 4: Particle Size Effects
 # =============================================================================
@@ -234,7 +231,7 @@ ps_distribution = ParticleSizeDistribution(
     distribution="lognormal",  # Realistic for most materials
 )
 
-print(f"\nParticle Size Distribution:")
+print("\nParticle Size Distribution:")
 print(f"   Mean: {ps_distribution.mean_size_um} um")
 print(f"   Std: {ps_distribution.std_size_um} um")
 print(f"   Range: {ps_distribution.min_size_um}-{ps_distribution.max_size_um} um")
@@ -257,7 +254,6 @@ for size in size_levels:
     result = particle_op.transform(sample_spectra.copy(), wavelengths=wavelengths)
     size_results[size] = result
     print(f"   {size} um: baseline increase = {(result - sample_spectra).mean():.4f}")
-
 
 # =============================================================================
 # Section 5: EMSC-Style Distortion
@@ -285,11 +281,10 @@ emsc_op = EMSCDistortionAugmenter(
 
 emsc_result = emsc_op.transform(sample_spectra.copy(), wavelengths=wavelengths)
 
-print(f"\nApplied EMSC distortion:")
+print("\nApplied EMSC distortion:")
 print(f"   Original mean: {sample_spectra.mean():.4f}")
 print(f"   After EMSC distortion: {emsc_result.mean():.4f}")
 print(f"   Std change: {sample_spectra.std():.4f} -> {emsc_result.std():.4f}")
-
 
 # =============================================================================
 # Section 6: Combined Environmental Effects in Generator
@@ -331,11 +326,11 @@ scatter_effects_config = ScatteringEffectsConfig(
     enable_emsc=True,
 )
 
-print(f"\nCombined Environmental Effects:")
+print("\nCombined Environmental Effects:")
 print(f"   Temperature enabled: {env_config.enable_temperature}")
 print(f"   Moisture enabled: {env_config.enable_moisture}")
 
-print(f"\nCombined Scattering Effects:")
+print("\nCombined Scattering Effects:")
 print(f"   Model: {scatter_effects_config.model.value}")
 print(f"   Particle size enabled: {scatter_effects_config.enable_particle_size}")
 print(f"   EMSC enabled: {scatter_effects_config.enable_emsc}")
@@ -351,7 +346,7 @@ generator = SyntheticNIRSGenerator(
     random_state=42,
 )
 
-print(f"\nCreated generator with Phase 3 effects:")
+print("\nCreated generator with Phase 3 effects:")
 print(f"   {generator}")
 
 # Generate spectra with Phase 3 effects
@@ -362,7 +357,7 @@ X_p3, Y, E, meta = generator.generate(
     return_metadata=True,
 )
 
-print(f"\nGenerated spectra with Phase 3 effects:")
+print("\nGenerated spectra with Phase 3 effects:")
 print(f"   Spectra shape: {X_p3.shape}")
 print(f"   Targets shape: {Y.shape}")
 print(f"   Environmental effects: {meta.get('environmental_effects', 'N/A')}")
@@ -376,7 +371,7 @@ X_no_p3, _, _, _ = generator.generate(
     return_metadata=True,
 )
 
-print(f"\nComparison:")
+print("\nComparison:")
 print(f"   Without Phase 3: mean={X_no_p3.mean():.4f}, std={X_no_p3.std():.4f}")
 print(f"   With Phase 3: mean={X_p3.mean():.4f}, std={X_p3.std():.4f}")
 
@@ -389,9 +384,8 @@ X_temps, _, _, meta_temps = generator.generate(
     temperatures=specific_temps,
     return_metadata=True,
 )
-print(f"\nGenerated with specific temperatures:")
+print("\nGenerated with specific temperatures:")
 print(f"   Temperature range: {specific_temps.min():.1f}C to {specific_temps.max():.1f}C")
-
 
 # =============================================================================
 # Section 7: Plotting (optional)
@@ -532,7 +526,6 @@ if args.plots:
         plt.show()
 
     print_output_location(output_path)
-
 
 # =============================================================================
 # Summary

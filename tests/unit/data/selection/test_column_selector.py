@@ -4,11 +4,11 @@ Tests for ColumnSelector class.
 Tests column selection by name, index, range, regex pattern, and exclusion.
 """
 
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
 
-from nirs4all.data.selection import ColumnSelector, ColumnSelectionError
+from nirs4all.data.selection import ColumnSelectionError, ColumnSelector
 
 
 @pytest.fixture
@@ -23,14 +23,12 @@ def sample_df():
         "target": [0, 1, 0, 1, 0],
     })
 
-
 @pytest.fixture
 def spectral_df():
     """Create a spectral-like DataFrame with numeric column names."""
     cols = [str(i) for i in range(1000, 2000, 100)]  # 10 wavelength columns
     data = np.random.randn(5, len(cols))
     return pd.DataFrame(data, columns=cols)
-
 
 class TestColumnSelectorBasic:
     """Basic column selection tests."""
@@ -83,7 +81,6 @@ class TestColumnSelectorBasic:
         with pytest.raises(ColumnSelectionError, match="not found"):
             selector.select(sample_df, "nonexistent")
 
-
 class TestColumnSelectorLists:
     """Tests for list-based column selection."""
 
@@ -117,7 +114,6 @@ class TestColumnSelectorLists:
 
         with pytest.raises(ColumnSelectionError, match="Empty selection"):
             selector.select(sample_df, [])
-
 
 class TestColumnSelectorRanges:
     """Tests for range-based column selection."""
@@ -169,7 +165,6 @@ class TestColumnSelectorRanges:
 
         assert result.indices == [1, 2, 3]
         assert result.names == ["sample_name", "feature_1", "feature_2"]
-
 
 class TestColumnSelectorDict:
     """Tests for dictionary-based column selection."""
@@ -240,7 +235,6 @@ class TestColumnSelectorDict:
         with pytest.raises(ColumnSelectionError, match="Invalid regex"):
             selector.select(sample_df, {"regex": "["})
 
-
 class TestColumnSelectorCaseSensitivity:
     """Tests for case sensitivity options."""
 
@@ -266,7 +260,6 @@ class TestColumnSelectorCaseSensitivity:
 
         assert len(result.indices) == 3
 
-
 class TestColumnSelectorSpectral:
     """Tests with spectral-like data (numeric column names)."""
 
@@ -283,7 +276,6 @@ class TestColumnSelectorSpectral:
         result = selector.select(spectral_df, None)
 
         assert len(result.indices) == 10
-
 
 class TestColumnSelectorParse:
     """Tests for parse_selection method."""

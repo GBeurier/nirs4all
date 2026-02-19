@@ -10,22 +10,17 @@ Tests the sample exclusion functionality including:
 - Cascade to augmented samples
 """
 
-import pytest
-import numpy as np
-from unittest.mock import Mock, patch
 import warnings
+from unittest.mock import Mock, patch
+
+import numpy as np
+import pytest
 
 from nirs4all.controllers.data.exclude import ExcludeController
 from nirs4all.operators.filters.base import SampleFilter
-from nirs4all.operators.filters.y_outlier import YOutlierFilter
 from nirs4all.operators.filters.x_outlier import XOutlierFilter
-from nirs4all.pipeline.config.context import (
-    DataSelector,
-    PipelineState,
-    StepMetadata,
-    ExecutionContext,
-    RuntimeContext
-)
+from nirs4all.operators.filters.y_outlier import YOutlierFilter
+from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
 
 
@@ -62,7 +57,6 @@ class TestExcludeControllerMatches:
         step = {"branch": [["step1"], ["step2"]]}
         assert ExcludeController.matches(step, None, "branch") is False
 
-
 class TestExcludeControllerProperties:
     """Test ExcludeController class properties."""
 
@@ -77,7 +71,6 @@ class TestExcludeControllerProperties:
     def test_supports_prediction_mode_false(self):
         """Controller should NOT support prediction mode (never exclude prediction samples)."""
         assert ExcludeController.supports_prediction_mode() is False
-
 
 class TestFilterParsing:
     """Test filter parsing from different configuration formats."""
@@ -139,7 +132,6 @@ class TestFilterParsing:
         step = {"exclude": "not_a_filter"}
         with pytest.raises(TypeError, match="must be a SampleFilter"):
             controller._parse_config(step)
-
 
 class TestExcludeControllerExecution:
     """Test ExcludeController.execute() method."""
@@ -398,7 +390,6 @@ class TestExcludeControllerExecution:
         call_args = mock_dataset._indexer.mark_excluded.call_args
         assert call_args[1]['cascade_to_augmented'] is False
 
-
 class TestExclusionTagStorage:
     """Test that exclusion tags are stored for analysis."""
 
@@ -515,7 +506,6 @@ class TestExclusionTagStorage:
                 # Expected: [False, False, True, False, False]
                 expected = [False, False, True, False, False]
                 assert tag_values == expected
-
 
 class TestEdgeCases:
     """Test edge cases for ExcludeController."""

@@ -7,8 +7,9 @@ with X.csv, Y.csv, M.csv files per subfolder.
 
 import os
 import shutil
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
 
 
 def merge_train_test(source_folder: Path, dest_folder: Path) -> None:
@@ -47,7 +48,6 @@ def merge_train_test(source_folder: Path, dest_folder: Path) -> None:
         else:
             print(f"  Warning: Missing {prefix}train.csv or {prefix}test.csv")
 
-
 def process_dataset_folder(source_dir: Path, dest_dir: Path) -> None:
     """Process all subfolders in a dataset directory.
 
@@ -74,7 +74,6 @@ def process_dataset_folder(source_dir: Path, dest_dir: Path) -> None:
             dest_subfolder = dest_dir / subfolder.name
             merge_train_test(subfolder, dest_subfolder)
 
-
 def main():
     """Main function to merge all datasets."""
     base_path = Path(__file__).parent
@@ -92,7 +91,6 @@ def main():
 
     print("\n" + "=" * 50)
     print("Done! Merged datasets created.")
-
 
 if __name__ == "__main__":
     main()

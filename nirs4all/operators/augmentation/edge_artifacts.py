@@ -27,12 +27,11 @@ References:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 
 from ..base import SpectraTransformerMixin
-
 
 # =============================================================================
 # Detector Response Parameters (literature-based)
@@ -54,14 +53,13 @@ class DetectorModel:
         min_sensitivity: Minimum relative sensitivity at extreme edges.
     """
     name: str
-    optimal_range: Tuple[float, float]
+    optimal_range: tuple[float, float]
     roll_off_rate: float
     min_sensitivity: float
 
-
 # Common NIR detector models with their sensitivity characteristics
 # Based on manufacturer specifications and literature
-DETECTOR_MODELS: Dict[str, DetectorModel] = {
+DETECTOR_MODELS: dict[str, DetectorModel] = {
     "ingaas_standard": DetectorModel(
         name="Standard InGaAs",
         optimal_range=(1000, 1600),  # Peak QE >65% in this range
@@ -93,7 +91,6 @@ DETECTOR_MODELS: Dict[str, DetectorModel] = {
         min_sensitivity=0.35,
     ),
 }
-
 
 class DetectorRollOffAugmenter(SpectraTransformerMixin):
     """
@@ -162,7 +159,7 @@ class DetectorRollOffAugmenter(SpectraTransformerMixin):
         effect_strength: float = 1.0,
         noise_amplification: float = 0.02,
         include_baseline_distortion: bool = True,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ):
         self.detector_model = detector_model
         self.effect_strength = effect_strength
@@ -259,7 +256,6 @@ class DetectorRollOffAugmenter(SpectraTransformerMixin):
 
         return result
 
-
 class StrayLightAugmenter(SpectraTransformerMixin):
     """
     Simulate stray light effects on NIR spectra.
@@ -338,7 +334,7 @@ class StrayLightAugmenter(SpectraTransformerMixin):
         edge_enhancement: float = 2.0,
         edge_width: float = 0.1,
         include_peak_truncation: bool = True,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ):
         self.stray_light_fraction = stray_light_fraction
         self.edge_enhancement = edge_enhancement
@@ -432,7 +428,6 @@ class StrayLightAugmenter(SpectraTransformerMixin):
 
         return result
 
-
 class EdgeCurvatureAugmenter(SpectraTransformerMixin):
     """
     Simulate edge curvature and baseline bending at spectral boundaries.
@@ -507,7 +502,7 @@ class EdgeCurvatureAugmenter(SpectraTransformerMixin):
         curvature_type: str = "random",
         asymmetry: float = 0.0,
         edge_focus: float = 0.7,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ):
         self.curvature_strength = curvature_strength
         self.curvature_type = curvature_type
@@ -552,10 +547,7 @@ class EdgeCurvatureAugmenter(SpectraTransformerMixin):
     ) -> np.ndarray:
         """Generate curvature pattern."""
         # Determine curvature type
-        if self.curvature_type == "random":
-            ctype = rng.choice(["smile", "frown", "asymmetric"])
-        else:
-            ctype = self.curvature_type
+        ctype = rng.choice(["smile", "frown", "asymmetric"]) if self.curvature_type == "random" else self.curvature_type
 
         # Base curvature shape (centered parabola)
         # x in [0, 1], centered at 0.5
@@ -600,7 +592,6 @@ class EdgeCurvatureAugmenter(SpectraTransformerMixin):
         curvature = curvature * (1 + rng.normal(0, 0.1))
 
         return curvature
-
 
 class TruncatedPeakAugmenter(SpectraTransformerMixin):
     """
@@ -667,11 +658,11 @@ class TruncatedPeakAugmenter(SpectraTransformerMixin):
     def __init__(
         self,
         peak_probability: float = 0.3,
-        amplitude_range: Tuple[float, float] = (0.01, 0.1),
-        width_range: Tuple[float, float] = (50, 200),
+        amplitude_range: tuple[float, float] = (0.01, 0.1),
+        width_range: tuple[float, float] = (50, 200),
         left_edge: bool = True,
         right_edge: bool = True,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ):
         self.peak_probability = peak_probability
         self.amplitude_range = amplitude_range
@@ -737,16 +728,12 @@ class TruncatedPeakAugmenter(SpectraTransformerMixin):
         # Distance outside: 0.5-1.5 times the width
         offset = width * rng.uniform(0.5, 1.5)
 
-        if edge == "left":
-            center = edge_wl - offset
-        else:
-            center = edge_wl + offset
+        center = edge_wl - offset if edge == "left" else edge_wl + offset
 
         # Gaussian profile
         peak = amplitude * np.exp(-0.5 * ((wavelengths - center) / width) ** 2)
 
         return peak
-
 
 # =============================================================================
 # Combined Edge Artifacts Augmenter
@@ -818,7 +805,7 @@ class EdgeArtifactsAugmenter(SpectraTransformerMixin):
         truncated_peaks: bool = True,
         overall_strength: float = 1.0,
         detector_model: str = "generic_nir",
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ):
         self.detector_roll_off = detector_roll_off
         self.stray_light = stray_light
@@ -894,7 +881,6 @@ class EdgeArtifactsAugmenter(SpectraTransformerMixin):
             result = self._detector_aug.transform(result, wavelengths=wavelengths)
 
         return result
-
 
 __all__ = [
     "DetectorRollOffAugmenter",

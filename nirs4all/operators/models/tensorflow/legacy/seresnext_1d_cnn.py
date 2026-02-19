@@ -2,7 +2,6 @@
 # Reference for ResNext - [Aggregated Residual Transformations for Deep Neural Networks](https://arxiv.org/pdf/1611.05431.pdf))
 # Reference for SE-Nets - [Squeeze-and-Excitation Networks](https://arxiv.org/pdf/1709.01507.pdf))
 
-
 import tensorflow as tf
 
 
@@ -13,7 +12,6 @@ def Conv_1D_Block(x, model_width, kernel, strides):
     x = tf.keras.layers.Activation('relu')(x)
 
     return x
-
 
 def SE_Block(inputs, num_filters, ratio):
     squeeze = tf.keras.layers.GlobalAveragePooling1D()(inputs)
@@ -28,19 +26,14 @@ def SE_Block(inputs, num_filters, ratio):
 
     return scale
 
-
 def stem_bottleneck(inputs, num_filters):
     # Construct the Stem Convolution Group
     # inputs : input vector
     # First Convolutional layer, where pooled feature maps will be reduced by 75%
     conv = Conv_1D_Block(inputs, num_filters, 7, 2)
-    if conv.shape[1] <= 2:
-        pool = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(conv)
-    else:
-        pool = tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(conv)
+    pool = tf.keras.layers.MaxPooling1D(pool_size=1, strides=2, padding="valid")(conv) if conv.shape[1] <= 2 else tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="valid")(conv)
 
     return pool
-
 
 def conv_block(inputs, num_filters):
     # Construct Block of Convolutions without Pooling
@@ -50,7 +43,6 @@ def conv_block(inputs, num_filters):
     conv = Conv_1D_Block(conv, num_filters, 3, 1)
 
     return conv
-
 
 def grouped_convolution_block(inputs, num_filters, kernel_size, strides, cardinality):
     # Adds a grouped convolution block
@@ -65,7 +57,7 @@ def grouped_convolution_block(inputs, num_filters, kernel_size, strides, cardina
         return x
 
     for c in range(cardinality):
-        x = tf.keras.layers.Lambda(lambda z: z[:, :, c * grouped_channels:(c + 1) * grouped_channels])(inputs)
+        x = tf.keras.layers.Lambda(lambda z, c=c: z[:, :, c * grouped_channels:(c + 1) * grouped_channels])(inputs)
         x = Conv_1D_Block(x, num_filters, 1, strides=strides)
         x = Conv_1D_Block(x, grouped_channels, kernel_size, strides=strides)
 
@@ -76,7 +68,6 @@ def grouped_convolution_block(inputs, num_filters, kernel_size, strides, cardina
     x = tf.keras.layers.Activation('relu')(x)
 
     return x
-
 
 def residual_block_bottleneck(inputs, num_filters, cardinality, ratio):
     # Construct a Residual Block of Convolutions
@@ -93,7 +84,6 @@ def residual_block_bottleneck(inputs, num_filters, cardinality, ratio):
 
     return out
 
-
 def residual_group_bottleneck(inputs, num_filters, n_blocks, cardinality, ratio, conv=True):
     # x        : input to the group
     # n_filters: number of filters
@@ -109,7 +99,6 @@ def residual_group_bottleneck(inputs, num_filters, n_blocks, cardinality, ratio,
 
     return out
 
-
 def learner18(inputs, num_filters, cardinality, ratio):
     # Construct the Learner
     x = residual_group_bottleneck(inputs, num_filters, 2, cardinality, ratio)  # First Residual Block Group of 64 filters
@@ -118,7 +107,6 @@ def learner18(inputs, num_filters, cardinality, ratio):
     out = residual_group_bottleneck(x, num_filters * 8, 1, cardinality, ratio, False)  # Fourth Residual Block Group of 512 filters
 
     return out
-
 
 def learner34(inputs, num_filters, cardinality, ratio):
     # Construct the Learner
@@ -129,7 +117,6 @@ def learner34(inputs, num_filters, cardinality, ratio):
 
     return out
 
-
 def learner50(inputs, num_filters, cardinality, ratio):
     # Construct the Learner
     x = residual_group_bottleneck(inputs, num_filters, 3, cardinality, ratio)  # First Residual Block Group of 64 filters
@@ -138,7 +125,6 @@ def learner50(inputs, num_filters, cardinality, ratio):
     out = residual_group_bottleneck(x, num_filters * 8, 2, cardinality, ratio, False)  # Fourth Residual Block Group of 512 filters
 
     return out
-
 
 def learner101(inputs, num_filters, cardinality, ratio):
     # Construct the Learner
@@ -149,7 +135,6 @@ def learner101(inputs, num_filters, cardinality, ratio):
 
     return out
 
-
 def learner152(inputs, num_filters, cardinality, ratio):
     # Construct the Learner
     x = residual_group_bottleneck(inputs, num_filters, 3, cardinality, ratio)  # First Residual Block Group of 64 filters
@@ -159,7 +144,6 @@ def learner152(inputs, num_filters, cardinality, ratio):
 
     return out
 
-
 def classifier(inputs, class_number):
     # Construct the Classifier Group
     # inputs       : input vector
@@ -168,7 +152,6 @@ def classifier(inputs, class_number):
 
     return out
 
-
 def regressor(inputs, feature_number):
     # Construct the Regressor Group
     # inputs       : input vector
@@ -176,7 +159,6 @@ def regressor(inputs, feature_number):
     out = tf.keras.layers.Dense(feature_number, activation='linear')(inputs)
 
     return out
-
 
 class SEResNeXt:
     def __init__(self, length, num_channel, num_filters, cardinality=4, ratio=4, problem_type='Regression',
@@ -255,7 +237,6 @@ class SEResNeXt:
         model = tf.keras.Model(inputs, outputs)
 
         return model
-
 
 if __name__ == '__main__':
     # Configurations

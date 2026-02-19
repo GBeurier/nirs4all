@@ -1,10 +1,12 @@
 """Tests for dataset configuration."""
 
-import pytest
 import tempfile
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
-from pathlib import Path
+import pytest
+
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 
@@ -36,7 +38,6 @@ class TestDatasetConfig:
 
         assert "sample_id" in dataset.metadata_columns
         assert dataset.repetition == "sample_id"
-
 
 class TestDatasetConfigAggregate:
     """Test suite for aggregate parameter in DatasetConfigs."""
@@ -168,7 +169,6 @@ class TestDatasetConfigAggregate:
         assert len(datasets) == 1
         assert datasets[0].aggregate == 'sample_id'
 
-
 class TestSpectroDatasetAggregate:
     """Test suite for aggregate property in SpectroDataset."""
 
@@ -221,7 +221,6 @@ class TestSpectroDatasetAggregate:
         assert dataset.aggregate == 'batch'
         assert dataset._aggregate_by_y is False
         assert dataset._aggregate_column == 'batch'
-
 
 class TestDatasetConfigAggregateMethod:
     """Test suite for aggregate_method and aggregate_exclude_outliers parameters."""
@@ -321,7 +320,6 @@ class TestDatasetConfigAggregateMethod:
         dataset_config = DatasetConfigs(config)
         dataset = dataset_config.get_dataset_at(0)
         assert dataset.aggregate_exclude_outliers is True
-
 
 class TestSpectroDatasetAggregateMethod:
     """Test suite for aggregate_method and aggregate_exclude_outliers in SpectroDataset."""

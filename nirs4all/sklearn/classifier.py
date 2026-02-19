@@ -5,9 +5,9 @@ NIRSPipelineClassifier is the classification variant of NIRSPipeline,
 providing ClassifierMixin compatibility for sklearn tools.
 """
 
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
-from pathlib import Path
 import logging
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 
@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 from .pipeline import NIRSPipeline
 
 logger = logging.getLogger(__name__)
-
 
 class NIRSPipelineClassifier(NIRSPipeline):
     """sklearn-compatible classifier wrapper for trained nirs4all pipelines.
@@ -46,14 +45,14 @@ class NIRSPipelineClassifier(NIRSPipeline):
     def __init__(self) -> None:
         """Private constructor - use from_result() or from_bundle() instead."""
         super().__init__()
-        self._classes: Optional[np.ndarray] = None
-        self._label_encoder: Optional[Any] = None
+        self._classes: np.ndarray | None = None
+        self._label_encoder: Any | None = None
 
     @classmethod
     def from_result(
         cls,
         result: "RunResult",
-        source: Optional[Dict[str, Any]] = None,
+        source: dict[str, Any] | None = None,
         fold: int = 0
     ) -> "NIRSPipelineClassifier":
         """Create NIRSPipelineClassifier from a RunResult.
@@ -71,6 +70,7 @@ class NIRSPipelineClassifier(NIRSPipeline):
             >>> clf = NIRSPipelineClassifier.from_result(result)
         """
         import tempfile
+
         from nirs4all.pipeline.bundle import BundleLoader
 
         # Get source prediction (prefer refit entry, consistent with export())
@@ -106,7 +106,7 @@ class NIRSPipelineClassifier(NIRSPipeline):
     @classmethod
     def from_bundle(
         cls,
-        bundle_path: Union[str, Path],
+        bundle_path: str | Path,
         fold: int = 0
     ) -> "NIRSPipelineClassifier":
         """Create NIRSPipelineClassifier from an exported .n4a bundle.
@@ -127,7 +127,7 @@ class NIRSPipelineClassifier(NIRSPipeline):
     @classmethod
     def _from_bundle_internal_classifier(
         cls,
-        bundle_path: Union[str, Path],
+        bundle_path: str | Path,
         fold: int = 0
     ) -> "NIRSPipelineClassifier":
         """Internal method to create NIRSPipelineClassifier from bundle.

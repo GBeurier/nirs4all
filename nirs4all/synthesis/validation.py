@@ -23,14 +23,15 @@ References:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from enum import Enum, StrEnum
+from typing import Any, Optional, Union
 
 import numpy as np
 from scipy import signal
-from scipy.stats import ks_2samp, wasserstein_distance
 from scipy.ndimage import gaussian_filter1d
+from scipy.stats import ks_2samp, wasserstein_distance
 
 
 class ValidationError(Exception):
@@ -38,14 +39,13 @@ class ValidationError(Exception):
 
     pass
 
-
 def validate_spectra(
     X: np.ndarray,
-    expected_shape: Optional[Tuple[int, int]] = None,
+    expected_shape: tuple[int, int] | None = None,
     check_finite: bool = True,
     check_positive: bool = False,
-    value_range: Optional[Tuple[float, float]] = None,
-) -> List[str]:
+    value_range: tuple[float, float] | None = None,
+) -> list[str]:
     """
     Validate generated spectra matrix.
 
@@ -68,7 +68,7 @@ def validate_spectra(
         >>> if warnings:
         ...     print("Warnings:", warnings)
     """
-    warnings: List[str] = []
+    warnings: list[str] = []
 
     # Check type
     if not isinstance(X, np.ndarray):
@@ -79,11 +79,10 @@ def validate_spectra(
         raise ValidationError(f"Expected 2D array, got {X.ndim}D")
 
     # Check shape
-    if expected_shape is not None:
-        if X.shape != expected_shape:
-            raise ValidationError(
-                f"Shape mismatch: expected {expected_shape}, got {X.shape}"
-            )
+    if expected_shape is not None and X.shape != expected_shape:
+        raise ValidationError(
+            f"Shape mismatch: expected {expected_shape}, got {X.shape}"
+        )
 
     # Check finite values
     if check_finite:
@@ -116,14 +115,13 @@ def validate_spectra(
 
     return warnings
 
-
 def validate_concentrations(
     C: np.ndarray,
-    n_samples: Optional[int] = None,
-    n_components: Optional[int] = None,
+    n_samples: int | None = None,
+    n_components: int | None = None,
     check_normalized: bool = False,
     tolerance: float = 0.01,
-) -> List[str]:
+) -> list[str]:
     """
     Validate concentration matrix.
 
@@ -140,7 +138,7 @@ def validate_concentrations(
     Raises:
         ValidationError: If critical validation fails.
     """
-    warnings: List[str] = []
+    warnings: list[str] = []
 
     if not isinstance(C, np.ndarray):
         raise ValidationError(f"Expected numpy array, got {type(C).__name__}")
@@ -174,13 +172,12 @@ def validate_concentrations(
 
     return warnings
 
-
 def validate_wavelengths(
     wavelengths: np.ndarray,
-    expected_range: Optional[Tuple[float, float]] = None,
+    expected_range: tuple[float, float] | None = None,
     check_monotonic: bool = True,
     check_uniform: bool = True,
-) -> List[str]:
+) -> list[str]:
     """
     Validate wavelength array.
 
@@ -196,7 +193,7 @@ def validate_wavelengths(
     Raises:
         ValidationError: If critical validation fails.
     """
-    warnings: List[str] = []
+    warnings: list[str] = []
 
     if not isinstance(wavelengths, np.ndarray):
         raise ValidationError(f"Expected numpy array, got {type(wavelengths).__name__}")
@@ -232,13 +229,12 @@ def validate_wavelengths(
 
     return warnings
 
-
 def validate_synthetic_output(
     X: np.ndarray,
     C: np.ndarray,
     E: np.ndarray,
-    wavelengths: Optional[np.ndarray] = None,
-) -> List[str]:
+    wavelengths: np.ndarray | None = None,
+) -> list[str]:
     """
     Validate complete synthetic generation output.
 
@@ -260,7 +256,7 @@ def validate_synthetic_output(
         >>> X, C, E = gen.generate(100)
         >>> warnings = validate_synthetic_output(X, C, E, gen.wavelengths)
     """
-    all_warnings: List[str] = []
+    all_warnings: list[str] = []
 
     n_samples, n_wavelengths = X.shape
     n_components = C.shape[1]
@@ -293,13 +289,11 @@ def validate_synthetic_output(
 
     return all_warnings
 
-
 # ============================================================================
 # Phase 4: Spectral Realism Scorecard
 # ============================================================================
 
-
-class RealismMetric(str, Enum):
+class RealismMetric(StrEnum):
     """Metrics used in the spectral realism scorecard."""
     CORRELATION_LENGTH = "correlation_length"
     DERIVATIVE_STATISTICS = "derivative_statistics"
@@ -307,7 +301,6 @@ class RealismMetric(str, Enum):
     BASELINE_CURVATURE = "baseline_curvature"
     SNR_DISTRIBUTION = "snr_distribution"
     ADVERSARIAL_AUC = "adversarial_auc"
-
 
 @dataclass
 class MetricResult:
@@ -325,12 +318,11 @@ class MetricResult:
     value: float
     threshold: float
     passed: bool
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
     def __repr__(self) -> str:
         status = "✓" if self.passed else "✗"
         return f"{status} {self.metric.value}: {self.value:.4f} (threshold: {self.threshold:.4f})"
-
 
 @dataclass
 class SpectralRealismScore:
@@ -365,10 +357,10 @@ class SpectralRealismScore:
     snr_magnitude_match: bool
     adversarial_auc: float
     overall_pass: bool
-    metric_results: List[MetricResult] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    metric_results: list[MetricResult] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "correlation_length_overlap": self.correlation_length_overlap,
@@ -400,11 +392,9 @@ class SpectralRealismScore:
         lines.append("=" * 60)
         return "\n".join(lines)
 
-
 # ============================================================================
 # Realism Metric Functions
 # ============================================================================
-
 
 def compute_correlation_length(
     spectra: np.ndarray,
@@ -453,12 +443,11 @@ def compute_correlation_length(
 
     return correlation_lengths
 
-
 def compute_derivative_statistics(
     spectra: np.ndarray,
-    wavelengths: Optional[np.ndarray] = None,
+    wavelengths: np.ndarray | None = None,
     order: int = 1,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Compute derivative statistics for spectra.
 
@@ -494,7 +483,6 @@ def compute_derivative_statistics(
     means = derivatives.mean(axis=1)
     stds = derivatives.std(axis=1)
     return means, stds
-
 
 def compute_peak_density(
     spectra: np.ndarray,
@@ -536,7 +524,6 @@ def compute_peak_density(
 
     return peak_densities
 
-
 def compute_baseline_curvature(
     spectra: np.ndarray,
     polynomial_degree: int = 3,
@@ -569,7 +556,6 @@ def compute_baseline_curvature(
         curvatures[i] = np.std(residuals)
 
     return curvatures
-
 
 def compute_snr(
     spectra: np.ndarray,
@@ -611,7 +597,6 @@ def compute_snr(
             snr_values[i] = 1e6  # Very high SNR (essentially noise-free)
 
     return snr_values
-
 
 def compute_distribution_overlap(
     dist1: np.ndarray,
@@ -675,13 +660,12 @@ def compute_distribution_overlap(
     overlap = np.minimum(hist1, hist2).sum()
     return float(overlap)
 
-
 def compute_adversarial_validation_auc(
     real_spectra: np.ndarray,
     synthetic_spectra: np.ndarray,
     cv_folds: int = 5,
-    random_state: Optional[int] = None,
-) -> Tuple[float, float]:
+    random_state: int | None = None,
+) -> tuple[float, float]:
     """
     Train classifier to distinguish real vs. synthetic spectra.
 
@@ -742,14 +726,13 @@ def compute_adversarial_validation_auc(
 
     return float(auc_scores.mean()), float(auc_scores.std())
 
-
 def compute_spectral_realism_scorecard(
     real_spectra: np.ndarray,
     synthetic_spectra: np.ndarray,
-    wavelengths: Optional[np.ndarray] = None,
-    thresholds: Optional[Dict[str, float]] = None,
+    wavelengths: np.ndarray | None = None,
+    thresholds: dict[str, float] | None = None,
     include_adversarial: bool = True,
-    random_state: Optional[int] = None,
+    random_state: int | None = None,
 ) -> SpectralRealismScore:
     """
     Compute comprehensive spectral realism scorecard.
@@ -803,8 +786,8 @@ def compute_spectral_realism_scorecard(
         n_wavelengths = real_spectra.shape[1]
         wavelengths = np.arange(n_wavelengths, dtype=float)
 
-    metric_results: List[MetricResult] = []
-    warnings: List[str] = []
+    metric_results: list[MetricResult] = []
+    warnings: list[str] = []
 
     # Validate input dimensions
     if real_spectra.shape[1] != synthetic_spectra.shape[1]:
@@ -870,10 +853,7 @@ def compute_spectral_realism_scorecard(
         # Ratio of means
         real_mean = real_peak_density.mean()
         synth_mean = synth_peak_density.mean()
-        if real_mean > 0:
-            peak_ratio = synth_mean / real_mean
-        else:
-            peak_ratio = 1.0 if synth_mean == 0 else float('inf')
+        peak_ratio = synth_mean / real_mean if real_mean > 0 else 1.0 if synth_mean == 0 else float('inf')
         peak_passed = (
             thresholds["peak_density_ratio_min"] <= peak_ratio <=
             thresholds["peak_density_ratio_max"]
@@ -982,11 +962,9 @@ def compute_spectral_realism_scorecard(
         warnings=warnings,
     )
 
-
 # ============================================================================
 # Benchmark Dataset Comparison Utilities
 # ============================================================================
-
 
 @dataclass
 class DatasetComparisonResult:
@@ -1005,8 +983,8 @@ class DatasetComparisonResult:
     n_real_samples: int
     n_synthetic_samples: int
     realism_score: SpectralRealismScore
-    tstr_r2: Optional[float] = None
-    trts_r2: Optional[float] = None
+    tstr_r2: float | None = None
+    trts_r2: float | None = None
 
     def summary(self) -> str:
         """Return a human-readable summary."""
@@ -1022,15 +1000,14 @@ class DatasetComparisonResult:
             lines.append(f"TRTS R²: {self.trts_r2:.4f}")
         return "\n".join(lines)
 
-
 def validate_against_benchmark(
     synthetic_spectra: np.ndarray,
     benchmark_spectra: np.ndarray,
     benchmark_name: str,
-    wavelengths: Optional[np.ndarray] = None,
-    synthetic_targets: Optional[np.ndarray] = None,
-    benchmark_targets: Optional[np.ndarray] = None,
-    random_state: Optional[int] = None,
+    wavelengths: np.ndarray | None = None,
+    synthetic_targets: np.ndarray | None = None,
+    benchmark_targets: np.ndarray | None = None,
+    random_state: int | None = None,
 ) -> DatasetComparisonResult:
     """
     Validate synthetic data against a benchmark dataset.
@@ -1105,18 +1082,16 @@ def validate_against_benchmark(
         trts_r2=trts_r2,
     )
 
-
 # ============================================================================
 # Quick Validation Functions
 # ============================================================================
 
-
 def quick_realism_check(
     synthetic_spectra: np.ndarray,
-    wavelengths: Optional[np.ndarray] = None,
-    expected_snr_range: Tuple[float, float] = (10, 1000),
-    expected_peak_density: Tuple[float, float] = (0.5, 10.0),
-) -> Tuple[bool, List[str]]:
+    wavelengths: np.ndarray | None = None,
+    expected_snr_range: tuple[float, float] = (10, 1000),
+    expected_peak_density: tuple[float, float] = (0.5, 10.0),
+) -> tuple[bool, list[str]]:
     """
     Perform quick realism checks on synthetic spectra without real data.
 
@@ -1138,7 +1113,7 @@ def quick_realism_check(
         >>> if not passed:
         ...     print("Issues:", issues)
     """
-    issues: List[str] = []
+    issues: list[str] = []
 
     # Check for NaN/Inf
     if np.any(np.isnan(synthetic_spectra)):

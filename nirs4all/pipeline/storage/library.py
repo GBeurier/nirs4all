@@ -10,12 +10,11 @@ import json
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
-
 
 class PipelineLibrary:
     """Manages reusable pipeline templates in the workspace library.
@@ -39,12 +38,12 @@ class PipelineLibrary:
 
     def save_template(
         self,
-        pipeline_config: Dict[str, Any],
+        pipeline_config: dict[str, Any],
         name: str,
         category: str = "general",
         description: str = "",
-        tags: Optional[List[str]] = None,
-        metrics: Optional[Dict[str, float]] = None,
+        tags: list[str] | None = None,
+        metrics: dict[str, float] | None = None,
         notes: str = "",
         overwrite: bool = False
     ) -> Path:
@@ -117,7 +116,7 @@ class PipelineLibrary:
         logger.success(f"Template '{name}' saved to library/{category}/{safe_name}")
         return template_path
 
-    def load_template(self, name: str, category: Optional[str] = None) -> Dict[str, Any]:
+    def load_template(self, name: str, category: str | None = None) -> dict[str, Any]:
         """Load a pipeline template by name.
 
         Args:
@@ -136,7 +135,7 @@ class PipelineLibrary:
             raise FileNotFoundError(f"Template '{name}' not found{cat_msg}")
 
         pipeline_file = template_path / "pipeline.json"
-        with open(pipeline_file, 'r', encoding='utf-8') as f:
+        with open(pipeline_file, encoding='utf-8') as f:
             config = json.load(f)
 
         logger.success(f"Loaded template '{name}' from library")
@@ -145,8 +144,8 @@ class PipelineLibrary:
     def get_template_metadata(
         self,
         name: str,
-        category: Optional[str] = None
-    ) -> Dict[str, Any]:
+        category: str | None = None
+    ) -> dict[str, Any]:
         """Get metadata for a template.
 
         Args:
@@ -162,14 +161,14 @@ class PipelineLibrary:
             raise FileNotFoundError(f"Template '{name}' not found{cat_msg}")
 
         metadata_file = template_path / "metadata.json"
-        with open(metadata_file, 'r', encoding='utf-8') as f:
+        with open(metadata_file, encoding='utf-8') as f:
             return json.load(f)
 
     def list_templates(
         self,
-        category: Optional[str] = None,
-        tags: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
+        category: str | None = None,
+        tags: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         """List all templates, optionally filtered by category and tags.
 
         Args:
@@ -182,10 +181,7 @@ class PipelineLibrary:
         templates = []
 
         # Determine which categories to search
-        if category:
-            categories = [category]
-        else:
-            categories = [d.name for d in self.library_path.iterdir() if d.is_dir()]
+        categories = [category] if category else [d.name for d in self.library_path.iterdir() if d.is_dir()]
 
         # Search each category
         for cat in categories:
@@ -202,7 +198,7 @@ class PipelineLibrary:
                     continue
 
                 try:
-                    with open(metadata_file, 'r', encoding='utf-8') as f:
+                    with open(metadata_file, encoding='utf-8') as f:
                         metadata = json.load(f)
 
                     # Filter by tags if specified
@@ -217,7 +213,7 @@ class PipelineLibrary:
 
         return templates
 
-    def delete_template(self, name: str, category: Optional[str] = None) -> None:
+    def delete_template(self, name: str, category: str | None = None) -> None:
         """Delete a template from the library.
 
         Args:
@@ -241,7 +237,7 @@ class PipelineLibrary:
         name: str,
         category: str = "general",
         description: str = "",
-        tags: Optional[List[str]] = None,
+        tags: list[str] | None = None,
         extract_metrics: bool = True
     ) -> Path:
         """Copy a successful pipeline to the library as a template.
@@ -264,7 +260,7 @@ class PipelineLibrary:
         if not pipeline_json.exists():
             raise FileNotFoundError(f"No pipeline.json found in {pipeline_dir}")
 
-        with open(pipeline_json, 'r', encoding='utf-8') as f:
+        with open(pipeline_json, encoding='utf-8') as f:
             pipeline_config = json.load(f)
 
         # Extract metrics from manifest if requested
@@ -273,7 +269,7 @@ class PipelineLibrary:
             manifest_file = pipeline_dir / "manifest.yaml"
             if manifest_file.exists():
                 import yaml
-                with open(manifest_file, 'r') as f:
+                with open(manifest_file) as f:
                     manifest = yaml.safe_load(f)
                     # Extract any metrics stored in manifest
                     metrics = manifest.get('metrics', {})
@@ -291,8 +287,8 @@ class PipelineLibrary:
     def export_template(
         self,
         name: str,
-        export_path: Union[str, Path],
-        category: Optional[str] = None
+        export_path: str | Path,
+        category: str | None = None
     ) -> Path:
         """Export a template to a standalone directory.
 
@@ -316,7 +312,7 @@ class PipelineLibrary:
 
     def import_template(
         self,
-        import_path: Union[str, Path],
+        import_path: str | Path,
         category: str = "general",
         overwrite: bool = False
     ) -> Path:
@@ -337,7 +333,7 @@ class PipelineLibrary:
         if not metadata_file.exists():
             raise FileNotFoundError(f"No metadata.json found in {import_path}")
 
-        with open(metadata_file, 'r', encoding='utf-8') as f:
+        with open(metadata_file, encoding='utf-8') as f:
             metadata = json.load(f)
 
         name = metadata.get('name', import_path.name)
@@ -358,7 +354,7 @@ class PipelineLibrary:
         logger.success(f"Template '{name}' imported to library/{category}/{safe_name}")
         return template_path
 
-    def _find_template(self, name: str, category: Optional[str] = None) -> Optional[Path]:
+    def _find_template(self, name: str, category: str | None = None) -> Path | None:
         """Find a template by name, optionally in a specific category.
 
         Returns:
@@ -410,8 +406,8 @@ class PipelineLibrary:
         self,
         name: str,
         description: str,
-        tags: Optional[List[str]],
-        metrics: Optional[Dict[str, float]],
+        tags: list[str] | None,
+        metrics: dict[str, float] | None,
         notes: str
     ) -> str:
         """Generate README content for a template.
@@ -437,7 +433,7 @@ class PipelineLibrary:
         readme += "```python\n"
         readme += "from nirs4all.pipeline import PipelineRunner, PipelineLibrary\n\n"
         readme += "# Load template from library\n"
-        readme += f"library = PipelineLibrary(workspace_path)\n"
+        readme += "library = PipelineLibrary(workspace_path)\n"
         readme += f"pipeline_config = library.load_template('{name}')\n\n"
         readme += "# Run with your dataset\n"
         readme += "runner = PipelineRunner(workspace_path=workspace_path)\n"

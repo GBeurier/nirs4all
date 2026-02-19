@@ -32,9 +32,9 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import numpy as np
 from scipy.interpolate import interp1d
@@ -48,7 +48,7 @@ from nirs4all.data import DatasetConfigs
 
 # Use nirs4all's component fitter for robust spectral analysis
 try:
-    from nirs4all.synthesis.fitter import OptimizedComponentFitter, COMPONENT_CATEGORIES
+    from nirs4all.synthesis.fitter import COMPONENT_CATEGORIES, OptimizedComponentFitter
 
     NIRS4ALL_FITTER_AVAILABLE = True
 except ImportError:
@@ -88,13 +88,11 @@ GROUND_TRUTH = {
     "TABLET_Escitalopramt_310_Zhao": None,  # Pharmaceutical
 }
 
-
 # =============================================================================
 # ENUMS
 # =============================================================================
 
-
-class CanonicalType(str, Enum):
+class CanonicalType(StrEnum):
     """Detected preprocessing/representation type of input spectra."""
 
     REFLECTANCE = "reflectance"
@@ -103,15 +101,13 @@ class CanonicalType(str, Enum):
     SECOND_DERIVATIVE = "second_derivative"
     UNKNOWN = "unknown"
 
-
-class ConfidenceLevel(str, Enum):
+class ConfidenceLevel(StrEnum):
     """Confidence level for predictions."""
 
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
     UNKNOWN = "unknown"
-
 
 # =============================================================================
 # DIAGNOSTIC BAND DEFINITIONS
@@ -120,7 +116,7 @@ class ConfidenceLevel(str, Enum):
 # Band templates for each chemical family
 # Structure: center_nm, sigma_nm (width), weight, exclusivity (0-1), assignment
 # Exclusivity: 1.0 = highly diagnostic for this family, 0.0 = shared with many families
-FAMILY_BAND_TEMPLATES: Dict[str, List[Tuple[float, float, float, float, str]]] = {
+FAMILY_BAND_TEMPLATES: dict[str, list[tuple[float, float, float, float, str]]] = {
     "water": [
         (1450, 30, 0.8, 0.2, "O-H 1st overtone"),
         (1940, 35, 1.0, 0.2, "O-H combination"),
@@ -249,11 +245,9 @@ PRODUCT_CATEGORIES = {
     },
 }
 
-
 # =============================================================================
 # DATACLASSES
 # =============================================================================
-
 
 @dataclass
 class BandEvidence:
@@ -265,16 +259,14 @@ class BandEvidence:
     assignment: str
     in_range: bool = True
 
-
 @dataclass
 class FamilyScore:
     """Score for a chemical family."""
 
     family: str
     score: float
-    band_evidence: List[BandEvidence] = field(default_factory=list)
+    band_evidence: list[BandEvidence] = field(default_factory=list)
     evidence_coverage: float = 1.0  # Fraction of bands in measurement range
-
 
 @dataclass
 class CategoryPrediction:
@@ -284,18 +276,16 @@ class CategoryPrediction:
     score: float
     weight: float = 1.0
 
-
 @dataclass
 class RangeCoverage:
     """Wavelength range coverage information."""
 
-    measured_range: Tuple[float, float]
+    measured_range: tuple[float, float]
     has_vis: bool = False  # < 780 nm
     has_nir1: bool = False  # 780-1100 nm
     has_nir2: bool = False  # 1100-1800 nm
     has_nir3: bool = False  # 1800-2500 nm
-    missing_regions: List[str] = field(default_factory=list)
-
+    missing_regions: list[str] = field(default_factory=list)
 
 @dataclass
 class IdentificationResult:
@@ -304,32 +294,30 @@ class IdentificationResult:
     # Input info
     dataset_name: str
     n_samples: int
-    wavelength_range: Tuple[float, float]
+    wavelength_range: tuple[float, float]
     canonical_type: CanonicalType
 
     # Scores
-    family_scores: Dict[str, FamilyScore]
-    product_scores: List[CategoryPrediction]
+    family_scores: dict[str, FamilyScore]
+    product_scores: list[CategoryPrediction]
 
     # Predictions
     predicted_category: str
-    mixture_categories: List[Tuple[str, float]]  # (category, weight) pairs
+    mixture_categories: list[tuple[str, float]]  # (category, weight) pairs
     confidence: ConfidenceLevel
     confidence_numeric: float
 
     # Metadata
-    limitation_notes: List[str]
+    limitation_notes: list[str]
     range_coverage: RangeCoverage
 
     # For evaluation (not used in detection)
-    expected_category: Optional[str] = None
-    is_correct: Optional[bool] = None
-
+    expected_category: str | None = None
+    is_correct: bool | None = None
 
 # =============================================================================
 # CANONICALIZATION
 # =============================================================================
-
 
 def detect_canonical_type(X: np.ndarray) -> CanonicalType:
     """
@@ -380,12 +368,11 @@ def detect_canonical_type(X: np.ndarray) -> CanonicalType:
 
     return CanonicalType.UNKNOWN
 
-
 def canonicalize_spectra(
     X: np.ndarray,
-    canonical_type: Optional[CanonicalType] = None,
+    canonical_type: CanonicalType | None = None,
     eps: float = 1e-6,
-) -> Tuple[np.ndarray, CanonicalType]:
+) -> tuple[np.ndarray, CanonicalType]:
     """
     Convert spectra to canonical absorbance-like representation.
 
@@ -417,17 +404,15 @@ def canonicalize_spectra(
 
     return X_canonical, canonical_type
 
-
 # =============================================================================
 # RESAMPLING
 # =============================================================================
 
-
 def resample_to_uniform_grid(
     X: np.ndarray,
     wavelengths: np.ndarray,
-    target_step: Optional[float] = None,
-) -> Tuple[np.ndarray, np.ndarray]:
+    target_step: float | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Resample spectra to a uniform wavelength grid.
 
@@ -466,11 +451,9 @@ def resample_to_uniform_grid(
 
     return X_resampled, wl_uniform
 
-
 # =============================================================================
 # SCATTER CORRECTION
 # =============================================================================
-
 
 def apply_snv(X: np.ndarray) -> np.ndarray:
     """
@@ -490,11 +473,9 @@ def apply_snv(X: np.ndarray) -> np.ndarray:
     std = np.where(std < 1e-10, 1.0, std)  # Avoid division by zero
     return (X - mean) / std
 
-
 # =============================================================================
 # BAND TEMPLATE RESPONSE
 # =============================================================================
-
 
 def compute_band_response(
     spectrum: np.ndarray,
@@ -502,7 +483,7 @@ def compute_band_response(
     center: float,
     sigma: float,
     window_factor: float = 3.0,
-) -> Tuple[float, bool]:
+) -> tuple[float, bool]:
     """
     Compute band evidence at a specific wavelength position.
 
@@ -550,13 +531,12 @@ def compute_band_response(
 
     return z_score, True
 
-
 def compute_derivative_band_response(
     spectrum: np.ndarray,
     wavelengths: np.ndarray,
     center: float,
     sigma: float,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """
     Compute band response for derivative spectra.
 
@@ -575,17 +555,15 @@ def compute_derivative_band_response(
     # Use narrower window for derivatives
     return compute_band_response(spectrum, wavelengths, center, sigma * 0.7, window_factor=2.5)
 
-
 # =============================================================================
 # FAMILY SCORING
 # =============================================================================
-
 
 def compute_family_scores(
     spectrum: np.ndarray,
     wavelengths: np.ndarray,
     canonical_type: CanonicalType,
-) -> Dict[str, FamilyScore]:
+) -> dict[str, FamilyScore]:
     """
     Compute scores for each chemical family using band template matching.
 
@@ -666,10 +644,7 @@ def compute_family_scores(
         evidence_coverage = bands_in_range / total_bands if total_bands > 0 else 0.0
 
         # Normalize score
-        if total_weight > 0:
-            normalized_score = total_score / total_weight
-        else:
-            normalized_score = 0.0
+        normalized_score = total_score / total_weight if total_weight > 0 else 0.0
 
         # CRITICAL: If coverage is too low, heavily penalize the score
         # This prevents families with no bands in range from scoring highly
@@ -687,16 +662,14 @@ def compute_family_scores(
 
     return family_scores
 
-
 # =============================================================================
 # COMPOSITION FITTING (NNLS)
 # =============================================================================
 
-
 def build_basis_matrix(
     wavelengths: np.ndarray,
-    families: List[str],
-) -> Tuple[np.ndarray, List[str]]:
+    families: list[str],
+) -> tuple[np.ndarray, list[str]]:
     """
     Build a basis matrix from family band templates.
 
@@ -732,13 +705,12 @@ def build_basis_matrix(
 
     return basis, families
 
-
 def fit_composition_nnls(
     spectrum: np.ndarray,
     wavelengths: np.ndarray,
-    families: Optional[List[str]] = None,
+    families: list[str] | None = None,
     baseline_order: int = 3,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Fit family composition using non-negative least squares.
 
@@ -808,11 +780,10 @@ def fit_composition_nnls(
 
     return result
 
-
 def compute_family_scores_with_fitter(
     spectrum: np.ndarray,
     wavelengths: np.ndarray,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Compute family scores using nirs4all's OptimizedComponentFitter.
 
@@ -864,7 +835,7 @@ def compute_family_scores_with_fitter(
 
             # Aggregate fitted components by category
             family_scores = {}
-            for comp_name, conc in zip(result.component_names, result.concentrations):
+            for comp_name, conc in zip(result.component_names, result.concentrations, strict=False):
                 # Only count positive concentrations
                 if conc <= 0:
                     continue
@@ -892,15 +863,13 @@ def compute_family_scores_with_fitter(
 
     return all_family_scores
 
-
 # =============================================================================
 # PRODUCT CATEGORY SCORING
 # =============================================================================
 
-
 def compute_product_scores(
-    family_scores: Dict[str, FamilyScore],
-) -> List[CategoryPrediction]:
+    family_scores: dict[str, FamilyScore],
+) -> list[CategoryPrediction]:
     """
     Map family scores to product category predictions.
 
@@ -933,10 +902,7 @@ def compute_product_scores(
     # Hydrocarbons must be stronger than lipids (no ester)
     if hc_coverage >= 0.5 and hc_score > 0.2:
         # If hydrocarbon score dominates over lipid score, it's petroleum
-        if hc_score > lipid_score * 1.2 or lipid_score < 0.3:
-            petroleum_score = hc_score * 2.0
-        else:
-            petroleum_score = max(0, hc_score - lipid_score) * 1.5
+        petroleum_score = hc_score * 2.0 if hc_score > lipid_score * 1.2 or lipid_score < 0.3 else max(0, hc_score - lipid_score) * 1.5
     else:
         petroleum_score = 0.0
     predictions.append(CategoryPrediction("petroleum/hydrocarbons", petroleum_score))
@@ -1023,10 +989,7 @@ def compute_product_scores(
     # Key: N-H bands at 2050, 2180, 1510nm
     protein_score = get_score("proteins")
     protein_coverage = get_coverage("proteins")
-    if protein_coverage >= 0.5 and protein_score > 0.25:
-        protein_product_score = protein_score * 2.0
-    else:
-        protein_product_score = protein_score * 0.3
+    protein_product_score = protein_score * 2.0 if protein_coverage >= 0.5 and protein_score > 0.25 else protein_score * 0.3
     predictions.append(CategoryPrediction("protein-rich", protein_product_score))
 
     # --- PHARMACEUTICAL/DRUG ---
@@ -1071,18 +1034,16 @@ def compute_product_scores(
 
     return predictions
 
-
 # =============================================================================
 # CONFIDENCE ESTIMATION
 # =============================================================================
 
-
 def compute_confidence(
-    product_scores: List[CategoryPrediction],
-    family_scores: Dict[str, FamilyScore],
+    product_scores: list[CategoryPrediction],
+    family_scores: dict[str, FamilyScore],
     range_coverage: RangeCoverage,
     n_bootstrap_samples: int = 0,
-) -> Tuple[ConfidenceLevel, float, List[str]]:
+) -> tuple[ConfidenceLevel, float, list[str]]:
     """
     Compute prediction confidence based on multiple factors.
 
@@ -1110,10 +1071,7 @@ def compute_confidence(
     top2_score = product_scores[1].score
 
     # Score margin factor
-    if top1_score > 0:
-        margin_ratio = (top1_score - top2_score) / top1_score
-    else:
-        margin_ratio = 0.0
+    margin_ratio = (top1_score - top2_score) / top1_score if top1_score > 0 else 0.0
 
     # Total evidence factor
     total_evidence = sum(fs.score for fs in family_scores.values())
@@ -1149,11 +1107,9 @@ def compute_confidence(
 
     return level, confidence_numeric, notes
 
-
 # =============================================================================
 # RANGE COVERAGE
 # =============================================================================
-
 
 def compute_range_coverage(wavelengths: np.ndarray) -> RangeCoverage:
     """
@@ -1191,11 +1147,9 @@ def compute_range_coverage(wavelengths: np.ndarray) -> RangeCoverage:
         missing_regions=missing,
     )
 
-
 # =============================================================================
 # MAIN IDENTIFICATION
 # =============================================================================
-
 
 def identify_category(
     X: np.ndarray,
@@ -1401,13 +1355,11 @@ def identify_category(
         is_correct=is_correct,
     )
 
-
 # =============================================================================
 # DATASET LOADING
 # =============================================================================
 
-
-def load_dataset(name: str) -> Dict:
+def load_dataset(name: str) -> dict:
     """Load dataset from CSV."""
     csv_path = DATASET_BASE / f"{name}.csv"
     config = {
@@ -1423,8 +1375,7 @@ def load_dataset(name: str) -> Dict:
         wl = np.arange(X.shape[1])
     return {"name": name, "X": X, "wl": wl}
 
-
-def load_all_datasets() -> List[Dict]:
+def load_all_datasets() -> list[dict]:
     """Load all datasets."""
     datasets = []
     for name in DATASET_NAMES:
@@ -1435,13 +1386,11 @@ def load_all_datasets() -> List[Dict]:
             print(f"  Warning: Could not load {name}: {e}")
     return datasets
 
-
 # =============================================================================
 # BENCHMARK RUNNER
 # =============================================================================
 
-
-def run_experiment() -> Tuple[List[IdentificationResult], float]:
+def run_experiment() -> tuple[list[IdentificationResult], float]:
     """Run identification on all datasets and return results with accuracy."""
     print("Loading datasets...")
     datasets = load_all_datasets()
@@ -1493,8 +1442,7 @@ def run_experiment() -> Tuple[List[IdentificationResult], float]:
 
     return results, accuracy
 
-
-def print_detailed_results(results: List[IdentificationResult]):
+def print_detailed_results(results: list[IdentificationResult]):
     """Print detailed scoring for each dataset."""
     print("\n" + "=" * 120)
     print("DETAILED RESULTS")
@@ -1506,13 +1454,13 @@ def print_detailed_results(results: List[IdentificationResult]):
         print(f"  WL range: {result.wavelength_range[0]:.0f}-{result.wavelength_range[1]:.0f} nm")
         print(f"  N samples: {result.n_samples}")
 
-        print(f"\n  Family Scores:")
+        print("\n  Family Scores:")
         sorted_families = sorted(result.family_scores.items(), key=lambda x: -x[1].score)
         for family, score in sorted_families[:5]:
             coverage = f"(cov={score.evidence_coverage:.0%})" if score.evidence_coverage < 1.0 else ""
             print(f"    {family:<15}: {score.score:6.3f} {coverage}")
 
-        print(f"\n  Product Scores:")
+        print("\n  Product Scores:")
         for pred in result.product_scores[:3]:
             print(f"    {pred.category:<30}: {pred.score:6.3f}")
 
@@ -1522,11 +1470,9 @@ def print_detailed_results(results: List[IdentificationResult]):
         print(f"\n  Prediction: {result.predicted_category}")
         print(f"  Confidence: {result.confidence.value} ({result.confidence_numeric:.2f})")
 
-
 # =============================================================================
 # UNIT TESTS
 # =============================================================================
-
 
 def run_tests():
     """Run unit tests for key functions."""
@@ -1598,7 +1544,7 @@ def run_tests():
     row_stds = np.std(X_snv, axis=1)
 
     if np.allclose(row_means, 0, atol=1e-10) and np.allclose(row_stds, 1, atol=0.1):
-        print(f"  [PASS] SNV normalization")
+        print("  [PASS] SNV normalization")
         passed += 1
     else:
         print(f"  [FAIL] SNV: means={row_means}, stds={row_stds}")
@@ -1756,11 +1702,9 @@ def run_tests():
 
     return passed, failed
 
-
 # =============================================================================
 # MAIN
 # =============================================================================
-
 
 def main():
     """Main entry point."""
@@ -1816,7 +1760,6 @@ def main():
 
     # Run tests
     run_tests()
-
 
 if __name__ == "__main__":
     main()

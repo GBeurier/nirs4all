@@ -20,8 +20,9 @@ Example:
 """
 
 import re
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -31,17 +32,15 @@ class RowSelectionError(Exception):
     """Raised when row selection fails."""
     pass
 
-
 # Type alias for row selection specification
-RowSpec = Union[
-    int,                     # Single index
-    str,                     # Range string or percentage
-    List[int],               # List of indices
-    Dict[str, Any],          # Complex selection (where, sample, etc.)
-    slice,                   # Python slice object
-    None,                    # Select all rows
-]
-
+RowSpec = (
+    int                     # Single index
+    | str                     # Range string or percentage
+    | list[int]               # List of indices
+    | dict[str, Any]          # Complex selection (where, sample, etc.)
+    | slice                   # Python slice object
+    | None                    # Select all rows
+)
 
 @dataclass
 class RowSelectionResult:
@@ -52,10 +51,9 @@ class RowSelectionResult:
         mask: Boolean mask for the selection.
         data: The selected DataFrame subset.
     """
-    indices: List[int]
+    indices: list[int]
     mask: pd.Series
     data: pd.DataFrame
-
 
 class RowSelector:
     """Flexible row selector for DataFrames.
@@ -77,7 +75,7 @@ class RowSelector:
     """
 
     # Supported comparison operators
-    OPERATORS: Dict[str, Callable[[Any, Any], bool]] = {
+    OPERATORS: dict[str, Callable[[Any, Any], bool]] = {
         "==": lambda a, b: a == b,
         "!=": lambda a, b: a != b,
         ">": lambda a, b: a > b,
@@ -94,7 +92,7 @@ class RowSelector:
         "regex": lambda a, b: bool(re.search(b, str(a))),
     }
 
-    def __init__(self, default_random_state: Optional[int] = None):
+    def __init__(self, default_random_state: int | None = None):
         """Initialize the row selector.
 
         Args:
@@ -297,7 +295,7 @@ class RowSelector:
         except ValueError as e:
             raise RowSelectionError(
                 f"Invalid range values in '{range_str}': {e}"
-            )
+            ) from e
 
         # Create slice and select
         slc = slice(start, stop, step)
@@ -329,7 +327,7 @@ class RowSelector:
     def _select_by_index_list(
         self,
         df: pd.DataFrame,
-        indices: List[int],
+        indices: list[int],
     ) -> RowSelectionResult:
         """Select rows by list of indices."""
         n_rows = len(df)
@@ -358,7 +356,7 @@ class RowSelector:
     def _select_by_dict(
         self,
         df: pd.DataFrame,
-        selection: Dict[str, Any],
+        selection: dict[str, Any],
     ) -> RowSelectionResult:
         """Select rows by dictionary specification.
 
@@ -444,7 +442,7 @@ class RowSelector:
     def _apply_where_condition(
         self,
         df: pd.DataFrame,
-        condition: Union[Dict[str, Any], List[Dict[str, Any]]],
+        condition: dict[str, Any] | list[dict[str, Any]],
     ) -> pd.Series:
         """Apply a where condition to create a boolean mask.
 
@@ -487,7 +485,7 @@ class RowSelector:
     def _apply_single_condition(
         self,
         df: pd.DataFrame,
-        condition: Dict[str, Any],
+        condition: dict[str, Any],
     ) -> pd.Series:
         """Apply a single condition."""
         column = condition.get("column")
@@ -527,7 +525,7 @@ class RowSelector:
         df: pd.DataFrame,
         n_sample: int,
         stratify_col: str,
-        random_state: Optional[int],
+        random_state: int | None,
     ) -> pd.DataFrame:
         """Perform stratified sampling.
 
@@ -543,7 +541,7 @@ class RowSelector:
         sampled_dfs = []
         group_names = list(groups.groups.keys())
 
-        for i, (name, group) in enumerate(groups):
+        for i, (_name, group) in enumerate(groups):
             # Distribute remainder to first groups
             n_group_sample = samples_per_group + (1 if i < remainder else 0)
             n_group_sample = min(n_group_sample, len(group))

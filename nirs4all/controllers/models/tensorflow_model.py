@@ -15,25 +15,27 @@ for training or prediction, not at module import time.
 """
 
 from __future__ import annotations
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
+
+import contextlib
+from typing import TYPE_CHECKING, Any, Optional
+
 import numpy as np
 
 if TYPE_CHECKING:
-    from nirs4all.data.predictions import Predictions
-    from nirs4all.pipeline.config.context import ExecutionContext
-    from nirs4all.pipeline.steps.parser import ParsedStep
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
-    try:
+    from nirs4all.data.predictions import Predictions
+    from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+    from nirs4all.pipeline.runner import PipelineRunner
+    from nirs4all.pipeline.steps.parser import ParsedStep
+    with contextlib.suppress(ImportError):
         from tensorflow import keras
-    except ImportError:
-        pass
 
-from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.core.task_type import TaskType
-from nirs4all.utils.backend import is_available, require_backend, is_gpu_available
+from nirs4all.utils.backend import is_available, is_gpu_available, require_backend
+
+from ..models.base_model import BaseModelController
 
 logger = get_logger(__name__)
 
@@ -41,8 +43,7 @@ logger = get_logger(__name__)
 TENSORFLOW_AVAILABLE = is_available('tensorflow')
 
 # Lazy-loaded module cache
-_tf_modules: Dict[str, Any] = {}
-
+_tf_modules: dict[str, Any] = {}
 
 def _get_tf():
     """Lazy load TensorFlow with caching."""
@@ -52,7 +53,6 @@ def _get_tf():
         _tf_modules['tf'] = tf
         _tf_modules['keras'] = tf.keras
     return _tf_modules['tf']
-
 
 def _get_keras():
     """Lazy load Keras with caching."""
@@ -118,10 +118,7 @@ class TensorFlowModelController(BaseModelController):
             return True
 
         # Check operator if provided
-        if operator is not None and cls._is_tensorflow_model_or_function(operator):
-            return True
-
-        return False
+        return bool(operator is not None and cls._is_tensorflow_model_or_function(operator))
 
     @classmethod
     def _is_tensorflow_model(cls, obj: Any) -> bool:
@@ -146,15 +143,12 @@ class TensorFlowModelController(BaseModelController):
 
         # Quick check via module name first (no import needed)
         module = getattr(type(obj), '__module__', '')
-        if 'tensorflow' not in module and 'keras' not in module:
-            # Also check for fit/predict/compile which are keras signatures
-            if not (hasattr(obj, 'fit') and hasattr(obj, 'predict') and hasattr(obj, 'compile')):
-                return False
+        if 'tensorflow' not in module and 'keras' not in module and not (hasattr(obj, 'fit') and hasattr(obj, 'predict') and hasattr(obj, 'compile')):
+            return False
 
         try:
             keras = _get_keras()
-            return (isinstance(obj, keras.Model) or
-                   isinstance(obj, keras.Sequential))
+            return (isinstance(obj, (keras.Model, keras.Sequential)))
         except Exception:
             return False
 
@@ -216,7 +210,7 @@ class TensorFlowModelController(BaseModelController):
 
         return False
 
-    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> Any:
+    def _get_model_instance(self, dataset: SpectroDataset, model_config: dict[str, Any], force_params: dict[str, Any] | None = None) -> Any:
         """Create TensorFlow model instance from configuration.
 
         Delegates to ModelFactory which handles various input formats:
@@ -258,8 +252,8 @@ class TensorFlowModelController(BaseModelController):
         model: Any,
         X_train: np.ndarray,
         y_train: np.ndarray,
-        X_val: Optional[np.ndarray] = None,
-        y_val: Optional[np.ndarray] = None,
+        X_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
         **kwargs
     ) -> Any:
         """Train TensorFlow/Keras model with comprehensive configuration.
@@ -346,8 +340,8 @@ class TensorFlowModelController(BaseModelController):
         model: Any,
         X_train: np.ndarray,
         y_train: np.ndarray,
-        X_val: Optional[np.ndarray],
-        y_val: Optional[np.ndarray],
+        X_val: np.ndarray | None,
+        y_val: np.ndarray | None,
         task_type: TaskType
     ) -> None:
         """Log training and validation performance scores.
@@ -423,7 +417,7 @@ class TensorFlowModelController(BaseModelController):
 
         return predictions
 
-    def _predict_proba_model(self, model: Any, X: np.ndarray) -> Optional[np.ndarray]:
+    def _predict_proba_model(self, model: Any, X: np.ndarray) -> np.ndarray | None:
         """Get class probabilities from TensorFlow classification model.
 
         Returns raw softmax/sigmoid outputs before argmax conversion.
@@ -462,9 +456,9 @@ class TensorFlowModelController(BaseModelController):
     def _prepare_data(
         self,
         X: np.ndarray,
-        y: Optional[np.ndarray],
+        y: np.ndarray | None,
         context: Any
-    ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    ) -> tuple[np.ndarray, np.ndarray | None]:
         """Prepare data for TensorFlow with proper tensor formatting.
 
         Delegates to TensorFlowDataPreparation which handles:
@@ -486,7 +480,7 @@ class TensorFlowModelController(BaseModelController):
         from .tensorflow import TensorFlowDataPreparation
         return TensorFlowDataPreparation.prepare_data(X, y, context)
 
-    def _evaluate_model(self, model: Any, X_val: np.ndarray, y_val: np.ndarray, metric: Optional[str] = None, direction: str = "minimize") -> float:
+    def _evaluate_model(self, model: Any, X_val: np.ndarray, y_val: np.ndarray, metric: str | None = None, direction: str = "minimize") -> float:
         """Evaluate TensorFlow model on validation data.
 
         When ``metric`` is provided, uses ``nirs4all.core.metrics.eval()``.
@@ -603,7 +597,7 @@ class TensorFlowModelController(BaseModelController):
     # The base class correctly returns {'model_instance': operator, 'train_params': {...}}
     # and ModelFactory now handles 'model_instance' key properly
 
-    def process_hyperparameters(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def process_hyperparameters(self, params: dict[str, Any]) -> dict[str, Any]:
         """Process hyperparameters for TensorFlow model tuning.
 
         Supports TensorFlow-specific parameter organization:
@@ -643,15 +637,15 @@ class TensorFlowModelController(BaseModelController):
 
     def execute(
         self,
-        step_info: 'ParsedStep',
-        dataset: 'SpectroDataset',
+        step_info: ParsedStep,
+        dataset: SpectroDataset,
         context: ExecutionContext,
-        runtime_context: 'RuntimeContext',
+        runtime_context: RuntimeContext,
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
-        prediction_store: 'Predictions' = None
-    ) -> Tuple[ExecutionContext, List[Tuple[str, bytes]]]:
+        loaded_binaries: list[tuple[str, bytes]] | None = None,
+        prediction_store: Predictions = None
+    ) -> tuple[ExecutionContext, list[tuple[str, bytes]]]:
         """Execute TensorFlow model training, finetuning, or prediction.
 
         Sets the preferred data layout to '3d_transpose' for TensorFlow Conv1D models,
@@ -688,9 +682,4 @@ class TensorFlowModelController(BaseModelController):
 
         # Call parent execute method
         return super().execute(step_info, dataset, context, runtime_context, source, mode, loaded_binaries, prediction_store)
-
-
-
-
-
 

@@ -19,7 +19,7 @@ import hashlib
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
@@ -33,14 +33,12 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-
 # ---------------------------------------------------------------------------
 # CachedStepState — lightweight CoW snapshot for step cache entries
 # ---------------------------------------------------------------------------
 
 # Per-source snapshot: (SharedBlocks ref, processing_ids, headers, header_unit)
-SourceSnapshot = Tuple[SharedBlocks, List[str], Optional[List[str]], str]
-
+SourceSnapshot = tuple[SharedBlocks, list[str], list[str] | None, str]
 
 @dataclass
 class CachedStepState:
@@ -58,8 +56,8 @@ class CachedStepState:
         bytes_estimate: Estimated memory footprint (computed once at store time).
     """
 
-    source_snapshots: List[SourceSnapshot] = field(default_factory=list)
-    processing_names: List[List[str]] = field(default_factory=list)
+    source_snapshots: list[SourceSnapshot] = field(default_factory=list)
+    processing_names: list[list[str]] = field(default_factory=list)
     content_hash: str = ""
     bytes_estimate: int = 0
 
@@ -72,7 +70,6 @@ class CachedStepState:
             shared = snapshot[0]
             shared.release()
         self.source_snapshots = []
-
 
 def _compute_selector_fingerprint(selector: DataSelector) -> str:
     """Hash the execution-context selector fields that affect transformer behaviour.
@@ -98,7 +95,6 @@ def _compute_selector_fingerprint(selector: DataSelector) -> str:
     ]
     raw = "|".join(parts)
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
-
 
 # ---------------------------------------------------------------------------
 # StepCache — main API
@@ -155,8 +151,8 @@ class StepCache:
         self,
         chain_path_hash: str,
         data_hash: str,
-        selector: Optional[DataSelector] = None,
-    ) -> Optional[CachedStepState]:
+        selector: DataSelector | None = None,
+    ) -> CachedStepState | None:
         """Retrieve a cached step state.
 
         Args:
@@ -182,7 +178,7 @@ class StepCache:
         chain_path_hash: str,
         data_hash: str,
         dataset: SpectroDataset,
-        selector: Optional[DataSelector] = None,
+        selector: DataSelector | None = None,
     ) -> None:
         """Store a feature snapshot in the cache.
 
@@ -226,7 +222,7 @@ class StepCache:
             f"vs live {len(dataset._features.sources)}"
         )
         for source, (shared, proc_ids, headers, header_unit) in zip(
-            dataset._features.sources, state.source_snapshots
+            dataset._features.sources, state.source_snapshots, strict=False
         ):
             source._storage.restore_from_shared(shared.acquire())
             source._processing_mgr.reset_processings(proc_ids)
@@ -292,7 +288,7 @@ class StepCache:
     def _make_key(
         chain_path_hash: str,
         data_hash: str,
-        selector: Optional[DataSelector] = None,
+        selector: DataSelector | None = None,
     ) -> str:
         """Build a composite cache key."""
         if selector is not None:

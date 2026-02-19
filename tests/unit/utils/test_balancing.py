@@ -11,6 +11,7 @@ Tests cover:
 """
 import numpy as np
 import pytest
+
 from nirs4all.controllers.data.balancing import BalancingCalculator
 
 
@@ -259,7 +260,6 @@ class TestCalculateBalancedCounts:
         # Majority gets no augmentation
         assert sum(counts[i] for i in range(10000)) == 0
 
-
 class TestApplyRandomTransformerSelection:
     """Tests for apply_random_transformer_selection method."""
 
@@ -410,7 +410,6 @@ class TestApplyRandomTransformerSelection:
         assert selection[3] == []
         assert len(selection[4]) == 10
         assert selection[5] == []
-
 
 class TestIntegration:
     """Integration tests combining both methods."""

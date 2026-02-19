@@ -24,11 +24,12 @@ Usage:
     python bench/synthetic/dataset_category_identifier.py
 """
 
-import numpy as np
-from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Dict, List, Tuple, Optional
 import warnings
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
 
 warnings.filterwarnings("ignore")
 
@@ -36,8 +37,8 @@ from scipy.signal import find_peaks, savgol_filter
 
 # nirs4all imports
 from nirs4all.data import DatasetConfigs
-from nirs4all.synthesis.components import list_categories, get_component
-from nirs4all.synthesis.fitter import OptimizedComponentFitter, COMPONENT_CATEGORIES
+from nirs4all.synthesis.components import get_component, list_categories
+from nirs4all.synthesis.fitter import COMPONENT_CATEGORIES, OptimizedComponentFitter
 
 # =============================================================================
 # CONSTANTS
@@ -172,11 +173,9 @@ SIGNATURE_BANDS = {
     "pharmaceuticals": [(2055, 0.6)],  # Amide combination band common in drugs
 }
 
-
 # =============================================================================
 # DATACLASSES
 # =============================================================================
-
 
 @dataclass
 class CategoryScore:
@@ -188,8 +187,7 @@ class CategoryScore:
     component_score: float
     n_diagnostic_matches: int
     n_exclusive_matches: int = 0
-    matched_bands: List[Tuple[float, str]] = field(default_factory=list)
-
+    matched_bands: list[tuple[float, str]] = field(default_factory=list)
 
 @dataclass
 class IdentificationResult:
@@ -197,21 +195,19 @@ class IdentificationResult:
 
     dataset_name: str
     preprocessing_type: str
-    wavelength_range: Tuple[float, float]
+    wavelength_range: tuple[float, float]
     n_samples: int
     detected_peaks: np.ndarray
-    category_scores: List[CategoryScore]
+    category_scores: list[CategoryScore]
     predicted_category: str
-    expected_category: Optional[str]
-    is_correct: Optional[bool]
+    expected_category: str | None
+    is_correct: bool | None
     confidence: str = "high"  # high, medium, low
     limitation_note: str = ""  # Explanation if confidence is reduced
-
 
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
-
 
 def detect_preprocessing_type(X: np.ndarray) -> str:
     """Detect if spectrum is raw, derivative, or normalized."""
@@ -236,7 +232,6 @@ def detect_preprocessing_type(X: np.ndarray) -> str:
         return "normalized"
     return "unknown"
 
-
 def detect_peaks(
     spectrum: np.ndarray,
     wavelengths: np.ndarray,
@@ -244,10 +239,7 @@ def detect_peaks(
 ) -> np.ndarray:
     """Detect peaks in spectrum with adaptive sensitivity."""
     # Smooth
-    if len(spectrum) > 11:
-        smoothed = savgol_filter(spectrum, 11, 2)
-    else:
-        smoothed = spectrum
+    smoothed = savgol_filter(spectrum, 11, 2) if len(spectrum) > 11 else spectrum
 
     if is_derivative:
         signs = np.sign(smoothed)
@@ -277,13 +269,11 @@ def detect_peaks(
         peak_indices = sorted(all_peaks)
         return wavelengths[peak_indices]
 
-
 def compute_second_derivative(spectrum: np.ndarray, wavelengths: np.ndarray) -> np.ndarray:
     """Compute second derivative to find absorption bands."""
     if len(spectrum) > 15:
         return savgol_filter(spectrum, 15, 2, deriv=2)
     return np.gradient(np.gradient(spectrum))
-
 
 def find_absorption_bands(
     spectrum: np.ndarray,
@@ -370,15 +360,14 @@ def find_absorption_bands(
 
     return np.array(merged_peaks)
 
-
 def match_diagnostic_bands(
     peaks: np.ndarray,
     spectrum: np.ndarray,
     wavelengths: np.ndarray,
     category: str,
-    wl_range: Tuple[float, float],
+    wl_range: tuple[float, float],
     tolerance: float = 20.0,
-) -> Tuple[float, int, List[Tuple[float, str]], int]:
+) -> tuple[float, int, list[tuple[float, str]], int]:
     """
     Match detected peaks and absorption bands to diagnostic bands for a category.
 
@@ -432,11 +421,10 @@ def match_diagnostic_bands(
 
     return score, n_matches, matched, n_exclusive
 
-
 def apply_universal_penalty(
     peaks: np.ndarray,
     base_score: float,
-    wl_range: Tuple[float, float],
+    wl_range: tuple[float, float],
     tolerance: float = 25.0,
 ) -> float:
     """Apply penalty if universal bands dominate the signal."""
@@ -447,9 +435,8 @@ def apply_universal_penalty(
         if band_center < wl_range[0] or band_center > wl_range[1]:
             continue
         total_diagnostic += 1
-        if len(peaks) > 0:
-            if np.min(np.abs(peaks - band_center)) <= tolerance:
-                universal_matches += 1
+        if len(peaks) > 0 and np.min(np.abs(peaks - band_center)) <= tolerance:
+            universal_matches += 1
 
     # If universal bands account for high proportion of peaks, apply penalty
     if len(peaks) > 0 and universal_matches > 0:
@@ -460,11 +447,10 @@ def apply_universal_penalty(
 
     return base_score
 
-
 def check_signature_bands(
     category: str,
-    matched_bands: List[Tuple[float, str]],
-    wl_range: Tuple[float, float],
+    matched_bands: list[tuple[float, str]],
+    wl_range: tuple[float, float],
     tolerance: float = 20.0,
 ) -> float:
     """
@@ -492,11 +478,10 @@ def check_signature_bands(
 
     return multiplier
 
-
 def score_category_by_components(
     peaks: np.ndarray,
     category: str,
-    wl_range: Tuple[float, float],
+    wl_range: tuple[float, float],
     tolerance: float = 25.0,
 ) -> float:
     """Score category by matching peaks to component bands."""
@@ -524,9 +509,8 @@ def score_category_by_components(
         # Count matches
         matched = 0
         for band in relevant_bands:
-            if len(peaks) > 0:
-                if np.min(np.abs(peaks - band.center)) <= tolerance:
-                    matched += 1
+            if len(peaks) > 0 and np.min(np.abs(peaks - band.center)) <= tolerance:
+                matched += 1
 
         coverage = matched / len(relevant_bands)
         total_score += coverage
@@ -536,16 +520,14 @@ def score_category_by_components(
         return total_score / n_components
     return 0.0
 
-
 # =============================================================================
 # COMPONENT FITTING SCORING
 # =============================================================================
 
-
 def score_by_component_fitting(
     spectrum: np.ndarray,
     wavelengths: np.ndarray,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Score categories by fitting spectral components using OptimizedComponentFitter.
 
@@ -556,7 +538,7 @@ def score_by_component_fitting(
     Returns:
         Dictionary mapping category names to concentration-based scores.
     """
-    category_scores = {cat: 0.0 for cat in COMPONENT_CATEGORIES}
+    category_scores = dict.fromkeys(COMPONENT_CATEGORIES, 0.0)
 
     try:
         # Run a single fit with no priority (all components considered equally)
@@ -589,11 +571,9 @@ def score_by_component_fitting(
 
     return category_scores
 
-
 # =============================================================================
 # MAIN IDENTIFICATION FUNCTION
 # =============================================================================
-
 
 def identify_category(
     X: np.ndarray,
@@ -774,13 +754,11 @@ def identify_category(
         limitation_note=limitation_note,
     )
 
-
 # =============================================================================
 # DATASET LOADING
 # =============================================================================
 
-
-def load_dataset(name: str) -> Dict:
+def load_dataset(name: str) -> dict:
     """Load dataset from CSV."""
     csv_path = DATASET_BASE / f"{name}.csv"
     config = {
@@ -796,8 +774,7 @@ def load_dataset(name: str) -> Dict:
         wl = np.arange(X.shape[1])
     return {"name": name, "X": X, "wl": wl}
 
-
-def load_all_datasets() -> List[Dict]:
+def load_all_datasets() -> list[dict]:
     """Load all datasets."""
     datasets = []
     for name in DATASET_NAMES:
@@ -808,13 +785,11 @@ def load_all_datasets() -> List[Dict]:
             print(f"  Warning: Could not load {name}: {e}")
     return datasets
 
-
 # =============================================================================
 # EXPERIMENT RUNNER
 # =============================================================================
 
-
-def run_experiment() -> Tuple[List[IdentificationResult], float]:
+def run_experiment() -> tuple[list[IdentificationResult], float]:
     """Run identification on all datasets and return results with accuracy."""
     print("Loading datasets...")
     datasets = load_all_datasets()
@@ -876,8 +851,7 @@ def run_experiment() -> Tuple[List[IdentificationResult], float]:
 
     return results, accuracy
 
-
-def print_detailed_results(results: List[IdentificationResult]):
+def print_detailed_results(results: list[IdentificationResult]):
     """Print detailed scoring for each dataset."""
     print("\n" + "=" * 100)
     print("DETAILED CATEGORY SCORES")
@@ -888,7 +862,7 @@ def print_detailed_results(results: List[IdentificationResult]):
         print(f"  Preprocessing: {result.preprocessing_type}")
         print(f"  WL range: {result.wavelength_range[0]:.0f}-{result.wavelength_range[1]:.0f} nm")
         print(f"  Detected peaks: {len(result.detected_peaks)}")
-        print(f"\n  Top 5 categories:")
+        print("\n  Top 5 categories:")
         print(f"  {'Category':<18} {'Total':<10} {'Diag':<10} {'Comp':<10} {'#Match':<8} {'#Excl'}")
         print(f"  {'-'*70}")
 
@@ -903,14 +877,12 @@ def print_detailed_results(results: List[IdentificationResult]):
         top = result.category_scores[0]
         if top.matched_bands:
             print(f"\n  Diagnostic bands matched for '{top.category}':")
-            for band_center, desc in top.matched_bands:
+            for _band_center, desc in top.matched_bands:
                 print(f"    - {desc}")
-
 
 # =============================================================================
 # MAIN
 # =============================================================================
-
 
 def main():
     """Main entry point."""
@@ -967,7 +939,6 @@ def main():
                 f"predicted '{result.predicted_category}', "
                 f"expected '{result.expected_category}'{conf_note}{limit_note}"
             )
-
 
 if __name__ == "__main__":
     main()

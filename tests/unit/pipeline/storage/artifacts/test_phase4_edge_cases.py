@@ -9,17 +9,18 @@ Tests cover all edge cases from Section 1.2 of ARTIFACT_SYSTEM_V3_DESIGN.md:
 - Bundle import with chain merging
 """
 
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from nirs4all.pipeline.storage.artifacts.operator_chain import (
-    OperatorNode,
     OperatorChain,
+    OperatorNode,
     compute_chain_hash,
     generate_artifact_id_v3,
-    parse_artifact_id_v3,
     is_v3_artifact_id,
+    parse_artifact_id_v3,
 )
 
 
@@ -109,7 +110,6 @@ class TestOperatorChainMerging:
         assert merged.nodes[0].operator_class == "PLS"
         assert merged.pipeline_id == "parent"
 
-
 class TestOperatorChainRemap:
     """Tests for chain step remapping."""
 
@@ -147,7 +147,6 @@ class TestOperatorChainRemap:
         assert remapped.nodes[0].step_index == 10
         assert remapped.nodes[1].step_index == 3  # Unchanged
 
-
 class TestOperatorChainWithPipelineId:
     """Tests for with_pipeline_id method."""
 
@@ -163,7 +162,6 @@ class TestOperatorChainWithPipelineId:
         assert new_chain.pipeline_id == "new_pipeline"
         assert chain.pipeline_id == "old_pipeline"  # Original unchanged
         assert len(new_chain.nodes) == 1
-
 
 class TestMultiSourceChains:
     """Tests for multi-source artifact chain handling."""
@@ -206,7 +204,6 @@ class TestMultiSourceChains:
         assert len(filtered.nodes) == 2
         assert filtered.nodes[0].source_index == 1
         assert filtered.nodes[1].source_index is None  # Included
-
 
 class TestBranchingChains:
     """Tests for branching pipeline chain handling."""
@@ -275,7 +272,6 @@ class TestBranchingChains:
         classes = [n.operator_class for n in filtered.nodes]
         assert "C" not in classes  # C is [0,1], not matching
 
-
 class TestSubpipelineModels:
     """Tests for subpipeline model chains [model1, model2]."""
 
@@ -309,7 +305,6 @@ class TestSubpipelineModels:
         # Each should be unique
         assert len(set(paths)) == 2
         assert len(set(hashes)) == 2
-
 
 class TestMetaModelChains:
     """Tests for meta-model stacking chains."""
@@ -358,7 +353,6 @@ class TestMetaModelChains:
         )
 
         assert len(chain.nodes) == 2
-
 
 class TestChainDeterminism:
     """Tests for chain determinism."""
@@ -418,7 +412,6 @@ class TestChainDeterminism:
 
         assert chain1.to_hash() != chain2.to_hash()
 
-
 class TestOperatorNodeFromKey:
     """Tests for OperatorNode.from_key parsing."""
 
@@ -464,7 +457,6 @@ class TestOperatorNodeFromKey:
         assert node.branch_path == [0]
         assert node.source_index == 1
         assert node.substep_index == 2
-
 
 class TestOperatorChainFromPath:
     """Tests for OperatorChain.from_path parsing."""
@@ -519,7 +511,6 @@ class TestOperatorChainFromPath:
             assert orig.branch_path == rest.branch_path
             assert orig.source_index == rest.source_index
             assert orig.substep_index == rest.substep_index
-
 
 class TestArtifactIdV3Generation:
     """Tests for V3 artifact ID generation."""

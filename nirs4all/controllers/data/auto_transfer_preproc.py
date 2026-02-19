@@ -27,9 +27,10 @@ Usage in pipeline:
     ]
 """
 
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
-import numpy as np
 from copy import deepcopy
+from typing import TYPE_CHECKING, Any, Optional
+
+import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
@@ -38,10 +39,9 @@ from nirs4all.core.logging import get_logger
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
     from nirs4all.pipeline.steps.parser import ParsedStep
-
 
 @register_controller
 class AutoTransferPreprocessingController(OperatorController):
@@ -147,9 +147,9 @@ class AutoTransferPreprocessingController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None,
-    ) -> Tuple["ExecutionContext", List[Tuple[str, Any]]]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None,
+    ) -> tuple["ExecutionContext", list[tuple[str, Any]]]:
         """
         Execute auto transfer preprocessing selection.
 
@@ -188,7 +188,7 @@ class AutoTransferPreprocessingController(OperatorController):
             config, dataset, context, runtime_context, source
         )
 
-    def _parse_config(self, config: Any) -> Dict[str, Any]:
+    def _parse_config(self, config: Any) -> dict[str, Any]:
         """
         Parse and normalize the auto_transfer_preproc configuration.
 
@@ -198,9 +198,7 @@ class AutoTransferPreprocessingController(OperatorController):
         Returns:
             Normalized configuration dictionary with defaults.
         """
-        if config is None:
-            config = {}
-        elif not isinstance(config, dict):
+        if config is None or not isinstance(config, dict):
             config = {}
 
         defaults = {
@@ -232,12 +230,12 @@ class AutoTransferPreprocessingController(OperatorController):
 
     def _execute_train_mode(
         self,
-        config: Dict[str, Any],
+        config: dict[str, Any],
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
         source: int = -1,
-    ) -> Tuple["ExecutionContext", List[Tuple[str, Any]]]:
+    ) -> tuple["ExecutionContext", list[tuple[str, Any]]]:
         """
         Execute in train mode: run selection and apply recommendation.
 
@@ -323,13 +321,13 @@ class AutoTransferPreprocessingController(OperatorController):
 
     def _execute_predict_mode(
         self,
-        config: Dict[str, Any],
+        config: dict[str, Any],
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
         source: int = -1,
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-    ) -> Tuple["ExecutionContext", List[Tuple[str, Any]]]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+    ) -> tuple["ExecutionContext", list[tuple[str, Any]]]:
         """
         Execute in predict mode: load and apply saved recommendation.
 
@@ -383,7 +381,7 @@ class AutoTransferPreprocessingController(OperatorController):
 
         return context, artifacts
 
-    def _build_selector_kwargs(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_selector_kwargs(self, config: dict[str, Any]) -> dict[str, Any]:
         """
         Build kwargs for TransferPreprocessingSelector from config.
 
@@ -426,7 +424,7 @@ class AutoTransferPreprocessingController(OperatorController):
         context: "ExecutionContext",
         partition: str,
         source: int = -1,
-    ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    ) -> tuple[np.ndarray, np.ndarray | None]:
         """
         Extract X and y data from a specific partition.
 
@@ -448,10 +446,7 @@ class AutoTransferPreprocessingController(OperatorController):
         if isinstance(X, list) and len(X) > 0:
             # If multiple sources, use first or specified source
             src_idx = 0 if source < 0 else source
-            if src_idx < len(X):
-                X = X[src_idx]
-            else:
-                X = X[0]
+            X = X[src_idx] if src_idx < len(X) else X[0]
 
         # Ensure 2D
         X = np.atleast_2d(X)
@@ -477,7 +472,7 @@ class AutoTransferPreprocessingController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train"
-    ) -> Tuple["ExecutionContext", List[Tuple[str, Any]]]:
+    ) -> tuple["ExecutionContext", list[tuple[str, Any]]]:
         """
         Apply the recommended preprocessing to the dataset.
 
@@ -548,13 +543,13 @@ class AutoTransferPreprocessingController(OperatorController):
     def _apply_stacked_preprocessing(
         self,
         pp_name: str,
-        preprocessings: Dict[str, Any],
+        preprocessings: dict[str, Any],
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-    ) -> Tuple["ExecutionContext", List[Tuple[str, Any]]]:
+    ) -> tuple["ExecutionContext", list[tuple[str, Any]]]:
         """
         Apply a stacked preprocessing (e.g., "snv>d1") to the dataset.
 
@@ -639,14 +634,14 @@ class AutoTransferPreprocessingController(OperatorController):
 
     def _apply_feature_augmentation(
         self,
-        pp_list: List[str],
-        preprocessings: Dict[str, Any],
+        pp_list: list[str],
+        preprocessings: dict[str, Any],
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-    ) -> Tuple["ExecutionContext", List[Tuple[str, Any]]]:
+    ) -> tuple["ExecutionContext", list[tuple[str, Any]]]:
         """
         Apply feature augmentation (concatenate multiple preprocessing outputs).
 

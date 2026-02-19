@@ -14,14 +14,13 @@ import io
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 
 from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
-
 
 @dataclass
 class DetectionResult:
@@ -44,14 +43,14 @@ class DetectionResult:
     decimal_separator: str = "."
     has_header: bool = True
     header_unit: str = "cm-1"
-    signal_type: Optional[str] = None
+    signal_type: str | None = None
     encoding: str = "utf-8"
     n_columns: int = 0
     n_rows: int = 0
-    confidence: Dict[str, float] = field(default_factory=dict)
-    warnings: List[str] = field(default_factory=list)
+    confidence: dict[str, float] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
 
-    def to_params(self) -> Dict[str, Any]:
+    def to_params(self) -> dict[str, Any]:
         """Convert to loading parameters dictionary."""
         return {
             "delimiter": self.delimiter,
@@ -61,7 +60,6 @@ class DetectionResult:
             "signal_type": self.signal_type,
             "encoding": self.encoding,
         }
-
 
 class AutoDetector:
     """Auto-detect file parameters.
@@ -138,8 +136,8 @@ class AutoDetector:
 
     def detect(
         self,
-        source: Union[str, Path, bytes, io.StringIO],
-        known_params: Optional[Dict[str, Any]] = None,
+        source: str | Path | bytes | io.StringIO,
+        known_params: dict[str, Any] | None = None,
     ) -> DetectionResult:
         """Detect file parameters.
 
@@ -241,8 +239,8 @@ class AutoDetector:
 
     def _read_content(
         self,
-        source: Union[str, Path, bytes, io.StringIO]
-    ) -> Tuple[str, str]:
+        source: str | Path | bytes | io.StringIO
+    ) -> tuple[str, str]:
         """Read content from source.
 
         Args:
@@ -287,16 +285,16 @@ class AutoDetector:
         # Try encodings
         for encoding in ["utf-8", "latin-1", "cp1252"]:
             try:
-                with open(path, "r", encoding=encoding) as f:
+                with open(path, encoding=encoding) as f:
                     return f.read(), encoding
             except UnicodeDecodeError:
                 continue
 
         # Fallback
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             return f.read(), "utf-8"
 
-    def _get_sample_lines(self, content: str) -> List[str]:
+    def _get_sample_lines(self, content: str) -> list[str]:
         """Get sample lines from content.
 
         Args:
@@ -314,7 +312,7 @@ class AutoDetector:
                 lines.append(line)
         return lines
 
-    def _parse_lines(self, lines: List[str], delimiter: str) -> List[List[str]]:
+    def _parse_lines(self, lines: list[str], delimiter: str) -> list[list[str]]:
         """Parse lines with delimiter.
 
         Args:
@@ -328,7 +326,7 @@ class AutoDetector:
         reader = csv.reader(io.StringIO(content), delimiter=delimiter)
         return [row for row in reader if any(cell.strip() for cell in row)]
 
-    def _detect_delimiter(self, lines: List[str]) -> Tuple[str, float]:
+    def _detect_delimiter(self, lines: list[str]) -> tuple[str, float]:
         """Detect the field delimiter.
 
         Args:
@@ -349,7 +347,7 @@ class AutoDetector:
         confidence = min(max_score / 10, 1.0)  # Normalize score to confidence
         return best_delim, confidence
 
-    def _score_delimiter(self, lines: List[str], delim: str) -> float:
+    def _score_delimiter(self, lines: list[str], delim: str) -> float:
         """Score a delimiter based on consistency.
 
         Args:
@@ -388,8 +386,8 @@ class AutoDetector:
 
     def _detect_decimal_separator(
         self,
-        parsed_rows: List[List[str]]
-    ) -> Tuple[str, float]:
+        parsed_rows: list[list[str]]
+    ) -> tuple[str, float]:
         """Detect the decimal separator.
 
         Args:
@@ -436,9 +434,9 @@ class AutoDetector:
 
     def _detect_header(
         self,
-        parsed_rows: List[List[str]],
+        parsed_rows: list[list[str]],
         decimal_sep: str
-    ) -> Tuple[bool, float]:
+    ) -> tuple[bool, float]:
         """Detect if file has a header row.
 
         Args:
@@ -493,10 +491,10 @@ class AutoDetector:
 
     def _detect_wavelength_header(
         self,
-        first_row: List[str],
-        data_rows: List[List[str]],
+        first_row: list[str],
+        data_rows: list[list[str]],
         decimal_sep: str
-    ) -> Tuple[bool, float]:
+    ) -> tuple[bool, float]:
         """Detect if first row is a wavelength header (nm or cm-1).
 
         Wavelength headers are recognized by:
@@ -611,7 +609,7 @@ class AutoDetector:
         except ValueError:
             return False
 
-    def _detect_header_unit(self, header_row: List[str]) -> Tuple[str, float]:
+    def _detect_header_unit(self, header_row: list[str]) -> tuple[str, float]:
         """Detect the unit type from header values.
 
         Args:
@@ -620,7 +618,7 @@ class AutoDetector:
         Returns:
             Tuple of (unit_type, confidence).
         """
-        scores = {unit: 0 for unit in self.HEADER_PATTERNS}
+        scores = dict.fromkeys(self.HEADER_PATTERNS, 0)
 
         for cell in header_row:
             cell = cell.strip()
@@ -669,9 +667,9 @@ class AutoDetector:
 
     def _detect_header_unit_from_data(
         self,
-        first_row: List[str],
+        first_row: list[str],
         decimal_sep: str
-    ) -> Tuple[str, float]:
+    ) -> tuple[str, float]:
         """Detect header unit from first data row when no header is present.
 
         If the columns represent wavelengths (wavelength-per-column layout),
@@ -713,8 +711,8 @@ class AutoDetector:
 
     def _detect_signal_type_from_header(
         self,
-        header_row: List[str]
-    ) -> Tuple[Optional[str], float]:
+        header_row: list[str]
+    ) -> tuple[str | None, float]:
         """Detect signal type from header content.
 
         Args:
@@ -734,9 +732,9 @@ class AutoDetector:
 
     def _detect_signal_type_from_values(
         self,
-        data_rows: List[List[str]],
+        data_rows: list[list[str]],
         decimal_sep: str
-    ) -> Tuple[Optional[str], float]:
+    ) -> tuple[str | None, float]:
         """Detect signal type from data values.
 
         Args:
@@ -774,10 +772,9 @@ class AutoDetector:
 
         return None, 0.0
 
-
 def detect_file_parameters(
-    source: Union[str, Path, bytes],
-    known_params: Optional[Dict[str, Any]] = None,
+    source: str | Path | bytes,
+    known_params: dict[str, Any] | None = None,
     sample_lines: int = 50,
 ) -> DetectionResult:
     """Convenience function to detect file parameters.
@@ -793,11 +790,10 @@ def detect_file_parameters(
     detector = AutoDetector(sample_lines=sample_lines)
     return detector.detect(source, known_params)
 
-
 def detect_signal_type(
-    header: Optional[List[str]] = None,
-    data: Optional[np.ndarray] = None,
-) -> Tuple[Optional[str], float]:
+    header: list[str] | None = None,
+    data: np.ndarray | None = None,
+) -> tuple[str | None, float]:
     """Detect signal type from header and/or data.
 
     Args:

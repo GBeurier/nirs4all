@@ -9,6 +9,7 @@ for cross-validation.
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 
+
 def _check_ikpls_available():
     """Check if ikpls package is available."""
     try:

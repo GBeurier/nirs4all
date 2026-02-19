@@ -5,12 +5,13 @@ Tests the ExecutionTrace, ExecutionStep, and StepArtifacts classes
 for recording and replaying pipeline execution traces.
 """
 
-import pytest
 from datetime import datetime
 
+import pytest
+
 from nirs4all.pipeline.trace import (
-    ExecutionTrace,
     ExecutionStep,
+    ExecutionTrace,
     StepArtifacts,
     StepExecutionMode,
 )
@@ -99,7 +100,6 @@ class TestStepArtifacts:
         assert restored.fold_artifact_ids == original.fold_artifact_ids
         assert restored.metadata == original.metadata
 
-
 class TestExecutionStep:
     """Tests for ExecutionStep dataclass."""
 
@@ -170,7 +170,6 @@ class TestExecutionStep:
         assert step.operator_class == "StandardNormalVariate"
         assert step.execution_mode == StepExecutionMode.PREDICT
         assert "0001:2:all" in step.artifacts.artifact_ids
-
 
 class TestExecutionTrace:
     """Tests for ExecutionTrace dataclass."""
@@ -396,7 +395,6 @@ class TestExecutionTrace:
         assert "ExecutionTrace" in repr_str
         assert "test" in repr_str
         assert "steps=1" in repr_str
-
 
 class TestStepExecutionMode:
     """Tests for StepExecutionMode enum."""

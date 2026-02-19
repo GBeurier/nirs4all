@@ -5,18 +5,19 @@ This test suite validates the modular architecture of FeatureSource
 using component-based design.
 """
 
-import pytest
 import numpy as np
+import pytest
+
 from nirs4all.data._features import (
-    FeatureSource,
-    FeatureLayout,
-    HeaderUnit,
-    normalize_layout,
-    normalize_header_unit,
     ArrayStorage,
-    ProcessingManager,
+    FeatureLayout,
+    FeatureSource,
     HeaderManager,
+    HeaderUnit,
     LayoutTransformer,
+    ProcessingManager,
+    normalize_header_unit,
+    normalize_layout,
 )
 
 
@@ -68,7 +69,6 @@ class TestFeatureConstants:
         with pytest.raises(ValueError, match="Invalid header unit"):
             normalize_header_unit("invalid_unit")
 
-
 class TestArrayStorage:
     """Test ArrayStorage component."""
 
@@ -109,7 +109,6 @@ class TestArrayStorage:
         storage.resize_features(8)
         assert storage.num_features == 8
 
-
 class TestProcessingManager:
     """Test ProcessingManager component."""
 
@@ -145,7 +144,6 @@ class TestProcessingManager:
         with pytest.raises(ValueError, match="already exists"):
             mgr.add_processing("msc")
 
-
 class TestHeaderManager:
     """Test HeaderManager component."""
 
@@ -171,7 +169,6 @@ class TestHeaderManager:
         mgr.clear_headers()
 
         assert mgr.headers is None
-
 
 class TestLayoutTransformer:
     """Test LayoutTransformer component."""
@@ -213,7 +210,6 @@ class TestLayoutTransformer:
         """Test creating empty array for 3D layout."""
         result = LayoutTransformer.get_empty_array("3d", 3, 5)
         assert result.shape == (0, 3, 5)
-
 
 class TestFeatureSourceIntegration:
     """Integration tests for refactored FeatureSource."""
@@ -321,7 +317,6 @@ class TestFeatureSourceIntegration:
         source.set_headers(headers, unit="none")
         assert source.header_unit == "none"
 
-
 class TestFeatureSourceEdgeCases:
     """Test edge cases and error conditions."""
 
@@ -354,7 +349,6 @@ class TestFeatureSourceEdgeCases:
         # Try to add processing with different feature dimension
         with pytest.raises(ValueError, match="Feature dimension mismatch"):
             source.update_features([""], [np.random.rand(10, 8)], ["wrong_dim"])
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

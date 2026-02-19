@@ -14,17 +14,17 @@ import numpy as np
 import pytest
 
 from nirs4all.synthesis.measurement_modes import (
-    MeasurementMode,
-    TransmittanceConfig,
-    ReflectanceConfig,
-    TransflectanceConfig,
     ATRConfig,
-    ScatteringConfig,
+    MeasurementMode,
     MeasurementModeConfig,
     MeasurementModeSimulator,
-    create_transmittance_simulator,
-    create_reflectance_simulator,
+    ReflectanceConfig,
+    ScatteringConfig,
+    TransflectanceConfig,
+    TransmittanceConfig,
     create_atr_simulator,
+    create_reflectance_simulator,
+    create_transmittance_simulator,
 )
 
 
@@ -47,7 +47,6 @@ class TestMeasurementModeEnum:
         mode = MeasurementMode("reflectance")
         assert mode == MeasurementMode.REFLECTANCE
 
-
 class TestTransmittanceConfig:
     """Tests for TransmittanceConfig dataclass."""
 
@@ -68,7 +67,6 @@ class TestTransmittanceConfig:
         assert config.path_length_mm == 2.0
         assert config.path_length_variation == 0.05
         assert config.cuvette_material == "quartz"
-
 
 class TestReflectanceConfig:
     """Tests for ReflectanceConfig dataclass."""
@@ -91,7 +89,6 @@ class TestReflectanceConfig:
         assert config.reference_material == "ptfe"
         assert config.reference_reflectance == 0.98
 
-
 class TestTransflectanceConfig:
     """Tests for TransflectanceConfig dataclass."""
 
@@ -109,7 +106,6 @@ class TestTransflectanceConfig:
         )
         # Light passes through sample twice
         assert config.path_length_mm > 0
-
 
 class TestATRConfig:
     """Tests for ATRConfig dataclass."""
@@ -144,7 +140,6 @@ class TestATRConfig:
         # At typical NIR, depth is on order of micrometers
         assert config.crystal_refractive_index > 1.0
 
-
 class TestScatteringConfig:
     """Tests for ScatteringConfig dataclass."""
 
@@ -164,7 +159,6 @@ class TestScatteringConfig:
             wavelength_exponent=1.5,
         )
         assert config.wavelength_exponent == 1.5
-
 
 class TestMeasurementModeSimulator:
     """Tests for MeasurementModeSimulator class."""
@@ -250,7 +244,6 @@ class TestMeasurementModeSimulator:
         # Results should differ
         assert not np.allclose(result1, result2)
 
-
 class TestFactoryFunctions:
     """Tests for simulator factory functions."""
 
@@ -277,7 +270,6 @@ class TestFactoryFunctions:
             random_state=42,
         )
         assert simulator.config.mode == MeasurementMode.ATR
-
 
 class TestMeasurementModePhysics:
     """Tests for physical correctness of measurement mode simulations."""

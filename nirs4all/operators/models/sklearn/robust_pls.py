@@ -36,7 +36,6 @@ def _check_jax_available():
     except ImportError:
         return False
 
-
 # =============================================================================
 # Robust Weight Functions
 # =============================================================================
@@ -68,7 +67,6 @@ def _huber_weights(
     weights = np.where(abs_r <= c, 1.0, c / abs_r_safe)
     return weights
 
-
 def _tukey_weights(
     residuals: NDArray[np.floating],
     c: float = 4.685,
@@ -94,7 +92,6 @@ def _tukey_weights(
     weights = np.where(abs_r <= c, (1 - (residuals / c) ** 2) ** 2, 0.0)
     return weights
 
-
 def _mad_scale(x: NDArray[np.floating]) -> float:
     """Compute robust scale estimate using Median Absolute Deviation.
 
@@ -110,7 +107,6 @@ def _mad_scale(x: NDArray[np.floating]) -> float:
     """
     mad = median_abs_deviation(x, scale='normal')
     return float(max(mad, 1e-10))  # Avoid division by zero
-
 
 # =============================================================================
 # Weighted SIMPLS (shared NumPy implementation)
@@ -241,7 +237,6 @@ def _weighted_simpls_fit(
 
     return T, U, W, P, Q, R, B
 
-
 def _compute_irls_weights(
     X: NDArray[np.floating],
     Y: NDArray[np.floating],
@@ -291,7 +286,7 @@ def _compute_irls_weights(
     sample_weights = np.ones(n_samples, dtype=np.float64)
     prev_weights = sample_weights.copy()
 
-    for iteration in range(max_iter):
+    for _ in range(max_iter):
         # Fit weighted SIMPLS
         _, _, W_mat, P_mat, Q_mat, _, _ = _weighted_simpls_fit(
             X, Y, n_components, sample_weights
@@ -311,10 +306,7 @@ def _compute_irls_weights(
         residuals = Y - Y_pred  # (n_samples, n_targets)
 
         # Compute combined residuals (handle multivariate Y)
-        if n_targets > 1:
-            res_combined = np.sqrt(np.sum(residuals ** 2, axis=1))
-        else:
-            res_combined = residuals.ravel()
+        res_combined = np.sqrt(np.sum(residuals ** 2, axis=1)) if n_targets > 1 else residuals.ravel()
 
         # Robust scale estimate
         scale = _mad_scale(res_combined)
@@ -340,7 +332,6 @@ def _compute_irls_weights(
         prev_weights = sample_weights.copy()
 
     return sample_weights
-
 
 # =============================================================================
 # JAX Backend Implementation
@@ -490,10 +481,8 @@ def _get_jax_robust_pls_functions():
 
     return weighted_simpls_fit_jax, robust_pls_predict_jax
 
-
 # Cache for JAX functions
 _JAX_ROBUST_PLS_FUNCS = None
-
 
 def _get_cached_jax_robust_pls():
     """Get cached JAX Robust PLS functions."""
@@ -501,7 +490,6 @@ def _get_cached_jax_robust_pls():
     if _JAX_ROBUST_PLS_FUNCS is None:
         _JAX_ROBUST_PLS_FUNCS = _get_jax_robust_pls_functions()
     return _JAX_ROBUST_PLS_FUNCS
-
 
 # =============================================================================
 # RobustPLS Estimator Class
@@ -656,7 +644,7 @@ class RobustPLS(BaseEstimator, RegressorMixin):
         self,
         X: ArrayLike,
         y: ArrayLike,
-    ) -> "RobustPLS":
+    ) -> RobustPLS:
         """Fit the Robust PLS model.
 
         Parameters
@@ -792,7 +780,7 @@ class RobustPLS(BaseEstimator, RegressorMixin):
     def predict(
         self,
         X: ArrayLike,
-        n_components: Union[int, None] = None,
+        n_components: int | None = None,
     ) -> NDArray[np.floating]:
         """Predict using the Robust PLS model.
 
@@ -813,10 +801,7 @@ class RobustPLS(BaseEstimator, RegressorMixin):
 
         X = np.asarray(X, dtype=np.float64)
 
-        if n_components is None:
-            n_components = self.n_components_
-        else:
-            n_components = min(n_components, self.n_components_)
+        n_components = self.n_components_ if n_components is None else min(n_components, self.n_components_)
 
         if self.backend == 'jax':
             import jax.numpy as jnp
@@ -918,7 +903,7 @@ class RobustPLS(BaseEstimator, RegressorMixin):
             'backend': self.backend,
         }
 
-    def set_params(self, **params) -> "RobustPLS":
+    def set_params(self, **params) -> RobustPLS:
         """Set the parameters of this estimator.
 
         Parameters

@@ -11,21 +11,19 @@ dataset-specific transforms to match observed data.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import numpy as np
+from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import savgol_filter
-from scipy.interpolate import interp1d
 
 if TYPE_CHECKING:
     from .environmental import EnvironmentalEffectsModel
 
-
 # =============================================================================
 # Canonical Forward Model
 # =============================================================================
-
 
 @dataclass
 class CanonicalForwardModel:
@@ -49,12 +47,12 @@ class CanonicalForwardModel:
     """
 
     canonical_grid: np.ndarray
-    component_names: List[str] = field(default_factory=list)
+    component_names: list[str] = field(default_factory=list)
     baseline_order: int = 5
     continuum_order: int = 3
-    _component_spectra: Optional[np.ndarray] = field(default=None, repr=False)
-    _baseline_basis: Optional[np.ndarray] = field(default=None, repr=False)
-    _continuum_basis: Optional[np.ndarray] = field(default=None, repr=False)
+    _component_spectra: np.ndarray | None = field(default=None, repr=False)
+    _baseline_basis: np.ndarray | None = field(default=None, repr=False)
+    _continuum_basis: np.ndarray | None = field(default=None, repr=False)
 
     def __post_init__(self):
         """Initialize component spectra and basis matrices."""
@@ -109,8 +107,8 @@ class CanonicalForwardModel:
         self,
         concentrations: np.ndarray,
         path_length: float = 1.0,
-        baseline_coeffs: Optional[np.ndarray] = None,
-        continuum_coeffs: Optional[np.ndarray] = None,
+        baseline_coeffs: np.ndarray | None = None,
+        continuum_coeffs: np.ndarray | None = None,
     ) -> np.ndarray:
         """
         Compute absorption coefficient on canonical grid.
@@ -127,10 +125,7 @@ class CanonicalForwardModel:
         n_wl = len(self.canonical_grid)
 
         # Component contribution: A = L * Σ c_k * ε_k(λ)
-        if self._component_spectra is not None and len(concentrations) > 0:
-            absorption = path_length * (concentrations @ self._component_spectra)
-        else:
-            absorption = np.zeros(n_wl)
+        absorption = path_length * (concentrations @ self._component_spectra) if self._component_spectra is not None and len(concentrations) > 0 else np.zeros(n_wl)
 
         # Add baseline
         if baseline_coeffs is not None and self._baseline_basis is not None:
@@ -187,11 +182,9 @@ class CanonicalForwardModel:
         """Total number of linear parameters."""
         return self.n_components + self.n_baseline + self.n_continuum
 
-
 # =============================================================================
 # Instrument Model
 # =============================================================================
-
 
 @dataclass
 class InstrumentModel:
@@ -218,7 +211,7 @@ class InstrumentModel:
     target_grid: np.ndarray
     wl_shift: float = 0.0
     wl_stretch: float = 1.0
-    wl_poly_coeffs: Optional[np.ndarray] = None
+    wl_poly_coeffs: np.ndarray | None = None
     ils_sigma: float = 4.0
     stray_light: float = 0.0
     gain: float = 1.0
@@ -320,8 +313,8 @@ class InstrumentModel:
     def from_params(
         cls,
         target_grid: np.ndarray,
-        params: Dict[str, float],
-    ) -> "InstrumentModel":
+        params: dict[str, float],
+    ) -> InstrumentModel:
         """Create InstrumentModel from parameter dictionary."""
         return cls(
             target_grid=target_grid,
@@ -333,11 +326,9 @@ class InstrumentModel:
             offset=params.get("offset", 0.0),
         )
 
-
 # =============================================================================
 # Domain Transform
 # =============================================================================
-
 
 @dataclass
 class DomainTransform:
@@ -354,14 +345,14 @@ class DomainTransform:
     """
 
     domain: Literal["absorbance", "reflectance", "transmittance", "km"] = "absorbance"
-    scatter_coeffs: Optional[np.ndarray] = None
+    scatter_coeffs: np.ndarray | None = None
     scatter_wavelength_exp: float = 0.0  # For wavelength-dependent scatter
 
     def transform(
         self,
         absorption: np.ndarray,
         wavelengths: np.ndarray,
-        scatter: Optional[np.ndarray] = None,
+        scatter: np.ndarray | None = None,
     ) -> np.ndarray:
         """
         Transform absorption to target domain.
@@ -423,7 +414,7 @@ class DomainTransform:
         self,
         spectrum: np.ndarray,
         wavelengths: np.ndarray,
-        scatter: Optional[np.ndarray] = None,
+        scatter: np.ndarray | None = None,
     ) -> np.ndarray:
         """
         Inverse transform from domain to absorption.
@@ -480,11 +471,9 @@ class DomainTransform:
 
         return np.maximum(S, 1e-6)
 
-
 # =============================================================================
 # Preprocessing Operator
 # =============================================================================
-
 
 @dataclass
 class PreprocessingOperator:
@@ -513,7 +502,7 @@ class PreprocessingOperator:
     sg_window: int = 15
     sg_polyorder: int = 2
     sg_deriv: int = 0
-    reference_spectrum: Optional[np.ndarray] = None
+    reference_spectrum: np.ndarray | None = None
 
     def apply(self, spectrum: np.ndarray) -> np.ndarray:
         """
@@ -555,10 +544,7 @@ class PreprocessingOperator:
             result = (spectrum - means) / stds
 
         elif self.preprocessing_type == "msc":
-            if self.reference_spectrum is None:
-                ref = spectrum.mean(axis=0)
-            else:
-                ref = self.reference_spectrum
+            ref = spectrum.mean(axis=0) if self.reference_spectrum is None else self.reference_spectrum
 
             for i in range(spectrum.shape[0]):
                 # Linear fit: spectrum[i] = a * ref + b
@@ -588,7 +574,7 @@ class PreprocessingOperator:
         preprocessing_type: str,
         sg_window: int = 15,
         sg_polyorder: int = 2,
-    ) -> "PreprocessingOperator":
+    ) -> PreprocessingOperator:
         """Create PreprocessingOperator from detected preprocessing type."""
         type_map = {
             "raw_absorbance": "none",
@@ -607,11 +593,9 @@ class PreprocessingOperator:
             sg_polyorder=sg_polyorder,
         )
 
-
 # =============================================================================
 # Forward Chain
 # =============================================================================
-
 
 @dataclass
 class ForwardChain:
@@ -632,15 +616,15 @@ class ForwardChain:
     instrument_model: InstrumentModel
     domain_transform: DomainTransform
     preprocessing: PreprocessingOperator
-    environmental_model: Optional["EnvironmentalEffectsModel"] = None
+    environmental_model: EnvironmentalEffectsModel | None = None
 
     def forward(
         self,
         concentrations: np.ndarray,
         path_length: float = 1.0,
-        baseline_coeffs: Optional[np.ndarray] = None,
-        continuum_coeffs: Optional[np.ndarray] = None,
-        scatter: Optional[np.ndarray] = None,
+        baseline_coeffs: np.ndarray | None = None,
+        continuum_coeffs: np.ndarray | None = None,
+        scatter: np.ndarray | None = None,
     ) -> np.ndarray:
         """
         Run full forward chain.
@@ -721,16 +705,16 @@ class ForwardChain:
         cls,
         canonical_grid: np.ndarray,
         target_grid: np.ndarray,
-        component_names: List[str],
+        component_names: list[str],
         domain: str = "absorbance",
         preprocessing_type: str = "none",
-        instrument_params: Optional[Dict[str, float]] = None,
+        instrument_params: dict[str, float] | None = None,
         baseline_order: int = 5,
         continuum_order: int = 3,
         sg_window: int = 15,
         sg_polyorder: int = 2,
         include_environmental: bool = False,
-    ) -> "ForwardChain":
+    ) -> ForwardChain:
         """
         Convenience factory method to create ForwardChain.
 

@@ -1,6 +1,7 @@
 """Unit tests for stack_params helper function."""
 
 import pytest
+
 from nirs4all.optimization.optuna import stack_params
 
 

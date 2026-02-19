@@ -324,7 +324,6 @@ GET_CHAIN_PREDICTIONS = """
 SELECT * FROM predictions WHERE chain_id = $1
 """
 
-
 def build_aggregated_query(
     *,
     run_id: str | None = None,
@@ -353,7 +352,6 @@ def build_aggregated_query(
         model_class=model_class,
         metric=metric,
     )
-
 
 def build_chain_predictions_query(
     *,
@@ -388,7 +386,6 @@ def build_chain_predictions_query(
     where = " WHERE " + " AND ".join(conditions)
     sql = f"SELECT * FROM predictions{where} ORDER BY partition, fold_id"
     return sql, params
-
 
 def build_top_aggregated_query(
     *,
@@ -425,7 +422,6 @@ def build_top_aggregated_query(
         dataset_name=dataset_name,
         model_class=model_class,
     )
-
 
 def build_prediction_query(
     *,
@@ -493,7 +489,6 @@ def build_prediction_query(
         idx += 1
 
     return base + where + order + pagination, params
-
 
 def build_top_predictions_query(
     *,
@@ -566,7 +561,6 @@ def build_top_predictions_query(
 
     return sql, params
 
-
 # =========================================================================
 # Chain summary query builders (v_chain_summary VIEW)
 # =========================================================================
@@ -579,7 +573,6 @@ _CHAIN_SUMMARY_COLUMNS: frozenset[str] = frozenset({
     "cv_scores", "final_test_score", "final_train_score", "final_scores",
     "run_id", "pipeline_status",
 })
-
 
 def build_chain_summary_query(
     *,
@@ -626,7 +619,6 @@ def build_chain_summary_query(
         where = " WHERE " + " AND ".join(conditions)
 
     return QUERY_CHAIN_SUMMARY_BASE + where, params
-
 
 def build_top_chains_query(
     *,

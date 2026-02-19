@@ -76,7 +76,7 @@ class POPPLSClassifier(BaseEstimator, ClassifierMixin):
         self.scale = scale
         self.auto_select = auto_select
 
-    def fit(self, X, y, X_val=None, y_val=None) -> "POPPLSClassifier":
+    def fit(self, X, y, X_val=None, y_val=None) -> POPPLSClassifier:
         """Fit the classifier.
 
         Parameters
@@ -111,10 +111,7 @@ class POPPLSClassifier(BaseEstimator, ClassifierMixin):
         y_val_encoded = None
         if y_val is not None:
             y_v = np.asarray(y_val).ravel()
-            if n_classes == 2:
-                y_val_encoded = self.encoder_.transform(y_v).astype(np.float64)
-            else:
-                y_val_encoded = self.encoder_.transform(y_v.reshape(-1, 1))
+            y_val_encoded = self.encoder_.transform(y_v).astype(np.float64) if n_classes == 2 else self.encoder_.transform(y_v.reshape(-1, 1))
 
         self.pop_ = POPPLSRegressor(
             n_components=self.n_components,
@@ -163,10 +160,7 @@ class POPPLSClassifier(BaseEstimator, ClassifierMixin):
         X = np.asarray(X, dtype=np.float64)
         y_raw = self.pop_.predict(X)
         if len(self.classes_) == 2:
-            if y_raw.ndim == 1:
-                p1 = np.clip(y_raw, 0, 1)
-            else:
-                p1 = np.clip(y_raw.ravel(), 0, 1)
+            p1 = np.clip(y_raw, 0, 1) if y_raw.ndim == 1 else np.clip(y_raw.ravel(), 0, 1)
             return np.column_stack([1.0 - p1, p1])
         else:
             # Softmax normalization for calibrated probabilities
@@ -195,7 +189,7 @@ class POPPLSClassifier(BaseEstimator, ClassifierMixin):
             "auto_select": self.auto_select,
         }
 
-    def set_params(self, **params) -> "POPPLSClassifier":
+    def set_params(self, **params) -> POPPLSClassifier:
         for key, value in params.items():
             setattr(self, key, value)
         return self

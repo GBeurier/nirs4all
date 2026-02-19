@@ -23,15 +23,15 @@ Usage:
 from __future__ import annotations
 
 import importlib.util
-from typing import Optional, Dict, Any, Callable, TypeVar
-
+from collections.abc import Callable
+from typing import Any, Optional, TypeVar
 
 # =============================================================================
 # Backend Registry and Detection
 # =============================================================================
 
 # Installation instructions for each backend
-_INSTALL_INSTRUCTIONS: Dict[str, str] = {
+_INSTALL_INSTRUCTIONS: dict[str, str] = {
     'tensorflow': 'pip install nirs4all[tensorflow] or pip install nirs4all[gpu]',
     'torch': 'pip install nirs4all[torch]',
     'pytorch': 'pip install nirs4all[torch]',  # Alias for torch
@@ -47,7 +47,7 @@ _INSTALL_INSTRUCTIONS: Dict[str, str] = {
 }
 
 # Package name mapping (when import name differs from pip name)
-_PACKAGE_MAPPING: Dict[str, str] = {
+_PACKAGE_MAPPING: dict[str, str] = {
     'tensorflow': 'tensorflow',
     'torch': 'torch',
     'pytorch': 'torch',  # 'pytorch' is an alias for 'torch' package
@@ -62,14 +62,12 @@ _PACKAGE_MAPPING: Dict[str, str] = {
     'ikpls': 'ikpls',
 }
 
-
 # =============================================================================
 # Cached Availability Detection (No Imports!)
 # =============================================================================
 
 # Cache for availability checks - None means not yet checked
-_availability_cache: Dict[str, Optional[bool]] = {}
-
+_availability_cache: dict[str, bool | None] = {}
 
 def _check_spec_available(module_name: str) -> bool:
     """Check if a module is available via importlib.util.find_spec.
@@ -87,7 +85,6 @@ def _check_spec_available(module_name: str) -> bool:
         return spec is not None
     except (ModuleNotFoundError, ValueError):
         return False
-
 
 def is_available(backend: str) -> bool:
     """Check if a backend is available without importing it.
@@ -112,12 +109,10 @@ def is_available(backend: str) -> bool:
 
     return _availability_cache[backend]
 
-
 def clear_availability_cache():
     """Clear the availability cache (useful for testing)."""
     _availability_cache.clear()
     _gpu_cache.clear()
-
 
 # =============================================================================
 # Legacy Compatibility - Module-level Constants (Lazy)
@@ -132,7 +127,7 @@ class _LazyAvailability:
 
     def __init__(self, backend: str):
         self._backend = backend
-        self._value: Optional[bool] = None
+        self._value: bool | None = None
 
     def __bool__(self) -> bool:
         if self._value is None:
@@ -148,14 +143,12 @@ class _LazyAvailability:
     def __hash__(self) -> int:
         return hash(bool(self))
 
-
 # These are now lazy - no import cost at module load
 TF_AVAILABLE = _LazyAvailability('tensorflow')
 TORCH_AVAILABLE = _LazyAvailability('torch')
 JAX_AVAILABLE = _LazyAvailability('jax')
 KERAS_AVAILABLE = _LazyAvailability('keras')
 IKPLS_AVAILABLE = _LazyAvailability('ikpls')
-
 
 # =============================================================================
 # Requirement Enforcement
@@ -167,27 +160,17 @@ class BackendNotAvailableError(ImportError):
     Provides helpful error messages with installation instructions.
     """
 
-    def __init__(self, backend: str, feature: Optional[str] = None):
+    def __init__(self, backend: str, feature: str | None = None):
         self.backend = backend
         self.feature = feature
 
         install_cmd = _INSTALL_INSTRUCTIONS.get(backend, f'pip install {backend}')
 
-        if feature:
-            message = (
-                f"The '{feature}' feature requires {backend}, which is not installed.\n"
-                f"Install it with: {install_cmd}"
-            )
-        else:
-            message = (
-                f"{backend} is not installed.\n"
-                f"Install it with: {install_cmd}"
-            )
+        message = f"The '{feature}' feature requires {backend}, which is not installed.\n" f"Install it with: {install_cmd}" if feature else f"{backend} is not installed.\n" f"Install it with: {install_cmd}"
 
         super().__init__(message)
 
-
-def require_backend(backend: str, feature: Optional[str] = None) -> None:
+def require_backend(backend: str, feature: str | None = None) -> None:
     """Require a backend to be available, raising a helpful error if not.
 
     Args:
@@ -204,7 +187,6 @@ def require_backend(backend: str, feature: Optional[str] = None) -> None:
     if not is_available(backend):
         raise BackendNotAvailableError(backend, feature)
 
-
 def check_backend_available(backend_name: str) -> None:
     """Check if a backend is available, raising ImportError if not.
 
@@ -219,13 +201,11 @@ def check_backend_available(backend_name: str) -> None:
     """
     require_backend(backend_name)
 
-
 # =============================================================================
 # Framework Decorator
 # =============================================================================
 
 F = TypeVar('F', bound=Callable)
-
 
 def framework(framework_name: str) -> Callable[[F], F]:
     """Decorator to mark a function/class with its framework.
@@ -249,15 +229,13 @@ def framework(framework_name: str) -> Callable[[F], F]:
         return func
     return decorator
 
-
 # =============================================================================
 # GPU Detection (Lazy)
 # =============================================================================
 
-_gpu_cache: Dict[str, Optional[bool]] = {}
+_gpu_cache: dict[str, bool | None] = {}
 
-
-def is_gpu_available(backend: Optional[str] = None) -> bool:
+def is_gpu_available(backend: str | None = None) -> bool:
     """Check if GPU is available for the specified backend or any backend.
 
     Results are cached for performance. The first call for each backend
@@ -280,12 +258,7 @@ def is_gpu_available(backend: Optional[str] = None) -> bool:
         return _check_gpu_for_backend(backend)
 
     # Check all available backends
-    for be in ['torch', 'tensorflow', 'jax']:
-        if is_available(be) and _check_gpu_for_backend(be):
-            return True
-
-    return False
-
+    return any(is_available(be) and _check_gpu_for_backend(be) for be in ['torch', 'tensorflow', 'jax'])
 
 def _check_gpu_for_backend(backend: str) -> bool:
     """Check GPU availability for a specific backend.
@@ -324,8 +297,7 @@ def _check_gpu_for_backend(backend: str) -> bool:
     _gpu_cache[backend] = result
     return result
 
-
-def get_gpu_info() -> Dict[str, Any]:
+def get_gpu_info() -> dict[str, Any]:
     """Get detailed GPU information for all available backends.
 
     Returns:
@@ -375,12 +347,11 @@ def get_gpu_info() -> Dict[str, Any]:
 
     return info
 
-
 # =============================================================================
 # Backend Info Summary
 # =============================================================================
 
-def get_backend_info() -> Dict[str, Dict[str, Any]]:
+def get_backend_info() -> dict[str, dict[str, Any]]:
     """Get comprehensive info about all backends.
 
     Returns:
@@ -408,7 +379,6 @@ def get_backend_info() -> Dict[str, Dict[str, Any]]:
 
     return info
 
-
 def print_backend_status():
     """Print a formatted summary of backend availability.
 
@@ -431,12 +401,11 @@ def print_backend_status():
 
     print("=" * 50 + "\n")
 
-
 # =============================================================================
 # Lazy Import Helpers
 # =============================================================================
 
-def lazy_import(module_name: str, backend: Optional[str] = None):
+def lazy_import(module_name: str, backend: str | None = None):
     """Create a lazy import that only loads the module when accessed.
 
     Args:
@@ -464,7 +433,6 @@ def lazy_import(module_name: str, backend: Optional[str] = None):
 
     return LazyModule()
 
-
 # =============================================================================
 # Compatibility Functions
 # =============================================================================
@@ -477,7 +445,6 @@ def is_tensorflow_available() -> bool:
     """
     return is_available('tensorflow')
 
-
 def is_torch_available() -> bool:
     """Check if PyTorch is installed.
 
@@ -485,7 +452,6 @@ def is_torch_available() -> bool:
         True if PyTorch is available.
     """
     return is_available('torch')
-
 
 def is_keras_available() -> bool:
     """Check if Keras is installed.
@@ -495,7 +461,6 @@ def is_keras_available() -> bool:
     """
     return is_available('keras')
 
-
 def is_jax_available() -> bool:
     """Check if JAX is installed.
 
@@ -503,7 +468,6 @@ def is_jax_available() -> bool:
         True if JAX is available.
     """
     return is_available('jax')
-
 
 def is_ikpls_available() -> bool:
     """Check if ikpls is installed.

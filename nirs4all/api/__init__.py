@@ -39,19 +39,19 @@ For more examples, see the examples/Q40_new_api.py file.
 """
 
 # Result classes (Phase 1)
-from .result import RunResult, PredictResult, ExplainResult, ModelRefitResult, LazyModelRefitResult
-
-# Session (Phase 3 - full implementation)
-from .session import Session, session, load_session
-
-# Module-level functions (Phase 2)
-from .run import run
-from .predict import predict
 from .explain import explain
-from .retrain import retrain
 
 # Synthetic data generation
 from .generate import generate_namespace as generate
+from .predict import predict
+from .result import ExplainResult, LazyModelRefitResult, ModelRefitResult, PredictResult, RunResult
+from .retrain import retrain
+
+# Module-level functions (Phase 2)
+from .run import run
+
+# Session (Phase 3 - full implementation)
+from .session import Session, load_session, session
 
 __all__ = [
     # Module-level API functions

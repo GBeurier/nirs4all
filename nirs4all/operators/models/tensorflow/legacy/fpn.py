@@ -10,7 +10,6 @@ def Conv_Block(inputs, model_width, kernel, multiplier):
 
     return x
 
-
 def trans_conv1D(inputs, model_width, multiplier):
     # 1D Transposed Convolutional Block, used instead of UpSampling
     x = tf.keras.layers.Conv1DTranspose(model_width * multiplier, 2, strides=2, padding='same')(inputs)  # Stride = 2, Kernel Size = 2
@@ -18,7 +17,6 @@ def trans_conv1D(inputs, model_width, multiplier):
     x = tf.keras.layers.Activation('relu')(x)
 
     return x
-
 
 def Concat_Block(input1, *argv):
     # Concatenation Block from the KERAS Library
@@ -28,7 +26,6 @@ def Concat_Block(input1, *argv):
 
     return cat
 
-
 def Add_Block(input1, *argv):
     # Add Block from the TensorFlow.KERAS Library
     addblk = input1
@@ -37,13 +34,11 @@ def Add_Block(input1, *argv):
 
     return addblk
 
-
 def upConv_Block(inputs):
     # 1D UpSampling Block
     up = tf.keras.layers.UpSampling1D(size=2)(inputs)
 
     return up
-
 
 def Feature_Extraction_Block(inputs, model_width, feature_number):
     # Feature Extraction Block for the AutoEncoder Mode
@@ -54,7 +49,6 @@ def Feature_Extraction_Block(inputs, model_width, feature_number):
     latent = tf.keras.layers.Reshape((shape[1], model_width))(latent)
 
     return latent
-
 
 def Attention_Block(skip_connection, gating_signal, num_filters, multiplier):
     # Attention Block
@@ -73,7 +67,6 @@ def Attention_Block(skip_connection, gating_signal, num_filters, multiplier):
     out = skip_connection * resampler
 
     return out
-
 
 class FPN:
     def __init__(self, length, model_depth, num_channel, model_width, kernel_size, problem_type='Regression',
@@ -121,7 +114,7 @@ class FPN:
             conv = Conv_Block(conv, self.model_width, self.kernel_size, 2 ** (i - 1))
             pool = tf.keras.layers.MaxPooling1D(pool_size=2)(conv)
             lateral = tf.keras.layers.Conv1D(1, 1)(conv)
-            convs["conv%s" % i] = lateral
+            convs[f"conv{i}"] = lateral
 
         if self.A_E == 1:
             # Collect Latent Features or Embeddings from AutoEncoders
@@ -148,9 +141,9 @@ class FPN:
             deconvs["deconv%s" % (j+1)] = deconv
 
         # Concatenate all outputs from each decoding layers after UpSampling in each stage
-        deconv_tot = deconvs["deconv%s" % 1]
+        deconv_tot = deconvs[f"deconv{1}"]
         for k in range(2, (self.model_depth + 1)):
-            deconv_temp = deconvs["deconv%s" % k]
+            deconv_temp = deconvs[f"deconv{k}"]
             deconv_tot = upConv_Block(deconv_tot)
             deconv_tot = Concat_Block(deconv_tot, deconv_temp)
 
@@ -169,7 +162,6 @@ class FPN:
             model = tf.keras.Model(inputs=[inputs], outputs=levels)
 
         return model
-
 
 if __name__ == '__main__':
     # Configurations

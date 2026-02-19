@@ -25,7 +25,7 @@ import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -36,29 +36,30 @@ warnings.filterwarnings("ignore")
 ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
+# Local imports
+from fckpls_torch import FCKPLSTorch, TrainConfig, create_fckpls_v1, create_fckpls_v2
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
 
 # nirs4all imports
-from nirs4all.operators.models.sklearn import OPLS, FCKPLS
-from nirs4all.operators.transforms import StandardNormalVariate as SNV, MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.models.sklearn import FCKPLS, OPLS
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
 from nirs4all.operators.transforms import SavitzkyGolay
-
-# Local imports
-from fckpls_torch import FCKPLSTorch, TrainConfig, create_fckpls_v1, create_fckpls_v2
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # Synthetic data generator
 sys.path.insert(0, str(ROOT / "bench" / "synthetic"))
-from generator import SyntheticNIRSGenerator, ComponentLibrary
+import contextlib
 
+from generator import ComponentLibrary, SyntheticNIRSGenerator
 
 # =============================================================================
 # Data Loading
 # =============================================================================
 
-def load_sample_regression_data() -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def load_sample_regression_data() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Load sample regression data from examples."""
     import gzip
 
@@ -75,7 +76,6 @@ def load_sample_regression_data() -> Tuple[np.ndarray, np.ndarray, np.ndarray, n
         y_test = pd.read_csv(f, header=None, sep=";").values.ravel().astype(float)
 
     return X_train, y_train, X_test, y_test
-
 
 def generate_synthetic_simple(n_train: int = 200, n_test: int = 50, seed: int = 42) -> dict:
     """Generate simple synthetic data with low noise."""
@@ -98,7 +98,6 @@ def generate_synthetic_simple(n_train: int = 200, n_test: int = 50, seed: int = 
         "wavelengths": gen.wavelengths,
     }
 
-
 def generate_synthetic_realistic(n_train: int = 200, n_test: int = 50, seed: int = 42) -> dict:
     """Generate realistic synthetic data with moderate effects."""
     gen = SyntheticNIRSGenerator(
@@ -119,7 +118,6 @@ def generate_synthetic_realistic(n_train: int = 200, n_test: int = 50, seed: int
         "y_test": y[n_train:],
         "wavelengths": gen.wavelengths,
     }
-
 
 def generate_synthetic_complex(n_train: int = 200, n_test: int = 50, seed: int = 42) -> dict:
     """Generate complex synthetic data with heavy effects and noise."""
@@ -147,12 +145,11 @@ def generate_synthetic_complex(n_train: int = 200, n_test: int = 50, seed: int =
         "wavelengths": gen.wavelengths,
     }
 
-
 # =============================================================================
 # Model Factories
 # =============================================================================
 
-def get_models(quick: bool = False, n_components: int = 10) -> Dict[str, Any]:
+def get_models(quick: bool = False, n_components: int = 10) -> dict[str, Any]:
     """Get all models to compare."""
     epochs = 100 if quick else 300
 
@@ -210,8 +207,7 @@ def get_models(quick: bool = False, n_components: int = 10) -> Dict[str, Any]:
 
     return models
 
-
-def get_preprocessings() -> Dict[str, Any]:
+def get_preprocessings() -> dict[str, Any]:
     """Get preprocessing transforms to compare."""
     return {
         "None": None,
@@ -220,7 +216,6 @@ def get_preprocessings() -> Dict[str, Any]:
         "SG2": SavitzkyGolay(window_length=11, polyorder=2, deriv=2),
         "MSC": MSC(),
     }
-
 
 # =============================================================================
 # Evaluation
@@ -238,7 +233,6 @@ class Result:
     r2_test: float
     fit_time: float
     n_features: int
-
 
 def evaluate_model(
     model: Any,
@@ -308,12 +302,11 @@ def evaluate_model(
         n_features=n_features,
     )
 
-
 def apply_preprocessing(
     X_train: np.ndarray,
     X_test: np.ndarray,
     preprocessing: Any,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Apply preprocessing to train and test data."""
     if preprocessing is None:
         return X_train, X_test
@@ -324,15 +317,14 @@ def apply_preprocessing(
 
     return X_train_pp, X_test_pp
 
-
 def run_comparison(
-    datasets: List[dict],
+    datasets: list[dict],
     quick: bool = False,
     with_preprocessing: bool = True,
     n_components: int = 10,
 ) -> pd.DataFrame:
     """Run full comparison study."""
-    results: List[Result] = []
+    results: list[Result] = []
 
     for data in datasets:
         print(f"\n{'='*60}")
@@ -346,10 +338,7 @@ def run_comparison(
         y_test = data["y_test"]
 
         # Get preprocessing options
-        if with_preprocessing:
-            preprocessings = get_preprocessings()
-        else:
-            preprocessings = {"None": None}
+        preprocessings = get_preprocessings() if with_preprocessing else {"None": None}
 
         for pp_name, pp in preprocessings.items():
             print(f"\n  Preprocessing: {pp_name}")
@@ -369,10 +358,8 @@ def run_comparison(
 
                 # Clone model if sklearn-compatible
                 if hasattr(model, "get_params"):
-                    try:
+                    with contextlib.suppress(BaseException):
                         model = model.__class__(**model.get_params())
-                    except:
-                        pass
 
                 result = evaluate_model(
                     model=model,
@@ -392,12 +379,11 @@ def run_comparison(
     df = pd.DataFrame([vars(r) for r in results])
     return df
 
-
 # =============================================================================
 # Visualization
 # =============================================================================
 
-def plot_results(df: pd.DataFrame, save_path: Optional[Path] = None):
+def plot_results(df: pd.DataFrame, save_path: Path | None = None):
     """Plot comparison results."""
     try:
         import matplotlib.pyplot as plt
@@ -479,8 +465,7 @@ def plot_results(df: pd.DataFrame, save_path: Optional[Path] = None):
 
     plt.show()
 
-
-def plot_kernels(model: FCKPLSTorch, save_path: Optional[Path] = None):
+def plot_kernels(model: FCKPLSTorch, save_path: Path | None = None):
     """Plot learned kernels from FCK-PLS Torch."""
     try:
         import matplotlib.pyplot as plt
@@ -517,7 +502,6 @@ def plot_kernels(model: FCKPLSTorch, save_path: Optional[Path] = None):
         plt.savefig(save_path, dpi=150, bbox_inches="tight")
 
     plt.show()
-
 
 # =============================================================================
 # Main
@@ -562,13 +546,13 @@ def main():
 
     # 2. Synthetic datasets
     datasets.append(generate_synthetic_simple(n_train=args.n_train, seed=args.seed))
-    print(f"  Generated synthetic_simple")
+    print("  Generated synthetic_simple")
 
     datasets.append(generate_synthetic_realistic(n_train=args.n_train, seed=args.seed))
-    print(f"  Generated synthetic_realistic")
+    print("  Generated synthetic_realistic")
 
     datasets.append(generate_synthetic_complex(n_train=args.n_train, seed=args.seed))
-    print(f"  Generated synthetic_complex")
+    print("  Generated synthetic_complex")
 
     # Run comparison
     df = run_comparison(
@@ -626,7 +610,6 @@ def main():
         )
         model_v1.fit(data["X_train"], data["y_train"])
         plot_kernels(model_v1, save_path=output_dir / "kernels_v1.png")
-
 
 if __name__ == "__main__":
     main()

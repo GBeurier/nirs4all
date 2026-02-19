@@ -5,17 +5,16 @@ for reproducible pipeline generation.
 """
 
 import random
-from typing import List, Optional, TypeVar
+from typing import Optional, TypeVar
 
 T = TypeVar('T')
 
-
 def sample_with_seed(
-    population: List[T],
+    population: list[T],
     k: int,
-    seed: Optional[int] = None,
-    weights: Optional[List[float]] = None
-) -> List[T]:
+    seed: int | None = None,
+    weights: list[float] | None = None
+) -> list[T]:
     """Sample k items from population with optional seed for reproducibility.
 
     This function wraps Python's random sampling functions to provide
@@ -56,10 +55,7 @@ def sample_with_seed(
     if k <= 0:
         return []
 
-    if seed is not None:
-        rng = random.Random(seed)
-    else:
-        rng = random
+    rng = random.Random(seed) if seed is not None else random
 
     if weights is not None:
         if len(weights) != len(population):
@@ -73,13 +69,12 @@ def sample_with_seed(
     else:
         return rng.sample(population, k)
 
-
 def _weighted_sample_without_replacement(
-    population: List[T],
+    population: list[T],
     k: int,
-    weights: List[float],
+    weights: list[float],
     rng: random.Random
-) -> List[T]:
+) -> list[T]:
     """Sample k items without replacement using weights.
 
     Uses a sequential selection approach where after each selection,
@@ -127,8 +122,7 @@ def _weighted_sample_without_replacement(
 
     return selected
 
-
-def shuffle_with_seed(items: List[T], seed: Optional[int] = None) -> List[T]:
+def shuffle_with_seed(items: list[T], seed: int | None = None) -> list[T]:
     """Shuffle a list with optional seed for reproducibility.
 
     Args:
@@ -150,11 +144,10 @@ def shuffle_with_seed(items: List[T], seed: Optional[int] = None) -> List[T]:
         random.shuffle(result)
     return result
 
-
 def random_choice_with_seed(
-    population: List[T],
-    seed: Optional[int] = None,
-    weights: Optional[List[float]] = None
+    population: list[T],
+    seed: int | None = None,
+    weights: list[float] | None = None
 ) -> T:
     """Choose a single random item from population.
 
@@ -177,10 +170,7 @@ def random_choice_with_seed(
     if not population:
         raise IndexError("Cannot choose from an empty population")
 
-    if seed is not None:
-        rng = random.Random(seed)
-    else:
-        rng = random
+    rng = random.Random(seed) if seed is not None else random
 
     if weights is not None:
         if len(weights) != len(population):

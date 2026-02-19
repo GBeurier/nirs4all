@@ -19,7 +19,6 @@ from nirs4all.data._features.array_storage import SharedBlocks
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.execution.step_cache import CachedStepState, StepCache
 
-
 # =========================================================================
 # Helpers
 # =========================================================================
@@ -33,11 +32,9 @@ def _make_dataset(name: str = "test", n_samples: int = 50, n_features: int = 100
     ds.add_targets(y)
     return ds
 
-
 # =========================================================================
 # CoW round-trip correctness
 # =========================================================================
-
 
 class TestStepCacheCoWRoundTrip:
     """Verify snapshot → restore produces byte-identical feature data."""
@@ -70,11 +67,9 @@ class TestStepCacheCoWRoundTrip:
         assert ds.content_hash() == original_hash
         assert ds._content_hash_cache == original_hash
 
-
 # =========================================================================
 # CoW isolation
 # =========================================================================
-
 
 class TestStepCacheCoWIsolation:
     """Verify that mutations on a restored dataset don't affect cached data."""
@@ -122,11 +117,9 @@ class TestStepCacheCoWIsolation:
         assert state is not None
         assert state.content_hash == original_hash
 
-
 # =========================================================================
 # Multiple restores
 # =========================================================================
-
 
 class TestStepCacheMultipleRestores:
     """Verify that a single cached state can be restored into multiple datasets."""
@@ -161,11 +154,9 @@ class TestStepCacheMultipleRestores:
         X2 = ds2.x({"partition": "train"}, layout="2d")
         np.testing.assert_array_equal(X2, X_original)
 
-
 # =========================================================================
 # Eviction cleanup
 # =========================================================================
-
 
 class TestStepCacheEvictionCleanup:
     """Verify SharedBlocks references are released on eviction."""
@@ -211,11 +202,9 @@ class TestStepCacheEvictionCleanup:
         for ref, pre_rc in zip(refs, pre_clear_rcs):
             assert ref.refcount < pre_rc
 
-
 # =========================================================================
 # Processing names
 # =========================================================================
-
 
 class TestStepCacheProcessingNames:
     """Verify processing names are preserved through snapshot/restore."""
@@ -246,11 +235,9 @@ class TestStepCacheProcessingNames:
         ]
         assert restored_procs == original_procs
 
-
 # =========================================================================
 # Timing stats
 # =========================================================================
-
 
 class TestStepCacheTimingStats:
     """Verify timing instrumentation in cache stats."""
@@ -276,11 +263,9 @@ class TestStepCacheTimingStats:
         cache.record_hash_time(0.002)
         assert cache._total_hash_s == pytest.approx(0.003, abs=1e-9)
 
-
 # =========================================================================
 # CachedStepState uses SharedBlocks (not FeatureSource deep copies)
 # =========================================================================
-
 
 class TestCachedStepStateStructure:
     """Verify CachedStepState uses CoW SharedBlocks internally."""

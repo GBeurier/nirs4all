@@ -9,9 +9,10 @@ Supports regression, binary classification, and multiclass classification metric
 using sklearn, scipy, and other standard libraries.
 """
 
-from typing import Dict, Any, Union, Optional, List
-import numpy as np
+import contextlib
 import warnings
+
+import numpy as np
 
 from nirs4all.core.logging import get_logger
 
@@ -23,20 +24,31 @@ warnings.filterwarnings('ignore')
 try:
     from sklearn import metrics as sklearn_metrics
     from sklearn.metrics import (
-        # Regression metrics
-        mean_squared_error, mean_absolute_error, r2_score,
-        mean_absolute_percentage_error, explained_variance_score,
-        max_error, median_absolute_error,
-
         # Classification metrics
-        accuracy_score, precision_score, recall_score, f1_score,
-        roc_auc_score, average_precision_score, log_loss,
-        confusion_matrix, classification_report,
-        balanced_accuracy_score, matthews_corrcoef,
-        cohen_kappa_score, hamming_loss, jaccard_score,
-
+        accuracy_score,
+        average_precision_score,
+        balanced_accuracy_score,
+        classification_report,
+        cohen_kappa_score,
+        confusion_matrix,
+        explained_variance_score,
+        f1_score,
+        hamming_loss,
+        jaccard_score,
+        log_loss,
+        matthews_corrcoef,
+        max_error,
+        mean_absolute_error,
+        mean_absolute_percentage_error,
+        # Regression metrics
+        mean_squared_error,
+        median_absolute_error,
+        precision_score,
+        r2_score,
+        recall_score,
+        roc_auc_score,
         # Multi-label/multi-class specific
-        top_k_accuracy_score
+        top_k_accuracy_score,
     )
     SKLEARN_AVAILABLE = True
 except ImportError:
@@ -47,7 +59,6 @@ try:
     SCIPY_AVAILABLE = True
 except ImportError:
     SCIPY_AVAILABLE = False
-
 
 # Metric abbreviation mapping: full name -> abbreviated name
 METRIC_ABBREVIATIONS = {
@@ -103,7 +114,6 @@ METRIC_ABBREVIATIONS = {
     'hamming_loss': 'Hamming',
 }
 
-
 def abbreviate_metric(metric: str) -> str:
     """Convert metric name to abbreviated form.
 
@@ -115,10 +125,28 @@ def abbreviate_metric(metric: str) -> str:
     """
     return METRIC_ABBREVIATIONS.get(metric.lower(), metric)
 
-
-def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: Union[str, List[str]]) -> Union[float, Dict[str, float]]:
+def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: str | list[str]) -> float | dict[str, float]:
     """
     Calculate a specific metric for given predictions.
+
+    Args:
+        y_true: True target values
+        y_pred: Predicted values
+        metric: Metric name (e.g., 'mse', 'accuracy', 'f1', 'r2'), or list of metric names
+
+    Returns:
+        float: Calculated metric value (single metric), or dict of metric values (list of metrics)
+
+    Raises:
+        ValueError: If metric is not supported or calculation fails
+    """
+    if isinstance(metric, list):
+        return {m: _eval_single(y_true, y_pred, m) for m in metric}
+    return _eval_single(y_true, y_pred, metric)
+
+
+def _eval_single(y_true: np.ndarray, y_pred: np.ndarray, metric: str) -> float:
+    """Calculate a single metric for given predictions.
 
     Args:
         y_true: True target values
@@ -126,7 +154,7 @@ def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: Union[str, List[str]]) 
         metric: Metric name (e.g., 'mse', 'accuracy', 'f1', 'r2')
 
     Returns:
-        float: Calculated metric value
+        Calculated metric value
 
     Raises:
         ValueError: If metric is not supported or calculation fails
@@ -149,21 +177,21 @@ def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: Union[str, List[str]]) 
     try:
         # Regression metrics
         if metric in ['mse', 'mean_squared_error']:
-            return mean_squared_error(y_true, y_pred)
+            return float(mean_squared_error(y_true, y_pred))
         elif metric in ['rmse', 'root_mean_squared_error']:
-            return np.sqrt(mean_squared_error(y_true, y_pred))
+            return float(np.sqrt(mean_squared_error(y_true, y_pred)))
         elif metric in ['mae', 'mean_absolute_error']:
-            return mean_absolute_error(y_true, y_pred)
+            return float(mean_absolute_error(y_true, y_pred))
         elif metric in ['mape', 'mean_absolute_percentage_error']:
-            return mean_absolute_percentage_error(y_true, y_pred)
+            return float(mean_absolute_percentage_error(y_true, y_pred))
         elif metric in ['r2', 'r2_score']:
-            return r2_score(y_true, y_pred)
+            return float(r2_score(y_true, y_pred))
         elif metric in ['explained_variance', 'explained_variance_score']:
-            return explained_variance_score(y_true, y_pred)
+            return float(explained_variance_score(y_true, y_pred))
         elif metric in ['max_error']:
-            return max_error(y_true, y_pred)
+            return float(max_error(y_true, y_pred))
         elif metric in ['median_ae', 'median_absolute_error']:
-            return median_absolute_error(y_true, y_pred)
+            return float(median_absolute_error(y_true, y_pred))
 
         # Classification metrics
         elif metric in ['accuracy', 'precision', 'recall', 'f1', 'f1_score',
@@ -182,36 +210,36 @@ def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: Union[str, List[str]]) 
                     y_pred_labels = (y_pred > 0.5).astype(int)
 
             if metric in ['accuracy']:
-                return accuracy_score(y_true, y_pred_labels)
+                return float(accuracy_score(y_true, y_pred_labels))
             elif metric in ['precision']:
-                return precision_score(y_true, y_pred_labels, average='weighted', zero_division=0)
+                return float(precision_score(y_true, y_pred_labels, average='weighted', zero_division=0))
             elif metric in ['recall']:
-                return recall_score(y_true, y_pred_labels, average='weighted', zero_division=0)
+                return float(recall_score(y_true, y_pred_labels, average='weighted', zero_division=0))
             elif metric in ['f1', 'f1_score']:
-                return f1_score(y_true, y_pred_labels, average='weighted', zero_division=0)
+                return float(f1_score(y_true, y_pred_labels, average='weighted', zero_division=0))
             elif metric in ['precision_micro']:
-                return precision_score(y_true, y_pred_labels, average='micro', zero_division=0)
+                return float(precision_score(y_true, y_pred_labels, average='micro', zero_division=0))
             elif metric in ['recall_micro']:
-                return recall_score(y_true, y_pred_labels, average='micro', zero_division=0)
+                return float(recall_score(y_true, y_pred_labels, average='micro', zero_division=0))
             elif metric in ['f1_micro']:
-                return f1_score(y_true, y_pred_labels, average='micro', zero_division=0)
+                return float(f1_score(y_true, y_pred_labels, average='micro', zero_division=0))
             elif metric in ['precision_macro', 'balanced_precision']:
-                return precision_score(y_true, y_pred_labels, average='macro', zero_division=0)
+                return float(precision_score(y_true, y_pred_labels, average='macro', zero_division=0))
             elif metric in ['recall_macro', 'balanced_recall']:
-                return recall_score(y_true, y_pred_labels, average='macro', zero_division=0)
+                return float(recall_score(y_true, y_pred_labels, average='macro', zero_division=0))
             elif metric in ['f1_macro']:
-                return f1_score(y_true, y_pred_labels, average='macro', zero_division=0)
+                return float(f1_score(y_true, y_pred_labels, average='macro', zero_division=0))
             elif metric in ['balanced_accuracy']:
-                return balanced_accuracy_score(y_true, y_pred_labels)
+                return float(balanced_accuracy_score(y_true, y_pred_labels))
             elif metric in ['matthews_corrcoef', 'mcc']:
-                return matthews_corrcoef(y_true, y_pred_labels)
+                return float(matthews_corrcoef(y_true, y_pred_labels))
             elif metric in ['cohen_kappa']:
-                return cohen_kappa_score(y_true, y_pred_labels)
+                return float(cohen_kappa_score(y_true, y_pred_labels))
             elif metric in ['jaccard', 'jaccard_score']:
-                return jaccard_score(y_true, y_pred_labels, average='weighted', zero_division=0)
+                return float(jaccard_score(y_true, y_pred_labels, average='weighted', zero_division=0))
             elif metric in ['hamming_loss']:
-                return hamming_loss(y_true, y_pred_labels)
-            elif metric == 'specificity':
+                return float(hamming_loss(y_true, y_pred_labels))
+            else:  # metric == 'specificity'
                 if len(np.unique(y_true)) == 2:
                     tn, fp, fn, tp = confusion_matrix(y_true, y_pred_labels).ravel()
                     return tn / (tn + fp) if (tn + fp) > 0 else 0.0
@@ -224,59 +252,59 @@ def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: Union[str, List[str]]) 
                         fp = np.sum(cm[:, i]) - cm[i, i]
                         specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
                         specificities.append(specificity)
-                    return np.mean(specificities)
+                    return float(np.mean(specificities))
 
         elif metric in ['roc_auc', 'auc']:
             # Handle binary vs multiclass
             if len(np.unique(y_true)) == 2:
-                return roc_auc_score(y_true, y_pred)
+                return float(roc_auc_score(y_true, y_pred))
             else:
-                return roc_auc_score(y_true, y_pred, multi_class='ovr', average='weighted')
+                return float(roc_auc_score(y_true, y_pred, multi_class='ovr', average='weighted'))
         elif metric in ['log_loss']:
             # Convert to probabilities if needed
             if np.all(np.isin(y_pred, [0, 1])):
                 # Binary predictions, convert to probabilities
                 y_pred_proba = np.column_stack([1 - y_pred, y_pred])
-                return log_loss(y_true, y_pred_proba)
+                return float(log_loss(y_true, y_pred_proba))
             else:
-                return log_loss(y_true, y_pred)
+                return float(log_loss(y_true, y_pred))
 
         # Additional regression metrics with scipy
         elif metric == 'pearson_r' and SCIPY_AVAILABLE:
             correlation, _ = stats.pearsonr(y_true, y_pred)
-            return correlation
+            return float(correlation)
         elif metric == 'spearman_r' and SCIPY_AVAILABLE:
             correlation, _ = stats.spearmanr(y_true, y_pred)
-            return correlation
+            return float(correlation)
 
         # Custom metrics
         elif metric == 'bias':
-            return np.mean(y_pred - y_true)
+            return float(np.mean(y_pred - y_true))
         elif metric == 'sep':  # Standard Error of Prediction
-            return np.std(y_pred - y_true)
+            return float(np.std(y_pred - y_true))
         elif metric == 'rpd':  # Ratio of Performance to Deviation
-            sep = np.std(y_pred - y_true)
-            sd = np.std(y_true)
+            sep = float(np.std(y_pred - y_true))
+            sd = float(np.std(y_true))
             return sd / sep if sep != 0 else float('inf')
         elif metric == 'consistency':
             # Consistency: 1 - (RMSE / std(y_true))
-            rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-            sd = np.std(y_true)
+            rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
+            sd = float(np.std(y_true))
             return 1 - (rmse / sd) if sd != 0 else 0.0
         elif metric == 'nrmse':
             # Normalized RMSE: RMSE / (max - min)
-            rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-            y_range = np.max(y_true) - np.min(y_true)
+            rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
+            y_range = float(np.max(y_true) - np.min(y_true))
             return rmse / y_range if y_range != 0 else float('inf')
         elif metric == 'nmse':
             # Normalized MSE: MSE / var(y_true)
-            mse = mean_squared_error(y_true, y_pred)
-            var = np.var(y_true)
+            mse = float(mean_squared_error(y_true, y_pred))
+            var = float(np.var(y_true))
             return mse / var if var != 0 else float('inf')
         elif metric == 'nmae':
             # Normalized MAE: MAE / (max - min)
-            mae = mean_absolute_error(y_true, y_pred)
-            y_range = np.max(y_true) - np.min(y_true)
+            mae = float(mean_absolute_error(y_true, y_pred))
+            y_range = float(np.max(y_true) - np.min(y_true))
             return mae / y_range if y_range != 0 else float('inf')
         elif metric == 'specificity':
             if len(np.unique(y_true)) == 2:
@@ -291,16 +319,15 @@ def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: Union[str, List[str]]) 
                     fp = np.sum(cm[:, i]) - cm[i, i]
                     specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
                     specificities.append(specificity)
-                return np.mean(specificities)
+                return float(np.mean(specificities))
 
         else:
             raise ValueError(f"Unsupported metric: {metric}")
 
     except Exception as e:
-        raise ValueError(f"Error calculating {metric}: {str(e)}")
+        raise ValueError(f"Error calculating {metric}: {str(e)}") from e
 
-
-def eval_multi(y_true: np.ndarray, y_pred: np.ndarray, task_type: str) -> Dict[str, float]:
+def eval_multi(y_true: np.ndarray, y_pred: np.ndarray, task_type: str) -> dict[str, float]:
     """
     Calculate all relevant metrics for a given task type.
 
@@ -331,46 +358,38 @@ def eval_multi(y_true: np.ndarray, y_pred: np.ndarray, task_type: str) -> Dict[s
     try:
         if task_type == 'regression':
             # Core regression metrics
-            metrics['mse'] = eval(y_true, y_pred, 'mse')
-            metrics['rmse'] = eval(y_true, y_pred, 'rmse')
-            metrics['mae'] = eval(y_true, y_pred, 'mae')
-            metrics['r2'] = eval(y_true, y_pred, 'r2')
+            metrics['mse'] = _eval_single(y_true, y_pred, 'mse')
+            metrics['rmse'] = _eval_single(y_true, y_pred, 'rmse')
+            metrics['mae'] = _eval_single(y_true, y_pred, 'mae')
+            metrics['r2'] = _eval_single(y_true, y_pred, 'r2')
 
             # Additional regression metrics
-            try:
-                metrics['mape'] = eval(y_true, y_pred, 'mape')
-            except:
-                pass
+            with contextlib.suppress(Exception):
+                metrics['mape'] = _eval_single(y_true, y_pred, 'mape')
 
-            try:
-                metrics['explained_variance'] = eval(y_true, y_pred, 'explained_variance')
-            except:
-                pass
+            with contextlib.suppress(Exception):
+                metrics['explained_variance'] = _eval_single(y_true, y_pred, 'explained_variance')
 
-            try:
-                metrics['max_error'] = eval(y_true, y_pred, 'max_error')
-            except:
-                pass
+            with contextlib.suppress(Exception):
+                metrics['max_error'] = _eval_single(y_true, y_pred, 'max_error')
 
-            try:
-                metrics['median_ae'] = eval(y_true, y_pred, 'median_ae')
-            except:
-                pass
+            with contextlib.suppress(Exception):
+                metrics['median_ae'] = _eval_single(y_true, y_pred, 'median_ae')
 
             # Custom regression metrics
             try:
-                metrics['bias'] = eval(y_true, y_pred, 'bias')
-                metrics['sep'] = eval(y_true, y_pred, 'sep')
-                metrics['rpd'] = eval(y_true, y_pred, 'rpd')
-            except:
+                metrics['bias'] = _eval_single(y_true, y_pred, 'bias')
+                metrics['sep'] = _eval_single(y_true, y_pred, 'sep')
+                metrics['rpd'] = _eval_single(y_true, y_pred, 'rpd')
+            except Exception:
                 pass
 
             # Correlation metrics (if scipy available)
             if SCIPY_AVAILABLE:
                 try:
-                    metrics['pearson_r'] = eval(y_true, y_pred, 'pearson_r')
-                    metrics['spearman_r'] = eval(y_true, y_pred, 'spearman_r')
-                except:
+                    metrics['pearson_r'] = _eval_single(y_true, y_pred, 'pearson_r')
+                    metrics['spearman_r'] = _eval_single(y_true, y_pred, 'spearman_r')
+                except Exception:
                     pass
 
         elif task_type == 'binary_classification':
@@ -385,100 +404,82 @@ def eval_multi(y_true: np.ndarray, y_pred: np.ndarray, task_type: str) -> Dict[s
                     y_pred_labels = (y_pred > 0.5).astype(int)
 
             # Core classification metrics
-            metrics['accuracy'] = eval(y_true, y_pred_labels, 'accuracy')
-            metrics['balanced_accuracy'] = eval(y_true, y_pred_labels, 'balanced_accuracy')
-            metrics['precision'] = eval(y_true, y_pred_labels, 'precision')
-            metrics['balanced_precision'] = eval(y_true, y_pred_labels, 'balanced_precision')
-            metrics['recall'] = eval(y_true, y_pred_labels, 'recall')
-            metrics['balanced_recall'] = eval(y_true, y_pred_labels, 'balanced_recall')
-            metrics['f1'] = eval(y_true, y_pred_labels, 'f1')
-            metrics['specificity'] = eval(y_true, y_pred_labels, 'specificity')
+            metrics['accuracy'] = _eval_single(y_true, y_pred_labels, 'accuracy')
+            metrics['balanced_accuracy'] = _eval_single(y_true, y_pred_labels, 'balanced_accuracy')
+            metrics['precision'] = _eval_single(y_true, y_pred_labels, 'precision')
+            metrics['balanced_precision'] = _eval_single(y_true, y_pred_labels, 'balanced_precision')
+            metrics['recall'] = _eval_single(y_true, y_pred_labels, 'recall')
+            metrics['balanced_recall'] = _eval_single(y_true, y_pred_labels, 'balanced_recall')
+            metrics['f1'] = _eval_single(y_true, y_pred_labels, 'f1')
+            metrics['specificity'] = _eval_single(y_true, y_pred_labels, 'specificity')
 
             # Binary-specific metrics
-            try:
-                metrics['roc_auc'] = eval(y_true, y_pred, 'roc_auc')
-            except:
-                pass
+            with contextlib.suppress(Exception):
+                metrics['roc_auc'] = _eval_single(y_true, y_pred, 'roc_auc')
 
-            try:
-                metrics['matthews_corrcoef'] = eval(y_true, y_pred_labels, 'matthews_corrcoef')
-            except:
-                pass
+            with contextlib.suppress(Exception):
+                metrics['matthews_corrcoef'] = _eval_single(y_true, y_pred_labels, 'matthews_corrcoef')
 
-            try:
-                metrics['cohen_kappa'] = eval(y_true, y_pred_labels, 'cohen_kappa')
-            except:
-                pass
+            with contextlib.suppress(Exception):
+                metrics['cohen_kappa'] = _eval_single(y_true, y_pred_labels, 'cohen_kappa')
 
-            try:
-                metrics['jaccard'] = eval(y_true, y_pred_labels, 'jaccard')
-            except:
-                pass
+            with contextlib.suppress(Exception):
+                metrics['jaccard'] = _eval_single(y_true, y_pred_labels, 'jaccard')
 
         elif task_type == 'multiclass_classification':
             # Core classification metrics
-            metrics['accuracy'] = eval(y_true, y_pred, 'accuracy')
-            metrics['balanced_accuracy'] = eval(y_true, y_pred, 'balanced_accuracy')
+            metrics['accuracy'] = _eval_single(y_true, y_pred, 'accuracy')
+            metrics['balanced_accuracy'] = _eval_single(y_true, y_pred, 'balanced_accuracy')
 
             # Weighted averages (default for multiclass)
-            metrics['precision'] = eval(y_true, y_pred, 'precision')
-            metrics['balanced_precision'] = eval(y_true, y_pred, 'balanced_precision')
-            metrics['recall'] = eval(y_true, y_pred, 'recall')
-            metrics['balanced_recall'] = eval(y_true, y_pred, 'balanced_recall')
-            metrics['f1'] = eval(y_true, y_pred, 'f1')
-            metrics['specificity'] = eval(y_true, y_pred, 'specificity')
+            metrics['precision'] = _eval_single(y_true, y_pred, 'precision')
+            metrics['balanced_precision'] = _eval_single(y_true, y_pred, 'balanced_precision')
+            metrics['recall'] = _eval_single(y_true, y_pred, 'recall')
+            metrics['balanced_recall'] = _eval_single(y_true, y_pred, 'balanced_recall')
+            metrics['f1'] = _eval_single(y_true, y_pred, 'f1')
+            metrics['specificity'] = _eval_single(y_true, y_pred, 'specificity')
 
             # Micro averages
             try:
-                metrics['precision_micro'] = eval(y_true, y_pred, 'precision_micro')
-                metrics['recall_micro'] = eval(y_true, y_pred, 'recall_micro')
-                metrics['f1_micro'] = eval(y_true, y_pred, 'f1_micro')
-            except:
+                metrics['precision_micro'] = _eval_single(y_true, y_pred, 'precision_micro')
+                metrics['recall_micro'] = _eval_single(y_true, y_pred, 'recall_micro')
+                metrics['f1_micro'] = _eval_single(y_true, y_pred, 'f1_micro')
+            except Exception:
                 pass
 
             # Macro averages
             try:
-                metrics['precision_macro'] = eval(y_true, y_pred, 'precision_macro')
-                metrics['recall_macro'] = eval(y_true, y_pred, 'recall_macro')
-                metrics['f1_macro'] = eval(y_true, y_pred, 'f1_macro')
-            except:
+                metrics['precision_macro'] = _eval_single(y_true, y_pred, 'precision_macro')
+                metrics['recall_macro'] = _eval_single(y_true, y_pred, 'recall_macro')
+                metrics['f1_macro'] = _eval_single(y_true, y_pred, 'f1_macro')
+            except Exception:
                 pass
 
             # Multiclass-specific metrics
-            try:
-                metrics['roc_auc'] = eval(y_true, y_pred, 'roc_auc')
-            except:
-                pass
+            with contextlib.suppress(Exception):
+                metrics['roc_auc'] = _eval_single(y_true, y_pred, 'roc_auc')
 
-            try:
-                metrics['matthews_corrcoef'] = eval(y_true, y_pred, 'matthews_corrcoef')
-            except:
-                pass
+            with contextlib.suppress(Exception):
+                metrics['matthews_corrcoef'] = _eval_single(y_true, y_pred, 'matthews_corrcoef')
 
-            try:
-                metrics['cohen_kappa'] = eval(y_true, y_pred, 'cohen_kappa')
-            except:
-                pass
+            with contextlib.suppress(Exception):
+                metrics['cohen_kappa'] = _eval_single(y_true, y_pred, 'cohen_kappa')
 
-            try:
-                metrics['jaccard'] = eval(y_true, y_pred, 'jaccard')
-            except:
-                pass
+            with contextlib.suppress(Exception):
+                metrics['jaccard'] = _eval_single(y_true, y_pred, 'jaccard')
 
-            try:
-                metrics['hamming_loss'] = eval(y_true, y_pred, 'hamming_loss')
-            except:
-                pass
+            with contextlib.suppress(Exception):
+                metrics['hamming_loss'] = _eval_single(y_true, y_pred, 'hamming_loss')
 
         else:
             raise ValueError(f"Unsupported task_type: {task_type}. Use 'regression', 'binary_classification', or 'multiclass_classification'")
 
     except Exception as e:
-        raise ValueError(f"Error calculating metrics for {task_type}: {str(e)}")
+        raise ValueError(f"Error calculating metrics for {task_type}: {str(e)}") from e
 
     return metrics
 
-def get_stats(y: np.ndarray) -> Dict[str, float]:
+def get_stats(y: np.ndarray) -> dict[str, float]:
     """
     Calculate descriptive statistics for target values.
 
@@ -523,8 +524,7 @@ def get_stats(y: np.ndarray) -> Dict[str, float]:
 
     return result_stats
 
-
-def eval_list(y_true: np.ndarray, y_pred: np.ndarray, metrics: list) -> list:
+def eval_list(y_true: np.ndarray, y_pred: np.ndarray, metrics: list[str]) -> list[float | None]:
     """
     Calculate multiple metrics and return their scores as a list.
 
@@ -543,10 +543,10 @@ def eval_list(y_true: np.ndarray, y_pred: np.ndarray, metrics: list) -> list:
     if not isinstance(metrics, (list, tuple)):
         raise ValueError("metrics must be a list or tuple of metric names")
 
-    scores = []
+    scores: list[float | None] = []
     for metric in metrics:
         try:
-            score = eval(y_true, y_pred, metric)
+            score = _eval_single(y_true, y_pred, metric)
             scores.append(score)
         except Exception as e:
             # Handle individual metric failures gracefully
@@ -554,7 +554,6 @@ def eval_list(y_true: np.ndarray, y_pred: np.ndarray, metrics: list) -> list:
             scores.append(None)
 
     return scores
-
 
 def get_available_metrics(task_type: str) -> list:
     """
@@ -588,7 +587,6 @@ def get_available_metrics(task_type: str) -> list:
 
     else:
         raise ValueError(f"Unsupported task_type: {task_type}")
-
 
 def get_default_metrics(task_type: str) -> list:
     """

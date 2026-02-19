@@ -5,17 +5,18 @@ This module provides a dedicated interface for all target-related
 operations, including target retrieval, processing, and task type management.
 """
 
+from typing import Optional
+
 import numpy as np
-from typing import Optional, List
 from sklearn.base import TransformerMixin
 
-from nirs4all.data.types import Selector
+from nirs4all.core.task_type import TaskType
 from nirs4all.data.indexer import Indexer
 from nirs4all.data.targets import Targets
-from nirs4all.core.task_type import TaskType
+from nirs4all.data.types import Selector
 
 
-def _selector_to_dict(selector: Optional[Selector]) -> dict:
+def _selector_to_dict(selector: Selector | None) -> dict:
     """
     Convert selector to dict format for internal use.
 
@@ -39,7 +40,6 @@ def _selector_to_dict(selector: Optional[Selector]) -> dict:
         return d
 
     return dict(selector)
-
 
 class TargetAccessor:
     """
@@ -72,7 +72,7 @@ class TargetAccessor:
         self._block = targets_block
 
     def y(self,
-          selector: Optional[Selector] = None,
+          selector: Selector | None = None,
           include_augmented: bool = True,
           include_excluded: bool = False) -> np.ndarray:
         """
@@ -157,7 +157,7 @@ class TargetAccessor:
                               processing_name: str,
                               targets: np.ndarray,
                               ancestor_processing: str = "numeric",
-                              transformer: Optional[TransformerMixin] = None) -> None:
+                              transformer: TransformerMixin | None = None) -> None:
         """
         Add processed target version (e.g., scaled, encoded).
 
@@ -216,7 +216,7 @@ class TargetAccessor:
         )
 
     @property
-    def task_type(self) -> Optional[TaskType]:
+    def task_type(self) -> TaskType | None:
         """
         Get detected task type.
 
@@ -236,6 +236,6 @@ class TargetAccessor:
         return self._block.num_samples
 
     @property
-    def processing_ids(self) -> List[str]:
+    def processing_ids(self) -> list[str]:
         """List of available target processing versions."""
         return self._block.processing_ids

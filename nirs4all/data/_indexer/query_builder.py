@@ -6,16 +6,16 @@ user-friendly selector dictionaries into optimized Polars expressions.
 """
 
 import re
-from typing import Dict, Any, Optional, Callable, Union
+from collections.abc import Callable
+from typing import Any, Optional, Union
+
 import polars as pl
 
 from nirs4all.data.types import Selector
 
-
 # Regex patterns for condition parsing
 _COMPARISON_PATTERN = re.compile(r'^([<>]=?|[!=]=?)\s*(-?\d+\.?\d*)$')
 _RANGE_PATTERN = re.compile(r'^(-?\d+\.?\d*)?\.\.(-?\d+\.?\d*)?$')
-
 
 class QueryBuilder:
     """
@@ -37,7 +37,7 @@ class QueryBuilder:
         >>> # expr: (partition == "train") & (group in [1, 2])
     """
 
-    def __init__(self, valid_columns: Optional[list[str]] = None):
+    def __init__(self, valid_columns: list[str] | None = None):
         """
         Initialize the query builder.
 
@@ -47,7 +47,7 @@ class QueryBuilder:
         """
         self._valid_columns = set(valid_columns) if valid_columns else None
 
-    def build(self, selector: Selector, exclude_columns: Optional[list[str]] = None) -> pl.Expr:
+    def build(self, selector: Selector, exclude_columns: list[str] | None = None) -> pl.Expr:
         """
         Build a Polars filter expression from a selector dictionary.
 
@@ -341,7 +341,7 @@ class QueryBuilder:
         self,
         col: pl.Expr,
         operator: str,
-        value: Union[int, float]
+        value: int | float
     ) -> pl.Expr:
         """Build comparison expression."""
         if operator == '>':
@@ -362,8 +362,8 @@ class QueryBuilder:
     def _build_range_expr(
         self,
         col: pl.Expr,
-        start_str: Optional[str],
-        end_str: Optional[str]
+        start_str: str | None,
+        end_str: str | None
     ) -> pl.Expr:
         """
         Build range expression for "start..end" syntax.

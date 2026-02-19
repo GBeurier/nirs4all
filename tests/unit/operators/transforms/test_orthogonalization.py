@@ -2,11 +2,11 @@
 
 import numpy as np
 import pytest
-from sklearn.pipeline import Pipeline
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from nirs4all.operators.transforms import OSC, EPO
+from nirs4all.operators.transforms import EPO, OSC
 
 
 class TestOSC:
@@ -236,7 +236,6 @@ class TestOSC:
         with pytest.raises(ValueError, match="n_components must be >= 1"):
             osc.fit(X, y)
 
-
 class TestEPO:
     """Test suite for External Parameter Orthogonalization (EPO)."""
 
@@ -399,7 +398,6 @@ class TestEPO:
         with pytest.raises(NotFittedError):
             epo.transform(X)
 
-
 class TestOSCDataLeakage:
     """Tests verifying OSC does not leak test data into fitting."""
 
@@ -468,9 +466,10 @@ class TestOSCDataLeakage:
         model learns from training Y only, and test RMSE is ~999
         (model predicts ~0 on test set whose true Y = 999).
         """
+        from sklearn.model_selection import KFold
+
         import nirs4all
         from nirs4all.data.dataset import SpectroDataset
-        from sklearn.model_selection import KFold
 
         np.random.seed(42)
         n_features = 40
@@ -496,7 +495,6 @@ class TestOSCDataLeakage:
             f"CV val score {val_score:.2f} is too high, suggesting "
             f"test Y values (999) may have leaked into OSC fitting"
         )
-
 
 class TestOSCEPOIntegration:
     """Integration tests for OSC and EPO."""

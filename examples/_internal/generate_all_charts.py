@@ -25,27 +25,26 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Third-party imports
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.model_selection import ShuffleSplit, StratifiedKFold
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import ShuffleSplit, StratifiedKFold
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.pipeline import PipelineRunner, PipelineConfigs
 from nirs4all.data import DatasetConfigs
+from nirs4all.operators.filters import XOutlierFilter
 from nirs4all.operators.transforms import (
-    StandardNormalVariate,
-    FirstDerivative,
     Detrend,
+    FirstDerivative,
     GaussianAdditiveNoise,
+    StandardNormalVariate,
     WavelengthShift,
 )
-from nirs4all.operators.filters import XOutlierFilter
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 # Configuration
 OUTPUT_DIR = Path(__file__).parent.parent / "workspace" / "examples_output" / "all_charts"
 REGRESSION_DATA = Path(__file__).parent.parent / "sample_data" / "regression"
 CLASSIFICATION_DATA = Path(__file__).parent.parent / "sample_data" / "classification"
-
 
 def run_regression_charts():
     """Generate charts for regression task."""
@@ -124,7 +123,6 @@ def run_regression_charts():
     print(f"Regression charts saved to: {OUTPUT_DIR / 'regression'}")
     return predictions
 
-
 def run_classification_charts():
     """Generate charts for classification task."""
     print("\n" + "=" * 60)
@@ -166,7 +164,6 @@ def run_classification_charts():
 
     print(f"Classification charts saved to: {OUTPUT_DIR / 'classification'}")
     return predictions
-
 
 def run_chart_options_demo():
     """Demonstrate chart options (dict syntax)."""
@@ -216,7 +213,6 @@ def run_chart_options_demo():
     print(f"Options demo charts saved to: {OUTPUT_DIR / 'options_demo'}")
     return predictions
 
-
 def main():
     """Run all chart generation examples."""
     print("\n" + "#" * 60)
@@ -244,7 +240,6 @@ def main():
     print("  - augment_chart: Augmentation overlay")
     print("  - augment_details_chart: Augmentation details grid")
     print("  - exclusion_chart: Excluded samples PCA scatter")
-
 
 if __name__ == "__main__":
     main()

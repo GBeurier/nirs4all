@@ -5,25 +5,26 @@ This module contains Metadata class for managing sample-level auxiliary data.
 Metadata has one row per sample and aligns with the indexer's row indices.
 """
 
-from typing import Dict, List, Optional, Union, Literal, Any
+from typing import Any, Literal, Optional, Union
+
 import numpy as np
-import polars as pl
 import pandas as pd
+import polars as pl
 from sklearn.preprocessing import LabelEncoder
 
 
 class Metadata:
     """Lightweight metadata manager for sample-level auxiliary data."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize empty metadata block."""
-        self.df: Optional[pl.DataFrame] = None
-        self._numeric_cache: Dict[str, tuple[np.ndarray, Dict]] = {}
+        self.df: pl.DataFrame | None = None
+        self._numeric_cache: dict[str, tuple[np.ndarray, dict]] = {}
         self._row_counter: int = 0  # Track next row ID
 
     def add_metadata(self,
-                     data: Union[np.ndarray, pl.DataFrame, pd.DataFrame],
-                     headers: Optional[List[str]] = None) -> None:
+                     data: np.ndarray | pl.DataFrame | pd.DataFrame,
+                     headers: list[str] | None = None) -> None:
         """
         Add metadata rows.
 
@@ -71,8 +72,8 @@ class Metadata:
         self._numeric_cache.clear()
 
     def get(self,
-            indices: Optional[Union[List[int], np.ndarray]] = None,
-            columns: Optional[List[str]] = None) -> pl.DataFrame:
+            indices: list[int] | np.ndarray | None = None,
+            columns: list[str] | None = None) -> pl.DataFrame:
         """
         Get metadata as DataFrame.
 
@@ -104,7 +105,7 @@ class Metadata:
 
     def get_column(self,
                    column: str,
-                   indices: Optional[Union[List[int], np.ndarray]] = None) -> np.ndarray:
+                   indices: list[int] | np.ndarray | None = None) -> np.ndarray:
         """
         Get single column as numpy array.
 
@@ -129,8 +130,8 @@ class Metadata:
 
     def to_numeric(self,
                    column: str,
-                   indices: Optional[Union[List[int], np.ndarray]] = None,
-                   method: Literal["label", "onehot"] = "label") -> tuple[np.ndarray, Dict]:
+                   indices: list[int] | np.ndarray | None = None,
+                   method: Literal["label", "onehot"] = "label") -> tuple[np.ndarray, dict]:
         """
         Convert categorical column to numeric encoding.
 
@@ -209,9 +210,9 @@ class Metadata:
         return numeric, encoding_info
 
     def update_metadata(self,
-                        indices: Union[List[int], np.ndarray],
+                        indices: list[int] | np.ndarray,
                         column: str,
-                        values: Union[List, np.ndarray]) -> None:
+                        values: list | np.ndarray) -> None:
         """
         Update metadata values for specific rows.
 
@@ -234,7 +235,7 @@ class Metadata:
 
         # Update using Polars - more efficient approach
         # Create a mapping dict
-        update_dict = dict(zip(indices, values))
+        update_dict = dict(zip(indices, values, strict=False))
 
         # Apply updates
         self.df = self.df.with_columns(
@@ -256,7 +257,7 @@ class Metadata:
 
     def add_column(self,
                    column: str,
-                   values: Union[List, np.ndarray]) -> None:
+                   values: list | np.ndarray) -> None:
         """
         Add new metadata column.
 
@@ -285,7 +286,7 @@ class Metadata:
         return 0 if self.df is None else len(self.df)
 
     @property
-    def columns(self) -> List[str]:
+    def columns(self) -> list[str]:
         """List of metadata column names (excluding row_id)."""
         if self.df is None:
             return []

@@ -4,9 +4,9 @@ Tests for RoleAssigner class.
 Tests role assignment for features, targets, and metadata.
 """
 
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
 
 from nirs4all.data.selection import RoleAssigner, RoleAssignmentError
 
@@ -23,7 +23,6 @@ def sample_df():
         "target": [0, 1, 0, 1, 0],
     })
 
-
 @pytest.fixture
 def spectral_df():
     """Create a spectral-like DataFrame."""
@@ -38,7 +37,6 @@ def spectral_df():
     data["protein_content"] = np.random.rand(10) * 10
 
     return pd.DataFrame(data)
-
 
 class TestRoleAssignerBasic:
     """Basic role assignment tests."""
@@ -86,7 +84,6 @@ class TestRoleAssignerBasic:
         assert len(result.target_indices) == 1
         assert len(result.metadata_indices) == 2
 
-
 class TestRoleAssignerAliases:
     """Tests for role key aliases."""
 
@@ -129,7 +126,6 @@ class TestRoleAssignerAliases:
             assert result.targets is not None
             assert result.metadata is not None
 
-
 class TestRoleAssignerOverlap:
     """Tests for overlap detection."""
 
@@ -154,7 +150,6 @@ class TestRoleAssignerOverlap:
 
         assert 2 in result.feature_indices
         assert 2 in result.target_indices
-
 
 class TestRoleAssignerAuto:
     """Tests for auto role assignment."""
@@ -194,7 +189,6 @@ class TestRoleAssignerAuto:
                 target_columns=list(range(6)),
             )
 
-
 class TestRoleAssignerExtractY:
     """Tests for extracting Y from X."""
 
@@ -209,7 +203,6 @@ class TestRoleAssignerExtractY:
         # Target column should not be in features
         assert "target" not in result.features.columns
         assert "target" in result.targets.columns
-
 
 class TestRoleAssignerSpectral:
     """Tests with spectral-like data."""
@@ -240,7 +233,6 @@ class TestRoleAssignerSpectral:
         assert len(result.feature_indices) == 100
         assert len(result.target_indices) == 1
 
-
 class TestRoleAssignerValidation:
     """Tests for role validation."""
 
@@ -267,7 +259,6 @@ class TestRoleAssignerValidation:
         })
 
         assert any("Many target columns" in w for w in warnings)
-
 
 class TestRoleAssignerCaseSensitivity:
     """Tests for case sensitivity in role assignment."""

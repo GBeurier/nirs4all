@@ -2,14 +2,14 @@
 Unit tests for SyntheticDatasetBuilder class.
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.synthesis import (
+    ComponentLibrary,
+    FeatureConfig,
     SyntheticDatasetBuilder,
     SyntheticDatasetConfig,
-    FeatureConfig,
-    ComponentLibrary,
 )
 
 
@@ -50,7 +50,6 @@ class TestBuilderInit:
         assert "SyntheticDatasetBuilder" in repr_str
         assert "500" in repr_str
         assert "42" in repr_str
-
 
 class TestWithFeatures:
     """Tests for with_features() method."""
@@ -110,7 +109,6 @@ class TestWithFeatures:
 
         assert result is builder
 
-
 class TestWithTargets:
     """Tests for with_targets() method."""
 
@@ -157,7 +155,6 @@ class TestWithTargets:
 
         assert builder.state.n_classes is None
 
-
 class TestWithClassification:
     """Tests for with_classification() method."""
 
@@ -203,7 +200,6 @@ class TestWithClassification:
         with pytest.raises(ValueError, match="must sum to 1.0"):
             builder.with_classification(n_classes=2, class_weights=[0.3, 0.3])
 
-
 class TestWithMetadata:
     """Tests for with_metadata() method."""
 
@@ -242,7 +238,6 @@ class TestWithMetadata:
 
         assert builder.state.n_repetitions == (2, 5)
 
-
 class TestWithPartitions:
     """Tests for with_partitions() method."""
 
@@ -279,7 +274,6 @@ class TestWithPartitions:
 
         assert builder.state.shuffle is False
 
-
 class TestWithBatchEffects:
     """Tests for with_batch_effects() method."""
 
@@ -297,7 +291,6 @@ class TestWithBatchEffects:
 
         assert builder.state.n_batches == 5
 
-
 class TestWithOutput:
     """Tests for with_output() method."""
 
@@ -314,7 +307,6 @@ class TestWithOutput:
         builder.with_output(include_metadata=True)
 
         assert builder.state.include_metadata is True
-
 
 class TestBuild:
     """Tests for build() method."""
@@ -370,7 +362,6 @@ class TestBuild:
 
         assert not np.allclose(X1, X2)
 
-
 class TestBuildArrays:
     """Tests for build_arrays() convenience method."""
 
@@ -383,7 +374,6 @@ class TestBuildArrays:
         assert isinstance(y, np.ndarray)
         assert X.shape[0] == 50
 
-
 class TestBuildDataset:
     """Tests for build_dataset() convenience method."""
 
@@ -394,7 +384,6 @@ class TestBuildDataset:
 
         from nirs4all.data import SpectroDataset
         assert isinstance(dataset, SpectroDataset)
-
 
 class TestTargetProcessing:
     """Tests for target value processing."""
@@ -439,7 +428,6 @@ class TestTargetProcessing:
         assert np.all(np.isfinite(y))
         assert np.all(y >= 0)
 
-
 class TestClassificationOutput:
     """Tests for classification target output."""
 
@@ -476,7 +464,6 @@ class TestClassificationOutput:
         counts = np.bincount(y.astype(int))
         # Class 0 should have most samples
         assert counts[0] > counts[1] > counts[2]
-
 
 class TestDatasetPartitioning:
     """Tests for dataset partitioning."""
@@ -519,7 +506,6 @@ class TestDatasetPartitioning:
         assert train_count == 50
         assert test_count == 0
 
-
 class TestGetConfig:
     """Tests for get_config() method."""
 
@@ -536,7 +522,6 @@ class TestGetConfig:
         assert config.random_state == 42
         assert config.features.complexity == "realistic"
         assert config.targets.distribution == "lognormal"
-
 
 class TestFromConfig:
     """Tests for from_config() class method."""
@@ -570,7 +555,6 @@ class TestFromConfig:
         assert builder2.state.concentration_method == "lognormal"
         assert builder2.state.target_range == (0, 50)
         assert builder2.state.train_ratio == 0.75
-
 
 class TestComplexScenarios:
     """Tests for complex builder configurations."""

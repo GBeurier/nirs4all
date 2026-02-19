@@ -29,31 +29,31 @@ import json
 
 # Generator API imports
 from nirs4all.pipeline.config.generator import (
-    # Core expansion functions
-    expand_spec,
-    count_combinations,
-    # Iterator API for large spaces
-    expand_spec_iter,
-    batch_iter,
-    # Detection
-    is_generator_node,
-    # Utilities
-    sample_with_seed,
+    ARRANGE_KEYWORD,
     # Keywords
     PICK_KEYWORD,
-    ARRANGE_KEYWORD,
-    THEN_PICK_KEYWORD,
     THEN_ARRANGE_KEYWORD,
+    THEN_PICK_KEYWORD,
+    batch_iter,
+    clear_presets,
+    count_combinations,
+    diff_configs,
+    # Core expansion functions
+    expand_spec,
+    # Iterator API for large spaces
+    expand_spec_iter,
+    # Detection
+    is_generator_node,
+    list_presets,
+    print_expansion_tree,
     # Preset functions
     register_preset,
-    list_presets,
-    clear_presets,
     resolve_presets_recursive,
+    # Utilities
+    sample_with_seed,
+    summarize_configs,
     # Export utilities
     to_dataframe,
-    diff_configs,
-    summarize_configs,
-    print_expansion_tree,
 )
 
 # Parse command-line arguments
@@ -61,7 +61,6 @@ parser = argparse.ArgumentParser(description='R02 Generator Syntax Reference')
 parser.add_argument('--plots', action='store_true', help='(unused)')
 parser.add_argument('--show', action='store_true', help='(unused)')
 args = parser.parse_args()
-
 
 def print_section(title: str, phase: str = ""):
     """Print a section header."""
@@ -73,7 +72,6 @@ def print_section(title: str, phase: str = ""):
         print(title)
     print("=" * 70)
     print()
-
 
 def show_expansion(name: str, spec, max_show: int = 10, seed: int = None):
     """Show expansion results for a specification."""
@@ -98,7 +96,6 @@ def show_expansion(name: str, spec, max_show: int = 10, seed: int = None):
         print(f"  ... ({len(results) - max_show} more)")
     print()
     return results
-
 
 # =============================================================================
 # PHASE 1: Core Keywords
@@ -159,7 +156,6 @@ for i in range(3):
     print(f"  Run {i+1} (seed=42): {results}")
 print()
 
-
 # =============================================================================
 # PHASE 2: Selection Keywords
 # =============================================================================
@@ -212,7 +208,6 @@ print()
 print("Use pick when order doesn't matter (feature_augmentation, concat_transform)")
 print("Use arrange when order matters (sequential preprocessing steps)")
 print()
-
 
 # =============================================================================
 # PHASE 3: Advanced Generators
@@ -313,7 +308,6 @@ show_expansion(
     seed=42
 )
 
-
 # =============================================================================
 # PHASE 4: Constraints and Presets
 # =============================================================================
@@ -378,7 +372,6 @@ print(f"Resolved: {json.dumps(resolved, indent=2, default=str)}")
 print(f"Total combinations: {count_combinations(resolved)}")
 print()
 
-
 # =============================================================================
 # UTILITIES
 # =============================================================================
@@ -392,6 +385,7 @@ print(f"Spec: {large_spec} ({count_combinations(large_spec)} items)")
 print()
 
 from itertools import islice
+
 first_10 = list(islice(expand_spec_iter(large_spec), 10))
 print(f"First 10 (lazy iteration): {first_10}")
 print()
@@ -421,7 +415,6 @@ print(f"  Config 0: {configs[0]}")
 print(f"  Config 2: {configs[2]}")
 print(f"  Diff: {diff_configs(configs[0], configs[2])}")
 print()
-
 
 # =============================================================================
 # SUMMARY

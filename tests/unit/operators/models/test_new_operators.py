@@ -19,10 +19,8 @@ from nirs4all.operators.models.sklearn.aom_pls import (
     extended_operator_bank,
 )
 
-
 P = 200
 TOL = 1e-6
-
 
 def _check_adjoint(op, p=P, tol=TOL):
     """Verify adjoint identity |<Ax, y> - <x, A^T y>| < tol."""
@@ -40,11 +38,9 @@ def _check_adjoint(op, p=P, tol=TOL):
             f"|<Ax,y> - <x,A^T y>| = {abs(lhs - rhs):.2e}"
         )
 
-
 # =============================================================================
 # NorrisWilliamsOperator Tests
 # =============================================================================
-
 
 class TestNorrisWilliamsOperator:
     """Test NorrisWilliams operator for adjoint correctness and behavior."""
@@ -86,11 +82,9 @@ class TestNorrisWilliamsOperator:
         assert params["deriv"] == 2
         assert params["delta"] == 2.0
 
-
 # =============================================================================
 # FiniteDifferenceOperator Tests
 # =============================================================================
-
 
 class TestFiniteDifferenceOperator:
     """Test finite difference operator."""
@@ -137,11 +131,9 @@ class TestFiniteDifferenceOperator:
         assert "FD" in op.name
         assert "2" in op.name
 
-
 # =============================================================================
 # WaveletProjectionOperator Tests
 # =============================================================================
-
 
 class TestWaveletProjectionOperator:
     """Test wavelet approximation projection operator."""
@@ -203,11 +195,9 @@ class TestWaveletProjectionOperator:
         result = op.apply(X)
         assert result.shape == X.shape
 
-
 # =============================================================================
 # FFTBandpassOperator Tests
 # =============================================================================
-
 
 class TestFFTBandpassOperator:
     """Test FFT bandpass filter operator."""
@@ -269,11 +259,9 @@ class TestFFTBandpassOperator:
         result = op.apply(x)
         assert result.shape == (P,)
 
-
 # =============================================================================
 # Extended Operator Bank Tests
 # =============================================================================
-
 
 class TestExtendedOperatorBank:
     """Test extended_operator_bank integrity."""

@@ -42,12 +42,9 @@ from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative,
-    SavitzkyGolay
-)
+from nirs4all.operators.transforms import FirstDerivative, SavitzkyGolay
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
@@ -55,7 +52,6 @@ parser = argparse.ArgumentParser(description='D03 Merge Basics Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -78,7 +74,6 @@ Merge mode for SEPARATION branches (different samples per branch):
 
 Important: ``merge`` ALWAYS exits branch mode.
 """)
-
 
 # =============================================================================
 # Section 1: Feature Merging
@@ -124,7 +119,6 @@ result_feature = nirs4all.run(
 print(f"\nPredictions after feature merge: {result_feature.num_predictions}")
 # After merge, we're back to single-path (no branch column)
 print("Branch mode: exited (single pipeline path)")
-
 
 # =============================================================================
 # Section 2: Prediction Merging (Stacking Level 1)
@@ -172,7 +166,6 @@ result_prediction = nirs4all.run(
 print(f"\nMeta-model predictions: {result_prediction.num_predictions}")
 print("This is basic 2-level stacking!")
 
-
 # =============================================================================
 # Section 3: Mixed Merging
 # =============================================================================
@@ -210,7 +203,6 @@ result_mixed = nirs4all.run(
 )
 
 print(f"\nMixed merge predictions: {result_mixed.num_predictions}")
-
 
 # =============================================================================
 # Section 4: Per-Branch Selection
@@ -251,7 +243,6 @@ result_selection = nirs4all.run(
 
 print(f"\nSelected branch merge: {result_selection.num_predictions}")
 
-
 # =============================================================================
 # Section 5: Aggregation Instead of Concatenation
 # =============================================================================
@@ -289,7 +280,6 @@ result_aggregation = nirs4all.run(
 )
 
 print(f"\nAggregated feature merge: {result_aggregation.num_predictions}")
-
 
 # =============================================================================
 # Section 6: Nested Branching with Sequential Merges
@@ -338,7 +328,6 @@ result_nested = nirs4all.run(
 
 print(f"\nNested branching predictions: {result_nested.num_predictions}")
 
-
 # =============================================================================
 # Section 7: Merge with Original Features
 # =============================================================================
@@ -374,7 +363,6 @@ result_with_original = nirs4all.run(
 )
 
 print(f"\nMerge with original: {result_with_original.num_predictions}")
-
 
 # =============================================================================
 # Section 8: Concat Merge for Separation Branches
@@ -419,7 +407,6 @@ Example pipeline with separation branch and concat merge:
 
 See D06_separation_branches.py for full working examples.
 """)
-
 
 # =============================================================================
 # Summary

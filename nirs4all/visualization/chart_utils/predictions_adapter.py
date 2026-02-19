@@ -3,7 +3,8 @@ PredictionsAdapter - Adapter for Predictions API with optimized data access.
 
 Wraps the refactored Predictions API to provide convenient methods for charts.
 """
-from typing import List, Optional
+from typing import Optional
+
 from nirs4all.data.predictions import PredictionResultsList
 
 
@@ -36,7 +37,7 @@ class PredictionsAdapter:
         n: int,
         rank_metric: str,
         rank_partition: str = 'val',
-        ascending: Optional[bool] = None,
+        ascending: bool | None = None,
         load_arrays: bool = True,
         **filters
     ) -> PredictionResultsList:
@@ -94,7 +95,7 @@ class PredictionsAdapter:
         predictions_list: PredictionResultsList,
         metric: str,
         partition: str = 'test'
-    ) -> List[float]:
+    ) -> list[float]:
         """Extract metric values from prediction results.
 
         Args:

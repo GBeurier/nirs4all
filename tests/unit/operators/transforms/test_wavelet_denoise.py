@@ -81,7 +81,6 @@ class TestWaveletDenoiseFunction:
         assert abs(np.mean(X_denoised) - np.mean(X)) < 2 * np.std(X)
         assert np.std(X_denoised) < np.std(X)  # Should reduce variance
 
-
 class TestWaveletDenoiseTransformer:
     """Test the WaveletDenoise transformer class."""
 
@@ -189,7 +188,6 @@ class TestWaveletDenoiseTransformer:
 
         assert tags["allow_nan"] is False
         assert tags["stateless"] is True
-
 
 class TestWaveletDenoiseIntegration:
     """Integration tests with realistic NIRS-like data."""

@@ -9,10 +9,9 @@ and output management for saving generated files.
 import os
 import sys
 from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import Any, Optional, Union
 
 import numpy as np
-
 
 # =============================================================================
 # Output Directory Management
@@ -20,7 +19,6 @@ import numpy as np
 
 # Default output directory for example outputs
 _EXAMPLES_OUTPUT_DIR = None
-
 
 def get_examples_output_dir() -> Path:
     """Get the output directory for example files.
@@ -41,7 +39,6 @@ def get_examples_output_dir() -> Path:
         _EXAMPLES_OUTPUT_DIR = workspace_dir
 
     return _EXAMPLES_OUTPUT_DIR
-
 
 def get_example_output_path(
     example_name: str,
@@ -73,7 +70,6 @@ def get_example_output_path(
         return example_dir / filename
     else:
         return output_dir / filename
-
 
 def save_array_summary(
     arrays: dict,
@@ -124,8 +120,7 @@ def save_array_summary(
 
     return path
 
-
-def print_output_location(path: Union[str, Path], description: str = "Output") -> None:
+def print_output_location(path: str | Path, description: str = "Output") -> None:
     """Print the location of a saved output file.
 
     Args:
@@ -139,7 +134,6 @@ def print_output_location(path: Union[str, Path], description: str = "Output") -
         print(f"   📁 {description}: {rel_path}")
     except ValueError:
         print(f"   📁 {description}: {path}")
-
 
 def validate_result(
     result: Any,
@@ -220,10 +214,9 @@ def validate_result(
 
     return True
 
-
 def validate_results(
-    results: List[Any],
-    names: Optional[List[str]] = None,
+    results: list[Any],
+    names: list[str] | None = None,
     allow_nan_ratio: float = 0.0,
     min_predictions: int = 1,
     exit_on_failure: bool = True,
@@ -244,7 +237,7 @@ def validate_results(
         names = [f"Result_{i+1}" for i in range(len(results))]
 
     all_valid = True
-    for result, name in zip(results, names):
+    for result, name in zip(results, names, strict=False):
         if not validate_result(
             result,
             name=name,

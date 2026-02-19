@@ -36,19 +36,18 @@ import sys
 import time
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import yaml
 
 # Ensure we can import nirs4all
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from nirs4all.core.logging import get_logger
 from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
-
 
 # ============================================================================
 # Configuration
@@ -71,14 +70,13 @@ MULTI_SOURCE_PIPELINES = [
     # "10_complete_all_features.json",  # Simplified to work with single source
 ]
 
-
 # ============================================================================
 # Pipeline Loaders
 # ============================================================================
 
-def load_json_pipeline(filepath: Path) -> Dict[str, Any]:
+def load_json_pipeline(filepath: Path) -> dict[str, Any]:
     """Load pipeline definition from JSON file."""
-    with open(filepath, 'r') as f:
+    with open(filepath) as f:
         data = json.load(f)
 
     # Handle both flat list and wrapped dict formats
@@ -86,10 +84,9 @@ def load_json_pipeline(filepath: Path) -> Dict[str, Any]:
         return {"pipeline": data}
     return data
 
-
-def load_yaml_pipeline(filepath: Path) -> Dict[str, Any]:
+def load_yaml_pipeline(filepath: Path) -> dict[str, Any]:
     """Load pipeline definition from YAML file."""
-    with open(filepath, 'r') as f:
+    with open(filepath) as f:
         data = yaml.safe_load(f)
 
     # Handle both flat list and wrapped dict formats
@@ -97,8 +94,7 @@ def load_yaml_pipeline(filepath: Path) -> Dict[str, Any]:
         return {"pipeline": data}
     return data
 
-
-def load_pipeline(filepath: Path) -> Dict[str, Any]:
+def load_pipeline(filepath: Path) -> dict[str, Any]:
     """Load pipeline from file based on extension."""
     suffix = filepath.suffix.lower()
     if suffix == '.json':
@@ -108,12 +104,11 @@ def load_pipeline(filepath: Path) -> Dict[str, Any]:
     else:
         raise ValueError(f"Unsupported file format: {suffix}")
 
-
 # ============================================================================
 # Pipeline Preprocessing
 # ============================================================================
 
-def filter_comments(pipeline: List[Any]) -> List[Any]:
+def filter_comments(pipeline: list[Any]) -> list[Any]:
     """Remove comment-only steps from pipeline."""
     filtered = []
     for step in pipeline:
@@ -125,8 +120,7 @@ def filter_comments(pipeline: List[Any]) -> List[Any]:
         filtered.append(step)
     return filtered
 
-
-def simplify_for_quick_run(pipeline: List[Any]) -> List[Any]:
+def simplify_for_quick_run(pipeline: list[Any]) -> list[Any]:
     """Simplify pipeline for quick testing."""
     simplified = []
     for step in pipeline:
@@ -147,7 +141,6 @@ def simplify_for_quick_run(pipeline: List[Any]) -> List[Any]:
         simplified.append(step)
     return simplified
 
-
 def get_dataset_for_pipeline(pipeline_name: str, examples_dir: Path) -> str:
     """Get appropriate dataset for a pipeline."""
     if pipeline_name in MULTI_SOURCE_PIPELINES:
@@ -156,7 +149,6 @@ def get_dataset_for_pipeline(pipeline_name: str, examples_dir: Path) -> str:
         if multi_path.exists():
             return "sample_data/multi"
     return DEFAULT_DATASET
-
 
 # ============================================================================
 # Test Runner
@@ -168,11 +160,11 @@ class PipelineTestResult:
     def __init__(self, name: str):
         self.name = name
         self.success = False
-        self.error: Optional[str] = None
+        self.error: str | None = None
         self.num_predictions = 0
         self.num_models = 0
         self.duration: float = 0.0
-        self.warnings: List[str] = []
+        self.warnings: list[str] = []
         self.dummy_controller_triggered = False
 
     def __str__(self) -> str:
@@ -183,7 +175,6 @@ class PipelineTestResult:
         else:
             msg += f" - {self.error}"
         return msg
-
 
 def run_pipeline_test(
     pipeline_file: Path,
@@ -254,14 +245,13 @@ def run_pipeline_test(
     result.duration = time.time() - start_time
     return result
 
-
 def run_all_tests(
     pipeline_dir: Path,
     examples_dir: Path,
     verbose: int = 1,
     quick: bool = False,
-    specific_pipeline: Optional[str] = None
-) -> Tuple[List[PipelineTestResult], int, int]:
+    specific_pipeline: str | None = None
+) -> tuple[list[PipelineTestResult], int, int]:
     """Run all pipeline tests."""
     results = []
     passed = 0
@@ -286,7 +276,7 @@ def run_all_tests(
         has_tensorflow = False
 
     print(f"\n{'='*70}")
-    print(f"  Pipeline Samples Test Runner")
+    print("  Pipeline Samples Test Runner")
     print(f"{'='*70}")
     print(f"  Directory: {pipeline_dir}")
     print(f"  Dataset: {DEFAULT_DATASET}")
@@ -329,11 +319,10 @@ def run_all_tests(
 
     return results, passed, failed
 
-
-def print_summary(results: List[PipelineTestResult], passed: int, failed: int):
+def print_summary(results: list[PipelineTestResult], passed: int, failed: int):
     """Print test summary."""
     print(f"\n{'='*70}")
-    print(f"  TEST SUMMARY")
+    print("  TEST SUMMARY")
     print(f"{'='*70}")
     print(f"  Total:  {len(results)}")
     print(f"  Passed: {passed}")
@@ -354,7 +343,6 @@ def print_summary(results: List[PipelineTestResult], passed: int, failed: int):
             print(f"    - {r.name}")
 
     print()
-
 
 # ============================================================================
 # Main Entry Point
@@ -415,7 +403,6 @@ def main():
 
     # Exit with appropriate code
     sys.exit(0 if failed == 0 else 1)
-
 
 if __name__ == "__main__":
     main()

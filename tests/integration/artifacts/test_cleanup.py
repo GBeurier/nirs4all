@@ -10,19 +10,20 @@ Tests cleanup functionality:
 - Auto-cleanup on pipeline failure
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+import pytest
 import yaml
-from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import StandardScaler
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
+from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 
 
@@ -39,7 +40,6 @@ def create_test_dataset(n_samples: int = 100, n_features: int = 50) -> SpectroDa
     dataset.add_targets(y[80:])
 
     return dataset
-
 
 class TestOrphanDetection:
     """Tests for orphaned artifact detection."""
@@ -111,7 +111,6 @@ class TestOrphanDetection:
         orphans = registry.find_orphaned_artifacts(scan_all_manifests=False)
         # Subdirectory should not be listed as orphan
         assert "subdir" not in orphans
-
 
 class TestOrphanCleanup:
     """Tests for orphan cleanup functionality."""
@@ -208,7 +207,6 @@ class TestOrphanCleanup:
 
         assert bytes_freed == sum(sizes)
 
-
 class TestFailedRunCleanup:
     """Tests for failed run artifact cleanup."""
 
@@ -277,7 +275,6 @@ class TestFailedRunCleanup:
         # But artifact should still exist
         assert registry.resolve("0001:0:all") is not None
 
-
 class TestPipelineArtifactDeletion:
     """Tests for deleting artifacts by pipeline."""
 
@@ -342,7 +339,6 @@ class TestPipelineArtifactDeletion:
         assert count == 1
         assert not filepath.exists()
 
-
 class TestDatasetPurge:
     """Tests for purging all dataset artifacts."""
 
@@ -389,12 +385,11 @@ class TestDatasetPurge:
         assert bytes_freed > 0
 
         # All files should be deleted
-        remaining = list(f for f in registry.binaries_dir.rglob("*") if f.is_file())
+        remaining = [f for f in registry.binaries_dir.rglob("*") if f.is_file()]
         assert len(remaining) == 0
 
         # Registry should be empty
         assert len(registry._artifacts) == 0
-
 
 class TestStorageStats:
     """Tests for storage statistics."""
@@ -461,7 +456,6 @@ class TestStorageStats:
         assert stats["unique_files"] == 1
         assert stats["deduplication_ratio"] == 0.75  # (4-1)/4
 
-
 class TestCleanupWithRealPipelines:
     """Tests for cleanup with actual pipeline runs."""
 
@@ -512,7 +506,6 @@ class TestCleanupWithRealPipelines:
 
         # Should have some artifacts (or zero if save_artifacts didn't save to binaries/)
         assert stats["total_artifacts"] >= 0
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

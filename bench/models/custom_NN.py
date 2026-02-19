@@ -3,14 +3,15 @@ from tensorflow.keras import layers as L
 
 from nirs4all.utils.backend import framework
 
-
 #####################
 ## CHATGPT MODELS ##
 #####################
 
 @framework('tensorflow')
-def resnet_se(input_shape, params: dict = {}):
+def resnet_se(input_shape, params: dict = None):
     """1D ResNet with Squeeze-Excitation."""
+    if params is None:
+        params = {}
     r = params.get('se_ratio', 8)
     ks = params.get('kernel_size', 9)
     filters = params.get('filters', [32, 64, 128])
@@ -27,19 +28,22 @@ def resnet_se(input_shape, params: dict = {}):
 
     def res_block(x, f):
         y = L.Conv1D(f, ks, padding='same')(x)
-        y = L.BatchNormalization()(y); y = L.ReLU()(y)
+        y = L.BatchNormalization()(y)
+        y = L.ReLU()(y)
         y = L.Conv1D(f, ks, padding='same')(y)
         y = L.BatchNormalization()(y)
         y = se_block(y)
         s = x
         if x.shape[-1] != f:
             s = L.Conv1D(f, 1, padding='same')(x)
-        y = L.Add()([s, y]); y = L.ReLU()(y)
+        y = L.Add()([s, y])
+        y = L.ReLU()(y)
         return y
 
     inp = L.Input(shape=input_shape)
     x = L.Conv1D(filters[0], 7, padding='same')(inp)
-    x = L.BatchNormalization()(x); x = L.ReLU()(x)
+    x = L.BatchNormalization()(x)
+    x = L.ReLU()(x)
     for f in filters:
         x = res_block(x, f)
         x = L.MaxPool1D(pool_size=2, strides=pool_stride)(x)
@@ -48,10 +52,11 @@ def resnet_se(input_shape, params: dict = {}):
     out = L.Dense(1)(x)
     return Model(inp, out)
 
-
 @framework('tensorflow')
-def inception_time(input_shape, params: dict = {}):
+def inception_time(input_shape, params: dict = None):
     """InceptionTime-style 1D CNN."""
+    if params is None:
+        params = {}
     f = params.get('filters', 64)
     ks = params.get('kernels', (5, 9, 15))
     blocks = params.get('blocks', 3)
@@ -76,10 +81,11 @@ def inception_time(input_shape, params: dict = {}):
     out = L.Dense(1)(x)
     return Model(inp, out)
 
-
 @framework('tensorflow')
-def tcn_noncausal(input_shape, params: dict = {}):
+def tcn_noncausal(input_shape, params: dict = None):
     """Non-causal TCN with residual dilations."""
+    if params is None:
+        params = {}
     filters = params.get('filters', [64, 64, 128])
     dilations = params.get('dilations', [1, 2, 4, 8])
     k = params.get('kernel_size', 7)
@@ -87,7 +93,8 @@ def tcn_noncausal(input_shape, params: dict = {}):
 
     def tcn_block(x, f, d):
         y = L.Conv1D(f, k, dilation_rate=d, padding='same')(x)
-        y = L.BatchNormalization()(y); y = L.ReLU()(y)
+        y = L.BatchNormalization()(y)
+        y = L.ReLU()(y)
         y = L.SpatialDropout1D(p)(y)
         y = L.Conv1D(f, k, dilation_rate=d, padding='same')(y)
         y = L.BatchNormalization()(y)
@@ -106,10 +113,11 @@ def tcn_noncausal(input_shape, params: dict = {}):
     out = L.Dense(1)(x)
     return Model(inp, out)
 
-
 @framework('tensorflow')
-def conv_transformer(input_shape, params: dict = {}):
+def conv_transformer(input_shape, params: dict = None):
     """Light Conv → Transformer encoder."""
+    if params is None:
+        params = {}
     conv_filters = params.get('conv_filters', [64, 128])
     conv_kernel = params.get('conv_kernel', 7)
     conv_stride = params.get('conv_stride', 2)
@@ -121,11 +129,13 @@ def conv_transformer(input_shape, params: dict = {}):
     def encoder(x):
         # Self-attention block
         a = L.MultiHeadAttention(num_heads=heads, key_dim=dim)(x, x)
-        x = L.Add()([x, a]); x = L.LayerNormalization()(x)
+        x = L.Add()([x, a])
+        x = L.LayerNormalization()(x)
         f = L.Dense(mlp_ratio * dim)(x)
         f = L.Activation('gelu')(f)
         f = L.Dense(dim)(f)
-        x = L.Add()([x, f]); x = L.LayerNormalization()(x)
+        x = L.Add()([x, f])
+        x = L.LayerNormalization()(x)
         return x
 
     inp = L.Input(shape=input_shape)
@@ -142,10 +152,11 @@ def conv_transformer(input_shape, params: dict = {}):
     out = L.Dense(1)(x)
     return Model(inp, out)
 
-
 @framework('tensorflow')
-def convmixer1d(input_shape, params: dict = {}):
+def convmixer1d(input_shape, params: dict = None):
     """Depthwise-Separable ConvMixer for 1D spectra."""
+    if params is None:
+        params = {}
     dim = params.get('dim', 128)
     depth = params.get('depth', 6)
     patch = params.get('patch_size', 5)
@@ -170,10 +181,11 @@ def convmixer1d(input_shape, params: dict = {}):
     out = L.Dense(1)(x)
     return Model(inp, out)
 
-
 @framework('tensorflow')
-def cnn_pls_head(input_shape, params: dict = {}):
+def cnn_pls_head(input_shape, params: dict = None):
     """CNN trunk with linear head mimicking PLS-style projection."""
+    if params is None:
+        params = {}
     f = params.get('filters', [32, 64, 128])
     k = params.get('kernel_size', 7)
     pool = params.get('pool', 2)
@@ -181,7 +193,7 @@ def cnn_pls_head(input_shape, params: dict = {}):
 
     inp = L.Input(shape=input_shape)
     x = inp
-    for i, fi in enumerate(f):
+    for _i, fi in enumerate(f):
         x = L.Conv1D(fi, k, padding='same')(x)
         x = L.BatchNormalization()(x)
         x = L.ReLU()(x)
@@ -191,7 +203,6 @@ def cnn_pls_head(input_shape, params: dict = {}):
     # Linear head (no activation) for interpretability
     out = L.Dense(1, use_bias=True)(x)
     return Model(inp, out)
-
 
 class AddSinusoidalPE(L.Layer):
     """Ajoute un encodage positionnel sin/cos à x (B,T,C). Sortie même shape/dtype que x."""
@@ -253,7 +264,7 @@ def SpectraFormer_block(x, dim, heads, mlp_ratio=4, dw_kernel=7, attn_dropout=0.
     return x
 
 @framework('tensorflow')
-def spectraformer(input_shape, params: dict = {}):
+def spectraformer(input_shape, params: dict = None):
     """
     SpectraFormer for NIRS regression.
     input_shape: (n_wavelengths, 1)
@@ -261,6 +272,8 @@ def spectraformer(input_shape, params: dict = {}):
       dim=128, depth=4, heads=4, patch=4, stem_k=9, dw_kernel=7,
       mlp_ratio=4, attn_dropout=0.0, ff_dropout=0.1, dropout=0.1
     """
+    if params is None:
+        params = {}
     dim        = params.get("dim", 128)
     depth      = params.get("depth", 4)
     heads      = params.get("heads", 4)
@@ -297,15 +310,16 @@ def spectraformer(input_shape, params: dict = {}):
     out = L.Dense(1)(x)
     return Model(inp, out)
 
-
 ######################
 ## PERPLEXITY MODELS ##
 ######################
 @framework('tensorflow')
-def sota_cnn_attention(input_shape, params={}):
+def sota_cnn_attention(input_shape, params=None):
+    from tensorflow.keras.layers import Add, BatchNormalization, Conv1D, Dense, Dropout, Flatten, GlobalAveragePooling1D, Input, LayerNormalization, MultiHeadAttention, SpatialDropout1D
     from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import Input, Conv1D, BatchNormalization, SpatialDropout1D, Dropout, Flatten, Dense, Add, MultiHeadAttention, LayerNormalization, GlobalAveragePooling1D
 
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
     model.add(SpatialDropout1D(params.get('spatial_dropout', 0.08)))
@@ -319,12 +333,12 @@ def sota_cnn_attention(input_shape, params={}):
     model.add(Dense(1, activation="linear"))
     return model
 
-
 @framework('tensorflow')
-def hybrid_cnn_lstm(input_shape, params={}):
-    from tensorflow.keras import Sequential
-    from tensorflow.keras.layers import Input, Conv1D, LSTM, Flatten, Dense, BatchNormalization, Dropout
+def hybrid_cnn_lstm(input_shape, params=None):
+    from tensorflow.keras.layers import LSTM, BatchNormalization, Conv1D, Dense, Dropout, Flatten, Input
 
+    if params is None:
+        params = {}
     model = Sequential()
     model.add(Input(shape=input_shape))
     model.add(Conv1D(filters=32, kernel_size=7, activation='relu'))
@@ -335,29 +349,43 @@ def hybrid_cnn_lstm(input_shape, params={}):
     model.add(Dense(1, activation='linear'))
     return model
 
-
 ##################
 ## Claude MODELS ##
 ##################
 
-from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import (
-    Input, Conv1D, Dense, Dropout, BatchNormalization,
-    Flatten, Add, Activation, GlobalAveragePooling1D, GlobalMaxPooling1D,
-    MultiHeadAttention, LayerNormalization, Concatenate,
-    SpatialDropout1D, MaxPooling1D, Multiply, Reshape, Lambda
+    Activation,
+    Add,
+    BatchNormalization,
+    Concatenate,
+    Conv1D,
+    Dense,
+    Dropout,
+    Flatten,
+    GlobalAveragePooling1D,
+    GlobalMaxPooling1D,
+    Input,
+    Lambda,
+    LayerNormalization,
+    MaxPooling1D,
+    MultiHeadAttention,
+    Multiply,
+    Reshape,
+    SpatialDropout1D,
 )
-import tensorflow as tf
+from tensorflow.keras.models import Model, Sequential  # noqa: F811
 
 # Assuming @framework decorator exists in your codebase
 # from your_framework import framework
 
 @framework('tensorflow')
-def resnet1d(input_shape, params={}):
+def resnet1d(input_shape, params=None):
     """
     1D ResNet with skip connections - excellent for deep spectral learning.
     Residual connections help gradient flow and enable deeper architectures.
     """
+    if params is None:
+        params = {}
     inputs = Input(shape=input_shape)
 
     # Initial conv
@@ -409,14 +437,17 @@ def resnet1d(input_shape, params={}):
     model = Model(inputs=inputs, outputs=outputs)
     return model
 
-
 @framework('tensorflow')
-def senet1d(input_shape, params={}):
+def senet1d(input_shape, params=None):
     """
     1D CNN with Squeeze-and-Excitation blocks for channel attention.
     SE blocks learn to weight spectral features by importance.
     """
-    def se_block(x, filters, ratio=params.get('se_ratio', 8)):
+    if params is None:
+        params = {}
+    se_ratio = params.get('se_ratio', 8)
+
+    def se_block(x, filters, ratio=se_ratio):
         """Squeeze-and-Excitation block"""
         se = GlobalAveragePooling1D()(x)
         se = Dense(filters // ratio, activation='relu')(se)
@@ -458,13 +489,14 @@ def senet1d(input_shape, params={}):
     model = Model(inputs=inputs, outputs=outputs)
     return model
 
-
 @framework('tensorflow')
-def inception1d(input_shape, params={}):
+def inception1d(input_shape, params=None):
     """
     Multi-scale 1D Inception network for NIRS.
     Captures features at different spectral resolutions simultaneously.
     """
+    if params is None:
+        params = {}
     def inception_block(x, filters):
         """Inception module with parallel convolutions"""
         # 1x1 conv
@@ -515,13 +547,14 @@ def inception1d(input_shape, params={}):
     model = Model(inputs=inputs, outputs=outputs)
     return model
 
-
 @framework('tensorflow')
-def tcn1d(input_shape, params={}):
+def tcn1d(input_shape, params=None):
     """
     Temporal Convolutional Network with dilated causal convolutions.
     Excellent for capturing long-range dependencies in spectra.
     """
+    if params is None:
+        params = {}
     inputs = Input(shape=input_shape)
 
     x = SpatialDropout1D(params.get('spatial_dropout', 0.1))(inputs)
@@ -556,14 +589,15 @@ def tcn1d(input_shape, params={}):
     model = Model(inputs=inputs, outputs=outputs)
     return model
 
-
 @framework('tensorflow')
-def attention_cnn1d(input_shape, params={}):
+def attention_cnn1d(input_shape, params=None):
     """
     CNN with multi-head self-attention mechanism.
     Combines local feature extraction (CNN) with global context (attention).
     State-of-the-art for spectral analysis.
     """
+    if params is None:
+        params = {}
     inputs = Input(shape=input_shape)
 
     x = SpatialDropout1D(params.get('spatial_dropout', 0.1))(inputs)
@@ -608,14 +642,15 @@ def attention_cnn1d(input_shape, params={}):
     model = Model(inputs=inputs, outputs=outputs)
     return model
 
-
 @framework('tensorflow')
-def deep_resnet1d(input_shape, params={}):
+def deep_resnet1d(input_shape, params=None):
     """
     Deeper ResNet variant specifically optimized for NIRS.
     More residual blocks with bottleneck architecture.
     Best for complex spectra with subtle patterns.
     """
+    if params is None:
+        params = {}
     def bottleneck_block(x, filters, downsample=False):
         """Bottleneck residual block"""
         strides = 2 if downsample else 1
@@ -679,18 +714,17 @@ def deep_resnet1d(input_shape, params={}):
     model = Model(inputs=inputs, outputs=outputs)
     return model
 
-
 ##################
 ## GROK MODELS ##
 ##################
 
-from tensorflow.keras import Sequential, Model, layers
-from tensorflow.keras.layers import Input, Conv1D, BatchNormalization, Activation, Add, Flatten, Dense, Dropout, LayerNormalization, MultiHeadAttention, Embedding
 from tensorflow.keras import backend as K
-import tensorflow as tf
+from tensorflow.keras import layers  # noqa: F811
+from tensorflow.keras.layers import Embedding
+
 
 @framework('tensorflow')
-def transformer_nirs(input_shape, params={}):
+def transformer_nirs(input_shape, params=None):
     """
     Builds a Transformer-based model for NIRS prediction, using encoder blocks with self-attention.
     Suitable for capturing global dependencies in spectral sequences.
@@ -702,6 +736,8 @@ def transformer_nirs(input_shape, params={}):
     Returns:
     keras.Model: Compiled model (not compiled here, as per nicon).
     """
+    if params is None:
+        params = {}
     num_heads = params.get('num_heads', 4)
     ff_dim = params.get('ff_dim', 64)
     num_layers = params.get('num_layers', 2)
@@ -740,9 +776,8 @@ def transformer_nirs(input_shape, params={}):
     model = Model(inputs=inputs, outputs=outputs)
     return model
 
-
 @framework('tensorflow')
-def resnet_nirs(input_shape, params={}):
+def resnet_nirs(input_shape, params=None):
     """
     Builds a 1D ResNet-style CNN model for NIRS prediction with residual blocks.
     Enables deeper architectures without vanishing gradients.
@@ -754,6 +789,8 @@ def resnet_nirs(input_shape, params={}):
     Returns:
     keras.Model: Compiled model (not compiled here, as per nicon).
     """
+    if params is None:
+        params = {}
     def residual_block(x, filters, kernel_size=3, strides=1):
         shortcut = x
         y = Conv1D(filters, kernel_size, strides=strides, padding='same')(x)
@@ -802,13 +839,14 @@ def resnet_nirs(input_shape, params={}):
     model = Model(inputs=inputs, outputs=outputs)
     return model
 
-
 ##################
 ## DEEPSEEK MODELS ##
 ##################
 @framework('tensorflow')
-def nirs_resnet(input_shape, params={}):
+def nirs_resnet(input_shape, params=None):
     """ResNet-style 1D CNN with residual connections - SOTA for NIRS"""
+    if params is None:
+        params = {}
     def residual_block(x, filters, kernel_size, dilation_rate=1):
         shortcut = x
         # Main path
@@ -863,8 +901,10 @@ def nirs_resnet(input_shape, params={}):
     return model
 
 @framework('tensorflow')
-def nirs_inception(input_shape, params={}):
+def nirs_inception(input_shape, params=None):
     """Inception-style multi-scale feature extraction for NIRS"""
+    if params is None:
+        params = {}
     def inception_module(x, filters):
         # Branch 1: 1x1 convolution
         branch1 = Conv1D(filters, 1, padding='same', activation='swish')(x)
@@ -911,9 +951,11 @@ def nirs_inception(input_shape, params={}):
     return model
 
 @framework('tensorflow')
-def nirs_transformer_cnn(input_shape, params={}):
+def nirs_transformer_cnn(input_shape, params=None):
     """Transformer + CNN hybrid for capturing both local and global patterns"""
 
+    if params is None:
+        params = {}
     def transformer_encoder(x, head_size, num_heads, ff_dim, dropout=0):
         # Multi-head attention
         attn_output = MultiHeadAttention(
@@ -966,12 +1008,14 @@ def nirs_transformer_cnn(input_shape, params={}):
     return model
 
 @framework('tensorflow')
-def nicon_enhanced(input_shape, params={}):
+def nicon_enhanced(input_shape, params=None):
     """Enhanced nicon with attention and better architecture"""
-    from tensorflow.keras.models import Model
     from tensorflow.keras.layers import Input
+    from tensorflow.keras.models import Model
 
     # Use Functional API to properly handle attention mechanism
+    if params is None:
+        params = {}
     inputs = Input(shape=input_shape)
 
     # Enhanced preprocessing
@@ -1017,16 +1061,11 @@ def nicon_enhanced(input_shape, params={}):
 
     return Model(inputs, outputs, name="NICON_Enhanced")
 
-
 ###################
 ## GEMINI MODELS ##
 ####################
 
-
-import tensorflow as tf
-from tensorflow.keras import layers
-from tensorflow.keras.models import Model
-import numpy as np
+import numpy as np  # noqa: F811
 
 # Utility Sub-Functions for 1D SE-ResNet
 
@@ -1082,7 +1121,7 @@ def residual_block_1d(x, filters, kernel_size=17, strides=1, use_se=True, block_
 
 # Main Model Function
 @framework('tensorflow')
-def se_resnet(input_shape, params={}):
+def se_resnet(input_shape, params=None):
     """
     Builds the 1D Squeeze-and-Excitation Residual Network (1D SE-ResNet) for NIRS regression.
 
@@ -1094,6 +1133,8 @@ def se_resnet(input_shape, params={}):
     Returns:
         tf.keras.Model: The compiled Keras model.
     """
+    if params is None:
+        params = {}
     num_blocks = params.get('num_blocks', 4)
     initial_filters = params.get('initial_filters', 32)
     kernel_size = params.get('kernel_size', 17)
@@ -1129,11 +1170,6 @@ def se_resnet(input_shape, params={}):
 
     return Model(inputs, outputs, name="SE_ResNet_NIRS")
 
-import tensorflow as tf
-from tensorflow.keras import layers
-from tensorflow.keras.models import Model
-import numpy as np
-
 # Utility Sub-Function for 1D Transformer (SpectraTr)
 
 def transformer_encoder_block(x, head_size, num_heads, ff_dim, dropout=0.1, block_name='trans'):
@@ -1161,7 +1197,7 @@ def transformer_encoder_block(x, head_size, num_heads, ff_dim, dropout=0.1, bloc
 
 # Main Model Function
 @framework('tensorflow')
-def spectratr_transformer(input_shape, params={}):
+def spectratr_transformer(input_shape, params=None):
     """
     Builds a 1D Transformer model (SpectraTr adaptation) for NIRS regression.
 
@@ -1174,6 +1210,8 @@ def spectratr_transformer(input_shape, params={}):
     Returns:
         tf.keras.Model: The compiled Keras model.
     """
+    if params is None:
+        params = {}
     patch_size = params.get('patch_size', 16)
     head_size = params.get('head_size', 128)
     num_heads = params.get('num_heads', 4)

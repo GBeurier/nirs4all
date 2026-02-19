@@ -11,7 +11,8 @@ Provides commands for managing binary artifacts stored in workspace/binaries/:
 import argparse
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
+
 from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -27,8 +28,7 @@ def _format_bytes(size_bytes: int) -> str:
     else:
         return f"{size_bytes / 1024 / 1024 / 1024:.2f} GB"
 
-
-def _get_all_datasets(workspace: Path) -> List[str]:
+def _get_all_datasets(workspace: Path) -> list[str]:
     """Get all datasets with artifacts in the workspace."""
     binaries_dir = workspace / "binaries"
     if not binaries_dir.exists():
@@ -38,7 +38,6 @@ def _get_all_datasets(workspace: Path) -> List[str]:
         d.name for d in binaries_dir.iterdir()
         if d.is_dir()
     ]
-
 
 def artifacts_list_orphaned(args):
     """List orphaned artifacts not referenced by any manifest."""
@@ -52,10 +51,7 @@ def artifacts_list_orphaned(args):
         return
 
     # Get datasets to check
-    if args.dataset:
-        datasets = [args.dataset]
-    else:
-        datasets = _get_all_datasets(workspace_path)
+    datasets = [args.dataset] if args.dataset else _get_all_datasets(workspace_path)
 
     if not datasets:
         logger.info("No datasets with artifacts found")
@@ -92,8 +88,7 @@ def artifacts_list_orphaned(args):
     else:
         logger.info(f"\n{'='*60}")
         logger.info(f"Total orphaned: {total_orphans} files ({_format_bytes(total_size)})")
-        logger.info(f"\nRun 'nirs4all artifacts cleanup' to remove orphaned artifacts")
-
+        logger.info("\nRun 'nirs4all artifacts cleanup' to remove orphaned artifacts")
 
 def artifacts_cleanup(args):
     """Delete orphaned artifacts."""
@@ -107,10 +102,7 @@ def artifacts_cleanup(args):
         return
 
     # Get datasets to clean
-    if args.dataset:
-        datasets = [args.dataset]
-    else:
-        datasets = _get_all_datasets(workspace_path)
+    datasets = [args.dataset] if args.dataset else _get_all_datasets(workspace_path)
 
     if not datasets:
         logger.info("No datasets with artifacts found")
@@ -154,7 +146,6 @@ def artifacts_cleanup(args):
         logger.info(f"\n{'='*60}")
         logger.info(f"Total: {total_deleted} files, {action} {_format_bytes(total_freed)}")
 
-
 def artifacts_stats(args):
     """Show artifact storage statistics."""
     from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
@@ -167,10 +158,7 @@ def artifacts_stats(args):
         return
 
     # Get datasets to report on
-    if args.dataset:
-        datasets = [args.dataset]
-    else:
-        datasets = _get_all_datasets(workspace_path)
+    datasets = [args.dataset] if args.dataset else _get_all_datasets(workspace_path)
 
     if not datasets:
         logger.info("No datasets with artifacts found")
@@ -205,7 +193,7 @@ def artifacts_stats(args):
             logger.info(f"   Deduplication:     {dedup_pct:.1f}%")
 
         if stats['by_type']:
-            logger.info(f"   By type:")
+            logger.info("   By type:")
             for type_name, count in sorted(stats['by_type'].items()):
                 logger.info(f"      {type_name}: {count}")
 
@@ -226,7 +214,6 @@ def artifacts_stats(args):
         logger.info(f"   Total disk usage:  {_format_bytes(grand_total_size)}")
         if grand_total_orphans > 0:
             logger.warning(f"   Total orphaned:  {grand_total_orphans} files ({_format_bytes(grand_orphan_size)})")
-
 
 def artifacts_purge(args):
     """Delete ALL artifacts for a dataset."""
@@ -261,8 +248,8 @@ def artifacts_purge(args):
     if not args.force:
         logger.warning(f"This will delete ALL {file_count} artifacts for dataset '{dataset}'")
         logger.info(f"   Total size: {_format_bytes(total_size)}")
-        logger.info(f"\n   This action cannot be undone!")
-        logger.info(f"\n   Use --force to confirm deletion")
+        logger.info("\n   This action cannot be undone!")
+        logger.info("\n   Use --force to confirm deletion")
         return
 
     # Confirm with user if interactive
@@ -276,7 +263,6 @@ def artifacts_purge(args):
 
     logger.success(f"Purged {files_deleted} artifacts for dataset '{dataset}'")
     logger.info(f"   Freed: {_format_bytes(bytes_freed)}")
-
 
 def add_artifacts_commands(subparsers):
     """Add artifact management commands to CLI."""

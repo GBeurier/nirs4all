@@ -10,18 +10,19 @@ Tests artifact loading functionality:
 - Backward compatibility with v1 manifests
 """
 
-import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import tempfile
 import shutil
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
 import numpy as np
-from sklearn.preprocessing import StandardScaler
+import pytest
 from sklearn.linear_model import Ridge
+from sklearn.preprocessing import StandardScaler
 
 from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader, LRUCache
-from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord, ArtifactType
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
+from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord, ArtifactType
 
 
 @pytest.fixture
@@ -32,7 +33,6 @@ def workspace_path(tmp_path):
     artifacts_dir.mkdir(parents=True)
     return workspace
 
-
 @pytest.fixture
 def results_dir(tmp_path):
     """Create temporary results directory."""
@@ -40,7 +40,6 @@ def results_dir(tmp_path):
     results.mkdir(parents=True)
     (results / "_binaries").mkdir(parents=True)
     return results
-
 
 class TestLRUCache:
     """Tests for LRUCache class."""
@@ -154,7 +153,6 @@ class TestLRUCache:
         assert stats["misses"] == 1
         assert stats["hit_rate"] == 2 / 3
 
-
 class TestArtifactLoaderBasics:
     """Test basic ArtifactLoader functionality."""
 
@@ -223,7 +221,6 @@ class TestArtifactLoaderBasics:
         assert "hit_rate" in info
         assert info["cached_count"] == 0
 
-
 class TestArtifactLoaderFromManifest:
     """Test creating loader from manifest."""
 
@@ -275,7 +272,6 @@ class TestArtifactLoaderFromManifest:
         # Should convert v1 to v2 format
         records = loader.get_all_records()
         assert len(records) == 1
-
 
 class TestArtifactLoaderStepLoading:
     """Test loading artifacts by step context."""
@@ -501,7 +497,6 @@ class TestArtifactLoaderStepLoading:
         }
         assert "a_other_branch" not in artifact_ids
 
-
 class TestArtifactLoaderFoldModels:
     """Test loading fold-specific models."""
 
@@ -549,7 +544,6 @@ class TestArtifactLoaderFoldModels:
         # Check they are sorted by fold_id
         fold_ids = [fold_id for fold_id, _ in fold_models]
         assert fold_ids == [0, 1, 2]
-
 
 class TestArtifactLoaderDependencies:
     """Test dependency resolution."""
@@ -609,7 +603,6 @@ class TestArtifactLoaderDependencies:
         # Should include both scaler and model
         assert "0001:0:all" in result
         assert "0001:1:all" in result
-
 
 class TestArtifactLoaderCaching:
     """Test caching behavior."""
@@ -847,7 +840,6 @@ class TestArtifactLoaderCaching:
         assert count == 2
         assert loader.get_cache_info()["cached_count"] == 2
 
-
 class TestArtifactLoaderLegacyCompatibility:
     """Test backward compatibility with legacy artifacts."""
 
@@ -914,7 +906,6 @@ class TestArtifactLoaderLegacyCompatibility:
         assert loader.has_binaries_for_step(0) is False
         assert loader.has_binaries_for_step(99) is False
 
-
 class TestArtifactLoaderErrorHandling:
     """Test error handling."""
 
@@ -950,7 +941,6 @@ class TestArtifactLoaderErrorHandling:
 
         with pytest.raises(FileNotFoundError):
             loader.load_by_id("0001:0:all")
-
 
 class TestMetaModelLoading:
     """Test meta-model (stacking) loading functionality."""
@@ -1254,7 +1244,6 @@ class TestMetaModelLoading:
         assert meta_model is not None
         assert len(source_models) == 1
         assert feature_columns == ["Ridge_pred"]
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

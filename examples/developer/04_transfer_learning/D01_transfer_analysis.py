@@ -37,21 +37,15 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative,
-    SecondDerivative,
-    SavitzkyGolay,
-    Detrend
-)
+from nirs4all.operators.transforms import Detrend, FirstDerivative, SavitzkyGolay, SecondDerivative
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='D01 Transfer Analysis Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -73,7 +67,6 @@ Solutions:
 
 TransferPreprocessingSelector helps find option 1.
 """)
-
 
 # =============================================================================
 # Section 1: The Transfer Problem
@@ -108,10 +101,9 @@ y = np.sum(X_master[:, :10], axis=1) + np.random.randn(n_samples) * 0.1
 # Slave instrument: shifted baseline + noise
 X_slave = X_master + 0.5 + np.random.randn(n_samples, n_features) * 0.2
 
-print(f"Simulated data:")
+print("Simulated data:")
 print(f"  Master: {X_master.shape}")
 print(f"  Slave:  {X_slave.shape} (with baseline shift)")
-
 
 # =============================================================================
 # Section 2: TransferPreprocessingSelector
@@ -157,7 +149,6 @@ try:
 except ImportError:
     print("TransferPreprocessingSelector not available")
     print("Demonstrating concept with manual comparison...")
-
 
 # =============================================================================
 # Section 3: Manual Transfer Comparison
@@ -210,7 +201,6 @@ for name, rmse in sorted(results.items(), key=lambda x: x[1]):
 best_preproc = min(results, key=results.get)
 print(f"\n✓ Best for transfer: {best_preproc}")
 
-
 # =============================================================================
 # Section 4: Pipeline-Based Transfer Evaluation
 # =============================================================================
@@ -245,7 +235,6 @@ result = nirs4all.run(
 )
 
 print(f"\nEvaluated {result.num_predictions} preprocessing variants")
-
 
 # =============================================================================
 # Section 5: Preprocessing Robustness Metrics
@@ -292,7 +281,6 @@ print(f"{'Preprocessing':<12} {'Baseline':<10} {'Transfer':<10} {'Ratio':<10}")
 print("-" * 55)
 for name, metrics in sorted(robustness.items(), key=lambda x: x[1]['ratio']):
     print(f"{name:<12} {metrics['baseline']:<10.4f} {metrics['transfer']:<10.4f} {metrics['ratio']:<10.2f}")
-
 
 # =============================================================================
 # Section 6: Visualization of Transfer Effects
@@ -361,7 +349,6 @@ if args.plots or args.show:
     plt.savefig('transfer_analysis.png', dpi=100)
     print("Saved: transfer_analysis.png")
 
-
 # =============================================================================
 # Section 7: Transfer Strategies
 # =============================================================================
@@ -388,7 +375,6 @@ print("""
 │                     │ Sufficient labeled data on slave      │
 └─────────────────────┴───────────────────────────────────────┘
 """)
-
 
 # =============================================================================
 # Summary

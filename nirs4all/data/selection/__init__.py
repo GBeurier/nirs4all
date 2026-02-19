@@ -11,10 +11,10 @@ Classes:
     RoleAssigner: Assign columns to data roles (features, targets, metadata)
 """
 
-from .column_selector import ColumnSelector, ColumnSelectionError
-from .row_selector import RowSelector, RowSelectionError
-from .sample_linker import SampleLinker, LinkingError
+from .column_selector import ColumnSelectionError, ColumnSelector
 from .role_assigner import RoleAssigner, RoleAssignmentError
+from .row_selector import RowSelectionError, RowSelector
+from .sample_linker import LinkingError, SampleLinker
 
 __all__ = [
     "ColumnSelector",

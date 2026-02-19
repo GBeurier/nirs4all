@@ -24,7 +24,6 @@ import pytest
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.execution.step_cache import CachedStepState, StepCache
 
-
 # =========================================================================
 # Helpers
 # =========================================================================
@@ -38,11 +37,9 @@ def _make_dataset(name: str = "test", n_samples: int = 50, n_features: int = 100
     ds.add_targets(y)
     return ds
 
-
 # =========================================================================
 # Basic get/put
 # =========================================================================
-
 
 class TestStepCacheBasic:
     """Basic cache operations."""
@@ -98,11 +95,9 @@ class TestStepCacheBasic:
         assert r1 is not None and r1.content_hash == ds1.content_hash()
         assert r2 is not None and r2.content_hash == ds2.content_hash()
 
-
 # =========================================================================
 # Deep copy semantics
 # =========================================================================
-
 
 class TestStepCacheDeepCopy:
     """Verify that get/put return deep copies (no aliasing)."""
@@ -143,11 +138,9 @@ class TestStepCacheDeepCopy:
         X1[:] = 999.0
         assert not np.allclose(X2, 999.0)
 
-
 # =========================================================================
 # Restore
 # =========================================================================
-
 
 class TestStepCacheRestore:
     """Verify that restore correctly applies cached state to a dataset."""
@@ -184,11 +177,9 @@ class TestStepCacheRestore:
 
         assert ds2._content_hash_cache == original_hash
 
-
 # =========================================================================
 # LRU eviction
 # =========================================================================
-
 
 class TestStepCacheEviction:
     """LRU eviction under memory pressure."""
@@ -220,11 +211,9 @@ class TestStepCacheEviction:
         # Should not be cached (too large)
         assert result is None
 
-
 # =========================================================================
 # Statistics and observability
 # =========================================================================
-
 
 class TestStepCacheStats:
     """Cache statistics tracking."""
@@ -280,11 +269,9 @@ class TestStepCacheStats:
         assert stats["hits"] == 0
         assert stats["misses"] == 0
 
-
 # =========================================================================
 # Clear
 # =========================================================================
-
 
 class TestStepCacheClear:
     """Cache clearing."""
@@ -310,11 +297,9 @@ class TestStepCacheClear:
         assert cache.hit_count == 0
         assert cache.miss_count == 0
 
-
 # =========================================================================
 # Key composition
 # =========================================================================
-
 
 class TestStepCacheKeyComposition:
     """Internal key building."""
@@ -352,11 +337,9 @@ class TestStepCacheKeyComposition:
         k2 = StepCache._make_key("chain_a", "data_1", sel2)
         assert k1 != k2
 
-
 # =========================================================================
 # Thread safety
 # =========================================================================
-
 
 class TestStepCacheThreadSafety:
     """Concurrent access to the cache."""
@@ -427,11 +410,9 @@ class TestStepCacheThreadSafety:
 
         assert not errors, f"Thread safety errors: {errors}"
 
-
 # =========================================================================
 # Feature data integrity
 # =========================================================================
-
 
 class TestStepCacheDataIntegrity:
     """Verify that cached feature data is correctly preserved."""

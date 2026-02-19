@@ -21,32 +21,29 @@ Test Coverage:
 14. Integration Tests
 """
 
-import pytest
-import numpy as np
-import tempfile
 import json
 import shutil
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-from typing import Dict, Any
+from typing import Any
+from unittest.mock import MagicMock, Mock, patch
 
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from sklearn.linear_model import LinearRegression, LogisticRegression
+import numpy as np
+import pytest
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.model_selection import ShuffleSplit, KFold
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.model_selection import KFold, ShuffleSplit
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.core.logging import reset_logging
-from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.operators.transforms import (
-    Detrend, FirstDerivative, Gaussian, StandardNormalVariate
-)
+from nirs4all.operators.transforms import Detrend, FirstDerivative, Gaussian, StandardNormalVariate
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+from nirs4all.pipeline.runner import PipelineRunner
 from tests.fixtures.data_generators import TestDataManager
-
 
 # ============================================================================
 # FIXTURES
@@ -61,7 +58,6 @@ def temp_workspace():
     reset_logging()
     shutil.rmtree(temp_dir, ignore_errors=True)
 
-
 @pytest.fixture
 def test_data_manager():
     """Create test data manager with synthetic datasets."""
@@ -71,7 +67,6 @@ def test_data_manager():
     yield manager
     manager.cleanup()
 
-
 @pytest.fixture
 def sample_regression_data():
     """Generate simple regression data."""
@@ -79,7 +74,6 @@ def sample_regression_data():
     X = np.random.randn(100, 50)
     y = np.random.randn(100)
     return X, y
-
 
 @pytest.fixture
 def sample_classification_data():
@@ -89,7 +83,6 @@ def sample_classification_data():
     y = np.random.randint(0, 3, 120)  # 3 classes
     return X, y
 
-
 @pytest.fixture
 def simple_pipeline_steps():
     """Simple pipeline for basic testing."""
@@ -97,7 +90,6 @@ def simple_pipeline_steps():
         {"preprocessing": StandardScaler()},
         {"model": LinearRegression()}
     ]
-
 
 @pytest.fixture
 def complex_pipeline_steps():
@@ -110,7 +102,6 @@ def complex_pipeline_steps():
         {"model": PLSRegression(n_components=3)},
         {"model": RandomForestRegressor(n_estimators=5, random_state=42)}
     ]
-
 
 # ============================================================================
 # 1. INITIALIZATION AND CONFIGURATION TESTS
@@ -200,7 +191,6 @@ class TestRunnerInitialization:
         assert runner._figure_refs == []
         assert runner.raw_data == {}
         assert runner.pp_data == {}
-
 
 # ============================================================================
 # 2. RUN METHOD TESTS (TRAIN MODE)
@@ -502,7 +492,6 @@ class TestRunMethod:
         assert not hasattr(runner, 'raw_data') or len(runner.raw_data) == 0
         assert not hasattr(runner, 'pp_data') or len(runner.pp_data) == 0
 
-
 # ============================================================================
 # 5. PREDICT METHOD TESTS
 # ============================================================================
@@ -516,7 +505,6 @@ class TestPredictMethod:
         # This will be implemented as part of integration tests
         pass
 
-
 # ============================================================================
 # 6. EXPLAIN METHOD TESTS
 # ============================================================================
@@ -529,7 +517,6 @@ class TestExplainMethod:
         # Explain tests require SHAP and model artifacts
         # This will be implemented separately
         pass
-
 
 # ============================================================================
 # 7. WORKSPACE MANAGEMENT TESTS
@@ -583,7 +570,6 @@ class TestWorkspaceManagement:
         store_file = temp_workspace / "store.duckdb"
         assert store_file.exists()
 
-
 # ============================================================================
 # 11. CONTEXT MANAGEMENT TESTS
 # ============================================================================
@@ -598,7 +584,7 @@ class TestContextManagement:
         config, name = dataset_config.configs[0]
         dataset = dataset_config.get_dataset(config, name)
 
-        from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState
+        from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState
         context = ExecutionContext(
             selector=DataSelector(processing=[["raw"]] * dataset.features_sources()),
             state=PipelineState(y_processing="numeric")
@@ -606,7 +592,6 @@ class TestContextManagement:
 
         assert context.selector.processing == [["raw"]] * dataset.features_sources()
         assert context.state.y_processing == "numeric"
-
 
 # ============================================================================
 # 12. ERROR HANDLING TESTS
@@ -683,7 +668,6 @@ class TestErrorHandling:
 
         # Should complete without error, but no predictions
         assert result is not None
-
 
 # ============================================================================
 # 14. INTEGRATION TESTS
@@ -850,7 +834,6 @@ class TestIntegration:
         # At least model names should match
         assert pred1['model_name'] == pred2['model_name']
 
-
 # ============================================================================
 # 15. EDGE CASES AND BOUNDARY TESTS
 # ============================================================================
@@ -939,7 +922,6 @@ class TestEdgeCases:
         except Exception:
             # Some algorithms might fail with constant data
             pass
-
 
 # ============================================================================
 # RUN TESTS

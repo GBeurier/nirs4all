@@ -29,26 +29,25 @@ import argparse
 # Third-party imports
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import (
-    RandomForestRegressor,
-    GradientBoostingRegressor,
     ExtraTreesRegressor,
+    GradientBoostingRegressor,
+    RandomForestRegressor,
 )
-from sklearn.linear_model import Ridge, Lasso, ElasticNet
+from sklearn.linear_model import ElasticNet, Lasso, Ridge
 from sklearn.model_selection import ShuffleSplit
 from sklearn.neighbors import KNeighborsRegressor
-from sklearn.svm import SVR
 from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVR
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import StandardNormalVariate, FirstDerivative
+from nirs4all.operators.transforms import FirstDerivative, StandardNormalVariate
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U01 Multi-Model Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Why Compare Multiple Models?
@@ -76,7 +75,6 @@ Different models have different strengths for NIRS data:
 
 nirs4all makes it easy to compare all of these in one run!
 """)
-
 
 # =============================================================================
 # Section 2: Basic Multi-Model Pipeline
@@ -120,7 +118,6 @@ for i, pred in enumerate(result.top(10, display_metrics=['rmse', 'r2']), 1):
     model_name = pred.get('model_name', 'Unknown')
     print(f"   {i}. {model_name}: RMSE={pred.get('rmse', 0):.4f}")
 
-
 # =============================================================================
 # Section 3: Using _or_ Generator Syntax
 # =============================================================================
@@ -162,7 +159,6 @@ print(f"Best RMSE: {result_or.best_score:.4f}")
 
 for pred in result_or.top(5, display_metrics=['rmse', 'r2']):
     print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
-
 
 # =============================================================================
 # Section 4: Comprehensive Model Comparison
@@ -220,7 +216,6 @@ for i, pred in enumerate(result_comp.top(10, display_metrics=['rmse', 'r2']), 1)
     model_name = pred.get('model_name', 'Unknown')
     print(f"   {i}. {model_name}: RMSE={pred.get('rmse', 0):.4f}")
 
-
 # =============================================================================
 # Section 5: Combined Model + Preprocessing Search
 # =============================================================================
@@ -234,8 +229,8 @@ the best preprocessing + model combination.
 """)
 
 from nirs4all.operators.transforms import (
-    MultiplicativeScatterCorrection,
     Detrend,
+    MultiplicativeScatterCorrection,
     SavitzkyGolay,
 )
 
@@ -276,7 +271,6 @@ for i, pred in enumerate(result_combined.top(10, display_metrics=['rmse', 'r2'])
     model = pred.get('model_name', 'Unknown')
     print(f"   {i}. {preproc} + {model}: RMSE={pred.get('rmse', 0):.4f}")
 
-
 # =============================================================================
 # Section 6: Classification Multi-Model
 # =============================================================================
@@ -284,11 +278,11 @@ print("\n" + "-" * 60)
 print("Section 6: Classification Multi-Model")
 print("-" * 60)
 
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
-from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import StratifiedKFold
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
 
 pipeline_classif = [
     StandardNormalVariate(),
@@ -310,13 +304,12 @@ result_classif = nirs4all.run(
     verbose=1
 )
 
-print(f"\nClassification results:")
+print("\nClassification results:")
 for i, pred in enumerate(result_classif.top(5, display_metrics=['rmse', 'r2']), 1):
     model_name = pred.get('model_name', 'Unknown')
     # For classification, 'rmse' is actually error rate
     accuracy = (1 - pred.get('rmse', 0)) * 100
     print(f"   {i}. {model_name}: Accuracy={accuracy:.1f}%")
-
 
 # =============================================================================
 # Summary

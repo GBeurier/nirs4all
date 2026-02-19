@@ -41,7 +41,7 @@ import pandas as pd
 # Add parent path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from splitter_strategies import Nirs4allSPXYSplitter, HAS_NIRS4ALL_SPLITTERS
+from splitter_strategies import HAS_NIRS4ALL_SPLITTERS, Nirs4allSPXYSplitter
 
 ###REUSE
 
@@ -71,22 +71,13 @@ from splitter_strategies import Nirs4allSPXYSplitter, HAS_NIRS4ALL_SPLITTERS
 #     y_fold_train, y_fold_val = y[train_idx], y[val_idx]
 #     # ... train your model
 
-
-
-
-
-
-
-
-
 def detect_separator(file_path: Path) -> str:
     """Detect CSV separator by reading first line."""
-    with open(file_path, 'r') as f:
+    with open(file_path) as f:
         first_line = f.readline()
     if ';' in first_line:
         return ';'
     return ','
-
 
 def load_merged_dataset(data_dir: Path) -> tuple:
     """
@@ -110,7 +101,6 @@ def load_merged_dataset(data_dir: Path) -> tuple:
     M_df = pd.read_csv(data_dir / 'M.csv', sep=m_sep)
 
     return X, Y_df, M_df
-
 
 def load_original_dataset(data_dir: Path) -> tuple:
     """
@@ -143,7 +133,6 @@ def load_original_dataset(data_dir: Path) -> tuple:
     M_df = pd.concat([M_train, M_test], ignore_index=True)
 
     return X, Y_df, M_df
-
 
 def save_split_dataset(
     X: np.ndarray,
@@ -187,7 +176,6 @@ def save_split_dataset(
 
     M_test = M_df.iloc[test_mask].reset_index(drop=True)
     M_test.to_csv(output_dir / 'M_test.csv', sep=';', index=False)
-
 
 def split_dataset_with_spxy(
     X: np.ndarray,
@@ -233,7 +221,6 @@ def split_dataset_with_spxy(
     test_mask = np.isin(sample_ids, split_result.test_ids)
 
     return train_mask, test_mask, split_result
-
 
 def process_dataset(
     input_dir: Path,
@@ -326,7 +313,6 @@ def process_dataset(
 
     return info
 
-
 def process_all_datasets(
     source_dir: Path,
     unmerged_dir: Path,
@@ -354,11 +340,7 @@ def process_all_datasets(
     results = []
 
     # Determine what files to look for
-    if use_original:
-        required_files = ['Xtrain.csv', 'Ytrain.csv', 'Mtrain.csv',
-                          'Xtest.csv', 'Ytest.csv', 'Mtest.csv']
-    else:
-        required_files = ['X.csv', 'Y.csv', 'M.csv']
+    required_files = ['Xtrain.csv', 'Ytrain.csv', 'Mtrain.csv', 'Xtest.csv', 'Ytest.csv', 'Mtest.csv'] if use_original else ['X.csv', 'Y.csv', 'M.csv']
 
     # Find all subdirectories with required files
     for subdir in sorted(source_dir.iterdir()):
@@ -388,7 +370,6 @@ def process_all_datasets(
 
     return results
 
-
 def main(
     test_size: float = 0.2,
     random_state: int = 42,
@@ -413,11 +394,11 @@ def main(
     print("\n" + "=" * 80)
     print("GENERATE UNMERGED DATASETS USING SPXY SPLITTING")
     print("=" * 80)
-    print(f"\nConfiguration:")
+    print("\nConfiguration:")
     print(f"  Test size: {test_size:.0%}")
     print(f"  Random state: {random_state}")
     print(f"  CV folds (for reference): {n_folds}")
-    print(f"  Splitter: SPXY (Sample set Partitioning based on joint X-Y distances)")
+    print("  Splitter: SPXY (Sample set Partitioning based on joint X-Y distances)")
 
     # Process regression datasets (from merged)
     regression_merged = base_dir / 'nitro_regression_merged'
@@ -521,7 +502,6 @@ Key parameters:
     print("\n" + "=" * 80)
     print("DONE")
     print("=" * 80)
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(

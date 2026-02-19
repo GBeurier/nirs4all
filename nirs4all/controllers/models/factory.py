@@ -14,9 +14,10 @@ Lazy loading pattern: Framework-specific imports are only loaded when
 actually needed to avoid import overhead at startup.
 """
 
-import os
+import contextlib
 import importlib
 import inspect
+import os
 
 from nirs4all.utils.backend import is_available, require_backend
 
@@ -25,20 +26,15 @@ TF_AVAILABLE = is_available('tensorflow')
 TORCH_AVAILABLE = is_available('torch')
 JAX_AVAILABLE = is_available('jax')
 
-
 # Meta-estimator types for detection
 META_ESTIMATOR_TYPES = None  # Lazy loaded
-
 
 def _get_meta_estimator_types():
     """Lazy load meta-estimator types to avoid import overhead."""
     global META_ESTIMATOR_TYPES
     if META_ESTIMATOR_TYPES is None:
         try:
-            from sklearn.ensemble import (
-                StackingRegressor, StackingClassifier,
-                VotingRegressor, VotingClassifier
-            )
+            from sklearn.ensemble import StackingClassifier, StackingRegressor, VotingClassifier, VotingRegressor
             META_ESTIMATOR_TYPES = (
                 StackingRegressor, StackingClassifier,
                 VotingRegressor, VotingClassifier
@@ -46,7 +42,6 @@ def _get_meta_estimator_types():
         except ImportError:
             META_ESTIMATOR_TYPES = ()
     return META_ESTIMATOR_TYPES
-
 
 class ModelFactory:
     """Factory class for building machine learning models from various configurations.
@@ -75,10 +70,7 @@ class ModelFactory:
         Returns:
             Filtered parameters matching signature
         """
-        if inspect.isclass(callable_obj):
-            sig = inspect.signature(callable_obj.__init__)
-        else:
-            sig = inspect.signature(callable_obj)
+        sig = inspect.signature(callable_obj.__init__) if inspect.isclass(callable_obj) else inspect.signature(callable_obj)
 
         # Check for **kwargs
         has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD
@@ -123,7 +115,7 @@ class ModelFactory:
             else:
                 return X.shape[1]
         except Exception as e:
-            raise ValueError(f"Could not determine input shape from dataset: {str(e)}")
+            raise ValueError(f"Could not determine input shape from dataset: {str(e)}") from e
 
     @staticmethod
     def get_num_classes(dataset) -> int:
@@ -149,7 +141,7 @@ class ModelFactory:
         return None
 
     @staticmethod
-    def build_single_model(model_config, dataset, force_params={}):
+    def build_single_model(model_config, dataset, force_params=None):
         """Build a single model from the given configuration.
 
         Args:
@@ -165,9 +157,10 @@ class ModelFactory:
             ValueError: If the model_config format is invalid.
         """
         # print(f"DEBUG: build_single_model config type: {type(model_config)}")
-        if hasattr(dataset, 'is_classification') and dataset.is_classification:
-            if hasattr(dataset, 'num_classes'):
-                force_params['num_classes'] = dataset.num_classes
+        if force_params is None:
+            force_params = {}
+        if hasattr(dataset, 'is_classification') and dataset.is_classification and hasattr(dataset, 'num_classes'):
+            force_params['num_classes'] = dataset.num_classes
 
         # Add input_shape/input_dim if not present
         framework = ModelFactory.detect_framework(model_config)
@@ -319,9 +312,8 @@ class ModelFactory:
             params['input_shape'] = input_dim
 
             # Set num_classes for tensorflow classification models
-            if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification:
-                if hasattr(dataset, 'num_classes'):
-                    params['num_classes'] = dataset.num_classes
+            if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification and hasattr(dataset, 'num_classes'):
+                params['num_classes'] = dataset.num_classes
 
             model = ModelFactory.prepare_and_call(callable_model, params, force_params)
             return model
@@ -342,10 +334,8 @@ class ModelFactory:
             cls = ModelFactory.import_class(class_path)
             # Filter params for sklearn models
             framework = None
-            try:
+            with contextlib.suppress(Exception):
                 framework = ModelFactory.detect_framework(cls)
-            except Exception:
-                pass
             if framework == 'sklearn':
                 all_params = {**params, **(force_params or {})}
                 model = ModelFactory.prepare_and_call(cls, all_params)
@@ -377,7 +367,7 @@ class ModelFactory:
                     mod = importlib.import_module(mod_name)
                     callable_model = getattr(mod, func_name)
                 except (ImportError, AttributeError) as e:
-                    raise ValueError(f"Could not import function {callable_model}: {e}")
+                    raise ValueError(f"Could not import function {callable_model}: {e}") from e
 
             params = model_dict.get('params', {}).copy()  # copy to avoid mutating input
             framework = model_dict.get('framework', None)
@@ -389,10 +379,9 @@ class ModelFactory:
             params['input_dim'] = input_dim
             params['input_shape'] = input_dim
             # Set num_classes for tensorflow classification models
-            if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification:
-                if hasattr(dataset, 'num_classes'):
-                    num_classes = dataset.num_classes
-                    params['num_classes'] = num_classes
+            if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification and hasattr(dataset, 'num_classes'):
+                num_classes = dataset.num_classes
+                params['num_classes'] = num_classes
             model = ModelFactory.prepare_and_call(callable_model, params, force_params)
             return model
         else:
@@ -433,12 +422,11 @@ class ModelFactory:
         if 'input_dim' in sig.parameters:
             params['input_dim'] = input_dim
         # Only set num_classes for tensorflow classification models
-        if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification:
-            if hasattr(dataset, 'num_classes'):
-                num_classes = dataset.num_classes
-                # Only set num_classes if the function signature has it (for classification models)
-                if 'num_classes' in sig.parameters:
-                    params['num_classes'] = num_classes
+        if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification and hasattr(dataset, 'num_classes'):
+            num_classes = dataset.num_classes
+            # Only set num_classes if the function signature has it (for classification models)
+            if 'num_classes' in sig.parameters:
+                params['num_classes'] = num_classes
         model = ModelFactory.prepare_and_call(model_callable, params, force_params)
         return model
 
@@ -470,12 +458,11 @@ class ModelFactory:
             params['input_dim'] = input_dim
 
         # Add num_classes for classification
-        if hasattr(dataset, 'is_classification') and dataset.is_classification:
-            if 'num_classes' in sig.parameters:
-                if hasattr(dataset, 'num_classes'):
-                    params['num_classes'] = dataset.num_classes
-                elif hasattr(dataset, 'n_classes'):
-                    params['num_classes'] = dataset.n_classes
+        if hasattr(dataset, 'is_classification') and dataset.is_classification and 'num_classes' in sig.parameters:
+            if hasattr(dataset, 'num_classes'):
+                params['num_classes'] = dataset.num_classes
+            elif hasattr(dataset, 'n_classes'):
+                params['num_classes'] = dataset.n_classes
 
         # Call the function with prepared parameters
         model = ModelFactory.prepare_and_call(model_callable, params, force_params)
@@ -618,10 +605,14 @@ class ModelFactory:
                 return ModelFactory.detect_framework(model['model'])
             if 'class' in model and isinstance(model['class'], str):
                 cls_name = model['class']
-                if 'torch' in cls_name: return 'pytorch'
-                if 'tensorflow' in cls_name or 'keras' in cls_name: return 'tensorflow'
-                if 'jax' in cls_name or 'flax' in cls_name: return 'jax'
-                if 'sklearn' in cls_name: return 'sklearn'
+                if 'torch' in cls_name:
+                    return 'pytorch'
+                if 'tensorflow' in cls_name or 'keras' in cls_name:
+                    return 'tensorflow'
+                if 'jax' in cls_name or 'flax' in cls_name:
+                    return 'jax'
+                if 'sklearn' in cls_name:
+                    return 'sklearn'
             return 'unknown'
 
         # Special case for mocked objects in tests
@@ -633,10 +624,7 @@ class ModelFactory:
             return model.framework
 
         # Check inheritance (MRO) to handle subclasses defined in user code
-        if inspect.isclass(model):
-            mro = inspect.getmro(model)
-        else:
-            mro = inspect.getmro(model.__class__)
+        mro = inspect.getmro(model) if inspect.isclass(model) else inspect.getmro(model.__class__)
 
         for cls in mro:
             module = cls.__module__
@@ -685,9 +673,7 @@ class ModelFactory:
             if 'model' in model:
                 return ModelFactory.is_meta_estimator(model['model'])
             # Check if serialized form has estimators key
-            if 'params' in model and 'estimators' in model.get('params', {}):
-                return True
-            return False
+            return bool('params' in model and 'estimators' in model.get('params', {}))
 
         meta_types = _get_meta_estimator_types()
         if not meta_types:
@@ -702,10 +688,7 @@ class ModelFactory:
             return True
 
         # Duck typing: check for estimators and final_estimator attributes
-        if hasattr(model, 'estimators') and hasattr(model, 'final_estimator'):
-            return True
-
-        return False
+        return bool(hasattr(model, 'estimators') and hasattr(model, 'final_estimator'))
 
     @staticmethod
     def _force_param_on_instance(model, force_params):

@@ -6,8 +6,10 @@ Extracted from launch_training() lines 462-494 and _create_fold_averages()
 to eliminate duplicate assembly logic.
 """
 
+import contextlib
 from dataclasses import dataclass
-from typing import List, Tuple, Optional, Any
+from typing import Any, Optional
+
 import numpy as np
 
 
@@ -16,19 +18,17 @@ class PartitionPrediction:
     """Single partition prediction data."""
 
     partition: str  # 'train', 'val', or 'test'
-    indices: List[int]  # Sample indices
+    indices: list[int]  # Sample indices
     y_true: np.ndarray  # True values (unscaled)
     y_pred: np.ndarray  # Predicted values (unscaled)
     score: float  # Evaluation score for this partition
-
 
 @dataclass
 class PredictionRecord:
     """Complete prediction record for storage."""
 
     metadata: dict  # Model and pipeline metadata
-    partitions: List[Tuple[str, List[int], np.ndarray, np.ndarray]]  # [(partition, indices, y_true, y_pred)]
-
+    partitions: list[tuple[str, list[int], np.ndarray, np.ndarray]]  # [(partition, indices, y_true, y_pred)]
 
 class PredictionDataAssembler:
     """Assembles prediction data for storage.
@@ -60,8 +60,8 @@ class PredictionDataAssembler:
         true_values: dict,  # {'train': ndarray, 'val': ndarray, 'test': ndarray}
         indices: dict,  # {'train': list, 'val': list, 'test': list}
         runner: Any,
-        X_shape: Tuple[int, ...],
-        best_params: Optional[dict] = None,
+        X_shape: tuple[int, ...],
+        best_params: dict | None = None,
         context: Any = None  # ExecutionContext for branch info
     ) -> dict:
         """Assemble complete prediction record.
@@ -129,10 +129,8 @@ class PredictionDataAssembler:
 
         # Cache train metadata since val samples come from train partition
         train_meta_df = None
-        try:
+        with contextlib.suppress(KeyError, AttributeError, ValueError, TypeError):
             train_meta_df = dataset.metadata({"partition": "train"})
-        except (KeyError, AttributeError, ValueError, TypeError):
-            pass
 
         # Add partition data with metadata
         for partition in ['train', 'val', 'test']:

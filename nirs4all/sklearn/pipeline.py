@@ -28,9 +28,9 @@ Example:
     >>> pipe = NIRSPipeline.from_bundle("exports/model.n4a")
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
-from pathlib import Path
 import logging
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 
@@ -39,7 +39,6 @@ if TYPE_CHECKING:
     from nirs4all.pipeline.bundle import BundleLoader
 
 logger = logging.getLogger(__name__)
-
 
 class NIRSPipeline:
     """sklearn-compatible wrapper for trained nirs4all pipelines.
@@ -82,28 +81,28 @@ class NIRSPipeline:
     def __init__(self) -> None:
         """Private constructor - use from_result() or from_bundle() instead."""
         # Core state
-        self._bundle_loader: Optional["BundleLoader"] = None
-        self._runner: Optional[Any] = None
-        self._prediction_source: Optional[Dict[str, Any]] = None
+        self._bundle_loader: BundleLoader | None = None
+        self._runner: Any | None = None
+        self._prediction_source: dict[str, Any] | None = None
         self._is_fitted: bool = False
         self._fold: int = 0
 
         # Cached model for SHAP access
-        self._cached_model: Optional[Any] = None
-        self._cached_transformers: Optional[List[Any]] = None
+        self._cached_model: Any | None = None
+        self._cached_transformers: list[Any] | None = None
 
         # Metadata
         self._preprocessing_chain: str = ""
-        self._model_step_index: Optional[int] = None
-        self._fold_weights: Dict[int, float] = {}
+        self._model_step_index: int | None = None
+        self._fold_weights: dict[int, float] = {}
         self._model_name: str = ""
-        self._source_path: Optional[Path] = None
+        self._source_path: Path | None = None
 
     @classmethod
     def from_result(
         cls,
         result: "RunResult",
-        source: Optional[Dict[str, Any]] = None,
+        source: dict[str, Any] | None = None,
         fold: int = 0
     ) -> "NIRSPipeline":
         """Create NIRSPipeline from a RunResult.
@@ -131,6 +130,7 @@ class NIRSPipeline:
             >>> y_pred = pipe.predict(X_new)
         """
         import tempfile
+
         from nirs4all.pipeline.bundle import BundleLoader
 
         # Get source prediction (prefer refit entry, consistent with export())
@@ -160,7 +160,7 @@ class NIRSPipeline:
         return instance
 
     @classmethod
-    def from_bundle(cls, bundle_path: Union[str, Path], fold: int = 0) -> "NIRSPipeline":
+    def from_bundle(cls, bundle_path: str | Path, fold: int = 0) -> "NIRSPipeline":
         """Create NIRSPipeline from an exported .n4a bundle.
 
         Args:
@@ -183,7 +183,7 @@ class NIRSPipeline:
     @classmethod
     def _from_bundle_internal(
         cls,
-        bundle_path: Union[str, Path],
+        bundle_path: str | Path,
         fold: int = 0
     ) -> "NIRSPipeline":
         """Internal method to create NIRSPipeline from bundle.
@@ -314,14 +314,7 @@ class NIRSPipeline:
                         continue
 
                     step_idx = step.step_index
-                    if step.operator_type == "feature_augmentation":
-                        X_current = self._bundle_loader._transform_feature_augmentation(
-                            X_current, step_idx
-                        )
-                    else:
-                        X_current = self._bundle_loader._transform_step(
-                            X_current, step_idx
-                        )
+                    X_current = self._bundle_loader._transform_feature_augmentation(X_current, step_idx) if step.operator_type == "feature_augmentation" else self._bundle_loader._transform_step(X_current, step_idx)
             else:
                 # Fallback: apply all non-model artifacts
                 model_step = self._model_step_index or 0
@@ -464,7 +457,7 @@ class NIRSPipeline:
         return self._preprocessing_chain
 
     @property
-    def model_step_index(self) -> Optional[int]:
+    def model_step_index(self) -> int | None:
         """Get the index of the model step in the pipeline.
 
         Returns:
@@ -473,7 +466,7 @@ class NIRSPipeline:
         return self._model_step_index
 
     @property
-    def fold_weights(self) -> Dict[int, float]:
+    def fold_weights(self) -> dict[int, float]:
         """Get fold weights for CV ensemble.
 
         Returns:
@@ -499,7 +492,7 @@ class NIRSPipeline:
         """
         return self._model_name
 
-    def get_params(self, deep: bool = True) -> Dict[str, Any]:
+    def get_params(self, deep: bool = True) -> dict[str, Any]:
         """Get parameters for this estimator (sklearn interface).
 
         Args:
@@ -526,7 +519,7 @@ class NIRSPipeline:
             self._cached_model = None  # Invalidate cache
         return self
 
-    def get_transformers(self) -> List[Tuple[str, Any]]:
+    def get_transformers(self) -> list[tuple[str, Any]]:
         """Get list of preprocessing transformers.
 
         Returns:
@@ -579,7 +572,7 @@ class NIRSPipeline:
         """Return user-friendly string representation."""
         lines = ["NIRSPipeline"]
         if self._is_fitted:
-            lines.append(f"  Status: fitted")
+            lines.append("  Status: fitted")
             if self._model_name:
                 lines.append(f"  Model: {self._model_name}")
             if self._preprocessing_chain:

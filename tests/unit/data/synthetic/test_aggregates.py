@@ -8,22 +8,22 @@ Tests cover:
 - Builder integration with aggregates
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.synthesis import (
+    AGGREGATE_COMPONENTS,
     # Aggregate classes and functions
     AggregateComponent,
-    AGGREGATE_COMPONENTS,
-    get_aggregate,
-    list_aggregates,
-    expand_aggregate,
-    aggregate_info,
-    list_aggregate_domains,
-    list_aggregate_categories,
-    validate_aggregates,
     # Builder
     SyntheticDatasetBuilder,
+    aggregate_info,
+    expand_aggregate,
+    get_aggregate,
+    list_aggregate_categories,
+    list_aggregate_domains,
+    list_aggregates,
+    validate_aggregates,
 )
 
 
@@ -125,7 +125,6 @@ class TestAggregateComponent:
         assert "protein:" in info
         assert "starch:" in info
         assert "Tags:" in info
-
 
 class TestPredefinedAggregates:
     """Tests for predefined aggregate components."""
@@ -230,7 +229,6 @@ class TestPredefinedAggregates:
             agg_issues = agg.validate()
             assert len(agg_issues) == 0, f"{name} has issues: {agg_issues}"
 
-
 class TestGetAggregate:
     """Tests for get_aggregate function."""
 
@@ -245,7 +243,6 @@ class TestGetAggregate:
             get_aggregate("nonexistent_aggregate")
         assert "Unknown aggregate" in str(exc_info.value)
         assert "nonexistent_aggregate" in str(exc_info.value)
-
 
 class TestListAggregates:
     """Tests for list_aggregates function."""
@@ -289,7 +286,6 @@ class TestListAggregates:
         assert "milk" in food_dairy
         assert "yogurt" in food_dairy
         assert "meat_beef" not in food_dairy
-
 
 class TestExpandAggregate:
     """Tests for expand_aggregate function."""
@@ -336,7 +332,6 @@ class TestExpandAggregate:
         for key in comp1:
             assert comp1[key] == pytest.approx(comp2[key], rel=1e-10)
 
-
 class TestAggregateInfo:
     """Tests for aggregate_info function."""
 
@@ -346,7 +341,6 @@ class TestAggregateInfo:
         assert isinstance(info, str)
         assert "wheat_grain" in info
         assert "protein" in info
-
 
 class TestListDomains:
     """Tests for list_aggregate_domains function."""
@@ -359,7 +353,6 @@ class TestListDomains:
         assert "food" in domains
         assert "pharmaceutical" in domains
         assert domains == sorted(domains)
-
 
 class TestListCategories:
     """Tests for list_aggregate_categories function."""
@@ -376,7 +369,6 @@ class TestListCategories:
         food_cats = list_aggregate_categories(domain="food")
         assert "dairy" in food_cats
         assert "meat" in food_cats
-
 
 class TestBuilderIntegration:
     """Tests for SyntheticDatasetBuilder.with_aggregate()."""

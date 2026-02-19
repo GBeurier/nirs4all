@@ -5,9 +5,10 @@ Tests export functionality for synthetic NIRS datasets to various
 file formats and folder structures.
 """
 
+from pathlib import Path
+
 import numpy as np
 import pytest
-from pathlib import Path
 
 
 class TestExportConfig:
@@ -40,7 +41,6 @@ class TestExportConfig:
         assert config.separator == ","
         assert config.float_precision == 4
         assert config.include_index is True
-
 
 class TestDatasetExporter:
     """Tests for DatasetExporter class."""
@@ -239,7 +239,6 @@ class TestDatasetExporter:
         Y_cal = pd.read_csv(path / "Ycal.csv", sep=";")
         assert Y_cal.shape[1] == 3
 
-
 class TestCSVVariationGenerator:
     """Tests for CSVVariationGenerator class."""
 
@@ -375,7 +374,6 @@ class TestCSVVariationGenerator:
         high_size = (path_high / "Xcal.csv").stat().st_size
         assert high_size > low_size
 
-
 class TestExportFunctions:
     """Tests for convenience export functions."""
 
@@ -419,7 +417,6 @@ class TestExportFunctions:
 
         assert path.exists()
 
-
 class TestBuilderExport:
     """Tests for SyntheticDatasetBuilder export methods."""
 
@@ -446,7 +443,6 @@ class TestBuilderExport:
         path = builder.export_to_csv(tmp_path / "data.csv")
 
         assert path.exists()
-
 
 class TestGenerateExportFunctions:
     """Tests for generate.to_folder and generate.to_csv."""

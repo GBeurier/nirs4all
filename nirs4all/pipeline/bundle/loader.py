@@ -32,24 +32,24 @@ import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 
+import contextlib
+
 from nirs4all.pipeline.config.context import (
     ArtifactProvider,
     MapArtifactProvider,
 )
+from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, OperatorNode
 from nirs4all.pipeline.trace import ExecutionTrace, StepArtifacts
 from nirs4all.pipeline.trace.execution_trace import StepExecutionMode
-from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, OperatorNode
-
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class BundleMetadata:
@@ -75,15 +75,15 @@ class BundleMetadata:
     created_at: str = ""
     pipeline_uid: str = ""
     source_type: str = ""
-    model_step_index: Optional[int] = None
+    model_step_index: int | None = None
     fold_strategy: str = "weighted_average"
     preprocessing_chain: str = ""
-    trace_id: Optional[str] = None
-    original_manifest: Dict[str, Any] = field(default_factory=dict)
-    partitioner_routing: Dict[str, Any] = field(default_factory=dict)
+    trace_id: str | None = None
+    original_manifest: dict[str, Any] = field(default_factory=dict)
+    partitioner_routing: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "BundleMetadata":
+    def from_dict(cls, data: dict[str, Any]) -> "BundleMetadata":
         """Create BundleMetadata from dictionary.
 
         Args:
@@ -106,7 +106,6 @@ class BundleMetadata:
             partitioner_routing=data.get("partitioner_routing", {}),
         )
 
-
 class BundleArtifactProvider(ArtifactProvider):
     """Artifact provider for bundles.
 
@@ -123,11 +122,11 @@ class BundleArtifactProvider(ArtifactProvider):
 
     def __init__(
         self,
-        bundle_path: Union[str, Path],
-        artifact_index: Dict[str, str],
-        fold_weights: Optional[Dict[int, float]] = None,
-        step_info: Optional[Dict[int, Dict[str, Any]]] = None,
-        trace: Optional[ExecutionTrace] = None
+        bundle_path: str | Path,
+        artifact_index: dict[str, str],
+        fold_weights: dict[int, float] | None = None,
+        step_info: dict[int, dict[str, Any]] | None = None,
+        trace: ExecutionTrace | None = None
     ):
         """Initialize bundle artifact provider.
 
@@ -143,13 +142,13 @@ class BundleArtifactProvider(ArtifactProvider):
         self.fold_weights = fold_weights or {}
         self.step_info = step_info or {}
         self.trace = trace
-        self._cache: Dict[str, Any] = {}
+        self._cache: dict[str, Any] = {}
 
     def get_artifact(
         self,
         step_index: int,
-        fold_id: Optional[int] = None
-    ) -> Optional[Any]:
+        fold_id: int | str | None = None,
+    ) -> Any | None:
         """Get a single artifact for a step.
 
         Args:
@@ -159,18 +158,15 @@ class BundleArtifactProvider(ArtifactProvider):
         Returns:
             Artifact object or None if not found
         """
-        if fold_id is not None:
-            key = f"step_{step_index}_fold{fold_id}"
-        else:
-            key = f"step_{step_index}"
+        key = f"step_{step_index}_fold{fold_id}" if fold_id is not None else f"step_{step_index}"
 
         return self._load_artifact(key)
 
     def get_artifacts_for_step(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None
-    ) -> List[Tuple[str, Any]]:
+        branch_path: list[int] | None = None
+    ) -> list[tuple[str, Any]]:
         """Get all artifacts for a step.
 
         Args:
@@ -188,12 +184,8 @@ class BundleArtifactProvider(ArtifactProvider):
                 # Filter by branch_path if specified and we have trace
                 if branch_path is not None and self.trace:
                     step = self.trace.get_step(step_index)
-                    if step and step.branch_path:
-                        # Check if step is on the target branch or is a shared step
-                        if step.branch_path != branch_path:
-                            # Check if it's a parent branch (allowed)
-                            if not self._is_parent_branch(branch_path, step.branch_path):
-                                continue
+                    if step and step.branch_path and step.branch_path != branch_path and not self._is_parent_branch(branch_path, step.branch_path):
+                        continue
 
                 artifact = self._load_artifact(key)
                 if artifact is not None:
@@ -203,8 +195,8 @@ class BundleArtifactProvider(ArtifactProvider):
 
     def _is_parent_branch(
         self,
-        target_path: List[int],
-        check_path: List[int]
+        target_path: list[int],
+        check_path: list[int]
     ) -> bool:
         """Check if check_path is a parent of target_path."""
         if len(check_path) >= len(target_path):
@@ -214,8 +206,8 @@ class BundleArtifactProvider(ArtifactProvider):
     def get_fold_artifacts(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None
-    ) -> List[Tuple[int, Any]]:
+        branch_path: list[int] | None = None
+    ) -> list[tuple[int, Any]]:
         """Get all fold-specific artifacts for a step.
 
         Args:
@@ -235,10 +227,8 @@ class BundleArtifactProvider(ArtifactProvider):
                     # Filter by branch_path if specified and we have trace
                     if branch_path is not None and self.trace:
                         step = self.trace.get_step(step_index)
-                        if step and step.branch_path:
-                            if step.branch_path != branch_path:
-                                if not self._is_parent_branch(branch_path, step.branch_path):
-                                    continue
+                        if step and step.branch_path and step.branch_path != branch_path and not self._is_parent_branch(branch_path, step.branch_path):
+                            continue
 
                     artifact = self._load_artifact(key)
                     if artifact is not None:
@@ -248,7 +238,7 @@ class BundleArtifactProvider(ArtifactProvider):
 
         return sorted(results, key=lambda x: x[0])
 
-    def get_step_operator_type(self, step_index: int) -> Optional[str]:
+    def get_step_operator_type(self, step_index: int) -> str | None:
         """Get the operator type for a step.
 
         Args:
@@ -272,7 +262,7 @@ class BundleArtifactProvider(ArtifactProvider):
     def get_meta_model_sources(
         self,
         step_index: int
-    ) -> List[Tuple[int, str]]:
+    ) -> list[tuple[int, str]]:
         """Get source model info for a meta-model step.
 
         Args:
@@ -311,7 +301,7 @@ class BundleArtifactProvider(ArtifactProvider):
             for k in self.artifact_index
         )
 
-    def _load_artifact(self, key: str) -> Optional[Any]:
+    def _load_artifact(self, key: str) -> Any | None:
         """Load artifact from bundle.
 
         Args:
@@ -332,12 +322,12 @@ class BundleArtifactProvider(ArtifactProvider):
 
         try:
             import io
+
             import joblib
 
-            with zipfile.ZipFile(self.bundle_path, 'r') as zf:
-                with zf.open(f"artifacts/{filename}") as f:
-                    buffer = io.BytesIO(f.read())
-                    artifact = joblib.load(buffer)
+            with zipfile.ZipFile(self.bundle_path, 'r') as zf, zf.open(f"artifacts/{filename}") as f:
+                buffer = io.BytesIO(f.read())
+                artifact = joblib.load(buffer)
 
             # Cache for future use
             self._cache[key] = artifact
@@ -347,14 +337,13 @@ class BundleArtifactProvider(ArtifactProvider):
             logger.warning(f"Failed to load artifact {key}: {e}")
             return None
 
-    def get_fold_weights(self) -> Dict[int, float]:
+    def get_fold_weights(self) -> dict[int, float]:
         """Get fold weights for CV ensemble.
 
         Returns:
             Fold weights dictionary
         """
         return self.fold_weights.copy()
-
 
 class BundleLoader:
     """Load and use prediction bundles.
@@ -377,7 +366,7 @@ class BundleLoader:
         >>> y_pred = loader.predict(X_new)
     """
 
-    def __init__(self, bundle_path: Union[str, Path]):
+    def __init__(self, bundle_path: str | Path):
         """Initialize bundle loader.
 
         Args:
@@ -396,18 +385,18 @@ class BundleLoader:
             raise ValueError(f"Invalid bundle format: {bundle_path}")
 
         # Load bundle contents
-        self.metadata: Optional[BundleMetadata] = None
-        self.trace: Optional[ExecutionTrace] = None
-        self.pipeline_config: Dict[str, Any] = {}
-        self.fold_weights: Dict[int, float] = {}
-        self._artifact_index: Dict[str, str] = {}
-        self.artifact_provider: Optional[BundleArtifactProvider] = None
+        self.metadata: BundleMetadata | None = None
+        self.trace: ExecutionTrace | None = None
+        self.pipeline_config: dict[str, Any] = {}
+        self.fold_weights: dict[int, float] = {}
+        self._artifact_index: dict[str, str] = {}
+        self.artifact_provider: BundleArtifactProvider | None = None
 
         self._load_bundle()
 
     def _load_bundle(self) -> None:
         """Load bundle metadata and build artifact index."""
-        self._chain_data: Dict[str, Any] = {}
+        self._chain_data: dict[str, Any] = {}
 
         with zipfile.ZipFile(self.bundle_path, 'r') as zf:
             # Load manifest.json
@@ -481,7 +470,7 @@ class BundleLoader:
             step_idx = parts[1]
 
             # Check for fold info
-            for i, part in enumerate(parts):
+            for _i, part in enumerate(parts):
                 if part.startswith('fold'):
                     return f"step_{step_idx}_{part}"
 
@@ -495,7 +484,7 @@ class BundleLoader:
 
         return name
 
-    def _extract_step_info_from_config(self) -> Dict[int, Dict[str, Any]]:
+    def _extract_step_info_from_config(self) -> dict[int, dict[str, Any]]:
         """Extract operator type info from pipeline_config.
 
         When no trace is available, this method parses the pipeline_config
@@ -505,7 +494,7 @@ class BundleLoader:
         Returns:
             Dict mapping step_index (1-based) to step info dict with operator_type.
         """
-        step_info: Dict[int, Dict[str, Any]] = {}
+        step_info: dict[int, dict[str, Any]] = {}
 
         if not self.pipeline_config:
             return step_info
@@ -547,7 +536,7 @@ class BundleLoader:
     def predict(
         self,
         X: np.ndarray,
-        branch_path: Optional[List[int]] = None
+        branch_path: list[int] | None = None
     ) -> np.ndarray:
         """Run prediction on input data.
 
@@ -577,7 +566,7 @@ class BundleLoader:
     def _predict_with_trace(
         self,
         X: np.ndarray,
-        branch_path: Optional[List[int]] = None
+        branch_path: list[int] | None = None
     ) -> np.ndarray:
         """Predict using execution trace for step info.
 
@@ -593,22 +582,15 @@ class BundleLoader:
         y_processing_step_idx = None  # Track y_processing step for inverse_transform
 
         # Get steps up to model from trace
-        if model_step is not None:
-            steps = self.trace.get_steps_up_to_model()
-        else:
-            steps = self.trace.steps
+        steps = self.trace.get_steps_up_to_model() if model_step is not None else self.trace.steps
 
         for step in steps:
             step_idx = step.step_index
             op_type = step.operator_type
 
             # Filter by branch if specified
-            if branch_path is not None:
-                if step.branch_path:
-                    # Skip if not on target branch and not a parent branch
-                    if step.branch_path != branch_path:
-                        if not self._is_parent_of(branch_path, step.branch_path):
-                            continue
+            if branch_path is not None and step.branch_path and step.branch_path != branch_path and not self._is_parent_of(branch_path, step.branch_path):
+                continue
 
             # Skip steps that were skipped during training
             if step.execution_mode == StepExecutionMode.SKIP:
@@ -644,7 +626,7 @@ class BundleLoader:
         self,
         X: np.ndarray,
         meta_step,
-        branch_path: Optional[List[int]] = None
+        branch_path: list[int] | None = None
     ) -> np.ndarray:
         """Predict using a meta-model (stacking).
 
@@ -668,9 +650,8 @@ class BundleLoader:
         # If no source info in metadata, find model steps before this one
         if not source_models and self.trace:
             for prev_step in self.trace.steps:
-                if prev_step.step_index < meta_step.step_index:
-                    if prev_step.operator_type == "model":
-                        source_models.append(prev_step.step_index)
+                if prev_step.step_index < meta_step.step_index and prev_step.operator_type == "model":
+                    source_models.append(prev_step.step_index)
 
         # Get predictions from each source model
         source_predictions = []
@@ -716,7 +697,7 @@ class BundleLoader:
         self,
         X: np.ndarray,
         step_idx: int,
-        branch_path: Optional[List[int]] = None
+        branch_path: list[int] | None = None
     ) -> np.ndarray:
         """Predict from a model step (handles CV ensemble and single refit model).
 
@@ -760,7 +741,7 @@ class BundleLoader:
             _, model = artifacts[0]
             return model.predict(X)
 
-    def _get_refit_model(self, step_idx: int) -> Optional[Any]:
+    def _get_refit_model(self, step_idx: int) -> Any | None:
         """Load the single refit model if available.
 
         Checks for a ``fold_id="final"`` artifact in the bundle's
@@ -785,7 +766,7 @@ class BundleLoader:
                 # The artifact filename is based on the content hash
                 artifact_id = fold_artifacts.get("fold_final") or fold_artifacts.get("final")
                 # Search artifact index for any key containing this artifact
-                for key, filename in self._artifact_index.items():
+                for key, _filename in self._artifact_index.items():
                     if key.startswith(f"step_{step_idx}"):
                         model = self.artifact_provider._load_artifact(key)
                         if model is not None:
@@ -797,7 +778,7 @@ class BundleLoader:
         self,
         X: np.ndarray,
         step_idx: int,
-        branch_path: Optional[List[int]] = None
+        branch_path: list[int] | None = None
     ) -> np.ndarray:
         """Apply transformation step to X.
 
@@ -820,8 +801,8 @@ class BundleLoader:
     def _apply_y_inverse_transform(
         self,
         y_pred: np.ndarray,
-        y_processing_step_idx: Optional[int],
-        branch_path: Optional[List[int]] = None
+        y_processing_step_idx: int | None,
+        branch_path: list[int] | None = None
     ) -> np.ndarray:
         """Apply inverse transform to predictions if y_processing was used.
 
@@ -862,7 +843,7 @@ class BundleLoader:
         self,
         X: np.ndarray,
         step_idx: int,
-        branch_path: Optional[List[int]] = None
+        branch_path: list[int] | None = None
     ) -> np.ndarray:
         """Apply feature augmentation transformation.
 
@@ -919,10 +900,8 @@ class BundleLoader:
             if key.startswith('step_'):
                 parts = key.split('_')
                 if len(parts) >= 2:
-                    try:
+                    with contextlib.suppress(ValueError):
                         step_indices.add(int(parts[1]))
-                    except ValueError:
-                        pass
 
         # Process each step
         for step_idx in sorted(step_indices):
@@ -954,15 +933,15 @@ class BundleLoader:
 
     def _is_parent_of(
         self,
-        target_path: List[int],
-        check_path: List[int]
+        target_path: list[int],
+        check_path: list[int]
     ) -> bool:
         """Check if check_path is a parent of target_path."""
         if len(check_path) >= len(target_path):
             return False
         return target_path[:len(check_path)] == check_path
 
-    def get_step_info(self) -> List[Dict[str, Any]]:
+    def get_step_info(self) -> list[dict[str, Any]]:
         """Get information about steps in the bundle.
 
         Returns:
@@ -986,10 +965,8 @@ class BundleLoader:
                 if key.startswith('step_'):
                     parts = key.split('_')
                     if len(parts) >= 2:
-                        try:
+                        with contextlib.suppress(ValueError):
                             step_indices.add(int(parts[1]))
-                        except ValueError:
-                            pass
 
             for idx in sorted(step_indices):
                 if self.artifact_provider:
@@ -1013,9 +990,9 @@ class BundleLoader:
             ResolvedPrediction instance
         """
         from nirs4all.pipeline.resolver import (
+            FoldStrategy,
             ResolvedPrediction,
             SourceType,
-            FoldStrategy,
         )
 
         if self.metadata is None:
@@ -1052,7 +1029,7 @@ class BundleLoader:
             f"artifacts={len(self._artifact_index)})"
         )
 
-    def get_chain_for_artifact(self, artifact_key: str) -> Optional[OperatorChain]:
+    def get_chain_for_artifact(self, artifact_key: str) -> OperatorChain | None:
         """Get the operator chain for an artifact from the bundle.
 
         Args:
@@ -1110,7 +1087,7 @@ class BundleLoader:
         self,
         import_context_chain: OperatorChain,
         step_offset: int = 0
-    ) -> Dict[str, OperatorChain]:
+    ) -> dict[str, OperatorChain]:
         """Get all artifact chains merged with an import context chain.
 
         Used when importing a bundle into another pipeline. Each artifact's
@@ -1123,7 +1100,7 @@ class BundleLoader:
         Returns:
             Dict mapping artifact keys to merged chains
         """
-        merged_chains: Dict[str, OperatorChain] = {}
+        merged_chains: dict[str, OperatorChain] = {}
 
         for artifact_key in self._artifact_index:
             artifact_chain = self.get_chain_for_artifact(artifact_key)
@@ -1139,10 +1116,10 @@ class BundleLoader:
     def import_artifacts_to_registry(
         self,
         registry: 'ArtifactRegistry',
-        import_context_chain: Optional[OperatorChain] = None,
+        import_context_chain: OperatorChain | None = None,
         step_offset: int = 0,
-        new_pipeline_id: Optional[str] = None
-    ) -> Dict[str, str]:
+        new_pipeline_id: str | None = None
+    ) -> dict[str, str]:
         """Import bundle artifacts into an artifact registry.
 
         Registers all artifacts from this bundle into the target registry,
@@ -1159,7 +1136,7 @@ class BundleLoader:
         """
         from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 
-        id_mapping: Dict[str, str] = {}
+        id_mapping: dict[str, str] = {}
 
         # Determine pipeline_id
         pipeline_id = new_pipeline_id or (
@@ -1167,10 +1144,7 @@ class BundleLoader:
         )
 
         # Get merged chains if import context provided
-        if import_context_chain:
-            merged_chains = self.get_merged_chains(import_context_chain, step_offset)
-        else:
-            merged_chains = {}
+        merged_chains = self.get_merged_chains(import_context_chain, step_offset) if import_context_chain else {}
 
         # Import each artifact
         for artifact_key in self._artifact_index:
@@ -1201,10 +1175,8 @@ class BundleLoader:
             # Determine fold_id from key
             fold_id = None
             if "_fold" in artifact_key:
-                try:
+                with contextlib.suppress(ValueError, IndexError):
                     fold_id = int(artifact_key.split("_fold")[1])
-                except (ValueError, IndexError):
-                    pass
 
             # Determine artifact type
             if hasattr(artifact, 'predict'):
@@ -1245,7 +1217,7 @@ class BundleLoader:
             return False
         return bool(self.metadata.partitioner_routing)
 
-    def get_partitioner_routing(self, step_index: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    def get_partitioner_routing(self, step_index: int | None = None) -> dict[str, Any] | None:
         """Get partitioner routing info for a specific step or all steps.
 
         Args:
@@ -1265,8 +1237,8 @@ class BundleLoader:
     def predict_with_metadata(
         self,
         X: np.ndarray,
-        metadata: Dict[str, np.ndarray],
-        fallback_branch: Optional[int] = None
+        metadata: dict[str, np.ndarray],
+        fallback_branch: int | None = None
     ) -> np.ndarray:
         """Run prediction with metadata-based sample routing.
 
@@ -1353,7 +1325,7 @@ class BundleLoader:
                     value_to_partition[partition_name] = partition_name
 
             # Route samples to branches
-            sample_branches: Dict[int, List[int]] = {}  # branch_id -> sample_indices
+            sample_branches: dict[int, list[int]] = {}  # branch_id -> sample_indices
             unknown_samples = []
 
             for sample_idx, value in enumerate(column_values):
@@ -1390,7 +1362,7 @@ class BundleLoader:
                         f"routed to fallback branch {fallback_branch}"
                     )
                 else:
-                    unknown_values = set(column_values[i] for i in unknown_samples[:5])
+                    unknown_values = {column_values[i] for i in unknown_samples[:5]}
                     raise ValueError(
                         f"{len(unknown_samples)} samples have metadata values "
                         f"not seen during training: {unknown_values}. "
@@ -1426,7 +1398,7 @@ class BundleLoader:
 
         return y_pred
 
-    def get_required_metadata_columns(self) -> List[str]:
+    def get_required_metadata_columns(self) -> list[str]:
         """Get the metadata columns required for prediction routing.
 
         Returns:
@@ -1443,8 +1415,7 @@ class BundleLoader:
 
         return columns
 
-
-def load_bundle(bundle_path: Union[str, Path]) -> BundleLoader:
+def load_bundle(bundle_path: str | Path) -> BundleLoader:
     """Convenience function to load a bundle.
 
     Args:

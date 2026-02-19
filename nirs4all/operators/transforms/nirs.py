@@ -1,3 +1,5 @@
+from typing import Literal
+
 import numpy as np
 import pywt
 import scipy
@@ -22,10 +24,9 @@ def wavelet_transform(spectra: np.ndarray, wavelet: str, mode: str = "periodizat
     """
     _, wt_coeffs = pywt.dwt(spectra, wavelet=wavelet, mode=mode)
     if len(wt_coeffs[0]) != len(spectra[0]):
-        return signal.resample(wt_coeffs, len(spectra[0]), axis=1)
+        return np.asarray(signal.resample(wt_coeffs, len(spectra[0]), axis=1))
     else:
-        return wt_coeffs
-
+        return np.asarray(wt_coeffs)
 
 class Wavelet(TransformerMixin, BaseEstimator):
     """
@@ -112,7 +113,6 @@ class Wavelet(TransformerMixin, BaseEstimator):
     def _more_tags(self):
         return {"allow_nan": False}
 
-
 class Haar(Wavelet):
     """
     Shortcut to the Wavelet haar transform.
@@ -126,7 +126,6 @@ class Haar(Wavelet):
 
     def __init__(self, *, copy: bool = True):
         super().__init__("haar", "periodization", copy=copy)
-
 
 def savgol(
     spectra: np.ndarray,
@@ -149,8 +148,7 @@ def savgol(
     Returns:
         numpy.ndarray: NIRS data smoothed with Savitzky-Golay filtering.
     """
-    return signal.savgol_filter(spectra, window_length, polyorder, deriv, delta=delta)
-
+    return np.asarray(signal.savgol_filter(spectra, window_length, polyorder, deriv, delta=delta))
 
 class SavitzkyGolay(TransformerMixin, BaseEstimator):
     """
@@ -262,7 +260,6 @@ class SavitzkyGolay(TransformerMixin, BaseEstimator):
     def _more_tags(self):
         return {"allow_nan": False}
 
-
 class MultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
 
     _webapp_meta = {
@@ -357,7 +354,6 @@ class MultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
     def _more_tags(self):
         return {"allow_nan": False}
 
-
 def msc(spectra, scaled=True):
     """Performs multiplicative scatter correction to the mean.
 
@@ -378,7 +374,6 @@ def msc(spectra, scaled=True):
         spectra[:, col] = (spectra[:, col] - b) / a
 
     return spectra
-
 
 class ExtendedMultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
     """
@@ -469,7 +464,6 @@ class ExtendedMultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
 
     def _more_tags(self):
         return {"allow_nan": False}
-
 
 class AreaNormalization(TransformerMixin, BaseEstimator):
     """
@@ -574,9 +568,8 @@ def log_transform(
 
     # Perform log transform
     if base == np.e:
-        return np.log(X)
-    return np.log(X) / np.log(base)
-
+        return np.asarray(np.log(X))
+    return np.asarray(np.log(X) / np.log(base))
 
 class LogTransform(TransformerMixin, BaseEstimator):
     """
@@ -685,20 +678,16 @@ class LogTransform(TransformerMixin, BaseEstimator):
     def inverse_transform(self, X):
         """Exact inverse of the forward transform."""
         # X = check_array(X, copy=self.copy, dtype=FLOAT_DTYPES)
-        if self.base == np.e:
-            Y = np.exp(X)
-        else:
-            Y = np.power(self.base, X)
+        Y = np.exp(X) if self.base == np.e else np.power(self.base, X)
         return Y - self._fitted_offset
 
     def _more_tags(self):
         return {"allow_nan": False}
 
-
 def first_derivative(
     spectra: np.ndarray,
     delta: float = 1.0,
-    edge_order: int = 2,
+    edge_order: Literal[1, 2] = 2,
 ) -> np.ndarray:
     """
     First numerical derivative along feature axis using central differences.
@@ -711,8 +700,7 @@ def first_derivative(
     Returns:
         numpy.ndarray: First derivative dX/dλ with same shape as input.
     """
-    return np.gradient(spectra, delta, axis=1, edge_order=edge_order)
-
+    return np.asarray(np.gradient(spectra, delta, axis=1, edge_order=edge_order))
 
 class FirstDerivative(TransformerMixin, BaseEstimator):
     """
@@ -736,7 +724,7 @@ class FirstDerivative(TransformerMixin, BaseEstimator):
 
     _stateless = True
 
-    def __init__(self, delta: float = 1.0, edge_order: int = 2, *, copy: bool = True):
+    def __init__(self, delta: float = 1.0, edge_order: Literal[1, 2] = 2, *, copy: bool = True):
         self.copy = copy
         self.delta = delta
         self.edge_order = edge_order
@@ -758,11 +746,10 @@ class FirstDerivative(TransformerMixin, BaseEstimator):
     def _more_tags(self):
         return {"allow_nan": False}
 
-
 def second_derivative(
     spectra: np.ndarray,
     delta: float = 1.0,
-    edge_order: int = 2,
+    edge_order: Literal[1, 2] = 2,
 ) -> np.ndarray:
     """
     Second numerical derivative along feature axis.
@@ -776,8 +763,7 @@ def second_derivative(
         numpy.ndarray: Second derivative d²X/dλ² with same shape as input.
     """
     d1 = np.gradient(spectra, delta, axis=1, edge_order=edge_order)
-    return np.gradient(d1, delta, axis=1, edge_order=edge_order)
-
+    return np.asarray(np.gradient(d1, delta, axis=1, edge_order=edge_order))
 
 def _compute_entropy(x: np.ndarray, n_bins: int = 10) -> float:
     """Compute entropy of a 1D array."""
@@ -785,7 +771,6 @@ def _compute_entropy(x: np.ndarray, n_bins: int = 10) -> float:
     hist, _ = np.histogram(x, bins=n_bins, density=True)
     hist = hist[hist > 0]
     return scipy_entropy(hist) if len(hist) > 0 else 0.0
-
 
 class WaveletFeatures(TransformerMixin, BaseEstimator):
     """
@@ -964,7 +949,6 @@ class WaveletFeatures(TransformerMixin, BaseEstimator):
 
     def _more_tags(self):
         return {"allow_nan": False}
-
 
 class WaveletPCA(TransformerMixin, BaseEstimator):
     """
@@ -1149,7 +1133,6 @@ class WaveletPCA(TransformerMixin, BaseEstimator):
     def _more_tags(self):
         return {"allow_nan": False}
 
-
 class WaveletSVD(TransformerMixin, BaseEstimator):
     """
     Multi-scale SVD on wavelet coefficients.
@@ -1321,7 +1304,6 @@ class WaveletSVD(TransformerMixin, BaseEstimator):
     def _more_tags(self):
         return {"allow_nan": False}
 
-
 class SecondDerivative(TransformerMixin, BaseEstimator):
     """
     Second numerical derivative using numpy.gradient.
@@ -1344,7 +1326,7 @@ class SecondDerivative(TransformerMixin, BaseEstimator):
 
     _stateless = True
 
-    def __init__(self, delta: float = 1.0, edge_order: int = 2, *, copy: bool = True):
+    def __init__(self, delta: float = 1.0, edge_order: Literal[1, 2] = 2, *, copy: bool = True):
         self.copy = copy
         self.delta = delta
         self.edge_order = edge_order
@@ -1366,7 +1348,6 @@ class SecondDerivative(TransformerMixin, BaseEstimator):
     def _more_tags(self):
         return {"allow_nan": False}
 
-
 def reflectance_to_absorbance(
     spectra: np.ndarray,
     min_value: float = 1e-8,
@@ -1387,8 +1368,7 @@ def reflectance_to_absorbance(
         numpy.ndarray: Absorbance spectra with same shape as input.
     """
     X = np.clip(spectra, min_value, None)
-    return -np.log10(X)
-
+    return np.asarray(-np.log10(X))
 
 class ReflectanceToAbsorbance(TransformerMixin, BaseEstimator):
     """
@@ -1515,7 +1495,6 @@ class ReflectanceToAbsorbance(TransformerMixin, BaseEstimator):
     def _more_tags(self):
         return {"allow_nan": False}
 
-
 # =============================================================================
 # PyBaselines Wrapper - General baseline correction
 # =============================================================================
@@ -1589,7 +1568,6 @@ PYBASELINES_METHODS = {
     'beads': ('misc', 'beads'),                    # Baseline estimation and denoising with sparsity
 }
 
-
 def pybaseline_correction(
     spectra: np.ndarray,
     method: str = 'asls',
@@ -1632,11 +1610,11 @@ def pybaseline_correction(
     """
     try:
         import pybaselines
-    except ImportError:
+    except ImportError as e:
         raise ImportError(
             "pybaselines is required for baseline correction. "
             "Install it with: pip install pybaselines"
-        )
+        ) from e
 
     method_lower = method.lower()
     if method_lower not in PYBASELINES_METHODS:
@@ -1658,7 +1636,6 @@ def pybaseline_correction(
         corrected[i] = spectra[i] - baseline
 
     return corrected
-
 
 class PyBaselineCorrection(TransformerMixin, BaseEstimator):
     """
@@ -1894,7 +1871,6 @@ class PyBaselineCorrection(TransformerMixin, BaseEstimator):
             categories[module].append(method)
         return categories
 
-
 class _BaselineMethodAlias(PyBaselineCorrection):
     """
     Base class for convenience baseline method aliases.
@@ -1902,7 +1878,7 @@ class _BaselineMethodAlias(PyBaselineCorrection):
     This class properly handles get_params/set_params for sklearn clone()
     compatibility by storing method-specific parameters as instance attributes.
     """
-    _method_name = None  # Override in subclasses
+    _method_name: str | None = None  # Override in subclasses
 
     def __init__(self, *, copy: bool = True, **method_params):
         # Store parameters as instance attributes for sklearn compatibility
@@ -1911,6 +1887,7 @@ class _BaselineMethodAlias(PyBaselineCorrection):
         for key, value in method_params.items():
             setattr(self, key, value)
         # Initialize parent with the fixed method
+        assert self._method_name is not None, "Subclasses must set _method_name"
         super().__init__(method=self._method_name, copy=copy, **method_params)
 
     def get_params(self, deep=True):
@@ -1931,7 +1908,6 @@ class _BaselineMethodAlias(PyBaselineCorrection):
                 setattr(self, key, value)
                 self.method_params[key] = value
         return self
-
 
 # Convenience aliases for common methods
 class AirPLS(_BaselineMethodAlias):
@@ -1969,7 +1945,6 @@ class AirPLS(_BaselineMethodAlias):
     def __init__(self, lam: float = 1e6, max_iter: int = 50, tol: float = 1e-3, *, copy: bool = True):
         super().__init__(copy=copy, lam=lam, max_iter=max_iter, tol=tol)
 
-
 class ArPLS(_BaselineMethodAlias):
     """
     Asymmetrically Reweighted Penalized Least Squares baseline correction.
@@ -2001,7 +1976,6 @@ class ArPLS(_BaselineMethodAlias):
 
     def __init__(self, lam: float = 1e6, max_iter: int = 50, tol: float = 1e-3, *, copy: bool = True):
         super().__init__(copy=copy, lam=lam, max_iter=max_iter, tol=tol)
-
 
 class IModPoly(_BaselineMethodAlias):
     """
@@ -2038,7 +2012,6 @@ class IModPoly(_BaselineMethodAlias):
     def __init__(self, poly_order: int = 5, max_iter: int = 250, tol: float = 1e-3, *, copy: bool = True):
         super().__init__(copy=copy, poly_order=poly_order, max_iter=max_iter, tol=tol)
 
-
 class ModPoly(_BaselineMethodAlias):
     """
     Modified Polynomial baseline correction.
@@ -2070,7 +2043,6 @@ class ModPoly(_BaselineMethodAlias):
 
     def __init__(self, poly_order: int = 5, max_iter: int = 250, tol: float = 1e-3, *, copy: bool = True):
         super().__init__(copy=copy, poly_order=poly_order, max_iter=max_iter, tol=tol)
-
 
 class SNIP(_BaselineMethodAlias):
     """
@@ -2105,10 +2077,9 @@ class SNIP(_BaselineMethodAlias):
     _method_name = 'snip'
 
     def __init__(self, max_half_window: int = 40, decreasing: bool = True,
-                 smooth_half_window: int = None, *, copy: bool = True):
+                 smooth_half_window: int | None = None, *, copy: bool = True):
         super().__init__(copy=copy, max_half_window=max_half_window,
                          decreasing=decreasing, smooth_half_window=smooth_half_window)
-
 
 class RollingBall(_BaselineMethodAlias):
     """
@@ -2140,9 +2111,8 @@ class RollingBall(_BaselineMethodAlias):
 
     _method_name = 'rolling_ball'
 
-    def __init__(self, half_window: int = 50, smooth_half_window: int = None, *, copy: bool = True):
+    def __init__(self, half_window: int = 50, smooth_half_window: int | None = None, *, copy: bool = True):
         super().__init__(copy=copy, half_window=half_window, smooth_half_window=smooth_half_window)
-
 
 class IASLS(_BaselineMethodAlias):
     """
@@ -2183,7 +2153,6 @@ class IASLS(_BaselineMethodAlias):
                  max_iter: int = 50, tol: float = 1e-3, *, copy: bool = True):
         super().__init__(copy=copy, lam=lam, p=p, lam_1=lam_1, max_iter=max_iter, tol=tol)
 
-
 class BEADS(_BaselineMethodAlias):
     """
     Baseline Estimation And Denoising with Sparsity.
@@ -2223,7 +2192,6 @@ class BEADS(_BaselineMethodAlias):
                  max_iter: int = 50, tol: float = 1e-2, *, copy: bool = True):
         super().__init__(copy=copy, lam_0=lam_0, lam_1=lam_1, lam_2=lam_2, max_iter=max_iter, tol=tol)
 
-
 # Keep asls_baseline function for backward compatibility
 def asls_baseline(
     spectra: np.ndarray,
@@ -2248,7 +2216,6 @@ def asls_baseline(
         numpy.ndarray: Baseline-corrected spectra with same shape as input.
     """
     return pybaseline_correction(spectra, method='asls', lam=lam, p=p, max_iter=max_iter, tol=tol)
-
 
 class ASLSBaseline(_BaselineMethodAlias):
     """

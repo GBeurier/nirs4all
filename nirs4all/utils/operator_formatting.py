@@ -1,10 +1,11 @@
 """Utility functions for formatting operators with their parameters."""
 
 from typing import Any
+
 from nirs4all.pipeline.config.component_serialization import _changed_kwargs
 
 
-def format_operator_with_params(operator: Any, short_name: str = None) -> str:
+def format_operator_with_params(operator: Any, short_name: str | None = None) -> str:
     """Format an operator name with its non-default parameters.
 
     Args:

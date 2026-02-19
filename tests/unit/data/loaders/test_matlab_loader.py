@@ -5,15 +5,14 @@ Tests loading .mat files with various configurations.
 Requires scipy to be installed.
 """
 
-import pytest
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from nirs4all.data.loaders.matlab_loader import MatlabLoader, load_matlab
-
 
 # Check if scipy is available
 try:
@@ -21,7 +20,6 @@ try:
     HAS_SCIPY = True
 except ImportError:
     HAS_SCIPY = False
-
 
 class TestMatlabLoaderSupports:
     """Tests for MatlabLoader.supports() method."""
@@ -35,7 +33,6 @@ class TestMatlabLoaderSupports:
         """Test that MatlabLoader doesn't support other formats."""
         assert not MatlabLoader.supports(Path("data.csv"))
         assert not MatlabLoader.supports(Path("data.npy"))
-
 
 @pytest.mark.skipif(not HAS_SCIPY, reason="scipy not installed")
 class TestMatlabLoaderLoad:
@@ -147,7 +144,6 @@ class TestMatlabLoaderLoad:
 
         assert result.success
         assert result.report["variable_used"] == "X"
-
 
 @pytest.mark.skipif(not HAS_SCIPY, reason="scipy not installed")
 class TestLoadMatlabFunction:

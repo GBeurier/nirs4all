@@ -9,8 +9,9 @@ This module centralizes common artifact filtering semantics so that
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Optional
 
 from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord, ArtifactType
 
@@ -19,15 +20,15 @@ from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord, ArtifactTy
 class ArtifactQuerySpec:
     """Normalized query spec for artifact lookup/filtering."""
 
-    step_index: Optional[int] = None
-    branch_path: Optional[Sequence[int]] = None
-    branch_id: Optional[int] = None
-    source_index: Optional[int] = None
-    substep_index: Optional[int] = None
-    fold_id: Optional[int] = None
-    pipeline_id: Optional[str] = None
+    step_index: int | None = None
+    branch_path: Sequence[int] | None = None
+    branch_id: int | None = None
+    source_index: int | None = None
+    substep_index: int | None = None
+    fold_id: int | None = None
+    pipeline_id: str | None = None
 
-    def target_branch(self) -> Optional[int]:
+    def target_branch(self) -> int | None:
         """Return branch discriminator used by current replay contracts."""
         if self.branch_path:
             return int(self.branch_path[0])
@@ -35,13 +36,13 @@ class ArtifactQuerySpec:
             return int(self.branch_id)
         return None
 
-    def branch_lookup_keys(self) -> List[Tuple[int, ...]]:
+    def branch_lookup_keys(self) -> list[tuple[int, ...]]:
         """Return branch keys used by indexed loader lookups.
 
         Always includes the shared key ``()`` so pre-branch artifacts remain
         visible when a branch-specific query is requested.
         """
-        branch_keys: List[Tuple[int, ...]] = [tuple()]
+        branch_keys: list[tuple[int, ...]] = [()]
         requested = tuple(int(b) for b in (self.branch_path or []))
         if requested:
             branch_keys.append(requested)
@@ -75,9 +76,8 @@ class ArtifactQuerySpec:
             if record.source_index is not None and int(record.source_index) != int(self.source_index):
                 return False
 
-        if self.substep_index is not None and record.substep_index is not None:
-            if int(record.substep_index) != int(self.substep_index):
-                return False
+        if self.substep_index is not None and record.substep_index is not None and int(record.substep_index) != int(self.substep_index):
+            return False
 
         if self.fold_id is not None:
             if record.fold_id is None and not shared_fold_ok:
@@ -86,7 +86,6 @@ class ArtifactQuerySpec:
                 return False
 
         return True
-
 
 class ArtifactQueryService:
     """Shared filtering and ordering helpers for artifact lookup paths."""
@@ -98,11 +97,11 @@ class ArtifactQueryService:
         *,
         step_index: int,
         spec: ArtifactQuerySpec,
-        by_step_branch: Dict[Tuple[int, Tuple[int, ...]], List[str]],
-        by_step_branch_source: Dict[Tuple[int, Tuple[int, ...], Optional[int]], List[str]],
-    ) -> List[str]:
+        by_step_branch: dict[tuple[int, tuple[int, ...]], list[str]],
+        by_step_branch_source: dict[tuple[int, tuple[int, ...], int | None], list[str]],
+    ) -> list[str]:
         """Collect candidate artifact IDs from loader indexes."""
-        candidate_ids: List[str] = []
+        candidate_ids: list[str] = []
 
         for branch_key in spec.branch_lookup_keys():
             if spec.source_index is None:
@@ -119,9 +118,9 @@ class ArtifactQueryService:
 
     @staticmethod
     def sort_candidate_ids(
-        candidate_ids: List[str],
-        artifact_order: Dict[str, int],
-    ) -> List[str]:
+        candidate_ids: list[str],
+        artifact_order: dict[str, int],
+    ) -> list[str]:
         """Return candidate IDs deduplicated and sorted by manifest order."""
         return sorted(
             set(candidate_ids),
@@ -132,8 +131,8 @@ class ArtifactQueryService:
     def matches_model_target(
         record: ArtifactRecord,
         *,
-        target_sub_index: Optional[int] = None,
-        target_model_name: Optional[str] = None,
+        target_sub_index: int | None = None,
+        target_model_name: str | None = None,
     ) -> bool:
         """Apply model-target disambiguation for subpipeline prediction."""
         if target_sub_index is None and target_model_name is None:
@@ -152,8 +151,8 @@ class ArtifactQueryService:
 
     @staticmethod
     def sort_by_substep(
-        rows: List[Tuple[str, object, Optional[int]]]
-    ) -> List[Tuple[str, object, Optional[int]]]:
+        rows: list[tuple[str, object, int | None]]
+    ) -> list[tuple[str, object, int | None]]:
         """Sort loaded artifact rows deterministically by substep index."""
         return sorted(
             rows,

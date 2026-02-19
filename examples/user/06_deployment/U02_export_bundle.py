@@ -25,8 +25,8 @@ Difficulty: ★★☆☆☆
 
 # Standard library imports
 import argparse
-import zipfile
 import json
+import zipfile
 from pathlib import Path
 
 # Third-party imports
@@ -37,8 +37,8 @@ from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 from nirs4all.data import DatasetConfigs
+from nirs4all.operators.transforms import SavitzkyGolay, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.transforms import StandardNormalVariate, SavitzkyGolay
 from nirs4all.pipeline.bundle import BundleLoader
 
 # Parse command-line arguments
@@ -46,7 +46,6 @@ parser = argparse.ArgumentParser(description='U02 Export Bundle Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Why Export Bundles?
@@ -74,7 +73,6 @@ Export bundles solve key deployment challenges:
      ✓ Long-term archival
      ✓ Edge/embedded deployment
 """)
-
 
 # =============================================================================
 # Section 2: Train a Pipeline for Export
@@ -110,7 +108,6 @@ test_mse = best_prediction.get('test_mse', best_prediction.get('mse'))
 print(f"Test MSE: {test_mse:.4f}" if test_mse is not None else "Test MSE: (see detailed metrics)")
 print(f"Pipeline UID: {best_prediction['pipeline_uid'][:16]}...")
 
-
 # =============================================================================
 # Section 3: Export to .n4a Bundle
 # =============================================================================
@@ -142,7 +139,6 @@ bundle_path = runner.export(
 print(f"✓ Bundle exported: {bundle_path}")
 print(f"  Size: {bundle_path.stat().st_size / 1024:.1f} KB")
 
-
 # =============================================================================
 # Section 4: Export to Portable Python Script
 # =============================================================================
@@ -172,12 +168,11 @@ print(f"  Size: {script_path.stat().st_size / 1024:.1f} KB")
 
 # Show script preview
 print("\nScript preview (first 15 lines):")
-with open(script_path, 'r') as f:
+with open(script_path) as f:
     lines = f.readlines()[:15]
     for line in lines:
         print(f"  {line.rstrip()}")
 print("  ...")
-
 
 # =============================================================================
 # Section 5: Predict from Bundle
@@ -225,7 +220,6 @@ else:
     diff = np.abs(bundle_flat - original_flat).max()
     print(f"✗ Max difference: {diff}")
 
-
 # =============================================================================
 # Section 6: Inspect Bundle Contents
 # =============================================================================
@@ -256,7 +250,6 @@ with zipfile.ZipFile(bundle_path, 'r') as zf:
 print("\nProgrammatic inspection:")
 loader = BundleLoader(bundle_path)
 print(f"  Metadata: {loader.metadata}")
-
 
 # =============================================================================
 # Section 7: Batch Export Multiple Models
@@ -298,7 +291,6 @@ for i, pred in enumerate(top_models, 1):
     print(f"     RMSE: {pred.get('rmse', 0):.4f}")
 
 print(f"\n✓ Exported {len(top_models)} models to {model_zoo}")
-
 
 # =============================================================================
 # Summary

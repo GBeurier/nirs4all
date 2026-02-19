@@ -50,29 +50,29 @@ warnings.warn(
 
 # Re-export from new location for backward compatibility
 from nirs4all.synthesis import (
-    SyntheticNIRSGenerator,
+    PREDEFINED_COMPONENTS,
     ComponentLibrary,
     NIRBand,
     SpectralComponent,
-    PREDEFINED_COMPONENTS,
+    SyntheticNIRSGenerator,
     get_predefined_components,
+)
+
+from .comparator import (
+    SpectralProperties,
+    SyntheticRealComparator,
+    compare_with_real_data,
+    compute_spectral_properties,
 )
 
 # Keep local visualizer and comparator imports (not yet migrated to main package)
 from .visualizer import (
-    plot_synthetic_spectra,
+    SyntheticSpectraVisualizer,
+    plot_batch_effects,
     plot_component_library,
     plot_concentration_distributions,
-    plot_batch_effects,
     plot_noise_analysis,
-    SyntheticSpectraVisualizer,
-)
-
-from .comparator import (
-    SyntheticRealComparator,
-    SpectralProperties,
-    compute_spectral_properties,
-    compare_with_real_data,
+    plot_synthetic_spectra,
 )
 
 __all__ = [

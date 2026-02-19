@@ -16,7 +16,6 @@ import numpy as np
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
 
-
 def estimate_dataset_bytes(dataset: SpectroDataset) -> int:
     """Estimate total memory footprint of a SpectroDataset.
 
@@ -40,7 +39,6 @@ def estimate_dataset_bytes(dataset: SpectroDataset) -> int:
         total += arr.nbytes
 
     return total
-
 
 def estimate_cache_entry_bytes(entry: Any) -> int:
     """Estimate memory size of a cache entry.
@@ -77,7 +75,6 @@ def estimate_cache_entry_bytes(entry: Any) -> int:
 
     return sys.getsizeof(entry)
 
-
 def get_process_rss_mb() -> float:
     """Get the current process Resident Set Size in megabytes.
 
@@ -106,7 +103,6 @@ def get_process_rss_mb() -> float:
         return process.memory_info().rss / (1024 * 1024)
     except (ImportError, Exception):
         return 0.0
-
 
 def format_bytes(n: int) -> str:
     """Format a byte count as a human-readable string.

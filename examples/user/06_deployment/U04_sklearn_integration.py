@@ -30,22 +30,21 @@ from pathlib import Path
 # Third-party imports
 import numpy as np
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import r2_score, mean_squared_error
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.sklearn import NIRSPipeline
-from nirs4all.operators.transforms import StandardNormalVariate, SavitzkyGolay
 from nirs4all.data import DatasetConfigs
+from nirs4all.operators.transforms import SavitzkyGolay, StandardNormalVariate
+from nirs4all.sklearn import NIRSPipeline
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U04 sklearn Integration Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Why sklearn Integration?
@@ -72,7 +71,6 @@ NIRSPipeline provides sklearn compatibility:
      - from_result(): From training output
      - from_bundle(): From exported .n4a file
 """)
-
 
 # =============================================================================
 # Section 2: Training and Wrapping
@@ -103,7 +101,7 @@ result = nirs4all.run(
     plots_visible=False
 )
 
-print(f"\nTraining complete!")
+print("\nTraining complete!")
 print(f"  Best RMSE: {result.best_rmse:.4f}")
 r2_val = result.best_r2
 print(f"  Best R²: {r2_val:.4f}" if not np.isnan(r2_val) else "  Best R²: (see test metrics)")
@@ -111,12 +109,11 @@ print(f"  Best R²: {r2_val:.4f}" if not np.isnan(r2_val) else "  Best R²: (see
 # Wrap for sklearn compatibility
 pipe = NIRSPipeline.from_result(result)
 
-print(f"\nNIRSPipeline created:")
+print("\nNIRSPipeline created:")
 print(f"  Model name: {pipe.model_name}")
 print(f"  Preprocessing: {pipe.preprocessing_chain}")
 print(f"  CV Folds: {pipe.n_folds}")
 print(f"  Is fitted: {pipe.is_fitted_}")
-
 
 # =============================================================================
 # Section 3: sklearn-Style Prediction
@@ -149,7 +146,6 @@ rmse = np.sqrt(mean_squared_error(y_test, y_pred))
 print(f"\nR² score: {r2:.4f}")
 print(f"RMSE: {rmse:.4f}")
 
-
 # =============================================================================
 # Section 4: Transform (Preprocessing Only)
 # =============================================================================
@@ -170,11 +166,10 @@ X_transformed = pipe.transform(X_raw)
 print(f"Transformed X shape: {X_transformed.shape}")
 
 # Compare statistics
-print(f"\nOriginal stats:")
+print("\nOriginal stats:")
 print(f"  Mean: {X_raw.mean():.4f}, Std: {X_raw.std():.4f}")
-print(f"Transformed stats:")
+print("Transformed stats:")
 print(f"  Mean: {X_transformed.mean():.4f}, Std: {X_transformed.std():.4f}")
-
 
 # =============================================================================
 # Section 5: Export and Load from Bundle
@@ -197,7 +192,7 @@ print(f"Exported bundle: {bundle_path}")
 # Load from bundle (simulates production deployment)
 pipe_loaded = NIRSPipeline.from_bundle(bundle_path)
 
-print(f"\nLoaded NIRSPipeline:")
+print("\nLoaded NIRSPipeline:")
 print(f"  Model name: {pipe_loaded.model_name}")
 print(f"  Is fitted: {pipe_loaded.is_fitted_}")
 
@@ -205,7 +200,6 @@ print(f"  Is fitted: {pipe_loaded.is_fitted_}")
 y_pred_loaded = pipe_loaded.predict(X_test)
 predictions_match = np.allclose(y_pred, y_pred_loaded)
 print(f"\nPredictions match original: {'YES ✓' if predictions_match else 'NO ✗'}")
-
 
 # =============================================================================
 # Section 6: Accessing Underlying Model
@@ -234,7 +228,6 @@ print(f"\nTransformers ({len(transformers)}):")
 for name, transformer in transformers:
     print(f"  - {name}: {type(transformer).__name__}")
 
-
 # =============================================================================
 # Section 7: Pipeline Metadata
 # =============================================================================
@@ -254,9 +247,8 @@ print(f"  Number of CV folds: {pipe.n_folds}")
 print(f"  Fold weights: {pipe.fold_weights}")
 
 # String representation
-print(f"\nString representation:")
+print("\nString representation:")
 print(f"  {repr(pipe)}")
-
 
 # =============================================================================
 # Summary

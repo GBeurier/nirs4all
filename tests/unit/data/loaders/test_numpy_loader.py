@@ -4,11 +4,12 @@ Unit tests for the NumPy loader.
 Tests loading .npy and .npz files with various configurations.
 """
 
-import pytest
-from pathlib import Path
 import tempfile
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
+import pytest
 
 from nirs4all.data.loaders.numpy_loader import NumpyLoader, load_numpy
 
@@ -141,7 +142,6 @@ class TestNumpyLoader:
 
         assert result.report["format"] == "npy"
         assert "format_details" in result.report
-
 
 class TestLoadNumpyFunction:
     """Tests for the load_numpy convenience function."""

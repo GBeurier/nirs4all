@@ -4,8 +4,8 @@ Tests for dataset working with both dict and DataSelector.
 This module verifies backward compatibility during context migration.
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.config.context import DataSelector

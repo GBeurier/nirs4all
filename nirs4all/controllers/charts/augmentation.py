@@ -1,14 +1,16 @@
 """AugmentationChartController - Visualizes augmentation effects on spectra."""
 
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING
-import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-import numpy as np
 import io
+from typing import TYPE_CHECKING, Any
+
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.figure import Figure
+
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
-from nirs4all.utils.header_units import get_x_values_and_label, apply_x_axis_limits
+from nirs4all.utils.header_units import apply_x_axis_limits, get_x_values_and_label
 
 logger = get_logger(__name__)
 
@@ -16,7 +18,6 @@ if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.config.context import ExecutionContext
     from nirs4all.pipeline.steps.parser import ParsedStep
-
 
 @register_controller
 class AugmentationChartController(OperatorController):
@@ -53,7 +54,7 @@ class AugmentationChartController(OperatorController):
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ) -> Tuple['ExecutionContext', Any]:
+    ) -> tuple['ExecutionContext', Any]:
         """
         Execute augmentation visualization.
 
@@ -151,9 +152,9 @@ class AugmentationChartController(OperatorController):
         self,
         x: np.ndarray,
         base_indices: np.ndarray,
-        augmented_indices: List[int],
+        augmented_indices: list[int],
         all_indices: np.ndarray,
-        processing_ids: List[str],
+        processing_ids: list[str],
         dataset: 'SpectroDataset',
         source_idx: int,
         alpha_original: float,
@@ -251,16 +252,16 @@ class AugmentationChartController(OperatorController):
                 ]
                 ax.legend(handles=legend_elements, loc='upper right', fontsize=8)
 
-        plt.tight_layout(rect=(0, 0, 1, 0.92), h_pad=4.0)  # type: ignore[arg-type]
+        plt.tight_layout(rect=(0, 0, 1, 0.92), h_pad=4.0)
         return fig
 
     def _create_details_chart(
         self,
         x: np.ndarray,
         base_indices: np.ndarray,
-        augmented_indices: List[int],
+        augmented_indices: list[int],
         all_indices: np.ndarray,
-        processing_ids: List[str],
+        processing_ids: list[str],
         dataset: 'SpectroDataset',
         source_idx: int,
         alpha_original: float,
@@ -365,14 +366,14 @@ class AugmentationChartController(OperatorController):
             ax.set_ylabel('Intensity', fontsize=9)
             ax.set_title(f"{transformer_name} ({len(aug_indices)} samples)", fontsize=10)
 
-        plt.tight_layout(rect=(0, 0, 1, 0.95), h_pad=3.0)  # type: ignore[arg-type]
+        plt.tight_layout(rect=(0, 0, 1, 0.95), h_pad=3.0)
         return fig
 
     def _group_augmented_by_transformer(
         self,
         dataset: 'SpectroDataset',
-        augmented_indices: List[int]
-    ) -> Dict[str, List[int]]:
+        augmented_indices: list[int]
+    ) -> dict[str, list[int]]:
         """
         Group augmented samples by their transformer type.
 
@@ -381,7 +382,7 @@ class AugmentationChartController(OperatorController):
         Returns a dict: {transformer_name: [sample_indices]}
         """
         import polars as pl
-        groups: Dict[str, List[int]] = {}
+        groups: dict[str, list[int]] = {}
 
         if not augmented_indices:
             return groups

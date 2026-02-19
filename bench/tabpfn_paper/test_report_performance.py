@@ -6,7 +6,9 @@ after adding prediction indexing.
 """
 
 import time
+
 import numpy as np
+
 from nirs4all.data.predictions import Predictions
 from nirs4all.visualization.reports import TabReportManager
 
@@ -83,7 +85,6 @@ def create_test_predictions(n_models=50, n_datasets=10, n_folds=3):
 
     return predictions
 
-
 def test_performance():
     """Test performance of per-model summary generation."""
     print("Creating test data...")
@@ -98,7 +99,7 @@ def test_performance():
         load_arrays=False
     )
 
-    print(f"\nTest setup:")
+    print("\nTest setup:")
     print(f"  Models: {n_models}")
     print(f"  Datasets: {n_datasets}")
     print(f"  Total refit entries: {len(refit_entries)}")
@@ -148,20 +149,19 @@ def test_performance():
     theoretical_ops_old = len(refit_entries) * len(predictions) * 3  # 3 different scans per entry
     theoretical_ops_new = len(predictions) + len(refit_entries) * 3  # Build index once, then O(1) lookups
 
-    print(f"\nTheoretical complexity:")
+    print("\nTheoretical complexity:")
     print(f"  OLD (O(N*M)): {theoretical_ops_old:,} operations")
     print(f"  NEW (O(N+M)): {theoretical_ops_new:,} operations")
     print(f"  Speedup ratio: {theoretical_ops_old / theoretical_ops_new:.1f}x")
 
-    print(f"\nActual runtime:")
+    print("\nActual runtime:")
     print(f"  Without aggregation: {elapsed:.3f}s")
     print(f"  With aggregation: {elapsed_agg:.3f}s")
 
     if elapsed < 1.0 and elapsed_agg < 2.0:
         print(f"\n✅ PASS: Performance is acceptable (< 2s for {len(refit_entries)} models)")
     else:
-        print(f"\n⚠️  WARNING: Performance may need further optimization")
-
+        print("\n⚠️  WARNING: Performance may need further optimization")
 
 if __name__ == "__main__":
     test_performance()

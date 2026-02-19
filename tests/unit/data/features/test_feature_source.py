@@ -2,8 +2,9 @@
 Test header unit metadata in FeatureSource - Step 1
 """
 
-import pytest
 import numpy as np
+import pytest
+
 from nirs4all.data._features import FeatureSource
 
 
@@ -113,7 +114,6 @@ class TestFeatureSourceHeaderUnits:
 
         assert source.headers is None
         assert source.header_unit == "nm"
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

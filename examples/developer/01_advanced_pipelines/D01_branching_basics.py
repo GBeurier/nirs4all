@@ -42,13 +42,9 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative,
-    SecondDerivative,
-    SavitzkyGolay
-)
+from nirs4all.operators.transforms import FirstDerivative, SavitzkyGolay, SecondDerivative
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
@@ -56,7 +52,6 @@ parser = argparse.ArgumentParser(description='D01 Branching Basics Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Basic Branching with List Syntax
@@ -110,7 +105,6 @@ print(f"\nTotal predictions: {result_basic.num_predictions}")
 branches = result_basic.predictions.get_unique_values('branch_name')
 print(f"Branches: {branches}")
 
-
 # =============================================================================
 # Section 2: Named Branches with Dictionary Syntax
 # =============================================================================
@@ -145,7 +139,6 @@ result_named = nirs4all.run(
 
 print(f"\nBranch names: {result_named.predictions.get_unique_values('branch_name')}")
 
-
 # =============================================================================
 # Section 3: Generator-Based Branching
 # =============================================================================
@@ -179,7 +172,6 @@ result_generator = nirs4all.run(
 )
 
 print(f"\nBranches from generator: {result_generator.predictions.get_unique_values('branch_name')}")
-
 
 # =============================================================================
 # Section 4: Multi-Step Branches with Y Processing
@@ -222,7 +214,6 @@ result_multistep = nirs4all.run(
 
 print(f"\nMulti-step branches: {result_multistep.predictions.get_unique_values('branch_name')}")
 
-
 # =============================================================================
 # Section 5: In-Branch Model Training
 # =============================================================================
@@ -256,7 +247,6 @@ result_in_branch = nirs4all.run(
 
 print(f"\nIn-branch model predictions: {result_in_branch.num_predictions}")
 print(f"Branches: {result_in_branch.predictions.get_unique_values('branch_name')}")
-
 
 # =============================================================================
 # Section 6: Introduction to Separation Branches
@@ -302,7 +292,6 @@ print("""Pipeline structure:
 Note: Separation branches require "concat" merge to reassemble predictions.
 See D06_separation_branches.py for complete examples.
 """)
-
 
 # =============================================================================
 # Section 7: Branch Comparison Visualization
@@ -358,7 +347,6 @@ if args.plots or args.show:
         display_partition='test'
     )
     print("Created branch × fold heatmap")
-
 
 # =============================================================================
 # Summary

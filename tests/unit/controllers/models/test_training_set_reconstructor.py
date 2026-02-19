@@ -11,25 +11,25 @@ Tests cover:
 - ReconstructionResult data structure
 """
 
-import pytest
-import numpy as np
-from unittest.mock import MagicMock, patch
 from dataclasses import dataclass
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pytest
 
 from nirs4all.controllers.models.stacking import (
-    TrainingSetReconstructor,
     FoldAlignmentValidator,
-    ValidationResult,
     ReconstructionResult,
     ReconstructorConfig,
+    TrainingSetReconstructor,
+    ValidationResult,
 )
 from nirs4all.operators.models.meta import (
-    StackingConfig,
-    CoverageStrategy,
-    TestAggregation,
     BranchScope,
+    CoverageStrategy,
+    StackingConfig,
+    TestAggregation,
 )
-
 
 # =============================================================================
 # Test Fixtures and Helpers
@@ -42,13 +42,11 @@ class MockSelector:
     branch_name: str = None
     partition: str = "train"
 
-
 @dataclass
 class MockState:
     """Mock execution state."""
     step_number: int = 5
     mode: str = "train"
-
 
 class MockExecutionContext:
     """Mock ExecutionContext for testing."""
@@ -70,7 +68,6 @@ class MockExecutionContext:
         new_ctx.custom = self.custom.copy()
         return new_ctx
 
-
 class MockIndexer:
     """Mock dataset indexer."""
 
@@ -82,7 +79,6 @@ class MockIndexer:
         if selector.partition == "test":
             return list(range(self.n_train, self.n_train + self.n_test))
         return list(range(self.n_train))
-
 
 class MockDataset:
     """Mock SpectroDataset for testing."""
@@ -96,7 +92,6 @@ class MockDataset:
         if selector.partition == "test":
             return self._y_test
         return self._y_train
-
 
 class MockPredictionStore:
     """Mock Predictions store for testing."""
@@ -163,7 +158,6 @@ class MockPredictionStore:
             results.append(pred.copy())
         return results
 
-
 def create_mock_predictions_5fold(
     prediction_store: MockPredictionStore,
     model_name: str,
@@ -217,7 +211,6 @@ def create_mock_predictions_5fold(
             branch_id=branch_id,
             val_score=val_scores[fold_id],
         )
-
 
 # =============================================================================
 # ValidationResult Tests
@@ -284,7 +277,6 @@ class TestValidationResult:
         assert "WARNING1" in formatted
         assert "First warning" in formatted
 
-
 # =============================================================================
 # ReconstructorConfig Tests
 # =============================================================================
@@ -324,7 +316,6 @@ class TestReconstructorConfig:
         assert isinstance(config.excluded_fold_ids, set)
         assert 'avg' in config.excluded_fold_ids
         assert 'test' in config.excluded_fold_ids
-
 
 # =============================================================================
 # FoldAlignmentValidator Tests
@@ -397,7 +388,6 @@ class TestFoldAlignmentValidator:
         # RF should not be found in branch 0
         # This should still work but with partial data
         assert result.is_valid is True  # Not an error, just uses available data
-
 
 # =============================================================================
 # TrainingSetReconstructor Tests
@@ -503,7 +493,6 @@ class TestTrainingSetReconstructor:
         # Column 0 should be ModelB (2.0), Column 1 should be ModelA (1.0)
         assert np.allclose(result.X_train_meta[:, 0], 2.0)
         assert np.allclose(result.X_train_meta[:, 1], 1.0)
-
 
 # =============================================================================
 # Coverage Strategy Tests
@@ -659,7 +648,6 @@ class TestCoverageStrategies:
         expected_mean = 2.0
         assert np.allclose(result.X_train_meta[32:48, 0], expected_mean)
 
-
 # =============================================================================
 # Test Aggregation Strategy Tests
 # =============================================================================
@@ -775,7 +763,6 @@ class TestTestAggregationStrategies:
 
         assert np.allclose(result.X_test_meta[:, 0], expected)
 
-
 # =============================================================================
 # Branch-Aware Reconstruction Tests
 # =============================================================================
@@ -861,7 +848,6 @@ class TestBranchAwareReconstruction:
         # Should have a warning about no predictions in branch
         assert any(w.code == "NO_BRANCH_PREDICTIONS" for w in result.warnings)
 
-
 # =============================================================================
 # Feature Name Generation Tests
 # =============================================================================
@@ -906,7 +892,6 @@ class TestFeatureNameGeneration:
         result = reconstructor.reconstruct(dataset, context)
 
         assert result.feature_names == ["PLS_feature"]
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

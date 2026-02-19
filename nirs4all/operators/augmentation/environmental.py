@@ -21,20 +21,19 @@ References:
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 
 from ..base import SpectraTransformerMixin
 
-
 # =============================================================================
 # Temperature Effect Parameters by Spectral Region
 # =============================================================================
 
 # Literature-based temperature effect parameters (nm, shift/°C, intensity/°C, broadening/°C)
-TEMPERATURE_REGION_PARAMS: Dict[str, Dict] = {
+TEMPERATURE_REGION_PARAMS: dict[str, dict] = {
     "oh_1st_overtone": {
         "range": (1400, 1520),
         "shift_per_degree": -0.30,
@@ -72,7 +71,6 @@ TEMPERATURE_REGION_PARAMS: Dict[str, Dict] = {
         "broadening_per_degree": 0.0015,
     },
 }
-
 
 class TemperatureAugmenter(SpectraTransformerMixin):
     """
@@ -139,13 +137,13 @@ class TemperatureAugmenter(SpectraTransformerMixin):
     def __init__(
         self,
         temperature_delta: float = 5.0,
-        temperature_range: Optional[Tuple[float, float]] = None,
+        temperature_range: tuple[float, float] | None = None,
         reference_temperature: float = 25.0,
         enable_shift: bool = True,
         enable_intensity: bool = True,
         enable_broadening: bool = True,
         region_specific: bool = True,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ):
         self.temperature_delta = temperature_delta
         self.temperature_range = temperature_range
@@ -179,14 +177,7 @@ class TemperatureAugmenter(SpectraTransformerMixin):
         result = X.copy()
 
         # Determine temperature delta for each sample
-        if self.temperature_range is not None:
-            delta_temps = rng.uniform(
-                self.temperature_range[0],
-                self.temperature_range[1],
-                n_samples
-            )
-        else:
-            delta_temps = np.full(n_samples, self.temperature_delta)
+        delta_temps = rng.uniform(self.temperature_range[0], self.temperature_range[1], n_samples) if self.temperature_range is not None else np.full(n_samples, self.temperature_delta)
 
         # Apply effects to each sample
         for i in range(n_samples):
@@ -212,7 +203,7 @@ class TemperatureAugmenter(SpectraTransformerMixin):
         """Apply region-specific temperature effects."""
         result = spectrum.copy()
 
-        for region_name, params in TEMPERATURE_REGION_PARAMS.items():
+        for _region_name, params in TEMPERATURE_REGION_PARAMS.items():
             wl_min, wl_max = params["range"]
             mask = (wavelengths >= wl_min) & (wavelengths <= wl_max)
 
@@ -310,7 +301,6 @@ class TemperatureAugmenter(SpectraTransformerMixin):
         broadened = gaussian_filter1d(spectrum, sigma)
         return spectrum * (1 - weights) + broadened * weights
 
-
 class MoistureAugmenter(SpectraTransformerMixin):
     """
     Simulate moisture-induced spectral changes for data augmentation.
@@ -382,14 +372,14 @@ class MoistureAugmenter(SpectraTransformerMixin):
     def __init__(
         self,
         water_activity_delta: float = 0.1,
-        water_activity_range: Optional[Tuple[float, float]] = None,
+        water_activity_range: tuple[float, float] | None = None,
         reference_water_activity: float = 0.5,
         free_water_fraction: float = 0.3,
         bound_water_shift: float = 25.0,
         moisture_content: float = 0.10,
         enable_shift: bool = True,
         enable_intensity: bool = True,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ):
         self.water_activity_delta = water_activity_delta
         self.water_activity_range = water_activity_range
@@ -424,14 +414,7 @@ class MoistureAugmenter(SpectraTransformerMixin):
         result = X.copy()
 
         # Determine water activity for each sample
-        if self.water_activity_range is not None:
-            aw_deltas = rng.uniform(
-                self.water_activity_range[0],
-                self.water_activity_range[1],
-                n_samples
-            )
-        else:
-            aw_deltas = np.full(n_samples, self.water_activity_delta)
+        aw_deltas = rng.uniform(self.water_activity_range[0], self.water_activity_range[1], n_samples) if self.water_activity_range is not None else np.full(n_samples, self.water_activity_delta)
 
         # Apply effects to each sample
         for i in range(n_samples):
@@ -512,7 +495,6 @@ class MoistureAugmenter(SpectraTransformerMixin):
     ) -> np.ndarray:
         """Create Gaussian weighting for a spectral region."""
         return np.exp(-0.5 * ((wavelengths - center) / width) ** 2)
-
 
 __all__ = [
     "TemperatureAugmenter",

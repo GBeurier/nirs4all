@@ -1,7 +1,7 @@
 """Unit tests for multi-phase optimization (Phase 5 - ISSUE-11)."""
 
-import pytest
 import optuna
+import pytest
 
 from nirs4all.optimization.optuna import OptunaManager
 
@@ -79,7 +79,6 @@ class TestMultiphaseValidation:
         result = manager._validate_and_normalize_finetune_params(fp)
         assert result["phases"] is None
 
-
 class TestMultiphaseOptimization:
     """Tests for _optimize_multiphase execution."""
 
@@ -131,7 +130,6 @@ class TestMultiphaseOptimization:
         model_params, train_params = manager.sample_hyperparameters(trial, fp)
         assert "phases" not in model_params
         assert "n_trials" not in model_params
-
 
 class TestCreateSampler:
     """Tests for _create_sampler helper."""

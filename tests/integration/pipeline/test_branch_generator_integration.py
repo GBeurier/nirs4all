@@ -8,10 +8,10 @@ Tests end-to-end scenarios with:
 - Post-branch model execution
 """
 
-import pytest
 import numpy as np
+import pytest
 from sklearn.linear_model import Ridge
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
@@ -32,7 +32,6 @@ def create_simple_dataset(n_samples: int = 100, n_features: int = 50) -> Spectro
     dataset.add_targets(y[80:])
 
     return dataset
-
 
 class TestBranchGeneratorIntegration:
     """Integration tests for branching with generator syntax."""
@@ -229,7 +228,6 @@ class TestBranchGeneratorIntegration:
         # 2 branches (limited by count)
         branch_names = [b for b in predictions.get_unique_values("branch_name") if b]
         assert len(branch_names) == 2
-
 
 class TestBranchGeneratorWithCrossValidation:
     """Test branches with generators work with cross-validation."""

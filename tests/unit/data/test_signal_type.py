@@ -1,14 +1,9 @@
 """Tests for signal type detection and management."""
 
-import pytest
 import numpy as np
-from nirs4all.data.signal_type import (
-    SignalType,
-    SignalTypeInput,
-    normalize_signal_type,
-    SignalTypeDetector,
-    detect_signal_type
-)
+import pytest
+
+from nirs4all.data.signal_type import SignalType, SignalTypeDetector, SignalTypeInput, detect_signal_type, normalize_signal_type
 
 
 class TestSignalTypeEnum:
@@ -72,7 +67,6 @@ class TestSignalTypeEnum:
         assert SignalType.UNKNOWN.is_determinable is False
         assert SignalType.PREPROCESSED.is_determinable is False
 
-
 class TestSignalTypeFromString:
     """Test SignalType.from_string parsing."""
 
@@ -129,7 +123,6 @@ class TestSignalTypeFromString:
         result = SignalType.from_string(SignalType.ABSORBANCE)
         assert result == SignalType.ABSORBANCE
 
-
 class TestNormalizeSignalType:
     """Test normalize_signal_type function."""
 
@@ -143,7 +136,6 @@ class TestNormalizeSignalType:
         """Test that enums pass through unchanged."""
         assert normalize_signal_type(SignalType.ABSORBANCE) == SignalType.ABSORBANCE
         assert normalize_signal_type(SignalType.REFLECTANCE) == SignalType.REFLECTANCE
-
 
 class TestSignalTypeDetector:
     """Test SignalTypeDetector heuristics."""
@@ -251,7 +243,6 @@ class TestSignalTypeDetector:
         assert signal_type in (
             SignalType.REFLECTANCE, SignalType.TRANSMITTANCE, SignalType.UNKNOWN
         )
-
 
 class TestDetectSignalTypeConvenience:
     """Test detect_signal_type convenience function."""

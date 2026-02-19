@@ -1,5 +1,6 @@
 """Feature management components and utilities."""
 
+# ruff: noqa: I001 - import order is load-order sensitive (circular import prevention)
 from .feature_constants import (
     FeatureLayout,
     HeaderUnit,

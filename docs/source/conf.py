@@ -2,12 +2,14 @@
 
 import os
 import sys
+
 sys.path.insert(0, os.path.abspath('../../'))  # Source code dir relative to this file
 
 # -- Auto-generate API documentation -----------------------------------------
 def run_apidoc(_):
-    from sphinx.ext.apidoc import main
     import sys
+
+    from sphinx.ext.apidoc import main
     sys.path.append(os.path.abspath('../../'))
     cur_dir = os.path.abspath(os.path.dirname(__file__))
     module = os.path.join(cur_dir, '../../nirs4all')

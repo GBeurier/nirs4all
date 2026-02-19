@@ -13,6 +13,7 @@ Tests cover:
 """
 import polars as pl
 import pytest
+
 from nirs4all.data._indexer.query_builder import QueryBuilder
 
 
@@ -44,7 +45,6 @@ class TestBooleanConditionFiltering:
         result = df.filter(expr)["sample"].to_list()
 
         assert result == [1]
-
 
 class TestNumericComparisonFiltering:
     """Tests for numeric comparison filtering."""
@@ -154,7 +154,6 @@ class TestNumericComparisonFiltering:
 
         assert result == [1, 4]
 
-
 class TestRangeFiltering:
     """Tests for range filtering (start..end syntax)."""
 
@@ -223,7 +222,6 @@ class TestRangeFiltering:
 
         assert result == [1, 2, 3]
 
-
 class TestListMembershipFiltering:
     """Tests for list membership filtering."""
 
@@ -266,7 +264,6 @@ class TestListMembershipFiltering:
 
         assert result == []
 
-
 class TestCallableFiltering:
     """Tests for lambda/callable filtering."""
 
@@ -297,7 +294,6 @@ class TestCallableFiltering:
 
         assert result == [1]
 
-
 class TestNullValueFiltering:
     """Tests for null value filtering."""
 
@@ -313,7 +309,6 @@ class TestNullValueFiltering:
         result = df.filter(expr)["sample"].to_list()
 
         assert result == [1, 3]
-
 
 class TestStringExactMatchFiltering:
     """Tests for string exact match filtering."""
@@ -343,7 +338,6 @@ class TestStringExactMatchFiltering:
         result = df.filter(expr)["sample"].to_list()
 
         assert result == [0, 2]
-
 
 class TestEdgeCases:
     """Tests for edge cases and error handling."""

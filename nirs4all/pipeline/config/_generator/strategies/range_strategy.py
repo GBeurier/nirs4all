@@ -9,12 +9,13 @@ Syntax:
     {"_range_": ..., "count": n}      -> Limit to n random samples
 """
 
-from typing import Any, Dict, FrozenSet, List, Optional, Union
+from collections.abc import Callable
+from typing import Any, Optional, Union
 
-from .base import ExpansionStrategy, GeneratorNode, ExpandedResult
-from .registry import register_strategy
-from ..keywords import RANGE_KEYWORD, COUNT_KEYWORD, PURE_RANGE_KEYS
+from ..keywords import COUNT_KEYWORD, PURE_RANGE_KEYS, RANGE_KEYWORD
 from ..utils.sampling import sample_with_seed
+from .base import ExpandedResult, ExpansionStrategy, GeneratorNode
+from .registry import register_strategy
 
 
 @register_strategy
@@ -33,7 +34,7 @@ class RangeStrategy(ExpansionStrategy):
         priority: 20 (checked before OrStrategy)
     """
 
-    keywords: FrozenSet[str] = PURE_RANGE_KEYS
+    keywords: frozenset[str] = PURE_RANGE_KEYS
     priority: int = 20  # Higher priority - check range before or
 
     @classmethod
@@ -55,8 +56,8 @@ class RangeStrategy(ExpansionStrategy):
     def expand(
         self,
         node: GeneratorNode,
-        seed: Optional[int] = None,
-        expand_nested: Optional[callable] = None
+        seed: int | None = None,
+        expand_nested: Callable | None = None
     ) -> ExpandedResult:
         """Expand a range node to list of numeric values.
 
@@ -89,7 +90,7 @@ class RangeStrategy(ExpansionStrategy):
 
         return range_values
 
-    def count(self, node: GeneratorNode, count_nested: Optional[callable] = None) -> int:
+    def count(self, node: GeneratorNode, count_nested: Callable | None = None) -> int:
         """Count range elements without generating them.
 
         Args:
@@ -113,7 +114,7 @@ class RangeStrategy(ExpansionStrategy):
             return min(count_limit, range_size)
         return range_size
 
-    def validate(self, node: GeneratorNode) -> List[str]:
+    def validate(self, node: GeneratorNode) -> list[str]:
         """Validate range node specification.
 
         Args:
@@ -156,8 +157,8 @@ class RangeStrategy(ExpansionStrategy):
         return errors
 
     def _generate_range(
-        self, range_spec: Union[list, Dict[str, Any]]
-    ) -> List[Union[int, float]]:
+        self, range_spec: list | dict[str, Any]
+    ) -> list[int | float]:
         """Generate numeric range from specification.
 
         Args:
@@ -202,7 +203,7 @@ class RangeStrategy(ExpansionStrategy):
 
     def _generate_float_range(
         self, start: float, end: float, step: float
-    ) -> List[float]:
+    ) -> list[float]:
         """Generate float range with inclusive end.
 
         Args:
@@ -227,7 +228,7 @@ class RangeStrategy(ExpansionStrategy):
 
         return result
 
-    def _count_range(self, range_spec: Union[list, Dict[str, Any]]) -> int:
+    def _count_range(self, range_spec: list | dict[str, Any]) -> int:
         """Count elements in a numeric range without generating them.
 
         Args:

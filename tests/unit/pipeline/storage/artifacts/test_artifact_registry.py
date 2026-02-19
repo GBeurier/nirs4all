@@ -9,11 +9,13 @@ Tests the central registry for artifact management including:
 """
 
 import hashlib
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 import nirs4all.pipeline.storage.artifacts.artifact_registry as artifact_registry_module
+from nirs4all.pipeline.storage.artifacts import generate_artifact_id_v3
 from nirs4all.pipeline.storage.artifacts.artifact_registry import (
     ArtifactRegistry,
     DependencyGraph,
@@ -23,7 +25,6 @@ from nirs4all.pipeline.storage.artifacts.types import (
     ArtifactType,
     MetaModelConfig,
 )
-from nirs4all.pipeline.storage.artifacts import generate_artifact_id_v3
 
 
 def make_v3_id(pipeline_id: str, step: int, fold_id=None, operator: str = "Model", branch_path=None):
@@ -33,7 +34,6 @@ def make_v3_id(pipeline_id: str, step: int, fold_id=None, operator: str = "Model
         branch_str = f"[br={','.join(map(str, branch_path))}]"
     chain_path = f"s{step}.{operator}{branch_str}"
     return generate_artifact_id_v3(pipeline_id, chain_path, fold_id)
-
 
 class TestDependencyGraph:
     """Tests for DependencyGraph class."""
@@ -127,7 +127,6 @@ class TestDependencyGraph:
 
         assert graph.get_dependencies("a") == []
         assert graph.get_dependencies("c") == []
-
 
 class TestArtifactRegistry:
     """Tests for ArtifactRegistry class."""
@@ -291,7 +290,7 @@ class TestArtifactRegistry:
 
     def test_get_artifacts_for_step(self, registry):
         """Test getting artifacts for a step."""
-        from sklearn.preprocessing import StandardScaler, MinMaxScaler
+        from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
         chain0 = "s0.StandardScaler"
         chain1 = "s1.MinMaxScaler"
@@ -580,7 +579,6 @@ class TestArtifactRegistry:
         assert stats["orphaned_count"] == 1
         assert stats["orphaned_size_bytes"] == len(orphan_data)
 
-
 class TestMetaModelHandling:
     """Tests for meta-model (stacking) artifact handling."""
 
@@ -601,8 +599,8 @@ class TestMetaModelHandling:
 
     def test_register_meta_model(self, registry):
         """Test registering a meta-model with source models."""
-        from sklearn.linear_model import Ridge, LinearRegression
         from sklearn.ensemble import RandomForestRegressor
+        from sklearn.linear_model import LinearRegression, Ridge
 
         # Register source models first
         registry.register(
@@ -636,8 +634,8 @@ class TestMetaModelHandling:
 
     def test_register_meta_model_auto_feature_columns(self, registry):
         """Test that feature columns are auto-generated from source class names."""
-        from sklearn.linear_model import Ridge, LinearRegression
         from sklearn.ensemble import RandomForestRegressor
+        from sklearn.linear_model import LinearRegression, Ridge
 
         # Register source models
         registry.register(
@@ -697,7 +695,7 @@ class TestMetaModelHandling:
 
     def test_meta_model_dependencies_tracked(self, registry):
         """Test that meta-model dependencies are in dependency graph."""
-        from sklearn.linear_model import Ridge, LinearRegression
+        from sklearn.linear_model import LinearRegression, Ridge
 
         # Register source
         registry.register(
@@ -719,7 +717,7 @@ class TestMetaModelHandling:
 
     def test_resolve_meta_model_dependencies(self, registry):
         """Test resolving transitive dependencies for meta-model."""
-        from sklearn.linear_model import Ridge, LinearRegression
+        from sklearn.linear_model import LinearRegression, Ridge
         from sklearn.preprocessing import StandardScaler
 
         # Register preprocessing -> model -> meta-model chain

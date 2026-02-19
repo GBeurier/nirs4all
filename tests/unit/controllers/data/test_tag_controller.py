@@ -9,21 +9,16 @@ Tests the sample tagging functionality including:
 - Tag name resolution from filter attributes
 """
 
-import pytest
+from unittest.mock import MagicMock, Mock, patch
+
 import numpy as np
-from unittest.mock import Mock, MagicMock, patch
+import pytest
 
 from nirs4all.controllers.data.tag import TagController
 from nirs4all.operators.filters.base import SampleFilter
-from nirs4all.operators.filters.y_outlier import YOutlierFilter
 from nirs4all.operators.filters.x_outlier import XOutlierFilter
-from nirs4all.pipeline.config.context import (
-    DataSelector,
-    PipelineState,
-    StepMetadata,
-    ExecutionContext,
-    RuntimeContext
-)
+from nirs4all.operators.filters.y_outlier import YOutlierFilter
+from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
 
 
@@ -55,7 +50,6 @@ class TestTagControllerMatches:
         step = {"branch": [["step1"], ["step2"]]}
         assert TagController.matches(step, None, "branch") is False
 
-
 class TestTagControllerProperties:
     """Test TagController class properties."""
 
@@ -70,7 +64,6 @@ class TestTagControllerProperties:
     def test_supports_prediction_mode_true(self):
         """Controller should support prediction mode to tag prediction samples."""
         assert TagController.supports_prediction_mode() is True
-
 
 class TestFilterParsing:
     """Test filter parsing from different configuration formats."""
@@ -132,7 +125,6 @@ class TestFilterParsing:
         with pytest.raises(TypeError, match="must be a SampleFilter"):
             controller._parse_taggers({"tag": "not_a_filter"})
 
-
 class TestTagNameResolution:
     """Test tag name resolution from filters."""
 
@@ -157,7 +149,6 @@ class TestTagNameResolution:
         filter_obj = YOutlierFilter(reason="bad_samples")
         name = controller._get_tag_name(filter_obj)
         assert name == "bad_samples"
-
 
 class TestTagControllerExecution:
     """Test TagController.execute() method."""
@@ -391,7 +382,6 @@ class TestTagControllerExecution:
                 mode="train"
             )
 
-
 class TestTagValueSemantics:
     """Test that tag values have correct semantics (True = flagged as outlier)."""
 
@@ -483,7 +473,6 @@ class TestTagValueSemantics:
                 # (only sample 2 is True because it's the outlier)
                 expected = [False, False, True, False, False]
                 assert tag_values == expected
-
 
 class TestExistingTagColumn:
     """Test behavior when tag column already exists."""

@@ -5,7 +5,8 @@ This module provides the SpectralQualityFilter class for detecting and excluding
 samples with poor spectral quality based on various quality metrics.
 """
 
-from typing import Optional, Dict, Any
+from typing import Any, Optional
+
 import numpy as np
 
 from .base import SampleFilter
@@ -70,11 +71,11 @@ class SpectralQualityFilter(SampleFilter):
         max_nan_ratio: float = 0.1,
         max_zero_ratio: float = 0.5,
         min_variance: float = 1e-8,
-        max_value: Optional[float] = None,
-        min_value: Optional[float] = None,
+        max_value: float | None = None,
+        min_value: float | None = None,
         check_inf: bool = True,
-        reason: Optional[str] = None,
-        tag_name: Optional[str] = None
+        reason: str | None = None,
+        tag_name: str | None = None
     ):
         """
         Initialize the spectral quality filter.
@@ -128,7 +129,7 @@ class SpectralQualityFilter(SampleFilter):
             )
 
         # Quality statistics (set during get_mask)
-        self._quality_stats_: Optional[Dict[str, np.ndarray]] = None
+        self._quality_stats_: dict[str, np.ndarray] | None = None
 
     @property
     def exclusion_reason(self) -> str:
@@ -137,7 +138,7 @@ class SpectralQualityFilter(SampleFilter):
             return self.reason
         return "spectral_quality"
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> "SpectralQualityFilter":
+    def fit(self, X: np.ndarray, y: np.ndarray | None = None) -> "SpectralQualityFilter":
         """
         Fit the filter (no-op for quality filter as thresholds are fixed).
 
@@ -154,7 +155,7 @@ class SpectralQualityFilter(SampleFilter):
         # No fitting needed - thresholds are fixed
         return self
 
-    def get_mask(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> np.ndarray:
+    def get_mask(self, X: np.ndarray, y: np.ndarray | None = None) -> np.ndarray:
         """
         Compute boolean mask indicating which samples to KEEP based on quality.
 
@@ -217,8 +218,8 @@ class SpectralQualityFilter(SampleFilter):
         return mask
 
     def get_quality_breakdown(
-        self, X: np.ndarray, y: Optional[np.ndarray] = None
-    ) -> Dict[str, np.ndarray]:
+        self, X: np.ndarray, y: np.ndarray | None = None
+    ) -> dict[str, np.ndarray]:
         """
         Get detailed breakdown of which quality checks each sample fails.
 
@@ -294,7 +295,7 @@ class SpectralQualityFilter(SampleFilter):
 
         return breakdown
 
-    def get_filter_stats(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> Dict[str, Any]:
+    def get_filter_stats(self, X: np.ndarray, y: np.ndarray | None = None) -> dict[str, Any]:
         """
         Get statistics about filter application including quality breakdown.
 

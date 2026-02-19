@@ -10,16 +10,17 @@ Provides tools to evaluate:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 from scipy import stats
 
+if TYPE_CHECKING:
+    from .inversion import InversionResult
 
 # =============================================================================
 # Validation Result
 # =============================================================================
-
 
 @dataclass
 class ValidationResult:
@@ -35,12 +36,12 @@ class ValidationResult:
         warnings: List of warning messages.
     """
 
-    reconstruction_metrics: Dict[str, Any] = field(default_factory=dict)
-    synthetic_metrics: Dict[str, Any] = field(default_factory=dict)
-    parameter_metrics: Dict[str, Any] = field(default_factory=dict)
+    reconstruction_metrics: dict[str, Any] = field(default_factory=dict)
+    synthetic_metrics: dict[str, Any] = field(default_factory=dict)
+    parameter_metrics: dict[str, Any] = field(default_factory=dict)
     overall_score: float = 0.0
     passed: bool = False
-    warnings: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
         """Generate human-readable summary."""
@@ -79,11 +80,9 @@ class ValidationResult:
         lines.append("=" * 70)
         return "\n".join(lines)
 
-
 # =============================================================================
 # Reconstruction Validator
 # =============================================================================
-
 
 @dataclass
 class ReconstructionValidator:
@@ -107,12 +106,12 @@ class ReconstructionValidator:
     residual_autocorr_threshold: float = 0.3
     pca_distance_threshold: float = 3.0
     concentration_max: float = 10.0
-    path_length_bounds: Tuple[float, float] = (0.3, 3.0)
+    path_length_bounds: tuple[float, float] = (0.3, 3.0)
 
     def validate_reconstruction(
         self,
-        inversion_results: List["InversionResult"],
-    ) -> Dict[str, Any]:
+        inversion_results: list[InversionResult],
+    ) -> dict[str, Any]:
         """
         Validate reconstruction quality.
 
@@ -172,7 +171,7 @@ class ReconstructionValidator:
         self,
         X_real: np.ndarray,
         X_synth: np.ndarray,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Validate synthetic vs real data.
 
@@ -238,10 +237,7 @@ class ReconstructionValidator:
             y = np.concatenate([np.zeros(len(X_real)), np.ones(len(X_synth))])
 
             # Use PCA features to avoid overfitting
-            if "pca_error" not in metrics:
-                X_pca = pca.transform(X_combined)[:, :min(5, n_comp)]
-            else:
-                X_pca = X_combined[:, ::max(1, X_combined.shape[1] // 20)]  # Subsample wavelengths
+            X_pca = pca.transform(X_combined)[:, :min(5, n_comp)] if "pca_error" not in metrics else X_combined[:, ::max(1, X_combined.shape[1] // 20)]  # Subsample wavelengths
 
             # Cross-validated accuracy
             clf = LogisticRegression(max_iter=1000, random_state=42)
@@ -256,8 +252,8 @@ class ReconstructionValidator:
 
     def validate_parameters(
         self,
-        inversion_results: List["InversionResult"],
-    ) -> Dict[str, Any]:
+        inversion_results: list[InversionResult],
+    ) -> dict[str, Any]:
         """
         Validate parameter plausibility.
 
@@ -303,7 +299,7 @@ class ReconstructionValidator:
 
     def validate(
         self,
-        inversion_results: List["InversionResult"],
+        inversion_results: list[InversionResult],
         X_real: np.ndarray,
         X_synth: np.ndarray,
     ) -> ValidationResult:
@@ -366,18 +362,16 @@ class ReconstructionValidator:
             warnings=warnings,
         )
 
-
 # =============================================================================
 # Diagnostic Plots (Data Generation)
 # =============================================================================
 
-
 def compute_diagnostic_data(
     X_real: np.ndarray,
     X_synth: np.ndarray,
-    inversion_results: Optional[List["InversionResult"]] = None,
-    wavelengths: Optional[np.ndarray] = None,
-) -> Dict[str, Any]:
+    inversion_results: list[InversionResult] | None = None,
+    wavelengths: np.ndarray | None = None,
+) -> dict[str, Any]:
     """
     Compute data for diagnostic plots.
 

@@ -13,12 +13,13 @@ Examples:
 Unlike _or_ which might be randomized with count, _chain_ preserves order.
 """
 
-from typing import Any, Dict, FrozenSet, List, Optional
+from collections.abc import Callable
+from typing import Any, Optional
 
-from .base import ExpansionStrategy, GeneratorNode, ExpandedResult
-from .registry import register_strategy
-from ..keywords import CHAIN_KEYWORD, COUNT_KEYWORD, SEED_KEYWORD, PURE_CHAIN_KEYS
+from ..keywords import CHAIN_KEYWORD, COUNT_KEYWORD, PURE_CHAIN_KEYS, SEED_KEYWORD
 from ..utils.sampling import sample_with_seed
+from .base import ExpandedResult, ExpansionStrategy, GeneratorNode
+from .registry import register_strategy
 
 
 @register_strategy
@@ -37,7 +38,7 @@ class ChainStrategy(ExpansionStrategy):
         priority: 26 (between log_range and range)
     """
 
-    keywords: FrozenSet[str] = PURE_CHAIN_KEYS
+    keywords: frozenset[str] = PURE_CHAIN_KEYS
     priority: int = 26
 
     @classmethod
@@ -57,8 +58,8 @@ class ChainStrategy(ExpansionStrategy):
     def expand(
         self,
         node: GeneratorNode,
-        seed: Optional[int] = None,
-        expand_nested: Optional[callable] = None
+        seed: int | None = None,
+        expand_nested: Callable | None = None
     ) -> ExpandedResult:
         """Expand a chain node to list of sequential configurations.
 
@@ -100,14 +101,11 @@ class ChainStrategy(ExpansionStrategy):
         if count is not None and count > 0 and len(results) > count:
             # For chain, count takes first n items (ordered), not random
             # Unless seed is specified, then we sample randomly
-            if node_seed is not None:
-                results = sample_with_seed(results, count, seed=node_seed)
-            else:
-                results = results[:count]
+            results = sample_with_seed(results, count, seed=node_seed) if node_seed is not None else results[:count]
 
         return results
 
-    def count(self, node: GeneratorNode, count_nested: Optional[callable] = None) -> int:
+    def count(self, node: GeneratorNode, count_nested: Callable | None = None) -> int:
         """Count chain items without generating them.
 
         Args:
@@ -136,7 +134,7 @@ class ChainStrategy(ExpansionStrategy):
             return min(count_limit, total)
         return total
 
-    def validate(self, node: GeneratorNode) -> List[str]:
+    def validate(self, node: GeneratorNode) -> list[str]:
         """Validate chain node specification.
 
         Args:

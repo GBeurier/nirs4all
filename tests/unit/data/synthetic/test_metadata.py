@@ -2,12 +2,12 @@
 Unit tests for MetadataGenerator class.
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.synthesis.metadata import (
-    MetadataGenerator,
     MetadataGenerationResult,
+    MetadataGenerator,
     generate_sample_metadata,
 )
 
@@ -24,7 +24,6 @@ class TestMetadataGeneratorInit:
         """Test initialization with random state."""
         gen = MetadataGenerator(random_state=42)
         assert gen._random_state == 42
-
 
 class TestBasicGeneration:
     """Tests for basic metadata generation."""
@@ -53,7 +52,6 @@ class TestBasicGeneration:
 
         assert "sample_id" in d
         assert len(d["sample_id"]) == 20
-
 
 class TestGroupGeneration:
     """Tests for group metadata generation."""
@@ -91,7 +89,6 @@ class TestGroupGeneration:
         assert len(unique) == 3
         # Each group should have ~33 samples
         assert all(30 <= c <= 36 for c in counts)
-
 
 class TestRepetitionGeneration:
     """Tests for repetition structure generation."""
@@ -149,7 +146,6 @@ class TestRepetitionGeneration:
         with pytest.raises(ValueError, match="Minimum repetitions"):
             gen.generate(n_samples=20, n_repetitions=(0, 3))
 
-
 class TestAdditionalColumns:
     """Tests for additional column generation."""
 
@@ -198,7 +194,6 @@ class TestAdditionalColumns:
         with pytest.raises(ValueError, match="Invalid specification"):
             gen.generate(n_samples=50, additional_columns={"bad": 123})
 
-
 class TestReproducibility:
     """Tests for reproducibility."""
 
@@ -223,7 +218,6 @@ class TestReproducibility:
 
         # Groups should be shuffled differently
         assert not np.array_equal(result1.group_indices, result2.group_indices)
-
 
 class TestConvenienceFunction:
     """Tests for generate_sample_metadata convenience function."""

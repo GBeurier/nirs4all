@@ -6,10 +6,9 @@ standard naming conventions (Xcal, Xval, etc.).
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from .base import BaseParser, ParserResult
-
 
 # File naming patterns for auto-detection
 FILE_PATTERNS = {
@@ -51,7 +50,6 @@ FILE_PATTERNS = {
         "cv", "splits"
     ],
 }
-
 
 class FolderParser(BaseParser):
     """Parser for folder-based dataset configuration.
@@ -168,8 +166,8 @@ class FolderParser(BaseParser):
     def _scan_folder(
         self,
         folder: Path,
-        global_params: Optional[Dict[str, Any]] = None
-    ) -> Tuple[Dict[str, Any], List[str]]:
+        global_params: dict[str, Any] | None = None
+    ) -> tuple[dict[str, Any], list[str]]:
         """Scan folder for data files.
 
         Args:
@@ -220,12 +218,10 @@ class FolderParser(BaseParser):
                         continue
 
                     # Check if pattern matches (case-insensitive)
-                    if self._pattern_matches(file_path.name.lower(), pattern_lower):
-                        # Check file extension
-                        if self._has_supported_extension(file_path):
-                            file_posix = file_path.as_posix()
-                            if file_posix not in matched_files:
-                                matched_files.append(file_posix)
+                    if self._pattern_matches(file_path.name.lower(), pattern_lower) and self._has_supported_extension(file_path):
+                        file_posix = file_path.as_posix()
+                        if file_posix not in matched_files:
+                            matched_files.append(file_posix)
 
             # Assign matches to config
             if len(matched_files) == 1:

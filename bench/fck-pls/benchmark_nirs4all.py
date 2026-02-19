@@ -38,7 +38,7 @@ import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -59,37 +59,42 @@ sys.path.insert(0, str(SYNTHETIC_DIR))
 # =============================================================================
 # NIRS4ALL imports
 # =============================================================================
-import nirs4all
-from nirs4all.data import DatasetConfigs, SpectroDataset
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.visualization.predictions import PredictionAnalyzer
+# Synthetic data generator
+from generator import SyntheticNIRSGenerator
 
 # sklearn imports
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
+import nirs4all
+from nirs4all.data import DatasetConfigs, SpectroDataset
+from nirs4all.operators.models import FCKPLS
+from nirs4all.operators.transforms import (
+    Detrend,
+    FirstDerivative,
+    Gaussian,
+    Haar,
+    SavitzkyGolay,
+    SecondDerivative,
+    Wavelet,
+)
+from nirs4all.operators.transforms import (
+    MultiplicativeScatterCorrection as MSC,
+)
+
 # nirs4all transforms
 from nirs4all.operators.transforms import (
     StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative,
-    SecondDerivative,
-    SavitzkyGolay,
-    Detrend,
-    Gaussian,
-    Haar,
-    Wavelet,
 )
 from nirs4all.operators.transforms.nirs import (
     AreaNormalization,
+)
+from nirs4all.operators.transforms.nirs import (
     ExtendedMultiplicativeScatterCorrection as EMSC,
 )
-from nirs4all.operators.models import FCKPLS
-
-# Synthetic data generator
-from generator import SyntheticNIRSGenerator
-
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # =============================================================================
 # Configuration
@@ -111,7 +116,6 @@ class BenchmarkConfig:
     n_splits: int = 3
     test_size: float = 0.20
 
-
 # =============================================================================
 # Dataset definitions
 # =============================================================================
@@ -121,19 +125,18 @@ class DatasetDef:
     """Dataset definition for benchmarking."""
     name: str
     # Path for nirs4all (can be relative to examples/ folder)
-    nirs4all_path: Optional[str] = None
+    nirs4all_path: str | None = None
     # Pre-loaded arrays (for datasets without standard path format)
-    X_train: Optional[np.ndarray] = None
-    y_train: Optional[np.ndarray] = None
-    X_test: Optional[np.ndarray] = None
-    y_test: Optional[np.ndarray] = None
+    X_train: np.ndarray | None = None
+    y_train: np.ndarray | None = None
+    X_test: np.ndarray | None = None
+    y_test: np.ndarray | None = None
     # Info
     n_features: int = 0
     n_train: int = 0
     n_test: int = 0
     # Whether the dataset originally had a separate test set
     has_explicit_test: bool = False
-
 
 # =============================================================================
 # Dataset loading
@@ -172,7 +175,6 @@ def generate_synthetic_dataset(
         has_explicit_test=False,
     )
 
-
 def load_csv_dataset(base_path: Path, name: str, sep: str = ";") -> DatasetDef:
     """Load dataset from CSV files (Xtrain, Ytrain, Xtest, Ytest)."""
     X_train = pd.read_csv(base_path / "Xtrain.csv", sep=sep, header=0).values
@@ -193,7 +195,6 @@ def load_csv_dataset(base_path: Path, name: str, sep: str = ";") -> DatasetDef:
         has_explicit_test=True,
     )
 
-
 def load_train_only_csv_dataset(base_path: Path, name: str, sep: str = ";") -> DatasetDef:
     """Load dataset from CSV files (Xtrain, Ytrain only - no explicit test)."""
     X_train = pd.read_csv(base_path / "Xtrain.csv", sep=sep, header=0).values
@@ -212,7 +213,6 @@ def load_train_only_csv_dataset(base_path: Path, name: str, sep: str = ";") -> D
         has_explicit_test=False,
     )
 
-
 def load_sample_data_regression() -> DatasetDef:
     """Load nirs4all sample regression data (has explicit train/test)."""
     return DatasetDef(
@@ -228,8 +228,7 @@ def load_sample_data_regression() -> DatasetDef:
         has_explicit_test=True,
     )
 
-
-def load_all_datasets(seed: int = 42, dataset_filter: Optional[str] = None) -> List[DatasetDef]:
+def load_all_datasets(seed: int = 42, dataset_filter: str | None = None) -> list[DatasetDef]:
     """Load all benchmark datasets."""
     datasets = []
 
@@ -264,7 +263,6 @@ def load_all_datasets(seed: int = 42, dataset_filter: Optional[str] = None) -> L
             print(f"  WARNING: Sample regression data not found: {e}")
 
     return datasets
-
 
 # =============================================================================
 # Pipeline Definition for Datasets WITH Explicit Test Split
@@ -401,7 +399,6 @@ def build_pipeline_with_test(config: BenchmarkConfig, max_components: int) -> li
 
     return pipeline
 
-
 # =============================================================================
 # Pipeline Definition for Datasets WITHOUT Explicit Test Split
 # =============================================================================
@@ -423,7 +420,6 @@ def build_pipeline_without_test(config: BenchmarkConfig, max_components: int) ->
     """
     # Same pipeline structure - the difference is how the dataset is provided
     return build_pipeline_with_test(config, max_components)
-
 
 # =============================================================================
 # Result Extraction
@@ -490,7 +486,6 @@ def extract_branch_results(result) -> pd.DataFrame:
         print(f"Warning: Could not extract results: {e}")
 
     return pd.DataFrame(records)
-
 
 # =============================================================================
 # Benchmark Runner
@@ -576,10 +571,9 @@ def run_benchmark_on_dataset(
 
     return results_df
 
-
 def run_full_benchmark(
     config: BenchmarkConfig,
-    dataset_filter: Optional[str] = None,
+    dataset_filter: str | None = None,
     show_plots: bool = False,
 ) -> pd.DataFrame:
     """
@@ -623,13 +617,9 @@ def run_full_benchmark(
             traceback.print_exc()
 
     # Combine results
-    if all_results:
-        combined = pd.concat(all_results, ignore_index=True)
-    else:
-        combined = pd.DataFrame()
+    combined = pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
 
     return combined
-
 
 def generate_report(results_df: pd.DataFrame) -> str:
     """Generate a markdown report from benchmark results."""
@@ -693,7 +683,6 @@ def generate_report(results_df: pd.DataFrame) -> str:
 
     return "\n".join(lines)
 
-
 # =============================================================================
 # Main
 # =============================================================================
@@ -742,7 +731,6 @@ def main():
         results_path.parent.mkdir(parents=True, exist_ok=True)
         results_df.to_csv(results_path, index=False)
         print(f"📊 Raw results saved to: {results_path}")
-
 
 if __name__ == "__main__":
     main()

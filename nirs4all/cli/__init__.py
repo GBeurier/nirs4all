@@ -6,7 +6,6 @@ from .main import main
 
 __all__ = ['main']
 
-
 # from .main import nirs4all_cli
 # from .presets import load_preset, apply_preset_to_config
 

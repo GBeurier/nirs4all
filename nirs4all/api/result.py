@@ -34,7 +34,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-
 @dataclass
 class ModelRefitResult:
     """Per-model refit result metadata.
@@ -58,7 +57,6 @@ class ModelRefitResult:
     final_score: float | None = None
     cv_score: float | None = None
     metric: str = ""
-
 
 class LazyModelRefitResult:
     """Lazy per-model refit result that triggers refit on first access.
@@ -112,10 +110,9 @@ class LazyModelRefitResult:
             if self._result is not None:
                 return self._result
 
-            from nirs4all.pipeline.execution.refit.executor import execute_simple_refit
-
             # Build a RefitConfig from the selection metadata
             from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
+            from nirs4all.pipeline.execution.refit.executor import execute_simple_refit
 
             refit_config = RefitConfig(
                 expanded_steps=self.selection.expanded_steps,
@@ -154,11 +151,8 @@ class LazyModelRefitResult:
                 return self._result
 
             # Build ModelRefitResult from the refit output
-            final_entry = {}
-            for entry in refit_predictions._buffer:
-                if entry.get("fold_id") == "final":
-                    final_entry = entry
-                    break
+            final_entries = refit_predictions.iter_entries(fold_id="final")
+            final_entry = final_entries[0] if final_entries else {}
 
             self._result = ModelRefitResult(
                 model_name=self.model_name,
@@ -214,7 +208,6 @@ class LazyModelRefitResult:
     def __repr__(self) -> str:
         status = "resolved" if self.is_resolved else "pending"
         return f"LazyModelRefitResult(model='{self.model_name}', status={status})"
-
 
 @dataclass
 class RunResult:
@@ -884,7 +877,6 @@ class RunResult:
 
         return report
 
-
 @dataclass
 class PredictResult:
     """Result from nirs4all.predict().
@@ -1020,7 +1012,6 @@ class PredictResult:
             lines.append(f"  Preprocessing: {' -> '.join(self.preprocessing_steps)}")
         lines.append(f"  Shape: {self.shape}")
         return "\n".join(lines)
-
 
 @dataclass
 class ExplainResult:

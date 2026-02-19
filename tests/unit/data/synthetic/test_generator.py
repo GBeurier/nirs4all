@@ -2,13 +2,13 @@
 Unit tests for SyntheticNIRSGenerator class.
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.synthesis import (
-    SyntheticNIRSGenerator,
-    ComponentLibrary,
     COMPLEXITY_PARAMS,
+    ComponentLibrary,
+    SyntheticNIRSGenerator,
 )
 
 
@@ -82,7 +82,6 @@ class TestSyntheticNIRSGeneratorInit:
         assert "SyntheticNIRSGenerator" in repr_str
         assert "simple" in repr_str
 
-
 class TestGenerateConcentrations:
     """Tests for concentration generation methods."""
 
@@ -135,7 +134,6 @@ class TestGenerateConcentrations:
         # With high alpha, concentrations should be more uniform
         stds = C.std(axis=0)
         assert np.all(stds < 0.3)  # Less variance than default
-
 
 class TestGenerate:
     """Tests for main generate() method."""
@@ -221,7 +219,6 @@ class TestGenerate:
         assert X.min() > -1.0  # Not too negative
         assert X.max() < 5.0  # Not unreasonably high
 
-
 class TestBatchEffects:
     """Tests for batch effect generation."""
 
@@ -243,7 +240,6 @@ class TestBatchEffects:
         # Gains should vary around 1
         assert np.abs(gains.mean() - 1.0) < 0.1
         assert gains.std() > 0.01
-
 
 class TestCreateDataset:
     """Tests for create_dataset() method."""
@@ -290,7 +286,6 @@ class TestCreateDataset:
         )
         assert dataset is not None
 
-
 class TestComplexityLevels:
     """Tests comparing different complexity levels."""
 
@@ -324,7 +319,6 @@ class TestComplexityLevels:
         complex_variance = X_complex.var()
 
         assert complex_variance > simple_variance
-
 
 class TestEdgeCases:
     """Tests for edge cases and error handling."""

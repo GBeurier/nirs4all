@@ -45,7 +45,6 @@ parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
-
 # =============================================================================
 # Introduction
 # =============================================================================
@@ -66,7 +65,6 @@ Key features:
   - Training configuration via train_params
 """)
 
-
 # =============================================================================
 # Check PyTorch Availability
 # =============================================================================
@@ -83,7 +81,6 @@ except ImportError:
     TORCH_AVAILABLE = False
     print("\n✗ PyTorch not installed. Install with: pip install torch")
     print("  Showing code examples only.")
-
 
 # =============================================================================
 # Section 1: Built-in NICON Model
@@ -141,7 +138,6 @@ if TORCH_AVAILABLE:
     print(f"\nNICON predictions: {result.num_predictions}")
     print(f"Best score: {result.best_score:.4f}")
 
-
 # =============================================================================
 # Section 2: The @framework Decorator
 # =============================================================================
@@ -181,10 +177,7 @@ if TORCH_AVAILABLE:
 
             if input_shape is not None:
                 # input_shape is (channels, seq_len) for spectral data
-                if len(input_shape) == 1:
-                    input_dim = input_shape[0]
-                else:
-                    input_dim = input_shape[0] * input_shape[1]
+                input_dim = input_shape[0] if len(input_shape) == 1 else input_shape[0] * input_shape[1]
 
                 self.flatten = nn.Flatten()
                 self.layers = nn.Sequential(
@@ -209,7 +202,6 @@ if TORCH_AVAILABLE:
     print("  - input_shape auto-injected from data")
     print("  - Sklearn fit/predict interface")
     print("  - Automatic device management")
-
 
 # =============================================================================
 # Section 3: Using Custom Models in Pipelines
@@ -249,7 +241,6 @@ Custom models work like any model, using 'model' + 'train_params':
     print(f"\nCustom model predictions: {result.num_predictions}")
     print(f"Best score: {result.best_score:.4f}")
 
-
 # =============================================================================
 # Section 4: Training Configuration
 # =============================================================================
@@ -284,7 +275,6 @@ Model-specific parameters go in 'model_params':
     }
 """)
 
-
 # =============================================================================
 # Section 5: GPU Acceleration
 # =============================================================================
@@ -303,7 +293,6 @@ if TORCH_AVAILABLE:
         print(f"  Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
     else:
         print("\n  Running on CPU (no CUDA device found)")
-
 
 # =============================================================================
 # Section 6: Advanced Architecture - CNN for Spectra
@@ -364,7 +353,6 @@ if TORCH_AVAILABLE:
 
     print("SpectralCNN defined with 1D convolutions")
 
-
 # =============================================================================
 # Section 7: Model Comparison via Branching
 # =============================================================================
@@ -407,7 +395,6 @@ Compare architectures using branching:
     branches = result.predictions.get_unique_values('branch_name')
     print(f"Branches: {branches}")
 
-
 # =============================================================================
 # Section 8: Available Built-in Models
 # =============================================================================
@@ -434,7 +421,6 @@ nirs4all provides several pre-built PyTorch architectures:
         transformer_classification,
     )
 """)
-
 
 # =============================================================================
 # Summary

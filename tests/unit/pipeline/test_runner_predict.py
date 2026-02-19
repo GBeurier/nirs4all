@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from nirs4all.pipeline.runner import PipelineRunner, init_global_random_state
 from nirs4all.pipeline.config.context import ExecutionContext
+from nirs4all.pipeline.runner import PipelineRunner, init_global_random_state
 
 
 def test_init_global_random_state_controls_entropy():
@@ -25,7 +25,6 @@ def test_init_global_random_state_controls_entropy():
     assert np_val1 == np_val2
     assert py_val1 == py_val2
     assert os.environ["PYTHONHASHSEED"] == "123"
-
 
 # Note: run_step and run_steps methods were removed as they were deprecated
 # and not part of the public API. Pipeline execution is now handled through

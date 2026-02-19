@@ -105,7 +105,7 @@ class Symbols:
             return "↑" if higher_is_better else "↓"
         return "(+)" if higher_is_better else "(-)"
 
-    def get_status_symbol(self, status: Optional[Status]) -> str:
+    def get_status_symbol(self, status: Status | None) -> str:
         """Get symbol for a status indicator.
 
         Args:
@@ -127,15 +127,12 @@ class Symbols:
         }
         return mapping.get(status, "")
 
-
 # Global symbols instance, configured at runtime
 _symbols = Symbols(use_unicode=True)
-
 
 def get_symbols() -> Symbols:
     """Get the global symbols instance."""
     return _symbols
-
 
 def configure_symbols(use_unicode: bool = True) -> None:
     """Configure the global symbols instance.
@@ -145,7 +142,6 @@ def configure_symbols(use_unicode: bool = True) -> None:
     """
     global _symbols
     _symbols = Symbols(use_unicode=use_unicode)
-
 
 class ConsoleFormatter(logging.Formatter):
     """Human-readable console formatter for nirs4all logs.
@@ -194,15 +190,13 @@ class ConsoleFormatter(logging.Formatter):
         self.show_elapsed = show_elapsed
         self.use_unicode = use_unicode
         self.symbols = Symbols(use_unicode=use_unicode)
-        self._run_start: Optional[datetime] = None
+        self._run_start: datetime | None = None
 
     def _supports_color(self) -> bool:
         """Check if terminal supports colors."""
         if not hasattr(sys.stdout, "isatty"):
             return False
-        if not sys.stdout.isatty():
-            return False
-        return True
+        return sys.stdout.isatty()
 
     def set_run_start(self, start_time: datetime) -> None:
         """Set the run start time for elapsed time calculation.
@@ -393,7 +387,6 @@ class ConsoleFormatter(logging.Formatter):
         parts = [elapsed, indent, status, branch_ctx, source_ctx, message, extra]
         return "".join(parts)
 
-
 class FileFormatter(logging.Formatter):
     """File formatter for human-readable log files.
 
@@ -442,7 +435,6 @@ class FileFormatter(logging.Formatter):
 
         return super().format(record)
 
-
 class JsonFormatter(logging.Formatter):
     """JSON Lines formatter for machine-readable log files.
 
@@ -450,7 +442,7 @@ class JsonFormatter(logging.Formatter):
     systems like ELK, Loki, etc.
     """
 
-    def __init__(self, run_id: Optional[str] = None) -> None:
+    def __init__(self, run_id: str | None = None) -> None:
         """Initialize JSON formatter.
 
         Args:
@@ -522,7 +514,6 @@ class JsonFormatter(logging.Formatter):
 
         return json.dumps(log_data)
 
-
 def format_duration(seconds: float) -> str:
     """Format a duration in seconds to human-readable string.
 
@@ -544,7 +535,6 @@ def format_duration(seconds: float) -> str:
         secs = seconds % 60
         return f"{hours}h {minutes}m {secs:.0f}s"
 
-
 def format_number(value: float | int, precision: int = 3) -> str:
     """Format a number for display.
 
@@ -562,7 +552,6 @@ def format_number(value: float | int, precision: int = 3) -> str:
         return f"{value:,}"
     else:
         return f"{value:.{precision}g}"
-
 
 def format_table(
     headers: list[str],
@@ -590,7 +579,7 @@ def format_table(
 
     # Build header row
     header_row = (
-        "|" + "|".join(f" {h:<{w}} " for h, w in zip(headers, widths)) + "|"
+        "|" + "|".join(f" {h:<{w}} " for h, w in zip(headers, widths, strict=False)) + "|"
     )
 
     # Build data rows
@@ -599,7 +588,7 @@ def format_table(
         data_row = (
             "|"
             + "|".join(
-                f" {str(cell):<{w}} " for cell, w in zip(row, widths)
+                f" {str(cell):<{w}} " for cell, w in zip(row, widths, strict=False)
             )
             + "|"
         )
@@ -609,12 +598,11 @@ def format_table(
     lines = [sep, header_row, sep] + data_rows + [sep]
     return "\n".join(lines)
 
-
 def format_run_header(
     run_name: str,
     start_time: datetime,
-    environment_info: Optional[dict[str, str]] = None,
-    reproducibility_info: Optional[dict[str, str]] = None,
+    environment_info: dict[str, str] | None = None,
+    reproducibility_info: dict[str, str] | None = None,
     use_unicode: bool = True,
 ) -> str:
     """Format the run header block.
@@ -652,12 +640,11 @@ def format_run_header(
     lines.append(symbols.separator_heavy)
     return "\n".join(lines)
 
-
 def format_run_footer(
     status: Status,
     duration_seconds: float,
-    best_pipeline: Optional[str] = None,
-    metrics: Optional[dict[str, float]] = None,
+    best_pipeline: str | None = None,
+    metrics: dict[str, float] | None = None,
     use_unicode: bool = True,
 ) -> str:
     """Format the run footer block.

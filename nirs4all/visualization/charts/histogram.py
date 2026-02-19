@@ -1,21 +1,23 @@
 """
 ScoreHistogramChart - Histogram of score distributions.
 """
+import contextlib
+import time
+from typing import TYPE_CHECKING, Literal, Optional
+
+import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
-import time
-import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from typing import Literal, Optional, TYPE_CHECKING
-from nirs4all.visualization.charts.base import BaseChart
-from nirs4all.visualization.chart_utils.annotator import ChartAnnotator
+
 from nirs4all.core.logging import get_logger
+from nirs4all.visualization.chart_utils.annotator import ChartAnnotator
+from nirs4all.visualization.charts.base import BaseChart
 
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.visualization.predictions import PredictionAnalyzer
-
 
 class ScoreHistogramChart(BaseChart):
     """Histogram of score distributions.
@@ -27,7 +29,7 @@ class ScoreHistogramChart(BaseChart):
     def __init__(
         self,
         predictions,
-        dataset_name_override: Optional[str] = None,
+        dataset_name_override: str | None = None,
         config=None,
         analyzer: Optional['PredictionAnalyzer'] = None
     ):
@@ -42,7 +44,7 @@ class ScoreHistogramChart(BaseChart):
         super().__init__(predictions, dataset_name_override, config, analyzer=analyzer)
         self.annotator = ChartAnnotator(config)
 
-    def validate_inputs(self, display_metric: Optional[str], **kwargs) -> None:
+    def validate_inputs(self, display_metric: str | None, **kwargs) -> None:
         """Validate histogram inputs.
 
         Args:
@@ -55,9 +57,9 @@ class ScoreHistogramChart(BaseChart):
         if display_metric and not isinstance(display_metric, str):
             raise ValueError("display_metric must be a string")
 
-    def render(self, display_metric: Optional[str] = None, display_partition: str = 'test',
-               dataset_name: Optional[str] = None, bins: int = 20,
-               figsize: Optional[tuple] = None, aggregate: Optional[str] = None,
+    def render(self, display_metric: str | None = None, display_partition: str = 'test',
+               dataset_name: str | None = None, bins: int = 20,
+               figsize: tuple | None = None, aggregate: str | None = None,
                clip_outliers: bool = True, iqr_factor: float = 1.5,
                layout: Literal['standard', 'stacked', 'staggered'] = 'standard',
                **filters) -> Figure:
@@ -279,10 +281,8 @@ class ScoreHistogramChart(BaseChart):
                 y_true = partition_data.get('y_true')
                 y_pred = partition_data.get('y_pred')
                 if y_true is not None and y_pred is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         score = evaluator.eval(y_true, y_pred, display_metric)
-                    except Exception:
-                        pass
 
             if score is not None:
                 scores.append(score)

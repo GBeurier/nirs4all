@@ -8,19 +8,19 @@ These tests verify that:
 4. The loaded folds match the original folds
 """
 
+import shutil
+import tempfile
+from pathlib import Path
+
 import numpy as np
 import pytest
-from pathlib import Path
-import tempfile
-import shutil
-
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import KFold
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import KFold
+from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.core.logging import reset_logging
-from nirs4all.pipeline import PipelineRunner, PipelineConfigs
 from nirs4all.data import DatasetConfigs, SpectroDataset
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 
 class TestFoldFileLoadingIntegration:

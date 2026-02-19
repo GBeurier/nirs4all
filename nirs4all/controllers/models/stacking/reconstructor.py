@@ -14,26 +14,28 @@ Classes:
     ReconstructionResult: Container for reconstructed data.
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 import warnings
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Optional
+
 import numpy as np
 
 from nirs4all.operators.models.meta import (
-    StackingConfig,
-    CoverageStrategy,
-    TestAggregation,
     BranchScope,
+    CoverageStrategy,
+    StackingConfig,
+    TestAggregation,
 )
 from nirs4all.operators.models.selection import ModelCandidate
+
 from .config import ReconstructorConfig
 
 if TYPE_CHECKING:
-    from nirs4all.data.predictions import Predictions
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.data.predictions import Predictions
     from nirs4all.pipeline.config.context import ExecutionContext
-    from .classification import ClassificationInfo, MetaFeatureInfo
 
+    from .classification import ClassificationInfo, MetaFeatureInfo
 
 @dataclass
 class ValidationError:
@@ -41,8 +43,7 @@ class ValidationError:
 
     code: str
     message: str
-    details: Optional[Dict[str, Any]] = None
-
+    details: dict[str, Any] | None = None
 
 @dataclass
 class ValidationWarning:
@@ -50,8 +51,7 @@ class ValidationWarning:
 
     code: str
     message: str
-    details: Optional[Dict[str, Any]] = None
-
+    details: dict[str, Any] | None = None
 
 @dataclass
 class ValidationResult:
@@ -72,8 +72,8 @@ class ValidationResult:
         ...     raise ValueError(result.format_errors())
     """
 
-    errors: List[ValidationError] = field(default_factory=list)
-    warnings: List[ValidationWarning] = field(default_factory=list)
+    errors: list[ValidationError] = field(default_factory=list)
+    warnings: list[ValidationWarning] = field(default_factory=list)
 
     @property
     def is_valid(self) -> bool:
@@ -84,7 +84,7 @@ class ValidationResult:
         self,
         code: str,
         message: str,
-        details: Optional[Dict[str, Any]] = None
+        details: dict[str, Any] | None = None
     ) -> None:
         """Add a validation error."""
         self.errors.append(ValidationError(code, message, details))
@@ -93,7 +93,7 @@ class ValidationResult:
         self,
         code: str,
         message: str,
-        details: Optional[Dict[str, Any]] = None
+        details: dict[str, Any] | None = None
     ) -> None:
         """Add a validation warning."""
         self.warnings.append(ValidationWarning(code, message, details))
@@ -116,7 +116,6 @@ class ValidationResult:
             return "No warnings"
         lines = [f"[{w.code}] {w.message}" for w in self.warnings]
         return "\n".join(lines)
-
 
 @dataclass
 class ReconstructionResult:
@@ -155,16 +154,15 @@ class ReconstructionResult:
     X_test_meta: np.ndarray
     y_train: np.ndarray
     y_test: np.ndarray
-    feature_names: List[str]
-    source_models: List[str]
+    feature_names: list[str]
+    source_models: list[str]
     valid_train_mask: np.ndarray
     valid_test_mask: np.ndarray
     validation_result: ValidationResult
     n_folds: int
     coverage_ratio: float
-    meta_feature_info: Optional[Any] = None  # MetaFeatureInfo from classification module
-    classification_info: Optional[Any] = None  # ClassificationInfo from classification module
-
+    meta_feature_info: Any | None = None  # MetaFeatureInfo from classification module
+    classification_info: Any | None = None  # ClassificationInfo from classification module
 
 class FoldAlignmentValidator:
     """Validates fold structure consistency across source models.
@@ -186,7 +184,7 @@ class FoldAlignmentValidator:
     def __init__(
         self,
         prediction_store: 'Predictions',
-        config: Optional[ReconstructorConfig] = None
+        config: ReconstructorConfig | None = None
     ):
         """Initialize fold alignment validator.
 
@@ -199,9 +197,9 @@ class FoldAlignmentValidator:
 
     def validate(
         self,
-        source_model_names: List[str],
+        source_model_names: list[str],
         context: 'ExecutionContext',
-        branch_id_override: Optional[int] = -1
+        branch_id_override: int | None = -1
     ) -> ValidationResult:
         """Validate fold alignment across source models.
 
@@ -225,14 +223,11 @@ class FoldAlignmentValidator:
             return result
 
         # Get branch context - allow override for ALL_BRANCHES scope
-        if branch_id_override == -1:
-            branch_id = getattr(context.selector, 'branch_id', None)
-        else:
-            branch_id = branch_id_override
+        branch_id = getattr(context.selector, 'branch_id', None) if branch_id_override == -1 else branch_id_override
         current_step = context.state.step_number
 
         # Collect fold info per model
-        model_fold_info: Dict[str, Dict[str, Any]] = {}
+        model_fold_info: dict[str, dict[str, Any]] = {}
 
         for model_name in source_model_names:
             fold_info = self._get_model_fold_info(
@@ -303,9 +298,9 @@ class FoldAlignmentValidator:
     def _get_model_fold_info(
         self,
         model_name: str,
-        branch_id: Optional[int],
+        branch_id: int | None,
         max_step: int
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get fold information for a single model.
 
         Args:
@@ -316,7 +311,7 @@ class FoldAlignmentValidator:
         Returns:
             Dictionary with fold info or None if no data found.
         """
-        filter_kwargs = {
+        filter_kwargs: dict[str, Any] = {
             'model_name': model_name,
             'partition': 'val',
             'load_arrays': False,
@@ -332,7 +327,7 @@ class FoldAlignmentValidator:
         # If no predictions found with branch filter, try without branch filter
         # This handles models trained before any branch was created
         if not val_preds and branch_id is not None:
-            filter_kwargs_no_branch = {
+            filter_kwargs_no_branch: dict[str, Any] = {
                 'model_name': model_name,
                 'partition': 'val',
                 'load_arrays': False,
@@ -374,7 +369,6 @@ class FoldAlignmentValidator:
             'n_val_predictions': len(val_preds),
         }
 
-
 class TrainingSetReconstructor:
     """Reconstructs meta-model training set from out-of-fold predictions.
 
@@ -409,10 +403,10 @@ class TrainingSetReconstructor:
     def __init__(
         self,
         prediction_store: 'Predictions',
-        source_model_names: List[str],
-        stacking_config: Optional[StackingConfig] = None,
-        reconstructor_config: Optional[ReconstructorConfig] = None,
-        source_model_branch_map: Optional[Dict[str, Optional[int]]] = None
+        source_model_names: list[str],
+        stacking_config: StackingConfig | None = None,
+        reconstructor_config: ReconstructorConfig | None = None,
+        source_model_branch_map: dict[str, tuple[str, int | None]] | None = None
     ):
         """Initialize TrainingSetReconstructor.
 
@@ -442,8 +436,8 @@ class TrainingSetReconstructor:
     def _resolve_model_lookup(
         self,
         unique_name: str,
-        default_branch_id: Optional[int]
-    ) -> Tuple[str, Optional[int]]:
+        default_branch_id: int | None
+    ) -> tuple[str, int | None]:
         """Resolve unique name to actual model name and branch_id for lookup.
 
         For cross-branch stacking, unique_name may include branch suffix
@@ -467,8 +461,8 @@ class TrainingSetReconstructor:
         self,
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
-        y_train: Optional[np.ndarray] = None,
-        y_test: Optional[np.ndarray] = None,
+        y_train: np.ndarray | None = None,
+        y_test: np.ndarray | None = None,
         use_proba: bool = False
     ) -> ReconstructionResult:
         """Reconstruct meta-model training and test sets from predictions.
@@ -514,11 +508,9 @@ class TrainingSetReconstructor:
             validation_result = self.fold_validator.validate(
                 self.source_model_names, context, branch_id_override=branch_id_override
             )
-            if not validation_result.is_valid:
-                # Log warnings but continue for non-critical issues
-                if self.reconstructor_config.log_warnings:
-                    for warning in validation_result.warnings:
-                        warnings.warn(f"[{warning.code}] {warning.message}")
+            if not validation_result.is_valid and self.reconstructor_config.log_warnings:
+                for warning in validation_result.warnings:
+                    warnings.warn(f"[{warning.code}] {warning.message}", stacklevel=2)
 
         # Phase 5: Detect classification task type
         classification_info = self._detect_classification_info(context, use_proba)
@@ -647,7 +639,7 @@ class TrainingSetReconstructor:
         self,
         dataset: 'SpectroDataset',
         context: 'ExecutionContext'
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Get training and test sample indices.
 
         For OOF reconstruction, we need to match sample indices with what
@@ -684,9 +676,9 @@ class TrainingSetReconstructor:
     def _collect_test_predictions(
         self,
         model_name: str,
-        branch_id: Optional[int],
+        branch_id: int | None,
         max_step: int,
-        id_to_pos: Dict[int, int],
+        id_to_pos: dict[int, int],
         n_samples: int,
         use_proba: bool = False
     ) -> np.ndarray:
@@ -706,7 +698,7 @@ class TrainingSetReconstructor:
         Returns:
             Aggregated test predictions array.
         """
-        filter_kwargs = {
+        filter_kwargs: dict[str, Any] = {
             'model_name': model_name,
             'partition': 'test',
             'load_arrays': True,
@@ -722,7 +714,7 @@ class TrainingSetReconstructor:
         # If no predictions found with branch filter, try without branch filter
         # This handles models trained before any branch was created
         if not test_predictions and branch_id is not None:
-            filter_kwargs_no_branch = {
+            filter_kwargs_no_branch: dict[str, Any] = {
                 'model_name': model_name,
                 'partition': 'test',
                 'load_arrays': True,
@@ -773,10 +765,7 @@ class TrainingSetReconstructor:
             if use_proba and 'y_proba' in pred and pred['y_proba'] is not None:
                 y_vals = pred['y_proba']
                 if hasattr(y_vals, 'ndim') and y_vals.ndim > 1:
-                    if y_vals.shape[1] == 2:
-                        y_vals = y_vals[:, 1]
-                    else:
-                        y_vals = y_vals[:, 0]
+                    y_vals = y_vals[:, 1] if y_vals.shape[1] == 2 else y_vals[:, 0]
             else:
                 y_vals = pred.get('y_pred', [])
 
@@ -791,30 +780,27 @@ class TrainingSetReconstructor:
             return np.zeros(n_samples)
 
         all_preds = np.array(all_preds_list)
-        all_scores = np.array(all_scores)
+        scores_arr = np.array(all_scores)
 
         # Apply aggregation strategy
         if aggregation == TestAggregation.BEST_FOLD:
-            best_idx = np.argmax(all_scores) if np.any(all_scores > 0) else 0
-            return all_preds[best_idx]
+            best_idx = int(np.argmax(scores_arr)) if np.any(scores_arr > 0) else 0
+            return np.asarray(all_preds[best_idx])
         elif aggregation == TestAggregation.WEIGHTED_MEAN:
-            weights = np.clip(all_scores, 0, None)
-            if weights.sum() > 0:
-                weights = weights / weights.sum()
-            else:
-                weights = np.ones(len(all_preds)) / len(all_preds)
-            return np.average(all_preds, axis=0, weights=weights)
+            weights = np.clip(scores_arr, 0, None)
+            weights = weights / weights.sum() if weights.sum() > 0 else np.ones(len(all_preds)) / len(all_preds)
+            return np.asarray(np.average(all_preds, axis=0, weights=weights))
         else:
             # Default: MEAN
-            return np.mean(all_preds, axis=0)
+            return np.asarray(np.mean(all_preds, axis=0))
 
     def _align_predictions_to_positions(
         self,
         y_vals: Any,
         sample_indices: Any,
-        id_to_pos: Dict[int, int],
+        id_to_pos: dict[int, int],
         n_samples: int
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """Align predictions to correct array positions using sample indices.
 
         Args:
@@ -826,12 +812,12 @@ class TrainingSetReconstructor:
         Returns:
             Aligned predictions array or None if alignment fails.
         """
-        y_vals = np.asarray(y_vals).flatten()
+        y_vals_arr: np.ndarray = np.asarray(y_vals).flatten()
 
         if sample_indices is None:
             # If no sample indices, assume direct correspondence
-            if len(y_vals) == n_samples:
-                return y_vals
+            if len(y_vals_arr) == n_samples:
+                return y_vals_arr
             return None
 
         # Convert sample_indices if needed
@@ -840,10 +826,10 @@ class TrainingSetReconstructor:
 
         aligned = np.zeros(n_samples)
         for i, sample_idx in enumerate(sample_indices):
-            if i < len(y_vals):
+            if i < len(y_vals_arr):
                 pos = id_to_pos.get(int(sample_idx))
                 if pos is not None:
-                    aligned[pos] = y_vals[i]
+                    aligned[pos] = y_vals_arr[i]
 
         return aligned
 
@@ -851,7 +837,7 @@ class TrainingSetReconstructor:
         self,
         X_meta: np.ndarray,
         n_samples: int
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Apply coverage strategy to handle missing predictions.
 
         Args:
@@ -890,7 +876,7 @@ class TrainingSetReconstructor:
             if n_dropped > 0 and self.reconstructor_config.log_warnings:
                 warnings.warn(
                     f"Dropping {n_dropped}/{n_samples} samples with incomplete "
-                    f"OOF predictions (coverage_strategy=DROP_INCOMPLETE)"
+                    f"OOF predictions (coverage_strategy=DROP_INCOMPLETE)", stacklevel=2
                 )
 
             # Check minimum coverage ratio
@@ -910,7 +896,7 @@ class TrainingSetReconstructor:
                 n_imputed = nan_mask.sum()
                 warnings.warn(
                     f"Imputing {n_imputed} missing values with zeros "
-                    f"(coverage_strategy=IMPUTE_ZERO)"
+                    f"(coverage_strategy=IMPUTE_ZERO)", stacklevel=2
                 )
             return np.nan_to_num(X_meta, nan=0.0), np.ones(n_samples, dtype=bool)
 
@@ -920,7 +906,7 @@ class TrainingSetReconstructor:
                     n_imputed = nan_mask.sum()
                     warnings.warn(
                         f"Imputing {n_imputed} missing values with column means "
-                        f"(coverage_strategy=IMPUTE_MEAN)"
+                        f"(coverage_strategy=IMPUTE_MEAN)", stacklevel=2
                     )
                 # Impute with column means
                 col_means = np.nanmean(X_meta, axis=0)
@@ -937,7 +923,7 @@ class TrainingSetReconstructor:
                     n_imputed = nan_mask.sum()
                     warnings.warn(
                         f"Imputing {n_imputed} missing values with column means "
-                        f"(coverage_strategy=IMPUTE_FOLD_MEAN, falling back to mean)"
+                        f"(coverage_strategy=IMPUTE_FOLD_MEAN, falling back to mean)", stacklevel=2
                     )
                 col_means = np.nanmean(X_meta, axis=0)
                 for col in range(X_meta.shape[1]):
@@ -948,7 +934,7 @@ class TrainingSetReconstructor:
         # Default: just fill NaN with 0
         return np.nan_to_num(X_meta, nan=0.0), np.ones(n_samples, dtype=bool)
 
-    def _generate_feature_names(self) -> List[str]:
+    def _generate_feature_names(self) -> list[str]:
         """Generate feature column names based on configuration.
 
         Returns:
@@ -1103,7 +1089,7 @@ class TrainingSetReconstructor:
         Returns:
             ClassificationInfo with detected task type and metadata.
         """
-        from .classification import TaskTypeDetector, ClassificationInfo, StackingTaskType
+        from .classification import ClassificationInfo, StackingTaskType, TaskTypeDetector
 
         detector = TaskTypeDetector(self.prediction_store)
         try:
@@ -1116,7 +1102,7 @@ class TrainingSetReconstructor:
             if self.reconstructor_config.log_warnings:
                 warnings.warn(
                     f"Failed to detect classification info: {e}. "
-                    f"Falling back to regression task type."
+                    f"Falling back to regression task type.", stacklevel=2
                 )
             classification_info = ClassificationInfo(
                 task_type=StackingTaskType.REGRESSION,
@@ -1129,13 +1115,13 @@ class TrainingSetReconstructor:
     def _collect_oof_predictions_with_proba(
         self,
         model_name: str,
-        branch_id: Optional[int],
+        branch_id: int | None,
         max_step: int,
-        id_to_pos: Dict[int, int],
+        id_to_pos: dict[int, int],
         n_samples: int,
         use_proba: bool,
         classification_info: 'ClassificationInfo'
-    ) -> Tuple[np.ndarray, int]:
+    ) -> tuple[np.ndarray, int]:
         """Collect out-of-fold predictions with classification support.
 
         For classification with use_proba=True:
@@ -1159,12 +1145,9 @@ class TrainingSetReconstructor:
         # Determine output shape
         n_features = classification_info.get_n_features_per_model(use_proba)
 
-        if n_features == 1:
-            oof_preds = np.full(n_samples, np.nan)
-        else:
-            oof_preds = np.full((n_samples, n_features), np.nan)
+        oof_preds = np.full(n_samples, np.nan) if n_features == 1 else np.full((n_samples, n_features), np.nan)
 
-        filter_kwargs = {
+        filter_kwargs: dict[str, Any] = {
             'model_name': model_name,
             'partition': 'val',
             'load_arrays': True,
@@ -1180,7 +1163,7 @@ class TrainingSetReconstructor:
         # If no predictions found with branch filter, try without branch filter
         # This handles models trained before any branch was created
         if not val_predictions and branch_id is not None:
-            filter_kwargs_no_branch = {
+            filter_kwargs_no_branch: dict[str, Any] = {
                 'model_name': model_name,
                 'partition': 'val',
                 'load_arrays': True,
@@ -1207,10 +1190,7 @@ class TrainingSetReconstructor:
         # Use accumulation to handle RepeatedKFold where samples appear
         # in multiple validation folds. Instead of overwriting, we sum
         # predictions and divide by count to get the average.
-        if n_features == 1:
-            oof_preds_sum = np.zeros(n_samples)
-        else:
-            oof_preds_sum = np.zeros((n_samples, n_features))
+        oof_preds_sum = np.zeros(n_samples) if n_features == 1 else np.zeros((n_samples, n_features))
         oof_preds_count = np.zeros(n_samples, dtype=int)
 
         for pred in val_predictions:
@@ -1251,9 +1231,9 @@ class TrainingSetReconstructor:
     def _collect_test_predictions_with_proba(
         self,
         model_name: str,
-        branch_id: Optional[int],
+        branch_id: int | None,
         max_step: int,
-        id_to_pos: Dict[int, int],
+        id_to_pos: dict[int, int],
         n_samples: int,
         use_proba: bool,
         classification_info: 'ClassificationInfo'
@@ -1277,7 +1257,7 @@ class TrainingSetReconstructor:
         # Determine output shape
         n_features = classification_info.get_n_features_per_model(use_proba)
 
-        filter_kwargs = {
+        filter_kwargs: dict[str, Any] = {
             'model_name': model_name,
             'partition': 'test',
             'load_arrays': True,
@@ -1293,7 +1273,7 @@ class TrainingSetReconstructor:
         # If no predictions found with branch filter, try without branch filter
         # This handles models trained before any branch was created
         if not test_predictions and branch_id is not None:
-            filter_kwargs_no_branch = {
+            filter_kwargs_no_branch: dict[str, Any] = {
                 'model_name': model_name,
                 'partition': 'test',
                 'load_arrays': True,
@@ -1382,28 +1362,25 @@ class TrainingSetReconstructor:
                 return np.zeros((n_samples, n_features))
 
         all_preds = np.array(all_preds_list)
-        all_scores = np.array(all_scores)
+        scores_arr = np.array(all_scores)
 
         # Apply aggregation strategy
         if aggregation == TestAggregation.BEST_FOLD:
-            best_idx = np.argmax(all_scores) if np.any(all_scores > 0) else 0
-            return all_preds[best_idx]
+            best_idx = int(np.argmax(scores_arr)) if np.any(scores_arr > 0) else 0
+            return np.asarray(all_preds[best_idx])
         elif aggregation == TestAggregation.WEIGHTED_MEAN:
-            weights = np.clip(all_scores, 0, None)
-            if weights.sum() > 0:
-                weights = weights / weights.sum()
-            else:
-                weights = np.ones(len(all_preds)) / len(all_preds)
-            return np.average(all_preds, axis=0, weights=weights)
+            weights = np.clip(scores_arr, 0, None)
+            weights = weights / weights.sum() if weights.sum() > 0 else np.ones(len(all_preds)) / len(all_preds)
+            return np.asarray(np.average(all_preds, axis=0, weights=weights))
         else:
             # Default: MEAN
-            return np.mean(all_preds, axis=0)
+            return np.asarray(np.mean(all_preds, axis=0))
 
     def _generate_feature_names_with_classification(
         self,
         classification_info: 'ClassificationInfo',
         use_proba: bool
-    ) -> List[str]:
+    ) -> list[str]:
         """Generate feature names with classification support.
 
         Args:
@@ -1427,7 +1404,7 @@ class TrainingSetReconstructor:
         self,
         classification_info: 'ClassificationInfo',
         use_proba: bool,
-        feature_names: List[str]
+        feature_names: list[str]
     ) -> 'MetaFeatureInfo':
         """Build MetaFeatureInfo for feature importance tracking.
 

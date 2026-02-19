@@ -19,10 +19,11 @@ Usage:
 """
 
 import argparse
-import numpy as np
-import matplotlib.pyplot as plt
 import sys
 from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -38,20 +39,19 @@ args = parser.parse_args()
 # Import synthetic generation module
 # ============================================================================
 from synthetic import (
-    SyntheticNIRSGenerator,
+    PREDEFINED_COMPONENTS,
     ComponentLibrary,
     NIRBand,
-    SyntheticSpectraVisualizer,
+    SyntheticNIRSGenerator,
     SyntheticRealComparator,
-    plot_synthetic_spectra,
+    SyntheticSpectraVisualizer,
     compare_with_real_data,
-    PREDEFINED_COMPONENTS,
+    plot_synthetic_spectra,
 )
 
 print("=" * 70)
 print("SYNTHETIC NIRS SPECTRA GENERATION")
 print("=" * 70)
-
 
 # ============================================================================
 # Example 1: Basic Generation with Predefined Components
@@ -84,7 +84,6 @@ print(f"  Component spectra shape: {E.shape}")
 print(f"\n  Absorbance range: [{X.min():.3f}, {X.max():.3f}]")
 print(f"  Mean absorbance: {X.mean():.3f} ± {X.std():.3f}")
 
-
 # ============================================================================
 # Example 2: Different Complexity Levels
 # ============================================================================
@@ -103,7 +102,6 @@ for complexity in complexity_levels:
     noise_std = np.diff(X_comp, axis=1).std() / np.sqrt(2)
     print(f"  {complexity.capitalize():10s}: Noise σ ≈ {noise_std:.4f}, "
           f"Range: [{X_comp.min():.3f}, {X_comp.max():.3f}]")
-
 
 # ============================================================================
 # Example 3: Custom Component Library
@@ -137,7 +135,6 @@ custom_generator = SyntheticNIRSGenerator(
 X_custom, Y_custom, E_custom = custom_generator.generate(n_samples=500)
 print(f"  Generated {X_custom.shape[0]} samples with {Y_custom.shape[1]} components")
 
-
 # ============================================================================
 # Example 4: Batch Effects for Domain Adaptation
 # ============================================================================
@@ -159,7 +156,6 @@ for batch_id in unique_batches:
     n_in_batch = np.sum(batch_ids == batch_id)
     print(f"    Batch {batch_id}: {n_in_batch} samples")
 
-
 # ============================================================================
 # Example 5: Different Concentration Methods
 # ============================================================================
@@ -180,7 +176,6 @@ for method in concentration_methods:
 
     print(f"  {method.capitalize():12s}: Mean={conc_mean:.3f}, Std={conc_std:.3f}, "
           f"Avg |corr|={avg_corr:.3f}")
-
 
 # ============================================================================
 # Example 6: Comparison with Real Data
@@ -249,7 +244,7 @@ if real_data_loaded:
     recs = comparator.get_tuning_recommendations()
     if recs:
         print("\n  Tuning Recommendations:")
-        for param, rec_list in list(recs.items())[:3]:
+        for _param, rec_list in list(recs.items())[:3]:
             for rec in rec_list[:1]:
                 print(f"    • {rec}")
 else:
@@ -276,7 +271,6 @@ else:
     print(f"  Simple vs Complex similarity: {score2:.1f}/100")
 
 print("\n  ✓ Comparison complete!")
-
 
 # ============================================================================
 # Visualization
@@ -322,7 +316,7 @@ if args.plots or args.save:
 
     # Figure 9: Complexity Comparison
     fig9, axes = plt.subplots(1, 3, figsize=(15, 5))
-    for ax, (complexity, X_comp) in zip(axes, comparison_data.items()):
+    for ax, (complexity, X_comp) in zip(axes, comparison_data.items(), strict=False):
         # Plot mean ± std envelope
         mean_spec = X_comp.mean(axis=0)
         std_spec = X_comp.std(axis=0)
@@ -377,7 +371,6 @@ if args.plots or args.save:
     if args.plots:
         plt.show()
 
-
 # ============================================================================
 # Example 6: Integration with nirs4all Pipeline
 # ============================================================================
@@ -388,8 +381,8 @@ if args.pipeline:
     from sklearn.cross_decomposition import PLSRegression
     from sklearn.preprocessing import MinMaxScaler
 
+    from nirs4all.operators.transforms import SavitzkyGolay, StandardNormalVariate
     from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-    from nirs4all.operators.transforms import StandardNormalVariate, SavitzkyGolay
 
     # Create a SpectroDataset from synthetic data
     print("  Creating SpectroDataset...")
@@ -430,7 +423,6 @@ if args.pipeline:
             print(f"    {idx+1}. RMSE={test_rmse}, R²={test_r2}")
 
     print("\n  ✓ Pipeline completed successfully on synthetic data!")
-
 
 # ============================================================================
 # Summary

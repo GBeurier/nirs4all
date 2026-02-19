@@ -11,36 +11,34 @@ Tests all 17+ pipeline syntax types from WRITING_A_PIPELINE.md and sample.py:
 This ensures backward compatibility is removed and only clean, minimal code remains.
 """
 
-import pytest
 import json
-import yaml
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
-# Import all necessary components
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from sklearn.model_selection import ShuffleSplit
+import pytest
+import yaml
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
+from sklearn.model_selection import ShuffleSplit
 
-from nirs4all.operators.transforms import (
-    Detrend, FirstDerivative, SecondDerivative, Gaussian,
-    StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
-)
+# Import all necessary components
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+
+from nirs4all.operators.transforms import Detrend, FirstDerivative, Gaussian, Haar, MultiplicativeScatterCorrection, SavitzkyGolay, SecondDerivative, StandardNormalVariate
 
 # Try to import TF models, skip tests if not available
 try:
-    from nirs4all.operators.models.tensorflow.nicon import nicon, customizable_nicon
+    from nirs4all.operators.models.tensorflow.nicon import customizable_nicon, nicon
     TF_AVAILABLE = True
 except (ImportError, ModuleNotFoundError):
     TF_AVAILABLE = False
     nicon = None
     customizable_nicon = None
 
+from nirs4all.pipeline.config.component_serialization import deserialize_component, serialize_component
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
-from nirs4all.pipeline.config.component_serialization import serialize_component, deserialize_component
 
 
 # Mock function to simulate TF/PyTorch model functions
@@ -48,10 +46,8 @@ def mock_model_function(input_shape, params={}):
     """Mock function that simulates nicon-like behavior."""
     return f"Model with input_shape={input_shape}, params={params}"
 
-
 # Mark it with framework decorator simulation
 mock_model_function.framework = 'tensorflow'
-
 
 @pytest.fixture
 def temp_pipeline_dir():
@@ -59,7 +55,6 @@ def temp_pipeline_dir():
     temp_dir = tempfile.mkdtemp()
     yield Path(temp_dir)
     shutil.rmtree(temp_dir)
-
 
 class TestBasicStepSyntaxes:
     """Test all 7 basic step syntaxes from WRITING_A_PIPELINE.md."""
@@ -161,7 +156,6 @@ class TestBasicStepSyntaxes:
         assert isinstance(serialized, dict)
         assert "y_processing" in serialized
 
-
 class TestModelStepSyntaxes:
     """Test all model-specific syntaxes."""
 
@@ -211,7 +205,6 @@ class TestModelStepSyntaxes:
         # Check tuple was converted to list
         assert isinstance(serialized["finetune_params"]["model_params"]["n_components"], list)
         assert serialized["finetune_params"]["model_params"]["n_components"] == ['int', 1, 30]
-
 
 class TestFunctionBasedModels:
     """Test function-based models (TensorFlow/PyTorch) that need input_shape at runtime."""
@@ -363,7 +356,6 @@ class TestFunctionBasedModels:
         assert "function" in func_step
         assert "mock_model_function" in func_step["function"]
 
-
 @pytest.mark.xdist_group("gpu")
 @pytest.mark.skipif(not TF_AVAILABLE, reason="TensorFlow not installed")
 class TestFunctionBasedModelsWithTensorFlow:
@@ -501,7 +493,6 @@ class TestFunctionBasedModelsWithTensorFlow:
         assert "train_params" in model_step
         assert model_step["train_params"]["epochs"] == 50
 
-
 class TestGeneratorSyntaxes:
     """Test generator syntaxes (_or_, _range_)."""
 
@@ -554,7 +545,6 @@ class TestGeneratorSyntaxes:
         assert "_or_" in serialized
         assert "count" in serialized
 
-
 class TestRoundTripSerialization:
     """Test complete round-trip serialization for JSON and YAML."""
 
@@ -596,7 +586,7 @@ class TestRoundTripSerialization:
             yaml.dump(serialized, f)
 
         # Load back
-        with open(yaml_file, "r") as f:
+        with open(yaml_file) as f:
             loaded = yaml.safe_load(f)
 
         # Deserialize
@@ -624,7 +614,6 @@ class TestRoundTripSerialization:
 
         # Check tuple was converted to list
         assert isinstance(parsed["finetune_params"]["model_params"]["n_components"], list)
-
 
 class TestHashConsistency:
     """Test that hash-based uniqueness works correctly."""
@@ -672,7 +661,6 @@ class TestHashConsistency:
         hash2 = PipelineConfigs.get_hash(config2.steps[0])
 
         assert hash1 != hash2
-
 
 class TestComplexHeterogeneousPipeline:
     """Test complex pipeline with mixed syntax types."""
@@ -731,7 +719,6 @@ class TestComplexHeterogeneousPipeline:
 
         assert len(parsed) == 8
 
-
 class TestPipelineConfigsSerialization:
     """Test PipelineConfigs integration with serialization."""
 
@@ -753,7 +740,7 @@ class TestPipelineConfigsSerialization:
             json.dump(serialized, f, indent=2)
 
         # Load back
-        with open(json_file, "r") as f:
+        with open(json_file) as f:
             loaded = json.load(f)
 
         assert isinstance(loaded, list)
@@ -774,7 +761,7 @@ class TestPipelineConfigsSerialization:
             yaml.dump(serialized, f)
 
         # Load back
-        with open(yaml_file, "r") as f:
+        with open(yaml_file) as f:
             loaded = yaml.safe_load(f)
 
         assert isinstance(loaded, list)
@@ -830,7 +817,6 @@ class TestPipelineConfigsSerialization:
 
         assert len(config.steps) == 1
 
-
 class TestGeneratorExpansion:
     """Test that serialization is compatible with generator expansion."""
 
@@ -855,7 +841,6 @@ class TestGeneratorExpansion:
         for steps in config.steps:
             serialized = serialize_component(steps)
             assert isinstance(serialized, list)
-
 
 class TestEdgeCases:
     """Test edge cases and error handling."""
@@ -907,7 +892,6 @@ class TestEdgeCases:
         assert isinstance(serialized, list)
         assert len(serialized) == 4
 
-
 class TestBackwardCompatibility:
     """Test that backward compatibility code has been removed."""
 
@@ -919,7 +903,6 @@ class TestBackwardCompatibility:
         # Should not contain _runtime_instance key
         if isinstance(serialized, dict):
             assert "_runtime_instance" not in serialized
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

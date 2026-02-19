@@ -1,19 +1,19 @@
 """Target data management with processing chains."""
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 from sklearn.base import TransformerMixin
 
-from nirs4all.data.types import SampleIndices
-from nirs4all.data._targets.converters import NumericConverter
-from nirs4all.data._targets.processing_chain import ProcessingChain
-from nirs4all.data._targets.transformers import TargetTransformer
-from nirs4all.core.task_type import TaskType
 from nirs4all.core.task_detection import detect_task_type
+from nirs4all.core.task_type import TaskType
+from nirs4all.data._targets.converters import NumericConverter
 
 # Re-export for backward compatibility
 from nirs4all.data._targets.encoders import FlexibleLabelEncoder  # noqa: F401
+from nirs4all.data._targets.processing_chain import ProcessingChain
+from nirs4all.data._targets.transformers import TargetTransformer
+from nirs4all.data.types import SampleIndices
 
 
 class Targets:
@@ -57,10 +57,10 @@ class Targets:
         TargetTransformer: Transforms predictions between states
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize empty target manager."""
         # Core data storage
-        self._data: Dict[str, np.ndarray] = {}
+        self._data: dict[str, np.ndarray] = {}
 
         # Delegate to specialized components
         self._processing_chain = ProcessingChain()
@@ -68,12 +68,12 @@ class Targets:
         self._transformer = TargetTransformer(self._processing_chain)
 
         # Performance caching
-        self._stats_cache: Dict[str, Any] = {}
+        self._stats_cache: dict[str, Any] = {}
 
         # Task type detection
-        self._task_type: Optional[TaskType] = None
+        self._task_type: TaskType | None = None
         self._task_type_forced: bool = False  # If True, task type was explicitly set and should not be re-detected
-        self._task_type_by_processing: Dict[str, TaskType] = {}  # Track task_type per processing
+        self._task_type_by_processing: dict[str, TaskType] = {}  # Track task_type per processing
 
     def __repr__(self) -> str:
         """
@@ -104,7 +104,7 @@ class Targets:
             return "Targets:\n(empty)"
 
         # Show statistics for each processing (excluding "raw")
-        processing_stats = []
+        processing_stats: list[tuple[str, float | str, float | str, float | str]] = []
         for proc_name in self._processing_chain.processing_ids:
             if proc_name == "raw":
                 continue  # Skip raw processing in display
@@ -143,7 +143,7 @@ class Targets:
             return 0
         # Use first available processing to get sample count
         first_data = next(iter(self._data.values()))
-        return first_data.shape[0]
+        return int(first_data.shape[0])
 
     @property
     def num_targets(self) -> int:
@@ -157,7 +157,7 @@ class Targets:
             return 0
         # Use first available processing to get target count
         first_data = next(iter(self._data.values()))
-        return first_data.shape[1]
+        return int(first_data.shape[1])
 
     @property
     def num_processings(self) -> int:
@@ -170,7 +170,7 @@ class Targets:
         return self._processing_chain.num_processings
 
     @property
-    def processing_ids(self) -> List[str]:
+    def processing_ids(self) -> list[str]:
         """
         Get the list of processing IDs.
 
@@ -222,7 +222,7 @@ class Targets:
         return num_classes
 
     @property
-    def task_type(self) -> Optional[TaskType]:
+    def task_type(self) -> TaskType | None:
         """
         Get the detected task type.
 
@@ -248,7 +248,7 @@ class Targets:
         self._task_type = task_type
         self._task_type_forced = forced
 
-    def get_task_type_for_processing(self, processing: str) -> Optional[TaskType]:
+    def get_task_type_for_processing(self, processing: str) -> TaskType | None:
         """
         Get the task type for a specific processing.
 
@@ -274,7 +274,7 @@ class Targets:
         """
         return self._task_type_by_processing.get(processing)
 
-    def add_targets(self, targets: Union[np.ndarray, List, tuple]) -> None:
+    def add_targets(self, targets: np.ndarray | list | tuple) -> None:
         """
         Add target samples. Can be called multiple times to append.
 
@@ -349,9 +349,9 @@ class Targets:
 
     def add_processed_targets(self,
                               processing_name: str,
-                              targets: Union[np.ndarray, List, tuple],
+                              targets: np.ndarray | list | tuple,
                               ancestor: str = "numeric",
-                              transformer: Optional[TransformerMixin] = None,
+                              transformer: TransformerMixin | None = None,
                               mode: str = "train") -> None:
         """
         Add processed version of target data.
@@ -411,7 +411,7 @@ class Targets:
 
     def get_targets(self,
                     processing: str = "numeric",
-                    indices: Optional[Union[List[int], np.ndarray]] = None) -> np.ndarray:
+                    indices: list[int] | np.ndarray | None = None) -> np.ndarray:
         """
         Get target data for a specific processing.
 
@@ -469,7 +469,7 @@ class Targets:
 
         return self.get_targets(processing, indices)
 
-    def get_processing_ancestry(self, processing: str) -> List[str]:
+    def get_processing_ancestry(self, processing: str) -> list[str]:
         """
         Get the full ancestry chain for a processing.
 

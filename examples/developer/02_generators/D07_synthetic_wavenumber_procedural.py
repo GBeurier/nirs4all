@@ -34,30 +34,31 @@ import argparse
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+
 # Third-party imports
 import numpy as np
-import matplotlib.pyplot as plt
 
 # NIRS4All imports
 import nirs4all
 from nirs4all.synthesis import (
-    # Wavenumber utilities
-    wavenumber_to_wavelength,
-    wavelength_to_wavenumber,
-    calculate_overtone_position,
-    calculate_combination_band,
-    classify_wavelength_zone,
-    apply_hydrogen_bonding_shift,
-    NIR_ZONES_WAVENUMBER,
-    FUNDAMENTAL_VIBRATIONS,
-    # Procedural generation
-    FunctionalGroupType,
     FUNCTIONAL_GROUP_PROPERTIES,
-    ProceduralComponentConfig,
-    ProceduralComponentGenerator,
+    FUNDAMENTAL_VIBRATIONS,
+    NIR_ZONES_WAVENUMBER,
     # Library and generator
     ComponentLibrary,
+    # Procedural generation
+    FunctionalGroupType,
+    ProceduralComponentConfig,
+    ProceduralComponentGenerator,
     SyntheticNIRSGenerator,
+    apply_hydrogen_bonding_shift,
+    calculate_combination_band,
+    calculate_overtone_position,
+    classify_wavelength_zone,
+    wavelength_to_wavenumber,
+    # Wavenumber utilities
+    wavenumber_to_wavelength,
 )
 
 # Add examples directory to path for example_utils
@@ -73,7 +74,6 @@ args = parser.parse_args()
 # Example name for output directory
 EXAMPLE_NAME = "D07_synthetic_wavenumber_procedural"
 
-
 # =============================================================================
 # Section 1: Wavenumber ↔ Wavelength Conversion
 # =============================================================================
@@ -87,7 +87,7 @@ print("-" * 60)
 
 # Basic conversions
 print("\n📊 Wavenumber ↔ Wavelength Relationships:")
-print(f"   Formula: λ (nm) = 10⁷ / ν̃ (cm⁻¹)")
+print("   Formula: λ (nm) = 10⁷ / ν̃ (cm⁻¹)")
 print()
 
 # Example conversions
@@ -107,7 +107,6 @@ for wn in wavenumbers_cm:
     wl = wavenumber_to_wavelength(wn)
     print(f"   {wn:.0f} cm⁻¹ → {wl:.1f} nm")
 
-
 # =============================================================================
 # Section 2: NIR Spectral Zones
 # =============================================================================
@@ -123,7 +122,6 @@ for wn_min, wn_max, zone_name in NIR_ZONES_WAVENUMBER:
     wl_start = wavenumber_to_wavelength(wn_max)  # Higher wn = shorter wl
     wl_end = wavenumber_to_wavelength(wn_min)
     print(f"   {zone_name:<25} {wn_min}-{wn_max:<12} {wl_start:.0f}-{wl_end:.0f}")
-
 
 # =============================================================================
 # Section 3: Fundamental Vibrations
@@ -151,7 +149,6 @@ for cat_name, vibrations in categories.items():
         if wn:
             wl = wavenumber_to_wavelength(wn)
             print(f"     {vib:<23} {wn:<20} {wl:.1f}")
-
 
 # =============================================================================
 # Section 4: Overtone Calculation
@@ -185,10 +182,9 @@ for n in range(1, 5):
 print("\n   Custom anharmonicity example:")
 result_low = calculate_overtone_position(3400, 2, anharmonicity=0.01)
 result_high = calculate_overtone_position(3400, 2, anharmonicity=0.03)
-print(f"   Same fundamental (3400 cm⁻¹) with different χ:")
+print("   Same fundamental (3400 cm⁻¹) with different χ:")
 print(f"     χ = 0.01: 1st overtone at {result_low.wavelength_nm:.1f} nm")
 print(f"     χ = 0.03: 1st overtone at {result_high.wavelength_nm:.1f} nm")
-
 
 # =============================================================================
 # Section 5: Combination Bands
@@ -203,24 +199,23 @@ print()
 
 # O-H stretch + bend combination
 result = calculate_combination_band(["O-H_stretch_free", "O-H_bend"])
-print(f"   O-H stretch + O-H bend:")
+print("   O-H stretch + O-H bend:")
 print(f"     Modes: 3650 + 1640 = {3650 + 1640} cm⁻¹")
 print(f"     Combination band: {result.wavelength_nm:.1f} nm")
-print(f"     (Observed: ~1890 nm)")
+print("     (Observed: ~1890 nm)")
 
 # C-H combination
 result = calculate_combination_band(["C-H_stretch_CH3_asym", "C-H_bend"])
-print(f"\n   C-H stretch + C-H bend:")
+print("\n   C-H stretch + C-H bend:")
 print(f"     Modes: 2960 + 1465 = {2960 + 1465} cm⁻¹")
 print(f"     Combination band: {result.wavelength_nm:.1f} nm")
-print(f"     (Observed: ~2250 nm)")
+print("     (Observed: ~2250 nm)")
 
 # N-H combination
 result = calculate_combination_band(["N-H_stretch_primary", "N-H_bend"])
-print(f"\n   N-H stretch + N-H bend:")
+print("\n   N-H stretch + N-H bend:")
 print(f"     Modes: 3400 + 1600 = {3400 + 1600} cm⁻¹")
 print(f"     Combination band: {result.wavelength_nm:.1f} nm")
-
 
 # =============================================================================
 # Section 6: Hydrogen Bonding Effects
@@ -243,7 +238,6 @@ for h_bond_strength in [0.0, 0.25, 0.5, 0.75, 1.0]:
     shift = free_oh - bonded
     print(f"   H-bond strength {h_bond_strength:.2f}: {bonded:.0f} cm⁻¹ ({wl:.0f} nm), shift = -{shift:.0f} cm⁻¹")
 
-
 # =============================================================================
 # Section 7: Functional Group Types
 # =============================================================================
@@ -258,7 +252,6 @@ for fg_type in FunctionalGroupType:
     hbond = props.get('h_bond_susceptibility', 0)
     amplitude = props.get('typical_amplitude', 1.0)
     print(f"   {fg_type.name:<15} fundamental: {fundamental:<8} H-bond: {hbond:<5} amplitude: {amplitude}")
-
 
 # =============================================================================
 # Section 8: Procedural Component Generation
@@ -293,7 +286,6 @@ for i, band in enumerate(component1.bands[:5]):
 if len(component1.bands) > 5:
     print(f"     ... and {len(component1.bands) - 5} more bands")
 
-
 # Generate complex component
 print("\n📊 Generating complex component (with combinations):")
 complex_config = ProceduralComponentConfig(
@@ -324,7 +316,6 @@ for i, band in enumerate(component2.bands[:8]):
 if len(component2.bands) > 8:
     print(f"     ... and {len(component2.bands) - 8} more bands")
 
-
 # =============================================================================
 # Section 9: Integration with Generator
 # =============================================================================
@@ -354,7 +345,7 @@ for i in range(3):
     )
     library.add_component(component)
 
-print(f"\n📊 Library with mixed components:")
+print("\n📊 Library with mixed components:")
 print(f"   Total components: {len(library.component_names)}")
 for name in library.component_names:
     comp = library.components[name]
@@ -372,7 +363,6 @@ generator = SyntheticNIRSGenerator(
 X, C, *rest = generator.generate(n_samples=100)
 print(f"\n   Generated: {X.shape[0]} spectra, {X.shape[1]} wavelengths")
 print(f"   Concentrations: {C.shape}")
-
 
 # =============================================================================
 # Section 10: Visualization
@@ -422,14 +412,12 @@ ax1.axvspan(900, 2500, alpha=0.1, color='yellow', label='NIR region')
 ax2 = axes[0, 1]
 zone_colors_cmap = plt.cm.get_cmap('viridis')
 zone_colors = [zone_colors_cmap(x) for x in np.linspace(0.2, 0.8, len(NIR_ZONES_WAVENUMBER))]
-y_pos = 0
-for (wn_min, wn_max, zone_name), color in zip(NIR_ZONES_WAVENUMBER, zone_colors):
+for y_pos, ((wn_min, wn_max, zone_name), color) in enumerate(zip(NIR_ZONES_WAVENUMBER, zone_colors, strict=False)):
     wl_start = wavenumber_to_wavelength(wn_max)
     wl_end = wavenumber_to_wavelength(wn_min)
     ax2.barh(y_pos, wl_end - wl_start, left=wl_start, height=0.8, color=color, alpha=0.7)
     ax2.text((wl_start + wl_end) / 2, y_pos, zone_name.replace('_', '\n'),
              ha='center', va='center', fontsize=8)
-    y_pos += 1
 
 ax2.set_xlabel("Wavelength (nm)")
 ax2.set_title("NIR Spectral Zones")
@@ -492,7 +480,6 @@ plt.tight_layout()
 plot_path = get_example_output_path(EXAMPLE_NAME, "wavenumber_procedural_overview.png")
 plt.savefig(plot_path, dpi=150, bbox_inches="tight")
 print_output_location(plot_path, "Overview plot")
-
 
 # =============================================================================
 # Summary

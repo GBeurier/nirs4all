@@ -1,10 +1,12 @@
 """
 MatrixBuilder - Build matrices for heatmap visualizations.
 """
-import numpy as np
 import re
-from typing import Dict, List, Tuple, Optional
 from collections import defaultdict
+from typing import Optional
+
+import numpy as np
+
 from nirs4all.visualization.chart_utils.aggregator import DataAggregator
 
 
@@ -30,8 +32,8 @@ class MatrixBuilder:
         x_var: str,
         y_var: str,
         display_score_field: str,
-        rank_field: Optional[str] = None
-    ) -> Dict:
+        rank_field: str | None = None
+    ) -> dict:
         """Group scores by x and y variables from PredictionResultsList.
 
         Args:
@@ -76,7 +78,7 @@ class MatrixBuilder:
         y_var: str,
         metric: str,
         use_rank_scores: bool = False
-    ) -> Dict:
+    ) -> dict:
         """Group scores by x and y variables when partition is one of the grouping variables.
 
         This method handles the special case where 'partition' is used as x_var or y_var.
@@ -131,11 +133,11 @@ class MatrixBuilder:
 
     @staticmethod
     def build_matrices(
-        score_dict: Dict,
+        score_dict: dict,
         aggregation: str,
         higher_better: bool,
         natural_sort: bool = True
-    ) -> Tuple[List, List, np.ndarray, np.ndarray]:
+    ) -> tuple[list, list, np.ndarray, np.ndarray]:
         """Build matrices from score dictionary.
 
         Args:
@@ -153,7 +155,7 @@ class MatrixBuilder:
 
         y_labels = sorted(score_dict.keys(), key=sort_key)
         x_labels = sorted(
-            set(x for y_data in score_dict.values() for x in y_data.keys()),
+            {x for y_data in score_dict.values() for x in y_data},
             key=sort_key
         )
 

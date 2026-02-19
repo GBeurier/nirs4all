@@ -23,13 +23,9 @@ and reads artifact metadata from V3 manifests.
 import logging
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import from_bytes
-from nirs4all.pipeline.storage.artifacts.types import (
-    ArtifactRecord,
-    ArtifactType,
-)
 from nirs4all.pipeline.storage.artifacts.operator_chain import (
     OperatorChain,
     OperatorNode,
@@ -39,11 +35,13 @@ from nirs4all.pipeline.storage.artifacts.query_service import (
     ArtifactQueryService,
     ArtifactQuerySpec,
 )
+from nirs4all.pipeline.storage.artifacts.types import (
+    ArtifactRecord,
+    ArtifactType,
+)
 from nirs4all.pipeline.storage.artifacts.utils import get_binaries_path
 
-
 logger = logging.getLogger(__name__)
-
 
 class LRUCache:
     """Simple LRU cache with configurable max size.
@@ -62,7 +60,7 @@ class LRUCache:
         self._hits = 0
         self._misses = 0
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """Get item from cache, moving to end (most recently used).
 
         Args:
@@ -115,7 +113,7 @@ class LRUCache:
         return len(self._cache)
 
     @property
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Get cache statistics."""
         total = self._hits + self._misses
         return {
@@ -125,7 +123,6 @@ class LRUCache:
             "misses": self._misses,
             "hit_rate": self._hits / total if total > 0 else 0.0,
         }
-
 
 class ArtifactLoader:
     """Load artifacts using V3 chain-based identification.
@@ -166,7 +163,7 @@ class ArtifactLoader:
         self,
         workspace: Path,
         dataset: str,
-        results_dir: Optional[Path] = None,
+        results_dir: Path | None = None,
         cache_size: int = DEFAULT_CACHE_SIZE
     ):
         """Initialize artifact loader.
@@ -185,22 +182,22 @@ class ArtifactLoader:
         self.binaries_dir = get_binaries_path(self.workspace, dataset)
 
         # Artifact index by artifact_id
-        self._artifacts: Dict[str, ArtifactRecord] = {}
+        self._artifacts: dict[str, ArtifactRecord] = {}
 
         # V3 indexes for efficient lookup
-        self._by_chain_path: Dict[str, str] = {}  # chain_path -> artifact_id
-        self._by_content_hash: Dict[str, str] = {}  # content_hash -> artifact_id
-        self._by_step: Dict[int, List[str]] = {}
-        self._by_step_branch: Dict[Tuple[int, Tuple[int, ...]], List[str]] = {}
-        self._by_step_branch_source: Dict[Tuple[int, Tuple[int, ...], Optional[int]], List[str]] = {}
-        self._artifact_order: Dict[str, int] = {}
+        self._by_chain_path: dict[str, str] = {}  # chain_path -> artifact_id
+        self._by_content_hash: dict[str, str] = {}  # content_hash -> artifact_id
+        self._by_step: dict[int, list[str]] = {}
+        self._by_step_branch: dict[tuple[int, tuple[int, ...]], list[str]] = {}
+        self._by_step_branch_source: dict[tuple[int, tuple[int, ...], int | None], list[str]] = {}
+        self._artifact_order: dict[str, int] = {}
         self._artifact_order_counter: int = 0
 
         # LRU cache for loaded objects (artifact_id -> object)
         self._cache = LRUCache(max_size=cache_size)
 
         # Dependency graph for resolution
-        self._dependencies: Dict[str, List[str]] = {}
+        self._dependencies: dict[str, list[str]] = {}
 
     # =========================================================================
     # V3 Chain-Based Loading
@@ -209,8 +206,8 @@ class ArtifactLoader:
     def load_by_chain(
         self,
         chain: str,
-        fold_id: Optional[int] = None
-    ) -> Optional[Any]:
+        fold_id: int | None = None
+    ) -> Any | None:
         """Load artifact by exact chain path match.
 
         Args:
@@ -230,9 +227,9 @@ class ArtifactLoader:
     def load_by_chain_prefix(
         self,
         prefix: str,
-        branch_path: Optional[List[int]] = None,
-        source_index: Optional[int] = None
-    ) -> List[Tuple[str, Any]]:
+        branch_path: list[int] | None = None,
+        source_index: int | None = None
+    ) -> list[tuple[str, Any]]:
         """Load all artifacts whose chain path starts with the given prefix.
 
         Useful for loading all artifacts in a chain for prediction replay.
@@ -263,7 +260,7 @@ class ArtifactLoader:
 
         return results
 
-    def get_record_by_chain(self, chain_path: str) -> Optional[ArtifactRecord]:
+    def get_record_by_chain(self, chain_path: str) -> ArtifactRecord | None:
         """Get artifact record by chain path.
 
         Args:
@@ -279,11 +276,11 @@ class ArtifactLoader:
 
     def get_artifacts_by_chain_filter(
         self,
-        step_index: Optional[int] = None,
-        branch_path: Optional[List[int]] = None,
-        source_index: Optional[int] = None,
-        fold_id: Optional[int] = None
-    ) -> List[ArtifactRecord]:
+        step_index: int | None = None,
+        branch_path: list[int] | None = None,
+        source_index: int | None = None,
+        fold_id: int | None = None
+    ) -> list[ArtifactRecord]:
         """Get artifact records matching chain-based filters.
 
         Uses the chain_path information stored in V3 records to filter.
@@ -346,11 +343,11 @@ class ArtifactLoader:
     def load_for_step(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None,
-        source_index: Optional[int] = None,
-        fold_id: Optional[int] = None,
-        pipeline_id: Optional[str] = None
-    ) -> List[Tuple[str, Any]]:
+        branch_path: list[int] | None = None,
+        source_index: int | None = None,
+        fold_id: int | None = None,
+        pipeline_id: str | None = None
+    ) -> list[tuple[str, Any]]:
         """Load all artifacts for a step context.
 
         Returns artifacts matching the specified step, branch path, source, and fold.
@@ -399,7 +396,7 @@ class ArtifactLoader:
             try:
                 obj = self.load_by_id(artifact_id)
                 results.append((artifact_id, obj))
-            except (FileNotFoundError, IOError) as e:
+            except (OSError, FileNotFoundError) as e:
                 logger.warning(f"Failed to load artifact {artifact_id}: {e}")
 
         return results
@@ -407,7 +404,7 @@ class ArtifactLoader:
     def load_with_dependencies(
         self,
         artifact_id: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Load an artifact and all its transitive dependencies.
 
         Returns a dictionary mapping artifact IDs to loaded objects,
@@ -438,9 +435,9 @@ class ArtifactLoader:
     def load_fold_models(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None,
-        pipeline_id: Optional[str] = None
-    ) -> List[Tuple[int, Any]]:
+        branch_path: list[int] | None = None,
+        pipeline_id: str | None = None
+    ) -> list[tuple[int, Any]]:
         """Load all fold-specific model artifacts for CV averaging.
 
         Returns models for all folds at the specified step, sorted by fold_id.
@@ -481,7 +478,7 @@ class ArtifactLoader:
             try:
                 obj = self.load_by_id(artifact_id)
                 results.append((record.fold_id, obj))
-            except (FileNotFoundError, IOError) as e:
+            except (OSError, FileNotFoundError) as e:
                 logger.warning(f"Failed to load fold model {artifact_id}: {e}")
 
         # Sort by fold_id
@@ -491,7 +488,7 @@ class ArtifactLoader:
         self,
         artifact_id: str,
         validate_branch: bool = True
-    ) -> Tuple[Any, List[Tuple[str, Any]], List[str]]:
+    ) -> tuple[Any, list[tuple[str, Any]], list[str]]:
         """Load a meta-model and its source models.
 
         For stacking, loads the meta-model and all source models it depends on,
@@ -602,7 +599,7 @@ class ArtifactLoader:
         self,
         artifact_id: str,
         X: Any = None
-    ) -> Tuple[Any, List[Tuple[str, Any]], List[str]]:
+    ) -> tuple[Any, list[tuple[str, Any]], list[str]]:
         """Load a meta-model and its sources, ready for prediction.
 
         This method loads the complete stacking ensemble and validates
@@ -634,7 +631,7 @@ class ArtifactLoader:
             )
             # Regenerate feature columns from source models
             feature_columns = []
-            for source_id, source_model in source_models:
+            for _source_id, source_model in source_models:
                 feature_columns.append(f"{source_model.__class__.__name__}_pred")
 
         return meta_model, source_models, feature_columns
@@ -642,9 +639,9 @@ class ArtifactLoader:
     def get_step_binaries(
         self,
         step_id: int,
-        branch_id: Optional[int] = None,
-        branch_path: Optional[List[int]] = None
-    ) -> List[Tuple[str, Any]]:
+        branch_id: int | None = None,
+        branch_path: list[int] | None = None
+    ) -> list[tuple[str, Any]]:
         """Legacy-compatible method for loading step binaries.
 
         This method provides backward compatibility with the BinaryLoader API.
@@ -665,13 +662,7 @@ class ArtifactLoader:
             List of (name, loaded_object) tuples
         """
         # Handle "step_substep" format
-        if isinstance(step_id, str):
-            if "_" in step_id:
-                step_index = int(step_id.split("_")[0])
-            else:
-                step_index = int(step_id)
-        else:
-            step_index = step_id
+        step_index = (int(step_id.split("_")[0]) if "_" in step_id else int(step_id)) if isinstance(step_id, str) else step_id
 
         # Use branch_path if provided, otherwise convert branch_id to branch_path
         if branch_path is not None:
@@ -690,7 +681,7 @@ class ArtifactLoader:
         # Convert to (name, object) format with controller-compatible names
         # We track operation counts by class name to match the original training pattern
         # where each class gets sequential operation numbers
-        class_op_counts: Dict[str, int] = {}
+        class_op_counts: dict[str, int] = {}
         results = []
 
         for artifact_id, obj in artifacts:
@@ -709,10 +700,7 @@ class ArtifactLoader:
                 # - For models with fold_id: use step*100 + fold for ModelLoader compatibility
                 # - For transformers: use sequential counter matching original training
                 if artifact_type in (ArtifactType.MODEL, ArtifactType.META_MODEL):
-                    if record.fold_id is not None:
-                        op_num = step_index * 100 + record.fold_id
-                    else:
-                        op_num = step_index * 100
+                    op_num = step_index * 100 + record.fold_id if record.fold_id is not None else step_index * 100
                 else:
                     # For transformers, use step*100 + sequential index within step
                     # This ensures unique names that can be matched by class name search
@@ -722,10 +710,7 @@ class ArtifactLoader:
                 # - ENCODER: y_transformers use "y_ClassName_N" pattern
                 # - TRANSFORMER: x_transformers use "ClassName_N" pattern
                 # - MODEL/META_MODEL: use "ClassName_N" pattern
-                if artifact_type == ArtifactType.ENCODER:
-                    name = f"y_{class_name}_{op_num}"
-                else:
-                    name = f"{class_name}_{op_num}"
+                name = f"y_{class_name}_{op_num}" if artifact_type == ArtifactType.ENCODER else f"{class_name}_{op_num}"
             else:
                 name = "unknown"
             results.append((name, obj))
@@ -735,8 +720,8 @@ class ArtifactLoader:
     def has_binaries_for_step(
         self,
         step_number: int,
-        substep_number: Optional[int] = None,
-        branch_id: Optional[int] = None
+        substep_number: int | None = None,
+        branch_id: int | None = None
     ) -> bool:
         """Check if binaries exist for a specific step.
 
@@ -756,15 +741,14 @@ class ArtifactLoader:
             if record.step_index != step_number:
                 continue
 
-            if branch_path is not None:
-                if record.branch_path and record.branch_path != branch_path:
-                    continue
+            if branch_path is not None and record.branch_path and record.branch_path != branch_path:
+                continue
 
             return True
 
         return False
 
-    def load_by_artifact_id(self, artifact_id: str) -> Tuple[str, Any]:
+    def load_by_artifact_id(self, artifact_id: str) -> tuple[str, Any]:
         """Load a single artifact by its deterministic artifact_id.
 
         This method provides deterministic artifact loading using the artifact_id
@@ -795,10 +779,7 @@ class ArtifactLoader:
         obj = self.load_by_id(artifact_id)
 
         # Build name from custom_name if available, otherwise class_name
-        if record.custom_name:
-            name = record.custom_name
-        else:
-            name = record.class_name
+        name = record.custom_name if record.custom_name else record.class_name
 
         # Append fold info if applicable
         if record.fold_id is not None:
@@ -808,8 +789,8 @@ class ArtifactLoader:
 
     def get_step_binaries_by_artifact_ids(
         self,
-        artifact_ids: List[str]
-    ) -> List[Tuple[str, Any]]:
+        artifact_ids: list[str]
+    ) -> list[tuple[str, Any]]:
         """Load multiple artifacts by their deterministic artifact_ids.
 
         This method is used in prediction mode when model_artifact_id is available
@@ -843,10 +824,10 @@ class ArtifactLoader:
     def find_artifact_by_custom_name(
         self,
         custom_name: str,
-        step_index: Optional[int] = None,
-        fold_id: Optional[int] = None,
-        branch_path: Optional[List[int]] = None
-    ) -> Optional[ArtifactRecord]:
+        step_index: int | None = None,
+        fold_id: int | None = None,
+        branch_path: list[int] | None = None
+    ) -> ArtifactRecord | None:
         """Find an artifact by its custom_name.
 
         Used for reverse lookup when only the model name is known but not
@@ -880,8 +861,8 @@ class ArtifactLoader:
 
     def import_from_manifest(
         self,
-        manifest: Dict[str, Any],
-        results_dir: Optional[Path] = None
+        manifest: dict[str, Any],
+        results_dir: Path | None = None
     ) -> None:
         """Import artifact records from a V3 manifest.
 
@@ -909,7 +890,7 @@ class ArtifactLoader:
                 record = ArtifactRecord.from_dict(item)
                 self._register_record(record)
 
-    def get_record(self, artifact_id: str) -> Optional[ArtifactRecord]:
+    def get_record(self, artifact_id: str) -> ArtifactRecord | None:
         """Get artifact record by ID.
 
         Args:
@@ -920,7 +901,7 @@ class ArtifactLoader:
         """
         return self._artifacts.get(artifact_id)
 
-    def get_all_records(self) -> List[ArtifactRecord]:
+    def get_all_records(self) -> list[ArtifactRecord]:
         """Get all artifact records.
 
         Returns:
@@ -932,7 +913,7 @@ class ArtifactLoader:
         """Clear the object cache to free memory."""
         self._cache.clear()
 
-    def get_cache_info(self) -> Dict[str, Any]:
+    def get_cache_info(self) -> dict[str, Any]:
         """Get information about the current cache state.
 
         Returns:
@@ -965,8 +946,8 @@ class ArtifactLoader:
 
     def preload_artifacts(
         self,
-        artifact_ids: Optional[List[str]] = None,
-        artifact_types: Optional[List[ArtifactType]] = None
+        artifact_ids: list[str] | None = None,
+        artifact_types: list[ArtifactType] | None = None
     ) -> int:
         """Preload artifacts into cache.
 
@@ -982,10 +963,7 @@ class ArtifactLoader:
         """
         count = 0
 
-        if artifact_ids is not None:
-            ids_to_load = artifact_ids
-        else:
-            ids_to_load = list(self._artifacts.keys())
+        ids_to_load = artifact_ids if artifact_ids is not None else list(self._artifacts.keys())
 
         for artifact_id in ids_to_load:
             # Skip if already cached
@@ -1012,7 +990,7 @@ class ArtifactLoader:
     @classmethod
     def from_manifest(
         cls,
-        manifest: Dict[str, Any],
+        manifest: dict[str, Any],
         results_dir: Path
     ) -> 'ArtifactLoader':
         """Create an ArtifactLoader from a pipeline manifest.
@@ -1050,14 +1028,8 @@ class ArtifactLoader:
         if not dataset:
             # Parse from parent directory name (YYYY-MM-DD_dataset)
             # Go up from pipeline_id folder to date_dataset folder
-            if results_dir.parent.parent.name == "runs":
-                dir_name = results_dir.parent.name
-            else:
-                dir_name = results_dir.name
-            if "_" in dir_name:
-                dataset = "_".join(dir_name.split("_")[1:])
-            else:
-                dataset = dir_name
+            dir_name = results_dir.parent.name if results_dir.parent.parent.name == "runs" else results_dir.name
+            dataset = "_".join(dir_name.split("_")[1:]) if "_" in dir_name else dir_name
 
         loader = cls(workspace, dataset, results_dir)
         loader.import_from_manifest(manifest, results_dir)
@@ -1090,10 +1062,10 @@ class ArtifactLoader:
     def _resolve_dependencies(
         self,
         artifact_id: str,
-        visited: Optional[set] = None,
-        stack: Optional[set] = None,
+        visited: set | None = None,
+        stack: set | None = None,
         _is_root: bool = True
-    ) -> List[str]:
+    ) -> list[str]:
         """Resolve transitive dependencies in topological order.
 
         Args:
@@ -1138,13 +1110,13 @@ class ArtifactLoader:
             return result[:-1]
         return result
 
-    def _count_by_type(self) -> Dict[str, int]:
+    def _count_by_type(self) -> dict[str, int]:
         """Count artifacts by type.
 
         Returns:
             Dictionary of {type_name: count}
         """
-        counts: Dict[str, int] = {}
+        counts: dict[str, int] = {}
         for record in self._artifacts.values():
             type_name = record.artifact_type.value
             counts[type_name] = counts.get(type_name, 0) + 1

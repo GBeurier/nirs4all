@@ -184,10 +184,10 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
-ignore = ["E402", "F841", "F401", "E302", "E305", "W293", "E501"]
+ignore = ["E402", "F841", "F401", "E302", "E305", "W293", "E501", "SIM108"]
 
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]
+"__init__.py" = ["F401", "F403", "F405"]
 "tests/*" = ["B", "SIM"]
 
 # Pytest configuration (single source of truth — no separate pytest.ini)

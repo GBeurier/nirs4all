@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from nirs4all.api.predict import predict, _extract_X, _predict_from_chain
+from nirs4all.api.predict import _extract_X, _predict_from_chain, predict
 from nirs4all.api.result import PredictResult
 
 
@@ -47,7 +47,6 @@ class TestExtractX:
         with pytest.raises(TypeError, match="Unsupported data type"):
             _extract_X("not_supported_for_chain")
 
-
 class TestPredictValidation:
     """Tests for the predict() function argument validation."""
 
@@ -65,7 +64,6 @@ class TestPredictValidation:
         """predict should raise if data is not provided."""
         with pytest.raises(ValueError, match="data"):
             predict(chain_id="abc123")
-
 
 class TestPredictFromChain:
     """Tests for the chain-based prediction path."""

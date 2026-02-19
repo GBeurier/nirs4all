@@ -54,12 +54,13 @@ warnings.warn(
     stacklevel=2
 )
 
+import os
+import tempfile
+from pathlib import Path
+from typing import Optional
+
 import numpy as np
 import pandas as pd
-import tempfile
-import os
-from pathlib import Path
-from typing import Tuple, Dict, Optional
 
 
 class SyntheticNIRSDataGenerator:
@@ -104,7 +105,7 @@ class SyntheticNIRSDataGenerator:
         return spectrum
 
     def generate_regression_data(self, n_samples: int = 100,
-                                 noise_level: float = 0.1) -> Tuple[np.ndarray, np.ndarray]:
+                                 noise_level: float = 0.1) -> tuple[np.ndarray, np.ndarray]:
         """
         Generate regression data with predictable target relationships.
 
@@ -145,7 +146,7 @@ class SyntheticNIRSDataGenerator:
 
     def generate_classification_data(self, n_samples: int = 120,
                                      n_classes: int = 3,
-                                     noise_level: float = 0.1) -> Tuple[np.ndarray, np.ndarray]:
+                                     noise_level: float = 0.1) -> tuple[np.ndarray, np.ndarray]:
         """
         Generate classification data with distinct spectral signatures per class.
 
@@ -189,7 +190,7 @@ class SyntheticNIRSDataGenerator:
 
     def generate_multi_target_data(self, n_samples: int = 100,
                                    n_targets: int = 3,
-                                   noise_level: float = 0.1) -> Tuple[np.ndarray, np.ndarray]:
+                                   noise_level: float = 0.1) -> tuple[np.ndarray, np.ndarray]:
         """
         Generate multi-target regression data.
 
@@ -229,7 +230,7 @@ class SyntheticNIRSDataGenerator:
 
     def generate_multi_source_data(self, n_samples: int = 100,
                                    n_sources: int = 3,
-                                   noise_level: float = 0.1) -> Tuple[list, np.ndarray]:
+                                   noise_level: float = 0.1) -> tuple[list, np.ndarray]:
         """
         Generate multi-source regression data (multiple X arrays, single y).
 
@@ -280,11 +281,10 @@ class SyntheticNIRSDataGenerator:
 
         return X_list, y
 
-
 class TestDataManager:
     """Manages creation and cleanup of test datasets in temporary directories."""
 
-    def __init__(self, base_temp_dir: Optional[str] = None):
+    def __init__(self, base_temp_dir: str | None = None):
         """
         Initialize test data manager.
 
@@ -438,7 +438,6 @@ class TestDataManager:
             shutil.rmtree(self.temp_dir, ignore_errors=True)
         except Exception:
             pass  # Ignore cleanup errors in tests
-
 
 def create_test_datasets() -> TestDataManager:
     """

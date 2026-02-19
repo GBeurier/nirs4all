@@ -8,15 +8,11 @@ This module provides comprehensive tests for:
 - ExecutionContext: Composite context with extensibility
 """
 
-import pytest
 from copy import deepcopy
 
-from nirs4all.pipeline.config.context import (
-    DataSelector,
-    PipelineState,
-    StepMetadata,
-    ExecutionContext
-)
+import pytest
+
+from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, StepMetadata
 
 
 class TestDataSelector:
@@ -116,7 +112,6 @@ class TestDataSelector:
 
         assert "fold_id" not in dict(selector_none)
 
-
 class TestPipelineState:
     """Tests for PipelineState class."""
 
@@ -162,7 +157,6 @@ class TestPipelineState:
         assert state.step_number == 1
         assert state_copy.y_processing == "modified"
         assert state_copy.step_number == 2
-
 
 class TestStepMetadata:
     """Tests for StepMetadata class."""
@@ -226,7 +220,6 @@ class TestStepMetadata:
         assert metadata.target_samples == [1, 2]
         assert metadata_copy.keyword == "modified"
         assert metadata_copy.target_samples == [1, 2, 3]
-
 
 class TestExecutionContext:
     """Tests for ExecutionContext class."""
@@ -363,7 +356,6 @@ class TestExecutionContext:
         # Verify original unchanged
         assert context.custom["nested"]["data"] == [1, 2, 3]
         assert context_copy.custom["nested"]["data"] == [1, 2, 3, 4]
-
 
 class TestContextIntegration:
     """Integration tests for context usage patterns."""

@@ -2,7 +2,8 @@
 Unit tests for PredictionCache.
 """
 import pytest
-from nirs4all.visualization.prediction_cache import PredictionCache, CacheKey
+
+from nirs4all.visualization.prediction_cache import CacheKey, PredictionCache
 
 
 class TestCacheKey:
@@ -60,7 +61,6 @@ class TestCacheKey:
             filters=(('dataset_name', 'wheat'),)
         )
         assert key1 != key2
-
 
 class TestPredictionCache:
     """Tests for PredictionCache class."""

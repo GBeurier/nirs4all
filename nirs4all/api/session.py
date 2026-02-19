@@ -20,14 +20,14 @@ Two usage patterns:
     >>> session.save("model.n4a")
 """
 
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Any, Dict, Generator, List, Optional, Union, TYPE_CHECKING
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 if TYPE_CHECKING:
+    from nirs4all.api.result import PredictResult, RunResult
     from nirs4all.pipeline import PipelineRunner
-    from nirs4all.api.result import RunResult, PredictResult
-
 
 class Session:
     """Execution session for resource reuse and stateful pipeline management.
@@ -62,7 +62,7 @@ class Session:
 
     def __init__(
         self,
-        pipeline: Optional[List[Any]] = None,
+        pipeline: list[Any] | None = None,
         name: str = "",
         **runner_kwargs: Any
     ) -> None:
@@ -79,11 +79,11 @@ class Session:
         self._pipeline = pipeline
         self._name = name or "Session"
         self._runner_kwargs = runner_kwargs
-        self._runner: Optional["PipelineRunner"] = None
+        self._runner: PipelineRunner | None = None
         self._status = "initialized"
-        self._last_result: Optional["RunResult"] = None
-        self._run_history: List[Dict[str, Any]] = []
-        self._bundle_path: Optional[Path] = None  # Set when loading from bundle
+        self._last_result: RunResult | None = None
+        self._run_history: list[dict[str, Any]] = []
+        self._bundle_path: Path | None = None  # Set when loading from bundle
 
     @property
     def name(self) -> str:
@@ -91,7 +91,7 @@ class Session:
         return self._name
 
     @property
-    def pipeline(self) -> Optional[List[Any]]:
+    def pipeline(self) -> list[Any] | None:
         """Get pipeline definition."""
         return self._pipeline
 
@@ -127,7 +127,7 @@ class Session:
         return self._runner
 
     @property
-    def workspace_path(self) -> Optional[Path]:
+    def workspace_path(self) -> Path | None:
         """Get the workspace path from the runner.
 
         Returns:
@@ -138,13 +138,13 @@ class Session:
         return self._runner_kwargs.get('workspace_path')
 
     @property
-    def history(self) -> List[Dict[str, Any]]:
+    def history(self) -> list[dict[str, Any]]:
         """Get run history for this session."""
         return self._run_history
 
     def run(
         self,
-        dataset: Union[str, Path, Any],
+        dataset: str | Path | Any,
         *,
         plots_visible: bool = False,
         **kwargs: Any
@@ -172,8 +172,8 @@ class Session:
             )
 
         from nirs4all.api.result import RunResult
-        from nirs4all.pipeline import PipelineConfigs
         from nirs4all.data import DatasetConfigs
+        from nirs4all.pipeline import PipelineConfigs
 
         try:
             # Build configs
@@ -226,7 +226,7 @@ class Session:
 
     def predict(
         self,
-        dataset: Union[str, Path, Any],
+        dataset: str | Path | Any,
         **kwargs: Any
     ) -> "PredictResult":
         """Make predictions using the trained pipeline.
@@ -250,8 +250,9 @@ class Session:
                 "Call session.run(dataset) first."
             )
 
-        from nirs4all.api.result import PredictResult
         import numpy as np
+
+        from nirs4all.api.result import PredictResult
 
         # Handle dataset
         if isinstance(dataset, (str, Path)):
@@ -289,7 +290,7 @@ class Session:
 
     def retrain(
         self,
-        dataset: Union[str, Path, Any],
+        dataset: str | Path | Any,
         mode: str = "full",
         **kwargs: Any
     ) -> "RunResult":
@@ -328,10 +329,7 @@ class Session:
             raise ValueError("No trained model available for retraining.")
 
         # Handle dataset
-        if isinstance(dataset, (str, Path)):
-            dataset_config = DatasetConfigs(str(dataset))
-        else:
-            dataset_config = dataset
+        dataset_config = DatasetConfigs(str(dataset)) if isinstance(dataset, (str, Path)) else dataset
 
         predictions, per_dataset = self.runner.retrain(
             source=source,
@@ -356,7 +354,7 @@ class Session:
 
         return self._last_result
 
-    def save(self, path: Union[str, Path]) -> Path:
+    def save(self, path: str | Path) -> Path:
         """Save the trained session to a bundle file.
 
         Args:
@@ -399,8 +397,7 @@ class Session:
             status = "active" if self._runner is not None else "idle"
             return f"Session({status}, kwargs={list(self._runner_kwargs.keys())})"
 
-
-def load_session(path: Union[str, Path]) -> Session:
+def load_session(path: str | Path) -> Session:
     """Load a session from a saved bundle file.
 
     Args:
@@ -413,8 +410,8 @@ def load_session(path: Union[str, Path]) -> Session:
         >>> session = nirs4all.load_session("exports/model.n4a")
         >>> predictions = session.predict(new_data)
     """
-    from nirs4all.pipeline.bundle import BundleLoader
     from nirs4all.api.result import RunResult
+    from nirs4all.pipeline.bundle import BundleLoader
 
     path = Path(path)
     if not path.exists():
@@ -441,10 +438,9 @@ def load_session(path: Union[str, Path]) -> Session:
 
     return session
 
-
 @contextmanager
 def session(
-    pipeline: Optional[List[Any]] = None,
+    pipeline: list[Any] | None = None,
     name: str = "",
     **kwargs: Any
 ) -> Generator[Session, None, None]:

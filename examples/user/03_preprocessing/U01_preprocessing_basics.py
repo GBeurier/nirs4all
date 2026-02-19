@@ -26,6 +26,7 @@ Difficulty: ★★☆☆☆
 
 # Standard library imports
 import argparse
+
 import matplotlib.pyplot as plt
 
 # Third-party imports
@@ -36,23 +37,19 @@ from sklearn.preprocessing import MinMaxScaler
 # NIRS4All imports
 import nirs4all
 from nirs4all.operators.transforms import (
-    # Scatter correction
-    StandardNormalVariate,
-    MultiplicativeScatterCorrection,
-
     # Baseline correction
     Detrend,
-
     # Derivatives
     FirstDerivative,
-    SecondDerivative,
-    SavitzkyGolay,
-
     # Smoothing
     Gaussian,
-
     # Wavelet
     Haar,
+    MultiplicativeScatterCorrection,
+    SavitzkyGolay,
+    SecondDerivative,
+    # Scatter correction
+    StandardNormalVariate,
 )
 from nirs4all.visualization.predictions import PredictionAnalyzer
 
@@ -61,7 +58,6 @@ parser = argparse.ArgumentParser(description='U01 Preprocessing Basics Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Overview of NIRS Preprocessing
@@ -92,7 +88,6 @@ NIRS preprocessing addresses common spectral issues:
   🌊 WAVELET
      Haar - Haar wavelet transform for denoising
 """)
-
 
 # =============================================================================
 # Section 2: Scatter Correction
@@ -136,7 +131,6 @@ result_msc = nirs4all.run(
     plots_visible=args.plots
 )
 print(f"   MSC - RMSE: {result_msc.best_rmse:.4f}")
-
 
 # =============================================================================
 # Section 3: Derivatives
@@ -187,7 +181,6 @@ result_sg = nirs4all.run(
 )
 print(f"   SavitzkyGolay (d1) - RMSE: {result_sg.best_rmse:.4f}")
 
-
 # =============================================================================
 # Section 4: Smoothing
 # =============================================================================
@@ -222,7 +215,6 @@ result_sg_smooth = nirs4all.run(
     verbose=0
 )
 print(f"   SavitzkyGolay (smooth) - RMSE: {result_sg_smooth.best_rmse:.4f}")
-
 
 # =============================================================================
 # Section 5: Combining Preprocessing Steps
@@ -265,7 +257,6 @@ result_chain = nirs4all.run(
 )
 print(f"   Detrend + MSC + SG(d1) - RMSE: {result_chain.best_rmse:.4f}")
 
-
 # =============================================================================
 # Section 6: Comparing All Methods
 # =============================================================================
@@ -292,7 +283,6 @@ sorted_results = sorted(results.items(), key=lambda x: x[1])
 print("\nRanked by RMSE (best to worst):")
 for i, (name, rmse) in enumerate(sorted_results, 1):
     print(f"   {i}. {name}: {rmse:.4f}")
-
 
 # =============================================================================
 # Summary

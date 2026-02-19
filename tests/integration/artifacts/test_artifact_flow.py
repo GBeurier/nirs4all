@@ -8,9 +8,10 @@ Tests the full lifecycle of artifacts from training to prediction:
 - Artifact integrity is preserved
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+import pytest
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import StandardScaler
@@ -34,7 +35,6 @@ def create_test_dataset(n_samples: int = 100, n_features: int = 50) -> SpectroDa
     dataset.add_targets(y[80:])
 
     return dataset
-
 
 class TestTrainingArtifactCreation:
     """Tests for artifact creation during training."""
@@ -134,7 +134,6 @@ class TestTrainingArtifactCreation:
             assert artifact_file.stat().st_size > 0, \
                 f"Artifact file should be non-empty: {artifact_file}"
 
-
 class TestPredictionArtifactLoading:
     """Tests for artifact loading during prediction."""
 
@@ -228,7 +227,6 @@ class TestPredictionArtifactLoading:
         # Full dataset has 100 samples (80 train + 20 test)
         assert len(pred_y_pred) == 100, \
             f"Expected 100 predictions, got {len(pred_y_pred)}"
-
 
 class TestArtifactLoaderIntegration:
     """Tests for ArtifactLoader integration."""
@@ -353,7 +351,6 @@ class TestArtifactLoaderIntegration:
         # Should be same object
         assert obj1 is obj2
 
-
 class TestMultiplePipelinesArtifactFlow:
     """Tests for artifact handling across multiple pipelines."""
 
@@ -448,7 +445,6 @@ class TestMultiplePipelinesArtifactFlow:
         # Predictions should be different due to different alpha values
         # (This is a weak test but validates isolation)
         assert len(y_pred1) == len(y_pred2)
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

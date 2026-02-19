@@ -6,14 +6,15 @@ marked as excluded by sample filtering operations. Useful for understanding
 filtering decisions and identifying patterns in excluded data.
 """
 
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
-import matplotlib.pyplot as plt
+import io
+from typing import TYPE_CHECKING, Any, Optional
+
 import matplotlib.cm as cm
 import matplotlib.patches as mpatches
-from matplotlib.lines import Line2D
+import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.lines import Line2D
 from sklearn.decomposition import PCA
-import io
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
@@ -26,7 +27,6 @@ if TYPE_CHECKING:
     from nirs4all.pipeline.config.context import ExecutionContext
     from nirs4all.pipeline.steps.parser import ParsedStep
     from nirs4all.pipeline.steps.runtime import RuntimeContext
-
 
 @register_controller
 class ExclusionChartController(OperatorController):
@@ -78,9 +78,9 @@ class ExclusionChartController(OperatorController):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple['ExecutionContext', Any]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple['ExecutionContext', Any]:
         """
         Execute exclusion visualization.
 
@@ -118,7 +118,7 @@ class ExclusionChartController(OperatorController):
         color_by = config.get("color_by", "status")  # "status", "y", "reason"
         n_components = config.get("n_components", 2)
         show_legend = config.get("show_legend", True)
-        custom_title = config.get("title", None)
+        custom_title = config.get("title")
         partition = config.get("partition", "train")
 
         # Get exclusion summary first to check if there are any exclusions
@@ -151,9 +151,9 @@ class ExclusionChartController(OperatorController):
         color_by: str,
         n_components: int,
         show_legend: bool,
-        custom_title: Optional[str],
+        custom_title: str | None,
         runtime_context: 'RuntimeContext',
-    ) -> List[Tuple[bytes, str, str]]:
+    ) -> list[tuple[bytes, str, str]]:
         """
         Create exclusion visualization chart.
 
@@ -171,10 +171,7 @@ class ExclusionChartController(OperatorController):
             List of (image_bytes, name, format) tuples
         """
         # Build selector for partition
-        if partition:
-            base_selector = context.selector.with_partition(partition)
-        else:
-            base_selector = context.selector
+        base_selector = context.selector.with_partition(partition) if partition else context.selector
 
         # Get included samples
         included_indices = dataset._indexer.x_indices(  # noqa: SLF001
@@ -208,30 +205,27 @@ class ExclusionChartController(OperatorController):
             include_excluded=True
         )
         # Ensure X_all is a 2D numpy array
-        if isinstance(X_all_raw, list):
-            X_all = np.vstack(X_all_raw)
-        else:
-            X_all = X_all_raw
+        X_all = np.vstack(X_all_raw) if isinstance(X_all_raw, list) else X_all_raw
 
         # Get y values if needed
-        y_all: Optional[np.ndarray] = None
+        y_all: np.ndarray | None = None
         if color_by == "y":
             y_raw = dataset.y({"sample": all_indices.tolist()}, include_excluded=True)
             if y_raw is not None:
                 y_all = y_raw.flatten() if y_raw.ndim > 1 else y_raw
 
         # Get exclusion reasons if needed
-        reasons: Optional[np.ndarray] = None
+        reasons: np.ndarray | None = None
         if color_by == "reason":
             excluded_df = dataset._indexer.get_excluded_samples(base_selector)  # noqa: SLF001
             # Build reason lookup
-            reason_lookup: Dict[int, str] = {}
+            reason_lookup: dict[int, str] = {}
             for row in excluded_df.to_dicts():
                 sample_id = row["sample"]
                 reason = row["exclusion_reason"] if row["exclusion_reason"] else "unspecified"
                 reason_lookup[sample_id] = reason
 
-            reason_list: List[str] = []
+            reason_list: list[str] = []
             for i, idx in enumerate(all_indices):
                 if is_excluded[i]:
                     reason_list.append(reason_lookup.get(int(idx), "unspecified"))
@@ -362,10 +356,7 @@ class ExclusionChartController(OperatorController):
         if is_classification:
             unique_y = np.unique(y_values)
             n_unique = len(unique_y)
-            if n_unique <= 10:
-                cmap = plt.colormaps['tab10'].resampled(n_unique)
-            else:
-                cmap = plt.colormaps['viridis']
+            cmap = plt.colormaps['tab10'].resampled(n_unique) if n_unique <= 10 else plt.colormaps['viridis']
 
             # Normalize y to [0, 1]
             y_to_idx = {v: i for i, v in enumerate(unique_y)}
@@ -373,10 +364,7 @@ class ExclusionChartController(OperatorController):
         else:
             cmap = plt.colormaps['viridis']
             y_min, y_max = y_values.min(), y_values.max()
-            if y_max > y_min:
-                y_norm = (y_values - y_min) / (y_max - y_min)
-            else:
-                y_norm = np.zeros_like(y_values)
+            y_norm = (y_values - y_min) / (y_max - y_min) if y_max > y_min else np.zeros_like(y_values)
 
         colors = cmap(y_norm)
 
@@ -442,13 +430,10 @@ class ExclusionChartController(OperatorController):
         n_reasons = len(unique_reasons)
 
         # Use tab10/tab20 for discrete reasons
-        if n_reasons <= 10:
-            cmap = plt.colormaps['tab10'].resampled(n_reasons)
-        else:
-            cmap = plt.colormaps['tab20'].resampled(n_reasons)
+        cmap = plt.colormaps['tab10'].resampled(n_reasons) if n_reasons <= 10 else plt.colormaps['tab20'].resampled(n_reasons)
 
         reason_to_idx = {r: i for i, r in enumerate(unique_reasons)}
-        reason_colors: Dict[str, Any] = {r: cmap(i / max(n_reasons - 1, 1)) for i, r in enumerate(unique_reasons)}
+        reason_colors: dict[str, Any] = {r: cmap(i / max(n_reasons - 1, 1)) for i, r in enumerate(unique_reasons)}
 
         # Special color for included (RGB tuple)
         reason_colors["included"] = (0.18, 0.8, 0.44, 1.0)  # Green: #2ecc71

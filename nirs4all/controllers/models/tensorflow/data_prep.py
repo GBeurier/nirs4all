@@ -4,7 +4,8 @@ TensorFlow Data Preparation
 This module handles TensorFlow-specific data preparation and tensor formatting.
 """
 
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
+
 import numpy as np
 
 
@@ -36,14 +37,13 @@ class TensorFlowDataPreparation:
         # Handle 3D data: transpose only if we have (batch, channels, features) where channels < features
         # This ensures Conv1D receives (batch, timesteps, channels) format
         # For example: (batch, 3, 200) -> (batch, 200, 3) for 200 wavelengths and 3 processings
-        elif X.ndim == 3:
-            if X.shape[1] < X.shape[2]:
-                X = np.transpose(X, (0, 2, 1))
+        elif X.ndim == 3 and X.shape[1] < X.shape[2]:
+            X = np.transpose(X, (0, 2, 1))
 
         return X
 
     @staticmethod
-    def prepare_targets(y: Optional[np.ndarray]) -> Optional[np.ndarray]:
+    def prepare_targets(y: np.ndarray | None) -> np.ndarray | None:
         """Prepare targets for TensorFlow.
 
         Converts to float32 and flattens if needed.
@@ -68,9 +68,9 @@ class TensorFlowDataPreparation:
     @staticmethod
     def prepare_data(
         X: np.ndarray,
-        y: Optional[np.ndarray],
+        y: np.ndarray | None,
         context: Any = None
-    ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    ) -> tuple[np.ndarray, np.ndarray | None]:
         """Prepare both features and targets for TensorFlow.
 
         Args:

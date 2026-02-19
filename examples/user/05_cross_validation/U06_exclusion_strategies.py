@@ -34,15 +34,14 @@ from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 import nirs4all
+from nirs4all.operators.filters import XOutlierFilter, YOutlierFilter
 from nirs4all.operators.transforms import StandardNormalVariate as SNV
-from nirs4all.operators.filters import YOutlierFilter, XOutlierFilter
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U06 Exclusion Strategies Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Exclusion Basics
@@ -62,7 +61,6 @@ Key points:
   - A tag is still created for analysis
   - Does NOT apply during prediction (all samples predicted)
 """)
-
 
 # =============================================================================
 # Section 2: Single Filter Exclusion
@@ -97,7 +95,6 @@ result_single = nirs4all.run(
 )
 
 print(f"\nSingle filter RMSE: {result_single.best_rmse:.4f}")
-
 
 # =============================================================================
 # Section 3: Multiple Filters - "any" Mode
@@ -141,7 +138,6 @@ result_any = nirs4all.run(
 
 print(f"\n'any' mode RMSE: {result_any.best_rmse:.4f}")
 
-
 # =============================================================================
 # Section 4: Multiple Filters - "all" Mode
 # =============================================================================
@@ -184,7 +180,6 @@ result_all = nirs4all.run(
 )
 
 print(f"\n'all' mode RMSE: {result_all.best_rmse:.4f}")
-
 
 # =============================================================================
 # Section 5: Y-Based vs X-Based Exclusion
@@ -237,7 +232,6 @@ result_x = nirs4all.run(
 print(f"\nY-based exclusion RMSE: {result_y.best_rmse:.4f}")
 print(f"X-based exclusion RMSE: {result_x.best_rmse:.4f}")
 
-
 # =============================================================================
 # Section 6: Combined Tag + Exclude
 # =============================================================================
@@ -281,7 +275,6 @@ result_combined = nirs4all.run(
 
 print(f"\nCombined approach RMSE: {result_combined.best_rmse:.4f}")
 
-
 # =============================================================================
 # Section 7: Strategy Comparison
 # =============================================================================
@@ -314,7 +307,6 @@ print(f"  Any mode (Y or X):     RMSE = {result_any.best_rmse:.4f}")
 print(f"  All mode (Y and X):    RMSE = {result_all.best_rmse:.4f}")
 print(f"  Y-only:                RMSE = {result_y.best_rmse:.4f}")
 print(f"  X-only:                RMSE = {result_x.best_rmse:.4f}")
-
 
 # =============================================================================
 # Summary

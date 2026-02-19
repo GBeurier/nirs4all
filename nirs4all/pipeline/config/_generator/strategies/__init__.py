@@ -27,21 +27,21 @@ Usage:
 """
 
 from .base import ExpansionStrategy
-from .registry import get_strategy, register_strategy
-
-# Phase 2 strategies
-from .range_strategy import RangeStrategy
-from .or_strategy import OrStrategy
-
-# Phase 3 strategies
-from .log_range_strategy import LogRangeStrategy
-from .grid_strategy import GridStrategy
-from .zip_strategy import ZipStrategy
-from .chain_strategy import ChainStrategy
-from .sample_strategy import SampleStrategy
 
 # Phase 4+ strategies
 from .cartesian_strategy import CartesianStrategy
+from .chain_strategy import ChainStrategy
+from .grid_strategy import GridStrategy
+
+# Phase 3 strategies
+from .log_range_strategy import LogRangeStrategy
+from .or_strategy import OrStrategy
+
+# Phase 2 strategies
+from .range_strategy import RangeStrategy
+from .registry import get_strategy, register_strategy
+from .sample_strategy import SampleStrategy
+from .zip_strategy import ZipStrategy
 
 __all__ = [
     # Base class

@@ -17,7 +17,7 @@ import sys
 import time
 import warnings
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 warnings.filterwarnings("ignore")
 
@@ -26,24 +26,26 @@ sys.path.insert(0, str(ROOT))
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import mean_squared_error, r2_score
-
-# nirs4all imports
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.data import DatasetConfigs
-
-# Preprocessing
-from nirs4all.operators.transforms import StandardNormalVariate as SNV, MultiplicativeScatterCorrection as MSC
-from nirs4all.operators.transforms import SavitzkyGolay
-from nirs4all.operators.transforms import ASLSBaseline as ALSBaseline, Detrend
 
 # Models
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.preprocessing import StandardScaler
-from nirs4all.operators.models.sklearn import OPLS, FCKPLS
+from sklearn.metrics import mean_squared_error, r2_score
 
 # Splitters
 from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import StandardScaler
+
+from nirs4all.data import DatasetConfigs
+from nirs4all.operators.models.sklearn import FCKPLS, OPLS
+from nirs4all.operators.transforms import ASLSBaseline as ALSBaseline
+from nirs4all.operators.transforms import Detrend, SavitzkyGolay
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+
+# Preprocessing
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
+
+# nirs4all imports
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 # Local
 sys.path.insert(0, str(Path(__file__).parent))
@@ -51,8 +53,9 @@ from fckpls_torch import FCKPLSTorch, TrainConfig
 
 # Synthetic generator
 sys.path.insert(0, str(ROOT / "bench" / "synthetic"))
-from generator import SyntheticNIRSGenerator
+import contextlib
 
+from generator import SyntheticNIRSGenerator
 
 # =============================================================================
 # Custom Wrapper for FCK-PLS Torch (sklearn-compatible)
@@ -128,12 +131,11 @@ class FCKPLSTorchWrapper:
             setattr(self, k, v)
         return self
 
-
 # =============================================================================
 # Pipeline Definitions
 # =============================================================================
 
-def get_pipelines(quick: bool = False, n_components: int = 10) -> Dict[str, list]:
+def get_pipelines(quick: bool = False, n_components: int = 10) -> dict[str, list]:
     """Define pipelines to compare."""
     epochs = 100 if quick else 250
 
@@ -162,14 +164,12 @@ def get_pipelines(quick: bool = False, n_components: int = 10) -> Dict[str, list
     ]
 
     # 4. OPLS
-    try:
+    with contextlib.suppress(BaseException):
         pipelines["OPLS"] = [
             StandardScaler(),
             ShuffleSplit(n_splits=1, test_size=0.2, random_state=42),
             {"model": OPLS(n_components=2, pls_components=n_components)},
         ]
-    except:
-        pass
 
     # 5. Original FCK-PLS
     pipelines["FCK-PLS (orig)"] = [
@@ -230,7 +230,6 @@ def get_pipelines(quick: bool = False, n_components: int = 10) -> Dict[str, list
 
     return pipelines
 
-
 # =============================================================================
 # Manual Evaluation (without nirs4all runner for flexibility)
 # =============================================================================
@@ -242,7 +241,7 @@ def evaluate_pipeline_manual(
     X_test: np.ndarray,
     y_test: np.ndarray,
     name: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Manually evaluate a pipeline."""
 
     X_tr = X_train.copy()
@@ -294,7 +293,6 @@ def evaluate_pipeline_manual(
         "r2_test": r2_score(y_test, y_test_pred),
         "fit_time": fit_time,
     }
-
 
 # =============================================================================
 # Main Experiment
@@ -370,7 +368,6 @@ def run_experiment(quick: bool = False):
     print(f"\nResults saved to {output_dir / 'pipeline_experiment_results.csv'}")
 
     return df
-
 
 def run_preprocessing_analysis(quick: bool = False):
     """
@@ -469,7 +466,6 @@ def run_preprocessing_analysis(quick: bool = False):
 
     return df
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--quick", action="store_true", help="Quick mode")
@@ -483,7 +479,6 @@ def main():
     # Preprocessing analysis
     if args.preprocessing:
         run_preprocessing_analysis(quick=args.quick)
-
 
 if __name__ == "__main__":
     main()

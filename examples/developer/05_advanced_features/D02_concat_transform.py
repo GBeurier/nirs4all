@@ -37,18 +37,14 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    FirstDerivative,
-    SavitzkyGolay
-)
+from nirs4all.operators.transforms import FirstDerivative, SavitzkyGolay
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='D02 Concat Transform Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -72,7 +68,6 @@ Use cases:
   - Multi-method feature extraction
   - Ensemble feature views
 """)
-
 
 # =============================================================================
 # Section 1: Basic Concatenation
@@ -113,7 +108,6 @@ result = nirs4all.run(
 print(f"\nPredictions: {result.num_predictions}")
 print("Features: 30 (PCA) + 20 (SVD) = 50 total")
 
-
 # =============================================================================
 # Section 2: Chained Transformers
 # =============================================================================
@@ -152,7 +146,6 @@ result_chained = nirs4all.run(
 
 print(f"\nPredictions: {result_chained.num_predictions}")
 print("Features: 25 (PCA direct) + 15 (scaled PCA) = 40 total")
-
 
 # =============================================================================
 # Section 3: Multiple Feature Extractors
@@ -193,7 +186,6 @@ result_multi = nirs4all.run(
 print(f"\nPredictions: {result_multi.num_predictions}")
 print("Features: 20 + 20 + 10 = 50 total")
 
-
 # =============================================================================
 # Section 4: Comparison with Branching
 # =============================================================================
@@ -226,7 +218,6 @@ print("""
     }},
     {"merge": "features"}
 """)
-
 
 # =============================================================================
 # Section 5: Inside Feature Augmentation
@@ -273,7 +264,6 @@ result_augment = nirs4all.run(
 
 print(f"\nPredictions: {result_augment.num_predictions}")
 print("New processings added alongside original")
-
 
 # =============================================================================
 # Summary

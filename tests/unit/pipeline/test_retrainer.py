@@ -5,19 +5,20 @@ Tests the Retrainer class and related utilities for retraining,
 transfer learning, and fine-tuning pipelines.
 """
 
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from nirs4all.pipeline.retrainer import (
+    ExtractedPipeline,
+    RetrainArtifactProvider,
+    RetrainConfig,
     Retrainer,
     RetrainMode,
-    RetrainConfig,
     StepMode,
-    RetrainArtifactProvider,
-    ExtractedPipeline,
 )
-from nirs4all.pipeline.trace import ExecutionTrace, ExecutionStep
+from nirs4all.pipeline.trace import ExecutionStep, ExecutionTrace
 
 
 class TestRetrainMode:
@@ -39,7 +40,6 @@ class TestRetrainMode:
         assert RetrainMode("full") == RetrainMode.FULL
         assert RetrainMode("transfer") == RetrainMode.TRANSFER
         assert RetrainMode("finetune") == RetrainMode.FINETUNE
-
 
 class TestStepMode:
     """Tests for StepMode dataclass."""
@@ -75,7 +75,6 @@ class TestStepMode:
         """Test is_predict method."""
         assert StepMode(step_index=1, mode='predict').is_predict() is True
         assert StepMode(step_index=1, mode='train').is_predict() is False
-
 
 class TestRetrainConfig:
     """Tests for RetrainConfig dataclass."""
@@ -150,7 +149,6 @@ class TestRetrainConfig:
         assert config.should_train_step(1) is False
         assert config.should_train_step(2) is True  # Override!
 
-
 class TestRetrainArtifactProvider:
     """Tests for RetrainArtifactProvider."""
 
@@ -216,7 +214,6 @@ class TestRetrainArtifactProvider:
 
         # Override should provide artifact
         assert provider.get_artifact(2) == "artifact"
-
 
 class TestExtractedPipeline:
     """Tests for ExtractedPipeline dataclass."""
@@ -292,7 +289,6 @@ class TestExtractedPipeline:
         assert "steps=3" in repr_str
         assert "model_step=3" in repr_str
         assert "A>B" in repr_str
-
 
 class TestRetrainerUnit:
     """Unit tests for Retrainer class."""

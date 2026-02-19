@@ -4,7 +4,7 @@ Binning utilities for regression target values.
 This module provides utilities to bin continuous regression targets
 into discrete classes for balanced augmentation.
 """
-from typing import Tuple
+
 import numpy as np
 
 
@@ -16,7 +16,7 @@ class BinningCalculator:
         y: np.ndarray,
         bins: int = 10,
         strategy: str = "equal_width"
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Bin continuous target values into discrete classes.
 
@@ -52,10 +52,7 @@ class BinningCalculator:
             return np.zeros(len(y), dtype=int), np.array([y.min(), y.max()])
 
         # Get bin edges
-        if strategy == "quantile":
-            bin_edges = BinningCalculator._quantile_binning(y, bins)
-        else:  # equal_width
-            bin_edges = BinningCalculator._equal_width_binning(y, bins)
+        bin_edges = BinningCalculator._quantile_binning(y, bins) if strategy == "quantile" else BinningCalculator._equal_width_binning(y, bins)
 
         # Assign samples to bins using digitize (right=True for right-inclusive intervals)
         bin_indices = np.digitize(y, bin_edges, right=True)

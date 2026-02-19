@@ -25,19 +25,20 @@ Example:
     >>> new_context = context.with_partition("test")
 """
 
-from dataclasses import dataclass, field, replace as dataclass_replace, fields
-from enum import Enum
-from typing import Any, Dict, List, Optional, Iterator, Tuple
-from copy import deepcopy
-from collections.abc import MutableMapping
 from abc import ABC, abstractmethod
+from collections.abc import Iterator, MutableMapping
+from copy import deepcopy
+from dataclasses import dataclass, field, fields
+from dataclasses import replace as dataclass_replace
+from enum import Enum
+from typing import Any, Optional
 
+from nirs4all.pipeline.storage.artifacts.query_service import ArtifactQuerySpec
 from nirs4all.pipeline.trace.execution_trace import (
     fold_key_candidates,
     normalize_fold_key,
     parse_numeric_fold_key,
 )
-from nirs4all.pipeline.storage.artifacts.query_service import ArtifactQuerySpec
 
 
 class ExecutionPhase(Enum):
@@ -52,7 +53,6 @@ class ExecutionPhase(Enum):
     """
     CV = "cv"
     REFIT = "refit"
-
 
 @dataclass
 class DataSelector(MutableMapping):
@@ -87,17 +87,17 @@ class DataSelector(MutableMapping):
     """
 
     partition: str = "all"
-    processing: List[List[str]] = field(default_factory=lambda: [["raw"]])
+    processing: list[list[str]] = field(default_factory=lambda: [["raw"]])
     layout: str = "2d"
     concat_source: bool = True
-    fold_id: Optional[int] = None
+    fold_id: int | None = None
     include_augmented: bool = False
-    y: Optional[str] = None
-    branch_id: Optional[int] = None
-    branch_path: List[int] = field(default_factory=list)
-    branch_name: Optional[str] = None
-    tag_filters: Dict[str, Any] = field(default_factory=dict)
-    _extra: Dict[str, Any] = field(default_factory=dict, repr=False)
+    y: str | None = None
+    branch_id: int | None = None
+    branch_path: list[int] = field(default_factory=list)
+    branch_name: str | None = None
+    tag_filters: dict[str, Any] = field(default_factory=dict)
+    _extra: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def __iter__(self) -> Iterator[str]:
         """Iterate over non-None fields and extra keys."""
@@ -176,7 +176,7 @@ class DataSelector(MutableMapping):
         new_selector.partition = partition
         return new_selector
 
-    def with_processing(self, processing: List[List[str]]) -> "DataSelector":
+    def with_processing(self, processing: list[list[str]]) -> "DataSelector":
         """
         Create new selector with updated processing chains.
 
@@ -204,7 +204,7 @@ class DataSelector(MutableMapping):
         new_selector.layout = layout
         return new_selector
 
-    def with_fold(self, fold_id: Optional[int]) -> "DataSelector":
+    def with_fold(self, fold_id: int | None) -> "DataSelector":
         """
         Create new selector with updated fold_id.
 
@@ -234,9 +234,9 @@ class DataSelector(MutableMapping):
 
     def with_branch(
         self,
-        branch_id: Optional[int] = None,
-        branch_name: Optional[str] = None,
-        branch_path: Optional[List[int]] = None
+        branch_id: int | None = None,
+        branch_name: str | None = None,
+        branch_path: list[int] | None = None
     ) -> "DataSelector":
         """
         Create new selector with updated branch information.
@@ -292,7 +292,6 @@ class DataSelector(MutableMapping):
         new_selector.tag_filters[tag_name] = condition
         return new_selector
 
-
 @dataclass
 class PipelineState:
     """
@@ -332,7 +331,6 @@ class PipelineState:
             mode=self.mode
         )
 
-
 @dataclass
 class StepMetadata:
     """
@@ -365,8 +363,8 @@ class StepMetadata:
     augment_sample: bool = False
     add_feature: bool = False
     replace_processing: bool = False
-    target_samples: List[int] = field(default_factory=list)
-    target_features: List[int] = field(default_factory=list)
+    target_samples: list[int] = field(default_factory=list)
+    target_features: list[int] = field(default_factory=list)
 
     def copy(self) -> "StepMetadata":
         """
@@ -397,7 +395,6 @@ class StepMetadata:
         self.target_samples.clear()
         self.target_features.clear()
 
-
 class ArtifactProvider(ABC):
     """Abstract interface for providing artifacts during prediction replay.
 
@@ -424,8 +421,8 @@ class ArtifactProvider(ABC):
     def get_artifact(
         self,
         step_index: int,
-        fold_id: Optional[int | str] = None,
-    ) -> Optional[Any]:
+        fold_id: int | str | None = None,
+    ) -> Any | None:
         """Get a single artifact for a step.
 
         Args:
@@ -441,11 +438,11 @@ class ArtifactProvider(ABC):
     def get_artifacts_for_step(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None,
-        branch_id: Optional[int] = None,
-        source_index: Optional[int] = None,
-        substep_index: Optional[int] = None
-    ) -> List[Tuple[str, Any]]:
+        branch_path: list[int] | None = None,
+        branch_id: int | None = None,
+        source_index: int | None = None,
+        substep_index: int | None = None
+    ) -> list[tuple[str, Any]]:
         """Get all artifacts for a step.
 
         Args:
@@ -464,8 +461,8 @@ class ArtifactProvider(ABC):
     def get_fold_artifacts(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None
-    ) -> List[Tuple[int, Any]]:
+        branch_path: list[int] | None = None
+    ) -> list[tuple[int, Any]]:
         """Get all fold-specific artifacts for a step.
 
         Args:
@@ -489,7 +486,7 @@ class ArtifactProvider(ABC):
         """
         pass
 
-    def get_primary_artifact(self, step_index: int) -> Optional[Any]:
+    def get_primary_artifact(self, step_index: int) -> Any | None:
         """Get the primary artifact for a step.
 
         The primary artifact is typically the main model or transformer
@@ -509,8 +506,8 @@ class ArtifactProvider(ABC):
     def get_refit_artifact(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None,
-    ) -> Optional[Any]:
+        branch_path: list[int] | None = None,
+    ) -> Any | None:
         """Get the refit ("final") artifact for a step, if one exists.
 
         After a successful refit pass, the winning model is stored with
@@ -526,7 +523,7 @@ class ArtifactProvider(ABC):
         """
         return None  # Default: no refit artifact
 
-    def get_artifact_by_chain(self, chain_path: str) -> Optional[Any]:
+    def get_artifact_by_chain(self, chain_path: str) -> Any | None:
         """Get artifact by V3 chain path (optional V3 method).
 
         Args:
@@ -540,7 +537,7 @@ class ArtifactProvider(ABC):
     def get_artifacts_for_chain_prefix(
         self,
         chain_prefix: str
-    ) -> List[Tuple[str, Any]]:
+    ) -> list[tuple[str, Any]]:
         """Get all artifacts matching a chain path prefix (optional V3 method).
 
         Args:
@@ -550,7 +547,6 @@ class ArtifactProvider(ABC):
             List of (chain_path, artifact_object) tuples
         """
         return []  # Default implementation returns empty list
-
 
 class MapArtifactProvider(ArtifactProvider):
     """In-memory artifact provider backed by a dictionary.
@@ -574,10 +570,10 @@ class MapArtifactProvider(ArtifactProvider):
 
     def __init__(
         self,
-        artifact_map: Dict[int, List[Tuple[str, Any]]],
-        fold_weights: Optional[Dict[int, float]] = None,
-        primary_artifacts: Optional[Dict[int, str]] = None,
-        source_artifact_map: Optional[Dict[Tuple[int, int], List[Tuple[str, Any]]]] = None,
+        artifact_map: dict[int, list[tuple[str, Any]]],
+        fold_weights: dict[int, float] | None = None,
+        primary_artifacts: dict[int, str] | None = None,
+        source_artifact_map: dict[tuple[int, int], list[tuple[str, Any]]] | None = None,
     ):
         """Initialize map-based artifact provider.
 
@@ -591,13 +587,13 @@ class MapArtifactProvider(ArtifactProvider):
         self.artifact_map = artifact_map
         self.fold_weights = fold_weights or {}
         self.primary_artifacts = primary_artifacts or {}
-        self.source_artifact_map: Dict[Tuple[int, int], List[Tuple[str, Any]]] = source_artifact_map or {}
+        self.source_artifact_map: dict[tuple[int, int], list[tuple[str, Any]]] = source_artifact_map or {}
 
     def get_artifact(
         self,
         step_index: int,
-        fold_id: Optional[int | str] = None,
-    ) -> Optional[Any]:
+        fold_id: int | str | None = None,
+    ) -> Any | None:
         """Get a single artifact for a step.
 
         If fold_id is specified, returns the fold-specific artifact.
@@ -647,11 +643,11 @@ class MapArtifactProvider(ArtifactProvider):
     def get_artifacts_for_step(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None,
-        branch_id: Optional[int] = None,
-        source_index: Optional[int] = None,
-        substep_index: Optional[int] = None
-    ) -> List[Tuple[str, Any]]:
+        branch_path: list[int] | None = None,
+        branch_id: int | None = None,
+        source_index: int | None = None,
+        substep_index: int | None = None
+    ) -> list[tuple[str, Any]]:
         """Get all artifacts for a step.
 
         Args:
@@ -672,8 +668,8 @@ class MapArtifactProvider(ArtifactProvider):
     def get_fold_artifacts(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None
-    ) -> List[Tuple[int, Any]]:
+        branch_path: list[int] | None = None
+    ) -> list[tuple[int, Any]]:
         """Get all fold-specific artifacts for a step.
 
         Args:
@@ -713,8 +709,8 @@ class MapArtifactProvider(ArtifactProvider):
     def get_refit_artifact(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None,
-    ) -> Optional[Any]:
+        branch_path: list[int] | None = None,
+    ) -> Any | None:
         """Get the refit ("final") artifact for a step.
 
         Scans the artifact IDs for this step looking for one whose trailing
@@ -734,14 +730,13 @@ class MapArtifactProvider(ArtifactProvider):
                 return obj
         return None
 
-    def get_fold_weights(self) -> Dict[int, float]:
+    def get_fold_weights(self) -> dict[int, float]:
         """Get fold weights for CV ensemble averaging.
 
         Returns:
             Dictionary mapping fold_id to weight
         """
         return self.fold_weights.copy()
-
 
 class LoaderArtifactProvider(ArtifactProvider):
     """Artifact provider backed by an ArtifactLoader.
@@ -757,7 +752,7 @@ class LoaderArtifactProvider(ArtifactProvider):
     def __init__(
         self,
         loader: Any,  # ArtifactLoader
-        trace: Optional[Any] = None  # ExecutionTrace
+        trace: Any | None = None  # ExecutionTrace
     ):
         """Initialize loader-based artifact provider.
 
@@ -769,7 +764,7 @@ class LoaderArtifactProvider(ArtifactProvider):
         self.trace = trace
 
     @staticmethod
-    def _resolve_fold_artifact_id(step_artifacts: Any, fold_id: int | str) -> Optional[str]:
+    def _resolve_fold_artifact_id(step_artifacts: Any, fold_id: int | str) -> str | None:
         """Resolve a fold artifact ID from StepArtifacts or a test double."""
         if step_artifacts is None:
             return None
@@ -791,8 +786,8 @@ class LoaderArtifactProvider(ArtifactProvider):
     def get_artifact(
         self,
         step_index: int,
-        fold_id: Optional[int | str] = None,
-    ) -> Optional[Any]:
+        fold_id: int | str | None = None,
+    ) -> Any | None:
         """Get a single artifact for a step.
 
         If trace is available, uses trace to find artifact IDs.
@@ -828,11 +823,11 @@ class LoaderArtifactProvider(ArtifactProvider):
     def get_artifacts_for_step(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None,
-        branch_id: Optional[int] = None,
-        source_index: Optional[int] = None,
-        substep_index: Optional[int] = None
-    ) -> List[Tuple[str, Any]]:
+        branch_path: list[int] | None = None,
+        branch_id: int | None = None,
+        source_index: int | None = None,
+        substep_index: int | None = None
+    ) -> list[tuple[str, Any]]:
         """Get all artifacts for a step.
 
         Args:
@@ -891,8 +886,8 @@ class LoaderArtifactProvider(ArtifactProvider):
     def get_fold_artifacts(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None
-    ) -> List[Tuple[int, Any]]:
+        branch_path: list[int] | None = None
+    ) -> list[tuple[int, Any]]:
         """Get all fold-specific artifacts for a step.
 
         Args:
@@ -940,8 +935,8 @@ class LoaderArtifactProvider(ArtifactProvider):
     def get_refit_artifact(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None,
-    ) -> Optional[Any]:
+        branch_path: list[int] | None = None,
+    ) -> Any | None:
         """Get the refit ("final") artifact for a step.
 
         Checks the execution trace for a fold artifact keyed ``"final"``.
@@ -964,7 +959,7 @@ class LoaderArtifactProvider(ArtifactProvider):
                         pass
         return None
 
-    def get_artifact_by_chain(self, chain_path: str) -> Optional[Any]:
+    def get_artifact_by_chain(self, chain_path: str) -> Any | None:
         """Get artifact by V3 chain path.
 
         Args:
@@ -980,7 +975,7 @@ class LoaderArtifactProvider(ArtifactProvider):
     def get_artifacts_for_chain_prefix(
         self,
         chain_prefix: str
-    ) -> List[Tuple[str, Any]]:
+    ) -> list[tuple[str, Any]]:
         """Get all artifacts matching a chain path prefix.
 
         Args:
@@ -992,7 +987,6 @@ class LoaderArtifactProvider(ArtifactProvider):
         if hasattr(self.loader, 'load_by_chain_prefix'):
             return self.loader.load_by_chain_prefix(chain_prefix)
         return []
-
 
 class ExecutionContext:
     """
@@ -1029,11 +1023,11 @@ class ExecutionContext:
 
     def __init__(
         self,
-        selector: Optional[DataSelector] = None,
-        state: Optional[PipelineState] = None,
-        metadata: Optional[StepMetadata] = None,
-        custom: Optional[Dict[str, Any]] = None,
-        aggregate_column: Optional[str] = None
+        selector: DataSelector | None = None,
+        state: PipelineState | None = None,
+        metadata: StepMetadata | None = None,
+        custom: dict[str, Any] | None = None,
+        aggregate_column: str | None = None
     ):
         """
         Initialize execution context.
@@ -1085,7 +1079,7 @@ class ExecutionContext:
         new_ctx.selector = new_ctx.selector.with_partition(partition)
         return new_ctx
 
-    def with_processing(self, processing: List[List[str]]) -> "ExecutionContext":
+    def with_processing(self, processing: list[list[str]]) -> "ExecutionContext":
         """
         Create new context with updated processing chains.
 
@@ -1157,8 +1151,8 @@ class ExecutionContext:
 
     def with_branch(
         self,
-        branch_id: Optional[int] = None,
-        branch_name: Optional[str] = None
+        branch_id: int | None = None,
+        branch_name: str | None = None
     ) -> "ExecutionContext":
         """
         Create new context with updated branch information.
@@ -1183,7 +1177,6 @@ class ExecutionContext:
         """
         return self.selector
 
-
 @dataclass
 class BestChainEntry:
     """Best preprocessing chain for a model, accumulated during CV execution.
@@ -1205,7 +1198,6 @@ class BestChainEntry:
     branch_steps: list
     best_params: dict
     metric: str
-
 
 @dataclass
 class RuntimeContext:
@@ -1239,28 +1231,28 @@ class RuntimeContext:
     artifact_loader: Any = None
     artifact_provider: Optional["ArtifactProvider"] = None  # Phase 3: controller-agnostic artifact injection
     artifact_registry: Any = None
-    pipeline_uid: Optional[str] = None
-    pipeline_id: Optional[str] = None  # WorkspaceStore pipeline UUID
-    pipeline_name: Optional[str] = None  # Human-readable pipeline name (replaces saver.pipeline_id)
-    run_id: Optional[str] = None  # WorkspaceStore run UUID
+    pipeline_uid: str | None = None
+    pipeline_id: str | None = None  # WorkspaceStore pipeline UUID
+    pipeline_name: str | None = None  # Human-readable pipeline name (replaces saver.pipeline_id)
+    run_id: str | None = None  # WorkspaceStore run UUID
     save_artifacts: bool = True  # Whether to persist binary artifacts
     step_runner: Any = None
     step_number: int = 0
     operation_count: int = 0
     substep_number: int = -1
     processing_counter: int = 0  # Global counter for unique processing indices within a step
-    artifact_load_counter: Dict[int, int] = field(default_factory=dict)  # Per-source artifact load counter
-    target_model: Optional[Dict[str, Any]] = None
+    artifact_load_counter: dict[int, int] = field(default_factory=dict)  # Per-source artifact load counter
+    target_model: dict[str, Any] | None = None
     explainer: Any = None
     trace_recorder: Any = None  # TraceRecorder instance for execution trace recording
     retrain_config: Any = None  # Phase 7: RetrainConfig for retrain mode control
     phase: ExecutionPhase = ExecutionPhase.CV  # Current execution phase (CV or REFIT)
-    refit_fold_id: Optional[str] = None  # Persisted fold label override for refit predictions
-    refit_context_name: Optional[str] = None  # Persisted refit context override
+    refit_fold_id: str | None = None  # Persisted fold label override for refit predictions
+    refit_context_name: str | None = None  # Persisted refit context override
     cache_config: Any = None  # CacheConfig for step-level caching settings
     step_cache: Any = None  # StepCache instance (set when cache_config.step_cache_enabled)
-    best_refit_chains: Optional[Dict[str, "BestChainEntry"]] = None  # Accumulator: best chain per model during CV
-    random_state: Optional[int] = None  # Random seed for reproducibility propagation
+    best_refit_chains: dict[str, "BestChainEntry"] | None = None  # Accumulator: best chain per model during CV
+    random_state: int | None = None  # Random seed for reproducibility propagation
 
     def __deepcopy__(self, memo):
         """Return self on deepcopy -- RuntimeContext is shared infrastructure, not data."""
@@ -1338,8 +1330,8 @@ class RuntimeContext:
         step_index: int,
         operator_type: str = "",
         operator_class: str = "",
-        operator_config: Optional[Dict[str, Any]] = None,
-        branch_path: Optional[List[int]] = None,
+        operator_config: dict[str, Any] | None = None,
+        branch_path: list[int] | None = None,
         branch_name: str = "",
         mode: str = "train"
     ) -> None:
@@ -1375,11 +1367,11 @@ class RuntimeContext:
         self,
         artifact_id: str,
         is_primary: bool = False,
-        fold_id: Optional[int | str] = None,
-        chain_path: Optional[str] = None,
-        branch_path: Optional[List[int]] = None,
-        source_index: Optional[int] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        fold_id: int | str | None = None,
+        chain_path: str | None = None,
+        branch_path: list[int] | None = None,
+        source_index: int | None = None,
+        metadata: dict[str, Any] | None = None
     ) -> None:
         """Record an artifact created during the current step (V3).
 
@@ -1406,7 +1398,7 @@ class RuntimeContext:
     def record_step_end(
         self,
         is_model: bool = False,
-        fold_weights: Optional[Dict[int, float]] = None,
+        fold_weights: dict[int, float] | None = None,
         skip_trace: bool = False
     ) -> None:
         """Record the end of a step execution.
@@ -1425,8 +1417,8 @@ class RuntimeContext:
 
     def record_input_shapes(
         self,
-        input_shape: Optional[tuple] = None,
-        features_shape: Optional[List[tuple]] = None
+        input_shape: tuple | None = None,
+        features_shape: list[tuple] | None = None
     ) -> None:
         """Record input shapes for the current step.
 
@@ -1442,8 +1434,8 @@ class RuntimeContext:
 
     def record_output_shapes(
         self,
-        output_shape: Optional[tuple] = None,
-        features_shape: Optional[List[tuple]] = None
+        output_shape: tuple | None = None,
+        features_shape: list[tuple] | None = None
     ) -> None:
         """Record output shapes for the current step.
 
@@ -1457,7 +1449,7 @@ class RuntimeContext:
                 features_shape=features_shape
             )
 
-    def get_trace_id(self) -> Optional[str]:
+    def get_trace_id(self) -> str | None:
         """Get the current trace ID.
 
         Returns:
@@ -1467,7 +1459,7 @@ class RuntimeContext:
             return self.trace_recorder.trace_id
         return None
 
-    def get_execution_trace(self) -> Optional[Any]:
+    def get_execution_trace(self) -> Any | None:
         """Get the current execution trace.
 
         Returns the trace object that has been built during execution.

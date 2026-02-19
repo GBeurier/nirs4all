@@ -8,12 +8,14 @@ Phase 8 Implementation - Dataset Configuration Roadmap
 Section 8.5: Performance Optimization - Caching
 """
 
+import contextlib
 import hashlib
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, TypeVar, Union
+from typing import Any, Optional, TypeVar, Union
 
 import numpy as np
 
@@ -22,7 +24,6 @@ from nirs4all.core.logging import get_logger
 logger = get_logger(__name__)
 
 T = TypeVar("T")
-
 
 @dataclass
 class CacheEntry:
@@ -41,8 +42,8 @@ class CacheEntry:
     key: str
     timestamp: float = field(default_factory=time.time)
     size_bytes: int = 0
-    source_path: Optional[str] = None
-    source_mtime: Optional[float] = None
+    source_path: str | None = None
+    source_mtime: float | None = None
     hit_count: int = 0
 
     def is_stale(self) -> bool:
@@ -54,7 +55,6 @@ class CacheEntry:
             return current_mtime > self.source_mtime
         except OSError:
             return True  # File doesn't exist, consider stale
-
 
 class DataCache:
     """LRU cache for loaded data.
@@ -88,9 +88,9 @@ class DataCache:
         self,
         max_size_mb: float = 500,
         max_entries: int = 100,
-        ttl_seconds: Optional[float] = None,
+        ttl_seconds: float | None = None,
         eviction_policy: str = "lfu",
-        on_evict: Optional[Callable[[Any], None]] = None,
+        on_evict: Callable[[Any], None] | None = None,
     ):
         """Initialize cache.
 
@@ -111,14 +111,14 @@ class DataCache:
         self.eviction_policy = eviction_policy
         self._on_evict = on_evict
 
-        self._cache: Dict[str, CacheEntry] = {}
+        self._cache: dict[str, CacheEntry] = {}
         self._lock = threading.RLock()
         self._total_size = 0
         self._hits = 0
         self._misses = 0
         self._eviction_count = 0
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """Get data from cache.
 
         Args:
@@ -156,7 +156,7 @@ class DataCache:
         self,
         key: str,
         data: Any,
-        source_path: Optional[str] = None,
+        source_path: str | None = None,
     ) -> None:
         """Store data in cache.
 
@@ -183,10 +183,8 @@ class DataCache:
             # Get source file mtime
             source_mtime = None
             if source_path:
-                try:
+                with contextlib.suppress(OSError):
                     source_mtime = Path(source_path).stat().st_mtime
-                except OSError:
-                    pass
 
             # Store entry
             entry = CacheEntry(
@@ -203,7 +201,7 @@ class DataCache:
         self,
         key: str,
         loader: Callable[[], T],
-        source_path: Optional[str] = None,
+        source_path: str | None = None,
     ) -> T:
         """Get from cache or load and cache.
 
@@ -258,7 +256,7 @@ class DataCache:
             self._cache.clear()
             self._total_size = 0
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Get cache statistics.
 
         Returns:
@@ -343,10 +341,9 @@ class DataCache:
         import sys
         return sys.getsizeof(data)
 
-
 def make_cache_key(
-    path: Union[str, Path],
-    params: Optional[Dict[str, Any]] = None,
+    path: str | Path,
+    params: dict[str, Any] | None = None,
 ) -> str:
     """Create a cache key from path and parameters.
 

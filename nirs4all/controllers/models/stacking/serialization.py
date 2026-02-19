@@ -16,27 +16,27 @@ The meta-model serialization captures:
 - Branch context (for validation during prediction)
 """
 
-from collections import Counter
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 import json
 import warnings
+from collections import Counter
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timezone
+from typing import TYPE_CHECKING, Any, Optional
 
 from nirs4all.operators.models.meta import (
-    StackingConfig,
-    CoverageStrategy,
-    TestAggregation,
     BranchScope,
+    CoverageStrategy,
+    StackingConfig,
+    TestAggregation,
 )
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord, MetaModelConfig
     from nirs4all.operators.models.meta import MetaModel
     from nirs4all.operators.models.selection import ModelCandidate
     from nirs4all.pipeline.config.context import ExecutionContext
-    from .reconstructor import ReconstructionResult
+    from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord, MetaModelConfig
 
+    from .reconstructor import ReconstructionResult
 
 @dataclass
 class SourceModelReference:
@@ -76,14 +76,14 @@ class SourceModelReference:
     step_idx: int
     artifact_id: str
     feature_index: int
-    fold_id: Optional[str] = None
-    branch_id: Optional[int] = None
-    branch_name: Optional[str] = None
-    branch_path: Optional[List[int]] = None
-    val_score: Optional[float] = None
-    metric: Optional[str] = None
+    fold_id: str | None = None
+    branch_id: int | None = None
+    branch_name: str | None = None
+    branch_path: list[int] | None = None
+    val_score: float | None = None
+    metric: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON/YAML serialization."""
         return {
             "model_name": self.model_name,
@@ -100,7 +100,7 @@ class SourceModelReference:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SourceModelReference":
+    def from_dict(cls, data: dict[str, Any]) -> "SourceModelReference":
         """Create from dictionary."""
         return cls(
             model_name=data.get("model_name", ""),
@@ -115,7 +115,6 @@ class SourceModelReference:
             val_score=data.get("val_score"),
             metric=data.get("metric"),
         )
-
 
 @dataclass
 class MetaModelArtifact:
@@ -162,24 +161,24 @@ class MetaModelArtifact:
     meta_model_type: str
     meta_model_name: str
     meta_learner_class: str
-    source_models: List[SourceModelReference]
-    feature_columns: List[str]
-    stacking_config: Dict[str, Any]
-    selector_config: Optional[Dict[str, Any]] = None
-    branch_context: Optional[Dict[str, Any]] = None
+    source_models: list[SourceModelReference]
+    feature_columns: list[str]
+    stacking_config: dict[str, Any]
+    selector_config: dict[str, Any] | None = None
+    branch_context: dict[str, Any] | None = None
     use_proba: bool = False
     n_folds: int = 0
     coverage_ratio: float = 1.0
     artifact_id: str = ""
     training_timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
     # Phase 5: Classification support fields
     task_type: str = "regression"  # "regression", "binary_classification", "multiclass_classification"
-    n_classes: Optional[int] = None  # Number of classes for classification tasks
-    feature_to_model_mapping: Optional[Dict[str, str]] = None  # Feature name -> source model name
+    n_classes: int | None = None  # Number of classes for classification tasks
+    feature_to_model_mapping: dict[str, str] | None = None  # Feature name -> source model name
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON/YAML serialization."""
         return {
             "meta_model_type": self.meta_model_type,
@@ -202,7 +201,7 @@ class MetaModelArtifact:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MetaModelArtifact":
+    def from_dict(cls, data: dict[str, Any]) -> "MetaModelArtifact":
         """Create from dictionary."""
         source_models = [
             SourceModelReference.from_dict(ref)
@@ -237,7 +236,7 @@ class MetaModelArtifact:
         """Deserialize from JSON string."""
         return cls.from_dict(json.loads(json_str))
 
-    def get_source_artifact_ids(self) -> List[str]:
+    def get_source_artifact_ids(self) -> list[str]:
         """Get ordered list of source model artifact IDs.
 
         Returns:
@@ -245,7 +244,7 @@ class MetaModelArtifact:
         """
         return [ref.artifact_id for ref in self.source_models]
 
-    def get_source_by_index(self, index: int) -> Optional[SourceModelReference]:
+    def get_source_by_index(self, index: int) -> SourceModelReference | None:
         """Get source model reference by feature index.
 
         Args:
@@ -269,14 +268,9 @@ class MetaModelArtifact:
             return False
 
         # Check feature indices are sequential and match
-        for idx, ref in enumerate(self.source_models):
-            if ref.feature_index != idx:
-                return False
+        return all(ref.feature_index == idx for idx, ref in enumerate(self.source_models))
 
-        return True
-
-
-def stacking_config_to_dict(config: StackingConfig) -> Dict[str, Any]:
+def stacking_config_to_dict(config: StackingConfig) -> dict[str, Any]:
     """Convert StackingConfig to serializable dictionary.
 
     Args:
@@ -293,8 +287,7 @@ def stacking_config_to_dict(config: StackingConfig) -> Dict[str, Any]:
         "min_coverage_ratio": config.min_coverage_ratio,
     }
 
-
-def stacking_config_from_dict(data: Dict[str, Any]) -> StackingConfig:
+def stacking_config_from_dict(data: dict[str, Any]) -> StackingConfig:
     """Create StackingConfig from dictionary.
 
     Args:
@@ -310,7 +303,6 @@ def stacking_config_from_dict(data: Dict[str, Any]) -> StackingConfig:
         allow_no_cv=data.get("allow_no_cv", False),
         min_coverage_ratio=data.get("min_coverage_ratio", 1.0),
     )
-
 
 class MetaModelSerializer:
     """Handles serialization and deserialization of meta-model artifacts.
@@ -334,7 +326,7 @@ class MetaModelSerializer:
     def build_artifact(
         self,
         meta_operator: 'MetaModel',
-        source_models: List['ModelCandidate'],
+        source_models: list['ModelCandidate'],
         reconstruction_result: Optional['ReconstructionResult'] = None,
         context: Optional['ExecutionContext'] = None,
         artifact_id: str = "",
@@ -365,8 +357,8 @@ class MetaModelSerializer:
         for candidate in source_models:
             name_branch_pairs.add((candidate.model_name, candidate.branch_id))
 
-        branch_count_per_name: Dict[str, int] = {}
-        for name, branch_id in name_branch_pairs:
+        branch_count_per_name: dict[str, int] = {}
+        for name, _branch_id in name_branch_pairs:
             branch_count_per_name[name] = branch_count_per_name.get(name, 0) + 1
 
         # Models needing branch suffix are those appearing in multiple branches
@@ -376,18 +368,12 @@ class MetaModelSerializer:
 
         # Build unique source list with branch-aware deduplication
         seen_unique = set()
-        unique_sources: List[Tuple['ModelCandidate', str]] = []  # (candidate, unique_name)
+        unique_sources: list[tuple[ModelCandidate, str]] = []  # (candidate, unique_name)
         for candidate in source_models:
             model_name = candidate.model_name
             branch_id = candidate.branch_id
 
-            if model_name in needs_branch_suffix:
-                if branch_id is not None:
-                    unique_name = f"{model_name}_br{branch_id}"
-                else:
-                    unique_name = f"{model_name}_br_none"
-            else:
-                unique_name = model_name
+            unique_name = (f"{model_name}_br{branch_id}" if branch_id is not None else f"{model_name}_br_none") if model_name in needs_branch_suffix else model_name
 
             if unique_name not in seen_unique:
                 seen_unique.add(unique_name)
@@ -584,7 +570,7 @@ class MetaModelSerializer:
             feature_columns=artifact.feature_columns
         )
 
-    def validate_artifact(self, artifact: MetaModelArtifact) -> List[str]:
+    def validate_artifact(self, artifact: MetaModelArtifact) -> list[str]:
         """Validate artifact completeness and consistency.
 
         Args:

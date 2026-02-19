@@ -20,7 +20,6 @@ from nirs4all.pipeline.runner import PipelineRunner
 
 pytestmark = [pytest.mark.sklearn]
 
-
 def _make_dataset(n_samples: int = 200, n_features: int = 50, seed: int = 42) -> SpectroDataset:
     """Create a deterministic synthetic dataset."""
     rng = np.random.RandomState(seed)
@@ -34,7 +33,6 @@ def _make_dataset(n_samples: int = 200, n_features: int = 50, seed: int = 42) ->
     ds.add_samples(X[n_train:], indexes={"partition": "test"})
     ds.add_targets(y[n_train:])
     return ds
-
 
 def _run_pipeline(pipeline, tmp_path, cache_enabled: bool):
     """Run a pipeline and return sorted test scores."""
@@ -56,7 +54,6 @@ def _run_pipeline(pipeline, tmp_path, cache_enabled: bool):
     for pred in predictions.to_dicts():
         scores.append(pred.get("test_score", 0.0))
     return sorted(scores)
-
 
 class TestStepCacheCorrectness:
     """Verify cache ON vs OFF produces identical results."""

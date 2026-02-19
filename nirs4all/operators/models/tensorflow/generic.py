@@ -1,5 +1,8 @@
 import tensorflow as tf
+from keras.models import Model, Sequential
 from tensorflow.keras.layers import (
+    GRU,
+    LSTM,
     Activation,
     Add,
     AveragePooling1D,
@@ -14,13 +17,11 @@ from tensorflow.keras.layers import (
     Flatten,
     GlobalAveragePooling1D,
     GlobalMaxPool1D,
-    GRU,
     Input,
     Lambda,
     LayerNormalization,
-    LSTM,
-    MaxPooling1D,
     MaxPool1D,
+    MaxPooling1D,
     MultiHeadAttention,
     Multiply,
     Permute,
@@ -30,12 +31,11 @@ from tensorflow.keras.layers import (
     UpSampling1D,
 )
 
-from keras.models import Model, Sequential
-from nirs4all.utils import framework
 from nirs4all.operators.models.tensorflow.legacy.inception_1d_cnn import Inception
 from nirs4all.operators.models.tensorflow.legacy.resnet_v2_1d_cnn import ResNetv2
 from nirs4all.operators.models.tensorflow.legacy.se_resnet_1d_cnn import SEResNet
 from nirs4all.operators.models.tensorflow.legacy.vgg_1d_cnn import VGG
+from nirs4all.utils import framework
 
 
 @framework('tensorflow')
@@ -69,7 +69,6 @@ def UNet_NIRS(input_shape, params):
     ).VGG11()
     return model
 
-
 @framework('tensorflow')
 def VGG_1D(input_shape, params):
     """
@@ -102,7 +101,6 @@ def VGG_1D(input_shape, params):
     layer = Dense(units=1, activation="linear")(layer)
     model = Model(inputs=visible, outputs=layer)
     return model
-
 
 @framework('tensorflow')
 def CONV_LSTM(input_shape, params):
@@ -163,7 +161,6 @@ def CONV_LSTM(input_shape, params):
     x = Dropout(0.2)(x)
     outputs = Dense(units=1, activation="sigmoid")(x)
     return Model(inputs, outputs)
-
 
 @framework('tensorflow')
 def UNET(input_shape, params):
@@ -244,7 +241,6 @@ def UNET(input_shape, params):
     model = Model(input_layer, out)
     return model
 
-
 @framework('tensorflow')
 def bard(input_shape, params):
     """
@@ -291,7 +287,6 @@ def bard(input_shape, params):
     predictions = Dense(1, activation='linear')(dense2)
     model = Model(input_layer, predictions)
     return model
-
 
 @framework('tensorflow')
 def XCeption1D(input_shape, params):
@@ -397,7 +392,6 @@ def XCeption1D(input_shape, params):
     outputs = xception_exit_flow(x)
     return Model(inputs, outputs)
 
-
 @framework('tensorflow')
 def MLP(input_shape, params):
     """
@@ -418,7 +412,6 @@ def MLP(input_shape, params):
     model.add(Dense(units=params.get('dense_units3', 8), activation="relu"))
     model.add(Dense(units=1, activation="sigmoid"))
     return model
-
 
 @framework('tensorflow')
 def Custom_VG_Residuals2(input_shape, params):
@@ -503,7 +496,6 @@ def Custom_VG_Residuals2(input_shape, params):
     model = Model(inputs, x)
     return model
 
-
 @framework('tensorflow')
 def SEResNet_model(input_shape, params):
     """
@@ -539,7 +531,6 @@ def SEResNet_model(input_shape, params):
     ).SEResNet101()
     return model
 
-
 @framework('tensorflow')
 def ResNetV2_model(input_shape, params):
     """
@@ -571,7 +562,6 @@ def ResNetV2_model(input_shape, params):
         dropout_rate=dropout_rate,
     ).ResNet34()
     return model
-
 
 @framework('tensorflow')
 def FFT_Conv(input_shape, params):
@@ -624,7 +614,6 @@ def FFT_Conv(input_shape, params):
     model = Model(inputs, outputs)
     return model
 
-
 @framework('tensorflow')
 def Custom_Residuals(input_shape, params):
     """
@@ -668,7 +657,6 @@ def Custom_Residuals(input_shape, params):
     outputs = Dense(1, activation="sigmoid")(x)
     model = Model(inputs, outputs)
     return model
-
 
 @framework('tensorflow')
 def Custom_VG_Residuals(input_shape, params):
@@ -743,7 +731,6 @@ def Custom_VG_Residuals(input_shape, params):
     model = Model(inputs, outputs)
     return model
 
-
 @framework('tensorflow')
 def inception1D(input_shape, params):
     """
@@ -768,7 +755,6 @@ def inception1D(input_shape, params):
     ).Inception_v3()
 
     return Regression_Model
-
 
 @framework('tensorflow')
 def senseen_origin(input_shape, params):

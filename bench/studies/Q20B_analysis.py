@@ -9,21 +9,20 @@ Generates top_k plots, heatmaps, candlestick plots, and histograms.
 # Standard library imports
 import argparse
 import os
+
 os.environ['DISABLE_EMOJIS'] = '0'
 
 from matplotlib import pyplot as plt
 
 # Third-party imports - ML Models
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.ensemble import (
-    RandomForestRegressor, ExtraTreesRegressor, StackingRegressor
-)
+from sklearn.ensemble import ExtraTreesRegressor, RandomForestRegressor, StackingRegressor
 from sklearn.linear_model import Ridge
+from sklearn.model_selection import GroupKFold, KFold, StratifiedGroupKFold
 from sklearn.neighbors import KNeighborsRegressor
-from sklearn.svm import SVR
 from sklearn.neural_network import MLPRegressor
-from sklearn.model_selection import KFold, StratifiedGroupKFold, GroupKFold
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.svm import SVR
 
 # PLS operators
 from nirs4all.operators.models.sklearn import OPLS
@@ -45,52 +44,47 @@ except ImportError:
     CatBoostRegressor = None
 
 # NIRS4All imports - Sample augmentation transforms
+from nirs4all.data import DatasetConfigs
+from nirs4all.data.predictions import Predictions
+
+# from nirs4all.operators.transforms.nirs import (
+#     AreaNormalization, ExtendedMultiplicativeScatterCorrection as EMSC
+# )
+# PLS operators
+from nirs4all.operators.models.sklearn import IKPLS, MBPLS, OPLSDA, PLSDA, SIMPLS, DiPLS, SparsePLS
+from nirs4all.operators.models.sklearn.fckpls import FCKPLS
+from nirs4all.operators.models.sklearn.ipls import IntervalPLS
+from nirs4all.operators.models.sklearn.kopls import KOPLS
+from nirs4all.operators.models.sklearn.lwpls import LWPLS
+from nirs4all.operators.models.sklearn.nlpls import KernelPLS
+from nirs4all.operators.models.sklearn.oklmpls import OKLMPLS, PolynomialFeaturizer
+from nirs4all.operators.models.sklearn.recursive_pls import RecursivePLS
+from nirs4all.operators.models.sklearn.robust_pls import RobustPLS
 from nirs4all.operators.transforms import (
-    Rotate_Translate,
-    Spline_Y_Perturbations,
-    Spline_X_Simplification,
-    GaussianAdditiveNoise,
-    MultiplicativeNoise,
-    LinearBaselineDrift,
-    PolynomialBaselineDrift,
-    WavelengthShift,
-    WavelengthStretch,
-    LocalWavelengthWarp,
-    SmoothMagnitudeWarp,
-    GaussianSmoothingJitter,
-    UnsharpSpectralMask,
     ChannelDropout,
+    GaussianAdditiveNoise,
+    GaussianSmoothingJitter,
+    LinearBaselineDrift,
+    LocalWavelengthWarp,
     MixupAugmenter,
+    MultiplicativeNoise,
+    PolynomialBaselineDrift,
+    Rotate_Translate,
     ScatterSimulationMSC,
     # Feature augmentation transforms (commented - uncomment if using feature_augmentation)
     # Detrend, FirstDerivative, SecondDerivative,
     # Gaussian, StandardNormalVariate, SavitzkyGolay,
     # Haar, MultiplicativeScatterCorrection,
     # RobustStandardNormalVariate, LocalStandardNormalVariate, Wavelet,
+    SmoothMagnitudeWarp,
+    Spline_X_Simplification,
+    Spline_Y_Perturbations,
+    UnsharpSpectralMask,
+    WavelengthShift,
+    WavelengthStretch,
 )
-# from nirs4all.operators.transforms.nirs import (
-#     AreaNormalization, ExtendedMultiplicativeScatterCorrection as EMSC
-# )
-
-
-# PLS operators
-from nirs4all.operators.models.sklearn import (
-    PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS, SIMPLS
-)
-from nirs4all.operators.models.sklearn.lwpls import LWPLS
-from nirs4all.operators.models.sklearn.ipls import IntervalPLS
-from nirs4all.operators.models.sklearn.robust_pls import RobustPLS
-from nirs4all.operators.models.sklearn.recursive_pls import RecursivePLS
-from nirs4all.operators.models.sklearn.kopls import KOPLS
-from nirs4all.operators.models.sklearn.nlpls import KernelPLS
-from nirs4all.operators.models.sklearn.oklmpls import OKLMPLS, PolynomialFeaturizer
-from nirs4all.operators.models.sklearn.fckpls import FCKPLS
-
-
-from nirs4all.data import DatasetConfigs
-from nirs4all.data.predictions import Predictions
-from nirs4all.visualization.predictions import PredictionAnalyzer
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Batch Regression Analysis')
@@ -222,7 +216,6 @@ pipeline = [
     # StandardScaler(),
     stacking_regressor,
 ]
-
 
 # ============================================================================
 # RUN PIPELINE
@@ -379,7 +372,6 @@ fig_histogram = analyzer.plot_histogram(
     display_metric='rmse',
     partition='test'
 )
-
 
 if args.show:
     plt.show()

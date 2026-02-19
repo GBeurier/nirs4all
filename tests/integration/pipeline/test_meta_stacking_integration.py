@@ -10,40 +10,38 @@ Tests end-to-end scenarios:
 - Feature order preservation
 """
 
-import pytest
+from pathlib import Path
+from typing import Any
+
 import numpy as np
 import pandas as pd
-from pathlib import Path
-from typing import List, Dict, Any
-
+import pytest
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.linear_model import Ridge, LogisticRegression
-from sklearn.model_selection import KFold, GroupKFold
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.model_selection import GroupKFold, KFold
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.data.config import DatasetConfigs
-from nirs4all.pipeline import PipelineRunner, PipelineConfigs
 from nirs4all.operators.models import (
+    BranchScope,
+    CoverageStrategy,
     MetaModel,
     StackingConfig,
-    CoverageStrategy,
     TestAggregation,
-    BranchScope,
 )
 from nirs4all.operators.transforms import FirstDerivative as DerivativeTransform
-
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
 
-def filter_by_model_name(predictions, name_contains: str) -> List[Dict[str, Any]]:
+def filter_by_model_name(predictions, name_contains: str) -> list[dict[str, Any]]:
     """Filter predictions by model name containing a substring."""
     all_preds = predictions.to_dicts(load_arrays=False)
     return [p for p in all_preds if name_contains in p.get('model_name', '')]
-
 
 def _copy_reduced_regression_dataset(source: Path, target: Path) -> None:
     """Create a lightweight copy of regression sample data for smoke integration tests."""
@@ -68,7 +66,6 @@ def _copy_reduced_regression_dataset(source: Path, target: Path) -> None:
     ycal.to_csv(target / "Ycal.csv.gz", sep=";", index=False, header=False, compression="gzip")
     xval.to_csv(target / "Xval.csv.gz", sep=";", index=False, header=False, compression="gzip")
     yval.to_csv(target / "Yval.csv.gz", sep=";", index=False, header=False, compression="gzip")
-
 
 def _copy_reduced_regression_2_dataset(source: Path, target: Path) -> None:
     """Create a reduced grouped dataset preserving Sample_ID metadata for GroupKFold tests."""
@@ -95,7 +92,6 @@ def _copy_reduced_regression_2_dataset(source: Path, target: Path) -> None:
     ytest.to_csv(target / "Ytest.csv", sep=";", index=False)
     mtest.to_csv(target / "Mtest.csv", sep=";", index=False)
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -111,7 +107,6 @@ def sample_data_path(tmp_path_factory):
     _copy_reduced_regression_dataset(source, reduced_path)
     return str(reduced_path)
 
-
 @pytest.fixture
 def temp_workspace(tmp_path):
     """Create a temporary workspace directory."""
@@ -119,12 +114,10 @@ def temp_workspace(tmp_path):
     workspace.mkdir(parents=True)
     return str(workspace)
 
-
 @pytest.fixture
 def regression_dataset(sample_data_path):
     """Load regression dataset."""
     return DatasetConfigs(sample_data_path)
-
 
 @pytest.fixture(scope="session")
 def sample_data_path_2(tmp_path_factory):
@@ -137,12 +130,10 @@ def sample_data_path_2(tmp_path_factory):
     _copy_reduced_regression_2_dataset(source, reduced_path)
     return str(reduced_path)
 
-
 @pytest.fixture
 def regression_2_dataset(sample_data_path_2):
     """Load larger regression_2 dataset (885 samples) with Sample_ID metadata."""
     return DatasetConfigs(sample_data_path_2)
-
 
 # =============================================================================
 # Basic Stacking Pipeline Tests
@@ -234,7 +225,6 @@ class TestBasicStackingPipeline:
         runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
-
         # Get top models
         top_models = predictions.top(n=5, rank_partition="val")
 
@@ -249,7 +239,6 @@ class TestBasicStackingPipeline:
             assert val_score is not None
             # R2 should be between -inf and 1, but reasonable models should be > 0
             assert val_score > -10  # Sanity check
-
 
 # =============================================================================
 # Branching Integration Tests
@@ -278,7 +267,6 @@ class TestStackingWithBranches:
 
         runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
-
 
         # Check branch models exist
         pls_raw = filter_by_model_name(predictions, "PLS_Raw")
@@ -323,14 +311,12 @@ class TestStackingWithBranches:
         runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
-
         # Both meta-models should exist
         meta_b0 = filter_by_model_name(predictions, "Meta_Branch0")
         meta_b1 = filter_by_model_name(predictions, "Meta_Branch1")
 
         assert len(meta_b0) > 0
         assert len(meta_b1) > 0
-
 
 # =============================================================================
 # Sample Partitioner / Excluder Tests
@@ -358,7 +344,6 @@ class TestStackingWithPartitioner:
 
         meta_preds = filter_by_model_name(predictions, "MetaModel")
         assert len(meta_preds) > 0
-
 
 # =============================================================================
 # Classification Stacking Tests
@@ -402,7 +387,6 @@ class TestClassificationStacking:
         meta_preds = filter_by_model_name(predictions, "MetaModel")
         assert len(meta_preds) > 0
 
-
 # =============================================================================
 # Mixed Framework Tests
 # =============================================================================
@@ -412,8 +396,8 @@ class TestMixedFrameworkStacking:
 
     def test_stacking_multiple_estimator_types(self, regression_dataset, temp_workspace):
         """Test stacking with diverse estimator types."""
-        from sklearn.svm import SVR
         from sklearn.neighbors import KNeighborsRegressor
+        from sklearn.svm import SVR
 
         pipeline = [
             MinMaxScaler(),
@@ -429,7 +413,6 @@ class TestMixedFrameworkStacking:
         runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
-
         # All base models should have predictions
         pls_preds = filter_by_model_name(predictions, "PLSRegression")
         rf_preds = filter_by_model_name(predictions, "RandomForest")
@@ -442,7 +425,6 @@ class TestMixedFrameworkStacking:
         # Meta-model should have predictions
         meta_preds = filter_by_model_name(predictions, "MetaModel")
         assert len(meta_preds) > 0
-
 
 # =============================================================================
 # Roundtrip / Persistence Tests
@@ -513,7 +495,6 @@ class TestStackingRoundtrip:
         assert best.get("y_pred") is not None, "Expected y_pred in best prediction"
         assert len(best["y_pred"]) > 0, "Expected non-empty y_pred"
 
-
 # =============================================================================
 # Edge Cases
 # =============================================================================
@@ -582,7 +563,6 @@ class TestStackingEdgeCases:
         except (ValueError, RuntimeError, KeyError) as e:
             # Expected - source model not found
             assert "NonExistentModel" in str(e) or "source" in str(e).lower()
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

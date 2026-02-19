@@ -9,26 +9,17 @@ Tests cover:
 - Factory rebuild with force_params
 """
 
-import pytest
-import json
 import copy
+import json
 
-from sklearn.ensemble import (
-    StackingRegressor, StackingClassifier,
-    VotingRegressor, VotingClassifier,
-    RandomForestRegressor, RandomForestClassifier,
-    GradientBoostingRegressor
-)
+import pytest
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.linear_model import Ridge, LogisticRegression
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestClassifier, RandomForestRegressor, StackingClassifier, StackingRegressor, VotingClassifier, VotingRegressor
+from sklearn.linear_model import LogisticRegression, Ridge
 
 from nirs4all.controllers.models.factory import ModelFactory
-from nirs4all.pipeline.config.component_serialization import (
-    serialize_component, deserialize_component,
-    _is_meta_estimator, _is_meta_estimator_class,
-    _serialize_meta_estimator, _deserialize_meta_estimator
-)
+from nirs4all.pipeline.config.component_serialization import _deserialize_meta_estimator, _is_meta_estimator, _is_meta_estimator_class, _serialize_meta_estimator, deserialize_component, serialize_component
 
 
 class TestMetaEstimatorDetection:
@@ -114,7 +105,6 @@ class TestMetaEstimatorDetection:
         assert _is_meta_estimator_class(PLSRegression) is False
         assert _is_meta_estimator_class(RandomForestRegressor) is False
 
-
 class TestMetaEstimatorSerialization:
     """Test serialization of stacking/voting models."""
 
@@ -197,7 +187,6 @@ class TestMetaEstimatorSerialization:
         assert 'class' in parsed
         assert 'params' in parsed
         assert 'estimators' in parsed['params']
-
 
 class TestMetaEstimatorDeserialization:
     """Test deserialization of stacking/voting models."""
@@ -299,7 +288,6 @@ class TestMetaEstimatorDeserialization:
         assert len(result.estimators) == 1
         assert result.cv == 3
 
-
 class TestMetaEstimatorClone:
     """Test cloning of meta-estimators."""
 
@@ -342,7 +330,6 @@ class TestMetaEstimatorClone:
         assert cloned is not voting
         assert len(cloned.estimators) == 2
         assert cloned.voting == 'hard'
-
 
 class TestMetaEstimatorFactoryRebuild:
     """Test ModelFactory rebuild functionality for meta-estimators."""
@@ -409,7 +396,6 @@ class TestMetaEstimatorFactoryRebuild:
 
         result2 = ModelFactory._from_instance(stacking, {})
         assert result2 is stacking
-
 
 class TestMetaEstimatorEdgeCases:
     """Test edge cases for meta-estimator support."""
@@ -485,7 +471,6 @@ class TestMetaEstimatorEdgeCases:
         assert rf.min_samples_split == 5
         assert rf.min_samples_leaf == 2
         assert rf.random_state == 42
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

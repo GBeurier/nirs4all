@@ -1,21 +1,41 @@
 """Pipeline orchestrator for coordinating multiple pipeline executions."""
+import contextlib
+import copy
+import gc
+import multiprocessing
+import re
+import time
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from joblib import Parallel, delayed
 
 from nirs4all.core.logging import get_logger
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions, _infer_ascending
+from nirs4all.pipeline.analysis.topology import analyze_topology
+from nirs4all.pipeline.config.context import BestChainEntry, RuntimeContext
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
+from nirs4all.pipeline.execution.refit import execute_simple_refit, extract_winning_config
+from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig, extract_per_model_configs, extract_top_configs, parse_refit_param
+from nirs4all.pipeline.execution.refit.executor import RefitResult
+from nirs4all.pipeline.execution.refit.stacking_refit import (
+    _find_branch_step,
+    execute_competing_branches_refit,
+    execute_separation_refit,
+    execute_stacking_refit,
+)
+from nirs4all.pipeline.execution.step_cache import StepCache
 from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
+from nirs4all.pipeline.storage.chain_builder import ChainBuilder
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+from nirs4all.visualization.naming import get_metric_names
 from nirs4all.visualization.reports import TabReportManager
 
 logger = get_logger(__name__)
-
 
 class PipelineOrchestrator:
     """Orchestrates execution of multiple pipelines across multiple datasets.
@@ -145,7 +165,7 @@ class PipelineOrchestrator:
         """Execute pipeline configurations on dataset configurations.
 
         Args:
-            pipeline: Pipeline definition (PipelineConfigs, List[steps], Dict, or file path)
+            pipeline: Pipeline definition (PipelineConfigs, list[steps], Dict, or file path)
             dataset: Dataset definition (DatasetConfigs, SpectroDataset, numpy arrays, Dict, or file path)
             pipeline_name: Optional name for the pipeline
             dataset_name: Optional name for array-based datasets
@@ -166,8 +186,6 @@ class PipelineOrchestrator:
         Returns:
             Tuple of (run_predictions, dataset_predictions)
         """
-        from nirs4all.pipeline.config.context import RuntimeContext
-
         # Normalize inputs
         pipeline_configs = self._normalize_pipeline(
             pipeline,
@@ -210,7 +228,6 @@ class PipelineOrchestrator:
         # Create StepCache if step caching is enabled
         step_cache = None
         if self.cache_config is not None and getattr(self.cache_config, 'step_cache_enabled', False):
-            from nirs4all.pipeline.execution.step_cache import StepCache
             step_cache = StepCache(
                 max_size_mb=self.cache_config.step_cache_max_mb,
                 max_entries=self.cache_config.step_cache_max_entries,
@@ -287,9 +304,6 @@ class PipelineOrchestrator:
                 # PARALLEL EXECUTION PATH
                 # ===================================================================
                 if use_parallel:
-                    from joblib import Parallel, delayed
-                    import multiprocessing
-
                     # Determine number of workers
                     n_workers = self.n_jobs
                     if n_workers == -1:
@@ -300,8 +314,7 @@ class PipelineOrchestrator:
                     # PipelineExecutor.store holds a WorkspaceStore with a threading.RLock
                     # which cannot be pickled by loky.  Workers never use executor.store
                     # (they use runtime_context.store which is set to None), so we null it.
-                    import copy as _copy
-                    parallel_executor = _copy.copy(executor)
+                    parallel_executor = copy.copy(executor)
                     parallel_executor.store = None
 
                     # Prepare variant data for parallel execution
@@ -317,7 +330,10 @@ class PipelineOrchestrator:
 
                         # Capture raw data (first variant only)
                         if self.keep_datasets and name not in self.raw_data and _i == 0:
-                            self.raw_data[name] = dataset_copy.x({}, layout="2d")
+                            raw_x = dataset_copy.x({}, layout="2d")
+                            if isinstance(raw_x, list):
+                                raw_x = np.concatenate(raw_x, axis=1)
+                            self.raw_data[name] = raw_x
 
                         # Initialize context
                         context = executor.initialize_context(dataset_copy)
@@ -396,6 +412,7 @@ class PipelineOrchestrator:
                             and not self.store.degraded
                         )
                         if store_available:
+                            assert run_id is not None
                             try:
                                 # Extract metadata from result
                                 steps = result.get("steps", [])
@@ -431,9 +448,9 @@ class PipelineOrchestrator:
 
                                 # Compute metrics for complete_pipeline
                                 best = config_predictions.get_best(ascending=None, score_scope="cv")
-                                best_val = best.get("val_score") if best else None
-                                best_test = best.get("test_score") if best else None
-                                metric = best.get("metric", "rmse") if best else "rmse"
+                                best_val = float(best.get("val_score", 0.0) or 0.0) if best else 0.0
+                                best_test = float(best.get("test_score", 0.0) or 0.0) if best else 0.0
+                                metric = str(best.get("metric", "rmse") or "rmse") if best else "rmse"
                                 duration_ms = int(result.get("duration_ms", 0))
 
                                 # Complete pipeline record
@@ -500,10 +517,13 @@ class PipelineOrchestrator:
 
                         # Capture raw data BEFORE any preprocessing happens
                         if self.keep_datasets and name not in self.raw_data:
-                            self.raw_data[name] = dataset.x({}, layout="2d")
+                            raw_x = dataset.x({}, layout="2d")
+                            if isinstance(raw_x, list):
+                                raw_x = np.concatenate(raw_x, axis=1)
+                            self.raw_data[name] = raw_x
 
                         if self.verbose > 0:
-                            print(dataset)
+                            logger.info(str(dataset))
 
                         # Initialize execution context via executor
                         context = executor.initialize_context(dataset)
@@ -571,7 +591,10 @@ class PipelineOrchestrator:
                                 or len(dataset_snapshots) < self.max_preprocessed_snapshots_per_dataset
                             )
                             if can_store:
-                                dataset_snapshots[snapshot_key] = dataset.x({}, layout="2d")
+                                pp_x = dataset.x({}, layout="2d")
+                                if isinstance(pp_x, list):
+                                    pp_x = np.concatenate(pp_x, axis=1)
+                                dataset_snapshots[snapshot_key] = pp_x
                             else:
                                 logger.debug(
                                     "Skipping preprocessed snapshot for dataset '%s' "
@@ -597,10 +620,7 @@ class PipelineOrchestrator:
                                                 config_best.get("metric", "rmse")
                                             )
                                         else:
-                                            if best_deferred_ascending:
-                                                is_better = val_score < best_deferred_val
-                                            else:
-                                                is_better = val_score > best_deferred_val
+                                            is_better = val_score < best_deferred_val if best_deferred_ascending else val_score > best_deferred_val
                                             if is_better:
                                                 best_deferred_val = val_score
                                             else:
@@ -647,7 +667,7 @@ class PipelineOrchestrator:
 
                 # Log step cache statistics at end of dataset
                 if step_cache is not None and self.cache_config and self.cache_config.log_cache_stats:
-                    cache_stats = step_cache.stats()
+                    cache_stats: dict[str, Any] = dict(step_cache.stats())
                     if cache_stats["hits"] + cache_stats["misses"] > 0:
                         logger.info(
                             f"Step cache: {cache_stats['hits']} hits, "
@@ -694,10 +714,8 @@ class PipelineOrchestrator:
                 failed_datasets.append(name)
                 # Cleanup artifact registry from failed dataset
                 if artifact_registry is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         artifact_registry.cleanup_failed_run()
-                    except Exception:
-                        pass
                 # For single-dataset runs, propagate the exception immediately
                 # so callers can catch pipeline errors.
                 if n_datasets == 1:
@@ -714,7 +732,6 @@ class PipelineOrchestrator:
 
             # Print global summary of all final models across all datasets
             if self.mode == "train":
-                from nirs4all.visualization.reports import TabReportManager
                 pred_index = TabReportManager._build_prediction_index(run_predictions)
 
                 self._print_global_final_summary(
@@ -738,10 +755,8 @@ class PipelineOrchestrator:
             # Use try/except to prevent store errors from masking the
             # original pipeline error (e.g. DuckDB lock conflicts).
             if run_id and self.mode == "train" and manage_store_run:
-                try:
+                with contextlib.suppress(Exception):
                     self.store.fail_run(run_id, str(e))
-                except Exception:
-                    pass  # fail_run already logs internally
             raise
 
         return run_predictions, datasets_predictions
@@ -757,8 +772,6 @@ class PipelineOrchestrator:
             step_cache: StepCache instance (or None).
             dataset_name: Name of the dataset that just completed (for logging).
         """
-        import gc
-
         # Clear step cache -- entries are keyed by content hash so entries
         # from the previous dataset will never hit, but still consume memory.
         if step_cache is not None:
@@ -820,21 +833,7 @@ class PipelineOrchestrator:
     def _wrap_dataset(self, dataset: SpectroDataset | np.ndarray | tuple, dataset_name: str) -> DatasetConfigs:
         """Wrap SpectroDataset or arrays in DatasetConfigs."""
         if isinstance(dataset, SpectroDataset):
-            configs = DatasetConfigs.__new__(DatasetConfigs)
-            configs.configs = [({"_preloaded_dataset": dataset}, dataset.name)]
-            configs.cache = {dataset.name: self._extract_dataset_cache(dataset)}
-            configs._task_types = ["auto"]  # Default task type for wrapped datasets
-            configs._signal_type_overrides = [None]  # No override for wrapped datasets
-            configs._aggregates = [None]  # No aggregation for wrapped datasets
-            configs._aggregate_methods = [None]  # No aggregate method for wrapped datasets
-            configs._aggregate_exclude_outliers = [False]  # No outlier exclusion for wrapped datasets
-            configs._config_task_types = [None]  # No config-level task type
-            configs._config_aggregates = [None]  # No config-level aggregate
-            configs._config_aggregate_methods = [None]  # No config-level aggregate method
-            configs._config_aggregate_exclude_outliers = [None]  # No config-level exclude outliers
-            configs._config_repetitions = [None]  # No config-level repetition
-            configs._repetitions = [None]  # No repetition for wrapped datasets
-            return configs
+            return DatasetConfigs.from_spectrodataset(dataset)
 
         # Handle numpy arrays and tuples
         spectro_dataset = SpectroDataset(name=dataset_name)
@@ -857,55 +856,11 @@ class PipelineOrchestrator:
                 # Split data based on partition_info
                 self._split_and_add_data(spectro_dataset, X, y, partition_info)
 
-        configs = DatasetConfigs.__new__(DatasetConfigs)
-        configs.configs = [({"_preloaded_dataset": spectro_dataset}, dataset_name)]
-        configs.cache = {dataset_name: self._extract_dataset_cache(spectro_dataset)}
-        configs._task_types = ["auto"]  # Default task type for wrapped datasets
-        configs._signal_type_overrides = [None]  # No override for wrapped datasets
-        configs._aggregates = [None]  # No aggregation for wrapped datasets
-        configs._aggregate_methods = [None]  # No aggregate method for wrapped datasets
-        configs._aggregate_exclude_outliers = [False]  # No outlier exclusion for wrapped datasets
-        configs._config_task_types = [None]  # No config-level task type
-        configs._config_aggregates = [None]  # No config-level aggregate
-        configs._config_aggregate_methods = [None]  # No config-level aggregate method
-        configs._config_aggregate_exclude_outliers = [None]  # No config-level exclude outliers
-        configs._config_repetitions = [None]  # No config-level repetition
-        configs._repetitions = [None]  # No repetition for wrapped datasets
-        return configs
+        return DatasetConfigs.from_spectrodataset(spectro_dataset)
 
     def _wrap_dataset_list(self, datasets: list[SpectroDataset]) -> DatasetConfigs:
         """Wrap a list of SpectroDataset instances in DatasetConfigs."""
-        configs = DatasetConfigs.__new__(DatasetConfigs)
-        configs.configs = []
-        configs.cache = {}
-        configs._task_types = []
-        configs._signal_type_overrides = []
-        configs._aggregates = []
-        configs._aggregate_methods = []
-        configs._aggregate_exclude_outliers = []
-        configs._config_task_types = []
-        configs._config_aggregates = []
-        configs._config_aggregate_methods = []
-        configs._config_aggregate_exclude_outliers = []
-        configs._config_repetitions = []
-        configs._repetitions = []
-
-        for ds in datasets:
-            configs.configs.append(({"_preloaded_dataset": ds}, ds.name))
-            configs.cache[ds.name] = self._extract_dataset_cache(ds)
-            configs._task_types.append("auto")
-            configs._signal_type_overrides.append(None)
-            configs._aggregates.append(None)
-            configs._aggregate_methods.append(None)
-            configs._aggregate_exclude_outliers.append(False)
-            configs._config_task_types.append(None)
-            configs._config_aggregates.append(None)
-            configs._config_aggregate_methods.append(None)
-            configs._config_aggregate_exclude_outliers.append(None)
-            configs._config_repetitions.append(None)
-            configs._repetitions.append(None)
-
-        return configs
+        return DatasetConfigs.from_spectrodatasets(datasets)
 
     def _split_and_add_data(self, dataset: SpectroDataset, X: np.ndarray, y: np.ndarray | None, partition_info: dict) -> None:
         """Split data according to partition_info and add to dataset.
@@ -1028,18 +983,6 @@ class PipelineOrchestrator:
             best_refit_chains: Accumulated best chains per model from CV.
             refit: Refit configuration from the user API.
         """
-        from nirs4all.pipeline.analysis.topology import analyze_topology
-        from nirs4all.pipeline.config.context import BestChainEntry, RuntimeContext
-        from nirs4all.pipeline.execution.refit import execute_simple_refit, extract_winning_config
-        from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig, extract_per_model_configs, extract_top_configs, parse_refit_param
-        from nirs4all.pipeline.execution.refit.executor import RefitResult
-        from nirs4all.pipeline.execution.refit.stacking_refit import (
-            _find_branch_step,
-            execute_competing_branches_refit,
-            execute_separation_refit,
-            execute_stacking_refit,
-        )
-
         # Parse refit criteria
         criteria = parse_refit_param(refit)
 
@@ -1048,10 +991,10 @@ class PipelineOrchestrator:
 
         # Always show refit mode for transparency
         if criteria:
-            print(f"\n{'=' * 80}")
-            print(f"REFIT MODE: {'Multi-criteria' if is_multi_config else 'Single criterion'}")
-            print(f"Criteria: {len(criteria)} criterion/criteria")
-            print(f"{'=' * 80}\n", flush=True)
+            logger.info("=" * 80)
+            logger.info("REFIT MODE: %s", "Multi-criteria" if is_multi_config else "Single criterion")
+            logger.info("Criteria: %s criterion/criteria", len(criteria))
+            logger.info("=" * 80)
 
         # Snapshot buffer size before refit so we can sync new entries
         # to the global run_predictions after refit completes (P2.3).
@@ -1221,8 +1164,7 @@ class PipelineOrchestrator:
         """
         new_count = run_dataset_predictions.num_predictions - pre_refit_count
         if new_count > 0:
-            refit_preds = Predictions()
-            refit_preds._buffer = run_dataset_predictions._buffer[pre_refit_count:]
+            refit_preds = run_dataset_predictions.slice_after(pre_refit_count)
             run_predictions.merge_predictions(refit_preds)
             logger.debug(f"Synced {new_count} refit prediction(s) to global buffer")
 
@@ -1256,15 +1198,6 @@ class PipelineOrchestrator:
         Returns:
             A :class:`RefitResult` summarizing the outcome.
         """
-        from nirs4all.pipeline.analysis.topology import analyze_topology
-        from nirs4all.pipeline.config.context import RuntimeContext
-        from nirs4all.pipeline.execution.refit.executor import RefitResult
-        from nirs4all.pipeline.execution.refit.stacking_refit import (
-            execute_competing_branches_refit,
-            execute_separation_refit,
-            execute_stacking_refit,
-        )
-
         topology = analyze_topology(refit_config.expanded_steps)
 
         runtime_context = RuntimeContext(
@@ -1368,20 +1301,10 @@ class PipelineOrchestrator:
         Returns:
             A :class:`RefitResult` summarizing the outcome.
         """
-        import copy
-
-        from nirs4all.pipeline.execution.refit import execute_simple_refit
-        from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
-        from nirs4all.pipeline.execution.refit.executor import RefitResult
-        from nirs4all.pipeline.execution.refit.stacking_refit import _find_branch_step
-
         # Extract pre-branch steps from the original expanded pipeline
         steps = refit_config.expanded_steps
         branch_info = _find_branch_step(steps)
-        if branch_info is not None:
-            pre_branch_steps = steps[:branch_info[0]]
-        else:
-            pre_branch_steps = []
+        pre_branch_steps = steps[:branch_info[0]] if branch_info is not None else []
 
         logger.info(
             f"Accumulated refit: {len(best_refit_chains)} model(s) "
@@ -1463,10 +1386,6 @@ class PipelineOrchestrator:
         Returns:
             A :class:`RefitResult` summarizing the outcome.
         """
-        from nirs4all.pipeline.execution.refit import execute_simple_refit
-        from nirs4all.pipeline.execution.refit.config_extractor import extract_per_model_configs
-        from nirs4all.pipeline.execution.refit.executor import RefitResult
-
         # Try per-model extraction
         per_model_configs = extract_per_model_configs(
             self.store, run_id, metric=refit_config.metric,
@@ -1552,10 +1471,7 @@ class PipelineOrchestrator:
             aggregate_exclude_outliers = dataset.aggregate_exclude_outliers
 
             # Check for final (refit) entries
-            refit_entries = [
-                e for e in run_dataset_predictions._buffer
-                if str(e.get("fold_id")) == "final"
-            ]
+            refit_entries = run_dataset_predictions.filter_predictions(fold_id="final")
 
             # Deduplicate: keep one entry per model (prefer "test" partition).
             # The model controller creates separate entries per partition
@@ -1570,7 +1486,6 @@ class PipelineOrchestrator:
                 refit_entries = list(seen.values())
 
             if refit_entries:
-                from nirs4all.visualization.reports import TabReportManager
                 dataset_pred_index = TabReportManager._build_prediction_index(run_dataset_predictions)
                 metric = refit_entries[0].get("metric", "rmse")
                 TabReportManager.enrich_refit_entries(refit_entries, dataset_pred_index, metric)
@@ -1623,8 +1538,6 @@ class PipelineOrchestrator:
         Headline: Final model performance with best final score.
         Detail: Per-model table (when multiple models), then CV selection summary.
         """
-        from nirs4all.data.predictions import _infer_ascending
-
         metric = refit_entries[0].get("metric", "rmse")
         asc = _infer_ascending(metric)
         rankable = [e for e in refit_entries if e.get("test_score") is not None]
@@ -1668,9 +1581,7 @@ class PipelineOrchestrator:
             f"Final model performance for dataset '{name}': "
             f"{Predictions.pred_long_string(best_refit)}{cv_test_str}"
         )
-        # Always show best model (even with verbose=0)
-        print(f"\n{final_msg}")
-        # Also log for file output if enabled
+        logger.info(final_msg)
         if self.verbose > 0:
             logger.success(final_msg)
 
@@ -1727,7 +1638,7 @@ class PipelineOrchestrator:
             if refit_suffix:
                 header += f" - {refit_suffix}"
 
-            print(f"\n{header}:\n{summary}", flush=True)
+            logger.info("%s:\n%s", header, summary)
 
         # --- Top 30 CV chains (averaged across folds) ---
         avg_entries = predictions.top(
@@ -1739,9 +1650,6 @@ class PipelineOrchestrator:
         )
 
         if avg_entries:
-            import numpy as np
-            from nirs4all.visualization.naming import get_metric_names
-
             # Determine task type and metric for naming
             first_entry = avg_entries[0]
             cv_task_type = first_entry.get("task_type", "regression")
@@ -1762,7 +1670,6 @@ class PipelineOrchestrator:
                 y_label = ""
                 if target_proc and target_proc not in ("numeric", "raw", ""):
                     # Extract class name(s) from processing chain like "numeric_StandardScaler42"
-                    import re
                     parts = re.findall(r'_([A-Z][A-Za-z]+)\d+', target_proc)
                     if parts:
                         y_label = "y:" + "|".join(parts)
@@ -1813,22 +1720,22 @@ class PipelineOrchestrator:
             )
             sep = "-" * len(header)
 
-            print(f"\nTop 30 CV chains (ranked by {cv_col}) for dataset '{name}':")
-            print(sep)
-            print(header)
-            print(sep)
+            logger.info("Top 30 CV chains (ranked by %s) for dataset '%s':", cv_col, name)
+            logger.info(sep)
+            logger.info(header)
+            logger.info(sep)
 
             def _fmt(v: float | None) -> str:
                 return f"{v:.4f}" if v is not None else "N/A"
 
             for idx, row in enumerate(rows, 1):
                 fold_vals = "".join(f" | {_fmt(row['folds'].get(fid)):>7s}" for fid in sorted_fold_ids)
-                print(
-                    f"| {idx:3d} | {row['model'][:10]:10s} | {_fmt(row['rmsecv']):>9s} | {_fmt(row['mf_val']):>9s}"
-                    f" | {_fmt(row['ens_test']):>9s} | {_fmt(row['w_ens_test']):>10s}{fold_vals} | {row['chain'][:60]:<60s} |"
+                logger.info(
+                    "| %3d | %10s | %9s | %9s | %9s | %10s%s | %-60s |",
+                    idx, row['model'][:10], _fmt(row['rmsecv']), _fmt(row['mf_val']),
+                    _fmt(row['ens_test']), _fmt(row['w_ens_test']), fold_vals, row['chain'][:60]
                 )
-            print(sep)
-            print()
+            logger.info(sep)
 
         # --- Detail: CV selection summary (always visible) ---
         cv_best = predictions.get_best(ascending=None, score_scope="cv")
@@ -1837,7 +1744,7 @@ class PipelineOrchestrator:
                 f"CV selection summary for dataset '{name}': "
                 f"{Predictions.pred_long_string(cv_best)}"
             )
-            print(f"\n{cv_summary_msg}")
+            logger.info(cv_summary_msg)
             if self.verbose > 0:
                 logger.success(cv_summary_msg)
             if self.enable_tab_reports:
@@ -1904,12 +1811,10 @@ class PipelineOrchestrator:
                     # Convert back to readable format
                     criteria = []
                     if "rmsecvt" in suffix:
-                        import re
                         match = re.search(r"rmsecvt(\d+)", suffix)
                         if match:
                             criteria.append(f"rmsecv(top{match.group(1)})")
                     if "mean_valt" in suffix:
-                        import re
                         match = re.search(r"mean_valt(\d+)", suffix)
                         if match:
                             criteria.append(f"mean_val(top{match.group(1)})")
@@ -1936,8 +1841,6 @@ class PipelineOrchestrator:
             target_chains: Main accumulator dict (model_name -> BestChainEntry)
             source_chains: Worker's refit chains to merge in
         """
-        from nirs4all.data.predictions import _infer_ascending
-
         for model_name, source_entry in source_chains.items():
             existing_entry = target_chains.get(model_name)
 
@@ -1976,8 +1879,6 @@ class PipelineOrchestrator:
             run_predictions: Global Predictions object with all predictions.
             datasets_predictions: Dict mapping dataset names to their prediction info.
         """
-        from nirs4all.visualization.reports import TabReportManager
-
         # Collect all final (refit) entries across all datasets
         all_refit_entries = run_predictions.filter_predictions(
             fold_id="final",
@@ -2053,17 +1954,15 @@ class PipelineOrchestrator:
         )
 
         if summary:
-            # Always print (even with verbose=0)
-            print(f"\n{'=' * 120}")
-            print(f"GLOBAL SUMMARY: All final models ({len(rankable)} models across {len(datasets_predictions)} dataset(s))")
-            print(f"{'=' * 120}")
-            print(summary)
-            print(f"{'=' * 120}\n")
+            logger.info("=" * 120)
+            logger.info("GLOBAL SUMMARY: All final models (%d models across %d dataset(s))", len(rankable), len(datasets_predictions))
+            logger.info("=" * 120)
+            logger.info(summary)
+            logger.info("=" * 120)
 
     # _execute_single_variant is a module-level function (see below)
     # to avoid pickling the orchestrator (which contains WorkspaceStore with
     # threading.RLock) when dispatched to loky workers.
-
 
 def _execute_single_variant(variant_data: dict[str, Any]) -> dict[str, Any]:
     """Execute a single pipeline variant in a parallel worker.
@@ -2078,9 +1977,6 @@ def _execute_single_variant(variant_data: dict[str, Any]) -> dict[str, Any]:
     Returns:
         Dictionary with predictions, traces, and metadata for post-processing.
     """
-    import copy
-    import time
-
     steps = variant_data["steps"]
     config_name = variant_data["config_name"]
     gen_choices = variant_data["gen_choices"]
@@ -2105,7 +2001,7 @@ def _execute_single_variant(variant_data: dict[str, Any]) -> dict[str, Any]:
     logger.info(f"Run {run_number}/{total_runs}: pipeline '{config_name}' on dataset")
 
     if verbose > 0:
-        print(dataset)
+        logger.info(str(dataset))
 
     # Create prediction store for this variant
     config_predictions = Predictions()
@@ -2142,9 +2038,7 @@ def _execute_single_variant(variant_data: dict[str, Any]) -> dict[str, Any]:
             # Don't raise - mark as failed and continue
         else:
             # Unknown error - log and re-raise
-            logger.error(f"Variant '{config_name}' failed with unexpected error: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.exception("Variant '%s' failed with unexpected error: %s", config_name, e)
             raise
 
     # Compute duration
@@ -2159,7 +2053,6 @@ def _execute_single_variant(variant_data: dict[str, Any]) -> dict[str, Any]:
 
     tr = getattr(runtime_context, 'trace_recorder', None) if runtime_context else None
     if tr is not None:
-        from nirs4all.pipeline.storage.chain_builder import ChainBuilder
         trace = tr.finalize(
             preprocessing_chain=dataset.short_preprocessings_str(),
             metadata={"n_steps": len(steps)}
@@ -2201,6 +2094,6 @@ def _execute_single_variant(variant_data: dict[str, Any]) -> dict[str, Any]:
         result["preprocessed_data"] = dataset.x({}, layout="2d")
         result["preprocessing_key"] = dataset.short_preprocessings_str()
 
-    logger.debug(f"Worker returning result: {len(result['predictions']._buffer)} predictions in buffer")
+    logger.debug(f"Worker returning result: {result['predictions'].num_predictions} predictions in buffer")
 
     return result

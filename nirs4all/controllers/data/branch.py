@@ -62,8 +62,9 @@ Examples:
     ... ]
 """
 
+import contextlib
 import copy
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
@@ -72,8 +73,8 @@ from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.config.generator import (
     expand_spec,
-    is_generator_node,
     has_nested_generator_keywords,
+    is_generator_node,
 )
 from nirs4all.pipeline.execution.result import StepOutput
 
@@ -84,10 +85,8 @@ if TYPE_CHECKING:
     from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
     from nirs4all.pipeline.steps.parser import ParsedStep
 
-
 # Separation branch keywords (indicating separation mode)
 SEPARATION_KEYWORDS = {"by_tag", "by_metadata", "by_filter", "by_source"}
-
 
 @register_controller
 class BranchController(OperatorController):
@@ -145,9 +144,9 @@ class BranchController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute the branch step.
 
         Detects branch mode (duplication vs separation) and delegates
@@ -239,9 +238,9 @@ class BranchController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute duplication branch (all samples to all branches).
 
         This is the original branch behavior where each branch receives
@@ -304,7 +303,7 @@ class BranchController(OperatorController):
         initial_chain = recorder.current_chain() if recorder else None
 
         # Initialize list to collect branch contexts
-        branch_contexts: List[Dict[str, Any]] = []
+        branch_contexts: list[dict[str, Any]] = []
         all_artifacts = []
 
         # Determine if parallel execution should be used
@@ -361,12 +360,7 @@ class BranchController(OperatorController):
 
         # Store branch contexts in custom dict for post-branch iteration
         existing_branches = context.custom.get("branch_contexts", [])
-        if existing_branches:
-            new_branch_contexts = self._multiply_branch_contexts(
-                existing_branches, branch_contexts
-            )
-        else:
-            new_branch_contexts = branch_contexts
+        new_branch_contexts = self._multiply_branch_contexts(existing_branches, branch_contexts) if existing_branches else branch_contexts
 
         # Update context with branch contexts
         result_context = context.copy()
@@ -399,15 +393,15 @@ class BranchController(OperatorController):
     def _execute_separation_branch(
         self,
         step_info: "ParsedStep",
-        raw_def: Dict[str, Any],
+        raw_def: dict[str, Any],
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute separation branch (samples partitioned).
 
         Dispatches to the appropriate handler based on separation type.
@@ -434,21 +428,21 @@ class BranchController(OperatorController):
             )
         else:
             raise ValueError(
-                f"Unknown separation branch type. "
-                f"Expected one of: by_tag, by_metadata, by_filter, by_source"
+                "Unknown separation branch type. "
+                "Expected one of: by_tag, by_metadata, by_filter, by_source"
             )
 
     def _execute_by_tag(
         self,
-        raw_def: Dict[str, Any],
+        raw_def: dict[str, Any],
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute separation branch by tag values.
 
         Syntax:
@@ -459,8 +453,8 @@ class BranchController(OperatorController):
             }}
         """
         from nirs4all.controllers.data.branch_utils import (
-            parse_value_condition,
             group_samples_by_value_mapping,
+            parse_value_condition,
         )
 
         tag_name = raw_def["by_tag"]
@@ -522,15 +516,15 @@ class BranchController(OperatorController):
 
     def _execute_by_metadata(
         self,
-        raw_def: Dict[str, Any],
+        raw_def: dict[str, Any],
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute separation branch by metadata column.
 
         Syntax:
@@ -542,8 +536,8 @@ class BranchController(OperatorController):
             }}
         """
         from nirs4all.controllers.data.branch_utils import (
-            parse_value_condition,
             group_samples_by_value_mapping,
+            parse_value_condition,
         )
 
         column = raw_def["by_metadata"]
@@ -586,7 +580,7 @@ class BranchController(OperatorController):
             logger.info(f"  Auto-detected {len(unique_values)} unique values: {unique_values[:10]}{'...' if len(unique_values) > 10 else ''}")
 
         # Group samples - for metadata, values in mapping are lists of allowed values
-        groups: Dict[str, List[int]] = {}
+        groups: dict[str, list[int]] = {}
         for branch_name, allowed_values in value_mapping.items():
             if not isinstance(allowed_values, (list, tuple, set)):
                 allowed_values = [allowed_values]
@@ -625,15 +619,15 @@ class BranchController(OperatorController):
 
     def _execute_by_filter(
         self,
-        raw_def: Dict[str, Any],
+        raw_def: dict[str, Any],
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute separation branch by filter result.
 
         Creates two branches: one for samples passing the filter, one for failing.
@@ -725,15 +719,15 @@ class BranchController(OperatorController):
 
     def _execute_by_source(
         self,
-        raw_def: Dict[str, Any],
+        raw_def: dict[str, Any],
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None
-    ) -> Tuple["ExecutionContext", StepOutput]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Execute per-source branching.
 
         This absorbs the functionality of SourceBranchController.
@@ -779,7 +773,7 @@ class BranchController(OperatorController):
             source_steps = steps
         elif isinstance(steps, list):
             # Shared steps for all sources
-            source_steps = {name: steps for name in source_names}
+            source_steps = dict.fromkeys(source_names, steps)
         else:
             source_steps = {name: [] for name in source_names}
 
@@ -803,10 +797,10 @@ class BranchController(OperatorController):
             current_processing.append(dataset.features_processings(src_idx))
 
         # Track new processing chains per source
-        new_processing_per_source: List[List[str]] = [list(p) for p in current_processing]
+        new_processing_per_source: list[list[str]] = [list(p) for p in current_processing]
 
         # Execute per-source pipelines
-        source_contexts: List[Dict[str, Any]] = []
+        source_contexts: list[dict[str, Any]] = []
         all_artifacts = []
 
         for src_idx, src_name in enumerate(source_names):
@@ -920,19 +914,19 @@ class BranchController(OperatorController):
 
     def _execute_separation_branches(
         self,
-        groups: Dict[str, List[int]],
+        groups: dict[str, list[int]],
         sample_indices: np.ndarray,
-        steps: List[Any],
+        steps: list[Any],
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
-        prediction_store: Optional[Any] = None,
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None,
         separation_type: str = "unknown",
         separation_key: str = "",
-    ) -> Tuple["ExecutionContext", StepOutput]:
+    ) -> tuple["ExecutionContext", StepOutput]:
         """Common execution logic for separation branches.
 
         Args:
@@ -978,7 +972,7 @@ class BranchController(OperatorController):
             target_branch_id = runtime_context.target_model.get("branch_id")
 
         # Process each group/branch
-        branch_contexts: List[Dict[str, Any]] = []
+        branch_contexts: list[dict[str, Any]] = []
         all_artifacts = []
 
         for branch_id, (branch_name, local_indices) in enumerate(groups.items()):
@@ -1098,12 +1092,7 @@ class BranchController(OperatorController):
 
         # Handle nested branching
         existing_branches = context.custom.get("branch_contexts", [])
-        if existing_branches:
-            new_branch_contexts = self._multiply_branch_contexts(
-                existing_branches, branch_contexts
-            )
-        else:
-            new_branch_contexts = branch_contexts
+        new_branch_contexts = self._multiply_branch_contexts(existing_branches, branch_contexts) if existing_branches else branch_contexts
 
         # Update result context
         result_context = context.copy()
@@ -1131,7 +1120,7 @@ class BranchController(OperatorController):
     def _parse_branch_definitions(
         self,
         step_info: "ParsedStep"
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Parse branch definitions from step configuration.
 
         Supports multiple syntaxes:
@@ -1270,18 +1259,15 @@ class BranchController(OperatorController):
 
     def _expand_generator_branches(
         self,
-        generator_node: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+        generator_node: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """Expand a generator node into branch definitions."""
         expanded = expand_spec(generator_node)
 
         result = []
         for i, item in enumerate(expanded):
             branch_name = self._generate_step_name(item, i)
-            if isinstance(item, list):
-                steps = item
-            else:
-                steps = [item]
+            steps = item if isinstance(item, list) else [item]
 
             result.append({
                 "name": branch_name,
@@ -1293,8 +1279,8 @@ class BranchController(OperatorController):
 
     def _expand_list_with_generators(
         self,
-        items: List[Any]
-    ) -> List[List[Any]]:
+        items: list[Any]
+    ) -> list[list[Any]]:
         """Expand a list that may contain generator nodes.
 
         Uses a two-phase approach:
@@ -1384,11 +1370,11 @@ class BranchController(OperatorController):
         from nirs4all.data.predictions import _infer_ascending
         from nirs4all.pipeline.config.context import BestChainEntry
 
-        n_pred_after = len(prediction_store._buffer)
+        n_pred_after = prediction_store.num_predictions
         if n_pred_after <= n_pred_before:
             return
 
-        new_entries = prediction_store._buffer[n_pred_before:n_pred_after]
+        new_entries = prediction_store.slice_after(n_pred_before).iter_entries()
 
         # Separate branch_steps into preprocessing and model steps.
         # Model steps are dicts with "model" key.
@@ -1425,10 +1411,8 @@ class BranchController(OperatorController):
             if bp and not model_params[model_name]:
                 if isinstance(bp, str):
                     import json
-                    try:
+                    with contextlib.suppress(json.JSONDecodeError, TypeError):
                         model_params[model_name] = json.loads(bp)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
                 elif isinstance(bp, dict):
                     model_params[model_name] = bp
 
@@ -1476,7 +1460,7 @@ class BranchController(OperatorController):
         self,
         dataset: "SpectroDataset",
         n_sources: int
-    ) -> List[str]:
+    ) -> list[str]:
         """Get source names from dataset."""
         try:
             source_names = []
@@ -1491,7 +1475,7 @@ class BranchController(OperatorController):
         except Exception:
             return [f"source_{i}" for i in range(n_sources)]
 
-    def _get_step_names(self, steps: List[Any]) -> str:
+    def _get_step_names(self, steps: list[Any]) -> str:
         """Get human-readable names for a list of steps."""
         names = [self._get_single_step_name(s) for s in steps]
         names = [n for n in names if n]
@@ -1508,7 +1492,7 @@ class BranchController(OperatorController):
 
         return self._get_single_step_name(step) or f"branch_{index}"
 
-    def _get_single_step_name(self, step: Any) -> Optional[str]:
+    def _get_single_step_name(self, step: Any) -> str | None:
         """Extract a short name from a single step, including non-default parameters."""
         if step is None:
             return None
@@ -1528,10 +1512,7 @@ class BranchController(OperatorController):
             if "class" in step:
                 class_name = step["class"]
                 # Extract short class name
-                if isinstance(class_name, str) and "." in class_name:
-                    short_name = class_name.split(".")[-1]
-                else:
-                    short_name = str(class_name).split(".")[-1].replace("'>", "")
+                short_name = class_name.split(".")[-1] if isinstance(class_name, str) and "." in class_name else str(class_name).split(".")[-1].replace("'>", "")
 
                 # Format parameters if present
                 params = step.get("params", {})
@@ -1542,9 +1523,7 @@ class BranchController(OperatorController):
                         if key.startswith("_"):  # Skip private params
                             continue
                         # Format value compactly
-                        if isinstance(value, (int, float)):
-                            param_strs.append(f"{key}={value}")
-                        elif isinstance(value, bool):
+                        if isinstance(value, (int, float, bool)):
                             param_strs.append(f"{key}={value}")
                         elif isinstance(value, str) and len(value) < 15:
                             param_strs.append(f"{key}='{value}'")
@@ -1562,7 +1541,7 @@ class BranchController(OperatorController):
                 return self._get_single_step_name(step["preprocessing"])
 
             # Fallback to first non-private key
-            keys = [k for k in step.keys() if not k.startswith("_")]
+            keys = [k for k in step if not k.startswith("_")]
             if keys:
                 return keys[0]
 
@@ -1575,9 +1554,9 @@ class BranchController(OperatorController):
 
     def _multiply_branch_contexts(
         self,
-        existing: List[Dict[str, Any]],
-        new: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        existing: list[dict[str, Any]],
+        new: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Multiply existing branch contexts with new branches (for nesting)."""
         result = []
         flattened_id = 0
@@ -1618,7 +1597,7 @@ class BranchController(OperatorController):
 
         return result
 
-    def _snapshot_features(self, dataset: "SpectroDataset", use_cow: bool = False) -> List[Any]:
+    def _snapshot_features(self, dataset: "SpectroDataset", use_cow: bool = False) -> list[Any]:
         """Create a snapshot of the dataset's feature sources.
 
         Args:
@@ -1647,7 +1626,7 @@ class BranchController(OperatorController):
     def _restore_features(
         self,
         dataset: "SpectroDataset",
-        snapshot: List[Any],
+        snapshot: list[Any],
         use_cow: bool = False,
     ) -> None:
         """Restore the dataset's feature sources from a snapshot.
@@ -1659,7 +1638,7 @@ class BranchController(OperatorController):
         """
         if use_cow:
             for source, (shared, proc_ids, headers, header_unit) in zip(
-                dataset._features.sources, snapshot
+                dataset._features.sources, snapshot, strict=False
             ):
                 source._storage.restore_from_shared(shared.acquire())
                 source._processing_mgr.reset_processings(proc_ids)
@@ -1667,7 +1646,7 @@ class BranchController(OperatorController):
         else:
             dataset._features.sources = copy.deepcopy(snapshot)
 
-    def _release_snapshot(self, snapshot: List[Any], use_cow: bool = False) -> None:
+    def _release_snapshot(self, snapshot: list[Any], use_cow: bool = False) -> None:
         """Release shared references in a CoW snapshot.
 
         Should be called when a branch snapshot is no longer needed to allow
@@ -1693,10 +1672,7 @@ class BranchController(OperatorController):
         """Record dataset shapes to the execution trace for branch substeps."""
         try:
             X_2d = dataset.x(context.selector, layout="2d", include_excluded=False)
-            if isinstance(X_2d, list):
-                layout_shape = (X_2d[0].shape[0], sum(x.shape[1] for x in X_2d))
-            else:
-                layout_shape = X_2d.shape
+            layout_shape = (X_2d[0].shape[0], sum(x.shape[1] for x in X_2d)) if isinstance(X_2d, list) else X_2d.shape
 
             X_3d = dataset.x(context.selector, layout="3d", concat_source=False, include_excluded=False)
             if not isinstance(X_3d, list):
@@ -1741,19 +1717,13 @@ class BranchController(OperatorController):
 
             if 'class' in step:
                 class_path = step['class']
-                if '.' in class_path:
-                    op_class = class_path.rsplit('.', 1)[-1]
-                else:
-                    op_class = class_path
+                op_class = class_path.rsplit('.', 1)[-1] if '.' in class_path else class_path
                 return 'transform', op_class
 
             return 'config', 'Config'
 
         if isinstance(step, str):
-            if '.' in step:
-                op_class = step.rsplit('.', 1)[-1]
-            else:
-                op_class = step
+            op_class = step.rsplit('.', 1)[-1] if '.' in step else step
             return 'transform', op_class
 
         if isinstance(step, type):
@@ -1799,7 +1769,7 @@ class BranchController(OperatorController):
     # Parallel Execution Support
     # =========================================================================
 
-    def _get_parallel_config(self, step_info: "ParsedStep") -> Dict[str, Any]:
+    def _get_parallel_config(self, step_info: "ParsedStep") -> dict[str, Any]:
         """Extract parallel execution configuration from step.
 
         Returns:
@@ -1833,8 +1803,8 @@ class BranchController(OperatorController):
 
     def _should_use_parallel_execution(
         self,
-        parallel_config: Dict[str, Any],
-        branch_defs: List[Dict[str, Any]],
+        parallel_config: dict[str, Any],
+        branch_defs: list[dict[str, Any]],
         mode: str,
         n_branches: int
     ) -> bool:
@@ -1875,8 +1845,8 @@ class BranchController(OperatorController):
         return True
 
     def _check_branch_parallelization_safety(
-        self, branch_steps: List[Any]
-    ) -> Tuple[bool, Optional[str]]:
+        self, branch_steps: list[Any]
+    ) -> tuple[bool, str | None]:
         """Check if a branch contains models that conflict with parallel execution.
 
         Returns:
@@ -1903,7 +1873,7 @@ class BranchController(OperatorController):
 
     def _check_model_parallelization_safety(
         self, model: Any
-    ) -> Tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """Check if a model has internal parallelization or GPU usage.
 
         Returns:
@@ -1943,41 +1913,38 @@ class BranchController(OperatorController):
 
     def _execute_branches_sequential(
         self,
-        branch_defs: List[Dict[str, Any]],
+        branch_defs: list[dict[str, Any]],
         dataset: "SpectroDataset",
         initial_context: "ExecutionContext",
-        initial_processing: List[Any],
-        initial_features_snapshot: List[Any],
+        initial_processing: list[Any],
+        initial_features_snapshot: list[Any],
         initial_chain: Any,
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
-        loaded_binaries: Optional[List[Tuple[str, Any]]],
-        prediction_store: Optional[Any],
+        loaded_binaries: list[tuple[str, Any]] | None,
+        prediction_store: Any | None,
         recorder: Any,
         mode: str,
         use_cow: bool,
-        target_branch_id: Optional[int] = None,
-    ) -> Tuple[List[Dict[str, Any]], List[Any]]:
+        target_branch_id: int | None = None,
+    ) -> tuple[list[dict[str, Any]], list[Any]]:
         """Execute branches sequentially (original behavior).
 
         This is the existing for-loop logic extracted into a method.
         """
-        branch_contexts: List[Dict[str, Any]] = []
+        branch_contexts: list[dict[str, Any]] = []
         all_artifacts = []
 
         # Execute each branch
         for idx, branch_def in enumerate(branch_defs):
             # Use original branch_id if we're in predict mode and have filtered
-            if target_branch_id is not None:
-                branch_id = target_branch_id
-            else:
-                branch_id = idx
+            branch_id = target_branch_id if target_branch_id is not None else idx
 
             branch_name = branch_def.get("name", f"branch_{branch_id}")
             branch_steps = branch_def.get("steps", [])
 
             # Track prediction count before this branch variant for accumulator
-            n_pred_before = len(prediction_store._buffer) if prediction_store is not None else 0
+            n_pred_before = prediction_store.num_predictions if prediction_store is not None else 0
 
             chain_str = self._get_step_names(branch_steps)
             logger.info(f"  Branch {branch_id}/{len(branch_defs)}: {branch_name}: {chain_str or '[empty]'}")
@@ -2116,21 +2083,21 @@ class BranchController(OperatorController):
 
     def _execute_branches_parallel(
         self,
-        branch_defs: List[Dict[str, Any]],
+        branch_defs: list[dict[str, Any]],
         dataset: "SpectroDataset",
         initial_context: "ExecutionContext",
-        initial_processing: List[Any],
-        initial_features_snapshot: List[Any],
+        initial_processing: list[Any],
+        initial_features_snapshot: list[Any],
         initial_chain: Any,
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
-        loaded_binaries: Optional[List[Tuple[str, Any]]],
-        prediction_store: Optional[Any],
+        loaded_binaries: list[tuple[str, Any]] | None,
+        prediction_store: Any | None,
         recorder: Any,
         mode: str,
         use_cow: bool,
         n_jobs: int,
-    ) -> Tuple[List[Dict[str, Any]], List[Any]]:
+    ) -> tuple[list[dict[str, Any]], list[Any]]:
         """Execute branches in parallel using joblib.
 
         Uses chunk-based parallelism: creates only n_workers copies of the
@@ -2142,8 +2109,9 @@ class BranchController(OperatorController):
         Args:
             n_jobs: Number of parallel workers (-1 = auto-detect)
         """
-        from joblib import Parallel, delayed
         import multiprocessing
+
+        from joblib import Parallel, delayed
 
         # Determine effective n_jobs
         if n_jobs == -1:
@@ -2154,7 +2122,7 @@ class BranchController(OperatorController):
 
         # Split branches into n_jobs chunks
         chunk_size = (len(branch_defs) + n_jobs - 1) // n_jobs
-        branch_chunks: List[List[Tuple[int, Dict[str, Any]]]] = []
+        branch_chunks: list[list[tuple[int, dict[str, Any]]]] = []
         for i in range(0, len(branch_defs), chunk_size):
             chunk = [(idx, bdef) for idx, bdef in enumerate(branch_defs[i:i + chunk_size], start=i)]
             branch_chunks.append(chunk)
@@ -2164,18 +2132,19 @@ class BranchController(OperatorController):
         parent_branch_path = context.selector.branch_path or []
 
         def _execute_branch_chunk_worker(
-            chunk: List[Tuple[int, Dict[str, Any]]],
+            chunk: list[tuple[int, dict[str, Any]]],
             dataset_copy: "SpectroDataset",
             initial_context_copy: "ExecutionContext",
-            initial_processing_copy: List[Any],
+            initial_processing_copy: list[Any],
             runtime_context_copy: "RuntimeContext",
-        ) -> List[Dict[str, Any]]:
+        ) -> list[dict[str, Any]]:
             """Execute a chunk of branches in a single worker thread.
 
             Uses CoW snapshot/restore for efficient state isolation
             between branches within the chunk.
             """
             import copy as copy_module
+
             from nirs4all.data.predictions import Predictions
 
             # Recreate step_runner in this worker (not picklable)
@@ -2227,7 +2196,7 @@ class BranchController(OperatorController):
                         "success": True,
                         "branch_id": branch_id,
                         "branch_name": branch_name,
-                        "predictions": local_predictions._buffer,
+                        "predictions": local_predictions.iter_entries(),
                         "context_selector": {
                             "processing": branch_context.selector.processing,
                             "branch_id": branch_context.selector.branch_id,
@@ -2289,7 +2258,7 @@ class BranchController(OperatorController):
 
         # Flatten chunk results and collect
         branch_contexts = []
-        all_artifacts: List[Any] = []
+        all_artifacts: list[Any] = []
 
         for chunk_result_list in chunk_results:
             for result in chunk_result_list:
@@ -2300,11 +2269,11 @@ class BranchController(OperatorController):
                     )
                     continue
 
-                n_pred_before = len(prediction_store._buffer) if prediction_store is not None else 0
+                n_pred_before = prediction_store.num_predictions if prediction_store is not None else 0
 
                 # Merge predictions into main store
                 if prediction_store is not None and result["predictions"]:
-                    prediction_store._buffer.extend(result["predictions"])
+                    prediction_store.extend_from_list(result["predictions"])
 
                 # Reconstruct branch context
                 branch_context_dict = {
@@ -2339,7 +2308,7 @@ class BranchController(OperatorController):
                         result["branch_steps"],
                     )
 
-        total_predictions = len(prediction_store._buffer) if prediction_store is not None else 0
+        total_predictions = prediction_store.num_predictions if prediction_store is not None else 0
         logger.info(
             f"Parallel branch execution complete: {len(branch_contexts)} branches processed, "
             f"{total_predictions} total predictions in store"

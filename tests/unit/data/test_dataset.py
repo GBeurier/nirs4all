@@ -1,9 +1,10 @@
 """Tests for SpectroDataset class."""
 
-import pytest
 import numpy as np
-from nirs4all.data.dataset import SpectroDataset
+import pytest
+
 from nirs4all.core.task_type import TaskType
+from nirs4all.data.dataset import SpectroDataset
 
 
 class TestSpectroDatasetInitialization:
@@ -26,7 +27,6 @@ class TestSpectroDatasetInitialization:
         dataset = SpectroDataset()
         assert dataset.folds == []
         assert dataset.num_folds == 0
-
 
 class TestFeatureOperations:
     """Test feature-related operations."""
@@ -106,7 +106,6 @@ class TestFeatureOperations:
 
         assert dataset.features_sources() == 1
 
-
 class TestTargetOperations:
     """Test target-related operations."""
 
@@ -161,7 +160,6 @@ class TestTargetOperations:
         y = dataset.y({"partition": "train"})
         assert len(y) == 5
         np.testing.assert_array_equal(y.flatten(), targets)
-
 
 class TestMetadataOperations:
     """Test metadata-related operations."""
@@ -223,7 +221,6 @@ class TestMetadataOperations:
 
         assert "category" in dataset.metadata_columns
 
-
 class TestCrossValidationFolds:
     """Test cross-validation fold operations."""
 
@@ -249,7 +246,6 @@ class TestCrossValidationFolds:
 
         retrieved_folds = dataset.folds
         assert len(retrieved_folds) == 1
-
 
 class TestDatasetProperties:
     """Test dataset properties and size getters."""
@@ -277,7 +273,6 @@ class TestDatasetProperties:
         dataset.add_samples(data)
 
         assert dataset.n_sources == 1
-
 
 class TestDatasetStringRepresentations:
     """Test string representations and summaries."""
@@ -325,7 +320,6 @@ class TestDatasetStringRepresentations:
         assert "SpectroDataset Summary" in all_output
         assert "Task Type" in all_output
 
-
 class TestBackwardCompatibility:
     """Test backward compatibility of API."""
 
@@ -354,7 +348,6 @@ class TestBackwardCompatibility:
         assert X_test.shape[0] == 5
         assert len(y_test) == 5
 
-
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
@@ -382,14 +375,14 @@ class TestEdgeCases:
         dataset.add_metadata(metadata, headers=["group"])
         assert len(dataset.metadata_columns) == 1
 
-
 # ========================================================================
 # Tests merged from test_dataset_save_load_header_units.py
 # ========================================================================
 
 import tempfile
 from pathlib import Path
-from nirs4all.data.loaders.loader import load_XY, handle_data
+
+from nirs4all.data.loaders.loader import handle_data, load_XY
 
 
 class TestLoadXYHeaderUnit:
@@ -474,7 +467,6 @@ class TestLoadXYHeaderUnit:
             assert len(x_headers) == 3  # Auto-generated headers
         finally:
             Path(x_path).unlink()
-
 
 class TestHandleDataHeaderUnit:
     """Test header unit threading through handle_data"""
@@ -596,7 +588,6 @@ class TestHandleDataHeaderUnit:
         assert x_unit == "cm-1"  # Default for pre-loaded arrays
         assert x_headers == ["feature_0", "feature_1", "feature_2", "feature_3", "feature_4"]
 
-
 class TestSignalTypeFlow:
     """Test signal type threading through the loader chain like header_unit."""
 
@@ -714,7 +705,6 @@ class TestSignalTypeFlow:
         finally:
             Path(x1_path).unlink()
             Path(x2_path).unlink()
-
 
 class TestContentHash:
     """Test content hash consistency (single canonical attribute)."""

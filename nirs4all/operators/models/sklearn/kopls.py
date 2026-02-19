@@ -41,19 +41,17 @@ def _check_jax_available():
     except ImportError:
         return False
 
-
 # =============================================================================
 # Kernel Functions (NumPy)
 # =============================================================================
 
-def _linear_kernel(X: NDArray, Y: NDArray = None) -> NDArray:
+def _linear_kernel(X: NDArray, Y: NDArray | None = None) -> NDArray:
     """Compute linear kernel: K(x, y) = x^T y."""
     if Y is None:
         Y = X
-    return X @ Y.T
+    return np.asarray(X @ Y.T)
 
-
-def _rbf_kernel(X: NDArray, Y: NDArray = None, gamma: float = None) -> NDArray:
+def _rbf_kernel(X: NDArray, Y: NDArray | None = None, gamma: float | None = None) -> NDArray:
     """Compute RBF (Gaussian) kernel: K(x, y) = exp(-gamma ||x - y||^2)."""
     if Y is None:
         Y = X
@@ -65,14 +63,13 @@ def _rbf_kernel(X: NDArray, Y: NDArray = None, gamma: float = None) -> NDArray:
     sq_dists = X_norm_sq + Y_norm_sq.T - 2 * (X @ Y.T)
     sq_dists = np.maximum(sq_dists, 0)
 
-    return np.exp(-gamma * sq_dists)
-
+    return np.asarray(np.exp(-gamma * sq_dists))
 
 def _polynomial_kernel(
     X: NDArray,
-    Y: NDArray = None,
+    Y: NDArray | None = None,
     degree: int = 3,
-    gamma: float = None,
+    gamma: float | None = None,
     coef0: float = 1.0,
 ) -> NDArray:
     """Compute polynomial kernel: K(x, y) = (gamma * x^T y + coef0)^degree."""
@@ -81,8 +78,7 @@ def _polynomial_kernel(
     if gamma is None:
         gamma = 1.0 / X.shape[1]
 
-    return (gamma * (X @ Y.T) + coef0) ** degree
-
+    return np.asarray((gamma * (X @ Y.T) + coef0) ** degree)
 
 # =============================================================================
 # Kernel Centering Functions (following ConsensusOPLS exactly)
@@ -97,8 +93,7 @@ def _center_kernel_train(K: NDArray) -> NDArray:
     # Center columns then rows (double centering)
     K_centered = K - K.mean(axis=0, keepdims=True)
     K_centered = K_centered - K_centered.mean(axis=1, keepdims=True)
-    return K_centered
-
+    return np.asarray(K_centered)
 
 def _center_kernel_test_train(KteTr: NDArray, KtrTr: NDArray) -> NDArray:
     """Center hybrid test/training kernel KteTr = <phi(Xte), phi(Xtr)>.
@@ -119,8 +114,7 @@ def _center_kernel_test_train(KteTr: NDArray, KtrTr: NDArray) -> NDArray:
 
     KteTr_centered = (KteTr - scaling_matrix @ KtrTr) @ center_right
 
-    return KteTr_centered
-
+    return np.asarray(KteTr_centered)
 
 def _center_kernel_test_test(KteTe: NDArray, KteTr: NDArray, KtrTr: NDArray) -> NDArray:
     """Center test kernel KteTe = <phi(Xte), phi(Xte)>.
@@ -143,8 +137,7 @@ def _center_kernel_test_test(KteTe: NDArray, KteTr: NDArray, KtrTr: NDArray) -> 
         + scaling_matrix @ KtrTr @ scaling_matrix.T
     )
 
-    return KteTe_centered
-
+    return np.asarray(KteTe_centered)
 
 # =============================================================================
 # NumPy K-OPLS Implementation (following ConsensusOPLS algorithm exactly)
@@ -181,7 +174,7 @@ def _kopls_fit_numpy(
     A = min(n_predictive, max(n_targets - 1, 1))
 
     # Initialize identity matrix
-    I = np.eye(n_samples)
+    identity_matrix = np.eye(n_samples)
 
     # Store deflated kernels for each orthogonal component
     # Kdeflate[i,j] stores the deflated kernel at iteration (i,j)
@@ -259,7 +252,7 @@ def _kopls_fit_numpy(
 
         # Step 9-10: Update/deflate kernel matrices
         # scale_matrix = I - to @ to'
-        scale_matrix = I - to_i @ to_i.T
+        scale_matrix = identity_matrix - to_i @ to_i.T
 
         # K[0, i+1] = K[0, i] @ scale_matrix'
         Kdeflate[(0, i + 1)] = Kdeflate[(0, i)] @ scale_matrix.T
@@ -327,7 +320,6 @@ def _kopls_fit_numpy(
         'R2X': R2X,
         'R2Yhat': R2Yhat,
     }
-
 
 def _kopls_predict_numpy(
     KteTr: NDArray,
@@ -408,8 +400,7 @@ def _kopls_predict_numpy(
     Bt_final = model['Bt'][final_idx]
     Yhat = Tp_final @ Bt_final @ Cp.T
 
-    return Yhat
-
+    return np.asarray(Yhat)
 
 def _kopls_transform_numpy(
     KteTr: NDArray,
@@ -462,8 +453,7 @@ def _kopls_transform_numpy(
 
     T = KteTrdeflate[(n_orthogonal, 0)] @ Up @ Sp
 
-    return T
-
+    return np.asarray(T)
 
 # =============================================================================
 # JAX K-OPLS Implementation
@@ -541,9 +531,7 @@ def _get_jax_kopls_functions():
         'center_kernel_test_test': center_kernel_test_test_jax,
     }
 
-
 _JAX_KOPLS_FUNCS = None
-
 
 def _get_cached_jax_kopls():
     """Get cached JAX K-OPLS functions."""
@@ -551,7 +539,6 @@ def _get_cached_jax_kopls():
     if _JAX_KOPLS_FUNCS is None:
         _JAX_KOPLS_FUNCS = _get_jax_kopls_functions()
     return _JAX_KOPLS_FUNCS
-
 
 # =============================================================================
 # KOPLS Estimator Class
@@ -654,6 +641,8 @@ class KOPLS(BaseEstimator, RegressorMixin):
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
     _estimator_type = "regressor"
 
+    ortho_loadings_: NDArray | None
+
     def __init__(
         self,
         n_components: int = 5,
@@ -677,7 +666,7 @@ class KOPLS(BaseEstimator, RegressorMixin):
         self.scale = scale
         self.backend = backend
 
-    def _compute_kernel(self, X: NDArray, Y: NDArray = None) -> NDArray:
+    def _compute_kernel(self, X: NDArray, Y: NDArray | None = None) -> NDArray:
         """Compute kernel matrix between X and Y."""
         if self.backend == 'jax':
             import jax.numpy as jnp
@@ -708,7 +697,7 @@ class KOPLS(BaseEstimator, RegressorMixin):
             else:
                 raise ValueError(f"Unknown kernel '{self.kernel}'")
 
-    def fit(self, X: ArrayLike, y: ArrayLike) -> "KOPLS":
+    def fit(self, X: ArrayLike, y: ArrayLike) -> KOPLS:
         """Fit the K-OPLS model.
 
         Parameters
@@ -873,7 +862,7 @@ class KOPLS(BaseEstimator, RegressorMixin):
             'backend': self.backend,
         }
 
-    def set_params(self, **params) -> "KOPLS":
+    def set_params(self, **params) -> KOPLS:
         """Set the parameters of this estimator."""
         for key, value in params.items():
             setattr(self, key, value)

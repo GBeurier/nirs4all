@@ -43,7 +43,6 @@ _TOMBSTONE_FILE = "_tombstones.json"
 # Characters invalid in filenames across platforms
 _UNSAFE_FILENAME_RE = re.compile(r'[/\\:*?"<>|\s.]+')
 
-
 def _sanitize_dataset_filename(dataset_name: str) -> str:
     """Convert a dataset name to a safe filename (without extension).
 
@@ -54,7 +53,6 @@ def _sanitize_dataset_filename(dataset_name: str) -> str:
     sanitized = _UNSAFE_FILENAME_RE.sub("_", dataset_name)
     return sanitized.strip("_") or "unnamed"
 
-
 def _arr_to_list(arr: np.ndarray | None, dtype: str = "float") -> list | None:
     """Convert a numpy array to a Python list for Arrow storage."""
     if arr is None:
@@ -64,13 +62,11 @@ def _arr_to_list(arr: np.ndarray | None, dtype: str = "float") -> list | None:
         return flat.astype(np.int32).tolist()
     return flat.astype(np.float64).tolist()
 
-
 def _shape_to_list(arr: np.ndarray | None) -> list[int] | None:
     """Return the shape of an array as a list of ints, or None."""
     if arr is None:
         return None
     return list(arr.shape)
-
 
 # Shared Arrow schema for all Parquet files
 _PARQUET_SCHEMA = pa.schema([
@@ -89,7 +85,6 @@ _PARQUET_SCHEMA = pa.schema([
     ("sample_indices", pa.list_(pa.int32())),
     ("weights", pa.list_(pa.float64())),
 ])
-
 
 class ArrayStore:
     """Parquet-backed storage for prediction arrays.

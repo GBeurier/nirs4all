@@ -5,11 +5,10 @@ Each controller type knows how to execute specific operator types.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.config.context import ExecutionContext
-
 
 class BaseController(ABC):
     """Abstract base class for all controllers.
@@ -52,7 +51,7 @@ class BaseController(ABC):
         """
         pass
 
-    def validate(self, operator: Any) -> None:
+    def validate(self, operator: Any) -> None:  # noqa: B027
         """Validate the operator before execution.
 
         Parameters
@@ -65,9 +64,8 @@ class BaseController(ABC):
         ValueError
             If operator is invalid.
         """
-        pass
 
-    def prepare(self, operator: Any, context: 'ExecutionContext') -> None:
+    def prepare(self, operator: Any, context: 'ExecutionContext') -> None:  # noqa: B027
         """Prepare the operator for execution.
 
         This method can be overridden to perform setup tasks before execution.
@@ -79,9 +77,8 @@ class BaseController(ABC):
         context : ExecutionContext
             Pipeline execution context.
         """
-        pass
 
-    def cleanup(self, operator: Any, context: 'ExecutionContext') -> None:
+    def cleanup(self, operator: Any, context: 'ExecutionContext') -> None:  # noqa: B027
         """Clean up after operator execution.
 
         This method can be overridden to perform cleanup tasks after execution.
@@ -93,4 +90,3 @@ class BaseController(ABC):
         context : ExecutionContext
             Pipeline execution context.
         """
-        pass

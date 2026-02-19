@@ -11,7 +11,7 @@ Supports two modes for preprocessing generation:
 """
 
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 
@@ -38,7 +38,6 @@ from nirs4all.analysis.transfer_utils import (
 from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
-
 
 class TransferPreprocessingSelector:
     """
@@ -139,13 +138,13 @@ class TransferPreprocessingSelector:
 
     def __init__(
         self,
-        preset: Optional[str] = "fast",
-        preprocessings: Optional[Dict[str, Any]] = None,
+        preset: str | None = "fast",
+        preprocessings: dict[str, Any] | None = None,
         n_components: int = 10,
         k_neighbors: int = 10,
         # Stage 2
         run_stage2: bool = False,
-        stage2_top_k: Optional[int] = 5,
+        stage2_top_k: int | None = 5,
         stage2_max_depth: int = 2,
         stage2_exhaustive: bool = False,
         # Stage 3
@@ -156,12 +155,12 @@ class TransferPreprocessingSelector:
         run_stage4: bool = False,
         stage4_top_k: int = 10,
         stage4_cv_folds: int = 3,
-        stage4_models: Optional[List[str]] = None,
+        stage4_models: list[str] | None = None,
         # Metric weights
-        metric_weights: Optional[Dict[str, float]] = None,
+        metric_weights: dict[str, float] | None = None,
         # Generator integration
-        preprocessing_spec: Optional[Dict[str, Any]] = None,
-        use_generator: Optional[bool] = None,
+        preprocessing_spec: dict[str, Any] | None = None,
+        use_generator: bool | None = None,
         # Parallelization
         n_jobs: int = -1,
         # Other
@@ -226,9 +225,9 @@ class TransferPreprocessingSelector:
 
         # Expanded preprocessing lists (populated when use_generator=True)
         # Now stores objects/transforms instead of just names
-        self._expanded_singles: Optional[List[Any]] = None
-        self._expanded_stacked: Optional[List[List[Any]]] = None
-        self._expanded_augmented: Optional[List[List[Any]]] = None
+        self._expanded_singles: list[Any] | None = None
+        self._expanded_stacked: list[list[Any]] | None = None
+        self._expanded_augmented: list[list[Any]] | None = None
 
         # Initialize metrics computer
         self.metrics_computer = TransferMetricsComputer(
@@ -238,8 +237,8 @@ class TransferPreprocessingSelector:
         )
 
         # Results storage
-        self.results_: Optional[TransferSelectionResults] = None
-        self.raw_metrics_: Optional[TransferMetrics] = None
+        self.results_: TransferSelectionResults | None = None
+        self.raw_metrics_: TransferMetrics | None = None
 
     def _log(self, msg: str, level: int = 1) -> None:
         """Log message if verbosity level is sufficient."""
@@ -273,9 +272,9 @@ class TransferPreprocessingSelector:
         self,
         X_source: np.ndarray,
         X_target: np.ndarray,
-        pp_items: List[Tuple[str, Any]],
+        pp_items: list[tuple[str, Any]],
         pipeline_type: str = "single",
-    ) -> List[TransferResult]:
+    ) -> list[TransferResult]:
         """
         Evaluate preprocessings in parallel using ThreadPoolExecutor.
 
@@ -302,12 +301,12 @@ class TransferPreprocessingSelector:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from typing import Optional as Opt
 
-        def evaluate_single(args: Tuple[str, Any]) -> Opt[TransferResult]:
+        def evaluate_single(args: tuple[str, Any]) -> TransferResult | None:
             """Worker function to evaluate a single preprocessing."""
             pp_name, pp_item = args
             try:
                 # Track the actual transforms used for storing in result
-                actual_transforms: List[Any] = []
+                actual_transforms: list[Any] = []
 
                 # Determine how to apply the preprocessing based on item type
                 if pipeline_type == "augmented":
@@ -403,7 +402,7 @@ class TransferPreprocessingSelector:
                 self._log(f"  Warning: Failed to evaluate {pp_name}: {e}", level=2)
                 return None
 
-        results: List[TransferResult] = []
+        results: list[TransferResult] = []
 
         # Use sequential execution if n_jobs=1
         if self._effective_n_jobs == 1:
@@ -435,7 +434,7 @@ class TransferPreprocessingSelector:
 
     def _expand_preprocessing_spec(
         self,
-    ) -> Tuple[List[Any], List[List[Any]], List[List[Any]]]:
+    ) -> tuple[list[Any], list[list[Any]], list[list[Any]]]:
         """
         Expand preprocessing_spec using the nirs4all generator.
 
@@ -464,9 +463,9 @@ class TransferPreprocessingSelector:
         uses_pick = PICK_KEYWORD in spec if isinstance(spec, dict) else False
         uses_arrange = ARRANGE_KEYWORD in spec if isinstance(spec, dict) else False
 
-        singles: List[Any] = []
-        stacked: List[List[Any]] = []
-        augmented: List[List[Any]] = []
+        singles: list[Any] = []
+        stacked: list[list[Any]] = []
+        augmented: list[list[Any]] = []
 
         # Helper to normalize an item (object or string) to a transform object
         def to_transform(item: Any) -> Any:
@@ -509,7 +508,7 @@ class TransferPreprocessingSelector:
 
         # Remove duplicates while preserving order (using signature for identity)
         seen_singles: set = set()
-        unique_singles: List[Any] = []
+        unique_singles: list[Any] = []
         for t in singles:
             sig = get_transform_signature(t)
             if sig not in seen_singles:
@@ -518,7 +517,7 @@ class TransferPreprocessingSelector:
         singles = unique_singles
 
         seen_stacked: set = set()
-        unique_stacked: List[List[Any]] = []
+        unique_stacked: list[list[Any]] = []
         for pipeline in stacked:
             sig = ">".join(get_transform_signature(t) for t in pipeline)
             if sig not in seen_stacked:
@@ -528,7 +527,7 @@ class TransferPreprocessingSelector:
 
         # For augmented, use order-independent key for deduplication
         seen_aug: set = set()
-        unique_augmented: List[List[Any]] = []
+        unique_augmented: list[list[Any]] = []
         for combo in augmented:
             key = tuple(sorted(get_transform_signature(t) for t in combo))
             if key not in seen_aug:
@@ -569,9 +568,9 @@ class TransferPreprocessingSelector:
     def fit(
         self,
         X_source_or_config,
-        X_target: Optional[np.ndarray] = None,
-        y_source: Optional[np.ndarray] = None,
-        y_target: Optional[np.ndarray] = None,
+        X_target: np.ndarray | None = None,
+        y_source: np.ndarray | None = None,
+        y_target: np.ndarray | None = None,
     ) -> TransferSelectionResults:
         """
         Run transfer-optimized preprocessing selection.
@@ -619,8 +618,8 @@ class TransferPreprocessingSelector:
         # Validate inputs
         X_source, X_target = validate_datasets(X_source, X_target)
 
-        timing: Dict[str, float] = {}
-        all_results: List[TransferResult] = []
+        timing: dict[str, float] = {}
+        all_results: list[TransferResult] = []
 
         # Prepare generator-based preprocessings if enabled
         if self.use_generator:
@@ -649,7 +648,7 @@ class TransferPreprocessingSelector:
         )
 
         # Generator mode: Evaluate pre-generated stacked pipelines
-        gen_stacked_results: List[TransferResult] = []
+        gen_stacked_results: list[TransferResult] = []
         if self.use_generator and self._expanded_stacked:
             self._log("\n=== Stage 1b: Generator-Based Stacked Evaluation ===")
             t0 = time.time()
@@ -762,7 +761,7 @@ class TransferPreprocessingSelector:
         self,
         X_source: np.ndarray,
         X_target: np.ndarray,
-    ) -> List[TransferResult]:
+    ) -> list[TransferResult]:
         """
         Stage 1: Evaluate all single preprocessings.
 
@@ -799,7 +798,7 @@ class TransferPreprocessingSelector:
         self,
         X_source: np.ndarray,
         X_target: np.ndarray,
-    ) -> List[TransferResult]:
+    ) -> list[TransferResult]:
         """
         Evaluate stacked pipelines from generator specification.
 
@@ -838,7 +837,7 @@ class TransferPreprocessingSelector:
         self,
         X_source: np.ndarray,
         X_target: np.ndarray,
-    ) -> List[TransferResult]:
+    ) -> list[TransferResult]:
         """
         Evaluate augmentation combinations from generator specification.
 
@@ -877,8 +876,8 @@ class TransferPreprocessingSelector:
         self,
         X_source: np.ndarray,
         X_target: np.ndarray,
-        stage1_results: List[TransferResult],
-    ) -> List[TransferResult]:
+        stage1_results: list[TransferResult],
+    ) -> list[TransferResult]:
         """
         Stage 2: Evaluate stacked pipeline combinations.
 
@@ -897,10 +896,7 @@ class TransferPreprocessingSelector:
             stage1_results, key=lambda r: r.transfer_score, reverse=True
         )
 
-        if self.stage2_top_k is not None:
-            top_k_results = stage1_sorted[:self.stage2_top_k]
-        else:
-            top_k_results = stage1_sorted
+        top_k_results = stage1_sorted[:self.stage2_top_k] if self.stage2_top_k is not None else stage1_sorted
 
         top_k_names = [r.name for r in top_k_results]
 
@@ -933,8 +929,8 @@ class TransferPreprocessingSelector:
         self,
         X_source: np.ndarray,
         X_target: np.ndarray,
-        previous_results: List[TransferResult],
-    ) -> List[TransferResult]:
+        previous_results: list[TransferResult],
+    ) -> list[TransferResult]:
         """
         Stage 3: Evaluate feature augmentation combinations.
 
@@ -982,8 +978,8 @@ class TransferPreprocessingSelector:
         self,
         X_source: np.ndarray,
         y_source: np.ndarray,
-        previous_results: List[TransferResult],
-    ) -> List[TransferResult]:
+        previous_results: list[TransferResult],
+    ) -> list[TransferResult]:
         """
         Stage 4: Supervised validation with proxy models.
 
@@ -1021,14 +1017,7 @@ class TransferPreprocessingSelector:
 
             try:
                 # Apply preprocessing to source data
-                if result.pipeline_type == "augmented":
-                    X_pp = apply_augmentation(
-                        X_source, result.components, self.preprocessings
-                    )
-                else:
-                    X_pp = apply_stacked_pipeline(
-                        X_source, result.name, self.preprocessings
-                    )
+                X_pp = apply_augmentation(X_source, result.components, self.preprocessings) if result.pipeline_type == "augmented" else apply_stacked_pipeline(X_source, result.name, self.preprocessings)
 
                 # Standardize features
                 scaler = StandardScaler()
@@ -1180,7 +1169,7 @@ class TransferPreprocessingSelector:
         self,
         config,
         partition: str = "train",
-    ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    ) -> tuple[np.ndarray, np.ndarray | None]:
         """
         Extract X, y from various nirs4all data structures.
 
@@ -1200,7 +1189,7 @@ class TransferPreprocessingSelector:
                 else:
                     raise ValueError("Could not extract samples from SpectroDataset")
             except Exception as e:
-                raise ValueError(f"Could not extract samples from SpectroDataset: {e}")
+                raise ValueError(f"Could not extract samples from SpectroDataset: {e}") from e
 
             try:
                 y = config.y({"partition": partition})
@@ -1256,7 +1245,7 @@ class TransferPreprocessingSelector:
     def _extract_data_from_dataset_configs(
         self,
         config,
-    ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
         """
         Extract X_source, X_target, y_source, y_target from DatasetConfigs.
 
@@ -1272,10 +1261,7 @@ class TransferPreprocessingSelector:
         """
         # Handle DatasetConfigs
         if hasattr(config, "get_datasets") or hasattr(config, "iter_datasets"):
-            if hasattr(config, "get_datasets"):
-                datasets = config.get_datasets()
-            else:
-                datasets = list(config.iter_datasets())
+            datasets = config.get_datasets() if hasattr(config, "get_datasets") else list(config.iter_datasets())
 
             if not datasets:
                 raise ValueError("DatasetConfigs contains no datasets")
@@ -1327,7 +1313,7 @@ class TransferPreprocessingSelector:
         self,
         dataset,
         partition: str = "train",
-    ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    ) -> tuple[np.ndarray, np.ndarray | None]:
         """
         Extract X, y from a SpectroDataset for a given partition.
 
@@ -1367,8 +1353,8 @@ class TransferPreprocessingSelector:
         else:
             try:
                 samples = dataset.x({"partition": partition})
-            except Exception:
-                raise ValueError(f"No samples found for partition '{partition}'")
+            except Exception as e:
+                raise ValueError(f"No samples found for partition '{partition}'") from e
             if samples is None:
                 raise ValueError(f"No samples found for partition '{partition}'")
             X = samples[0] if isinstance(samples, tuple) else np.asarray(samples)

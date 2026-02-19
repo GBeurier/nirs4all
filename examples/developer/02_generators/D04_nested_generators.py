@@ -39,17 +39,12 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative,
-    SecondDerivative,
-    SavitzkyGolay,
-    Detrend
-)
+from nirs4all.operators.transforms import Detrend, FirstDerivative, SavitzkyGolay, SecondDerivative
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 from nirs4all.pipeline.config.generator import (
-    expand_spec,
     count_combinations,
+    expand_spec,
     print_expansion_tree,
 )
 
@@ -58,7 +53,6 @@ parser = argparse.ArgumentParser(description='D04 Nested Generators Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Introduction
@@ -79,7 +73,6 @@ Generators can be nested for complex search spaces:
 
 Each level expands independently, multiplying the total combinations.
 """)
-
 
 # =============================================================================
 # Section 1: Nested _or_ for Preprocessing Chains
@@ -112,7 +105,6 @@ print(f"\nExpanded ({len(results)} chains):")
 for i, r in enumerate(results):
     print(f"  [{i}]: {r}")
 
-
 # =============================================================================
 # Section 2: Generators in Dictionary Values
 # =============================================================================
@@ -142,7 +134,6 @@ results = expand_spec(spec_dict)
 print(f"\nExpanded ({len(results)} configs):")
 for i, r in enumerate(results):
     print(f"  [{i}]: {r}")
-
 
 # =============================================================================
 # Section 3: Deeply Nested Generators
@@ -175,10 +166,9 @@ spec_deep = {
 print(f"Spec:\n{json.dumps(spec_deep, indent=2)}")
 print(f"\nTotal combinations: {count_combinations(spec_deep)}")
 results = expand_spec(spec_deep)
-print(f"\nFirst 4 results:")
+print("\nFirst 4 results:")
 for i, r in enumerate(results[:4]):
     print(f"  [{i}]: {json.dumps(r)}")
-
 
 # =============================================================================
 # Section 4: Conditional Generators
@@ -213,7 +203,6 @@ print(f"\nExpanded ({len(results)} configs):")
 for i, r in enumerate(results):
     print(f"  [{i}]: {r}")
 
-
 # =============================================================================
 # Section 5: Generator with Mixed Nesting
 # =============================================================================
@@ -237,17 +226,16 @@ spec_mixed = {
 }
 
 print(f"Spec:\n{json.dumps(spec_mixed, indent=2)}")
-print(f"\nCombination counts:")
-print(f"  stage1: 2 options")
-print(f"  stage2: 4 options (2×2 grid)")
-print(f"  stage3: 2 options (zip pairs)")
+print("\nCombination counts:")
+print("  stage1: 2 options")
+print("  stage2: 4 options (2×2 grid)")
+print("  stage3: 2 options (zip pairs)")
 print(f"  Total: 2 × 4 × 2 = {count_combinations(spec_mixed)}")
 
 results = expand_spec(spec_mixed)
-print(f"\nFirst 4 results:")
+print("\nFirst 4 results:")
 for i, r in enumerate(results[:4]):
     print(f"  [{i}]: {r}")
-
 
 # =============================================================================
 # Section 6: Visualizing Nested Structure
@@ -279,7 +267,6 @@ tree_spec = {
 print("Expansion Tree:")
 print(print_expansion_tree(tree_spec))
 print(f"\nTotal combinations: {count_combinations(tree_spec)}")
-
 
 # =============================================================================
 # Section 7: Pipeline with Nested Generators
@@ -317,7 +304,6 @@ result = nirs4all.run(
 
 print(f"\nTotal predictions: {result.num_predictions}")
 
-
 # =============================================================================
 # Section 8: Debugging Nested Generators
 # =============================================================================
@@ -345,14 +331,13 @@ complex_spec = {
 print(f"Step 1 - Count: {count_combinations(complex_spec)}")
 
 # Step 2: Test each part
-print(f"Step 2 - Test parts:")
+print("Step 2 - Test parts:")
 print(f"  a: {expand_spec(complex_spec['a'])}")
 print(f"  b: {expand_spec(complex_spec['b'])}")
 print(f"  c: {expand_spec(complex_spec['c'])}")
 
 # Step 3: Full expansion
 print(f"Step 3 - Full expansion: {len(expand_spec(complex_spec))} configs")
-
 
 # =============================================================================
 # Summary

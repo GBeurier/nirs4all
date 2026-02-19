@@ -5,13 +5,14 @@ as well as error handling for invalid files.
 """
 
 import json
-import pytest
 import tempfile
 from pathlib import Path
+
+import pytest
 import yaml
 
 from nirs4all.data.config import DatasetConfigs
-from nirs4all.data.config_parser import parse_config, _load_config_from_file
+from nirs4all.data.config_parser import _load_config_from_file, parse_config
 
 
 class TestLoadConfigFromFile:
@@ -177,7 +178,6 @@ class TestLoadConfigFromFile:
         with pytest.raises(ValueError, match="dictionary"):
             _load_config_from_file(str(json_file))
 
-
 class TestParseConfigWithFiles:
     """Test suite for parse_config function with file paths."""
 
@@ -257,7 +257,6 @@ class TestParseConfigWithFiles:
 
         assert config["train_x"] == "path/to/X.csv"
         assert config["train_y"] == "path/to/Y.csv"
-
 
 class TestDatasetConfigsWithFiles:
     """Test suite for DatasetConfigs with file-based configs."""

@@ -2,15 +2,17 @@
 Unit tests for group-based cross-validation with metadata.
 """
 
-import pytest
+from unittest.mock import Mock
+
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit, KFold
-from unittest.mock import Mock
-from nirs4all.data.dataset import SpectroDataset
+
 from nirs4all.controllers.splitters.split import CrossValidatorController
+from nirs4all.data.dataset import SpectroDataset
+from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
-from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata, RuntimeContext
 
 
 def make_step_info(operator, step=None):
@@ -25,13 +27,11 @@ def make_step_info(operator, step=None):
         metadata={}
     )
 
-
 def make_mock_runtime_context():
     """Create a mock runtime context without saver."""
     mock_runtime = Mock()
     mock_runtime.saver = None  # No saver, so controller will use fallback
     return mock_runtime
-
 
 class TestGroupSplitSyntax:
     """Test new split syntax with group parameter."""
@@ -63,7 +63,6 @@ class TestGroupSplitSyntax:
         """Test no match when operator is None and no keyword."""
         controller = CrossValidatorController()
         assert not controller.matches({}, None, "")
-
 
 class TestGroupSplitExecution:
     """Test execution with metadata groups."""
@@ -246,7 +245,6 @@ class TestGroupSplitExecution:
         assert dataset_with_metadata._folds is not None
         assert len(step_output.outputs) == 0  # No binaries in predict mode
 
-
 class TestGroupWarnings:
     """Test warnings when 'group' is used with non-native-group splitters."""
 
@@ -295,6 +293,7 @@ class TestGroupWarnings:
     def test_warning_shuffle_split_with_group(self, dataset_with_metadata):
         """Test that using 'group' with ShuffleSplit emits a warning."""
         import warnings
+
         from sklearn.model_selection import ShuffleSplit
 
         step = {"split": ShuffleSplit(n_splits=1, test_size=0.2), "group": "batch"}
@@ -344,14 +343,13 @@ class TestGroupWarnings:
             ]
             assert len(group_warnings) == 0
 
-
 class TestSerialization:
     """Test serialization of new syntax."""
 
     def test_serialize_split_with_group(self):
         """Test serialization preserves group parameter."""
-        from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
         from nirs4all.pipeline.config.component_serialization import serialize_component
+        from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 
         pipeline = [
             {"split": GroupKFold(n_splits=5), "group": "batch_id"}
@@ -368,8 +366,9 @@ class TestSerialization:
 
     def test_roundtrip_serialization(self):
         """Test save/load roundtrip."""
-        from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
         import json
+
+        from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 
         original = [
             {"split": {"class": "sklearn.model_selection.GroupKFold", "params": {"n_splits": 5}}, "group": "sample"}
@@ -395,7 +394,6 @@ class TestSerialization:
         assert "class" in serialized or isinstance(serialized, str)
         if isinstance(serialized, dict):
             assert "GroupKFold" in serialized["class"]
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

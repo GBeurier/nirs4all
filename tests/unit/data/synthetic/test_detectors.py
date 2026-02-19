@@ -13,20 +13,20 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from nirs4all.synthesis.instruments import DetectorType
 from nirs4all.synthesis.detectors import (
+    DETECTOR_NOISE_DEFAULTS,
+    DETECTOR_RESPONSES,
+    DetectorConfig,
+    DetectorSimulator,
     DetectorSpectralResponse,
     NoiseModelConfig,
-    DetectorConfig,
-    DETECTOR_RESPONSES,
-    DETECTOR_NOISE_DEFAULTS,
-    get_detector_response,
     get_default_noise_config,
-    DetectorSimulator,
-    simulate_detector_effects,
+    get_detector_response,
     get_detector_wavelength_range,
     list_detector_types,
+    simulate_detector_effects,
 )
+from nirs4all.synthesis.instruments import DetectorType
 
 
 class TestDetectorSpectralResponse:
@@ -96,7 +96,6 @@ class TestDetectorSpectralResponse:
         assert result[0] == pytest.approx(0.0)
         assert result[1] == pytest.approx(0.0)
 
-
 class TestDetectorResponseRegistry:
     """Tests for detector response registry."""
 
@@ -133,7 +132,6 @@ class TestDetectorResponseRegistry:
         # PbS works in SWIR
         assert response.peak_wavelength > 1500
 
-
 class TestNoiseModelConfig:
     """Tests for NoiseModelConfig dataclass."""
 
@@ -160,7 +158,6 @@ class TestNoiseModelConfig:
         assert config.thermal_noise_enabled is False
         assert config.flicker_noise_enabled is True
         assert config.shot_noise_factor == 1.5
-
 
 class TestDetectorConfig:
     """Tests for DetectorConfig dataclass."""
@@ -190,7 +187,6 @@ class TestDetectorConfig:
         assert config.temperature_k == 280.0
         assert config.apply_nonlinearity is True
 
-
 class TestDetectorNoiseDefaults:
     """Tests for detector-specific noise defaults."""
 
@@ -214,7 +210,6 @@ class TestDetectorNoiseDefaults:
         # MCT is typically cooled, so lower noise
         assert config.shot_noise_factor < 1.0
         assert config.thermal_noise_factor < 1.0
-
 
 class TestDetectorSimulator:
     """Tests for DetectorSimulator class."""
@@ -293,7 +288,6 @@ class TestDetectorSimulator:
         assert result.shape == sample_spectra.shape
         assert np.all(np.isfinite(result))
 
-
 class TestConvenienceFunctions:
     """Tests for convenience functions."""
 
@@ -346,7 +340,6 @@ class TestConvenienceFunctions:
         assert len(detector_list) > 0
         assert "ingaas" in detector_list
         assert "si" in detector_list
-
 
 class TestNoisePhysics:
     """Tests for physical correctness of noise models."""

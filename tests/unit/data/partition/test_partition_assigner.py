@@ -27,7 +27,6 @@ def sample_df():
         "label": [0, 1] * 50,
     })
 
-
 @pytest.fixture
 def small_df():
     """Create a small DataFrame for testing."""
@@ -38,7 +37,6 @@ def small_df():
                   "test", "test", "test", "test", "test"],
         "label": [0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
     })
-
 
 class TestPartitionAssignerStatic:
     """Tests for static partition assignment."""
@@ -103,7 +101,6 @@ class TestPartitionAssignerStatic:
         assert not result.has_train
         assert not result.has_test
         assert not result.has_predict
-
 
 class TestPartitionAssignerColumnBased:
     """Tests for column-based partition assignment."""
@@ -187,7 +184,6 @@ class TestPartitionAssignerColumnBased:
 
         # Unknown row should be in train
         assert 0 in result.train_indices
-
 
 class TestPartitionAssignerPercentage:
     """Tests for percentage-based partition assignment."""
@@ -280,7 +276,6 @@ class TestPartitionAssignerPercentage:
         assert abs(train_prop - 0.5) < 0.1
         assert abs(test_prop - 0.5) < 0.1
 
-
 class TestPartitionAssignerIndices:
     """Tests for index-based partition assignment."""
 
@@ -324,7 +319,6 @@ class TestPartitionAssignerIndices:
             assigner.assign(small_df, {
                 "train": [0, 1, 100],  # 100 is out of range
             })
-
 
 class TestPartitionAssignerIndexFile:
     """Tests for index file-based partition assignment."""
@@ -396,7 +390,6 @@ class TestPartitionAssignerIndexFile:
                 "train_file": "/nonexistent/file.txt",
             })
 
-
 class TestPartitionResult:
     """Tests for PartitionResult dataclass."""
 
@@ -441,7 +434,6 @@ class TestPartitionResult:
         assert result.has_test
         assert not result.has_predict
 
-
 class TestPartitionAssignerConcatenate:
     """Tests for concatenating partition results."""
 
@@ -479,7 +471,6 @@ class TestPartitionAssignerConcatenate:
 
         assert len(combined.train_indices) == 10
         assert len(combined.test_indices) == 10
-
 
 class TestPartitionConfigIntegration:
     """Tests for PartitionConfig.to_assigner_spec() integration."""

@@ -79,14 +79,10 @@ class PathLengthAugmenter(TransformerMixin, BaseEstimator):
         rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples = X.shape[0]
 
-        if self.variation_scope == "batch":
-            L = np.full(n_samples, rng.normal(1.0, self.path_length_std))
-        else:  # "sample"
-            L = rng.normal(1.0, self.path_length_std, size=n_samples)
+        L = np.full(n_samples, rng.normal(1.0, self.path_length_std)) if self.variation_scope == "batch" else rng.normal(1.0, self.path_length_std, size=n_samples)
 
         L = np.maximum(L, self.min_path_length)
         return X * L[:, np.newaxis]
-
 
 class BatchEffectAugmenter(SpectraTransformerMixin):
     """Simulates batch/session effects in spectroscopic measurements.
@@ -157,7 +153,6 @@ class BatchEffectAugmenter(SpectraTransformerMixin):
 
             offset_2d = offsets[:, np.newaxis] + slopes[:, np.newaxis] * x[np.newaxis, :]
             return X * gains[:, np.newaxis] + offset_2d
-
 
 class InstrumentalBroadeningAugmenter(SpectraTransformerMixin):
     """Simulates instrumental spectral broadening.
@@ -243,7 +238,6 @@ class InstrumentalBroadeningAugmenter(SpectraTransformerMixin):
                 result[i] = gaussian_filter1d(X[i], sigma_pts)
             return result
 
-
 class HeteroscedasticNoiseAugmenter(TransformerMixin, BaseEstimator):
     """Simulates signal-dependent (heteroscedastic) detector noise.
 
@@ -304,7 +298,6 @@ class HeteroscedasticNoiseAugmenter(TransformerMixin, BaseEstimator):
             noise = rng.normal(0, 1, size=X.shape) * sigma
 
         return X + noise
-
 
 class DeadBandAugmenter(TransformerMixin, BaseEstimator):
     """Simulates dead spectral bands (detector saturation/failure regions).
@@ -381,7 +374,6 @@ class DeadBandAugmenter(TransformerMixin, BaseEstimator):
                                                            size=end - start)
 
         return result
-
 
 __all__ = [
     "PathLengthAugmenter",

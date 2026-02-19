@@ -6,7 +6,8 @@ samples with outlier feature (X) values using various statistical and
 machine learning methods commonly used in spectroscopy and chemometrics.
 """
 
-from typing import Optional, Dict, Any, Literal
+from typing import Any, Literal, Optional
+
 import numpy as np
 from sklearn.covariance import EmpiricalCovariance, MinCovDet
 from sklearn.decomposition import PCA
@@ -76,13 +77,13 @@ class XOutlierFilter(SampleFilter):
             "mahalanobis", "robust_mahalanobis", "pca_residual",
             "pca_leverage", "isolation_forest", "lof"
         ] = "mahalanobis",
-        threshold: Optional[float] = None,
-        n_components: Optional[int] = None,
+        threshold: float | None = None,
+        n_components: int | None = None,
         contamination: float = 0.1,
-        random_state: Optional[int] = None,
-        support_fraction: Optional[float] = None,
-        reason: Optional[str] = None,
-        tag_name: Optional[str] = None
+        random_state: int | None = None,
+        support_fraction: float | None = None,
+        reason: str | None = None,
+        tag_name: str | None = None
     ):
         """
         Initialize the X outlier filter.
@@ -146,13 +147,13 @@ class XOutlierFilter(SampleFilter):
             )
 
         # Fitted attributes (set during fit)
-        self.threshold_: Optional[float] = None
-        self.center_: Optional[np.ndarray] = None
-        self.covariance_: Optional[np.ndarray] = None
-        self.precision_: Optional[np.ndarray] = None
-        self.pca_: Optional[PCA] = None
-        self.detector_: Optional[Any] = None  # For sklearn detectors
-        self._distances_: Optional[np.ndarray] = None  # For stats
+        self.threshold_: float | None = None
+        self.center_: np.ndarray | None = None
+        self.covariance_: np.ndarray | None = None
+        self.precision_: np.ndarray | None = None
+        self.pca_: PCA | None = None
+        self.detector_: Any | None = None  # For sklearn detectors
+        self._distances_: np.ndarray | None = None  # For stats
 
     @property
     def exclusion_reason(self) -> str:
@@ -161,7 +162,7 @@ class XOutlierFilter(SampleFilter):
             return self.reason
         return f"x_outlier_{self.method}"
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> "XOutlierFilter":
+    def fit(self, X: np.ndarray, y: np.ndarray | None = None) -> "XOutlierFilter":
         """
         Compute outlier detection model from training data.
 
@@ -268,10 +269,7 @@ class XOutlierFilter(SampleFilter):
         n_samples, n_features = X.shape
 
         # Determine number of components
-        if self.n_components is not None:
-            n_comp = min(self.n_components, n_samples, n_features)
-        else:
-            n_comp = min(n_samples, n_features, 10)
+        n_comp = min(self.n_components, n_samples, n_features) if self.n_components is not None else min(n_samples, n_features, 10)
 
         self.pca_ = PCA(n_components=n_comp)
         self.pca_.fit(X)
@@ -308,10 +306,10 @@ class XOutlierFilter(SampleFilter):
         """Fit Isolation Forest detector."""
         try:
             from sklearn.ensemble import IsolationForest
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
                 "IsolationForest requires sklearn. Install with: pip install scikit-learn"
-            )
+            ) from e
 
         self.detector_ = IsolationForest(
             contamination=self.contamination,
@@ -327,10 +325,10 @@ class XOutlierFilter(SampleFilter):
         """Fit Local Outlier Factor detector."""
         try:
             from sklearn.neighbors import LocalOutlierFactor
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
                 "LocalOutlierFactor requires sklearn. Install with: pip install scikit-learn"
-            )
+            ) from e
 
         n_samples = X.shape[0]
         n_neighbors = min(20, n_samples - 1)
@@ -346,7 +344,7 @@ class XOutlierFilter(SampleFilter):
         # Store scores for stats
         self._distances_ = -self.detector_.score_samples(X)
 
-    def get_mask(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> np.ndarray:
+    def get_mask(self, X: np.ndarray, y: np.ndarray | None = None) -> np.ndarray:
         """
         Compute boolean mask indicating which samples to KEEP.
 
@@ -381,10 +379,7 @@ class XOutlierFilter(SampleFilter):
             raise ValueError("Filter has not been fitted. Call fit() first.")
 
         # Apply PCA if used during fitting
-        if self.pca_ is not None:
-            X_reduced = self.pca_.transform(X)
-        else:
-            X_reduced = X
+        X_reduced = self.pca_.transform(X) if self.pca_ is not None else X
 
         # Compute Mahalanobis distances
         diff = X_reduced - self.center_
@@ -420,7 +415,7 @@ class XOutlierFilter(SampleFilter):
         predictions = self.detector_.predict(X)
         return predictions == 1
 
-    def get_filter_stats(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> Dict[str, Any]:
+    def get_filter_stats(self, X: np.ndarray, y: np.ndarray | None = None) -> dict[str, Any]:
         """
         Get statistics about filter application.
 

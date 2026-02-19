@@ -34,7 +34,6 @@ parser = argparse.ArgumentParser(description='D05 Binary Search Sampler Example'
 parser.add_argument('--comparison', action='store_true', help='Run comparison with TPE sampler')
 args = parser.parse_args()
 
-
 # =============================================================================
 # Section 1: Basic Binary Search
 # =============================================================================
@@ -102,7 +101,6 @@ print(f"\n✓ Binary Search completed in {binary_time:.2f}s")
 print(f"  Best RMSE: {result_binary.best_score:.4f}")
 print(f"  Optimal n_components: {result_binary.best.get('best_params', {}).get('n_components', 'N/A')}")
 
-
 # =============================================================================
 # Section 2: Comparison with TPE (Optional)
 # =============================================================================
@@ -157,17 +155,16 @@ if args.comparison:
     print("\n" + "=" * 80)
     print("Comparison Summary")
     print("=" * 80)
-    print(f"Binary Search:")
+    print("Binary Search:")
     print(f"  • Time: {binary_time:.2f}s")
     print(f"  • Best RMSE: {result_binary.best_score:.4f}")
     print(f"  • Optimal n_components: {result_binary.best.get('best_params', {}).get('n_components', 'N/A')}")
-    print(f"\nTPE:")
+    print("\nTPE:")
     print(f"  • Time: {tpe_time:.2f}s")
     print(f"  • Best RMSE: {result_tpe.best_score:.4f}")
     print(f"  • Optimal n_components: {result_tpe.best.get('best_params', {}).get('n_components', 'N/A')}")
     print(f"\nSpeedup: {tpe_time / binary_time:.2f}x faster")
-    print(f"Note: For optimal results, TPE would need ~30-50 trials, while binary needs ~12-15")
-
+    print("Note: For optimal results, TPE would need ~30-50 trials, while binary needs ~12-15")
 
 # =============================================================================
 # Section 3: Multi-Phase with Binary Search
@@ -221,10 +218,9 @@ result_multiphase = nirs4all.run(
     verbose=1
 )
 
-print(f"\n✓ Multi-Phase completed")
+print("\n✓ Multi-Phase completed")
 print(f"  Best RMSE: {result_multiphase.best_score:.4f}")
 print(f"  Optimal n_components: {result_multiphase.best.get('best_params', {}).get('n_components', 'N/A')}")
-
 
 # =============================================================================
 # Section 4: When NOT to Use Binary Search
@@ -257,7 +253,6 @@ Binary search is NOT suitable for:
    • Polynomial degree
    • Any integer with clear unimodal behavior
 """)
-
 
 # =============================================================================
 # Section 5: Practical Usage Guide
@@ -329,7 +324,6 @@ Performance Tips:
 • Consider multi-phase for production models
 • Use "grouped" approach with preprocessing variants
 """)
-
 
 # =============================================================================
 # Summary

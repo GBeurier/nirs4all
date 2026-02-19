@@ -63,7 +63,6 @@ class TestXOutlierFilterInitialization:
         filter_obj = XOutlierFilter()
         assert isinstance(filter_obj, SampleFilter)
 
-
 class TestXOutlierFilterMahalanobis:
     """Tests for Mahalanobis distance methods."""
 
@@ -127,7 +126,6 @@ class TestXOutlierFilterMahalanobis:
         # Should use PCA internally
         assert filter_obj.pca_ is not None
 
-
 class TestXOutlierFilterPCA:
     """Tests for PCA-based methods."""
 
@@ -182,7 +180,6 @@ class TestXOutlierFilterPCA:
 
         assert filter_obj.threshold_ == 10.0
         assert mask.sum() > 0
-
 
 class TestXOutlierFilterSklearn:
     """Tests for sklearn-based methods (Isolation Forest, LOF)."""
@@ -243,7 +240,6 @@ class TestXOutlierFilterSklearn:
         # Outlier should be excluded
         assert mask[-1] == False  # noqa: E712
 
-
 class TestXOutlierFilterEdgeCases:
     """Tests for edge cases."""
 
@@ -286,8 +282,7 @@ class TestXOutlierFilterEdgeCases:
         filter_obj.fit(X)
         mask = filter_obj.get_mask(X)
         assert len(mask) == 1
-        assert mask[0] == True  # Single sample should not be considered an outlier
-
+        assert mask[0]  # Single sample should not be considered an outlier
 
 class TestXOutlierFilterHelperMethods:
     """Tests for helper methods."""
@@ -336,7 +331,6 @@ class TestXOutlierFilterHelperMethods:
         assert "XOutlierFilter" in repr_str
         assert "mahalanobis" in repr_str
         assert "3.0" in repr_str
-
 
 class TestXOutlierFilterTransform:
     """Tests for transform method (should be no-op)."""

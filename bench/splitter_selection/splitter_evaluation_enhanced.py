@@ -19,24 +19,24 @@ Metrics computed:
 
 import time
 import warnings
-from typing import Dict, List, Tuple, Any, Optional
-from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
 from scipy import stats
 from scipy.spatial import ConvexHull
 from scipy.spatial.distance import cdist
-from sklearn.linear_model import RidgeCV, ElasticNetCV
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.neighbors import KNeighborsRegressor
-from sklearn.svm import SVR
-from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.neural_network import MLPRegressor
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.linear_model import ElasticNetCV, RidgeCV
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.neural_network import MLPRegressor
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVR
 
 try:
     from xgboost import XGBRegressor
@@ -48,7 +48,6 @@ except ImportError:
 from splitter_strategies import SplitResult
 
 warnings.filterwarnings('ignore')
-
 
 # ============================================================================
 # DATA CLASSES
@@ -67,7 +66,6 @@ class ModelResult:
     train_time: float
     y_val_pred: np.ndarray
 
-
 @dataclass
 class FoldResult:
     """Results from training all models on a single fold."""
@@ -75,13 +73,12 @@ class FoldResult:
     repeat_idx: int
     n_train: int
     n_val: int
-    model_results: Dict[str, ModelResult]
+    model_results: dict[str, ModelResult]
     ensemble_val_rmse: float
     ensemble_val_mae: float
     ensemble_val_r2: float
     y_val_true: np.ndarray
     y_val_pred_ensemble: np.ndarray
-
 
 @dataclass
 class BootstrapMetrics:
@@ -96,7 +93,6 @@ class BootstrapMetrics:
     r2_ci_lower: float
     r2_ci_upper: float
 
-
 @dataclass
 class RepresentativenessMetrics:
     """Metrics for evaluating split representativeness."""
@@ -108,7 +104,6 @@ class RepresentativenessMetrics:
     n_high_leverage: int  # Number of high-leverage test samples
     hotelling_t2_mean: float  # Mean Hotelling's T² for test samples
 
-
 @dataclass
 class EnhancedStrategyResult:
     """Comprehensive results for a splitting strategy."""
@@ -117,12 +112,12 @@ class EnhancedStrategyResult:
     category: str
 
     # Fold results (all repeats)
-    fold_results: List[FoldResult]
+    fold_results: list[FoldResult]
     n_repeats: int
     n_folds: int
 
     # Per-model test results
-    model_test_results: Dict[str, Dict[str, float]]
+    model_test_results: dict[str, dict[str, float]]
 
     # Ensemble test results
     test_rmse: float
@@ -146,17 +141,16 @@ class EnhancedStrategyResult:
     representativeness: RepresentativenessMetrics
 
     # Strategy info
-    strategy_info: Dict[str, Any]
+    strategy_info: dict[str, Any]
 
     # Timing
     total_time: float
-
 
 # ============================================================================
 # MODEL DEFINITIONS
 # ============================================================================
 
-def get_model_suite() -> Dict[str, Any]:
+def get_model_suite() -> dict[str, Any]:
     """
     Get the full suite of models with more complex/deep parameters.
 
@@ -253,11 +247,10 @@ def get_model_suite() -> Dict[str, Any]:
 
     return models
 
-
 class ModelWrapper:
     """Wrapper for different model types with scaling."""
 
-    def __init__(self, model_name: str, model_config: Dict[str, Any], random_state: int = 42):
+    def __init__(self, model_name: str, model_config: dict[str, Any], random_state: int = 42):
         self.model_name = model_name
         self.model_config = model_config
         self.random_state = random_state
@@ -286,7 +279,6 @@ class ModelWrapper:
         X_scaled = self.scaler.transform(X)
         pred = self.model.predict(X_scaled)
         return pred.ravel() if len(pred.shape) > 1 else pred
-
 
 # ============================================================================
 # REPRESENTATIVENESS METRICS
@@ -336,7 +328,7 @@ def compute_spectral_coverage(
             train_delaunay = Delaunay(X_train_hull)
             inside = train_delaunay.find_simplex(X_test_hull) >= 0
             coverage = np.mean(inside)
-        except:
+        except Exception:
             # Fallback: use distance-based coverage
             distances = cdist(X_test_hull, X_train_hull, 'euclidean')
             min_distances = np.min(distances, axis=1)
@@ -352,12 +344,11 @@ def compute_spectral_coverage(
 
     return float(coverage)
 
-
 def compute_target_coverage(
     y_train: np.ndarray,
     y_test: np.ndarray,
     n_bins: int = 50
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """
     Compute target distribution coverage metrics.
 
@@ -394,12 +385,11 @@ def compute_target_coverage(
 
     return float(wasserstein), float(kl_div)
 
-
 def compute_leverage_metrics(
     X_train: np.ndarray,
     X_test: np.ndarray,
     n_components: int = 10
-) -> Tuple[float, float, int, float]:
+) -> tuple[float, float, int, float]:
     """
     Compute leverage analysis for test samples.
 
@@ -456,7 +446,6 @@ def compute_leverage_metrics(
         float(np.mean(t2_scores))
     )
 
-
 def compute_representativeness(
     X_train: np.ndarray,
     X_test: np.ndarray,
@@ -490,7 +479,6 @@ def compute_representativeness(
         n_high_leverage=n_high,
         hotelling_t2_mean=t2_mean
     )
-
 
 # ============================================================================
 # BOOTSTRAP CONFIDENCE INTERVALS
@@ -534,7 +522,7 @@ def bootstrap_metrics(
         # R² can be undefined if all same value
         try:
             r2_samples.append(r2_score(y_true_boot, y_pred_boot))
-        except:
+        except Exception:
             r2_samples.append(np.nan)
 
     alpha = 1 - confidence
@@ -555,7 +543,6 @@ def bootstrap_metrics(
         r2_ci_upper=float(np.percentile(r2_samples, 100 * (1 - alpha / 2))) if len(r2_samples) > 0 else 0.0
     )
 
-
 # ============================================================================
 # TRAINING AND EVALUATION
 # ============================================================================
@@ -565,9 +552,9 @@ def train_models_on_fold(
     y_train: np.ndarray,
     X_val: np.ndarray,
     y_val: np.ndarray,
-    models: Dict[str, Any],
+    models: dict[str, Any],
     random_state: int = 42
-) -> Tuple[Dict[str, ModelResult], Dict[str, ModelWrapper]]:
+) -> tuple[dict[str, ModelResult], dict[str, ModelWrapper]]:
     """
     Train all models on a single fold.
 
@@ -612,7 +599,6 @@ def train_models_on_fold(
             continue
 
     return results, fitted_models
-
 
 def evaluate_strategy_enhanced(
     X: np.ndarray,
@@ -667,7 +653,7 @@ def evaluate_strategy_enhanced(
 
     n_folds = int(fold_df[fold_df['split'] != 'test']['fold'].max() + 1)
     all_fold_results = []
-    all_fold_models = {model_name: [] for model_name in models.keys()}
+    all_fold_models = {model_name: [] for model_name in models}
 
     base_seeds = [42, 123, 456]  # Different seeds for repeats
 
@@ -742,7 +728,7 @@ def evaluate_strategy_enhanced(
 
     # Aggregate test predictions from all fold models
     if verbose:
-        print(f"\n  Computing test predictions...")
+        print("\n  Computing test predictions...")
 
     model_test_results = {}
     all_test_preds = []
@@ -767,17 +753,14 @@ def evaluate_strategy_enhanced(
         all_test_preds.append(mean_pred)
 
     # Final ensemble prediction (mean of all models)
-    if all_test_preds:
-        final_ensemble_pred = np.mean(all_test_preds, axis=0)
-    else:
-        final_ensemble_pred = np.zeros_like(y_test)
+    final_ensemble_pred = np.mean(all_test_preds, axis=0) if all_test_preds else np.zeros_like(y_test)
 
     test_rmse = np.sqrt(mean_squared_error(y_test, final_ensemble_pred))
     test_mae = mean_absolute_error(y_test, final_ensemble_pred)
     test_r2 = r2_score(y_test, final_ensemble_pred)
 
     if verbose:
-        print(f"\n  📊 Per-model test performance:")
+        print("\n  📊 Per-model test performance:")
         for model_name, results in model_test_results.items():
             print(f"     {model_name:12s}: RMSE={results['rmse']:.4f}, R²={results['r2']:.4f}")
         print(f"     {'ENSEMBLE':12s}: RMSE={test_rmse:.4f}, R²={test_r2:.4f}")
@@ -805,7 +788,7 @@ def evaluate_strategy_enhanced(
 
     # Representativeness metrics
     if verbose:
-        print(f"  Computing representativeness metrics...")
+        print("  Computing representativeness metrics...")
 
     repr_metrics = compute_representativeness(
         X_train_full, X_test,
@@ -850,13 +833,12 @@ def evaluate_strategy_enhanced(
         total_time=total_time
     )
 
-
 # ============================================================================
 # COMPARISON AND ANALYSIS
 # ============================================================================
 
 def compare_strategies_enhanced(
-    results: List[EnhancedStrategyResult]
+    results: list[EnhancedStrategyResult]
 ) -> pd.DataFrame:
     """
     Create comprehensive comparison DataFrame.
@@ -920,10 +902,9 @@ def compare_strategies_enhanced(
 
     return df
 
-
 def identify_best_strategies_enhanced(
     comparison_df: pd.DataFrame
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """
     Identify best strategies by multiple criteria.
 
@@ -988,9 +969,8 @@ def identify_best_strategies_enhanced(
 
     return best
 
-
 def compute_statistical_tests_enhanced(
-    results: List[EnhancedStrategyResult],
+    results: list[EnhancedStrategyResult],
     alpha: float = 0.05
 ) -> pd.DataFrame:
     """
@@ -1005,7 +985,7 @@ def compute_statistical_tests_enhanced(
     Returns:
         DataFrame with test results
     """
-    from scipy.stats import ttest_ind, mannwhitneyu, wilcoxon
+    from scipy.stats import mannwhitneyu, ttest_ind, wilcoxon
 
     results_sorted = sorted(results, key=lambda r: r.test_rmse)
     pairwise_results = []

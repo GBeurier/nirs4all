@@ -8,9 +8,10 @@ Tests per-fold model saving and loading:
 - CV averaging works with loaded fold models
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+import pytest
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold, RepeatedKFold
 from sklearn.preprocessing import StandardScaler
@@ -18,17 +19,16 @@ from sklearn.preprocessing import StandardScaler
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
-from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
-from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 from nirs4all.pipeline.storage.artifacts import generate_artifact_id_v3
+from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
+from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
+from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 
 
 def make_v3_id(pipeline_id: str, step: int, fold_id=None, operator: str = "Model"):
     """Helper to generate V3 artifact IDs for tests."""
     chain_path = f"s{step}.{operator}"
     return generate_artifact_id_v3(pipeline_id, chain_path, fold_id)
-
 
 def create_test_dataset(n_samples: int = 100, n_features: int = 50) -> SpectroDataset:
     """Create a synthetic dataset for testing."""
@@ -43,7 +43,6 @@ def create_test_dataset(n_samples: int = 100, n_features: int = 50) -> SpectroDa
     dataset.add_targets(y[80:])
 
     return dataset
-
 
 class TestFoldModelRegistration:
     """Tests for registering per-fold model artifacts."""
@@ -70,7 +69,7 @@ class TestFoldModelRegistration:
             model = Ridge(alpha=1.0)
             model.fit(np.array([[0], [1], [2]]), np.array([0, 1, 2]))
 
-            chain_path = f"s3.Ridge"
+            chain_path = "s3.Ridge"
             artifact_id = make_v3_id("0001", 3, fold_id, "Ridge")
             record = registry.register(
                 obj=model,
@@ -90,7 +89,7 @@ class TestFoldModelRegistration:
             model = Ridge(alpha=1.0)
             model.fit(np.array([[fold_id], [fold_id + 1]]), np.array([0, 1]))
 
-            chain_path = f"s3.Ridge"
+            chain_path = "s3.Ridge"
             artifact_id = make_v3_id("0001", 3, fold_id, "Ridge")
             registry.register(
                 obj=model,
@@ -122,7 +121,7 @@ class TestFoldModelRegistration:
             y = X.ravel()
             model.fit(X, y)
 
-            chain_path = f"s3.Ridge"
+            chain_path = "s3.Ridge"
             artifact_id = make_v3_id("0001", 3, fold_id, "Ridge")
             record = registry.register(
                 obj=model,
@@ -135,7 +134,6 @@ class TestFoldModelRegistration:
         # Content hashes should be different
         hashes = [r.content_hash for r in records]
         assert len(set(hashes)) == 3  # All unique
-
 
 class TestFoldModelLoading:
     """Tests for loading per-fold model artifacts."""
@@ -252,7 +250,6 @@ class TestFoldModelLoading:
         # Predictions should be different (different training)
         assert len(set(predictions)) == 3
 
-
 class TestCVPipelineFoldArtifacts:
     """Tests for fold artifacts in CV pipelines."""
 
@@ -319,7 +316,6 @@ class TestCVPipelineFoldArtifacts:
         # Should have predictions for each fold
         expected_folds = n_splits * n_repeats
         assert len(predictions) >= expected_folds
-
 
 class TestFoldModelEnsembleLoading:
     """Tests for loading fold models for ensemble prediction."""
@@ -429,7 +425,6 @@ class TestFoldModelEnsembleLoading:
         # Should be sorted 0, 1, 2, 3, 4
         returned_fold_ids = [fold_id for fold_id, _ in fold_models]
         assert returned_fold_ids == [0, 1, 2, 3, 4]
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -19,30 +19,31 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import numpy as np
 
-from .generator import SyntheticNIRSGenerator
+from ._constants import DEFAULT_WAVELENGTH_END, DEFAULT_WAVELENGTH_START, DEFAULT_WAVELENGTH_STEP
 from .components import ComponentLibrary
 from .config import (
-    SyntheticDatasetConfig,
-    FeatureConfig,
-    TargetConfig,
-    MetadataConfig,
-    PartitionConfig,
     BatchEffectConfig,
+    FeatureConfig,
+    MetadataConfig,
     OutputConfig,
+    PartitionConfig,
+    SyntheticDatasetConfig,
+    TargetConfig,
 )
-from ._constants import DEFAULT_WAVELENGTH_START, DEFAULT_WAVELENGTH_END, DEFAULT_WAVELENGTH_STEP
-from .metadata import MetadataGenerator, MetadataGenerationResult
-from .targets import TargetGenerator, NonLinearTargetProcessor, NonLinearTargetConfig
+from .generator import SyntheticNIRSGenerator
+from .metadata import MetadataGenerationResult, MetadataGenerator
+from .targets import NonLinearTargetConfig, NonLinearTargetProcessor, TargetGenerator
 
 if TYPE_CHECKING:
     from pathlib import Path
-    from nirs4all.data.dataset import SpectroDataset
-    from .sources import SourceConfig
 
+    from nirs4all.data.dataset import SpectroDataset
+
+    from .sources import SourceConfig
 
 @dataclass
 class BuilderState:
@@ -53,53 +54,53 @@ class BuilderState:
     """
 
     n_samples: int = 1000
-    random_state: Optional[int] = None
+    random_state: int | None = None
     name: str = "synthetic_nirs"
 
     # Feature configuration
     wavelength_start: float = DEFAULT_WAVELENGTH_START
     wavelength_end: float = DEFAULT_WAVELENGTH_END
     wavelength_step: float = DEFAULT_WAVELENGTH_STEP
-    custom_wavelengths: Optional[np.ndarray] = None  # Phase 6: custom wavelength array
-    instrument_wavelength_grid: Optional[str] = None  # Phase 6: predefined instrument grid
+    custom_wavelengths: np.ndarray | None = None  # Phase 6: custom wavelength array
+    instrument_wavelength_grid: str | None = None  # Phase 6: predefined instrument grid
     complexity: Literal["simple", "realistic", "complex"] = "simple"
-    component_names: Optional[List[str]] = None
-    component_library: Optional[ComponentLibrary] = None
+    component_names: list[str] | None = None
+    component_library: ComponentLibrary | None = None
 
     # === Custom physics parameters (override complexity presets) ===
-    custom_params: Optional[Dict[str, Any]] = None  # Dict with any of:
+    custom_params: dict[str, Any] | None = None  # Dict with any of:
     # path_length_std, baseline_amplitude, scatter_alpha_std, scatter_beta_std,
     # tilt_std, global_slope_mean, global_slope_std, shift_std, stretch_std,
     # instrumental_fwhm, noise_base, noise_signal_dep, artifact_prob
 
     # === Instrument simulation (Phase 2) ===
-    instrument: Optional[str] = None  # Instrument archetype name
-    measurement_mode: Optional[str] = None  # Measurement mode
+    instrument: str | None = None  # Instrument archetype name
+    measurement_mode: str | None = None  # Measurement mode
 
     # Target configuration
     concentration_method: Literal["dirichlet", "uniform", "lognormal", "correlated"] = "dirichlet"
-    target_range: Optional[Tuple[float, float]] = None
-    target_component: Optional[Union[str, int]] = None
-    target_transform: Optional[Literal["log", "sqrt"]] = None
+    target_range: tuple[float, float] | None = None
+    target_component: str | int | None = None
+    target_transform: Literal["log", "sqrt"] | None = None
 
     # Classification configuration
-    n_classes: Optional[int] = None
+    n_classes: int | None = None
     class_separation: float = 1.5
-    class_weights: Optional[List[float]] = None
+    class_weights: list[float] | None = None
     class_separation_method: Literal["component", "threshold", "cluster"] = "component"
 
     # Metadata configuration
     generate_sample_ids: bool = False
     sample_id_prefix: str = "sample"
-    n_groups: Optional[int] = None
-    n_repetitions: Union[int, Tuple[int, int]] = 1
-    group_names: Optional[List[str]] = None
+    n_groups: int | None = None
+    n_repetitions: int | tuple[int, int] = 1
+    group_names: list[str] | None = None
 
     # Multi-source configuration
-    sources: Optional[List[Any]] = None  # List of SourceConfig or dicts
+    sources: list[Any] | None = None  # List of SourceConfig or dicts
 
     # Aggregate configuration (Phase 4)
-    aggregate_name: Optional[str] = None  # Predefined aggregate name
+    aggregate_name: str | None = None  # Predefined aggregate name
     aggregate_variability: bool = False  # Sample from variability ranges
 
     # Partition configuration
@@ -134,13 +135,12 @@ class BuilderState:
     noise_heteroscedasticity: float = 0.0  # Noise varies by regime (0 = homoscedastic)
 
     # Cached generated data
-    _X: Optional[np.ndarray] = field(default=None, repr=False)
-    _y: Optional[np.ndarray] = field(default=None, repr=False)
-    _C: Optional[np.ndarray] = field(default=None, repr=False)  # Concentrations
-    _wavelengths: Optional[np.ndarray] = field(default=None, repr=False)
-    _metadata: Optional[Dict[str, Any]] = field(default=None, repr=False)
-    _sample_metadata: Optional[MetadataGenerationResult] = field(default=None, repr=False)
-
+    _X: np.ndarray | None = field(default=None, repr=False)
+    _y: np.ndarray | None = field(default=None, repr=False)
+    _C: np.ndarray | None = field(default=None, repr=False)  # Concentrations
+    _wavelengths: np.ndarray | None = field(default=None, repr=False)
+    _metadata: dict[str, Any] | None = field(default=None, repr=False)
+    _sample_metadata: MetadataGenerationResult | None = field(default=None, repr=False)
 
 class SyntheticDatasetBuilder:
     """
@@ -195,7 +195,7 @@ class SyntheticDatasetBuilder:
     def __init__(
         self,
         n_samples: int = 1000,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         name: str = "synthetic_nirs",
     ) -> None:
         """
@@ -222,28 +222,28 @@ class SyntheticDatasetBuilder:
     def with_features(
         self,
         *,
-        wavelength_range: Optional[Tuple[float, float]] = None,
-        wavelength_step: Optional[float] = None,
-        complexity: Optional[Literal["simple", "realistic", "complex"]] = None,
-        components: Optional[List[str]] = None,
-        component_library: Optional[ComponentLibrary] = None,
+        wavelength_range: tuple[float, float] | None = None,
+        wavelength_step: float | None = None,
+        complexity: Literal["simple", "realistic", "complex"] | None = None,
+        components: list[str] | None = None,
+        component_library: ComponentLibrary | None = None,
         # Custom physics parameters (override complexity presets)
-        path_length_std: Optional[float] = None,
-        baseline_amplitude: Optional[float] = None,
-        scatter_alpha_std: Optional[float] = None,
-        scatter_beta_std: Optional[float] = None,
-        tilt_std: Optional[float] = None,
-        global_slope_mean: Optional[float] = None,
-        global_slope_std: Optional[float] = None,
-        shift_std: Optional[float] = None,
-        stretch_std: Optional[float] = None,
-        instrumental_fwhm: Optional[float] = None,
-        noise_base: Optional[float] = None,
-        noise_signal_dep: Optional[float] = None,
-        artifact_prob: Optional[float] = None,
+        path_length_std: float | None = None,
+        baseline_amplitude: float | None = None,
+        scatter_alpha_std: float | None = None,
+        scatter_beta_std: float | None = None,
+        tilt_std: float | None = None,
+        global_slope_mean: float | None = None,
+        global_slope_std: float | None = None,
+        shift_std: float | None = None,
+        stretch_std: float | None = None,
+        instrumental_fwhm: float | None = None,
+        noise_base: float | None = None,
+        noise_signal_dep: float | None = None,
+        artifact_prob: float | None = None,
         # Instrument simulation (Phase 2)
-        instrument: Optional[str] = None,
-        measurement_mode: Optional[str] = None,
+        instrument: str | None = None,
+        measurement_mode: str | None = None,
     ) -> SyntheticDatasetBuilder:
         """
         Configure spectral feature generation.
@@ -348,9 +348,9 @@ class SyntheticDatasetBuilder:
 
     def with_wavelengths(
         self,
-        wavelengths: Optional[np.ndarray] = None,
+        wavelengths: np.ndarray | None = None,
         *,
-        instrument_grid: Optional[str] = None,
+        instrument_grid: str | None = None,
     ) -> SyntheticDatasetBuilder:
         """
         Configure custom wavelength grid for spectrum generation.
@@ -415,10 +415,10 @@ class SyntheticDatasetBuilder:
     def with_targets(
         self,
         *,
-        distribution: Optional[Literal["dirichlet", "uniform", "lognormal", "correlated"]] = None,
-        range: Optional[Tuple[float, float]] = None,
-        component: Optional[Union[str, int]] = None,
-        transform: Optional[Literal["log", "sqrt"]] = None,
+        distribution: Literal["dirichlet", "uniform", "lognormal", "correlated"] | None = None,
+        range: tuple[float, float] | None = None,
+        component: str | int | None = None,
+        transform: Literal["log", "sqrt"] | None = None,
     ) -> SyntheticDatasetBuilder:
         """
         Configure target variable generation for regression tasks.
@@ -465,7 +465,7 @@ class SyntheticDatasetBuilder:
         *,
         n_classes: int = 2,
         separation: float = 1.5,
-        class_weights: Optional[List[float]] = None,
+        class_weights: list[float] | None = None,
         separation_method: Literal["component", "threshold", "cluster"] = "component",
     ) -> SyntheticDatasetBuilder:
         """
@@ -521,10 +521,10 @@ class SyntheticDatasetBuilder:
         self,
         *,
         sample_ids: bool = True,
-        sample_id_prefix: Optional[str] = None,
-        n_groups: Optional[int] = None,
-        n_repetitions: Optional[Union[int, Tuple[int, int]]] = None,
-        group_names: Optional[List[str]] = None,
+        sample_id_prefix: str | None = None,
+        n_groups: int | None = None,
+        n_repetitions: int | tuple[int, int] | None = None,
+        group_names: list[str] | None = None,
     ) -> SyntheticDatasetBuilder:
         """
         Configure sample metadata generation.
@@ -570,7 +570,7 @@ class SyntheticDatasetBuilder:
 
     def with_sources(
         self,
-        sources: List[Union[Dict[str, Any], Any]],
+        sources: list[dict[str, Any] | Any],
     ) -> SyntheticDatasetBuilder:
         """
         Configure multi-source generation.
@@ -604,7 +604,7 @@ class SyntheticDatasetBuilder:
         name: str,
         *,
         variability: bool = False,
-        target_component: Optional[str] = None,
+        target_component: str | None = None,
     ) -> SyntheticDatasetBuilder:
         """
         Configure generation from a predefined aggregate component.
@@ -665,9 +665,9 @@ class SyntheticDatasetBuilder:
     def with_partitions(
         self,
         *,
-        train_ratio: Optional[float] = None,
-        stratify: Optional[bool] = None,
-        shuffle: Optional[bool] = None,
+        train_ratio: float | None = None,
+        stratify: bool | None = None,
+        shuffle: bool | None = None,
     ) -> SyntheticDatasetBuilder:
         """
         Configure data partitioning (train/test split).
@@ -879,8 +879,8 @@ class SyntheticDatasetBuilder:
     def with_output(
         self,
         *,
-        as_dataset: Optional[bool] = None,
-        include_metadata: Optional[bool] = None,
+        as_dataset: bool | None = None,
+        include_metadata: bool | None = None,
     ) -> SyntheticDatasetBuilder:
         """
         Configure output format.
@@ -971,7 +971,7 @@ class SyntheticDatasetBuilder:
     def _generate_from_aggregate(
         self,
         generator: SyntheticNIRSGenerator,
-    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
         """
         Generate spectral data using aggregate-based composition.
 
@@ -987,7 +987,7 @@ class SyntheticDatasetBuilder:
                 C: Concentration array (n_samples, n_components)
                 metadata: Generation metadata dict
         """
-        from ._aggregates import get_aggregate, expand_aggregate
+        from ._aggregates import expand_aggregate, get_aggregate
 
         agg = get_aggregate(self.state.aggregate_name)
         n_samples = self.state.n_samples
@@ -1066,10 +1066,7 @@ class SyntheticDatasetBuilder:
         if self.state.target_range is not None:
             min_val, max_val = self.state.target_range
             y_min, y_max = y.min(), y.max()
-            if y_max > y_min:
-                y = (y - y_min) / (y_max - y_min) * (max_val - min_val) + min_val
-            else:
-                y = np.full_like(y, (min_val + max_val) / 2)
+            y = (y - y_min) / (y_max - y_min) * (max_val - min_val) + min_val if y_max > y_min else np.full_like(y, (min_val + max_val) / 2)
 
         # === Apply non-linear complexity (Propositions 1, 2, 3) ===
         if self._has_nonlinear_complexity():
@@ -1146,10 +1143,7 @@ class SyntheticDatasetBuilder:
 
         # Create shuffle indices if needed
         rng = np.random.default_rng(self.state.random_state)
-        if self.state.shuffle:
-            indices = rng.permutation(n_samples)
-        else:
-            indices = np.arange(n_samples)
+        indices = rng.permutation(n_samples) if self.state.shuffle else np.arange(n_samples)
 
         train_indices = indices[:n_train]
         test_indices = indices[n_train:]
@@ -1187,11 +1181,11 @@ class SyntheticDatasetBuilder:
 
         return dataset
 
-    def _build_arrays(self) -> Tuple[np.ndarray, np.ndarray]:
+    def _build_arrays(self) -> tuple[np.ndarray, np.ndarray]:
         """Build raw numpy arrays from generated data."""
         return self.state._X.copy(), self.state._y.copy()
 
-    def build(self) -> Union[SpectroDataset, Tuple[np.ndarray, np.ndarray]]:
+    def build(self) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
         """
         Build the synthetic dataset with all configured options.
 
@@ -1231,7 +1225,7 @@ class SyntheticDatasetBuilder:
         else:
             return self._build_arrays()
 
-    def _build_multi_source(self) -> Union[SpectroDataset, Tuple[np.ndarray, np.ndarray]]:
+    def _build_multi_source(self) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
         """Build multi-source dataset using MultiSourceGenerator."""
         from .sources import MultiSourceGenerator
 
@@ -1257,7 +1251,7 @@ class SyntheticDatasetBuilder:
             X = result.get_combined_features()
             return X, result.targets
 
-    def build_arrays(self) -> Tuple[np.ndarray, np.ndarray]:
+    def build_arrays(self) -> tuple[np.ndarray, np.ndarray]:
         """
         Build and return raw numpy arrays.
 
@@ -1398,9 +1392,9 @@ class SyntheticDatasetBuilder:
 
     def export(
         self,
-        path: Union[str, "Path"],
+        path: str | Path,
         format: Literal["standard", "single", "fragmented"] = "standard",
-    ) -> "Path":
+    ) -> Path:
         """
         Generate data and export to folder.
 
@@ -1422,6 +1416,7 @@ class SyntheticDatasetBuilder:
             >>> path = builder.export("data/synthetic", format="standard")
         """
         from pathlib import Path
+
         from .exporter import DatasetExporter
 
         # Generate data if not already done
@@ -1460,9 +1455,9 @@ class SyntheticDatasetBuilder:
 
     def export_to_csv(
         self,
-        path: Union[str, "Path"],
+        path: str | Path,
         include_targets: bool = True,
-    ) -> "Path":
+    ) -> Path:
         """
         Generate data and export to a single CSV file.
 
@@ -1477,6 +1472,7 @@ class SyntheticDatasetBuilder:
             >>> path = builder.export_to_csv("data.csv")
         """
         from pathlib import Path
+
         from .exporter import DatasetExporter
 
         # Generate data if not already done
@@ -1495,12 +1491,12 @@ class SyntheticDatasetBuilder:
 
     def fit_to(
         self,
-        template: Union[np.ndarray, "SpectroDataset"],
-        wavelengths: Optional[np.ndarray] = None,
+        template: np.ndarray | SpectroDataset,
+        wavelengths: np.ndarray | None = None,
         *,
         match_statistics: bool = True,
         match_structure: bool = True,
-    ) -> "SyntheticDatasetBuilder":
+    ) -> SyntheticDatasetBuilder:
         """
         Configure builder to generate data similar to a template.
 

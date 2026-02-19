@@ -1,6 +1,7 @@
 """Tests for pipeline configuration."""
 
 import pytest
+
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 
 

@@ -8,10 +8,9 @@ spectral repetitions into separate sources or additional preprocessings.
 import numpy as np
 import pytest
 
+from nirs4all.controllers.data.repetition import RepToPPController, RepToSourcesController
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.operators.data.repetition import RepetitionConfig, UnequelRepsStrategy
-from nirs4all.controllers.data.repetition import RepToSourcesController, RepToPPController
-
 
 # ============================================================================
 # Fixtures
@@ -36,7 +35,6 @@ def basic_repetition_dataset():
 
     return ds
 
-
 @pytest.fixture
 def unequal_repetition_dataset():
     """Create dataset with unequal reps: 4, 4, 3 reps for 3 samples."""
@@ -53,7 +51,6 @@ def unequal_repetition_dataset():
     ds.add_targets(y)
 
     return ds
-
 
 @pytest.fixture
 def multi_source_dataset():
@@ -76,7 +73,6 @@ def multi_source_dataset():
     ds.add_targets(y)
 
     return ds
-
 
 # ============================================================================
 # RepetitionConfig Tests
@@ -175,7 +171,6 @@ class TestRepetitionConfig:
         with pytest.raises(ValueError, match="expected_reps"):
             RepetitionConfig(expected_reps=-1)
 
-
 # ============================================================================
 # Dataset Method Tests: _get_sample_groups
 # ============================================================================
@@ -222,7 +217,6 @@ class TestGetSampleGroups:
 
         with pytest.raises(ValueError, match="REP-E003"):
             ds._get_sample_groups("y")
-
 
 # ============================================================================
 # Dataset Method Tests: reshape_reps_to_sources
@@ -315,7 +309,6 @@ class TestReshapeRepsToSources:
         assert ds.num_samples == 30
         assert ds.n_sources == 4
 
-
 # ============================================================================
 # Dataset Method Tests: reshape_reps_to_preprocessings
 # ============================================================================
@@ -378,7 +371,6 @@ class TestReshapeRepsToPreprocessings:
         assert len(ds.features_processings(0)) == 4
         assert len(ds.features_processings(1)) == 4
 
-
 # ============================================================================
 # Unequal Repetitions Tests
 # ============================================================================
@@ -431,7 +423,6 @@ class TestUnequelRepetitions:
         assert ds.num_samples == 3
         assert ds.n_sources == 3
 
-
 # ============================================================================
 # Controller Tests
 # ============================================================================
@@ -453,7 +444,6 @@ class TestRepToSourcesController:
         """Test that controller operates on whole dataset."""
         assert not RepToSourcesController.use_multi_source()
 
-
 class TestRepToPPController:
     """Tests for RepToPPController."""
 
@@ -470,7 +460,6 @@ class TestRepToPPController:
     def test_use_multi_source(self):
         """Test that controller operates on whole dataset."""
         assert not RepToPPController.use_multi_source()
-
 
 # ============================================================================
 # Edge Cases

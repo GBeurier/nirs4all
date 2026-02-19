@@ -11,14 +11,14 @@ delegates to the appropriate format-specific loader.
 import tarfile
 import zipfile
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
+from typing import Any, ClassVar, Optional
 
 import pandas as pd
 
 from .base import (
     ArchiveHandler,
-    FileLoadError,
     FileLoader,
+    FileLoadError,
     LoaderRegistry,
     LoaderResult,
     register_loader,
@@ -49,7 +49,7 @@ class TarLoader(FileLoader):
         ... )
     """
 
-    supported_extensions: ClassVar[Tuple[str, ...]] = (".tar",)
+    supported_extensions: ClassVar[tuple[str, ...]] = (".tar",)
     name: ClassVar[str] = "Tar Archive Loader"
     priority: ClassVar[int] = 60  # Lower priority - use specific loaders first
 
@@ -67,15 +67,12 @@ class TarLoader(FileLoader):
             return True
         if name_lower.endswith(".tar.bz2"):
             return True
-        if name_lower.endswith(".tar.xz"):
-            return True
-
-        return False
+        return bool(name_lower.endswith(".tar.xz"))
 
     def load(
         self,
         path: Path,
-        member: Optional[str] = None,
+        member: str | None = None,
         encoding: str = "utf-8",
         header_unit: str = "cm-1",
         data_type: str = "x",
@@ -94,7 +91,7 @@ class TarLoader(FileLoader):
         Returns:
             LoaderResult with the loaded data.
         """
-        report: Dict[str, Any] = {
+        report: dict[str, Any] = {
             "file_path": str(path),
             "format": "tar",
             "compression": self._detect_compression(path),
@@ -163,12 +160,12 @@ class TarLoader(FileLoader):
 
             # For CSV files, use the CSV loader logic
             if inner_ext == ".csv":
-                from .csv_loader_new import CSVLoader
-
                 # Create a temporary path-like for the loader
                 import io
-                import tempfile
                 import os
+                import tempfile
+
+                from .csv_loader_new import CSVLoader
 
                 # Write to temp file and load (simplest approach)
                 with tempfile.NamedTemporaryFile(
@@ -212,9 +209,10 @@ class TarLoader(FileLoader):
                 )
 
                 # Try to parse as CSV anyway (many formats are CSV-like)
-                from .csv_loader_new import CSVLoader
-                import tempfile
                 import os
+                import tempfile
+
+                from .csv_loader_new import CSVLoader
 
                 with tempfile.NamedTemporaryFile(
                     mode="w",
@@ -263,10 +261,10 @@ class TarLoader(FileLoader):
 
     def _select_member(
         self,
-        requested: Optional[str],
-        available: List[str],
-        report: Dict[str, Any],
-    ) -> Optional[str]:
+        requested: str | None,
+        available: list[str],
+        report: dict[str, Any],
+    ) -> str | None:
         """Select which member to extract."""
         if requested is not None:
             if requested in available:
@@ -293,7 +291,6 @@ class TarLoader(FileLoader):
         # Fall back to first file
         return available[0]
 
-
 @register_loader
 class EnhancedZipLoader(FileLoader):
     """Enhanced loader for zip archive files.
@@ -317,7 +314,7 @@ class EnhancedZipLoader(FileLoader):
         ... )
     """
 
-    supported_extensions: ClassVar[Tuple[str, ...]] = (".zip",)
+    supported_extensions: ClassVar[tuple[str, ...]] = (".zip",)
     name: ClassVar[str] = "Enhanced Zip Loader"
     priority: ClassVar[int] = 65  # Lower priority than specific loaders
 
@@ -332,17 +329,15 @@ class EnhancedZipLoader(FileLoader):
             name_lower = path.name.lower()
             if name_lower.endswith(".csv.zip"):
                 return False  # Let CSVLoader handle this
-            if name_lower.endswith(".npy.zip") or name_lower.endswith(".npz.zip"):
-                return False  # Let NumpyLoader handle this
-            return True
+            return not (name_lower.endswith(".npy.zip") or name_lower.endswith(".npz.zip"))
 
         return False
 
     def load(
         self,
         path: Path,
-        member: Optional[str] = None,
-        password: Optional[str] = None,
+        member: str | None = None,
+        password: str | None = None,
         encoding: str = "utf-8",
         header_unit: str = "cm-1",
         data_type: str = "x",
@@ -362,7 +357,7 @@ class EnhancedZipLoader(FileLoader):
         Returns:
             LoaderResult with the loaded data.
         """
-        report: Dict[str, Any] = {
+        report: dict[str, Any] = {
             "file_path": str(path),
             "format": "zip",
             "member_requested": member,
@@ -453,10 +448,10 @@ class EnhancedZipLoader(FileLoader):
 
     def _select_member(
         self,
-        requested: Optional[str],
-        available: List[str],
-        report: Dict[str, Any],
-    ) -> Optional[str]:
+        requested: str | None,
+        available: list[str],
+        report: dict[str, Any],
+    ) -> str | None:
         """Select which member to extract."""
         if requested is not None:
             if requested in available:
@@ -490,12 +485,12 @@ class EnhancedZipLoader(FileLoader):
         encoding: str,
         header_unit: str,
         data_type: str,
-        report: Dict[str, Any],
+        report: dict[str, Any],
         **params: Any,
     ) -> LoaderResult:
         """Load content based on inner file format."""
-        import tempfile
         import os
+        import tempfile
 
         # Write to temp file for loader
         with tempfile.NamedTemporaryFile(
@@ -540,8 +535,7 @@ class EnhancedZipLoader(FileLoader):
         finally:
             os.unlink(tmp_path)
 
-
-def list_archive_members(path) -> List[str]:
+def list_archive_members(path) -> list[str]:
     """List members in an archive file.
 
     Args:

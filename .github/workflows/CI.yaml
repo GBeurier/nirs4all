@@ -11,38 +11,52 @@ on:
 # This workflow runs quick tests for regular development
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff
+        run: ruff check nirs4all/ examples/
+
+  type-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install mypy and stubs
+        run: pip install mypy>=1.7.0
+
+      - name: Run mypy
+        run: mypy nirs4all/
+
   tests:
+    needs: [lint, type-check]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    # Allow macOS failures while platform support stabilizes
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]  # , macos-latest --- macos timeout issues
-        python-version: ['3.11', '3.13']
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.11', '3.12', '3.13']
     steps:
-      - name: Free disk space (Ubuntu)
-        if: runner.os == 'Linux'
-        run: |
-          echo "=== Initial disk space ==="
-          df -h /
-          echo "=== Removing unnecessary tools ==="
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo rm -rf /opt/hostedtoolcache/go
-          sudo rm -rf /opt/hostedtoolcache/Ruby
-          sudo rm -rf /opt/hostedtoolcache/node
-          sudo rm -rf /usr/local/share/powershell
-          sudo rm -rf /usr/share/swift
-          sudo rm -rf /usr/local/share/chromium
-          sudo rm -rf /usr/local/share/edge_driver
-          sudo rm -rf /usr/local/share/gecko_driver
-          sudo rm -rf /usr/local/share/chromedriver-linux64
-          sudo rm -rf /opt/microsoft
-          sudo docker image prune --all --force
-          sudo apt-get clean
-          echo "=== Final disk space ==="
-          df -h /
+      - name: Free disk space
+        uses: ./.github/actions/free-disk-space
 
       - uses: actions/checkout@v4
 
@@ -59,7 +73,12 @@ jobs:
       - name: Install package (editable)
         run: python -m pip install -e .
 
-      - name: Run quick pytest
+      - name: Run unit tests
+        shell: bash
+        run: |
+          python -m pytest -v -n auto --dist worksteal tests/unit/
+
+      - name: Run quick integration pytest
         shell: bash
         run: |
           # Serial subset with known write-contention under heavy xdist load

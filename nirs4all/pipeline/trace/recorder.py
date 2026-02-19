@@ -22,7 +22,7 @@ Usage:
 """
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from nirs4all.pipeline.storage.artifacts.operator_chain import (
     OperatorChain,
@@ -71,7 +71,7 @@ class TraceRecorder:
         self,
         pipeline_uid: str = "",
         pipeline_id: str = "",
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict[str, Any] | None = None
     ):
         """Initialize trace recorder.
 
@@ -85,12 +85,12 @@ class TraceRecorder:
             metadata=metadata or {}
         )
         self.pipeline_id = pipeline_id or pipeline_uid.split("_")[0] if pipeline_uid else ""
-        self.current_step: Optional[ExecutionStep] = None
+        self.current_step: ExecutionStep | None = None
         self.step_start_time: float = 0.0
 
         # V3: Chain and branch stacks
-        self._chain_stack: List[OperatorChain] = [OperatorChain(pipeline_id=self.pipeline_id)]
-        self._branch_stack: List[List[int]] = [[]]
+        self._chain_stack: list[OperatorChain] = [OperatorChain(pipeline_id=self.pipeline_id)]
+        self._branch_stack: list[list[int]] = [[]]
 
     # =========================================================================
     # V3 Chain Management
@@ -148,7 +148,7 @@ class TraceRecorder:
     # V3 Branch Management
     # =========================================================================
 
-    def current_branch_path(self) -> List[int]:
+    def current_branch_path(self) -> list[int]:
         """Get current branch path.
 
         Returns:
@@ -156,7 +156,7 @@ class TraceRecorder:
         """
         return self._branch_stack[-1].copy()
 
-    def enter_branch(self, branch_id: int) -> List[int]:
+    def enter_branch(self, branch_id: int) -> list[int]:
         """Enter a branch context.
 
         Args:
@@ -170,7 +170,7 @@ class TraceRecorder:
         self._branch_stack.append(current)
         return current
 
-    def exit_branch(self) -> List[int]:
+    def exit_branch(self) -> list[int]:
         """Exit current branch context.
 
         Returns:
@@ -200,13 +200,13 @@ class TraceRecorder:
         step_index: int,
         operator_type: str = "",
         operator_class: str = "",
-        operator_config: Optional[Dict[str, Any]] = None,
+        operator_config: dict[str, Any] | None = None,
         execution_mode: StepExecutionMode = StepExecutionMode.TRAIN,
-        branch_path: Optional[List[int]] = None,
+        branch_path: list[int] | None = None,
         branch_name: str = "",
         source_count: int = 1,
         produces_branches: bool = False,
-        substep_index: Optional[int] = None,
+        substep_index: int | None = None,
     ) -> ExecutionStep:
         """Start recording a new step (V3).
 
@@ -256,11 +256,11 @@ class TraceRecorder:
         self,
         artifact_id: str,
         is_primary: bool = False,
-        fold_id: Optional[int | str] = None,
-        chain_path: Optional[str] = None,
-        branch_path: Optional[List[int]] = None,
-        source_index: Optional[int] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        fold_id: int | str | None = None,
+        chain_path: str | None = None,
+        branch_path: list[int] | None = None,
+        source_index: int | None = None,
+        metadata: dict[str, Any] | None = None
     ) -> None:
         """Record an artifact created during the current step (V3).
 
@@ -315,8 +315,8 @@ class TraceRecorder:
 
     def record_input_shapes(
         self,
-        input_shape: Optional[tuple] = None,
-        features_shape: Optional[List[tuple]] = None
+        input_shape: tuple | None = None,
+        features_shape: list[tuple] | None = None
     ) -> None:
         """Record input shapes for the current step.
 
@@ -332,8 +332,8 @@ class TraceRecorder:
 
     def record_output_shapes(
         self,
-        output_shape: Optional[tuple] = None,
-        features_shape: Optional[List[tuple]] = None
+        output_shape: tuple | None = None,
+        features_shape: list[tuple] | None = None
     ) -> None:
         """Record output shapes for the current step.
 
@@ -350,7 +350,7 @@ class TraceRecorder:
     def end_step(
         self,
         is_model: bool = False,
-        fold_weights: Optional[Dict[int, float]] = None,
+        fold_weights: dict[int, float] | None = None,
         skip_trace: bool = False
     ) -> None:
         """End the current step and add it to the trace.
@@ -403,7 +403,7 @@ class TraceRecorder:
         self,
         step_index: int,
         branch_count: int,
-        operator_config: Optional[Dict[str, Any]] = None,
+        operator_config: dict[str, Any] | None = None,
     ) -> ExecutionStep:
         """Start recording a branch step.
 
@@ -430,8 +430,8 @@ class TraceRecorder:
         operator_type: str,
         operator_class: str,
         substep_index: int = 0,
-        operator_config: Optional[Dict[str, Any]] = None,
-        branch_name: Optional[str] = None,
+        operator_config: dict[str, Any] | None = None,
+        branch_name: str | None = None,
     ) -> ExecutionStep:
         """Start recording a substep within a branch.
 
@@ -480,8 +480,8 @@ class TraceRecorder:
 
     def finalize(
         self,
-        preprocessing_chain: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        preprocessing_chain: str | None = None,
+        metadata: dict[str, Any] | None = None
     ) -> ExecutionTrace:
         """Finalize and return the completed trace.
 
@@ -514,7 +514,7 @@ class TraceRecorder:
         """
         return self.trace.trace_id
 
-    def get_current_step_index(self) -> Optional[int]:
+    def get_current_step_index(self) -> int | None:
         """Get the current step index.
 
         Returns:
@@ -534,9 +534,9 @@ class TraceRecorder:
         self,
         step_index: int,
         operator_class: str,
-        source_index: Optional[int] = None,
-        fold_id: Optional[int] = None,
-        substep_index: Optional[int] = None,
+        source_index: int | None = None,
+        fold_id: int | None = None,
+        substep_index: int | None = None,
     ) -> OperatorChain:
         """Build an operator chain for an artifact.
 

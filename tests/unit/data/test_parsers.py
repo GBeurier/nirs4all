@@ -5,18 +5,18 @@ Tests the parser classes and configuration normalization.
 """
 
 import json
-import pytest
 import tempfile
 from pathlib import Path
 
+import pytest
 import yaml
 
 from nirs4all.data.parsers import (
     BaseParser,
-    ParserResult,
+    ConfigNormalizer,
     FilesParser,
     FolderParser,
-    ConfigNormalizer,
+    ParserResult,
     normalize_config,
 )
 
@@ -47,7 +47,6 @@ class TestParserResult:
         assert result.success is False
         assert len(result.errors) == 1
         assert "success=False" in str(result)
-
 
 class TestFilesParser:
     """Test suite for FilesParser (stub)."""
@@ -135,7 +134,6 @@ class TestFilesParser:
         assert result.success is True
         assert result.config.train_x == "Xcal_data.csv"
         assert result.config.test_x == "Xval_data.csv"
-
 
 class TestFolderParser:
     """Test suite for FolderParser."""
@@ -229,7 +227,6 @@ class TestFolderParser:
         # train_x should be a list (multi-source)
         assert isinstance(result.config["train_x"], list)
         assert len(result.config["train_x"]) == 2
-
 
 class TestConfigNormalizer:
     """Test suite for ConfigNormalizer."""
@@ -425,7 +422,6 @@ class TestConfigNormalizer:
         config, name = normalizer.normalize(input_dict)
 
         assert name == "my_dataset"
-
 
 class TestNormalizeConfigFunction:
     """Test suite for normalize_config convenience function."""

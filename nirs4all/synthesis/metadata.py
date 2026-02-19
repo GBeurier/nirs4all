@@ -20,8 +20,9 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Literal, Optional, Union
 
 import numpy as np
 
@@ -42,21 +43,21 @@ class MetadataGenerationResult:
     """
 
     sample_ids: np.ndarray
-    bio_sample_ids: Optional[np.ndarray] = None
-    repetitions: Optional[np.ndarray] = None
-    groups: Optional[np.ndarray] = None
-    group_indices: Optional[np.ndarray] = None
+    bio_sample_ids: np.ndarray | None = None
+    repetitions: np.ndarray | None = None
+    groups: np.ndarray | None = None
+    group_indices: np.ndarray | None = None
     n_bio_samples: int = 0
-    additional_columns: Optional[Dict[str, np.ndarray]] = None
+    additional_columns: dict[str, np.ndarray] | None = None
 
-    def to_dict(self) -> Dict[str, np.ndarray]:
+    def to_dict(self) -> dict[str, np.ndarray]:
         """
         Convert to dictionary format suitable for DataFrame or SpectroDataset.
 
         Returns:
             Dictionary with string keys and array values.
         """
-        result: Dict[str, np.ndarray] = {"sample_id": self.sample_ids}
+        result: dict[str, np.ndarray] = {"sample_id": self.sample_ids}
 
         if self.bio_sample_ids is not None:
             result["bio_sample_id"] = self.bio_sample_ids
@@ -74,7 +75,6 @@ class MetadataGenerationResult:
             result.update(self.additional_columns)
 
         return result
-
 
 class MetadataGenerator:
     """
@@ -107,7 +107,7 @@ class MetadataGenerator:
         >>> print(f"Total samples: {len(metadata.sample_ids)}")
     """
 
-    def __init__(self, random_state: Optional[int] = None) -> None:
+    def __init__(self, random_state: int | None = None) -> None:
         """
         Initialize the metadata generator.
 
@@ -122,11 +122,11 @@ class MetadataGenerator:
         n_samples: int,
         *,
         sample_id_prefix: str = "S",
-        n_groups: Optional[int] = None,
-        group_names: Optional[List[str]] = None,
-        n_repetitions: Union[int, Tuple[int, int]] = 1,
+        n_groups: int | None = None,
+        group_names: list[str] | None = None,
+        n_repetitions: int | tuple[int, int] = 1,
         bio_sample_prefix: str = "B",
-        additional_columns: Optional[Dict[str, Any]] = None,
+        additional_columns: dict[str, Any] | None = None,
     ) -> MetadataGenerationResult:
         """
         Generate complete metadata for a synthetic dataset.
@@ -246,7 +246,7 @@ class MetadataGenerator:
         min_reps: int,
         max_reps: int,
         bio_sample_prefix: str,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
         """
         Generate biological sample structure with repetitions.
 
@@ -264,12 +264,7 @@ class MetadataGenerator:
         n_bio_estimate = int(np.ceil(n_samples / avg_reps))
 
         # Generate repetition counts for each bio sample
-        if min_reps == max_reps:
-            rep_counts = np.full(n_bio_estimate, min_reps)
-        else:
-            rep_counts = self.rng.integers(
-                min_reps, max_reps + 1, size=n_bio_estimate
-            )
+        rep_counts = np.full(n_bio_estimate, min_reps) if min_reps == max_reps else self.rng.integers(min_reps, max_reps + 1, size=n_bio_estimate)
 
         # Adjust to get exact sample count with a bounded loop
         total_samples = rep_counts.sum()
@@ -311,9 +306,7 @@ class MetadataGenerator:
         # If we couldn't match exactly, force a match by adjusting last element
         if total_samples != n_samples and len(rep_counts) > 0:
             diff = n_samples - total_samples
-            if diff > 0:
-                rep_counts[-1] += diff
-            elif rep_counts[-1] + diff >= 1:
+            if diff > 0 or rep_counts[-1] + diff >= 1:
                 rep_counts[-1] += diff
 
         n_bio_samples = len(rep_counts)
@@ -341,8 +334,8 @@ class MetadataGenerator:
         n_bio_samples: int,
         sample_bio_mapping: np.ndarray,
         n_groups: int,
-        group_names: Optional[List[str]],
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        group_names: list[str] | None,
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Generate group assignments.
 
@@ -381,8 +374,8 @@ class MetadataGenerator:
     def _generate_additional_columns(
         self,
         n_samples: int,
-        columns: Dict[str, Any],
-    ) -> Dict[str, np.ndarray]:
+        columns: dict[str, Any],
+    ) -> dict[str, np.ndarray]:
         """Generate additional metadata columns based on specifications."""
         result = {}
 
@@ -411,7 +404,7 @@ class MetadataGenerator:
         self,
         n_samples: int,
         dist_name: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
     ) -> np.ndarray:
         """Generate values from a named distribution."""
         if dist_name == "uniform":
@@ -428,21 +421,20 @@ class MetadataGenerator:
             return self.rng.integers(low, high + 1, size=n_samples)
         elif dist_name == "choice":
             values = params.get("values", [0, 1])
-            probs = params.get("probs", None)
+            probs = params.get("probs")
             return self.rng.choice(values, size=n_samples, p=probs)
         else:
             raise ValueError(f"Unknown distribution: '{dist_name}'")
 
-
 def generate_sample_metadata(
     n_samples: int,
     *,
-    random_state: Optional[int] = None,
+    random_state: int | None = None,
     sample_id_prefix: str = "S",
-    n_groups: Optional[int] = None,
-    group_names: Optional[List[str]] = None,
-    n_repetitions: Union[int, Tuple[int, int]] = 1,
-) -> Dict[str, np.ndarray]:
+    n_groups: int | None = None,
+    group_names: list[str] | None = None,
+    n_repetitions: int | tuple[int, int] = 1,
+) -> dict[str, np.ndarray]:
     """
     Convenience function to generate sample metadata.
 

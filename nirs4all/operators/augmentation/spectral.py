@@ -1,13 +1,13 @@
+from typing import Optional, Union
+
 import numpy as np
-from scipy import signal, interpolate
+from scipy import interpolate, signal
 from scipy.ndimage import convolve1d
 from sklearn.base import BaseEstimator, TransformerMixin
-from typing import Optional, Union, Tuple, List
 
 from nirs4all.operators.base import SpectraTransformerMixin
 
 # --- Utility Functions ---
-
 
 def _get_gaussian_kernel(sigma: float, width: int) -> np.ndarray:
     """Generates a 1D Gaussian kernel."""
@@ -17,18 +17,15 @@ def _get_gaussian_kernel(sigma: float, width: int) -> np.ndarray:
     kernel = np.exp(-(x**2) / (2 * sigma**2))
     return kernel / np.sum(kernel)
 
-
 def _convolve_1d_batch(X: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     """Convolves all rows of a 2D array with a kernel using reflection padding."""
     return convolve1d(X, kernel, axis=1, mode='reflect')
-
 
 def _convolve_1d(x: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     """Convolves a 1D signal with a kernel using reflection padding."""
     pad_size = len(kernel) // 2
     x_padded = np.pad(x, pad_size, mode='reflect')
     return signal.convolve(x_padded, kernel, mode='valid')
-
 
 def _safe_interp(x_new: np.ndarray, x_old: np.ndarray, y_old: np.ndarray) -> np.ndarray:
     """Safe 1D interpolation."""
@@ -85,7 +82,6 @@ class GaussianAdditiveNoise(TransformerMixin, BaseEstimator):
 
         return X + noise
 
-
 class MultiplicativeNoise(TransformerMixin, BaseEstimator):
     """
     Multiplies spectra by a random gain factor.
@@ -115,16 +111,9 @@ class MultiplicativeNoise(TransformerMixin, BaseEstimator):
         rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
-        if self.per_wavelength:
-            epsilon = rng.normal(0, self.sigma_gain, size=X.shape)
-        else:
-            if self.variation_scope == "batch":
-                epsilon = rng.normal(0, self.sigma_gain)
-            else:  # "sample" (default)
-                epsilon = rng.normal(0, self.sigma_gain, size=(n_samples, 1))
+        epsilon = rng.normal(0, self.sigma_gain, size=X.shape) if self.per_wavelength else rng.normal(0, self.sigma_gain) if self.variation_scope == "batch" else rng.normal(0, self.sigma_gain, size=(n_samples, 1))
 
         return X * (1 + epsilon)
-
 
 # --- 2.2 Baseline Shifts and Drifts ---
 
@@ -142,8 +131,8 @@ class LinearBaselineDrift(SpectraTransformerMixin):
 
     _requires_wavelengths = "optional"
 
-    def __init__(self, offset_range: Tuple[float, float] = (-0.1, 0.1),
-                 slope_range: Tuple[float, float] = (-0.001, 0.001),
+    def __init__(self, offset_range: tuple[float, float] = (-0.1, 0.1),
+                 slope_range: tuple[float, float] = (-0.001, 0.001),
                  random_state=None):
         self.offset_range = offset_range
         self.slope_range = slope_range
@@ -169,7 +158,6 @@ class LinearBaselineDrift(SpectraTransformerMixin):
         drift = offsets + slopes * lambdas_centered.reshape(1, -1)
         return X + drift
 
-
 class PolynomialBaselineDrift(SpectraTransformerMixin):
     """
     Adds a polynomial baseline drift.
@@ -184,7 +172,7 @@ class PolynomialBaselineDrift(SpectraTransformerMixin):
     _requires_wavelengths = "optional"
 
     def __init__(self, degree: int = 3,
-                 coeff_ranges: Optional[List[Tuple[float, float]]] = None,
+                 coeff_ranges: list[tuple[float, float]] | None = None,
                  random_state=None):
         self.degree = degree
         self.coeff_ranges = coeff_ranges
@@ -221,7 +209,6 @@ class PolynomialBaselineDrift(SpectraTransformerMixin):
 
         return X + drift
 
-
 # --- 2.3 Wavelength Axis Distortions ---
 
 class WavelengthShift(SpectraTransformerMixin):
@@ -239,7 +226,7 @@ class WavelengthShift(SpectraTransformerMixin):
 
     _requires_wavelengths = "optional"
 
-    def __init__(self, shift_range: Tuple[float, float] = (-2.0, 2.0),
+    def __init__(self, shift_range: tuple[float, float] = (-2.0, 2.0),
                  random_state=None):
         self.shift_range = shift_range
         self.random_state = random_state
@@ -253,10 +240,7 @@ class WavelengthShift(SpectraTransformerMixin):
         rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
-        if wavelengths is not None:
-            lambdas = wavelengths.astype(float)
-        else:
-            lambdas = np.arange(n_features, dtype=float)
+        lambdas = wavelengths.astype(float) if wavelengths is not None else np.arange(n_features, dtype=float)
 
         # Generate all shifts at once
         shifts = rng.uniform(self.shift_range[0], self.shift_range[1], size=n_samples)
@@ -275,7 +259,6 @@ class WavelengthShift(SpectraTransformerMixin):
 
         return X_aug
 
-
 class WavelengthStretch(SpectraTransformerMixin):
     """
     Stretches or compresses the wavelength axis.
@@ -291,7 +274,7 @@ class WavelengthStretch(SpectraTransformerMixin):
 
     _requires_wavelengths = "optional"
 
-    def __init__(self, stretch_range: Tuple[float, float] = (0.99, 1.01),
+    def __init__(self, stretch_range: tuple[float, float] = (0.99, 1.01),
                  random_state=None):
         self.stretch_range = stretch_range
         self.random_state = random_state
@@ -305,10 +288,7 @@ class WavelengthStretch(SpectraTransformerMixin):
         rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
-        if wavelengths is not None:
-            lambdas = wavelengths.astype(float)
-        else:
-            lambdas = np.arange(n_features, dtype=float)
+        lambdas = wavelengths.astype(float) if wavelengths is not None else np.arange(n_features, dtype=float)
 
         center_lambda = np.mean(lambdas)
 
@@ -326,7 +306,6 @@ class WavelengthStretch(SpectraTransformerMixin):
             X_aug[i] = np.interp(query_lambdas[i], lambdas, X[i])
 
         return X_aug
-
 
 class LocalWavelengthWarp(SpectraTransformerMixin):
     """
@@ -359,10 +338,7 @@ class LocalWavelengthWarp(SpectraTransformerMixin):
         rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
-        if wavelengths is not None:
-            lambdas = wavelengths.astype(float)
-        else:
-            lambdas = np.arange(n_features, dtype=float)
+        lambdas = wavelengths.astype(float) if wavelengths is not None else np.arange(n_features, dtype=float)
 
         X_aug = np.empty_like(X)
 
@@ -391,7 +367,6 @@ class LocalWavelengthWarp(SpectraTransformerMixin):
 
         return X_aug
 
-
 class SmoothMagnitudeWarp(SpectraTransformerMixin):
     """
     Multiplies the spectrum by a smooth curve.
@@ -408,7 +383,7 @@ class SmoothMagnitudeWarp(SpectraTransformerMixin):
     _requires_wavelengths = "optional"
 
     def __init__(self, n_control_points: int = 5,
-                 gain_range: Tuple[float, float] = (0.9, 1.1),
+                 gain_range: tuple[float, float] = (0.9, 1.1),
                  random_state=None):
         self.n_control_points = n_control_points
         self.gain_range = gain_range
@@ -423,10 +398,7 @@ class SmoothMagnitudeWarp(SpectraTransformerMixin):
         rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
-        if wavelengths is not None:
-            lambdas = wavelengths.astype(float)
-        else:
-            lambdas = np.arange(n_features, dtype=float)
+        lambdas = wavelengths.astype(float) if wavelengths is not None else np.arange(n_features, dtype=float)
 
         X_aug = np.empty_like(X)
         ctrl_x = np.linspace(lambdas[0], lambdas[-1], self.n_control_points)
@@ -448,7 +420,6 @@ class SmoothMagnitudeWarp(SpectraTransformerMixin):
 
         return X_aug
 
-
 class BandPerturbation(TransformerMixin, BaseEstimator):
     """
     Perturbs specific bands of the spectrum.
@@ -465,9 +436,9 @@ class BandPerturbation(TransformerMixin, BaseEstimator):
     _supports_variation_scope = True
 
     def __init__(self, n_bands: int = 3,
-                 bandwidth_range: Tuple[int, int] = (5, 20),
-                 gain_range: Tuple[float, float] = (0.9, 1.1),
-                 offset_range: Tuple[float, float] = (-0.01, 0.01),
+                 bandwidth_range: tuple[int, int] = (5, 20),
+                 gain_range: tuple[float, float] = (0.9, 1.1),
+                 offset_range: tuple[float, float] = (-0.01, 0.01),
                  random_state=None, variation_scope: str = "sample"):
         self.n_bands = n_bands
         self.bandwidth_range = bandwidth_range
@@ -511,7 +482,6 @@ class BandPerturbation(TransformerMixin, BaseEstimator):
 
         return X_aug
 
-
 # --- 2.5 Resolution / Smoothing Jitter ---
 
 class GaussianSmoothingJitter(TransformerMixin, BaseEstimator):
@@ -529,7 +499,7 @@ class GaussianSmoothingJitter(TransformerMixin, BaseEstimator):
         "tags": ["smoothing", "jitter", "gaussian", "resolution", "augmentation"],
     }
 
-    def __init__(self, sigma_range: Tuple[float, float] = (0.5, 2.0),
+    def __init__(self, sigma_range: tuple[float, float] = (0.5, 2.0),
                  kernel_width: int = 11, random_state=None):
         self.sigma_range = sigma_range
         self.kernel_width = kernel_width
@@ -553,7 +523,6 @@ class GaussianSmoothingJitter(TransformerMixin, BaseEstimator):
 
         return X_aug
 
-
 class UnsharpSpectralMask(TransformerMixin, BaseEstimator):
     """
     Applies unsharp masking (sharpening).
@@ -568,7 +537,7 @@ class UnsharpSpectralMask(TransformerMixin, BaseEstimator):
         "tags": ["sharpening", "unsharp-mask", "resolution", "augmentation"],
     }
 
-    def __init__(self, amount_range: Tuple[float, float] = (0.1, 0.5),
+    def __init__(self, amount_range: tuple[float, float] = (0.1, 0.5),
                  sigma: float = 1.0, kernel_width: int = 11, random_state=None):
         self.amount_range = amount_range
         self.sigma = sigma
@@ -599,7 +568,6 @@ class UnsharpSpectralMask(TransformerMixin, BaseEstimator):
 
         return X_aug
 
-
 # --- 2.6 Spectral Masking and Dropout ---
 
 class BandMasking(TransformerMixin, BaseEstimator):
@@ -615,8 +583,8 @@ class BandMasking(TransformerMixin, BaseEstimator):
         "tags": ["masking", "band", "dropout", "augmentation"],
     }
 
-    def __init__(self, n_bands_range: Tuple[int, int] = (1, 3),
-                 bandwidth_range: Tuple[int, int] = (5, 20),
+    def __init__(self, n_bands_range: tuple[int, int] = (1, 3),
+                 bandwidth_range: tuple[int, int] = (5, 20),
                  mode: str = "interp", random_state=None):  # "zero" or "interp"
         self.n_bands_range = n_bands_range
         self.bandwidth_range = bandwidth_range
@@ -669,7 +637,6 @@ class BandMasking(TransformerMixin, BaseEstimator):
 
         return X_aug
 
-
 class ChannelDropout(TransformerMixin, BaseEstimator):
     """
     Drops individual wavelengths (sets to zero or interpolates).
@@ -718,7 +685,6 @@ class ChannelDropout(TransformerMixin, BaseEstimator):
 
         return X_aug
 
-
 # --- 2.7 Rare Structured Artefacts ---
 
 class SpikeNoise(TransformerMixin, BaseEstimator):
@@ -736,8 +702,8 @@ class SpikeNoise(TransformerMixin, BaseEstimator):
 
     _supports_variation_scope = True
 
-    def __init__(self, n_spikes_range: Tuple[int, int] = (1, 3),
-                 amplitude_range: Tuple[float, float] = (-0.5, 0.5),
+    def __init__(self, n_spikes_range: tuple[int, int] = (1, 3),
+                 amplitude_range: tuple[float, float] = (-0.5, 0.5),
                  random_state=None, variation_scope: str = "sample"):
         self.n_spikes_range = n_spikes_range
         self.amplitude_range = amplitude_range
@@ -775,7 +741,6 @@ class SpikeNoise(TransformerMixin, BaseEstimator):
 
         return X_aug
 
-
 class LocalClipping(TransformerMixin, BaseEstimator):
     """
     Clips values in a local region to simulate saturation.
@@ -790,7 +755,7 @@ class LocalClipping(TransformerMixin, BaseEstimator):
     }
 
     def __init__(self, n_regions: int = 1,
-                 width_range: Tuple[int, int] = (5, 20), random_state=None):
+                 width_range: tuple[int, int] = (5, 20), random_state=None):
         self.n_regions = n_regions
         self.width_range = width_range
         self.random_state = random_state
@@ -828,7 +793,6 @@ class LocalClipping(TransformerMixin, BaseEstimator):
 
         return X_aug
 
-
 # --- 2.8 Sample Combinations ---
 
 class MixupAugmenter(TransformerMixin, BaseEstimator):
@@ -864,7 +828,6 @@ class MixupAugmenter(TransformerMixin, BaseEstimator):
 
         X_aug = lam * X + (1 - lam) * X[indices]
         return X_aug
-
 
 class LocalMixupAugmenter(TransformerMixin, BaseEstimator):
     """
@@ -910,7 +873,6 @@ class LocalMixupAugmenter(TransformerMixin, BaseEstimator):
 
         return X_aug
 
-
 # --- 2.9 Scattering-based Simulation ---
 
 class ScatterSimulationMSC(SpectraTransformerMixin):
@@ -927,8 +889,8 @@ class ScatterSimulationMSC(SpectraTransformerMixin):
     _requires_wavelengths = "optional"
 
     def __init__(self, reference_mode: str = "self",  # "self", "global_mean"
-                 a_range: Tuple[float, float] = (-0.1, 0.1),
-                 b_range: Tuple[float, float] = (0.9, 1.1),
+                 a_range: tuple[float, float] = (-0.1, 0.1),
+                 b_range: tuple[float, float] = (0.9, 1.1),
                  random_state=None):
         self.reference_mode = reference_mode
         self.a_range = a_range

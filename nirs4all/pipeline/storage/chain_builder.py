@@ -14,7 +14,7 @@ Example:
     ...     store.save_chain(pipeline_id=pipeline_id, **chain_data)
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from nirs4all.pipeline.trace.execution_trace import (
     ExecutionStep,
@@ -54,7 +54,7 @@ class ChainBuilder:
         self._trace = trace
         self._artifact_registry = artifact_registry
 
-    def build(self) -> Dict[str, Any]:
+    def build(self) -> dict[str, Any]:
         """Build one chain dict for the trace's primary model step.
 
         Returns:
@@ -71,18 +71,18 @@ class ChainBuilder:
                     return chain
         return chains[-1]
 
-    def build_all(self) -> List[Dict[str, Any]]:
+    def build_all(self) -> list[dict[str, Any]]:
         """Build one chain dict per model step found in the trace.
 
         Returns:
             List of chain dicts, one per model step.
         """
         # Collect all non-skipped steps
-        all_steps: List[Dict[str, Any]] = []
+        all_steps: list[dict[str, Any]] = []
         # Collect shared artifacts with their branch context for per-model filtering
-        shared_artifact_entries: List[tuple[ExecutionStep, List[str]]] = []
-        model_steps: List[ExecutionStep] = []
-        branch_path: Optional[List[int]] = None
+        shared_artifact_entries: list[tuple[ExecutionStep, list[str]]] = []
+        model_steps: list[ExecutionStep] = []
+        branch_path: list[int] | None = None
 
         for step in self._trace.steps:
             if step.execution_mode == StepExecutionMode.SKIP:
@@ -113,10 +113,10 @@ class ChainBuilder:
 
         # Build one chain per model step
         preprocessings = self._trace.preprocessing_chain or ""
-        chains: List[Dict[str, Any]] = []
+        chains: list[dict[str, Any]] = []
 
         for model_step in model_steps:
-            fold_artifacts: Dict[str, str] = {}
+            fold_artifacts: dict[str, str] = {}
             for fold_id, artifact_id in model_step.artifacts.fold_artifact_ids.items():
                 fold_artifacts[normalize_fold_key(fold_id)] = artifact_id
 
@@ -144,8 +144,8 @@ class ChainBuilder:
 
     @staticmethod
     def _is_branch_compatible(
-        artifact_branch_path: Optional[List[int]],
-        model_branch_path: Optional[List[int]],
+        artifact_branch_path: list[int] | None,
+        model_branch_path: list[int] | None,
     ) -> bool:
         """Check if an artifact's branch path is on the same execution path as a model.
 
@@ -163,17 +163,17 @@ class ChainBuilder:
 
     @staticmethod
     def _collect_shared_artifacts(
-        entries: List[tuple["ExecutionStep", List[str]]],
-        model_branch_path: Optional[List[int]] = None,
-    ) -> Dict[str, Any]:
+        entries: list[tuple["ExecutionStep", list[str]]],
+        model_branch_path: list[int] | None = None,
+    ) -> dict[str, Any]:
         """Collect shared artifacts, optionally filtering by branch compatibility.
 
         When a step has multi-source artifacts (``by_source`` with more than
         one source), a ``_source_map`` metadata key is added to the result so
         that the resolver can build a source-aware artifact provider.
         """
-        shared: Dict[str, Any] = {}
-        source_map: Dict[str, Dict[str, List[str]]] = {}
+        shared: dict[str, Any] = {}
+        source_map: dict[str, dict[str, list[str]]] = {}
         for step, aids in entries:
             if model_branch_path is not None and not ChainBuilder._is_branch_compatible(step.branch_path, model_branch_path):
                 continue
@@ -193,10 +193,10 @@ class ChainBuilder:
 
     def _build_single_chain(
         self,
-        all_steps: List[Dict[str, Any]],
-        shared_artifacts: Dict[str, List[str]],
-        branch_path: Optional[List[int]],
-    ) -> Dict[str, Any]:
+        all_steps: list[dict[str, Any]],
+        shared_artifacts: dict[str, list[str]],
+        branch_path: list[int] | None,
+    ) -> dict[str, Any]:
         """Build a single chain when there are no model steps with fold artifacts."""
         model_class = ""
         model_step_idx = 0
@@ -218,7 +218,7 @@ class ChainBuilder:
             "source_index": None,
         }
 
-    def _empty_chain(self) -> Dict[str, Any]:
+    def _empty_chain(self) -> dict[str, Any]:
         """Return an empty chain dict."""
         return {
             "steps": [],
@@ -232,7 +232,7 @@ class ChainBuilder:
             "source_index": None,
         }
 
-    def _find_step(self, step_index: int) -> Optional[ExecutionStep]:
+    def _find_step(self, step_index: int) -> ExecutionStep | None:
         """Find a step by index in the trace.
 
         Args:

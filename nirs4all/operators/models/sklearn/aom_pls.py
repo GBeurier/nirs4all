@@ -45,7 +45,6 @@ from scipy.signal import savgol_coeffs
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.utils.validation import check_is_fitted
 
-
 # =============================================================================
 # Linear Operator Bank
 # =============================================================================
@@ -112,7 +111,6 @@ class LinearOperator:
         """
         raise NotImplementedError
 
-
 class IdentityOperator(LinearOperator):
     """Identity operator (no preprocessing).
 
@@ -136,7 +134,6 @@ class IdentityOperator(LinearOperator):
 
     def frobenius_norm_sq(self) -> float:
         return self._nu
-
 
 class SavitzkyGolayOperator(LinearOperator):
     """Savitzky-Golay filter operator with explicit zero-padding.
@@ -200,14 +197,13 @@ class SavitzkyGolayOperator(LinearOperator):
         return total
 
     def apply(self, X: NDArray) -> NDArray:
-        return _convolve1d(X, self._conv_kernel, axis=-1, mode='constant', cval=0.0)
+        return np.asarray(_convolve1d(X, self._conv_kernel, axis=-1, mode='constant', cval=0.0))
 
     def apply_adjoint(self, c: NDArray) -> NDArray:
-        return _convolve1d(c, self._adj_kernel, axis=-1, mode='constant', cval=0.0)
+        return np.asarray(_convolve1d(c, self._adj_kernel, axis=-1, mode='constant', cval=0.0))
 
     def frobenius_norm_sq(self) -> float:
         return self._nu
-
 
 class DetrendProjectionOperator(LinearOperator):
     """Detrend projection operator.
@@ -245,9 +241,9 @@ class DetrendProjectionOperator(LinearOperator):
 
     def apply(self, X: NDArray) -> NDArray:
         if X.ndim == 1:
-            return X - self._Q @ (self._Q.T @ X)
+            return np.asarray(X - self._Q @ (self._Q.T @ X))
         # X (n, p): XA = X - (X Q) Q^T
-        return X - (X @ self._Q) @ self._Q.T
+        return np.asarray(X - (X @ self._Q) @ self._Q.T)
 
     def apply_adjoint(self, c: NDArray) -> NDArray:
         # Symmetric operator: A^T = A
@@ -255,7 +251,6 @@ class DetrendProjectionOperator(LinearOperator):
 
     def frobenius_norm_sq(self) -> float:
         return self._nu
-
 
 class ComposedOperator(LinearOperator):
     """Composition of two linear operators: A = A_second @ A_first.
@@ -312,7 +307,6 @@ class ComposedOperator(LinearOperator):
     def frobenius_norm_sq(self) -> float:
         return self._nu
 
-
 class NorrisWilliamsOperator(LinearOperator):
     """Norris-Williams gap derivative operator.
 
@@ -354,10 +348,7 @@ class NorrisWilliamsOperator(LinearOperator):
         super().initialize(p)
         # Build the combined kernel: segment smoothing + gap derivative
         # Segment smoothing kernel
-        if self.segment > 1:
-            seg_kernel = np.ones(self.segment) / self.segment
-        else:
-            seg_kernel = np.array([1.0])
+        seg_kernel = np.ones(self.segment) / self.segment if self.segment > 1 else np.array([1.0])
         # Gap derivative kernel: [... 0 -1/(2*gap*delta) 0 ... 0 +1/(2*gap*delta) 0 ...]
         gap_kernel = np.zeros(2 * self.gap + 1)
         gap_kernel[0] = -1.0 / (2 * self.gap * self.delta)
@@ -382,14 +373,13 @@ class NorrisWilliamsOperator(LinearOperator):
         return total
 
     def apply(self, X: NDArray) -> NDArray:
-        return _convolve1d(X, self._conv_kernel, axis=-1, mode='constant', cval=0.0)
+        return np.asarray(_convolve1d(X, self._conv_kernel, axis=-1, mode='constant', cval=0.0))
 
     def apply_adjoint(self, c: NDArray) -> NDArray:
-        return _convolve1d(c, self._adj_kernel, axis=-1, mode='constant', cval=0.0)
+        return np.asarray(_convolve1d(c, self._adj_kernel, axis=-1, mode='constant', cval=0.0))
 
     def frobenius_norm_sq(self) -> float:
         return self._nu
-
 
 class FiniteDifferenceOperator(LinearOperator):
     """Finite difference derivative operator.
@@ -445,14 +435,13 @@ class FiniteDifferenceOperator(LinearOperator):
         return total
 
     def apply(self, X: NDArray) -> NDArray:
-        return _convolve1d(X, self._conv_kernel, axis=-1, mode='constant', cval=0.0)
+        return np.asarray(_convolve1d(X, self._conv_kernel, axis=-1, mode='constant', cval=0.0))
 
     def apply_adjoint(self, c: NDArray) -> NDArray:
-        return _convolve1d(c, self._adj_kernel, axis=-1, mode='constant', cval=0.0)
+        return np.asarray(_convolve1d(c, self._adj_kernel, axis=-1, mode='constant', cval=0.0))
 
     def frobenius_norm_sq(self) -> float:
         return self._nu
-
 
 class WaveletProjectionOperator(LinearOperator):
     """Wavelet approximation projection operator.
@@ -518,8 +507,8 @@ class WaveletProjectionOperator(LinearOperator):
 
     def apply(self, X: NDArray) -> NDArray:
         if X.ndim == 1:
-            return self._P_mat @ X
-        return X @ self._P_mat.T
+            return np.asarray(self._P_mat @ X)
+        return np.asarray(X @ self._P_mat.T)
 
     def apply_adjoint(self, c: NDArray) -> NDArray:
         # Self-adjoint: P^T = P
@@ -527,7 +516,6 @@ class WaveletProjectionOperator(LinearOperator):
 
     def frobenius_norm_sq(self) -> float:
         return self._nu
-
 
 class FFTBandpassOperator(LinearOperator):
     """FFT bandpass filter operator.
@@ -573,9 +561,9 @@ class FFTBandpassOperator(LinearOperator):
     def apply(self, X: NDArray) -> NDArray:
         if X.ndim == 1:
             fft_x = np.fft.rfft(X)
-            return np.fft.irfft(fft_x * self._mask, n=self.p_)
+            return np.asarray(np.fft.irfft(fft_x * self._mask, n=self.p_))
         fft_x = np.fft.rfft(X, axis=-1)
-        return np.fft.irfft(fft_x * self._mask[np.newaxis, :], n=self.p_, axis=-1)
+        return np.asarray(np.fft.irfft(fft_x * self._mask[np.newaxis, :], n=self.p_, axis=-1))
 
     def apply_adjoint(self, c: NDArray) -> NDArray:
         # Symmetric: real frequency mask means A^T = A
@@ -583,7 +571,6 @@ class FFTBandpassOperator(LinearOperator):
 
     def frobenius_norm_sq(self) -> float:
         return self._nu
-
 
 def default_operator_bank() -> list[LinearOperator]:
     """Build the default operator bank for AOM-PLS.
@@ -684,7 +671,6 @@ def default_operator_bank() -> list[LinearOperator]:
         *ComposedOps,
     ]
 
-
 def extended_operator_bank() -> list[LinearOperator]:
     """Build an extended operator bank with all available operator families.
 
@@ -749,7 +735,6 @@ def extended_operator_bank() -> list[LinearOperator]:
 
     return base + nw_ops + fd_ops + fft_ops + ComposedOps + wavelet_ops
 
-
 # =============================================================================
 # Sparsemax
 # =============================================================================
@@ -780,7 +765,6 @@ def _sparsemax(z: NDArray) -> NDArray:
     k_star = np.max(np.where(support)[0]) + 1 if np.any(support) else 1
     tau = (cumsum[k_star - 1] - 1.0) / k_star
     return np.maximum(z - tau, 0.0)
-
 
 # =============================================================================
 # OPLS Pre-filter (optional)
@@ -854,7 +838,6 @@ def _opls_prefilter(X: NDArray, y: NDArray, n_orth: int) -> tuple[NDArray, NDArr
         T_orth[:, i] = t_orth
 
     return X_filt, P_orth, T_orth
-
 
 # =============================================================================
 # NIPALS Single-Operator Extraction
@@ -960,7 +943,6 @@ def _nipals_extract(
         B_coefs[k] = R_k @ Q[:, :k + 1].T
 
     return W, T, P, Q, B_coefs, n_extracted
-
 
 # =============================================================================
 # NumPy Backend Implementation
@@ -1219,7 +1201,6 @@ def _aompls_fit_numpy(
         "P_orth": P_orth,
     }
 
-
 # =============================================================================
 # Torch Backend Availability
 # =============================================================================
@@ -1231,7 +1212,6 @@ def _check_torch_available():
         return True
     except ImportError:
         return False
-
 
 # =============================================================================
 # AOMPLSRegressor
@@ -1360,7 +1340,7 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
         y: ArrayLike,
         X_val: ArrayLike | None = None,
         y_val: ArrayLike | None = None,
-    ) -> "AOMPLSRegressor":
+    ) -> AOMPLSRegressor:
         """Fit the AOM-PLS model.
 
         Parameters
@@ -1517,7 +1497,7 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
                     best_k = k
             return best_k
 
-        return self.n_components_
+        return int(self.n_components_)
 
     def predict(
         self,
@@ -1555,14 +1535,14 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
         n_components = min(n_components, self.n_components_)
 
         if n_components == 0:
-            y_pred = np.full((X.shape[0], len(self.y_mean_)), self.y_mean_, dtype=np.float64)
+            y_pred: NDArray[np.floating] = np.full((X.shape[0], len(self.y_mean_)), self.y_mean_, dtype=np.float64)
         else:
             B_k = self._B_coefs[n_components - 1]
             y_pred_std = X_centered @ B_k
             y_pred = y_pred_std * self.y_std_ + self.y_mean_
 
         if self._y_1d:
-            y_pred = y_pred.ravel()
+            y_pred = np.asarray(y_pred.ravel())
         return y_pred
 
     def transform(self, X: ArrayLike) -> NDArray[np.floating]:
@@ -1589,7 +1569,7 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
                 t_o = X_centered @ p_o
                 X_centered = X_centered - np.outer(t_o, p_o)
 
-        return X_centered @ self._W[:, :self.k_selected_]
+        return np.asarray(X_centered @ self._W[:, :self.k_selected_])
 
     def get_block_weights(self) -> NDArray[np.floating]:
         """Get per-component block gating weights.
@@ -1601,7 +1581,7 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
             and contains zeros for blocks not selected for that component.
         """
         check_is_fitted(self, ["gamma_"])
-        return self.gamma_.copy()
+        return np.asarray(self.gamma_.copy())
 
     def get_preprocessing_report(self) -> list[dict]:
         """Get a human-readable report of preprocessing selections.
@@ -1639,7 +1619,7 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
             "backend": self.backend,
         }
 
-    def set_params(self, **params) -> "AOMPLSRegressor":
+    def set_params(self, **params) -> AOMPLSRegressor:
         """Set the parameters of this estimator."""
         for key, value in params.items():
             setattr(self, key, value)

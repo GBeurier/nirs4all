@@ -7,9 +7,9 @@ dataset configurations to/from YAML and JSON formats.
 
 from .serializer import (
     ConfigSerializer,
-    serialize_config,
     deserialize_config,
     diff_configs,
+    serialize_config,
 )
 
 __all__ = [

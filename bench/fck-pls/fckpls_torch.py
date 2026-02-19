@@ -20,19 +20,18 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Tuple, Union
 import warnings
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Literal, Optional, Union
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 from sklearn.base import BaseEstimator, RegressorMixin, TransformerMixin
-from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error, r2_score
-
+from sklearn.model_selection import KFold
 
 # =============================================================================
 # Utilities
@@ -44,8 +43,7 @@ def _to_2d(y: np.ndarray) -> np.ndarray:
         return y.reshape(-1, 1)
     return y
 
-
-def _set_seed(seed: Optional[int]) -> None:
+def _set_seed(seed: int | None) -> None:
     if seed is None:
         return
     np.random.seed(seed)
@@ -53,22 +51,18 @@ def _set_seed(seed: Optional[int]) -> None:
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-
 def _as_torch(x: np.ndarray, device: torch.device, dtype: torch.dtype = torch.float32) -> torch.Tensor:
     x = np.asarray(x, dtype=np.float32)
     return torch.from_numpy(x).to(device=device, dtype=dtype)
 
-
-def _standardize_fit(x: np.ndarray, eps: float = 1e-12) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _standardize_fit(x: np.ndarray, eps: float = 1e-12) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     mu = x.mean(axis=0, keepdims=True)
     sd = x.std(axis=0, keepdims=True)
     sd = np.where(sd < eps, 1.0, sd)
     return (x - mu) / sd, mu, sd
 
-
 def _standardize_apply(x: np.ndarray, mu: np.ndarray, sd: np.ndarray) -> np.ndarray:
     return (x - mu) / sd
-
 
 # =============================================================================
 # Feature Extractors (Convolutional Front-ends)
@@ -192,7 +186,6 @@ class LearnableKernelBank(nn.Module):
         """Get kernels as numpy array."""
         return self.k.squeeze(1).detach().cpu().numpy()
 
-
 class FractionalKernelBank(nn.Module):
     """
     Version 2: Learn alpha/sigma and rebuild kernels parametrically.
@@ -206,8 +199,8 @@ class FractionalKernelBank(nn.Module):
         n_kernels: int = 16,
         kernel_size: int = 31,
         alpha_max: float = 2.0,
-        alpha_init: Optional[Sequence[float]] = None,
-        sigma_init: Optional[Sequence[float]] = None,
+        alpha_init: Sequence[float] | None = None,
+        sigma_init: Sequence[float] | None = None,
         eps: float = 1e-8,
         tau: float = 1.0,  # smoothness for sign approximation
     ):
@@ -305,7 +298,6 @@ class FractionalKernelBank(nn.Module):
             k = self.build_kernels(torch.float32, self.idx.device)
             return k.squeeze(1).cpu().numpy()
 
-
 # =============================================================================
 # PLS Solved Head (Differentiable)
 # =============================================================================
@@ -323,7 +315,6 @@ def ridge_closed_form(
     A = T.T @ T + lam * torch.eye(r, device=T.device, dtype=T.dtype)
     B = T.T @ Y
     return torch.linalg.solve(A, B)  # (r, m)
-
 
 class PLSSolvedHead(nn.Module):
     """
@@ -354,7 +345,7 @@ class PLSSolvedHead(nn.Module):
         self,
         Zf: torch.Tensor,
         Y: torch.Tensor,
-    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
         Compute PLS projection and prediction.
 
@@ -422,7 +413,6 @@ class PLSSolvedHead(nn.Module):
         }
         return Yhat, aux
 
-
 # =============================================================================
 # Full Model
 # =============================================================================
@@ -475,7 +465,7 @@ class FCKPLSTorchModel(nn.Module):
         self,
         X: torch.Tensor,
         Y: torch.Tensor,
-    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], torch.Tensor]:
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor]:
         """
         Full forward pass.
 
@@ -489,7 +479,6 @@ class FCKPLSTorchModel(nn.Module):
         Yhat, aux = self.head(Zf, Y)
         return Yhat, aux, Z
 
-
 # =============================================================================
 # Training Configuration
 # =============================================================================
@@ -500,7 +489,7 @@ class TrainConfig:
     epochs: int = 400
     lr: float = 1e-3
     weight_decay: float = 0.0
-    batch_size: Optional[int] = None  # None => full-batch (recommended)
+    batch_size: int | None = None  # None => full-batch (recommended)
     early_stopping_patience: int = 40
 
     # Validation-based training (critical for proper learning!)
@@ -519,12 +508,11 @@ class TrainConfig:
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Reproducibility
-    seed: Optional[int] = 42
+    seed: int | None = 42
 
     # Logging
     verbose: int = 0
     log_every: int = 50
-
 
 # =============================================================================
 # sklearn-compatible Estimator
@@ -585,10 +573,10 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
         # v2 params
         alpha_max: float = 2.0,
         tau: float = 1.0,
-        alpha_init: Optional[Sequence[float]] = None,
-        sigma_init: Optional[Sequence[float]] = None,
+        alpha_init: Sequence[float] | None = None,
+        sigma_init: Sequence[float] | None = None,
         # training
-        train_cfg: Optional[TrainConfig] = None,
+        train_cfg: TrainConfig | None = None,
     ):
         self.version = version
         self.n_kernels = n_kernels
@@ -605,15 +593,15 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
         self.train_cfg = train_cfg if train_cfg is not None else TrainConfig()
 
         # Fitted attributes
-        self.model_: Optional[FCKPLSTorchModel] = None
-        self.head_cache_: Optional[Dict[str, torch.Tensor]] = None
-        self.x_mu_: Optional[np.ndarray] = None
-        self.x_sd_: Optional[np.ndarray] = None
-        self.y_mu_: Optional[np.ndarray] = None
-        self.y_sd_: Optional[np.ndarray] = None
-        self.n_targets_: Optional[int] = None
+        self.model_: FCKPLSTorchModel | None = None
+        self.head_cache_: dict[str, torch.Tensor] | None = None
+        self.x_mu_: np.ndarray | None = None
+        self.x_sd_: np.ndarray | None = None
+        self.y_mu_: np.ndarray | None = None
+        self.y_sd_: np.ndarray | None = None
+        self.n_targets_: int | None = None
         self._y_1d: bool = False
-        self.training_history_: List[Dict[str, float]] = []
+        self.training_history_: list[dict[str, float]] = []
 
     def _flatten_features(self, Z: torch.Tensor) -> torch.Tensor:
         """Flatten features according to feature_mode (for use during training)."""
@@ -654,7 +642,7 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
             return extractor.kernel_regularization()
         return torch.zeros(())
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> "FCKPLSTorch":
+    def fit(self, X: np.ndarray, y: np.ndarray) -> FCKPLSTorch:
         """
         Fit the FCK-PLS model.
 
@@ -722,7 +710,7 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
 
         # Training loop
         best_loss = float("inf")
-        best_state: Optional[Dict[str, torch.Tensor]] = None
+        best_state: dict[str, torch.Tensor] | None = None
         patience = 0
         self.training_history_ = []
 
@@ -929,12 +917,11 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
             params["train_cfg"] = self.train_cfg
         return params
 
-    def set_params(self, **params) -> "FCKPLSTorch":
+    def set_params(self, **params) -> FCKPLSTorch:
         """Set the parameters of this estimator."""
         for key, value in params.items():
             setattr(self, key, value)
         return self
-
 
 # =============================================================================
 # Convenience Functions
@@ -960,7 +947,6 @@ def create_fckpls_v1(
         **kwargs,
     )
 
-
 def create_fckpls_v2(
     n_kernels: int = 16,
     kernel_size: int = 31,
@@ -982,7 +968,6 @@ def create_fckpls_v2(
         train_cfg=cfg,
         **kwargs,
     )
-
 
 # =============================================================================
 # nirs4all-compatible Module Wrapper
@@ -1022,8 +1007,8 @@ class FCKPLSModule(nn.Module):
 
     def __init__(
         self,
-        input_shape: Tuple[int, int],
-        params: Optional[Dict[str, Any]] = None,
+        input_shape: tuple[int, int],
+        params: dict[str, Any] | None = None,
         num_classes: int = 1,
     ):
         super().__init__()
@@ -1070,8 +1055,8 @@ class FCKPLSModule(nn.Module):
         )
 
         # Cache for inference
-        self._head_cache: Optional[Dict[str, torch.Tensor]] = None
-        self._current_targets: Optional[torch.Tensor] = None
+        self._head_cache: dict[str, torch.Tensor] | None = None
+        self._current_targets: torch.Tensor | None = None
 
         # Store params for regularization (version-specific)
         self._version = version
@@ -1141,7 +1126,7 @@ class FCKPLSModule(nn.Module):
 
         else:
             # No cache available - return zeros (shouldn't happen in normal use)
-            warnings.warn("FCKPLSModule: No cached parameters available for inference")
+            warnings.warn("FCKPLSModule: No cached parameters available for inference", stacklevel=2)
             return torch.zeros(x.shape[0], self.num_classes, device=x.device, dtype=x.dtype)
 
     def kernel_regularization(self) -> torch.Tensor:
@@ -1152,7 +1137,6 @@ class FCKPLSModule(nn.Module):
         """Get learned kernels as numpy array."""
         return self.extractor.get_kernels()
 
-
 # =============================================================================
 # nirs4all Factory Functions
 # =============================================================================
@@ -1161,7 +1145,7 @@ try:
     from nirs4all.utils import framework
 
     @framework("pytorch")
-    def fckpls(input_shape: Tuple[int, int], params: Optional[Dict[str, Any]] = None) -> FCKPLSModule:
+    def fckpls(input_shape: tuple[int, int], params: dict[str, Any] | None = None) -> FCKPLSModule:
         """
         FCK-PLS model factory for nirs4all (regression).
 
@@ -1186,14 +1170,14 @@ try:
         return FCKPLSModule(input_shape, params or {}, num_classes=1)
 
     @framework("pytorch")
-    def fckpls_v1(input_shape: Tuple[int, int], params: Optional[Dict[str, Any]] = None) -> FCKPLSModule:
+    def fckpls_v1(input_shape: tuple[int, int], params: dict[str, Any] | None = None) -> FCKPLSModule:
         """FCK-PLS V1 with learnable free kernels (regression)."""
         p = dict(params or {})
         p["version"] = "v1"
         return FCKPLSModule(input_shape, p, num_classes=1)
 
     @framework("pytorch")
-    def fckpls_v2(input_shape: Tuple[int, int], params: Optional[Dict[str, Any]] = None) -> FCKPLSModule:
+    def fckpls_v2(input_shape: tuple[int, int], params: dict[str, Any] | None = None) -> FCKPLSModule:
         """FCK-PLS V2 with alpha/sigma parametric kernels (regression)."""
         p = dict(params or {})
         p["version"] = "v2"

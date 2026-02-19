@@ -15,39 +15,40 @@ Design Principles:
     3. Composable: Same infrastructure for all retrain modes
 """
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 
 from nirs4all.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.context import (
-    ExecutionContext,
-    DataSelector,
-    PipelineState,
-    StepMetadata,
-    RuntimeContext,
     ArtifactProvider,
+    DataSelector,
+    ExecutionContext,
     LoaderArtifactProvider,
+    PipelineState,
+    RuntimeContext,
+    StepMetadata,
 )
+from nirs4all.pipeline.resolver import PredictionResolver, ResolvedPrediction
+from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
 from nirs4all.pipeline.trace import (
     ExecutionTrace,
-    TraceBasedExtractor,
     MinimalPipeline,
     StepExecutionMode,
+    TraceBasedExtractor,
 )
-from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
-from nirs4all.pipeline.resolver import PredictionResolver, ResolvedPrediction
-
 
 logger = get_logger(__name__)
 
-
-class RetrainMode(str, Enum):
+class RetrainMode(StrEnum):
     """Mode of retraining operation.
 
     Attributes:
@@ -62,7 +63,6 @@ class RetrainMode(str, Enum):
 
     def __str__(self) -> str:
         return self.value
-
 
 @dataclass
 class StepMode:
@@ -79,8 +79,8 @@ class StepMode:
 
     step_index: int
     mode: str = "train"  # 'train', 'predict', 'skip'
-    artifact_id: Optional[str] = None
-    kwargs: Dict[str, Any] = field(default_factory=dict)
+    artifact_id: str | None = None
+    kwargs: dict[str, Any] = field(default_factory=dict)
 
     def is_train(self) -> bool:
         """Check if this step should train.
@@ -98,7 +98,6 @@ class StepMode:
         """
         return self.mode == "predict"
 
-
 @dataclass
 class RetrainConfig:
     """Configuration for retraining operation.
@@ -114,14 +113,14 @@ class RetrainConfig:
     """
 
     mode: RetrainMode = RetrainMode.FULL
-    step_modes: List[StepMode] = field(default_factory=list)
-    new_model: Optional[Any] = None
-    epochs: Optional[int] = None
-    learning_rate: Optional[float] = None
-    freeze_layers: Optional[List[str]] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    step_modes: list[StepMode] = field(default_factory=list)
+    new_model: Any | None = None
+    epochs: int | None = None
+    learning_rate: float | None = None
+    freeze_layers: list[str] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def get_step_mode(self, step_index: int) -> Optional[StepMode]:
+    def get_step_mode(self, step_index: int) -> StepMode | None:
         """Get mode override for a specific step.
 
         Args:
@@ -162,7 +161,6 @@ class RetrainConfig:
 
         return True
 
-
 class RetrainArtifactProvider(ArtifactProvider):
     """Artifact provider for retraining that respects step modes.
 
@@ -179,7 +177,7 @@ class RetrainArtifactProvider(ArtifactProvider):
         self,
         base_provider: ArtifactProvider,
         retrain_config: RetrainConfig,
-        trace: Optional[ExecutionTrace] = None
+        trace: ExecutionTrace | None = None
     ):
         """Initialize retrain artifact provider.
 
@@ -231,8 +229,8 @@ class RetrainArtifactProvider(ArtifactProvider):
     def get_artifact(
         self,
         step_index: int,
-        fold_id: Optional[int] = None
-    ) -> Optional[Any]:
+        fold_id: int | str | None = None
+    ) -> Any | None:
         """Get a single artifact for a step if applicable.
 
         Args:
@@ -249,26 +247,35 @@ class RetrainArtifactProvider(ArtifactProvider):
     def get_artifacts_for_step(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None
-    ) -> List[Tuple[str, Any]]:
+        branch_path: list[int] | None = None,
+        branch_id: int | None = None,
+        source_index: int | None = None,
+        substep_index: int | None = None
+    ) -> list[tuple[str, Any]]:
         """Get all artifacts for a step if applicable.
 
         Args:
             step_index: 1-based step index
             branch_path: Optional branch path filter
+            branch_id: Optional branch ID filter
+            source_index: Optional source/dataset index filter for multi-source
+            substep_index: Optional substep index filter for branch substeps
 
         Returns:
             List of (artifact_id, artifact_object) tuples, or empty if should train
         """
         if not self._should_provide_artifact(step_index):
             return []
-        return self.base_provider.get_artifacts_for_step(step_index, branch_path)
+        return self.base_provider.get_artifacts_for_step(
+            step_index, branch_path, branch_id=branch_id,
+            source_index=source_index, substep_index=substep_index
+        )
 
     def get_fold_artifacts(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None
-    ) -> List[Tuple[int, Any]]:
+        branch_path: list[int] | None = None
+    ) -> list[tuple[int, Any]]:
         """Get all fold-specific artifacts for a step if applicable.
 
         Args:
@@ -294,7 +301,6 @@ class RetrainArtifactProvider(ArtifactProvider):
         if not self._should_provide_artifact(step_index):
             return False
         return self.base_provider.has_artifacts_for_step(step_index)
-
 
 class Retrainer:
     """Handles retraining pipelines with various modes.
@@ -326,20 +332,20 @@ class Retrainer:
             runs_dir=runner.runs_dir,
             store=runner.store,
         )
-        self._resolved: Optional[ResolvedPrediction] = None
+        self._resolved: ResolvedPrediction | None = None
 
     def retrain(
         self,
-        source: Union[Dict[str, Any], str, Path, Any],
-        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
-        mode: Union[str, RetrainMode] = "full",
+        source: dict[str, Any] | str | Path | Any,
+        dataset: DatasetConfigs | SpectroDataset | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
+        mode: str | RetrainMode = "full",
         dataset_name: str = "retrain_dataset",
-        new_model: Optional[Any] = None,
-        epochs: Optional[int] = None,
-        step_modes: Optional[List[StepMode]] = None,
+        new_model: Any | None = None,
+        epochs: int | None = None,
+        step_modes: list[StepMode] | None = None,
         verbose: int = 0,
         **kwargs
-    ) -> Tuple[Predictions, Dict[str, Any]]:
+    ) -> tuple[Predictions, dict[str, Any]]:
         """Retrain a pipeline on new data.
 
         Args:
@@ -416,7 +422,7 @@ class Retrainer:
         config: RetrainConfig,
         dataset_configs: DatasetConfigs,
         verbose: int
-    ) -> Tuple[Predictions, Dict[str, Any]]:
+    ) -> tuple[Predictions, dict[str, Any]]:
         """Full retrain: train everything from scratch.
 
         Uses the same pipeline structure but trains all steps anew.
@@ -431,6 +437,8 @@ class Retrainer:
         """
         if verbose > 0:
             logger.starting("Full retrain: training all steps from scratch")
+
+        assert self._resolved is not None, "Source must be resolved before retrain"
 
         # Get pipeline steps from resolved source
         steps = self._resolved.minimal_pipeline
@@ -448,7 +456,7 @@ class Retrainer:
         config: RetrainConfig,
         dataset_configs: DatasetConfigs,
         verbose: int
-    ) -> Tuple[Predictions, Dict[str, Any]]:
+    ) -> tuple[Predictions, dict[str, Any]]:
         """Transfer retrain: use existing preprocessing, train new model.
 
         Reuses preprocessing artifacts from the source prediction and trains
@@ -464,6 +472,8 @@ class Retrainer:
         """
         if verbose > 0:
             logger.starting("Transfer mode: reusing preprocessing, training new model")
+
+        assert self._resolved is not None, "Source must be resolved before retrain"
 
         # We need the execution trace or manifest to know which steps are preprocessing
         if not self._resolved.has_trace():
@@ -481,7 +491,7 @@ class Retrainer:
             model_step_index = self._resolved.model_step_index
             # Find the step in the list by its step_index (1-based)
             from nirs4all.pipeline.trace.extractor import MinimalPipelineStep
-            for i, step in enumerate(steps):
+            for _i, step in enumerate(steps):
                 if isinstance(step, MinimalPipelineStep) and step.step_index == model_step_index:
                     # MinimalPipelineStep - modify the step_config
                     old_config = step.step_config
@@ -526,7 +536,7 @@ class Retrainer:
         config: RetrainConfig,
         dataset_configs: DatasetConfigs,
         verbose: int
-    ) -> Tuple[Predictions, Dict[str, Any]]:
+    ) -> tuple[Predictions, dict[str, Any]]:
         """Finetune retrain: continue training existing model.
 
         Loads the existing model and continues training on new data.
@@ -543,6 +553,8 @@ class Retrainer:
             logger.starting("Finetune mode: continuing training on new data")
             if config.epochs:
                 logger.info(f"  Additional epochs: {config.epochs}")
+
+        assert self._resolved is not None, "Source must be resolved before retrain"
 
         # Get pipeline steps
         steps = list(self._resolved.minimal_pipeline)
@@ -575,12 +587,12 @@ class Retrainer:
 
     def _execute_with_retrain_config(
         self,
-        steps: List[Any],
+        steps: list[Any],
         config: RetrainConfig,
         dataset_configs: DatasetConfigs,
         verbose: int,
         pipeline_name: str,
-    ) -> Tuple[Predictions, Dict[str, Any]]:
+    ) -> tuple[Predictions, dict[str, Any]]:
         """Execute pipeline with retrain-aware artifact provider.
 
         This is the core execution method that respects the retrain configuration
@@ -611,7 +623,7 @@ class Retrainer:
         )
 
         run_predictions = Predictions()
-        datasets_predictions: Dict[str, Any] = {}
+        datasets_predictions: dict[str, Any] = {}
 
         for data_config, name in dataset_configs.configs:
             # Create artifact registry for new artifacts
@@ -648,6 +660,7 @@ class Retrainer:
                 context.state.mode = "retrain"
 
             # Create retrain artifact provider
+            assert self._resolved is not None, "Source must be resolved before retrain"
             base_provider = self._resolved.artifact_provider
             if base_provider is None and self._resolved.run_dir:
                 manifest = self._resolved.manifest
@@ -701,7 +714,7 @@ class Retrainer:
 
     def extract(
         self,
-        source: Union[Dict[str, Any], str, Path, Any],
+        source: dict[str, Any] | str | Path | Any,
         verbose: int = 0
     ) -> 'ExtractedPipeline':
         """Extract a pipeline for inspection or modification.
@@ -737,7 +750,6 @@ class Retrainer:
             }
         )
 
-
 @dataclass
 class ExtractedPipeline:
     """Extracted pipeline for inspection and modification.
@@ -755,13 +767,13 @@ class ExtractedPipeline:
         metadata: Additional metadata
     """
 
-    steps: List[Any] = field(default_factory=list)
-    trace: Optional[ExecutionTrace] = None
-    artifact_provider: Optional[ArtifactProvider] = None
-    model_step_index: Optional[int] = None
+    steps: list[Any] = field(default_factory=list)
+    trace: ExecutionTrace | None = None
+    artifact_provider: ArtifactProvider | None = None
+    model_step_index: int | None = None
     preprocessing_chain: str = ""
     source_pipeline_uid: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def get_step(self, index: int) -> Any:
         """Get a step by 0-based index.
@@ -783,7 +795,7 @@ class ExtractedPipeline:
         """
         self.steps[index] = step
 
-    def get_model_step(self) -> Optional[Any]:
+    def get_model_step(self) -> Any | None:
         """Get the model step.
 
         Returns:

@@ -24,7 +24,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-
 @dataclass
 class RefitConfig:
     """Configuration for a refit execution.
@@ -69,7 +68,6 @@ class RefitConfig:
     config_name: str = ""
     selected_by_criteria: list[str] = field(default_factory=list)
 
-
 @dataclass
 class RefitCriterion:
     """A single refit selection criterion.
@@ -87,7 +85,6 @@ class RefitCriterion:
     top_k: int = 1
     ranking: str = "rmsecv"
     metric: str = ""
-
 
 def parse_refit_param(
     refit: bool | dict[str, Any] | list[dict[str, Any]] | None,
@@ -124,7 +121,6 @@ def parse_refit_param(
             for c in refit
         ]
     return []
-
 
 def extract_top_configs(
     store: Any,
@@ -186,14 +182,14 @@ def extract_top_configs(
     seen_ids: set[str] = set()
     pid_to_criteria: dict[str, list[str]] = {}  # pipeline_id -> list of criterion labels
 
-    for crit_idx, criterion in enumerate(criteria):
+    for _crit_idx, criterion in enumerate(criteria):
         effective_metric = criterion.metric or first_metric
         ascending = _infer_metric_ascending(effective_metric)
         crit_label = f"{criterion.ranking}(top{criterion.top_k})"
 
         if criterion.ranking == "rmsecv":
             # Rank by best_val (which is RMSECV from the avg fold after the fix)
-            scored = list(zip(pipeline_ids, completed["best_val"].to_list()))
+            scored = list(zip(pipeline_ids, completed["best_val"].to_list(), strict=False))
             scored = [(pid, s) for pid, s in scored if s is not None]
             scored.sort(key=lambda x: x[1], reverse=not ascending)
 
@@ -204,7 +200,7 @@ def extract_top_configs(
                     "Cannot rank by 'mean_val': predictions not available. "
                     "Falling back to 'rmsecv'."
                 )
-                scored = list(zip(pipeline_ids, completed["best_val"].to_list()))
+                scored = list(zip(pipeline_ids, completed["best_val"].to_list(), strict=False))
                 scored = [(pid, s) for pid, s in scored if s is not None]
                 scored.sort(key=lambda x: x[1], reverse=not ascending)
             else:
@@ -216,7 +212,7 @@ def extract_top_configs(
 
         else:
             logger.warning(f"Unknown ranking method '{criterion.ranking}', using 'rmsecv'")
-            scored = list(zip(pipeline_ids, completed["best_val"].to_list()))
+            scored = list(zip(pipeline_ids, completed["best_val"].to_list(), strict=False))
             scored = [(pid, s) for pid, s in scored if s is not None]
             scored.sort(key=lambda x: x[1], reverse=not ascending)
 
@@ -231,7 +227,7 @@ def extract_top_configs(
                     break
 
         # Log this criterion's selections
-        pid_to_name = dict(zip(pipeline_ids, completed["name"].to_list()))
+        pid_to_name = dict(zip(pipeline_ids, completed["name"].to_list(), strict=False))
         top_names = [pid_to_name.get(pid, pid) for pid in top_ids]
         logger.info(f"  Criterion '{crit_label}' selected: {', '.join(top_names)}")
 
@@ -248,7 +244,7 @@ def extract_top_configs(
     configs: list[RefitConfig] = []
 
     # Collect all criterion labels for this selection
-    all_criteria_labels = [crit_labels for crit_labels in pid_to_criteria.values()]
+    all_criteria_labels = list(pid_to_criteria.values())
     all_criteria_labels_flat = [item for sublist in all_criteria_labels for item in sublist]
 
     # Pre-compute mean_val scores if needed (for any mean_val criterion)
@@ -311,7 +307,6 @@ def extract_top_configs(
 
     return configs
 
-
 def _compute_mean_val_scores(
     predictions: Predictions,
     pipeline_ids: list[str],
@@ -335,7 +330,7 @@ def _compute_mean_val_scores(
     """
     # Map config_name → pipeline_id from store records
     names = completed_df["name"].to_list() if "name" in completed_df.columns else []
-    name_to_pid = dict(zip(names, pipeline_ids))
+    name_to_pid = dict(zip(names, pipeline_ids, strict=False))
 
     # Get all val-partition predictions from buffer
     val_preds = predictions.filter_predictions(partition="val", load_arrays=False)
@@ -379,7 +374,6 @@ def _compute_mean_val_scores(
                 result.append((pid, float(best_val)))
 
     return result
-
 
 def extract_winning_config(
     store: Any,
@@ -478,7 +472,6 @@ def extract_winning_config(
         config_name=cv_config_name,
     )
 
-
 def _extract_best_params(
     store: Any,
     pipeline_id: str,
@@ -533,7 +526,6 @@ def _extract_best_params(
 
     return {}
 
-
 def extract_per_model_configs(
     store: Any,
     run_id: str,
@@ -586,7 +578,7 @@ def extract_per_model_configs(
     # For each pipeline variant, identify its model class via topology
     model_to_variants: dict[str, list[tuple[str, float, int]]] = {}
 
-    for idx, (pid, bv) in enumerate(zip(pipeline_ids, best_vals)):
+    for idx, (pid, bv) in enumerate(zip(pipeline_ids, best_vals, strict=False)):
         record = store.get_pipeline(pid)
         if record is None:
             continue

@@ -49,6 +49,9 @@ from nirs4all.analysis.presets import PRESETS, get_preset, list_presets
 # Results
 from nirs4all.analysis.results import TransferResult, TransferSelectionResults
 
+# Main selector
+from nirs4all.analysis.selector import TransferPreprocessingSelector
+
 # Metrics
 from nirs4all.analysis.transfer_metrics import (
     TransferMetrics,
@@ -76,9 +79,6 @@ from nirs4all.analysis.transfer_utils import (
     normalize_preprocessing_list,
     validate_datasets,
 )
-
-# Main selector
-from nirs4all.analysis.selector import TransferPreprocessingSelector
 
 __all__ = [
     # Main class

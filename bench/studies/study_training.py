@@ -13,12 +13,14 @@ import time
 from pathlib import Path
 
 from dotenv import load_dotenv
+
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 os.environ['DISABLE_EMOJIS'] = '0'
 
 import matplotlib.pyplot as plt
-
+from catboost import CatBoostRegressor
+from dotenv import load_dotenv
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.ensemble import RandomForestRegressor
@@ -26,31 +28,37 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.random_projection import GaussianRandomProjection, SparseRandomProjection
+from study_tabpfn_config import generate_inference_configs, get_model_class, get_model_path_options
 
-from catboost import CatBoostRegressor
-
-from nirs4all.data import DatasetConfigs
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.visualization.predictions import PredictionAnalyzer
 from nirs4all.analysis import TransferPreprocessingSelector
-from nirs4all.operators.models.sklearn import OPLS, IKPLS
+from nirs4all.data import DatasetConfigs
+from nirs4all.operators.models.pytorch.nicon import customizable_nicon, nicon, nicon_VG, thin_nicon
+from nirs4all.operators.models.sklearn import IKPLS, OPLS
 from nirs4all.operators.models.sklearn.lwpls import LWPLS
 from nirs4all.operators.splitters import SPXYGFold
 from nirs4all.operators.transforms import (
-    Wavelet, WaveletFeatures, WaveletPCA, WaveletSVD,
-    StandardNormalVariate, FirstDerivative, SecondDerivative, SavitzkyGolay,
-    MultiplicativeScatterCorrection, Detrend, Gaussian, Haar,
+    Detrend,
+    FirstDerivative,
+    Gaussian,
+    Haar,
+    MultiplicativeScatterCorrection,
     RobustStandardNormalVariate,
+    SavitzkyGolay,
+    SecondDerivative,
+    StandardNormalVariate,
+    Wavelet,
+    WaveletFeatures,
+    WaveletPCA,
+    WaveletSVD,
 )
 from nirs4all.operators.transforms.nirs import (
     AreaNormalization,
+)
+from nirs4all.operators.transforms.nirs import (
     ExtendedMultiplicativeScatterCorrection as EMSC,
 )
-from nirs4all.operators.models.pytorch.nicon import nicon, customizable_nicon, thin_nicon, nicon_VG
-
-from study_tabpfn_config import get_model_class, get_model_path_options, generate_inference_configs
-
-from dotenv import load_dotenv
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from nirs4all.visualization.predictions import PredictionAnalyzer
 
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(env_path)
@@ -62,7 +70,6 @@ try:
         login(token=hf_token)
 except ImportError:
     pass
-
 
 parser = argparse.ArgumentParser(description="Full Analysis Study")
 parser.add_argument("--show", action="store_true", help="Show plots interactively")
@@ -105,7 +112,6 @@ parser.add_argument("--tabpfn-pp-max-size", type=int, help="TabPFN max preproces
 
 args = parser.parse_args()
 
-
 def get_pp_fingerprint(pp):
     """Create a fingerprint string for a preprocessing pipeline to enable comparison."""
     if pp is None:
@@ -121,7 +127,6 @@ def get_pp_fingerprint(pp):
             params = getattr(item, 'get_params', lambda: {})()
             parts.append(f"{class_name}({params})")
     return "|".join(parts)
-
 
 def get_best_pp_cp(count_pp, count_cp, runner, predictions, pp_index=0, aggregation_key=None):
     k = 6 * count_pp
@@ -305,7 +310,6 @@ TABPFN_PP = [
     WaveletSVD(wavelet='db4', max_level=4, n_components_per_level=5),
 ]
 
-
 def run_pipeline_1(dataset_config, filtered_pp_list, aggregation_key):
     """Pipeline 1: PLS and OPLS with transfer-selected preprocessings."""
     pipeline = [
@@ -358,7 +362,6 @@ def run_pipeline_1(dataset_config, filtered_pp_list, aggregation_key):
     )
 
     return predictions, top_pp_list, best_n_components[0]
-
 
 def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
     """Pipeline 2: LWPLS, Ridge, CatBoost, Nicon, RandomForest."""
@@ -452,7 +455,6 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
     predictions, _ = runner.run(pipeline_config, dataset_config)
     return predictions
 
-
 def run_pipeline_3(dataset_config, aggregation_key, top3_pp):
     """Pipeline 3: TabPFN finetuning."""
 
@@ -493,7 +495,6 @@ def run_pipeline_3(dataset_config, aggregation_key, top3_pp):
     predictions, _ = runner.run(pipeline_config, dataset_config)
     return predictions
 
-
 def display_results(all_results, folder, aggregation_key):
     """Display aggregated best results."""
     print()
@@ -512,7 +513,7 @@ def display_results(all_results, folder, aggregation_key):
 
     combined_top.sort(key=lambda x: x.get("test_score", float('inf')))
 
-    print(f"\nTop 10 models across all pipelines (by RMSE):")
+    print("\nTop 10 models across all pipelines (by RMSE):")
     print("-" * 70)
     for idx, pred in enumerate(combined_top[:10], 1):
         mse = pred.get("test_score", None)
@@ -525,14 +526,13 @@ def display_results(all_results, folder, aggregation_key):
 
     print()
 
-
 def main():
     print("=" * 70)
     print("FULL ANALYSIS STUDY")
     print("=" * 70)
     print()
 
-    for folder, aggregation_key in zip(FOLDER_LIST, AGGREGATION_KEY_LIST):
+    for folder, aggregation_key in zip(FOLDER_LIST, AGGREGATION_KEY_LIST, strict=False):
         print(f"\n{'='*70}")
         print(f"PROCESSING: {folder}")
         print(f"Aggregation key: {aggregation_key}")
@@ -576,9 +576,8 @@ def main():
         preds_1, top_pp_list, best_n_components = run_pipeline_1(dataset_config, filtered_pp_list, aggregation_key)
         print(f"  Completed in {time.time()-t0:.1f}s")
         print(f"  Top {len(top_pp_list)} preprocessings for Pipeline 2:")
-        print(f"    " + "\n    ".join([str(pp) for pp in top_pp_list]))
+        print("    " + "\n    ".join([str(pp) for pp in top_pp_list]))
         print(f"  Best n_components for PLS: {best_n_components}")
-
 
         # Phase 3: Pipeline 2 - LWPLS, Ridge, CatBoost, Nicon, RF
         print("\n[Phase 3] Pipeline 2: Ensemble models...")
@@ -607,7 +606,6 @@ def main():
 
     if args.show:
         plt.show()
-
 
 if __name__ == "__main__":
     main()

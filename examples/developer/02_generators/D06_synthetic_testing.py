@@ -31,21 +31,21 @@ from pathlib import Path
 # Third-party imports
 import numpy as np
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_squared_error, r2_score
 
 # NIRS4All imports
 import nirs4all
+from nirs4all.data import DatasetConfigs
 from nirs4all.synthesis import (
-    SyntheticNIRSGenerator,
-    SyntheticDatasetBuilder,
-    DatasetExporter,
     CSVVariationGenerator,
+    DatasetExporter,
     RealDataFitter,
+    SyntheticDatasetBuilder,
+    SyntheticNIRSGenerator,
     compute_spectral_properties,
 )
-from nirs4all.data import DatasetConfigs
 
 # Add examples directory to path for example_utils
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -59,7 +59,6 @@ args = parser.parse_args()
 
 # Example name for output directory
 EXAMPLE_NAME = "D06_synthetic_testing"
-
 
 # =============================================================================
 # Section 1: Reproducible Test Data
@@ -90,10 +89,9 @@ dataset2 = get_test_dataset()
 X1 = dataset1.x({}, layout="2d")
 X2 = dataset2.x({}, layout="2d")
 
-print(f"\n📊 Reproducibility check:")
+print("\n📊 Reproducibility check:")
 print(f"   Arrays identical: {np.allclose(X1, X2)}")
 print(f"   First values match: {X1[0, 0]:.6f} == {X2[0, 0]:.6f}")
-
 
 # =============================================================================
 # Section 2: Complexity for Different Test Types
@@ -114,15 +112,14 @@ for complexity in ["simple", "realistic", "complex"]:
     elapsed = (time.perf_counter() - start) / 10
     complexity_times[complexity] = elapsed
 
-print(f"\n📊 Generation times (100 samples, average of 10 runs):")
+print("\n📊 Generation times (100 samples, average of 10 runs):")
 for complexity, elapsed in complexity_times.items():
     print(f"   {complexity:10s}: {elapsed*1000:.2f} ms")
 
-print(f"\n   Recommendation:")
-print(f"   - Unit tests: 'simple' (fastest, deterministic)")
-print(f"   - Integration tests: 'realistic' (typical noise)")
-print(f"   - Robustness tests: 'complex' (challenging scenarios)")
-
+print("\n   Recommendation:")
+print("   - Unit tests: 'simple' (fastest, deterministic)")
+print("   - Integration tests: 'realistic' (typical noise)")
+print("   - Robustness tests: 'complex' (challenging scenarios)")
 
 # =============================================================================
 # Section 3: Test Fixtures Pattern
@@ -167,7 +164,6 @@ def synthetic_dataset_folder(tmp_path, synthetic_builder_factory):
     return builder.export(tmp_path / "dataset", format="standard")
 """)
 
-
 # =============================================================================
 # Section 4: CSV Loader Testing
 # =============================================================================
@@ -203,7 +199,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         train_ratio=0.8
     )
 
-    print(f"\n📁 Generated test CSV variations:")
+    print("\n📁 Generated test CSV variations:")
     print(f"   Standard format: {path_standard.name}/")
     for f in sorted(path_standard.iterdir()):
         print(f"     - {f.name}")
@@ -213,7 +209,6 @@ with tempfile.TemporaryDirectory() as tmpdir:
     # Test loading
     loaded = DatasetConfigs(str(path_standard)).get_datasets()[0]
     print(f"\n   Loaded back: {loaded.num_samples} samples")
-
 
 # =============================================================================
 # Section 5: Benchmarking with Synthetic Data
@@ -249,7 +244,7 @@ X_test = benchmark_data.x({"partition": "test"}, layout="2d")
 y_test = benchmark_data.y({"partition": "test"})
 
 # Benchmark different n_components
-print(f"\n📊 PLS n_components optimization (with non-linear targets):")
+print("\n📊 PLS n_components optimization (with non-linear targets):")
 print(f"   {'n_comp':<8} {'RMSE':>10} {'R²':>10} {'Time':>10}")
 print(f"   {'-'*8} {'-'*10} {'-'*10} {'-'*10}")
 
@@ -265,7 +260,6 @@ for n_comp in [5, 10, 15, 20, 25, 30]:
     r2 = r2_score(y_test, y_pred)
 
     print(f"   {n_comp:<8} {rmse:>10.4f} {r2:>10.4f} {elapsed*1000:>8.2f}ms")
-
 
 # =============================================================================
 # Section 6: Real Data Comparison
@@ -286,7 +280,7 @@ X_real = real_like.x({}, layout="2d")
 wavelengths = np.linspace(1000, 2500, X_real.shape[1])
 props_real = compute_spectral_properties(X_real, wavelengths, name="real_like")
 
-print(f"\n📊 Spectral properties analysis:")
+print("\n📊 Spectral properties analysis:")
 print(f"   Samples: {props_real.n_samples}")
 print(f"   Wavelengths: {props_real.n_wavelengths}")
 print(f"   Global mean: {props_real.global_mean:.4f}")
@@ -296,13 +290,12 @@ print(f"   SNR estimate: {props_real.snr_estimate:.1f} dB")
 print(f"   PCA components (95% var): {props_real.pca_n_components_95}")
 
 # Fit and generate matching synthetic data
-print(f"\n📊 Generating matched synthetic data...")
+print("\n📊 Generating matched synthetic data...")
 fitter = RealDataFitter()
 params = fitter.fit(X_real, wavelengths=wavelengths)
 
 print(f"   Fitted complexity: {params.complexity}")
 print(f"   Wavelength range: {params.wavelength_start:.0f}-{params.wavelength_end:.0f} nm")
-
 
 # =============================================================================
 # Section 7: Large-Scale Generation Performance
@@ -327,7 +320,6 @@ for n_samples in [100, 1000, 5000, 10000]:
     rate = n_samples / elapsed
 
     print(f"   {n_samples:<12} {elapsed:>8.3f}s {rate:>12,.0f}/s")
-
 
 # =============================================================================
 # Section 8: Visualization
@@ -371,7 +363,7 @@ bars = ax2.bar(complexities, times_ms, color=['green', 'blue', 'red'])
 ax2.set_xlabel("Complexity Level")
 ax2.set_ylabel("Generation Time (ms)")
 ax2.set_title("Generation Time by Complexity (100 samples)")
-for bar, t in zip(bars, times_ms):
+for bar, t in zip(bars, times_ms, strict=False):
     ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
              f'{t:.1f}ms', ha='center', va='bottom')
 ax2.grid(True, alpha=0.3, axis='y')
@@ -404,7 +396,6 @@ plt.tight_layout()
 plot_path = get_example_output_path(EXAMPLE_NAME, "testing_integration_overview.png")
 plt.savefig(plot_path, dpi=150, bbox_inches="tight")
 print_output_location(plot_path, "Testing overview plot")
-
 
 # =============================================================================
 # Summary

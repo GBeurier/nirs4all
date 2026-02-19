@@ -18,24 +18,22 @@ Note:
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from enum import Enum, StrEnum
+from typing import Any, Optional, Union
 
 import numpy as np
-
 
 # ============================================================================
 # Backend Detection
 # ============================================================================
 
-
-class AcceleratorBackend(str, Enum):
+class AcceleratorBackend(StrEnum):
     """Available acceleration backends."""
     JAX = "jax"
     CUPY = "cupy"
     NUMPY = "numpy"  # CPU fallback
-
 
 def _check_jax_available() -> bool:
     """Check if JAX with GPU is available."""
@@ -50,7 +48,6 @@ def _check_jax_available() -> bool:
     except Exception:
         return False
 
-
 def _check_cupy_available() -> bool:
     """Check if CuPy is available."""
     try:
@@ -62,7 +59,6 @@ def _check_cupy_available() -> bool:
         return False
     except Exception:
         return False
-
 
 def detect_best_backend() -> AcceleratorBackend:
     """
@@ -82,8 +78,7 @@ def detect_best_backend() -> AcceleratorBackend:
     else:
         return AcceleratorBackend.NUMPY
 
-
-def get_backend_info() -> Dict[str, Any]:
+def get_backend_info() -> dict[str, Any]:
     """
     Get detailed information about available backends.
 
@@ -114,11 +109,9 @@ def get_backend_info() -> Dict[str, Any]:
 
     return info
 
-
 # ============================================================================
 # Abstract Accelerator Interface
 # ============================================================================
-
 
 @dataclass
 class AcceleratedArrays:
@@ -150,7 +143,6 @@ class AcceleratedArrays:
     # Transfer
     to_numpy: Callable
 
-
 def _create_numpy_arrays() -> AcceleratedArrays:
     """Create NumPy-based array operations."""
     rng = np.random.default_rng()
@@ -174,7 +166,6 @@ def _create_numpy_arrays() -> AcceleratedArrays:
         random_uniform=lambda shape: rng.uniform(size=shape),
         to_numpy=lambda x: np.asarray(x),
     )
-
 
 def _create_jax_arrays(seed: int = 0) -> AcceleratedArrays:
     """Create JAX-based array operations."""
@@ -214,7 +205,6 @@ def _create_jax_arrays(seed: int = 0) -> AcceleratedArrays:
         to_numpy=lambda x: np.asarray(x),
     )
 
-
 def _create_cupy_arrays(seed: int = 0) -> AcceleratedArrays:
     """Create CuPy-based array operations."""
     import cupy as cp
@@ -241,9 +231,8 @@ def _create_cupy_arrays(seed: int = 0) -> AcceleratedArrays:
         to_numpy=lambda x: cp.asnumpy(x),
     )
 
-
 def create_accelerated_arrays(
-    backend: Optional[AcceleratorBackend] = None,
+    backend: AcceleratorBackend | None = None,
     seed: int = 0,
 ) -> AcceleratedArrays:
     """
@@ -266,11 +255,9 @@ def create_accelerated_arrays(
     else:
         return _create_numpy_arrays()
 
-
 # ============================================================================
 # Accelerated Generation Functions
 # ============================================================================
-
 
 def generate_voigt_profiles_accelerated(
     wavelengths: np.ndarray,
@@ -278,7 +265,7 @@ def generate_voigt_profiles_accelerated(
     amplitudes: np.ndarray,
     sigmas: np.ndarray,
     gammas: np.ndarray,
-    arrays: Optional[AcceleratedArrays] = None,
+    arrays: AcceleratedArrays | None = None,
 ) -> np.ndarray:
     """
     Generate Voigt profiles using GPU acceleration.
@@ -325,14 +312,13 @@ def generate_voigt_profiles_accelerated(
 
     return arrays.to_numpy(spectrum)
 
-
 def generate_spectra_batch_accelerated(
     n_samples: int,
     wavelengths: np.ndarray,
     component_spectra: np.ndarray,
     concentrations: np.ndarray,
     noise_level: float = 0.01,
-    arrays: Optional[AcceleratedArrays] = None,
+    arrays: AcceleratedArrays | None = None,
 ) -> np.ndarray:
     """
     Generate batch of spectra using GPU acceleration.
@@ -365,11 +351,9 @@ def generate_spectra_batch_accelerated(
 
     return arrays.to_numpy(X)
 
-
 # ============================================================================
 # High-Level Accelerated Generator
 # ============================================================================
-
 
 class AcceleratedGenerator:
     """
@@ -397,8 +381,8 @@ class AcceleratedGenerator:
 
     def __init__(
         self,
-        backend: Optional[AcceleratorBackend] = None,
-        random_state: Optional[int] = None,
+        backend: AcceleratorBackend | None = None,
+        random_state: int | None = None,
     ):
         self.backend = backend or detect_best_backend()
         self.random_state = random_state or 0
@@ -464,11 +448,9 @@ class AcceleratedGenerator:
             arrays=self.arrays,
         )
 
-
 # ============================================================================
 # Convenience Functions
 # ============================================================================
-
 
 def is_gpu_available() -> bool:
     """
@@ -482,7 +464,6 @@ def is_gpu_available() -> bool:
         ...     print("GPU acceleration enabled!")
     """
     return detect_best_backend() != AcceleratorBackend.NUMPY
-
 
 def get_acceleration_speedup_estimate(n_samples: int) -> float:
     """
@@ -509,13 +490,12 @@ def get_acceleration_speedup_estimate(n_samples: int) -> float:
     else:
         return 10.0  # Large batches benefit most
 
-
 def benchmark_backends(
     n_samples: int = 1000,
     n_wavelengths: int = 700,
     n_components: int = 5,
     n_trials: int = 5,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Benchmark available backends.
 

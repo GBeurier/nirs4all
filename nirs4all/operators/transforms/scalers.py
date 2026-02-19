@@ -4,11 +4,9 @@ import numpy as np
 import scipy
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import FunctionTransformer
-from sklearn.utils.validation import check_array, check_is_fitted, FLOAT_DTYPES
-
+from sklearn.utils.validation import FLOAT_DTYPES, check_array, check_is_fitted
 
 IdentityTransformer = FunctionTransformer
-
 
 class StandardNormalVariate(TransformerMixin, BaseEstimator):
     """Standard Normal Variate (SNV) transformation.
@@ -145,7 +143,6 @@ class StandardNormalVariate(TransformerMixin, BaseEstimator):
     def _more_tags(self):
         return {"allow_nan": False, "stateless": True}
 
-
 class LocalStandardNormalVariate(TransformerMixin, BaseEstimator):
     """Local Standard Normal Variate (LSNV).
 
@@ -206,10 +203,7 @@ class LocalStandardNormalVariate(TransformerMixin, BaseEstimator):
         w = self.window
         half = w // 2
 
-        if self.pad_mode == "constant":
-            pad_kwargs = dict(mode="constant", constant_values=self.constant_values)
-        else:
-            pad_kwargs = dict(mode=self.pad_mode)
+        pad_kwargs = {"mode": "constant", "constant_values": self.constant_values} if self.pad_mode == "constant" else {"mode": self.pad_mode}
 
         # pad along feature axis
         Xp = np.pad(X, ((0, 0), (half, half)), **pad_kwargs)
@@ -237,7 +231,6 @@ class LocalStandardNormalVariate(TransformerMixin, BaseEstimator):
 
     def _more_tags(self):
         return {"allow_nan": False, "stateless": True}
-
 
 class RobustStandardNormalVariate(TransformerMixin, BaseEstimator):
     """Robust Standard Normal Variate (RSNV).
@@ -297,7 +290,7 @@ class RobustStandardNormalVariate(TransformerMixin, BaseEstimator):
         X = check_array(X, dtype=FLOAT_DTYPES, copy=self.copy)
 
         # choose axis and keepdims for broadcasting
-        keep = dict(axis=self.axis, keepdims=True)
+        keep = {"axis": self.axis, "keepdims": True}
 
         if self.with_center:
             med = np.median(X, **keep)
@@ -316,10 +309,6 @@ class RobustStandardNormalVariate(TransformerMixin, BaseEstimator):
 
     def _more_tags(self):
         return {"allow_nan": False, "stateless": True}
-
-
-
-
 
 class Normalize(TransformerMixin, BaseEstimator):
     """Normalize spectrum using either custom range of linalg normalization
@@ -396,12 +385,12 @@ class Normalize(TransformerMixin, BaseEstimator):
         if self.user_defined and feature_range[0] > feature_range[1]:
             warnings.warn(
                 f"Minimum of desired feature range should be smaller than maximum. Got {feature_range}",
-                SyntaxWarning,
+                SyntaxWarning, stacklevel=2,
             )
 
         if self.user_defined and feature_range[0] == feature_range[1]:
             raise ValueError(
-                "Feature range is not correctly defined. Got %s." % str(feature_range)
+                f"Feature range is not correctly defined. Got {str(feature_range)}."
             )
 
         if scipy.sparse.issparse(X):
@@ -474,7 +463,6 @@ class Normalize(TransformerMixin, BaseEstimator):
     def _more_tags(self):
         return {"allow_nan": False}
 
-
 def norml(spectra, feature_range=(-1, 1)):
     """
     Perform spectral normalization with user-defined limits.
@@ -500,7 +488,7 @@ def norml(spectra, feature_range=(-1, 1)):
             warnings.warn(
                 "Minimum of desired feature range should be smaller than maximum. "
                 f"Got {feature_range}.",
-                SyntaxWarning,
+                SyntaxWarning, stacklevel=2,
             )
         if imin == imax:
             raise ValueError(
@@ -517,7 +505,6 @@ def norml(spectra, feature_range=(-1, 1)):
         return np.transpose(arr)
     else:
         return spectra / np.linalg.norm(spectra, axis=0)
-
 
 class Derivate(TransformerMixin, BaseEstimator):
 
@@ -550,14 +537,13 @@ class Derivate(TransformerMixin, BaseEstimator):
         #     X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
         # )
 
-        for n in range(self.order):
+        for _ in range(self.order):
             X = np.gradient(X, self.delta, axis=0)
 
         return X
 
     def _more_tags(self):
         return {"allow_nan": False}
-
 
 def derivate(spectra, order=1, delta=1):
     """
@@ -577,10 +563,9 @@ def derivate(spectra, order=1, delta=1):
     spectra : numpy.ndarray
         Derived NIR spectra.
     """
-    for n in range(order):
+    for _ in range(order):
         spectra = np.gradient(spectra, delta, axis=0)
     return spectra
-
 
 class SimpleScale(TransformerMixin, BaseEstimator):
 
@@ -637,7 +622,6 @@ class SimpleScale(TransformerMixin, BaseEstimator):
 
     def _more_tags(self):
         return {"allow_nan": False}
-
 
 def spl_norml(spectra):
     """

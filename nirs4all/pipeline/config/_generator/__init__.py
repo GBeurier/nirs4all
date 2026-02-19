@@ -60,98 +60,100 @@ Architecture (Phase 4):
 """
 
 # Import core API
-from .core import expand_spec, count_combinations
+from .core import count_combinations, expand_spec
 
 # Import iterator API (Phase 4)
 from .iterator import (
-    expand_spec_iter,
     batch_iter,
+    expand_spec_iter,
     iter_with_progress,
 )
 
 # Import from keywords module
 from .keywords import (
-    # Constants - Core
-    OR_KEYWORD,
-    RANGE_KEYWORD,
-    LOG_RANGE_KEYWORD,
-    GRID_KEYWORD,
-    ZIP_KEYWORD,
+    ALL_KEYWORDS,
+    ARRANGE_KEYWORD,
     CHAIN_KEYWORD,
-    SAMPLE_KEYWORD,
+    CONSTRAINT_KEYWORDS,
     # Constants - Modifiers
     COUNT_KEYWORD,
-    SEED_KEYWORD,
-    WEIGHTS_KEYWORD,
-    # Constants - Selection
-    PICK_KEYWORD,
-    ARRANGE_KEYWORD,
-    THEN_PICK_KEYWORD,
-    THEN_ARRANGE_KEYWORD,
-    # Constants - Metadata
-    TAGS_KEYWORD,
-    METADATA_KEYWORD,
-    # Constants - Constraints
-    MUTEX_KEYWORD,
-    REQUIRES_KEYWORD,
     DEPENDS_ON_KEYWORD,
     EXCLUDE_KEYWORD,
     # Keyword groups
     GENERATION_KEYWORDS,
-    SELECTION_KEYWORDS,
-    MODIFIER_KEYWORDS,
+    GRID_KEYWORD,
+    LOG_RANGE_KEYWORD,
+    METADATA_KEYWORD,
     METADATA_KEYWORDS,
-    CONSTRAINT_KEYWORDS,
-    ALL_KEYWORDS,
+    MODIFIER_KEYWORDS,
+    # Constants - Constraints
+    MUTEX_KEYWORD,
+    # Constants - Core
+    OR_KEYWORD,
+    # Constants - Selection
+    PICK_KEYWORD,
+    PURE_CHAIN_KEYS,
+    PURE_GRID_KEYS,
+    PURE_LOG_RANGE_KEYS,
     PURE_OR_KEYS,
     PURE_RANGE_KEYS,
-    PURE_LOG_RANGE_KEYS,
-    PURE_GRID_KEYS,
-    PURE_ZIP_KEYS,
-    PURE_CHAIN_KEYS,
     PURE_SAMPLE_KEYS,
-    # Functions - Detection
-    is_generator_node,
-    is_pure_or_node,
-    is_pure_range_node,
-    is_pure_log_range_node,
-    is_pure_grid_node,
-    is_pure_zip_node,
-    is_pure_chain_node,
-    is_pure_sample_node,
-    has_or_keyword,
-    has_range_keyword,
-    has_log_range_keyword,
-    has_grid_keyword,
-    has_zip_keyword,
-    has_chain_keyword,
-    has_sample_keyword,
+    PURE_ZIP_KEYS,
+    RANGE_KEYWORD,
+    REQUIRES_KEYWORD,
+    SAMPLE_KEYWORD,
+    SEED_KEYWORD,
+    SELECTION_KEYWORDS,
+    # Constants - Metadata
+    TAGS_KEYWORD,
+    THEN_ARRANGE_KEYWORD,
+    THEN_PICK_KEYWORD,
+    WEIGHTS_KEYWORD,
+    ZIP_KEYWORD,
+    extract_base_node,
+    extract_constraints,
+    extract_metadata,
     # Functions - Extraction
     extract_modifiers,
-    extract_base_node,
     extract_or_choices,
     extract_range_spec,
     extract_tags,
-    extract_metadata,
-    extract_constraints,
+    has_chain_keyword,
+    has_grid_keyword,
+    has_log_range_keyword,
+    has_or_keyword,
+    has_range_keyword,
+    has_sample_keyword,
+    has_zip_keyword,
+    # Functions - Detection
+    is_generator_node,
+    is_pure_chain_node,
+    is_pure_grid_node,
+    is_pure_log_range_node,
+    is_pure_or_node,
+    is_pure_range_node,
+    is_pure_sample_node,
+    is_pure_zip_node,
+)
+from .utils import (
+    count_combinations as count_combs,  # Renamed to avoid conflict
 )
 
 # Import utilities
 from .utils import (
-    sample_with_seed,
-    shuffle_with_seed,
-    random_choice_with_seed,
-    generate_combinations,
-    generate_combinations_range,
-    generate_permutations,
-    generate_cartesian_product,
-    count_combinations as count_combs,  # Renamed to avoid conflict
     count_combinations_range,
     count_permutations,
     count_permutations_range,
-    normalize_size_spec,
-    is_nested_size_spec,
     expand_combination_cartesian,
+    generate_cartesian_product,
+    generate_combinations,
+    generate_combinations_range,
+    generate_permutations,
+    is_nested_size_spec,
+    normalize_size_spec,
+    random_choice_with_seed,
+    sample_with_seed,
+    shuffle_with_seed,
 )
 
 __all__ = [
@@ -245,18 +247,18 @@ __all__ = [
 
 # Import strategy-related exports
 from .strategies import (
+    ChainStrategy,
     ExpansionStrategy,
-    get_strategy,
-    register_strategy,
-    # Phase 2 strategies
-    RangeStrategy,
-    OrStrategy,
+    GridStrategy,
     # Phase 3 strategies
     LogRangeStrategy,
-    GridStrategy,
-    ZipStrategy,
-    ChainStrategy,
+    OrStrategy,
+    # Phase 2 strategies
+    RangeStrategy,
     SampleStrategy,
+    ZipStrategy,
+    get_strategy,
+    register_strategy,
 )
 
 __all__ += [
@@ -280,9 +282,9 @@ from .validators import (
     ValidationError,
     ValidationResult,
     ValidationSeverity,
-    validate_spec,
     validate_config,
     validate_expanded_configs,
+    validate_spec,
 )
 
 __all__ += [
@@ -297,10 +299,10 @@ __all__ += [
 
 # Import constraints (Phase 4)
 from .constraints import (
+    apply_all_constraints,
+    apply_exclude_constraint,
     apply_mutex_constraint,
     apply_requires_constraint,
-    apply_exclude_constraint,
-    apply_all_constraints,
     parse_constraints,
     validate_constraints,
 )
@@ -318,19 +320,19 @@ __all__ += [
 # Import presets (Phase 4)
 from .presets import (
     PRESET_KEYWORD,
-    register_preset,
-    unregister_preset,
+    clear_presets,
+    export_presets,
     get_preset,
     get_preset_info,
-    list_presets,
-    clear_presets,
     has_preset,
+    import_presets,
     is_preset_reference,
+    list_presets,
+    register_builtin_presets,
+    register_preset,
     resolve_preset,
     resolve_presets_recursive,
-    export_presets,
-    import_presets,
-    register_builtin_presets,
+    unregister_preset,
 )
 
 __all__ += [
@@ -353,13 +355,13 @@ __all__ += [
 
 # Import export utilities (Phase 4)
 from .utils.export import (
-    to_dataframe,
+    ExpansionTreeNode,
     diff_configs,
-    summarize_configs,
+    format_config_table,
     get_expansion_tree,
     print_expansion_tree,
-    format_config_table,
-    ExpansionTreeNode,
+    summarize_configs,
+    to_dataframe,
 )
 
 __all__ += [

@@ -1,9 +1,9 @@
 """
 Simple spinner utility for showing loading progress during long operations.
 """
+import sys
 import threading
 import time
-import sys
 from contextlib import contextmanager
 from typing import Optional
 
@@ -28,7 +28,7 @@ class Spinner:
         self.speed = speed
         self.idx = 0
         self.running = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
     def _spin(self):
         """Internal method to handle spinning animation."""
@@ -56,7 +56,6 @@ class Spinner:
             # Clear the spinner line and add newline for next output
             sys.stdout.write('\r' + ' ' * (len(self.message) + 2) + '\r\n')
             sys.stdout.flush()
-
 
 @contextmanager
 def spinner_context(message: str = "Processing", chars: str = nice_spinner_chars, speed: float = 0.1):

@@ -1,17 +1,18 @@
 """
 ConfusionMatrixChart - Confusion matrix visualizations for classification models.
 """
-import numpy as np
+from typing import TYPE_CHECKING, Optional, Union
+
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.figure import Figure
-from typing import Optional, Union, List, TYPE_CHECKING
 from sklearn.metrics import confusion_matrix as sk_confusion_matrix
-from nirs4all.visualization.charts.base import BaseChart
+
 from nirs4all.core.metrics import abbreviate_metric
+from nirs4all.visualization.charts.base import BaseChart
 
 if TYPE_CHECKING:
     from nirs4all.visualization.predictions import PredictionAnalyzer
-
 
 class ConfusionMatrixChart(BaseChart):
     """Confusion matrix visualizations for classification models.
@@ -23,7 +24,7 @@ class ConfusionMatrixChart(BaseChart):
     def __init__(
         self,
         predictions,
-        dataset_name_override: Optional[str] = None,
+        dataset_name_override: str | None = None,
         config=None,
         analyzer: Optional['PredictionAnalyzer'] = None
     ):
@@ -37,7 +38,7 @@ class ConfusionMatrixChart(BaseChart):
         """
         super().__init__(predictions, dataset_name_override, config, analyzer=analyzer)
 
-    def validate_inputs(self, k: int, rank_metric: Optional[str], **kwargs) -> None:
+    def validate_inputs(self, k: int, rank_metric: str | None, **kwargs) -> None:
         """Validate confusion matrix inputs.
 
         Args:
@@ -53,13 +54,13 @@ class ConfusionMatrixChart(BaseChart):
         if rank_metric and not isinstance(rank_metric, str):
             raise ValueError("rank_metric must be a string")
 
-    def render(self, k: int = 5, rank_metric: Optional[str] = None,
-               rank_partition: str = 'val', display_metric: Union[str, List[str]] = '',
+    def render(self, k: int = 5, rank_metric: str | None = None,
+               rank_partition: str = 'val', display_metric: str | list[str] = '',
                display_partition: str = 'test', show_scores: bool = True,
-               dataset_name: Optional[str] = None,
-               figsize: Optional[tuple] = None,
-               aggregate: Optional[str] = None,
-               **filters) -> Union[Figure, List[Figure]]:
+               dataset_name: str | None = None,
+               figsize: tuple | None = None,
+               aggregate: str | None = None,
+               **filters) -> Figure | list[Figure]:
         """Plot confusion matrices for top K classification models per dataset.
 
         Models are ranked by the metric on rank_partition, then confusion matrices

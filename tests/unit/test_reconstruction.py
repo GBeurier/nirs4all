@@ -13,11 +13,9 @@ Tests the physical signal-chain reconstruction workflow components:
 import numpy as np
 import pytest
 
-
 # =============================================================================
 # Test Forward Model
 # =============================================================================
-
 
 class TestCanonicalForwardModel:
     """Tests for CanonicalForwardModel."""
@@ -87,7 +85,6 @@ class TestCanonicalForwardModel:
 
         expected_cols = 2 + 4 + 3  # components + baseline + continuum
         assert A.shape == (300, expected_cols)
-
 
 class TestInstrumentModel:
     """Tests for InstrumentModel."""
@@ -159,7 +156,6 @@ class TestInstrumentModel:
         # Should be smoother (lower max)
         assert result.max() < spectrum.max()
 
-
 class TestDomainTransform:
     """Tests for DomainTransform."""
 
@@ -202,7 +198,6 @@ class TestDomainTransform:
         # Should produce valid reflectance values (0-1)
         assert np.all(result >= 0)
         assert np.all(result <= 1)
-
 
 class TestPreprocessingOperator:
     """Tests for PreprocessingOperator."""
@@ -248,7 +243,6 @@ class TestPreprocessingOperator:
         assert abs(result.mean()) < 1e-10
         assert abs(result.std() - 1.0) < 1e-10
 
-
 class TestForwardChain:
     """Tests for ForwardChain."""
 
@@ -292,11 +286,9 @@ class TestForwardChain:
 
         assert result.shape == (200,)
 
-
 # =============================================================================
 # Test Calibration
 # =============================================================================
-
 
 class TestPrototypeSelector:
     """Tests for PrototypeSelector."""
@@ -332,7 +324,6 @@ class TestPrototypeSelector:
         # Median sample (index ~4 or 5) should be selected
         assert len(prototypes) > 0
 
-
 class TestGlobalCalibrator:
     """Tests for GlobalCalibrator."""
 
@@ -364,22 +355,20 @@ class TestGlobalCalibrator:
         assert isinstance(result.wl_shift, float)
         assert isinstance(result.ils_sigma, float)
 
-
 # =============================================================================
 # Test Inversion
 # =============================================================================
-
 
 class TestVariableProjectionSolver:
     """Tests for VariableProjectionSolver."""
 
     def test_fit_simple(self):
         """Test basic fitting."""
-        from nirs4all.synthesis.reconstruction.inversion import (
-            VariableProjectionSolver,
-            MultiscaleSchedule,
-        )
         from nirs4all.synthesis.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.inversion import (
+            MultiscaleSchedule,
+            VariableProjectionSolver,
+        )
 
         canonical_grid = np.linspace(1000, 2500, 200)
         target_grid = np.linspace(1100, 2400, 150)
@@ -421,7 +410,6 @@ class TestVariableProjectionSolver:
         assert d["path_length"] == 1.2
         assert d["r_squared"] == 0.95
 
-
 class TestMultiscaleSchedule:
     """Tests for MultiscaleSchedule."""
 
@@ -450,11 +438,9 @@ class TestMultiscaleSchedule:
 
         assert schedule.n_stages >= 4
 
-
 # =============================================================================
 # Test Distributions
 # =============================================================================
-
 
 class TestParameterDistributionFitter:
     """Tests for ParameterDistributionFitter."""
@@ -496,7 +482,6 @@ class TestParameterDistributionFitter:
 
         assert "shifts" in result.distributions
         assert result.distributions["shifts"]["type"] == "gaussian"
-
 
 class TestParameterSampler:
     """Tests for ParameterSampler."""
@@ -551,23 +536,21 @@ class TestParameterSampler:
             # Correlation should be somewhat preserved
             assert abs(samp_corr - orig_corr) < 0.5
 
-
 # =============================================================================
 # Test Generator
 # =============================================================================
-
 
 class TestReconstructionGenerator:
     """Tests for ReconstructionGenerator."""
 
     def test_generate_basic(self):
         """Test basic generation."""
-        from nirs4all.synthesis.reconstruction.generator import ReconstructionGenerator
-        from nirs4all.synthesis.reconstruction.forward import ForwardChain
         from nirs4all.synthesis.reconstruction.distributions import (
             ParameterDistributionFitter,
             ParameterSampler,
         )
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.generator import ReconstructionGenerator
 
         # Setup
         canonical_grid = np.linspace(1000, 2500, 200)
@@ -600,19 +583,17 @@ class TestReconstructionGenerator:
         assert result.X.shape == (10, 150)
         assert result.concentrations.shape[0] == 10
 
-
 # =============================================================================
 # Test Validation
 # =============================================================================
-
 
 class TestReconstructionValidator:
     """Tests for ReconstructionValidator."""
 
     def test_validate_reconstruction(self):
         """Test reconstruction validation."""
-        from nirs4all.synthesis.reconstruction.validation import ReconstructionValidator
         from nirs4all.synthesis.reconstruction.inversion import InversionResult
+        from nirs4all.synthesis.reconstruction.validation import ReconstructionValidator
 
         validator = ReconstructionValidator()
 
@@ -651,11 +632,9 @@ class TestReconstructionValidator:
         assert "mean_spectrum_correlation" in metrics
         assert metrics["mean_spectrum_correlation"] > 0.8  # Should be similar (relaxed threshold)
 
-
 # =============================================================================
 # Test Pipeline
 # =============================================================================
-
 
 class TestDatasetConfig:
     """Tests for DatasetConfig."""
@@ -685,7 +664,6 @@ class TestDatasetConfig:
 
         assert config.preprocessing in ("first_derivative", "second_derivative")
 
-
 class TestReconstructionPipeline:
     """Tests for ReconstructionPipeline."""
 
@@ -710,22 +688,20 @@ class TestReconstructionPipeline:
         # Should have selected dairy-related components
         assert len(pipeline.component_names) > 0
 
-
 # =============================================================================
 # Integration Tests
 # =============================================================================
-
 
 class TestIntegration:
     """Integration tests for the full workflow."""
 
     def test_full_workflow_synthetic_data(self):
         """Test full workflow on synthetic data."""
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
         from nirs4all.synthesis.reconstruction.pipeline import (
             DatasetConfig,
             ReconstructionPipeline,
         )
-        from nirs4all.synthesis.reconstruction.forward import ForwardChain
 
         # Generate synthetic "real" data
         canonical_grid = np.linspace(950, 2550, 320)
@@ -776,11 +752,9 @@ class TestIntegration:
         mean_r2 = np.mean([r.r_squared for r in result.inversion_results])
         assert mean_r2 > 0.5, f"Mean R² too low: {mean_r2}"
 
-
 # =============================================================================
 # Test Environmental Effects
 # =============================================================================
-
 
 class TestEnvironmentalEffectsModel:
     """Tests for EnvironmentalEffectsModel."""
@@ -895,7 +869,6 @@ class TestEnvironmentalEffectsModel:
         assert d["scattering_power"] == 1.8
         assert d["scattering_amplitude"] == 0.05
 
-
 class TestEnvironmentalParameterConfig:
     """Tests for EnvironmentalParameterConfig."""
 
@@ -911,7 +884,6 @@ class TestEnvironmentalParameterConfig:
         assert config.water_activity_bounds == (0.1, 0.9)
         assert config.scattering_power_bounds == (0.5, 3.0)
         assert config.scattering_amplitude_bounds == (0.0, 0.2)
-
 
 class TestForwardChainWithEnvironmental:
     """Tests for ForwardChain with environmental model."""
@@ -955,10 +927,10 @@ class TestForwardChainWithEnvironmental:
 
     def test_forward_with_environmental(self):
         """Test forward model applies environmental effects."""
-        from nirs4all.synthesis.reconstruction.forward import ForwardChain
         from nirs4all.synthesis.reconstruction.environmental import (
             EnvironmentalEffectsModel,
         )
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
 
         canonical_grid = np.linspace(1000, 2500, 300)
         target_grid = np.linspace(1100, 2400, 200)
@@ -995,7 +967,6 @@ class TestForwardChainWithEnvironmental:
         # Environmental effects should change the spectrum
         assert not np.allclose(result_no_env, result_with_env)
 
-
 class TestInversionWithEnvironmental:
     """Tests for inversion with environmental parameters."""
 
@@ -1021,11 +992,11 @@ class TestInversionWithEnvironmental:
 
     def test_solver_fit_environmental(self):
         """Test solver with environmental fitting enabled."""
-        from nirs4all.synthesis.reconstruction.inversion import (
-            VariableProjectionSolver,
-            MultiscaleSchedule,
-        )
         from nirs4all.synthesis.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.inversion import (
+            MultiscaleSchedule,
+            VariableProjectionSolver,
+        )
 
         canonical_grid = np.linspace(1000, 2500, 200)
         target_grid = np.linspace(1100, 2400, 150)
@@ -1061,7 +1032,6 @@ class TestInversionWithEnvironmental:
         assert result.scattering_amplitude is not None
         assert result.r_squared > 0.3  # Should fit somewhat
 
-
 class TestGeneratorWithEnvironmental:
     """Tests for generator with environmental parameters."""
 
@@ -1089,12 +1059,12 @@ class TestGeneratorWithEnvironmental:
 
     def test_generate_with_environmental(self):
         """Test generation with environmental parameters."""
-        from nirs4all.synthesis.reconstruction.generator import ReconstructionGenerator
-        from nirs4all.synthesis.reconstruction.forward import ForwardChain
         from nirs4all.synthesis.reconstruction.distributions import (
             ParameterDistributionFitter,
             ParameterSampler,
         )
+        from nirs4all.synthesis.reconstruction.forward import ForwardChain
+        from nirs4all.synthesis.reconstruction.generator import ReconstructionGenerator
 
         canonical_grid = np.linspace(1000, 2500, 200)
         target_grid = np.linspace(1100, 2400, 150)
@@ -1139,7 +1109,6 @@ class TestGeneratorWithEnvironmental:
         assert result.water_activities is not None
         assert result.scattering_powers is not None
         assert result.scattering_amplitudes is not None
-
 
 class TestPipelineWithEnvironmental:
     """Tests for pipeline with environmental fitting."""

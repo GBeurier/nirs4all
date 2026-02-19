@@ -7,15 +7,16 @@ This module verifies that users can:
 4. Have proper priority-based keyword resolution
 """
 
+from typing import Any, Optional
+
 import pytest
-from typing import Any, List, Tuple, Optional
 
 from nirs4all.controllers.controller import OperatorController
-from nirs4all.controllers.registry import register_controller, reset_registry, CONTROLLER_REGISTRY
-from nirs4all.pipeline.steps.parser import StepParser, ParsedStep, StepType
-from nirs4all.pipeline.steps.router import ControllerRouter
+from nirs4all.controllers.registry import CONTROLLER_REGISTRY, register_controller, reset_registry
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.config.context import ExecutionContext
+from nirs4all.pipeline.steps.parser import ParsedStep, StepParser, StepType
+from nirs4all.pipeline.steps.router import ControllerRouter
 
 
 class TestCustomKeywordExtraction:
@@ -110,7 +111,6 @@ class TestCustomKeywordExtraction:
 
         assert parsed.keyword == "my_scaler"
         assert parsed.operator is not None
-
 
 class TestCustomControllerRegistration:
     """Test that custom controllers can be registered and discovered."""
@@ -217,7 +217,6 @@ class TestCustomControllerRegistration:
 
         # Should not increase count
         assert count_before == count_after == 1
-
 
 class TestCustomControllerRouting:
     """Test that custom controllers are properly routed to."""
@@ -339,7 +338,6 @@ class TestCustomControllerRouting:
         controller = router.route(parsed, step)
         assert isinstance(controller, VerboseTestController)
 
-
 class TestCustomControllerExecution:
     """Test that custom controllers execute correctly in pipeline context."""
 
@@ -378,9 +376,10 @@ class TestCustomControllerExecution:
                 received_info['operator'] = step_info.operator
                 return context, []
 
-        from nirs4all.pipeline.steps.step_runner import StepRunner
-        from nirs4all.pipeline.config.context import RuntimeContext
         import numpy as np
+
+        from nirs4all.pipeline.config.context import RuntimeContext
+        from nirs4all.pipeline.steps.step_runner import StepRunner
 
         # Create minimal dataset
         dataset = SpectroDataset(name="test")
@@ -421,9 +420,10 @@ class TestCustomControllerExecution:
                 new_context.custom["my_custom_data"] = "modified_value"
                 return new_context, []
 
-        from nirs4all.pipeline.steps.step_runner import StepRunner
-        from nirs4all.pipeline.config.context import RuntimeContext
         import numpy as np
+
+        from nirs4all.pipeline.config.context import RuntimeContext
+        from nirs4all.pipeline.steps.step_runner import StepRunner
 
         dataset = SpectroDataset(name="test")
         dataset.add_samples(np.random.rand(10, 100))
@@ -464,9 +464,10 @@ class TestCustomControllerExecution:
                        source=-1, mode="train", loaded_binaries=None, prediction_store=None):
                 raise RuntimeError("Should not be called in predict mode!")
 
-        from nirs4all.pipeline.steps.step_runner import StepRunner
-        from nirs4all.pipeline.config.context import RuntimeContext
         import numpy as np
+
+        from nirs4all.pipeline.config.context import RuntimeContext
+        from nirs4all.pipeline.steps.step_runner import StepRunner
 
         dataset = SpectroDataset(name="test")
         dataset.add_samples(np.random.rand(10, 100))
@@ -483,7 +484,6 @@ class TestCustomControllerExecution:
 
         # Should return unchanged context (step was skipped)
         assert result.updated_context == context
-
 
 class TestKeywordPrioritization:
     """Test priority system for keyword resolution."""
@@ -545,7 +545,6 @@ class TestKeywordPrioritization:
         # Should treat as serialized, not workflow
         assert parsed.step_type == StepType.SERIALIZED
         assert parsed.keyword == "class"
-
 
 class TestRealWorldCustomControllerScenarios:
     """Test realistic scenarios for custom controller usage."""

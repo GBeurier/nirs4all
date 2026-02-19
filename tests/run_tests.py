@@ -4,9 +4,10 @@ Test runner script for dataset and indexer tests.
 This script provides convenient ways to run the test suite with different configurations.
 """
 
-import pytest
 import sys
 from pathlib import Path
+
+import pytest
 
 
 def run_all_tests():
@@ -31,7 +32,6 @@ def run_with_coverage():
     ]
     return pytest.main(test_args)
 
-
 def run_quick_tests():
     """Run a subset of quick tests for development."""
     test_args = [
@@ -42,7 +42,6 @@ def run_quick_tests():
         "-x"  # Stop on first failure
     ]
     return pytest.main(test_args)
-
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:

@@ -10,18 +10,19 @@ Tests cover:
 - Integration with TrainingSetReconstructor
 """
 
-import pytest
+from typing import Any
+from unittest.mock import MagicMock, Mock
+
 import numpy as np
-from unittest.mock import Mock, MagicMock
-from typing import Dict, List, Any
+import pytest
 
 from nirs4all.controllers.models.stacking.classification import (
-    StackingTaskType,
-    ClassificationInfo,
-    TaskTypeDetector,
     ClassificationFeatureExtractor,
+    ClassificationInfo,
     FeatureNameGenerator,
     MetaFeatureInfo,
+    StackingTaskType,
+    TaskTypeDetector,
     build_meta_feature_info,
 )
 
@@ -56,7 +57,6 @@ class TestStackingTaskType:
     def test_regression_n_classes_none(self):
         """Regression n_classes should be None."""
         assert StackingTaskType.REGRESSION.n_classes is None
-
 
 class TestClassificationInfo:
     """Test ClassificationInfo dataclass."""
@@ -140,13 +140,12 @@ class TestClassificationInfo:
         )
         assert info.get_n_features_per_model(use_proba=False) == 1
 
-
 class TestTaskTypeDetector:
     """Test TaskTypeDetector class."""
 
     def _create_mock_prediction_store(
         self,
-        predictions: List[Dict[str, Any]]
+        predictions: list[dict[str, Any]]
     ) -> Mock:
         """Create a mock prediction store with given predictions."""
         store = Mock()
@@ -227,7 +226,6 @@ class TestTaskTypeDetector:
         info = detector.detect(['NonexistentModel'], context)
 
         assert info.task_type == StackingTaskType.UNKNOWN
-
 
 class TestClassificationFeatureExtractor:
     """Test ClassificationFeatureExtractor class."""
@@ -352,7 +350,6 @@ class TestClassificationFeatureExtractor:
         extractor_multi = ClassificationFeatureExtractor(info_multi, use_proba=True)
         assert extractor_multi.get_n_features() == 5
 
-
 class TestFeatureNameGenerator:
     """Test FeatureNameGenerator class."""
 
@@ -447,7 +444,6 @@ class TestFeatureNameGenerator:
         assert len(mapping['ModelA']) == 3
         assert len(mapping['ModelB']) == 3
 
-
 class TestMetaFeatureInfo:
     """Test MetaFeatureInfo dataclass."""
 
@@ -495,7 +491,6 @@ class TestMetaFeatureInfo:
 
         assert model_importance['ModelA'] == pytest.approx(0.5)
         assert model_importance['ModelB'] == pytest.approx(0.5)
-
 
 class TestBuildMetaFeatureInfo:
     """Test build_meta_feature_info helper function."""
@@ -545,7 +540,6 @@ class TestBuildMetaFeatureInfo:
         assert info.get_model_for_feature('RF_proba_0') == 'RF'
         assert info.get_model_for_feature('RF_proba_1') == 'RF'
         assert info.get_model_for_feature('RF_proba_2') == 'RF'
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

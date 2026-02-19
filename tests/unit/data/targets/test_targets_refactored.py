@@ -209,8 +209,8 @@ class TestTargetsRefactoredIntegration:
 
     def test_task_type_update_on_discretization(self):
         """Test that task type is updated when processed targets change the task nature."""
-        from nirs4all.operators.transforms.targets import RangeDiscretizer
         from nirs4all.core.task_type import TaskType
+        from nirs4all.operators.transforms.targets import RangeDiscretizer
 
         # Start with regression data
         values = np.array([10.5, 15.2, 22.8, 28.3, 35.1, 42.9, 48.7])

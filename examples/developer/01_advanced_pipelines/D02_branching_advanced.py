@@ -35,22 +35,17 @@ from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate as SNV,
-    MultiplicativeScatterCorrection as MSC,
-    FirstDerivative,
-    SavitzkyGolay
-)
-from nirs4all.visualization.predictions import PredictionAnalyzer
+from nirs4all.operators.transforms import FirstDerivative, SavitzkyGolay
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 from nirs4all.visualization.analysis.branch import BranchAnalyzer, BranchSummary
-
+from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='D02 Branching Advanced Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Setup: Common Pipeline Run
@@ -89,7 +84,6 @@ result = nirs4all.run(
 
 predictions = result.predictions
 
-
 # =============================================================================
 # Section 1: BranchAnalyzer for Statistical Comparison
 # =============================================================================
@@ -115,7 +109,6 @@ summary = analyzer.summary(metrics=['rmse', 'r2'], partition='test')
 # Print as markdown table
 print(summary.to_markdown())
 
-
 # =============================================================================
 # Section 2: Branch Ranking
 # =============================================================================
@@ -135,7 +128,6 @@ print("\n🏆 Branch Rankings (lower RMSE is better):")
 for rank_info in rankings:
     print(f"  #{rank_info['rank']}: {rank_info['branch_name']} "
           f"(RMSE: {rank_info['rmse_mean']:.4f} ± {rank_info['rmse_std']:.4f})")
-
 
 # =============================================================================
 # Section 3: Pairwise Statistical Comparison
@@ -171,7 +163,6 @@ if len(branches) >= 2:
     except ValueError as e:
         print(f"  Could not compare: {e}")
 
-
 # =============================================================================
 # Section 4: Pairwise Comparison Matrix
 # =============================================================================
@@ -197,7 +188,6 @@ except ImportError:
 except Exception as e:
     print(f"Could not compute pairwise comparison: {e}")
 
-
 # =============================================================================
 # Section 5: LaTeX Export for Publications
 # =============================================================================
@@ -220,7 +210,6 @@ latex_output = summary.to_latex(
 print("\n📄 LaTeX Output:")
 print(latex_output)
 
-
 # =============================================================================
 # Section 6: CSV Export
 # =============================================================================
@@ -235,7 +224,6 @@ Path("reports").mkdir(exist_ok=True)
 summary_full = analyzer.summary(metrics=['rmse', 'r2', 'mae'], partition='test')
 summary_full.to_csv("reports/branch_summary.csv")
 print("📄 Exported branch summary to reports/branch_summary.csv")
-
 
 # =============================================================================
 # Section 7: Visualization with PredictionAnalyzer
@@ -272,7 +260,6 @@ if args.plots or args.show:
         display_partition='test'
     )
     print("Created branch boxplot")
-
 
 # =============================================================================
 # Summary

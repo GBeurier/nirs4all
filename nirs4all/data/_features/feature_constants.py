@@ -1,13 +1,11 @@
 """Constants and enums for feature management."""
 
-from enum import Enum
-from typing import Union
+from enum import Enum, StrEnum
 
 # Default processing identifier
 DEFAULT_PROCESSING = "raw"
 
-
-class FeatureLayout(str, Enum):
+class FeatureLayout(StrEnum):
     """Feature data layout formats.
 
     String values ensure backward compatibility with existing pipelines
@@ -18,8 +16,7 @@ class FeatureLayout(str, Enum):
     VOLUME_3D = "3d"                         # (samples, processings, features)
     VOLUME_3D_TRANSPOSE = "3d_transpose"     # (samples, features, processings)
 
-
-class HeaderUnit(str, Enum):
+class HeaderUnit(StrEnum):
     """Feature header unit types.
 
     Defines the type of measurement units used in feature headers.
@@ -30,11 +27,9 @@ class HeaderUnit(str, Enum):
     TEXT = "text"          # Text labels
     INDEX = "index"        # Numeric indices
 
-
 # Type aliases for backward compatibility
-LayoutType = Union[str, FeatureLayout]
-HeaderUnitType = Union[str, HeaderUnit]
-
+LayoutType = str | FeatureLayout
+HeaderUnitType = str | HeaderUnit
 
 def normalize_layout(layout: LayoutType) -> FeatureLayout:
     """Convert string layout to enum for backward compatibility.
@@ -55,8 +50,7 @@ def normalize_layout(layout: LayoutType) -> FeatureLayout:
         return FeatureLayout(layout)
     except ValueError:
         valid = [e.value for e in FeatureLayout]
-        raise ValueError(f"Invalid layout '{layout}'. Valid options: {valid}")
-
+        raise ValueError(f"Invalid layout '{layout}'. Valid options: {valid}") from None
 
 def normalize_header_unit(unit: HeaderUnitType) -> HeaderUnit:
     """Convert string header unit to enum.
@@ -77,4 +71,4 @@ def normalize_header_unit(unit: HeaderUnitType) -> HeaderUnit:
         return HeaderUnit(unit)
     except ValueError:
         valid = [e.value for e in HeaderUnit]
-        raise ValueError(f"Invalid header unit '{unit}'. Valid options: {valid}")
+        raise ValueError(f"Invalid header unit '{unit}'. Valid options: {valid}") from None

@@ -45,7 +45,6 @@ parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
-
 # =============================================================================
 # Introduction
 # =============================================================================
@@ -67,7 +66,6 @@ nirs4all integrates JAX models with:
   - nicon_jax: JAX implementation of nicon
 """)
 
-
 # =============================================================================
 # Check JAX Availability
 # =============================================================================
@@ -78,16 +76,15 @@ if not JAX_AVAILABLE:
     import sys
     sys.exit(0)
 
-import jax
-import jax.numpy as jnp
 import flax
 import flax.linen as nn
+import jax
+import jax.numpy as jnp
 
 print(f"\n✓ JAX {jax.__version__} available")
 print(f"✓ Flax {flax.__version__} available")
 devices = jax.devices()
 print(f"  Devices: {[str(d) for d in devices]}")
-
 
 # =============================================================================
 # Section 1: JaxMLPRegressor - Built-in Architecture
@@ -143,7 +140,6 @@ result = nirs4all.run(
 print(f"\nJaxMLPRegressor predictions: {result.num_predictions}")
 print(f"Best score: {result.best_score:.4f}")
 
-
 # =============================================================================
 # Section 2: JIT Compilation Benefits
 # =============================================================================
@@ -190,11 +186,10 @@ for _ in range(100):
     _ = fast_fn(x).block_until_ready()
 fast_time = time.time() - t0
 
-print(f"\nBenchmark (100 calls):")
+print("\nBenchmark (100 calls):")
 print(f"  Without JIT: {slow_time*1000:.1f} ms")
 print(f"  With JIT:    {fast_time*1000:.1f} ms")
 print(f"  Speedup:     {slow_time/max(fast_time, 0.001):.1f}x")
-
 
 # =============================================================================
 # Section 3: nicon_jax - JAX Implementation
@@ -250,7 +245,6 @@ result = nirs4all.run(
 print(f"\nnicon_jax predictions: {result.num_predictions}")
 print(f"Best score: {result.best_score:.4f}")
 
-
 # =============================================================================
 # Section 4: Model Comparison via Branching
 # =============================================================================
@@ -290,7 +284,6 @@ print(f"\nModel comparison predictions: {result.num_predictions}")
 branches = result.predictions.get_unique_values('branch_name')
 print(f"Branches: {branches}")
 
-
 # =============================================================================
 # Section 5: Functional Transformations
 # =============================================================================
@@ -324,7 +317,6 @@ results = batch_predict(batch)
 print(f"\nvmap example: processed batch of {batch.shape[0]} samples")
 print(f"  Output shape: {results.shape}")
 
-
 # =============================================================================
 # Section 6: Device Management
 # =============================================================================
@@ -344,7 +336,6 @@ JAX device management:
 
 print(f"\nAvailable devices: {jax.devices()}")
 print(f"Default backend: {jax.default_backend()}")
-
 
 # =============================================================================
 # Summary

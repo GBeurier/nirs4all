@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 from scipy.interpolate import interp1d
@@ -77,7 +77,6 @@ class DetectorSpectralResponse:
         )
         return interp_func(wavelengths)
 
-
 def _create_silicon_response() -> DetectorSpectralResponse:
     """Create silicon detector spectral response."""
     wl = np.array([350, 400, 500, 600, 700, 800, 900, 1000, 1050, 1100, 1150])
@@ -92,7 +91,6 @@ def _create_silicon_response() -> DetectorSpectralResponse:
         short_cutoff=350,
         peak_qe=0.85
     )
-
 
 def _create_ingaas_response() -> DetectorSpectralResponse:
     """Create InGaAs detector spectral response."""
@@ -109,7 +107,6 @@ def _create_ingaas_response() -> DetectorSpectralResponse:
         peak_qe=0.92
     )
 
-
 def _create_ingaas_extended_response() -> DetectorSpectralResponse:
     """Create extended InGaAs detector spectral response."""
     wl = np.array([850, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400, 2500, 2600])
@@ -124,7 +121,6 @@ def _create_ingaas_extended_response() -> DetectorSpectralResponse:
         short_cutoff=850,
         peak_qe=0.80
     )
-
 
 def _create_pbs_response() -> DetectorSpectralResponse:
     """Create PbS detector spectral response."""
@@ -141,7 +137,6 @@ def _create_pbs_response() -> DetectorSpectralResponse:
         peak_qe=0.85
     )
 
-
 def _create_pbse_response() -> DetectorSpectralResponse:
     """Create PbSe detector spectral response."""
     wl = np.array([1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5200])
@@ -156,7 +151,6 @@ def _create_pbse_response() -> DetectorSpectralResponse:
         short_cutoff=1500,
         peak_qe=0.80
     )
-
 
 def _create_mems_response() -> DetectorSpectralResponse:
     """Create MEMS-based detector spectral response (typically InGaAs-based)."""
@@ -173,7 +167,6 @@ def _create_mems_response() -> DetectorSpectralResponse:
         peak_qe=0.75
     )
 
-
 def _create_mct_response() -> DetectorSpectralResponse:
     """Create MCT (Mercury Cadmium Telluride) detector spectral response."""
     wl = np.array([2000, 3000, 4000, 5000, 6000, 8000, 10000, 12000, 14000])
@@ -189,10 +182,8 @@ def _create_mct_response() -> DetectorSpectralResponse:
         peak_qe=0.85
     )
 
-
 # Registry of detector spectral responses
-DETECTOR_RESPONSES: Dict[DetectorType, DetectorSpectralResponse] = {}
-
+DETECTOR_RESPONSES: dict[DetectorType, DetectorSpectralResponse] = {}
 
 def _register_detector_responses() -> None:
     """Register all detector spectral responses."""
@@ -208,9 +199,7 @@ def _register_detector_responses() -> None:
         DetectorType.MCT: _create_mct_response(),
     }
 
-
 _register_detector_responses()
-
 
 def get_detector_response(detector_type: DetectorType) -> DetectorSpectralResponse:
     """
@@ -223,7 +212,6 @@ def get_detector_response(detector_type: DetectorType) -> DetectorSpectralRespon
         DetectorSpectralResponse object.
     """
     return DETECTOR_RESPONSES[detector_type]
-
 
 # ============================================================================
 # Noise Models
@@ -259,7 +247,6 @@ class NoiseModelConfig:
     adc_bits: int = 16
     full_scale: float = 3.0  # AU
 
-
 @dataclass
 class DetectorConfig:
     """
@@ -283,7 +270,6 @@ class DetectorConfig:
     apply_response_curve: bool = True
     apply_nonlinearity: bool = False
     nonlinearity_coefficient: float = 0.02  # Quadratic term
-
 
 # Detector-specific default noise parameters
 DETECTOR_NOISE_DEFAULTS = {
@@ -331,7 +317,6 @@ DETECTOR_NOISE_DEFAULTS = {
     },
 }
 
-
 def get_default_noise_config(detector_type: DetectorType) -> NoiseModelConfig:
     """
     Get default noise model configuration for a detector type.
@@ -344,7 +329,6 @@ def get_default_noise_config(detector_type: DetectorType) -> NoiseModelConfig:
     """
     defaults = DETECTOR_NOISE_DEFAULTS.get(detector_type, {})
     return NoiseModelConfig(**defaults)
-
 
 # ============================================================================
 # Detector Simulator
@@ -369,8 +353,8 @@ class DetectorSimulator:
 
     def __init__(
         self,
-        config: Optional[DetectorConfig] = None,
-        random_state: Optional[int] = None
+        config: DetectorConfig | None = None,
+        random_state: int | None = None
     ) -> None:
         """
         Initialize the detector simulator.
@@ -470,10 +454,7 @@ class DetectorSimulator:
         result = spectra.copy()
 
         # Get wavelength-dependent noise scaling from response
-        if hasattr(self, '_response_noise_scaling'):
-            wl_noise_scale = self._response_noise_scaling
-        else:
-            wl_noise_scale = np.ones(n_wl)
+        wl_noise_scale = self._response_noise_scaling if hasattr(self, '_response_noise_scaling') else np.ones(n_wl)
 
         # Noise level based on integration time
         # Longer integration = lower noise (sqrt relationship)
@@ -587,7 +568,6 @@ class DetectorSimulator:
 
         return quantized + q_noise
 
-
 # ============================================================================
 # Convenience Functions
 # ============================================================================
@@ -598,7 +578,7 @@ def simulate_detector_effects(
     detector_type: DetectorType = DetectorType.INGAAS,
     include_response: bool = True,
     include_noise: bool = True,
-    random_state: Optional[int] = None
+    random_state: int | None = None
 ) -> np.ndarray:
     """
     Apply detector effects to spectra with simple API.
@@ -637,8 +617,7 @@ def simulate_detector_effects(
     simulator = DetectorSimulator(config, random_state)
     return simulator.apply(spectra, wavelengths)
 
-
-def get_detector_wavelength_range(detector_type: DetectorType) -> Tuple[float, float]:
+def get_detector_wavelength_range(detector_type: DetectorType) -> tuple[float, float]:
     """
     Get the effective wavelength range for a detector type.
 
@@ -651,8 +630,7 @@ def get_detector_wavelength_range(detector_type: DetectorType) -> Tuple[float, f
     response = get_detector_response(detector_type)
     return (response.short_cutoff, response.cutoff_wavelength)
 
-
-def list_detector_types() -> List[str]:
+def list_detector_types() -> list[str]:
     """
     List available detector types.
 
@@ -660,7 +638,6 @@ def list_detector_types() -> List[str]:
         List of detector type names.
     """
     return [dt.value for dt in DetectorType]
-
 
 # ============================================================================
 # Module-level exports

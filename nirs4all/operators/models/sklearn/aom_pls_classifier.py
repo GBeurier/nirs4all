@@ -81,7 +81,7 @@ class AOMPLSClassifier(BaseEstimator, ClassifierMixin):
         self.center = center
         self.scale = scale
 
-    def fit(self, X, y, X_val=None, y_val=None) -> "AOMPLSClassifier":
+    def fit(self, X, y, X_val=None, y_val=None) -> AOMPLSClassifier:
         """Fit the classifier.
 
         Parameters
@@ -116,10 +116,7 @@ class AOMPLSClassifier(BaseEstimator, ClassifierMixin):
         y_val_encoded = None
         if y_val is not None:
             y_v = np.asarray(y_val).ravel()
-            if n_classes == 2:
-                y_val_encoded = self.encoder_.transform(y_v).astype(np.float64)
-            else:
-                y_val_encoded = self.encoder_.transform(y_v.reshape(-1, 1))
+            y_val_encoded = self.encoder_.transform(y_v).astype(np.float64) if n_classes == 2 else self.encoder_.transform(y_v.reshape(-1, 1))
 
         self.aom_ = AOMPLSRegressor(
             n_components=self.n_components,
@@ -170,10 +167,7 @@ class AOMPLSClassifier(BaseEstimator, ClassifierMixin):
         X = np.asarray(X, dtype=np.float64)
         y_raw = self.aom_.predict(X)
         if len(self.classes_) == 2:
-            if y_raw.ndim == 1:
-                p1 = np.clip(y_raw, 0, 1)
-            else:
-                p1 = np.clip(y_raw.ravel(), 0, 1)
+            p1 = np.clip(y_raw, 0, 1) if y_raw.ndim == 1 else np.clip(y_raw.ravel(), 0, 1)
             return np.column_stack([1.0 - p1, p1])
         else:
             # Softmax normalization for calibrated probabilities
@@ -200,7 +194,7 @@ class AOMPLSClassifier(BaseEstimator, ClassifierMixin):
             "scale": self.scale,
         }
 
-    def set_params(self, **params) -> "AOMPLSClassifier":
+    def set_params(self, **params) -> AOMPLSClassifier:
         for key, value in params.items():
             setattr(self, key, value)
         return self

@@ -4,9 +4,12 @@ JAX Data Preparation
 This module handles JAX-specific data preparation and array formatting.
 """
 
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
+
 import numpy as np
+
 from nirs4all.utils.backend import require_backend
+
 
 class JaxDataPreparation:
     """Handles JAX-specific data preparation and array formatting."""
@@ -38,7 +41,7 @@ class JaxDataPreparation:
         return X_jax
 
     @staticmethod
-    def prepare_targets(y: Optional[np.ndarray]) -> Any:
+    def prepare_targets(y: np.ndarray | None) -> Any:
         """Prepare targets for JAX.
 
         Converts to float32 and ensures correct shape.
@@ -69,9 +72,9 @@ class JaxDataPreparation:
     @staticmethod
     def prepare_data(
         X: np.ndarray,
-        y: Optional[np.ndarray],
+        y: np.ndarray | None,
         context: Any = None
-    ) -> Tuple[Any, Optional[Any]]:
+    ) -> tuple[Any, Any | None]:
         """Prepare both features and targets for JAX.
 
         Args:

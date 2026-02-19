@@ -226,7 +226,6 @@ TABLE_NAMES: list[str] = [
     "projects",
 ]
 
-
 def _auto_migrate_prediction_arrays(conn: duckdb.DuckDBPyConnection, workspace_path: Path) -> None:
     """Auto-migrate legacy ``prediction_arrays`` table to Parquet sidecar files.
 
@@ -314,7 +313,6 @@ def _auto_migrate_prediction_arrays(conn: duckdb.DuckDBPyConnection, workspace_p
 
     conn.execute("DROP TABLE prediction_arrays")
     logger.info("Auto-migration complete. Dropped prediction_arrays table.")
-
 
 def _backfill_chain_summaries(conn: duckdb.DuckDBPyConnection) -> None:
     """Backfill chain summary columns from existing prediction data.
@@ -436,7 +434,6 @@ def _backfill_chain_summaries(conn: duckdb.DuckDBPyConnection) -> None:
                 [cid, json.dumps(averaged)],
             )
 
-
 def create_schema(conn: duckdb.DuckDBPyConnection, workspace_path: Path | None = None) -> None:
     """Create all tables, views, and indexes in the given DuckDB connection.
 
@@ -469,7 +466,6 @@ def create_schema(conn: duckdb.DuckDBPyConnection, workspace_path: Path | None =
         statement = statement.strip()
         if statement:
             conn.execute(statement)
-
 
 def _migrate_schema(conn: duckdb.DuckDBPyConnection, *, workspace_path: Path | None = None) -> None:
     """Apply incremental schema migrations to existing databases.

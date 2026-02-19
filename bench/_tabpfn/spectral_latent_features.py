@@ -36,16 +36,16 @@ Author: Auto-generated for NIRS4All project
 Date: 2024
 """
 
-import numpy as np
 import warnings
-from typing import Optional, List, Tuple, Union
+from typing import Optional, Union
+
+import numpy as np
+from scipy import signal
+from scipy.ndimage import gaussian_filter1d
+from scipy.stats import entropy, kurtosis, skew
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler, QuantileTransformer, PowerTransformer
-from scipy import signal
-from scipy.stats import skew, kurtosis, entropy
-from scipy.ndimage import gaussian_filter1d
-
+from sklearn.preprocessing import PowerTransformer, QuantileTransformer, StandardScaler
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -55,15 +55,13 @@ def _safe_log1p(x: np.ndarray) -> np.ndarray:
     """Safe log1p that handles negative values."""
     return np.sign(x) * np.log1p(np.abs(x))
 
-
 def _compute_entropy(x: np.ndarray, n_bins: int = 10) -> float:
     """Compute entropy of a 1D array."""
     hist, _ = np.histogram(x, bins=n_bins, density=True)
     hist = hist[hist > 0]
     return entropy(hist)
 
-
-def _robust_statistics(x: np.ndarray, axis: int = 1) -> Tuple[np.ndarray, ...]:
+def _robust_statistics(x: np.ndarray, axis: int = 1) -> tuple[np.ndarray, ...]:
     """Compute robust statistics along an axis."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -77,7 +75,6 @@ def _robust_statistics(x: np.ndarray, axis: int = 1) -> Tuple[np.ndarray, ...]:
         arr[~np.isfinite(arr)] = 0.0
 
     return mean, std, sk, kt
-
 
 # =============================================================================
 # FEATURE EXTRACTION MODULES
@@ -132,9 +129,8 @@ class _PCAModule:
         X_scaled = self.scaler_.transform(X)
         return self.pca_.transform(X_scaled)[:, :self.n_components_fitted_]
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         return [f"pca_{i}" for i in range(self.n_components_fitted_)]
-
 
 class _WaveletModule:
     """
@@ -167,7 +163,7 @@ class _WaveletModule:
             import pywt
             self._pywt_available = True
         except ImportError:
-            warnings.warn("pywt not available. Wavelet features will be skipped.")
+            warnings.warn("pywt not available. Wavelet features will be skipped.", stacklevel=2)
             self._pywt_available = False
             return self
 
@@ -240,9 +236,8 @@ class _WaveletModule:
 
         return np.array(features_list)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         return self.feature_names_
-
 
 class _FFTModule:
     """
@@ -349,9 +344,8 @@ class _FFTModule:
 
         return np.array(features_list)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         return self.feature_names_
-
 
 class _LocalStatsModule:
     """
@@ -424,10 +418,7 @@ class _LocalStatsModule:
                 x = np.arange(len(band_means))
                 slope = np.polyfit(x, band_means, 1)[0]
                 # Curvature (second derivative approximation)
-                if len(band_means) > 2:
-                    curvature = np.mean(np.diff(band_means, n=2))
-                else:
-                    curvature = 0.0
+                curvature = np.mean(np.diff(band_means, n=2)) if len(band_means) > 2 else 0.0
                 # Range ratio
                 range_ratio = (np.max(band_means) - np.min(band_means)) / (np.mean(band_means) + 1e-10)
             else:
@@ -438,9 +429,8 @@ class _LocalStatsModule:
 
         return np.array(features_list)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         return self.feature_names_
-
 
 class _DerivativeModule:
     """
@@ -533,9 +523,8 @@ class _DerivativeModule:
 
         return np.array(features_list)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         return self.feature_names_
-
 
 class _PeakModule:
     """
@@ -654,9 +643,8 @@ class _PeakModule:
 
         return np.array(features_list)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         return self.feature_names_
-
 
 class _ScatterModule:
     """
@@ -769,9 +757,8 @@ class _ScatterModule:
 
         return np.array(features_list)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         return self.feature_names_
-
 
 class _WaveletPCAModule:
     """
@@ -807,7 +794,7 @@ class _WaveletPCAModule:
             import pywt
             self._pywt_available = True
         except ImportError:
-            warnings.warn("pywt not available. Wavelet-PCA features will be skipped.")
+            warnings.warn("pywt not available. Wavelet-PCA features will be skipped.", stacklevel=2)
             self._pywt_available = False
             return self
 
@@ -868,9 +855,8 @@ class _WaveletPCAModule:
 
         return np.array(all_features)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         return self.feature_names_
-
 
 class _PLSModule:
     """
@@ -899,13 +885,13 @@ class _PLSModule:
 
     def fit(self, X: np.ndarray, y: np.ndarray = None) -> '_PLSModule':
         if y is None:
-            warnings.warn("PLS requires y for fitting. PLS features will be skipped.")
+            warnings.warn("PLS requires y for fitting. PLS features will be skipped.", stacklevel=2)
             return self
 
         try:
             from sklearn.cross_decomposition import PLSRegression
         except ImportError:
-            warnings.warn("sklearn PLSRegression not available.")
+            warnings.warn("sklearn PLSRegression not available.", stacklevel=2)
             return self
 
         n_samples, n_features = X.shape
@@ -933,9 +919,8 @@ class _PLSModule:
         X_scaled = self.scaler_.transform(X)
         return self.pls_.transform(X_scaled)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         return self.feature_names_
-
 
 class _NMFModule:
     """
@@ -970,7 +955,7 @@ class _NMFModule:
         try:
             from sklearn.decomposition import NMF
         except ImportError:
-            warnings.warn("sklearn NMF not available.")
+            warnings.warn("sklearn NMF not available.", stacklevel=2)
             return self
 
         n_samples, n_features = X.shape
@@ -1008,9 +993,8 @@ class _NMFModule:
         X_shifted = np.clip(X_shifted, 0, None)
         return self.nmf_.transform(X_shifted)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         return self.feature_names_
-
 
 class _BandAreaModule:
     """
@@ -1108,9 +1092,8 @@ class _BandAreaModule:
 
         return np.array(features_list)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         return self.feature_names_
-
 
 class _DiscretizationModule:
     """
@@ -1198,9 +1181,8 @@ class _DiscretizationModule:
 
         return np.array(features_list)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         return self.feature_names_
-
 
 # =============================================================================
 # MAIN TRANSFORMER CLASS
@@ -1339,7 +1321,7 @@ class SpectralLatentFeatures(BaseEstimator, TransformerMixin):
         area_include_ratios: bool = True,
         # Output normalization
         output_normalization: str = 'quantile',
-        random_state: Optional[int] = None
+        random_state: int | None = None
     ):
         # Module activation flags
         self.use_pca = use_pca
@@ -1734,7 +1716,6 @@ class SpectralLatentFeatures(BaseEstimator, TransformerMixin):
 
         return info
 
-
 # =============================================================================
 # LIGHTWEIGHT VERSION
 # =============================================================================
@@ -1757,7 +1738,7 @@ class SpectralLatentFeaturesLite(BaseEstimator, TransformerMixin):
         n_pca: int = 40,
         n_local_bands: int = 10,
         output_normalization: str = 'quantile',
-        random_state: Optional[int] = None
+        random_state: int | None = None
     ):
         self.n_pca = n_pca
         self.n_local_bands = n_local_bands
@@ -1819,7 +1800,6 @@ class SpectralLatentFeaturesLite(BaseEstimator, TransformerMixin):
     def get_feature_names_out(self, input_features=None) -> np.ndarray:
         return np.array(self.feature_names_out_, dtype=object)
 
-
 # =============================================================================
 # CONVENIENCE FUNCTIONS
 # =============================================================================
@@ -1828,7 +1808,7 @@ def create_tabpfn_features(
     X: np.ndarray,
     n_features: int = 300,
     normalization: str = 'quantile'
-) -> Tuple[np.ndarray, SpectralLatentFeatures]:
+) -> tuple[np.ndarray, SpectralLatentFeatures]:
     """
     Convenience function to quickly transform spectra for TabPFN.
 
@@ -1874,7 +1854,6 @@ def create_tabpfn_features(
 
     return X_transformed, transformer
 
-
 if __name__ == '__main__':
     # Quick test
     print("Testing SpectralLatentFeatures...")
@@ -1903,7 +1882,7 @@ if __name__ == '__main__':
     X_transformed = transformer.fit_transform(X)
     print(f"  Input shape: {X.shape}")
     print(f"  Output shape: {X_transformed.shape}")
-    print(f"  Module info:")
+    print("  Module info:")
     for name, info in transformer.get_module_info().items():
         if isinstance(info, dict):
             print(f"    {name}: {info['n_features']} features - {info['description']}")

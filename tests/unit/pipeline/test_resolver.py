@@ -5,15 +5,16 @@ Tests the PredictionResolver class for resolving various prediction sources
 to executable components.
 """
 
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from nirs4all.pipeline.resolver import (
+    FoldStrategy,
     PredictionResolver,
     ResolvedPrediction,
     SourceType,
-    FoldStrategy,
 )
 
 
@@ -35,7 +36,6 @@ class TestSourceType:
         assert str(SourceType.PREDICTION) == "prediction"
         assert str(SourceType.BUNDLE) == "bundle"
 
-
 class TestFoldStrategy:
     """Tests for FoldStrategy enum."""
 
@@ -44,7 +44,6 @@ class TestFoldStrategy:
         assert FoldStrategy.AVERAGE.value == "average"
         assert FoldStrategy.WEIGHTED_AVERAGE.value == "weighted_average"
         assert FoldStrategy.SINGLE.value == "single"
-
 
 class TestResolvedPrediction:
     """Tests for ResolvedPrediction dataclass."""
@@ -89,7 +88,6 @@ class TestResolvedPrediction:
         trace = ExecutionTrace(preprocessing_chain="SNV>SG")
         resolved.trace = trace
         assert resolved.get_preprocessing_chain() == "SNV>SG"
-
 
 class TestPredictionResolver:
     """Tests for PredictionResolver class."""
@@ -214,7 +212,6 @@ class TestPredictionResolver:
         with pytest.raises(ValueError, match="Invalid trace reference"):
             resolver._resolve_from_trace_id("invalid_trace")
 
-
 class TestPredictionResolverIntegration:
     """Integration tests for PredictionResolver with real files."""
 
@@ -222,6 +219,7 @@ class TestPredictionResolverIntegration:
     def setup_mock_run(self, tmp_path):
         """Set up a mock run directory with manifest."""
         import json
+
         import yaml
 
         workspace = tmp_path / "workspace"
@@ -295,7 +293,6 @@ class TestPredictionResolverIntegration:
         assert resolved.source_type == SourceType.PREDICTION
         assert resolved.pipeline_uid == "test_pipeline_abc123"
 
-
 class TestResolverDeterminism:
     """Determinism and resolution-mode contract tests."""
 
@@ -303,6 +300,7 @@ class TestResolverDeterminism:
     def workspace_with_runs(self, tmp_path):
         """Create workspace/runs layout for resolver tests."""
         import json
+
         import yaml
 
         workspace = tmp_path / "workspace"
@@ -456,7 +454,6 @@ class TestResolverDeterminism:
             with pytest.raises(FileNotFoundError, match="Store-only resolution failed"):
                 resolver.resolve(prediction, resolution_mode="store")
 
-
 class TestModelFileResolution:
     """Tests for MODEL_FILE source type resolution."""
 
@@ -477,8 +474,8 @@ class TestModelFileResolution:
     def sklearn_model_file(self, tmp_path):
         """Create a sklearn model saved to file."""
         import joblib
-        from sklearn.cross_decomposition import PLSRegression
         import numpy as np
+        from sklearn.cross_decomposition import PLSRegression
 
         model = PLSRegression(n_components=3)
         X = np.random.randn(20, 10)

@@ -1,8 +1,10 @@
 """
 ChartAnnotator - Helper for adding annotations to charts.
 """
+from typing import Any, Optional, Union
+
 import numpy as np
-from typing import Optional, List, Dict, Any, Union
+
 from nirs4all.visualization.charts.config import ChartConfig
 
 
@@ -16,7 +18,7 @@ class ChartAnnotator:
         config: ChartConfig instance for customization.
     """
 
-    def __init__(self, config: Optional[Union[ChartConfig, Dict[str, Any]]] = None):
+    def __init__(self, config: ChartConfig | dict[str, Any] | None = None):
         """Initialize annotator with config.
 
         Args:
@@ -34,8 +36,8 @@ class ChartAnnotator:
         matrix: np.ndarray,
         normalized_matrix: np.ndarray,
         count_matrix: np.ndarray,
-        x_labels: List,
-        y_labels: List,
+        x_labels: list,
+        y_labels: list,
         show_counts: bool = True,
         precision: int = 3
     ) -> None:
@@ -85,7 +87,7 @@ class ChartAnnotator:
     def add_statistics_box(
         self,
         ax,
-        values: List[float],
+        values: list[float],
         position: str = 'upper right',
         precision: int = 4
     ) -> None:
@@ -127,5 +129,5 @@ class ChartAnnotator:
 
         ax.text(x, y, stats_text, transform=ax.transAxes,
                 verticalalignment=va, horizontalalignment=ha,
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
+                bbox={'boxstyle': 'round', 'facecolor': 'wheat', 'alpha': 0.5},
                 fontsize=self.config.annotation_fontsize)

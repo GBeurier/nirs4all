@@ -1,11 +1,14 @@
-from typing import Sequence, Optional, Any
+from collections.abc import Sequence
+from typing import Any, Optional
+
 import flax.linen as nn
 import jax.numpy as jnp
+
 
 class JaxMLPRegressor(nn.Module):
     """Simple MLP Regressor using Flax."""
     features: Sequence[int]
-    input_shape: Optional[Any] = None  # Ignored, but kept for compatibility with factory
+    input_shape: Any | None = None  # Ignored, but kept for compatibility with factory
 
     @nn.compact
     def __call__(self, x, train: bool = False):
@@ -24,7 +27,7 @@ class JaxMLPClassifier(nn.Module):
     """Simple MLP Classifier using Flax."""
     features: Sequence[int]
     num_classes: int
-    input_shape: Optional[Any] = None # Ignored
+    input_shape: Any | None = None # Ignored
 
     @nn.compact
     def __call__(self, x, train: bool = False):

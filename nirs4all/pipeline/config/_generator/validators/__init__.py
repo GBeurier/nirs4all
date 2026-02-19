@@ -16,9 +16,9 @@ from .schema import (
     ValidationError,
     ValidationResult,
     ValidationSeverity,
-    validate_spec,
     validate_config,
     validate_expanded_configs,
+    validate_spec,
 )
 
 __all__ = [

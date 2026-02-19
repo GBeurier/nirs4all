@@ -30,32 +30,28 @@ import argparse
 import numpy as np
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import ShuffleSplit, GroupKFold
+from sklearn.model_selection import GroupKFold, ShuffleSplit
 
 # NIRS4All imports
 import nirs4all
 from nirs4all.operators.transforms import (
-    # Basic augmenters
-    Rotate_Translate,
     GaussianAdditiveNoise,
-    MultiplicativeNoise,
-
-    # Spline-based
-    Spline_Y_Perturbations,
-    Spline_X_Simplification,
-
     # Baseline augmenters
     LinearBaselineDrift,
+    # Advanced
+    MixupAugmenter,
+    MultiplicativeNoise,
     PolynomialBaselineDrift,
-
+    # Basic augmenters
+    Rotate_Translate,
+    ScatterSimulationMSC,
+    SmoothMagnitudeWarp,
+    Spline_X_Simplification,
+    # Spline-based
+    Spline_Y_Perturbations,
     # Wavelength augmenters
     WavelengthShift,
     WavelengthStretch,
-    SmoothMagnitudeWarp,
-
-    # Advanced
-    MixupAugmenter,
-    ScatterSimulationMSC,
 )
 
 # Parse command-line arguments
@@ -63,7 +59,6 @@ parser = argparse.ArgumentParser(description='U03 Sample Augmentation Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: What is Sample Augmentation?
@@ -105,7 +100,6 @@ Available Augmenters:
      MixupAugmenter         - Linear interpolation between samples
      ScatterSimulationMSC   - Simulate scatter effects
 """)
-
 
 # =============================================================================
 # Section 2: Basic Augmentation
@@ -152,7 +146,6 @@ result_basic = nirs4all.run(
 
 print(f"\nResult with augmentation: RMSE = {result_basic.best_rmse:.4f}")
 
-
 # =============================================================================
 # Section 3: Visualizing Augmentation Effects
 # =============================================================================
@@ -198,7 +191,6 @@ result_visual = nirs4all.run(
 
 print("Charts generated (use --plots to view)")
 
-
 # =============================================================================
 # Section 4: Balanced Augmentation for Classification
 # =============================================================================
@@ -238,7 +230,6 @@ result_balanced = nirs4all.run(
     verbose=1,
     plots_visible=args.plots
 )
-
 
 # =============================================================================
 # Section 5: Balanced Augmentation with Limits
@@ -296,7 +287,6 @@ result_maxfactor = nirs4all.run(
 accuracy_maxfactor = result_maxfactor.best_accuracy if hasattr(result_maxfactor, 'best_accuracy') and result_maxfactor.best_accuracy is not None else (1 - result_maxfactor.best_rmse if not np.isnan(result_maxfactor.best_rmse) else float('nan'))
 print(f"   max_factor=2.0 → Result: Accuracy = {100*accuracy_maxfactor:.1f}%" if not np.isnan(accuracy_maxfactor) else "   max_factor=2.0 → Result: (see detailed metrics)")
 
-
 # =============================================================================
 # Section 6: Regression Balancing with Binning
 # =============================================================================
@@ -339,7 +329,6 @@ result_reg_balanced = nirs4all.run(
 )
 
 print(f"\nBalanced regression augmentation: RMSE = {result_reg_balanced.best_rmse:.4f}")
-
 
 # =============================================================================
 # Section 7: Comprehensive Augmentation Example
@@ -388,7 +377,6 @@ result_comprehensive = nirs4all.run(
 )
 
 print(f"\nComprehensive augmentation: RMSE = {result_comprehensive.best_rmse:.4f}")
-
 
 # =============================================================================
 # Summary

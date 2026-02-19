@@ -30,7 +30,6 @@ def temp_workspace(tmp_path):
     workspace.mkdir()
     return workspace
 
-
 @pytest.fixture
 def regression_data():
     rng = np.random.RandomState(42)
@@ -39,7 +38,6 @@ def regression_data():
     X = rng.randn(n_samples, n_features)
     y = X[:, 0] * 2 + X[:, 1] * 0.5 + rng.randn(n_samples) * 0.1
     return X, y
-
 
 class TestFullPipelineWithParquetArrays:
     """nirs4all.run() → predictions.top() → arrays load correctly from Parquet."""

@@ -33,10 +33,10 @@ Example:
     ... }}
 """
 
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
-import warnings
+from typing import Any, Optional, Union
 
 
 class UnequelRepsStrategy(Enum):
@@ -56,7 +56,6 @@ class UnequelRepsStrategy(Enum):
     PAD = "pad"
     DROP = "drop"
     TRUNCATE = "truncate"
-
 
 @dataclass
 class RepetitionConfig:
@@ -121,11 +120,11 @@ class RepetitionConfig:
         ... )
     """
 
-    column: Optional[str] = None  # None = use dataset.aggregate
+    column: str | None = None  # None = use dataset.aggregate
     on_unequal: str = "error"
-    expected_reps: Optional[int] = None
-    source_names: Optional[Union[str, List[str]]] = None
-    pp_names: Optional[Union[str, List[str]]] = None
+    expected_reps: int | None = None
+    source_names: str | list[str] | None = None
+    pp_names: str | list[str] | None = None
     preserve_order: bool = True
     aggregate_metadata: str = "first"
 
@@ -141,11 +140,10 @@ class RepetitionConfig:
             )
 
         # Validate expected_reps
-        if self.expected_reps is not None:
-            if not isinstance(self.expected_reps, int) or self.expected_reps < 1:
-                raise ValueError(
-                    f"expected_reps must be a positive integer, got {self.expected_reps}"
-                )
+        if self.expected_reps is not None and (not isinstance(self.expected_reps, int) or self.expected_reps < 1):
+            raise ValueError(
+                f"expected_reps must be a positive integer, got {self.expected_reps}"
+            )
 
         # Validate aggregate_metadata
         valid_agg = ("first", "validate", "drop")
@@ -155,24 +153,22 @@ class RepetitionConfig:
             )
 
         # Validate source_names format
-        if isinstance(self.source_names, str):
-            if "{i}" not in self.source_names:
-                warnings.warn(
-                    f"source_names template '{self.source_names}' does not contain '{{i}}'. "
-                    "All sources will have the same name. Consider using 'rep_{{i}}' format.",
-                    UserWarning,
-                    stacklevel=2
-                )
+        if isinstance(self.source_names, str) and "{i}" not in self.source_names:
+            warnings.warn(
+                f"source_names template '{self.source_names}' does not contain '{{i}}'. "
+                "All sources will have the same name. Consider using 'rep_{{i}}' format.",
+                UserWarning,
+                stacklevel=2
+            )
 
         # Validate pp_names format
-        if isinstance(self.pp_names, str):
-            if "{i}" not in self.pp_names and "{pp}" not in self.pp_names:
-                warnings.warn(
-                    f"pp_names template '{self.pp_names}' does not contain '{{i}}' or '{{pp}}'. "
-                    "All preprocessings will have the same name.",
-                    UserWarning,
-                    stacklevel=2
-                )
+        if isinstance(self.pp_names, str) and "{i}" not in self.pp_names and "{pp}" not in self.pp_names:
+            warnings.warn(
+                f"pp_names template '{self.pp_names}' does not contain '{{i}}' or '{{pp}}'. "
+                "All preprocessings will have the same name.",
+                UserWarning,
+                stacklevel=2
+            )
 
     @property
     def is_y_grouping(self) -> bool:
@@ -192,7 +188,7 @@ class RepetitionConfig:
         """
         return self.column is None
 
-    def resolve_column(self, dataset_aggregate: Optional[str]) -> str:
+    def resolve_column(self, dataset_aggregate: str | None) -> str:
         """Resolve the actual column to use for grouping.
 
         Args:
@@ -266,7 +262,7 @@ class RepetitionConfig:
             return f"{original_pp}_rep{rep_index}"
         return f"{original_pp}_rep{rep_index}"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize configuration to dictionary.
 
         Returns:
@@ -291,7 +287,7 @@ class RepetitionConfig:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "RepetitionConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "RepetitionConfig":
         """Create config from dictionary.
 
         Args:
@@ -311,7 +307,7 @@ class RepetitionConfig:
         )
 
     @classmethod
-    def from_step_value(cls, value: Union[str, bool, Dict[str, Any], None]) -> "RepetitionConfig":
+    def from_step_value(cls, value: str | bool | dict[str, Any] | None) -> "RepetitionConfig":
         """Create config from step value (string, bool, or dict).
 
         Handles multiple syntax styles:
@@ -352,7 +348,6 @@ class RepetitionConfig:
                 f"Invalid repetition config type: {type(value).__name__}. "
                 f"Expected string (column name), True (use aggregate), or dict with configuration."
             )
-
 
 # Expose for imports
 __all__ = [

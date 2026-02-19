@@ -35,22 +35,21 @@ from sklearn.preprocessing import StandardScaler
 
 # NIRS4All imports
 import nirs4all
+from nirs4all.data.signal_type import SignalType, detect_signal_type
 from nirs4all.operators.transforms.signal_conversion import (
-    ToAbsorbance,
+    FractionToPercent,
     FromAbsorbance,
     KubelkaMunk,
     PercentToFraction,
-    FractionToPercent,
     SignalTypeConverter,
+    ToAbsorbance,
 )
-from nirs4all.data.signal_type import detect_signal_type, SignalType
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U04 Signal Conversion Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Signal Types Overview
@@ -84,7 +83,6 @@ Why convert?
   • Kubelka-Munk linearizes relationship for scattering samples
   • Standardize data from different instruments
 """)
-
 
 # =============================================================================
 # Section 2: Generate Sample Data
@@ -120,7 +118,6 @@ y = R[:, np.argmin(np.abs(wavelengths - 1940))] + np.random.normal(0, 0.02, n_sa
 print(f"Generated {n_samples} reflectance spectra")
 print(f"   R range: [{R.min():.3f}, {R.max():.3f}]")
 
-
 # =============================================================================
 # Section 3: Signal Type Detection
 # =============================================================================
@@ -134,7 +131,7 @@ nirs4all can automatically detect the signal type from data values.
 
 # Detect reflectance
 signal_type, confidence, reason = detect_signal_type(R)
-print(f"\nDetection on reflectance data:")
+print("\nDetection on reflectance data:")
 print(f"   Type: {signal_type.value}")
 print(f"   Confidence: {confidence:.1%}")
 print(f"   Reason: {reason}")
@@ -142,11 +139,10 @@ print(f"   Reason: {reason}")
 # Detect absorbance
 A = -np.log10(R)
 signal_type, confidence, reason = detect_signal_type(A)
-print(f"\nDetection on absorbance data:")
+print("\nDetection on absorbance data:")
 print(f"   Type: {signal_type.value}")
 print(f"   Confidence: {confidence:.1%}")
 print(f"   Reason: {reason}")
-
 
 # =============================================================================
 # Section 4: Basic Conversions
@@ -186,7 +182,6 @@ R_fraction = pct_to_frac.fit_transform(R_percent)
 print(f"   Input %R:  [{R_percent.min():.1f}, {R_percent.max():.1f}]")
 print(f"   Output R:  [{R_fraction.min():.4f}, {R_fraction.max():.4f}]")
 
-
 # =============================================================================
 # Section 5: Kubelka-Munk Transformation
 # =============================================================================
@@ -202,7 +197,7 @@ Formula: F(R) = (1-R)² / (2R)
 km = KubelkaMunk(source_type="reflectance")
 F_R = km.fit_transform(R)
 
-print(f"\nReflectance → Kubelka-Munk:")
+print("\nReflectance → Kubelka-Munk:")
 print(f"   Input R:    [{R.min():.4f}, {R.max():.4f}]")
 print(f"   Output F(R): [{F_R.min():.4f}, {F_R.max():.4f}]")
 
@@ -215,7 +210,6 @@ print(f"   Formula verification: error = {km_error:.2e} ✓")
 R_from_km = km.inverse_transform(F_R)
 km_roundtrip = np.abs(R_from_km - R).max()
 print(f"   Round-trip error: {km_roundtrip:.2e} ✓")
-
 
 # =============================================================================
 # Section 6: General-Purpose SignalTypeConverter
@@ -251,7 +245,6 @@ for src, tgt in conversions:
 
     X_out = converter.fit_transform(X_in)
     print(f"   {src:20s} → {tgt:15s}: [{X_out.min():.4f}, {X_out.max():.4f}]")
-
 
 # =============================================================================
 # Section 7: Using Converters in nirs4all Pipelines
@@ -317,7 +310,6 @@ print(f"   Reflectance:   RMSE = {rmse_r:.4f}" if not np.isnan(rmse_r) else "   
 print(f"   Absorbance:    RMSE = {rmse_a:.4f}" if not np.isnan(rmse_a) else "   Absorbance:    RMSE = (see detailed metrics)")
 print(f"   Kubelka-Munk:  RMSE = {rmse_km:.4f}" if not np.isnan(rmse_km) else "   Kubelka-Munk:  RMSE = (see detailed metrics)")
 
-
 # =============================================================================
 # Section 8: Signal Type Aliases
 # =============================================================================
@@ -342,7 +334,6 @@ aliases = {
 for signal_name, alias_list in aliases.items():
     aliases_str = ", ".join([f"'{a}'" for a in alias_list])
     print(f"   {signal_name}: {aliases_str}")
-
 
 # =============================================================================
 # Summary

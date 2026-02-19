@@ -26,6 +26,7 @@ Difficulty: ★★★★☆
 
 # Standard library imports
 import argparse
+
 import matplotlib.pyplot as plt
 
 # Third-party imports
@@ -35,29 +36,28 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import StandardNormalVariate, FirstDerivative
-from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.utils.backend import IKPLS_AVAILABLE
 
 # PLS operators from nirs4all
 from nirs4all.operators.models.sklearn import (
-    PLSDA,           # PLS Discriminant Analysis
-    IKPLS,           # Improved Kernel PLS (fast) - requires ikpls package
-    OPLS,            # Orthogonal PLS
-    OPLSDA,          # Orthogonal PLS-DA
-    SparsePLS,       # Sparse PLS for variable selection
-    SIMPLS,          # de Jong 1993 algorithm
+    IKPLS,  # Improved Kernel PLS (fast) - requires ikpls package
+    OPLS,  # Orthogonal PLS
+    OPLSDA,  # Orthogonal PLS-DA
+    PLSDA,  # PLS Discriminant Analysis
+    SIMPLS,  # de Jong 1993 algorithm
+    SparsePLS,  # Sparse PLS for variable selection
 )
 from nirs4all.operators.models.sklearn.ipls import IntervalPLS
-from nirs4all.operators.models.sklearn.robust_pls import RobustPLS
 from nirs4all.operators.models.sklearn.nlpls import KernelPLS
+from nirs4all.operators.models.sklearn.robust_pls import RobustPLS
+from nirs4all.operators.transforms import FirstDerivative, StandardNormalVariate
+from nirs4all.utils.backend import IKPLS_AVAILABLE
+from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U04 PLS Variants Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Overview of PLS Variants
@@ -96,7 +96,6 @@ Partial Least Squares (PLS) has many variants for different use cases:
      RobustPLS     - Outlier-resistant PLS
      KernelPLS     - Nonlinear PLS using kernels
 """)
-
 
 # =============================================================================
 # Section 2: Standard PLS vs IKPLS
@@ -145,7 +144,6 @@ print("\nPLS vs IKPLS comparison:")
 for pred in result_ikpls.top(10, display_metrics=['rmse', 'r2']):
     print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
-
 # =============================================================================
 # Section 3: OPLS - Orthogonal PLS
 # =============================================================================
@@ -189,7 +187,6 @@ print("\nOPLS results:")
 for pred in result_opls.top(5, display_metrics=['rmse', 'r2']):
     print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
-
 # =============================================================================
 # Section 4: SparsePLS - Variable Selection
 # =============================================================================
@@ -227,7 +224,6 @@ result_sparse = nirs4all.run(
 print("\nSparsePLS results:")
 for pred in result_sparse.top(5, display_metrics=['rmse', 'r2']):
     print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
-
 
 # =============================================================================
 # Section 5: IntervalPLS - Wavelength Regions
@@ -272,7 +268,6 @@ print("\nIntervalPLS results:")
 for pred in result_ipls.top(5, display_metrics=['rmse', 'r2']):
     print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
-
 # =============================================================================
 # Section 6: RobustPLS - Outlier Handling
 # =============================================================================
@@ -312,7 +307,6 @@ print("\nRobustPLS results:")
 for pred in result_robust.top(5, display_metrics=['rmse', 'r2']):
     print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
-
 # =============================================================================
 # Section 7: KernelPLS - Nonlinear PLS
 # =============================================================================
@@ -350,7 +344,6 @@ result_kernel = nirs4all.run(
 print("\nKernelPLS results:")
 for pred in result_kernel.top(5, display_metrics=['rmse', 'r2']):
     print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
-
 
 # =============================================================================
 # Section 8: Classification - PLSDA and OPLSDA
@@ -390,7 +383,6 @@ for pred in result_plsda.top(5, display_metrics=['rmse', 'r2']):
     model = pred.get('model_name', 'Unknown')
     accuracy = (1 - pred.get('rmse', 0)) * 100
     print(f"   {model}: Accuracy={accuracy:.1f}%")
-
 
 # =============================================================================
 # Section 9: Comprehensive Comparison
@@ -442,7 +434,6 @@ print("\nAll PLS variants ranked:")
 for i, pred in enumerate(result_all.top(10, display_metrics=['rmse', 'r2']), 1):
     print(f"   {i}. {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
-
 # =============================================================================
 # Section 10: Visualization
 # =============================================================================
@@ -454,12 +445,12 @@ if args.plots:
     if args.show:
         plt.show()
 
-
 # =============================================================================
 # Validation: Ensure all results are valid (no NaN metrics)
 # =============================================================================
-import sys
 import os
+import sys
+
 # Add examples dir to find example_utils
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from example_utils import validate_results
@@ -471,7 +462,6 @@ validate_results(
     names=["IKPLS", "OPLS", "SparsePLS", "IntervalPLS",
            "RobustPLS", "KernelPLS", "PLSDA", "AllPLS"]
 )
-
 
 # =============================================================================
 # Summary

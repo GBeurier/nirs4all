@@ -8,15 +8,16 @@ Tests cover:
 - Integration with sample augmentation
 """
 
+from unittest.mock import Mock
+
 import numpy as np
 import pytest
-from unittest.mock import Mock
-from sklearn.model_selection import KFold, GroupKFold, StratifiedKFold
+from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold
 
 from nirs4all.controllers.splitters.split import CrossValidatorController
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
-from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata, RuntimeContext
 
 
 def make_step_info(operator, step=None):
@@ -31,7 +32,6 @@ def make_step_info(operator, step=None):
         metadata={}
     )
 
-
 @pytest.fixture
 def mock_runtime_context():
     """Mock RuntimeContext."""
@@ -41,7 +41,6 @@ def mock_runtime_context():
     runtime_ctx.substep_number = 0
     runtime_ctx.saver = Mock()
     return runtime_ctx
-
 
 @pytest.fixture
 def dataset_with_augmentation():
@@ -78,7 +77,6 @@ def dataset_with_augmentation():
 
     return dataset
 
-
 @pytest.fixture
 def dataset_with_augmentation_and_groups():
     """Create dataset with base samples, augmented samples, and group metadata."""
@@ -114,7 +112,6 @@ def dataset_with_augmentation_and_groups():
     )
 
     return dataset
-
 
 class TestLeakPrevention:
     """Test that splits exclude augmented samples to prevent data leakage."""
@@ -204,7 +201,6 @@ class TestLeakPrevention:
             assert all(idx < 6 for idx in train_idx)
             assert all(idx < 6 for idx in val_idx)
 
-
 class TestDatasetCounts:
     """Test that correct number of samples are used for splitting."""
 
@@ -261,7 +257,6 @@ class TestDatasetCounts:
             assert len(train_idx) == 3
             assert len(val_idx) == 3
 
-
 class TestGroupMetadata:
     """Test group metadata handling with augmented samples."""
 
@@ -316,7 +311,6 @@ class TestGroupMetadata:
         )
 
         # If we got here, the groups length matched X.shape[0] correctly
-
 
 class TestIntegration:
     """Integration tests with sample augmentation workflow."""
@@ -418,7 +412,6 @@ class TestIntegration:
             assert len(train_idx) + len(val_idx) == 4
             assert len(train_idx) == 2
             assert len(val_idx) == 2
-
 
 class TestEdgeCases:
     """Test edge cases."""

@@ -15,14 +15,14 @@ import numpy as np
 import pytest
 
 from nirs4all.synthesis.domains import (
-    DomainCategory,
-    ConcentrationPrior,
-    DomainConfig,
     APPLICATION_DOMAINS,
+    ConcentrationPrior,
+    DomainCategory,
+    DomainConfig,
+    create_domain_aware_library,
+    get_domain_components,
     get_domain_config,
     list_domains,
-    get_domain_components,
-    create_domain_aware_library,
 )
 
 
@@ -40,7 +40,6 @@ class TestDomainCategory:
         """Test that DomainCategory is iterable."""
         categories = list(DomainCategory)
         assert len(categories) >= 6  # At least 6 categories
-
 
 class TestConcentrationPrior:
     """Tests for ConcentrationPrior class."""
@@ -135,7 +134,6 @@ class TestConcentrationPrior:
 
         np.testing.assert_array_equal(samples1, samples2)
 
-
 class TestDomainConfig:
     """Tests for DomainConfig class."""
 
@@ -209,7 +207,6 @@ class TestDomainConfig:
         assert np.all(concentrations[:, 0] >= 0.7)
         assert np.all(concentrations[:, 0] <= 0.9)
 
-
 class TestApplicationDomains:
     """Tests for APPLICATION_DOMAINS registry."""
 
@@ -254,7 +251,6 @@ class TestApplicationDomains:
 
         # Should have at least 4 different categories
         assert len(categories_used) >= 4
-
 
 class TestDomainUtilityFunctions:
     """Tests for domain utility functions."""
@@ -311,7 +307,6 @@ class TestDomainUtilityFunctions:
         domains = list_domains(category=DomainCategory.PHARMACEUTICAL)
         assert len(domains) >= 1
 
-
 class TestCreateDomainAwareLibrary:
     """Tests for create_domain_aware_library function."""
 
@@ -344,7 +339,6 @@ class TestCreateDomainAwareLibrary:
 
         # Should have same components
         assert set(components1) == set(components2)
-
 
 class TestDomainConfigSamplingIntegration:
     """Integration tests for domain configuration sampling."""
@@ -394,7 +388,6 @@ class TestDomainConfigSamplingIntegration:
         # All concentrations should be valid
         assert np.all(concentrations >= 0)
         assert np.all(concentrations <= 1)
-
 
 class TestDomainEdgeCases:
     """Edge case tests for domain module."""

@@ -1,8 +1,8 @@
 """Strategy pattern for feature update operations."""
 
-import numpy as np
-from typing import List, Tuple
 from dataclasses import dataclass
+
+import numpy as np
 
 
 @dataclass
@@ -12,13 +12,11 @@ class ReplacementOperation:
     new_data: np.ndarray
     new_proc_name: str
 
-
 @dataclass
 class AdditionOperation:
     """Represents a processing addition operation."""
     new_data: np.ndarray
     new_proc_name: str
-
 
 class UpdateStrategy:
     """Categorizes and validates feature update operations.
@@ -29,11 +27,11 @@ class UpdateStrategy:
 
     @staticmethod
     def categorize_operations(
-        features: List[np.ndarray],
-        source_processings: List[str],
-        processings: List[str],
+        features: list[np.ndarray],
+        source_processings: list[str],
+        processings: list[str],
         processing_id_to_index: dict
-    ) -> Tuple[List[ReplacementOperation], List[AdditionOperation]]:
+    ) -> tuple[list[ReplacementOperation], list[AdditionOperation]]:
         """Separate operations into replacements and additions.
 
         Args:
@@ -57,7 +55,7 @@ class UpdateStrategy:
         if len(source_processings) == 0:
             source_processings = [""] * len(processings)
 
-        for arr, source_proc, target_proc in zip(features, source_processings, processings):
+        for arr, source_proc, target_proc in zip(features, source_processings, processings, strict=False):
             if source_proc == "":
                 # Add new processing
                 if target_proc in processing_id_to_index:
@@ -89,10 +87,10 @@ class UpdateStrategy:
 
     @staticmethod
     def should_resize_features(
-        replacements: List[ReplacementOperation],
-        additions: List[AdditionOperation],
+        replacements: list[ReplacementOperation],
+        additions: list[AdditionOperation],
         current_num_features: int
-    ) -> Tuple[bool, int]:
+    ) -> tuple[bool, int]:
         """Determine if feature dimension should be resized.
 
         Returns True if all processings are being replaced with same new dimension.

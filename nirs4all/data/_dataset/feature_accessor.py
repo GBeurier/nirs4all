@@ -5,15 +5,16 @@ This module provides a dedicated interface for all feature-related
 operations, including data retrieval, augmentation, and wavelength conversions.
 """
 
+from typing import Optional, Union
+
 import numpy as np
-from typing import Optional, Union, List
 
-from nirs4all.data.types import Selector, Layout, OutputData, InputData, IndexDict, InputFeatures, ProcessingList, get_num_samples
-from nirs4all.data.indexer import Indexer
 from nirs4all.data.features import Features
+from nirs4all.data.indexer import Indexer
+from nirs4all.data.types import IndexDict, InputData, InputFeatures, Layout, OutputData, ProcessingList, Selector, get_num_samples
 
 
-def _selector_to_dict(selector: Optional[Selector]) -> IndexDict:
+def _selector_to_dict(selector: Selector | None) -> IndexDict:
     """
     Convert selector to dict format for internal use.
 
@@ -33,7 +34,6 @@ def _selector_to_dict(selector: Optional[Selector]) -> IndexDict:
         return dict(selector.selector)
 
     return dict(selector)
-
 
 class FeatureAccessor:
     """
@@ -65,7 +65,7 @@ class FeatureAccessor:
         self._block = features_block
 
     def x(self,
-          selector: Optional[Selector] = None,
+          selector: Selector | None = None,
           layout: Layout = "2d",
           concat_source: bool = True,
           include_augmented: bool = True,
@@ -120,9 +120,9 @@ class FeatureAccessor:
 
     def add_samples(self,
                     data: InputData,
-                    indexes: Optional[IndexDict] = None,
-                    headers: Optional[Union[List[str], List[List[str]]]] = None,
-                    header_unit: Optional[Union[str, List[str]]] = None) -> None:
+                    indexes: IndexDict | None = None,
+                    headers: list[str] | list[list[str]] | None = None,
+                    header_unit: str | list[str] | None = None) -> None:
         """
         Add feature samples to the dataset.
 
@@ -169,8 +169,8 @@ class FeatureAccessor:
 
     def add_samples_batch(
         self,
-        data: Union[np.ndarray, List[np.ndarray]],
-        indexes_list: List[IndexDict]
+        data: np.ndarray | list[np.ndarray],
+        indexes_list: list[IndexDict]
     ) -> None:
         """Add multiple samples in a single batch operation - O(N) instead of O(N²).
 
@@ -197,10 +197,7 @@ class FeatureAccessor:
             >>> dataset.add_samples_batch(data, indexes)
         """
         # Determine number of samples from data
-        if isinstance(data, list):
-            n_samples = data[0].shape[0]
-        else:
-            n_samples = data.shape[0]
+        n_samples = data[0].shape[0] if isinstance(data, list) else data.shape[0]
 
         if n_samples != len(indexes_list):
             raise ValueError(
@@ -227,10 +224,7 @@ class FeatureAccessor:
 
         # Check if all partitions are the same (common case)
         unique_partitions = set(partitions)
-        if len(unique_partitions) == 1:
-            partition = partitions[0]
-        else:
-            partition = partitions  # Will be handled by indexer
+        partition = partitions[0] if len(unique_partitions) == 1 else partitions  # Will be handled by indexer
 
         # Single batch add to indexer
         self._indexer.add_samples(
@@ -317,7 +311,7 @@ class FeatureAccessor:
 
     def reset_features(self,
                        features: np.ndarray,
-                       processings: List[str],
+                       processings: list[str],
                        source: int = 0) -> None:
         """
         Reset features and processings for a source.
@@ -337,7 +331,7 @@ class FeatureAccessor:
         if source == 0:
             self._indexer.reset_processings(processings)
 
-    def keep_sources(self, source_indices: Union[int, List[int]]) -> None:
+    def keep_sources(self, source_indices: int | list[int]) -> None:
         """Keep only specified sources, removing all others.
 
         Used after merge operations with output_as="features" to consolidate
@@ -355,8 +349,8 @@ class FeatureAccessor:
                         data: InputData,
                         processings: ProcessingList,
                         augmentation_id: str,
-                        selector: Optional[Selector] = None,
-                        count: Union[int, List[int]] = 1) -> List[int]:
+                        selector: Selector | None = None,
+                        count: int | list[int] = 1) -> list[int]:
         """
         Create augmented versions of existing samples.
 
@@ -399,14 +393,7 @@ class FeatureAccessor:
         """
         # Always exclude already-augmented samples
         selector_dict = _selector_to_dict(selector)
-        if selector_dict:
-            sample_indices = self._indexer.x_indices(
-                selector_dict, include_augmented=False
-            ).tolist()
-        else:
-            sample_indices = self._indexer.x_indices(
-                {}, include_augmented=False
-            ).tolist()
+        sample_indices = self._indexer.x_indices(selector_dict, include_augmented=False).tolist() if selector_dict else self._indexer.x_indices({}, include_augmented=False).tolist()
 
         if not sample_indices:
             return []
@@ -421,7 +408,7 @@ class FeatureAccessor:
 
         return augmented_ids
 
-    def headers(self, source: int = 0) -> List[str]:
+    def headers(self, source: int = 0) -> list[str]:
         """
         Get feature headers (wavelengths, feature names) for a source.
 
@@ -451,7 +438,7 @@ class FeatureAccessor:
         """
         return self._block.sources[source].header_unit
 
-    def processing_names(self, source: int = 0) -> List[str]:
+    def processing_names(self, source: int = 0) -> list[str]:
         """
         Get list of processing step names for a source.
 
@@ -474,7 +461,7 @@ class FeatureAccessor:
         return self._block.num_samples
 
     @property
-    def num_features(self) -> Union[List[int], int]:
+    def num_features(self) -> list[int] | int:
         """Number of features per source (int if single source, list if multi)."""
         return self._block.num_features
 
@@ -585,4 +572,4 @@ class FeatureAccessor:
         try:
             return np.array([float(header) for header in self._block.headers(source)])
         except ValueError as e:
-            raise ValueError(f"Cannot convert headers to float: {e}")
+            raise ValueError(f"Cannot convert headers to float: {e}") from e

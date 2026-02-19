@@ -1,14 +1,14 @@
-import inspect
-from enum import Enum
-from typing import Any, get_type_hints, get_origin, get_args, Annotated, Union
+import contextlib
 import importlib
+import inspect
 import json
+from enum import Enum
+from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
 # Simple alias dictionary for common transformations
 build_aliases = {
     # Add common aliases here if needed
 }
-
 
 def _is_meta_estimator(obj) -> bool:
     """Check if object is a stacking/voting meta-estimator.
@@ -20,16 +20,12 @@ def _is_meta_estimator(obj) -> bool:
         True if object is a meta-estimator (has estimators and final_estimator).
     """
     try:
-        from sklearn.ensemble import (
-            StackingRegressor, StackingClassifier,
-            VotingRegressor, VotingClassifier
-        )
+        from sklearn.ensemble import StackingClassifier, StackingRegressor, VotingClassifier, VotingRegressor
         meta_types = (StackingRegressor, StackingClassifier,
                       VotingRegressor, VotingClassifier)
         return isinstance(obj, meta_types)
     except ImportError:
         return False
-
 
 def _is_meta_estimator_class(cls) -> bool:
     """Check if class is a meta-estimator type.
@@ -41,15 +37,11 @@ def _is_meta_estimator_class(cls) -> bool:
         True if class is a meta-estimator type.
     """
     try:
-        from sklearn.ensemble import (
-            StackingRegressor, StackingClassifier,
-            VotingRegressor, VotingClassifier
-        )
+        from sklearn.ensemble import StackingClassifier, StackingRegressor, VotingClassifier, VotingRegressor
         return cls in (StackingRegressor, StackingClassifier,
                        VotingRegressor, VotingClassifier)
     except ImportError:
         return False
-
 
 def _serialize_meta_estimator(obj) -> dict:
     """Serialize a stacking/voting meta-estimator with nested estimators.
@@ -87,7 +79,6 @@ def _serialize_meta_estimator(obj) -> dict:
         result["params"].update(serialize_component(other_params))
 
     return result
-
 
 def _deserialize_meta_estimator(cls, params: dict) -> Any:
     """Reconstruct a meta-estimator with nested estimators.
@@ -218,18 +209,10 @@ def serialize_component(obj: Any) -> Any:
 
     return def_serialized
 
-
 def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
     """Turn the output of serialize_component back into live objects."""
     # --- trivial cases ------------------------------------------------------ #
     if blob is None or isinstance(blob, (bool, int, float)):
-        # Type validation - int and float are considered compatible for numeric values
-        if infer_type is not None and infer_type is not type(None):
-            if not isinstance(blob, infer_type):
-                # Allow int/float cross-compatibility for numeric types
-                if not (isinstance(blob, (int, float)) and infer_type in (int, float)):
-                    # Debug-level info only - the value is still returned as-is
-                    pass  # Removed verbose warning - type mismatch is handled gracefully
         return blob
 
     if isinstance(blob, str):
@@ -386,7 +369,6 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
     # should not reach here
     return blob
 
-
 def _changed_kwargs(obj):
     """Return {param: value} for every __init__ param whose current
     value differs from its default."""
@@ -405,10 +387,8 @@ def _changed_kwargs(obj):
     # Get params dict if available (standard sklearn API)
     obj_params = {}
     if hasattr(obj, 'get_params'):
-        try:
+        with contextlib.suppress(Exception):
             obj_params = obj.get_params(deep=False)
-        except Exception:
-            pass
 
     for name, param in sig.parameters.items():
         if name == "self":
@@ -447,8 +427,7 @@ def _changed_kwargs(obj):
             out[name] = current
     return out
 
-
-def _resolve_type(obj_or_cls: Any, name: str) -> Union[type, Any, None]:
+def _resolve_type(obj_or_cls: Any, name: str) -> type | Any | None:
     """Resolve the type of a parameter in a class or function
     based on its signature or type hints.
     If the parameter is not found, return None.

@@ -1,12 +1,13 @@
 """Pipeline executor for executing a single pipeline on a single dataset."""
+import contextlib
 import hashlib
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
+from nirs4all.core.logging import get_logger
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.config.context import ExecutionContext
 from nirs4all.pipeline.steps.step_runner import StepRunner
 from nirs4all.pipeline.trace import TraceRecorder
@@ -15,7 +16,6 @@ logger = get_logger(__name__)
 
 # Default RSS threshold for memory warnings (MB).
 _DEFAULT_MEMORY_WARNING_THRESHOLD_MB = 3072
-
 
 class PipelineExecutor:
     """Executes a single pipeline configuration on a single dataset.
@@ -71,7 +71,7 @@ class PipelineExecutor:
         self.step_number = 0
         self.substep_number = -1
         self.operation_count = 0
-        self._shape_metadata_cache: Dict[tuple[Any, ...], tuple[tuple[int, int], List[tuple[int, ...]]]] = {}
+        self._shape_metadata_cache: dict[tuple[Any, ...], tuple[tuple[int, int], list[tuple[int, ...]]]] = {}
         self._synced_artifact_ids: set[str] = set()
 
     def initialize_context(self, dataset: SpectroDataset) -> ExecutionContext:
@@ -112,13 +112,13 @@ class PipelineExecutor:
 
     def execute(
         self,
-        steps: List[Any],
+        steps: list[Any],
         config_name: str,
         dataset: SpectroDataset,
         context: ExecutionContext,
         runtime_context: Any,  # RuntimeContext
-        prediction_store: Optional[Predictions] = None,
-        generator_choices: Optional[List[Dict[str, Any]]] = None
+        prediction_store: Predictions | None = None,
+        generator_choices: list[dict[str, Any]] | None = None
     ) -> None:
         """Execute pipeline steps sequentially on dataset.
 
@@ -290,10 +290,8 @@ class PipelineExecutor:
             # errors from masking the original pipeline error (e.g. DuckDB
             # lock conflicts from concurrent processes).
             if self.mode == "train" and store and pipeline_id:
-                try:
+                with contextlib.suppress(Exception):
                     store.fail_pipeline(pipeline_id, str(e))
-                except Exception:
-                    pass  # fail_pipeline already logs internally
             logger.error(
                 f"Pipeline {config_name} on dataset {dataset.name} "
                 f"failed: {str(e)}"
@@ -338,14 +336,14 @@ class PipelineExecutor:
                 mapping[key] = chain_id
 
         step_rows_present: set[int] = set()
-        first_by_scope: dict[Optional[int], str] = {}
-        first_by_scope_branch: dict[tuple[Optional[int], int], str] = {}
-        first_by_scope_class: dict[tuple[Optional[int], str], str] = {}
-        first_by_scope_preproc: dict[tuple[Optional[int], str], str] = {}
-        first_by_scope_branch_class: dict[tuple[Optional[int], int, str], str] = {}
-        first_by_scope_branch_preproc: dict[tuple[Optional[int], int, str], str] = {}
-        first_by_scope_class_preproc: dict[tuple[Optional[int], str, str], str] = {}
-        first_by_scope_branch_class_preproc: dict[tuple[Optional[int], int, str, str], str] = {}
+        first_by_scope: dict[int | None, str] = {}
+        first_by_scope_branch: dict[tuple[int | None, int], str] = {}
+        first_by_scope_class: dict[tuple[int | None, str], str] = {}
+        first_by_scope_preproc: dict[tuple[int | None, str], str] = {}
+        first_by_scope_branch_class: dict[tuple[int | None, int, str], str] = {}
+        first_by_scope_branch_preproc: dict[tuple[int | None, int, str], str] = {}
+        first_by_scope_class_preproc: dict[tuple[int | None, str, str], str] = {}
+        first_by_scope_branch_class_preproc: dict[tuple[int | None, int, str, str], str] = {}
 
         for row in chain_rows:
             chain_id = str(row["chain_id"])
@@ -406,7 +404,7 @@ class PipelineExecutor:
                 selected_chain_id = str(chain_rows[0]["chain_id"])
 
             branch_id = pred.get("branch_id")
-            branch_key: Optional[int] = None
+            branch_key: int | None = None
             branch_applied = False
             if branch_id is not None:
                 try:
@@ -481,12 +479,12 @@ class PipelineExecutor:
 
     def _execute_steps(
         self,
-        steps: List[Any],
+        steps: list[Any],
         dataset: SpectroDataset,
         context: ExecutionContext,
         runtime_context: Any,
         prediction_store: Predictions,
-        all_artifacts: List[Any]
+        all_artifacts: list[Any]
     ) -> ExecutionContext:
         """Execute all steps in sequence.
 
@@ -564,9 +562,9 @@ class PipelineExecutor:
         dataset: SpectroDataset,
         context: ExecutionContext,
         runtime_context: Any,
-        loaded_binaries: Optional[List] = None,
-        prediction_store: Optional[Predictions] = None,
-        all_artifacts: Optional[List] = None
+        loaded_binaries: list | None = None,
+        prediction_store: Predictions | None = None,
+        all_artifacts: list | None = None
     ) -> ExecutionContext:
         """Execute a step on all branch contexts.
 
@@ -609,7 +607,7 @@ class PipelineExecutor:
                 if use_cow:
                     # CoW restore: acquire shared references (zero-copy for read-only steps)
                     for source, (shared, proc_ids, headers, header_unit) in zip(
-                        dataset._features.sources, features_snapshot
+                        dataset._features.sources, features_snapshot, strict=False
                     ):
                         source._storage.restore_from_shared(shared.acquire())
                         source._processing_mgr.reset_processings(proc_ids)
@@ -763,9 +761,9 @@ class PipelineExecutor:
         dataset: SpectroDataset,
         context: ExecutionContext,
         runtime_context: Any,
-        loaded_binaries: Optional[List] = None,
-        prediction_store: Optional[Predictions] = None,
-        all_artifacts: Optional[List] = None
+        loaded_binaries: list | None = None,
+        prediction_store: Predictions | None = None,
+        all_artifacts: list | None = None
     ) -> ExecutionContext:
         """Execute a single step (non-branched).
 
@@ -934,11 +932,11 @@ class PipelineExecutor:
 
     def _process_step_artifacts(
         self,
-        artifacts: List[Any],
+        artifacts: list[Any],
         runtime_context: Any = None,
-        branch_id: Optional[int] = None,
-        branch_name: Optional[str] = None
-    ) -> List[Any]:
+        branch_id: int | None = None,
+        branch_name: str | None = None
+    ) -> list[Any]:
         """Process and persist step artifacts via WorkspaceStore.
 
         Args:
@@ -1308,10 +1306,7 @@ class PipelineExecutor:
             tag_filters = getattr(selector, "tag_filters", None)
             if tag_filters is None and isinstance(selector, dict):
                 tag_filters = selector.get("tag_filters")
-            if isinstance(tag_filters, dict):
-                tags_key = tuple(sorted((str(k), str(v)) for k, v in tag_filters.items()))
-            else:
-                tags_key = str(tag_filters)
+            tags_key = tuple(sorted((str(k), str(v)) for k, v in tag_filters.items())) if isinstance(tag_filters, dict) else str(tag_filters)
 
             selector_key = (
                 str(partition),
@@ -1458,7 +1453,7 @@ class PipelineExecutor:
             # Conservative fallback: keep caching available based on feature hash.
             return "index-unavailable"
 
-    def _compute_pipeline_hash(self, steps: List[Any]) -> str:
+    def _compute_pipeline_hash(self, steps: list[Any]) -> str:
         """Compute MD5 hash of pipeline configuration.
 
         Args:
@@ -1477,12 +1472,12 @@ class PipelineExecutor:
 
     def execute_minimal(
         self,
-        steps: List[Any],
+        steps: list[Any],
         minimal_pipeline: Any,  # MinimalPipeline
         dataset: SpectroDataset,
         context: ExecutionContext,
         runtime_context: Any,  # RuntimeContext
-        prediction_store: Optional[Predictions] = None
+        prediction_store: Predictions | None = None
     ) -> None:
         """Execute minimal pipeline for prediction.
 
@@ -1536,10 +1531,7 @@ class PipelineExecutor:
         # This ensures step_number matches training-time indices for artifact lookups
         for list_idx, step in enumerate(steps):
             # Get original step index from minimal pipeline
-            if hasattr(minimal_pipeline, 'steps') and list_idx < len(minimal_pipeline.steps):
-                step_idx = minimal_pipeline.steps[list_idx].step_index
-            else:
-                step_idx = list_idx + 1  # Fallback to 1-based enumeration
+            step_idx = minimal_pipeline.steps[list_idx].step_index if hasattr(minimal_pipeline, 'steps') and list_idx < len(minimal_pipeline.steps) else list_idx + 1  # Fallback to 1-based enumeration
 
             if step is None:
                 logger.debug(f"Step {step_idx}: skipped (no config)")

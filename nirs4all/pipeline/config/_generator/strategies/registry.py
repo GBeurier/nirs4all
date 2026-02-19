@@ -5,22 +5,20 @@ strategies. It maintains an ordered list of strategies and provides
 dispatch functionality to find the appropriate strategy for a given node.
 """
 
-from typing import Dict, List, Optional, Type
+from typing import Optional
 
 from .base import ExpansionStrategy, GeneratorNode
 
-
 # Registry of strategy classes, ordered by priority
-_strategy_classes: List[Type[ExpansionStrategy]] = []
+_strategy_classes: list[type[ExpansionStrategy]] = []
 
 # Cache of strategy instances (singletons)
-_strategy_instances: Dict[Type[ExpansionStrategy], ExpansionStrategy] = {}
-
+_strategy_instances: dict[type[ExpansionStrategy], ExpansionStrategy] = {}
 
 def register_strategy(
-    strategy_cls: Type[ExpansionStrategy],
-    priority: Optional[int] = None
-) -> Type[ExpansionStrategy]:
+    strategy_cls: type[ExpansionStrategy],
+    priority: int | None = None
+) -> type[ExpansionStrategy]:
     """Register a strategy class.
 
     Can be used as a decorator or called directly.
@@ -61,8 +59,7 @@ def register_strategy(
 
     return strategy_cls
 
-
-def get_strategy(node: GeneratorNode) -> Optional[ExpansionStrategy]:
+def get_strategy(node: GeneratorNode) -> ExpansionStrategy | None:
     """Find the appropriate strategy for a node.
 
     Iterates through registered strategies (in priority order) and
@@ -91,7 +88,6 @@ def get_strategy(node: GeneratorNode) -> Optional[ExpansionStrategy]:
             return _strategy_instances[strategy_cls]
 
     return None
-
 
 def clear_registry() -> None:
     """Clear all registered strategies and cached instances.

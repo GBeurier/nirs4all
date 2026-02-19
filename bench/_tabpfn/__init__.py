@@ -23,14 +23,14 @@ from .spectral_latent_features import SpectralLatentFeatures, SpectralLatentFeat
 # Conditionally import tabpfn_config utilities
 try:
     from .tabpfn_config import (
-        TABPFN_AVAILABLE,
         CLASSIFIER_MODELS,
         REGRESSOR_MODELS,
+        TABPFN_AVAILABLE,
+        build_finetune_params,
+        create_model,
+        generate_inference_configs,
         get_model_class,
         get_model_paths,
-        create_model,
-        build_finetune_params,
-        generate_inference_configs,
     )
     __all__ = [
         'SpectralLatentFeatures',

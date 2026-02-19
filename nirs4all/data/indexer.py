@@ -1,16 +1,18 @@
-from typing import Dict, List, Union, Any, Optional, overload, Mapping
+from collections.abc import Mapping
+from typing import Any, Optional, Union, overload
+
 import numpy as np
 import polars as pl
 
-from nirs4all.data.types import Selector, SampleIndices, PartitionType, ProcessingList, IndexDict
 from nirs4all.data._indexer import (
+    AugmentationTracker,
     IndexStore,
+    ParameterNormalizer,
+    ProcessingManager,
     QueryBuilder,
     SampleManager,
-    AugmentationTracker,
-    ProcessingManager,
-    ParameterNormalizer,
 )
+from nirs4all.data.types import IndexDict, PartitionType, ProcessingList, SampleIndices, Selector
 
 
 class Indexer:
@@ -32,7 +34,7 @@ class Indexer:
     - ParameterNormalizer: Input validation
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Initialize components
         self._store = IndexStore()
         self._query_builder = QueryBuilder(valid_columns=self._store.columns)
@@ -56,7 +58,7 @@ class Indexer:
         return self._store.df
 
     @property
-    def default_values(self) -> Dict[str, Any]:
+    def default_values(self) -> dict[str, Any]:
         """
         Get default values for backward compatibility.
 
@@ -68,7 +70,7 @@ class Indexer:
             "processings": ["raw"],
         }
 
-    def _ensure_selector_dict(self, selector: Any) -> Dict[str, Any]:
+    def _ensure_selector_dict(self, selector: Any) -> dict[str, Any]:
         """Ensure selector is a dictionary."""
         if selector is None:
             return {}
@@ -261,7 +263,7 @@ class Indexer:
         # Include augmented samples: all origins are returned (with augmented samples mapped)
         return filtered_df.select(pl.col("origin")).to_series().to_numpy().astype(np.int32)
 
-    def get_augmented_for_origins(self, origin_samples: List[int]) -> np.ndarray:
+    def get_augmented_for_origins(self, origin_samples: list[int]) -> np.ndarray:
         """
         Get all augmented samples for given origin sample IDs.
 
@@ -301,7 +303,7 @@ class Indexer:
         """
         return self._augmentation_tracker.get_augmented_for_origins(origin_samples)
 
-    def get_origin_for_sample(self, sample_id: int) -> Optional[int]:
+    def get_origin_for_sample(self, sample_id: int) -> int | None:
         """
         Get origin sample ID for a given sample.
 
@@ -338,7 +340,7 @@ class Indexer:
         """
         return self._augmentation_tracker.get_origin_for_sample(sample_id)
 
-    def replace_processings(self, source_processings: List[str], new_processings: List[str]) -> None:
+    def replace_processings(self, source_processings: list[str], new_processings: list[str]) -> None:
         """
         Replace processing names across all samples.
 
@@ -377,7 +379,7 @@ class Indexer:
         """
         self._processing_manager.replace_processings(source_processings, new_processings)
 
-    def reset_processings(self, new_processings: List[str]) -> None:
+    def reset_processings(self, new_processings: list[str]) -> None:
         """
         Reset processing names for all samples to a new list.
 
@@ -392,7 +394,7 @@ class Indexer:
         """
         self._processing_manager.reset_processings(new_processings)
 
-    def add_processings(self, new_processings: List[str]) -> None:
+    def add_processings(self, new_processings: list[str]) -> None:
         """
         Append processing names to all existing processing lists.
 
@@ -425,19 +427,19 @@ class Indexer:
         """
         self._processing_manager.add_processings(new_processings)
 
-    def _normalize_indices(self, indices: SampleIndices, count: int, param_name: str) -> List[int]:
+    def _normalize_indices(self, indices: SampleIndices, count: int, param_name: str) -> list[int]:
         """Normalize various index formats to a list of integers (internal helper)."""
         return self._parameter_normalizer.normalize_indices(indices, count, param_name)
 
-    def _normalize_single_or_list(self, value: Union[Any, List[Any]], count: int, param_name: str, allow_none: bool = False) -> List[Any]:
+    def _normalize_single_or_list(self, value: Any | list[Any], count: int, param_name: str, allow_none: bool = False) -> list[Any]:
         """Normalize single value or list to a list of specified length (internal helper)."""
         return self._parameter_normalizer.normalize_single_or_list(value, count, param_name, allow_none)
 
-    def _prepare_processings(self, processings: Union[ProcessingList, List[ProcessingList], str, List[str], None], count: int) -> List[List[str]]:
+    def _prepare_processings(self, processings: ProcessingList | list[ProcessingList] | str | list[str] | None, count: int) -> list[list[str]]:
         """Prepare processings list with proper validation (internal helper)."""
         return self._parameter_normalizer.prepare_processings(processings, count)
 
-    def _convert_indexdict_to_params(self, index_dict: IndexDict, count: int) -> Dict[str, Any]:
+    def _convert_indexdict_to_params(self, index_dict: IndexDict, count: int) -> dict[str, Any]:
         """Convert IndexDict to method parameters (internal helper)."""
         return self._parameter_normalizer.convert_indexdict_to_params(index_dict, count)
 
@@ -445,13 +447,13 @@ class Indexer:
                 count: int,
                 *,
                 partition: PartitionType = "train",
-                sample_indices: Optional[SampleIndices] = None,
-                origin_indices: Optional[SampleIndices] = None,
-                group: Optional[Union[int, List[int]]] = None,
-                branch: Optional[Union[int, List[int]]] = None,
-                processings: Union[ProcessingList, List[ProcessingList], str, List[str], None] = None,
-                augmentation: Optional[Union[str, List[str]]] = None,
-                **overrides) -> List[int]:
+                sample_indices: SampleIndices | None = None,
+                origin_indices: SampleIndices | None = None,
+                group: int | list[int] | None = None,
+                branch: int | list[int] | None = None,
+                processings: ProcessingList | list[ProcessingList] | str | list[str] | None = None,
+                augmentation: str | list[str] | None = None,
+                **overrides) -> list[int]:
         """
         Core method to append samples to the indexer (internal).
 
@@ -535,14 +537,14 @@ class Indexer:
         self,
         count: int,
         partition: PartitionType = "train",
-        sample_indices: Optional[SampleIndices] = None,
-        origin_indices: Optional[SampleIndices] = None,
-        group: Optional[Union[int, List[int]]] = None,
-        branch: Optional[Union[int, List[int]]] = None,
-        processings: Union[ProcessingList, List[ProcessingList], None] = None,
-        augmentation: Optional[Union[str, List[str]]] = None,
+        sample_indices: SampleIndices | None = None,
+        origin_indices: SampleIndices | None = None,
+        group: int | list[int] | None = None,
+        branch: int | list[int] | None = None,
+        processings: ProcessingList | list[ProcessingList] | None = None,
+        augmentation: str | list[str] | None = None,
         **kwargs
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Add multiple samples to the indexer efficiently.
 
@@ -631,9 +633,9 @@ class Indexer:
     def add_samples_dict(
         self,
         count: int,
-        indices: Optional[IndexDict] = None,
+        indices: IndexDict | None = None,
         **kwargs
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Add multiple samples using dictionary-based parameter specification.
 
@@ -671,7 +673,7 @@ class Indexer:
         params.update(kwargs)
         return self._append(count, **params)
 
-    def add_rows(self, n_rows: int, new_indices: Optional[Dict[str, Any]] = None) -> List[int]:
+    def add_rows(self, n_rows: int, new_indices: dict[str, Any] | None = None) -> list[int]:
         """Add rows to the indexer with optional column overrides."""
         if n_rows <= 0:
             return []
@@ -708,7 +710,7 @@ class Indexer:
         n_rows: int,
         indices: IndexDict,
         **kwargs
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Add rows using dictionary-based parameter specification.
 
@@ -747,7 +749,7 @@ class Indexer:
         params.update(kwargs)  # kwargs take precedence
         return self._append(n_rows, **params)
 
-    def register_samples(self, count: int, partition: PartitionType = "train") -> List[int]:
+    def register_samples(self, count: int, partition: PartitionType = "train") -> list[int]:
         """Register samples using the unified _append method."""
         return self._append(count, partition=partition)
 
@@ -756,7 +758,7 @@ class Indexer:
         count: int,
         indices: IndexDict,
         **kwargs
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Register samples using dictionary-based parameter specification.
 
@@ -775,7 +777,7 @@ class Indexer:
         params.update(kwargs)  # kwargs take precedence
         return self._append(count, **params)
 
-    def update_by_filter(self, selector: Selector, updates: Dict[str, Any]) -> None:
+    def update_by_filter(self, selector: Selector, updates: dict[str, Any]) -> None:
         """
         Update rows matching a selector filter.
 
@@ -789,7 +791,7 @@ class Indexer:
         condition = self._build_filter_condition(selector)
         self._store.update_by_condition(condition, updates)
 
-    def update_by_indices(self, sample_indices: SampleIndices, updates: Dict[str, Any]) -> None:
+    def update_by_indices(self, sample_indices: SampleIndices, updates: dict[str, Any]) -> None:
         """
         Update rows by sample indices.
 
@@ -829,7 +831,7 @@ class Indexer:
         """
         return self._sample_manager.next_sample_id()
 
-    def get_column_values(self, col: str, filters: Optional[Dict[str, Any]] = None) -> List[Any]:
+    def get_column_values(self, col: str, filters: dict[str, Any] | None = None) -> list[Any]:
         """
         Get column values, optionally filtered.
 
@@ -847,7 +849,7 @@ class Indexer:
         condition = self._build_filter_condition(filters) if filters else None
         return self._store.get_column(col, condition)
 
-    def uniques(self, col: str) -> List[Any]:
+    def uniques(self, col: str) -> list[Any]:
         """
         Get unique values in a column.
 
@@ -862,7 +864,7 @@ class Indexer:
         """
         return self._store.get_unique(col)
 
-    def augment_rows(self, samples: List[int], count: Union[int, List[int]], augmentation_id: str) -> List[int]:
+    def augment_rows(self, samples: list[int], count: int | list[int], augmentation_id: str) -> list[int]:
         """
         Create augmented samples based on existing samples.
 
@@ -937,7 +939,7 @@ class Indexer:
         branches = []
         processings_list = []
 
-        for i, (sample_id, sample_count) in enumerate(zip(samples, count_list)):
+        for _i, (sample_id, sample_count) in enumerate(zip(samples, count_list, strict=False)):
             if sample_count <= 0:
                 continue
 
@@ -1027,7 +1029,7 @@ class Indexer:
     def mark_excluded(
         self,
         sample_indices: SampleIndices,
-        reason: Optional[str] = None,
+        reason: str | None = None,
         cascade_to_augmented: bool = True
     ) -> int:
         """
@@ -1100,7 +1102,7 @@ class Indexer:
 
     def mark_included(
         self,
-        sample_indices: Optional[SampleIndices] = None,
+        sample_indices: SampleIndices | None = None,
         cascade_to_augmented: bool = True
     ) -> int:
         """
@@ -1162,7 +1164,7 @@ class Indexer:
         self._store.update_by_condition(condition, {"excluded": False, "exclusion_reason": None})
         return len(all_samples_to_include)
 
-    def get_excluded_samples(self, selector: Optional[Selector] = None) -> pl.DataFrame:
+    def get_excluded_samples(self, selector: Selector | None = None) -> pl.DataFrame:
         """
         Get DataFrame of excluded samples with their exclusion reasons.
 
@@ -1203,7 +1205,7 @@ class Indexer:
             "augmentation", "exclusion_reason"
         ])
 
-    def get_exclusion_summary(self) -> Dict[str, Any]:
+    def get_exclusion_summary(self) -> dict[str, Any]:
         """
         Get summary statistics of exclusions by reason.
 
@@ -1265,7 +1267,7 @@ class Indexer:
             "by_partition": by_partition,
         }
 
-    def reset_exclusions(self, selector: Optional[Selector] = None) -> int:
+    def reset_exclusions(self, selector: Selector | None = None) -> int:
         """
         Remove all exclusion flags matching the selector.
 

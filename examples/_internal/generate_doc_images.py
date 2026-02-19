@@ -14,43 +14,44 @@ Generated images:
 Output: docs/source/assets/
 """
 
+import shutil
 import sys
 from pathlib import Path
-import shutil
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Third-party imports
 import matplotlib
+
 matplotlib.use('Agg')  # Non-interactive backend for saving
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.model_selection import ShuffleSplit, StratifiedKFold, KFold
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.model_selection import KFold, ShuffleSplit, StratifiedKFold
 from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.pipeline import PipelineRunner, PipelineConfigs
 from nirs4all.data import DatasetConfigs
+from nirs4all.operators.filters import XOutlierFilter
 from nirs4all.operators.transforms import (
-    StandardNormalVariate,
-    FirstDerivative,
-    SecondDerivative,
     Detrend,
-    SavitzkyGolay,
+    FirstDerivative,
     Gaussian,
     GaussianAdditiveNoise,
-    WavelengthShift,
+    LinearBaselineDrift,
     MultiplicativeScatterCorrection,
     Rotate_Translate,
-    LinearBaselineDrift,
+    SavitzkyGolay,
+    SecondDerivative,
+    StandardNormalVariate,
+    WavelengthShift,
 )
-from nirs4all.operators.filters import XOutlierFilter
-from nirs4all.visualization.predictions import PredictionAnalyzer
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.visualization.pipeline_diagram import PipelineDiagram
+from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Paths
 SCRIPT_DIR = Path(__file__).parent
@@ -67,14 +68,12 @@ DATA_WITH_WAVELENGTHS = SAMPLE_DATA / "regression_2"
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
 
-
 def save_figure(fig, name: str, dpi: int = 150):
     """Save figure to assets directory."""
     output_path = ASSETS_DIR / f"{name}.png"
     fig.savefig(output_path, dpi=dpi, bbox_inches='tight', facecolor='white')
     plt.close(fig)
     print(f"  ✓ Saved: {output_path.name}")
-
 
 def copy_chart_from_artifacts(artifacts_dir: Path, chart_keyword: str, dest_name: str) -> bool:
     """Copy chart from artifacts directory to assets."""
@@ -90,7 +89,6 @@ def copy_chart_from_artifacts(artifacts_dir: Path, chart_keyword: str, dest_name
                     print(f"  ✓ Copied: {dest_name}.png")
                     return True
     return False
-
 
 # =============================================================================
 # SECTION 1: In-Pipeline Charts - Basic (with proper wavelengths)
@@ -133,23 +131,22 @@ def generate_basic_charts():
                     name = img_file.stem.lower()
                     if "2d_chart" in name or "2d chart" in name.lower():
                         shutil.copy(img_file, ASSETS_DIR / "chart_2d.png")
-                        print(f"  ✓ Copied: chart_2d.png")
+                        print("  ✓ Copied: chart_2d.png")
                     elif "3d_chart" in name or "3d chart" in name.lower():
                         shutil.copy(img_file, ASSETS_DIR / "chart_3d.png")
-                        print(f"  ✓ Copied: chart_3d.png")
+                        print("  ✓ Copied: chart_3d.png")
                     elif "spectral_distribution" in name:
                         shutil.copy(img_file, ASSETS_DIR / "spectral_distribution.png")
-                        print(f"  ✓ Copied: spectral_distribution.png")
+                        print("  ✓ Copied: spectral_distribution.png")
                     elif "y_distribution" in name and "fold" not in name:
                         shutil.copy(img_file, ASSETS_DIR / "y_chart.png")
-                        print(f"  ✓ Copied: y_chart.png")
+                        print("  ✓ Copied: y_chart.png")
                     elif "fold" in name:
                         shutil.copy(img_file, ASSETS_DIR / "fold_chart.png")
-                        print(f"  ✓ Copied: fold_chart.png")
+                        print("  ✓ Copied: fold_chart.png")
                 break
 
     return predictions
-
 
 # =============================================================================
 # SECTION 2: Multiple Preprocessing Chart (using feature_augmentation)
@@ -197,10 +194,9 @@ def generate_multiple_preprocessing_chart():
                 for img_file in run_dir.glob("*.png"):
                     if "2d" in img_file.stem.lower():
                         shutil.copy(img_file, ASSETS_DIR / "chart_2d_preprocessed.png")
-                        print(f"  ✓ Copied: chart_2d_preprocessed.png")
+                        print("  ✓ Copied: chart_2d_preprocessed.png")
                         break
                 break
-
 
 # =============================================================================
 # SECTION 3: Augmentation Charts (single and multiple)
@@ -212,7 +208,6 @@ def generate_augmentation_charts():
     print("=" * 60)
 
     # Import additional augmenters for more visible effects
-    from nirs4all.operators.transforms import Rotate_Translate, LinearBaselineDrift
 
     # Single augmentation with MORE VISIBLE transform (Rotate_Translate + higher noise)
     pipeline_single = [
@@ -250,10 +245,10 @@ def generate_augmentation_charts():
                     name = img_file.stem.lower()
                     if "details" in name:
                         shutil.copy(img_file, ASSETS_DIR / "augment_details_chart.png")
-                        print(f"  ✓ Copied: augment_details_chart.png")
+                        print("  ✓ Copied: augment_details_chart.png")
                     elif "augmentation" in name:
                         shutil.copy(img_file, ASSETS_DIR / "augment_chart.png")
-                        print(f"  ✓ Copied: augment_chart.png")
+                        print("  ✓ Copied: augment_chart.png")
                 break
 
     # Multiple augmentations with VISIBLE differences
@@ -294,12 +289,11 @@ def generate_augmentation_charts():
                     name = img_file.stem.lower()
                     if "details" in name:
                         shutil.copy(img_file, ASSETS_DIR / "augment_multi_details_chart.png")
-                        print(f"  ✓ Copied: augment_multi_details_chart.png")
+                        print("  ✓ Copied: augment_multi_details_chart.png")
                     elif "augmentation" in name:
                         shutil.copy(img_file, ASSETS_DIR / "augment_multi_chart.png")
-                        print(f"  ✓ Copied: augment_multi_chart.png")
+                        print("  ✓ Copied: augment_multi_chart.png")
                 break
-
 
 # =============================================================================
 # SECTION 4: Exclusion Charts (with chart_2d style)
@@ -354,17 +348,16 @@ def generate_exclusion_charts():
                 # Copy exclusion chart
                 if exclusion_file:
                     shutil.copy(exclusion_file, ASSETS_DIR / "exclusion_chart.png")
-                    print(f"  ✓ Copied: exclusion_chart.png")
+                    print("  ✓ Copied: exclusion_chart.png")
 
                 # Copy the second chart_2d (after exclusion) for the "with exclusion" view
                 if len(chart_2d_files) >= 2:
                     shutil.copy(chart_2d_files[1], ASSETS_DIR / "chart_2d_with_exclusion.png")
-                    print(f"  ✓ Copied: chart_2d_with_exclusion.png")
+                    print("  ✓ Copied: chart_2d_with_exclusion.png")
                 elif chart_2d_files:
                     shutil.copy(chart_2d_files[0], ASSETS_DIR / "chart_2d_with_exclusion.png")
-                    print(f"  ✓ Copied: chart_2d_with_exclusion.png (single)")
+                    print("  ✓ Copied: chart_2d_with_exclusion.png (single)")
                 break
-
 
 # =============================================================================
 # SECTION 5: Pipeline Diagram with Branching
@@ -414,7 +407,6 @@ def generate_pipeline_diagram():
         print(f"    ⚠ Skipped pipeline_diagram: {e}")
         import traceback
         traceback.print_exc()
-
 
 # =============================================================================
 # SECTION 6: PredictionAnalyzer Charts
@@ -469,7 +461,6 @@ def generate_prediction_analyzer_charts():
 
     return predictions
 
-
 def generate_classification_charts():
     """Generate classification-specific charts."""
     print("\n" + "=" * 60)
@@ -504,7 +495,6 @@ def generate_classification_charts():
             save_figure(fig, "plot_confusion_matrix")
     except Exception as e:
         print(f"    ⚠ Skipped plot_confusion_matrix: {e}")
-
 
 # =============================================================================
 # SECTION 7: SHAP Charts
@@ -569,19 +559,18 @@ def generate_shap_charts():
                 name = img_file.stem.lower()
                 if "spectral" in name:
                     shutil.copy(img_file, ASSETS_DIR / "shap_spectral.png")
-                    print(f"  ✓ Copied: shap_spectral.png")
+                    print("  ✓ Copied: shap_spectral.png")
                 elif "waterfall" in name:
                     shutil.copy(img_file, ASSETS_DIR / "shap_waterfall.png")
-                    print(f"  ✓ Copied: shap_waterfall.png")
+                    print("  ✓ Copied: shap_waterfall.png")
                 elif "beeswarm" in name:
                     shutil.copy(img_file, ASSETS_DIR / "shap_beeswarm.png")
-                    print(f"  ✓ Copied: shap_beeswarm.png")
+                    print("  ✓ Copied: shap_beeswarm.png")
 
     except Exception as e:
         print(f"  ⚠ SHAP analysis failed: {e}")
         import traceback
         traceback.print_exc()
-
 
 # =============================================================================
 # MAIN
@@ -613,7 +602,6 @@ def main():
     print("\nGenerated files:")
     for f in sorted(ASSETS_DIR.glob("*.png")):
         print(f"  - {f.name}")
-
 
 if __name__ == "__main__":
     main()

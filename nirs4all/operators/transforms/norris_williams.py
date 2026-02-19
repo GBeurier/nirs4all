@@ -23,7 +23,6 @@ def _segment_smooth(spectra: np.ndarray, segment: int) -> np.ndarray:
         smoothed[:, j] = np.mean(padded[:, j:j + segment], axis=1)
     return smoothed
 
-
 def _gap_derivative(spectra: np.ndarray, gap: int, delta: float) -> np.ndarray:
     """Compute gap derivative along the feature axis.
 
@@ -37,7 +36,6 @@ def _gap_derivative(spectra: np.ndarray, gap: int, delta: float) -> np.ndarray:
     """
     padded = np.pad(spectra, ((0, 0), (gap, gap)), mode="edge")
     return (padded[:, 2 * gap:] - padded[:, :spectra.shape[1]]) / (2 * gap * delta)
-
 
 def norris_williams(spectra: np.ndarray, gap: int = 5, segment: int = 5, deriv: int = 1, delta: float = 1.0) -> np.ndarray:
     """Norris-Williams gap derivative for spectral data.
@@ -68,7 +66,6 @@ def norris_williams(spectra: np.ndarray, gap: int = 5, segment: int = 5, deriv: 
         result = _segment_smooth(result, segment)
         result = _gap_derivative(result, gap, delta)
     return result
-
 
 class NorrisWilliams(TransformerMixin, BaseEstimator):
     """Norris-Williams gap derivative transform.

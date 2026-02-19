@@ -9,26 +9,24 @@ Section 8.3: Configuration Serialization
 """
 
 import json
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
-from enum import Enum
 from copy import deepcopy
+from dataclasses import dataclass
+from enum import Enum, StrEnum
+from pathlib import Path
+from typing import Any, Optional, Union
 
-import yaml
 import numpy as np
+import yaml
 
 from nirs4all.core.logging import get_logger
 from nirs4all.data.schema import DatasetConfigSchema
 
 logger = get_logger(__name__)
 
-
-class SerializationFormat(str, Enum):
+class SerializationFormat(StrEnum):
     """Supported serialization formats."""
     YAML = "yaml"
     JSON = "json"
-
 
 @dataclass
 class ConfigDiff:
@@ -41,10 +39,10 @@ class ConfigDiff:
         unchanged: Keys with identical values.
     """
 
-    added: Dict[str, Any]
-    removed: Dict[str, Any]
-    changed: Dict[str, Tuple[Any, Any]]
-    unchanged: Set[str]
+    added: dict[str, Any]
+    removed: dict[str, Any]
+    changed: dict[str, tuple[Any, Any]]
+    unchanged: set[str]
 
     def is_identical(self) -> bool:
         """Check if configs are identical."""
@@ -89,14 +87,12 @@ class ConfigDiff:
 
         return "\n".join(lines)
 
-
 def _format_value(value: Any, max_length: int = 100) -> str:
     """Format a value for display, truncating if necessary."""
     formatted = repr(value)
     if len(formatted) > max_length:
         return formatted[:max_length - 3] + "..."
     return formatted
-
 
 class ConfigSerializer:
     """Serializer for dataset configurations.
@@ -158,7 +154,7 @@ class ConfigSerializer:
 
     def to_yaml(
         self,
-        config: Union[Dict[str, Any], DatasetConfigSchema],
+        config: dict[str, Any] | DatasetConfigSchema,
         **kwargs,
     ) -> str:
         """Serialize config to YAML string.
@@ -183,7 +179,7 @@ class ConfigSerializer:
 
     def to_json(
         self,
-        config: Union[Dict[str, Any], DatasetConfigSchema],
+        config: dict[str, Any] | DatasetConfigSchema,
         indent: int = 2,
         **kwargs,
     ) -> str:
@@ -210,9 +206,9 @@ class ConfigSerializer:
 
     def save(
         self,
-        config: Union[Dict[str, Any], DatasetConfigSchema],
-        path: Union[str, Path],
-        format: Optional[SerializationFormat] = None,
+        config: dict[str, Any] | DatasetConfigSchema,
+        path: str | Path,
+        format: SerializationFormat | None = None,
     ) -> None:
         """Save config to file.
 
@@ -226,10 +222,7 @@ class ConfigSerializer:
         if format is None:
             format = self._detect_format(path)
 
-        if format == SerializationFormat.YAML:
-            content = self.to_yaml(config)
-        else:
-            content = self.to_json(config)
+        content = self.to_yaml(config) if format == SerializationFormat.YAML else self.to_json(config)
 
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
@@ -239,8 +232,8 @@ class ConfigSerializer:
 
     def load(
         self,
-        path: Union[str, Path],
-    ) -> Dict[str, Any]:
+        path: str | Path,
+    ) -> dict[str, Any]:
         """Load config from file.
 
         Args:
@@ -258,15 +251,12 @@ class ConfigSerializer:
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read()
 
         format = self._detect_format(path)
 
-        if format == SerializationFormat.YAML:
-            config = yaml.safe_load(content)
-        else:
-            config = json.loads(content)
+        config = yaml.safe_load(content) if format == SerializationFormat.YAML else json.loads(content)
 
         if config is None:
             raise ValueError(f"Empty config file: {path}")
@@ -278,8 +268,8 @@ class ConfigSerializer:
 
     def diff(
         self,
-        old_config: Union[Dict[str, Any], DatasetConfigSchema],
-        new_config: Union[Dict[str, Any], DatasetConfigSchema],
+        old_config: dict[str, Any] | DatasetConfigSchema,
+        new_config: dict[str, Any] | DatasetConfigSchema,
     ) -> ConfigDiff:
         """Compare two configurations.
 
@@ -321,8 +311,8 @@ class ConfigSerializer:
 
     def _prepare_for_serialization(
         self,
-        config: Union[Dict[str, Any], DatasetConfigSchema]
-    ) -> Dict[str, Any]:
+        config: dict[str, Any] | DatasetConfigSchema
+    ) -> dict[str, Any]:
         """Prepare config for serialization.
 
         Args:
@@ -385,7 +375,7 @@ class ConfigSerializer:
 
         return obj
 
-    def _normalize_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize_config(self, config: dict[str, Any]) -> dict[str, Any]:
         """Normalize configuration for consistent serialization.
 
         Args:
@@ -434,8 +424,8 @@ class ConfigSerializer:
 
     def _to_comparable_dict(
         self,
-        config: Union[Dict[str, Any], DatasetConfigSchema]
-    ) -> Dict[str, Any]:
+        config: dict[str, Any] | DatasetConfigSchema
+    ) -> dict[str, Any]:
         """Convert config to comparable dictionary.
 
         Args:
@@ -484,7 +474,7 @@ class ConfigSerializer:
                 return False
             return all(
                 self._values_equal(v1, v2)
-                for v1, v2 in zip(val1, val2)
+                for v1, v2 in zip(val1, val2, strict=False)
             )
 
         # Handle enums
@@ -509,9 +499,8 @@ class ConfigSerializer:
             return SerializationFormat.YAML
         return SerializationFormat.JSON
 
-
 def serialize_config(
-    config: Union[Dict[str, Any], DatasetConfigSchema],
+    config: dict[str, Any] | DatasetConfigSchema,
     format: SerializationFormat = SerializationFormat.YAML,
     **kwargs,
 ) -> str:
@@ -530,11 +519,10 @@ def serialize_config(
         return serializer.to_yaml(config)
     return serializer.to_json(config)
 
-
 def deserialize_config(
     content: str,
     format: SerializationFormat = SerializationFormat.YAML,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Convenience function to deserialize config.
 
     Args:
@@ -544,19 +532,15 @@ def deserialize_config(
     Returns:
         Configuration dictionary.
     """
-    if format == SerializationFormat.YAML:
-        config = yaml.safe_load(content)
-    else:
-        config = json.loads(content)
+    config = yaml.safe_load(content) if format == SerializationFormat.YAML else json.loads(content)
 
     if config is None:
         return {}
     return config
 
-
 def diff_configs(
-    old_config: Union[Dict[str, Any], DatasetConfigSchema],
-    new_config: Union[Dict[str, Any], DatasetConfigSchema],
+    old_config: dict[str, Any] | DatasetConfigSchema,
+    new_config: dict[str, Any] | DatasetConfigSchema,
 ) -> ConfigDiff:
     """Convenience function to diff configs.
 

@@ -43,7 +43,6 @@ def _check_jax_available():
     except ImportError:
         return False
 
-
 def _check_torch_available():
     """Check if PyTorch is available."""
     try:
@@ -51,7 +50,6 @@ def _check_torch_available():
         return True
     except ImportError:
         return False
-
 
 def _lwpls_predict(
     x_train: NDArray[np.floating],
@@ -186,7 +184,6 @@ def _lwpls_predict(
 
     return estimated_y_test
 
-
 # =============================================================================
 # JAX Backend Implementation
 # =============================================================================
@@ -199,7 +196,7 @@ def _get_jax_lwpls_functions():
 
     Returns
     -------
-    lwpls_predict_jax : callable
+    lwpls_predict_jax : Callable
         JAX-accelerated LWPLS prediction function with batching support.
     """
     import jax
@@ -424,10 +421,8 @@ def _get_jax_lwpls_functions():
 
     return lwpls_predict_jax
 
-
 # Cache the JAX function to avoid re-creating it
 _JAX_LWPLS_FUNC = None
-
 
 # =============================================================================
 # PyTorch Backend Implementation
@@ -441,7 +436,7 @@ def _get_torch_lwpls_functions():
 
     Returns
     -------
-    lwpls_predict_torch : callable
+    lwpls_predict_torch : Callable
         PyTorch-accelerated LWPLS prediction function with batching support.
     """
     import torch
@@ -662,10 +657,8 @@ def _get_torch_lwpls_functions():
 
     return lwpls_predict_torch
 
-
 # Cache the PyTorch function to avoid re-creating it
 _TORCH_LWPLS_FUNC = None
-
 
 def _lwpls_predict_jax(
     x_train: NDArray[np.floating],
@@ -727,7 +720,6 @@ def _lwpls_predict_jax(
 
     # Convert back to NumPy
     return np.asarray(predictions_jax)
-
 
 def _lwpls_predict_torch(
     x_train: NDArray[np.floating],
@@ -794,7 +786,6 @@ def _lwpls_predict_torch(
 
     # Convert back to NumPy
     return predictions_torch.cpu().numpy()
-
 
 class LWPLS(BaseEstimator, RegressorMixin):
     """Locally-Weighted Partial Least Squares (LWPLS) regressor.
@@ -951,7 +942,7 @@ class LWPLS(BaseEstimator, RegressorMixin):
         self,
         X: ArrayLike,
         y: ArrayLike,
-    ) -> "LWPLS":
+    ) -> LWPLS:
         """Fit the LWPLS model.
 
         This stores the training data and fits scalers if requested.
@@ -1026,7 +1017,7 @@ class LWPLS(BaseEstimator, RegressorMixin):
     def predict(
         self,
         X: ArrayLike,
-        n_components: Union[int, None] = None,
+        n_components: int | None = None,
     ) -> NDArray[np.floating]:
         """Predict using the LWPLS model.
 
@@ -1049,16 +1040,10 @@ class LWPLS(BaseEstimator, RegressorMixin):
 
         X = np.asarray(X, dtype=np.float64)
 
-        if n_components is None:
-            n_components = self.n_components_
-        else:
-            n_components = min(n_components, self.n_components_)
+        n_components = self.n_components_ if n_components is None else min(n_components, self.n_components_)
 
         # Scale input if needed
-        if self.scale and self.x_scaler_ is not None:
-            X_scaled = self.x_scaler_.transform(X)
-        else:
-            X_scaled = X
+        X_scaled = self.x_scaler_.transform(X) if self.scale and self.x_scaler_ is not None else X
 
         # Get predictions for all component numbers using appropriate backend
         if self.backend == 'jax':
@@ -1092,12 +1077,7 @@ class LWPLS(BaseEstimator, RegressorMixin):
         y_pred_scaled = all_predictions[:, n_components - 1]
 
         # Inverse transform if needed
-        if self.scale and self.y_scaler_ is not None:
-            y_pred = self.y_scaler_.inverse_transform(
-                y_pred_scaled.reshape(-1, 1)
-            ).ravel()
-        else:
-            y_pred = y_pred_scaled
+        y_pred = self.y_scaler_.inverse_transform(y_pred_scaled.reshape(-1, 1)).ravel() if self.scale and self.y_scaler_ is not None else y_pred_scaled
 
         return y_pred
 
@@ -1125,10 +1105,7 @@ class LWPLS(BaseEstimator, RegressorMixin):
         X = np.asarray(X, dtype=np.float64)
 
         # Scale input if needed
-        if self.scale and self.x_scaler_ is not None:
-            X_scaled = self.x_scaler_.transform(X)
-        else:
-            X_scaled = X
+        X_scaled = self.x_scaler_.transform(X) if self.scale and self.x_scaler_ is not None else X
 
         # Get predictions for all component numbers using appropriate backend
         if self.backend == 'jax':
@@ -1193,7 +1170,7 @@ class LWPLS(BaseEstimator, RegressorMixin):
             'batch_size': self.batch_size,
         }
 
-    def set_params(self, **params) -> "LWPLS":
+    def set_params(self, **params) -> LWPLS:
         """Set the parameters of this estimator.
 
         Parameters

@@ -13,13 +13,13 @@ Presets:
     exhaustive: Maximum depth/breadth for research (~30min)
 """
 
-from typing import Any, Dict
+from typing import Any
 
 # =============================================================================
 # Preset Configurations
 # =============================================================================
 
-PRESETS: Dict[str, Dict[str, Any]] = {
+PRESETS: dict[str, dict[str, Any]] = {
     "fast": {
         "run_stage2": False,
         "run_stage3": False,
@@ -71,8 +71,7 @@ PRESETS: Dict[str, Dict[str, Any]] = {
     },
 }
 
-
-def get_preset(name: str) -> Dict[str, Any]:
+def get_preset(name: str) -> dict[str, Any]:
     """
     Get a preset configuration by name.
 
@@ -91,8 +90,7 @@ def get_preset(name: str) -> Dict[str, Any]:
         )
     return PRESETS[name].copy()
 
-
-def list_presets() -> Dict[str, str]:
+def list_presets() -> dict[str, str]:
     """
     List available presets with descriptions.
 

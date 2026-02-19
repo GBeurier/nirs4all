@@ -4,11 +4,11 @@ Tests for SampleLinker class.
 Tests key-based sample linking across multiple files.
 """
 
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
 
-from nirs4all.data.selection import SampleLinker, LinkingError
+from nirs4all.data.selection import LinkingError, SampleLinker
 from nirs4all.data.selection.sample_linker import link_xy, link_xym
 
 
@@ -21,7 +21,6 @@ def features_df():
         "feature_2": [0.1, 0.2, 0.3, 0.4, 0.5],
     })
 
-
 @pytest.fixture
 def targets_df():
     """Create a targets DataFrame with same keys."""
@@ -29,7 +28,6 @@ def targets_df():
         "sample_id": [1, 2, 3, 4, 5],
         "target": [0, 1, 0, 1, 0],
     })
-
 
 @pytest.fixture
 def metadata_df():
@@ -40,7 +38,6 @@ def metadata_df():
         "date": ["2024-01-01"] * 5,
     })
 
-
 @pytest.fixture
 def partial_targets_df():
     """Create a targets DataFrame with fewer keys."""
@@ -49,7 +46,6 @@ def partial_targets_df():
         "target": [0, 1, 0],
     })
 
-
 @pytest.fixture
 def extra_targets_df():
     """Create a targets DataFrame with extra keys."""
@@ -57,7 +53,6 @@ def extra_targets_df():
         "sample_id": [1, 2, 3, 4, 5, 6, 7],  # 2 extra samples
         "target": [0, 1, 0, 1, 0, 1, 1],
     })
-
 
 class TestSampleLinkerBasic:
     """Basic sample linking tests."""
@@ -113,7 +108,6 @@ class TestSampleLinkerBasic:
                 link_by="sample_id"
             )
 
-
 class TestSampleLinkerModes:
     """Tests for different linking modes."""
 
@@ -150,7 +144,6 @@ class TestSampleLinkerModes:
 
         # All 7 keys (5 from X, 2 extra from Y)
         assert len(result.matched_keys) == 7
-
 
 class TestSampleLinkerMissingKeys:
     """Tests for handling missing keys."""
@@ -190,7 +183,6 @@ class TestSampleLinkerMissingKeys:
 
         assert result.sample_count == 3
 
-
 class TestSampleLinkerThreeSources:
     """Tests for linking three sources."""
 
@@ -220,7 +212,6 @@ class TestSampleLinkerThreeSources:
 
         # Inner join should have only 3 samples
         assert result.sample_count == 3
-
 
 class TestSampleLinkerAlignment:
     """Tests for row alignment."""
@@ -265,7 +256,6 @@ class TestSampleLinkerAlignment:
         assert list(X["sample_id"]) == list(Y["sample_id"])
         assert list(X["sample_id"]) == [1, 2, 3, 4, 5]
 
-
 class TestSampleLinkerAligned:
     """Tests for aligned source linking."""
 
@@ -291,7 +281,6 @@ class TestSampleLinkerAligned:
         with pytest.raises(LinkingError, match="different row counts"):
             linker.link_aligned({"X": X, "Y": Y})
 
-
 class TestSampleLinkerIndex:
     """Tests for sample index creation."""
 
@@ -316,7 +305,6 @@ class TestSampleLinkerIndex:
         assert bool(index.loc[1, "in_all"]) is True
         assert bool(index.loc[4, "in_all"]) is False
 
-
 class TestConvenienceFunctions:
     """Tests for convenience functions."""
 
@@ -339,7 +327,6 @@ class TestConvenienceFunctions:
         assert len(X) == 5
         assert len(Y) == 5
         assert len(M) == 5
-
 
 class TestSampleLinkerReport:
     """Tests for linking report."""

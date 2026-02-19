@@ -2,13 +2,13 @@
 Unit tests for MultiSourceGenerator class.
 """
 
-import pytest
 import numpy as np
+import pytest
 
 from nirs4all.synthesis.sources import (
     MultiSourceGenerator,
-    SourceConfig,
     MultiSourceResult,
+    SourceConfig,
     generate_multi_source,
 )
 
@@ -47,7 +47,6 @@ class TestSourceConfig:
             n_features=20
         )
         assert config.n_features == 20
-
 
 class TestMultiSourceResult:
     """Tests for MultiSourceResult container."""
@@ -89,7 +88,6 @@ class TestMultiSourceResult:
         )
         assert result.n_features_total == 150
 
-
 class TestMultiSourceGeneratorInit:
     """Tests for MultiSourceGenerator initialization."""
 
@@ -102,7 +100,6 @@ class TestMultiSourceGeneratorInit:
         """Test initialization with random state."""
         gen = MultiSourceGenerator(random_state=42)
         assert gen._random_state == 42
-
 
 class TestMultiSourceGeneration:
     """Tests for multi-source dataset generation."""
@@ -199,7 +196,6 @@ class TestMultiSourceGeneration:
                 sources=[{"name": "bad", "type": "invalid"}]
             )
 
-
 class TestMultiSourceCreateDataset:
     """Tests for creating SpectroDataset from multi-source."""
 
@@ -234,7 +230,6 @@ class TestMultiSourceCreateDataset:
         assert n_train == 28
         assert n_test == 12
 
-
 class TestReproducibility:
     """Tests for reproducibility."""
 
@@ -253,7 +248,6 @@ class TestReproducibility:
             result2.sources["NIR"]
         )
         np.testing.assert_array_almost_equal(result1.targets, result2.targets)
-
 
 class TestConvenienceFunction:
     """Tests for generate_multi_source convenience function."""

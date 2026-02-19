@@ -7,8 +7,8 @@ used by separation branches.
 import pytest
 
 from nirs4all.controllers.data.branch_utils import (
-    parse_value_condition,
     group_samples_by_value_mapping,
+    parse_value_condition,
     validate_disjoint_conditions,
 )
 
@@ -230,7 +230,8 @@ class TestParseValueCondition:
 
     def test_callable_passthrough(self):
         """Test that callable is used directly."""
-        custom_fn = lambda x: x % 2 == 0  # Even numbers
+        def custom_fn(x):
+            return x % 2 == 0  # Even numbers
         pred = parse_value_condition(custom_fn)
         assert pred(2) is True
         assert pred(4) is True
@@ -261,7 +262,6 @@ class TestParseValueCondition:
         """Test that dict raises ValueError (not a valid condition type)."""
         with pytest.raises(ValueError, match="Unknown condition format"):
             parse_value_condition({"key": "value"})
-
 
 class TestGroupSamplesByValueMapping:
     """Tests for group_samples_by_value_mapping function."""
@@ -360,7 +360,6 @@ class TestGroupSamplesByValueMapping:
 
         assert groups["even"] == [1, 3, 5]  # indices of 2, 4, 6
         assert groups["odd"] == [0, 2, 4]   # indices of 1, 3, 5
-
 
 class TestValidateDisjointConditions:
     """Tests for validate_disjoint_conditions function."""

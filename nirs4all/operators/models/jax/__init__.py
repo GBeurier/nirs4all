@@ -1,4 +1,4 @@
-from .generic import JaxMLPRegressor, JaxMLPClassifier
+from .generic import JaxMLPClassifier, JaxMLPRegressor
 
 __all__ = [
     'JaxMLPRegressor',

@@ -20,6 +20,7 @@ models are refit concurrently.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 from typing import Any
 
@@ -44,6 +45,14 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_MAX_STACKING_DEPTH = 3
+"""Maximum nesting depth for stacked pipelines during refit.
+
+Deeper nesting increases refit complexity exponentially (each level
+multiplies by the number of branches).  3 levels is sufficient for
+most real-world stacking scenarios (base models -> meta-model ->
+super-meta-model).  Override by passing ``max_depth`` to
+:func:`execute_stacking_refit`.
+"""
 
 # ---------------------------------------------------------------------------
 # GPU detection helpers (Task 3.5)
@@ -58,7 +67,6 @@ _GPU_MODULE_FRAGMENTS = frozenset({
     "jax",
     "flax",
 })
-
 
 def _is_gpu_model(model_config: Any) -> bool:
     """Detect whether a model configuration uses a GPU-backed framework.
@@ -80,7 +88,6 @@ def _is_gpu_model(model_config: Any) -> bool:
     class_path_lower = class_path.lower()
     return any(frag in class_path_lower for frag in _GPU_MODULE_FRAGMENTS)
 
-
 def _extract_model_class_path(model_config: Any) -> str:
     """Extract the class path string from a model config.
 
@@ -101,7 +108,6 @@ def _extract_model_class_path(model_config: Any) -> str:
     # Live instance -- use its module + class name
     cls = type(model_config)
     return f"{cls.__module__}.{cls.__qualname__}"
-
 
 def _cleanup_gpu_memory() -> None:
     """Release GPU memory after a GPU model refit.
@@ -132,11 +138,9 @@ def _cleanup_gpu_memory() -> None:
     except Exception:
         pass
 
-
 # ---------------------------------------------------------------------------
 # Branch classification for mixed merge (Task 3.4)
 # ---------------------------------------------------------------------------
-
 
 def _classify_branch_type(
     branch_index: int,
@@ -180,11 +184,9 @@ def _classify_branch_type(
 
     return "predictions"
 
-
 # ---------------------------------------------------------------------------
 # Step extraction helpers
 # ---------------------------------------------------------------------------
-
 
 def _find_branch_step(steps: list[Any]) -> tuple[int, Any] | None:
     """Find the branch step and its index in the step list.
@@ -199,7 +201,6 @@ def _find_branch_step(steps: list[Any]) -> tuple[int, Any] | None:
         if isinstance(step, dict) and "branch" in step:
             return idx, step
     return None
-
 
 def _find_merge_step(steps: list[Any], after: int = 0) -> dict[str, Any] | None:
     """Find the merge step after a given index.
@@ -216,7 +217,6 @@ def _find_merge_step(steps: list[Any], after: int = 0) -> dict[str, Any] | None:
             return step
     return None
 
-
 def _extract_pre_branch_steps(steps: list[Any], branch_idx: int) -> list[Any]:
     """Extract preprocessing steps before the branch.
 
@@ -228,7 +228,6 @@ def _extract_pre_branch_steps(steps: list[Any], branch_idx: int) -> list[Any]:
         List of steps before the branch.
     """
     return steps[:branch_idx]
-
 
 def _extract_post_merge_steps(steps: list[Any], branch_idx: int) -> list[Any]:
     """Extract steps after the merge step (meta-model and beyond).
@@ -245,7 +244,6 @@ def _extract_post_merge_steps(steps: list[Any], branch_idx: int) -> list[Any]:
             return steps[idx + 1:]
     return []
 
-
 def _extract_model_from_steps(steps: list[Any]) -> Any:
     """Extract the model config from a list of steps.
 
@@ -261,7 +259,6 @@ def _extract_model_from_steps(steps: list[Any]) -> Any:
         if not isinstance(step, dict) and hasattr(step, "fit") and hasattr(step, "predict") and not _step_is_splitter(step):
             return step
     return None
-
 
 def _extract_preprocessing_from_branch(branch_steps: list[Any]) -> list[Any]:
     """Extract non-model, non-splitter steps from a branch sub-pipeline.
@@ -283,7 +280,6 @@ def _extract_preprocessing_from_branch(branch_steps: list[Any]) -> list[Any]:
             continue
         result.append(step)
     return result
-
 
 def _branch_contains_stacking(branch_steps: list[Any]) -> bool:
     """Check if a branch sub-pipeline contains stacking (merge: predictions).
@@ -318,7 +314,6 @@ def _branch_contains_stacking(branch_steps: list[Any]) -> bool:
                     if _branch_contains_stacking(sub_list):
                         return True
     return False
-
 
 def _select_winning_branch(
     refit_config: RefitConfig,
@@ -361,7 +356,7 @@ def _select_winning_branch(
     except Exception:
         return 0
 
-    for bid, vs in zip(branch_ids, val_scores):
+    for bid, vs in zip(branch_ids, val_scores, strict=False):
         if bid is not None and vs is not None:
             bid = int(bid)
             if bid not in branch_scores:
@@ -378,17 +373,13 @@ def _select_winning_branch(
         for bid, scores in branch_scores.items()
     }
 
-    if ascending:
-        winning = min(branch_avg, key=branch_avg.get)
-    else:
-        winning = max(branch_avg, key=branch_avg.get)
+    winning = min(branch_avg, key=branch_avg.get) if ascending else max(branch_avg, key=branch_avg.get)
 
     # Clamp to valid branch range
     if winning < 0 or winning >= len(branch_value):
         return 0
 
     return winning
-
 
 def _get_branch_scores(
     refit_config: RefitConfig,
@@ -423,7 +414,7 @@ def _get_branch_scores(
     except Exception:
         return {}
 
-    for bid, vs in zip(branch_ids, val_scores):
+    for bid, vs in zip(branch_ids, val_scores, strict=False):
         if bid is not None and vs is not None:
             bid = int(bid)
             if bid not in branch_scores:
@@ -434,7 +425,6 @@ def _get_branch_scores(
         bid: sum(scores) / len(scores)
         for bid, scores in branch_scores.items()
     }
-
 
 def _infer_ascending_for_metric(metric: str) -> bool:
     """Infer whether lower-is-better from the metric name.
@@ -454,11 +444,9 @@ def _infer_ascending_for_metric(metric: str) -> bool:
     }
     return metric_lower not in higher_is_better
 
-
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
-
 
 def execute_stacking_refit(
     refit_config: RefitConfig,
@@ -520,7 +508,10 @@ def execute_stacking_refit(
     original_steps = refit_config.expanded_steps
     steps = copy.deepcopy(original_steps)
 
-    # Inject best params into model steps
+    # Inject best params into model steps.
+    # NOTE: _inject_best_params applies params globally to all model steps.
+    # In stacking pipelines, params that don't match a model's valid
+    # parameter names are silently skipped (see _apply_params_to_model).
     _inject_best_params(steps, refit_config.best_params)
 
     # Locate the branch and merge structure
@@ -837,11 +828,9 @@ def execute_stacking_refit(
 
     return result
 
-
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
 
 def _any_branch_has_gpu_model(branch_value: list[Any]) -> bool:
     """Check if any branch contains a GPU-backed model.
@@ -860,7 +849,6 @@ def _any_branch_has_gpu_model(branch_value: list[Any]) -> bool:
             return True
     return False
 
-
 def _replace_splitter(steps: list[Any], dataset: Any) -> list[Any]:
     """Replace CV splitter steps with a full-training-data fold.
 
@@ -873,15 +861,11 @@ def _replace_splitter(steps: list[Any], dataset: Any) -> list[Any]:
     """
     for idx, step in enumerate(steps):
         if _step_is_splitter(step):
-            try:
-                X_train = dataset.x({"partition": "train"}, layout="2d")
-                n_train = X_train.shape[0]
-            except Exception:
-                n_train = 100
+            X_train = dataset.x({"partition": "train"}, layout="2d")
+            n_train = X_train.shape[0]
             steps[idx] = _FullTrainFoldSplitter(n_train)
             break
     return steps
-
 
 def _relabel_stacking_predictions(
     predictions: Any,
@@ -899,9 +883,11 @@ def _relabel_stacking_predictions(
         branch_index: 0-based branch index, or ``None`` for meta-model.
         is_meta: Whether these are meta-model predictions.
     """
-    for entry in predictions._buffer:
-        entry["fold_id"] = "final"
-        entry["refit_context"] = REFIT_CONTEXT_STACKING
+    # Set common fields on all entries
+    predictions.mutate_entries({"fold_id": "final", "refit_context": REFIT_CONTEXT_STACKING})
+
+    # Add branch/meta-model metadata per entry
+    for entry in predictions.iter_entries():
         metadata = entry.get("metadata") or {}
         if is_meta:
             metadata["stacking_role"] = "meta_model"
@@ -909,7 +895,6 @@ def _relabel_stacking_predictions(
             metadata["stacking_role"] = "base_model"
             metadata["stacking_branch"] = branch_index
         entry["metadata"] = metadata
-
 
 def _extract_in_sample_predictions(predictions: Any) -> np.ndarray | None:
     """Extract in-sample predictions from a Predictions object.
@@ -924,7 +909,7 @@ def _extract_in_sample_predictions(predictions: Any) -> np.ndarray | None:
         1D numpy array of predictions, or ``None`` if no predictions
         were found.
     """
-    for entry in predictions._buffer:
+    for entry in predictions.iter_entries():
         y_pred = entry.get("y_pred")
         if y_pred is None:
             continue
@@ -939,7 +924,6 @@ def _extract_in_sample_predictions(predictions: Any) -> np.ndarray | None:
 
     return None
 
-
 def _extract_test_score_from_predictions(predictions: Any) -> float | None:
     """Extract test score from meta-model predictions.
 
@@ -949,12 +933,11 @@ def _extract_test_score_from_predictions(predictions: Any) -> float | None:
     Returns:
         Test score as float, or ``None``.
     """
-    for entry in predictions._buffer:
+    for entry in predictions.iter_entries():
         test_score = entry.get("test_score")
         if test_score is not None:
             return float(test_score)
     return None
-
 
 def _create_meta_dataset(meta_X: np.ndarray, original_dataset: Any) -> Any:
     """Create a synthetic SpectroDataset with meta-features.
@@ -986,11 +969,9 @@ def _create_meta_dataset(meta_X: np.ndarray, original_dataset: Any) -> Any:
 
     return meta_dataset
 
-
 # ---------------------------------------------------------------------------
 # Task 4.2: Separation branch refit
 # ---------------------------------------------------------------------------
-
 
 def execute_separation_refit(
     refit_config: RefitConfig,
@@ -1067,11 +1048,9 @@ def execute_separation_refit(
         prediction_store=prediction_store,
     )
 
-
 # ---------------------------------------------------------------------------
 # Task 4.5: Competing branches refit (branches without merge)
 # ---------------------------------------------------------------------------
-
 
 def execute_competing_branches_refit(
     refit_config: RefitConfig,
@@ -1236,11 +1215,9 @@ def execute_competing_branches_refit(
         metric=refit_config.metric,
     )
 
-
 # ---------------------------------------------------------------------------
 # Per-model refit for named branches with generators
 # ---------------------------------------------------------------------------
-
 
 def _execute_per_model_competing_refit(
     refit_config: RefitConfig,
@@ -1403,7 +1380,6 @@ def _execute_per_model_competing_refit(
         metric=refit_config.metric,
     )
 
-
 def _expand_branch_steps(steps: list[Any]) -> list[list[Any]]:
     """Expand generator nodes within a branch step list.
 
@@ -1447,7 +1423,6 @@ def _expand_branch_steps(steps: list[Any]) -> list[list[Any]]:
 
     return result if result else [steps]
 
-
 def _model_class_name(model: Any) -> str:
     """Get a short class name for a model.
 
@@ -1458,7 +1433,6 @@ def _model_class_name(model: Any) -> str:
     if isinstance(model, type):
         return model.__name__
     return type(model).__name__
-
 
 def _select_best_per_model(
     refit_config: RefitConfig,
@@ -1492,13 +1466,11 @@ def _select_best_per_model(
     # Query CV validation predictions
     preds_df = None
     if store is not None and refit_config.pipeline_id:
-        try:
+        with contextlib.suppress(Exception):
             preds_df = store.query_predictions(
                 pipeline_id=refit_config.pipeline_id,
                 partition="val",
             )
-        except Exception:
-            pass
 
     ascending = _infer_ascending_for_metric(refit_config.metric)
 
@@ -1519,7 +1491,7 @@ def _select_best_per_model(
 
         # Accumulate scores per (model_name, branch_id)
         accum: dict[tuple[str, int], dict[str, Any]] = {}
-        for mn, bid, vs, bp in zip(model_names, branch_ids, val_scores, best_params_col):
+        for mn, bid, vs, bp in zip(model_names, branch_ids, val_scores, best_params_col, strict=False):
             if mn is None or bid is None or vs is None:
                 continue
             key = (str(mn), int(bid))
@@ -1535,10 +1507,8 @@ def _select_best_per_model(
                 accum[key]["best_val"] = float(vs)
                 # Parse best_params if JSON string
                 if isinstance(bp, str):
-                    try:
+                    with contextlib.suppress(json.JSONDecodeError, TypeError):
                         accum[key]["best_params"] = json.loads(bp)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
                 elif isinstance(bp, dict):
                     accum[key]["best_params"] = bp
 

@@ -1,23 +1,22 @@
-import json
-import re
-import inspect
 import importlib
+import inspect
+import json
 import math
+import re
 from pathlib import Path
 
 from sklearn.utils import all_estimators
-from nirs4all.operators.models import generic_tf, cirad_tf
+
+from nirs4all.operators.models import cirad_tf, generic_tf
 
 try:
     import numpy as np  # type: ignore
 except ImportError:  # pragma: no cover - numpy is optional for metadata extraction
     np = None
 
-
 def camel_to_snake(name: str) -> str:
     s1 = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", name)
     return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
-
 
 CATEGORIES = [
     {"id":"augmentation","label":"Augmentation","featherIcon":"GitBranch","description":"Spectral data augmentation operators for robustness","className":"bg-orange-50 border-orange-200","color":"#fb923c","bgColor":"#fff7ed"},
@@ -31,7 +30,6 @@ CATEGORIES = [
     {"id":"prediction","label":"Prediction & Outputs","featherIcon":"Target","description":"Prediction utilities, calibration, and deployment helpers","className":"bg-red-50 border-red-200","color":"#f87171","bgColor":"#fef2f2"},
     {"id":"utilities","label":"Pipeline Utilities","featherIcon":"Box","description":"Containers, generators, visualization, and helper nodes","className":"bg-slate-50 border-slate-200","color":"#64748b","bgColor":"#f8fafc"},
 ]
-
 
 SUBCATEGORIES = [
     {"id":"spectral_augmentation","label":"Spectral Augmentation","categoryId":"augmentation","description":"Augmentations that perturb spectra or wavelength axes"},
@@ -76,7 +74,6 @@ SUBCATEGORIES = [
     {"id":"generators","label":"Generators","categoryId":"utilities","description":"Hyperparameter and branching generators"},
     {"id":"visualization","label":"Visualization","categoryId":"utilities","description":"Nodes that produce charts or reports"},
 ]
-
 
 MANUAL_COMPONENTS = [
     {"subcategory":"spectral_augmentation","id":"rotate_translate","label":"Rotate & Translate","short":"RotateTranslate","description":"Random affine spectral augmentation (Rotate_Translate)"},
@@ -196,7 +193,6 @@ FUNCTION_PATHS: dict[str, str] = {
     "wavelet_transform": "nirs4all.operators.transforms.nirs.wavelet_transform",
 }
 
-
 def manual_components() -> list[dict]:
     comps = []
     for spec in MANUAL_COMPONENTS:
@@ -214,11 +210,9 @@ def manual_components() -> list[dict]:
         })
     return comps
 
-
 def module_prefix(module: str) -> str:
     parts = module.split(".")
     return ".".join(parts[:2]) if len(parts) >= 2 else module
-
 
 def scikit_transformer_subcategory(module: str) -> str:
     pref = module_prefix(module)
@@ -241,7 +235,6 @@ def scikit_transformer_subcategory(module: str) -> str:
     if pref in {"sklearn.compose", "sklearn.pipeline", "sklearn.ensemble"}:
         return "scikit_meta_transformers"
     return "scikit_misc_transformers"
-
 
 def scikit_model_subcategory(module: str) -> str:
     pref = module_prefix(module)
@@ -277,7 +270,6 @@ def scikit_model_subcategory(module: str) -> str:
         return "sklearn_baseline"
     return "sklearn_misc_models"
 
-
 def scikit_transformers() -> list[dict]:
     comps: list[dict] = []
     seen: set[str] = set()
@@ -300,7 +292,6 @@ def scikit_transformers() -> list[dict]:
             "generationMode": "in-place",
         })
     return comps
-
 
 def scikit_models() -> list[dict]:
     info: dict[str, dict] = {}
@@ -327,12 +318,10 @@ def scikit_models() -> list[dict]:
         })
     return comps
 
-
 def safe_import_attr(path: str):
     module_name, attr_name = path.rsplit('.', 1)
     module = importlib.import_module(module_name)
     return getattr(module, attr_name)
-
 
 def sanitize_default(value):
     if isinstance(value, bool):
@@ -356,7 +345,6 @@ def sanitize_default(value):
         return {str(k): sanitize_default(v) for k, v in value.items()}
     return repr(value)
 
-
 def infer_param_type(value) -> str:
     if isinstance(value, bool):
         return "boolean"
@@ -370,7 +358,6 @@ def infer_param_type(value) -> str:
         return "string"
     return "string"
 
-
 def build_editable_params(defaults: dict[str, object]) -> list[dict]:
     editable = []
     for name, default in defaults.items():
@@ -381,7 +368,6 @@ def build_editable_params(defaults: dict[str, object]) -> list[dict]:
             "default": default,
         })
     return editable
-
 
 def extract_defaults(path: str, is_function: bool = False) -> tuple[dict, list]:
     try:
@@ -408,7 +394,6 @@ def extract_defaults(path: str, is_function: bool = False) -> tuple[dict, list]:
     editable = build_editable_params(defaults)
     return defaults, editable
 
-
 def prepare_component_metadata(components: list[dict]) -> None:
     for comp in components:
         defaults = comp.get("defaultParams") or {}
@@ -425,7 +410,6 @@ def prepare_component_metadata(components: list[dict]) -> None:
             comp["functionPath"] = FUNCTION_PATHS[cid]
 
         comp["defaultParams"] = defaults
-
 
 def populate_defaults(components: list[dict]) -> None:
     for comp in components:
@@ -479,7 +463,6 @@ def tensorflow_models() -> list[dict]:
         })
     return comps
 
-
 def main() -> None:
     base_dir = Path(__file__).resolve().parents[1]
     output_path = base_dir / "public" / "component-library.json"
@@ -492,7 +475,6 @@ def main() -> None:
     components.sort(key=lambda c: (c["subcategoryId"], c["label"].lower()))
     data = {"categories": CATEGORIES, "subcategories": SUBCATEGORIES, "components": components}
     output_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-
 
 if __name__ == "__main__":
     main()

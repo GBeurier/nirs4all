@@ -12,7 +12,6 @@ from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-
 def workspace_init(args):
     """Initialize a new workspace."""
     from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
@@ -33,7 +32,6 @@ def workspace_init(args):
     logger.info("    - exports/")
     logger.info("    - library/")
 
-
 def workspace_list_runs(args):
     """List all runs in workspace."""
     from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
@@ -53,7 +51,6 @@ def workspace_list_runs(args):
         logger.info(f"    Status: {row.get('status', 'unknown')}")
         logger.info(f"    Created: {row.get('created_at', 'unknown')}")
         logger.info("")
-
 
 def workspace_query_best(args):
     """Query best predictions from workspace store."""
@@ -82,7 +79,6 @@ def workspace_query_best(args):
         logger.error(f"Error querying predictions: {e}")
         sys.exit(1)
 
-
 def workspace_query_filter(args):
     """Filter predictions by criteria."""
     from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
@@ -103,7 +99,6 @@ def workspace_query_filter(args):
     except Exception as e:
         logger.error(f"Error filtering predictions: {e}")
         sys.exit(1)
-
 
 def workspace_stats(args):
     """Show workspace statistics."""
@@ -132,7 +127,6 @@ def workspace_stats(args):
         logger.error(f"Error getting statistics: {e}")
         sys.exit(1)
 
-
 def workspace_list_library(args):
     """List items in library."""
     from nirs4all.pipeline.storage.library import PipelineLibrary
@@ -144,7 +138,6 @@ def workspace_list_library(args):
     logger.info(f"Templates: {len(templates)}")
     for t in templates:
         logger.info(f"  - {t['name']}: {t.get('description', 'No description')}")
-
 
 def add_workspace_commands(subparsers):
     """Add workspace commands to CLI."""

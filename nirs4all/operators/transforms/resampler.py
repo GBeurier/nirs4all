@@ -5,11 +5,12 @@ This module provides resampling functionality to interpolate spectral data
 to new wavelength grids using various scipy interpolation methods.
 """
 
+import warnings
+from typing import Literal, Optional, Union
+
 import numpy as np
-from typing import Optional, Union, Tuple, Literal
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_array, check_is_fitted
-import warnings
 
 
 class Resampler(TransformerMixin, BaseEstimator):
@@ -90,8 +91,8 @@ class Resampler(TransformerMixin, BaseEstimator):
         self,
         target_wavelengths: np.ndarray,
         method: Literal['linear', 'nearest', 'cubic', 'quadratic', 'slinear', 'zero'] = 'linear',
-        crop_range: Optional[Tuple[float, float]] = None,
-        fill_value: Union[float, str] = 0.0,
+        crop_range: tuple[float, float] | None = None,
+        fill_value: float | str = 0.0,
         bounds_error: bool = False,
         copy: bool = True
     ):
@@ -150,10 +151,10 @@ class Resampler(TransformerMixin, BaseEstimator):
             warnings.warn(
                 f"Target wavelengths extend {' and '.join(out_of_bounds)} original range. "
                 f"Using fill_value={self.fill_value} for extrapolation.",
-                UserWarning
+                UserWarning, stacklevel=2
             )
 
-    def fit(self, X, y=None, wavelengths: Optional[np.ndarray] = None):
+    def fit(self, X, y=None, wavelengths: np.ndarray | None = None):
         """
         Fit the resampler by storing original wavelength grid.
 

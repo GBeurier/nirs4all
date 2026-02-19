@@ -11,7 +11,7 @@ from nirs4all.data.predictions import Predictions
 class _DummyRunner:
     """Minimal PipelineRunner test double for run() unit tests."""
 
-    instances: list["_DummyRunner"] = []
+    instances: list[_DummyRunner] = []
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -20,7 +20,6 @@ class _DummyRunner:
 
     def run(self, pipeline, dataset, pipeline_name, refit, **kwargs):
         return Predictions(), {}
-
 
 def test_run_sets_default_cache_config_when_cache_none(monkeypatch):
     """run(cache=None) should still initialize a default CacheConfig."""
@@ -40,7 +39,6 @@ def test_run_sets_default_cache_config_when_cache_none(monkeypatch):
     assert isinstance(runner.cache_config, CacheConfig)
     assert runner.cache_config.step_cache_enabled is False
     assert runner.cache_config.use_cow_snapshots is True
-
 
 def test_run_uses_explicit_cache_config(monkeypatch):
     """run(cache=...) should preserve the caller-provided CacheConfig."""

@@ -12,23 +12,24 @@ Tests:
 These tests verify the Phase 8 implementation from the branching_concat_merge_design.
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
-from sklearn.model_selection import ShuffleSplit
+
+import numpy as np
+import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
-from nirs4all.pipeline.runner import PipelineRunner
+from nirs4all.operators.data.merge import BranchPredictionConfig, MergeConfig
 from nirs4all.operators.transforms import (
-    StandardNormalVariate,
     MultiplicativeScatterCorrection,
     SavitzkyGolay,
+    StandardNormalVariate,
 )
-from nirs4all.operators.data.merge import MergeConfig, BranchPredictionConfig
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+from nirs4all.pipeline.runner import PipelineRunner
 
 
 def create_test_dataset(
@@ -52,7 +53,6 @@ def create_test_dataset(
 
     return dataset
 
-
 def create_new_prediction_data(
     n_samples: int = 20,
     n_features: int = 50,
@@ -68,7 +68,6 @@ def create_new_prediction_data(
     dataset.add_targets(np.zeros(n_samples))
 
     return dataset
-
 
 class TestMergeConfigSerialization:
     """Test merge configuration serialization/deserialization."""
@@ -164,7 +163,6 @@ class TestMergeConfigSerialization:
         assert restored.feature_branches == [1, 2]
         assert restored.include_original is True
 
-
 class TestFeatureMergePredictionMode:
     """Test feature merge train → predict roundtrip."""
 
@@ -250,7 +248,6 @@ class TestFeatureMergePredictionMode:
         assert pred_results is not None
         assert len(pred_results) > 0
 
-
 class TestPredictionMergePredictionMode:
     """Test prediction merge (stacking) train → predict roundtrip."""
 
@@ -300,7 +297,6 @@ class TestPredictionMergePredictionMode:
         # Verify predictions were generated
         assert predictions is not None
         assert len(predictions) > 0
-
 
 class TestMixedMergePredictionMode:
     """Test mixed merge (features + predictions) train → predict roundtrip."""
@@ -355,7 +351,6 @@ class TestMixedMergePredictionMode:
         assert predictions is not None
         assert len(predictions) > 0
 
-
 class TestMergeMetadataInStore:
     """Test that merge configuration is properly saved to DuckDB store."""
 
@@ -408,7 +403,6 @@ class TestMergeMetadataInStore:
         # Verify predictions were produced
         assert predictions is not None
         assert len(predictions) > 0
-
 
 class TestMergeWithBranching:
     """Test merge behavior with various branching scenarios."""
@@ -480,7 +474,6 @@ class TestMergeWithBranching:
         )
 
         assert predictions is not None
-
 
 class TestMergeIncludeOriginal:
     """Test merge with include_original option."""

@@ -9,11 +9,9 @@ import pytest
 
 from nirs4all.data.dataset import SpectroDataset
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
-
 
 @pytest.fixture
 def clean_dataset():
@@ -25,7 +23,6 @@ def clean_dataset():
     ds.add_targets(y)
     return ds
 
-
 @pytest.fixture
 def nan_x_dataset():
     """SpectroDataset with NaN in the feature matrix."""
@@ -35,7 +32,6 @@ def nan_x_dataset():
     ds.add_samples(X, {"partition": "train"})
     ds.add_targets(y)
     return ds
-
 
 @pytest.fixture
 def nan_y_dataset():
@@ -47,11 +43,9 @@ def nan_y_dataset():
     ds.add_targets(y)
     return ds
 
-
 # =============================================================================
 # Test: has_nan property
 # =============================================================================
-
 
 class TestHasNan:
     """Tests for the has_nan property."""
@@ -73,11 +67,9 @@ class TestHasNan:
         ds = SpectroDataset("empty")
         assert ds.has_nan is False
 
-
 # =============================================================================
 # Test: nan_summary property
 # =============================================================================
-
 
 class TestNanSummary:
     """Tests for the nan_summary property."""
@@ -127,11 +119,9 @@ class TestNanSummary:
                          "total_samples", "total_features"}
         assert expected_keys.issubset(set(source_info.keys()))
 
-
 # =============================================================================
 # Test: _may_contain_nan flag
 # =============================================================================
-
 
 class TestMayContainNanFlag:
     """Tests for the _may_contain_nan internal flag."""

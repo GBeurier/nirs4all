@@ -2,8 +2,8 @@
 Unit tests for nirs4all.generate API.
 """
 
-import pytest
 import numpy as np
+import pytest
 
 
 class TestGenerateFunction:
@@ -150,7 +150,6 @@ class TestGenerateFunction:
 
         assert dataset.name == "my_synthetic_data"
 
-
 class TestGenerateRegression:
     """Tests for generate.regression() convenience function."""
 
@@ -217,7 +216,6 @@ class TestGenerateRegression:
         )
 
         assert np.all(np.isfinite(y))
-
 
 class TestGenerateClassification:
     """Tests for generate.classification() convenience function."""
@@ -289,7 +287,6 @@ class TestGenerateClassification:
         assert X.shape[0] == 100
         assert set(np.unique(y)) == {0, 1}
 
-
 class TestGenerateBuilder:
     """Tests for generate.builder() convenience function."""
 
@@ -340,7 +337,6 @@ class TestGenerateBuilder:
 
         assert dataset.num_samples == 200
 
-
 class TestGenerateNamespace:
     """Tests for the generate namespace functionality."""
 
@@ -378,16 +374,16 @@ class TestGenerateNamespace:
         assert "classification" in repr_str
         assert "builder" in repr_str
 
-
 class TestIntegrationWithPipeline:
     """Tests for integration with nirs4all pipeline."""
 
     def test_generate_with_run(self):
         """Test using generated data with nirs4all.run()."""
-        import nirs4all
-        from sklearn.preprocessing import MinMaxScaler
         from sklearn.cross_decomposition import PLSRegression
         from sklearn.model_selection import ShuffleSplit
+        from sklearn.preprocessing import MinMaxScaler
+
+        import nirs4all
 
         # Generate synthetic data with single target
         dataset = nirs4all.generate.regression(
@@ -408,12 +404,11 @@ class TestIntegrationWithPipeline:
 
     def test_classification_with_run(self):
         """Test classification data with pipeline."""
-        import nirs4all
-        from sklearn.preprocessing import StandardScaler
+        from sklearn.model_selection import ShuffleSplit
         from sklearn.neighbors import KNeighborsClassifier
-        from sklearn.model_selection import ShuffleSplit
+        from sklearn.preprocessing import StandardScaler
 
-        from sklearn.model_selection import ShuffleSplit
+        import nirs4all
 
         # Generate classification data
         dataset = nirs4all.generate.classification(
@@ -431,7 +426,6 @@ class TestIntegrationWithPipeline:
         )
 
         assert result is not None
-
 
 class TestEdgeCases:
     """Tests for edge cases."""

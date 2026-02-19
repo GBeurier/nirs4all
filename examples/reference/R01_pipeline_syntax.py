@@ -32,15 +32,13 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
-from sklearn.model_selection import ShuffleSplit, KFold, GroupKFold
+from sklearn.model_selection import GroupKFold, KFold, ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
-from nirs4all.operators.transforms import (
-    Detrend, FirstDerivative, SecondDerivative, Gaussian,
-    StandardNormalVariate as SNV, SavitzkyGolay,
-    Haar, MultiplicativeScatterCorrection as MSC
-)
-from nirs4all.operators.filters import YOutlierFilter, XOutlierFilter
+from nirs4all.operators.filters import XOutlierFilter, YOutlierFilter
+from nirs4all.operators.transforms import Detrend, FirstDerivative, Gaussian, Haar, SavitzkyGolay, SecondDerivative
+from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # =============================================================================
 # SECTION 1: Basic Step Formats
@@ -81,7 +79,6 @@ step_dict_custom_code = {
     "source_file": "my_custom_module.py",
     "class": "MyCustomTransformer"
 }
-
 
 # =============================================================================
 # SECTION 2: Step Wrapper Keywords
@@ -132,9 +129,7 @@ step_feature_augmentation_generator = {
 # 2.5 sample_augmentation - Data augmentation on samples
 # ------------------------------------------------------
 # Create additional training samples with perturbations.
-from nirs4all.operators.transforms import (
-    Rotate_Translate, GaussianAdditiveNoise, MultiplicativeNoise
-)
+from nirs4all.operators.transforms import GaussianAdditiveNoise, MultiplicativeNoise, Rotate_Translate
 
 step_sample_augmentation = {
     "sample_augmentation": {
@@ -157,7 +152,6 @@ step_concat_transform = {
         TruncatedSVD(n_components=10),
     ]
 }
-
 
 # =============================================================================
 # SECTION 3: Tagging and Exclusion (v2)
@@ -190,7 +184,6 @@ step_exclude_multiple = {
     ],
     "mode": "any",  # "any" (default) or "all"
 }
-
 
 # =============================================================================
 # SECTION 4: Branching and Merging (v2)
@@ -299,7 +292,6 @@ step_merge_concat = {"merge": "concat"}  # Reassemble samples in original order
 step_merge_sources = {"merge": {"sources": "concat"}}  # Concatenate source features
 step_merge_sources_stack = {"merge": {"sources": "stack"}}  # 3D stacking for CNNs
 
-
 # =============================================================================
 # SECTION 5: Cross-Validation Splitters
 # =============================================================================
@@ -320,7 +312,6 @@ splitter_dict = {
         "test_size": 0.25
     }
 }
-
 
 # =============================================================================
 # SECTION 6: Model Configuration
@@ -393,7 +384,6 @@ model_saved_pkl = "my_model.pkl"               # Pickle format
 model_saved_h5 = "my_tf_model.h5"              # TensorFlow/Keras format
 model_saved_pt = "my_pytorch_model.pt"         # PyTorch format
 
-
 # =============================================================================
 # SECTION 7: Generator Syntax (Overview)
 # =============================================================================
@@ -428,7 +418,6 @@ generator_count = {
     "_or_": [SNV, MSC, Detrend, FirstDerivative, SecondDerivative],
     "count": 3  # Random sample of 3
 }
-
 
 # =============================================================================
 # SECTION 8: Complete Pipeline Examples
@@ -485,7 +474,6 @@ pipeline_sweep = [
     }
 ]
 
-
 # =============================================================================
 # SECTION 9: Syntax Equivalences
 # =============================================================================
@@ -508,7 +496,6 @@ model_equiv_2 = {
         "params": {"n_components": 10}
     }
 }
-
 
 # =============================================================================
 # SUMMARY

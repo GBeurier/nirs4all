@@ -8,19 +8,18 @@ Tests the full retrain workflow including:
 - Extract and modify pipelines
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
 
+import numpy as np
+import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.data import DatasetConfigs
+from nirs4all.operators.transforms import SavitzkyGolay, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner, StepMode
-from nirs4all.operators.transforms import StandardNormalVariate, SavitzkyGolay
-
 from tests.fixtures.data_generators import TestDataManager
 
 
@@ -232,7 +231,6 @@ class TestRetrainIntegration:
         # Verify we got predictions
         assert controlled_preds.num_predictions > 0
 
-
 class TestExportBundleIntegration:
     """Integration tests for bundle export functionality."""
 
@@ -317,7 +315,7 @@ class TestExportBundleIntegration:
         assert result_path.stat().st_size > 0
 
         # Verify it's valid Python (can be compiled)
-        with open(result_path, 'r') as f:
+        with open(result_path) as f:
             content = f.read()
 
         # Should compile without syntax errors
@@ -379,7 +377,6 @@ class TestExportBundleIntegration:
         # Verify predictions
         assert retrain_preds.num_predictions > 0
 
-
 class TestMultiplePreprocessingRetrain:
     """Tests for retrain with multiple preprocessing options."""
 
@@ -425,7 +422,6 @@ class TestMultiplePreprocessingRetrain:
         )
 
         assert retrain_preds.num_predictions > 0
-
 
 class TestBundleWithSpecialOperators:
     """Integration tests for bundle export/predict with special operator types.

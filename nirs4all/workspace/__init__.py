@@ -9,10 +9,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
-
 # Global active workspace path
-_active_workspace: Optional[Path] = None
-
+_active_workspace: Path | None = None
 
 def get_active_workspace() -> Path:
     """Get the active workspace path.
@@ -36,7 +34,6 @@ def get_active_workspace() -> Path:
 
     return Path.cwd() / "workspace"
 
-
 def set_active_workspace(path: str | Path) -> None:
     """Set the active workspace path.
 
@@ -50,7 +47,6 @@ def set_active_workspace(path: str | Path) -> None:
     _active_workspace = Path(path).resolve()
     os.environ["NIRS4ALL_WORKSPACE"] = str(_active_workspace)
 
-
 def reset_active_workspace() -> None:
     """Reset the active workspace to the default.
 
@@ -60,7 +56,6 @@ def reset_active_workspace() -> None:
     global _active_workspace
     _active_workspace = None
     os.environ.pop("NIRS4ALL_WORKSPACE", None)
-
 
 __all__ = [
     "get_active_workspace",

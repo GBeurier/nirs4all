@@ -5,24 +5,23 @@ This module provides the IndexStore class that encapsulates all DataFrame
 operations, providing a clean abstraction over Polars-specific details.
 """
 
-from typing import Dict, List, Any, Optional, Union
+from typing import Any, Optional, Union
+
 import polars as pl
 
-
 # Map string dtype names to Polars types for tag columns
-TAG_DTYPE_MAP: Dict[str, pl.DataType] = {
-    "bool": pl.Boolean,
-    "boolean": pl.Boolean,
-    "str": pl.Utf8,
-    "string": pl.Utf8,
-    "int": pl.Int32,
-    "int32": pl.Int32,
-    "int64": pl.Int64,
-    "float": pl.Float64,
-    "float32": pl.Float32,
-    "float64": pl.Float64,
+TAG_DTYPE_MAP: dict[str, pl.DataType] = {
+    "bool": pl.Boolean(),
+    "boolean": pl.Boolean(),
+    "str": pl.Utf8(),
+    "string": pl.Utf8(),
+    "int": pl.Int32(),
+    "int32": pl.Int32(),
+    "int64": pl.Int64(),
+    "float": pl.Float64(),
+    "float32": pl.Float32(),
+    "float64": pl.Float64(),
 }
-
 
 class IndexStore:
     """
@@ -45,13 +44,13 @@ class IndexStore:
         "processings", "augmentation", "excluded", "exclusion_reason"
     })
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the index store with an empty DataFrame."""
         # Enable StringCache for consistent categorical encodings
         pl.enable_string_cache()
 
         # Track dynamic tag columns (name -> dtype)
-        self._tag_columns: Dict[str, pl.DataType] = {}
+        self._tag_columns: dict[str, pl.DataType] = {}
 
         # Initialize DataFrame with proper schema
         self._df = pl.DataFrame({
@@ -79,27 +78,28 @@ class IndexStore:
             Direct DataFrame access is provided for backward compatibility
             and advanced use cases. Prefer using query methods when possible.
         """
-        return self._df
+        df: pl.DataFrame = self._df
+        return df
 
     @property
-    def columns(self) -> List[str]:
+    def columns(self) -> list[str]:
         """
         Get list of column names.
 
         Returns:
             List[str]: Column names in the DataFrame.
         """
-        return self._df.columns
+        return list(self._df.columns)
 
     @property
-    def schema(self) -> Dict[str, pl.DataType]:
+    def schema(self) -> dict[str, pl.DataType]:
         """
         Get the DataFrame schema.
 
         Returns:
             Dict[str, pl.DataType]: Mapping of column names to Polars data types.
         """
-        return self._df.schema
+        return dict(self._df.schema)
 
     def __len__(self) -> int:
         """
@@ -124,9 +124,10 @@ class IndexStore:
             >>> condition = pl.col("partition") == "train"
             >>> train_data = store.query(condition)
         """
-        return self._df.filter(condition)
+        result: pl.DataFrame = self._df.filter(condition)
+        return result
 
-    def append(self, data: Dict[str, pl.Series]) -> None:
+    def append(self, data: dict[str, pl.Series]) -> None:
         """
         Append new rows to the DataFrame.
 
@@ -147,7 +148,7 @@ class IndexStore:
         new_df = pl.DataFrame(data)
         self._df = pl.concat([self._df, new_df], how="vertical")
 
-    def update_by_condition(self, condition: pl.Expr, updates: Dict[str, Any]) -> None:
+    def update_by_condition(self, condition: pl.Expr, updates: dict[str, Any]) -> None:
         """
         Update rows matching a condition.
 
@@ -166,7 +167,7 @@ class IndexStore:
                 pl.when(condition).then(cast_value).otherwise(pl.col(col)).alias(col)
             )
 
-    def get_column(self, col: str, condition: Optional[pl.Expr] = None) -> List[Any]:
+    def get_column(self, col: str, condition: pl.Expr | None = None) -> list[Any]:
         """
         Get column values, optionally filtered.
 
@@ -190,9 +191,9 @@ class IndexStore:
             raise ValueError(f"Column '{col}' does not exist in the DataFrame.")
 
         df = self._df.filter(condition) if condition is not None else self._df
-        return df.select(pl.col(col)).to_series().to_list()
+        return list(df.select(pl.col(col)).to_series().to_list())
 
-    def get_unique(self, col: str) -> List[Any]:
+    def get_unique(self, col: str) -> list[Any]:
         """
         Get unique values in a column.
 
@@ -210,9 +211,9 @@ class IndexStore:
         """
         if col not in self._df.columns:
             raise ValueError(f"Column '{col}' does not exist in the DataFrame.")
-        return self._df.select(pl.col(col)).unique().to_series().to_list()
+        return list(self._df.select(pl.col(col)).unique().to_series().to_list())
 
-    def get_max(self, col: str) -> Optional[int]:
+    def get_max(self, col: str) -> int | None:
         """
         Get maximum value in a column.
 
@@ -236,7 +237,7 @@ class IndexStore:
 
     # ==================== Tag Column Methods ====================
 
-    def add_tag_column(self, name: str, dtype: Union[str, pl.DataType] = pl.Boolean) -> None:
+    def add_tag_column(self, name: str, dtype: str | pl.DataType = pl.Boolean()) -> None:
         """
         Add a new tag column to the DataFrame.
 
@@ -296,9 +297,9 @@ class IndexStore:
 
     def set_tags(
         self,
-        indices: List[int],
+        indices: list[int],
         tag_name: str,
-        values: Union[Any, List[Any]]
+        values: Any | list[Any]
     ) -> None:
         """
         Set tag values for specific sample indices.
@@ -338,7 +339,7 @@ class IndexStore:
         condition = pl.col("sample").is_in(indices)
 
         # Create a mapping from sample index to value
-        index_to_value = dict(zip(indices, values))
+        index_to_value = dict(zip(indices, values, strict=False))
 
         # Update using map_elements for efficient bulk update
         dtype = self._tag_columns[tag_name]
@@ -357,8 +358,8 @@ class IndexStore:
     def get_tags(
         self,
         tag_name: str,
-        condition: Optional[pl.Expr] = None
-    ) -> List[Any]:
+        condition: pl.Expr | None = None
+    ) -> list[Any]:
         """
         Get tag values, optionally filtered by condition.
 
@@ -384,7 +385,7 @@ class IndexStore:
 
         return self.get_column(tag_name, condition)
 
-    def get_tag_column_names(self) -> List[str]:
+    def get_tag_column_names(self) -> list[str]:
         """
         Get list of all tag column names.
 
@@ -456,7 +457,7 @@ class IndexStore:
 
     # ==================== Serialization Methods ====================
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Serialize the IndexStore to a dictionary.
 
@@ -486,7 +487,7 @@ class IndexStore:
         }
 
     @classmethod
-    def from_dict(cls, state: Dict[str, Any]) -> "IndexStore":
+    def from_dict(cls, state: dict[str, Any]) -> "IndexStore":
         """
         Deserialize an IndexStore from a dictionary.
 
@@ -563,14 +564,14 @@ class IndexStore:
         if dtype_str in TAG_DTYPE_MAP:
             return TAG_DTYPE_MAP[dtype_str]
         # Try to handle other cases (including capitalized versions)
-        reverse_mapping = {
-            "Boolean": pl.Boolean,
-            "Utf8": pl.Utf8,
-            "String": pl.Utf8,  # Polars 1.0+ uses String instead of Utf8
-            "Int32": pl.Int32,
-            "Int64": pl.Int64,
-            "Float32": pl.Float32,
-            "Float64": pl.Float64,
+        reverse_mapping: dict[str, pl.DataType] = {
+            "Boolean": pl.Boolean(),
+            "Utf8": pl.Utf8(),
+            "String": pl.Utf8(),  # Polars 1.0+ uses String instead of Utf8
+            "Int32": pl.Int32(),
+            "Int64": pl.Int64(),
+            "Float32": pl.Float32(),
+            "Float64": pl.Float64(),
         }
         if dtype_str in reverse_mapping:
             return reverse_mapping[dtype_str]

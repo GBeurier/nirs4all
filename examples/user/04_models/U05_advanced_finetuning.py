@@ -28,26 +28,25 @@ import argparse
 
 # Third-party imports
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.linear_model import Ridge, ElasticNet
-from sklearn.model_selection import ShuffleSplit, KFold
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.linear_model import ElasticNet, Ridge
+from sklearn.model_selection import KFold, ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.operators.transforms import (
-    StandardNormalVariate,
-    FirstDerivative,
-    Detrend,
-)
 from nirs4all.operators.models import MetaModel
+from nirs4all.operators.transforms import (
+    Detrend,
+    FirstDerivative,
+    StandardNormalVariate,
+)
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U05 Advanced Finetuning Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Introduction
@@ -70,7 +69,6 @@ model tuning scenarios.
      Stacking tuning  - MetaModel with finetune_space
      Combined         - Diverse model types in one pipeline
 """)
-
 
 # =============================================================================
 # Section 2: Multi-Phase Optimization
@@ -116,7 +114,6 @@ result_multiphase = nirs4all.run(
 )
 
 print(f"\nMulti-phase best RMSE: {result_multiphase.best_score:.4f}")
-
 
 # =============================================================================
 # Section 3: Custom Metric Optimization
@@ -166,7 +163,6 @@ result_r2 = nirs4all.run(
 
 print(f"\nR2-optimized best score: {result_r2.best_score:.4f}")
 
-
 # =============================================================================
 # Section 4: Force-Params (Known Good Starting Points)
 # =============================================================================
@@ -210,7 +206,6 @@ result_force = nirs4all.run(
 )
 
 print(f"\nSeeded optimization best RMSE: {result_force.best_score:.4f}")
-
 
 # =============================================================================
 # Section 5: Dict-Format Parameters (Most Flexible)
@@ -260,7 +255,6 @@ result_dict = nirs4all.run(
 )
 
 print(f"\nDict-format best RMSE: {result_dict.best_score:.4f}")
-
 
 # =============================================================================
 # Section 6: Nested Parameter Tuning
@@ -330,7 +324,6 @@ result_nested = nirs4all.run(
 
 print(f"\nNested params best RMSE: {result_nested.best_score:.4f}")
 
-
 # =============================================================================
 # Section 7: PyTorch Model Tuning (customizable_nicon)
 # =============================================================================
@@ -351,6 +344,7 @@ Neural network architecture and training can both be tuned:
 # Check if PyTorch is available
 try:
     import torch  # noqa: F401  -- availability check only
+
     from nirs4all.operators.models.pytorch.nicon import customizable_nicon
     TORCH_AVAILABLE = True
 except ImportError:
@@ -402,7 +396,6 @@ if TORCH_AVAILABLE:
 else:
     print("\n  (PyTorch not installed - skipping. Install with: pip install torch)")
     print("  Code shown above demonstrates the configuration pattern.")
-
 
 # =============================================================================
 # Section 8: Stacking with MetaModel Finetuning
@@ -468,7 +461,6 @@ result_stacking = nirs4all.run(
 )
 
 print(f"\nStacking tuning best RMSE: {result_stacking.best_score:.4f}")
-
 
 # =============================================================================
 # Section 9: Combined Complex Pipeline (All Model Types)
@@ -562,7 +554,6 @@ for i, pred in enumerate(result_complex.top(5, display_metrics=['rmse', 'r2']), 
     preproc = pred.get('preprocessings', 'N/A')
     model = pred.get('model_name', 'Unknown')
     print(f"   {i}. {preproc} + {model}: RMSE={pred.get('rmse', 0):.4f}")
-
 
 # =============================================================================
 # Summary

@@ -20,7 +20,7 @@ References:
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Optional
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
@@ -98,13 +98,13 @@ class ParticleSizeAugmenter(SpectraTransformerMixin):
         self,
         mean_size_um: float = 50.0,
         size_variation_um: float = 15.0,
-        size_range_um: Optional[Tuple[float, float]] = None,
+        size_range_um: tuple[float, float] | None = None,
         reference_size_um: float = 50.0,
         wavelength_exponent: float = 1.5,
         size_effect_strength: float = 0.1,
         include_path_length: bool = True,
         path_length_sensitivity: float = 0.5,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ):
         self.mean_size_um = mean_size_um
         self.size_variation_um = size_variation_um
@@ -236,7 +236,6 @@ class ParticleSizeAugmenter(SpectraTransformerMixin):
         noise = gaussian_filter1d(noise, sigma=3)
         return noise
 
-
 class EMSCDistortionAugmenter(SpectraTransformerMixin):
     """
     Apply EMSC-style scatter distortions for data augmentation.
@@ -305,12 +304,12 @@ class EMSCDistortionAugmenter(SpectraTransformerMixin):
 
     def __init__(
         self,
-        multiplicative_range: Tuple[float, float] = (0.9, 1.1),
-        additive_range: Tuple[float, float] = (-0.05, 0.05),
+        multiplicative_range: tuple[float, float] = (0.9, 1.1),
+        additive_range: tuple[float, float] = (-0.05, 0.05),
         polynomial_order: int = 2,
         polynomial_strength: float = 0.02,
         correlation: float = 0.3,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ):
         self.multiplicative_range = multiplicative_range
         self.additive_range = additive_range
@@ -402,7 +401,6 @@ class EMSCDistortionAugmenter(SpectraTransformerMixin):
                     result = result + params[coef_name] * (wl_norm ** order)
 
         return result
-
 
 __all__ = [
     "ParticleSizeAugmenter",

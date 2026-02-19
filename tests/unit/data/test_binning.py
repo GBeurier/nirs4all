@@ -1,6 +1,7 @@
 """Unit tests for BinningCalculator."""
 import numpy as np
 import pytest
+
 from nirs4all.data.binning import BinningCalculator
 
 

@@ -4,15 +4,18 @@ PyTorch Data Preparation
 This module handles PyTorch-specific data preparation and tensor formatting.
 """
 
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
+
 import numpy as np
+
 from nirs4all.utils.backend import require_backend
+
 
 class PyTorchDataPreparation:
     """Handles PyTorch-specific data preparation and tensor formatting."""
 
     @staticmethod
-    def prepare_features(X: np.ndarray, device: Optional[str] = None) -> Any:
+    def prepare_features(X: np.ndarray, device: str | None = None) -> Any:
         """Prepare features for PyTorch (proper tensor formatting).
 
         Handles conversion to float32 and proper shape formatting:
@@ -43,7 +46,7 @@ class PyTorchDataPreparation:
         return X_tensor
 
     @staticmethod
-    def prepare_targets(y: Optional[np.ndarray], device: Optional[str] = None) -> Any:
+    def prepare_targets(y: np.ndarray | None, device: str | None = None) -> Any:
         """Prepare targets for PyTorch.
 
         Converts to float32 and ensures correct shape.
@@ -78,10 +81,10 @@ class PyTorchDataPreparation:
     @staticmethod
     def prepare_data(
         X: np.ndarray,
-        y: Optional[np.ndarray],
+        y: np.ndarray | None,
         context: Any = None,
-        device: Optional[str] = None
-    ) -> Tuple[Any, Optional[Any]]:
+        device: str | None = None
+    ) -> tuple[Any, Any | None]:
         """Prepare both features and targets for PyTorch.
 
         Args:

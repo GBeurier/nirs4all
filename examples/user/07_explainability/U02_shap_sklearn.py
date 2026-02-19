@@ -36,16 +36,15 @@ from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 import nirs4all
-from nirs4all.sklearn import NIRSPipeline
-from nirs4all.operators.transforms import StandardNormalVariate
 from nirs4all.data import DatasetConfigs
+from nirs4all.operators.transforms import StandardNormalVariate
+from nirs4all.sklearn import NIRSPipeline
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U02 SHAP sklearn Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
-
 
 # =============================================================================
 # Section 1: Why SHAP with sklearn Wrapper?
@@ -73,7 +72,6 @@ Using SHAP with NIRSPipeline gives you:
      - Custom visualizations
 """)
 
-
 # =============================================================================
 # Section 2: Check SHAP Installation
 # =============================================================================
@@ -90,7 +88,6 @@ except ImportError:
     print("✗ SHAP not installed")
     print("  Install with: pip install shap")
     print("  Continuing with limited examples...")
-
 
 # =============================================================================
 # Section 3: Train and Wrap Model
@@ -116,7 +113,7 @@ result = nirs4all.run(
     plots_visible=False
 )
 
-print(f"\nTraining complete!")
+print("\nTraining complete!")
 print(f"  RMSE: {result.best_rmse:.4f}")
 r2_val = result.best_r2
 print(f"  R²: {r2_val:.4f}" if not np.isnan(r2_val) else "  R²: (see test metrics)")
@@ -124,7 +121,6 @@ print(f"  R²: {r2_val:.4f}" if not np.isnan(r2_val) else "  R²: (see test metr
 # Wrap for sklearn
 pipe = NIRSPipeline.from_result(result)
 print(f"\n✓ NIRSPipeline created: {pipe.model_name}")
-
 
 # =============================================================================
 # Section 4: Get Data for SHAP
@@ -149,7 +145,6 @@ test_samples = X[50:60]  # Samples to explain
 
 print(f"Background samples: {background.shape}")
 print(f"Test samples: {test_samples.shape}")
-
 
 # =============================================================================
 # Section 5: SHAP with KernelExplainer
@@ -186,13 +181,12 @@ if SHAP_AVAILABLE:
 
     # Feature importance
     feature_importance = np.mean(np.abs(shap_values), axis=0)
-    print(f"\nTop 10 most important features:")
+    print("\nTop 10 most important features:")
     top_indices = np.argsort(feature_importance)[-10:][::-1]
     for i, idx in enumerate(top_indices, 1):
         print(f"  {i}. Feature {idx}: {feature_importance[idx]:.4f}")
 else:
     print("SHAP not available - skipping example")
-
 
 # =============================================================================
 # Section 6: SHAP with Tree Models
@@ -246,7 +240,6 @@ if SHAP_AVAILABLE:
 else:
     print("SHAP not available - skipping example")
 
-
 # =============================================================================
 # Section 7: Feature Importance Summary
 # =============================================================================
@@ -285,7 +278,6 @@ if SHAP_AVAILABLE:
     print(f"\nMost important region: {best_region[0]}-{best_region[1]}")
 else:
     print("SHAP not available - skipping example")
-
 
 # =============================================================================
 # Summary

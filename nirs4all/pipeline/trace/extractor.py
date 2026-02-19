@@ -33,18 +33,16 @@ Usage:
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Optional
 
 from nirs4all.pipeline.trace.execution_trace import (
-    ExecutionTrace,
     ExecutionStep,
+    ExecutionTrace,
     StepArtifacts,
     StepExecutionMode,
 )
 
-
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class MinimalPipelineStep:
@@ -71,10 +69,10 @@ class MinimalPipelineStep:
     artifacts: StepArtifacts = field(default_factory=StepArtifacts)
     operator_type: str = ""
     operator_class: str = ""
-    branch_path: List[int] = field(default_factory=list)
+    branch_path: list[int] = field(default_factory=list)
     branch_name: str = ""
-    substep_index: Optional[int] = None
-    depends_on: Set[int] = field(default_factory=set)
+    substep_index: int | None = None
+    depends_on: set[int] = field(default_factory=set)
 
     def has_artifacts(self) -> bool:
         """Check if this step has associated artifacts.
@@ -84,7 +82,7 @@ class MinimalPipelineStep:
         """
         return len(self.artifacts.artifact_ids) > 0
 
-    def get_artifact_ids(self) -> List[str]:
+    def get_artifact_ids(self) -> list[str]:
         """Get all artifact IDs for this step.
 
         Returns:
@@ -92,7 +90,7 @@ class MinimalPipelineStep:
         """
         return list(self.artifacts.artifact_ids)
 
-    def get_artifact_by_chain(self, chain_path: str) -> Optional[str]:
+    def get_artifact_by_chain(self, chain_path: str) -> str | None:
         """Get artifact ID by V3 chain path.
 
         Args:
@@ -103,14 +101,13 @@ class MinimalPipelineStep:
         """
         return self.artifacts.get_artifact_by_chain(chain_path)
 
-    def get_artifacts_by_chain(self) -> Dict[str, str]:
+    def get_artifacts_by_chain(self) -> dict[str, str]:
         """Get all artifacts indexed by chain path.
 
         Returns:
             Dict mapping chain_path to artifact_id
         """
         return dict(self.artifacts.by_chain) if self.artifacts.by_chain else {}
-
 
 @dataclass
 class MinimalPipeline:
@@ -132,14 +129,14 @@ class MinimalPipeline:
 
     trace_id: str = ""
     pipeline_uid: str = ""
-    steps: List[MinimalPipelineStep] = field(default_factory=list)
-    artifact_map: Dict[int, StepArtifacts] = field(default_factory=dict)
-    model_step_index: Optional[int] = None
-    fold_weights: Optional[Dict[int, float]] = None
+    steps: list[MinimalPipelineStep] = field(default_factory=list)
+    artifact_map: dict[int, StepArtifacts] = field(default_factory=dict)
+    model_step_index: int | None = None
+    fold_weights: dict[int, float] | None = None
     preprocessing_chain: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def get_step(self, step_index: int) -> Optional[MinimalPipelineStep]:
+    def get_step(self, step_index: int) -> MinimalPipelineStep | None:
         """Get a step by its index.
 
         Args:
@@ -153,7 +150,7 @@ class MinimalPipeline:
                 return step
         return None
 
-    def get_artifacts_for_step(self, step_index: int) -> Optional[StepArtifacts]:
+    def get_artifacts_for_step(self, step_index: int) -> StepArtifacts | None:
         """Get artifacts for a specific step.
 
         Args:
@@ -183,7 +180,7 @@ class MinimalPipeline:
         """
         return len(self.steps)
 
-    def get_artifact_ids(self) -> List[str]:
+    def get_artifact_ids(self) -> list[str]:
         """Get all artifact IDs in the minimal pipeline.
 
         Returns:
@@ -194,7 +191,7 @@ class MinimalPipeline:
             artifact_ids.extend(artifacts.artifact_ids)
         return artifact_ids
 
-    def get_step_indices(self) -> List[int]:
+    def get_step_indices(self) -> list[int]:
         """Get all step indices in execution order.
 
         Returns:
@@ -202,7 +199,7 @@ class MinimalPipeline:
         """
         return [s.step_index for s in self.steps]
 
-    def get_artifact_by_chain(self, chain_path: str) -> Optional[str]:
+    def get_artifact_by_chain(self, chain_path: str) -> str | None:
         """Get artifact ID by V3 chain path across all steps.
 
         Args:
@@ -217,7 +214,7 @@ class MinimalPipeline:
                 return artifact_id
         return None
 
-    def get_all_chain_paths(self) -> Dict[str, str]:
+    def get_all_chain_paths(self) -> dict[str, str]:
         """Get all artifacts indexed by chain path.
 
         Returns:
@@ -237,7 +234,6 @@ class MinimalPipeline:
             f"steps={n_steps}, artifacts={n_artifacts}, "
             f"model_step={self.model_step_index})"
         )
-
 
 class TraceBasedExtractor:
     """Extract minimal pipeline from execution trace.
@@ -277,7 +273,7 @@ class TraceBasedExtractor:
     def extract(
         self,
         trace: ExecutionTrace,
-        full_pipeline: Optional[List[Any]] = None,
+        full_pipeline: list[Any] | None = None,
         up_to_model: bool = True
     ) -> MinimalPipeline:
         """Extract minimal pipeline from execution trace.
@@ -303,10 +299,7 @@ class TraceBasedExtractor:
         )
 
         # Get steps to include
-        if up_to_model and trace.model_step_index is not None:
-            trace_steps = trace.get_steps_up_to_model()
-        else:
-            trace_steps = trace.steps
+        trace_steps = trace.get_steps_up_to_model() if up_to_model and trace.model_step_index is not None else trace.steps
 
         # Determine if model is in a branch (has non-empty branch_path)
         # If not (feature merge case), we need to deduplicate branch steps
@@ -318,7 +311,7 @@ class TraceBasedExtractor:
 
         # Track which step_indices we've already added for deduplication
         # This is needed for feature merge where branch steps should only run once
-        added_step_indices: Set[int] = set()
+        added_step_indices: set[int] = set()
 
         # Build minimal steps from trace
         for exec_step in trace_steps:
@@ -337,16 +330,15 @@ class TraceBasedExtractor:
             is_branch_step = (
                 isinstance(step_config, dict) and "branch" in step_config
             )
-            if not model_in_branch and is_branch_step:
-                if exec_step.step_index in added_step_indices:
-                    # Skip this duplicate branch step entry, but still merge artifacts
-                    if exec_step.has_artifacts():
-                        if exec_step.step_index in minimal.artifact_map:
-                            minimal.artifact_map[exec_step.step_index].merge(exec_step.artifacts)
-                        else:
-                            from copy import deepcopy
-                            minimal.artifact_map[exec_step.step_index] = deepcopy(exec_step.artifacts)
-                    continue
+            if not model_in_branch and is_branch_step and exec_step.step_index in added_step_indices:
+                # Skip this duplicate branch step entry, but still merge artifacts
+                if exec_step.has_artifacts():
+                    if exec_step.step_index in minimal.artifact_map:
+                        minimal.artifact_map[exec_step.step_index].merge(exec_step.artifacts)
+                    else:
+                        from copy import deepcopy
+                        minimal.artifact_map[exec_step.step_index] = deepcopy(exec_step.artifacts)
+                continue
 
             # Create minimal step
             minimal_step = MinimalPipelineStep(
@@ -386,7 +378,7 @@ class TraceBasedExtractor:
         self,
         trace: ExecutionTrace,
         target_step_index: int,
-        full_pipeline: Optional[List[Any]] = None
+        full_pipeline: list[Any] | None = None
     ) -> MinimalPipeline:
         """Extract minimal pipeline up to a specific step.
 
@@ -453,8 +445,8 @@ class TraceBasedExtractor:
     def extract_for_branch(
         self,
         trace: ExecutionTrace,
-        branch_path: List[int],
-        full_pipeline: Optional[List[Any]] = None
+        branch_path: list[int],
+        full_pipeline: list[Any] | None = None
     ) -> MinimalPipeline:
         """Extract minimal pipeline for a specific branch.
 
@@ -478,10 +470,7 @@ class TraceBasedExtractor:
         )
 
         # Get steps to include (up to model or all)
-        if trace.model_step_index is not None:
-            trace_steps = trace.get_steps_up_to_model()
-        else:
-            trace_steps = trace.steps
+        trace_steps = trace.get_steps_up_to_model() if trace.model_step_index is not None else trace.steps
 
         for exec_step in trace_steps:
             if exec_step.execution_mode == StepExecutionMode.SKIP and not self.include_skipped:
@@ -551,7 +540,7 @@ class TraceBasedExtractor:
         self,
         trace: ExecutionTrace,
         branch_name: str,
-        full_pipeline: Optional[List[Any]] = None
+        full_pipeline: list[Any] | None = None
     ) -> MinimalPipeline:
         """Extract minimal pipeline for a specific branch by name.
 
@@ -579,10 +568,7 @@ class TraceBasedExtractor:
         )
 
         # Get steps to include (up to model or all)
-        if trace.model_step_index is not None:
-            trace_steps = trace.get_steps_up_to_model()
-        else:
-            trace_steps = trace.steps
+        trace_steps = trace.get_steps_up_to_model() if trace.model_step_index is not None else trace.steps
 
         for exec_step in trace_steps:
             if exec_step.execution_mode == StepExecutionMode.SKIP and not self.include_skipped:
@@ -649,7 +635,7 @@ class TraceBasedExtractor:
         self,
         trace: ExecutionTrace,
         up_to_model: bool = True
-    ) -> List[str]:
+    ) -> list[str]:
         """Get list of artifact IDs required for prediction.
 
         Useful for pre-loading artifacts or validating artifact availability.
@@ -661,10 +647,7 @@ class TraceBasedExtractor:
         Returns:
             List of artifact IDs needed for prediction
         """
-        if up_to_model and trace.model_step_index is not None:
-            steps = trace.get_steps_up_to_model()
-        else:
-            steps = trace.steps
+        steps = trace.get_steps_up_to_model() if up_to_model and trace.model_step_index is not None else trace.steps
 
         artifact_ids = []
         for step in steps:
@@ -676,7 +659,7 @@ class TraceBasedExtractor:
     def get_step_dependency_graph(
         self,
         trace: ExecutionTrace
-    ) -> Dict[int, Set[int]]:
+    ) -> dict[int, set[int]]:
         """Build dependency graph from execution trace.
 
         The dependency graph maps each step to the set of steps it depends on.
@@ -688,8 +671,8 @@ class TraceBasedExtractor:
         Returns:
             Dictionary mapping step_index to set of dependency step indices
         """
-        dependencies: Dict[int, Set[int]] = {}
-        prev_step_by_branch: Dict[Tuple[int, ...], int] = {}
+        dependencies: dict[int, set[int]] = {}
+        prev_step_by_branch: dict[tuple[int, ...], int] = {}
 
         for step in trace.steps:
             step_idx = step.step_index
@@ -716,7 +699,7 @@ class TraceBasedExtractor:
         self,
         branch_step_config: Any,
         branch_name: str,
-        substep_index: Optional[int]
+        substep_index: int | None
     ) -> Any:
         """Extract individual substep config from a branch step.
 
@@ -795,8 +778,8 @@ class TraceBasedExtractor:
 
     def _is_prefix_branch(
         self,
-        prefix_path: List[int],
-        full_path: List[int]
+        prefix_path: list[int],
+        full_path: list[int]
     ) -> bool:
         """Check if prefix_path is a prefix of full_path.
 
@@ -816,8 +799,8 @@ class TraceBasedExtractor:
 
     def _is_parent_branch(
         self,
-        target_path: List[int],
-        check_path: List[int]
+        target_path: list[int],
+        check_path: list[int]
     ) -> bool:
         """Check if check_path is a parent of target_path.
 
@@ -835,7 +818,7 @@ class TraceBasedExtractor:
     def validate_trace_for_prediction(
         self,
         trace: ExecutionTrace
-    ) -> Tuple[bool, List[str]]:
+    ) -> tuple[bool, list[str]]:
         """Validate that a trace has all information needed for prediction.
 
         Checks that:
@@ -865,12 +848,11 @@ class TraceBasedExtractor:
                 continue
 
             # Check if this type typically needs artifacts
-            if step.operator_type in steps_needing_artifacts:
-                if not step.has_artifacts():
-                    issues.append(
-                        f"Step {step.step_index} ({step.operator_type}/{step.operator_class}) "
-                        f"has no recorded artifacts"
-                    )
+            if step.operator_type in steps_needing_artifacts and not step.has_artifacts():
+                issues.append(
+                    f"Step {step.step_index} ({step.operator_type}/{step.operator_class}) "
+                    f"has no recorded artifacts"
+                )
 
         is_valid = len(issues) == 0
         return is_valid, issues

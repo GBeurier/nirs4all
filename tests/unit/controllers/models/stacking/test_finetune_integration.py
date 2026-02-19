@@ -8,10 +8,11 @@ Tests cover:
 - Integration with Optuna optimization
 """
 
-import pytest
+from typing import Any
+from unittest.mock import MagicMock, Mock, patch
+
 import numpy as np
-from unittest.mock import Mock, MagicMock, patch
-from typing import Dict, Any
+import pytest
 
 from nirs4all.operators.models.meta import (
     MetaModel,
@@ -69,7 +70,6 @@ class TestMetaModelFinetuneSpace:
         assert "model__n_estimators" in meta.finetune_space
         assert "model__max_depth" in meta.finetune_space
         assert "model__min_samples_split" in meta.finetune_space
-
 
 class TestGetFinetuneParams:
     """Test MetaModel.get_finetune_params() method."""
@@ -156,7 +156,6 @@ class TestGetFinetuneParams:
         assert params is not None
         assert params["approach"] == "grouped"
 
-
 class TestMetaModelGetParams:
     """Test MetaModel.get_params() includes finetune_space."""
 
@@ -190,7 +189,6 @@ class TestMetaModelGetParams:
         assert "model__alpha" in params
         assert params["model__alpha"] == 0.5
 
-
 class TestMetaModelSetParams:
     """Test MetaModel.set_params() with finetune_space."""
 
@@ -215,13 +213,13 @@ class TestMetaModelSetParams:
 
         assert meta.model.alpha == 0.5
 
-
 class TestMetaModelControllerFinetuneExtraction:
     """Test MetaModelController._extract_model_config() for finetune."""
 
     def test_extract_model_config_with_finetune(self):
         """_extract_model_config should extract finetune_params."""
         from sklearn.linear_model import Ridge
+
         from nirs4all.controllers.models.meta_model import MetaModelController
 
         finetune_space = {"model__alpha": (0.001, 100.0)}
@@ -243,6 +241,7 @@ class TestMetaModelControllerFinetuneExtraction:
     def test_extract_model_config_no_finetune_when_none(self):
         """_extract_model_config should not include finetune_params when None."""
         from sklearn.linear_model import Ridge
+
         from nirs4all.controllers.models.meta_model import MetaModelController
 
         meta = MetaModel(model=Ridge())
@@ -259,6 +258,7 @@ class TestMetaModelControllerFinetuneExtraction:
     def test_extract_model_config_from_operator_only(self):
         """_extract_model_config should work with operator only."""
         from sklearn.linear_model import Ridge
+
         from nirs4all.controllers.models.meta_model import MetaModelController
 
         finetune_space = {"model__alpha": (0.001, 100.0)}
@@ -274,7 +274,6 @@ class TestMetaModelControllerFinetuneExtraction:
         config = controller._extract_model_config(step={}, operator=meta)  # type: ignore
 
         assert "finetune_params" in config
-
 
 class TestFinetuneIntegration:
     """Test finetune integration with stacking config."""
@@ -295,6 +294,7 @@ class TestFinetuneIntegration:
     def test_finetune_with_all_branches(self):
         """Finetune should work with ALL_BRANCHES scope."""
         from sklearn.linear_model import Ridge
+
         from nirs4all.operators.models.meta import BranchScope
 
         meta = MetaModel(
@@ -320,7 +320,6 @@ class TestFinetuneIntegration:
         # Repr should focus on model and source_models
         assert "Ridge" in repr_str
         assert "source_models" in repr_str
-
 
 class TestMetaModelLevel:
     """Test MetaModel.level property with finetune."""

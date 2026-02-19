@@ -38,7 +38,6 @@ from nirs4all.utils.memory import get_process_rss_mb
 # Utilities
 # ---------------------------------------------------------------------------
 
-
 def _measure_run(pipeline, dataset_path, cache_config, label, verbose=0):
     """Run a pipeline and measure wall-clock time and peak RSS.
 
@@ -69,7 +68,6 @@ def _measure_run(pipeline, dataset_path, cache_config, label, verbose=0):
     print(f"{'=' * 60}\n")
     return elapsed, rss_delta, result
 
-
 def _extract_sorted_scores(result):
     """Extract all prediction test scores sorted for deterministic comparison."""
     scores = []
@@ -77,21 +75,22 @@ def _extract_sorted_scores(result):
         scores.append(pred.get("test_score", 0.0) or 0.0)
     return sorted(scores)
 
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-
 def main(dataset_path: str, verbose: int = 0):
     # Import sklearn components
     from sklearn.cross_decomposition import PLSRegression
+
     from nirs4all.operators.transforms import (
-        StandardNormalVariate,
-        ExtendedMultiplicativeScatterCorrection as EMSC,
         Detrend,
-        SavitzkyGolay,
         Gaussian,
+        SavitzkyGolay,
+        StandardNormalVariate,
+    )
+    from nirs4all.operators.transforms import (
+        ExtendedMultiplicativeScatterCorrection as EMSC,
     )
 
     # -----------------------------------------------------------------------
@@ -218,7 +217,7 @@ def main(dataset_path: str, verbose: int = 0):
             )
             print("  CoW-only vs baseline   : PASS (atol=1e-10)")
         except AssertionError:
-            max_diff = max(abs(a - b) for a, b in zip(scores_baseline, scores_cow))
+            max_diff = max(abs(a - b) for a, b in zip(scores_baseline, scores_cow, strict=False))
             print(f"  CoW-only vs baseline   : FAIL (max diff: {max_diff:.2e})")
             all_passed = False
 
@@ -230,7 +229,7 @@ def main(dataset_path: str, verbose: int = 0):
             )
             print("  Full cache vs baseline : PASS (atol=1e-10)")
         except AssertionError:
-            max_diff = max(abs(a - b) for a, b in zip(scores_baseline, scores_full))
+            max_diff = max(abs(a - b) for a, b in zip(scores_baseline, scores_full, strict=False))
             print(f"  Full cache vs baseline : FAIL (max diff: {max_diff:.2e})")
             all_passed = False
 
@@ -242,7 +241,6 @@ def main(dataset_path: str, verbose: int = 0):
     print("=" * 60)
 
     return all_passed
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Cache performance comparison")

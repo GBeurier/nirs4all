@@ -35,13 +35,14 @@ import yaml
 # Add nirs4all to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.config.component_serialization import serialize_component
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+
 
 def load_pipeline_file(filepath: Path) -> dict:
     """Load pipeline definition from JSON or YAML file."""
     suffix = filepath.suffix.lower()
-    with open(filepath, 'r') as f:
+    with open(filepath) as f:
         if suffix == '.json':
             data = json.load(f)
         elif suffix in ('.yaml', '.yml'):
@@ -95,7 +96,6 @@ def get_canonical_pipeline(filepath: Path) -> dict:
 
     # Get canonical serialized form using nirs4all's serialization
     # This matches what PipelineConfigs does internally
-    from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 
     try:
         # Create PipelineConfigs to get the serialized form

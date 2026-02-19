@@ -39,8 +39,9 @@ Example usage:
 from __future__ import annotations
 
 import logging
-from enum import Enum
-from typing import Any, Callable
+from collections.abc import Callable
+from enum import Enum, StrEnum
+from typing import Any
 
 import numpy as np
 import torch
@@ -49,9 +50,8 @@ from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils import check_random_state
-from tabpfn_common_utils.telemetry import set_extension
-
 from tabpfn.model_loading import ModelVersion
+from tabpfn_common_utils.telemetry import set_extension
 from tabpfn_extensions.hpo.search_space import get_param_grid_hyperopt
 from tabpfn_extensions.misc.sklearn_compat import validate_data
 from tabpfn_extensions.scoring.scoring_utils import (
@@ -63,15 +63,14 @@ from tabpfn_extensions.utils import DeviceSpecification
 # Import TabPFN models from extensions (which handles backend compatibility)
 try:
     from tabpfn_extensions.utils import TabPFNClassifier, TabPFNRegressor
-except ImportError:
+except ImportError as err:
     raise ImportError(
         "TabPFN extensions utils module not found. Please make sure tabpfn_extensions is installed correctly.",
-    )
+    ) from err
 
 logger = logging.getLogger(__name__)
 
-
-class MetricType(str, Enum):
+class MetricType(StrEnum):
     """Supported evaluation metrics for TabPFN hyperparameter tuning.
 
     This enum defines the metrics that can be used to evaluate and select
@@ -92,7 +91,6 @@ class MetricType(str, Enum):
     RMSE = "rmse"
     MSE = "mse"
     MAE = "mae"
-
 
 class TunedTabPFNBase(BaseEstimator):
     """Base class for tuned TabPFN models with proper categorical handling."""
@@ -403,7 +401,6 @@ class TunedTabPFNBase(BaseEstimator):
             tags.estimator_type = "regressor"
         return tags
 
-
 @set_extension("hpo")
 class TunedTabPFNClassifier(TunedTabPFNBase, ClassifierMixin):
     """TabPFN Classifier with hyperparameter tuning and proper categorical handling."""
@@ -496,7 +493,6 @@ class TunedTabPFNClassifier(TunedTabPFNBase, ClassifierMixin):
             raise ValueError("The underlying best_model_ is not properly fitted.")
 
         return self.best_model_.predict_proba(X)
-
 
 @set_extension("hpo")
 class TunedTabPFNRegressor(TunedTabPFNBase, RegressorMixin):

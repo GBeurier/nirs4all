@@ -45,7 +45,6 @@ from nirs4all.pipeline.storage.store_schema import REFIT_CONTEXT_STACKING
 # Helpers
 # =========================================================================
 
-
 class _DummyModel:
     """Minimal sklearn-like model for testing."""
 
@@ -69,7 +68,6 @@ class _DummyModel:
     def get_params(self, deep=True):
         return {"n_components": self.n_components, "alpha": self.alpha}
 
-
 class _DummySplitter:
     """Minimal CV splitter for testing."""
 
@@ -80,7 +78,6 @@ class _DummySplitter:
 
     def get_n_splits(self, X=None, y=None, groups=None) -> int:
         return 1
-
 
 class _DummyDataset:
     """Minimal SpectroDataset stand-in for testing."""
@@ -106,7 +103,6 @@ class _DummyDataset:
         new = _DummyDataset(self._n_train, name=self.name)
         return new
 
-
 def _make_stacking_steps() -> list[Any]:
     """Create a typical stacking pipeline step list."""
     return [
@@ -119,7 +115,6 @@ def _make_stacking_steps() -> list[Any]:
         {"merge": "predictions"},
         {"model": {"class": "sklearn.linear_model.Ridge", "params": {"alpha": 1.0}}},
     ]
-
 
 def _make_stacking_refit_config(**overrides) -> RefitConfig:
     """Create a RefitConfig for stacking tests."""
@@ -135,11 +130,9 @@ def _make_stacking_refit_config(**overrides) -> RefitConfig:
     defaults.update(overrides)
     return RefitConfig(**defaults)
 
-
 def _make_stacking_topology() -> PipelineTopology:
     """Create a topology descriptor for a stacking pipeline."""
     return analyze_topology(_make_stacking_steps())
-
 
 def _make_mock_executor() -> MagicMock:
     """Create a mock PipelineExecutor."""
@@ -148,11 +141,9 @@ def _make_mock_executor() -> MagicMock:
     executor.execute.return_value = None
     return executor
 
-
 # =========================================================================
 # Task 3.5: GPU model detection
 # =========================================================================
-
 
 class TestIsGpuModel:
     """Tests for _is_gpu_model helper."""
@@ -199,7 +190,6 @@ class TestIsGpuModel:
         model = _DummyModel()
         assert _is_gpu_model(model) is False
 
-
 class TestExtractModelClassPath:
     """Tests for _extract_model_class_path helper."""
 
@@ -225,7 +215,6 @@ class TestExtractModelClassPath:
         """None returns empty string."""
         assert _extract_model_class_path(None) == ""
 
-
 class TestAnyBranchHasGpuModel:
     """Tests for _any_branch_has_gpu_model helper."""
 
@@ -249,7 +238,6 @@ class TestAnyBranchHasGpuModel:
         """Empty branch list -> False."""
         assert _any_branch_has_gpu_model([]) is False
 
-
 class TestCleanupGpuMemory:
     """Tests for _cleanup_gpu_memory helper."""
 
@@ -257,11 +245,9 @@ class TestCleanupGpuMemory:
         """Cleanup never raises even if frameworks are not installed."""
         _cleanup_gpu_memory()  # Should not raise
 
-
 # =========================================================================
 # Task 3.4: Branch classification for mixed merge
 # =========================================================================
-
 
 class TestClassifyBranchType:
     """Tests for _classify_branch_type helper."""
@@ -301,11 +287,9 @@ class TestClassifyBranchType:
         merge_step = {"merge": {}}
         assert _classify_branch_type(0, merge_step) == "predictions"
 
-
 # =========================================================================
 # Step extraction helpers
 # =========================================================================
-
 
 class TestFindBranchStep:
     """Tests for _find_branch_step helper."""
@@ -324,7 +308,6 @@ class TestFindBranchStep:
         steps = [{"class": "sklearn.preprocessing.MinMaxScaler"}]
         assert _find_branch_step(steps) is None
 
-
 class TestFindMergeStep:
     """Tests for _find_merge_step helper."""
 
@@ -339,7 +322,6 @@ class TestFindMergeStep:
         """Returns None when no merge exists."""
         steps = [{"branch": [[], []]}]
         assert _find_merge_step(steps, after=0) is None
-
 
 class TestExtractPreBranchSteps:
     """Tests for _extract_pre_branch_steps helper."""
@@ -356,7 +338,6 @@ class TestExtractPreBranchSteps:
         steps = [{"branch": [[], []]}]
         assert _extract_pre_branch_steps(steps, branch_idx=0) == []
 
-
 class TestExtractPostMergeSteps:
     """Tests for _extract_post_merge_steps helper."""
 
@@ -371,7 +352,6 @@ class TestExtractPostMergeSteps:
         """Returns empty list if no merge step found."""
         steps = [{"branch": [[], []]}]
         assert _extract_post_merge_steps(steps, branch_idx=0) == []
-
 
 class TestExtractModelFromSteps:
     """Tests for _extract_model_from_steps helper."""
@@ -398,7 +378,6 @@ class TestExtractModelFromSteps:
         steps = [_DummySplitter()]
         assert _extract_model_from_steps(steps) is None
 
-
 class TestExtractPreprocessingFromBranch:
     """Tests for _extract_preprocessing_from_branch helper."""
 
@@ -421,11 +400,9 @@ class TestExtractPreprocessingFromBranch:
         branch_steps = [{"model": {"class": "PLS"}}]
         assert _extract_preprocessing_from_branch(branch_steps) == []
 
-
 # =========================================================================
 # Prediction helpers
 # =========================================================================
-
 
 class TestRelabelStackingPredictions:
     """Tests for _relabel_stacking_predictions helper."""
@@ -463,7 +440,6 @@ class TestRelabelStackingPredictions:
         """No error on empty predictions."""
         preds = Predictions()
         _relabel_stacking_predictions(preds, branch_index=0)  # Should not raise
-
 
 class TestExtractInSamplePredictions:
     """Tests for _extract_in_sample_predictions helper."""
@@ -507,7 +483,6 @@ class TestExtractInSamplePredictions:
         preds = Predictions()
         assert _extract_in_sample_predictions(preds) is None
 
-
 class TestExtractTestScoreFromPredictions:
     """Tests for _extract_test_score_from_predictions helper."""
 
@@ -528,7 +503,6 @@ class TestExtractTestScoreFromPredictions:
             partition="train",
         )
         assert _extract_test_score_from_predictions(preds) is None
-
 
 class TestReplaceSplitter:
     """Tests for _replace_splitter helper."""
@@ -551,7 +525,6 @@ class TestReplaceSplitter:
         result = _replace_splitter(steps, dataset)
         assert len(result) == 1
 
-
 class TestCreateMetaDataset:
     """Tests for _create_meta_dataset helper."""
 
@@ -567,11 +540,9 @@ class TestCreateMetaDataset:
         X = meta_ds.x({"partition": "train"}, layout="2d")
         assert X.shape == (50, 3)
 
-
 # =========================================================================
 # Task 3.3: execute_stacking_refit (two-step design)
 # =========================================================================
-
 
 class TestExecuteStackingRefit:
     """Tests for the execute_stacking_refit function."""
@@ -883,11 +854,9 @@ class TestExecuteStackingRefit:
             assert entry["fold_id"] == "final"
             assert entry["refit_context"] == REFIT_CONTEXT_STACKING
 
-
 # =========================================================================
 # Task 3.4: Mixed merge handling
 # =========================================================================
-
 
 class TestMixedMergeRefit:
     """Tests for mixed merge handling in stacking refit."""
@@ -908,11 +877,9 @@ class TestMixedMergeRefit:
         assert _classify_branch_type(0, steps[3]) == "predictions"
         assert _classify_branch_type(1, steps[3]) == "features"
 
-
 # =========================================================================
 # Task 3.5: Sequential vs parallel GPU dispatch
 # =========================================================================
-
 
 class TestGpuDispatch:
     """Tests for GPU-aware sequential dispatch."""
@@ -983,11 +950,9 @@ class TestGpuDispatch:
             # Cleanup should have been called for the GPU branch (branch 0)
             assert mock_cleanup.call_count >= 1
 
-
 # =========================================================================
 # Orchestrator integration
 # =========================================================================
-
 
 class TestOrchestratorStackingDispatch:
     """Tests for stacking dispatch in PipelineOrchestrator._execute_refit_pass."""
@@ -1060,7 +1025,7 @@ class TestOrchestratorStackingDispatch:
         executor = MagicMock()
 
         with patch(
-            "nirs4all.pipeline.execution.refit.stacking_refit.execute_stacking_refit"
+            "nirs4all.pipeline.execution.orchestrator.execute_stacking_refit"
         ) as mock_stacking:
             mock_stacking.return_value = RefitResult(success=True, predictions_count=0)
 
@@ -1151,7 +1116,7 @@ class TestOrchestratorStackingDispatch:
         executor = MagicMock()
 
         with patch(
-            "nirs4all.pipeline.execution.refit.execute_simple_refit"
+            "nirs4all.pipeline.execution.orchestrator.execute_simple_refit"
         ) as mock_simple:
             mock_simple.return_value = RefitResult(success=True, predictions_count=0)
 

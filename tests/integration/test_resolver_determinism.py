@@ -23,7 +23,6 @@ def _create_pipeline_layout(workspace, run_name: str, pipeline_uid: str) -> str:
         json.dump({"steps": [{"model": "PLS"}]}, f)
     return str(run_dir)
 
-
 def test_structural_branch_path_matching_is_deterministic(tmp_path):
     """Branch-path comparison should be structural, not JSON-string based."""
     workspace = tmp_path / "workspace"
@@ -44,7 +43,6 @@ def test_structural_branch_path_matching_is_deterministic(tmp_path):
 
     assert resolver._pick_chain_for_prediction(chains_df, prediction) == "chain_target"
 
-
 def test_ambiguous_chain_resolution_warns_and_picks_first(tmp_path):
     """Resolver should warn on ambiguity and pick the first deterministic candidate."""
     workspace = tmp_path / "workspace"
@@ -64,7 +62,6 @@ def test_ambiguous_chain_resolution_warns_and_picks_first(tmp_path):
 
     result = resolver._pick_chain_for_prediction(chains_df, {"step_idx": 1, "model_classname": "PLS", "preprocessings": "SNV"})
     assert result is None  # ambiguous → returns None for filesystem fallback
-
 
 def test_mode_policy_auto_and_store_only(tmp_path):
     """auto mode falls back to filesystem; store-only mode fails on store miss."""

@@ -16,10 +16,10 @@ Formula:
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 
 class RunStatus(Enum):
@@ -31,7 +31,6 @@ class RunStatus(Enum):
     PAUSED = "paused"
     CANCELLED = "cancelled"
 
-
 # Valid state transitions for the run state machine
 VALID_TRANSITIONS = {
     RunStatus.QUEUED: [RunStatus.RUNNING, RunStatus.CANCELLED],
@@ -41,7 +40,6 @@ VALID_TRANSITIONS = {
     RunStatus.COMPLETED: [],  # terminal
     RunStatus.CANCELLED: [],  # terminal
 }
-
 
 # Metric metadata for proper score comparison
 METRIC_METADATA = {
@@ -70,8 +68,7 @@ METRIC_METADATA = {
     "default": {"higher_is_better": True, "optimal": 1.0, "range": (-float('inf'), float('inf'))},
 }
 
-
-def get_metric_info(metric_name: str) -> Dict[str, Any]:
+def get_metric_info(metric_name: str) -> dict[str, Any]:
     """
     Get metadata for a metric.
 
@@ -83,7 +80,6 @@ def get_metric_info(metric_name: str) -> Dict[str, Any]:
     """
     metric_lower = metric_name.lower()
     return METRIC_METADATA.get(metric_lower, METRIC_METADATA["default"])
-
 
 def is_better_score(score: float, best_score: float, metric: str) -> bool:
     """
@@ -103,46 +99,42 @@ def is_better_score(score: float, best_score: float, metric: str) -> bool:
     else:
         return score < best_score
 
-
 @dataclass
 class TemplateInfo:
     """Information about a pipeline template in a run."""
     id: str
     name: str
-    file_path: Optional[str] = None
+    file_path: str | None = None
     expansion_count: int = 1
-    description: Optional[str] = None
-
+    description: str | None = None
 
 @dataclass
 class DatasetInfo:
     """Information about a dataset used in a run."""
     name: str
     path: str
-    hash: Optional[str] = None
-    file_size: Optional[int] = None
-    n_samples: Optional[int] = None
-    n_features: Optional[int] = None
-    task_type: Optional[str] = None
-    y_columns: Optional[List[str]] = None
-    y_stats: Optional[Dict[str, Dict[str, float]]] = None
-    wavelength_range: Optional[List[float]] = None
-    wavelength_unit: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-    version: Optional[str] = None
-
+    hash: str | None = None
+    file_size: int | None = None
+    n_samples: int | None = None
+    n_features: int | None = None
+    task_type: str | None = None
+    y_columns: list[str] | None = None
+    y_stats: dict[str, dict[str, float]] | None = None
+    wavelength_range: list[float] | None = None
+    wavelength_unit: str | None = None
+    metadata: dict[str, Any] | None = None
+    version: str | None = None
 
 @dataclass
 class RunConfig:
     """Configuration for a run."""
     cv_folds: int = 5
     cv_strategy: str = "kfold"
-    random_state: Optional[int] = 42
+    random_state: int | None = 42
     metric: str = "r2"
     save_predictions: bool = True
     save_models: bool = True
-    project: Optional[str] = None
-
+    project: str | None = None
 
 @dataclass
 class RunSummary:
@@ -150,8 +142,7 @@ class RunSummary:
     total_results: int = 0
     completed_results: int = 0
     failed_results: int = 0
-    best_result: Optional[Dict[str, Any]] = None
-
+    best_result: dict[str, Any] | None = None
 
 @dataclass
 class Run:
@@ -175,15 +166,15 @@ class Run:
     """
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     name: str = ""
-    templates: List[TemplateInfo] = field(default_factory=list)
-    datasets: List[DatasetInfo] = field(default_factory=list)
+    templates: list[TemplateInfo] = field(default_factory=list)
+    datasets: list[DatasetInfo] = field(default_factory=list)
     status: RunStatus = RunStatus.QUEUED
     config: RunConfig = field(default_factory=RunConfig)
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    started_at: str | None = None
+    completed_at: str | None = None
     summary: RunSummary = field(default_factory=RunSummary)
-    checkpoints: List[Dict[str, Any]] = field(default_factory=list)
+    checkpoints: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def total_pipeline_configs(self) -> int:
@@ -215,21 +206,21 @@ class Run:
         self.status = new_status
 
         if new_status == RunStatus.RUNNING and self.started_at is None:
-            self.started_at = datetime.now(timezone.utc).isoformat()
+            self.started_at = datetime.now(UTC).isoformat()
         elif new_status in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED):
-            self.completed_at = datetime.now(timezone.utc).isoformat()
+            self.completed_at = datetime.now(UTC).isoformat()
 
-    def add_checkpoint(self, result_id: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+    def add_checkpoint(self, result_id: str, metadata: dict[str, Any] | None = None) -> None:
         """Record a completed result as a checkpoint."""
         checkpoint = {
             "result_id": result_id,
-            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": datetime.now(UTC).isoformat(),
         }
         if metadata:
             checkpoint.update(metadata)
         self.checkpoints.append(checkpoint)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert run to dictionary for serialization."""
         return {
             "id": self.id,
@@ -285,13 +276,13 @@ class Run:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Run":
+    def from_dict(cls, data: dict[str, Any]) -> "Run":
         """Create run from dictionary."""
         run = cls(
             id=data.get("id", str(uuid.uuid4())[:8]),
             name=data.get("name", ""),
             status=RunStatus(data.get("status", "queued")),
-            created_at=data.get("created_at", datetime.now(timezone.utc).isoformat()),
+            created_at=data.get("created_at", datetime.now(UTC).isoformat()),
             started_at=data.get("started_at"),
             completed_at=data.get("completed_at"),
             checkpoints=data.get("checkpoints", []),
@@ -346,7 +337,6 @@ class Run:
         )
 
         return run
-
 
 def generate_run_id(name: str = "") -> str:
     """

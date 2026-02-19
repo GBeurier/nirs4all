@@ -14,37 +14,37 @@ supported branch types and provides clear error messages for unsupported
 scenarios.
 """
 
-import pytest
-import numpy as np
 import warnings
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import numpy as np
+import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import Ridge, LinearRegression
+from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.model_selection import KFold
 
 # Stacking imports
 from nirs4all.controllers.models.stacking import (
-    BranchValidator,
-    BranchType,
     BranchInfo,
+    BranchType,
     BranchValidationResult,
+    BranchValidator,
+    CrossPartitionStackingError,
+    DisjointSampleSetsError,
+    # Exceptions
+    IncompatibleBranchTypeError,
+    NestedBranchStackingError,
     StackingCompatibility,
     detect_branch_type,
     is_stacking_compatible,
-    # Exceptions
-    IncompatibleBranchTypeError,
-    CrossPartitionStackingError,
-    NestedBranchStackingError,
-    DisjointSampleSetsError,
 )
 from nirs4all.operators.models.meta import (
+    BranchScope,
+    CoverageStrategy,
     MetaModel,
     StackingConfig,
-    CoverageStrategy,
-    BranchScope,
 )
 
 
@@ -144,7 +144,6 @@ class TestBranchTypeDetection:
         context.state = MagicMock()
         context.state.step_number = 5
         return context
-
 
 class TestBranchValidator:
     """Tests for BranchValidator class."""
@@ -301,7 +300,6 @@ class TestBranchValidator:
         store.filter_predictions = filter_predictions
         return store
 
-
 class TestBranchingExceptions:
     """Tests for branching-related exception classes."""
 
@@ -361,7 +359,6 @@ class TestBranchingExceptions:
         assert '50' in str(error)
         assert '0.0%' in str(error)
 
-
 class TestBranchInfoDataclass:
     """Tests for BranchInfo dataclass."""
 
@@ -408,7 +405,6 @@ class TestBranchInfoDataclass:
         assert info.is_nested is True
         assert info.nesting_depth == 3
 
-
 class TestBranchValidationResult:
     """Tests for BranchValidationResult dataclass."""
 
@@ -440,7 +436,6 @@ class TestBranchValidationResult:
         assert result.is_valid is True  # Warnings don't affect validity
         assert len(result.warnings) == 1
         assert result.warnings[0] == "Test warning message"
-
 
 class TestStackingWithBranchTypes:
     """Integration tests for MetaModel operator with branch types."""
@@ -478,7 +473,6 @@ class TestStackingWithBranchTypes:
         assert config_all.branch_scope == BranchScope.ALL_BRANCHES
         assert config_specified.branch_scope == BranchScope.SPECIFIED
 
-
 class TestStackingCompatibilityEnum:
     """Tests for StackingCompatibility enum."""
 
@@ -488,7 +482,6 @@ class TestStackingCompatibilityEnum:
         assert StackingCompatibility.COMPATIBLE_WITH_WARNINGS.value == "compatible_with_warnings"
         assert StackingCompatibility.WITHIN_PARTITION_ONLY.value == "within_partition_only"
         assert StackingCompatibility.NOT_SUPPORTED.value == "not_supported"
-
 
 class TestBranchTypeEnum:
     """Tests for BranchType enum."""
@@ -502,7 +495,6 @@ class TestBranchTypeEnum:
         assert BranchType.GENERATOR.value == "generator"
         assert BranchType.NESTED.value == "nested"
         assert BranchType.UNKNOWN.value == "unknown"
-
 
 class TestV2SeparationBranchDetection:
     """Tests for v2 BranchController separation branch detection.
@@ -590,8 +582,8 @@ class TestV2SeparationBranchDetection:
     def test_validate_by_metadata_separation(self):
         """Test validation with by_metadata separation branch."""
         from nirs4all.controllers.models.stacking import (
-            is_disjoint_branch,
             get_disjoint_branch_info,
+            is_disjoint_branch,
         )
 
         context = self._create_mock_context()
@@ -619,8 +611,8 @@ class TestV2SeparationBranchDetection:
     def test_validate_by_tag_separation(self):
         """Test validation with by_tag separation branch."""
         from nirs4all.controllers.models.stacking import (
-            is_disjoint_branch,
             get_disjoint_branch_info,
+            is_disjoint_branch,
         )
 
         context = self._create_mock_context()
@@ -648,8 +640,8 @@ class TestV2SeparationBranchDetection:
     def test_validate_by_filter_separation(self):
         """Test validation with by_filter separation branch."""
         from nirs4all.controllers.models.stacking import (
-            is_disjoint_branch,
             get_disjoint_branch_info,
+            is_disjoint_branch,
         )
 
         context = self._create_mock_context()
@@ -677,8 +669,8 @@ class TestV2SeparationBranchDetection:
     def test_validate_by_source_not_disjoint(self):
         """Test that by_source separation is NOT disjoint (all samples, different features)."""
         from nirs4all.controllers.models.stacking import (
-            is_disjoint_branch,
             get_disjoint_branch_info,
+            is_disjoint_branch,
         )
 
         context = self._create_mock_context()
@@ -704,7 +696,6 @@ class TestV2SeparationBranchDetection:
         context.state = MagicMock()
         context.state.step_number = 5
         return context
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -16,16 +16,15 @@ from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-
 def dataset_validate(args):
     """Validate a dataset configuration file."""
+    from nirs4all.data.parsers.normalizer import ConfigNormalizer
     from nirs4all.data.schema.validation import (
         ConfigValidator,
-        DiagnosticReport,
         DiagnosticBuilder,
+        DiagnosticReport,
         ErrorRegistry,
     )
-    from nirs4all.data.parsers.normalizer import ConfigNormalizer
 
     config_path = args.config_file
     verbose = args.verbose
@@ -67,7 +66,7 @@ def dataset_validate(args):
                     location=config_path
                 ))
 
-            for warning in result.warnings:
+            for _ in result.warnings:
                 report.add(DiagnosticBuilder().create(
                     ErrorRegistry.E204,
                     path=config_path,
@@ -112,11 +111,10 @@ def dataset_validate(args):
     # Exit with appropriate code
     sys.exit(0 if report.is_valid else 1)
 
-
 def dataset_inspect(args):
     """Inspect a dataset configuration and show details."""
-    from nirs4all.data.parsers.normalizer import ConfigNormalizer
     from nirs4all.data.detection import detect_file_parameters
+    from nirs4all.data.parsers.normalizer import ConfigNormalizer
 
     config_path = args.config_file
     detect_params = args.detect
@@ -184,7 +182,6 @@ def dataset_inspect(args):
                     for warning in result.warnings:
                         print(f"    - {warning}")
 
-
 def dataset_export(args):
     """Export dataset configuration to normalized format."""
     from nirs4all.data.parsers.normalizer import ConfigNormalizer
@@ -214,7 +211,6 @@ def dataset_export(args):
             print(serializer.to_yaml(config))
         else:
             print(serializer.to_json(config))
-
 
 def dataset_diff(args):
     """Compare two dataset configurations."""
@@ -254,7 +250,6 @@ def dataset_diff(args):
         print(f"Comparing: {config1_path} vs {config2_path}")
         print("=" * 60)
         print(diff)
-
 
 def add_dataset_commands(subparsers):
     """Add dataset commands to CLI."""
