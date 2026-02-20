@@ -47,7 +47,8 @@ def _run_ruff(scope: list[str]) -> list[dict[str, Any]]:
     stdout = (proc.stdout or "").strip()
     if not stdout:
         return []
-    return json.loads(stdout)
+    result: list[dict[str, Any]] = json.loads(stdout)
+    return result
 
 def _build_snapshot(findings: list[dict[str, Any]], scope: list[str]) -> dict[str, Any]:
     by_rule: Counter[str] = Counter()
@@ -70,7 +71,8 @@ def _build_snapshot(findings: list[dict[str, Any]], scope: list[str]) -> dict[st
 def _load_baseline(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError(f"baseline file not found: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return result
 
 def _compare(current: dict[str, Any], baseline: dict[str, Any]) -> list[str]:
     messages: list[str] = []
