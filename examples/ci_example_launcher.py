@@ -21,6 +21,19 @@ from typing import Any
 FAST_ENV = "NIRS4ALL_EXAMPLE_FAST"
 FAST_DEFAULT = "1"
 
+
+def _force_utf8_io() -> None:
+    """Force UTF-8 encoding on stdout/stderr for Windows compatibility.
+
+    On Windows, subprocesses default to the system codepage (e.g. cp1252)
+    which cannot encode emoji and other Unicode characters used in examples.
+    """
+    if sys.stdout.encoding and sys.stdout.encoding.lower().replace("-", "") != "utf8":
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    if sys.stderr.encoding and sys.stderr.encoding.lower().replace("-", "") != "utf8":
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+
+
 def _set_thread_limits() -> None:
     # Keep worker processes lightweight and reduce CPU oversubscription.
     os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -229,6 +242,8 @@ def _patch_nirs4all_fast_mode(*, plots: bool = False) -> None:
     PipelineRunner.run = fast_pr_run
 
 def main() -> int:
+    _force_utf8_io()
+
     parser = argparse.ArgumentParser(description="Run examples with CI fast mode.")
     parser.add_argument("example", help="Path to the example script")
     parser.add_argument("example_args", nargs=argparse.REMAINDER, help="Args for the example script")

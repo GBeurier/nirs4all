@@ -320,6 +320,7 @@ function Invoke-ExampleWorker {
     try {
         $env:NIRS4ALL_EXAMPLE_FAST = $FastMode
         $env:NIRS4ALL_WORKSPACE = $workspaceDir
+        $env:PYTHONIOENCODING = "utf-8"
         & $PythonExe $Launcher @launcherArgs *> $outputFile
         $exitCode = $LASTEXITCODE
     }
@@ -369,6 +370,7 @@ if ($Jobs -gt 1) {
             try {
                 $env:NIRS4ALL_EXAMPLE_FAST = $FastMode
                 $env:NIRS4ALL_WORKSPACE = $workspaceDir
+                $env:PYTHONIOENCODING = "utf-8"
                 & $PythonExe $Launcher @launcherArgs *> $outputFile
                 $exitCode = $LASTEXITCODE
             }

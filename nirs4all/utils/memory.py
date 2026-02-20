@@ -1,9 +1,9 @@
 """Memory estimation and RSS tracking utilities.
 
 Provides fast, numpy-first memory estimation for datasets and cache entries,
-plus process RSS tracking via /proc/self/statm (Linux) or psutil (macOS).
+plus process RSS tracking via /proc/self/statm (Linux) or psutil (macOS/Windows).
 
-Phase 1.4 — Cache Implementation Backlog
+Phase 1.4 -- Cache Implementation Backlog
 """
 
 from __future__ import annotations
@@ -16,11 +16,12 @@ import numpy as np
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
 
+
 def estimate_dataset_bytes(dataset: SpectroDataset) -> int:
     """Estimate total memory footprint of a SpectroDataset.
 
     Sums numpy nbytes across all feature sources and target processings.
-    O(1) per array — reads shape and dtype only, no serialization.
+    O(1) per array -- reads shape and dtype only, no serialization.
 
     Args:
         dataset: The SpectroDataset to measure.
@@ -40,6 +41,7 @@ def estimate_dataset_bytes(dataset: SpectroDataset) -> int:
 
     return total
 
+
 def estimate_cache_entry_bytes(entry: Any) -> int:
     """Estimate memory size of a cache entry.
 
@@ -56,9 +58,9 @@ def estimate_cache_entry_bytes(entry: Any) -> int:
     if isinstance(entry, np.ndarray):
         return entry.nbytes
 
-    # Avoid circular import — check by class name
+    # Avoid circular import -- check by class name
     cls_name = type(entry).__name__
-    if cls_name == 'SpectroDataset':
+    if cls_name == "SpectroDataset":
         return estimate_dataset_bytes(entry)
 
     if isinstance(entry, (list, tuple)):
@@ -75,20 +77,20 @@ def estimate_cache_entry_bytes(entry: Any) -> int:
 
     return sys.getsizeof(entry)
 
+
 def get_process_rss_mb() -> float:
     """Get the current process Resident Set Size in megabytes.
 
     Reads /proc/self/statm on Linux (no dependencies).
-    Falls back to psutil on other platforms.
+    Falls back to psutil, then to platform-native APIs on other platforms.
 
     Returns:
         RSS in MB, or 0.0 if measurement is unavailable.
     """
     # Linux fast path: read /proc/self/statm
     try:
-        with open('/proc/self/statm') as f:
+        with open("/proc/self/statm") as f:
             parts = f.read().split()
-        # Field 1 (index 1) is RSS in pages
         rss_pages = int(parts[1])
         import resource
         page_size = resource.getpagesize()  # type: ignore[attr-defined]
@@ -102,7 +104,47 @@ def get_process_rss_mb() -> float:
         process = psutil.Process()
         return float(process.memory_info().rss / (1024 * 1024))
     except (ImportError, Exception):
-        return 0.0
+        pass
+
+    # Windows fallback: ctypes + K32GetProcessMemoryInfo (no extra dependencies)
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            import ctypes.wintypes
+
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", ctypes.wintypes.DWORD),
+                    ("PageFaultCount", ctypes.wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            kernel32.GetCurrentProcess.restype = ctypes.wintypes.HANDLE
+            kernel32.K32GetProcessMemoryInfo.argtypes = [
+                ctypes.wintypes.HANDLE,
+                ctypes.POINTER(PROCESS_MEMORY_COUNTERS),
+                ctypes.wintypes.DWORD,
+            ]
+            kernel32.K32GetProcessMemoryInfo.restype = ctypes.wintypes.BOOL
+
+            pmc = PROCESS_MEMORY_COUNTERS()
+            pmc.cb = ctypes.sizeof(pmc)
+            handle = kernel32.GetCurrentProcess()
+            if kernel32.K32GetProcessMemoryInfo(handle, ctypes.byref(pmc), pmc.cb):
+                return float(pmc.WorkingSetSize / (1024 * 1024))
+        except Exception:
+            pass
+
+    return 0.0
+
 
 def format_bytes(n: int) -> str:
     """Format a byte count as a human-readable string.
