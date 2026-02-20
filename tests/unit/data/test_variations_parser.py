@@ -251,8 +251,8 @@ class TestVariationsParser:
         assert result.success is True
         assert result.source_type == "variations"
         assert result.config is not None
-        assert len(result.config.variations) == 1
-        assert result.config.variations[0].name == "raw"
+        assert len(result.config["variations"]) == 1
+        assert result.config["variations"][0]["name"] == "raw"
 
     def test_parse_multiple_variations(self):
         """Test parsing configuration with multiple variations."""
@@ -268,8 +268,8 @@ class TestVariationsParser:
         })
 
         assert result.success is True
-        assert len(result.config.variations) == 3
-        assert result.config.variation_mode == VariationMode.SEPARATE
+        assert len(result.config["variations"]) == 3
+        assert result.config["variation_mode"] == VariationMode.SEPARATE.value
 
     def test_parse_with_variation_select(self):
         """Test parsing with variation_select for mode=select."""
@@ -285,8 +285,8 @@ class TestVariationsParser:
         })
 
         assert result.success is True
-        assert result.config.variation_mode == VariationMode.SELECT
-        assert result.config.variation_select == ["raw", "snv"]
+        assert result.config["variation_mode"] == VariationMode.SELECT.value
+        assert result.config["variation_select"] == ["raw", "snv"]
 
     def test_parse_with_concat_mode(self):
         """Test parsing with concat mode."""
@@ -301,8 +301,8 @@ class TestVariationsParser:
         })
 
         assert result.success is True
-        assert result.config.variation_mode == VariationMode.CONCAT
-        assert result.config.variation_prefix is True
+        assert result.config["variation_mode"] == VariationMode.CONCAT.value
+        assert result.config["variation_prefix"] is True
 
     def test_parse_with_shared_targets(self):
         """Test parsing with shared targets."""
@@ -318,9 +318,9 @@ class TestVariationsParser:
         })
 
         assert result.success is True
-        assert result.config.shared_targets is not None
-        assert result.config.shared_targets.path == "data/Y.csv"
-        assert result.config.shared_targets.link_by == "sample_id"
+        assert result.config.get("shared_targets") is not None
+        assert result.config["shared_targets"]["path"] == "data/Y.csv"
+        assert result.config["shared_targets"]["link_by"] == "sample_id"
 
     def test_parse_with_preprocessing_provenance(self):
         """Test parsing variations with preprocessing provenance."""
@@ -346,10 +346,10 @@ class TestVariationsParser:
         })
 
         assert result.success is True
-        var = result.config.variations[0]
-        assert var.description == "SNV followed by SG derivative"
-        assert len(var.preprocessing_applied) == 2
-        assert var.preprocessing_applied[0].type == "SNV"
+        var = result.config["variations"][0]
+        assert var["description"] == "SNV followed by SG derivative"
+        assert len(var["preprocessing_applied"]) == 2
+        assert var["preprocessing_applied"][0]["type"] == "SNV"
 
     def test_parse_duplicate_names_error(self):
         """Test that duplicate variation names cause an error."""
@@ -378,9 +378,9 @@ class TestVariationsParser:
         })
 
         assert result.success is True
-        var = result.config.variations[0]
-        assert var.params.delimiter == ";"
-        assert var.params.header_unit.value == "nm"
+        var = result.config["variations"][0]
+        assert var["params"]["delimiter"] == ";"
+        assert var["params"]["header_unit"] == "nm"
 
 class TestDatasetConfigSchemaVariations:
     """Test suite for DatasetConfigSchema variation methods."""

@@ -12,11 +12,26 @@ from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+def _validate_workspace_exists(workspace_path: Path) -> None:
+    """Validate that a workspace path exists, exit with code 1 if not."""
+    if not workspace_path.exists():
+        logger.error(f"Workspace path does not exist: {workspace_path}")
+        sys.exit(1)
+
+
 def workspace_init(args):
     """Initialize a new workspace."""
     from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
     workspace_path = Path(args.path)
+
+    # Validate parent directory exists and path is not a file
+    if not workspace_path.parent.exists():
+        logger.error(f"Parent directory does not exist: {workspace_path.parent}")
+        sys.exit(1)
+    if workspace_path.exists() and workspace_path.is_file():
+        logger.error(f"Path exists and is a file, not a directory: {workspace_path}")
+        sys.exit(1)
 
     # WorkspaceStore creates the DuckDB database and workspace directories
     store = WorkspaceStore(workspace_path)
@@ -37,6 +52,7 @@ def workspace_list_runs(args):
     from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
     workspace_path = Path(args.workspace)
+    _validate_workspace_exists(workspace_path)
     store = WorkspaceStore(workspace_path)
 
     runs = store.list_runs()
@@ -57,6 +73,7 @@ def workspace_query_best(args):
     from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
     workspace_path = Path(args.workspace)
+    _validate_workspace_exists(workspace_path)
     store = WorkspaceStore(workspace_path)
 
     # Query top predictions
@@ -84,6 +101,7 @@ def workspace_query_filter(args):
     from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
     workspace_path = Path(args.workspace)
+    _validate_workspace_exists(workspace_path)
     store = WorkspaceStore(workspace_path)
 
     try:
@@ -105,6 +123,7 @@ def workspace_stats(args):
     from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
     workspace_path = Path(args.workspace)
+    _validate_workspace_exists(workspace_path)
     store = WorkspaceStore(workspace_path)
 
     logger.info("Workspace Statistics")
@@ -132,6 +151,7 @@ def workspace_list_library(args):
     from nirs4all.pipeline.storage.library import PipelineLibrary
 
     workspace_path = Path(args.workspace)
+    _validate_workspace_exists(workspace_path)
     library = PipelineLibrary(workspace_path)
 
     templates = library.list_templates()

@@ -82,7 +82,15 @@ def main():
         sys.exit(0 if result else 1)
     # Handle subcommands
     elif hasattr(args, 'func'):
-        args.func(args)
+        try:
+            args.func(args)
+        except KeyboardInterrupt:
+            sys.exit(130)
+        except SystemExit:
+            raise
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
     else:
         parser.print_help()
         sys.exit(0)

@@ -230,8 +230,8 @@ class TestSourcesParser:
         assert result.success is True
         assert result.source_type == "sources"
         assert result.config is not None
-        assert len(result.config.sources) == 1
-        assert result.config.sources[0].name == "NIR"
+        assert len(result.config["sources"]) == 1
+        assert result.config["sources"][0]["name"] == "NIR"
 
     def test_parse_multiple_sources(self):
         """Test parsing multiple source configuration."""
@@ -246,9 +246,9 @@ class TestSourcesParser:
         result = parser.parse(config)
 
         assert result.success is True
-        assert len(result.config.sources) == 2
-        assert result.config.sources[0].name == "NIR"
-        assert result.config.sources[1].name == "MIR"
+        assert len(result.config["sources"]) == 2
+        assert result.config["sources"][0]["name"] == "NIR"
+        assert result.config["sources"][1]["name"] == "MIR"
 
     def test_parse_with_shared_targets(self):
         """Test parsing sources with shared targets."""
@@ -266,9 +266,9 @@ class TestSourcesParser:
         result = parser.parse(config)
 
         assert result.success is True
-        assert result.config.shared_targets is not None
-        assert result.config.shared_targets.path == "data/targets.csv"
-        assert result.config.shared_targets.link_by == "sample_id"
+        assert result.config.get("shared_targets") is not None
+        assert result.config["shared_targets"]["path"] == "data/targets.csv"
+        assert result.config["shared_targets"]["link_by"] == "sample_id"
 
     def test_parse_with_string_targets(self):
         """Test parsing sources with simple string targets path."""
@@ -283,7 +283,7 @@ class TestSourcesParser:
         result = parser.parse(config)
 
         assert result.success is True
-        assert result.config.shared_targets.path == "data/targets.csv"
+        assert result.config["shared_targets"]["path"] == "data/targets.csv"
 
     def test_parse_with_shared_metadata(self):
         """Test parsing sources with shared metadata."""
@@ -301,8 +301,8 @@ class TestSourcesParser:
         result = parser.parse(config)
 
         assert result.success is True
-        assert result.config.shared_metadata is not None
-        assert result.config.shared_metadata.path == "data/metadata.csv"
+        assert result.config.get("shared_metadata") is not None
+        assert result.config["shared_metadata"]["path"] == "data/metadata.csv"
 
     def test_parse_with_global_params(self):
         """Test parsing sources with global parameters."""
@@ -320,8 +320,8 @@ class TestSourcesParser:
         result = parser.parse(config)
 
         assert result.success is True
-        assert result.config.global_params is not None
-        assert result.config.global_params.delimiter == ";"
+        assert result.config.get("global_params") is not None
+        assert result.config["global_params"]["delimiter"] == ";"
 
     def test_parse_source_with_per_source_params(self):
         """Test parsing sources with per-source parameters."""
@@ -350,8 +350,8 @@ class TestSourcesParser:
         result = parser.parse(config)
 
         assert result.success is True
-        assert result.config.sources[0].params.header_unit.value == "nm"
-        assert result.config.sources[1].params.header_unit.value == "cm-1"
+        assert result.config["sources"][0]["params"]["header_unit"] == "nm"
+        assert result.config["sources"][1]["params"]["header_unit"] == "cm-1"
 
     def test_parse_source_with_files_list(self):
         """Test parsing source with files list."""
@@ -371,7 +371,7 @@ class TestSourcesParser:
         result = parser.parse(config)
 
         assert result.success is True
-        assert len(result.config.sources[0].files) == 2
+        assert len(result.config["sources"][0]["files"]) == 2
 
     def test_parse_fails_duplicate_source_names(self):
         """Test that duplicate source names cause error."""
@@ -401,8 +401,8 @@ class TestSourcesParser:
         result = parser.parse(config)
 
         assert result.success is True
-        assert result.config.sources[0].name == "source_0"
-        assert result.config.sources[1].name == "source_1"
+        assert result.config["sources"][0]["name"] == "source_0"
+        assert result.config["sources"][1]["name"] == "source_1"
 
 class TestDatasetConfigSchemaSourcesMethods:
     """Test suite for DatasetConfigSchema sources-related methods."""
