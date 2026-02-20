@@ -29,6 +29,7 @@ import argparse
 import matplotlib.pyplot as plt
 
 # Third-party imports
+import numpy as np
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
@@ -150,6 +151,7 @@ print("Top Models")
 print("-" * 60)
 
 top_models = predictions.top(n=5, rank_metric='rmse')
+assert isinstance(top_models, list)
 print("Top 5 models by RMSE:")
 for idx, pred in enumerate(top_models, 1):
     rmse = pred.get('test_rmse', pred.get('rmse', 0))
@@ -189,7 +191,9 @@ print("Model Reuse Demo")
 print("-" * 60)
 
 # Get the best model
-best_prediction = predictions.top(n=1, rank_partition="test")[0]
+best_list = predictions.top(n=1, rank_partition="test")
+assert isinstance(best_list, list)
+best_prediction = best_list[0]
 model_id = best_prediction['id']
 
 print(f"Best model: {best_prediction['model_name']} (id: {model_id})")
@@ -210,12 +214,11 @@ test_dataset = DatasetConfigs({
 
 print("\nPredicting with saved model...")
 reuse_predictions, _ = predictor.predict(model_id, test_dataset, verbose=0)
+assert isinstance(reuse_predictions, np.ndarray)
 reuse_array = reuse_predictions[:5].flatten()
 print(f"Reuse predictions (first 5): {reuse_array}")
 
 # Verify match
-import numpy as np
-
 is_identical = np.allclose(reuse_array, reference_predictions)
 print(f"Predictions match: {'✓ YES' if is_identical else '✗ NO'}")
 

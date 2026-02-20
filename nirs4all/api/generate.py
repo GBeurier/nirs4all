@@ -21,7 +21,7 @@ Example:
 from __future__ import annotations
 
 import contextlib
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, overload
 
 import numpy as np
 
@@ -30,6 +30,36 @@ if TYPE_CHECKING:
 
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.synthesis import SyntheticDatasetBuilder
+
+@overload
+def generate(
+    n_samples: int = ...,
+    *,
+    random_state: int | None = ...,
+    complexity: Literal["simple", "realistic", "complex"] = ...,
+    wavelength_range: tuple[float, float] | None = ...,
+    components: list[str] | None = ...,
+    target_range: tuple[float, float] | None = ...,
+    train_ratio: float = ...,
+    as_dataset: Literal[True] = ...,
+    name: str = ...,
+    **kwargs: Any,
+) -> SpectroDataset: ...
+
+@overload
+def generate(
+    n_samples: int = ...,
+    *,
+    random_state: int | None = ...,
+    complexity: Literal["simple", "realistic", "complex"] = ...,
+    wavelength_range: tuple[float, float] | None = ...,
+    components: list[str] | None = ...,
+    target_range: tuple[float, float] | None = ...,
+    train_ratio: float = ...,
+    as_dataset: Literal[False],
+    name: str = ...,
+    **kwargs: Any,
+) -> tuple[np.ndarray, np.ndarray]: ...
 
 def generate(
     n_samples: int = 1000,
@@ -131,6 +161,34 @@ def generate(
 
     return builder.build()
 
+@overload
+def regression(
+    n_samples: int = ...,
+    *,
+    random_state: int | None = ...,
+    complexity: Literal["simple", "realistic", "complex"] = ...,
+    target_range: tuple[float, float] | None = ...,
+    target_component: str | int | None = ...,
+    distribution: Literal["dirichlet", "uniform", "lognormal", "correlated"] = ...,
+    train_ratio: float = ...,
+    as_dataset: Literal[True] = ...,
+    name: str = ...,
+) -> SpectroDataset: ...
+
+@overload
+def regression(
+    n_samples: int = ...,
+    *,
+    random_state: int | None = ...,
+    complexity: Literal["simple", "realistic", "complex"] = ...,
+    target_range: tuple[float, float] | None = ...,
+    target_component: str | int | None = ...,
+    distribution: Literal["dirichlet", "uniform", "lognormal", "correlated"] = ...,
+    train_ratio: float = ...,
+    as_dataset: Literal[False],
+    name: str = ...,
+) -> tuple[np.ndarray, np.ndarray]: ...
+
 def regression(
     n_samples: int = 1000,
     *,
@@ -200,6 +258,34 @@ def regression(
     builder.with_output(as_dataset=as_dataset)
 
     return builder.build()
+
+@overload
+def classification(
+    n_samples: int = ...,
+    *,
+    n_classes: int = ...,
+    random_state: int | None = ...,
+    complexity: Literal["simple", "realistic", "complex"] = ...,
+    class_separation: float = ...,
+    class_weights: list[float] | None = ...,
+    train_ratio: float = ...,
+    as_dataset: Literal[True] = ...,
+    name: str = ...,
+) -> SpectroDataset: ...
+
+@overload
+def classification(
+    n_samples: int = ...,
+    *,
+    n_classes: int = ...,
+    random_state: int | None = ...,
+    complexity: Literal["simple", "realistic", "complex"] = ...,
+    class_separation: float = ...,
+    class_weights: list[float] | None = ...,
+    train_ratio: float = ...,
+    as_dataset: Literal[False],
+    name: str = ...,
+) -> tuple[np.ndarray, np.ndarray]: ...
 
 def classification(
     n_samples: int = 1000,
@@ -675,6 +761,26 @@ def category(
         shuffle=shuffle,
     )
 
+@overload
+def from_template(
+    template: str | np.ndarray | SpectroDataset,
+    n_samples: int = ...,
+    *,
+    random_state: int | None = ...,
+    wavelengths: np.ndarray | None = ...,
+    as_dataset: Literal[True] = ...,
+) -> SpectroDataset: ...
+
+@overload
+def from_template(
+    template: str | np.ndarray | SpectroDataset,
+    n_samples: int = ...,
+    *,
+    random_state: int | None = ...,
+    wavelengths: np.ndarray | None = ...,
+    as_dataset: Literal[False],
+) -> tuple[np.ndarray, np.ndarray]: ...
+
 def from_template(
     template: str | np.ndarray | SpectroDataset,
     n_samples: int = 1000,
@@ -754,8 +860,56 @@ class _GenerateNamespace:
         nirs4all.generate.regression(n_samples=500)
     """
 
-    # Make the main generate function available as __call__
-    __call__ = staticmethod(generate)
+    if TYPE_CHECKING:
+        @overload
+        def __call__(
+            self,
+            n_samples: int = ...,
+            *,
+            random_state: int | None = ...,
+            complexity: Literal["simple", "realistic", "complex"] = ...,
+            wavelength_range: tuple[float, float] | None = ...,
+            components: list[str] | None = ...,
+            target_range: tuple[float, float] | None = ...,
+            train_ratio: float = ...,
+            as_dataset: Literal[True] = ...,
+            name: str = ...,
+            **kwargs: Any,
+        ) -> SpectroDataset: ...
+
+        @overload
+        def __call__(
+            self,
+            n_samples: int = ...,
+            *,
+            random_state: int | None = ...,
+            complexity: Literal["simple", "realistic", "complex"] = ...,
+            wavelength_range: tuple[float, float] | None = ...,
+            components: list[str] | None = ...,
+            target_range: tuple[float, float] | None = ...,
+            train_ratio: float = ...,
+            as_dataset: Literal[False],
+            name: str = ...,
+            **kwargs: Any,
+        ) -> tuple[np.ndarray, np.ndarray]: ...
+
+        def __call__(
+            self,
+            n_samples: int = 1000,
+            *,
+            random_state: int | None = None,
+            complexity: Literal["simple", "realistic", "complex"] = "simple",
+            wavelength_range: tuple[float, float] | None = None,
+            components: list[str] | None = None,
+            target_range: tuple[float, float] | None = None,
+            train_ratio: float = 0.8,
+            as_dataset: bool = True,
+            name: str = "synthetic_nirs",
+            **kwargs: Any,
+        ) -> SpectroDataset | tuple[np.ndarray, np.ndarray]: ...
+    else:
+        # Make the main generate function available as __call__
+        __call__ = staticmethod(generate)
 
     # Convenience functions as class attributes
     regression = staticmethod(regression)

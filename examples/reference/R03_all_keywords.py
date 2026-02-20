@@ -61,7 +61,7 @@ from nirs4all.data.predictions import Predictions
 # removed due to known interaction issues with tag columns
 from nirs4all.operators.filters import YOutlierFilter
 from nirs4all.operators.models import MetaModel
-from nirs4all.operators.models.meta import StackingConfig
+from nirs4all.operators.models.meta import CoverageStrategy, StackingConfig
 from nirs4all.operators.transforms import (
     Detrend,
     FirstDerivative,
@@ -220,7 +220,7 @@ complex_pipeline = [
         "model": MetaModel(
             model=Ridge(alpha=1.0),
             stacking_config=StackingConfig(
-                coverage_strategy="drop_incomplete",
+                coverage_strategy=CoverageStrategy.DROP_INCOMPLETE,
                 min_coverage_ratio=0.95,
             ),
         ),
@@ -287,6 +287,7 @@ try:
 
     print("\n--- Top 10 Models by RMSE ---")
     top_models = predictions.top(10, rank_metric='rmse', display_metrics=['rmse', 'r2', 'mae'])
+    assert isinstance(top_models, list)
     for idx, pred in enumerate(top_models, 1):
         print(f"{idx:2d}. {Predictions.pred_short_string(pred, metrics=['rmse', 'r2'])}")
 

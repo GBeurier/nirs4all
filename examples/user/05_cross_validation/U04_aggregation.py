@@ -192,7 +192,7 @@ runner = PipelineRunner(
     plots_visible=args.plots
 )
 
-predictions, _ = runner.run(pipeline_config, dataset_config)
+predictions, _run_info = runner.run(pipeline_config, dataset_config)
 
 print(f"\nRepetition setting: '{runner.last_aggregate}'")
 
@@ -210,22 +210,26 @@ Both raw and aggregated metrics are available:
 """)
 
 # Get best model with raw metrics
-best_raw = predictions.top(1, rank_metric='rmse', by_repetition=False)[0]
+top_raw = predictions.top(1, rank_metric='rmse', by_repetition=False)
+assert isinstance(top_raw, list)
+best_raw = top_raw[0]
 model_name = best_raw.get('model_name', 'Unknown')
 
 print(f"\nBest model: {model_name}")
 
 # Raw metrics
-val_rmse_raw = best_raw.get('val_score', np.nan)
-test_rmse_raw = best_raw.get('test_score', np.nan)
+val_rmse_raw = float(best_raw.get('val_score', np.nan))
+test_rmse_raw = float(best_raw.get('test_score', np.nan))
 print("\nRaw metrics (per spectrum):")
 print(f"   Val RMSE:  {val_rmse_raw:.4f}" if not np.isnan(val_rmse_raw) else "   Val RMSE:  N/A")
 print(f"   Test RMSE: {test_rmse_raw:.4f}" if not np.isnan(test_rmse_raw) else "   Test RMSE: N/A")
 
 # Get same model with repetition-aggregated metrics
-best_agg = predictions.top(1, rank_metric='rmse', by_repetition='sample_id')[0]
-val_rmse_agg = best_agg.get('val_score', np.nan)
-test_rmse_agg = best_agg.get('test_score', np.nan)
+top_agg = predictions.top(1, rank_metric='rmse', by_repetition='sample_id')
+assert isinstance(top_agg, list)
+best_agg = top_agg[0]
+val_rmse_agg = float(best_agg.get('val_score', np.nan))
+test_rmse_agg = float(best_agg.get('test_score', np.nan))
 print("\nRepetition-aggregated metrics (per sample):")
 print(f"   Val RMSE:  {val_rmse_agg:.4f}" if not np.isnan(val_rmse_agg) else "   Val RMSE:  N/A")
 print(f"   Test RMSE: {test_rmse_agg:.4f}" if not np.isnan(test_rmse_agg) else "   Test RMSE: N/A")
@@ -254,11 +258,13 @@ print(f"Analyzer default_aggregate: '{analyzer.default_aggregate}'")
 if args.plots:
     # Top-K with aggregation (automatic)
     fig1 = analyzer.plot_top_k(k=3, rank_metric='rmse')
-    fig1.suptitle("Top Models (Aggregated by sample_id)", y=1.02)
+    if isinstance(fig1, plt.Figure):
+        fig1.suptitle("Top Models (Aggregated by sample_id)", y=1.02)
 
     # Override: disable aggregation for specific plot
     fig2 = analyzer.plot_histogram(aggregate='')  # Empty string = no aggregation
-    fig2.suptitle("Histogram (Raw predictions)", y=1.02)
+    if isinstance(fig2, plt.Figure):
+        fig2.suptitle("Histogram (Raw predictions)", y=1.02)
 
     print("Charts generated")
 

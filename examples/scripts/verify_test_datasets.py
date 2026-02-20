@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+import numpy as np
 import yaml
 
 
@@ -96,6 +97,7 @@ class DatasetVerifier:
 
             # Step 3: Verify data shapes
             X_train = dataset.x({"partition": "train"}, layout="2d")
+            assert isinstance(X_train, np.ndarray)
             y_train = dataset.y({"partition": "train"})
 
             result.n_train_samples = X_train.shape[0] if X_train is not None else 0
@@ -104,6 +106,7 @@ class DatasetVerifier:
             # Check for test data
             try:
                 X_test = dataset.x({"partition": "test"}, layout="2d")
+                assert isinstance(X_test, np.ndarray)
                 y_test = dataset.y({"partition": "test"})
                 result.n_test_samples = X_test.shape[0] if X_test is not None else 0
             except Exception:

@@ -198,7 +198,7 @@ for name, rmse in sorted(results.items(), key=lambda x: x[1]):
     marker = "🏆" if rmse == min(results.values()) else "  "
     print(f"{marker} {name:<12}: RMSE = {rmse:.4f}")
 
-best_preproc = min(results, key=results.get)
+best_preproc = min(results, key=lambda k: results[k])
 print(f"\n✓ Best for transfer: {best_preproc}")
 
 # =============================================================================

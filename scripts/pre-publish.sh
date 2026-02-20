@@ -115,7 +115,7 @@ if $USE_DOCKER; then
       echo '[docker] Copying repo to writable /build ...'
       rsync -a --info=progress2 \
         --exclude '.venv' --exclude '.git' --exclude '__pycache__' \
-        --exclude 'node_modules' --exclude '.mypy_cache' --exclude '.ruff_cache' \
+        --exclude 'node_modules' --exclude '.ruff_cache' \
         --exclude '.pytest_cache' --exclude 'dist' --exclude '*.egg-info' \
         --exclude 'bench' --exclude 'examples/workspace' \
         /workspace/ /build/

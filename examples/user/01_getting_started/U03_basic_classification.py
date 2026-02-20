@@ -141,7 +141,9 @@ predictions = result.predictions
 
 # Display top models with classification metrics
 # Use display_metrics to include accuracy and balanced_recall in results
-for i, pred in enumerate(predictions.top(5, rank_metric='accuracy', display_metrics=['accuracy', 'balanced_recall']), 1):
+top_models = predictions.top(5, rank_metric='accuracy', display_metrics=['accuracy', 'balanced_recall'])
+assert isinstance(top_models, list)
+for i, pred in enumerate(top_models, 1):
     model_name = pred.get('model_name', 'unknown')
     preproc = pred.get('preprocessings', 'N/A')
     accuracy = pred.get('accuracy', 0)

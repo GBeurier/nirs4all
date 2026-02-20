@@ -28,6 +28,8 @@ Duration: Reading reference (~10-15 minutes)
 Difficulty: Reference material
 """
 
+from typing import Any
+
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.ensemble import RandomForestRegressor
@@ -349,12 +351,13 @@ model_finetune = {
 
 # 5.4 Neural network model with train_params
 # Note: TensorFlow models require tensorflow to be installed
+customizable_nicon: Any = None
+_HAS_TENSORFLOW = False
 try:
     from nirs4all.operators.models.tensorflow.nicon import customizable_nicon
     _HAS_TENSORFLOW = True
 except ImportError:
-    customizable_nicon = None
-    _HAS_TENSORFLOW = False
+    pass
 
 # Only define if TensorFlow is available
 if _HAS_TENSORFLOW:

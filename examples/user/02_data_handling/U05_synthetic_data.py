@@ -27,6 +27,7 @@ Difficulty: ★★☆☆☆
 import argparse
 import sys
 from pathlib import Path
+from typing import Literal
 
 import matplotlib.pyplot as plt
 
@@ -73,6 +74,7 @@ print(f"   Samples: {dataset.num_samples}")
 
 # Get the shapes
 X_train = dataset.x({"partition": "train"}, layout="2d")
+assert isinstance(X_train, np.ndarray)
 y_train = dataset.y({"partition": "train"})
 
 print(f"   Training features: {X_train.shape}")
@@ -188,11 +190,12 @@ print("-" * 60)
 
 print("\nComparing complexity levels on the same pipeline...")
 
-for complexity in ["simple", "realistic", "complex"]:
+_complexities: list[Literal["simple", "realistic", "complex"]] = ["simple", "realistic", "complex"]
+for complexity_level in _complexities:
     # Use regression() with explicit target_component for sklearn models
     dataset_cx = nirs4all.generate.regression(
         n_samples=300,
-        complexity=complexity,
+        complexity=complexity_level,
         target_component=0,          # Single target for sklearn
         random_state=42
     )
@@ -207,7 +210,7 @@ for complexity in ["simple", "realistic", "complex"]:
         verbose=0
     )
 
-    print(f"   {complexity:10s}: RMSE = {result.best_rmse:.4f}")
+    print(f"   {complexity_level:10s}: RMSE = {result.best_rmse:.4f}")
 
 # =============================================================================
 # Section 6: Using Specific Components
@@ -267,6 +270,7 @@ print("-" * 60)
 
 # Always save a summary of what was generated
 X_all = dataset.x({}, layout="2d")
+assert isinstance(X_all, np.ndarray)
 y_all_dataset = dataset.y({})
 summary_path = save_array_summary(
     {"X (spectra)": X_all, "y (targets)": y_all_dataset},
@@ -312,10 +316,11 @@ ax3.grid(True, alpha=0.3)
 
 # Plot 4: Complexity comparison
 ax4 = axes[1, 1]
-for complexity, color in [("simple", "green"), ("realistic", "blue"), ("complex", "red")]:
-    X_cx, _ = nirs4all.generate(n_samples=50, complexity=complexity, as_dataset=False, random_state=42)
+_cx_colors: list[tuple[Literal["simple", "realistic", "complex"], str]] = [("simple", "green"), ("realistic", "blue"), ("complex", "red")]
+for cx_level, color in _cx_colors:
+    X_cx, _ = nirs4all.generate(n_samples=50, complexity=cx_level, as_dataset=False, random_state=42)
     mean_spectrum = X_cx.mean(axis=0)
-    ax4.plot(wavelengths, mean_spectrum, label=complexity, color=color, linewidth=2)
+    ax4.plot(wavelengths, mean_spectrum, label=cx_level, color=color, linewidth=2)
 ax4.set_xlabel("Wavelength (nm)")
 ax4.set_ylabel("Mean Absorbance")
 ax4.set_title("Complexity Levels Comparison")

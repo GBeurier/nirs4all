@@ -80,7 +80,7 @@ from nirs4all.synthesis import (
 
 # Add examples directory to path for example_utils
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from example_utils import get_example_output_path, print_output_location, save_array_summary
+from example_utils import get_examples_output_dir, print_output_location, save_array_summary
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='R05 Environmental Effects Reference')
@@ -350,12 +350,14 @@ print("\nCreated generator with Phase 3 effects:")
 print(f"   {generator}")
 
 # Generate spectra with Phase 3 effects
-X_p3, Y, E, meta = generator.generate(
+_result_p3 = generator.generate(
     n_samples=100,
     include_environmental_effects=True,
     include_scattering_effects=True,
     return_metadata=True,
 )
+assert len(_result_p3) == 4
+X_p3, Y, E, meta = _result_p3
 
 print("\nGenerated spectra with Phase 3 effects:")
 print(f"   Spectra shape: {X_p3.shape}")
@@ -364,12 +366,12 @@ print(f"   Environmental effects: {meta.get('environmental_effects', 'N/A')}")
 print(f"   Scattering effects: {meta.get('scattering_effects', 'N/A')}")
 
 # Generate without Phase 3 for comparison
-X_no_p3, _, _, _ = generator.generate(
+_result_no_p3 = generator.generate(
     n_samples=100,
     include_environmental_effects=False,
     include_scattering_effects=False,
-    return_metadata=True,
 )
+X_no_p3 = _result_no_p3[0]
 
 print("\nComparison:")
 print(f"   Without Phase 3: mean={X_no_p3.mean():.4f}, std={X_no_p3.std():.4f}")
@@ -377,13 +379,15 @@ print(f"   With Phase 3: mean={X_p3.mean():.4f}, std={X_p3.std():.4f}")
 
 # Generate with specific temperatures
 specific_temps = np.linspace(15, 40, 100)
-X_temps, _, _, meta_temps = generator.generate(
+_result_temps = generator.generate(
     n_samples=100,
     include_environmental_effects=True,
     include_scattering_effects=True,
     temperatures=specific_temps,
     return_metadata=True,
 )
+assert len(_result_temps) == 4
+X_temps, _, _, meta_temps = _result_temps
 print("\nGenerated with specific temperatures:")
 print(f"   Temperature range: {specific_temps.min():.1f}C to {specific_temps.max():.1f}C")
 
@@ -391,7 +395,8 @@ print(f"   Temperature range: {specific_temps.min():.1f}C to {specific_temps.max
 # Section 7: Plotting (optional)
 # =============================================================================
 if args.plots:
-    output_path = get_example_output_path(EXAMPLE_NAME)
+    output_path = get_examples_output_dir() / EXAMPLE_NAME
+    output_path.mkdir(parents=True, exist_ok=True)
 
     # Plot 1: Temperature effects
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))

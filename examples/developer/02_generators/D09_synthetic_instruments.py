@@ -24,6 +24,7 @@ Difficulty: ★★★★☆
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
 
@@ -222,11 +223,12 @@ gen_ideal = SyntheticNIRSGenerator(
     wavelength_step=4,
     random_state=42,
 )
-X_ideal, conc_ideal, pure_ideal, meta_ideal = gen_ideal.generate(
+X_ideal, conc_ideal, pure_ideal, *_rest_ideal = gen_ideal.generate(
     n_samples=50,
     include_instrument_effects=False,
     return_metadata=True
 )
+meta_ideal: dict[str, Any] = _rest_ideal[0] if _rest_ideal else {}
 print(f"\n🎯 Generated ideal spectra: {X_ideal.shape}")
 
 # Generate with high-end instrument
@@ -237,7 +239,8 @@ gen_foss = SyntheticNIRSGenerator(
     instrument="foss_xds",  # Use FOSS XDS instrument model
     random_state=42,
 )
-X_foss, _, _, meta_foss = gen_foss.generate(n_samples=50, return_metadata=True)
+X_foss, _, _, *_rest_foss = gen_foss.generate(n_samples=50, return_metadata=True)
+meta_foss: dict[str, Any] = _rest_foss[0] if _rest_foss else {}
 print(f"🔬 Generated FOSS XDS spectra: {X_foss.shape}")
 print(f"   Multi-sensor applied: {meta_foss.get('multi_sensor', 'N/A')}")
 print(f"   Multi-scan applied: {meta_foss.get('multi_scan', 'N/A')}")
@@ -250,7 +253,8 @@ gen_scio = SyntheticNIRSGenerator(
     instrument="scio",
     random_state=42,
 )
-X_scio, _, _, meta_scio = gen_scio.generate(n_samples=50, return_metadata=True)
+X_scio, _, _, *_rest_scio = gen_scio.generate(n_samples=50, return_metadata=True)
+meta_scio: dict[str, Any] = _rest_scio[0] if _rest_scio else {}
 print(f"📱 Generated SCiO spectra: {X_scio.shape}")
 
 # =============================================================================
@@ -391,9 +395,10 @@ print("\n📊 Spectral noise comparison (std of differences from mean):")
 quality_results = {}
 for name, gen in generators.items():
     if name == "Ideal (no noise)":
-        X, _, _, _ = gen.generate(n_samples=20, include_instrument_effects=False, return_metadata=True)
+        _gen_out = gen.generate(n_samples=20, include_instrument_effects=False, return_metadata=True)
     else:
-        X, _, _, _ = gen.generate(n_samples=20, return_metadata=True)
+        _gen_out = gen.generate(n_samples=20, return_metadata=True)
+    X = _gen_out[0]
     # Compute residual noise as deviation from sample mean
     mean_spectrum = X.mean(axis=0)
     residuals = X - mean_spectrum

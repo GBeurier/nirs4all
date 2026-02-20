@@ -389,7 +389,7 @@ It preserves original sample order regardless of which branch processed them.
 """)
 
 # Example concept (not executed as it needs specific dataset with metadata)
-pipeline_concat_concept = [
+pipeline_concat_concept: list[object] = [
     # Assume we have a dataset with "farm" metadata
     # {"branch": {"by_metadata": "farm", "steps": [SNV()]}},
     # {"merge": "concat"},  # Reassemble samples from all farms

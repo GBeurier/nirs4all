@@ -29,6 +29,7 @@ Difficulty: ★★★★★
 # Standard library imports
 import argparse
 import json
+from typing import Any
 
 # Third-party imports
 from sklearn.cross_decomposition import PLSRegression
@@ -321,7 +322,7 @@ Tips for debugging complex nested generators:
 """)
 
 # Debug a complex spec step by step
-complex_spec = {
+complex_spec: dict[str, Any] = {
     "a": {"_or_": ["x", "y"]},
     "b": {"_range_": [1, 3]},
     "c": {"_or_": ["m", "n"]}

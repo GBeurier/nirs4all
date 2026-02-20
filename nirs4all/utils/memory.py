@@ -106,6 +106,17 @@ def get_process_rss_mb() -> float:
     except (ImportError, Exception):
         pass
 
+    # macOS fallback: resource.getrusage (peak RSS, no extra dependencies)
+    if sys.platform == "darwin":
+        try:
+            import resource
+
+            # On macOS, ru_maxrss is in bytes
+            rss_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            return float(rss_bytes / (1024 * 1024))
+        except Exception:
+            pass
+
     # Windows fallback: ctypes + K32GetProcessMemoryInfo (no extra dependencies)
     if sys.platform == "win32":
         try:

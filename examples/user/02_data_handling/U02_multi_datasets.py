@@ -25,6 +25,7 @@ Difficulty: ★★☆☆☆
 
 # Standard library imports
 import argparse
+from typing import Any
 
 import matplotlib.pyplot as plt
 
@@ -92,10 +93,10 @@ print("Configuring Multiple Datasets")
 print("-" * 60)
 
 # Specify multiple datasets as a list of paths
-data_paths = [
+data_paths: list[Any] = [
     'sample_data/regression',
     'sample_data/regression_2',
-    'sample_data/regression_3'
+    'sample_data/regression_3',
 ]
 
 print("Datasets:")
@@ -197,6 +198,7 @@ print("-" * 60)
 
 # Overall best model - use top() with display_metrics
 best_list = predictions.top(n=1, rank_metric='rmse', display_metrics=['rmse', 'r2'])
+assert isinstance(best_list, list)
 if best_list:
     best = best_list[0]
     print("\n🏆 Overall Best Model:")
