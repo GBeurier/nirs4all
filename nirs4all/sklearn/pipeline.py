@@ -353,7 +353,7 @@ class NIRSPipeline:
         from sklearn.metrics import r2_score
 
         y_pred = self.predict(X)
-        return r2_score(y, y_pred)
+        return float(r2_score(y, y_pred))
 
     def _check_is_fitted(self) -> None:
         """Check if pipeline is fitted/initialized.

@@ -15,10 +15,12 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 
-from nirs4all.core.logging import get_logger
+from nirs4all.core.logging import Nirs4allLogger, get_logger
 
 if TYPE_CHECKING:
+    from nirs4all.pipeline.resolver import ResolvedPrediction
     from nirs4all.pipeline.runner import PipelineRunner
+    from nirs4all.pipeline.trace import ExecutionTrace, MinimalPipeline
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
@@ -33,7 +35,7 @@ from nirs4all.pipeline.config.context import (
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
 from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
 
-logger = get_logger(__name__)
+logger: Nirs4allLogger = get_logger(__name__)
 
 @dataclass(frozen=True)
 class _PredictionStrategy:
@@ -79,9 +81,9 @@ class Predictor:
         self.config_path: str | None = None
         self.target_model: dict[str, Any] | None = None
         self.use_minimal_pipeline = use_minimal_pipeline
-        self._execution_trace = None  # Cached execution trace
-        self._minimal_pipeline = None  # Cached minimal pipeline
-        self._resolved = None  # Cached ResolvedPrediction
+        self._execution_trace: ExecutionTrace | None = None
+        self._minimal_pipeline: MinimalPipeline | None = None
+        self._resolved: ResolvedPrediction | None = None
 
     def predict(
         self,
@@ -148,10 +150,11 @@ class Predictor:
             runs_dir=self.runner.workspace_path,
             store=self.runner.store,
         )
-        self._resolved = resolver.resolve(prediction_obj, verbose=verbose)
+        resolved = resolver.resolve(prediction_obj, verbose=verbose)
+        self._resolved = resolved
 
         # Extract target model metadata
-        target_model = {k: v for k, v in prediction_obj.items() if k not in ("y_pred", "y_true", "X")} if isinstance(prediction_obj, dict) else dict(self._resolved.target_model) if self._resolved.target_model else {}
+        target_model = {k: v for k, v in prediction_obj.items() if k not in ("y_pred", "y_true", "X")} if isinstance(prediction_obj, dict) else dict(resolved.target_model) if resolved.target_model else {}
 
         if not target_model or "model_name" not in target_model:
             raise ValueError(
@@ -161,16 +164,16 @@ class Predictor:
 
         self.target_model = target_model
         self.runner.target_model = target_model
-        self.pipeline_uid = self._resolved.pipeline_uid
-        self.config_path = self._resolved.pipeline_uid
+        self.pipeline_uid = resolved.pipeline_uid
+        self.config_path = resolved.pipeline_uid
         self.artifact_loader = None
 
         # Create artifact loader from resolved artifact provider
-        if self._resolved.artifact_provider and hasattr(self._resolved.artifact_provider, "artifact_loader"):
-            self.artifact_loader = self._resolved.artifact_provider.artifact_loader
+        if resolved.artifact_provider and hasattr(resolved.artifact_provider, "artifact_loader"):
+            self.artifact_loader = resolved.artifact_provider.artifact_loader
 
         # Cache execution trace
-        self._execution_trace = self._resolved.trace
+        self._execution_trace = resolved.trace
 
     # -----------------------------------------------------------------
     # Minimal pipeline path
@@ -233,6 +236,9 @@ class Predictor:
         """Build the minimal-pipeline replay strategy plan."""
         from nirs4all.pipeline.minimal_predictor import MinimalArtifactProvider
         from nirs4all.pipeline.trace import TraceBasedExtractor
+
+        assert self._resolved is not None
+        assert self._execution_trace is not None
 
         extractor = TraceBasedExtractor()
         full_steps = list(self._resolved.minimal_pipeline)
@@ -299,9 +305,11 @@ class Predictor:
 
     def _make_full_strategy(self) -> _PredictionStrategy:
         """Build the full-pipeline replay strategy plan."""
+        assert self._resolved is not None
+        resolved = self._resolved
 
         def _artifact_provider_factory() -> Any:
-            artifact_provider = self._resolved.artifact_provider
+            artifact_provider = resolved.artifact_provider
             if artifact_provider is None and self.artifact_loader:
                 artifact_provider = LoaderArtifactProvider(loader=self.artifact_loader)
             return artifact_provider
@@ -309,7 +317,7 @@ class Predictor:
         return _PredictionStrategy(
             name="full",
             mode="full",
-            steps=list(self._resolved.minimal_pipeline),
+            steps=list(resolved.minimal_pipeline),
             minimal_pipeline=None,
             artifact_provider_factory=_artifact_provider_factory,
         )
@@ -363,7 +371,7 @@ class Predictor:
     def _build_prediction_selector(self, dataset_obj: SpectroDataset) -> DataSelector:
         """Build prediction selector with optional branch filters."""
         selector = DataSelector(
-            partition=None,
+            partition="all",
             processing=[["raw"]] * dataset_obj.features_sources(),
             layout="2d",
             concat_source=True,
@@ -446,27 +454,28 @@ class Predictor:
             return res, run_predictions
 
         # Get single prediction matching target model
-        target_fold_id = self.target_model.get("fold_id", None)
+        tm = self.target_model or {}
+        target_fold_id = tm.get("fold_id", None)
 
         is_aggregated_fold = target_fold_id in ("avg", "w_avg")
         is_refit_fold = target_fold_id == "final"
 
         filter_kwargs: dict[str, Any] = {
-            "model_name": self.target_model.get("model_name"),
-            "step_idx": self.target_model.get("step_idx"),
+            "model_name": tm.get("model_name"),
+            "step_idx": tm.get("step_idx"),
         }
 
         if not is_aggregated_fold and not is_refit_fold:
             filter_kwargs["fold_id"] = target_fold_id
 
-        target_branch_id = self.target_model.get("branch_id")
+        target_branch_id = tm.get("branch_id")
         if target_branch_id is not None:
             filter_kwargs["branch_id"] = target_branch_id
 
         candidates = run_predictions.filter_predictions(**filter_kwargs)
         non_empty = [p for p in candidates if len(p["y_pred"]) > 0]
 
-        single_pred = self._aggregate_fold_predictions(non_empty, target_fold_id) if is_aggregated_fold and len(non_empty) > 1 else non_empty[0] if non_empty else (candidates[0] if candidates else None)
+        single_pred = self._aggregate_fold_predictions(non_empty, str(target_fold_id)) if is_aggregated_fold and len(non_empty) > 1 else non_empty[0] if non_empty else (candidates[0] if candidates else None)
 
         if single_pred is None:
             raise ValueError("No matching prediction found for the specified model criteria.")
@@ -489,7 +498,8 @@ class Predictor:
         Returns:
             Aggregated prediction dict, or first candidate.
         """
-        fold_weights = self.target_model.get("weights")
+        tm = self.target_model or {}
+        fold_weights = tm.get("weights")
 
         fold_preds: dict[Any, np.ndarray] = {}
         for p in non_empty:
@@ -509,7 +519,7 @@ class Predictor:
             and len(fold_weights) >= len(sorted_folds)
         )
 
-        if has_valid_weights:
+        if has_valid_weights and fold_weights is not None:
             wl = [fold_weights.get(fid, 1.0) for fid in sorted_folds] if isinstance(fold_weights, dict) else [fold_weights[i] for i in range(len(sorted_folds))]
             total_w = sum(wl)
             y_pred = sum(w * np.array(y) for w, y in zip(wl, y_arrays, strict=False)) / total_w
@@ -552,11 +562,12 @@ class Predictor:
         loader = BundleLoader(bundle_path)
 
         dataset_config = self.runner.orchestrator._normalize_dataset(dataset, dataset_name)
-        X_data = None
+        X_data: np.ndarray | None = None
 
         for data_config, name in dataset_config.configs:
             dataset_obj = dataset_config.get_dataset(data_config, name)
-            X_data = dataset_obj.x({})
+            raw = dataset_obj.x({})
+            X_data = np.concatenate(raw, axis=1) if isinstance(raw, list) else raw
             break
 
         if X_data is None:
@@ -569,18 +580,16 @@ class Predictor:
             model_name = loader.metadata.original_manifest.get("name", "bundle_model")
 
         run_predictions = Predictions()
-        prediction_entry = {
-            "model_name": model_name,
-            "id": "bundle_prediction",
-            "y_pred": y_pred,
-            "y_true": np.array([]),
-            "partition": "test",
-            "step_idx": loader.metadata.model_step_index if loader.metadata else 0,
-            "dataset_name": dataset_name,
-            "config_path": str(bundle_path),
-            "fold_id": "all",
-        }
-        run_predictions.add_prediction(prediction_entry)
+        run_predictions.add_prediction(
+            dataset_name=dataset_name,
+            model_name=model_name,
+            y_pred=y_pred,
+            y_true=np.array([]),
+            partition="test",
+            step_idx=loader.metadata.model_step_index if loader.metadata and loader.metadata.model_step_index is not None else 0,
+            config_path=str(bundle_path),
+            fold_id="all",
+        )
 
         logger.success(f"Predicted with bundle: {model_name}")
 

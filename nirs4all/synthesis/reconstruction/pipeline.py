@@ -340,6 +340,7 @@ class ReconstructionPipeline:
         canonical_grid = np.arange(wl_min, wl_max, self.canonical_resolution)
 
         # 2. Create forward chain
+        assert self.component_names is not None
         forward_chain = ForwardChain.create(
             canonical_grid=canonical_grid,
             target_grid=self.config.wavelengths,
@@ -364,7 +365,8 @@ class ReconstructionPipeline:
         if self.verbose:
             print(f"   Wavelength shift: {calibration.wl_shift:.2f} nm")
             print(f"   ILS sigma: {calibration.ils_sigma:.2f} nm")
-            print(f"   Prototype R²: {np.mean(calibration.prototype_r2):.4f}")
+            if calibration.prototype_r2 is not None:
+                print(f"   Prototype R²: {np.mean(calibration.prototype_r2):.4f}")
 
         # 4. Per-sample inversion
         if self.verbose:
@@ -507,6 +509,8 @@ class ReconstructionPipeline:
 
         sampler = ParameterSampler(result.distribution, use_correlations=True)
 
+        if result.inversion_results is None:
+            raise ValueError("Pipeline not fitted. Call fit() first.")
         noise_add, noise_mult = estimate_noise_from_residuals(result.inversion_results)
 
         generator = ReconstructionGenerator(
@@ -568,5 +572,6 @@ def reconstruct_and_generate(
 
     # Generate additional samples if requested
     X_synth = pipeline.generate(n_synthetic, result) if n_synthetic is not None and n_synthetic != len(X) else result.X_synthetic
+    assert X_synth is not None
 
     return X_synth, result

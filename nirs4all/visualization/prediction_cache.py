@@ -119,6 +119,7 @@ class PredictionCache:
             CacheKey for the query.
         """
         # Normalize group_by to tuple
+        group_by_tuple: tuple[str, ...] | None
         if group_by is None:
             group_by_tuple = None
         elif isinstance(group_by, str):

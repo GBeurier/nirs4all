@@ -245,7 +245,9 @@ def _expand_value_iter(v: Any, seed: int | None) -> Iterator[Any]:
     Yields:
         Expanded values.
     """
-    if isinstance(v, (Mapping, list)):
+    if isinstance(v, Mapping):
+        yield from _expand_iter_internal(dict(v), seed)
+    elif isinstance(v, list):
         yield from _expand_iter_internal(v, seed)
     else:
         yield v

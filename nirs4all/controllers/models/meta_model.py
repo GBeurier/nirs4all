@@ -247,8 +247,10 @@ class MetaModelController(SklearnModelController):
         """
         if isinstance(operator, MetaModel):
             return operator
-        if isinstance(step, dict) and isinstance(step.get('model'), MetaModel):
-            return step['model']
+        if isinstance(step, dict):
+            model = step.get('model')
+            if isinstance(model, MetaModel):
+                return model
         raise ValueError("Could not extract MetaModel from step configuration")
 
     def _get_model_instance(
@@ -517,21 +519,26 @@ class MetaModelController(SklearnModelController):
         """Raise appropriate error based on multi-level validation result."""
         for error_msg in level_result.errors:
             if "circular" in error_msg.lower():
+                deps = level_result.circular_dependencies
+                chain: list[str] = deps[0] if deps else ([unique_source_names[0]] if unique_source_names else ["unknown"])
                 raise CircularDependencyError(
-                    dependency_chain=level_result.circular_dependencies or [unique_source_names[0]],
+                    source_model=chain[0] if chain else "unknown",
+                    meta_model=unique_source_names[0] if unique_source_names else "unknown",
+                    dependency_chain=chain,
                 )
             elif "level" in error_msg.lower() and "exceeded" in error_msg.lower():
                 raise MaxStackingLevelExceededError(
                     current_level=level_result.detected_level,
                     max_level=stacking_config.max_level,
-                    model_name=unique_source_names[0] if unique_source_names else "unknown",
+                    source_models=unique_source_names,
                 )
             elif "inconsistent" in error_msg.lower():
                 expected = stacking_config.level.value if stacking_config.level != StackingLevel.AUTO else level_result.detected_level
+                model_name = unique_source_names[0] if unique_source_names else "unknown"
                 raise InconsistentLevelError(
-                    model_name=unique_source_names[0] if unique_source_names else "unknown",
-                    expected_level=expected,
-                    actual_level=level_result.detected_level,
+                    expected_levels=[expected],
+                    found_levels={model_name: level_result.detected_level},
+                    problematic_models=[model_name],
                 )
 
     def _validate_cross_branch_stacking(
@@ -596,24 +603,25 @@ class MetaModelController(SklearnModelController):
             # Sample partitioner detected - disjoint sample sets
             # Get sample info from branches
             branch_items = list(cross_branch_result.branches.items())
+            info1_maybe: BranchPredictionInfo | None = None
             if len(branch_items) >= 2:
-                bid1, info1 = branch_items[0]
+                bid1, info1_maybe = branch_items[0]
                 bid2, info2 = branch_items[1]
                 overlap = len(cross_branch_result.common_samples)
-                total = max(info1.n_samples, info2.n_samples)
+                total = max(info1_maybe.n_samples, info2.n_samples)
                 overlap_ratio = overlap / total if total > 0 else 0.0
             else:
                 bid1 = branch_items[0][0] if branch_items else 0
-                info1 = branch_items[0][1] if branch_items else None
+                info1_maybe = branch_items[0][1] if branch_items else None
                 overlap_ratio = 0.0
 
             raise DisjointSampleSetsError(
                 source_model=f"branch_{bid1}",
-                expected_samples=info1.n_samples if info1 else 0,
+                expected_samples=info1_maybe.n_samples if info1_maybe else 0,
                 found_samples=len(cross_branch_result.common_samples),
                 overlap_ratio=overlap_ratio,
             )
-        elif cross_branch_result.compatibility == CrossBranchCompatibility.INCOMPATIBLE_FEATURES:
+        elif cross_branch_result.compatibility == CrossBranchCompatibility.INCOMPATIBLE_FEATURES:  # type: ignore[attr-defined]
             # Build feature counts from branches
             branch_features = {
                 bid: info.n_samples  # Using n_samples as proxy for feature count
@@ -903,7 +911,7 @@ class MetaModelController(SklearnModelController):
         current_step = context.state.step_number
 
         # Filter predictions for this model from validation partition
-        filter_kwargs = {
+        filter_kwargs: dict[str, Any] = {
             'model_name': model_name,
             'partition': 'val',
             'load_arrays': True,
@@ -1056,7 +1064,7 @@ class MetaModelController(SklearnModelController):
         branch_id = getattr(context.selector, 'branch_id', None)
         current_step = context.state.step_number
 
-        filter_kwargs = {
+        filter_kwargs: dict[str, Any] = {
             'model_name': model_name,
             'partition': 'test',
             'load_arrays': True,
@@ -1112,21 +1120,21 @@ class MetaModelController(SklearnModelController):
         if not all_preds:
             return np.zeros(n_samples)
 
-        all_preds = np.array(all_preds)
-        all_scores = np.array(all_scores)
+        all_preds_arr = np.array(all_preds)
+        all_scores_arr = np.array(all_scores)
 
         if aggregation == TestAggregation.BEST_FOLD:
             # Use predictions from best fold
-            best_idx = np.argmax(all_scores) if np.any(all_scores) else 0
-            return all_preds[best_idx]
+            best_idx = np.argmax(all_scores_arr) if np.any(all_scores_arr) else 0
+            return np.asarray(all_preds_arr[best_idx])
         elif aggregation == TestAggregation.WEIGHTED_MEAN:
             # Weighted average by validation scores
-            weights = np.clip(all_scores, 0, None)
-            weights = weights / weights.sum() if weights.sum() > 0 else np.ones(len(all_preds)) / len(all_preds)
-            return np.average(all_preds, axis=0, weights=weights)
+            weights = np.clip(all_scores_arr, 0, None)
+            weights = weights / weights.sum() if weights.sum() > 0 else np.ones(len(all_preds_arr)) / len(all_preds_arr)
+            return np.asarray(np.average(all_preds_arr, axis=0, weights=weights))
         else:
             # Simple mean (default)
-            return np.mean(all_preds, axis=0)
+            return np.asarray(np.mean(all_preds_arr, axis=0))
 
     def _get_source_models(
         self,
@@ -1177,7 +1185,7 @@ class MetaModelController(SklearnModelController):
             selector = AllPreviousModelsSelector(include_averaged=False)
 
         # Apply selection with effective context
-        selected = selector.select(candidates, effective_context, prediction_store)
+        selected: list[ModelCandidate] = selector.select(candidates, effective_context, prediction_store)
         selector.validate(selected, effective_context)
 
         return selected
@@ -1328,8 +1336,10 @@ class MetaModelController(SklearnModelController):
             if isinstance(operator, MetaModel):
                 return operator
             step = getattr(step_info, 'original_step', None)
-            if isinstance(step, dict) and isinstance(step.get('model'), MetaModel):
-                return step['model']
+            if isinstance(step, dict):
+                step_model = step.get('model')
+                if isinstance(step_model, MetaModel):
+                    return step_model
 
         raise ValueError("Could not find MetaModel operator in context")
 
@@ -1379,7 +1389,7 @@ class MetaModelController(SklearnModelController):
             return X_meta
 
         elif strategy == CoverageStrategy.IMPUTE_ZERO:
-            return np.nan_to_num(X_meta, nan=0.0)
+            return np.asarray(np.nan_to_num(X_meta, nan=0.0))
 
         elif strategy == CoverageStrategy.IMPUTE_MEAN:
             # Impute with column means
@@ -1409,7 +1419,7 @@ class MetaModelController(SklearnModelController):
         mode: str = "train",
         loaded_binaries: list[tuple[str, bytes]] | None = None,
         prediction_store: Any | None = None
-    ) -> tuple['ExecutionContext', list[tuple[str, bytes]]]:
+    ) -> tuple['ExecutionContext', list[Any]]:
         """Execute meta-model controller.
 
         Stores MetaModel operator and prediction_store in context for use by get_xy().
@@ -1986,7 +1996,7 @@ class MetaModelController(SklearnModelController):
         Returns:
             List of artifact IDs (may be empty if registry unavailable).
         """
-        artifact_ids = []
+        artifact_ids: list[str] = []
 
         if not hasattr(runtime_context, 'artifact_registry') or not runtime_context.artifact_registry:
             return artifact_ids
@@ -2035,7 +2045,7 @@ class MetaModelController(SklearnModelController):
         fold_id: int | None = None,
         params: dict[str, Any] | None = None,
         custom_name: str | None = None
-    ) -> Any | None:
+    ) -> Any:
         """Override to persist meta-model with source references.
 
         Extends parent _persist_model to include source model dependencies

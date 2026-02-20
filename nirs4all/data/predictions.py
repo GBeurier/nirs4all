@@ -680,7 +680,7 @@ class Predictions:
             target_processing=target_processing,
         )
         self._buffer.append(row)
-        return row["id"]
+        return str(row["id"])
 
     # =========================================================================
     # FLUSH (store-backed mode)
@@ -946,7 +946,8 @@ class Predictions:
                 # Final entries rank by their selection score
                 r["rank_score"] = r.get("selection_score")
             else:
-                score = self._get_rank_score(r, effective_metric, rank_partition, partition_key, effective_by_repetition, effective_repetition_method, effective_repetition_exclude_outliers)
+                by_rep_str = effective_by_repetition if isinstance(effective_by_repetition, str) else None
+                score = self._get_rank_score(r, effective_metric, rank_partition, partition_key, by_rep_str, effective_repetition_method, effective_repetition_exclude_outliers)
                 r["rank_score"] = score
 
         # Filter out None / NaN scores
@@ -992,22 +993,23 @@ class Predictions:
             candidates = candidates[:n]
 
         # Enrich results
+        by_rep_enrich = effective_by_repetition if isinstance(effective_by_repetition, str) else None
         enriched_results = [
-            PredictionResult(self._enrich_result(r, display_metrics, display_partition, aggregate_partitions, effective_by_repetition))
+            PredictionResult(self._enrich_result(r, display_metrics, display_partition, aggregate_partitions, by_rep_enrich))
             for r in candidates
         ]
 
         if return_grouped and effective_group_by:
-            grouped_out: dict[tuple, PredictionResultsList] = {}
+            grouped_out: dict[tuple[Any, ...], PredictionResultsList] = {}
             for res in enriched_results:
-                gk = res.get("group_key")
-                if gk is not None:
-                    if gk not in grouped_out:
-                        grouped_out[gk] = PredictionResultsList([])
-                    grouped_out[gk].append(res)
+                group_key: tuple[Any, ...] | None = res.get("group_key")
+                if group_key is not None:
+                    if group_key not in grouped_out:
+                        grouped_out[group_key] = PredictionResultsList([])
+                    grouped_out[group_key].append(res)
             return grouped_out
 
-        return PredictionResultsList(enriched_results)
+        return PredictionResultsList(enriched_results)  # type: ignore[arg-type]
 
     def _get_rank_score(
         self,
@@ -1038,7 +1040,8 @@ class Predictions:
                 )
                 if was_agg and agg_y_true is not None and agg_y_pred is not None:
                     try:
-                        return evaluator.eval(agg_y_true, agg_y_pred, metric)
+                        result = evaluator.eval(agg_y_true, agg_y_pred, metric)
+                        return float(result) if isinstance(result, (int, float)) else None
                     except Exception:
                         return None
             # Fall through to non-aggregated path if aggregation fails
@@ -1046,12 +1049,12 @@ class Predictions:
         # Pre-computed scores dict
         scores_dict = row.get("scores")
         if isinstance(scores_dict, dict) and partition in scores_dict and metric in scores_dict[partition]:
-            return scores_dict[partition][metric]
+            return float(scores_dict[partition][metric])
         if isinstance(scores_dict, str):
             try:
                 parsed = json.loads(scores_dict)
                 if partition in parsed and metric in parsed[partition]:
-                    return parsed[partition][metric]
+                    return float(parsed[partition][metric])
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -1065,11 +1068,13 @@ class Predictions:
         y_true, y_pred = row.get("y_true"), row.get("y_pred")
         if y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0 and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
             try:
-                return evaluator.eval(y_true, y_pred, metric)
+                result = evaluator.eval(y_true, y_pred, metric)
+                return float(result) if isinstance(result, (int, float)) else None
             except Exception:
                 return None
 
-        return row.get(partition_key)
+        val = row.get(partition_key)
+        return float(val) if val is not None else None
 
     @staticmethod
     def _apply_aggregation(
@@ -1169,7 +1174,7 @@ class Predictions:
         Returns:
             Best :class:`PredictionResult` or ``None``.
         """
-        results = self.top(
+        results_list = self.top(
             n=1,
             rank_metric=metric,
             rank_partition="val",
@@ -1182,8 +1187,8 @@ class Predictions:
             **filters,
         )
         # Fallback to test partition
-        if not results:
-            results = self.top(
+        if not results_list:
+            results_list = self.top(
                 n=1,
                 rank_metric=metric,
                 rank_partition="test",
@@ -1195,7 +1200,9 @@ class Predictions:
                 repetition_exclude_outliers=repetition_exclude_outliers,
                 **filters,
             )
-        return results[0] if results else None
+        if isinstance(results_list, dict):
+            return None
+        return results_list[0] if results_list else None
 
     # =========================================================================
     # FILTERING OPERATIONS
@@ -1730,6 +1737,7 @@ class Predictions:
 
         if exclude_outliers:
             valid_mask = Predictions._compute_outlier_mask(y_pred, inverse_indices, n_groups, outlier_threshold)
+            assert outliers_excluded is not None
             for g in range(n_groups):
                 group_mask = inverse_indices == g
                 outliers_excluded[g] = int(np.sum(group_mask)) - int(np.sum(group_mask & valid_mask))

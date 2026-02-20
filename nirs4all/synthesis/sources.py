@@ -22,6 +22,7 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
@@ -180,7 +181,7 @@ class MultiSourceGenerator:
     def generate(
         self,
         n_samples: int,
-        sources: list[SourceConfig | dict[str, Any]],
+        sources: Sequence[SourceConfig | dict[str, Any]],
         *,
         target_range: tuple[float, float] | None = None,
         concentration_method: str = "dirichlet",
@@ -269,12 +270,12 @@ class MultiSourceGenerator:
         """Generate shared component concentrations."""
         if method == "dirichlet":
             alpha = np.ones(n_components) * 2.0
-            return self.rng.dirichlet(alpha, size=n_samples)
+            return np.asarray(self.rng.dirichlet(alpha, size=n_samples))
         elif method == "uniform":
             return self.rng.uniform(0, 1, size=(n_samples, n_components))
         elif method == "lognormal":
             C = self.rng.lognormal(0, 0.5, size=(n_samples, n_components))
-            return C / C.sum(axis=1, keepdims=True)
+            return np.asarray(C / C.sum(axis=1, keepdims=True))
         else:
             raise ValueError(f"Unknown concentration method: '{method}'")
 
@@ -397,7 +398,7 @@ class MultiSourceGenerator:
     def create_dataset(
         self,
         n_samples: int,
-        sources: list[SourceConfig | dict[str, Any]],
+        sources: Sequence[SourceConfig | dict[str, Any]],
         *,
         train_ratio: float = 0.8,
         target_range: tuple[float, float] | None = None,

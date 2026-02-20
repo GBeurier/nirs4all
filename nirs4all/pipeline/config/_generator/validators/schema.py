@@ -749,7 +749,7 @@ def _check_type(value: Any, expected: str) -> bool:
     Returns:
         True if type matches, False otherwise.
     """
-    type_map = {
+    type_map: dict[str, type | tuple[type, ...]] = {
         "string": str,
         "number": (int, float),
         "integer": int,

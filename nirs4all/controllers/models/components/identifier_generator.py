@@ -64,7 +64,7 @@ class ModelIdentifierGenerator:
         """
         if isinstance(model_config, dict):
             if 'name' in model_config:
-                return model_config['name']
+                return str(model_config['name'])
             elif 'function' in model_config:
                 # Handle function-based models (like TensorFlow functions)
                 function_path = model_config['function']
@@ -75,7 +75,7 @@ class ModelIdentifierGenerator:
                     return str(function_path)
             elif 'class' in model_config:
                 class_path = model_config['class']
-                return class_path.split('.')[-1]  # Get class name from full path
+                return str(class_path).split('.')[-1]  # Get class name from full path
             elif 'model_instance' in model_config:
                 return self._get_model_class_name(model_config['model_instance'])
             elif 'model' in model_config:
@@ -86,12 +86,12 @@ class ModelIdentifierGenerator:
                     if 'func' in model_obj:
                         func = model_obj['func']
                         if callable(func) and hasattr(func, '__name__'):
-                            return func.__name__
+                            return str(func.__name__)
                     if 'function' in model_obj:
                         function_path = model_obj['function']
                         return function_path.split('.')[-1] if isinstance(function_path, str) else str(function_path)
                     elif 'class' in model_obj:
-                        return model_obj['class'].split('.')[-1]
+                        return str(model_obj['class']).split('.')[-1]
                 else:
                     return self._get_model_class_name(model_obj)
 
@@ -117,13 +117,13 @@ class ModelIdentifierGenerator:
             if isinstance(model_instance, dict) and 'func' in model_instance:
                 func = model_instance['func']
                 if callable(func) and hasattr(func, '__name__'):
-                    return func.__name__
+                    return str(func.__name__)
             # Handle functions
             if callable(model_instance) and hasattr(model_instance, '__name__'):
-                return model_instance.__name__
+                return str(model_instance.__name__)
             # Handle classes and instances
             elif hasattr(model_instance, '__class__'):
-                return model_instance.__class__.__name__
+                return str(model_instance.__class__.__name__)
             else:
                 return str(type(model_instance).__name__)
 
@@ -172,13 +172,13 @@ class ModelIdentifierGenerator:
         if isinstance(model, dict) and 'func' in model:
             func = model['func']
             if callable(func) and hasattr(func, '__name__'):
-                return func.__name__
+                return str(func.__name__)
 
         if inspect.isclass(model):
-            return f"{model.__qualname__}"
+            return str(model.__qualname__)
 
         if inspect.isfunction(model) or inspect.isbuiltin(model):
-            return f"{model.__name__}"
+            return str(model.__name__)
 
         # Handle string representation of functions/classes from deserialization
         if isinstance(model, str):
@@ -188,9 +188,9 @@ class ModelIdentifierGenerator:
             elif model.startswith("<class '") and "' at 0x" in model:
                 # Extract class name
                 return model.split("<class '")[1].split("' at ")[0].split(".")[-1]
+            return model
 
-        else:
-            return str(type(model).__name__)
+        return str(type(model).__name__)
 
     def generate(
         self,

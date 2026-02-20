@@ -526,7 +526,7 @@ class MetaModelSerializer:
                 class_match = record.class_name == candidate.model_classname
                 name_match = record.custom_name and record.custom_name == candidate.model_name
                 if class_match or name_match:
-                    return record.artifact_id
+                    return str(record.artifact_id)
 
         # Fallback: generate V2-style ID for compatibility
         branch_path = []

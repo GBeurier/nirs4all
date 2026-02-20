@@ -383,6 +383,7 @@ class SpectroDataset:
             include_excluded=False
         )
 
+        assert isinstance(X, np.ndarray)  # concat_source=True guarantees single array
         return X
 
     def augment_samples(self,
@@ -400,7 +401,7 @@ class SpectroDataset:
         """Get processing names for a source."""
         return self._feature_accessor.processing_names(src)
 
-    def headers(self, src: int) -> list[str]:
+    def headers(self, src: int) -> list[str] | None:
         """Get feature headers for a source."""
         return self._feature_accessor.headers(src)
 
@@ -880,7 +881,7 @@ class SpectroDataset:
             self._aggregate_column = None
 
     @property
-    def aggregate_method(self) -> str:
+    def aggregate_method(self) -> str | None:
         """
         Get the aggregation method for sample-level prediction aggregation.
 
@@ -1701,7 +1702,7 @@ class SpectroDataset:
 
     # ========== Index and Size Properties ==========
 
-    def index_column(self, col: str, filter: dict[str, Any] = None) -> list[int]:
+    def index_column(self, col: str, filter: dict[str, Any] | None = None) -> list[int]:
         """Get values from index column."""
         if filter is None:
             filter = {}
@@ -1950,7 +1951,7 @@ class SpectroDataset:
 
             # Classification-specific
             if self.is_classification:
-                meta["num_classes"] = self.num_classes()
+                meta["num_classes"] = self.num_classes
 
         # Target statistics
         if include_y_stats and self._targets.num_samples > 0:

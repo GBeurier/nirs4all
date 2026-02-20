@@ -353,11 +353,11 @@ class CompositeFilter(SampleFilter):
         if self.mode == "any":
             # Exclude if ANY filter flags (keep only if ALL keep)
             # keep_mask = all filters say keep
-            return np.all(stacked, axis=0)
+            return np.asarray(np.all(stacked, axis=0))
         else:  # mode == "all"
             # Exclude only if ALL filters flag (keep if ANY keeps)
             # keep_mask = any filter says keep
-            return np.any(stacked, axis=0)
+            return np.asarray(np.any(stacked, axis=0))
 
     def get_filter_stats(self, X: np.ndarray, y: np.ndarray | None = None) -> dict[str, Any]:
         """

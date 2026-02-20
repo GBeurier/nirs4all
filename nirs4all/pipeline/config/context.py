@@ -86,7 +86,7 @@ class DataSelector(MutableMapping):
         >>> print(selector["partition"])
     """
 
-    partition: str = "all"
+    partition: str | None = "all"
     processing: list[list[str]] = field(default_factory=lambda: [["raw"]])
     layout: str = "2d"
     concat_source: bool = True
@@ -162,7 +162,7 @@ class DataSelector(MutableMapping):
         new_selector._extra = deepcopy(self._extra)
         return new_selector
 
-    def with_partition(self, partition: str) -> "DataSelector":
+    def with_partition(self, partition: str | None) -> "DataSelector":
         """
         Create new selector with updated partition.
 
@@ -877,11 +877,11 @@ class LoaderArtifactProvider(ArtifactProvider):
         if effective_branch_path is None and branch_id is not None:
             effective_branch_path = [branch_id]
 
-        return self.loader.load_for_step(
+        return list(self.loader.load_for_step(
             step_index=step_index,
             branch_path=effective_branch_path,
             source_index=source_index,
-        )
+        ))
 
     def get_fold_artifacts(
         self,
@@ -914,7 +914,7 @@ class LoaderArtifactProvider(ArtifactProvider):
             return []
 
         # Fallback: use loader's fold model lookup
-        return self.loader.load_fold_models(step_index=step_index, branch_path=branch_path)
+        return list(self.loader.load_fold_models(step_index=step_index, branch_path=branch_path))
 
     def has_artifacts_for_step(self, step_index: int) -> bool:
         """Check if artifacts exist for a step.
@@ -930,7 +930,7 @@ class LoaderArtifactProvider(ArtifactProvider):
             return step is not None and step.has_artifacts()
 
         # Fallback: use loader's step check
-        return self.loader.has_binaries_for_step(step_index)
+        return bool(self.loader.has_binaries_for_step(step_index))
 
     def get_refit_artifact(
         self,
@@ -985,7 +985,7 @@ class LoaderArtifactProvider(ArtifactProvider):
             List of (chain_path, artifact_object) tuples
         """
         if hasattr(self.loader, 'load_by_chain_prefix'):
-            return self.loader.load_by_chain_prefix(chain_prefix)
+            return list(self.loader.load_by_chain_prefix(chain_prefix))
         return []
 
 class ExecutionContext:
@@ -1065,7 +1065,7 @@ class ExecutionContext:
             aggregate_column=self.aggregate_column
         )
 
-    def with_partition(self, partition: str) -> "ExecutionContext":
+    def with_partition(self, partition: str | None) -> "ExecutionContext":
         """
         Create new context with updated partition.
 
@@ -1253,6 +1253,7 @@ class RuntimeContext:
     step_cache: Any = None  # StepCache instance (set when cache_config.step_cache_enabled)
     best_refit_chains: dict[str, "BestChainEntry"] | None = None  # Accumulator: best chain per model during CV
     random_state: int | None = None  # Random seed for reproducibility propagation
+    current_context: Any = None  # Temporary context reference for meta-model persist
 
     def __deepcopy__(self, memo):
         """Return self on deepcopy -- RuntimeContext is shared infrastructure, not data."""
@@ -1323,7 +1324,7 @@ class RuntimeContext:
             return True
 
         # Delegate to retrain_config
-        return self.retrain_config.should_train_step(step_index, is_model)
+        return bool(self.retrain_config.should_train_step(step_index, is_model))
 
     def record_step_start(
         self,
@@ -1456,7 +1457,7 @@ class RuntimeContext:
             Trace ID or None if no trace recorder
         """
         if self.trace_recorder is not None:
-            return self.trace_recorder.trace_id
+            return str(self.trace_recorder.trace_id)
         return None
 
     def get_execution_trace(self) -> Any | None:

@@ -200,15 +200,10 @@ class TaskTypeDetector:
             Dictionary with task_type, n_classes, has_proba, proba_shape
             or None if no predictions found.
         """
-        filter_kwargs = {
-            'model_name': model_name,
-            'partition': 'val',  # Check validation predictions
-            'load_arrays': True,
-        }
-        if branch_id is not None:
-            filter_kwargs['branch_id'] = branch_id
-
-        predictions = self.prediction_store.filter_predictions(**filter_kwargs)
+        predictions = self.prediction_store.filter_predictions(
+            model_name=model_name, partition='val', load_arrays=True,
+            branch_id=branch_id if branch_id is not None else None,
+        )
 
         # Filter by step
         predictions = [p for p in predictions if p.get('step_idx', 0) < max_step]

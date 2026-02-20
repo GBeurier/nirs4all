@@ -1,7 +1,7 @@
 """
 TopKComparisonChart - Scatter plots comparing predicted vs observed values for top K models.
 """
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -160,9 +160,9 @@ class TopKComparisonChart(BaseChart):
             model_name = pred.get('model_name', 'Unknown')
 
             # Collect data from partitions
-            all_y_true = []
-            all_y_pred = []
-            all_colors = []
+            all_y_true: list[Any] = []
+            all_y_pred: list[Any] = []
+            all_colors: list[str] = []
 
             partitions_data = pred.get('partitions', {})
 
@@ -187,8 +187,8 @@ class TopKComparisonChart(BaseChart):
                 ax_residuals.axis('off')
                 continue
 
-            all_y_true = np.array(all_y_true, dtype=np.float64)
-            all_y_pred = np.array(all_y_pred, dtype=np.float64)
+            all_y_true_arr = np.array(all_y_true, dtype=np.float64)
+            all_y_pred_arr = np.array(all_y_pred, dtype=np.float64)
 
             # Scatter plot: Predicted vs True
             for partition in partitions_to_display:
@@ -205,8 +205,8 @@ class TopKComparisonChart(BaseChart):
                                      s=15, color=color, label=partition)
 
             # Add diagonal line
-            min_val = min(all_y_true.min(), all_y_pred.min())
-            max_val = max(all_y_true.max(), all_y_pred.max())
+            min_val = min(float(all_y_true_arr.min()), float(all_y_pred_arr.min()))
+            max_val = max(float(all_y_true_arr.max()), float(all_y_pred_arr.max()))
             ax_scatter.plot([min_val, max_val], [min_val, max_val],
                           'k--', lw=1.5, alpha=0.7, label='Perfect prediction')
 

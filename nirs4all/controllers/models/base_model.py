@@ -42,6 +42,7 @@ from .components import IndexNormalizer, ModelIdentifierGenerator, PartitionScor
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.data.types import Layout
     from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.pipeline.steps.parser import ParsedStep
@@ -232,7 +233,7 @@ class BaseModelController(OperatorController, ABC):
     def load_model(self, filepath: str) -> Any:
         """Optional: Load model from framework-specific format.
 
-        Default implementation delegates to artifact_serialization.load().
+        Default implementation delegates to joblib.load().
         Subclasses can override to use framework-specific loading.
 
         Args:
@@ -241,8 +242,8 @@ class BaseModelController(OperatorController, ABC):
         Returns:
             Loaded model instance.
         """
-        from nirs4all.pipeline.storage.artifacts.artifact_persistence import load
-        return load(filepath)
+        import joblib
+        return joblib.load(filepath)
 
     def get_xy(self, dataset: 'SpectroDataset', context: 'ExecutionContext') -> tuple[Any, Any, Any, Any, Any, Any]:
         """Extract train/test splits with scaled and unscaled targets.
@@ -263,7 +264,8 @@ class BaseModelController(OperatorController, ABC):
             Tuple of (X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled).
         """
         # Use layout from context (set by controller, may include force_layout)
-        layout = context.selector.layout if hasattr(context, 'selector') and hasattr(context.selector, 'layout') else self.get_preferred_layout()
+        from typing import cast
+        layout = cast('Layout', context.selector.layout if hasattr(context, 'selector') and hasattr(context.selector, 'layout') else self.get_preferred_layout())
 
         # Check if we're in prediction/explain mode
         mode = context.state.mode
@@ -278,7 +280,9 @@ class BaseModelController(OperatorController, ABC):
             # In prediction mode, use all available data (no partition split)
             pred_context = context.with_partition(None)
 
-            X_all = dataset.x(pred_context.selector, layout=layout)
+            X_all_raw = dataset.x(pred_context.selector, layout=layout)
+            assert isinstance(X_all_raw, np.ndarray)
+            X_all = X_all_raw
 
             # Build selector for y with processing from state
             pred_context.selector['y'] = pred_context.state.y_processing
@@ -313,8 +317,11 @@ class BaseModelController(OperatorController, ABC):
         train_context = context.with_partition('train')
         test_context = context.with_partition('test')
 
-        X_train = dataset.x(train_context.selector, layout=layout)
-        X_test = dataset.x(test_context.selector, layout=layout)
+        X_train_raw = dataset.x(train_context.selector, layout=layout)
+        X_test_raw = dataset.x(test_context.selector, layout=layout)
+        assert isinstance(X_train_raw, np.ndarray) and isinstance(X_test_raw, np.ndarray)
+        X_train = X_train_raw
+        X_test = X_test_raw
 
         # Build selectors for y with processing from state
         train_context.selector['y'] = train_context.state.y_processing
@@ -488,12 +495,14 @@ class BaseModelController(OperatorController, ABC):
 
         # Check for sample partition filtering
         sample_partition = context.custom.get("sample_partition")
+        train_ids: np.ndarray | list[Any] = train_sample_ids
+        test_ids: np.ndarray | list[Any] = test_sample_ids
         if sample_partition:
             partition_sample_ids_set = set(sample_partition.get("sample_indices", []))
-            train_sample_ids = [sid for sid in train_sample_ids if int(sid) in partition_sample_ids_set]
-            test_sample_ids = [sid for sid in test_sample_ids if int(sid) in partition_sample_ids_set]
+            train_ids = [sid for sid in train_sample_ids if int(sid) in partition_sample_ids_set]
+            test_ids = [sid for sid in test_sample_ids if int(sid) in partition_sample_ids_set]
 
-        return list(train_sample_ids), list(test_sample_ids)
+        return list(train_ids), list(test_ids)
 
     def execute(
         self,
@@ -504,7 +513,7 @@ class BaseModelController(OperatorController, ABC):
         source: int = -1,
         mode: str = "train",
         loaded_binaries: list[tuple[str, bytes]] | None = None,
-        prediction_store: 'Predictions' = None
+        prediction_store: 'Predictions | None' = None
     ) -> tuple['ExecutionContext', list['ArtifactMeta']]:
         """Execute model training, finetuning, or prediction.
 
@@ -638,7 +647,7 @@ class BaseModelController(OperatorController, ABC):
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
         finetune_params, loaded_binaries,
         train_sample_ids=None, test_sample_ids=None
-    ):
+    ) -> tuple['ExecutionContext', list['ArtifactMeta']]:
         self.mode = "finetune"
         if self.verbose > 0:
             logger.info("Starting finetuning...")
@@ -650,6 +659,8 @@ class BaseModelController(OperatorController, ABC):
         )
 
         # Extract best_params from FinetuneResult (or list of FinetuneResult for individual approach)
+        best_model_params: Any
+        optimization_summary: Any
         if isinstance(finetune_result, list):
             best_model_params = [r.best_params for r in finetune_result]
             optimization_summary = [r.to_summary_dict() for r in finetune_result]
@@ -675,7 +686,7 @@ class BaseModelController(OperatorController, ABC):
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
         loaded_binaries,
         train_sample_ids=None, test_sample_ids=None
-    ):
+    ) -> tuple['ExecutionContext', list['ArtifactMeta']]:
         if self.verbose > 0:
             logger.starting("Starting training...")
 
@@ -692,7 +703,7 @@ class BaseModelController(OperatorController, ABC):
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
         loaded_binaries, mode,
         train_sample_ids=None, test_sample_ids=None
-    ):
+    ) -> tuple['ExecutionContext', list['ArtifactMeta']]:
         binaries = self.train(
             dataset, model_config, context, runtime_context, prediction_store,
             X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
@@ -711,7 +722,7 @@ class BaseModelController(OperatorController, ABC):
         y_test: Any,
         folds: list | None,
         finetune_params: dict[str, Any],
-        predictions: dict,
+        predictions: 'Predictions | None',
         context: 'ExecutionContext',
         runtime_context: 'RuntimeContext',
     ) -> FinetuneResult | list[FinetuneResult]:
@@ -740,7 +751,7 @@ class BaseModelController(OperatorController, ABC):
 
         self.dataset = dataset
 
-        return self.optuna_manager.finetune(
+        result: FinetuneResult | list[FinetuneResult] = self.optuna_manager.finetune(
             dataset,
             model_config=model_config,
             X_train=X_train,
@@ -752,6 +763,7 @@ class BaseModelController(OperatorController, ABC):
             context=context,
             controller=self
         )
+        return result
 
     def train(
         self,
@@ -799,7 +811,7 @@ class BaseModelController(OperatorController, ABC):
         if n_jobs == -1:
             n_jobs = multiprocessing.cpu_count()
 
-        binaries = []
+        binaries: list[ArtifactMeta] = []
 
         # In predict/explain mode, skip fold iteration entirely
         # Just load the model and predict on X_test (which contains all prediction samples)
@@ -915,7 +927,8 @@ class BaseModelController(OperatorController, ABC):
                         fold_id=i,
                         custom_name=model_name
                     )
-                    binaries.append(artifact)
+                    if artifact is not None:
+                        binaries.append(artifact)
                     # Attach artifact_id to prediction_data for deterministic loading
                     artifact_id = getattr(artifact, 'artifact_id', None)
                     if artifact_id:
@@ -956,7 +969,8 @@ class BaseModelController(OperatorController, ABC):
                 fold_id=None,  # Single model, no folds
                 custom_name=model_name
             )
-            binaries.append(artifact)
+            if artifact is not None:
+                binaries.append(artifact)
             # Attach artifact_id to prediction_data for deterministic loading
             artifact_id = getattr(artifact, 'artifact_id', None)
             if artifact_id:
@@ -1534,8 +1548,8 @@ class BaseModelController(OperatorController, ABC):
         weights = self._get_fold_weights(scores, higher_is_better, mode, runtime_context)
 
         # Initialize probabilities (will be set for classification with soft voting)
-        avg_probs = {'train': None, 'val': None, 'test': None}
-        w_avg_probs = {'train': None, 'val': None, 'test': None}
+        avg_probs: dict[str, np.ndarray | None] = {'train': None, 'val': None, 'test': None}
+        w_avg_probs: dict[str, np.ndarray | None] = {'train': None, 'val': None, 'test': None}
 
         if is_classification:
             # Use classification-specific averaging (soft or hard voting)
@@ -1687,7 +1701,7 @@ class BaseModelController(OperatorController, ABC):
         self,
         folds_models, X_train, X_val, X_test, weights, mode,
         fold_val_indices=None,
-    ) -> tuple[dict, dict]:
+    ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray | None], dict[str, np.ndarray | None]]:
         """Create fold-averaged predictions for classification using soft voting.
 
         Uses probability averaging (soft voting) when probabilities are available,
@@ -1810,7 +1824,7 @@ class BaseModelController(OperatorController, ABC):
         self,
         all_train_probs, all_val_probs, all_test_probs, weights, mode,
         use_confidence_weighting: bool = False
-    ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray | None]]:
         """Apply soft voting to each partition.
 
         Args:
@@ -1824,8 +1838,8 @@ class BaseModelController(OperatorController, ABC):
                 - predictions: Dictionary with class predictions for each partition.
                 - probabilities: Dictionary with averaged probabilities for each partition.
         """
-        predictions = {}
-        probabilities = {}
+        predictions: dict[str, np.ndarray] = {}
+        probabilities: dict[str, np.ndarray | None] = {}
 
         # Train partition
         if all_train_probs and all_train_probs[0].size > 0:
@@ -2144,7 +2158,7 @@ class BaseModelController(OperatorController, ABC):
         fold_id: int | None = None,
         params: dict[str, Any] | None = None,
         custom_name: str | None = None
-    ) -> 'ArtifactMeta':
+    ) -> 'ArtifactMeta | None':
         """Persist trained model to disk using registry or legacy saver.
 
         Uses artifact_registry.register_with_chain() for V3 chain-based identification,
@@ -2244,7 +2258,7 @@ class BaseModelController(OperatorController, ABC):
                 metadata={"class_name": model.__class__.__name__, "custom_name": custom_name}
             )
 
-            return record
+            return record  # type: ignore[no-any-return]  # ArtifactRecord from untyped registry
 
         # No registry available - skip persistence (for unit tests)
         # In production, artifact_registry should always be set by the runner

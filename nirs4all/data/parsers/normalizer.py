@@ -269,7 +269,7 @@ class ConfigNormalizer:
         if parser.can_parse(path_str):
             result = parser.parse(path_str)
             if result.success:
-                return result.config, result.dataset_name
+                return result.config, result.dataset_name or 'Unknown_dataset'
             else:
                 # Log errors
                 for _ in result.errors:
@@ -294,10 +294,10 @@ class ConfigNormalizer:
 
         # Check for 'folder' key first
         if 'folder' in config:
-            parser = FolderParser()
-            result = parser.parse(config)
+            folder_parser = FolderParser()
+            result = folder_parser.parse(config)
             if result.success:
-                return result.config, result.dataset_name
+                return result.config, result.dataset_name or 'Unknown_dataset'
             return None, 'Unknown_dataset'
 
         # Try each parser
@@ -307,7 +307,7 @@ class ConfigNormalizer:
                 if result.success:
                     # Handle schema objects - convert to dict
                     parsed_config = result.config
-                    dataset_name = result.dataset_name
+                    dataset_name = result.dataset_name or 'Unknown_dataset'
 
                     if isinstance(parsed_config, DatasetConfigSchema):
                         # Check if it's a variations format - convert to legacy
@@ -459,7 +459,7 @@ class ConfigNormalizer:
         """
         # Check for explicit name
         if 'name' in config:
-            return config['name']
+            return str(config['name'])
 
         # Try to extract from train_x or test_x path
         for key in ['train_x', 'test_x']:

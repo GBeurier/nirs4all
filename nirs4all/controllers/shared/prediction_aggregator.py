@@ -168,11 +168,11 @@ class PredictionAggregator:
                 aligned.append(arr)
 
             stacked = np.stack(aligned, axis=0)  # (n_models, n_samples, n_classes)
-            return np.mean(stacked, axis=0)  # (n_samples, n_classes)
+            return np.asarray(np.mean(stacked, axis=0))  # (n_samples, n_classes)
         else:
             # Stack and average regression predictions
             stacked = np.stack([arr.flatten() for arr in arrays], axis=0)  # (n_models, n_samples)
-            mean_pred = np.mean(stacked, axis=0)  # (n_samples,)
+            mean_pred = np.asarray(np.mean(stacked, axis=0))  # (n_samples,)
             return mean_pred.reshape(-1, 1)  # (n_samples, 1)
 
     @staticmethod
@@ -294,7 +294,7 @@ class PredictionAggregator:
             aligned.append(arr)
 
         stacked = np.stack(aligned, axis=0)  # (n_models, n_samples, n_classes)
-        return np.mean(stacked, axis=0)  # (n_samples, n_classes)
+        return np.asarray(np.mean(stacked, axis=0))  # (n_samples, n_classes)
 
     @staticmethod
     def aggregate_folds(
@@ -323,12 +323,12 @@ class PredictionAggregator:
             return fold_predictions[0]
 
         if strategy == "mean":
-            return np.mean(fold_predictions, axis=0)
+            return np.asarray(np.mean(fold_predictions, axis=0))
 
         elif strategy == "weighted_mean":
             if fold_scores is None:
                 logger.warning("No fold scores for weighted aggregation. Using mean.")
-                return np.mean(fold_predictions, axis=0)
+                return np.asarray(np.mean(fold_predictions, axis=0))
 
             # Compute weights
             lower_is_better = (metric or "rmse").lower() in PredictionAggregator.LOWER_IS_BETTER_METRICS
@@ -342,7 +342,7 @@ class PredictionAggregator:
             total = sum(weights)
             weights = [w / total for w in weights] if total > 0 else [1.0 / len(weights)] * len(weights)
 
-            return np.average(fold_predictions, axis=0, weights=weights)
+            return np.asarray(np.average(fold_predictions, axis=0, weights=weights))
 
         elif strategy == "best":
             if fold_scores is None:
@@ -350,10 +350,10 @@ class PredictionAggregator:
 
             lower_is_better = (metric or "rmse").lower() in PredictionAggregator.LOWER_IS_BETTER_METRICS
 
-            best_idx = np.argmin(fold_scores) if lower_is_better else np.argmax(fold_scores)
+            best_idx = int(np.argmin(fold_scores) if lower_is_better else np.argmax(fold_scores))
 
             return fold_predictions[best_idx]
 
         else:
             logger.warning(f"Unknown fold aggregation strategy: {strategy}. Using mean.")
-            return np.mean(fold_predictions, axis=0)
+            return np.asarray(np.mean(fold_predictions, axis=0))

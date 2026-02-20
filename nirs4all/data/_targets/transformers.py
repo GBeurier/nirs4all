@@ -131,6 +131,7 @@ class TargetTransformer:
                     break
 
             # Inverse transform to common ancestor
+            assert common_ancestor is not None
             common_idx = path.index(common_ancestor)
             for i in range(common_idx):
                 current_proc = path[i]

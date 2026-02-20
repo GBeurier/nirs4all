@@ -319,7 +319,7 @@ class SampleAugmentationController(OperatorController):
 
         logger.debug("Planned Augmentation:")
         sample_to_label = dict(zip(base_train_samples, labels_base_train, strict=False))
-        added_counts = Counter()
+        added_counts: Counter[Any] = Counter()
         for sample_id, count in augmentation_counts.items():
             if count > 0:
                 lbl = sample_to_label.get(sample_id)
@@ -369,7 +369,7 @@ class SampleAugmentationController(OperatorController):
         Returns:
             {trans_idx: [sample_id1, sample_id2, ...]}
         """
-        inverted = {i: [] for i in range(n_transformers)}
+        inverted: dict[int, list[int]] = {i: [] for i in range(n_transformers)}
 
         for sample_id, trans_indices in transformer_map.items():
             for trans_idx in trans_indices:
@@ -574,7 +574,7 @@ class SampleAugmentationController(OperatorController):
 
         # --- Wavelength caching ---
         _MISSING = object()  # Sentinel for "no wavelengths needed/available"
-        wavelengths_cache = {}  # source_idx -> wavelengths array or _MISSING
+        wavelengths_cache: dict[int, Any] = {}  # source_idx -> wavelengths array or _MISSING
 
         def get_wavelengths(source_idx, operator):
             """Get wavelengths for a source, with caching."""
@@ -764,9 +764,9 @@ class SampleAugmentationController(OperatorController):
         Returns:
             The resolved variation_scope string ("sample" or "batch").
         """
-        step_scope = config.get("variation_scope", "sample")
+        step_scope: str = config.get("variation_scope", "sample")
         if isinstance(transformer_spec, dict):
-            return transformer_spec.get("variation_scope", step_scope)
+            return str(transformer_spec.get("variation_scope", step_scope))
         return step_scope
 
     def _supports_internal_variation(self, transformer) -> bool:

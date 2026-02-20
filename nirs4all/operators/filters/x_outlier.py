@@ -387,7 +387,7 @@ class XOutlierFilter(SampleFilter):
         mahal_sq = np.sum(left * diff, axis=1)
         distances = np.sqrt(np.maximum(mahal_sq, 0))
 
-        return distances <= self.threshold_
+        return np.asarray(distances <= self.threshold_)
 
     def _get_mask_pca(self, X: np.ndarray) -> np.ndarray:
         """Get mask using PCA-based metrics."""
@@ -398,13 +398,13 @@ class XOutlierFilter(SampleFilter):
             X_reconstructed = self.pca_.inverse_transform(self.pca_.transform(X))
             residuals = X - X_reconstructed
             q_stats = np.sum(residuals ** 2, axis=1)
-            return q_stats <= self.threshold_
+            return np.asarray(q_stats <= self.threshold_)
 
         else:  # pca_leverage
             scores = self.pca_.transform(X)
             variances = self.pca_.explained_variance_
             t_squared = np.sum((scores ** 2) / variances, axis=1)
-            return t_squared <= self.threshold_
+            return np.asarray(t_squared <= self.threshold_)
 
     def _get_mask_sklearn_detector(self, X: np.ndarray) -> np.ndarray:
         """Get mask using sklearn detector (IsolationForest, LOF)."""
@@ -413,7 +413,7 @@ class XOutlierFilter(SampleFilter):
 
         # predict returns 1 for inliers, -1 for outliers
         predictions = self.detector_.predict(X)
-        return predictions == 1
+        return np.asarray(predictions == 1)
 
     def get_filter_stats(self, X: np.ndarray, y: np.ndarray | None = None) -> dict[str, Any]:
         """

@@ -5,7 +5,7 @@ A registry for operator controllers in the nirs4all pipeline.
 
 from .controller import OperatorController
 
-CONTROLLER_REGISTRY = []
+CONTROLLER_REGISTRY: list[type[OperatorController]] = []
 def register_controller(operator_cls: type[OperatorController]):
     """Decorator to register a controller class."""
     global CONTROLLER_REGISTRY

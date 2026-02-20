@@ -29,5 +29,5 @@ def compute_data_hash(X: np.ndarray) -> str:
     """
     data = np.ascontiguousarray(X).data.tobytes()
     if _HAS_XXHASH:
-        return xxhash.xxh128(data).hexdigest()
+        return str(xxhash.xxh128(data).hexdigest())
     return hashlib.sha256(data).hexdigest()

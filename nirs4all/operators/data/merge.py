@@ -705,6 +705,7 @@ class MergeConfig:
         """
         # If advanced config is set, use it directly
         if self.has_per_branch_config():
+            assert self.prediction_configs is not None
             return self.prediction_configs
 
         # Convert legacy format to per-branch configs
@@ -734,6 +735,7 @@ class MergeConfig:
         """
         if self.feature_branches == "all":
             return list(range(n_branches))
+        assert isinstance(self.feature_branches, list)
         return list(self.feature_branches)
 
     def get_merge_mode(self) -> MergeMode:
@@ -1189,7 +1191,7 @@ class SourceBranchConfig:
         Returns:
             Dict mapping source names to their pipeline steps.
         """
-        result = {}
+        result: dict[str, list] = {}
 
         if self.is_auto_mode():
             # Auto mode: each source gets empty pipeline (isolation only)

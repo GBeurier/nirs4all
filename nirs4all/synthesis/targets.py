@@ -301,7 +301,7 @@ class TargetGenerator:
 
         if distribution == "uniform":
             # Already uniform - just ensure range [0, 1]
-            return base / base.max(axis=0, keepdims=True)
+            return np.asarray(base / base.max(axis=0, keepdims=True))
 
         elif distribution == "normal":
             # Transform to approximate normal via inverse CDF
@@ -316,7 +316,7 @@ class TargetGenerator:
             # Log-normal: positively skewed
             # Ensure positive base values
             base_pos = np.maximum(base, 1e-10)
-            return np.exp(base_pos * 2 - 1)  # Scale and shift
+            return np.asarray(np.exp(base_pos * 2 - 1))  # Scale and shift
 
         elif distribution == "bimodal":
             # Create bimodal distribution
@@ -349,7 +349,7 @@ class TargetGenerator:
             return np.full_like(y, (min_val + max_val) / 2)
 
         # Linear scaling
-        return (y - y_min) / (y_max - y_min) * (max_val - min_val) + min_val
+        return np.asarray((y - y_min) / (y_max - y_min) * (max_val - min_val) + min_val)
 
     def _add_controlled_noise(
         self,
@@ -366,7 +366,7 @@ class TargetGenerator:
         noise = self.rng.normal(0, noise_std, size=y.shape)
         y_noisy = signal_weight * y + noise_weight * noise * np.std(y)
 
-        return y_noisy
+        return np.asarray(y_noisy)
 
     def _classify_by_component_profile(
         self,
@@ -508,9 +508,9 @@ class TargetGenerator:
 
         # Spread centroids based on separation
         for i in range(n_classes):
-            direction = self.rng.normal(0, 1, size=n_components)
-            direction = direction / np.linalg.norm(direction)
-            centroids[i] += direction * separation * 0.2
+            direction_arr = np.asarray(self.rng.normal(0, 1, size=n_components))
+            direction_arr = np.asarray(direction_arr / np.linalg.norm(direction_arr))
+            centroids[i] += direction_arr * separation * 0.2
 
         # Assign to nearest centroid
         distances = np.zeros((n_samples, n_classes))
@@ -575,7 +575,7 @@ def generate_regression_targets(
     concentrations: np.ndarray | None = None,
     *,
     random_state: int | None = None,
-    distribution: str = "uniform",
+    distribution: Literal["uniform", "normal", "lognormal", "bimodal"] = "uniform",
     range: tuple[float, float] | None = None,
 ) -> np.ndarray:
     """
@@ -623,13 +623,15 @@ def generate_classification_targets(
         Integer class labels array.
     """
     generator = TargetGenerator(random_state=random_state)
-    return generator.classification(
+    result = generator.classification(
         n_samples=n_samples,
         concentrations=concentrations,
         n_classes=n_classes,
         class_weights=class_weights,
         separation=separation,
     )
+    assert isinstance(result, np.ndarray)
+    return result
 
 @dataclass
 class NonLinearTargetConfig:
@@ -824,8 +826,8 @@ class NonLinearTargetProcessor:
 
         # Combine terms with random weights
         poly_features = np.column_stack(poly_terms) if poly_terms else np.zeros((n_samples, 1))
-        weights = self.rng.standard_normal(poly_features.shape[1])
-        weights = weights / np.linalg.norm(weights)  # Normalize
+        raw_weights = np.asarray(self.rng.standard_normal(poly_features.shape[1]))
+        weights = np.asarray(raw_weights / np.linalg.norm(raw_weights))  # Normalize
 
         # Combine with base y
         nonlinear_component = poly_features @ weights
@@ -872,7 +874,7 @@ class NonLinearTargetProcessor:
                 / (synergy_effect.std() + 1e-8)
                 * y.std()
             )
-            return y + synergy_effect
+            return np.asarray(y + synergy_effect)
 
         return y
 
@@ -926,7 +928,7 @@ class NonLinearTargetProcessor:
         hidden_effect = (hidden * weights).sum(axis=1, keepdims=True)
         hidden_effect = hidden_effect / (hidden_effect.std() + 1e-8) * y.std() * 0.3
 
-        return y + hidden_effect
+        return np.asarray(y + hidden_effect)
 
     def _apply_multi_regime(
         self,
@@ -996,7 +998,7 @@ class NonLinearTargetProcessor:
         n_regimes = self.config.n_regimes
 
         if self.config.regime_method == "random":
-            return self.rng.integers(0, n_regimes, size=n_samples)
+            return np.asarray(self.rng.integers(0, n_regimes, size=n_samples))
 
         elif self.config.regime_method == "concentration":
             # Use first principal direction of concentrations
@@ -1060,7 +1062,7 @@ class NonLinearTargetProcessor:
                         np.where(regime_indices == idx)[0][0] / edge_samples
                     )
 
-        return blend_factor * y_transformed + (1 - blend_factor) * y_original
+        return np.asarray(blend_factor * y_transformed + (1 - blend_factor) * y_original)
 
     def _apply_confounders(
         self,
@@ -1087,7 +1089,7 @@ class NonLinearTargetProcessor:
 
             confounder_effect += effect * 0.2 / n_confounders
 
-        return y + confounder_effect * y.std()
+        return np.asarray(y + confounder_effect * y.std())
 
     def _apply_temporal_drift(self, y: np.ndarray) -> np.ndarray:
         """Apply temporal drift - relationship changes over samples."""
@@ -1102,7 +1104,7 @@ class NonLinearTargetProcessor:
 
         y_drifted = (y - y.mean()) * drift_scale + y.mean() + drift_shift * y.std()
 
-        return y_drifted
+        return np.asarray(y_drifted)
 
     def _apply_signal_ratio(self, y: np.ndarray) -> np.ndarray:
         """Add irreducible noise based on signal-to-confound ratio."""
@@ -1116,7 +1118,7 @@ class NonLinearTargetProcessor:
 
         noise = self.rng.standard_normal(y.shape) * noise_std
 
-        return y + noise
+        return np.asarray(y + noise)
 
     def _apply_heteroscedastic_noise(
         self,
@@ -1137,4 +1139,4 @@ class NonLinearTargetProcessor:
         base_noise = self.rng.standard_normal(y.shape) * y.std() * 0.1
         heteroscedastic_noise = base_noise * noise_scale
 
-        return y + heteroscedastic_noise
+        return np.asarray(y + heteroscedastic_noise)

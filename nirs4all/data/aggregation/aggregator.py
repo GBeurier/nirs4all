@@ -186,6 +186,8 @@ class Aggregator:
 
         # Determine grouping column
         column = group_column or self.config.column
+        if column is None:
+            return X, y, metadata
 
         # Get group labels
         group_labels = self._get_group_labels(column, X, y, metadata)
@@ -300,7 +302,7 @@ class Aggregator:
                     return None
                 column = found_column
 
-            return metadata[column].values
+            return np.asarray(metadata[column].values)
 
         return None
 
@@ -486,7 +488,7 @@ class Aggregator:
         max_z = np.nanmax(z_scores, axis=1)
         mask = max_z <= self.config.outlier_threshold
 
-        return data[mask]
+        return np.asarray(data[mask])
 
 def aggregate_data(
     X: np.ndarray,

@@ -512,7 +512,7 @@ class SelectorFactory:
         >>> selector = SelectorFactory.create("top_k", k=5, metric="rmse")
     """
 
-    _REGISTRY: dict[str, type] = {
+    _REGISTRY: dict[str, type[SourceModelSelector]] = {
         'all': AllPreviousModelsSelector,
         'all_previous': AllPreviousModelsSelector,
         'explicit': ExplicitModelSelector,

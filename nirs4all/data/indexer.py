@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from typing import Any, Optional, Union, overload
+from typing import Any, Optional, Union, cast, overload
 
 import numpy as np
 import polars as pl
@@ -104,9 +104,9 @@ class Indexer:
             pl.Expr: Combined Polars filter expression.
         """
         # Extract tag_filters before converting to dict (preserves DataSelector object info)
-        tag_filters = {}
-        if hasattr(selector, 'tag_filters') and selector.tag_filters:
-            tag_filters = selector.tag_filters
+        tag_filters: dict[str, Any] = {}
+        if selector is not None and hasattr(selector, 'tag_filters') and getattr(selector, 'tag_filters', None):
+            tag_filters = dict(selector.tag_filters)
 
         selector_dict = self._ensure_selector_dict(selector)
 
@@ -955,11 +955,11 @@ class Indexer:
             processings_list.extend([sample_row["processings"]] * sample_count)
 
         # Create augmented samples using _append
-        partition = partitions[0] if partitions else "train"
+        partition_val = partitions[0] if partitions else "train"
 
         augmented_ids = self._append(
             total_augmentations,
-            partition=partition,
+            partition=cast(PartitionType, partition_val),
             origin_indices=origin_indices,
             group=groups,
             branch=branches,
@@ -1093,7 +1093,7 @@ class Indexer:
 
         # Build condition and update
         condition = self._query_builder.build_sample_filter(list(all_samples_to_exclude))
-        updates = {"excluded": True}
+        updates: dict[str, bool | str] = {"excluded": True}
         if reason is not None:
             updates["exclusion_reason"] = reason
 

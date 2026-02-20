@@ -329,7 +329,8 @@ def _get_jax_lwpls_functions():
             0, max_components, component_step, init_carry
         )
 
-        return predictions
+        result: jax.Array = predictions
+        return result
 
     # Vectorize over test samples using vmap
     _lwpls_batch = jax.vmap(
@@ -365,7 +366,8 @@ def _get_jax_lwpls_functions():
         predictions : jax.Array of shape (batch_size, max_components)
             Predictions for each test sample in the batch.
         """
-        return _lwpls_batch(x_train, y_train, x_test, max_components, lambda_sim)
+        result: jax.Array = _lwpls_batch(x_train, y_train, x_test, max_components, lambda_sim)
+        return result
 
     def lwpls_predict_jax(
         x_train: jax.Array,
@@ -403,9 +405,10 @@ def _get_jax_lwpls_functions():
 
         if n_test <= batch_size:
             # Small enough to process in one go
-            return _lwpls_predict_batch_jit(
+            result: jax.Array = _lwpls_predict_batch_jit(
                 x_train, y_train, x_test, max_components, lambda_sim
             )
+            return result
 
         # Process in batches to control memory
         results = []
@@ -417,7 +420,8 @@ def _get_jax_lwpls_functions():
             )
             results.append(batch_pred)
 
-        return jnp.concatenate(results, axis=0)
+        concat_result: jax.Array = jnp.concatenate(results, axis=0)
+        return concat_result
 
     return lwpls_predict_jax
 
@@ -785,7 +789,7 @@ def _lwpls_predict_torch(
     )
 
     # Convert back to NumPy
-    return predictions_torch.cpu().numpy()
+    return np.asarray(predictions_torch.cpu().numpy())
 
 class LWPLS(BaseEstimator, RegressorMixin):
     """Locally-Weighted Partial Least Squares (LWPLS) regressor.

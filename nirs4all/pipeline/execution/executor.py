@@ -194,7 +194,7 @@ class PipelineExecutor:
             runtime_context.trace_recorder = trace_recorder
 
         # Execute all steps
-        all_artifacts = []
+        all_artifacts: list[Any] = []
         try:
             context = self._execute_steps(
                 steps,
@@ -906,7 +906,7 @@ class PipelineExecutor:
             context = step_result.updated_context
 
             # --- Step cache: store after execution ---
-            if step_cacheable and pre_step_data_hash is not None:
+            if step_cacheable and pre_step_data_hash is not None and step_cache is not None:
                 step_cache.put(step_hash, pre_step_data_hash, dataset, selector)
 
             # Sync operation_count back from runtime_context
@@ -953,7 +953,7 @@ class PipelineExecutor:
 
         store = runtime_context.store if runtime_context else self.store
 
-        processed_artifacts = []
+        processed_artifacts: list[Any] = []
         for artifact in artifacts:
             if isinstance(artifact, ArtifactRecord):
                 # v2 system: ArtifactRecord from registry.register()
@@ -1175,9 +1175,9 @@ class PipelineExecutor:
                     if isinstance(class_val, str):
                         return class_val.split('.')[-1] if '.' in class_val else class_val
                     elif hasattr(class_val, '__name__'):
-                        return class_val.__name__
+                        return str(class_val.__name__)
                     elif hasattr(class_val, '__class__'):
-                        return class_val.__class__.__name__
+                        return str(class_val.__class__.__name__)
 
             # For sample_augmentation dicts, show transformer count
             if 'transformers' in value:
@@ -1199,7 +1199,7 @@ class PipelineExecutor:
 
         # Handle class instances with __class__ attribute
         if hasattr(value, '__class__'):
-            class_name = value.__class__.__name__
+            class_name: str = value.__class__.__name__
             # Skip generic Python types
             if class_name not in ('dict', 'list', 'tuple', 'set', 'str', 'int', 'float', 'bool', 'NoneType'):
                 return class_name
@@ -1282,7 +1282,7 @@ class PipelineExecutor:
         selector = getattr(context, "selector", None)
 
         if selector is None:
-            selector_key = ("none",)
+            selector_key: tuple[Any, ...] = ("none",)
         else:
             if isinstance(selector, dict):
                 partition = selector.get("partition")

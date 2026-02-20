@@ -332,7 +332,7 @@ class VariableProjectionSolver:
                     # Exponential prior on scattering amplitude (encourage small)
                     loss += weight * 10 * params[5]
 
-                return loss
+                return float(loss)
             except Exception:
                 return 1e10
 

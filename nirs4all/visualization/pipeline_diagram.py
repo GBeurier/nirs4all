@@ -328,7 +328,7 @@ class PipelineDiagram:
             # Check if this step runs on multiple sources (inside source_branch mode)
             # and should be expanded to show one node per source
             artifacts = getattr(step, 'artifacts', None)
-            by_source = {}
+            by_source: dict[int, list[str]] = {}
             if artifacts:
                 if hasattr(artifacts, 'by_source'):
                     by_source = artifacts.by_source or {}
@@ -567,7 +567,7 @@ class PipelineDiagram:
     def _get_best_score_from_predictions(
         self,
         step_index: int,
-        branch_path: list[int],
+        branch_path: list[int] | tuple[Any, ...],
         branch_name: str,
         model_name: str | None,
         operator_class: str
@@ -576,7 +576,7 @@ class PipelineDiagram:
         if self.predictions is None:
             return None
 
-        filter_kwargs = {'step_idx': step_index, 'load_arrays': False}
+        filter_kwargs: dict[str, Any] = {'step_idx': step_index, 'load_arrays': False}
         if branch_path:
             filter_kwargs['branch_id'] = branch_path[-1]
         if branch_name:
@@ -590,7 +590,7 @@ class PipelineDiagram:
         # Fallback: if nothing matched with branch filters, try without them
         if not preds:
             try:
-                slim_kwargs = {'step_idx': step_index, 'load_arrays': False}
+                slim_kwargs: dict[str, Any] = {'step_idx': step_index, 'load_arrays': False}
                 preds = self.predictions.filter_predictions(**slim_kwargs)
             except Exception:
                 preds = []
@@ -713,7 +713,7 @@ class PipelineDiagram:
     def _derive_model_input_shape_from_predictions(
         self,
         step_index: int,
-        branch_path: list[int],
+        branch_path: list[int] | tuple[Any, ...],
         branch_name: str,
         operator_class: str,
         operator_config: dict[str, Any],
@@ -729,14 +729,14 @@ class PipelineDiagram:
         if self.predictions is None:
             return None
 
-        filter_kwargs = {'step_idx': step_index, 'load_arrays': False}
+        filter_kwargs_2: dict[str, Any] = {'step_idx': step_index, 'load_arrays': False}
         if branch_path:
-            filter_kwargs['branch_id'] = branch_path[-1]
+            filter_kwargs_2['branch_id'] = branch_path[-1]
         if branch_name:
-            filter_kwargs['branch_name'] = branch_name
+            filter_kwargs_2['branch_name'] = branch_name
 
         try:
-            preds = self.predictions.filter_predictions(**filter_kwargs)
+            preds = self.predictions.filter_predictions(**filter_kwargs_2)
         except Exception:
             preds = []
 
@@ -1150,7 +1150,7 @@ class PipelineDiagram:
             return
 
         # Default initial shape
-        current_shape = initial_shape or (100, 1, 1000)
+        current_shape: tuple[int, int, int] = initial_shape or (100, 1, 1000)
 
         # Create input node
         input_node = PipelineNode(
@@ -1223,7 +1223,7 @@ class PipelineDiagram:
 
                     # Process branch substeps
                     branch_current = [entry_id]
-                    branch_shape = current_shape
+                    branch_shape: tuple[int, int, int] = current_shape
                     for substep_idx, substep in enumerate(branch_steps):
                         substep_info = self._parse_step(substep, step_index)
                         if substep_info:
@@ -1252,7 +1252,7 @@ class PipelineDiagram:
                             for parent in branch_current:
                                 self.edges.append((parent, substep_id))
                             branch_current = [substep_id]
-                            branch_shape = substep_node.shape_after
+                            branch_shape = substep_node.shape_after or branch_shape
 
                     branch_node_ids.extend(branch_current)
 
@@ -1284,7 +1284,7 @@ class PipelineDiagram:
                     branch_stacks.pop()
 
                 current_node_ids = [merge_node.id]
-                current_shape = merge_node.shape_after
+                current_shape = merge_node.shape_after or current_shape
 
             else:
                 # Regular step
@@ -1560,7 +1560,7 @@ class PipelineDiagram:
         if isinstance(op, type):
             return op.__name__
         if hasattr(op, '__class__'):
-            return op.__class__.__name__
+            return str(op.__class__.__name__)
         return str(op)[:20]
 
     def _estimate_shape_after(
@@ -1724,7 +1724,7 @@ class PipelineDiagram:
         max_text_len = max([len(line) for line in label_lines]) if label_lines else 0
         # Increased factor from 0.16 to 0.22 for better fit
         calc_width = 2.0 + max_text_len * 0.22
-        return max(self._node_width, calc_width)
+        return float(max(self._node_width, calc_width))
 
     def _compute_layout(self) -> dict[str, dict[str, Any]]:
         """Compute node positions using topological sort and layering.
@@ -1735,7 +1735,7 @@ class PipelineDiagram:
         Returns:
             Dictionary mapping node IDs to position info
         """
-        layout = {}
+        layout: dict[str, dict[str, Any]] = {}
 
         if not self.nodes:
             return layout
@@ -1744,7 +1744,7 @@ class PipelineDiagram:
         layers = self._compute_layers()
 
         # Calculate dynamic spacing based on max node width
-        max_width = 0
+        max_width: float = 0.0
         for node in self.nodes.values():
             w = self._estimate_node_width(node)
             if w > max_width:
@@ -1779,6 +1779,7 @@ class PipelineDiagram:
             if n_branches > 0:
                 branch_x_start = -(n_branches - 1) * x_spacing / 2
                 for node_id, bid in branched_nodes:
+                    assert bid is not None  # guaranteed by filter above
                     col = branch_column[bid]
                     x = branch_x_start + col * x_spacing
                     layout[node_id] = {

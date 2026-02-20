@@ -50,7 +50,7 @@ class ExecutionPath:
 
     pipeline_id: str
     chain_path: str = ""
-    branch_path: list[int] = None
+    branch_path: list[int] | None = None
     step_index: int = 0
     source_index: int | None = None
     fold_id: int | None = None

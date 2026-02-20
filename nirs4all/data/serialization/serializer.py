@@ -168,14 +168,15 @@ class ConfigSerializer:
         """
         prepared = self._prepare_for_serialization(config)
 
-        yaml_kwargs = {
+        yaml_kwargs: dict[str, Any] = {
             "default_flow_style": False,
             "sort_keys": self.sort_keys,
             "allow_unicode": True,
         }
         yaml_kwargs.update(kwargs)
 
-        return yaml.dump(prepared, **yaml_kwargs)
+        result: str = yaml.dump(prepared, **yaml_kwargs)
+        return result
 
     def to_json(
         self,
@@ -195,7 +196,7 @@ class ConfigSerializer:
         """
         prepared = self._prepare_for_serialization(config)
 
-        json_kwargs = {
+        json_kwargs: dict[str, Any] = {
             "indent": indent,
             "sort_keys": self.sort_keys,
             "ensure_ascii": False,
@@ -483,7 +484,7 @@ class ConfigSerializer:
         if isinstance(val2, Enum):
             val2 = val2.value
 
-        return val1 == val2
+        return bool(val1 == val2)
 
     def _detect_format(self, path: Path) -> SerializationFormat:
         """Detect format from file extension.
@@ -536,7 +537,7 @@ def deserialize_config(
 
     if config is None:
         return {}
-    return config
+    return dict(config)
 
 def diff_configs(
     old_config: dict[str, Any] | DatasetConfigSchema,

@@ -225,13 +225,13 @@ class FolderParser(BaseParser):
 
             # Assign matches to config
             if len(matched_files) == 1:
-                config[key] = matched_files[0]
+                config[key] = matched_files[0]  # type: ignore[assignment]
             elif len(matched_files) > 1:
                 # Multi-source detected
                 warnings.append(
                     f"Multiple files matched for {key}: {len(matched_files)} sources detected."
                 )
-                config[key] = matched_files
+                config[key] = matched_files  # type: ignore[assignment]
 
         # Second pass: detect standalone X, Y, M files (exact stem match)
         # These have lower priority than specific patterns
@@ -250,7 +250,7 @@ class FolderParser(BaseParser):
                     continue
                 stem = self._get_stem(file_path.name).lower()
                 if stem in stems:
-                    config[key] = file_path.as_posix()
+                    config[key] = file_path.as_posix()  # type: ignore[assignment]
                     break
 
         return config, warnings

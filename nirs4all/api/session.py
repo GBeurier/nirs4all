@@ -262,6 +262,7 @@ class Session:
             dataset_config = dataset
 
         # Determine prediction source: bundle path or trained model
+        prediction_obj: str | dict[str, Any]
         if self._bundle_path is not None:
             # Use bundle file for loaded sessions
             prediction_obj = str(self._bundle_path)
@@ -317,6 +318,7 @@ class Session:
         from nirs4all.data import DatasetConfigs
 
         # Determine source: bundle path or trained model
+        source: str | dict[str, Any]
         if self._bundle_path is not None:
             # Use bundle file for loaded sessions
             source = str(self._bundle_path)

@@ -84,7 +84,8 @@ class AugmentationTracker:
 
         # Query and return sample IDs
         augmented_df = self._store.query(condition)
-        return augmented_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
+        result: np.ndarray = augmented_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
+        return result
 
     def get_origin_for_sample(self, sample_id: int) -> int | None:
         """
@@ -144,7 +145,7 @@ class AugmentationTracker:
 
         sample_val = row.select(pl.col("sample")).item()
         origin_val = row.select(pl.col("origin")).item()
-        return sample_val != origin_val
+        return bool(sample_val != origin_val)
 
     def get_base_samples(self, condition: pl.Expr) -> np.ndarray:
         """
@@ -165,7 +166,8 @@ class AugmentationTracker:
         combined = condition & base_filter
 
         filtered_df = self._store.query(combined)
-        return filtered_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
+        base_result: np.ndarray = filtered_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
+        return base_result
 
     def get_all_samples_with_augmentations(self, base_condition: pl.Expr, additional_filter: pl.Expr | None = None) -> np.ndarray:
         """

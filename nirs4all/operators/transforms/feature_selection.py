@@ -164,7 +164,7 @@ class CARS(TransformerMixin, BaseEstimator):
             except Exception:
                 return np.inf
 
-        return np.sqrt(np.mean(errors))
+        return float(np.sqrt(np.mean(errors)))
 
     def fit(self, X, y=None, wavelengths: np.ndarray | None = None):
         """
@@ -573,12 +573,12 @@ class MCUVE(TransformerMixin, BaseEstimator):
 
         # Determine threshold
         if self.threshold_method == 'percentile':
-            self.threshold_ = np.percentile(self.noise_stability_, self.threshold_percentile)
+            self.threshold_ = float(np.percentile(self.noise_stability_, self.threshold_percentile))
         elif self.threshold_method == 'fixed':
             self.threshold_ = self.threshold_value
         else:  # 'auto'
             # Use max of noise stability as threshold
-            self.threshold_ = np.max(self.noise_stability_) * 1.1  # 10% margin
+            self.threshold_ = float(np.max(self.noise_stability_) * 1.1)  # 10% margin
 
         # Select variables with absolute stability above threshold
         abs_stability = np.abs(self.stability_)

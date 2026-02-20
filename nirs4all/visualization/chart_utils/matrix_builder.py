@@ -3,7 +3,7 @@ MatrixBuilder - Build matrices for heatmap visualizations.
 """
 import re
 from collections import defaultdict
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -47,7 +47,7 @@ class MatrixBuilder:
             Dict structure: {y_val: {x_val: [(display_score, rank_score), ...]}}
             or {y_val: {x_val: [score1, score2, ...]}} if no rank_field.
         """
-        score_dict = defaultdict(lambda: defaultdict(list))
+        score_dict: dict[Any, dict[Any, list]] = defaultdict(lambda: defaultdict(list))
 
         for pred in predictions_list:
             x_val = pred.get(x_var)
@@ -95,7 +95,7 @@ class MatrixBuilder:
             Dict structure: {y_val: {x_val: [score1, score2, ...]}} or
                            {y_val: {x_val: [(display_score, rank_score), ...]}}
         """
-        score_dict = defaultdict(lambda: defaultdict(list))
+        score_dict: dict[Any, dict[Any, list]] = defaultdict(lambda: defaultdict(list))
 
         for pred in predictions_list:
             x_val = pred.get(x_var)

@@ -1357,16 +1357,16 @@ class RealDataFitter:
             >>> print(params.summary())
         """
         # Handle SpectroDataset input
-        if hasattr(X, "x") and callable(X.x):
+        if not isinstance(X, np.ndarray):
             # It's a SpectroDataset
             X_array: np.ndarray = np.asarray(X.x({}, layout="2d"))
             if wavelengths is None:
                 try:
-                    wavelengths = X.float_headers()  # type: ignore[union-attr]
+                    wavelengths = X.float_headers()
                 except (AttributeError, TypeError):
                     wavelengths = np.arange(X_array.shape[1])
-            if hasattr(X, "name"):
-                name = X.name or name  # type: ignore[union-attr]
+            if hasattr(X, "name") and X.name:
+                name = X.name
         else:
             X_array = np.asarray(X)
 
@@ -4992,7 +4992,7 @@ class DerivativeAwareForwardModelFitter:
             deriv=self.derivative_order,
             axis=1,
         )
-        return result.flatten() if X.shape[0] == 1 else result
+        return np.asarray(result.flatten() if X.shape[0] == 1 else result)
 
     def _build_design_matrix_raw(self, wl_shift: float, ils_sigma: float) -> np.ndarray:
         """Build design matrix in RAW domain (before derivative)."""

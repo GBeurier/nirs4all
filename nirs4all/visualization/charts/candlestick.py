@@ -285,7 +285,7 @@ class CandlestickChart(BaseChart):
             )
 
         # Extract variable values and scores from aggregated predictions
-        data_by_variable = {}
+        data_by_variable: dict[Any, list[float]] = {}
         for pred in all_preds:
             var_value = pred.get(variable)
             if var_value is None:

@@ -805,7 +805,7 @@ class PreprocPCAEvaluator:
 
         plt.suptitle(f'PCA Comparison: {dataset} / {preproc}',
                     fontsize=13, fontweight='bold', y=0.98)
-        plt.tight_layout(rect=[0, 0.08, 1, 0.96])
+        plt.tight_layout(rect=(0, 0.08, 1, 0.96))
         return fig
 
     def plot_preservation_summary(self, by="preproc", figsize=(14, 8)):

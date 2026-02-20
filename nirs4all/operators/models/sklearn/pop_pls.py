@@ -141,7 +141,7 @@ def _compute_weight(op: LinearOperator, c_k: NDArray, eps: float) -> NDArray | N
     a_w_norm = np.linalg.norm(a_w)
     if a_w_norm < eps:
         return None
-    return a_w / a_w_norm
+    return np.asarray(a_w / a_w_norm)
 
 def _compute_prefix_B(W: NDArray, P: NDArray, Q: NDArray, k: int) -> NDArray:
     """Compute prefix regression coefficient matrix B_k = W @ inv(P^T W) @ Q^T."""
@@ -150,7 +150,7 @@ def _compute_prefix_B(W: NDArray, P: NDArray, Q: NDArray, k: int) -> NDArray:
         R_k = W[:, :k] @ np.linalg.inv(PtW)
     except np.linalg.LinAlgError:
         R_k = W[:, :k] @ np.linalg.pinv(PtW)
-    return R_k @ Q[:, :k].T
+    return np.asarray(R_k @ Q[:, :k].T)
 
 def _poppls_fit_greedy(
     X: NDArray, Y: NDArray, operators: list[LinearOperator],
@@ -220,7 +220,7 @@ def _poppls_fit_greedy(
                 best_w = w_b
                 best_t = t_b
 
-        if best_w is None:
+        if best_w is None or best_t is None:
             break
 
         t_k = best_t
@@ -350,7 +350,7 @@ def _poppls_holdout_pass(
                 best_op_b = b
                 best_op_artifacts = (w_b, t_b, p_b, q_b)
 
-        if best_op_b is None:
+        if best_op_b is None or best_op_artifacts is None:
             break
 
         w_k, t_k, p_k, q_k = best_op_artifacts
@@ -504,7 +504,7 @@ def _poppls_press_pass(
                 best_op_artifacts = (w_b, t_b, p_b, q_b)
                 best_op_h_increment = h_increment
 
-        if best_op_b is None:
+        if best_op_b is None or best_op_artifacts is None or best_op_h_increment is None:
             break
 
         # Accept this component
@@ -679,6 +679,7 @@ def _poppls_fit_numpy(
     n_orth_candidates = list(range(n_orth + 1)) if n_orth > 0 else [0, 1, 2, 3, 4, 5]
 
     if has_external_val:
+        assert X_val is not None and Y_val is not None
         # External validation path: holdout selection + refit.
         # Run per-component selection using external validation data for
         # each n_orth candidate, then refit best config on full data.
@@ -1016,6 +1017,7 @@ class POPPLSRegressor(BaseEstimator, RegressorMixin):
             n_components = self.k_selected_
         n_components = min(n_components, self.n_components_)
 
+        y_pred: NDArray[np.floating]
         if n_components == 0:
             y_pred = np.full((X.shape[0], len(self.y_mean_)), self.y_mean_, dtype=np.float64)
         else:
@@ -1051,7 +1053,7 @@ class POPPLSRegressor(BaseEstimator, RegressorMixin):
                 t_o = X_centered @ p_o
                 X_centered = X_centered - np.outer(t_o, p_o)
 
-        return X_centered @ self._W[:, :self.k_selected_]
+        return np.asarray(X_centered @ self._W[:, :self.k_selected_])
 
     def get_block_weights(self) -> NDArray[np.floating]:
         """Get per-component operator selection matrix.
@@ -1063,7 +1065,7 @@ class POPPLSRegressor(BaseEstimator, RegressorMixin):
             which operator was selected for that component.
         """
         check_is_fitted(self, ["gamma_"])
-        return self.gamma_.copy()
+        return np.array(self.gamma_, copy=True)
 
     def get_preprocessing_report(self) -> list[dict]:
         """Get a human-readable report of per-component operator selections.
@@ -1075,13 +1077,13 @@ class POPPLSRegressor(BaseEstimator, RegressorMixin):
             (list of {name, weight} dicts for non-zero blocks).
         """
         check_is_fitted(self, ["gamma_", "block_names_"])
-        report = []
+        report: list[dict] = []
         for k in range(self.n_components_):
-            blocks = []
+            blocks: list[dict[str, str | float]] = []
             for b, name in enumerate(self.block_names_):
                 if self.gamma_[k, b] > 1e-6:
                     blocks.append({"name": name, "weight": float(self.gamma_[k, b])})
-            blocks.sort(key=lambda x: x["weight"], reverse=True)
+            blocks.sort(key=lambda x: float(x["weight"]), reverse=True)
             report.append({"component": k + 1, "blocks": blocks})
         return report
 

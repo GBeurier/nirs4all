@@ -745,15 +745,10 @@ class BranchValidator:
         fold_counts: dict[str, int] = {}
 
         for model_name in source_model_names:
-            filter_kwargs = {
-                'model_name': model_name,
-                'partition': 'val',
-                'load_arrays': False,
-            }
-            if current_branch_id is not None:
-                filter_kwargs['branch_id'] = current_branch_id
-
-            preds = self.prediction_store.filter_predictions(**filter_kwargs)
+            preds = self.prediction_store.filter_predictions(
+                model_name=model_name, partition='val', load_arrays=False,
+                branch_id=current_branch_id if current_branch_id is not None else None,
+            )
             preds = [p for p in preds if p.get('step_idx', 0) < current_step]
 
             # Count unique fold IDs (excluding avg/w_avg)
@@ -806,15 +801,10 @@ class BranchValidator:
         current_step = context.state.step_number
 
         for model_name in source_model_names:
-            filter_kwargs = {
-                'model_name': model_name,
-                'partition': 'val',
-                'load_arrays': False,
-            }
-            if current_branch_id is not None:
-                filter_kwargs['branch_id'] = current_branch_id
-
-            preds = self.prediction_store.filter_predictions(**filter_kwargs)
+            preds = self.prediction_store.filter_predictions(
+                model_name=model_name, partition='val', load_arrays=False,
+                branch_id=current_branch_id if current_branch_id is not None else None,
+            )
             preds = [p for p in preds if p.get('step_idx', 0) < current_step]
 
             # Collect all sample indices from predictions

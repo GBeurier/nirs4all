@@ -117,7 +117,7 @@ class LogRangeStrategy(ExpansionStrategy):
 
         # Apply count limit if specified (count <= 0 means no limit)
         if count_limit is not None and count_limit > 0:
-            return min(count_limit, log_range_size)
+            return int(min(count_limit, log_range_size))
         return log_range_size
 
     def validate(self, node: GeneratorNode) -> list[str]:
@@ -256,6 +256,6 @@ class LogRangeStrategy(ExpansionStrategy):
                 raise ValueError("Log range array must be [from, to, num]")
             return int(log_range_spec[2])
         elif isinstance(log_range_spec, dict):
-            return log_range_spec.get("num", 10)
+            return int(log_range_spec.get("num", 10))
         else:
             raise ValueError("Log range specification must be array or dict")

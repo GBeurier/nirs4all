@@ -233,7 +233,7 @@ class FeatureSelectionController(OperatorController):
             if original_wavelengths is not None and len(source_selectors) > 0:
                 # Use first selector's indices (all should select same features)
                 selected_wl = original_wavelengths[source_selectors[0].selected_indices_]
-                new_headers = [f"{wl:.2f}" for wl in selected_wl]
+                new_headers: list[str] | None = [f"{wl:.2f}" for wl in selected_wl]
             else:
                 # Use indices if no wavelengths
                 new_headers = [str(i) for i in source_selectors[0].selected_indices_] if len(source_selectors) > 0 else None

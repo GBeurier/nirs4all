@@ -92,6 +92,7 @@ from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.controllers.shared import ModelSelector, PredictionAggregator
 from nirs4all.core.logging import get_logger
+from nirs4all.data.types import Layout
 from nirs4all.operators.data.merge import (
     AggregationStrategy,
     BranchPredictionConfig,
@@ -1390,7 +1391,7 @@ class MergeController(OperatorController):
         # When output_as="sources", preserve the preprocessing dimension (3D layout)
         # Otherwise flatten to 2D for horizontal concatenation
         preserve_preprocessing = config.output_as == "sources"
-        layout = "3d" if preserve_preprocessing else "2d"
+        layout: Layout = "3d" if preserve_preprocessing else "2d"
 
         for src_idx in range(n_sources):
             try:
@@ -1659,7 +1660,7 @@ class MergeController(OperatorController):
         metadata = {
             "merge_mode": config.get_merge_mode().value,
             "disjoint_merge": True,
-            "branch_type": disjoint_analysis.branch_type.value,
+            "branch_type": disjoint_analysis.branch_type.value if disjoint_analysis.branch_type is not None else None,
             "partition_column": disjoint_analysis.partition_column,
             "merge_config": config.to_dict(),
             **merge_info,
@@ -1726,7 +1727,7 @@ class MergeController(OperatorController):
         merge_info: dict[str, Any] = {
             "disjoint_merge": True,
             "prediction_mode": True,
-            "branch_type": disjoint_analysis.branch_type.value,
+            "branch_type": disjoint_analysis.branch_type.value if disjoint_analysis.branch_type is not None else None,
             "n_branches": n_branches,
             "n_total_samples": n_total_samples,
         }
@@ -1814,7 +1815,7 @@ class MergeController(OperatorController):
             "merge_mode": config.get_merge_mode().value,
             "disjoint_merge": True,
             "prediction_mode": True,
-            "branch_type": disjoint_analysis.branch_type.value,
+            "branch_type": disjoint_analysis.branch_type.value if disjoint_analysis.branch_type is not None else None,
             "partition_column": disjoint_analysis.partition_column,
             "merge_config": config.to_dict(),
             **merge_info,
@@ -2926,7 +2927,7 @@ class MergeController(OperatorController):
                 f"Branch {branch_idx} snapshot is empty (no feature sources)"
             )
 
-        source_features = []
+        source_features: list[np.ndarray] = []
 
         for src_idx, feature_source in enumerate(snapshot):
             # Handle CoW tuple format: (SharedBlocks, proc_ids, headers, header_unit)
@@ -3669,7 +3670,7 @@ class MergeController(OperatorController):
         Returns:
             List of prediction dictionaries.
         """
-        filter_kwargs = {
+        filter_kwargs: dict[str, Any] = {
             'model_name': model_name,
             'partition': partition,
             'load_arrays': True,
@@ -3707,13 +3708,13 @@ class MergeController(OperatorController):
         current_step = getattr(context.state, 'step_number', float('inf'))
 
         # Query prediction store for validation predictions in this branch
-        filter_kwargs = {
+        branch_filter_kwargs: dict[str, Any] = {
             'branch_id': branch_id,
             'partition': 'val',
             'load_arrays': False,
         }
 
-        predictions = prediction_store.filter_predictions(**filter_kwargs)
+        predictions = prediction_store.filter_predictions(**branch_filter_kwargs)
 
         # Filter by step (only include predictions from earlier steps)
         predictions = [
@@ -3724,11 +3725,11 @@ class MergeController(OperatorController):
         # If no predictions with branch filter, try pre-branch models
         # (models trained before branch was created have branch_id=None)
         if not predictions:
-            filter_kwargs_no_branch = {
+            no_branch_filter_kwargs: dict[str, Any] = {
                 'partition': 'val',
                 'load_arrays': False,
             }
-            predictions = prediction_store.filter_predictions(**filter_kwargs_no_branch)
+            predictions = prediction_store.filter_predictions(**no_branch_filter_kwargs)
             predictions = [
                 p for p in predictions
                 if p.get('step_idx', 0) < current_step and p.get('branch_id') is None
@@ -3769,7 +3770,7 @@ class MergeController(OperatorController):
         elif isinstance(branch_ref, str):
             for bc in branch_contexts:
                 if bc.get("name") == branch_ref:
-                    return bc["branch_id"]
+                    return int(bc["branch_id"])
             raise ValueError(f"Branch name '{branch_ref}' not found")
         else:
             raise ValueError(f"Invalid branch reference type: {type(branch_ref)}")
@@ -3822,8 +3823,8 @@ class MergeController(OperatorController):
             f"Merge step (predict mode): mode={config.get_merge_mode().value}"
         )
 
-        merged_parts = []
-        merge_info = {"prediction_mode": True}
+        merged_parts: list[np.ndarray] = []
+        merge_info: dict[str, Any] = {"prediction_mode": True}
 
         # In predict mode for feature merge:
         # The features are already in the dataset from branch processing.
@@ -3941,12 +3942,12 @@ class MergeController(OperatorController):
         model_filter = config.model_filter
 
         # Query prediction store for test partition predictions
-        filter_kwargs = {
+        test_filter_kwargs: dict[str, Any] = {
             'partition': 'test',
             'load_arrays': True,
         }
 
-        predictions = prediction_store.filter_predictions(**filter_kwargs)
+        predictions = prediction_store.filter_predictions(**test_filter_kwargs)
 
         if not predictions:
             logger.debug("No test predictions found in prediction store")
@@ -4099,6 +4100,7 @@ class MergeController(OperatorController):
         # Apply merge strategy
         strategy = config.get_strategy()
 
+        merged_features: np.ndarray | dict[str, np.ndarray]
         if strategy == SourceMergeStrategy.CONCAT:
             merged_features, merge_info = self._merge_sources_concat(
                 source_features=source_features,
@@ -4897,21 +4899,22 @@ class MergeController(OperatorController):
         # Apply merge strategy
         strategy = source_merge_config.get_strategy()
 
+        merged_features_src: np.ndarray | dict[str, np.ndarray]
         if strategy == SourceMergeStrategy.CONCAT:
-            merged_features, merge_info = self._merge_sources_concat(
+            merged_features_src, merge_info = self._merge_sources_concat(
                 source_features=source_features,
                 source_indices=source_indices,
                 source_names=source_names,
             )
         elif strategy == SourceMergeStrategy.STACK:
-            merged_features, merge_info = self._merge_sources_stack(
+            merged_features_src, merge_info = self._merge_sources_stack(
                 source_features=source_features,
                 source_indices=source_indices,
                 source_names=source_names,
                 on_incompatible=source_merge_config.get_incompatible_strategy(),
             )
         elif strategy == SourceMergeStrategy.DICT:
-            merged_features, merge_info = self._merge_sources_dict(
+            merged_features_src, merge_info = self._merge_sources_dict(
                 source_features=source_features,
                 source_indices=source_indices,
                 source_names=source_names,
@@ -4923,20 +4926,20 @@ class MergeController(OperatorController):
         if strategy == SourceMergeStrategy.DICT:
             # Dict strategy - store reference in context for downstream use
             result_context = context.copy()
-            result_context.custom["merged_sources_dict"] = merged_features
+            result_context.custom["merged_sources_dict"] = merged_features_src
             result_context.custom["source_merge_applied"] = True
 
             logger.info(
-                f"Source merge (dict) completed: {len(merged_features)} sources preserved"
+                f"Source merge (dict) completed: {len(merged_features_src)} sources preserved"
             )
         else:
             # Array strategies (concat/stack) - update dataset
             processing_name = source_merge_config.output_name
 
             # Store as merged features
-            if isinstance(merged_features, np.ndarray):
+            if isinstance(merged_features_src, np.ndarray):
                 dataset.add_merged_features(
-                    features=merged_features,
+                    features=merged_features_src,
                     processing_name=processing_name,
                     source=0  # Primary source for merged features
                 )
@@ -4944,8 +4947,8 @@ class MergeController(OperatorController):
             result_context = context.copy()
             result_context.custom["source_merge_applied"] = True
 
-            if merged_features is not None:
-                shape_str = str(merged_features.shape) if hasattr(merged_features, 'shape') else 'dict'
+            if merged_features_src is not None:
+                shape_str = str(merged_features_src.shape) if hasattr(merged_features_src, 'shape') else 'dict'
                 logger.info(
                     f"Source merge ({source_merge_config.strategy}) completed: shape={shape_str}"
                 )

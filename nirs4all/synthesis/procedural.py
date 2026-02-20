@@ -40,7 +40,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 
@@ -72,7 +72,7 @@ class FunctionalGroupType(StrEnum):
     WATER = "water"                 # H2O (special case)
 
 # Functional group fundamental frequencies and properties
-FUNCTIONAL_GROUP_PROPERTIES = {
+FUNCTIONAL_GROUP_PROPERTIES: dict[FunctionalGroupType, dict[str, Any]] = {
     FunctionalGroupType.HYDROXYL: {
         "fundamental_cm": 3550,       # Average free O-H
         "fundamental_range": (3400, 3700),
@@ -297,7 +297,7 @@ class ProceduralComponentGenerator:
         # Sample fundamental wavenumber within range
         nu_min: float
         nu_max: float
-        nu_min, nu_max = (float(props["fundamental_range"][0]), float(props["fundamental_range"][1]))  # type: ignore[index]
+        nu_min, nu_max = (float(props["fundamental_range"][0]), float(props["fundamental_range"][1]))
         fundamental_cm: float = float(self.rng.uniform(nu_min, nu_max))
 
         # Apply hydrogen bonding shift if applicable
@@ -645,7 +645,7 @@ class ProceduralComponentGenerator:
         for i in range(n_components):
             # Vary the number of functional groups per component
             component_config = ProceduralComponentConfig(
-                n_fundamental_bands=self.rng.integers(1, config.n_fundamental_bands + 2),
+                n_fundamental_bands=int(self.rng.integers(1, config.n_fundamental_bands + 2)),
                 include_overtones=config.include_overtones,
                 max_overtone_order=config.max_overtone_order,
                 include_combinations=config.include_combinations,

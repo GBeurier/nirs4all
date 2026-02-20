@@ -87,7 +87,7 @@ class ResamplerController(OperatorController):
             raise ValueError(
                 f"Cannot resample data with header_unit='{header_unit}' for source {source_idx}. "
                 f"Resampler requires numeric wavelength headers (cm-1 or nm). "
-                f"Got headers: {headers[:5]}..."
+                f"Got headers: {headers[:5] if headers else None}..."
             )
 
         # Use the dataset's wavelength conversion methods
@@ -99,7 +99,7 @@ class ResamplerController(OperatorController):
             headers = dataset.headers(source_idx)
             raise ValueError(
                 f"Failed to extract wavelengths from headers for source {source_idx}. "
-                f"Header unit: {header_unit}. Headers: {headers[:5]}... "
+                f"Header unit: {header_unit}. Headers: {headers[:5] if headers else None}... "
                 f"Error: {str(e)}"
             ) from e
 

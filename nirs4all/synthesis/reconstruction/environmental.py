@@ -187,6 +187,7 @@ class EnvironmentalEffectsModel:
         """
         result = absorption.copy()
         delta_t = self.temperature_delta
+        assert self._region_masks is not None
 
         for region_name, params in TEMPERATURE_REGION_PARAMS.items():
             weights = self._region_masks[region_name]
@@ -275,7 +276,7 @@ class EnvironmentalEffectsModel:
             return spectrum
         weights = np.exp(-0.5 * ((wavelengths - center) / width) ** 2)
         shifted_wl = wavelengths + shift * weights
-        return np.interp(wavelengths, shifted_wl, spectrum)
+        return np.asarray(np.interp(wavelengths, shifted_wl, spectrum))
 
     def _apply_scattering_baseline(
         self,
@@ -295,7 +296,7 @@ class EnvironmentalEffectsModel:
         # Compute scattering baseline
         scattering = self.scattering_amplitude * (wl_norm ** (-self.scattering_power))
 
-        return absorption + scattering
+        return np.asarray(absorption + scattering)
 
     def get_jacobian_wrt_temperature(
         self,
@@ -313,7 +314,7 @@ class EnvironmentalEffectsModel:
         spec_minus = self.apply(absorption, wavelengths)
 
         self.temperature_delta = orig
-        return (spec_plus - spec_minus) / (2 * eps)
+        return np.asarray((spec_plus - spec_minus) / (2 * eps))
 
     def get_jacobian_wrt_water_activity(
         self,
@@ -331,7 +332,7 @@ class EnvironmentalEffectsModel:
         spec_minus = self.apply(absorption, wavelengths)
 
         self.water_activity = orig
-        return (spec_plus - spec_minus) / (2 * eps)
+        return np.asarray((spec_plus - spec_minus) / (2 * eps))
 
     def get_jacobian_wrt_scattering_power(
         self,
@@ -349,7 +350,7 @@ class EnvironmentalEffectsModel:
         spec_minus = self.apply(absorption, wavelengths)
 
         self.scattering_power = orig
-        return (spec_plus - spec_minus) / (2 * eps)
+        return np.asarray((spec_plus - spec_minus) / (2 * eps))
 
     def get_jacobian_wrt_scattering_amplitude(
         self,
@@ -367,7 +368,7 @@ class EnvironmentalEffectsModel:
         spec_minus = self.apply(absorption, wavelengths)
 
         self.scattering_amplitude = orig
-        return (spec_plus - spec_minus) / (2 * eps)
+        return np.asarray((spec_plus - spec_minus) / (2 * eps))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -479,7 +480,7 @@ class EnvironmentalParameterConfig:
         # Exponential prior on scattering amplitude (encourage small values)
         penalty += scattering_amplitude / self.scattering_amplitude_prior_scale
 
-        return penalty
+        return float(penalty)
 
 __all__ = [
     "EnvironmentalEffectsModel",

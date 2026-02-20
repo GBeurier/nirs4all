@@ -150,8 +150,8 @@ def _ipls_fit_numpy(
     # Select intervals based on mode
     if mode == 'single':
         # Select only the best interval
-        best_idx = np.argmax(interval_scores)
-        selected_intervals = [int(best_idx)]
+        best_idx = int(np.argmax(interval_scores))
+        selected_intervals = [best_idx]
 
     elif mode == 'forward':
         # Forward selection: add intervals until performance decreases
@@ -198,8 +198,8 @@ def _ipls_fit_numpy(
 
         if not selected_intervals:
             # Fallback to best single interval
-            best_idx = np.argmax(interval_scores)
-            selected_intervals = [int(best_idx)]
+            best_idx = int(np.argmax(interval_scores))
+            selected_intervals = [best_idx]
 
     elif mode == 'backward':
         # Backward elimination: start with all, remove until performance decreases
@@ -329,7 +329,7 @@ def _ipls_predict_numpy(
         feature_mask[interval_starts[best_idx]:interval_ends[best_idx]] = True
 
     X_selected = X[:, feature_mask]
-    return final_pls.predict(X_selected)
+    return np.asarray(final_pls.predict(X_selected))
 
 # =============================================================================
 # JAX Backend Implementation (Optimized with vmap and JIT)
@@ -613,7 +613,7 @@ def _build_jax_ipls_functions():
         interval_bounds = jnp.stack([interval_starts, interval_ends], axis=1)
 
         # Use vmap for parallel evaluation
-        scores = jax.vmap(eval_interval)(interval_bounds)
+        scores: jax.Array = jax.vmap(eval_interval)(interval_bounds)
 
         return scores
 
@@ -670,7 +670,7 @@ def _build_jax_ipls_functions():
             return _cv_score(X_interval, y, n_comp_actual, cv_folds)
 
         # Fully parallel evaluation with vmap
-        scores = jax.vmap(eval_single)(interval_indices)
+        scores: jax.Array = jax.vmap(eval_single)(interval_indices)
         return scores
 
     # =========================================================================

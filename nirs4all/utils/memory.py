@@ -100,7 +100,7 @@ def get_process_rss_mb() -> float:
     try:
         import psutil
         process = psutil.Process()
-        return process.memory_info().rss / (1024 * 1024)
+        return float(process.memory_info().rss / (1024 * 1024))
     except (ImportError, Exception):
         return 0.0
 

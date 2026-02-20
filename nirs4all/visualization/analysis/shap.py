@@ -433,8 +433,8 @@ class ShapAnalyzer:
 
             bin_ranges.append((bin_wavelengths.min(), bin_wavelengths.max()))
 
-        bin_centers = np.array(bin_centers)
-        bin_shap_sums = np.array(bin_shap_sums)
+        bin_centers_arr = np.array(bin_centers)
+        bin_shap_sums_arr = np.array(bin_shap_sums)
 
         # Create figure with 2 panels (spectrum + bar chart)
         fig = plt.figure(figsize=figsize)
@@ -449,10 +449,11 @@ class ShapAnalyzer:
         # Highlight important regions with colored bands (Viridis colormap)
         # The WIDTH of each band = wavelength range of the bin (changes with bin_size)
         # The COLOR intensity = importance (higher SHAP = darker purple)
-        shap_norm = bin_shap_sums / bin_shap_sums.max()
+        shap_norm = bin_shap_sums_arr / bin_shap_sums_arr.max()
 
         # Only show regions with some importance to avoid clutter
         importance_threshold = 0.2
+        viridis_cmap = plt.colormaps['viridis']
         for i, (start, end) in enumerate(bin_ranges):
             if shap_norm[i] > importance_threshold:
                 color_intensity = shap_norm[i]
@@ -460,7 +461,7 @@ class ShapAnalyzer:
                 alpha_val = 0.15 + 0.55 * color_intensity
                 ax1.axvspan(start, end,
                            alpha=alpha_val,
-                           color=plt.cm.viridis(0.2 + 0.8 * color_intensity),
+                           color=viridis_cmap(0.2 + 0.8 * color_intensity),
                            zorder=0,
                            linewidth=0)
 
@@ -468,9 +469,9 @@ class ShapAnalyzer:
         from matplotlib.patches import Patch
         legend_elements = [
             plt.Line2D([0], [0], color='k', linewidth=2, label='Mean Spectrum'),
-            Patch(facecolor=plt.cm.viridis(0.9), alpha=0.6, label='High Importance'),
-            Patch(facecolor=plt.cm.viridis(0.5), alpha=0.4, label='Medium Importance'),
-            Patch(facecolor=plt.cm.viridis(0.3), alpha=0.25, label='Low Importance')
+            Patch(facecolor=viridis_cmap(0.9), alpha=0.6, label='High Importance'),
+            Patch(facecolor=viridis_cmap(0.5), alpha=0.4, label='Medium Importance'),
+            Patch(facecolor=viridis_cmap(0.3), alpha=0.25, label='Low Importance')
         ]
         ax1.legend(handles=legend_elements, loc='best', framealpha=0.9, fontsize=9)
 
@@ -485,20 +486,20 @@ class ShapAnalyzer:
         ax2 = fig.add_subplot(gs[1])
 
         # Create bar plot with bins (Viridis colormap)
-        colors = plt.cm.viridis(0.3 + 0.7 * shap_norm)
-        bar_width = bin_centers[1] - bin_centers[0] if len(bin_centers) > 1 else 10
+        colors = viridis_cmap(0.3 + 0.7 * shap_norm)
+        bar_width = bin_centers_arr[1] - bin_centers_arr[0] if len(bin_centers_arr) > 1 else 10
 
-        bars = ax2.bar(bin_centers, bin_shap_sums, width=bar_width * 0.9,
+        bars = ax2.bar(bin_centers_arr, bin_shap_sums_arr, width=bar_width * 0.9,
                       color=colors, alpha=0.8, edgecolor='black', linewidth=0.5)
 
         # Add line to show trend
-        ax2.plot(bin_centers, bin_shap_sums, 'b-', linewidth=2, alpha=0.5, zorder=0)
+        ax2.plot(bin_centers_arr, bin_shap_sums_arr, 'b-', linewidth=2, alpha=0.5, zorder=0)
 
         # Add colorbar legend
         import matplotlib.cm as cm
         from matplotlib.colors import Normalize
         norm = Normalize(vmin=0, vmax=1)
-        sm = cm.ScalarMappable(cmap=cm.viridis, norm=norm)
+        sm = cm.ScalarMappable(cmap=viridis_cmap, norm=norm)
         sm.set_array([])
         cbar = plt.colorbar(sm, ax=ax2, orientation='vertical', pad=0.02, aspect=30)
         cbar.set_label('Relative Importance', rotation=270, labelpad=20, fontsize=10, fontweight='bold')
@@ -745,7 +746,8 @@ class ShapAnalyzer:
                 raise ValueError(f"Unknown aggregation method: {self.bin_aggregation}")
 
         if is_1d:
-            binned_values = binned_values.flatten()
+            result: np.ndarray = binned_values.flatten()
+            return result, bin_labels
 
         return binned_values, bin_labels
 
@@ -866,7 +868,7 @@ class ShapAnalyzer:
         else:
             plt.show()  # Blocking
 
-    def get_feature_importance(self, top_n: int | None = None) -> dict[str, float]:
+    def get_feature_importance(self, top_n: int | None = None) -> dict[int, float]:
         """
         Get feature importance ranking based on mean absolute SHAP values.
 
@@ -903,5 +905,6 @@ class ShapAnalyzer:
 
         with open(input_path, 'rb') as f:
             data = f.read()
-        return from_bytes(data, 'cloudpickle')
+        result: dict[str, Any] = from_bytes(data, 'cloudpickle')
+        return result
 

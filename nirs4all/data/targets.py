@@ -126,8 +126,8 @@ class Targets:
         visible_processings = [p for p in self._processing_chain.processing_ids if p != "raw"]
         result = f"Targets: (samples={self.num_samples}, targets={self.num_targets}, processings={visible_processings})"
 
-        for proc_name, min_val, max_val, mean_val in processing_stats:
-            result += f"\n- {proc_name}: min={min_val}, max={max_val}, mean={mean_val}"
+        for proc_name, min_v, max_v, mean_v in processing_stats:
+            result += f"\n- {proc_name}: min={min_v}, max={max_v}, mean={mean_v}"
 
         return result
 
@@ -199,7 +199,7 @@ class Targets:
         """
         # Check cache first
         if 'num_classes' in self._stats_cache:
-            return self._stats_cache['num_classes']
+            return int(self._stats_cache['num_classes'])
 
         if self.num_samples == 0:
             raise ValueError("Cannot compute num_classes: no target data available")
@@ -443,7 +443,7 @@ class Targets:
             return data.copy()
 
         indices = np.asarray(indices, dtype=int)
-        return data[indices]
+        return np.asarray(data[indices])
 
     def y(self,
           indices: SampleIndices,

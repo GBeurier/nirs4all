@@ -10,7 +10,7 @@ import contextlib
 import logging
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -239,6 +239,7 @@ def configure_logging(
     console_handler.setLevel(log_level)
 
     # Create formatter based on format
+    console_formatter: JsonFormatter | ConsoleFormatter
     if log_format == "json":
         console_formatter = JsonFormatter(run_id=run_id)
     elif log_format == "minimal":
@@ -396,10 +397,10 @@ class Nirs4allLogger(logging.Logger):
         fn: str,
         lno: int,
         msg: object,
-        args: tuple,
+        args: tuple[object, ...] | Mapping[str, object],
         exc_info: Any,
         func: str | None = None,
-        extra: dict[str, Any] | None = None,
+        extra: Mapping[str, object] | None = None,
         sinfo: str | None = None,
     ) -> logging.LogRecord:
         """Create a LogRecord with context injection.
@@ -513,7 +514,7 @@ class Nirs4allLogger(logging.Logger):
             pipeline: Pipeline identifier.
             **kwargs: Additional logging kwargs.
         """
-        extra_fields = {"scope": scope}
+        extra_fields: dict[str, Any] = {"scope": scope}
         if fold is not None:
             extra_fields["fold"] = fold
         if pipeline:

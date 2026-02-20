@@ -179,7 +179,7 @@ class TransferMetricsComputer:
     @staticmethod
     def _center(X: np.ndarray) -> np.ndarray:
         """Center data by subtracting mean."""
-        return X - X.mean(axis=0, keepdims=True)
+        return np.asarray(X - X.mean(axis=0, keepdims=True))
 
     @staticmethod
     def _centroid_distance(Z1: np.ndarray, Z2: np.ndarray) -> float:

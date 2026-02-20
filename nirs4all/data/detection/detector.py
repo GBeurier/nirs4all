@@ -470,7 +470,8 @@ class AutoDetector:
 
         # If first row has significantly fewer numeric values, it's likely a header
         if first_ratio < avg_data_ratio - 0.3:
-            confidence = min((avg_data_ratio - first_ratio) * 2, 1.0)
+            raw_confidence = (avg_data_ratio - first_ratio) * 2
+            confidence = float(raw_confidence) if float(raw_confidence) < 1.0 else 1.0
             return True, confidence
 
         # Check for numeric wavelength header (special case for spectral data)
@@ -635,7 +636,7 @@ class AutoDetector:
             return "text", 0.5  # Default
 
         # Find best match
-        best_unit = max(scores, key=scores.get)
+        best_unit = max(scores, key=lambda k: scores[k])
         best_score = scores[best_unit]
 
         # Calculate confidence

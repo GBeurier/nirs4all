@@ -353,10 +353,10 @@ class AutoGluonModelController(BaseModelController):
         test_df = pd.DataFrame(X)
 
         # Get predictions
-        predictions = model.predict(test_df)
+        raw_predictions = model.predict(test_df)
 
         # Convert to numpy and reshape
-        predictions = np.array(predictions)
+        predictions: np.ndarray = np.array(raw_predictions)
         if predictions.ndim == 1:
             predictions = predictions.reshape(-1, 1)
 
@@ -455,7 +455,8 @@ class AutoGluonModelController(BaseModelController):
                 y_val_1d = y_val.ravel() if y_val.ndim > 1 else y_val
                 y_pred_1d = np.asarray(y_pred).ravel()
                 from nirs4all.core import metrics as evaluator_mod
-                return evaluator_mod.eval(y_val_1d, y_pred_1d, metric)
+                eval_score = evaluator_mod.eval(y_val_1d, y_pred_1d, metric)
+                return float(eval_score) if isinstance(eval_score, (int, float)) else eval_score.get(metric, float('inf'))
 
             TabularPredictor = _get_tabular_predictor()
 
@@ -481,7 +482,7 @@ class AutoGluonModelController(BaseModelController):
 
             # AutoGluon metrics are typically higher-is-better
             # Return negative for minimization-based optimization
-            return -score
+            return float(-score)
 
         except Exception as e:
             logger.warning(f"Error in AutoGluon evaluation: {e}")

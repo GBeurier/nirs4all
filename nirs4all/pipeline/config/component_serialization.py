@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
 # Simple alias dictionary for common transformations
-build_aliases = {
+build_aliases: dict[str, str] = {
     # Add common aliases here if needed
 }
 
@@ -55,7 +55,7 @@ def _serialize_meta_estimator(obj) -> dict:
     Returns:
         Dictionary with class path, estimators, final_estimator, and other params.
     """
-    result = {
+    result: dict[str, Any] = {
         "class": f"{obj.__class__.__module__}.{obj.__class__.__qualname__}",
         "params": {}
     }
@@ -199,7 +199,7 @@ def serialize_component(obj: Any) -> Any:
 
         return func_serialized
 
-    def_serialized = f"{obj.__class__.__module__}.{obj.__class__.__qualname__}"
+    def_serialized: Any = f"{obj.__class__.__module__}.{obj.__class__.__qualname__}"
 
     if params:
         def_serialized = {

@@ -165,7 +165,7 @@ class RepToSourcesController(OperatorController):
 
         # Build output
         output = StepOutput()
-        output.set_transform_metadata({
+        output.metadata.update({
             "transformation": "rep_to_sources",
             "column": config.resolve_column(dataset.aggregate) if not config.uses_dataset_aggregate else config.column,
             "original_samples": original_samples,
@@ -279,7 +279,7 @@ class RepToPPController(OperatorController):
 
         # Build output
         output = StepOutput()
-        output.set_transform_metadata({
+        output.metadata.update({
             "transformation": "rep_to_pp",
             "column": config.resolve_column(dataset.aggregate) if not config.uses_dataset_aggregate else config.column,
             "original_samples": original_samples,

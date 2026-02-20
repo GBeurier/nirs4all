@@ -139,7 +139,7 @@ class PipelineLibrary:
             config = json.load(f)
 
         logger.success(f"Loaded template '{name}' from library")
-        return config
+        return dict(config)
 
     def get_template_metadata(
         self,
@@ -162,7 +162,7 @@ class PipelineLibrary:
 
         metadata_file = template_path / "metadata.json"
         with open(metadata_file, encoding='utf-8') as f:
-            return json.load(f)
+            return dict(json.load(f))
 
     def list_templates(
         self,

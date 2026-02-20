@@ -283,7 +283,7 @@ def _compute_irls_weights(
     weight_func = _huber_weights if weighting == 'huber' else _tukey_weights
 
     # Initialize uniform weights
-    sample_weights = np.ones(n_samples, dtype=np.float64)
+    sample_weights: NDArray[np.floating] = np.ones(n_samples, dtype=np.float64)
     prev_weights = sample_weights.copy()
 
     for _ in range(max_iter):
@@ -831,7 +831,7 @@ class RobustPLS(BaseEstimator, RegressorMixin):
         if self._y_1d:
             y_pred = y_pred.ravel()
 
-        return y_pred
+        return np.asarray(y_pred)
 
     def transform(
         self,
@@ -857,7 +857,7 @@ class RobustPLS(BaseEstimator, RegressorMixin):
         # Compute scores: T = X @ R
         T = X_centered @ self._R
 
-        return T
+        return np.asarray(T)
 
     def get_outlier_mask(
         self,

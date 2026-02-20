@@ -229,7 +229,11 @@ class IndexStore:
         if len(self._df) == 0:
             return None
         max_val = self._df[col].max()
-        return int(max_val) if max_val is not None else None
+        if max_val is None:
+            return None
+        if isinstance(max_val, (int, float)):
+            return int(max_val)
+        return int(str(max_val))
 
     def __repr__(self) -> str:
         """String representation showing the DataFrame."""
@@ -237,7 +241,7 @@ class IndexStore:
 
     # ==================== Tag Column Methods ====================
 
-    def add_tag_column(self, name: str, dtype: str | pl.DataType = pl.Boolean()) -> None:
+    def add_tag_column(self, name: str, dtype: str | pl.DataType | None = None) -> None:
         """
         Add a new tag column to the DataFrame.
 
@@ -258,6 +262,9 @@ class IndexStore:
             >>> store.add_tag_column("cluster_id", "int")
             >>> store.add_tag_column("quality_score", pl.Float64)
         """
+        if dtype is None:
+            dtype = pl.Boolean()
+
         # Resolve string dtype to Polars type
         if isinstance(dtype, str):
             dtype_lower = dtype.lower()

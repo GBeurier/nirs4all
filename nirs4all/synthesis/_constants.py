@@ -2739,19 +2739,19 @@ def _enrich_components_with_metadata(components: dict[str, SpectralComponent]) -
         if name in _COMPONENT_METADATA:
             meta = _COMPONENT_METADATA[name]
             if "category" in meta and not comp.category:
-                comp.category = meta["category"]
+                comp.category = str(meta["category"])
             if "subcategory" in meta and not comp.subcategory:
-                comp.subcategory = meta["subcategory"]
+                comp.subcategory = str(meta["subcategory"])
             if "formula" in meta and not comp.formula:
-                comp.formula = meta["formula"]
+                comp.formula = str(meta["formula"])
             if "cas_number" in meta and not comp.cas_number:
-                comp.cas_number = meta["cas_number"]
+                comp.cas_number = str(meta["cas_number"])
             if "synonyms" in meta and not comp.synonyms:
-                comp.synonyms = meta["synonyms"]
+                comp.synonyms = list(meta["synonyms"])
             if "tags" in meta and not comp.tags:
-                comp.tags = meta["tags"]
+                comp.tags = list(meta["tags"])
             if "references" in meta and not comp.references:
-                comp.references = meta["references"]
+                comp.references = list(meta["references"])
 
         # Normalize band amplitudes (max = 1.0)
         if comp.bands:

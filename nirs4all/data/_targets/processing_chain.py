@@ -125,7 +125,7 @@ class ProcessingChain:
 
         # Build ancestry chain
         ancestry = []
-        current = name
+        current: str | None = name
 
         while current is not None:
             ancestry.append(current)

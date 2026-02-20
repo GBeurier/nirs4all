@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional, Union
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from nirs4all.core.logging import get_logger
 

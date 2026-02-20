@@ -77,7 +77,7 @@ class TensorFlowCompilationConfig:
         return compile_config
 
     @staticmethod
-    def _configure_optimizer(compile_config: dict[str, Any], train_params: dict[str, Any] = None) -> dict[str, Any]:
+    def _configure_optimizer(compile_config: dict[str, Any], train_params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Configure optimizer with learning rate if provided.
 
         Args:
@@ -167,7 +167,7 @@ class TensorFlowFitConfig:
             Dictionary with fit parameters including 'callbacks'.
         """
         # Start with defaults
-        fit_config = {
+        fit_config: dict[str, Any] = {
             'epochs': 100,
             'batch_size': 32,
             'validation_split': 0.2,

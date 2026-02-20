@@ -327,12 +327,12 @@ class PriorSampler:
         if total == 0:
             # Uniform if all zero
             categories = list(weights.keys())
-            return self.rng.choice(categories)
+            return str(self.rng.choice(categories))
 
         categories = list(weights.keys())
         probs = np.array([weights[c] / total for c in categories])
         idx = self.rng.choice(len(categories), p=probs)
-        return categories[idx]
+        return str(categories[idx])
 
     def sample_domain(self) -> str:
         """Sample a domain from the prior."""
@@ -359,7 +359,7 @@ class PriorSampler:
             # Fall back to any instrument
             matching = list(INSTRUMENT_ARCHETYPES.keys())
 
-        return self.rng.choice(matching)
+        return str(self.rng.choice(matching))
 
     def sample_measurement_mode(self, instrument_category: str) -> str:
         """Sample a measurement mode given the instrument category."""

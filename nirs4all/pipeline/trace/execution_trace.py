@@ -279,8 +279,13 @@ class StepArtifacts:
                 results.extend(ids)
 
         # Deduplicate while preserving order
-        seen = set()
-        return [x for x in results if not (x in seen or seen.add(x))]
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for x in results:
+            if x not in seen:
+                seen.add(x)
+                deduped.append(x)
+        return deduped
 
     def get_artifacts_for_source(self, source_index: int) -> list[str]:
         """Get artifact IDs for a specific source.

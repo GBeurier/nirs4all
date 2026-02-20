@@ -94,7 +94,7 @@ class ConcatAugmentationController(OperatorController):
         mode: str = "train",
         loaded_binaries: list[tuple[str, Any]] | None = None,
         prediction_store: Any | None = None
-    ) -> tuple['ExecutionContext', list[tuple[str, bytes]]]:
+    ) -> tuple['ExecutionContext', list[tuple[Any, str, str]]]:
         """
         Execute concat augmentation.
 
@@ -122,7 +122,7 @@ class ConcatAugmentationController(OperatorController):
         # Determine mode: replace or add
         is_add_mode = context.metadata.add_feature
 
-        all_artifacts = []
+        all_artifacts: list[tuple[Any, str, str]] = []
         n_sources = dataset.features_sources()
 
         for sd_idx in range(n_sources):
@@ -302,7 +302,7 @@ class ConcatAugmentationController(OperatorController):
         Returns:
             List of deserialized transformer instances or nested concat_transform dicts
         """
-        deserialized = []
+        deserialized: list[Any] = []
         for op in operations:
             if isinstance(op, dict) and "concat_transform" in op:
                 # Nested concat_transform - keep as dict, will be handled during execution
@@ -421,7 +421,7 @@ class ConcatAugmentationController(OperatorController):
         loaded_binaries: list[tuple[str, Any]] | None,
         runtime_context: 'RuntimeContext',
         context: Optional['ExecutionContext'] = None
-    ) -> tuple[np.ndarray, dict[str, Any] | None]:
+    ) -> tuple[np.ndarray, tuple[Any, str, str] | None]:
         """
         Execute a single transformer.
 
@@ -436,7 +436,7 @@ class ConcatAugmentationController(OperatorController):
             context: Optional execution context for branch info
 
         Returns:
-            Tuple of (transformed_data, artifact_metadata)
+            Tuple of (transformed_data, artifact_tuple_or_None)
         """
         if mode in ["predict", "explain"]:
             fitted = None
@@ -479,7 +479,7 @@ class ConcatAugmentationController(OperatorController):
         loaded_binaries: list[tuple[str, Any]] | None,
         runtime_context: 'RuntimeContext',
         context: Optional['ExecutionContext'] = None
-    ) -> tuple[np.ndarray, list[dict[str, Any]]]:
+    ) -> tuple[np.ndarray, list[tuple[Any, str, str]]]:
         """
         Execute a chain of transformers sequentially: [A, B, C] → C(B(A(X))).
 
@@ -544,7 +544,7 @@ class ConcatAugmentationController(OperatorController):
         loaded_binaries: list[tuple[str, Any]] | None,
         runtime_context: 'RuntimeContext',
         context: Optional['ExecutionContext'] = None
-    ) -> tuple[np.ndarray, list[dict[str, Any]]]:
+    ) -> tuple[np.ndarray, list[tuple[Any, str, str]]]:
         """
         Execute a nested concat_transform: concatenate multiple pipelines.
 

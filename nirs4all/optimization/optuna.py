@@ -31,8 +31,8 @@ try:
     OPTUNA_AVAILABLE = True
 except ImportError:
     OPTUNA_AVAILABLE = False
-    optuna = None
-    BaseSampler = object  # Fallback for type checking
+    optuna = None  # type: ignore[assignment]
+    BaseSampler = object  # type: ignore[assignment,misc]
 
 VALID_SAMPLERS = {"auto", "grid", "tpe", "random", "cmaes", "binary"}
 VALID_APPROACHES = {"single", "grouped", "individual"}
@@ -185,7 +185,8 @@ class BinarySearchSampler(BaseSampler):
             if isinstance(param_distribution, optuna.distributions.FloatDistribution):
                 return self._rng.uniform(param_distribution.low, param_distribution.high)
             elif isinstance(param_distribution, optuna.distributions.CategoricalDistribution):
-                return self._rng.choice(param_distribution.choices)
+                choices = list(param_distribution.choices)
+                return choices[self._rng.randint(len(choices))]
             else:
                 raise ValueError(f"Unsupported distribution type: {type(param_distribution)}")
 
@@ -224,7 +225,8 @@ class BinarySearchSampler(BaseSampler):
         is_better = (lambda a, b: a < b) if study.direction == optuna.study.StudyDirection.MINIMIZE else (lambda a, b: a > b)
 
         # Find current best
-        best_score = min(value_to_score.values()) if study.direction == optuna.study.StudyDirection.MINIMIZE else max(value_to_score.values())
+        scores = [s for s in value_to_score.values() if s is not None]
+        best_score = min(scores) if study.direction == optuna.study.StudyDirection.MINIMIZE else max(scores)
         best_values = [v for v, s in value_to_score.items() if s == best_score]
         best_value = int(np.median(best_values))
 
@@ -1063,6 +1065,7 @@ class OptunaManager:
                 sampler_type = 'tpe'
 
         # Create sampler instance with seed support
+        sampler: BaseSampler
         if sampler_type == 'grid':
             search_space = self._create_grid_search_space(finetune_params)
             sampler = GridSampler(search_space, seed=seed)
@@ -1531,8 +1534,8 @@ class OptunaManager:
             min_len, max_len = length_config
             length = trial.suggest_int(f"{param_name}_length", int(min_len), int(max_len))
         elif isinstance(length_config, dict):
-            min_len = length_config.get('min', length_config.get('low', 2))
-            max_len = length_config.get('max', length_config.get('high', 5))
+            min_len = length_config.get('min', None) or length_config.get('low', 2)
+            max_len = length_config.get('max', None) or length_config.get('high', 5)
             length = trial.suggest_int(f"{param_name}_length", int(min_len), int(max_len))
         else:
             length = int(length_config)
@@ -1625,7 +1628,7 @@ class OptunaManager:
             if isinstance(param_config, list):
                 search_space[param_name] = param_config
             elif isinstance(param_config, dict) and param_config.get("type") == "categorical":
-                search_space[param_name] = param_config.get("choices", param_config.get("values", []))
+                search_space[param_name] = param_config.get("choices") or param_config.get("values") or []
 
         return search_space
 

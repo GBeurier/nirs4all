@@ -426,7 +426,7 @@ class StrayLightAugmenter(SpectraTransformerMixin):
                 truncation_factor = 1 - 0.05 * np.clip(spectrum[high_abs_mask] - 1.5, 0, 2)
                 result[high_abs_mask] *= truncation_factor
 
-        return result
+        return np.asarray(result)
 
 class EdgeCurvatureAugmenter(SpectraTransformerMixin):
     """
@@ -591,7 +591,7 @@ class EdgeCurvatureAugmenter(SpectraTransformerMixin):
         # Add small random variation
         curvature = curvature * (1 + rng.normal(0, 0.1))
 
-        return curvature
+        return np.asarray(curvature)
 
 class TruncatedPeakAugmenter(SpectraTransformerMixin):
     """

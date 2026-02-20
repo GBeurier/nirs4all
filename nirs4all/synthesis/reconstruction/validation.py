@@ -182,7 +182,7 @@ class ReconstructionValidator:
         Returns:
             Dict of comparison metrics.
         """
-        metrics = {}
+        metrics: dict[str, Any] = {}
 
         # Basic statistics comparison
         real_mean = X_real.mean(axis=0)
@@ -263,8 +263,8 @@ class ReconstructionValidator:
         Returns:
             Dict of parameter metrics.
         """
-        metrics = {}
-        warnings = []
+        metrics: dict[str, Any] = {}
+        warnings: list[str] = []
 
         # Concentration statistics
         concentrations = np.array([r.concentrations for r in inversion_results])
@@ -322,7 +322,7 @@ class ReconstructionValidator:
 
         # Compute overall score
         score = 0.0
-        checks_passed = 0
+        checks_passed: float = 0
         total_checks = 0
 
         # Reconstruction checks

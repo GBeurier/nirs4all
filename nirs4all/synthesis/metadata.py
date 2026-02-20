@@ -255,7 +255,7 @@ class MetadataGenerator:
         """
         if min_reps == max_reps:
             # Fixed repetitions
-            avg_reps = min_reps
+            avg_reps: float = min_reps
         else:
             # Variable repetitions - estimate needed bio samples
             avg_reps = (min_reps + max_reps) / 2

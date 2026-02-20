@@ -154,7 +154,7 @@ class OrStrategy(ExpansionStrategy):
 
         # Apply count limit (count <= 0 means no limit)
         if count_limit is not None and count_limit > 0:
-            return min(count_limit, total)
+            return int(min(count_limit, total))
         return total
 
     def validate(self, node: GeneratorNode) -> list[str]:
@@ -257,7 +257,7 @@ class OrStrategy(ExpansionStrategy):
         # Standard pick expansion
         # pick_spec can be: int (exact), tuple/list of 2 ints (range from, to)
         from_size, to_size = self._normalize_spec(pick_spec)
-        result = []
+        result: list[Any] = []
 
         for s in range(from_size, to_size + 1):
             if s > len(choices):
@@ -347,7 +347,7 @@ class OrStrategy(ExpansionStrategy):
         # Standard arrange expansion
         # arrange_spec can be: int (exact), tuple/list of 2 ints (range from, to)
         from_size, to_size = self._normalize_spec(arrange_spec)
-        result = []
+        result: list[Any] = []
 
         for s in range(from_size, to_size + 1):
             if s > len(choices):

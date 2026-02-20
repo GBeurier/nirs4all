@@ -271,19 +271,21 @@ class CrossValidatorController(OperatorController):
         # In predict/explain mode, skip fold splitting entirely
         if mode == "predict" or mode == "explain":
             # Don't filter by partition - prediction data may be in "test" partition
-            local_context = context.with_partition(None)
+            local_context = context.copy()
+            local_context.selector.partition = None
             needs_y, needs_g = _needs(op)
-            X = dataset.x(local_context, layout="2d", concat_source=True)
+            X_raw = dataset.x(local_context, layout="2d", concat_source=True)
+            X = np.asarray(X_raw) if isinstance(X_raw, list) else X_raw
             n_samples = X.shape[0]
 
             # Build minimal kwargs for get_n_splits
-            kwargs: dict[str, Any] = {}
+            predict_kwargs: dict[str, Any] = {}
             if needs_y:
-                y = dataset.y(local_context)
-                if y is not None:
-                    kwargs["y"] = y
+                predict_y = dataset.y(local_context)
+                if predict_y is not None:
+                    predict_kwargs["y"] = predict_y
 
-            n_folds = op.get_n_splits(**kwargs) if hasattr(op, "get_n_splits") else 1
+            n_folds = op.get_n_splits(**predict_kwargs) if hasattr(op, "get_n_splits") else 1
             dataset.set_folds([(list(range(n_samples)), [])] * n_folds)
             return context, StepOutput()
 
@@ -325,7 +327,8 @@ class CrossValidatorController(OperatorController):
         local_context = context.with_partition("train")
         needs_y, needs_g = _needs(op)
         # IMPORTANT: Only split on base samples (exclude augmented) to prevent data leakage
-        X = dataset.x(local_context, layout="2d", concat_source=True, include_augmented=False)
+        X_raw_train = dataset.x(local_context, layout="2d", concat_source=True, include_augmented=False)
+        X = np.asarray(X_raw_train) if isinstance(X_raw_train, list) else X_raw_train
 
         # Get the actual sample IDs from the indexer - these will be used to store folds
         # with absolute sample IDs instead of positional indices, so folds remain valid
@@ -334,7 +337,7 @@ class CrossValidatorController(OperatorController):
             local_context.selector, include_augmented=False, include_excluded=False
         )
 
-        y = None
+        y: np.ndarray | None = None
         if needs_y or use_effective_groups:
             # Get y for splitters that need it, or for effective_groups wrapper
             y = dataset.y(local_context, include_augmented=False)
@@ -446,7 +449,9 @@ class CrossValidatorController(OperatorController):
         # use the validation set as test partition (not as fold)
         # This is expected behavior for single-fold splitters (e.g., SPXYGFold with n_splits=1)
         # which are designed to create train/test splits, not cross-validation folds
-        if dataset.x({"partition": "test"}).shape[0] == 0 and len(sample_id_folds) == 1:
+        X_test_raw = dataset.x({"partition": "test"})
+        X_test = np.asarray(X_test_raw) if isinstance(X_test_raw, list) else X_test_raw
+        if X_test.shape[0] == 0 and len(sample_id_folds) == 1:
             fold_1 = sample_id_folds[0]
             if len(fold_1[1]) > 0:  # Only if there are validation samples
                 # Move validation samples to test partition using sample IDs

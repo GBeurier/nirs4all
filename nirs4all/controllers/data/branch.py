@@ -304,7 +304,7 @@ class BranchController(OperatorController):
 
         # Initialize list to collect branch contexts
         branch_contexts: list[dict[str, Any]] = []
-        all_artifacts = []
+        all_artifacts: list[Any] = []
 
         # Determine if parallel execution should be used
         use_parallel = self._should_use_parallel_execution(
@@ -546,9 +546,9 @@ class BranchController(OperatorController):
         min_samples = raw_def.get("min_samples", 1)
 
         # Check if metadata column exists
-        metadata = dataset.metadata
-        if metadata is None or column not in metadata.columns:
-            available_cols = list(metadata.columns) if metadata is not None else []
+        metadata_df = dataset.metadata()
+        if metadata_df is None or column not in metadata_df.columns:
+            available_cols = list(metadata_df.columns) if metadata_df is not None else []
             raise ValueError(
                 f"Metadata column '{column}' not found. "
                 f"Available columns: {available_cols}"
@@ -571,7 +571,7 @@ class BranchController(OperatorController):
             return context, StepOutput()
 
         # Get metadata values for these samples
-        column_values = metadata[column].values[sample_indices]
+        column_values = metadata_df[column].to_numpy()[sample_indices]
 
         # Build value mapping if not provided
         if value_mapping is None:
@@ -1477,17 +1477,15 @@ class BranchController(OperatorController):
 
     def _get_step_names(self, steps: list[Any]) -> str:
         """Get human-readable names for a list of steps."""
-        names = [self._get_single_step_name(s) for s in steps]
-        names = [n for n in names if n]
-        return " > ".join(names) if names else ""
+        filtered_names = [n for n in (self._get_single_step_name(s) for s in steps) if n is not None]
+        return " > ".join(filtered_names) if filtered_names else ""
 
     def _generate_step_name(self, step: Any, index: int) -> str:
         """Generate a human-readable name for a step or list of steps."""
         if isinstance(step, list):
-            names = [self._get_single_step_name(s) for s in step]
-            names = [n for n in names if n]
-            if names:
-                return "_".join(names[:3])
+            filtered_names = [n for n in (self._get_single_step_name(s) for s in step) if n is not None]
+            if filtered_names:
+                return "_".join(filtered_names[:3])
             return f"branch_{index}"
 
         return self._get_single_step_name(step) or f"branch_{index}"
@@ -1506,7 +1504,7 @@ class BranchController(OperatorController):
         if isinstance(step, dict):
             # Handle explicit name (always takes priority)
             if "name" in step:
-                return step["name"]
+                return str(step["name"])
 
             # Handle serialized class with params
             if "class" in step:
@@ -1543,12 +1541,12 @@ class BranchController(OperatorController):
             # Fallback to first non-private key
             keys = [k for k in step if not k.startswith("_")]
             if keys:
-                return keys[0]
+                return str(keys[0])
 
         # For operator instances, use format_operator_with_params to show parameters
         if hasattr(step, "__class__"):
             from nirs4all.utils.operator_formatting import format_operator_with_params
-            return format_operator_with_params(step)
+            return str(format_operator_with_params(step))
 
         return None
 
@@ -1754,7 +1752,7 @@ class BranchController(OperatorController):
 
         if isinstance(operator, dict):
             if 'class' in operator:
-                class_path = operator['class']
+                class_path = str(operator['class'])
                 if '.' in class_path:
                     return class_path.rsplit('.', 1)[-1]
                 return class_path

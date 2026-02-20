@@ -111,7 +111,7 @@ class RangeStrategy(ExpansionStrategy):
 
         # Apply count limit if specified (count <= 0 means no limit)
         if count_limit is not None and count_limit > 0:
-            return min(count_limit, range_size)
+            return int(min(count_limit, range_size))
         return range_size
 
     def validate(self, node: GeneratorNode) -> list[str]:

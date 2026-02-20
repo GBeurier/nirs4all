@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import importlib.util
 from collections.abc import Callable
-from typing import Any, Optional, TypeVar
+from typing import Any, Optional, TypeVar, cast
 
 # =============================================================================
 # Backend Registry and Detection
@@ -67,7 +67,7 @@ _PACKAGE_MAPPING: dict[str, str] = {
 # =============================================================================
 
 # Cache for availability checks - None means not yet checked
-_availability_cache: dict[str, bool | None] = {}
+_availability_cache: dict[str, bool] = {}
 
 def _check_spec_available(module_name: str) -> bool:
     """Check if a module is available via importlib.util.find_spec.
@@ -137,8 +137,8 @@ class _LazyAvailability:
     def __repr__(self) -> str:
         return str(bool(self))
 
-    def __eq__(self, other) -> bool:
-        return bool(self) == other
+    def __eq__(self, other: object) -> bool:
+        return bool(self) == bool(other)
 
     def __hash__(self) -> int:
         return hash(bool(self))
@@ -225,7 +225,7 @@ def framework(framework_name: str) -> Callable[[F], F]:
         ...     # ... build model
     """
     def decorator(func: F) -> F:
-        func.framework = framework_name
+        cast(Any, func).framework = framework_name
         return func
     return decorator
 
@@ -233,7 +233,7 @@ def framework(framework_name: str) -> Callable[[F], F]:
 # GPU Detection (Lazy)
 # =============================================================================
 
-_gpu_cache: dict[str, bool | None] = {}
+_gpu_cache: dict[str, bool] = {}
 
 def is_gpu_available(backend: str | None = None) -> bool:
     """Check if GPU is available for the specified backend or any backend.
@@ -309,7 +309,7 @@ def get_gpu_info() -> dict[str, Any]:
         >>> if info.get('torch', {}).get('available'):
         ...     print(f"GPU: {info['torch']['device_name']}")
     """
-    info = {}
+    info: dict[str, Any] = {}
 
     if is_available('torch'):
         try:

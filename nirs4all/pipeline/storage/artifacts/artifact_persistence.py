@@ -35,7 +35,7 @@ class ArtifactMeta(TypedDict):
     branch_name: str | None    # Human-readable branch name
 
 # Framework detection cache
-_FRAMEWORK_CACHE = {
+_FRAMEWORK_CACHE: dict[str, bool | None] = {
     'sklearn': None,
     'tensorflow': None,
     'keras': None,
@@ -49,9 +49,11 @@ _FRAMEWORK_CACHE = {
 
 def _check_framework(name: str) -> bool:
     """Check if a framework is available (cached)."""
-    if _FRAMEWORK_CACHE[name] is None:
-        _FRAMEWORK_CACHE[name] = importlib.util.find_spec(name) is not None
-    return _FRAMEWORK_CACHE[name]
+    cached = _FRAMEWORK_CACHE.get(name)
+    if cached is None:
+        cached = importlib.util.find_spec(name) is not None
+        _FRAMEWORK_CACHE[name] = cached
+    return cached
 
 def _detect_framework(obj: Any) -> str:
     """

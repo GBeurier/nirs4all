@@ -144,7 +144,7 @@ class SpectraChartController(OperatorController):
         selector_with_excluded = context.selector
         if include_excluded:
             # Modify selector to include excluded samples
-            selector_with_excluded = {"sample": sample_indices.tolist()}
+            selector_with_excluded = {"sample": sample_indices.tolist()}  # type: ignore[assignment]  # dict selector is valid at runtime
 
         spectra_data = dataset.x(selector_with_excluded, "3d", False, include_excluded=include_excluded)
         y = dataset.y(selector_with_excluded, include_excluded=include_excluded)
@@ -228,7 +228,7 @@ class SpectraChartController(OperatorController):
                     self._plot_2d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers, header_unit, is_classification, excluded_sorted)
 
             # Adjust layout to prevent overlap
-            plt.tight_layout(rect=[0, 0, 1, 0.96])
+            plt.tight_layout(rect=(0, 0, 1, 0.96))
 
             # Save plot to memory buffer as PNG binary
             img_buffer = io.BytesIO()

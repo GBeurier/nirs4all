@@ -52,7 +52,7 @@ class StepRunner:
         self.mode = mode
         self.show_spinner = show_spinner
         self.plots_visible = plots_visible
-        self._figure_refs = []
+        self._figure_refs: list[Any] = []
 
     def execute(
         self,
@@ -170,7 +170,7 @@ class StepRunner:
 
         # Execute controller
         try:
-            result = controller.execute(
+            controller_result = controller.execute(
                 step_info=parsed_step,
                 dataset=dataset,
                 context=context,
@@ -182,13 +182,13 @@ class StepRunner:
             )
 
             # Handle both legacy (context, artifacts) and new (context, StepOutput) returns
-            if not isinstance(result, tuple) or len(result) != 2:
+            if not isinstance(controller_result, tuple) or len(controller_result) != 2:
                 raise RuntimeError(
                     "Controller returned an invalid result format. "
                     "Expected (context, artifacts|StepOutput)."
                 )
 
-            updated_context, output_data = result
+            updated_context, output_data = controller_result
 
             # Check if output_data is StepOutput or list of artifacts
             from nirs4all.pipeline.execution.result import StepOutput

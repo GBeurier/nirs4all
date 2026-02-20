@@ -147,10 +147,10 @@ class AOMPLSClassifier(BaseEstimator, ClassifierMixin):
         y_raw = self.aom_.predict(X)
         if len(self.classes_) == 2:
             y_pred = (y_raw > 0.5).astype(int).ravel()
-            return self.encoder_.inverse_transform(y_pred)
+            return np.asarray(self.encoder_.inverse_transform(y_pred))
         else:
             y_pred = np.argmax(y_raw, axis=1)
-            return self.encoder_.categories_[0][y_pred]
+            return np.asarray(self.encoder_.categories_[0][y_pred])
 
     def predict_proba(self, X) -> NDArray:
         """Predict class probabilities using softmax normalization.
@@ -168,11 +168,11 @@ class AOMPLSClassifier(BaseEstimator, ClassifierMixin):
         y_raw = self.aom_.predict(X)
         if len(self.classes_) == 2:
             p1 = np.clip(y_raw, 0, 1) if y_raw.ndim == 1 else np.clip(y_raw.ravel(), 0, 1)
-            return np.column_stack([1.0 - p1, p1])
+            return np.asarray(np.column_stack([1.0 - p1, p1]))
         else:
             # Softmax normalization for calibrated probabilities
             exp_y = np.exp(y_raw - np.max(y_raw, axis=1, keepdims=True))
-            return exp_y / np.sum(exp_y, axis=1, keepdims=True)
+            return np.asarray(exp_y / np.sum(exp_y, axis=1, keepdims=True))
 
     def get_block_weights(self) -> NDArray:
         """Get per-component block gating weights from underlying AOM-PLS."""

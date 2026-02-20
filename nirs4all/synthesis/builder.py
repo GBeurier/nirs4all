@@ -19,7 +19,7 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 import numpy as np
 
@@ -933,13 +933,17 @@ class SyntheticDatasetBuilder:
         if self.state.aggregate_name is not None:
             X, C, metadata = self._generate_from_aggregate(generator)
         else:
-            X, C, _E, metadata = generator.generate(
-                n_samples=self.state.n_samples,
-                concentration_method=self.state.concentration_method,
-                include_batch_effects=self.state.batch_effects_enabled,
-                n_batches=self.state.n_batches,
-                return_metadata=True,
+            gen_result_full = cast(
+                tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, Any]],
+                generator.generate(
+                    n_samples=self.state.n_samples,
+                    concentration_method=self.state.concentration_method,
+                    include_batch_effects=self.state.batch_effects_enabled,
+                    n_batches=self.state.n_batches,
+                    return_metadata=True,
+                ),
             )
+            X, C, _E, metadata = gen_result_full
 
         # Store wavelengths and concentrations
         self.state._wavelengths = generator.wavelengths.copy()
@@ -989,6 +993,7 @@ class SyntheticDatasetBuilder:
         """
         from ._aggregates import expand_aggregate, get_aggregate
 
+        assert self.state.aggregate_name is not None
         agg = get_aggregate(self.state.aggregate_name)
         n_samples = self.state.n_samples
         component_names = list(agg.components.keys())
@@ -1003,7 +1008,7 @@ class SyntheticDatasetBuilder:
             composition = expand_aggregate(
                 self.state.aggregate_name,
                 variability=self.state.aggregate_variability,
-                random_state=rng.integers(0, 2**31) if self.state.aggregate_variability else None,
+                random_state=int(rng.integers(0, 2**31)) if self.state.aggregate_variability else None,
             )
 
             # Map to concentration array in correct order
@@ -1032,7 +1037,7 @@ class SyntheticDatasetBuilder:
         # For classification, use the TargetGenerator
         if self.state.n_classes is not None:
             target_gen = TargetGenerator(random_state=self.state.random_state)
-            y = target_gen.classification(
+            y_result = target_gen.classification(
                 n_samples=C.shape[0],
                 concentrations=C,
                 n_classes=self.state.n_classes,
@@ -1040,7 +1045,8 @@ class SyntheticDatasetBuilder:
                 separation=self.state.class_separation,
                 separation_method=self.state.class_separation_method,
             )
-            return y
+            assert isinstance(y_result, np.ndarray)
+            return y_result
 
         # For regression, process as before
         # Select target component(s)
@@ -1132,6 +1138,7 @@ class SyntheticDatasetBuilder:
         """Build SpectroDataset from generated data."""
         from nirs4all.data import SpectroDataset
 
+        assert self.state._X is not None and self.state._y is not None and self.state._wavelengths is not None
         X = self.state._X
         y = self.state._y
         n_samples = self.state.n_samples
@@ -1183,6 +1190,7 @@ class SyntheticDatasetBuilder:
 
     def _build_arrays(self) -> tuple[np.ndarray, np.ndarray]:
         """Build raw numpy arrays from generated data."""
+        assert self.state._X is not None and self.state._y is not None
         return self.state._X.copy(), self.state._y.copy()
 
     def build(self) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
@@ -1230,6 +1238,7 @@ class SyntheticDatasetBuilder:
         from .sources import MultiSourceGenerator
 
         generator = MultiSourceGenerator(random_state=self.state.random_state)
+        assert self.state.sources is not None
 
         if self.state.as_dataset:
             dataset = generator.create_dataset(
@@ -1265,7 +1274,9 @@ class SyntheticDatasetBuilder:
             >>> X, y = builder.build_arrays()
         """
         self.state.as_dataset = False
-        return self.build()
+        result = self.build()
+        assert isinstance(result, tuple)
+        return result
 
     def build_dataset(self) -> SpectroDataset:
         """
@@ -1281,7 +1292,9 @@ class SyntheticDatasetBuilder:
             >>> dataset = builder.build_dataset()
         """
         self.state.as_dataset = True
-        return self.build()
+        result = self.build()
+        assert not isinstance(result, tuple)
+        return result
 
     def get_config(self) -> SyntheticDatasetConfig:
         """
@@ -1420,25 +1433,31 @@ class SyntheticDatasetBuilder:
         from .exporter import DatasetExporter
 
         # Generate data if not already done
+        X: np.ndarray
+        y: np.ndarray
+        wavelengths: np.ndarray | None
         if self.state._X is None:
             if self.state.sources is not None:
                 # Multi-source - generate and export differently
-                result = self._build_multi_source()
-                if hasattr(result, 'x'):
-                    # It's a dataset
-                    X = result.x({}, layout='2d')
-                    y = result.y({})
+                ms_result = self._build_multi_source()
+                if isinstance(ms_result, tuple):
+                    X, y = ms_result
                 else:
-                    X, y = result
+                    x_result = ms_result.x({}, layout='2d')
+                    assert isinstance(x_result, np.ndarray)
+                    X = x_result
+                    y = ms_result.y({})
                 wavelengths = None  # Multi-source doesn't have simple wavelengths
             else:
                 generator = self._create_generator()
                 self._generate_data(generator)
+                assert self.state._X is not None and self.state._y is not None
                 X = self.state._X
                 y = self.state._y
                 wavelengths = self.state._wavelengths
         else:
             X = self.state._X
+            assert self.state._y is not None
             y = self.state._y
             wavelengths = self.state._wavelengths
 
@@ -1480,6 +1499,7 @@ class SyntheticDatasetBuilder:
             generator = self._create_generator()
             self._generate_data(generator)
 
+        assert self.state._X is not None and self.state._y is not None
         exporter = DatasetExporter()
         return exporter.to_csv(
             path,

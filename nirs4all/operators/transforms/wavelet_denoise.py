@@ -81,7 +81,7 @@ def wavelet_denoise(
     x_rec = pywt.waverec(coeffs_filtered, wavelet=wavelet, mode=mode)
 
     # Truncate to original length (waverec may add padding)
-    return x_rec[..., :L]
+    return np.asarray(x_rec[..., :L])
 
 class WaveletDenoise(TransformerMixin, BaseEstimator):
     """

@@ -194,6 +194,7 @@ class Resampler(TransformerMixin, BaseEstimator):
         original_n_features = X.shape[1]
 
         # Apply crop range if specified
+        self.crop_mask_: np.ndarray | None
         if self.crop_range is not None:
             crop_min, crop_max = self.crop_range
             self.crop_mask_ = (self.original_wavelengths_ >= crop_min) & (self.original_wavelengths_ <= crop_max)

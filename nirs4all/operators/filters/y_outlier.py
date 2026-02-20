@@ -282,7 +282,7 @@ class YOutlierFilter(SampleFilter):
         within_bounds = (y_flat >= self.lower_bound_) & (y_flat <= self.upper_bound_)
 
         # Keep if within bounds AND not NaN
-        return within_bounds & ~is_nan
+        return np.asarray(within_bounds & ~is_nan)
 
     def get_filter_stats(self, X: np.ndarray, y: np.ndarray | None = None) -> dict[str, Any]:
         """

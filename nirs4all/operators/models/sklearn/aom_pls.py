@@ -416,9 +416,9 @@ class FiniteDifferenceOperator(LinearOperator):
             self._conv_kernel = np.array([1.0, -2.0, 1.0]) / (self.delta ** 2)
         else:
             # Higher order: apply first-order kernel repeatedly
-            k = np.array([-1.0, 0.0, 1.0]) / (2.0 * self.delta)
+            k: NDArray[np.float64] = np.array([-1.0, 0.0, 1.0]) / (2.0 * self.delta)
             for _ in range(self.order - 1):
-                k = np.convolve(k, np.array([-1.0, 0.0, 1.0]) / (2.0 * self.delta), mode='full')
+                k = np.asarray(np.convolve(k, np.array([-1.0, 0.0, 1.0]) / (2.0 * self.delta), mode='full'))
             self._conv_kernel = k
         self._adj_kernel = self._conv_kernel[::-1].astype(np.float64)
         self._nu = self._compute_frobenius_norm_sq(p)
@@ -764,7 +764,7 @@ def _sparsemax(z: NDArray) -> NDArray:
     support = z_sorted > thresholds
     k_star = np.max(np.where(support)[0]) + 1 if np.any(support) else 1
     tau = (cumsum[k_star - 1] - 1.0) / k_star
-    return np.maximum(z - tau, 0.0)
+    return np.asarray(np.maximum(z - tau, 0.0))
 
 # =============================================================================
 # OPLS Pre-filter (optional)
@@ -1593,13 +1593,13 @@ class AOMPLSRegressor(BaseEstimator, RegressorMixin):
             (list of {name, weight} dicts for non-zero blocks).
         """
         check_is_fitted(self, ["gamma_", "block_names_"])
-        report = []
+        report: list[dict] = []
         for k in range(self.n_components_):
-            blocks = []
+            blocks: list[dict[str, str | float]] = []
             for b, name in enumerate(self.block_names_):
                 if self.gamma_[k, b] > 1e-6:
                     blocks.append({"name": name, "weight": float(self.gamma_[k, b])})
-            blocks.sort(key=lambda x: x["weight"], reverse=True)
+            blocks.sort(key=lambda x: float(x["weight"]), reverse=True)
             report.append({"component": k + 1, "blocks": blocks})
         return report
 

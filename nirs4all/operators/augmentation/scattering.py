@@ -155,11 +155,11 @@ class ParticleSizeAugmenter(SpectraTransformerMixin):
             particle_sizes = np.clip(particle_sizes, 5.0, 500.0)
 
         # Compute size ratios relative to reference
-        size_ratios = particle_sizes / self.reference_size_um
+        size_ratios = np.asarray(particle_sizes) / self.reference_size_um
 
         for i in range(n_samples):
             result[i] = self._apply_size_effects(
-                result[i], wavelengths, size_ratios[i], rng
+                result[i], wavelengths, float(size_ratios[i]), rng
             )
 
         return result
@@ -187,7 +187,7 @@ class ParticleSizeAugmenter(SpectraTransformerMixin):
         scatter_noise = self._compute_scatter_noise(len(wavelengths), rng)
         result = result + scatter_noise
 
-        return result
+        return np.asarray(result)
 
     def _compute_scatter_baseline(
         self,
@@ -216,13 +216,13 @@ class ParticleSizeAugmenter(SpectraTransformerMixin):
         # Center so mean offset is controlled
         baseline = baseline - baseline.mean()
 
-        return baseline
+        return np.asarray(baseline)
 
     def _compute_path_length_factor(self, size_ratio: float) -> float:
         """Compute effective path length factor."""
         # Smaller particles reduce mean free path
         path_factor = 1.0 + self.path_length_sensitivity * np.log(size_ratio)
-        return np.clip(path_factor, 0.7, 1.5)
+        return float(np.clip(path_factor, 0.7, 1.5))
 
     def _compute_scatter_noise(
         self,
@@ -234,7 +234,7 @@ class ParticleSizeAugmenter(SpectraTransformerMixin):
         noise = rng.normal(0, noise_std, n_wavelengths)
         # Slight wavelength correlation
         noise = gaussian_filter1d(noise, sigma=3)
-        return noise
+        return np.asarray(noise)
 
 class EMSCDistortionAugmenter(SpectraTransformerMixin):
     """
@@ -352,7 +352,7 @@ class EMSCDistortionAugmenter(SpectraTransformerMixin):
     def _normalize_wavelengths(self, wavelengths: np.ndarray) -> np.ndarray:
         """Normalize wavelengths to [-1, 1] for polynomial stability."""
         wl_min, wl_max = wavelengths.min(), wavelengths.max()
-        return 2.0 * (wavelengths - wl_min) / (wl_max - wl_min) - 1.0
+        return np.asarray(2.0 * (wavelengths - wl_min) / (wl_max - wl_min) - 1.0)
 
     def _generate_emsc_params(self, rng: np.random.Generator) -> dict:
         """Generate EMSC parameters for one sample."""
@@ -400,7 +400,7 @@ class EMSCDistortionAugmenter(SpectraTransformerMixin):
                 if coef_name in params:
                     result = result + params[coef_name] * (wl_norm ** order)
 
-        return result
+        return np.asarray(result)
 
 __all__ = [
     "ParticleSizeAugmenter",

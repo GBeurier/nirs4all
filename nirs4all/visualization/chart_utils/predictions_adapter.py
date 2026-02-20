@@ -3,7 +3,7 @@ PredictionsAdapter - Adapter for Predictions API with optimized data access.
 
 Wraps the refactored Predictions API to provide convenient methods for charts.
 """
-from typing import Optional
+from typing import Optional, cast
 
 from nirs4all.data.predictions import PredictionResultsList
 
@@ -57,14 +57,14 @@ class PredictionsAdapter:
         if ascending is None:
             ascending = not self.is_higher_better(rank_metric)
 
-        return self.predictions.top(
+        return cast(PredictionResultsList, self.predictions.top(
             n=n,
             rank_metric=rank_metric,
             rank_partition=rank_partition,
             ascending=ascending,
             load_arrays=load_arrays,
             **filters
-        )
+        ))
 
     def get_all_predictions_metadata(
         self,
@@ -82,13 +82,13 @@ class PredictionsAdapter:
         Returns:
             PredictionResultsList with all matching predictions (no arrays loaded).
         """
-        return self.predictions.top(
+        return cast(PredictionResultsList, self.predictions.top(
             n=self.predictions.num_predictions,
             rank_metric=rank_metric,
             rank_partition=rank_partition,
             load_arrays=False,
             **filters
-        )
+        ))
 
     def extract_metric_values(
         self,

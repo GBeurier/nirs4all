@@ -128,7 +128,7 @@ class LogEvent:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert event to dictionary for JSON serialization."""
-        result = {
+        result: dict[str, Any] = {
             "ts": self.timestamp.isoformat(),
             "level": self.level,
             "message": self.message,

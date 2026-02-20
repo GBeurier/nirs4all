@@ -321,7 +321,7 @@ class MetaModel(BaseModelOperator):
         """
         if self.stacking_config.level == StackingLevel.AUTO:
             return self._detected_level or 1
-        return self.stacking_config.level.value
+        return int(self.stacking_config.level.value)
 
     # Keys in finetune_space that are control parameters, not model hyperparameters
     _FINETUNE_CONTROL_KEYS = frozenset({

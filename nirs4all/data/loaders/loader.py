@@ -3,7 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -173,11 +173,11 @@ def _load_file_with_registry(
         )
     except FormatNotSupportedError:
         # Fall back to the unified CSV loader for unknown formats
-        return load_csv(file_path, header_unit=header_unit, data_type=data_type, **params)
+        return cast(tuple[pd.DataFrame | None, dict[str, Any], pd.Series | None, list[str], str], load_csv(file_path, header_unit=header_unit, data_type=data_type, **params))
     except Exception as e:
         # On any other error, try CSV as a fallback
         try:
-            return load_csv(file_path, header_unit=header_unit, data_type=data_type, **params)
+            return cast(tuple[pd.DataFrame | None, dict[str, Any], pd.Series | None, list[str], str], load_csv(file_path, header_unit=header_unit, data_type=data_type, **params))
         except Exception:
             # If CSV also fails, re-raise the original error
             raise e from None
@@ -284,7 +284,7 @@ def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | 
 
     # Load metadata if provided
     m_df = pd.DataFrame()
-    m_headers = []
+    m_headers: list[str] = []
     if m_path is not None:
         try:
             if m_params is None:

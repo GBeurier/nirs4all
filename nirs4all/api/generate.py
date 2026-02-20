@@ -319,14 +319,14 @@ def builder(
 
 def multi_source(
     n_samples: int = 1000,
-    sources: list[dict[str, Any]] = None,
+    sources: list[dict[str, Any]] | None = None,
     *,
     random_state: int | None = None,
     target_range: tuple[float, float] | None = None,
     train_ratio: float = 0.8,
     as_dataset: bool = True,
     name: str = "multi_source_synthetic",
-) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
+) -> Any:
     """
     Generate a synthetic multi-source NIRS dataset.
 
@@ -590,11 +590,12 @@ def product(
             train_ratio=train_ratio,
         )
     else:
-        return generator.generate(
+        result = generator.generate(
             n_samples=n_samples,
             target=target,
             train_ratio=train_ratio,
         )
+        return result[0] if isinstance(result, tuple) else result
 
 def category(
     templates: list[str],
@@ -663,7 +664,8 @@ def category(
     if instrument_wavelength_grid is not None:
         wl_kwargs["instrument_wavelength_grid"] = instrument_wavelength_grid
 
-    generator = CategoryGenerator(templates, random_state=random_state, **wl_kwargs)
+    templates_arg: list[str | Any] = list(templates)
+    generator = CategoryGenerator(templates_arg, random_state=random_state, **wl_kwargs)
 
     return generator.generate(
         n_samples=n_samples,
@@ -733,9 +735,9 @@ def from_template(
             raise ValueError(f"No datasets found at {template}")
 
         template_ds = datasets[0]
-        template_array = template_ds.x({}, layout="2d")
+        template_array = np.asarray(template_ds.x({}, layout="2d"))
         with contextlib.suppress(AttributeError, TypeError):
-            wavelengths = template_ds.wavelengths
+            wavelengths = getattr(template_ds, 'wavelengths', None)
         builder.fit_to(template_array, wavelengths=wavelengths)
     else:
         builder.fit_to(template, wavelengths=wavelengths)

@@ -691,7 +691,7 @@ class SIMPLS(BaseEstimator, RegressorMixin):
         if self._y_1d:
             y_pred = y_pred.ravel()
 
-        return y_pred
+        return np.asarray(y_pred)
 
     def transform(
         self,
@@ -717,7 +717,7 @@ class SIMPLS(BaseEstimator, RegressorMixin):
         # Compute scores: T = X @ W
         T = X_centered @ self._R
 
-        return T
+        return np.asarray(T)
 
     def get_params(self, deep: bool = True) -> dict:
         """Get parameters for this estimator.

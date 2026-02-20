@@ -149,7 +149,7 @@ class AutoTransferPreprocessingController(OperatorController):
         mode: str = "train",
         loaded_binaries: list[tuple[str, Any]] | None = None,
         prediction_store: Any | None = None,
-    ) -> tuple["ExecutionContext", list[tuple[str, Any]]]:
+    ) -> tuple["ExecutionContext", list[tuple[Any, str, str]]]:
         """
         Execute auto transfer preprocessing selection.
 
@@ -235,7 +235,7 @@ class AutoTransferPreprocessingController(OperatorController):
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
         source: int = -1,
-    ) -> tuple["ExecutionContext", list[tuple[str, Any]]]:
+    ) -> tuple["ExecutionContext", list[tuple[Any, str, str]]]:
         """
         Execute in train mode: run selection and apply recommendation.
 
@@ -327,7 +327,7 @@ class AutoTransferPreprocessingController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int = -1,
         loaded_binaries: list[tuple[str, Any]] | None = None,
-    ) -> tuple["ExecutionContext", list[tuple[str, Any]]]:
+    ) -> tuple["ExecutionContext", list[tuple[Any, str, str]]]:
         """
         Execute in predict mode: load and apply saved recommendation.
 
@@ -472,7 +472,7 @@ class AutoTransferPreprocessingController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train"
-    ) -> tuple["ExecutionContext", list[tuple[str, Any]]]:
+    ) -> tuple["ExecutionContext", list[tuple[Any, str, str]]]:
         """
         Apply the recommended preprocessing to the dataset.
 
@@ -549,7 +549,7 @@ class AutoTransferPreprocessingController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-    ) -> tuple["ExecutionContext", list[tuple[str, Any]]]:
+    ) -> tuple["ExecutionContext", list[tuple[Any, str, str]]]:
         """
         Apply a stacked preprocessing (e.g., "snv>d1") to the dataset.
 
@@ -641,7 +641,7 @@ class AutoTransferPreprocessingController(OperatorController):
         runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
-    ) -> tuple["ExecutionContext", list[tuple[str, Any]]]:
+    ) -> tuple["ExecutionContext", list[tuple[Any, str, str]]]:
         """
         Apply feature augmentation (concatenate multiple preprocessing outputs).
 
