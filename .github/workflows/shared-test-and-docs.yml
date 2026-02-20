@@ -37,12 +37,12 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python-version: ['3.11', '3.13']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
@@ -72,7 +72,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: ${{ inputs.upload-coverage }}
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
           file: ./coverage.xml
           fail_ci_if_error: false
@@ -81,13 +81,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -106,7 +106,7 @@ jobs:
           sphinx-build -b html source _build/html --keep-going
 
       - name: Upload documentation artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.docs-artifact-name }}
           path: docs/_build/html/
