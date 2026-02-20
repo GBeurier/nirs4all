@@ -6,6 +6,7 @@ __pycache__/
 *.egg-info
 dist/
 build/
+dist_tmp/
 
 # =============================================================================
 # Virtual Environments
@@ -44,6 +45,7 @@ examples/.hypothesis/
 # Documentation
 # =============================================================================
 docs/_build
+docs/source/_generated_api/
 
 # =============================================================================
 # Logs
@@ -136,7 +138,8 @@ bench/tabpfn_paper/run_reg_pls.py.original
 bench/tabpfn_paper/scan_cards.pdf
 
 # Bench: fck_pls
-bench/fck_pls/workspace
+bench/fck_pls/workspace/
+bench/fck-pls/workspace/
 
 # =============================================================================
 # Misc / Legacy
@@ -147,3 +150,4 @@ results/
 predict/
 .github/instructions/Claude instructions.instructions.md
 .github/copilot-instructions.md
+

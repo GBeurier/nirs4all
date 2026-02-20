@@ -47,9 +47,9 @@ Start with Controllers → Extension Patterns
 
 ```{seealso}
 **Related Examples:**
-- [Interactive Example Browser](../../examples/index.md) - Browse all 67 examples by topic and difficulty
-- [U01: Hello World](../../examples/user/01_getting_started/U01_hello_world.py) - See your first pipeline in action
-- [U02: Basic Regression](../../examples/user/01_getting_started/U02_basic_regression.py) - Complete workflow example
+- {doc}`/examples/index` - Browse all 67 examples by topic and difficulty
+- [U01: Hello World](https://github.com/GBeurier/nirs4all/blob/main/examples/user/01_getting_started/U01_hello_world.py) - See your first pipeline in action
+- [U02: Basic Regression](https://github.com/GBeurier/nirs4all/blob/main/examples/user/01_getting_started/U02_basic_regression.py) - Complete workflow example
 ```
 
 ## Core Concepts

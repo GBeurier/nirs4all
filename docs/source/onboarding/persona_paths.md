@@ -549,6 +549,6 @@ Learning is iterative. Don't try to understand everything at once. Start with yo
 ```{seealso}
 **Related Examples:**
 - [Examples Index](../../examples/index.md) - Browse all 67 examples organized by topic and difficulty
-- [U01-U04: Getting Started](https://github.com/nirs4all/nirs4all/tree/main/examples/user/01_getting_started) - First examples for all personas
-- [Developer Examples](https://github.com/nirs4all/nirs4all/tree/main/examples/developer) - Advanced examples for extending nirs4all
+- [U01-U04: Getting Started](https://github.com/GBeurier/nirs4all/tree/main/examples/user/01_getting_started) - First examples for all personas
+- [Developer Examples](https://github.com/GBeurier/nirs4all/tree/main/examples/developer) - Advanced examples for extending nirs4all
 ```
