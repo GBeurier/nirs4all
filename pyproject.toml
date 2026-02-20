@@ -58,7 +58,7 @@ dependencies = [
     "scikit-learn>=1.2.0",
 
     # Data processing
-    "polars>=0.20.0",
+    "polars>=1.0.0",
     "pyarrow>=14.0.0",
     "duckdb>=1.0.0",
     "h5py>=3.8.0",
@@ -181,6 +181,7 @@ nirs4all = ["py.typed"]
 [tool.ruff]
 line-length = 220
 target-version = "py311"
+extend-exclude = ["bench"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
@@ -227,6 +228,7 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_ignores = true
 ignore_missing_imports = true
+exclude = ["bench", "docs/_build"]
 
 # Legacy tool configuration (for compatibility)
 [tool.pylint.'MESSAGES CONTROL']

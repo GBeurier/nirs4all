@@ -1,105 +1,149 @@
-# IDE
-.idea/
-
-# Environment files
-.env
-.env.*
-
+# =============================================================================
 # Python
+# =============================================================================
 *.py[cod]
 __pycache__/
+*.egg-info
+dist/
+build/
 
-# Venv
+# =============================================================================
+# Virtual Environments
+# =============================================================================
 .venv/
 .smoke_env/
 
-# System
+# =============================================================================
+# IDE / Editors
+# =============================================================================
+.idea/
+/.vscode/
+
+# =============================================================================
+# OS
+# =============================================================================
 .DS_Store
 
-# Pip
-*.egg-info
-dist/
+# =============================================================================
+# Environment / Secrets
+# =============================================================================
+.env
+.env.*
 
-# Folders
-/.vscode/
-build/
-results/
-predict/
-trash/
-deprec/
-.github/instructions/Claude instructions.instructions.md
-.github/copilot-instructions.md
-examples/generated/
-example_workspace/
-
-# Testing
+# =============================================================================
+# Testing / Coverage
+# =============================================================================
 .pytest_cache/
-test_experiment_manager/
 .coverage
-.coveragerc
 .coverage.*
-examples/.hypothesis/
-log.txt
+.coveragerc
 .travis.yml
-workspace_quick_test/
-test_cli_workspace/
+examples/.hypothesis/
+
+# =============================================================================
+# Documentation
+# =============================================================================
+docs/_build
+
+# =============================================================================
+# Logs
+# =============================================================================
+*.log
+log.txt
+logs/
+
+# =============================================================================
+# Model / Data Artifacts
+# =============================================================================
+*.n4a
+*.n4a.py
+*.ckpt
+*.parquet
+store.duckdb
+
+# =============================================================================
+# Runtime Workspaces (generated at runtime by nirs4all)
+# =============================================================================
 /workspace/
 /workspace_integration_test/
 /workspace_test/
-test_output*
-examples/workspace/
+workspace_test_variant_parallel/
+workspace_quick_test/
+fake_workspace/
 example_workspace/
-workspace_export_example/examples/sample_data/Hiba23
-*workspace_export_example/
-examples/regression_data/
-examples/out
+test_cli_workspace/
+test_experiment_manager/
+test_output*
+/tmp
+
+# =============================================================================
+# Exports (generated at runtime)
+# =============================================================================
 /exports/
-*.parquet
-bench/_datasets/
-bench/synthetic/charts/
-bench/workspace/
-*.ckpt
-bench/reports/
-bench/studies/reports/
-bench/studies/_datasets/
-bench/studies/workspace/
-bench/studies/wk
-examples/catboost_info
+*workspace_export_example/
+
+# =============================================================================
+# Examples (generated outputs)
+# =============================================================================
+examples/workspace/
+examples/generated/
+examples/out
+examples/reports
 examples/charts/
+examples/catboost_info
+examples/*.png
+examples/regression_data/
 examples/sample_data/Hiba/
 examples/sample_data/redox/
-
-bench/nirs4all_logo.png
-bench/wk/
-*.log
-logs/
 examples/sample_data/sample_source/
-*.n4a
-*.n4a.py
-docs/_build
-/tmp
-bench/fck-pls/workspace
+examples/sample_data/Hiba23
+
+# =============================================================================
+# Benchmarks (generated outputs)
+# =============================================================================
+bench/_datasets/
+bench/workspace/
+bench/wk/
+bench/reports/
+bench/synthetic/charts/
 bench/synthetic/workspace
-examples/reports
-fake_workspace/
-store.duckdb
+bench/nirs4all_logo.png
+
+# Bench: studies
+bench/studies/_datasets/
+bench/studies/reports/
+bench/studies/workspace/
+bench/studies/wk
+
+# Bench: tabpfn_paper
 bench/tabpfn_paper/data/
 bench/tabpfn_paper/outputs/
 bench/tabpfn_paper/reports/
 bench/tabpfn_paper/studies/
 bench/tabpfn_paper/workspace/
 bench/tabpfn_paper/cards/
-workspace_test_variant_parallel/
-examples/*.png
 bench/tabpfn_paper/AOM_workspace/
 bench/tabpfn_paper/test_workspace/
-bench/tabpfn_paper/~$table_results_tabpfn_final_light.xlsx
 bench/tabpfn_paper/aom.log.txt
 bench/tabpfn_paper/aom.log2.txt
 bench/tabpfn_paper/metrics.xlsx
 bench/tabpfn_paper/table_results_tabpfn_final_light.csv
 bench/tabpfn_paper/table_results_tabpfn_final_light.csv:Zone.Identifier
 bench/tabpfn_paper/table_results_tabpfn_final_light.xlsx
+bench/tabpfn_paper/~$table_results_tabpfn_final_light.xlsx
 bench/tabpfn_paper/tabpfn_run.log.bak1
 bench/tabpfn_paper/run_reg_pls.py.original
 bench/tabpfn_paper/scan_cards.pdf
+
+# Bench: fck_pls
+bench/fck_pls/workspace
+
+# =============================================================================
+# Misc / Legacy
+# =============================================================================
+trash/
+deprec/
+results/
+predict/
+.github/instructions/Claude instructions.instructions.md
+.github/copilot-instructions.md
