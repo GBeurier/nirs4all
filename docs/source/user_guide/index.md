@@ -10,6 +10,7 @@ preprocessing/index
 augmentation/index
 pipelines/index
 models/index
+predictions/index
 deployment/index
 visualization/index
 troubleshooting/index

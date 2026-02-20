@@ -17,7 +17,7 @@ Traditional ML pipelines fall short because they assume simple tabular data and 
 
 Think of NIRS4ALL in three conceptual layers:
 
-```{figure} ../_static/images/three_layer_model.png
+```{figure} ../assets/pipeline_diagram.png
 :alt: Three-layer architecture
 :align: center
 :width: 80%
@@ -269,7 +269,7 @@ Or jump to [Persona Paths](persona_paths.md) for a tailored learning path based 
 
 ```{seealso}
 **Related Examples:**
-- [U01: Hello World](../../examples/user/01_getting_started/U01_hello_world.py) - Your first pipeline to see the basic workflow
-- [U02: Basic Regression](../../examples/user/01_getting_started/U02_basic_regression.py) - Complete example with preprocessing and visualization
-- [D01: Session Workflow](../../examples/developer/06_internals/D01_session_workflow.py) - Stateful workflows with workspace persistence
+- [U01: Hello World](https://github.com/GBeurier/nirs4all/blob/main/examples/user/01_getting_started/U01_hello_world.py) - Your first pipeline to see the basic workflow
+- [U02: Basic Regression](https://github.com/GBeurier/nirs4all/blob/main/examples/user/01_getting_started/U02_basic_regression.py) - Complete example with preprocessing and visualization
+- [D01: Session Workflow](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/06_internals/D01_session_workflow.py) - Stateful workflows with workspace persistence
 ```

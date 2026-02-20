@@ -4,6 +4,12 @@ This section documents configuration objects used to customize nirs4all behavior
 
 ## Available Configurations
 
+```{toctree}
+:maxdepth: 1
+
+cache_config
+```
+
 ::::{grid} 2
 :gutter: 3
 

@@ -10,6 +10,7 @@ branching
 merging
 stacking
 multi_source
+generators
 cache_optimization
 ```
 

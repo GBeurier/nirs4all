@@ -234,7 +234,7 @@ class RunResult:
         artifacts_path: Path to run artifacts directory.
         num_predictions: Total number of predictions stored.
 
-    Methods:
+    Key Operations:
         top(n): Get top N predictions by ranking.
         export(path): Export best model to .n4a bundle.
         filter(**kwargs): Filter predictions by criteria.
@@ -895,7 +895,7 @@ class PredictResult:
         shape: Shape of prediction array.
         is_multioutput: True if predictions have multiple outputs.
 
-    Methods:
+    Key Operations:
         to_numpy(): Get predictions as numpy array.
         to_list(): Get predictions as Python list.
         to_dataframe(): Get predictions as pandas DataFrame.
@@ -1034,7 +1034,7 @@ class ExplainResult:
         mean_abs_shap: Mean absolute SHAP values per feature.
         top_features: Feature names sorted by importance.
 
-    Methods:
+    Key Operations:
         get_feature_importance(): Get feature importance ranking.
         get_sample_explanation(idx): Get explanation for a single sample.
         to_dataframe(): Get SHAP values as DataFrame.

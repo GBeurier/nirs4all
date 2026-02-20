@@ -60,7 +60,7 @@ class NIRSPipeline:
         model_step_index: Index of the model step in the pipeline.
         fold_weights: Dictionary of fold weights for CV ensemble.
 
-    Methods:
+    Key Operations:
         predict(X): Make predictions on new data.
         score(X, y): Compute R² score.
         transform(X): Apply preprocessing steps (without model).

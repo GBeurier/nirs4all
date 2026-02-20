@@ -50,7 +50,6 @@ jobs:
         run: |
           cd docs
           sphinx-build -b html source _build/html -W --keep-going 2>&1 | tee build.log
-        continue-on-error: true
 
       - name: Check for build warnings
         run: |
@@ -93,8 +92,7 @@ jobs:
       - name: Check external links
         run: |
           cd docs
-          sphinx-build -b linkcheck source _build/linkcheck 2>&1 | tee linkcheck.log
-        continue-on-error: true
+          sphinx-build -b linkcheck source _build/linkcheck -W --keep-going 2>&1 | tee linkcheck.log
 
       - name: Report broken links
         run: |

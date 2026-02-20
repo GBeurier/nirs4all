@@ -10,6 +10,7 @@ Complete API reference for the Session class and related functions.
    :undoc-members:
    :show-inheritance:
    :special-members: __init__, __enter__, __exit__, __repr__
+   :no-index:
 ```
 
 ## Module Functions
@@ -18,6 +19,7 @@ Complete API reference for the Session class and related functions.
 
 ```{eval-rst}
 .. autofunction:: nirs4all.api.session.session
+   :no-index:
 ```
 
 Context manager for creating a session with automatic resource cleanup.
@@ -72,6 +74,7 @@ with nirs4all.session(pipeline=my_pipeline, name="Demo", verbose=1) as sess:
 
 ```{eval-rst}
 .. autofunction:: nirs4all.api.session.load_session
+   :no-index:
 ```
 
 Load a session from a saved `.n4a` bundle file.

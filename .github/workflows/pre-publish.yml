@@ -137,7 +137,7 @@ jobs:
       - name: Build documentation (strict mode)
         run: |
           cd docs
-          sphinx-build -b html source _build/html --keep-going
+          sphinx-build -b html source _build/html -W --keep-going
 
       - name: Upload documentation artifacts
         uses: actions/upload-artifact@v6
