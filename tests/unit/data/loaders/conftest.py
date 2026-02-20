@@ -20,6 +20,7 @@ See Also:
 """
 
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -105,110 +106,110 @@ def csv_standard_format(tmp_path, loader_base_data, loader_csv_generator) -> Pat
         - Separate Xcal/Ycal/Xval/Yval files
     """
     X, y, wavelengths = loader_base_data
-    return loader_csv_generator.with_semicolon_delimiter(
+    return cast(Path, loader_csv_generator.with_semicolon_delimiter(
         tmp_path / "standard",
         X, y,
         wavelengths=wavelengths,
         train_ratio=0.8,
         random_state=42,
-    )
+    ))
 
 @pytest.fixture
 def csv_comma_delimiter(tmp_path, loader_base_data, loader_csv_generator) -> Path:
     """CSV with comma delimiter (common international format)."""
     X, y, wavelengths = loader_base_data
-    return loader_csv_generator.with_comma_delimiter(
+    return cast(Path, loader_csv_generator.with_comma_delimiter(
         tmp_path / "comma",
         X, y,
         wavelengths=wavelengths,
         train_ratio=0.8,
         random_state=42,
-    )
+    ))
 
 @pytest.fixture
 def csv_tab_delimiter(tmp_path, loader_base_data, loader_csv_generator) -> Path:
     """CSV with tab delimiter (.tsv format)."""
     X, y, wavelengths = loader_base_data
-    return loader_csv_generator.with_tab_delimiter(
+    return cast(Path, loader_csv_generator.with_tab_delimiter(
         tmp_path / "tab",
         X, y,
         wavelengths=wavelengths,
         train_ratio=0.8,
         random_state=42,
-    )
+    ))
 
 @pytest.fixture
 def csv_no_headers(tmp_path, loader_base_data, loader_csv_generator) -> Path:
     """CSV without column headers."""
     X, y, _ = loader_base_data
-    return loader_csv_generator.without_headers(
+    return cast(Path, loader_csv_generator.without_headers(
         tmp_path / "no_headers",
         X, y,
         train_ratio=0.8,
         random_state=42,
-    )
+    ))
 
 @pytest.fixture
 def csv_with_index(tmp_path, loader_base_data, loader_csv_generator) -> Path:
     """CSV with row index as first column."""
     X, y, wavelengths = loader_base_data
-    return loader_csv_generator.with_row_index(
+    return cast(Path, loader_csv_generator.with_row_index(
         tmp_path / "with_index",
         X, y,
         wavelengths=wavelengths,
         train_ratio=0.8,
         random_state=42,
-    )
+    ))
 
 @pytest.fixture
 def csv_single_file(tmp_path, loader_base_data, loader_csv_generator) -> Path:
     """Single CSV file with all data and partition column."""
     X, y, wavelengths = loader_base_data
-    return loader_csv_generator.as_single_file(
+    return cast(Path, loader_csv_generator.as_single_file(
         tmp_path / "single_file",
         X, y,
         wavelengths=wavelengths,
         train_ratio=0.8,
         random_state=42,
-    )
+    ))
 
 @pytest.fixture
 def csv_fragmented(tmp_path, loader_base_data, loader_csv_generator) -> Path:
     """Fragmented dataset with multiple small files."""
     X, y, wavelengths = loader_base_data
-    return loader_csv_generator.as_fragmented(
+    return cast(Path, loader_csv_generator.as_fragmented(
         tmp_path / "fragmented",
         X, y,
         wavelengths=wavelengths,
         train_ratio=0.8,
         random_state=42,
-    )
+    ))
 
 @pytest.fixture
 def csv_low_precision(tmp_path, loader_base_data, loader_csv_generator) -> Path:
     """CSV with low floating point precision (2 decimals)."""
     X, y, wavelengths = loader_base_data
-    return loader_csv_generator.with_precision(
+    return cast(Path, loader_csv_generator.with_precision(
         tmp_path / "low_precision",
         X, y,
         wavelengths=wavelengths,
         train_ratio=0.8,
         random_state=42,
         precision=2,
-    )
+    ))
 
 @pytest.fixture
 def csv_high_precision(tmp_path, loader_base_data, loader_csv_generator) -> Path:
     """CSV with high floating point precision (10 decimals)."""
     X, y, wavelengths = loader_base_data
-    return loader_csv_generator.with_precision(
+    return cast(Path, loader_csv_generator.with_precision(
         tmp_path / "high_precision",
         X, y,
         wavelengths=wavelengths,
         train_ratio=0.8,
         random_state=42,
         precision=10,
-    )
+    ))
 
 # =============================================================================
 # Edge Case Fixtures
@@ -250,7 +251,7 @@ def csv_with_missing_values(tmp_path, loader_base_data) -> tuple[Path, float]:
     df_y_test = pd.DataFrame(y[n_train:])
     df_y_test.to_csv(path / "Yval.csv", sep=";", index=False)
 
-    return path, missing_ratio
+    return cast(Path, path), missing_ratio
 
 @pytest.fixture
 def csv_with_text_headers(tmp_path, loader_base_data) -> Path:
@@ -281,7 +282,7 @@ def csv_with_text_headers(tmp_path, loader_base_data) -> Path:
     df_y_test = pd.DataFrame({"target": y_1d[n_train:]})
     df_y_test.to_csv(path / "Yval.csv", sep=";", index=False)
 
-    return path
+    return cast(Path, path)
 
 @pytest.fixture
 def csv_european_decimals(tmp_path, loader_base_data) -> Path:
@@ -316,7 +317,7 @@ def csv_european_decimals(tmp_path, loader_base_data) -> Path:
     save_european(path / "Xval.csv", X[n_train:], headers)
     save_european(path / "Yval.csv", y[n_train:].reshape(-1, 1), ["target"])
 
-    return path
+    return cast(Path, path)
 
 @pytest.fixture
 def csv_multi_source(tmp_path, loader_base_data) -> Path:
@@ -364,7 +365,7 @@ def csv_multi_source(tmp_path, loader_base_data) -> Path:
     df_y_test = pd.DataFrame({"target": y_1d[n_train:]})
     df_y_test.to_csv(path / "Yval.csv", sep=";", index=False)
 
-    return path
+    return cast(Path, path)
 
 @pytest.fixture
 def csv_single_file_all_data(tmp_path, loader_base_data) -> Path:
@@ -407,7 +408,7 @@ def csv_single_file_all_data(tmp_path, loader_base_data) -> Path:
     df = pd.DataFrame(data)
     df.to_csv(path / "data.csv", sep=";", index=False)
 
-    return path
+    return cast(Path, path)
 
 # =============================================================================
 # Parametrized Fixtures for Comprehensive Testing
@@ -477,7 +478,7 @@ def csv_basic_variations(
             random_state=42,
         )
 
-    return path, config["info"]
+    return cast(Path, path), config["info"]
 
 @pytest.fixture(params=["standard", "single_file", "fragmented"])
 def csv_file_structures(
@@ -511,7 +512,7 @@ def csv_file_structures(
         random_state=42,
     )
 
-    return path, request.param
+    return cast(Path, path), request.param
 
 @pytest.fixture(params=[2, 6, 10])
 def csv_precision_levels(
@@ -539,7 +540,7 @@ def csv_precision_levels(
         precision=request.param,
     )
 
-    return path, request.param
+    return cast(Path, path), request.param
 
 # =============================================================================
 # All Variations Fixture
@@ -558,10 +559,10 @@ def csv_all_loader_variations(
         Dict mapping variation name to Path.
     """
     X, y, wavelengths = loader_base_data
-    return loader_csv_generator.generate_all_variations(
+    return cast(dict[str, Path], loader_csv_generator.generate_all_variations(
         tmp_path / "all_variations",
         X, y,
         wavelengths=wavelengths,
         train_ratio=0.8,
         random_state=42,
-    )
+    ))

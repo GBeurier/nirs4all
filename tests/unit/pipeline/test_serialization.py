@@ -34,20 +34,20 @@ try:
     TF_AVAILABLE = True
 except (ImportError, ModuleNotFoundError):
     TF_AVAILABLE = False
-    nicon = None
-    customizable_nicon = None
+    nicon = None  # type: ignore[assignment]
+    customizable_nicon = None  # type: ignore[assignment]
 
 from nirs4all.pipeline.config.component_serialization import deserialize_component, serialize_component
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 
 
 # Mock function to simulate TF/PyTorch model functions
-def mock_model_function(input_shape, params={}):
+def mock_model_function(input_shape, params={}):  # noqa: B006
     """Mock function that simulates nicon-like behavior."""
     return f"Model with input_shape={input_shape}, params={params}"
 
 # Mark it with framework decorator simulation
-mock_model_function.framework = 'tensorflow'
+mock_model_function.framework = 'tensorflow'  # type: ignore[attr-defined]
 
 @pytest.fixture
 def temp_pipeline_dir():

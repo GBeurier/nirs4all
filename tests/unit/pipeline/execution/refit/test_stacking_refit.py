@@ -118,7 +118,7 @@ def _make_stacking_steps() -> list[Any]:
 
 def _make_stacking_refit_config(**overrides) -> RefitConfig:
     """Create a RefitConfig for stacking tests."""
-    defaults = {
+    defaults: dict[str, Any] = {
         "expanded_steps": _make_stacking_steps(),
         "best_params": {},
         "variant_index": 0,

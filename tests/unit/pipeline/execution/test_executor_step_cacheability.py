@@ -31,7 +31,7 @@ def _make_executor() -> PipelineExecutor:
         parser=StepParser(),
         router=_DummyRouter(),
     )
-    return PipelineExecutor(step_runner=step_runner)
+    return PipelineExecutor(step_runner=step_runner)  # type: ignore[arg-type]
 
 def test_subpipeline_all_transform_steps_is_cacheable():
     executor = _make_executor()

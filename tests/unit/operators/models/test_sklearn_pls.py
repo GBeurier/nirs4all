@@ -22,6 +22,16 @@ from nirs4all.operators.models.sklearn import (
 )
 
 
+def _jax_available() -> bool:
+    """Check if JAX is available."""
+    try:
+        import jax  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 class TestPLSDA:
     """Test suite for PLSDA classifier."""
 
@@ -441,16 +451,7 @@ class TestIKPLSJAX:
         )
         return X, y
 
-    @staticmethod
-    def _jax_available():
-        """Check if JAX is available."""
-        try:
-            import jax
-            return True
-        except ImportError:
-            return False
-
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_fit_jax_backend(self, regression_data):
         """Test IKPLS fit with JAX backend."""
         X, y = regression_data
@@ -465,7 +466,7 @@ class TestIKPLSJAX:
         assert model.n_features_in_ == 50
         assert model.n_components_ == 10
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_predict_jax_backend(self, regression_data):
         """Test IKPLS predict with JAX backend."""
         X, y = regression_data
@@ -479,7 +480,7 @@ class TestIKPLSJAX:
         assert predictions.shape == y.shape
         assert not np.isnan(predictions).any()
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_fit_jax_multi_target(self, multi_target_data):
         """Test IKPLS fit on multi-target data with JAX backend."""
         X, y = multi_target_data
@@ -491,7 +492,7 @@ class TestIKPLSJAX:
         assert isinstance(model.coef_, np.ndarray)
         assert model.coef_.shape == (50, 3)
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_predict_jax_multi_target(self, multi_target_data):
         """Test IKPLS predict on multi-target data with JAX backend."""
         X, y = multi_target_data
@@ -503,7 +504,7 @@ class TestIKPLSJAX:
         assert isinstance(predictions, np.ndarray)
         assert predictions.shape == y.shape
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_algorithm_variants(self, regression_data):
         """Test both IKPLS algorithm variants with JAX backend."""
         X, y = regression_data
@@ -525,7 +526,7 @@ class TestIKPLSJAX:
         assert not np.isnan(pred1).any()
         assert not np.isnan(pred2).any()
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_numpy_similar_results(self, regression_data):
         """Test that JAX and NumPy backends produce similar results."""
         X, y = regression_data
@@ -542,7 +543,7 @@ class TestIKPLSJAX:
         # Results should be very similar (not exactly equal due to floating point)
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5)
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_sklearn_clone(self, regression_data):
         """Test that IKPLS with JAX backend works with sklearn clone."""
         from sklearn.base import clone
@@ -1828,16 +1829,7 @@ class TestSIMPLSJAX:
         )
         return X, y
 
-    @staticmethod
-    def _jax_available():
-        """Check if JAX is available."""
-        try:
-            import jax
-            return True
-        except ImportError:
-            return False
-
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_fit_jax_backend(self, regression_data):
         """Test SIMPLS fit with JAX backend."""
         X, y = regression_data
@@ -1852,7 +1844,7 @@ class TestSIMPLSJAX:
         assert model.n_features_in_ == 50
         assert model.n_components_ == 10
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_predict_jax_backend(self, regression_data):
         """Test SIMPLS predict with JAX backend."""
         X, y = regression_data
@@ -1866,7 +1858,7 @@ class TestSIMPLSJAX:
         assert predictions.shape == y.shape
         assert not np.isnan(predictions).any()
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_fit_jax_multi_target(self, multi_target_data):
         """Test SIMPLS fit on multi-target data with JAX backend."""
         X, y = multi_target_data
@@ -1878,7 +1870,7 @@ class TestSIMPLSJAX:
         assert isinstance(model.coef_, np.ndarray)
         assert model.coef_.shape == (50, 3)
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_predict_jax_multi_target(self, multi_target_data):
         """Test SIMPLS predict on multi-target data with JAX backend."""
         X, y = multi_target_data
@@ -1890,7 +1882,7 @@ class TestSIMPLSJAX:
         assert isinstance(predictions, np.ndarray)
         assert predictions.shape == y.shape
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_numpy_similar_results(self, regression_data):
         """Test that JAX and NumPy backends produce similar results."""
         X, y = regression_data
@@ -1907,7 +1899,7 @@ class TestSIMPLSJAX:
         # Results should be very similar (not exactly equal due to floating point)
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5)
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_sklearn_clone(self, regression_data):
         """Test that SIMPLS with JAX backend works with sklearn clone."""
         from sklearn.base import clone
@@ -1924,7 +1916,7 @@ class TestSIMPLSJAX:
         predictions = cloned.predict(X)
         assert predictions.shape == y.shape
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_transform(self, regression_data):
         """Test SIMPLS transform with JAX backend."""
         X, y = regression_data
@@ -2302,16 +2294,7 @@ class TestIntervalPLSJAX:
         )
         return X, y
 
-    @staticmethod
-    def _jax_available():
-        """Check if JAX is available."""
-        try:
-            import jax
-            return True
-        except ImportError:
-            return False
-
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_fit_jax_backend(self, regression_data):
         """Test IntervalPLS fit with JAX backend."""
         X, y = regression_data
@@ -2325,7 +2308,7 @@ class TestIntervalPLSJAX:
         assert hasattr(model, 'selected_intervals_')
         assert model.n_features_in_ == 50
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_predict_jax_backend(self, regression_data):
         """Test IntervalPLS predict with JAX backend."""
         X, y = regression_data
@@ -2339,7 +2322,7 @@ class TestIntervalPLSJAX:
         assert predictions.shape == y.shape
         assert not np.isnan(predictions).any()
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_numpy_similar_results(self, regression_data):
         """Test that JAX and NumPy backends produce similar interval scores."""
         X, y = regression_data
@@ -2357,7 +2340,7 @@ class TestIntervalPLSJAX:
         assert not np.isnan(model_numpy.interval_scores_).any()
         assert not np.isnan(model_jax.interval_scores_).any()
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_sklearn_clone(self, regression_data):
         """Test that IntervalPLS with JAX backend works with sklearn clone."""
         from sklearn.base import clone
@@ -2870,16 +2853,7 @@ class TestRobustPLSJAX:
         )
         return X, y
 
-    @staticmethod
-    def _jax_available():
-        """Check if JAX is available."""
-        try:
-            import jax
-            return True
-        except ImportError:
-            return False
-
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_fit_jax_backend(self, regression_data):
         """Test RobustPLS fit with JAX backend."""
         X, y = regression_data
@@ -2895,7 +2869,7 @@ class TestRobustPLSJAX:
         assert model.n_features_in_ == 50
         assert model.n_components_ == 10
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_predict_jax_backend(self, regression_data):
         """Test RobustPLS predict with JAX backend."""
         X, y = regression_data
@@ -2909,7 +2883,7 @@ class TestRobustPLSJAX:
         assert predictions.shape == y.shape
         assert not np.isnan(predictions).any()
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_fit_jax_multi_target(self, multi_target_data):
         """Test RobustPLS fit on multi-target data with JAX backend."""
         X, y = multi_target_data
@@ -2921,7 +2895,7 @@ class TestRobustPLSJAX:
         assert isinstance(model.coef_, np.ndarray)
         assert model.coef_.shape == (50, 3)
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_predict_jax_multi_target(self, multi_target_data):
         """Test RobustPLS predict on multi-target data with JAX backend."""
         X, y = multi_target_data
@@ -2933,7 +2907,7 @@ class TestRobustPLSJAX:
         assert isinstance(predictions, np.ndarray)
         assert predictions.shape == y.shape
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_numpy_identical_results(self, regression_data):
         """Test that JAX and NumPy backends produce identical results."""
         X, y = regression_data
@@ -2958,7 +2932,7 @@ class TestRobustPLSJAX:
         # Coefficients should be identical
         np.testing.assert_allclose(model_numpy.coef_, model_jax.coef_, rtol=1e-5)
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_sklearn_clone(self, regression_data):
         """Test that RobustPLS with JAX backend works with sklearn clone."""
         from sklearn.base import clone
@@ -2976,7 +2950,7 @@ class TestRobustPLSJAX:
         predictions = cloned.predict(X)
         assert predictions.shape == y.shape
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_transform(self, regression_data):
         """Test RobustPLS transform with JAX backend."""
         X, y = regression_data
@@ -2989,7 +2963,7 @@ class TestRobustPLSJAX:
         assert T.shape == (100, 10)
         assert not np.isnan(T).any()
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_outlier_detection(self, regression_data_with_outliers):
         """Test RobustPLS outlier detection with JAX backend."""
         X, y = regression_data_with_outliers
@@ -3003,7 +2977,7 @@ class TestRobustPLSJAX:
         # Outliers should be somewhat down-weighted
         assert outlier_weights < normal_weights * 1.5  # Allow some tolerance
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_tukey_weighting(self, regression_data_with_outliers):
         """Test RobustPLS with Tukey weighting and JAX backend."""
         X, y = regression_data_with_outliers
@@ -3050,16 +3024,7 @@ class TestPLSBackendParity:
         )
         return X, y
 
-    @staticmethod
-    def _jax_available():
-        """Check if JAX is available."""
-        try:
-            import jax
-            return True
-        except ImportError:
-            return False
-
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_ikpls_backend_parity(self, regression_data):
         """Test IKPLS produces identical results with NumPy and JAX backends."""
         X, y = regression_data
@@ -3076,7 +3041,7 @@ class TestPLSBackendParity:
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
                                    err_msg="IKPLS: NumPy and JAX predictions differ")
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_opls_backend_parity(self, regression_data):
         """Test OPLS produces identical results with NumPy and JAX backends."""
         X, y = regression_data
@@ -3093,7 +3058,7 @@ class TestPLSBackendParity:
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
                                    err_msg="OPLS: NumPy and JAX predictions differ")
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_mbpls_backend_parity(self, regression_data):
         """Test MBPLS produces identical results with NumPy and JAX backends.
 
@@ -3115,7 +3080,7 @@ class TestPLSBackendParity:
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
                                    err_msg="MBPLS: NumPy and JAX predictions differ")
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_sparsepls_backend_parity(self, regression_data):
         """Test SparsePLS produces identical results with NumPy and JAX backends."""
         X, y = regression_data
@@ -3132,7 +3097,7 @@ class TestPLSBackendParity:
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
                                    err_msg="SparsePLS: NumPy and JAX predictions differ")
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_simpls_backend_parity(self, regression_data):
         """Test SIMPLS produces identical results with NumPy and JAX backends."""
         X, y = regression_data
@@ -3149,7 +3114,7 @@ class TestPLSBackendParity:
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
                                    err_msg="SIMPLS: NumPy and JAX predictions differ")
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_lwpls_backend_parity(self, regression_data):
         """Test LWPLS produces identical results with NumPy and JAX backends."""
         X, y = regression_data
@@ -3166,7 +3131,7 @@ class TestPLSBackendParity:
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
                                    err_msg="LWPLS: NumPy and JAX predictions differ")
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_ipls_backend_parity(self, regression_data):
         """Test IntervalPLS produces similar results with NumPy and JAX backends.
 
@@ -3196,7 +3161,7 @@ class TestPLSBackendParity:
         r2_jax = 1 - np.sum((y - pred_jax) ** 2) / np.sum((y - y.mean()) ** 2)
         assert abs(r2_numpy - r2_jax) < 0.3, f"IntervalPLS: R² differs too much (numpy={r2_numpy:.3f}, jax={r2_jax:.3f})"
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_robust_pls_huber_backend_parity(self, regression_data):
         """Test RobustPLS (Huber) produces identical results with NumPy and JAX backends."""
         X, y = regression_data
@@ -3218,7 +3183,7 @@ class TestPLSBackendParity:
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
                                    err_msg="RobustPLS (Huber): NumPy and JAX predictions differ")
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_robust_pls_tukey_backend_parity(self, regression_data):
         """Test RobustPLS (Tukey) produces identical results with NumPy and JAX backends."""
         X, y = regression_data
@@ -3240,7 +3205,7 @@ class TestPLSBackendParity:
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
                                    err_msg="RobustPLS (Tukey): NumPy and JAX predictions differ")
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_multi_target_backend_parity(self, multi_target_data):
         """Test PLS models produce identical results on multi-target data."""
         X, y = multi_target_data
@@ -3699,16 +3664,7 @@ class TestRecursivePLSJAX:
         y_new = X_new[:, :5].sum(axis=1) + 0.1 * np.random.randn(10)
         return X_init, y_init, X_new, y_new
 
-    @staticmethod
-    def _jax_available():
-        """Check if JAX is available."""
-        try:
-            import jax
-            return True
-        except ImportError:
-            return False
-
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_fit_jax_backend(self, regression_data):
         """Test RecursivePLS fit with JAX backend."""
         X, y = regression_data
@@ -3723,7 +3679,7 @@ class TestRecursivePLSJAX:
         assert model.n_features_in_ == 50
         assert model.n_components_ == 10
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_predict_jax_backend(self, regression_data):
         """Test RecursivePLS predict with JAX backend."""
         X, y = regression_data
@@ -3736,7 +3692,7 @@ class TestRecursivePLSJAX:
         assert predictions.shape == y.shape
         assert not np.isnan(predictions).any()
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_fit_jax_multi_target(self, multi_target_data):
         """Test RecursivePLS fit on multi-target data with JAX backend."""
         X, y = multi_target_data
@@ -3747,7 +3703,7 @@ class TestRecursivePLSJAX:
         assert isinstance(model.coef_, np.ndarray)
         assert model.coef_.shape == (50, 3)
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_predict_jax_multi_target(self, multi_target_data):
         """Test RecursivePLS predict on multi-target data with JAX backend."""
         X, y = multi_target_data
@@ -3759,7 +3715,7 @@ class TestRecursivePLSJAX:
         assert isinstance(predictions, np.ndarray)
         assert predictions.shape == y.shape
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_partial_fit_jax_backend(self, streaming_data):
         """Test RecursivePLS partial_fit with JAX backend."""
         X_init, y_init, X_new, y_new = streaming_data
@@ -3776,7 +3732,7 @@ class TestRecursivePLSJAX:
         assert isinstance(predictions, np.ndarray)
         assert predictions.shape == y_new.shape
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_numpy_similar_results(self, regression_data):
         """Test that JAX and NumPy backends produce similar results."""
         X, y = regression_data
@@ -3792,7 +3748,7 @@ class TestRecursivePLSJAX:
 
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5)
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_sklearn_clone(self, regression_data):
         """Test that RecursivePLS with JAX backend works with sklearn clone."""
         from sklearn.base import clone
@@ -3808,7 +3764,7 @@ class TestRecursivePLSJAX:
         predictions = cloned.predict(X)
         assert predictions.shape == y.shape
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_transform(self, regression_data):
         """Test RecursivePLS transform with JAX backend."""
         X, y = regression_data
@@ -3821,7 +3777,7 @@ class TestRecursivePLSJAX:
         assert T.shape == (100, 10)
         assert not np.isnan(T).any()
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_partial_fit_updates_model(self, streaming_data):
         """Test that partial_fit with JAX backend updates the model."""
         X_init, y_init, X_new, y_new = streaming_data
@@ -3861,16 +3817,7 @@ class TestRecursivePLSBackendParity:
         y_new = X_new[:, :5].sum(axis=1) + 0.1 * np.random.randn(10)
         return X_init, y_init, X_new, y_new
 
-    @staticmethod
-    def _jax_available():
-        """Check if JAX is available."""
-        try:
-            import jax
-            return True
-        except ImportError:
-            return False
-
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_recursive_pls_backend_parity(self, regression_data):
         """Test RecursivePLS produces identical results with NumPy and JAX backends."""
         X, y = regression_data
@@ -3887,7 +3834,7 @@ class TestRecursivePLSBackendParity:
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
                                    err_msg="RecursivePLS: NumPy and JAX predictions differ")
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_recursive_pls_partial_fit_parity(self, streaming_data):
         """Test RecursivePLS partial_fit produces identical results."""
         X_init, y_init, X_new, y_new = streaming_data
@@ -4349,16 +4296,7 @@ class TestKOPLSJAX:
         )
         return X, y
 
-    @staticmethod
-    def _jax_available():
-        """Check if JAX is available."""
-        try:
-            import jax
-            return True
-        except ImportError:
-            return False
-
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_fit_jax_backend(self, regression_data):
         """Test KOPLS fit with JAX backend."""
         X, y = regression_data
@@ -4373,7 +4311,7 @@ class TestKOPLSJAX:
         assert model.n_features_in_ == 50
         assert model.n_components_ == 5
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_predict_jax_backend(self, regression_data):
         """Test KOPLS predict with JAX backend."""
         X, y = regression_data
@@ -4387,7 +4325,7 @@ class TestKOPLSJAX:
         assert predictions.shape == y.shape
         assert not np.isnan(predictions).any()
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_fit_jax_multi_target(self, multi_target_data):
         """Test KOPLS fit on multi-target data with JAX backend."""
         X, y = multi_target_data
@@ -4402,7 +4340,7 @@ class TestKOPLSJAX:
         assert model.y_loadings_.shape[1] <= 5
         assert model.y_loadings_.shape[1] >= 1
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_predict_jax_multi_target(self, multi_target_data):
         """Test KOPLS predict on multi-target data with JAX backend."""
         X, y = multi_target_data
@@ -4414,7 +4352,7 @@ class TestKOPLSJAX:
         assert isinstance(predictions, np.ndarray)
         assert predictions.shape == y.shape
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_different_kernels(self, regression_data):
         """Test KOPLS with different kernels using JAX backend."""
         X, y = regression_data
@@ -4427,7 +4365,7 @@ class TestKOPLSJAX:
             assert predictions.shape == y.shape
             assert not np.isnan(predictions).any()
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_numpy_similar_results(self, regression_data):
         """Test that JAX and NumPy backends produce similar results."""
         X, y = regression_data
@@ -4444,7 +4382,7 @@ class TestKOPLSJAX:
         # Results should be similar (not exactly equal due to floating point)
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-4)
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_sklearn_clone(self, regression_data):
         """Test that KOPLS with JAX backend works with sklearn clone."""
         from sklearn.base import clone
@@ -4461,7 +4399,7 @@ class TestKOPLSJAX:
         predictions = cloned.predict(X)
         assert predictions.shape == y.shape
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_jax_transform(self, regression_data):
         """Test KOPLS transform with JAX backend."""
         X, y = regression_data
@@ -4492,16 +4430,7 @@ class TestKOPLSBackendParity:
         )
         return X, y
 
-    @staticmethod
-    def _jax_available():
-        """Check if JAX is available."""
-        try:
-            import jax
-            return True
-        except ImportError:
-            return False
-
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_kopls_backend_parity_linear(self, regression_data):
         """Test KOPLS produces identical results with linear kernel."""
         X, y = regression_data
@@ -4518,7 +4447,7 @@ class TestKOPLSBackendParity:
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-4,
                                    err_msg="KOPLS linear: NumPy and JAX predictions differ")
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_kopls_backend_parity_rbf(self, regression_data):
         """Test KOPLS produces similar results with RBF kernel."""
         X, y = regression_data
@@ -4535,7 +4464,7 @@ class TestKOPLSBackendParity:
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-4,
                                    err_msg="KOPLS RBF: NumPy and JAX predictions differ")
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_kopls_transform_parity(self, regression_data):
         """Test KOPLS transform produces identical results."""
         X, y = regression_data
@@ -4891,16 +4820,7 @@ class TestKernelPLSBackendParity:
         )
         return X, y
 
-    @staticmethod
-    def _jax_available():
-        """Check if JAX is available."""
-        try:
-            import jax
-            return True
-        except ImportError:
-            return False
-
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_kernel_pls_backend_parity_linear(self, regression_data):
         """Test KernelPLS produces identical results with linear kernel."""
         X, y = regression_data
@@ -4917,7 +4837,7 @@ class TestKernelPLSBackendParity:
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-4,
                                    err_msg="KernelPLS linear: NumPy and JAX predictions differ")
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_kernel_pls_backend_parity_rbf(self, regression_data):
         """Test KernelPLS produces similar results with RBF kernel."""
         X, y = regression_data
@@ -4934,7 +4854,7 @@ class TestKernelPLSBackendParity:
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-4,
                                    err_msg="KernelPLS RBF: NumPy and JAX predictions differ")
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_kernel_pls_backend_parity_poly(self, regression_data):
         """Test KernelPLS produces similar results with polynomial kernel."""
         X, y = regression_data
@@ -4951,7 +4871,7 @@ class TestKernelPLSBackendParity:
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-4,
                                    err_msg="KernelPLS poly: NumPy and JAX predictions differ")
 
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_kernel_pls_transform_parity(self, regression_data):
         """Test KernelPLS transform produces identical results."""
         X, y = regression_data
@@ -5317,16 +5237,7 @@ class TestOKLMPLSBackendParity:
         )
         return X, y
 
-    @staticmethod
-    def _jax_available():
-        """Check if JAX is available."""
-        try:
-            import jax
-            return True
-        except ImportError:
-            return False
-
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_oklmpls_backend_parity(self, regression_data):
         """Test OKLMPLS produces similar results with both backends."""
         X, y = regression_data
@@ -5745,16 +5656,7 @@ class TestFCKPLSBackendParity:
         y = X[:, :10].sum(axis=1) + 0.1 * np.random.randn(100)
         return X, y
 
-    @staticmethod
-    def _jax_available():
-        """Check if JAX is available."""
-        try:
-            import jax
-            return True
-        except ImportError:
-            return False
-
-    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_fckpls_backend_parity(self, regression_data):
         """Test FCKPLS produces similar results with both backends."""
         X, y = regression_data

@@ -38,7 +38,7 @@ class MockParsedStep:
 
 class MockStepResult:
     """Mock step execution result."""
-    def __init__(self, updated_context: ExecutionContext, artifacts: list = None):
+    def __init__(self, updated_context: ExecutionContext, artifacts: list | None = None):
         self.updated_context = updated_context
         self.artifacts = artifacts or []
 

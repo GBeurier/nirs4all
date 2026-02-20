@@ -232,8 +232,7 @@ class TestMetaModelControllerFinetuneExtraction:
         controller = MetaModelController()
         step = {"model": meta}
 
-        # Access protected method - type: ignore for static analyzers
-        config = controller._extract_model_config(step, meta)  # type: ignore
+        config = controller._extract_model_config(step, meta)
 
         assert "finetune_params" in config
         assert "model_params" in config["finetune_params"]
@@ -249,8 +248,7 @@ class TestMetaModelControllerFinetuneExtraction:
         controller = MetaModelController()
         step = {"model": meta}
 
-        # Access protected method - type: ignore for static analyzers
-        config = controller._extract_model_config(step, meta)  # type: ignore
+        config = controller._extract_model_config(step, meta)
 
         # finetune_params should not be in config when finetune_space is None
         assert config.get("finetune_params") is None
@@ -270,8 +268,7 @@ class TestMetaModelControllerFinetuneExtraction:
 
         controller = MetaModelController()
 
-        # Access protected method - type: ignore for static analyzers
-        config = controller._extract_model_config(step={}, operator=meta)  # type: ignore
+        config = controller._extract_model_config(step={}, operator=meta)
 
         assert "finetune_params" in config
 

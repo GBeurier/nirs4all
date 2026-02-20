@@ -1,7 +1,7 @@
 # nirs4all Python Library Beta Readiness Audit
 
-Audit date: 2026-02-20  
-Scope: `/home/delete/nirs4all/nirs4all` (Python library only, excluding webapp)  
+Audit date: 2026-02-20
+Scope: `/home/delete/nirs4all/nirs4all` (Python library only, excluding webapp)
 Context: audit refresh after lint/type cleanup and recent refactors
 
 ---
@@ -97,7 +97,7 @@ Largest files:
 - `ruff check nirs4all`: **PASSED**
 - `ruff check .`: **PASSED**
 - `mypy nirs4all`: **PASSED** (`no issues found in 434 source files`)
-- `mypy .`: **FAILED** (`fck-pls is not a valid Python package name`)
+- `mypy .`: **PASSED** (`fck-pls is not a valid Python package name` > rename fck_pls)
 
 ### 3.5 Reliability/debt indicators
 

@@ -216,9 +216,13 @@ class TestPersistLoad:
             "name": "missing",
             "path": "NonExistent_abc123.pkl",  # Flat path format
             "format": "pickle",
+            "format_version": "",
+            "nirs4all_version": "",
             "size": 100,
             "saved_at": "2025-01-01T00:00:00Z",
-            "step": 0
+            "step": 0,
+            "branch_id": None,
+            "branch_name": None,
         }
 
         with pytest.raises(FileNotFoundError):

@@ -14,6 +14,8 @@ Tests cover all documented pipeline topology patterns:
 - Concat merge
 """
 
+from typing import Any
+
 from nirs4all.pipeline.analysis.topology import (
     ModelNodeInfo,
     PipelineTopology,
@@ -24,23 +26,23 @@ from nirs4all.pipeline.analysis.topology import (
 # Helpers: mock serialized step dicts that mimic the expanded pipeline format
 # ---------------------------------------------------------------------------
 
-def _splitter(cls_name: str = "sklearn.model_selection._split.KFold", **params) -> dict:
+def _splitter(cls_name: str = "sklearn.model_selection._split.KFold", **params) -> dict[str, Any]:
     """Create a serialized splitter step."""
-    step = {"class": cls_name}
+    step: dict[str, Any] = {"class": cls_name}
     if params:
         step["params"] = params
     return step
 
-def _transform(cls_name: str = "sklearn.preprocessing._data.MinMaxScaler", **params) -> dict:
+def _transform(cls_name: str = "sklearn.preprocessing._data.MinMaxScaler", **params) -> dict[str, Any]:
     """Create a serialized transformer step."""
-    step = {"class": cls_name}
+    step: dict[str, Any] = {"class": cls_name}
     if params:
         step["params"] = params
     return step
 
-def _model(cls_name: str = "sklearn.cross_decomposition._pls.PLSRegression", **params) -> dict:
+def _model(cls_name: str = "sklearn.cross_decomposition._pls.PLSRegression", **params) -> dict[str, Any]:
     """Create a model step with explicit ``model`` keyword."""
-    inner = {"class": cls_name}
+    inner: dict[str, Any] = {"class": cls_name}
     if params:
         inner["params"] = params
     return {"model": inner}
