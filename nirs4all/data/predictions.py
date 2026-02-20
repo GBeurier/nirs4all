@@ -1574,7 +1574,7 @@ class Predictions:
                 else:
                     safe[k] = v
             safe_rows.append(safe)
-        return pl.DataFrame(safe_rows)
+        return pl.DataFrame(safe_rows, infer_schema_length=None)
 
     def to_dicts(self, load_arrays: bool = True) -> list[dict[str, Any]]:
         """Get predictions as list of dicts.
