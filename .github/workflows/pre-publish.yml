@@ -106,23 +106,23 @@ jobs:
         shell: bash
         run: |
           # macOS: skip DL-specific tests (no DL backends installed)
-          MARKER_FILTER=""
+          MARK=()
           if [ "$RUNNER_OS" == "macOS" ]; then
-            MARKER_FILTER="-m 'not tensorflow and not torch and not keras and not jax'"
+            MARK=(-m "not tensorflow and not torch and not keras and not jax")
           fi
 
           # Serial subset with known write-contention under heavy xdist load
           python -m pytest -v \
             tests/integration/pipeline/test_merge_mixed.py \
             tests/integration/pipeline/test_merge_per_branch.py \
-            $MARKER_FILTER \
+            "${MARK[@]}" \
             --cov=nirs4all --cov-append
 
           # Parallel remainder
           python -m pytest -v -n auto --dist worksteal tests/ \
             --ignore=tests/integration/pipeline/test_merge_mixed.py \
             --ignore=tests/integration/pipeline/test_merge_per_branch.py \
-            $MARKER_FILTER \
+            "${MARK[@]}" \
             --cov=nirs4all --cov-append --cov-report=xml
 
   # ═══════════════════════════════════════════════════════════════════════════
