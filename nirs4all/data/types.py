@@ -26,7 +26,7 @@ SampleConfig = dict[str, Any]
 
 def get_num_samples(data: InputData | OutputData) -> int:
     if isinstance(data, np.ndarray):
-        return data.shape[0]
+        return int(data.shape[0])
     if isinstance(data, list) and data and isinstance(data[0], np.ndarray):
-        return data[0].shape[0]
+        return int(data[0].shape[0])
     raise TypeError("Expected ndarray or list of ndarray")

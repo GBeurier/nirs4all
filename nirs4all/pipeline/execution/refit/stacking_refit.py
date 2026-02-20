@@ -104,7 +104,7 @@ def _extract_model_class_path(model_config: Any) -> str:
     if isinstance(model_config, str):
         return model_config
     if isinstance(model_config, dict):
-        return model_config.get("class", "")
+        return str(model_config.get("class", ""))
     # Live instance -- use its module + class name
     cls = type(model_config)
     return f"{cls.__module__}.{cls.__qualname__}"
@@ -373,7 +373,7 @@ def _select_winning_branch(
         for bid, scores in branch_scores.items()
     }
 
-    winning = min(branch_avg, key=branch_avg.get) if ascending else max(branch_avg, key=branch_avg.get)
+    winning = min(branch_avg, key=lambda k: branch_avg[k]) if ascending else max(branch_avg, key=lambda k: branch_avg[k])
 
     # Clamp to valid branch range
     if winning < 0 or winning >= len(branch_value):

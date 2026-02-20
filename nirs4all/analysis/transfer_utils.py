@@ -9,6 +9,7 @@ Supports both object-based and string-based preprocessing definitions:
 - String-based (legacy): Use string names that resolve to base preprocessings
 """
 
+from collections.abc import Sequence
 from copy import deepcopy
 from itertools import combinations, permutations
 from typing import Any
@@ -487,7 +488,7 @@ def generate_object_augmentation_combinations(
 
 def apply_augmentation(
     X: np.ndarray,
-    pipelines: list[str | list[Any] | Any],
+    pipelines: Sequence[str | list[Any] | Any],
     preprocessings: dict[str, Any] | None = None,
 ) -> np.ndarray:
     """

@@ -54,7 +54,7 @@ def test_installation() -> bool:
     logger.info("=" * 50)
 
     # Core required dependencies from pyproject.toml
-    required_deps = {
+    required_deps: dict[str, str | None] = {
         'numpy': '1.20.0',
         'pandas': '2.0.0',
         'scipy': '1.5.0',

@@ -1797,7 +1797,7 @@ def generate_band_spectrum(
         >>> spectrum = generate_band_spectrum(band, wl, amplitude=0.8)
     """
     nir_band = band.to_nir_band(amplitude=amplitude, sigma=sigma, gamma=gamma)
-    return nir_band.compute(wavelengths)
+    return np.asarray(nir_band.compute(wavelengths))
 
 def band_info(functional_group: str, band_key: str) -> str:
     """

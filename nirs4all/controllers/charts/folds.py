@@ -89,21 +89,21 @@ class FoldChartController(OperatorController):
         base_sample_ids = dataset._indexer.x_indices(local_context, include_augmented=False)
 
         # Get folds from dataset
-        folds = dataset.folds
+        folds: list[tuple[list[int], list[int]]] | None = dataset.folds
 
         # Detect if we have a simple train/test split (1 fold) vs actual CV folds (multiple folds)
         # Single fold from SPXYSplitter should be treated as train/test split, not CV
         is_simple_split = folds is not None and len(folds) == 1
-        original_folds_for_chart = dataset.folds  # Keep track of original for later
+        original_folds_for_chart: list[tuple[list[int], list[int]]] | None = dataset.folds  # Keep track of original for later
 
         # For simple train/test split, check if test partition actually exists
         # (could be that the fold created test, or test was created separately)
         if is_simple_split:
-            test_ctx = {"partition": "test"}
-            test_indices = dataset._indexer.x_indices(test_ctx, include_augmented=True)
+            test_ctx_dict = {"partition": "test"}
+            test_indices = dataset._indexer.x_indices(test_ctx_dict, include_augmented=True)
             # If test exists and fold has a non-empty test set, this is a simple split
             # We should visualize it as train/test bars, not as a "fold"
-            if len(test_indices) > 0 and len(folds[0][1]) > 0:
+            if folds is not None and len(test_indices) > 0 and len(folds[0][1]) > 0:
                 # This is a train/test split from SPXYSplitter - treat as no CV folds
                 # We'll reconstruct the visualization to show train and test as separate bars
                 folds = None  # Clear folds to trigger fallback logic
@@ -235,8 +235,8 @@ class FoldChartController(OperatorController):
         return context, step_output
 
     def _create_fold_chart(self, folds: list[tuple[list[int], list[int]]], y_values: np.ndarray, n_samples: int, partition: str = "train",
-                           original_folds: list = None, dataset: 'SpectroDataset' = None, metadata_column: str = None,
-                           base_sample_ids: np.ndarray = None) -> tuple[Any, dict[str, Any]]:
+                           original_folds: list | None = None, dataset: 'SpectroDataset | None' = None, metadata_column: str | None = None,
+                           base_sample_ids: np.ndarray | None = None) -> tuple[Any, dict[str, Any]]:
         """
         Create a fold visualization chart with stacked bars showing y-value distribution.
 
@@ -319,6 +319,7 @@ class FoldChartController(OperatorController):
             value_to_index_map = {val: idx for idx, val in enumerate(unique_values)}
 
         # Get train y-indices including augmented samples (mapped to their origins)
+        assert dataset is not None, "dataset is required for fold chart"
         y_indices = dataset._indexer.y_indices({"partition": "train"}, include_augmented=True)  # noqa: SLF001
 
         # For fallback mode, y_values contains augmented samples, so we need to handle the mapping differently

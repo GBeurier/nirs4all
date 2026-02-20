@@ -15,21 +15,21 @@ def _get_gaussian_kernel(sigma: float, width: int) -> np.ndarray:
         width += 1  # Ensure odd width
     x = np.arange(-(width // 2), (width // 2) + 1)
     kernel = np.exp(-(x**2) / (2 * sigma**2))
-    return kernel / np.sum(kernel)
+    return np.asarray(kernel / np.sum(kernel))
 
 def _convolve_1d_batch(X: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     """Convolves all rows of a 2D array with a kernel using reflection padding."""
-    return convolve1d(X, kernel, axis=1, mode='reflect')
+    return np.asarray(convolve1d(X, kernel, axis=1, mode='reflect'))
 
 def _convolve_1d(x: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     """Convolves a 1D signal with a kernel using reflection padding."""
     pad_size = len(kernel) // 2
     x_padded = np.pad(x, pad_size, mode='reflect')
-    return signal.convolve(x_padded, kernel, mode='valid')
+    return np.asarray(signal.convolve(x_padded, kernel, mode='valid'))
 
 def _safe_interp(x_new: np.ndarray, x_old: np.ndarray, y_old: np.ndarray) -> np.ndarray:
     """Safe 1D interpolation."""
-    return np.interp(x_new, x_old, y_old)
+    return np.asarray(np.interp(x_new, x_old, y_old))
 
 # --- 2.1 Additive / Multiplicative Noise ---
 

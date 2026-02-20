@@ -141,7 +141,9 @@ class TagController(OperatorController):
 
         # Get X and y data for samples
         selector = context.selector.with_augmented(include_augmented)
-        X = dataset.x(selector, layout="2d", concat_source=True)
+        X_data = dataset.x(selector, layout="2d", concat_source=True)
+        assert isinstance(X_data, np.ndarray), "concat_source=True should return a single ndarray"
+        X = X_data
         y = dataset.y(selector)
 
         # Flatten y if needed

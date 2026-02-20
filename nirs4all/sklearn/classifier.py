@@ -247,11 +247,12 @@ class NIRSPipelineClassifier(NIRSPipeline):
             X_transformed = self.transform(X)
 
             if hasattr(model, 'predict_proba'):
-                return model.predict_proba(X_transformed)
+                return np.asarray(model.predict_proba(X_transformed))
             elif hasattr(model, 'predict_log_proba'):
-                return np.exp(model.predict_log_proba(X_transformed))
+                return np.asarray(np.exp(model.predict_log_proba(X_transformed)))
             else:
                 # Fall back to regular predict and convert to pseudo-probabilities
+                assert self._bundle_loader is not None
                 y_pred = self._bundle_loader.predict(X)
                 if len(y_pred.shape) > 1 and y_pred.shape[1] > 1:
                     # Already probabilities
@@ -320,7 +321,7 @@ class NIRSPipelineClassifier(NIRSPipeline):
         from sklearn.metrics import accuracy_score
 
         y_pred = self.predict(X)
-        return accuracy_score(y, y_pred)
+        return float(accuracy_score(y, y_pred))
 
     def __repr__(self) -> str:
         """Return string representation."""

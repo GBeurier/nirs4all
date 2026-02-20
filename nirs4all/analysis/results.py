@@ -414,7 +414,7 @@ class TransferSelectionResults:
             "Transfer Preprocessing Selection Results",
             fontsize=14, fontweight="bold", y=0.99
         )
-        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.tight_layout(rect=(0, 0, 1, 0.96))
 
         return fig
 
@@ -478,7 +478,7 @@ class TransferSelectionResults:
 
             # Color based on metric type
             is_distance = metric in distance_metrics
-            cmap = plt.cm.RdYlGn_r  # Red=high (bad), Green=low (good) if is_distance else plt.cm.RdYlGn  # Red=low (bad), Green=high (good)
+            cmap = plt.get_cmap("RdYlGn_r")  # Red=high (bad), Green=low (good) if is_distance else RdYlGn
 
             # Normalize values for coloring
             valid_values = [v for v in values if not np.isnan(v)]
@@ -520,7 +520,7 @@ class TransferSelectionResults:
             "Metrics Comparison for Top Preprocessings",
             fontsize=14, fontweight="bold", y=0.995
         )
-        plt.tight_layout(rect=[0, 0, 1, 0.97])
+        plt.tight_layout(rect=(0, 0, 1, 0.97))
 
         return fig
 
@@ -557,7 +557,7 @@ class TransferSelectionResults:
         }
 
         names = [format_pipeline_name(r.name) for r in top_results]
-        data = []
+        data_rows: list[list[float]] = []
 
         for r in top_results:
             row = []
@@ -575,9 +575,9 @@ class TransferSelectionResults:
                     # Similarity: increase is good (positive)
                     improvement = (pp_val - raw_val) / (abs(raw_val) + 1e-10)
                     row.append(improvement)
-            data.append(row)
+            data_rows.append(row)
 
-        data = np.array(data)
+        data = np.array(data_rows)
 
         fig, ax = plt.subplots(figsize=figsize)
 

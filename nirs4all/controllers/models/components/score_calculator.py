@@ -6,11 +6,12 @@ Extracted from launch_training() lines 449-461 and various controller methods.
 """
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 
 from nirs4all.core import metrics as evaluator
+from nirs4all.core.task_type import TaskType
 
 from ..utilities import ModelControllerUtils as ModelUtils
 
@@ -47,7 +48,7 @@ class ScoreCalculator:
         self,
         y_true: dict[str, np.ndarray],
         y_pred: dict[str, np.ndarray],
-        task_type: str
+        task_type: str | TaskType
     ) -> PartitionScores:
         """Calculate scores for all partitions.
 
@@ -60,18 +61,19 @@ class ScoreCalculator:
             PartitionScores with scores for train, val, test
         """
         # Get best metric for task type
-        metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
+        task_type_enum = task_type if isinstance(task_type, TaskType) else TaskType(task_type)
+        metric, higher_is_better = ModelUtils.get_best_score_metric(task_type_enum)
 
         # Calculate scores for each partition
-        scores = {}
+        scores: dict[str, float] = {}
         for partition in ['train', 'val', 'test']:
             if partition in y_true and partition in y_pred:
                 if y_true[partition].shape[0] > 0 and y_pred[partition].shape[0] > 0:
-                    scores[partition] = evaluator.eval(
+                    scores[partition] = cast(float, evaluator.eval(
                         y_true[partition],
                         y_pred[partition],
                         metric
-                    )
+                    ))
                 else:
                     scores[partition] = 0.0
             else:
@@ -89,7 +91,7 @@ class ScoreCalculator:
         self,
         y_true: np.ndarray,
         y_pred: np.ndarray,
-        task_type: str,
+        task_type: str | TaskType,
         metric: str | None = None
     ) -> float:
         """Calculate score for a single partition.
@@ -107,9 +109,10 @@ class ScoreCalculator:
             return 0.0
 
         if metric is None:
-            metric, _ = ModelUtils.get_best_score_metric(task_type)
+            task_type_enum = task_type if isinstance(task_type, TaskType) else TaskType(task_type)
+            metric, _ = ModelUtils.get_best_score_metric(task_type_enum)
 
-        return evaluator.eval(y_true, y_pred, metric)
+        return cast(float, evaluator.eval(y_true, y_pred, metric))
 
     def format_scores(self, scores: PartitionScores) -> str:
         """Format scores as a readable string.

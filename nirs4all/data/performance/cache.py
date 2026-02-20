@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, TypeVar, Union
+from typing import Any, Optional, TypeVar, Union, cast
 
 import numpy as np
 
@@ -213,9 +213,9 @@ class DataCache:
         Returns:
             Cached or newly loaded data.
         """
-        data = self.get(key)
-        if data is not None:
-            return data
+        cached = self.get(key)
+        if cached is not None:
+            return cast(T, cached)
 
         # Load data
         data = loader()
@@ -324,7 +324,7 @@ class DataCache:
         """
         # CachedStepState has a pre-computed bytes_estimate
         if hasattr(data, 'bytes_estimate') and data.bytes_estimate > 0:
-            return data.bytes_estimate
+            return int(data.bytes_estimate)
 
         if isinstance(data, np.ndarray):
             return data.nbytes

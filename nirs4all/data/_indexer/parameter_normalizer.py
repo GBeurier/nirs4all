@@ -5,7 +5,7 @@ This module provides the ParameterNormalizer class for handling various
 input formats and converting them to consistent internal representations.
 """
 
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 import numpy as np
 
@@ -145,7 +145,7 @@ class ParameterNormalizer:
 
     def prepare_processings(
         self,
-        processings: ProcessingList | list[ProcessingList] | None,
+        processings: ProcessingList | list[ProcessingList] | str | None,
         count: int
     ) -> list[list[str]]:
         """
@@ -186,6 +186,10 @@ class ParameterNormalizer:
             # Use default for all samples
             return [self._default_processings] * count
 
+        if isinstance(processings, str):
+            # Single string → wrap in list for all samples
+            return [[processings]] * count
+
         if not isinstance(processings, list):
             raise TypeError(f"processings must be list or None, got {type(processings)}")
 
@@ -196,14 +200,15 @@ class ParameterNormalizer:
         # Check if it's a list of strings or list of lists
         if isinstance(processings[0], str):
             # Single list for all samples: ["raw", "msc"]
-            return [processings] * count
+            str_list = cast(list[str], processings)
+            return [str_list] * count
         elif isinstance(processings[0], list):
             # List of lists: [["raw"], ["raw", "msc"]]
             if len(processings) != count:
                 raise ValueError(
                     f"processings length ({len(processings)}) must match count ({count})"
                 )
-            return processings
+            return cast(list[list[str]], processings)
         else:
             raise TypeError(
                 f"processings must contain strings or lists, got {type(processings[0])}"

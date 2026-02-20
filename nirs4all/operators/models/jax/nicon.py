@@ -143,7 +143,7 @@ class TransformerBlock(nn.Module):
         res = x + inputs
 
         # Feed-forward block
-        x = nn.Conv(features=self.ff_dim, kernel_size=(1,), activation=nn.relu)(res)
+        x = nn.relu(nn.Conv(features=self.ff_dim, kernel_size=(1,))(res))
         x = nn.Dropout(rate=self.dropout)(x, deterministic=deterministic)
         x = nn.Conv(features=inputs.shape[-1], kernel_size=(1,))(x)
         x = nn.LayerNorm(epsilon=1e-6)(x)

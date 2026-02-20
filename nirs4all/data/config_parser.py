@@ -30,7 +30,7 @@ logger = get_logger(__name__)
 # Create shared normalizer instance
 _normalizer = ConfigNormalizer()
 
-def _load_config_from_file(file_path: str) -> tuple[dict[str, Any], str]:
+def _load_config_from_file(file_path: str) -> tuple[dict[str, Any] | None, str]:
     """Load dataset config from JSON/YAML file.
 
     Args:

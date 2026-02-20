@@ -12,6 +12,7 @@ import os
 import shutil
 import time
 from datetime import datetime, timedelta
+from io import TextIOWrapper
 from pathlib import Path
 from threading import Lock
 from typing import Any, Optional
@@ -159,10 +160,12 @@ class RotatingRunFileHandler(logging.Handler):
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
         # Create file handlers
-        self._log_file = self.log_dir / f"{run_id}.log"
-        self._log_handle = open(self._log_file, "w", encoding="utf-8")  # noqa: SIM115
+        self._log_file: Path = self.log_dir / f"{run_id}.log"
+        self._log_handle: TextIOWrapper | None = open(self._log_file, "w", encoding="utf-8")  # noqa: SIM115
         self._current_size = 0
 
+        self._json_handle: TextIOWrapper | None
+        self._json_file: Path | None
         if json_output:
             self._json_file = self.log_dir / f"{run_id}.jsonl"
             self._json_handle = open(self._json_file, "w", encoding="utf-8")  # noqa: SIM115
@@ -276,8 +279,9 @@ class RotatingRunFileHandler(logging.Handler):
                 if self.max_bytes and self._current_size + msg_bytes > self.max_bytes:
                     self._rotate_current_file()
 
-                self._log_handle.write(msg + "\n")
-                self._log_handle.flush()
+                if self._log_handle is not None:
+                    self._log_handle.write(msg + "\n")
+                    self._log_handle.flush()
                 self._current_size += msg_bytes
 
             # Format for JSON log if enabled

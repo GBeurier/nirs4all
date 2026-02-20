@@ -26,7 +26,7 @@ class TabReportManager:
 
     @staticmethod
     def generate_best_score_tab_report(
-        best_by_partition: dict[str, dict[str, Any]],
+        best_by_partition: dict[str, dict[str, Any] | None],
         aggregate: str | bool | None = None,
         aggregate_method: str | None = None,
         aggregate_exclude_outliers: bool = False
@@ -171,13 +171,13 @@ class TabReportManager:
         def _sort_key(e: dict) -> float:
             test = e.get("test_score")
             if test is not None:
-                return test
+                return float(test)
             rmsecv = e.get("rmsecv")
             if rmsecv is not None:
-                return rmsecv
+                return float(rmsecv)
             sel = e.get("selection_score")
             if sel is not None:
-                return sel
+                return float(sel)
             return float('inf') if ascending else float('-inf')
 
         entries = sorted(valid_entries, key=_sort_key, reverse=not ascending)
@@ -188,7 +188,7 @@ class TabReportManager:
 
         # Get metric names using the configurable naming system
         task_type_str = "regression" if is_regression else "classification"
-        metric_names = get_metric_names(report_naming, task_type_str, metric)
+        metric_names = get_metric_names(report_naming, task_type_str, metric)  # type: ignore[arg-type]  # report_naming validated upstream
         test_metric_name = metric_names["test_score"]
         cv_metric_name = metric_names["cv_score"]
         ens_test_name = metric_names["ens_test"]
@@ -628,7 +628,8 @@ class TabReportManager:
                 return None
 
             agg_y_true, agg_y_pred = agg_result
-            return evaluator.eval(agg_y_true, agg_y_pred, metric)
+            result = evaluator.eval(agg_y_true, agg_y_pred, metric)
+            return result if isinstance(result, float) else None
         except Exception:
             return None
 
@@ -812,16 +813,15 @@ class TabReportManager:
                 squared_errors = (all_y_true - all_y_pred) ** 2
                 press = np.sum(squared_errors)
                 mse = press / len(all_y_true)
-                return np.sqrt(mse)
+                return float(np.sqrt(mse))
             else:
                 # Classification: use evaluator to compute metric
                 result = evaluator.eval(
                     y_true=all_y_true,
                     y_pred=all_y_pred,
-                    y_proba=all_y_proba,
-                    metrics=[metric],
+                    metric=metric,
                 )
-                return result.get(metric)
+                return float(result) if isinstance(result, (int, float)) else None
 
         except Exception:
             return None
@@ -1002,7 +1002,7 @@ class TabReportManager:
                 y_pred=y_pred,
                 group_ids=group_ids,
                 y_true=y_true,
-                method=method,
+                method=method or "mean",
                 exclude_outliers=exclude_outliers
             )
             agg_y_true = result.get('y_true')
@@ -1414,7 +1414,7 @@ class TabReportManager:
         metrics_list = evaluator.eval_list(y_true, y_pred, metric_names)
 
         # Combine stats and metrics into a single dict
-        partition_data = {}
+        partition_data: dict[str, Any] = {}
         if stats:
             partition_data.update(stats)
 

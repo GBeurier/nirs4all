@@ -382,6 +382,7 @@ class TransferPreprocessingSelector:
                 )
 
                 # Compute improvement percentage
+                assert self.raw_metrics_ is not None
                 raw_centroid = self.raw_metrics_.centroid_distance
                 improvement_pct = (
                     (raw_centroid - metrics.centroid_distance)

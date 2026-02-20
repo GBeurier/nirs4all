@@ -152,15 +152,14 @@ class StepParser:
 
         if candidates:
             # Prioritize known workflow keywords in order
-            key = None
+            matched_key: str | None = None
             for workflow_key in self.WORKFLOW_KEYWORDS:
                 if workflow_key in candidates:
-                    key = workflow_key
+                    matched_key = workflow_key
                     break
 
             # If no priority keyword found, pick the first candidate
-            if key is None:
-                key = candidates[0]
+            key = matched_key if matched_key is not None else candidates[0]
 
             operator = self._deserialize_operator(step[key])
             return ParsedStep(

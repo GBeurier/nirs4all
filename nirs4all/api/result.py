@@ -20,7 +20,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -287,7 +287,7 @@ class RunResult:
         Returns:
             The test_score value from best prediction, or NaN if unavailable.
         """
-        return self.best.get('test_score', float('nan'))
+        return float(self.best.get('test_score', float('nan')))
 
     @property
     def best_rmse(self) -> float:
@@ -394,7 +394,8 @@ class RunResult:
         Returns:
             Best refit prediction dict, or empty dict if no refit entries.
         """
-        top = self.predictions.top(n=1, score_scope="final")
+        results = self.predictions.top(n=1, score_scope="final")
+        top = cast(list, results)
         return top[0] if top else {}
 
     @property
@@ -417,12 +418,12 @@ class RunResult:
             entries = ds_preds.filter_predictions(fold_id="final")
             for entry in entries:
                 if str(entry.get("fold_id")) == "final":
-                    return entry
+                    return dict(entry)
         # Fallback: check global predictions (for backward compatibility)
         entries = self.predictions.filter_predictions(fold_id="final")
         for entry in entries:
             if str(entry.get("fold_id")) == "final":
-                return entry
+                return dict(entry)
         return None
 
     @property
@@ -452,7 +453,8 @@ class RunResult:
         Returns:
             Best CV prediction dict, or empty dict if no CV predictions.
         """
-        top = self.predictions.top(n=1, score_scope="cv")
+        results = self.predictions.top(n=1, score_scope="cv")
+        top = cast(list, results)
         return top[0] if top else {}
 
     @property
@@ -549,7 +551,7 @@ class RunResult:
 
     # --- Query methods ---
 
-    def top(self, n: int = 5, **kwargs) -> list[dict[str, Any]] | dict[tuple, list[dict[str, Any]]]:
+    def top(self, n: int = 5, **kwargs) -> Any:
         """Get top N predictions by ranking.
 
         Args:
@@ -676,7 +678,7 @@ class RunResult:
                 raise RuntimeError(
                     "Cannot export from chain_id: no WorkspaceStore available on runner"
                 )
-            return store.export_chain(chain_id, Path(output_path), format=format)
+            return Path(store.export_chain(chain_id, Path(output_path), format=format))
 
         # Legacy resolver-based path
         if source is None:
@@ -685,11 +687,11 @@ class RunResult:
             if not source:
                 raise ValueError("No predictions available to export")
 
-        return self._runner.export(
+        return Path(self._runner.export(
             source=source,
             output_path=output_path,
             format=format
-        )
+        ))
 
     def export_model(
         self,
@@ -817,7 +819,7 @@ class RunResult:
 
         # Check for NaN metrics
         if check_nan_metrics and total_count > 0:
-            all_preds = self.predictions.top(n=total_count)
+            all_preds = cast(list, self.predictions.top(n=total_count))
             for pred in all_preds:
                 has_nan = False
                 # Check common metrics
@@ -1072,7 +1074,7 @@ class ExplainResult:
             Numpy array of SHAP values (n_samples, n_features).
         """
         if hasattr(self.shap_values, 'values'):
-            return self.shap_values.values
+            return np.asarray(self.shap_values.values)
         return np.asarray(self.shap_values)
 
     @property
@@ -1089,8 +1091,8 @@ class ExplainResult:
         """
         vals = self.values
         if vals.ndim == 1:
-            return np.abs(vals)
-        return np.mean(np.abs(vals), axis=0)
+            return np.asarray(np.abs(vals))
+        return np.asarray(np.mean(np.abs(vals), axis=0))
 
     @property
     def top_features(self) -> list[str]:

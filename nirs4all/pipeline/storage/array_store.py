@@ -125,7 +125,7 @@ class ArrayStore:
         if not path.exists():
             return {}
         with open(path) as f:
-            return json.load(f)
+            return dict(json.load(f))
 
     def _write_tombstones(self, tombstones: dict[str, str]) -> None:
         """Write the tombstone file atomically via temp + rename."""

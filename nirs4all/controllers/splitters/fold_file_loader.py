@@ -226,7 +226,10 @@ class FoldFileParser:
 
         for row_idx, row in enumerate(rows):
             fold_value = int(row[fold_col].strip())
-            sample_id = row_idx if use_row_index else int(row[sample_col].strip())
+            if use_row_index or sample_col is None:
+                sample_id = row_idx
+            else:
+                sample_id = int(row[sample_col].strip())
 
             if fold_value not in fold_to_samples:
                 fold_to_samples[fold_value] = []
@@ -266,8 +269,8 @@ class FoldFileParser:
             if not isinstance(fold_obj, dict):
                 raise ValueError("Each fold must be a dict with 'train' and 'val' keys")
 
-            train = fold_obj.get('train', [])
-            val = fold_obj.get('val', fold_obj.get('test', []))
+            train = fold_obj.get('train') or []
+            val = fold_obj.get('val') or fold_obj.get('test') or []
 
             folds.append((list(train), list(val)))
 
@@ -294,8 +297,8 @@ class FoldFileParser:
             if not isinstance(fold_obj, dict):
                 raise ValueError("Each fold must be a dict with 'train' and 'val' keys")
 
-            train = fold_obj.get('train', [])
-            val = fold_obj.get('val', fold_obj.get('test', []))
+            train = fold_obj.get('train') or []
+            val = fold_obj.get('val') or fold_obj.get('test') or []
 
             folds.append((list(train), list(val)))
 

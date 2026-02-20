@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 
@@ -175,7 +175,7 @@ class MeasurementModeConfig:
 # Crystal refractive indices for ATR
 # ============================================================================
 
-ATR_CRYSTAL_PROPERTIES = {
+ATR_CRYSTAL_PROPERTIES: dict[str, dict[str, Any]] = {
     "diamond": {"refractive_index": 2.4, "critical_angle": 24.6, "range": (2500, 25000)},
     "znse": {"refractive_index": 2.4, "critical_angle": 24.6, "range": (650, 20000)},
     "ge": {"refractive_index": 4.0, "critical_angle": 14.5, "range": (2000, 12000)},
@@ -291,9 +291,9 @@ class MeasurementModeSimulator:
         path_lengths = np.maximum(path_lengths, base_path * 0.5)
 
         # Apply Beer-Lambert: A = K * l
-        absorbance = absorption * path_lengths[:, np.newaxis]
+        absorbance = absorption * np.asarray(path_lengths)[:, np.newaxis]
 
-        return absorbance
+        return np.asarray(absorbance)
 
     def _apply_reflectance(
         self,
@@ -332,7 +332,7 @@ class MeasurementModeSimulator:
         # Convert to apparent absorbance (log 1/R)
         apparent_absorbance = -np.log10(reflectance)
 
-        return apparent_absorbance
+        return np.asarray(apparent_absorbance)
 
     def _apply_transflectance(
         self,
@@ -359,13 +359,13 @@ class MeasurementModeSimulator:
         )
 
         # Apply Beer-Lambert with double path
-        absorbance = absorption * path_lengths[:, np.newaxis]
+        absorbance = absorption * np.asarray(path_lengths)[:, np.newaxis]
 
         # Add reflector losses (appears as baseline offset)
         reflector_loss = -np.log10(config.reflector_reflectance)
         absorbance += reflector_loss
 
-        return absorbance
+        return np.asarray(absorbance)
 
     def _apply_atr(
         self,
@@ -415,10 +415,10 @@ class MeasurementModeSimulator:
         absorbance = absorption * effective_path_mm
 
         # Add sample-to-sample contact variation
-        contact_variation = self.rng.normal(1.0, 0.05, n_samples)
+        contact_variation = np.asarray(self.rng.normal(1.0, 0.05, n_samples))
         absorbance = absorbance * contact_variation[:, np.newaxis]
 
-        return absorbance
+        return np.asarray(absorbance)
 
     def _apply_interactance(
         self,
@@ -448,7 +448,7 @@ class MeasurementModeSimulator:
         baseline = 0.1 * mean_scattering[:, np.newaxis] * np.ones((1, len(wavelengths)))
         absorbance = absorbance + baseline
 
-        return absorbance
+        return np.asarray(absorbance)
 
     def generate_scattering_coefficients(
         self,
@@ -533,7 +533,7 @@ class MeasurementModeSimulator:
         """
         # Avoid log of zero
         reflectance = np.clip(reflectance, 1e-10, 1.0)
-        return -np.log10(reflectance)
+        return np.asarray(-np.log10(reflectance))
 
     def kubelka_munk(self, reflectance: np.ndarray) -> np.ndarray:
         """
@@ -549,7 +549,7 @@ class MeasurementModeSimulator:
         """
         # Avoid division by zero
         reflectance = np.clip(reflectance, 1e-10, 0.999)
-        return (1 - reflectance) ** 2 / (2 * reflectance)
+        return np.asarray((1 - reflectance) ** 2 / (2 * reflectance))
 
     def inverse_kubelka_munk(
         self,
@@ -568,7 +568,7 @@ class MeasurementModeSimulator:
             Reflectance values.
         """
         reflectance = 1 + ks_ratio - np.sqrt(ks_ratio**2 + 2 * ks_ratio)
-        return np.clip(reflectance, 0, 1)
+        return np.asarray(np.clip(reflectance, 0, 1))
 
 # ============================================================================
 # Convenience functions
@@ -636,7 +636,7 @@ def create_atr_simulator(
         Configured MeasurementModeSimulator.
     """
     # Get crystal properties
-    n_crystal = ATR_CRYSTAL_PROPERTIES[crystal_material]["refractive_index"] if crystal_material in ATR_CRYSTAL_PROPERTIES else 2.4  # Default to diamond-like
+    n_crystal = float(ATR_CRYSTAL_PROPERTIES[crystal_material]["refractive_index"]) if crystal_material in ATR_CRYSTAL_PROPERTIES else 2.4  # Default to diamond-like
 
     config = MeasurementModeConfig(
         mode=MeasurementMode.ATR,

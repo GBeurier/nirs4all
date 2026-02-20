@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.core.task_type import TaskType
+from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
 from nirs4all.utils.backend import is_available, is_gpu_available, require_backend
 
 from ..models.base_model import BaseModelController
@@ -176,7 +177,7 @@ class TensorFlowModelController(BaseModelController):
 
         # Check if it's a function decorated with @framework('tensorflow')
         if callable(obj) and hasattr(obj, 'framework'):
-            return obj.framework == 'tensorflow'
+            return bool(obj.framework == 'tensorflow')
 
         # Check if it's a serialized function dictionary
         if isinstance(obj, dict):
@@ -190,9 +191,9 @@ class TensorFlowModelController(BaseModelController):
                 # Case 1: function is a callable object
                 if callable(function_val):
                     if hasattr(function_val, 'framework'):
-                        return function_val.framework == 'tensorflow'
+                        return bool(function_val.framework == 'tensorflow')
                     # Fallback: check module name
-                    module_name = getattr(function_val, '__module__', '')
+                    module_name: str = getattr(function_val, '__module__', '')
                     return 'tensorflow' in module_name or 'keras' in module_name
 
                 # Case 2: function is a string path
@@ -203,7 +204,7 @@ class TensorFlowModelController(BaseModelController):
                         mod_name, _, func_name = function_path.rpartition(".")
                         mod = __import__(mod_name, fromlist=[func_name])
                         func = getattr(mod, func_name)
-                        return hasattr(func, 'framework') and func.framework == 'tensorflow'
+                        return bool(hasattr(func, 'framework') and func.framework == 'tensorflow')
                     except (ImportError, AttributeError, ValueError):
                         # If we can't import, check the path for tensorflow indicators
                         return 'tensorflow' in function_path.lower() or 'tf' in function_path.lower()
@@ -404,7 +405,8 @@ class TensorFlowModelController(BaseModelController):
         # Prepare data to ensure correct shape for model
         X_prepared, _ = self._prepare_data(X, None, {})
 
-        predictions = model.predict(X_prepared, verbose=0)
+        raw_predictions = model.predict(X_prepared, verbose=0)
+        predictions: np.ndarray = np.asarray(raw_predictions)
 
         # For multiclass classification, convert probabilities to class indices
         if predictions.ndim == 2 and predictions.shape[1] > 1:
@@ -435,7 +437,7 @@ class TensorFlowModelController(BaseModelController):
         # Prepare data to ensure correct shape for model
         X_prepared, _ = self._prepare_data(X, None, {})
 
-        predictions = model.predict(X_prepared, verbose=0)
+        predictions: np.ndarray = np.asarray(model.predict(X_prepared, verbose=0))
 
         # For regression (single output), return None
         if predictions.ndim == 1:
@@ -502,16 +504,17 @@ class TensorFlowModelController(BaseModelController):
                 y_val_1d = np.asarray(y_val).ravel()
                 y_pred_1d = np.asarray(y_pred).ravel()
                 from nirs4all.core import metrics as evaluator_mod
-                return evaluator_mod.eval(y_val_1d, y_pred_1d, metric)
+                score = evaluator_mod.eval(y_val_1d, y_pred_1d, metric)
+                return float(score) if isinstance(score, (int, float)) else score.get(metric, float('inf'))
 
             # Legacy behavior: use model.evaluate()
             loss = model.evaluate(X_val, y_val, verbose=0)
 
             # If evaluate returns list (loss + metrics), take the loss
             if isinstance(loss, list):
-                return loss[0]
+                return float(loss[0])
             else:
-                return loss
+                return float(loss)
 
         except (ValueError, TypeError, AttributeError) as e:
             logger.warning(f"Error in TensorFlow model evaluation: {e}")
@@ -614,7 +617,7 @@ class TensorFlowModelController(BaseModelController):
             Dictionary of processed hyperparameters with proper nesting for
             TensorFlow compilation and fitting.
         """
-        tf_params = {}
+        tf_params: dict[str, Any] = {}
 
         for key, value in params.items():
             if key.startswith('compile_'):
@@ -643,9 +646,9 @@ class TensorFlowModelController(BaseModelController):
         runtime_context: RuntimeContext,
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: list[tuple[str, bytes]] | None = None,
-        prediction_store: Predictions = None
-    ) -> tuple[ExecutionContext, list[tuple[str, bytes]]]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple[ExecutionContext, Any]:
         """Execute TensorFlow model training, finetuning, or prediction.
 
         Sets the preferred data layout to '3d_transpose' for TensorFlow Conv1D models,

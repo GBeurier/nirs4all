@@ -292,12 +292,12 @@ class ParameterDistributionFitter:
 
         n_factors = min(self.n_factors, X.shape[1] - 1, X.shape[0] - 1)
         if n_factors < 1:
-            return None
+            return np.zeros((X.shape[1], 0))
 
         fa = FactorAnalysis(n_components=n_factors)
         fa.fit(X)
 
-        return fa.components_.T  # (n_features, n_factors)
+        return np.asarray(fa.components_.T)  # (n_features, n_factors)
 
 # =============================================================================
 # Parameter Sampler
@@ -402,7 +402,7 @@ class ParameterSampler:
     ) -> dict[str, np.ndarray]:
         """Reorganize flat samples into original parameter structure."""
         # Group by base name
-        grouped = {}
+        grouped: dict[str, Any] = {}
 
         for name, values in flat_samples.items():
             # Check if name has index suffix
@@ -518,9 +518,9 @@ def fit_parameter_distributions(
         bounded_params=bounded_params,
     )
 
-    result = fitter.fit(params)
+    dist_result = fitter.fit(params)
 
     # Create sampler
-    sampler = ParameterSampler(result, use_correlations=True)
+    sampler = ParameterSampler(dist_result, use_correlations=True)
 
-    return result, sampler
+    return dist_result, sampler

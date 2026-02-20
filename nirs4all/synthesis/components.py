@@ -66,9 +66,9 @@ class NIRBand:
             return self.amplitude * np.exp(-0.5 * ((wavelengths - self.center) / self.sigma) ** 2)
         else:
             # Voigt profile (convolution of Gaussian and Lorentzian)
-            return self.amplitude * voigt_profile(
+            return np.asarray(self.amplitude * voigt_profile(
                 wavelengths - self.center, self.sigma, self.gamma
-            ) * self.sigma * np.sqrt(2 * np.pi)
+            ) * self.sigma * np.sqrt(2 * np.pi))
 
 @dataclass
 class SpectralComponent:
@@ -384,7 +384,7 @@ class ComponentLibrary:
         name: str,
         n_bands: int = 3,
         wavelength_range: tuple[float, float] = (1000, 2500),
-        zones: list[tuple[float, float]] | None = None,
+        zones: list[tuple[float, float]] | list[tuple[int, int]] | None = None,
     ) -> SpectralComponent:
         """
         Generate and add a random spectral component.
@@ -457,7 +457,7 @@ class ComponentLibrary:
             >>> library.generate_random_library(n_components=5, n_bands_range=(2, 5))
         """
         for i in range(n_components):
-            n_bands = self.rng.integers(*n_bands_range)
+            n_bands = int(self.rng.integers(*n_bands_range))
             self.add_random_component(f"component_{i}", n_bands=n_bands)
         return self
 

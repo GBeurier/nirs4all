@@ -487,7 +487,7 @@ def _oklmpls_predict_numpy(
         Predicted values.
     """
     T = Z @ W
-    return T @ B
+    return np.asarray(T @ B)
 
 # =============================================================================
 # JAX Backend Implementation
@@ -1011,7 +1011,7 @@ class OKLMPLS(BaseEstimator, RegressorMixin):
         Z = self.featurizer_.transform(X_proc)
         T = Z @ self.W_
 
-        return T
+        return np.asarray(T)
 
     def predict_dynamic(
         self,

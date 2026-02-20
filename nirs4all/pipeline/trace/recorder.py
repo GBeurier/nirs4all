@@ -470,7 +470,7 @@ class TraceRecorder:
             operator_class=operator_class,
             operator_config=operator_config,
             branch_path=current_path,
-            branch_name=branch_name,
+            branch_name=branch_name or "",
             substep_index=substep_index,
         )
 

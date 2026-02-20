@@ -177,11 +177,11 @@ class TemperatureAugmenter(SpectraTransformerMixin):
         result = X.copy()
 
         # Determine temperature delta for each sample
-        delta_temps = rng.uniform(self.temperature_range[0], self.temperature_range[1], n_samples) if self.temperature_range is not None else np.full(n_samples, self.temperature_delta)
+        delta_temps = np.asarray(rng.uniform(self.temperature_range[0], self.temperature_range[1], n_samples) if self.temperature_range is not None else np.full(n_samples, self.temperature_delta))
 
         # Apply effects to each sample
         for i in range(n_samples):
-            delta_t = delta_temps[i]
+            delta_t = float(delta_temps[i])
             if abs(delta_t) < 0.01:
                 continue
 
@@ -286,7 +286,7 @@ class TemperatureAugmenter(SpectraTransformerMixin):
     ) -> np.ndarray:
         """Apply weighted wavelength shift."""
         shifted_wl = wavelengths + shift * weights
-        return np.interp(wavelengths, shifted_wl, spectrum)
+        return np.asarray(np.interp(wavelengths, shifted_wl, spectrum))
 
     def _apply_broadening(
         self,
@@ -299,7 +299,7 @@ class TemperatureAugmenter(SpectraTransformerMixin):
         if sigma < 0.1:
             return spectrum
         broadened = gaussian_filter1d(spectrum, sigma)
-        return spectrum * (1 - weights) + broadened * weights
+        return np.asarray(spectrum * (1 - weights) + broadened * weights)
 
 class MoistureAugmenter(SpectraTransformerMixin):
     """
@@ -414,14 +414,14 @@ class MoistureAugmenter(SpectraTransformerMixin):
         result = X.copy()
 
         # Determine water activity for each sample
-        aw_deltas = rng.uniform(self.water_activity_range[0], self.water_activity_range[1], n_samples) if self.water_activity_range is not None else np.full(n_samples, self.water_activity_delta)
+        aw_deltas = np.asarray(rng.uniform(self.water_activity_range[0], self.water_activity_range[1], n_samples) if self.water_activity_range is not None else np.full(n_samples, self.water_activity_delta))
 
         # Apply effects to each sample
         for i in range(n_samples):
-            aw = np.clip(
+            aw = float(np.clip(
                 self.reference_water_activity + aw_deltas[i],
                 0.0, 1.0
-            )
+            ))
             effective_fraction = self._compute_free_water_fraction(aw)
             result[i] = self._apply_water_state_effects(
                 result[i], wavelengths, effective_fraction
@@ -433,7 +433,7 @@ class MoistureAugmenter(SpectraTransformerMixin):
         """Compute effective free water fraction based on water activity."""
         # Sigmoid centered around a_w = 0.5
         sigmoid_factor = 1.0 / (1.0 + np.exp(-8 * (water_activity - 0.5)))
-        return self.free_water_fraction * sigmoid_factor
+        return float(self.free_water_fraction * sigmoid_factor)
 
     def _apply_water_state_effects(
         self,
@@ -485,7 +485,7 @@ class MoistureAugmenter(SpectraTransformerMixin):
             return spectrum
         weights = self._create_gaussian_region(wavelengths, center, width)
         shifted_wl = wavelengths + shift * weights
-        return np.interp(wavelengths, shifted_wl, spectrum)
+        return np.asarray(np.interp(wavelengths, shifted_wl, spectrum))
 
     def _create_gaussian_region(
         self,

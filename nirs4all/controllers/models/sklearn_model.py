@@ -21,6 +21,7 @@ from sklearn.metrics import mean_squared_error
 
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
+from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
 
 from ..models.base_model import BaseModelController
 from .factory import ModelFactory
@@ -352,7 +353,7 @@ class SklearnModelController(BaseModelController):
         if predictions.ndim == 1:
             predictions = predictions.reshape(-1, 1)
 
-        return predictions
+        return np.asarray(predictions)
 
     def _predict_proba_model(self, model: BaseEstimator, X: np.ndarray) -> np.ndarray | None:
         """Get class probabilities for sklearn classification models.
@@ -378,7 +379,7 @@ class SklearnModelController(BaseModelController):
             if proba.ndim == 1:
                 proba = np.column_stack([1 - proba, proba])
 
-            return proba
+            return np.asarray(proba)
         except Exception:
             # Some models may have predict_proba but fail (e.g., SVC without probability=True)
             return None
@@ -466,16 +467,17 @@ class SklearnModelController(BaseModelController):
 
             if metric is not None:
                 from nirs4all.core import metrics as evaluator_mod
-                return evaluator_mod.eval(y_val_1d, y_pred, metric)
+                result = evaluator_mod.eval(y_val_1d, y_pred, metric)
+                return float(result) if isinstance(result, (int, float)) else float('inf')
 
             # Legacy behavior when no metric specified
             is_clf = is_classifier(model) or isinstance(model, ClassifierMixin)
 
             if is_clf:
                 from sklearn.metrics import balanced_accuracy_score
-                return -balanced_accuracy_score(y_val_1d, y_pred)
+                return float(-balanced_accuracy_score(y_val_1d, y_pred))
             else:
-                return mean_squared_error(y_val_1d, y_pred)
+                return float(mean_squared_error(y_val_1d, y_pred))
 
         except Exception as e:
             logger.warning(f"Error in model evaluation: {e}")
@@ -566,7 +568,7 @@ class SklearnModelController(BaseModelController):
         mode: str = "train",
         loaded_binaries: list[tuple[str, bytes]] | None = None,
         prediction_store: Any | None = None
-    ) -> tuple['ExecutionContext', list[tuple[str, bytes]]]:
+    ) -> tuple['ExecutionContext', list['ArtifactMeta']]:
         """Execute sklearn model controller with score management.
 
         Main entry point for sklearn model execution in the pipeline. Sets the

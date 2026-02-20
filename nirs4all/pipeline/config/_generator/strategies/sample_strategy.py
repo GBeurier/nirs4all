@@ -91,7 +91,7 @@ class SampleStrategy(ExpansionStrategy):
             )
 
         # Initialize RNG with seed
-        rng = random.Random(node_seed) if node_seed is not None else random
+        rng: random.Random = random.Random(node_seed) if node_seed is not None else random.Random()
 
         distribution = sample_spec.get("distribution", "uniform")
         num = sample_spec.get("num", 10)
@@ -185,8 +185,8 @@ class SampleStrategy(ExpansionStrategy):
 
         # Apply count limit (count <= 0 means no limit)
         if count_limit is not None and count_limit > 0:
-            return min(count_limit, num)
-        return num
+            return int(min(count_limit, num))
+        return int(num)
 
     def validate(self, node: GeneratorNode) -> list[str]:
         """Validate sample node specification.

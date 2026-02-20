@@ -165,7 +165,10 @@ class BundleArtifactProvider(ArtifactProvider):
     def get_artifacts_for_step(
         self,
         step_index: int,
-        branch_path: list[int] | None = None
+        branch_path: list[int] | None = None,
+        branch_id: int | None = None,
+        source_index: int | None = None,
+        substep_index: int | None = None
     ) -> list[tuple[str, Any]]:
         """Get all artifacts for a step.
 
@@ -582,6 +585,7 @@ class BundleLoader:
         y_processing_step_idx = None  # Track y_processing step for inverse_transform
 
         # Get steps up to model from trace
+        assert self.trace is not None
         steps = self.trace.get_steps_up_to_model() if model_step is not None else self.trace.steps
 
         for step in steps:
@@ -670,6 +674,7 @@ class BundleLoader:
 
         # Get and apply meta-model
         meta_step_idx = meta_step.step_index
+        assert self.artifact_provider is not None
         fold_artifacts = self.artifact_provider.get_fold_artifacts(meta_step_idx, branch_path)
 
         if fold_artifacts:
@@ -682,16 +687,19 @@ class BundleLoader:
 
             if self.fold_weights:
                 total_weight = sum(w for w, _ in fold_preds)
-                return np.asarray(sum(w * y for w, y in fold_preds) / total_weight)
+                result: np.ndarray = np.asarray(sum(w * y for w, y in fold_preds) / total_weight)
+                return result
             else:
-                return np.mean([y for _, y in fold_preds], axis=0)
+                result = np.mean([y for _, y in fold_preds], axis=0)
+                return np.asarray(result)
         else:
             # Single meta-model
             artifacts = self.artifact_provider.get_artifacts_for_step(meta_step_idx, branch_path)
             if not artifacts:
                 raise RuntimeError(f"No artifacts for meta-model step {meta_step_idx}")
             _, model = artifacts[0]
-            return model.predict(X_meta)
+            result = model.predict(X_meta)
+            return np.asarray(result)
 
     def _predict_model_step(
         self,
@@ -716,8 +724,9 @@ class BundleLoader:
         # Check for single refit model first (fold_id="final")
         refit_model = self._get_refit_model(step_idx)
         if refit_model is not None:
-            return refit_model.predict(X)
+            return np.asarray(refit_model.predict(X))
 
+        assert self.artifact_provider is not None
         fold_artifacts = self.artifact_provider.get_fold_artifacts(step_idx, branch_path)
 
         if fold_artifacts:
@@ -730,16 +739,17 @@ class BundleLoader:
 
             if self.fold_weights:
                 total_weight = sum(w for w, _ in fold_preds)
-                return np.asarray(sum(w * y for w, y in fold_preds) / total_weight)
+                result: np.ndarray = np.asarray(sum(w * y for w, y in fold_preds) / total_weight)
+                return result
             else:
-                return np.mean([y for _, y in fold_preds], axis=0)
+                return np.asarray(np.mean([y for _, y in fold_preds], axis=0))
         else:
             # Single model
             artifacts = self.artifact_provider.get_artifacts_for_step(step_idx, branch_path)
             if not artifacts:
                 raise RuntimeError(f"No artifacts for model step {step_idx}")
             _, model = artifacts[0]
-            return model.predict(X)
+            return np.asarray(model.predict(X))
 
     def _get_refit_model(self, step_idx: int) -> Any | None:
         """Load the single refit model if available.
@@ -754,12 +764,13 @@ class BundleLoader:
             The refit model object, or ``None`` if no refit model exists.
         """
         # Check artifact index for canonical/legacy refit keys.
-        for refit_key in (f"step_{step_idx}_foldfinal", f"step_{step_idx}_final"):
-            if refit_key in self._artifact_index:
-                return self.artifact_provider._load_artifact(refit_key)
+        if self.artifact_provider is not None:
+            for refit_key in (f"step_{step_idx}_foldfinal", f"step_{step_idx}_final"):
+                if refit_key in self._artifact_index:
+                    return self.artifact_provider._load_artifact(refit_key)
 
         # Check chain data for refit fold key in fold_artifacts.
-        if self._chain_data:
+        if self._chain_data and self.artifact_provider is not None:
             fold_artifacts = self._chain_data.get("fold_artifacts", {})
             if "fold_final" in fold_artifacts or "final" in fold_artifacts:
                 # The artifact is in the bundle; try to load by filename
@@ -790,6 +801,7 @@ class BundleLoader:
         Returns:
             Transformed X
         """
+        assert self.artifact_provider is not None
         artifacts = self.artifact_provider.get_artifacts_for_step(step_idx, branch_path)
 
         for _, transformer in artifacts:
@@ -818,6 +830,7 @@ class BundleLoader:
             return y_pred
 
         # Get the y_processing transformer
+        assert self.artifact_provider is not None
         artifacts = self.artifact_provider.get_artifacts_for_step(
             y_processing_step_idx, branch_path
         )
@@ -861,6 +874,7 @@ class BundleLoader:
         Returns:
             Augmented features (concatenated original + transformed channels)
         """
+        assert self.artifact_provider is not None
         artifacts = self.artifact_provider.get_artifacts_for_step(step_idx, branch_path)
 
         if not artifacts:
@@ -917,6 +931,7 @@ class BundleLoader:
                 y_processing_step_idx = step_idx
                 continue
 
+            assert self.artifact_provider is not None
             artifacts = self.artifact_provider.get_artifacts_for_step(step_idx)
 
             if is_model:
@@ -1147,12 +1162,14 @@ class BundleLoader:
         merged_chains = self.get_merged_chains(import_context_chain, step_offset) if import_context_chain else {}
 
         # Import each artifact
+        assert self.artifact_provider is not None
         for artifact_key in self._artifact_index:
-            artifact = self._load_artifact(artifact_key)
+            artifact = self.artifact_provider._load_artifact(artifact_key)
             if artifact is None:
                 continue
 
             # Get chain for this artifact
+            chain: OperatorChain | None
             if artifact_key in merged_chains:
                 chain = merged_chains[artifact_key]
             else:
@@ -1226,7 +1243,7 @@ class BundleLoader:
         Returns:
             Routing info dict or None
         """
-        if not self.has_partitioner_routing():
+        if self.metadata is None or not self.metadata.partitioner_routing:
             return None
 
         if step_index is not None:
@@ -1275,6 +1292,7 @@ class BundleLoader:
         if self.artifact_provider is None:
             raise RuntimeError("Bundle not loaded properly: no artifact provider")
 
+        assert self.metadata is not None
         n_samples = X.shape[0]
         y_pred = np.full(n_samples, np.nan)
 
@@ -1404,11 +1422,12 @@ class BundleLoader:
         Returns:
             List of column names needed for routing, empty if no routing needed.
         """
-        if not self.has_partitioner_routing():
+        if self.metadata is None or not self.metadata.partitioner_routing:
             return []
 
+        metadata = self.metadata
         columns = []
-        for routing_info in self.metadata.partitioner_routing.values():
+        for routing_info in metadata.partitioner_routing.values():
             column = routing_info.get("column")
             if column and column not in columns:
                 columns.append(column)

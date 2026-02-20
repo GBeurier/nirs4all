@@ -988,6 +988,7 @@ class KernelPLS(BaseEstimator, RegressorMixin):
             diag_test = np.maximum(diag_test, 1e-12)
             diag_sqrt_test = np.sqrt(diag_test)
             # _kdiag_sqrt_train_ is set in fit() when kernel != 'rbf'
+            assert self._kdiag_sqrt_train_ is not None
             K_test = _normalize_kernel_test(K_test, diag_sqrt_test, self._kdiag_sqrt_train_)
 
         # Center test kernel
@@ -1060,6 +1061,7 @@ class KernelPLS(BaseEstimator, RegressorMixin):
             diag_test = np.maximum(diag_test, 1e-12)
             diag_sqrt_test = np.sqrt(diag_test)
             # _kdiag_sqrt_train_ is set in fit() when kernel != 'rbf'
+            assert self._kdiag_sqrt_train_ is not None
             K_test = _normalize_kernel_test(K_test, diag_sqrt_test, self._kdiag_sqrt_train_)
 
         # Center test kernel

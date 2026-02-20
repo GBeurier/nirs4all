@@ -75,7 +75,7 @@ class DetectorSpectralResponse:
             bounds_error=False,
             fill_value=0.0
         )
-        return interp_func(wavelengths)
+        return np.asarray(interp_func(wavelengths))
 
 def _create_silicon_response() -> DetectorSpectralResponse:
     """Create silicon detector spectral response."""
@@ -328,7 +328,7 @@ def get_default_noise_config(detector_type: DetectorType) -> NoiseModelConfig:
         NoiseModelConfig with appropriate defaults.
     """
     defaults = DETECTOR_NOISE_DEFAULTS.get(detector_type, {})
-    return NoiseModelConfig(**defaults)
+    return NoiseModelConfig(**defaults)  # type: ignore[arg-type]
 
 # ============================================================================
 # Detector Simulator
@@ -519,7 +519,7 @@ class DetectorSimulator:
         actual_temp = self.config.temperature_k
 
         # Thermal noise proportional to sqrt(T)
-        return np.sqrt(actual_temp / reference_temp)
+        return float(np.sqrt(actual_temp / reference_temp))
 
     def _generate_flicker_noise(
         self,
@@ -566,7 +566,7 @@ class DetectorSimulator:
         # Add small uniform noise (quantization noise approximation)
         q_noise = self.rng.uniform(-step / 2, step / 2, spectra.shape)
 
-        return quantized + q_noise
+        return np.asarray(quantized + q_noise)
 
 # ============================================================================
 # Convenience Functions

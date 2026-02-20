@@ -86,7 +86,7 @@ def _flatten_dict(
     Returns:
         Flattened dict.
     """
-    items = []
+    items: list[tuple[str, Any]] = []
     for k, v in d.items():
         new_key = f"{parent_key}{prefix_sep}{k}" if parent_key else k
         if isinstance(v, dict):
@@ -172,7 +172,7 @@ def summarize_configs(
     if not configs:
         return {"count": 0, "keys": {}}
 
-    summary = {
+    summary: dict[str, Any] = {
         "count": len(configs),
         "keys": {}
     }
@@ -411,7 +411,7 @@ def print_expansion_tree(
         └── y: _range_ (3 variants)
     """
     tree = get_expansion_tree(spec)
-    lines = []
+    lines: list[str] = []
     _format_tree_node(tree, lines, "", True, show_counts, max_depth, 0)
     return "\n".join(lines)
 

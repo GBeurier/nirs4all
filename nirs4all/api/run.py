@@ -177,7 +177,7 @@ def _normalize_to_list(spec: Any, is_single_fn) -> list[Any]:
     if is_single_fn(spec):
         return [spec]
     else:
-        return spec
+        return list(spec)
 
 def run(
     pipeline: PipelineSpec,

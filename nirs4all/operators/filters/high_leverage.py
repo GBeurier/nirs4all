@@ -264,7 +264,7 @@ class HighLeverageFilter(SampleFilter):
         left = X_proj @ self.precision_
         leverages = np.sum(left * X_proj, axis=1)
 
-        return leverages
+        return np.asarray(leverages)
 
     def get_mask(self, X: np.ndarray, y: np.ndarray | None = None) -> np.ndarray:
         """

@@ -90,7 +90,7 @@ class TransformerMixinController(OperatorController):
         """
         try:
             wavelengths = dataset.wavelengths_nm(source_index)
-            return wavelengths
+            return np.asarray(wavelengths)
         except (ValueError, AttributeError):
             pass
 
@@ -98,7 +98,7 @@ class TransformerMixinController(OperatorController):
         try:
             wavelengths = dataset.float_headers(source_index)
             if wavelengths is not None and len(wavelengths) > 0:
-                return wavelengths
+                return np.asarray(wavelengths)
         except (ValueError, AttributeError):
             pass
 
@@ -622,16 +622,18 @@ class TransformerMixinController(OperatorController):
 
         # OPTIMIZED: Collect all augmented samples, then batch insert
         # Build 3D arrays for batch insertion: (n_samples, n_processings, n_features)
+        batch_data: np.ndarray | list[np.ndarray]
         if n_sources == 1:
             # Single source: stack transformed data into 3D array
             # all_transformed[0] is list of (n_samples, n_features) arrays, one per processing
             batch_data = np.stack(all_transformed[0], axis=1)  # (n_samples, n_processings, n_features)
         else:
             # Multi-source: create list of 3D arrays
-            batch_data = []
+            batch_data_list: list[np.ndarray] = []
             for source_idx in range(n_sources):
                 source_3d = np.stack(all_transformed[source_idx], axis=1)
-                batch_data.append(source_3d)
+                batch_data_list.append(source_3d)
+            batch_data = batch_data_list
 
         # Build index dictionaries for all samples
         indexes_list = [
@@ -678,9 +680,9 @@ class TransformerMixinController(OperatorController):
             return context, []
 
         operator_name = operator.__class__.__name__
-        fitted_transformers = []
-        fitted_transformers_cache = {}
-        wavelengths_cache = {}  # Cache wavelengths per source
+        fitted_transformers: list[Any] = []
+        fitted_transformers_cache: dict[tuple[int, int], Any] = {}
+        wavelengths_cache: dict[int, Any] = {}  # Cache wavelengths per source
 
         # Check if operator needs wavelengths
         needs_wavelengths = self._needs_wavelengths(operator)

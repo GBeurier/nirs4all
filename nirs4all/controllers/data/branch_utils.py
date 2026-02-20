@@ -54,7 +54,7 @@ def parse_value_condition(condition: Any) -> Callable[[Any], bool]:
         True
     """
     if callable(condition):
-        return condition
+        return condition  # type: ignore[no-any-return]
 
     if isinstance(condition, bool):
         return lambda x: x == condition

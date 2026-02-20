@@ -11,7 +11,7 @@ dataset-specific transforms to match observed data.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 import numpy as np
 from scipy.interpolate import interp1d
@@ -101,7 +101,7 @@ class CanonicalForwardModel:
     def _normalize_wavelengths(self, wl: np.ndarray) -> np.ndarray:
         """Normalize wavelengths to [-1, 1] for Chebyshev basis."""
         wl_min, wl_max = self.canonical_grid.min(), self.canonical_grid.max()
-        return 2 * (wl - wl_min) / (wl_max - wl_min) - 1
+        return np.asarray(2 * (wl - wl_min) / (wl_max - wl_min) - 1)
 
     def compute_absorption(
         self,
@@ -263,7 +263,7 @@ class InstrumentModel:
         else:
             spectrum_resampled = np.interp(self.target_grid, warped_wl, spectrum_phot)
 
-        return spectrum_resampled
+        return np.asarray(spectrum_resampled)
 
     def _apply_wavelength_warp(self, canonical_grid: np.ndarray) -> np.ndarray:
         """Apply wavelength warp transformation."""
@@ -292,7 +292,7 @@ class InstrumentModel:
         self.wl_shift = orig - eps
         spec_minus = self.apply(spectrum, canonical_grid)
         self.wl_shift = orig
-        return (spec_plus - spec_minus) / (2 * eps)
+        return np.asarray((spec_plus - spec_minus) / (2 * eps))
 
     def get_jacobian_wrt_ils_sigma(
         self,
@@ -307,7 +307,7 @@ class InstrumentModel:
         self.ils_sigma = max(0.5, orig - eps)
         spec_minus = self.apply(spectrum, canonical_grid)
         self.ils_sigma = orig
-        return (spec_plus - spec_minus) / (2 * eps)
+        return np.asarray((spec_plus - spec_minus) / (2 * eps))
 
     @classmethod
     def from_params(
@@ -370,7 +370,7 @@ class DomainTransform:
 
         elif self.domain == "transmittance":
             # T = exp(-A) for optical density
-            return np.exp(-np.clip(absorption, 0, 10))
+            return np.asarray(np.exp(-np.clip(absorption, 0, 10)))
 
         elif self.domain in ("reflectance", "km"):
             # Kubelka-Munk: f(R) = (1-R)²/(2R) = K/S
@@ -405,8 +405,8 @@ class DomainTransform:
 
             if self.domain == "km":
                 # Return KM function value
-                return km_ratio
-            return R
+                return np.asarray(km_ratio)
+            return np.asarray(R)
 
         return absorption
 
@@ -431,7 +431,7 @@ class DomainTransform:
             return spectrum
 
         elif self.domain == "transmittance":
-            return -np.log(np.clip(spectrum, 1e-6, 1))
+            return np.asarray(-np.log(np.clip(spectrum, 1e-6, 1)))
 
         elif self.domain in ("reflectance", "km"):
             if self.domain == "km":
@@ -447,7 +447,7 @@ class DomainTransform:
             else:
                 S = np.ones_like(spectrum) * 0.5
 
-            return km_ratio * S
+            return np.asarray(km_ratio * S)
 
         return spectrum
 
@@ -469,7 +469,7 @@ class DomainTransform:
             for i, coeff in enumerate(self.scatter_coeffs[2:]):
                 S += coeff * wl_centered ** (i + 1)
 
-        return np.maximum(S, 1e-6)
+        return np.asarray(np.maximum(S, 1e-6))
 
 # =============================================================================
 # Preprocessing Operator
@@ -586,7 +586,7 @@ class PreprocessingOperator:
             "mean_centered": "mean_centered",
             "normalized": "none",  # Min-max scaling doesn't need special handling
         }
-        prep_type = type_map.get(preprocessing_type, "none")
+        prep_type = cast(Literal["none", "first_derivative", "second_derivative", "snv", "msc", "detrend", "mean_centered"], type_map.get(preprocessing_type, "none"))
         return cls(
             preprocessing_type=prep_type,
             sg_window=sg_window,
@@ -744,7 +744,7 @@ class ForwardChain:
         instrument_params = instrument_params or {}
         instrument_model = InstrumentModel.from_params(target_grid, instrument_params)
 
-        domain_transform = DomainTransform(domain=domain)
+        domain_transform = DomainTransform(domain=cast(Literal["absorbance", "reflectance", "transmittance", "km"], domain))
 
         preprocessing = PreprocessingOperator.from_detection(
             preprocessing_type, sg_window, sg_polyorder

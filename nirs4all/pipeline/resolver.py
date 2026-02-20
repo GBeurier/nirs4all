@@ -77,7 +77,7 @@ def _load_manifest(run_dir: Path, pipeline_uid: str) -> dict[str, Any]:
     if not manifest_path.exists():
         raise FileNotFoundError(f"Manifest not found: {manifest_path}")
     with open(manifest_path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        return dict(yaml.safe_load(f))
 
 def _load_execution_trace(run_dir: Path, pipeline_uid: str, trace_id: str) -> ExecutionTrace | None:
     """Load a specific execution trace from a pipeline manifest.
@@ -950,7 +950,8 @@ class PredictionResolver:
 
         # Load bundle and convert to ResolvedPrediction
         loader = BundleLoader(bundle_path)
-        return loader.to_resolved_prediction()
+        result: ResolvedPrediction = loader.to_resolved_prediction()
+        return result
 
     def _resolve_from_trace_id(
         self,
@@ -1241,6 +1242,7 @@ class PredictionResolver:
             - source_artifact_map maps (step_index, source_index) → list of
               (artifact_id, object) for multi-source steps
         """
+        assert self.store is not None, "Store required for chain-based artifact loading"
         artifact_map: dict[int, list[tuple[str, Any]]] = {}
         source_artifact_map: dict[tuple[int, int], list[tuple[str, Any]]] = {}
         shared_artifacts = chain.get("shared_artifacts") or {}
@@ -1299,7 +1301,7 @@ class PredictionResolver:
         self,
         chains_df: Any,
         prediction: dict[str, Any],
-    ) -> str:
+    ) -> str | None:
         """Select the chain that matches a prediction.
 
         Chain selection is deterministic and fail-fast: if multiple chains
@@ -1315,7 +1317,7 @@ class PredictionResolver:
             The ``chain_id`` of the best-matching chain.
         """
         if len(chains_df) == 1:
-            return chains_df["chain_id"][0]
+            return str(chains_df["chain_id"][0])
 
         candidates: list[dict[str, Any]] = list(chains_df.iter_rows(named=True))
 

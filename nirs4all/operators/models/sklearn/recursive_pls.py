@@ -829,7 +829,7 @@ class RecursivePLS(BaseEstimator, RegressorMixin):
         if self._y_1d:
             y_pred = y_pred.ravel()
 
-        return y_pred
+        return np.asarray(y_pred)
 
     def transform(
         self,
@@ -854,7 +854,7 @@ class RecursivePLS(BaseEstimator, RegressorMixin):
 
         T = X_centered @ self._R
 
-        return T
+        return np.asarray(T)
 
     def get_params(self, deep: bool = True) -> dict:
         """Get parameters for this estimator.

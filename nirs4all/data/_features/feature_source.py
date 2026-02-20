@@ -292,7 +292,7 @@ class FeatureSource:
 
             # Check if it's list of arrays
             if isinstance(features[0], np.ndarray):
-                return list(features)
+                return [f for f in features if isinstance(f, np.ndarray)]
 
         return []
 

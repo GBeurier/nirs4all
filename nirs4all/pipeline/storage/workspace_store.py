@@ -29,9 +29,9 @@ import logging
 import threading
 import time
 import zipfile
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
@@ -121,7 +121,7 @@ def _retry_on_lock(func: Callable[..., Any]) -> Callable[..., Any]:
     def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
         if self._degraded:
             return None
-        last_error: Exception | None = None
+        last_error: Exception = Exception("DuckDB retry exhausted")
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 return func(self, *args, **kwargs)
@@ -312,7 +312,7 @@ class WorkspaceStore:
             return
         with self._lock:
             conn = self._ensure_open()
-            last_error: Exception | None = None
+            last_error: Exception = Exception("DuckDB retry exhausted")
             for attempt in range(max_retries + 1):
                 try:
                     conn.execute(sql, params or [])
@@ -1064,7 +1064,7 @@ class WorkspaceStore:
             existing = self._fetch_one(GET_ARTIFACT_BY_HASH, [content_hash])
             if existing is not None:
                 conn.execute(INCREMENT_ARTIFACT_REF, [existing["artifact_id"]])
-                return existing["artifact_id"]
+                return str(existing["artifact_id"])
 
             # New artifact
             artifact_id = str(uuid4())
@@ -1166,7 +1166,7 @@ class WorkspaceStore:
         row = self._fetch_one(GET_ARTIFACT, [artifact_id])
         if row is None:
             raise KeyError(f"Unknown artifact: {artifact_id}")
-        return self._artifacts_dir / row["artifact_path"]
+        return self._artifacts_dir / str(row["artifact_path"])
 
     # =====================================================================
     # Cross-run artifact caching
@@ -1221,7 +1221,7 @@ class WorkspaceStore:
                     input_data_hash,
                     dataset_hash,
                 ])
-                return existing["artifact_id"]
+                return str(existing["artifact_id"])
 
             artifact_id = str(uuid4())
             ext = _format_to_ext(format)
@@ -1285,7 +1285,7 @@ class WorkspaceStore:
         row = self._fetch_one(FIND_CACHED_ARTIFACT, [chain_path_hash, input_data_hash])
         if row is None:
             return None
-        return row["artifact_id"]
+        return str(row["artifact_id"])
 
     def invalidate_dataset_cache(self, dataset_hash: str) -> int:
         """Invalidate all cached artifacts for a dataset.
@@ -1917,7 +1917,7 @@ class WorkspaceStore:
         """
         existing = self.get_project_by_name(name)
         if existing is not None:
-            return existing["project_id"]
+            return str(existing["project_id"])
         return self.create_project(name=name)
 
     # =====================================================================
@@ -2601,7 +2601,7 @@ class WorkspaceStore:
         def _transform_with_optional_wavelengths(transformer: Any, X_in: np.ndarray) -> np.ndarray:
             """Call transformer.transform with wavelengths when supported."""
             if wavelengths is None:
-                return transformer.transform(X_in)
+                return np.asarray(transformer.transform(X_in))
 
             supports_wavelengths = False
             try:
@@ -2614,9 +2614,9 @@ class WorkspaceStore:
                 supports_wavelengths = False
 
             if supports_wavelengths or hasattr(transformer, "_requires_wavelengths"):
-                return transformer.transform(X_in, wavelengths=wavelengths)
+                return np.asarray(transformer.transform(X_in, wavelengths=wavelengths))
 
-            return transformer.transform(X_in)
+            return np.asarray(transformer.transform(X_in))
 
         for step in steps:
             idx = step["step_idx"]
@@ -2626,7 +2626,7 @@ class WorkspaceStore:
                 refit_artifact_id = fold_artifacts.get("fold_final") or fold_artifacts.get("final")
                 if refit_artifact_id:
                     model = self.load_artifact(refit_artifact_id)
-                    return model.predict(X_current)
+                    return np.asarray(model.predict(X_current))
 
                 # Legacy: load all fold models, predict, average
                 fold_preds = []
@@ -2635,7 +2635,7 @@ class WorkspaceStore:
                     fold_preds.append(model.predict(X_current))
                 if not fold_preds:
                     raise RuntimeError("Chain has no fold model artifacts")
-                return np.mean(fold_preds, axis=0)
+                return np.asarray(np.mean(fold_preds, axis=0))
 
             str_idx = str(idx)
             if str_idx in shared_artifacts:

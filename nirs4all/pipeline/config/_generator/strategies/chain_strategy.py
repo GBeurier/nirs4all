@@ -131,7 +131,7 @@ class ChainStrategy(ExpansionStrategy):
 
         # Apply count limit (count <= 0 means no limit)
         if count_limit is not None and count_limit > 0:
-            return min(count_limit, total)
+            return int(min(count_limit, total))
         return total
 
     def validate(self, node: GeneratorNode) -> list[str]:

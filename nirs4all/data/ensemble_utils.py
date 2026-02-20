@@ -160,7 +160,7 @@ class EnsembleUtils:
                 vote_counts[sample_idx, class_idx] += w
 
         # Get winning class (most votes)
-        final_predictions = np.argmax(vote_counts, axis=1).reshape(-1, 1).astype(float)
+        final_predictions: np.ndarray = np.argmax(vote_counts, axis=1).reshape(-1, 1).astype(float)
 
         return final_predictions
 
@@ -301,7 +301,7 @@ class EnsembleUtils:
         # Normalize weights to sum to 1
         weights = weights / np.sum(weights)
 
-        return weights
+        return np.asarray(weights)
 
     @staticmethod
     def compute_ensemble_prediction(
@@ -333,9 +333,11 @@ class EnsembleUtils:
         # Extract arrays and scores
         arrays = []
         scores = []
-        metadata = {
-            'model_names': [],
-            'individual_scores': [],
+        model_names: list[Any] = []
+        individual_scores: list[Any] = []
+        metadata: dict[str, Any] = {
+            'model_names': model_names,
+            'individual_scores': individual_scores,
             'weights': [],
             'n_models': len(predictions_data)
         }
@@ -364,8 +366,8 @@ class EnsembleUtils:
             scores.append(float(score))
 
             # Collect metadata
-            metadata['model_names'].append(pred_dict.get('model_name', 'unknown'))
-            metadata['individual_scores'].append(score)
+            model_names.append(pred_dict.get('model_name', 'unknown'))
+            individual_scores.append(score)
 
         # Determine scoring direction
         if higher_is_better is None:

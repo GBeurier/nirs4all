@@ -129,20 +129,20 @@ class HeatmapChart(BaseChart):
         # First, rank all models by Borda score
         borda_order = np.argsort(borda_scores)  # Lower borda score = better
 
-        selected_indices = set(top1_indices)
+        selected_set = set(top1_indices)
         for idx in borda_order:
-            if len(selected_indices) >= top_k:
+            if len(selected_set) >= top_k:
                 break
-            selected_indices.add(idx)
+            selected_set.add(idx)
 
         # Sort selected indices to maintain original order
-        selected_indices = sorted(selected_indices)
+        selected_indices_list = sorted(selected_set)
 
         # Filter matrix and labels
-        filtered_matrix = matrix[selected_indices, :]
-        filtered_labels = [y_labels[i] for i in selected_indices]
+        filtered_matrix = matrix[selected_indices_list, :]
+        filtered_labels = [y_labels[i] for i in selected_indices_list]
 
-        return filtered_matrix, filtered_labels, selected_indices
+        return filtered_matrix, filtered_labels, selected_indices_list
 
     def _compute_ranks_per_column(self, matrix: np.ndarray, higher_better: bool) -> np.ndarray:
         """Compute per-column ranks (1 = best, n = worst).

@@ -74,7 +74,7 @@ class YChartController(OperatorController):
         step = step_info.original_step
         include_excluded = False
         highlight_excluded = False
-        layout = 'standard'
+        layout: Literal['standard', 'stacked', 'staggered'] = 'standard'
 
         if isinstance(step, dict):
             for key in ["y_chart", "chart_y"]:
@@ -82,9 +82,10 @@ class YChartController(OperatorController):
                     config = step[key] if isinstance(step[key], dict) else {}
                     include_excluded = config.get("include_excluded", False)
                     highlight_excluded = config.get("highlight_excluded", False)
-                    layout = config.get("layout", "standard")
-                    if layout not in ('standard', 'stacked', 'staggered'):
-                        raise ValueError(f"Unknown layout: {layout}. Use 'standard', 'stacked', or 'staggered'.")
+                    raw_layout = config.get("layout", "standard")
+                    if raw_layout not in ('standard', 'stacked', 'staggered'):
+                        raise ValueError(f"Unknown layout: {raw_layout}. Use 'standard', 'stacked', or 'staggered'.")
+                    layout = raw_layout
                     break
 
         # Get folds from dataset
@@ -257,6 +258,7 @@ class YChartController(OperatorController):
             if is_categorical:
                 self._plot_categorical_fold(ax, y_train_fold_flat, y_val_flat, unique_values, viridis_cmap, layout=layout)
             else:
+                assert common_bins is not None
                 self._plot_continuous_fold(ax, y_train_fold_flat, y_val_flat, common_bins, viridis_cmap, layout=layout)
 
             ax.set_title(f'Fold {fold_idx + 1} - Val (n={len(y_val_flat)})', fontsize=11)
@@ -274,6 +276,7 @@ class YChartController(OperatorController):
             if is_categorical:
                 self._plot_categorical_fold(ax, y_train_flat, y_test_flat, unique_values, viridis_cmap, layout=layout)
             else:
+                assert common_bins is not None
                 self._plot_continuous_fold(ax, y_train_flat, y_test_flat, common_bins, viridis_cmap, layout=layout)
 
             ax.set_title(f'Test Partition (n={len(y_test_flat)})', fontsize=11, color='darkred')

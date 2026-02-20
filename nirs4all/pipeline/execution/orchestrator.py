@@ -6,7 +6,7 @@ import multiprocessing
 import re
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from joblib import Parallel, delayed
@@ -32,7 +32,7 @@ from nirs4all.pipeline.execution.step_cache import StepCache
 from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 from nirs4all.pipeline.storage.chain_builder import ChainBuilder
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
-from nirs4all.visualization.naming import get_metric_names
+from nirs4all.visualization.naming import NamingMode, get_metric_names
 from nirs4all.visualization.reports import TabReportManager
 
 logger = get_logger(__name__)
@@ -73,7 +73,7 @@ class PipelineOrchestrator:
         plots_visible: bool = False,
         random_state: int | None = None,
         n_jobs: int = 1,
-        report_naming: str = "nirs",
+        report_naming: NamingMode = "nirs",
     ) -> None:
         """Initialize pipeline orchestrator.
 
@@ -683,6 +683,7 @@ class PipelineOrchestrator:
                     dataset = dataset_configs.get_dataset(config, name)
 
                 # Store last aggregate column for visualization integration
+                assert isinstance(dataset, SpectroDataset)
                 self.last_aggregate_column = dataset.aggregate
                 self.last_aggregate_method = dataset.aggregate_method
                 self.last_aggregate_exclude_outliers = dataset.aggregate_exclude_outliers
@@ -742,7 +743,7 @@ class PipelineOrchestrator:
 
             # Complete run in store (only if we manage the lifecycle)
             if run_id and self.mode == "train" and manage_store_run:
-                summary = {"total_pipelines": total_runs}
+                summary: dict[str, Any] = {"total_pipelines": total_runs}
                 if run_predictions.num_predictions > 0:
                     best = run_predictions.get_best(ascending=None)
                     if best:
@@ -825,10 +826,12 @@ class PipelineOrchestrator:
 
         # Handle list of SpectroDataset instances
         if isinstance(dataset, list) and len(dataset) > 0 and isinstance(dataset[0], SpectroDataset):
-            return self._wrap_dataset_list(dataset)
+            return self._wrap_dataset_list(cast(list[SpectroDataset], dataset))
 
         # Simplified normalization - delegate to DatasetConfigs
-        return DatasetConfigs(dataset) if not isinstance(dataset, (SpectroDataset, np.ndarray, tuple)) else self._wrap_dataset(dataset, dataset_name)
+        if isinstance(dataset, (SpectroDataset, np.ndarray, tuple)):
+            return self._wrap_dataset(dataset, dataset_name)
+        return DatasetConfigs(cast("dict[str, Any] | list[dict[str, Any]] | str | list[str]", dataset))
 
     def _wrap_dataset(self, dataset: SpectroDataset | np.ndarray | tuple, dataset_name: str) -> DatasetConfigs:
         """Wrap SpectroDataset or arrays in DatasetConfigs."""
@@ -873,7 +876,7 @@ class PipelineOrchestrator:
         n_samples = X.shape[0]
 
         # Process partition_info to get indices for each partition
-        partition_indices = {}
+        partition_indices: dict[str, slice | list[Any] | np.ndarray] = {}
 
         for partition_name, partition_spec in partition_info.items():
             if isinstance(partition_spec, int):
@@ -922,22 +925,33 @@ class PipelineOrchestrator:
         (x_train, y_train, m_train, train_headers, m_train_headers, train_unit, train_signal_type,
          x_test, y_test, m_test, test_headers, m_test_headers, test_unit, test_signal_type)
         """
+        x_train: np.ndarray | list[np.ndarray] | None = None
+        y_train: np.ndarray | None = None
+        m_train: Any = None
+        train_signal_type: Any = None
+        x_test: np.ndarray | list[np.ndarray] | None = None
+        y_test: np.ndarray | None = None
+        m_test: Any = None
+        test_signal_type: Any = None
+
         try:
             x_train = dataset.x({"partition": "train"}, layout="2d")
             y_train = dataset.y({"partition": "train"})
-            m_train = None
             train_signal_type = dataset.signal_type(0) if dataset.n_sources > 0 else None
         except Exception:
-            x_train = y_train = m_train = None
+            x_train = None
+            y_train = None
+            m_train = None
             train_signal_type = None
 
         try:
             x_test = dataset.x({"partition": "test"}, layout="2d")
             y_test = dataset.y({"partition": "test"})
-            m_test = None
             test_signal_type = dataset.signal_type(0) if dataset.n_sources > 0 else None
         except Exception:
-            x_test = y_test = m_test = None
+            x_test = None
+            y_test = None
+            m_test = None
             test_signal_type = None
 
         # Return 14-tuple with signal_type included
@@ -1508,7 +1522,7 @@ class PipelineOrchestrator:
         predictions: Predictions,
         entry: dict,
         pred_index: dict | None,
-    ) -> dict[str, dict]:
+    ) -> dict[str, dict[str, Any] | None]:
         """Get train/val/test partitions for an entry using the index when available."""
         if pred_index is not None:
             key = (
@@ -1518,7 +1532,7 @@ class PipelineOrchestrator:
                 entry.get("fold_id", ""),
                 entry.get("step_idx", 0),
             )
-            result = pred_index["partitions"].get(key)
+            result: dict[str, dict[str, Any] | None] | None = pred_index["partitions"].get(key)
             if result is not None:
                 return result
         return predictions.get_entry_partitions(entry)
@@ -1641,21 +1655,23 @@ class PipelineOrchestrator:
             logger.info("%s:\n%s", header, summary)
 
         # --- Top 30 CV chains (averaged across folds) ---
-        avg_entries = predictions.top(
+        avg_entries_raw = predictions.top(
             n=30,
             ascending=asc,
             score_scope="cv",
             rank_partition="val",
             fold_id="avg",
         )
+        assert isinstance(avg_entries_raw, list)
+        avg_entries: list[Any] = avg_entries_raw
 
         if avg_entries:
             # Determine task type and metric for naming
             first_entry = avg_entries[0]
-            cv_task_type = first_entry.get("task_type", "regression")
-            cv_metric = first_entry.get("metric", "rmse")
+            cv_task_type: str = first_entry.get("task_type", "regression")
+            cv_metric: str = first_entry.get("metric", "rmse")
             cv_task_str = "regression" if cv_task_type == "regression" else "classification"
-            names = get_metric_names(self.report_naming, cv_task_str, cv_metric)
+            names = get_metric_names(cast(Any, self.report_naming), cv_task_str, cv_metric)
 
             rows: list[dict] = []
             all_fold_ids: set[str] = set()
@@ -1767,6 +1783,8 @@ class PipelineOrchestrator:
     ) -> None:
         """Print report when no final (refit) entries exist — CV only."""
         best = predictions.get_best(ascending=None)
+        if best is None:
+            return
         logger.success(f"Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
 
         if self.enable_tab_reports:

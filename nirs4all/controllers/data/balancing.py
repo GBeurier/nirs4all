@@ -4,7 +4,7 @@ Balancing utilities for sample augmentation.
 This module provides utilities to calculate augmentation counts for balanced datasets
 and to apply random transformer selection strategies.
 """
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -78,13 +78,13 @@ class BalancingCalculator:
             raise ValueError("Specify exactly one of: target_size, max_factor, or ref_percentage")
 
         # Count ALL samples per class (to get current distribution)
-        all_class_counts = {}
+        all_class_counts: dict[Any, int] = {}
         for label in all_labels:
             label_key = label.item() if hasattr(label, 'item') else label
             all_class_counts[label_key] = all_class_counts.get(label_key, 0) + 1
 
         # Build mapping: label → list of BASE sample_ids
-        label_to_base_samples = {}
+        label_to_base_samples: dict[Any, list[int]] = {}
         for sample_id, label in zip(base_sample_indices, base_labels, strict=False):
             label_key = label.item() if hasattr(label, 'item') else label
             label_to_base_samples.setdefault(label_key, []).append(int(sample_id))
@@ -129,13 +129,13 @@ class BalancingCalculator:
                 # Mode 2: Multiplier - each class augmented by factor (applied to current size)
                 # capped at majority class size
                 target_from_factor = int(current_total * max_factor)
-                class_target = min(target_from_factor, majority_size)
+                class_target: int | None = min(target_from_factor, majority_size)
             else:
                 # Modes 1, 3, or default
                 class_target = target_size_per_class
 
-            if current_total >= class_target:
-                # Already balanced - no augmentation needed
+            if class_target is None or current_total >= class_target:
+                # Already balanced or no target - no augmentation needed
                 for sample_id in base_samples:
                     augmentation_map[sample_id] = 0
             else:
@@ -210,13 +210,13 @@ class BalancingCalculator:
             raise ValueError("Specify exactly one of: target_size, max_factor, or ref_percentage")
 
         # Count ALL samples per class
-        all_class_counts = {}
+        all_class_counts: dict[Any, int] = {}
         for label in all_labels:
             label_key = label.item() if hasattr(label, 'item') else label
             all_class_counts[label_key] = all_class_counts.get(label_key, 0) + 1
 
         # Build mapping: label → list of (sample_id, value) pairs
-        label_to_samples_with_values = {}
+        label_to_samples_with_values: dict[Any, list[tuple[int, Any]]] = {}
         for sample_id, label, value in zip(base_sample_indices, base_labels, base_values, strict=False):
             label_key = label.item() if hasattr(label, 'item') else label
             value_key = value.item() if hasattr(value, 'item') else value
@@ -252,12 +252,12 @@ class BalancingCalculator:
                 # Mode 2: Multiplier - each class augmented by factor (applied to current size)
                 # capped at majority class size
                 target_from_factor = int(current_total * max_factor)
-                class_target = min(target_from_factor, majority_size)
+                class_target: int | None = min(target_from_factor, majority_size)
             else:
                 class_target = target_size_per_class
 
-            if current_total >= class_target:
-                # Already balanced
+            if class_target is None or current_total >= class_target:
+                # Already balanced or no target
                 for sample_id, _ in samples_with_values:
                     augmentation_map[sample_id] = 0
             else:
@@ -265,7 +265,7 @@ class BalancingCalculator:
                 total_needed = class_target - current_total
 
                 # Step 1: Group samples by value
-                value_to_samples = {}
+                value_to_samples: dict[Any, list[int]] = {}
                 for sample_id, value in samples_with_values:
                     value_to_samples.setdefault(value, []).append(sample_id)
 

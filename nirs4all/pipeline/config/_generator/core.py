@@ -264,7 +264,7 @@ def _expand_value(v: Any, seed: int | None) -> ExpandedResult:
     """
     if isinstance(v, Mapping):
         # Check for value-level _or_ or _range_
-        return _expand_internal(v, seed)
+        return _expand_internal(dict(v), seed)
     elif isinstance(v, list):
         # Handle lists in value positions
         return _expand_internal(v, seed)
@@ -498,7 +498,9 @@ def _expand_value_with_choices(
     Returns:
         List of (value, choices) tuples.
     """
-    if isinstance(v, (Mapping, list)):
+    if isinstance(v, Mapping):
+        return _expand_with_choices_internal(dict(v), seed)
+    elif isinstance(v, list):
         return _expand_with_choices_internal(v, seed)
     else:
         # Scalar value - no choices
@@ -611,7 +613,9 @@ def _count_value(v: Any) -> int:
     Returns:
         Number of variants.
     """
-    if isinstance(v, (Mapping, list)):
+    if isinstance(v, Mapping):
+        return _count_internal(dict(v))
+    elif isinstance(v, list):
         return _count_internal(v)
     else:
         return 1

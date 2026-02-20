@@ -1069,7 +1069,7 @@ class InstrumentSimulator:
                 continue
 
             # Apply sensor-specific gain variation
-            gain_variation = self.rng.normal(sensor.gain, sensor.gain * 0.01, n_samples)
+            gain_variation = np.asarray(self.rng.normal(sensor.gain, sensor.gain * 0.01, n_samples))
             result[:, mask] *= gain_variation[:, np.newaxis]
 
             # Apply sensor-specific noise level
@@ -1103,13 +1103,13 @@ class InstrumentSimulator:
 
             # Define transition region
             half_width = int(config.stitch_smoothing / step / 2)
-            start_idx = max(0, stitch_idx - half_width)
-            end_idx = min(len(wavelengths), stitch_idx + half_width)
+            start_idx = max(0, int(stitch_idx) - half_width)
+            end_idx = min(len(wavelengths), int(stitch_idx) + half_width)
 
             # Add small offset artifact
-            artifact_offset = self.rng.normal(
+            artifact_offset = np.asarray(self.rng.normal(
                 0, config.artifact_intensity, spectra.shape[0]
-            )
+            ))
 
             # Create smooth transition for artifact
             x = np.linspace(0, 1, end_idx - start_idx)
@@ -1153,13 +1153,13 @@ class InstrumentSimulator:
         stray_offset = self.archetype.stray_light
 
         # Stray light appears as a constant offset that varies slightly
-        offset = self.rng.normal(
+        offset = np.asarray(self.rng.normal(
             stray_offset,
             stray_offset * 0.2,
             spectra.shape[0]
-        )
+        ))
 
-        return spectra + offset[:, np.newaxis]
+        return np.asarray(spectra + offset[:, np.newaxis])
 
     def _apply_multi_scan_averaging(
         self,

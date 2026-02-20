@@ -51,37 +51,37 @@ class PredictionResult(dict):
     @property
     def id(self) -> str:
         """Get prediction ID."""
-        return self.get("id", "unknown")
+        return str(self.get("id", "unknown"))
 
     @property
     def fold_id(self) -> str:
         """Get fold ID."""
-        return self.get("fold_id", "unknown")
+        return str(self.get("fold_id", "unknown"))
 
     @property
     def dataset_name(self) -> str:
         """Get dataset name."""
-        return self.get("dataset_name", "unknown")
+        return str(self.get("dataset_name", "unknown"))
 
     @property
     def model_name(self) -> str:
         """Get model name."""
-        return self.get("model_name", "unknown")
+        return str(self.get("model_name", "unknown"))
 
     @property
     def step_idx(self) -> int:
         """Get pipeline step index."""
-        return self.get("step_idx", 0)
+        return int(self.get("step_idx", 0))
 
     @property
     def op_counter(self) -> int:
         """Get operation counter."""
-        return self.get("op_counter", 0)
+        return int(self.get("op_counter", 0))
 
     @property
     def config_name(self) -> str:
         """Get config name."""
-        return self.get("config_name", "unknown")
+        return str(self.get("config_name", "unknown"))
 
     def save_to_csv(self, path_or_file: str = "results", filename: str | None = None) -> None:
         """
@@ -123,7 +123,7 @@ class PredictionResult(dict):
                 destinations.append(base_dir / dataset_name / f"{model_id}.csv")
 
         # Determine data structure
-        csv_data = []
+        csv_data: list[dict[str, Any]] = []
 
         # Check if this is an aggregated result (has train/val/test keys)
         has_partitions = all(k in self for k in ["train", "val", "test"])
@@ -213,7 +213,7 @@ class PredictionResult(dict):
             >>> # For aggregated: scores = {"train": {"rmse": 0.5}, "val": {...}, "test": {...}}
             >>> # For single: scores = {"rmse": 0.5, "r2": 0.9}
         """
-        scores = {}
+        scores: dict[str, Any] = {}
 
         # Check if this is an aggregated result
         has_partitions = all(k in self for k in ["train", "val", "test"])
@@ -230,6 +230,7 @@ class PredictionResult(dict):
                         y_true_arr = np.array(y_true)
                         y_pred_arr = np.array(y_pred)
 
+                        partition_scores: dict[str, Any]
                         if metrics is None:
                             # Get all available metrics using task_type
                             task_type = self.get("task_type", "regression")
@@ -324,7 +325,7 @@ class PredictionResult(dict):
         """String representation showing key info."""
         return self.__repr__()
 
-class PredictionResultsList(list):
+class PredictionResultsList(list[PredictionResult]):
     """
     List container for PredictionResult objects with batch operations.
 
@@ -351,7 +352,8 @@ class PredictionResultsList(list):
         Args:
             predictions: List of predictions (dicts or PredictionResult objects)
         """
-        super().__init__(predictions or [])
+        items = [p if isinstance(p, PredictionResult) else PredictionResult(p) for p in (predictions or [])]
+        super().__init__(items)
 
     def save(self, path: str = "results", filename: str | None = None) -> None:
         """
@@ -414,8 +416,13 @@ class PredictionResultsList(list):
                     all_columns.append("y_pred")
 
         # Remove duplicates while preserving order
-        seen = set()
-        all_columns = [x for x in all_columns if not (x in seen or seen.add(x))]
+        seen: set[str] = set()
+        unique_columns: list[str] = []
+        for x in all_columns:
+            if x not in seen:
+                seen.add(x)
+                unique_columns.append(x)
+        all_columns = unique_columns
 
         # Write header rows (metadata)
         for pred in self:

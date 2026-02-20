@@ -517,7 +517,7 @@ def _extract_best_params(
     # Handle JSON string or dict
     if isinstance(best_params_raw, str):
         try:
-            return json.loads(best_params_raw)
+            return dict(json.loads(best_params_raw))
         except (json.JSONDecodeError, TypeError):
             return {}
 

@@ -116,7 +116,7 @@ class FeatureAugmentationController(OperatorController):
         try:
             initial_context = context.copy()
             original_source_processings = copy.deepcopy(initial_context.selector.processing)
-            all_artifacts = []
+            all_artifacts: list[tuple[str, bytes]] = []
 
             # Parse action mode (default: "add" for backward compatibility)
             action = step_info.original_step.get("action", "add")

@@ -427,7 +427,7 @@ class SignalTypeDetector:
         Returns:
             Dict mapping SignalType to score adjustment
         """
-        hints = {}
+        hints: dict[SignalType, float] = {}
 
         if self.wavelengths is None or len(self.wavelengths) != spectra.shape[1]:
             return hints
@@ -450,7 +450,7 @@ class SignalTypeDetector:
         for band_nm in bands_to_check:
             # Find closest wavelength index
             if wl_nm.min() <= band_nm <= wl_nm.max():
-                idx = np.argmin(np.abs(wl_nm - band_nm))
+                idx = int(np.argmin(np.abs(wl_nm - band_nm)))
 
                 # Compare to local neighborhood
                 window = 10

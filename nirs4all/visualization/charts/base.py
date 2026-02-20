@@ -65,16 +65,17 @@ class BaseChart(ABC):
             self.config = config or ChartConfig()
 
     @abstractmethod
-    def render(self, **kwargs) -> Figure:
+    def render(self, *args: Any, **kwargs: Any) -> Any:
         """Render the chart and return matplotlib Figure.
 
         This method must be implemented by all chart subclasses.
 
         Args:
+            *args: Chart-specific positional parameters.
             **kwargs: Chart-specific rendering parameters.
 
         Returns:
-            matplotlib Figure object.
+            matplotlib Figure object (or list of Figures).
 
         Raises:
             NotImplementedError: If not implemented by subclass.
@@ -82,13 +83,14 @@ class BaseChart(ABC):
         pass
 
     @abstractmethod
-    def validate_inputs(self, **kwargs) -> None:
+    def validate_inputs(self, *args: Any, **kwargs: Any) -> None:
         """Validate input parameters for the chart.
 
         This method should be called before rendering to ensure
         all required parameters are present and valid.
 
         Args:
+            *args: Chart-specific positional parameters.
             **kwargs: Chart-specific parameters to validate.
 
         Raises:
@@ -162,7 +164,10 @@ class BaseChart(ABC):
 
         # 1. Try direct access
         if metric in partition_data:
-            return float(partition_data[metric])
+            val = partition_data[metric]
+            if isinstance(val, dict):
+                return None
+            return float(val)
 
         # 2. Compute from y_true/y_pred
         y_true = partition_data.get('y_true')
@@ -171,7 +176,8 @@ class BaseChart(ABC):
         if y_true is not None and y_pred is not None:
             try:
                 from nirs4all.core import metrics as evaluator
-                return float(evaluator.eval(y_true, y_pred, metric))
+                result = evaluator.eval(y_true, y_pred, metric)
+                return float(result) if isinstance(result, (int, float)) else None
             except Exception:
                 pass
 
@@ -316,8 +322,8 @@ class BaseChart(ABC):
         show_scores: bool | str | list[str] | dict,
         rank_metric: str,
         rank_partition: str,
-        display_metric: str = None,
-        display_partition: str = None,
+        display_metric: str | None = None,
+        display_partition: str | None = None,
         show_rank_score: bool = False
     ) -> str:
         """Format scores for chart title based on show_scores parameter.

@@ -195,6 +195,6 @@ if __name__ == '__main__':
     feature_number = 1024  # Number of Features to be Extracted
     # Sample Implementation
     Model = UNet(length, model_depth, num_channel, model_width, kernel_size, problem_type=problem_type, output_nums=output_nums,
-                 ds=D_S, ae=A_E, ag=A_G, lstm=LSTM, alpha=alpha, is_transconv=is_transconv).UNet()
+                 ds=D_S, ae=A_E, ag=A_G, lstm=LSTM, feature_number=feature_number, is_transconv=is_transconv).UNet()
     Model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0003), loss=tf.keras.losses.MeanAbsoluteError(), metrics=tf.keras.metrics.MeanSquaredError())
     Model.summary()

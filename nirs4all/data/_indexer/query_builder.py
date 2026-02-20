@@ -11,8 +11,6 @@ from typing import Any, Optional, Union
 
 import polars as pl
 
-from nirs4all.data.types import Selector
-
 # Regex patterns for condition parsing
 _COMPARISON_PATTERN = re.compile(r'^([<>]=?|[!=]=?)\s*(-?\d+\.?\d*)$')
 _RANGE_PATTERN = re.compile(r'^(-?\d+\.?\d*)?\.\.(-?\d+\.?\d*)?$')
@@ -47,7 +45,7 @@ class QueryBuilder:
         """
         self._valid_columns = set(valid_columns) if valid_columns else None
 
-    def build(self, selector: Selector, exclude_columns: list[str] | None = None) -> pl.Expr:
+    def build(self, selector: dict[str, Any], exclude_columns: list[str] | None = None) -> pl.Expr:
         """
         Build a Polars filter expression from a selector dictionary.
 
@@ -86,12 +84,12 @@ class QueryBuilder:
         if not selector:
             return pl.lit(True)
 
-        exclude_columns = set(exclude_columns) if exclude_columns else set()
+        excluded: set[str] = set(exclude_columns) if exclude_columns else set()
         conditions = []
 
         for col, value in selector.items():
             # Skip excluded columns
-            if col in exclude_columns:
+            if col in excluded:
                 continue
 
             # Validate column if validation is enabled

@@ -33,12 +33,12 @@ Usage:
 """
 
 import contextlib
-import logging
 from pathlib import Path
 from typing import Any, Optional, Union
 
 import numpy as np
 
+from nirs4all.core.logging import get_logger
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.context import (
@@ -58,7 +58,7 @@ from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord, ArtifactTy
 from nirs4all.pipeline.trace import MinimalPipeline, MinimalPipelineStep
 from nirs4all.pipeline.trace.execution_trace import parse_numeric_fold_key
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class MinimalArtifactProvider(ArtifactProvider):
     """Artifact provider backed by a MinimalPipeline (V3).
@@ -112,7 +112,8 @@ class MinimalArtifactProvider(ArtifactProvider):
             ArtifactRecord or None if not found
         """
         try:
-            return self.artifact_loader.get_record(artifact_id)
+            record: ArtifactRecord | None = self.artifact_loader.get_record(artifact_id)
+            return record
         except (KeyError, AttributeError):
             return None
 
@@ -305,13 +306,13 @@ class MinimalArtifactProvider(ArtifactProvider):
         results = ArtifactQueryService.sort_by_substep(results)
 
         # Remove substep_index from results (keep only operator_name, obj tuples)
-        results = [(name, obj) for name, obj, _ in results]
+        final_results: list[tuple[str, Any]] = [(name, obj) for name, obj, _ in results]
 
         logger.debug(
             f"get_artifacts_for_step({step_index}, branch_path={branch_path}) "
-            f"-> {len(results)} artifacts from {len(step_artifacts.artifact_ids)} total"
+            f"-> {len(final_results)} artifacts from {len(step_artifacts.artifact_ids)} total"
         )
-        return results
+        return final_results
 
     def get_fold_artifacts(
         self,
@@ -380,8 +381,8 @@ class MinimalArtifactProvider(ArtifactProvider):
             if not step_artifacts.fold_artifact_ids:
                 return []
 
-            for fold_id, artifact_id in step_artifacts.fold_artifact_ids.items():
-                numeric_fold_id = parse_numeric_fold_key(fold_id)
+            for fold_key, artifact_id in step_artifacts.fold_artifact_ids.items():
+                numeric_fold_id = parse_numeric_fold_key(fold_key)
                 if numeric_fold_id is None:
                     continue
                 obj = self._load_artifact(artifact_id)
@@ -484,7 +485,8 @@ class MinimalPredictor:
         try:
             record = self.artifact_loader.get_record(artifact_id)
             if record is not None:
-                return record.substep_index
+                sub_idx: int | None = record.substep_index
+                return sub_idx
         except (KeyError, AttributeError):
             pass
         return None

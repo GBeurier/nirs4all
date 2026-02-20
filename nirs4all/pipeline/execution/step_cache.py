@@ -166,7 +166,7 @@ class StepCache:
         """
         key = self._make_key(chain_path_hash, data_hash, selector)
         with self._lock:
-            state = self._backend.get(key)
+            state: CachedStepState | None = self._backend.get(key)
             if state is None:
                 self._miss_count += 1
                 return None

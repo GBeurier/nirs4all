@@ -349,7 +349,7 @@ def extract_or_choices(node: dict[str, Any]) -> list:
     """
     if not isinstance(node, dict):
         return []
-    return node.get(OR_KEYWORD, [])
+    return list(node.get(OR_KEYWORD, []))
 
 def extract_range_spec(node: dict[str, Any]) -> Any:
     """Extract the range specification from a range node.
@@ -481,7 +481,7 @@ def extract_metadata(node: dict[str, Any]) -> dict[str, Any]:
     """
     if not isinstance(node, dict):
         return {}
-    return node.get(METADATA_KEYWORD, {})
+    return dict(node.get(METADATA_KEYWORD, {}))
 
 def extract_constraints(node: dict[str, Any]) -> dict[str, Any]:
     """Extract constraint specifications from a node.

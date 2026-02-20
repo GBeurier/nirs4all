@@ -119,7 +119,7 @@ def should_invert_x_axis(x_values: np.ndarray) -> bool:
     """
     if len(x_values) < 2:
         return False
-    return x_values[0] > x_values[-1]
+    return bool(x_values[0] > x_values[-1])
 
 def apply_x_axis_limits(ax, x_values: np.ndarray) -> None:
     """Apply appropriate x-axis limits to preserve data ordering.

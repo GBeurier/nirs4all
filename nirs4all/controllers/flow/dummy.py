@@ -79,7 +79,7 @@ class DummyController(OperatorController):
 
                 # Try to get some useful attributes
                 if hasattr(obj, '__dict__'):
-                    attrs = []
+                    attrs: list[str] = []
                     for attr, value in obj.__dict__.items():
                         if not attr.startswith('_') and len(attrs) < 3:
                             attrs.append(f"{attr}={self._safe_repr(value, 30)}")
@@ -119,19 +119,20 @@ class DummyController(OperatorController):
 
             # Check for sklearn/scikit-learn patterns
             if hasattr(step, 'fit') or hasattr(step, 'transform') or hasattr(step, 'predict'):
-                analysis["sklearn_methods"] = []
+                sklearn_methods: list[str] = []
                 if hasattr(step, 'fit'):
-                    analysis["sklearn_methods"].append('fit')
+                    sklearn_methods.append('fit')
                 if hasattr(step, 'transform'):
-                    analysis["sklearn_methods"].append('transform')
+                    sklearn_methods.append('transform')
                 if hasattr(step, 'predict'):
-                    analysis["sklearn_methods"].append('predict')
+                    sklearn_methods.append('predict')
+                analysis["sklearn_methods"] = sklearn_methods
 
         return analysis
 
     def _get_context_info(self, context: Any) -> dict[str, Any]:
         """Extract useful information from the pipeline context."""
-        context_info = {}
+        context_info: dict[str, Any] = {}
 
         # Check if it's an ExecutionContext
         if hasattr(context, 'selector') and hasattr(context, 'state') and hasattr(context, 'metadata'):

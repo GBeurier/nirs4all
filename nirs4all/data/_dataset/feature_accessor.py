@@ -5,7 +5,7 @@ This module provides a dedicated interface for all feature-related
 operations, including data retrieval, augmentation, and wavelength conversions.
 """
 
-from typing import Optional, Union
+from typing import Any, Optional, Union, cast
 
 import numpy as np
 
@@ -229,11 +229,11 @@ class FeatureAccessor:
         # Single batch add to indexer
         self._indexer.add_samples(
             count=n_samples,
-            partition=partition,
-            origin_indices=origins,
-            augmentation=augmentations,
-            group=groups if any(g is not None for g in groups) else None,
-            branch=branches if any(b is not None for b in branches) else None
+            partition=cast(Any, partition),
+            origin_indices=cast(Any, origins),
+            augmentation=cast(Any, augmentations),
+            group=cast(Any, groups) if any(g is not None for g in groups) else None,
+            branch=cast(Any, branches) if any(b is not None for b in branches) else None
         )
 
         # Single batch add to feature storage
@@ -408,7 +408,7 @@ class FeatureAccessor:
 
         return augmented_ids
 
-    def headers(self, source: int = 0) -> list[str]:
+    def headers(self, source: int = 0) -> list[str] | None:
         """
         Get feature headers (wavelengths, feature names) for a source.
 
@@ -416,7 +416,7 @@ class FeatureAccessor:
             source: Source index (default: 0)
 
         Returns:
-            List of header strings
+            List of header strings, or None if no headers are set.
 
         Examples:
             >>> headers = dataset.headers(0)
@@ -500,6 +500,8 @@ class FeatureAccessor:
             [10000.0, 9975.06, 9950.25, 9925.56, 9900.99]
         """
         headers = self.headers(source)
+        if headers is None:
+            raise ValueError("No headers available for wavelength conversion")
         unit = self.header_unit(source)
 
         if unit == "cm-1":
@@ -538,6 +540,8 @@ class FeatureAccessor:
             [780.0, 1000.0, 1500.0, 2000.0, 2500.0]
         """
         headers = self.headers(source)
+        if headers is None:
+            raise ValueError("No headers available for wavelength conversion")
         unit = self.header_unit(source)
 
         if unit == "nm":
@@ -570,6 +574,9 @@ class FeatureAccessor:
             ValueError: If headers cannot be converted to float
         """
         try:
-            return np.array([float(header) for header in self._block.headers(source)])
+            hdrs = self._block.headers(source)
+            if hdrs is None:
+                raise ValueError("No headers available for source")
+            return np.array([float(header) for header in hdrs])
         except ValueError as e:
             raise ValueError(f"Cannot convert headers to float: {e}") from e

@@ -1,7 +1,7 @@
 """Controller router for selecting appropriate controllers."""
 from typing import Any
 
-from nirs4all.controllers.base import BaseController
+from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 from nirs4all.pipeline.steps.parser import ParsedStep
 
@@ -26,7 +26,7 @@ class ControllerRouter:
         self.registry = CONTROLLER_REGISTRY
         self.verbose = verbose
 
-    def route(self, parsed_step: ParsedStep, step: Any = None) -> BaseController:
+    def route(self, parsed_step: ParsedStep, step: Any = None) -> OperatorController:
         """Select the appropriate controller for a parsed step.
 
         Args:

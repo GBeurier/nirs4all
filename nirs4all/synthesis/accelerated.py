@@ -95,7 +95,7 @@ def get_backend_info() -> dict[str, Any]:
         try:
             import jax
             info["jax_version"] = jax.__version__
-            info["jax_devices"] = [str(d) for d in jax.devices()]
+            info["jax_devices"] = [str(d) for d in jax.devices()]  # type: ignore[assignment]
         except Exception:
             pass
 
@@ -310,7 +310,7 @@ def generate_voigt_profiles_accelerated(
         # Pseudo-Voigt
         spectrum = spectrum + a[i] * (f_G * gaussian + (1 - f_G) * lorentzian)
 
-    return arrays.to_numpy(spectrum)
+    return np.asarray(arrays.to_numpy(spectrum))
 
 def generate_spectra_batch_accelerated(
     n_samples: int,
@@ -349,7 +349,7 @@ def generate_spectra_batch_accelerated(
     noise = noise * noise_level * (arrays.sqrt(arrays.sum(X ** 2, axis=1, keepdims=True)) / len(wavelengths))
     X = X + noise
 
-    return arrays.to_numpy(X)
+    return np.asarray(arrays.to_numpy(X))
 
 # ============================================================================
 # High-Level Accelerated Generator
@@ -570,4 +570,4 @@ def benchmark_backends(
             times.append(time.perf_counter() - start)
         results["cupy"] = np.mean(times)
 
-    return results
+    return {k: float(v) for k, v in results.items()}

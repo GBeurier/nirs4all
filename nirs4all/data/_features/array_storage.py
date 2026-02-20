@@ -196,9 +196,9 @@ class ArrayStorage:
             Number of samples (first dimension).
         """
         if self._blocks:
-            return self._blocks[0].shape[0]
+            return int(self._blocks[0].shape[0])
         if self._shared is not None:
-            return self._shared._array.shape[0]
+            return int(self._shared._array.shape[0])
         return 0
 
     @property
@@ -211,7 +211,7 @@ class ArrayStorage:
         if self._blocks:
             return len(self._blocks)
         if self._shared is not None:
-            return self._shared._array.shape[1]
+            return int(self._shared._array.shape[1])
         return 0
 
     @property
@@ -222,9 +222,9 @@ class ArrayStorage:
             Number of features (second dimension of each block).
         """
         if self._blocks:
-            return self._blocks[0].shape[1]
+            return int(self._blocks[0].shape[1])
         if self._shared is not None:
-            return self._shared._array.shape[2]
+            return int(self._shared._array.shape[2])
         return 0
 
     @property

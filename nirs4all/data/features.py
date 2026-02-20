@@ -46,16 +46,27 @@ class Features:
             raise ValueError(f"Expected {len(self.sources)} sources, got {n_sources}")
 
         # Prepare headers list
+        headers_list: list[list[str] | None]
         if headers is not None:
-            headers_list = [headers] * n_sources if isinstance(headers[0], str) else headers
+            if isinstance(headers[0], str):
+                # Single list of strings applies to all sources
+                str_headers = [str(h) for h in headers]  # ensure list[str]
+                headers_list = [str_headers] * n_sources
+            else:
+                # List of lists
+                headers_list = [([str(h) for h in hdr] if hdr is not None else None) for hdr in headers]
             if len(headers_list) != n_sources:
                 raise ValueError(f"Expected {n_sources} headers lists, got {len(headers_list)}")
         else:
             headers_list = [None] * n_sources
 
         # Prepare header_unit list
+        units_list: list[str | None]
         if header_unit is not None:
-            units_list = [header_unit] * n_sources if isinstance(header_unit, str) else header_unit
+            if isinstance(header_unit, str):
+                units_list = [header_unit] * n_sources
+            else:
+                units_list = list(header_unit)
             if len(units_list) != n_sources:
                 raise ValueError(f"Expected {n_sources} header units, got {len(units_list)}")
         else:
@@ -137,7 +148,7 @@ class Features:
         return res
 
     @property
-    def preprocessing_str(self) -> list[list[str]] | list[str]:
+    def preprocessing_str(self) -> list[list[str]]:
         """Get the list of processing IDs per source.
 
         Returns:
@@ -145,33 +156,33 @@ class Features:
         """
         if not self.sources:
             return []
-        res = []
+        res: list[list[str]] = []
         for src in self.sources:
             res.append(src.processing_ids)
         return res
 
     @property
-    def headers_list(self) -> list[list[str]] | list[str]:
+    def headers_list(self) -> list[list[str] | None]:
         """Get the list of feature headers per source.
 
         Returns:
-            List of header lists, one per source.
+            List of header lists, one per source (None if no headers for that source).
         """
         if not self.sources:
             return []
-        res = []
+        res: list[list[str] | None] = []
         for src in self.sources:
             res.append(src.headers)
         return res
 
-    def headers(self, src: int) -> list[str]:
+    def headers(self, src: int) -> list[str] | None:
         """Get the list of feature headers for a specific source.
 
         Args:
             src: Source index.
 
         Returns:
-            List of header strings for the specified source.
+            List of header strings for the specified source, or None if no headers.
         """
         if not self.sources:
             return []
@@ -276,7 +287,7 @@ class Features:
             res.append(src.x(indices, layout))
 
         if concat_source and len(res) > 1:
-            return np.concatenate(res, axis=res[0].ndim - 1)
+            return np.asarray(np.concatenate(res, axis=res[0].ndim - 1))
 
         if len(res) == 1:
             return res[0]

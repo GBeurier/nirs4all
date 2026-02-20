@@ -593,7 +593,7 @@ class PartitionAssigner:
 
             elif suffix == ".csv":
                 df = pd.read_csv(path, header=None)
-                return df.iloc[:, 0].astype(int).tolist()
+                return list(df.iloc[:, 0].astype(int).tolist())
 
             else:
                 # Assume text file with one index per line

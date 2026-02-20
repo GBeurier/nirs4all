@@ -58,12 +58,12 @@ class GenerationResult:
     @property
     def n_samples(self) -> int:
         """Number of generated samples."""
-        return self.X.shape[0]
+        return int(self.X.shape[0])
 
     @property
     def n_wavelengths(self) -> int:
         """Number of wavelengths."""
-        return self.X.shape[1]
+        return int(self.X.shape[1])
 
 # =============================================================================
 # Reconstruction Generator
@@ -259,16 +259,16 @@ def estimate_noise_from_residuals(
     if len(residuals) == 0:
         return 0.001, 0.01
 
-    residuals = np.array(residuals)
-    fitted_values = np.array(fitted_values)
+    residuals_arr = np.array(residuals)
+    fitted_arr = np.array(fitted_values)
 
     # Additive noise: std of residuals
-    additive_std = float(np.std(residuals))
+    additive_std = float(np.std(residuals_arr))
 
     # Multiplicative noise: check if residual std scales with signal
     # Fit: std(residual) ~ a * |signal| + b
-    signal_means = np.abs(fitted_values).mean(axis=1)
-    residual_stds = np.std(residuals, axis=1)
+    signal_means = np.abs(fitted_arr).mean(axis=1)
+    residual_stds = np.std(residuals_arr, axis=1)
 
     if len(signal_means) > 10:
         try:

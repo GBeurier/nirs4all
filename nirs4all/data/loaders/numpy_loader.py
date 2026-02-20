@@ -189,7 +189,7 @@ class NumpyLoader(FileLoader):
                     "type": "npy",
                     "dtype": str(array.dtype),
                 }
-                return array
+                return np.asarray(array)
             except Exception as e:
                 if "allow_pickle" in str(e).lower():
                     report["error"] = (
@@ -236,7 +236,7 @@ class NumpyLoader(FileLoader):
                 array = npz_file[selected_key]
                 report["format_details"]["selected_dtype"] = str(array.dtype)
 
-                return array
+                return np.asarray(array)
 
             except Exception as e:
                 if "allow_pickle" in str(e).lower():

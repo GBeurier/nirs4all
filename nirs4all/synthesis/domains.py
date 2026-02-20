@@ -171,10 +171,10 @@ class DomainConfig:
             List of component names.
         """
         if n_components is None:
-            n_components = rng.integers(
+            n_components = int(rng.integers(
                 self.n_components_range[0],
                 self.n_components_range[1] + 1
-            )
+            ))
 
         weights = self.get_component_weights()
         components = list(weights.keys())

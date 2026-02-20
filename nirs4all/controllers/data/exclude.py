@@ -143,7 +143,9 @@ class ExcludeController(OperatorController):
 
         # Get X and y for base train samples (explicitly exclude augmented)
         base_selector = train_context.selector
-        X_train = dataset.x(base_selector, layout="2d", concat_source=True, include_augmented=False)
+        X_train_data = dataset.x(base_selector, layout="2d", concat_source=True, include_augmented=False)
+        assert isinstance(X_train_data, np.ndarray), "concat_source=True should return a single ndarray"
+        X_train = X_train_data
         y_train = dataset.y(base_selector, include_augmented=False)
 
         # Handle empty or None y_train

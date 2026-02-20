@@ -152,7 +152,7 @@ class BundleGenerator:
                 raise ValueError(f"Unsupported bundle format: {fmt}")
 
         if fmt == BundleFormat.N4A:
-            return self.store.export_chain(chain_id, output_path, format="n4a")
+            return Path(self.store.export_chain(chain_id, output_path, format="n4a"))
 
         if fmt == BundleFormat.N4A_PY:
             return self._export_chain_as_py(chain_id, output_path)
@@ -173,6 +173,7 @@ class BundleGenerator:
         Returns:
             Path to the created script.
         """
+        assert self.store is not None, "Store required for chain export"
         chain = self.store.get_chain(chain_id)
         if chain is None:
             raise KeyError(f"Chain not found: {chain_id}")

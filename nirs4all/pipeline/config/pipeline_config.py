@@ -195,7 +195,7 @@ class PipelineConfigs:
             return definition
         elif isinstance(definition, dict):
             if "pipeline" in definition:
-                return definition["pipeline"]
+                return list(definition["pipeline"])
             else:
                 raise ValueError("Invalid pipeline definition format. Expected a list, dict with 'pipeline' key, or string.")
         else:
@@ -276,7 +276,7 @@ class PipelineConfigs:
                 pipeline_definition = json.loads(definition)
             except json.JSONDecodeError as exc:
                 try:
-                    return yaml.safe_load(definition)
+                    return list(yaml.safe_load(definition))
                 except yaml.YAMLError as exc2:
                     raise ValueError(
                         "Invalid pipeline definition string.\n"
@@ -412,14 +412,14 @@ class PipelineConfigs:
         Returns:
             YAML string of the original template
         """
-        return yaml.dump(self.original_template, default_flow_style=False, sort_keys=False)
+        return str(yaml.dump(self.original_template, default_flow_style=False, sort_keys=False))
 
-    def get_template_dict(self) -> dict:
+    def get_template_dict(self) -> list[Any]:
         """
-        Get the original template as a dictionary.
+        Get the original template as a list.
 
         Returns:
-            Original template dictionary (deep copy to prevent mutation)
+            Original template list (deep copy to prevent mutation)
         """
         import copy
         return copy.deepcopy(self.original_template)

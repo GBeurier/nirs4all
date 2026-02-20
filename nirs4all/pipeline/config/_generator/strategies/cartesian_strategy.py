@@ -205,7 +205,7 @@ class CartesianStrategy(ExpansionStrategy):
             List of pipeline combinations.
         """
         from_size, to_size = self._normalize_spec(pick_spec)
-        result = []
+        result: list[Any] = []
 
         for size in range(from_size, to_size + 1):
             if size > len(pipelines):
@@ -233,7 +233,7 @@ class CartesianStrategy(ExpansionStrategy):
             List of pipeline permutations.
         """
         from_size, to_size = self._normalize_spec(arrange_spec)
-        result = []
+        result: list[Any] = []
 
         for size in range(from_size, to_size + 1):
             if size > len(pipelines):
@@ -316,7 +316,7 @@ class CartesianStrategy(ExpansionStrategy):
 
         # Apply count limit (count <= 0 means no limit)
         if count_limit is not None and count_limit > 0:
-            return min(count_limit, total)
+            return int(min(count_limit, total))
         return total
 
     def _count_pick(self, n: int, pick_spec: SizeSpec) -> int:

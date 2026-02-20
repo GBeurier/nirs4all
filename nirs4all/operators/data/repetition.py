@@ -268,7 +268,7 @@ class RepetitionConfig:
         Returns:
             Dictionary representation for manifest storage.
         """
-        result = {
+        result: dict[str, Any] = {
             "column": self.column,
             "on_unequal": self.on_unequal,
             "preserve_order": self.preserve_order,

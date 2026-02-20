@@ -178,6 +178,7 @@ def predict(
         )
 
     # ---- Model-based path (legacy) ----
+    assert model is not None
     return _predict_from_model(
         model=model,
         data=data,
@@ -315,7 +316,7 @@ def _extract_X(data: DataSpec) -> np.ndarray:
             return np.asarray(data["X"])
         raise TypeError("Dict data must contain an 'X' key for chain replay.")
     if isinstance(data, SpectroDataset):
-        return data.x({})
+        return np.asarray(data.x({}))
     raise TypeError(
         f"Unsupported data type for chain replay: {type(data).__name__}. "
         "Pass a numpy array, tuple, dict with 'X' key, or SpectroDataset."

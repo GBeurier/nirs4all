@@ -124,7 +124,7 @@ class TarLoader(FileLoader):
             mode = ArchiveHandler._get_tar_mode(path)
 
             try:
-                with tarfile.open(path, mode) as t:
+                with tarfile.open(path, mode) as t:  # type: ignore[call-overload]
                     all_members = t.getnames()
                     file_members = [
                         m for m in all_members

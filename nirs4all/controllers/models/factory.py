@@ -118,7 +118,7 @@ class ModelFactory:
             raise ValueError(f"Could not determine input shape from dataset: {str(e)}") from e
 
     @staticmethod
-    def get_num_classes(dataset) -> int:
+    def get_num_classes(dataset) -> int | None:
         """Extract number of classes for classification tasks.
 
         Args:
@@ -129,9 +129,9 @@ class ModelFactory:
         """
         if hasattr(dataset, 'is_classification') and dataset.is_classification:
             if hasattr(dataset, 'num_classes'):
-                return dataset.num_classes
+                return int(dataset.num_classes)
             elif hasattr(dataset, 'n_classes'):
-                return dataset.n_classes
+                return int(dataset.n_classes)
             else:
                 # Fallback: compute from y
                 import numpy as np
@@ -598,7 +598,7 @@ class ModelFactory:
         # Handle dictionary config
         if isinstance(model, dict):
             if 'framework' in model:
-                return model['framework']
+                return str(model['framework'])
             if 'model_instance' in model:
                 return ModelFactory.detect_framework(model['model_instance'])
             if 'model' in model:
@@ -621,7 +621,7 @@ class ModelFactory:
 
         # Check for explicit framework attribute (e.g., from @framework decorator)
         if hasattr(model, 'framework'):
-            return model.framework
+            return str(model.framework)
 
         # Check inheritance (MRO) to handle subclasses defined in user code
         mro = inspect.getmro(model) if inspect.isclass(model) else inspect.getmro(model.__class__)

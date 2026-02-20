@@ -37,7 +37,11 @@ class ChartConfig:
     # Color schemes
     colormap: str = 'viridis'
     heatmap_colormap: str = 'RdYlGn'
-    partition_colors: dict[str, str] | None = None
+    partition_colors: dict[str, str] = field(default_factory=lambda: {
+        'train': '#1f77b4',  # Blue
+        'val': '#ff7f0e',    # Orange
+        'test': '#2ca02c'    # Green
+    })
 
     # Font settings
     font_family: str | None = None
@@ -55,15 +59,6 @@ class ChartConfig:
     # Other settings
     dpi: int = 300
     alpha: float = 0.7
-
-    def __post_init__(self):
-        """Initialize default partition colors if not provided."""
-        if self.partition_colors is None:
-            self.partition_colors = {
-                'train': '#1f77b4',  # Blue
-                'val': '#ff7f0e',    # Orange
-                'test': '#2ca02c'    # Green
-            }
 
     def apply_font_settings(self) -> None:
         """Apply font settings to matplotlib rcParams."""

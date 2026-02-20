@@ -351,11 +351,11 @@ class JaxModelController(BaseModelController):
         from .jax_wrapper import JaxModelWrapper
 
         if isinstance(model, JaxModelWrapper):
-            preds = model.predict(X)
+            preds: np.ndarray = np.asarray(model.predict(X))
 
             # Handle multiclass classification (convert logits/probs to labels)
             if preds.ndim == 2 and preds.shape[1] > 1:
-                 return np.argmax(preds, axis=-1).reshape(-1, 1)
+                 return np.asarray(np.argmax(preds, axis=-1)).reshape(-1, 1)
 
             # Ensure 2D shape for regression/binary
             if preds.ndim == 1:
@@ -396,13 +396,11 @@ class JaxModelController(BaseModelController):
         if preds.shape[1] == 1:
             # Binary classification with single output
             # Apply sigmoid and convert to 2-column format
-            probs = jnn.sigmoid(preds)
-            probs = np.asarray(probs)
-            return np.column_stack([1 - probs, probs])
+            probs_np: np.ndarray = np.asarray(jnn.sigmoid(preds))
+            return np.column_stack([1 - probs_np, probs_np])
         else:
             # Multiclass: apply softmax
-            probs = jnn.softmax(preds, axis=-1)
-            return np.asarray(probs)
+            return np.asarray(jnn.softmax(preds, axis=-1))
 
     def _prepare_data(
         self,
@@ -426,7 +424,8 @@ class JaxModelController(BaseModelController):
                 y_val_1d = np.asarray(y_val).ravel()
                 y_pred_1d = np.asarray(predictions).ravel()
                 from nirs4all.core import metrics as evaluator_mod
-                return evaluator_mod.eval(y_val_1d, y_pred_1d, metric)
+                score = evaluator_mod.eval(y_val_1d, y_pred_1d, metric)
+                return float(score) if isinstance(score, (int, float)) else score.get(metric, float('inf'))
             # Legacy: calculate MSE manually on numpy arrays
             mse = np.mean((predictions - y_val) ** 2)
             return float(mse)
@@ -493,9 +492,9 @@ class JaxModelController(BaseModelController):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: list[tuple[str, bytes]] | None = None,
-        prediction_store: 'Predictions' = None
-    ) -> tuple['ExecutionContext', list[tuple[str, bytes]]]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple['ExecutionContext', Any]:
         """Execute JAX model controller."""
         if not JAX_AVAILABLE:
             raise ImportError(

@@ -248,7 +248,8 @@ def _auto_migrate_prediction_arrays(conn: duckdb.DuckDBPyConnection, workspace_p
     if has_table is None:
         return
 
-    total = conn.execute("SELECT COUNT(*) FROM prediction_arrays").fetchone()[0]
+    row = conn.execute("SELECT COUNT(*) FROM prediction_arrays").fetchone()
+    total = row[0] if row else 0
     if total == 0:
         logger.info("Empty prediction_arrays table — dropping.")
         conn.execute("DROP TABLE prediction_arrays")
@@ -525,14 +526,15 @@ def _migrate_schema(conn: duckdb.DuckDBPyConnection, *, workspace_path: Path | N
 
     # Deduplicate predictions before unique index creation
     if "idx_predictions_natural_key_v2" not in existing_indexes:
-        dup_count = conn.execute(
+        dup_row = conn.execute(
             "SELECT COUNT(*) FROM ("
             "  SELECT pipeline_id, chain_id, fold_id, partition, model_name, branch_id "
             "  FROM predictions "
             "  GROUP BY pipeline_id, chain_id, fold_id, partition, model_name, branch_id "
             "  HAVING COUNT(*) > 1"
             ")"
-        ).fetchone()[0]
+        ).fetchone()
+        dup_count = dup_row[0] if dup_row else 0
         if dup_count > 0:
             # Keep the most recent prediction per natural key, delete older duplicates
             conn.execute(

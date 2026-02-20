@@ -55,7 +55,7 @@ def sample_with_seed(
     if k <= 0:
         return []
 
-    rng = random.Random(seed) if seed is not None else random
+    rng = random.Random(seed) if seed is not None else random.Random()
 
     if weights is not None:
         if len(weights) != len(population):
@@ -109,7 +109,7 @@ def _weighted_sample_without_replacement(
         else:
             # Weighted selection
             r = rng.random() * total
-            cumulative = 0
+            cumulative = 0.0
             idx = remaining_indices[0]
             for i in remaining_indices:
                 cumulative += remaining_weights[i]

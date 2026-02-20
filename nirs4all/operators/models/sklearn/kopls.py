@@ -817,7 +817,7 @@ class KOPLS(BaseEstimator, RegressorMixin):
         if self._y_1d:
             y_pred = y_pred.ravel()
 
-        return y_pred
+        return np.asarray(y_pred)
 
     def transform(self, X: ArrayLike) -> NDArray[np.floating]:
         """Transform X to K-OPLS score space.

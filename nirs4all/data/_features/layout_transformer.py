@@ -59,7 +59,7 @@ class LayoutTransformer:
         layout: LayoutType,
         num_processings: int,
         num_features: int,
-        dtype: np.dtype = np.float32
+        dtype: np.dtype | type = np.float32
     ) -> np.ndarray:
         """Create an empty array with the correct shape for the layout.
 

@@ -275,7 +275,7 @@ def get_zone_wavelength_range(zone_name: str) -> tuple[float, float] | None:
     for nu_max, nu_min, name in NIR_ZONES_WAVENUMBER:
         if name == zone_name:
             # Note: higher wavenumber = lower wavelength
-            return (wavenumber_to_wavelength(nu_max), wavenumber_to_wavelength(nu_min))
+            return (float(wavenumber_to_wavelength(nu_max)), float(wavenumber_to_wavelength(nu_min)))
     return None
 
 def get_all_zones_wavelength() -> list[tuple[float, float, str]]:
@@ -292,8 +292,8 @@ def get_all_zones_wavelength() -> list[tuple[float, float, str]]:
     """
     zones = []
     for nu_max, nu_min, name in NIR_ZONES_WAVENUMBER:
-        wl_min = wavenumber_to_wavelength(nu_max)
-        wl_max = wavenumber_to_wavelength(nu_min)
+        wl_min = float(wavenumber_to_wavelength(nu_max))
+        wl_max = float(wavenumber_to_wavelength(nu_min))
         zones.append((wl_min, wl_max, name))
     return zones
 
@@ -368,8 +368,8 @@ def get_all_zones_extended() -> list[tuple[float, float, str, str]]:
     """
     zones = []
     for nu_max, nu_min, name, description in EXTENDED_SPECTRAL_ZONES:
-        wl_min = wavenumber_to_wavelength(nu_max)
-        wl_max = wavenumber_to_wavelength(nu_min)
+        wl_min = float(wavenumber_to_wavelength(nu_max))
+        wl_max = float(wavenumber_to_wavelength(nu_min))
         zones.append((wl_min, wl_max, name, description))
     return zones
 
@@ -471,7 +471,7 @@ def calculate_overtone_position(
         if vib_type not in FUNDAMENTAL_VIBRATIONS:
             raise KeyError(f"Unknown vibration type: {vib_type}. "
                           f"Available types: {list(FUNDAMENTAL_VIBRATIONS.keys())}")
-        fundamental_cm = FUNDAMENTAL_VIBRATIONS[vib_type]
+        fundamental_cm = float(FUNDAMENTAL_VIBRATIONS[vib_type])
         if anharmonicity is None:
             # Use typical anharmonicity values based on bond type
             if "O-H" in vib_type or "N-H" in vib_type:
@@ -502,7 +502,7 @@ def calculate_overtone_position(
     return OvertoneResult(
         order=overtone_order,
         wavenumber_cm=nu_anharmonic,
-        wavelength_nm=wavenumber_to_wavelength(nu_anharmonic),
+        wavelength_nm=float(wavenumber_to_wavelength(nu_anharmonic)),
         amplitude_factor=amplitude_factor,
         bandwidth_factor=bandwidth_factor,
     )
@@ -593,7 +593,7 @@ def calculate_combination_band(
         mode1_cm=mode1_val,
         mode2_cm=mode2_val,
         wavenumber_cm=nu_comb,
-        wavelength_nm=wavenumber_to_wavelength(nu_comb),
+        wavelength_nm=float(wavenumber_to_wavelength(nu_comb)),
         amplitude_factor=amplitude_factor,
         band_type=band_type,
     )
@@ -703,7 +703,7 @@ def estimate_bandwidth_broadening(
     # Reference at 298 K
     temp_factor = np.sqrt(temperature_k / 298.0)
 
-    return baseline_bandwidth_cm * h_bond_broadening * temp_factor
+    return float(baseline_bandwidth_cm * h_bond_broadening * temp_factor)
 
 # ============================================================================
 # Module-level exports

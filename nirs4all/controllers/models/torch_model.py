@@ -129,7 +129,7 @@ class PyTorchModelController(BaseModelController):
         except Exception:
             return False
 
-    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: dict[str, Any], force_params: dict[str, Any] | None = None) -> 'nn.Module':
+    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: dict[str, Any], force_params: dict[str, Any] | None = None) -> Any:
         """Create PyTorch model instance from configuration."""
         require_backend('torch', feature='PyTorch models')
 
@@ -144,13 +144,13 @@ class PyTorchModelController(BaseModelController):
 
     def _train_model(
         self,
-        model: 'nn.Module',
+        model: Any,
         X_train: Any,
         y_train: Any,
         X_val: Any | None = None,
         y_val: Any | None = None,
         **kwargs
-    ) -> 'nn.Module':
+    ) -> Any:
         """Train PyTorch model with custom training loop."""
         require_backend('torch', feature='PyTorch training')
 
@@ -301,7 +301,7 @@ class PyTorchModelController(BaseModelController):
 
         return model
 
-    def _predict_model(self, model: 'nn.Module', X: Any) -> np.ndarray:
+    def _predict_model(self, model: Any, X: Any) -> np.ndarray:
         """Generate predictions with PyTorch model."""
         torch = _get_torch()
 
@@ -311,12 +311,12 @@ class PyTorchModelController(BaseModelController):
         device = next(model.parameters()).device
 
         # Ensure X is a tensor
-        X = PyTorchDataPreparation.prepare_features(X, device) if not isinstance(X, torch.Tensor) else X.to(device)
+        X = PyTorchDataPreparation.prepare_features(X, str(device)) if not isinstance(X, torch.Tensor) else X.to(device)
 
         model.eval()
         with torch.no_grad():
-            predictions = model(X)
-            predictions = predictions.cpu().numpy()
+            raw_predictions = model(X)
+            predictions: np.ndarray = raw_predictions.cpu().numpy()
 
         # Handle multiclass classification (convert logits/probs to labels)
         if predictions.ndim == 2 and predictions.shape[1] > 1:
@@ -328,7 +328,7 @@ class PyTorchModelController(BaseModelController):
 
         return predictions
 
-    def _predict_proba_model(self, model: 'nn.Module', X: Any) -> np.ndarray | None:
+    def _predict_proba_model(self, model: Any, X: Any) -> np.ndarray | None:
         """Get class probabilities from PyTorch classification model.
 
         Returns softmax probabilities for classification models.
@@ -351,7 +351,7 @@ class PyTorchModelController(BaseModelController):
         device = next(model.parameters()).device
 
         # Ensure X is a tensor
-        X = PyTorchDataPreparation.prepare_features(X, device) if not isinstance(X, torch.Tensor) else X.to(device)
+        X = PyTorchDataPreparation.prepare_features(X, str(device)) if not isinstance(X, torch.Tensor) else X.to(device)
 
         model.eval()
         with torch.no_grad():
@@ -384,7 +384,7 @@ class PyTorchModelController(BaseModelController):
         from .torch.data_prep import PyTorchDataPreparation
         return PyTorchDataPreparation.prepare_data(X, y)
 
-    def _evaluate_model(self, model: 'nn.Module', X_val: Any, y_val: Any, metric: str | None = None, direction: str = "minimize") -> float:
+    def _evaluate_model(self, model: Any, X_val: Any, y_val: Any, metric: str | None = None, direction: str = "minimize") -> float:
         """Evaluate PyTorch model."""
         try:
             torch = _get_torch()
@@ -401,11 +401,12 @@ class PyTorchModelController(BaseModelController):
                     y_val_np = y_val.cpu().numpy().ravel()
                     y_pred_np = predictions.cpu().numpy().ravel()
                     from nirs4all.core import metrics as evaluator_mod
-                    return evaluator_mod.eval(y_val_np, y_pred_np, metric)
+                    score = evaluator_mod.eval(y_val_np, y_pred_np, metric)
+                    return float(score) if isinstance(score, (int, float)) else score.get(metric, float('inf'))
 
                 mse_loss = nn.MSELoss()
                 loss = mse_loss(predictions, y_val)
-                return loss.item()
+                return float(loss.item())
 
         except Exception as e:
             logger.warning(f"Error in PyTorch model evaluation: {e}")
@@ -419,7 +420,7 @@ class PyTorchModelController(BaseModelController):
         """
         return "3d"
 
-    def _clone_model(self, model: 'nn.Module') -> 'nn.Module':
+    def _clone_model(self, model: Any) -> Any:
         """Clone PyTorch model."""
         # For PyTorch, we can use deepcopy to get a fresh model with same architecture
         # But we need to reset parameters to ensure fresh weights
@@ -465,7 +466,7 @@ class PyTorchModelController(BaseModelController):
 
     def process_hyperparameters(self, params: dict[str, Any]) -> dict[str, Any]:
         """Process hyperparameters for PyTorch model tuning."""
-        torch_params = {}
+        torch_params: dict[str, Any] = {}
 
         for key, value in params.items():
             if key.startswith('optimizer_'):
@@ -488,9 +489,9 @@ class PyTorchModelController(BaseModelController):
         runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: list[tuple[str, bytes]] | None = None,
-        prediction_store: 'Predictions' = None
-    ) -> tuple['ExecutionContext', list[tuple[str, bytes]]]:
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ) -> tuple['ExecutionContext', Any]:
         """Execute PyTorch model controller."""
         if not PYTORCH_AVAILABLE:
             raise ImportError(

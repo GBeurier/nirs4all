@@ -6,7 +6,7 @@ PipelineOrchestrator and provides prediction/explanation capabilities via
 Predictor and Explainer classes.
 """
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import numpy as np
 
@@ -134,7 +134,7 @@ class PipelineRunner:
         plots_visible: bool = False,
         random_state: int | None = None,
         n_jobs: int = 1,
-        report_naming: str = "nirs",
+        report_naming: Literal["nirs", "ml", "auto"] = "nirs",
         # Logging configuration
         log_file: bool = True,
         log_format: str = "pretty",
@@ -271,7 +271,7 @@ class PipelineRunner:
         self.cache_config: Any = None  # CacheConfig instance
 
         # Library for template management
-        self._library: Any = None  # PipelineLibrary (lazy)
+        self._library: PipelineLibrary | None = None
 
     def run(
         self,
@@ -356,7 +356,7 @@ class PipelineRunner:
     def predict(
         self,
         prediction_obj: dict[str, Any] | str,
-        dataset: DatasetConfigs | SpectroDataset | list[SpectroDataset] | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
+        dataset: DatasetConfigs | SpectroDataset | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         dataset_name: str = "prediction_dataset",
         all_predictions: bool = False,
         verbose: int = 0

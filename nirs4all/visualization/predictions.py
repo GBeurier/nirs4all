@@ -568,7 +568,7 @@ class PredictionAnalyzer:
 
             # If multiple datasets, create one figure per dataset
             if len(datasets) > 1:
-                figures: list[Figure | list[Figure]] = []
+                figures: list[Figure] = []
                 for dataset in datasets:
                     fig = chart.render(
                         k=k,
@@ -583,7 +583,9 @@ class PredictionAnalyzer:
                     )
                     if isinstance(fig, Figure):
                         self._save_figure(fig, "confusion_matrix", dataset)
-                    figures.append(fig)
+                        figures.append(fig)
+                    elif isinstance(fig, list):
+                        figures.extend(fig)
                 return figures
 
         # Single dataset or dataset_name specified

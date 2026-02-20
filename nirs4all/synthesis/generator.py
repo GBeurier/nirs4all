@@ -773,7 +773,7 @@ class SyntheticNIRSGenerator:
         # Generate slopes: mean + sample-specific variation
         slope_mean = float(self.params["global_slope_mean"])
         slope_std = float(self.params["global_slope_std"])
-        slopes = self.rng.normal(slope_mean, slope_std, size=n_samples)
+        slopes = np.asarray(self.rng.normal(slope_mean, slope_std, size=n_samples))
 
         # Scale to actual wavelength range (slope is per 1000nm)
         scale_factor = wl_range / 1000.0
@@ -797,18 +797,18 @@ class SyntheticNIRSGenerator:
         n_samples = A.shape[0]
 
         # Multiplicative scatter
-        alpha: np.ndarray = self.rng.normal(1.0, self.params["scatter_alpha_std"], size=n_samples)
+        alpha = np.asarray(self.rng.normal(1.0, self.params["scatter_alpha_std"], size=n_samples))
         alpha = np.maximum(alpha, 0.7)
 
         # Additive offset
-        beta: np.ndarray = self.rng.normal(0, self.params["scatter_beta_std"], size=n_samples)
+        beta = np.asarray(self.rng.normal(0, self.params["scatter_beta_std"], size=n_samples))
 
         # Apply
         A_scattered = A * alpha[:, np.newaxis] + beta[:, np.newaxis]
 
         # Add tilt
         x = (self.wavelengths - self.wavelengths.mean()) / np.ptp(self.wavelengths)
-        gamma: np.ndarray = self.rng.normal(0, self.params["tilt_std"], size=n_samples)
+        gamma = np.asarray(self.rng.normal(0, self.params["tilt_std"], size=n_samples))
         tilt = gamma[:, np.newaxis] * x[np.newaxis, :]
         A_scattered += tilt
 
@@ -826,8 +826,8 @@ class SyntheticNIRSGenerator:
         """
         n_samples = A.shape[0]
 
-        shifts: np.ndarray = self.rng.normal(0, self.params["shift_std"], size=n_samples)
-        stretches: np.ndarray = self.rng.normal(1.0, self.params["stretch_std"], size=n_samples)
+        shifts = np.asarray(self.rng.normal(0, self.params["shift_std"], size=n_samples))
+        stretches = np.asarray(self.rng.normal(1.0, self.params["stretch_std"], size=n_samples))
 
         A_shifted = np.zeros_like(A)
         for i in range(n_samples):
@@ -902,8 +902,8 @@ class SyntheticNIRSGenerator:
                     )
 
                 elif artifact_type == "dead_band":
-                    start_idx = self.rng.integers(0, self.n_wavelengths - 20)
-                    width = self.rng.integers(10, 30)
+                    start_idx = int(self.rng.integers(0, self.n_wavelengths - 20))
+                    width = int(self.rng.integers(10, 30))
                     end_idx = min(start_idx + width, self.n_wavelengths)
                     A[i, start_idx:end_idx] += self.rng.normal(
                         0, 0.05, end_idx - start_idx
@@ -1014,7 +1014,7 @@ class SyntheticNIRSGenerator:
 
                 # Add stitching offset artifact
                 if config.add_stitch_artifacts:
-                    offset = self.rng.normal(0, artifact_intensity, n_samples)
+                    offset = np.asarray(self.rng.normal(0, artifact_intensity, n_samples))
                     result[:, junction_idx:] += offset[:, np.newaxis]
 
                     # Add stitching noise
@@ -1131,7 +1131,7 @@ class SyntheticNIRSGenerator:
 
             # Add wavelength jitter between scans (small shifts)
             if config.wavelength_jitter > 0:
-                jitter = self.rng.normal(0, config.wavelength_jitter, n_samples)
+                jitter = np.asarray(self.rng.normal(0, config.wavelength_jitter, n_samples))
                 # Add as a small baseline shift effect
                 scan_noise += jitter[:, np.newaxis] * 0.001
 
@@ -1580,7 +1580,7 @@ class SyntheticNIRSGenerator:
                 if temp_config is not None:
                     base_temp = temp_config.sample_temperature
                     variation = temp_config.temperature_variation
-                    temperatures = self.rng.normal(base_temp, variation, n_samples) if variation > 0 else np.full(n_samples, base_temp)
+                    temperatures = np.asarray(self.rng.normal(base_temp, variation, n_samples)) if variation > 0 else np.full(n_samples, base_temp)
 
             if self._temperature_op is not None:
                 A = self._temperature_op.transform(A, wavelengths=self.wavelengths)
@@ -1650,7 +1650,7 @@ class SyntheticNIRSGenerator:
 
         # Generate all samples
         n_total = n_train + n_test
-        X, C, _E = self.generate(n_samples=n_total, **generate_kwargs)
+        X, C, _E = self.generate(n_samples=n_total, **generate_kwargs)  # type: ignore[misc]
 
         # Determine target
         if target_component is None:

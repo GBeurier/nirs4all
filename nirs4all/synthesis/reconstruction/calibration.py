@@ -104,7 +104,7 @@ class PrototypeSelector:
             Tuple of (prototype_spectra, prototype_indices).
         """
         n_samples = X.shape[0]
-        indices = []
+        indices: list[int] = []
         prototypes = []
 
         # 1. Median spectrum (synthesized, not actual sample)
@@ -112,7 +112,7 @@ class PrototypeSelector:
             median_spectrum = np.median(X, axis=0)
             # Find closest actual sample to median
             distances = np.sum((X - median_spectrum) ** 2, axis=1)
-            median_idx = np.argmin(distances)
+            median_idx = int(np.argmin(distances))
             if median_idx not in indices:
                 indices.append(median_idx)
                 prototypes.append(X[median_idx])
@@ -128,8 +128,8 @@ class PrototypeSelector:
             # 2a. Quantile spectra along PC1
             if self.include_quantiles and len(indices) < self.n_prototypes:
                 pc1 = scores[:, 0]
-                q25_idx = np.argmin(np.abs(pc1 - np.percentile(pc1, 25)))
-                q75_idx = np.argmin(np.abs(pc1 - np.percentile(pc1, 75)))
+                q25_idx = int(np.argmin(np.abs(pc1 - np.percentile(pc1, 25))))
+                q75_idx = int(np.argmin(np.abs(pc1 - np.percentile(pc1, 75))))
 
                 for idx in [q25_idx, q75_idx]:
                     if idx not in indices and len(indices) < self.n_prototypes:
@@ -302,7 +302,7 @@ class GlobalCalibrator:
                 0.1 * (ils_sigma - 6.0) ** 2
             )
 
-            return total_loss + reg_loss
+            return float(total_loss + reg_loss)
 
         # Initial guess
         if initial_guess is None:
@@ -459,4 +459,5 @@ def multistage_calibration(
 
         result = calibrator.calibrate(protos_smooth, forward_chain) if result is None else calibrator.refine(result, protos_smooth, forward_chain)
 
+    assert result is not None
     return result

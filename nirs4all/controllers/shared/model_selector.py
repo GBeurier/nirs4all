@@ -274,14 +274,9 @@ class ModelSelector:
         # Query prediction store for validation predictions
         current_step = getattr(self.context.state, 'step_number', float('inf'))
 
-        filter_kwargs = {
-            'model_name': model_name,
-            'branch_id': branch_id,
-            'partition': 'val',
-            'load_arrays': False,
-        }
-
-        predictions = self.prediction_store.filter_predictions(**filter_kwargs)
+        predictions = self.prediction_store.filter_predictions(
+            model_name=model_name, branch_id=branch_id, partition='val', load_arrays=False,
+        )
 
         # Filter by step
         predictions = [
@@ -291,12 +286,9 @@ class ModelSelector:
 
         if not predictions:
             # Try without branch_id for pre-branch models
-            filter_kwargs_no_branch = {
-                'model_name': model_name,
-                'partition': 'val',
-                'load_arrays': False,
-            }
-            predictions = self.prediction_store.filter_predictions(**filter_kwargs_no_branch)
+            predictions = self.prediction_store.filter_predictions(
+                model_name=model_name, partition='val', load_arrays=False,
+            )
             predictions = [
                 p for p in predictions
                 if p.get('step_idx', 0) < current_step and p.get('branch_id') is None
@@ -315,7 +307,7 @@ class ModelSelector:
                 try:
                     scores_dict = json.loads(scores_json) if isinstance(scores_json, str) else scores_json
                     if "val" in scores_dict and metric in scores_dict["val"]:
-                        score = scores_dict["val"][metric]
+                        score = float(scores_dict["val"][metric])
                         self._score_cache[cache_key] = {metric: score}
                         return score
                 except (json.JSONDecodeError, TypeError):
@@ -323,10 +315,11 @@ class ModelSelector:
 
             # Fallback to val_score if metric matches
             if metric == pred.get("metric"):
-                score = pred.get("val_score")
-                if score is not None:
-                    self._score_cache[cache_key] = {metric: score}
-                    return score
+                val_score = pred.get("val_score")
+                if val_score is not None:
+                    score_f = float(val_score)
+                    self._score_cache[cache_key] = {metric: score_f}
+                    return score_f
 
         return None
 
@@ -426,12 +419,9 @@ class ModelSelector:
 
         for model_name in available_models:
             # Get all predictions for this model across all branches
-            filter_kwargs = {
-                'model_name': model_name,
-                'partition': 'val',
-                'load_arrays': False,
-            }
-            predictions = self.prediction_store.filter_predictions(**filter_kwargs)
+            predictions = self.prediction_store.filter_predictions(
+                model_name=model_name, partition='val', load_arrays=False,
+            )
             predictions = [
                 p for p in predictions
                 if p.get('step_idx', 0) < current_step

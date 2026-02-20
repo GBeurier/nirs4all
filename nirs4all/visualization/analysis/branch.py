@@ -17,10 +17,15 @@ Example:
     >>> print(summary.to_markdown())
 """
 
+from __future__ import annotations
+
 from collections import defaultdict
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from nirs4all.data.predictions import Predictions
 
 try:
     import pandas as pd
@@ -70,7 +75,7 @@ class BranchSummary:
             ])
         self.columns = base_cols + metric_cols
 
-    def to_dataframe(self) -> 'pd.DataFrame':
+    def to_dataframe(self) -> pd.DataFrame:
         """Convert to pandas DataFrame.
 
         Returns:
@@ -307,7 +312,7 @@ class BranchAnalyzer:
         predictions: Predictions object containing prediction data.
     """
 
-    def __init__(self, predictions):
+    def __init__(self, predictions: Predictions):
         """Initialize BranchAnalyzer.
 
         Args:
@@ -513,7 +518,7 @@ class BranchAnalyzer:
         metric: str = 'rmse',
         partition: str = 'test',
         test: str = 'ttest'
-    ) -> 'pd.DataFrame':
+    ) -> pd.DataFrame:
         """Compute pairwise statistical comparisons between all branches.
 
         Args:
@@ -590,12 +595,15 @@ class BranchAnalyzer:
 
         if aggregate:
             # Use top for aggregation
-            return list(self.predictions.top(
+            result = self.predictions.top(
                 n=n,
                 rank_metric='rmse',  # Arbitrary, just need all preds
                 aggregate=aggregate,
                 aggregate_partitions=True
-            ))
+            )
+            if isinstance(result, dict):
+                return [pred for group in result.values() for pred in group]
+            return list(result)
         else:
             # Use filter_predictions for regular access
             return self.predictions.filter_predictions()
@@ -675,7 +683,7 @@ class BranchAnalyzer:
                 has_data = y_true is not None and y_pred is not None
                 if has_data and pred_partition == partition:
                     try:
-                        score = evaluator.eval(y_true, y_pred, metric)
+                        score = evaluator.eval(np.asarray(y_true), np.asarray(y_pred), metric)
                     except Exception:
                         continue
 

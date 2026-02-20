@@ -47,7 +47,7 @@ class DataAggregator:
                     best_idx = np.argmax(rank_scores) if higher_better else np.argmin(rank_scores)
                 else:  # worst
                     best_idx = np.argmin(rank_scores) if higher_better else np.argmax(rank_scores)
-                return normalized_scores[best_idx][0]  # Return display_score
+                return float(normalized_scores[best_idx][0])  # Return display_score
             else:
                 # For mean/median, aggregate display_scores
                 scores = [s[0] for s in normalized_scores]

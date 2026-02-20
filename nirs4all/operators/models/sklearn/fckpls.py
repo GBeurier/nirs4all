@@ -186,7 +186,7 @@ def fractional_kernel_1d(
     if norm > 1e-12:
         h = h / norm
 
-    return h
+    return np.asarray(h)
 
 def fractional_kernel_grrunwald_letnikov(
     alpha: float,
@@ -751,7 +751,7 @@ class FCKPLS(BaseEstimator, RegressorMixin):
         if self._y_1d:
             Y = Y.ravel()
 
-        return Y
+        return np.asarray(Y)
 
     def transform(self, X: ArrayLike) -> NDArray[np.floating]:
         """Transform X to PLS score space.
@@ -783,7 +783,7 @@ class FCKPLS(BaseEstimator, RegressorMixin):
         else:
             X_feat = self.featurizer_.transform(X_proc)
 
-        return self.pls_.transform(X_feat)
+        return np.asarray(self.pls_.transform(X_feat))
 
     def get_filter_info(self) -> dict:
         """Get information about the fractional filter bank.

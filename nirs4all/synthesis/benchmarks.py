@@ -412,12 +412,12 @@ def _load_csv_dataset(
         for row in reader:
             data.append([float(x) if x else np.nan for x in row])
 
-    data = np.array(data)
+    data_array = np.array(data)
 
     # Assume first few columns are targets, rest are spectra
     n_targets = len(info.targets)
-    y = data[:, :n_targets]
-    X = data[:, n_targets:]
+    y = data_array[:, :n_targets]
+    X = data_array[:, n_targets:]
 
     # Generate wavelength array
     wl_start, wl_end = info.wavelength_range
@@ -557,6 +557,6 @@ def create_synthetic_matching_benchmark(
     if n_samples is None:
         n_samples = props["n_samples"]
 
-    X, C, E = generator.generate(n_samples=n_samples)
+    X, C, E = generator.generate(n_samples=n_samples)  # type: ignore[misc]
 
     return X, C, E
