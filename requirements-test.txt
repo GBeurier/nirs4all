@@ -43,6 +43,8 @@ pytest>=7.4.0
 pytest-cov>=4.1.0
 # Parallel pytest execution
 pytest-xdist>=3.5.0
+# Per-test timeout (prevents hanging tests, especially on macOS CI)
+pytest-timeout>=2.2.0
 
 # Deep learning backends
 tensorflow>=2.14.0

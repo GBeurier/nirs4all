@@ -172,7 +172,7 @@ print(f"   Output R: [{R_recovered.min():.4f}, {R_recovered.max():.4f}]")
 
 # Verify round-trip
 roundtrip_error = np.abs(R_recovered - R).max()
-print(f"   Round-trip error: {roundtrip_error:.2e} ✓")
+print(f"   Round-trip diff = {roundtrip_error:.2e} ✓")
 
 # Percent conversion
 print("\n📐 Reflectance % → Reflectance fraction:")
@@ -209,7 +209,7 @@ print(f"   Formula verification: error = {km_error:.2e} ✓")
 # Inverse transform
 R_from_km = km.inverse_transform(F_R)
 km_roundtrip = np.abs(R_from_km - R).max()
-print(f"   Round-trip error: {km_roundtrip:.2e} ✓")
+print(f"   Round-trip diff = {km_roundtrip:.2e} ✓")
 
 # =============================================================================
 # Section 6: General-Purpose SignalTypeConverter

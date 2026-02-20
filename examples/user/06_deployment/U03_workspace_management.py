@@ -25,6 +25,7 @@ Difficulty: ★★☆☆☆
 
 # Standard library imports
 import argparse
+import gc
 import shutil
 from pathlib import Path
 
@@ -245,7 +246,12 @@ if demo_workspace.exists():
             indent = "  " * depth
             print(f"  {indent}📁 {item.name}/")
 
-# Cleanup
+# Cleanup — close logging file handlers before rmtree (required on Windows
+# where open handles prevent file deletion).
+from nirs4all.core.logging import reset_logging
+
+reset_logging()
+gc.collect()
 if demo_workspace.exists():
     shutil.rmtree(demo_workspace)
 
