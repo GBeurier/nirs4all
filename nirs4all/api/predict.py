@@ -25,7 +25,7 @@ Example:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 
 import numpy as np
 
@@ -37,13 +37,13 @@ from .result import PredictResult
 from .session import Session
 
 # Type aliases for clarity
-ModelSpec = (
+ModelSpec: TypeAlias = (
     dict[str, Any]               # Prediction dict from previous run
     | str                          # Path to bundle (.n4a) or config
     | Path                          # Path to bundle or config
 )
 
-DataSpec = (
+DataSpec: TypeAlias = (
     str                          # Path to data folder
     | Path                         # Path to data folder
     | np.ndarray                   # X array

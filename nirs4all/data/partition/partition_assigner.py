@@ -27,7 +27,7 @@ Example:
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
 import numpy as np
 import pandas as pd
@@ -38,7 +38,7 @@ class PartitionError(Exception):
     pass
 
 # Type alias for partition specification
-PartitionSpec = (
+PartitionSpec: TypeAlias = (
     str                     # Static partition: "train", "test", "predict"
     | dict[str, Any]          # Complex partition specification
     | None                    # Auto-detect (based on file naming, not implemented here)
