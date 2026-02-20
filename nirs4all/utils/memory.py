@@ -93,7 +93,7 @@ def get_process_rss_mb() -> float:
             parts = f.read().split()
         rss_pages = int(parts[1])
         import resource
-        page_size = resource.getpagesize()  # type: ignore[attr-defined]
+        page_size = resource.getpagesize()
         return float((rss_pages * page_size) / (1024 * 1024))
     except (OSError, IndexError, ValueError):
         pass
