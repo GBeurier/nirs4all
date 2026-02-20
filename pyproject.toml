@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nirs4all"
-version = "0.7.1"
+version = "0.8.0"
 description = "A comprehensive Python library for Near-Infrared Spectroscopy (NIRS) data analysis with ML/DL pipelines."
 authors = [
     { name = "Gregory Beurier", email = "beurier@cirad.fr" },
@@ -182,7 +182,7 @@ nirs4all = ["py.typed"]
 [tool.ruff]
 line-length = 220
 target-version = "py311"
-extend-exclude = ["bench"]
+extend-exclude = ["bench", "examples/exports", "examples/workspace"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]

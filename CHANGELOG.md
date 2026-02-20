@@ -5,6 +5,135 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - AOM*-PLS, Parquet Storage & Scoring Overhaul - 2026-02-20
+
+### ✨ New Features
+
+#### AOM-PLS & POP-PLS Models
+- **`AOMPLSRegressor`**: Adaptive Operator-selection Meta-PLS — automatic preprocessing selection using a bank of linear operators with sparsemax gating during PLS component extraction
+- **`AOMPLSClassifier`**: Classification variant with probability calibration and sklearn compatibility
+- **`POPPLSRegressor` / `POPPLSClassifier`**: Penalized Orthogonal Projections PLS for operator selection and validation
+- **Linear operator bank**: Identity, Savitzky-Golay filter, Detrend projection, Composed operator, and additional SG/composed variants
+- **PyTorch backend**: Optional Torch-based AOM-PLS implementation for GPU acceleration
+
+#### New Preprocessing Operators
+- **`NorrisWilliams`**: Norris-Williams smoothing and derivative transform with both function and transformer APIs
+- **`WaveletDenoise`**: Wavelet-based denoising transform with configurable wavelet families and threshold modes
+- **Orthogonalization transforms**: New orthogonalization module for spectral data
+
+#### Prediction Storage Migration (DuckDB → Parquet)
+- **Hybrid DuckDB + Parquet storage**: Structured metadata stays in DuckDB, dense prediction arrays moved to Parquet sidecar files
+- **`ArrayStore`**: New module for saving, loading, and verifying prediction arrays in Parquet format
+- **Migration utilities**: Automatic migration of legacy DuckDB prediction arrays to Parquet with data integrity verification
+- **Tombstone-aware deletion**: Proper handling of soft-deleted data in the new storage format
+
+#### SPXYFold Splitter
+- **`SPXYFold`**: K-Fold cross-validation splitter based on the SPXY (Sample set Partitioning based on joint X-Y distances) algorithm
+
+#### Chain Summary System
+- **New `v_chain_summary` view**: Aggregate chain summaries with model metadata, CV scores, and final scores
+- **Enhanced chain query methods**: `query_chain_summaries`, `top_chains` with list-based filter parameters supporting SQL `IN` clauses
+- **Backfill logic**: Populate chain summary columns from existing predictions
+- **`task_type` filter**: Additional filter parameter for query specificity
+
+#### Project Management
+- **Project CRUD operations**: Create, list, update, and delete projects in the database
+- **`projects` table**: New SQL schema for project metadata
+- **Run-project association**: Link runs to projects for experiment organization
+
+#### Pipeline Metrics & Reporting
+- **Ensemble test scores**: New `Ens_Test` and `W_Ens_Test` metrics for ensemble evaluation
+- **Mean fold validation**: New `MF_Val` metric for cross-validation reporting
+- **RMSEP-based sorting**: Tab report manager now sorts by RMSEP instead of RMSECV
+- **Score scope filtering**: `build_aggregated_query` and `build_top_aggregated_query` support filtering by scope (`CV`, `all`, `final`)
+
+#### Stacking & Model Helpers
+- **`stack_params` helper**: New utility for fine-tuning stacking model parameters with enhanced model parameter handling
+
+#### Data Loading
+- **Gzip and tar file support**: Enhanced CSV and folder parsing for compressed file formats
+
+### 🔧 Improvements
+
+#### Pipeline Execution
+- **Memory cleanup between datasets**: `PipelineOrchestrator.cleanup()` releases memory between dataset iterations
+- **Graceful dataset failure handling**: Orchestrator logs errors and cleans up resources on dataset failures
+- **Parallel execution**: Improved joblib/loky backend compatibility by removing unpicklable objects
+- **Deferred artifact persistence**: `ArtifactRegistry` supports deferred persistence and enhanced generator keyword handling
+- **Random state propagation**: Consistent random state throughout pipeline for reproducibility
+
+#### Refit System
+- **Multi-criteria refit**: Enhanced handling with independent model selection across multiple criteria and improved error diagnostics
+- **`selection_score` rename**: `best_score` → `selection_score` in `LazyModelRefitResult` for clarity
+- **Per-model config extraction**: New `extract_per_model_configs` function for extracting best configurations per model class
+- **Competing branches refit**: `execute_competing_branches_refit` refits all branches with average CV scores in predictions
+- **List-based refit parameters**: Support for list-based refit parameters with aggregation reporting
+
+#### DuckDB Resilience
+- **Degraded mode**: Automatic fallback when DuckDB encounters persistent lock failures
+- **Retry logic**: Enhanced error handling and retry for DuckDB lock conflicts in pipeline execution and storage
+
+#### Scoring & Validation
+- **Scoring computation invariants**: Correct RMSECV calculation from pooled OOF predictions, proper None score preservation
+- **NIRS/ML naming conventions**: Consistent metric naming conventions across contexts
+- **`v_aggregated_predictions_all` view**: Supports querying both CV and refit entries
+
+#### Configuration & Generators
+- **Generator count limits**: `log_range_strategy`, `or_strategy`, `range_strategy`, `sample_strategy`, and `zip_strategy` now allow no limit when count ≤ 0
+- **`BestChainEntry` dataclass**: Track best preprocessing chain per model during cross-validation for more efficient refit
+
+#### Code Quality
+- **2000+ mypy errors fixed**: Comprehensive type-checking cleanup across the codebase
+- **Type aliases**: Added type aliases for clarity in multiple modules
+- **Ruff and mypy CI integration**: Enhanced CI with ruff and mypy checks
+- **Polars version**: Bumped minimum `polars` requirement to 1.0.0
+
+### 📚 Documentation
+
+- **Workspace architecture docs**: Updated for hybrid DuckDB + Parquet storage system
+- **Operator catalog**: New spectral augmentation and advanced PLS variants documented
+- **Prediction lifecycle**: Clarified scalar scores (DuckDB) vs. arrays (Parquet) storage
+- **Core audit**: Pre-webapp core audit notes
+
+### 🧪 Testing
+
+- **AOM-PLS test suite**: Regressor, classifier, operator adjoint identity, sparsemax, sklearn compatibility, custom operator banks, Torch backend parity
+- **POP-PLS test suite**: Regressor and classifier, operator selection and validation
+- **New operator tests**: NorrisWilliams, FiniteDifference, WaveletProjection, FFTBandpass, wavelet denoising
+- **Parquet storage tests**: ArrayStore save/load/integrity, migration from DuckDB, tombstone handling
+- **Workspace store tests**: Chain replay, chain summaries, bulk update, API inventory
+- **Scoring invariant tests**: RMSECV pooling, None preservation, metric naming, config deduplication
+- **OptunaManager tests**: Aggregation (BUG-2), grid search (ISSUE-17), config validation, refit skip (BUG-4), single-path holdout (BUG-3), train_params sampling (ISSUE-4)
+- **Parallel execution tests**: No pickling errors, result consistency between parallel and sequential runs
+- **Refit tests**: Lazy refit, model selector, advanced refit, warm start, stacking refit, infrastructure
+- **Prediction analyzer tests**: Comprehensive visualization and analysis coverage
+- **Step cache tests**: Correctness, copy-on-write, cacheability
+- **Classifier sklearn wrapper tests**: New comprehensive test suite
+
+### 🐛 Bug Fixes
+
+- **OptunaManager `_aggregate_scores`**: Fixed incorrect aggregation behavior (BUG-2 regression)
+- **Grid search suitability**: Fixed `_is_grid_search_suitable` and `_create_grid_search_space` (ISSUE-17)
+- **Single-path optimization**: Now uses holdout split to prevent overfitting (BUG-3 regression)
+- **Refit phase finetuning**: Refit phase correctly skips finetuning; `finetune_params` stripped from steps (BUG-4 regression)
+- **NaN checks in `RunResult`**: Refactored NaN validation and error handling
+- **Polars DataFrame inference**: Set `infer_schema_length` to None for prediction DataFrames
+
+### 🗑️ Removed
+
+- **`csv_loader.py`**: Removed deprecated CSV loader
+- **`lazy_loader.py`**: Removed deprecated lazy loading module
+- **`io.py`** (data): Removed deprecated data I/O module
+- **`legacy_parser.py`**: Removed deprecated legacy parser
+- **Prediction component modules**: Removed `aggregator.py`, `array_registry.py`, `indexer.py`, `query.py`, `ranker.py`, `schemas.py`, `serializer.py`, `storage.py` (replaced by Parquet-based storage)
+- **Storage I/O modules**: Removed `io.py`, `io_exporter.py`, `io_resolver.py`, `io_writer.py`, `manifest_manager.py` (replaced by new workspace store)
+- **`reproducibility.py`**: Removed deprecated utilities; functionality integrated into runner and orchestrator
+- **`branch_diagram.py`**: Removed deprecated visualization module
+- **`library_manager.py`**: Removed deprecated workspace library manager
+- **CI quick mode**: Removed quick mode from example verification workflows; all examples now execute fully
+
+---
+
 ## [0.7.1] - Caching, Workspace Store & Refit Improvements - 2026-02-08
 
 ### ✨ New Features
