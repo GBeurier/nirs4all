@@ -1,0 +1,11 @@
+.git
+.venv
+__pycache__
+*.pyc
+.mypy_cache
+.pytest_cache
+.ruff_cache
+bench/
+docs/_build/
+examples/workspace/
+examples/exports/

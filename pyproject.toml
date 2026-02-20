@@ -88,6 +88,11 @@ dependencies = [
     # NIRS-specific splitting methods
     "kennard-stone>=2.2.0",
     "twinning>=0.0.5",
+
+    # Advanced PLS variants
+    "ikpls>=1.1.0",
+    "pyopls>=20.0",
+    "trendfitter>=0.0.6",
 ]
 
 [project.optional-dependencies]
@@ -101,13 +106,6 @@ jax = ["jax>=0.4.20", "jaxlib>=0.4.20", "flax>=0.8.0"]
 # AutoML
 autogluon = ["autogluon>=1.0.0"]
 
-# Advanced PLS variants
-pls = [
-    "ikpls>=1.1.0",
-    "pyopls>=20.0",
-    "trendfitter>=0.0.6",
-]
-
 # Complete installation with all ML frameworks
 all = [
     "tensorflow>=2.14.0",
@@ -116,9 +114,6 @@ all = [
     "jax>=0.4.20",
     "jaxlib>=0.4.20",
     "flax>=0.8.0",
-    "ikpls>=1.1.0",
-    "pyopls>=20.0",
-    "trendfitter>=0.0.6",
 ]
 
 # Complete installation with GPU support
@@ -129,9 +124,6 @@ all-gpu = [
     "jax[cuda12]>=0.4.20",
     "jaxlib>=0.4.20",
     "flax>=0.8.0",
-    "ikpls>=1.1.0",
-    "pyopls>=20.0",
-    "trendfitter>=0.0.6",
 ]
 
 # Development dependencies

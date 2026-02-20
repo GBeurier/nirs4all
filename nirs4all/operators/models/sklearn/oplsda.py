@@ -9,14 +9,6 @@ from sklearn.preprocessing import LabelEncoder
 from .plsda import PLSDA
 
 
-def _check_pyopls_available():
-    """Check if pyopls package is available."""
-    try:
-        import pyopls
-        return True
-    except ImportError:
-        return False
-
 class OPLSDA(BaseEstimator, ClassifierMixin):
     """Orthogonal PLS Discriminant Analysis (OPLS-DA) classifier.
 
@@ -57,10 +49,6 @@ class OPLSDA(BaseEstimator, ClassifierMixin):
     >>> model.fit(X, y)
     OPLSDA(n_components=1, pls_components=5)
     >>> predictions = model.predict(X)
-
-    Notes
-    -----
-    Requires the `pyopls` package: ``pip install pyopls``
 
     See Also
     --------
@@ -121,12 +109,6 @@ class OPLSDA(BaseEstimator, ClassifierMixin):
         ImportError
             If pyopls package is not installed.
         """
-        if not _check_pyopls_available():
-            raise ImportError(
-                "pyopls package is required for OPLSDA. "
-                "Install it with: pip install pyopls"
-            )
-
         from pyopls import OPLS as PyOPLS
 
         X = np.asarray(X)

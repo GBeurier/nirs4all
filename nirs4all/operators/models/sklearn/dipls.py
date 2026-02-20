@@ -6,14 +6,6 @@ import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 
 
-def _check_trendfitter_available():
-    """Check if trendfitter package is available."""
-    try:
-        import trendfitter
-        return True
-    except ImportError:
-        return False
-
 class DiPLS(BaseEstimator, RegressorMixin):
     """Dynamic PLS (DiPLS) regressor.
 
@@ -53,8 +45,6 @@ class DiPLS(BaseEstimator, RegressorMixin):
 
     Notes
     -----
-    Requires the `trendfitter` package: ``pip install trendfitter``
-
     DiPLS is particularly useful for:
     - Process monitoring with temporal dependencies
     - NIR data collected over time
@@ -129,12 +119,6 @@ class DiPLS(BaseEstimator, RegressorMixin):
         ImportError
             If trendfitter package is not installed.
         """
-        if not _check_trendfitter_available():
-            raise ImportError(
-                "trendfitter package is required for DiPLS. "
-                "Install it with: pip install trendfitter"
-            )
-
         from trendfitter.models import DiPLS as TFDiPLS
 
         X = np.asarray(X)

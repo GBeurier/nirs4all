@@ -76,13 +76,6 @@ from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.cross_decomposition import PLSRegression
 
 
-def _check_pyopls_available():
-    try:
-        import pyopls
-        return True
-    except ImportError:
-        return False
-
 class OPLS(BaseEstimator, RegressorMixin):
     """Orthogonal PLS (OPLS) regressor.
     (See pls.py for full docstring)
@@ -159,12 +152,6 @@ class OPLS(BaseEstimator, RegressorMixin):
             self.opls_ = None  # Not using pyopls in JAX mode
         else:
             # NumPy backend using pyopls
-            if not _check_pyopls_available():
-                raise ImportError(
-                    "pyopls package is required for OPLS with backend='numpy'. "
-                    "Install it with: pip install pyopls"
-                )
-
             import pyopls
 
             # Fit OPLS transformer

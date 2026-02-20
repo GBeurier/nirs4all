@@ -34,8 +34,13 @@ jobs:
     strategy:
       fail-fast: ${{ inputs.fail-fast }}
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ['3.11', '3.13']
+        exclude:
+          # macOS only needs one Python version for platform compatibility
+          - os: macos-latest
+            python-version: '3.11'
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
 
@@ -48,9 +53,20 @@ jobs:
           cache: 'pip'
 
       - name: Install test deps
+        shell: bash
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install numpy -r requirements-test.txt
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            # Skip all DL backends on macOS (platform compatibility check only)
+            grep -v -E '^(jax|jaxlib|flax|tensorflow|torch|tabpfn|keras)' requirements-test.txt > requirements-test-macos.txt
+            python -m pip install numpy -r requirements-test-macos.txt
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            # Skip JAX ecosystem on Windows (orbax-checkpoint pulls uvloop which is Unix-only)
+            grep -v -E '^(jax|jaxlib|flax)' requirements-test.txt > requirements-test-win.txt
+            python -m pip install numpy -r requirements-test-win.txt
+          else
+            python -m pip install numpy -r requirements-test.txt
+          fi
 
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
         run: python -m pip install -e . --no-deps
@@ -58,16 +74,24 @@ jobs:
       - name: Run full pytest + coverage
         shell: bash
         run: |
+          # macOS: skip DL-specific tests (no DL backends installed)
+          MARKER_FILTER=""
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            MARKER_FILTER="-m 'not tensorflow and not torch and not keras and not jax'"
+          fi
+
           # Serial subset with known write-contention under heavy xdist load
           python -m pytest -v \
             tests/integration/pipeline/test_merge_mixed.py \
             tests/integration/pipeline/test_merge_per_branch.py \
+            $MARKER_FILTER \
             --cov=nirs4all --cov-append
 
           # Parallel remainder
           python -m pytest -v -n auto --dist worksteal tests/ \
             --ignore=tests/integration/pipeline/test_merge_mixed.py \
             --ignore=tests/integration/pipeline/test_merge_per_branch.py \
+            $MARKER_FILTER \
             --cov=nirs4all --cov-append --cov-report=xml
 
       - name: Upload coverage to Codecov
