@@ -22,7 +22,7 @@ Example:
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeAlias
 
 import numpy as np
 import pandas as pd
@@ -33,7 +33,7 @@ class ColumnSelectionError(Exception):
     pass
 
 # Type alias for column selection specification
-ColumnSpec = (
+ColumnSpec: TypeAlias = (
     int                     # Single index
     | str                     # Single name or range string
     | list[int]               # List of indices

@@ -14,7 +14,7 @@ The models provide:
 
 from enum import Enum, StrEnum
 from pathlib import Path
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, TypeAlias, cast
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -142,7 +142,7 @@ class VariationMode(StrEnum):
 PathOrArray = Any  # Union[str, Path, np.ndarray, List[Union[str, Path]]]
 
 # Column selection can be indices, names, regex, etc.
-ColumnSelection = (
+ColumnSelection: TypeAlias = (
     list[int]           # List of column indices
     | list[str]           # List of column names
     | str                 # Range string like "2:-1" or regex pattern

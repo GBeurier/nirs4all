@@ -15,7 +15,7 @@ Example:
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 
 import numpy as np
 
@@ -29,7 +29,7 @@ from .result import RunResult
 from .session import Session
 
 # Type aliases for a single pipeline or dataset (not lists)
-SinglePipelineSpec = (
+SinglePipelineSpec: TypeAlias = (
     list[Any]                    # List of steps (most common)
     | dict[str, Any]               # Dict configuration
     | str                          # Path to YAML/JSON config
@@ -37,7 +37,7 @@ SinglePipelineSpec = (
     | PipelineConfigs               # Backward compat: existing PipelineConfigs
 )
 
-SingleDatasetSpec = (
+SingleDatasetSpec: TypeAlias = (
     str                          # Path to data folder
     | Path                         # Path to data folder
     | np.ndarray                   # X array (y inferred or None)
@@ -48,12 +48,12 @@ SingleDatasetSpec = (
 )
 
 # Type aliases that also support lists for batch execution
-PipelineSpec = (
+PipelineSpec: TypeAlias = (
     SinglePipelineSpec
     | list[SinglePipelineSpec]     # List of pipelines for batch execution
 )
 
-DatasetSpec = (
+DatasetSpec: TypeAlias = (
     SingleDatasetSpec
     | list[SingleDatasetSpec]      # List of datasets for batch execution
 )

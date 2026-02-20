@@ -22,7 +22,7 @@ Example:
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeAlias
 
 import numpy as np
 import pandas as pd
@@ -33,7 +33,7 @@ class RowSelectionError(Exception):
     pass
 
 # Type alias for row selection specification
-RowSpec = (
+RowSpec: TypeAlias = (
     int                     # Single index
     | str                     # Range string or percentage
     | list[int]               # List of indices
