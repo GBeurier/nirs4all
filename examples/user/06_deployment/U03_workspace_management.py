@@ -246,14 +246,14 @@ if demo_workspace.exists():
             indent = "  " * depth
             print(f"  {indent}📁 {item.name}/")
 
-# Cleanup — close logging file handlers before rmtree (required on Windows
-# where open handles prevent file deletion).
+# Cleanup — release file handles before rmtree (required on Windows where
+# open handles prevent file deletion).
 from nirs4all.core.logging import reset_logging
 
 reset_logging()
 gc.collect()
 if demo_workspace.exists():
-    shutil.rmtree(demo_workspace)
+    shutil.rmtree(demo_workspace, ignore_errors=True)
 
 # =============================================================================
 # Section 6: Session Best Practices
