@@ -18,7 +18,7 @@ Test scenarios include:
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pytest
@@ -61,7 +61,7 @@ class MockExecutionContext:
     ):
         self.selector = MockSelector(branch_id=branch_id, branch_name=branch_name)
         self.state = MockState(step_number=step_number)
-        self.custom = {}
+        self.custom: dict[str, Any] = {}
 
 class MockPredictionStore:
     """Mock prediction store (unused by most selectors)."""

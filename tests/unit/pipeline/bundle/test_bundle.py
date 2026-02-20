@@ -759,7 +759,7 @@ class TestBundleEdgeCases:
             artifacts: list,
             model_step_index: int,
             include_trace: bool = False,
-            trace_steps: list = None,
+            trace_steps: list | None = None,
         ):
             """Create a bundle with specific configuration.
 

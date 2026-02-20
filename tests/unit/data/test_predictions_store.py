@@ -7,6 +7,7 @@ for buffer/flush, ranking, filtering, and array round-trip operations.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import polars as pl
@@ -621,9 +622,9 @@ class TestPredictionsFromParquet:
 
         columns = {field.name: [rec[field.name] for rec in records] for field in schema}
         table = pa.table(columns, schema=schema)
-        path = tmp_path / f"{dataset_name}.parquet"
+        path: Path = tmp_path / f"{dataset_name}.parquet"
         pq.write_table(table, path)
-        return path
+        return cast(Path, path)
 
     def test_from_parquet(self, tmp_path):
         """Predictions.from_parquet() loads arrays and metadata."""

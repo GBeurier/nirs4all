@@ -61,7 +61,7 @@ class _DummyDataset:
 
 def _make_config(**overrides) -> RefitConfig:
     """Create a RefitConfig with sensible defaults."""
-    defaults = {
+    defaults: dict[str, Any] = {
         "expanded_steps": [],
         "best_params": {},
         "variant_index": 0,

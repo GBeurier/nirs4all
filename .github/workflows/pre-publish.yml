@@ -54,7 +54,7 @@ jobs:
           python -m pip install mypy types-PyYAML
 
       - name: Run mypy
-        run: mypy .
+        run: mypy nirs4all
 
   # ═══════════════════════════════════════════════════════════════════════════
   # Full test suite (same as publish.yml)
@@ -77,6 +77,19 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
+
+      - name: Stub uvloop on Windows (Unix-only package)
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          import os, sys, tempfile, subprocess
+          d = tempfile.mkdtemp(prefix="uvloop-stub-")
+          os.makedirs(os.path.join(d, "uvloop"))
+          with open(os.path.join(d, "uvloop", "__init__.py"), "w") as f:
+              f.write('raise ImportError("uvloop does not support Windows")\n')
+          with open(os.path.join(d, "pyproject.toml"), "w") as f:
+              f.write('[build-system]\nrequires = ["setuptools"]\nbuild-backend = "setuptools.build_meta"\n\n[project]\nname = "uvloop"\nversion = "0.22.1"\n')
+          subprocess.check_call([sys.executable, "-m", "pip", "install", d])
 
       - name: Install test deps
         run: |

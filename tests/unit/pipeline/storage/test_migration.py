@@ -243,7 +243,9 @@ class TestMigrationDryRun:
             "SELECT 1 FROM information_schema.tables "
             "WHERE table_name = 'prediction_arrays'"
         ).fetchone()
-        row_count = conn.execute("SELECT COUNT(*) FROM prediction_arrays").fetchone()[0]
+        row_count_result = conn.execute("SELECT COUNT(*) FROM prediction_arrays").fetchone()
+        assert row_count_result is not None
+        row_count = row_count_result[0]
         conn.close()
         assert has_table is not None
         assert row_count == 10
@@ -430,6 +432,7 @@ class TestAutoMigrationOnOpen:
                 "SELECT y_true, y_pred, sample_indices FROM prediction_arrays WHERE prediction_id = $1",
                 [pred_id],
             ).fetchone()
+            assert row is not None
             original[pred_id] = {
                 "y_true": np.array(row[0], dtype=np.float64),
                 "y_pred": np.array(row[1], dtype=np.float64),
@@ -444,7 +447,11 @@ class TestAutoMigrationOnOpen:
         for pred_id in info["prediction_ids"]:
             arrays = store.array_store.load_single(pred_id, dataset_name=info["datasets"][0])
             assert arrays is not None
-            np.testing.assert_array_almost_equal(arrays["y_true"], original[pred_id]["y_true"])
-            np.testing.assert_array_almost_equal(arrays["y_pred"], original[pred_id]["y_pred"])
+            assert arrays["y_true"] is not None
+            assert arrays["y_pred"] is not None
+            assert original[pred_id]["y_true"] is not None
+            assert original[pred_id]["y_pred"] is not None
+            np.testing.assert_array_almost_equal(arrays["y_true"], original[pred_id]["y_true"])  # type: ignore[arg-type]
+            np.testing.assert_array_almost_equal(arrays["y_pred"], original[pred_id]["y_pred"])  # type: ignore[arg-type]
 
         store.close()

@@ -21,6 +21,7 @@ Complexity Defaults:
 # =============================================================================
 import os
 import tempfile
+from typing import cast
 
 # Create the test workspace directory immediately at module load
 # This ensures it's set before any test file imports nirs4all
@@ -403,11 +404,12 @@ def regression_arrays(synthetic_builder_factory) -> tuple[np.ndarray, np.ndarray
     Returns:
         Tuple[np.ndarray, np.ndarray]: (X, y) tuple of numpy arrays.
     """
-    return (
+    return cast(
+        tuple[np.ndarray, np.ndarray],
         synthetic_builder_factory(n_samples=100)
         .with_features(complexity="simple")
         .with_targets(distribution="uniform", range=(10, 50))
-        .build_arrays()
+        .build_arrays(),
     )
 
 @pytest.fixture
@@ -418,11 +420,12 @@ def classification_arrays(synthetic_builder_factory) -> tuple[np.ndarray, np.nda
     Returns:
         Tuple[np.ndarray, np.ndarray]: (X, y) tuple where y contains class labels.
     """
-    return (
+    return cast(
+        tuple[np.ndarray, np.ndarray],
         synthetic_builder_factory(n_samples=100)
         .with_features(complexity="simple")
         .with_classification(n_classes=3)
-        .build_arrays()
+        .build_arrays(),
     )
 
 # =============================================================================
@@ -447,11 +450,12 @@ def synthetic_dataset_folder(tmp_path, synthetic_builder_factory) -> Path:
     Returns:
         Path: Path to the temporary dataset folder.
     """
-    return (
+    return cast(
+        Path,
         synthetic_builder_factory(n_samples=100)
         .with_features(complexity="simple")
         .with_partitions(train_ratio=0.8)
-        .export(tmp_path / "dataset", format="standard")
+        .export(tmp_path / "dataset", format="standard"),
     )
 
 @pytest.fixture
@@ -462,11 +466,12 @@ def synthetic_single_file_folder(tmp_path, synthetic_builder_factory) -> Path:
     Returns:
         Path: Path to the folder containing data.csv.
     """
-    return (
+    return cast(
+        Path,
         synthetic_builder_factory(n_samples=100)
         .with_features(complexity="simple")
         .with_partitions(train_ratio=0.8)
-        .export(tmp_path / "dataset", format="single")
+        .export(tmp_path / "dataset", format="single"),
     )
 
 @pytest.fixture
@@ -477,10 +482,11 @@ def synthetic_csv_file(tmp_path, synthetic_builder_factory) -> Path:
     Returns:
         Path: Path to the CSV file.
     """
-    return (
+    return cast(
+        Path,
         synthetic_builder_factory(n_samples=100)
         .with_features(complexity="simple")
-        .export_to_csv(tmp_path / "data.csv")
+        .export_to_csv(tmp_path / "data.csv"),
     )
 
 # =============================================================================
@@ -577,59 +583,74 @@ def csv_variation_generator():
 def csv_semicolon_format(tmp_path, base_synthetic_data, csv_variation_generator) -> Path:
     """CSV with semicolon delimiter (nirs4all default)."""
     X, y, wavelengths = base_synthetic_data
-    return csv_variation_generator.with_semicolon_delimiter(
-        tmp_path / "semicolon",
-        X, y,
-        wavelengths=wavelengths,
-        train_ratio=0.8,
-        random_state=42,
+    return cast(
+        Path,
+        csv_variation_generator.with_semicolon_delimiter(
+            tmp_path / "semicolon",
+            X, y,
+            wavelengths=wavelengths,
+            train_ratio=0.8,
+            random_state=42,
+        ),
     )
 
 @pytest.fixture
 def csv_comma_format(tmp_path, base_synthetic_data, csv_variation_generator) -> Path:
     """CSV with comma delimiter."""
     X, y, wavelengths = base_synthetic_data
-    return csv_variation_generator.with_comma_delimiter(
-        tmp_path / "comma",
-        X, y,
-        wavelengths=wavelengths,
-        train_ratio=0.8,
-        random_state=42,
+    return cast(
+        Path,
+        csv_variation_generator.with_comma_delimiter(
+            tmp_path / "comma",
+            X, y,
+            wavelengths=wavelengths,
+            train_ratio=0.8,
+            random_state=42,
+        ),
     )
 
 @pytest.fixture
 def csv_tab_format(tmp_path, base_synthetic_data, csv_variation_generator) -> Path:
     """CSV with tab delimiter (.tsv)."""
     X, y, wavelengths = base_synthetic_data
-    return csv_variation_generator.with_tab_delimiter(
-        tmp_path / "tab",
-        X, y,
-        wavelengths=wavelengths,
-        train_ratio=0.8,
-        random_state=42,
+    return cast(
+        Path,
+        csv_variation_generator.with_tab_delimiter(
+            tmp_path / "tab",
+            X, y,
+            wavelengths=wavelengths,
+            train_ratio=0.8,
+            random_state=42,
+        ),
     )
 
 @pytest.fixture
 def csv_no_headers_format(tmp_path, base_synthetic_data, csv_variation_generator) -> Path:
     """CSV without column headers."""
     X, y, _ = base_synthetic_data
-    return csv_variation_generator.without_headers(
-        tmp_path / "no_headers",
-        X, y,
-        train_ratio=0.8,
-        random_state=42,
+    return cast(
+        Path,
+        csv_variation_generator.without_headers(
+            tmp_path / "no_headers",
+            X, y,
+            train_ratio=0.8,
+            random_state=42,
+        ),
     )
 
 @pytest.fixture
 def csv_with_index_format(tmp_path, base_synthetic_data, csv_variation_generator) -> Path:
     """CSV with row index column."""
     X, y, wavelengths = base_synthetic_data
-    return csv_variation_generator.with_row_index(
-        tmp_path / "with_index",
-        X, y,
-        wavelengths=wavelengths,
-        train_ratio=0.8,
-        random_state=42,
+    return cast(
+        Path,
+        csv_variation_generator.with_row_index(
+            tmp_path / "with_index",
+            X, y,
+            wavelengths=wavelengths,
+            train_ratio=0.8,
+            random_state=42,
+        ),
     )
 
 @pytest.fixture
@@ -641,11 +662,14 @@ def csv_all_variations(tmp_path, base_synthetic_data, csv_variation_generator) -
         dict: Mapping of variation name to Path.
     """
     X, y, wavelengths = base_synthetic_data
-    return csv_variation_generator.generate_all_variations(
-        tmp_path / "variations",
-        X, y,
-        wavelengths=wavelengths,
-        train_ratio=0.8,
-        random_state=42,
+    return cast(
+        dict,
+        csv_variation_generator.generate_all_variations(
+            tmp_path / "variations",
+            X, y,
+            wavelengths=wavelengths,
+            train_ratio=0.8,
+            random_state=42,
+        ),
     )
 

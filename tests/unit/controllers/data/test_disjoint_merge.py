@@ -116,7 +116,7 @@ def create_copy_branch_context(
 def create_mock_context_with_branches(
     branch_contexts: list[dict[str, Any]],
     in_branch_mode: bool = True,
-) -> Mock:
+):
     """Create mock execution context with branch contexts."""
 
     class MockContext:
@@ -139,7 +139,7 @@ def create_mock_context_with_branches(
 
 def create_mock_prediction_store(
     branch_models: dict[int, list[dict[str, Any]]],
-) -> Mock:
+):
     """Create mock prediction store.
 
     Args:

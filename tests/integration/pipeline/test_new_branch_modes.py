@@ -68,7 +68,7 @@ def create_metadata_dataset() -> SpectroDataset:
         "site": np.concatenate([sites[train_mask], sites[test_mask]]),
         "sample_id": list(range(n_samples)),
     })
-    dataset.set_metadata(metadata_df)
+    dataset.add_metadata(metadata_df)
 
     return dataset
 

@@ -38,8 +38,8 @@ from nirs4all.operators.models.meta import (
 @dataclass
 class MockSelector:
     """Mock selector with branch_id and partition."""
-    branch_id: int = None
-    branch_name: str = None
+    branch_id: int | None = None
+    branch_name: str | None = None
     partition: str = "train"
 
 @dataclass
@@ -107,10 +107,10 @@ class MockPredictionStore:
         step_idx: int,
         sample_indices: np.ndarray,
         y_pred: np.ndarray,
-        y_true: np.ndarray = None,
-        branch_id: int = None,
-        branch_name: str = None,
-        val_score: float = None,
+        y_true: np.ndarray | None = None,
+        branch_id: int | None = None,
+        branch_name: str | None = None,
+        val_score: float | None = None,
         **kwargs
     ):
         """Add a prediction entry."""
@@ -165,8 +165,8 @@ def create_mock_predictions_5fold(
     n_train: int = 80,
     n_test: int = 20,
     n_folds: int = 5,
-    branch_id: int = None,
-    val_scores: list = None
+    branch_id: int | None = None,
+    val_scores: list | None = None,
 ):
     """Create 5-fold cross-validation predictions for a model.
 

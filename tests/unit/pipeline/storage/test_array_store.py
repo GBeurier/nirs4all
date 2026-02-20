@@ -70,6 +70,10 @@ class TestArrayStoreSaveLoad:
         result = store.load_batch(["pred_001"], dataset_name="wheat")
         assert "pred_001" in result
         arrays = result["pred_001"]
+        assert arrays is not None
+        assert arrays["y_true"] is not None
+        assert arrays["y_pred"] is not None
+        assert arrays["weights"] is not None
         np.testing.assert_array_almost_equal(arrays["y_true"], rec["y_true"])
         np.testing.assert_array_almost_equal(arrays["y_pred"], rec["y_pred"])
         np.testing.assert_array_equal(arrays["sample_indices"], rec["sample_indices"].astype(np.int32))
@@ -93,6 +97,7 @@ class TestArrayStoreSaveLoad:
 
         arrays = store.load_single("pred_001", dataset_name="wheat")
         assert arrays is not None
+        assert arrays["y_true"] is not None
         np.testing.assert_array_almost_equal(arrays["y_true"], rec["y_true"])
 
     def test_load_single_not_found(self, tmp_path: Path) -> None:

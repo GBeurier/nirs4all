@@ -21,7 +21,7 @@ from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
 
 from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader, LRUCache
-from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
+from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta, persist
 from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord, ArtifactType
 
 
@@ -403,7 +403,7 @@ class TestArtifactLoaderStepLoading:
         """Branch+source lookups should include shared and branch-specific artifacts."""
         artifacts_dir = workspace_path / "artifacts"
 
-        def _artifact(name: str, value: float) -> dict:
+        def _artifact(name: str, value: float) -> ArtifactMeta:
             scaler = StandardScaler()
             scaler.fit(np.array([[value], [value + 1.0]]))
             return persist(scaler, artifacts_dir, name)
