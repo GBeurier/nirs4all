@@ -290,7 +290,7 @@ echo -e "${BOLD}╠════════════════════�
 
 ALL_PASS=true
 ORDERED_STEPS=(ruff mypy tests docs examples build)
-STEP_LABELS=([ruff]="Ruff          " [mypy]="Mypy          " [tests]="Tests         " [docs]="Documentation " [examples]="Examples      " [build]="Package Build ")
+declare -A STEP_LABELS=([ruff]="Ruff          " [mypy]="Mypy          " [tests]="Tests         " [docs]="Documentation " [examples]="Examples      " [build]="Package Build ")
 
 for step in "${ORDERED_STEPS[@]}"; do
   result="${STEP_RESULT[$step]:-skip}"
