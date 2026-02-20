@@ -42,9 +42,9 @@ jobs:
           echo "=== Final disk space ==="
           df -h /
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
@@ -73,7 +73,7 @@ jobs:
             --cov=nirs4all --cov-append --cov-report=xml
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
           file: ./coverage.xml
           fail_ci_if_error: false
@@ -91,10 +91,10 @@ jobs:
           sudo apt-get clean
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -113,7 +113,7 @@ jobs:
           sphinx-build -b html source _build/html --keep-going
 
       - name: Upload documentation artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: documentation-html
           path: docs/_build/html/
@@ -134,9 +134,9 @@ jobs:
           sudo docker image prune --all --force
           sudo apt-get clean
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -146,7 +146,7 @@ jobs:
           python -m pip install --upgrade build
           python -m build --sdist --wheel --outdir dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist
           path: dist

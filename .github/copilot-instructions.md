@@ -207,7 +207,7 @@ docs/source/        # Sphinx documentation
 * Deep learning backends (TensorFlow, PyTorch, JAX) are **lazy-loaded**
 * YAML note: tuples may convert to lists during serialization
 * Actively remove deprecated and dead code
-* After API changes, run: `cd examples && ./run.sh`
+* After API changes, run cli in examples/: ./run_ci_examples.sh -c all -j 12
 
 ---
 
