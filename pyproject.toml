@@ -139,6 +139,7 @@ dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "pytest-xdist>=3.5.0",
+    "pytest-timeout>=2.2.0",
     "pytest-benchmark>=4.0.0",
     "build>=1.0.0",
     "ruff>=0.1.0",
@@ -198,7 +199,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short -n auto --dist worksteal"
+addopts = "-v --tb=short"
 markers = [
     "sklearn: sklearn-only tests",
     "tensorflow: TensorFlow tests",
