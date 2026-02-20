@@ -80,6 +80,19 @@ pip install nirs4all[all]
 pip install nirs4all[all-gpu]
 ```
 
+### Conda
+
+```bash
+conda install -c conda-forge nirs4all
+```
+
+### Docker
+
+```bash
+docker pull ghcr.io/gbeurier/nirs4all:latest
+docker run -v $(pwd):/workspace ghcr.io/gbeurier/nirs4all python my_script.py
+```
+
 ### Development Installation
 
 ```bash

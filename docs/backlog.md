@@ -44,7 +44,7 @@ Effort scale:
 
 ### Modeling, optimization, and training
 
-- [ ] `[Optuma]` Modularize god class. _(effort: 4; evidence: `nirs4all/optimization/optuna.py` remains monolithic)_
+- [ ] `[Optuna]` Modularize god class. _(effort: 4; evidence: `nirs4all/optimization/optuna.py` remains monolithic)_
 - [-] `[multivariate]` Define and implement multivariate scope. _(effort: 3; evidence: multivariate pieces exist across dataset/models/docs)_
 - [-] `[Transfer]` Partial layers retraining or partial retrain on new data. _(effort: 3; evidence: retrain modes in `nirs4all/pipeline/retrainer.py`, partial freeze-layer path)_
 - [-] `[Stacking]` Stacking from prediction files directly (hash for OOF and clean separation); use model path or chain path in pipeline. _(effort: 4; evidence: OOF/stacking flow in `nirs4all/controllers/data/merge.py`, direct prediction-file ingestion not explicit)_

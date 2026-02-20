@@ -10,14 +10,6 @@ import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 
 
-def _check_ikpls_available():
-    """Check if ikpls package is available."""
-    try:
-        import ikpls
-        return True
-    except ImportError:
-        return False
-
 def _check_jax_available():
     """Check if JAX is available for GPU acceleration."""
     try:
@@ -77,8 +69,6 @@ class IKPLS(BaseEstimator, RegressorMixin):
 
     Notes
     -----
-    Requires the `ikpls` package: ``pip install ikpls``
-
     For JAX backend with GPU support, install JAX with CUDA:
     ``pip install jax[cuda12]``
 
@@ -156,12 +146,6 @@ class IKPLS(BaseEstimator, RegressorMixin):
         ValueError
             If backend is not 'numpy' or 'jax'.
         """
-        if not _check_ikpls_available():
-            raise ImportError(
-                "ikpls package is required for IKPLS. "
-                "Install it with: pip install ikpls"
-            )
-
         # Validate backend
         if self.backend not in ('numpy', 'jax'):
             raise ValueError(
