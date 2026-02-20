@@ -634,44 +634,17 @@ class LogTransform(TransformerMixin, BaseEstimator):
         if scipy.sparse.issparse(X):
             raise ValueError('Sparse matrices not supported!"')
 
-        # Use a more robust transform that handles all edge cases
         X_copy = X.copy() if hasattr(X, 'copy') else np.array(X, dtype=np.float64)
 
-        # Apply manual offset first
-        if self.offset != 0.0:
-            X_copy = X_copy + self.offset
+        # Apply the fitted offset (computed during fit from training data)
+        if self._fitted_offset != 0.0:
+            X_copy = X_copy + self._fitted_offset
 
-        # For auto_offset, we need to be extremely robust:
-        if self.auto_offset:
-            min_x = np.min(X_copy)
+        # Safety clamp: ensure all values are positive for log
+        X_copy = np.where(X_copy <= 0, self.min_value, X_copy)
 
-            # Always ensure we have positive values for log transform
-            # Use a more conservative approach
-            target_min = max(self.min_value, 1e-10)  # Ensure minimum is reasonable
-
-            if min_x <= target_min:
-                # Calculate offset to bring minimum to target_min
-                additional_offset = target_min - min_x + 1e-12  # Add tiny buffer
-                X_copy = X_copy + additional_offset
-
-            # Final safety check - ensure no problematic values
-            final_min = np.min(X_copy)
-            if final_min <= 0:
-                # Emergency fallback - add enough to make all values positive
-                X_copy = X_copy - final_min + 1e-10
-
-        # Final validation before log transform
-        if np.any(X_copy <= 0):
-            # Ultimate safety: replace any remaining non-positive values
-            X_copy = np.where(X_copy <= 0, 1e-10, X_copy)
-
-        # Perform log transform with additional safety
+        # Perform log transform
         result = np.log(X_copy) if self.base == np.e else np.log(X_copy) / np.log(self.base)
-
-        # Validate result
-        if np.any(np.isinf(result)) or np.any(np.isnan(result)):
-            # This should never happen, but as absolute last resort
-            result = np.where(np.isinf(result) | np.isnan(result), -18.42068, result)
 
         return result
 

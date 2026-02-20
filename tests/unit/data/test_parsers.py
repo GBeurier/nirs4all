@@ -85,7 +85,7 @@ class TestFilesParser:
         assert result.success is True
         assert result.source_type == "files"
         assert result.config is not None
-        assert result.config.train_x == "data.csv"
+        assert result.config["train_x"] == "data.csv"
 
     def test_parse_with_partition_assignment(self):
         """Test parsing files with partition assignment."""
@@ -101,8 +101,8 @@ class TestFilesParser:
         result = parser.parse(config)
 
         assert result.success is True
-        assert result.config.train_x == "train_data.csv"
-        assert result.config.test_x == "test_data.csv"
+        assert result.config["train_x"] == "train_data.csv"
+        assert result.config["test_x"] == "test_data.csv"
 
     def test_parse_multiple_train_files(self):
         """Test parsing multiple files for same partition."""
@@ -117,7 +117,7 @@ class TestFilesParser:
         result = parser.parse(config)
 
         assert result.success is True
-        assert result.config.train_x == ["train1.csv", "train2.csv"]
+        assert result.config["train_x"] == ["train1.csv", "train2.csv"]
 
     def test_parse_infers_partition_from_path(self):
         """Test that partition is inferred from filename."""
@@ -132,8 +132,8 @@ class TestFilesParser:
         result = parser.parse(config)
 
         assert result.success is True
-        assert result.config.train_x == "Xcal_data.csv"
-        assert result.config.test_x == "Xval_data.csv"
+        assert result.config["train_x"] == "Xcal_data.csv"
+        assert result.config["test_x"] == "Xval_data.csv"
 
 class TestFolderParser:
     """Test suite for FolderParser."""

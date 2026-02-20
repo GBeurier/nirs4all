@@ -25,9 +25,8 @@ class CropTransformer(BaseEstimator, TransformerMixin):
     def transform(self, X):
         if not isinstance(X, np.ndarray):
             raise ValueError("Input must be a numpy array")
-        if self.end is None or self.end > X.shape[1]:
-            self.end = X.shape[1]
-        return X[:, self.start:self.end]
+        end = X.shape[1] if self.end is None or self.end > X.shape[1] else self.end
+        return X[:, self.start:end]
 
 class ResampleTransformer(BaseEstimator, TransformerMixin):
 

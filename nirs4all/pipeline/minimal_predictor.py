@@ -532,7 +532,7 @@ class MinimalPredictor:
         # Initialize context for prediction
         context = ExecutionContext(
             selector=DataSelector(
-                partition="all",
+                partition=None,
                 processing=[["raw"]] * dataset.features_sources(),
                 layout="2d",
                 concat_source=True

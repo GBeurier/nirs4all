@@ -371,7 +371,7 @@ class Predictor:
     def _build_prediction_selector(self, dataset_obj: SpectroDataset) -> DataSelector:
         """Build prediction selector with optional branch filters."""
         selector = DataSelector(
-            partition="all",
+            partition=None,
             processing=[["raw"]] * dataset_obj.features_sources(),
             layout="2d",
             concat_source=True,

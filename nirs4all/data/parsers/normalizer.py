@@ -322,6 +322,14 @@ class ConfigNormalizer:
                             # Convert to dict
                             return parsed_config.to_dict(), dataset_name
                     elif isinstance(parsed_config, dict):
+                        # Parsers may return model_dump() dicts; reconstruct
+                        # schema to convert sources/variations to legacy format.
+                        if "sources" in parsed_config or "variations" in parsed_config:
+                            schema = DatasetConfigSchema(**parsed_config)
+                            if schema.is_variations_format():
+                                return schema.variations_to_legacy_format(), dataset_name
+                            elif schema.is_sources_format():
+                                return schema.to_legacy_format(), dataset_name
                         return parsed_config, dataset_name
                     else:
                         return result.config, dataset_name

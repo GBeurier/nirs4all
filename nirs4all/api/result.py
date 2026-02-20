@@ -819,7 +819,7 @@ class RunResult:
 
         # Check for NaN metrics
         if check_nan_metrics and total_count > 0:
-            all_preds = cast(list, self.predictions.top(n=total_count))
+            all_preds = self.predictions.filter_predictions(load_arrays=False)
             for pred in all_preds:
                 has_nan = False
                 # Check common metrics
@@ -840,27 +840,25 @@ class RunResult:
                                         has_nan = True
                                         break
 
-                # Check test_score
+                # Check score fields
                 if not has_nan:
-                    test_score = pred.get('test_score')
-                    if test_score is not None and np.isnan(test_score):
-                        has_nan = True
+                    for score_key in ('test_score', 'val_score', 'train_score'):
+                        score_val = pred.get(score_key)
+                        if score_val is not None and isinstance(score_val, float) and np.isnan(score_val):
+                            has_nan = True
+                            break
 
                 if has_nan:
                     nan_count += 1
-                    model_name = pred.get('model_name', 'unknown')
-                    if nan_count <= 5:  # Only report first 5
-                        issues.append(f"NaN metrics found in prediction: {model_name}")
-
-            if nan_count > 5:
-                issues.append(f"... and {nan_count - 5} more predictions with NaN metrics")
 
             # Check threshold
-            nan_ratio = nan_count / total_count if total_count > 0 else 0
-            if nan_ratio > nan_threshold:
-                issues.append(
-                    f"NaN ratio ({nan_ratio:.1%}) exceeds threshold ({nan_threshold:.1%})"
-                )
+            if nan_count > 0:
+                nan_ratio = nan_count / total_count if total_count > 0 else 0
+                if nan_ratio > nan_threshold:
+                    issues.append(
+                        f"NaN ratio ({nan_ratio:.1%}) exceeds threshold ({nan_threshold:.1%}): "
+                        f"{nan_count} of {total_count} predictions have NaN metrics"
+                    )
 
         valid = len(issues) == 0
 
