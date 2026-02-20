@@ -4,15 +4,16 @@ import json
 import math
 import re
 from pathlib import Path
+from typing import Any
 
 from sklearn.utils import all_estimators
 
 from nirs4all.operators.models import cirad_tf, generic_tf
 
 try:
-    import numpy as np  # type: ignore
+    import numpy as np
 except ImportError:  # pragma: no cover - numpy is optional for metadata extraction
-    np = None
+    np = None  # type: ignore[assignment]
 
 def camel_to_snake(name: str) -> str:
     s1 = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", name)
@@ -75,7 +76,7 @@ SUBCATEGORIES = [
     {"id":"visualization","label":"Visualization","categoryId":"utilities","description":"Nodes that produce charts or reports"},
 ]
 
-MANUAL_COMPONENTS = [
+MANUAL_COMPONENTS: list[dict[str, Any]] = [
     {"subcategory":"spectral_augmentation","id":"rotate_translate","label":"Rotate & Translate","short":"RotateTranslate","description":"Random affine spectral augmentation (Rotate_Translate)"},
     {"subcategory":"spectral_augmentation","id":"random_x_operation","label":"Random X Operation","short":"RandomX","description":"Random multiplicative/additive perturbations"},
     {"subcategory":"spectral_augmentation","id":"spline_smoothing","label":"Spline Smoothing","short":"SplineSmooth","description":"Spline-based smoothing augmentation"},
