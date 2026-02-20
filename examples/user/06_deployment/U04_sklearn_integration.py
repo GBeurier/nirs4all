@@ -128,11 +128,17 @@ Use standard predict() and score() methods.
 
 # Get test data
 dataset = DatasetConfigs("sample_data/regression")
+X_all: np.ndarray = np.empty(0)
+y_all: np.ndarray = np.empty(0)
 for config, name in dataset.configs:
     ds = dataset.get_dataset(config, name)
-    X_test = ds.x({})[:20]  # First 20 samples
-    y_test = ds.y({})[:20]  # y() is a method, needs selector
+    X_raw_data = ds.x({})
+    assert isinstance(X_raw_data, np.ndarray)
+    X_all = X_raw_data
+    y_all = ds.y({})
     break
+X_test = X_all[:20]  # First 20 samples
+y_test = y_all[:20]
 
 # Predict like sklearn
 y_pred = pipe.predict(X_test)
@@ -158,7 +164,7 @@ Use transform() to apply preprocessing without prediction.
 """)
 
 # Get raw data
-X_raw = ds.x({})[:10]
+X_raw = X_all[:10]
 print(f"Original X shape: {X_raw.shape}")
 
 # Transform applies preprocessing only

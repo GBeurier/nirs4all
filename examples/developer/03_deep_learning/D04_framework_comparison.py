@@ -245,10 +245,10 @@ print("-" * 40)
 
 # Find best
 if results:
-    best_fw = min(results, key=results.get)
+    best_fw = min(results, key=lambda k: results[k])
     print(f"\n🏆 Best Score: {best_fw} ({results[best_fw]:.4f})")
 
-    fastest_fw = min(timings, key=timings.get)
+    fastest_fw = min(timings, key=lambda k: timings[k])
     print(f"⚡ Fastest: {fastest_fw} ({timings[fastest_fw]:.1f}s)")
 
 # =============================================================================

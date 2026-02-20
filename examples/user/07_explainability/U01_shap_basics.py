@@ -91,14 +91,16 @@ dataset_config = DatasetConfigs("sample_data/regression_2")
 
 print("Training model...")
 runner = PipelineRunner(save_artifacts=True, verbose=0)
-predictions, _ = runner.run(pipeline_config, dataset_config)
+predictions, _run_info = runner.run(pipeline_config, dataset_config)
 
 # Get best model
-best_prediction = predictions.top(
+top_results = predictions.top(
     n=1,
     rank_metric='rmse',
     rank_partition="test"
-)[0]
+)
+assert isinstance(top_results, list)
+best_prediction = top_results[0]
 
 print(f"\nBest model: {best_prediction['model_name']}")
 test_mse = best_prediction.get('test_mse', best_prediction.get('mse'))
@@ -124,7 +126,7 @@ shap_params = {
 
 print("Running SHAP analysis (this may take a moment)...")
 shap_results, output_dir = runner.explain(
-    best_prediction,
+    dict(best_prediction),
     dataset_config,
     shap_params=shap_params,
     plots_visible=args.plots
@@ -176,7 +178,7 @@ shap_params_advanced = {
 
 print("Running advanced SHAP analysis...")
 shap_results_adv, output_dir_adv = runner.explain(
-    best_prediction,
+    dict(best_prediction),
     dataset_config,
     shap_params=shap_params_advanced,
     plots_visible=args.plots

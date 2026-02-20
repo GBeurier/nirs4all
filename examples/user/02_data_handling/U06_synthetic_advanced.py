@@ -36,6 +36,7 @@ import matplotlib.pyplot as plt
 
 # Third-party imports
 import numpy as np
+from matplotlib import colormaps
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import GroupKFold, ShuffleSplit
 from sklearn.preprocessing import StandardScaler
@@ -43,6 +44,7 @@ from sklearn.preprocessing import StandardScaler
 # NIRS4All imports
 import nirs4all
 from nirs4all.data import DatasetConfigs
+from nirs4all.data.dataset import SpectroDataset
 from nirs4all.synthesis import SyntheticDatasetBuilder
 
 # Add examples directory to path for example_utils
@@ -85,6 +87,7 @@ dataset = (
     .with_partitions(train_ratio=0.8)
     .build()
 )
+assert isinstance(dataset, SpectroDataset)
 
 print("\n📊 Builder-created dataset:")
 print(f"   Samples: {dataset.num_samples}")
@@ -112,6 +115,7 @@ dataset_meta = (
     .with_partitions(train_ratio=0.8)
     .build()
 )
+assert isinstance(dataset_meta, SpectroDataset)
 
 print("\n📊 Dataset with metadata:")
 print(f"   Samples: {dataset_meta.num_samples}")
@@ -171,6 +175,7 @@ dataset_batch = (
     .with_partitions(train_ratio=0.8)
     .build()
 )
+assert isinstance(dataset_batch, SpectroDataset)
 
 print("\n📊 Dataset with batch effects:")
 print(f"   Samples: {dataset_batch.num_samples}")
@@ -276,6 +281,7 @@ dataset_hard = (
     .with_partitions(train_ratio=0.8)
     .build()
 )
+assert isinstance(dataset_hard, SpectroDataset)
 print("   Created challenging benchmark dataset")
 
 # Quick comparison of prediction difficulty
@@ -283,9 +289,12 @@ print("\n📊 Difficulty comparison (lower R² = harder):")
 from sklearn.metrics import r2_score
 
 for name, ds in [("Simple linear", dataset), ("All complexity", dataset_hard)]:
+    assert isinstance(ds, SpectroDataset)
     X_tr = ds.x({"partition": "train"}, layout="2d")
+    assert isinstance(X_tr, np.ndarray)
     y_tr = ds.y({"partition": "train"})
     X_te = ds.x({"partition": "test"}, layout="2d")
+    assert isinstance(X_te, np.ndarray)
     y_te = ds.y({"partition": "test"})
 
     pls = PLSRegression(n_components=10)
@@ -362,6 +371,7 @@ real_like = nirs4all.generate(
     random_state=99
 )
 X_real = real_like.x({}, layout="2d")
+assert isinstance(X_real, np.ndarray)
 
 # Now generate synthetic data that matches its characteristics
 dataset_fitted = nirs4all.generate.from_template(
@@ -416,6 +426,7 @@ full_dataset = (
     )
     .build()
 )
+assert isinstance(full_dataset, SpectroDataset)
 
 # Get configuration
 config = (
@@ -451,6 +462,7 @@ dataset_test = (
     .with_partitions(train_ratio=0.8)
     .build()
 )
+assert isinstance(dataset_test, SpectroDataset)
 
 result = nirs4all.run(
     pipeline=[
@@ -474,6 +486,7 @@ print("-" * 60)
 
 # Save summary of what was generated
 X_builder = full_dataset.x({}, layout="2d")
+assert isinstance(X_builder, np.ndarray)
 y_builder = full_dataset.y({})
 summary_path = save_array_summary(
     {"X (spectra)": X_builder, "y (targets)": y_builder},
@@ -491,7 +504,7 @@ colors = y_builder.ravel()
 norm_colors = (colors - colors.min()) / (colors.max() - colors.min())
 for i in range(min(50, X_builder.shape[0])):
     ax1.plot(wavelengths, X_builder[i], alpha=0.5, linewidth=0.8,
-             color=plt.cm.viridis(norm_colors[i]))
+             color=colormaps["viridis"](norm_colors[i]))
 ax1.set_xlabel("Wavelength (nm)")
 ax1.set_ylabel("Absorbance")
 ax1.set_title("Builder Dataset (colored by target value)")
@@ -510,6 +523,7 @@ ax2.grid(True, alpha=0.3)
 # Plot 3: Batch effects visualization
 ax3 = axes[1, 0]
 X_batch = dataset_batch.x({}, layout="2d")
+assert isinstance(X_batch, np.ndarray)
 wavelengths_batch = np.linspace(1100, 2400, X_batch.shape[1])  # Create wavelengths for batch dataset
 n_per_batch = len(X_batch) // 3
 colors_batch = ['blue', 'green', 'orange']
@@ -529,6 +543,7 @@ ax3.grid(True, alpha=0.3)
 # Plot 4: Component spectra (from full builder dataset)
 ax4 = axes[1, 1]
 X_full = full_dataset.x({}, layout="2d")
+assert isinstance(X_full, np.ndarray)
 mean_spectrum = X_full.mean(axis=0)
 std_spectrum = X_full.std(axis=0)
 wl_full = np.linspace(1100, 2400, X_full.shape[1])

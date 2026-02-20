@@ -251,7 +251,8 @@ print(f"   Complexity: {generator.complexity}")
 
 # Generate synthetic data
 n_synthetic = X_real.shape[0]
-X_synth, concentrations, pure_spectra = generator.generate(n_synthetic)
+_gen_result = generator.generate(n_synthetic)
+X_synth, concentrations, pure_spectra = _gen_result[0], _gen_result[1], _gen_result[2]
 
 print("\n📊 Generated synthetic data:")
 print(f"   Shape: {X_synth.shape}")
@@ -431,6 +432,7 @@ if args.plots:
 
     # Slope distribution
     ax = axes[1]
+    assert fitter.source_properties is not None
     real_slopes = fitter.source_properties.slopes
     synth_props = compute_spectral_properties(X_synth, wavelengths, "synth")
     synth_slopes = synth_props.slopes

@@ -144,8 +144,8 @@ pharma_library = ComponentLibrary(random_state=42)
 pharma_library.add_component(aspirin_like)
 
 # Add predefined components as excipients - get from a predefined library
-predefined = ComponentLibrary.from_predefined(["starch", "cellulose"])
-for component in predefined.components.values():
+predefined_lib = ComponentLibrary.from_predefined(["starch", "cellulose"])
+for component in predefined_lib.components.values():
     pharma_library.add_component(component)
 
 # Add a random "unknown" impurity
@@ -177,7 +177,7 @@ generator = SyntheticNIRSGenerator(
 )
 
 # Generate data
-X, C, E = generator.generate(n_samples=500)
+X, C, E, *_rest = generator.generate(n_samples=500)
 
 print("\n📊 Generated data:")
 print(f"   Spectra shape: {X.shape}")
@@ -266,7 +266,7 @@ indices = np.random.choice(500, 100, replace=False)
 colors = C[indices, 0]  # Color by aspirin concentration
 for i, idx in enumerate(indices):
     ax2.plot(wavelengths, X[idx],
-            color=plt.cm.viridis(colors[i] / colors.max()),
+            color=plt.colormaps["viridis"](colors[i] / colors.max()),
             alpha=0.5, linewidth=0.5)
 ax2.set_xlabel("Wavelength (nm)")
 ax2.set_ylabel("Absorbance (a.u.)")

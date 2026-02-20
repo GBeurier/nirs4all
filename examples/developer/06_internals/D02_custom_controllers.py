@@ -241,7 +241,7 @@ class LogTransformController(OperatorController):
     @classmethod
     def matches(cls, step, operator, keyword) -> bool:
         """Match 'log_transform' keyword."""
-        return keyword == "log_transform"
+        return bool(keyword == "log_transform")
 
     @classmethod
     def use_multi_source(cls) -> bool:

@@ -73,7 +73,7 @@ def print_section(title: str, phase: str = ""):
     print("=" * 70)
     print()
 
-def show_expansion(name: str, spec, max_show: int = 10, seed: int = None):
+def show_expansion(name: str, spec, max_show: int = 10, seed: int | None = None):
     """Show expansion results for a specification."""
     print(f"--- {name} ---")
     print(f"Spec: {json.dumps(spec, indent=2, default=str)}")

@@ -95,17 +95,17 @@ wavelengths_nm = [1000, 1450, 1700, 1940, 2100, 2300]
 print(f"   {'Wavelength (nm)':<18} {'Wavenumber (cm⁻¹)':<20} {'Zone'}")
 print(f"   {'-'*18} {'-'*20} {'-'*25}")
 
-for wl in wavelengths_nm:
-    wn = wavelength_to_wavenumber(wl)
-    zone = classify_wavelength_zone(wl)
-    print(f"   {wl:<18} {wn:<20.1f} {zone}")
+for wl_nm in wavelengths_nm:
+    wn_val = wavelength_to_wavenumber(wl_nm)
+    zone = classify_wavelength_zone(wl_nm)
+    print(f"   {wl_nm:<18} {wn_val:<20.1f} {zone}")
 
 # Reverse conversion
 print("\n📊 Wavenumber to Wavelength:")
 wavenumbers_cm = [10000, 6900, 5800, 5150, 4762, 4350]
 for wn in wavenumbers_cm:
-    wl = wavenumber_to_wavelength(wn)
-    print(f"   {wn:.0f} cm⁻¹ → {wl:.1f} nm")
+    wl_conv: float | np.ndarray = wavenumber_to_wavelength(wn)
+    print(f"   {wn:.0f} cm⁻¹ → {wl_conv:.1f} nm")
 
 # =============================================================================
 # Section 2: NIR Spectral Zones
@@ -145,10 +145,10 @@ categories = {
 for cat_name, vibrations in categories.items():
     print(f"\n   {cat_name}:")
     for vib in vibrations:
-        wn = FUNDAMENTAL_VIBRATIONS.get(vib)
-        if wn:
-            wl = wavenumber_to_wavelength(wn)
-            print(f"     {vib:<23} {wn:<20} {wl:.1f}")
+        fund_wn = FUNDAMENTAL_VIBRATIONS.get(vib)
+        if fund_wn:
+            fund_wl: float | np.ndarray = wavenumber_to_wavelength(fund_wn)
+            print(f"     {vib:<23} {fund_wn:<20} {fund_wl:.1f}")
 
 # =============================================================================
 # Section 4: Overtone Calculation
@@ -198,24 +198,24 @@ print("   ν̃_comb ≈ ν̃₁ + ν̃₂")
 print()
 
 # O-H stretch + bend combination
-result = calculate_combination_band(["O-H_stretch_free", "O-H_bend"])
+comb_result = calculate_combination_band(["O-H_stretch_free", "O-H_bend"])
 print("   O-H stretch + O-H bend:")
 print(f"     Modes: 3650 + 1640 = {3650 + 1640} cm⁻¹")
-print(f"     Combination band: {result.wavelength_nm:.1f} nm")
+print(f"     Combination band: {comb_result.wavelength_nm:.1f} nm")
 print("     (Observed: ~1890 nm)")
 
 # C-H combination
-result = calculate_combination_band(["C-H_stretch_CH3_asym", "C-H_bend"])
+comb_result = calculate_combination_band(["C-H_stretch_CH3_asym", "C-H_bend"])
 print("\n   C-H stretch + C-H bend:")
 print(f"     Modes: 2960 + 1465 = {2960 + 1465} cm⁻¹")
-print(f"     Combination band: {result.wavelength_nm:.1f} nm")
+print(f"     Combination band: {comb_result.wavelength_nm:.1f} nm")
 print("     (Observed: ~2250 nm)")
 
 # N-H combination
-result = calculate_combination_band(["N-H_stretch_primary", "N-H_bend"])
+comb_result = calculate_combination_band(["N-H_stretch_primary", "N-H_bend"])
 print("\n   N-H stretch + N-H bend:")
 print(f"     Modes: 3400 + 1600 = {3400 + 1600} cm⁻¹")
-print(f"     Combination band: {result.wavelength_nm:.1f} nm")
+print(f"     Combination band: {comb_result.wavelength_nm:.1f} nm")
 
 # =============================================================================
 # Section 6: Hydrogen Bonding Effects
@@ -352,7 +352,7 @@ for name in library.component_names:
     print(f"     - {name}: {len(comp.bands)} bands")
 
 # Generate spectra
-generator = SyntheticNIRSGenerator(
+nirs_generator = SyntheticNIRSGenerator(
     component_library=library,
     wavelength_start=1000,
     wavelength_end=2500,
@@ -360,7 +360,7 @@ generator = SyntheticNIRSGenerator(
     random_state=42,
 )
 
-X, C, *rest = generator.generate(n_samples=100)
+X, C, *rest = nirs_generator.generate(n_samples=100)
 print(f"\n   Generated: {X.shape[0]} spectra, {X.shape[1]} wavelengths")
 print(f"   Concentrations: {C.shape}")
 

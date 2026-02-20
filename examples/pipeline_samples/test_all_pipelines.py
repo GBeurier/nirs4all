@@ -66,7 +66,7 @@ TENSORFLOW_PIPELINES = [
 ]
 
 # Pipelines that need multi-source data (no longer used)
-MULTI_SOURCE_PIPELINES = [
+MULTI_SOURCE_PIPELINES: list[str] = [
     # "10_complete_all_features.json",  # Simplified to work with single source
 ]
 
@@ -77,22 +77,22 @@ MULTI_SOURCE_PIPELINES = [
 def load_json_pipeline(filepath: Path) -> dict[str, Any]:
     """Load pipeline definition from JSON file."""
     with open(filepath) as f:
-        data = json.load(f)
+        data: Any = json.load(f)
 
     # Handle both flat list and wrapped dict formats
     if isinstance(data, list):
         return {"pipeline": data}
-    return data
+    return dict(data)
 
 def load_yaml_pipeline(filepath: Path) -> dict[str, Any]:
     """Load pipeline definition from YAML file."""
     with open(filepath) as f:
-        data = yaml.safe_load(f)
+        data: Any = yaml.safe_load(f)
 
     # Handle both flat list and wrapped dict formats
     if isinstance(data, list):
         return {"pipeline": data}
-    return data
+    return dict(data)
 
 def load_pipeline(filepath: Path) -> dict[str, Any]:
     """Load pipeline from file based on extension."""

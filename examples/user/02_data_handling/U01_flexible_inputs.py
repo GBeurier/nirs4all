@@ -26,6 +26,7 @@ Difficulty: ★☆☆☆☆
 
 # Standard library imports
 import argparse
+from typing import Any
 
 import numpy as np
 from sklearn.linear_model import Ridge
@@ -100,10 +101,10 @@ print("-" * 60)
 runner2 = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 
 # Just pass list of steps and tuple of (X, y, partition_info)
-partition_info = {"train": 160}  # First 160 samples for training
+partition_info: dict[str, Any] = {"train": 160}  # First 160 samples for training
 result2, _ = runner2.run(
     pipeline=pipeline_steps,
-    dataset=(X, y, partition_info),
+    dataset=(X, y, partition_info),  # type: ignore[arg-type]
     pipeline_name="direct",
     dataset_name="array_data"
 )
@@ -171,7 +172,7 @@ partition_advanced = {
 
 result5, _ = runner5.run(
     pipeline=pipeline_steps,
-    dataset=(X, y, partition_advanced),
+    dataset=(X, y, partition_advanced),  # type: ignore[arg-type]
     dataset_name="custom_split"
 )
 print("   ✓ Custom indices with slices: {'train': slice(0, 150), 'test': slice(150, 200)}")
@@ -194,7 +195,7 @@ cv_pipeline = [
 
 result6, _ = runner6.run(
     pipeline=cv_pipeline,
-    dataset=(X, y, {"train": 160}),
+    dataset=(X, y, {"train": 160}),  # type: ignore[arg-type]
     pipeline_name="cv_pipeline"
 )
 print("   ✓ Pipeline with KFold cross-validation embedded")
@@ -212,7 +213,7 @@ result7 = nirs4all.run(
         KFold(n_splits=3, shuffle=True, random_state=42),
         {"model": Ridge(alpha=1.0)}
     ],
-    dataset=(X, y, {"train": 160}),
+    dataset=(X, y, {"train": 160}),  # type: ignore[arg-type]
     name="nirs4all_run",
     verbose=0
 )

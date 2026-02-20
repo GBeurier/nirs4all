@@ -103,10 +103,12 @@ runner = PipelineRunner(
     save_artifacts=True,  # <-- Key setting!
     verbose=1
 )
-predictions, _ = runner.run(pipeline_config, dataset_config)
+predictions, _run_info = runner.run(pipeline_config, dataset_config)
 
 # Get best model
-best_prediction = predictions.top(n=1, rank_partition="test")[0]
+top_results = predictions.top(n=1, rank_partition="test")
+assert isinstance(top_results, list)
+best_prediction = top_results[0]
 model_id = best_prediction['id']
 model_name = best_prediction['model_name']
 
@@ -138,7 +140,9 @@ predictor = PipelineRunner()
 prediction_dataset = DatasetConfigs({'X_test': 'sample_data/regression/Xval.csv.gz'})
 
 # Predict using the prediction entry
-new_predictions, _ = predictor.predict(best_prediction, prediction_dataset, verbose=0)
+new_predictions_result, _ = predictor.predict(dict(best_prediction), prediction_dataset, verbose=0)
+assert isinstance(new_predictions_result, np.ndarray)
+new_predictions = new_predictions_result
 
 print(f"New predictions shape: {new_predictions.shape}")
 print(f"New predictions (first 5): {new_predictions[:5].flatten()}")
@@ -164,7 +168,9 @@ predictor2 = PipelineRunner(save_artifacts=False, verbose=0)
 
 # Predict using model ID
 print(f"Using model ID: {model_id}")
-id_predictions, _ = predictor2.predict(model_id, prediction_dataset, verbose=0)
+id_predictions_result, _ = predictor2.predict(model_id, prediction_dataset, verbose=0)
+assert isinstance(id_predictions_result, np.ndarray)
+id_predictions = id_predictions_result
 
 print(f"Predictions (first 5): {id_predictions[:5].flatten()}")
 
@@ -192,7 +198,9 @@ X_new = np.random.randn(n_new, n_features)
 
 # Predict using tuple input
 new_data = DatasetConfigs({'X_test': X_new})
-synthetic_predictions, _ = predictor.predict(model_id, new_data, verbose=0)
+synthetic_predictions_result, _ = predictor.predict(model_id, new_data, verbose=0)
+assert isinstance(synthetic_predictions_result, np.ndarray)
+synthetic_predictions = synthetic_predictions_result
 
 print(f"New data shape: {X_new.shape}")
 print(f"Predictions shape: {synthetic_predictions.shape}")
@@ -217,11 +225,13 @@ full_predictions, preds_obj = predictor3.predict(
     verbose=0
 )
 
-print(f"Number of prediction entries: {len(preds_obj)}")
+print(f"Number of prediction entries: {preds_obj.num_predictions}")
 
-# Access prediction metadata - predictions from predict() may have different structure
-if hasattr(preds_obj, 'predictions') and preds_obj.predictions:
-    pred_entry = preds_obj.predictions[0]
+# Access prediction metadata via top()
+top_preds = preds_obj.top(1)
+assert isinstance(top_preds, list)
+if top_preds:
+    pred_entry = top_preds[0]
     print("\nPrediction metadata:")
     print(f"   Model: {pred_entry.get('model_name', 'N/A')}")
     print(f"   Preprocessings: {pred_entry.get('preprocessings', 'N/A')}")
@@ -242,11 +252,13 @@ Compare predictions from different models.
 
 # Get top 3 models
 top_models = predictions.top(3)
+assert isinstance(top_models, list)
 
 print("Comparing top 3 models on new data:")
 for i, pred_entry in enumerate(top_models, 1):
-    model_predictions, _ = predictor.predict(pred_entry, prediction_dataset, verbose=0)
-    print(f"   {i}. {pred_entry['model_name']}: {model_predictions[:3].flatten()}")
+    model_predictions_result, _ = predictor.predict(dict(pred_entry), prediction_dataset, verbose=0)
+    assert isinstance(model_predictions_result, np.ndarray)
+    print(f"   {i}. {pred_entry['model_name']}: {model_predictions_result[:3].flatten()}")
 
 # =============================================================================
 # Summary

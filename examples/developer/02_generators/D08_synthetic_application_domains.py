@@ -30,6 +30,7 @@ Enhancement Roadmap: application domain priors with 20 predefined domains.
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
 
@@ -291,8 +292,8 @@ print("-" * 60)
 
 from nirs4all.synthesis._constants import get_predefined_components
 
-components = get_predefined_components()
-print(f"\n📊 Total predefined components: {len(components)}")
+predefined_components = get_predefined_components()
+print(f"\n📊 Total predefined components: {len(predefined_components)}")
 
 # Categorize by type
 categories = {
@@ -307,7 +308,7 @@ categories = {
 
 print("\n   Component categories:")
 for cat_name, examples in categories.items():
-    available = [c for c in examples if c in components]
+    available = [c for c in examples if c in predefined_components]
     print(f"   {cat_name}:")
     print(f"      {', '.join(available)}")
 
@@ -319,7 +320,7 @@ print("Section 10: Cross-Domain Analysis")
 print("-" * 60)
 
 # Generate datasets for multiple domains
-domain_datasets = {}
+domain_datasets: dict[str, dict[str, Any]] = {}
 
 for domain_name in ["agriculture_grain", "food_dairy", "petrochem_fuels"]:
     domain_config = get_domain_config(domain_name)

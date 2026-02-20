@@ -50,7 +50,7 @@ def load_pipeline_file(filepath: Path) -> dict:
         else:
             raise ValueError(f"Unsupported file format: {suffix}")
 
-    return data
+    return dict(data)
 
 def filter_comments(pipeline: list) -> list:
     """Remove _comment steps from pipeline."""
@@ -124,7 +124,7 @@ def get_canonical_pipeline(filepath: Path) -> dict:
             "error": str(e),
         }
 
-def export_canonical(output_format: str = "json", specific_pipeline: str = None):
+def export_canonical(output_format: str = "json", specific_pipeline: str | None = None):
     """Export all pipeline samples to canonical format."""
     script_dir = Path(__file__).resolve().parent
 

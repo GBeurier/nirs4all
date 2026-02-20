@@ -170,13 +170,13 @@ class TestDatasetGenerator:
         concentrations = rng.dirichlet([1.0] * n_components, size=n_samples)
 
         # Create absorption profiles for each component
-        component_spectra = []
+        component_spectra_list = []
         for i in range(n_components):
             center = wavelengths[0] + (i + 1) * (wavelengths[-1] - wavelengths[0]) / (n_components + 1)
             width = (wavelengths[-1] - wavelengths[0]) / 8
             profile = np.exp(-0.5 * ((wavelengths - center) / width) ** 2)
-            component_spectra.append(profile)
-        component_spectra = np.array(component_spectra)
+            component_spectra_list.append(profile)
+        component_spectra = np.array(component_spectra_list)
 
         # Beer-Lambert law: A = C @ epsilon
         X = concentrations @ component_spectra
@@ -197,14 +197,14 @@ class TestDatasetGenerator:
             threshold = np.median(concentrations[:, 0])
             y = (concentrations[:, 0] > threshold).astype(int)
         else:  # multiclass
-            y = np.digitize(concentrations[:, 0], np.linspace(0, 1, spec.n_classes + 1)[1:-1])
+            y = np.digitize(concentrations[:, 0], np.linspace(0, 1, spec.n_classes + 1)[1:-1]).astype(np.float64)
 
         # Generate metadata
         metadata = {}
         metadata["sample_id"] = np.array([f"sample_{i:04d}" for i in range(n_samples)])
         metadata["group"] = np.array([f"group_{i % 5}" for i in range(n_samples)])
 
-        if spec.aggregation:
+        if spec.repetition:
             # Create repeated measurements
             n_unique = n_samples // 3
             metadata["sample_id"] = np.array([f"sample_{i % n_unique:04d}" for i in range(n_samples)])

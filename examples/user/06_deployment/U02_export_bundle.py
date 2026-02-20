@@ -99,10 +99,12 @@ dataset_config = DatasetConfigs("sample_data/regression")
 # Train the pipeline
 print("Training pipeline...")
 runner = PipelineRunner(save_artifacts=True, verbose=0)
-predictions, _ = runner.run(pipeline_config, dataset_config)
+predictions, _run_info = runner.run(pipeline_config, dataset_config)
 
 # Get best prediction for export
-best_prediction = predictions.top(n=1, rank_partition="test")[0]
+top_results = predictions.top(n=1, rank_partition="test")
+assert isinstance(top_results, list)
+best_prediction = top_results[0]
 print(f"\nBest model: {best_prediction['model_name']}")
 test_mse = best_prediction.get('test_mse', best_prediction.get('mse'))
 print(f"Test MSE: {test_mse:.4f}" if test_mse is not None else "Test MSE: (see detailed metrics)")
@@ -129,7 +131,7 @@ exports_dir.mkdir(exist_ok=True)
 
 # Export to .n4a bundle
 bundle_path = runner.export(
-    source=best_prediction,
+    source=dict(best_prediction),
     output_path="exports/wheat_model.n4a",
     format="n4a",
     include_metadata=True,
@@ -157,7 +159,7 @@ Note: Only works with sklearn-compatible models!
 
 # Export to portable script
 script_path = runner.export(
-    source=best_prediction,
+    source=dict(best_prediction),
     output_path="exports/wheat_predictor.n4a.py",
     format="n4a.py",
     include_metadata=True
@@ -195,21 +197,25 @@ prediction_dataset = DatasetConfigs({
 
 # Predict from bundle
 print(f"Loading bundle: {bundle_path}")
-bundle_predictions, _ = predictor.predict(
+bundle_predictions_result, _preds1 = predictor.predict(
     prediction_obj=str(bundle_path),
     dataset=prediction_dataset,
     verbose=0
 )
+assert isinstance(bundle_predictions_result, np.ndarray)
+bundle_predictions = bundle_predictions_result
 
 print(f"✓ Predictions generated: {len(bundle_predictions)} samples")
 print(f"  First 5: {bundle_predictions[:5].flatten()}")
 
 # Verify against original
-original_predictions, _ = predictor.predict(
-    prediction_obj=best_prediction,
+original_predictions_result, _preds2 = predictor.predict(
+    prediction_obj=dict(best_prediction),
     dataset=prediction_dataset,
     verbose=0
 )
+assert isinstance(original_predictions_result, np.ndarray)
+original_predictions = original_predictions_result
 
 bundle_flat = np.asarray(bundle_predictions).flatten()
 original_flat = np.asarray(original_predictions).flatten()
@@ -274,11 +280,12 @@ pipeline_multi = [
 
 pipeline_config_multi = PipelineConfigs(pipeline_multi, "U22_BatchExport")
 runner_multi = PipelineRunner(save_artifacts=True, verbose=0)
-predictions_multi, _ = runner_multi.run(pipeline_config_multi, dataset_config)
+predictions_multi, _run_info_multi = runner_multi.run(pipeline_config_multi, dataset_config)
 
 # Export top 3 models
 print("\nExporting top 3 models:")
 top_models = predictions_multi.top(3, rank_partition="test")
+assert isinstance(top_models, list)
 
 model_zoo = Path("exports/model_zoo")
 model_zoo.mkdir(parents=True, exist_ok=True)
@@ -286,7 +293,7 @@ model_zoo.mkdir(parents=True, exist_ok=True)
 for i, pred in enumerate(top_models, 1):
     model_name = pred['model_name'].replace(" ", "_").lower()
     bundle_name = f"rank_{i}_{model_name}.n4a"
-    bundle = runner_multi.export(pred, model_zoo / bundle_name)
+    bundle = runner_multi.export(dict(pred), model_zoo / bundle_name)
     print(f"  {i}. {pred['model_name']} -> {bundle.name}")
     print(f"     RMSE: {pred.get('rmse', 0):.4f}")
 

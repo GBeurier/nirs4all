@@ -27,6 +27,7 @@ Difficulty: ★★★☆☆
 # Standard library imports
 import argparse
 import json
+from typing import Any
 
 # Third-party imports
 from sklearn.cross_decomposition import PLSRegression
@@ -325,7 +326,7 @@ print("""
 is_generator_node() detects if a dict contains generator syntax:
 """)
 
-test_cases = [
+test_cases: list[dict[str, Any]] = [
     {"_or_": ["A", "B"]},
     {"_range_": [1, 10]},
     {"_log_range_": [0.01, 1, 5]},

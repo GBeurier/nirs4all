@@ -119,10 +119,12 @@ runner = PipelineRunner(
     verbose=1,
     plots_visible=args.plots
 )
-predictions_cars, _ = runner.run(pipeline_config, dataset_config)
+predictions_cars, _run_info1 = runner.run(pipeline_config, dataset_config)
 
 # Get results
-best_cars = predictions_cars.top(1, rank_metric='mse')[0]
+top_cars = predictions_cars.top(1, rank_metric='mse')
+assert isinstance(top_cars, list)
+best_cars = top_cars[0]
 print("\nCARS Results:")
 cars_mse = best_cars.get('test_mse', best_cars.get('mse'))
 cars_r2 = best_cars.get('test_r2', best_cars.get('r2'))
@@ -173,10 +175,12 @@ pipeline_config_mcuve = PipelineConfigs(mcuve_pipeline, name="MCUVE_Selection")
 
 # Run pipeline
 print("\nRunning MC-UVE pipeline...")
-predictions_mcuve, _ = runner.run(pipeline_config_mcuve, dataset_config)
+predictions_mcuve, _run_info2 = runner.run(pipeline_config_mcuve, dataset_config)
 
 # Get results
-best_mcuve = predictions_mcuve.top(1, rank_metric='mse')[0]
+top_mcuve = predictions_mcuve.top(1, rank_metric='mse')
+assert isinstance(top_mcuve, list)
+best_mcuve = top_mcuve[0]
 print("\nMC-UVE Results:")
 mcuve_mse = best_mcuve.get('test_mse', best_mcuve.get('mse'))
 mcuve_r2 = best_mcuve.get('test_r2', best_mcuve.get('r2'))
@@ -203,9 +207,11 @@ baseline_pipeline = [
 pipeline_config_baseline = PipelineConfigs(baseline_pipeline, name="Baseline")
 
 print("Running baseline pipeline...")
-predictions_baseline, _ = runner.run(pipeline_config_baseline, dataset_config)
+predictions_baseline, _run_info3 = runner.run(pipeline_config_baseline, dataset_config)
 
-best_baseline = predictions_baseline.top(1, rank_metric='mse')[0]
+top_baseline = predictions_baseline.top(1, rank_metric='mse')
+assert isinstance(top_baseline, list)
+best_baseline = top_baseline[0]
 print("\nBaseline Results:")
 baseline_mse = best_baseline.get('test_mse', best_baseline.get('mse'))
 baseline_r2 = best_baseline.get('test_r2', best_baseline.get('r2'))
@@ -224,9 +230,9 @@ Comparison of feature selection methods:
 """)
 
 results = [
-    ("Baseline", best_baseline.get('test_mse', 0), best_baseline.get('test_r2', 0)),
-    ("CARS", best_cars.get('test_mse', 0), best_cars.get('test_r2', 0)),
-    ("MC-UVE", best_mcuve.get('test_mse', 0), best_mcuve.get('test_r2', 0)),
+    ("Baseline", float(best_baseline.get('test_mse', 0)), float(best_baseline.get('test_r2', 0))),
+    ("CARS", float(best_cars.get('test_mse', 0)), float(best_cars.get('test_r2', 0))),
+    ("MC-UVE", float(best_mcuve.get('test_mse', 0)), float(best_mcuve.get('test_r2', 0))),
 ]
 
 # Sort by MSE

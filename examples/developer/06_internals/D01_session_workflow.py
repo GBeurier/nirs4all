@@ -102,7 +102,7 @@ session = nirs4all.Session(
 )
 
 print(f"\nSession created: {session.name}")
-print(f"  Pipeline steps: {len(session.pipeline)}")
+print(f"  Pipeline steps: {len(session.pipeline) if session.pipeline else 0}")
 print(f"  Status: {session.status}")
 
 # =============================================================================
@@ -172,7 +172,7 @@ Inspect session state:
 print("\nSession introspection:")
 print(f"  Name: {session.name}")
 print(f"  Status: {session.status}")
-print(f"  Pipeline steps: {len(session.pipeline)}")
+print(f"  Pipeline steps: {len(session.pipeline) if session.pipeline else 0}")
 print(f"  Is trained: {session.is_trained}")
 print(f"  History entries: {len(session.history)}")
 

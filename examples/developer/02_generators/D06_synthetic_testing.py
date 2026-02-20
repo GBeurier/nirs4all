@@ -27,6 +27,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Literal
 
 # Third-party imports
 import numpy as np
@@ -38,6 +39,7 @@ from sklearn.preprocessing import StandardScaler
 # NIRS4All imports
 import nirs4all
 from nirs4all.data import DatasetConfigs
+from nirs4all.data.dataset import SpectroDataset
 from nirs4all.synthesis import (
     CSVVariationGenerator,
     DatasetExporter,
@@ -84,10 +86,14 @@ def get_test_dataset(n_samples=100, random_state=42):
 
 # Verify reproducibility
 dataset1 = get_test_dataset()
+assert isinstance(dataset1, SpectroDataset)
 dataset2 = get_test_dataset()
+assert isinstance(dataset2, SpectroDataset)
 
 X1 = dataset1.x({}, layout="2d")
+assert isinstance(X1, np.ndarray)
 X2 = dataset2.x({}, layout="2d")
+assert isinstance(X2, np.ndarray)
 
 print("\n📊 Reproducibility check:")
 print(f"   Arrays identical: {np.allclose(X1, X2)}")
@@ -100,17 +106,18 @@ print("\n" + "-" * 60)
 print("Section 2: Complexity Selection for Tests")
 print("-" * 60)
 
-complexity_times = {}
-for complexity in ["simple", "realistic", "complex"]:
+complexity_times: dict[str, float] = {}
+_complexities: list[Literal["simple", "realistic", "complex"]] = ["simple", "realistic", "complex"]
+for complexity_level in _complexities:
     start = time.perf_counter()
     for _ in range(10):
         dataset = nirs4all.generate(
             n_samples=100,
-            complexity=complexity,
+            complexity=complexity_level,
             random_state=42
         )
     elapsed = (time.perf_counter() - start) / 10
-    complexity_times[complexity] = elapsed
+    complexity_times[complexity_level] = elapsed
 
 print("\n📊 Generation times (100 samples, average of 10 runs):")
 for complexity, elapsed in complexity_times.items():
@@ -172,8 +179,8 @@ print("Section 4: CSV Loader Testing with Variations")
 print("-" * 60)
 
 # Generate test data with various CSV formats
-with tempfile.TemporaryDirectory() as tmpdir:
-    tmpdir = Path(tmpdir)
+with tempfile.TemporaryDirectory() as tmpdir_str:
+    tmpdir = Path(tmpdir_str)
 
     # Create base data
     X, y = nirs4all.generate(n_samples=50, as_dataset=False, random_state=42)
@@ -237,10 +244,13 @@ benchmark_data = (
     .with_partitions(train_ratio=0.8)
     .build()
 )
+assert isinstance(benchmark_data, SpectroDataset)
 
 X_train = benchmark_data.x({"partition": "train"}, layout="2d")
+assert isinstance(X_train, np.ndarray)
 y_train = benchmark_data.y({"partition": "train"})
 X_test = benchmark_data.x({"partition": "test"}, layout="2d")
+assert isinstance(X_test, np.ndarray)
 y_test = benchmark_data.y({"partition": "test"})
 
 # Benchmark different n_components
@@ -275,6 +285,7 @@ real_like = nirs4all.generate(
     random_state=99
 )
 X_real = real_like.x({}, layout="2d")
+assert isinstance(X_real, np.ndarray)
 
 # Compute spectral properties
 wavelengths = np.linspace(1000, 2500, X_real.shape[1])

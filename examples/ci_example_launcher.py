@@ -29,9 +29,9 @@ def _force_utf8_io() -> None:
     which cannot encode emoji and other Unicode characters used in examples.
     """
     if sys.stdout.encoding and sys.stdout.encoding.lower().replace("-", "") != "utf8":
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
     if sys.stderr.encoding and sys.stderr.encoding.lower().replace("-", "") != "utf8":
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 
 def _set_thread_limits() -> None:
@@ -84,9 +84,9 @@ def _cap_param_map(params: dict[str, Any]) -> dict[str, Any]:
     for key, cap in int_caps.items():
         if key in capped:
             capped[key] = _cap_int(capped[key], cap)
-    for key, cap in float_caps.items():
+    for key, fcap in float_caps.items():
         if key in capped:
-            capped[key] = _cap_float(capped[key], cap)
+            capped[key] = _cap_float(capped[key], fcap)
     return capped
 
 def _shrink_list(items: list[Any], cap: int) -> list[Any]:
@@ -236,10 +236,10 @@ def _patch_nirs4all_fast_mode(*, plots: bool = False) -> None:
         kwargs["max_generation_count"] = min(int(kwargs.get("max_generation_count", 10000)), 128)
         return original_pr_run(self, pipeline, dataset, *args, **kwargs)
 
-    run_api.run = fast_run
+    run_api.run = fast_run  # type: ignore[attr-defined]
     nirs4all.run = fast_run
-    PipelineRunner.__init__ = fast_pr_init
-    PipelineRunner.run = fast_pr_run
+    PipelineRunner.__init__ = fast_pr_init  # type: ignore[method-assign]
+    PipelineRunner.run = fast_pr_run  # type: ignore[method-assign]
 
 def main() -> int:
     _force_utf8_io()

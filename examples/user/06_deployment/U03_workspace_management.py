@@ -159,7 +159,7 @@ with nirs4all.session(verbose=0, save_artifacts=False, plots_visible=False) as s
         print(f"  {name:15s} RMSE: {result.best_rmse:.4f}")
 
 # Find best
-best_name = min(results, key=results.get)
+best_name = min(results, key=lambda k: results[k])
 print(f"\nBest preprocessing: {best_name}")
 
 # =============================================================================
@@ -196,7 +196,7 @@ with nirs4all.session(verbose=0, save_artifacts=False, plots_visible=False) as s
         print(f"  n_components={n_comp:2d}: RMSE = {result.best_rmse:.4f}")
 
 # Find optimal
-best_n = min(sweep_results, key=sweep_results.get)
+best_n = min(sweep_results, key=lambda k: sweep_results[k])
 print(f"\nOptimal n_components: {best_n} (RMSE = {sweep_results[best_n]:.4f})")
 
 # =============================================================================
