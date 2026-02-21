@@ -107,8 +107,8 @@ Effort scale:
 
 ### Packaging and deployment
 
-- [ ] `[Docker]` Provide Docker image and add build/actions. _(effort: 3; evidence: no `Dockerfile` / Docker workflow found)_
-- [ ] `[Conda]` Provide Conda package and add build/actions. _(effort: 3; evidence: no Conda recipe/workflow found)_
+- [x] `[Docker]` Provide Docker image and add build/actions. _(effort: 3; evidence: no `Dockerfile` / Docker workflow found)_
+- [x] `[Conda]` Provide Conda package and add build/actions. _(effort: 3; evidence: no Conda recipe/workflow found)_
 - [ ] `[HuggingFace]` Deploy. _(effort: 3)_
 - [ ] `[SERV/CLIENT]` Clustered computation + productization service doc. _(effort: 5)_
 
