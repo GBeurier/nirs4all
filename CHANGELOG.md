@@ -5,9 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+---
+
 ## [0.8.0] - AOM*-PLS, Parquet Storage & Scoring Overhaul - 2026-02-20
 
 ### ✨ New Features
+
+#### Docker Support
+- **Multi-stage Dockerfile**: Lightweight production image based on `python:3.11-slim` with build-stage compilation
+- **`.dockerignore`**: Optimized Docker build context
+
+#### Conda-Forge Distribution
+- **`conda-forge/meta.yaml`**: Recipe for nirs4all package on conda-forge
+- **Staged recipes**: Conda-forge recipes for missing dependencies (`cvmatrix`, `ikpls`, `pyopls`, `trendfitter`)
+- **Conda-forge setup guide**: Internal documentation for the submission process
+
+### 🔧 Improvements
+
+#### Dependency Management
+- **Twinning reimplemented natively**: Replaced `twinning` external dependency with a pure NumPy implementation of the data twinning algorithm (Vakayil & Joseph 2022) in `SPlitSplitter`
+- **PLS variants promoted to core dependencies**: `ikpls`, `pyopls`, `trendfitter` moved from optional `[pls]` extra to core dependencies
+- **Removed `twinning` from all requirements files**
+
+#### CI/CD
+- **macOS compatibility**: Improved CI workflows to avoid deadlocks, handle test coverage, and skip problematic tests on macOS
+- **Pre-publish validation**: Enhanced pre-publish script with macOS support and timeout handling
+- **Reusable disk cleanup action**: Replaced manual disk cleanup with a reusable GitHub Action
+
 
 #### AOM-PLS & POP-PLS Models
 - **`AOMPLSRegressor`**: Adaptive Operator-selection Meta-PLS — automatic preprocessing selection using a bank of linear operators with sparsemax gating during PLS component extraction
