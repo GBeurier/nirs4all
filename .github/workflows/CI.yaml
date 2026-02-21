@@ -71,8 +71,12 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          if [ "$RUNNER_OS" == "Windows" ] || [ "$RUNNER_OS" == "macOS" ]; then
-            # Skip JAX ecosystem on Windows (uvloop is Unix-only) and macOS (reduce CI time on slow runners)
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            # Skip all DL backends on macOS (platform compatibility check only)
+            grep -v -E '^(jax|jaxlib|flax|tensorflow|torch|tabpfn|keras)' requirements-test.txt > requirements-test-filtered.txt
+            python -m pip install numpy -r requirements-test-filtered.txt
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            # Skip JAX ecosystem on Windows (uvloop is Unix-only)
             grep -v -E '^(jax|jaxlib|flax)' requirements-test.txt > requirements-test-filtered.txt
             python -m pip install numpy -r requirements-test-filtered.txt
           else
@@ -87,28 +91,39 @@ jobs:
         env:
           OBJC_DISABLE_INITIALIZE_FORK_SAFETY: 'YES'
         run: |
-          # macOS runners have 3 vCPUs — cap workers to avoid thrashing
-          XDIST_WORKERS="auto"
+          MARK=()
           if [ "$RUNNER_OS" == "macOS" ]; then
-            XDIST_WORKERS="2"
+            MARK=(-m "not tensorflow and not torch and not keras and not jax and not stress")
           fi
-          python -m pytest -v -n "$XDIST_WORKERS" --dist worksteal --timeout=300 tests/unit/
+
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            # macOS: run serially to avoid fork() deadlocks
+            python -m pytest -v --timeout=120 "${MARK[@]}" tests/unit/
+          else
+            python -m pytest -v -n auto --dist worksteal --timeout=300 tests/unit/
+          fi
 
       - name: Run quick integration pytest
         shell: bash
         env:
           OBJC_DISABLE_INITIALIZE_FORK_SAFETY: 'YES'
         run: |
-          # Serial subset with known write-contention under heavy xdist load
-          python -m pytest -v --timeout=300 \
-            tests/integration/pipeline/test_merge_mixed.py \
-            tests/integration/pipeline/test_merge_per_branch.py
-
-          # Parallel remainder
-          XDIST_WORKERS="auto"
+          MARK=()
           if [ "$RUNNER_OS" == "macOS" ]; then
-            XDIST_WORKERS="2"
+            MARK=(-m "not tensorflow and not torch and not keras and not jax and not stress")
           fi
-          python -m pytest -v -n "$XDIST_WORKERS" --dist worksteal --timeout=300 tests/integration/pipeline/ \
-            --ignore=tests/integration/pipeline/test_merge_mixed.py \
-            --ignore=tests/integration/pipeline/test_merge_per_branch.py
+
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            # macOS: run serially to avoid fork() deadlocks
+            python -m pytest -v --timeout=120 "${MARK[@]}" tests/integration/pipeline/
+          else
+            # Serial subset with known write-contention under heavy xdist load
+            python -m pytest -v --timeout=300 \
+              tests/integration/pipeline/test_merge_mixed.py \
+              tests/integration/pipeline/test_merge_per_branch.py
+
+            # Parallel remainder
+            python -m pytest -v -n auto --dist worksteal --timeout=300 tests/integration/pipeline/ \
+              --ignore=tests/integration/pipeline/test_merge_mixed.py \
+              --ignore=tests/integration/pipeline/test_merge_per_branch.py
+          fi
