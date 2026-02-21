@@ -87,7 +87,6 @@ dependencies = [
 
     # NIRS-specific splitting methods
     "kennard-stone>=2.2.0",
-    "twinning>=0.0.5",
 
     # Advanced PLS variants
     "ikpls>=1.1.0",
