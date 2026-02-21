@@ -105,25 +105,30 @@ jobs:
       - name: Run full pytest + coverage
         shell: bash
         run: |
-          # macOS: skip DL-specific tests (no DL backends installed)
           MARK=()
           if [ "$RUNNER_OS" == "macOS" ]; then
-            MARK=(-m "not tensorflow and not torch and not keras and not jax")
+            MARK=(-m "not tensorflow and not torch and not keras and not jax and not stress")
           fi
 
-          # Serial subset with known write-contention under heavy xdist load
-          python -m pytest -v \
-            tests/integration/pipeline/test_merge_mixed.py \
-            tests/integration/pipeline/test_merge_per_branch.py \
-            "${MARK[@]}" \
-            --cov=nirs4all --cov-append
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            # macOS: run serially (fork() is unsafe on macOS, xdist workers deadlock)
+            python -m pytest -v --timeout=120 \
+              "${MARK[@]}" \
+              --cov=nirs4all --cov-append --cov-report=xml \
+              tests/
+          else
+            # Serial subset with known write-contention under heavy xdist load
+            python -m pytest -v \
+              tests/integration/pipeline/test_merge_mixed.py \
+              tests/integration/pipeline/test_merge_per_branch.py \
+              --cov=nirs4all --cov-append
 
-          # Parallel remainder
-          python -m pytest -v -n auto --dist worksteal tests/ \
-            --ignore=tests/integration/pipeline/test_merge_mixed.py \
-            --ignore=tests/integration/pipeline/test_merge_per_branch.py \
-            "${MARK[@]}" \
-            --cov=nirs4all --cov-append --cov-report=xml
+            # Parallel remainder
+            python -m pytest -v -n auto --dist worksteal tests/ \
+              --ignore=tests/integration/pipeline/test_merge_mixed.py \
+              --ignore=tests/integration/pipeline/test_merge_per_branch.py \
+              --cov=nirs4all --cov-append --cov-report=xml
+          fi
 
   # ═══════════════════════════════════════════════════════════════════════════
   # Documentation build (same as publish.yml)
