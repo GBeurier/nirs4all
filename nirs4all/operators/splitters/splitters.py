@@ -10,7 +10,79 @@ from sklearn.decomposition import PCA
 from sklearn.model_selection import BaseCrossValidator, StratifiedGroupKFold, StratifiedShuffleSplit
 from sklearn.preprocessing import KBinsDiscretizer
 from sklearn.utils.validation import _num_samples
-from twinning import twin
+
+
+def _twin(data: np.ndarray, r: int, u1: int | None = None) -> np.ndarray:
+    """Pure NumPy reimplementation of the data twinning algorithm (Vakayil & Joseph 2022).
+
+    Selects a subset of indices (size ceil(N/r)) that is statistically representative
+    of the full dataset, using greedy nearest-neighbor traversal with energy-distance
+    minimization.
+
+    Before twinning, constant columns are removed and remaining columns are scaled
+    to zero mean and unit standard deviation (population std, ddof=0).
+
+    Args:
+        data: 2D array (n_samples, n_features). Must not contain NaN/Inf.
+        r: Inverse of split ratio (e.g., r=5 for 80/20 split). Must satisfy 2 <= r <= N/2.
+        u1: Starting point index. If None, chosen randomly via np.random.randint.
+
+    Returns:
+        1D uint64 array of indices into the original data for the smaller twin.
+    """
+    N = data.shape[0]
+
+    if u1 is None:
+        u1 = np.random.randint(N)
+
+    # Preprocess: remove constant columns, z-score normalize (population std)
+    const_mask = np.all(data == data[0, :], axis=0)
+    data = data[:, ~const_mask].astype(np.float64)
+    col_mean = data.mean(axis=0)
+    col_std = data.std(axis=0)
+    data = (data - col_mean) / col_std
+    if not data.flags["C_CONTIGUOUS"]:
+        data = np.ascontiguousarray(data)
+
+    n_twin = ceil(N / r)
+    twin_idx = np.empty(n_twin, dtype=np.uint64)
+    count = 0
+
+    active = np.ones(N, dtype=bool)
+    current = u1
+
+    while active.sum() >= r:
+        # Distances from current point to all active points
+        active_idx = np.flatnonzero(active)
+        diffs = data[active_idx] - data[current]
+        sq_dists = np.einsum("ij,ij->i", diffs, diffs)
+
+        # Find r nearest neighbors among active points, sorted by distance
+        r_local = np.argpartition(sq_dists, r - 1)[:r]
+        r_local = r_local[np.argsort(sq_dists[r_local])]
+        neighbors = active_idx[r_local]
+
+        # Closest neighbor is the representative for the smaller twin
+        twin_idx[count] = neighbors[0]
+        count += 1
+
+        # Deactivate all r neighbors
+        active[neighbors] = False
+
+        # Next starting position: 1-NN of the farthest removed neighbor
+        if active.any():
+            farthest = neighbors[-1]
+            active_idx = np.flatnonzero(active)
+            diffs = data[active_idx] - data[farthest]
+            sq_dists = np.einsum("ij,ij->i", diffs, diffs)
+            current = active_idx[np.argmin(sq_dists)]
+
+    # Handle remaining points (when N is not divisible by r)
+    if count < n_twin:
+        twin_idx[count] = current
+        count += 1
+
+    return twin_idx[:count]
 
 
 def _validate_shuffle_split(n_samples, test_size, train_size, default_test_size=None):
@@ -581,7 +653,7 @@ class SPlitSplitter(CustomSplitter):
         # n_train, n_test = _validate_shuffle_split(n_samples, self.test_size, None)
 
         r = int(1 / self.test_size)
-        index_test = twin(X, r)
+        index_test = _twin(X, r)
         index_train = np.delete(np.arange(n_samples), index_test)
         yield index_train, index_test
 

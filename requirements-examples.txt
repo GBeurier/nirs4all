@@ -32,7 +32,6 @@ pydantic>=2.0.0
 
 # NIRS-specific splitting methods
 kennard-stone>=2.2.0
-twinning>=0.0.5
 
 # Deep learning backends
 # Note: In CI, CPU-only versions are installed before this file

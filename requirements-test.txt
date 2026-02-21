@@ -35,7 +35,6 @@ pydantic>=2.0.0
 
 # NIRS-specific splitting methods
 kennard-stone>=2.2.0
-twinning>=0.0.5
 
 # Testing
 build>=1.0.0
