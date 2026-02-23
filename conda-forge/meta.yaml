@@ -1,5 +1,5 @@
 {% set name = "nirs4all" %}
-{% set version = "0.7.1" %}
+{% set version = "0.8.0" %}
 {% set python_min = "3.11" %}
 
 package:
@@ -8,7 +8,9 @@ package:
 
 source:
   url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
-  sha256: 399d3beb4199c938df47cbf0a2404ded4f633f0951486f8828847fdb75500f0c
+  # SHA256 must be updated when publishing a new version to PyPI.
+  # Run: python scripts/sync_conda_recipe.py --update
+  sha256: PLACEHOLDER_UPDATE_ON_RELEASE
 
 build:
   noarch: python
@@ -31,7 +33,7 @@ requirements:
     - scipy >=1.10.0
     - scikit-learn >=1.2.0
     # Data processing
-    - polars >=0.20.0
+    - polars >=1.0.0
     - pyarrow >=14.0.0
     - python-duckdb >=1.0.0
     - h5py >=3.8.0
@@ -54,6 +56,10 @@ requirements:
     - pydantic >=2.0.0
     # NIRS-specific
     - kennard-stone >=2.2.0
+    # Advanced PLS variants
+    - ikpls >=1.1.0
+    - pyopls >=20.0
+    - trendfitter >=0.0.6
 
 test:
   imports:
