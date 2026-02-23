@@ -43,6 +43,9 @@ Example:
     >>> # {'feature_augmentation': ['snv', 'd1', 'msc']}
 """
 
+# Projections
+from nirs4all.analysis.projections import compute_pca_projection
+
 # Presets
 from nirs4all.analysis.presets import PRESETS, get_preset, list_presets
 
@@ -81,6 +84,8 @@ from nirs4all.analysis.transfer_utils import (
 )
 
 __all__ = [
+    # Projections
+    "compute_pca_projection",
     # Main class
     "TransferPreprocessingSelector",
     # Results
