@@ -137,6 +137,23 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
+      - name: Verify version consistency
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          PYPROJECT_VERSION=$(python -c "
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              print(tomllib.load(f)['project']['version'])
+          ")
+          TAG_VERSION="${{ github.event.release.tag_name }}"
+          TAG_VERSION="${TAG_VERSION#v}"
+          if [[ "$PYPROJECT_VERSION" != "$TAG_VERSION" ]]; then
+            echo "::error::Version mismatch: pyproject.toml=$PYPROJECT_VERSION tag=$TAG_VERSION"
+            exit 1
+          fi
+          echo "Version verified: $PYPROJECT_VERSION"
+
       - name: Build dists
         run: |
           python -m pip install --upgrade build
@@ -156,7 +173,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           name: dist
           path: dist
@@ -199,3 +216,56 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Notify about conda-forge feedstock update (after PyPI publish)
+  notify-conda-forge:
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Fetch SHA256 and generate conda-forge update instructions
+        shell: bash
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+
+          # Wait for PyPI to index the new version (up to 5 minutes)
+          SHA256=""
+          for i in $(seq 1 10); do
+            SHA256=$(curl -sL "https://pypi.org/pypi/nirs4all/$VERSION/json" | \
+              python3 -c "import sys,json; d=json.load(sys.stdin); \
+              print([u['digests']['sha256'] for u in d['urls'] if u['filename'].endswith('.tar.gz')][0])" 2>/dev/null) && break
+            echo "Waiting for PyPI to index version $VERSION (attempt $i/10)..."
+            sleep 30
+          done
+
+          echo "## Conda-forge Update" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ -z "$SHA256" ]]; then
+            echo "::warning::Could not fetch SHA256 from PyPI for version $VERSION"
+            echo "Could not fetch SHA256 automatically. Update manually:" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "python scripts/sync_conda_recipe.py --sha $VERSION" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "The regro-cf-autotick-bot should automatically create a PR to the feedstock." >> $GITHUB_STEP_SUMMARY
+            echo "If it doesn't within 24h, manually update:" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version**: \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **SHA256**: \`$SHA256\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Or run:" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "python scripts/sync_conda_recipe.py --sha $VERSION" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+            # Also update meta.yaml in the repo for reference
+            python scripts/sync_conda_recipe.py --sha "$VERSION" || true
+          fi
