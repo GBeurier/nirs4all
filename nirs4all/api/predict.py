@@ -245,6 +245,7 @@ def _predict_from_model(
 ) -> PredictResult:
     """Predict via the legacy model/resolver path."""
     # Use session runner if provided, otherwise create new
+    owns_runner = session is None
     if session is not None:
         runner = session.runner
     else:
@@ -257,43 +258,47 @@ def _predict_from_model(
             all_kwargs["workspace_path"] = workspace_path
         runner = PipelineRunner(**all_kwargs)
 
-    # Convert Path to str for compatibility with type hints
-    model_arg = str(model) if isinstance(model, Path) else model
-    data_arg = str(data) if isinstance(data, Path) else data
+    try:
+        # Convert Path to str for compatibility with type hints
+        model_arg = str(model) if isinstance(model, Path) else model
+        data_arg = str(data) if isinstance(data, Path) else data
 
-    # Call the runner's predict method
-    y_pred, predictions = runner.predict(
-        prediction_obj=model_arg,
-        dataset=data_arg,
-        dataset_name=name,
-        all_predictions=all_predictions,
-        verbose=verbose,
-    )
+        # Call the runner's predict method
+        y_pred, predictions = runner.predict(
+            prediction_obj=model_arg,
+            dataset=data_arg,
+            dataset_name=name,
+            all_predictions=all_predictions,
+            verbose=verbose,
+        )
 
-    # Extract model info for the result
-    model_name = ""
-    preprocessing_steps: list[str] = []
+        # Extract model info for the result
+        model_name = ""
+        preprocessing_steps: list[str] = []
 
-    if isinstance(model, dict):
-        model_name = model.get("model_name", "")
-        raw_pp = model.get("preprocessings", [])
-        preprocessing_steps = [raw_pp] if isinstance(raw_pp, str) else list(raw_pp)
+        if isinstance(model, dict):
+            model_name = model.get("model_name", "")
+            raw_pp = model.get("preprocessings", [])
+            preprocessing_steps = [raw_pp] if isinstance(raw_pp, str) else list(raw_pp)
 
-    # Handle array output
-    if isinstance(y_pred, dict):
-        first_key = next(iter(y_pred.keys()), None)
-        y_array = y_pred[first_key] if first_key and isinstance(y_pred[first_key], np.ndarray) else np.array([])
-        metadata: dict[str, Any] = {"all_folds": y_pred}
-    else:
-        y_array = y_pred if isinstance(y_pred, np.ndarray) else np.asarray(y_pred)
-        metadata = {}
+        # Handle array output
+        if isinstance(y_pred, dict):
+            first_key = next(iter(y_pred.keys()), None)
+            y_array = y_pred[first_key] if first_key and isinstance(y_pred[first_key], np.ndarray) else np.array([])
+            metadata: dict[str, Any] = {"all_folds": y_pred}
+        else:
+            y_array = y_pred if isinstance(y_pred, np.ndarray) else np.asarray(y_pred)
+            metadata = {}
 
-    return PredictResult(
-        y_pred=y_array,
-        metadata=metadata,
-        model_name=model_name,
-        preprocessing_steps=preprocessing_steps,
-    )
+        return PredictResult(
+            y_pred=y_array,
+            metadata=metadata,
+            model_name=model_name,
+            preprocessing_steps=preprocessing_steps,
+        )
+    finally:
+        if owns_runner:
+            runner.close()
 
 def _extract_X(data: DataSpec) -> np.ndarray:
     """Extract feature matrix X from various data formats.

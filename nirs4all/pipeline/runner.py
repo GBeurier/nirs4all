@@ -426,6 +426,13 @@ class PipelineRunner:
         """
         return self.orchestrator.store
 
+    def close(self) -> None:
+        """Close the underlying WorkspaceStore to release DuckDB resources."""
+        if hasattr(self, "orchestrator") and self.orchestrator is not None:
+            store = self.orchestrator.store
+            if store is not None:
+                store.close()
+
     @property
     def runs_dir(self) -> Path:
         """Get runs directory (legacy compatibility).

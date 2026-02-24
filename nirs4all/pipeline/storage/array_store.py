@@ -102,6 +102,13 @@ class ArrayStore:
         self._base_dir = Path(base_dir)
         self._arrays_dir = self._base_dir / "arrays"
         self._arrays_dir.mkdir(parents=True, exist_ok=True)
+        # Clean up orphaned temp files from previous crashes
+        for tmp_file in self._arrays_dir.glob("*.parquet.tmp"):
+            try:
+                tmp_file.unlink()
+                logger.debug("Cleaned orphaned temp file: %s", tmp_file.name)
+            except OSError:
+                pass
 
     @property
     def arrays_dir(self) -> Path:

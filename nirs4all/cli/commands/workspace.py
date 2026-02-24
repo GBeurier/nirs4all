@@ -53,9 +53,8 @@ def workspace_list_runs(args):
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
-    store = WorkspaceStore(workspace_path)
-
-    runs = store.list_runs()
+    with WorkspaceStore(workspace_path) as store:
+        runs = store.list_runs()
 
     if runs.height == 0:
         logger.info("No runs found in workspace.")
@@ -74,15 +73,14 @@ def workspace_query_best(args):
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
-    store = WorkspaceStore(workspace_path)
 
-    # Query top predictions
     try:
-        top_df = store.top_predictions(
-            n=args.n,
-            dataset_name=args.dataset,
-            metric=args.metric,
-        )
+        with WorkspaceStore(workspace_path) as store:
+            top_df = store.top_predictions(
+                n=args.n,
+                dataset_name=args.dataset,
+                metric=args.metric,
+            )
         if top_df.height == 0:
             logger.info("No predictions found matching criteria.")
             return
@@ -102,12 +100,12 @@ def workspace_query_filter(args):
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
-    store = WorkspaceStore(workspace_path)
 
     try:
-        filtered = store.query_predictions(
-            dataset_name=args.dataset,
-        )
+        with WorkspaceStore(workspace_path) as store:
+            filtered = store.query_predictions(
+                dataset_name=args.dataset,
+            )
 
         logger.info(f"Found {filtered.height} predictions matching criteria\n")
 
@@ -124,13 +122,15 @@ def workspace_stats(args):
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
-    store = WorkspaceStore(workspace_path)
 
     logger.info("Workspace Statistics")
     logger.info(f"{'=' * 60}\n")
 
     try:
-        all_preds = store.query_predictions()
+        with WorkspaceStore(workspace_path) as store:
+            all_preds = store.query_predictions()
+            runs = store.list_runs()
+
         logger.info(f"Total predictions: {all_preds.height}")
 
         if all_preds.height > 0 and "dataset_name" in all_preds.columns:
@@ -140,7 +140,6 @@ def workspace_stats(args):
                 count = all_preds.filter(all_preds["dataset_name"] == ds).height
                 logger.info(f"  - {ds}: {count} predictions")
 
-        runs = store.list_runs()
         logger.info(f"\nRuns: {runs.height}")
     except Exception as e:
         logger.error(f"Error getting statistics: {e}")

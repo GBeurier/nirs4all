@@ -833,6 +833,7 @@ class TestMethodInventory:
         "replay_chain",
         # Resource management
         "close",
+        "transaction",
     ]
 
     def test_all_expected_methods_exist(self):
@@ -882,4 +883,4 @@ class TestMethodInventory:
 
     def test_total_method_count(self):
         """The expected method count matches the design doc."""
-        assert len(self.EXPECTED_METHODS) == 55
+        assert len(self.EXPECTED_METHODS) == 56

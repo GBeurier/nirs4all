@@ -404,63 +404,62 @@ class PipelineOrchestrator:
                         )
 
                         # Store reconstruction (non-fatal if it fails).
-                        # Skip entirely if the store is in degraded mode (persistent lock).
                         store_available = (
                             config_predictions.num_predictions > 0
                             and self.store
                             and run_id
-                            and not self.store.degraded
                         )
                         if store_available:
                             assert run_id is not None
                             try:
-                                # Extract metadata from result
-                                steps = result.get("steps", [])
-                                gen_choices = result.get("generator_choices", [])
-                                dataset_obj = result.get("dataset")
+                                with self.store.transaction():
+                                    # Extract metadata from result
+                                    steps = result.get("steps", [])
+                                    gen_choices = result.get("generator_choices", [])
+                                    dataset_obj = result.get("dataset")
 
-                                # Create pipeline record
-                                pipeline_id = self.store.begin_pipeline(
-                                    run_id=run_id,
-                                    name=config_name,
-                                    expanded_config=steps,
-                                    generator_choices=gen_choices,
-                                    dataset_name=name,
-                                    dataset_hash=dataset_obj.content_hash() if dataset_obj else "",
-                                )
+                                    # Create pipeline record
+                                    pipeline_id = self.store.begin_pipeline(
+                                        run_id=run_id,
+                                        name=config_name,
+                                        expanded_config=steps,
+                                        generator_choices=gen_choices,
+                                        dataset_name=name,
+                                        dataset_hash=dataset_obj.content_hash() if dataset_obj else "",
+                                    )
 
-                                # Sync artifact records from parallel worker
-                                for art_record in result.get("artifact_records", []):
-                                    self.store.register_existing_artifact(**art_record)
+                                    # Sync artifact records from parallel worker
+                                    for art_record in result.get("artifact_records", []):
+                                        self.store.register_existing_artifact(**art_record)
 
-                                # Save chains from parallel worker (must precede
-                                # prediction flush due to foreign key constraint)
-                                for chain_data in result.get("chain_data_list", []):
-                                    self.store.save_chain(pipeline_id=pipeline_id, **chain_data)
+                                    # Save chains from parallel worker (must precede
+                                    # prediction flush due to foreign key constraint)
+                                    for chain_data in result.get("chain_data_list", []):
+                                        self.store.save_chain(pipeline_id=pipeline_id, **chain_data)
 
-                                # Flush predictions using chain-aware resolver
-                                executor._flush_predictions_to_store(
-                                    self.store,
-                                    pipeline_id,
-                                    config_predictions,
-                                    runtime_context=None,
-                                )
+                                    # Flush predictions using chain-aware resolver
+                                    executor._flush_predictions_to_store(
+                                        self.store,
+                                        pipeline_id,
+                                        config_predictions,
+                                        runtime_context=None,
+                                    )
 
-                                # Compute metrics for complete_pipeline
-                                best = config_predictions.get_best(ascending=None, score_scope="cv")
-                                best_val = float(best.get("val_score", 0.0) or 0.0) if best else 0.0
-                                best_test = float(best.get("test_score", 0.0) or 0.0) if best else 0.0
-                                metric = str(best.get("metric", "rmse") or "rmse") if best else "rmse"
-                                duration_ms = int(result.get("duration_ms", 0))
+                                    # Compute metrics for complete_pipeline
+                                    best = config_predictions.get_best(ascending=None, score_scope="cv")
+                                    best_val = float(best.get("val_score", 0.0) or 0.0) if best else 0.0
+                                    best_test = float(best.get("test_score", 0.0) or 0.0) if best else 0.0
+                                    metric = str(best.get("metric", "rmse") or "rmse") if best else "rmse"
+                                    duration_ms = int(result.get("duration_ms", 0))
 
-                                # Complete pipeline record
-                                self.store.complete_pipeline(
-                                    pipeline_id=pipeline_id,
-                                    best_val=best_val,
-                                    best_test=best_test,
-                                    metric=metric,
-                                    duration_ms=duration_ms,
-                                )
+                                    # Complete pipeline record
+                                    self.store.complete_pipeline(
+                                        pipeline_id=pipeline_id,
+                                        best_val=best_val,
+                                        best_test=best_test,
+                                        metric=metric,
+                                        duration_ms=duration_ms,
+                                    )
 
                                 # Capture last pipeline_uid for syncing
                                 self.last_pipeline_uid = pipeline_id
