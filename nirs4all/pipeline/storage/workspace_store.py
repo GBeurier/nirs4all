@@ -26,10 +26,11 @@ import inspect
 import io
 import json
 import logging
+import random
 import threading
 import time
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -102,16 +103,22 @@ from nirs4all.pipeline.storage.store_queries import (
 )
 from nirs4all.pipeline.storage.store_schema import create_schema
 
-_MAX_RETRIES = 5
-_BASE_DELAY = 0.1
+_MAX_RETRIES = 8
+_BASE_DELAY = 0.15
+
+
+def _jittered_delay(base: float, attempt: int) -> float:
+    """Exponential backoff with random jitter to avoid thundering herd."""
+    return base * (2 ** attempt) * (0.5 + random.random() * 0.5)
+
 
 def _retry_on_lock(func: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator that retries the wrapped method on DuckDB lock errors.
 
     DuckDB uses process-level file locks that can conflict when another
     process holds the WAL lock (e.g. a lingering child process from
-    parallel execution).  Retries with exponential backoff, then enters
-    degraded mode to skip all future writes instantly.
+    parallel execution).  Retries with exponential backoff + jitter,
+    then raises the last error.
 
     The first argument (``self``) must be a :class:`WorkspaceStore`.
     """
@@ -119,8 +126,6 @@ def _retry_on_lock(func: Callable[..., Any]) -> Callable[..., Any]:
 
     @functools.wraps(func)
     def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
-        if self._degraded:
-            return None
         last_error: Exception = Exception("DuckDB retry exhausted")
         for attempt in range(_MAX_RETRIES + 1):
             try:
@@ -128,17 +133,15 @@ def _retry_on_lock(func: Callable[..., Any]) -> Callable[..., Any]:
             except duckdb.TransactionException as e:
                 last_error = e
                 if attempt < _MAX_RETRIES:
-                    delay = _BASE_DELAY * (2 ** attempt)
+                    delay = _jittered_delay(_BASE_DELAY, attempt)
                     logger.warning(
-                        "DuckDB lock conflict in %s (attempt %d/%d), retrying in %.1fs: %s",
+                        "DuckDB lock conflict in %s (attempt %d/%d), retrying in %.2fs: %s",
                         func.__name__, attempt + 1, _MAX_RETRIES, delay, e,
                     )
                     time.sleep(delay)
-        self._degraded = True
-        logger.warning(
-            "DuckDB store entering degraded mode after persistent lock failure in %s. "
-            "All subsequent store writes will be skipped. Predictions are still tracked in-memory.",
-            func.__name__,
+        logger.error(
+            "DuckDB lock conflict persisted after %d retries in %s",
+            _MAX_RETRIES, func.__name__,
         )
         raise last_error
     return wrapper
@@ -241,12 +244,11 @@ class WorkspaceStore:
         self._workspace_path = Path(workspace_path)
         self._workspace_path.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._degraded = False  # Set to True on persistent DuckDB lock failure
 
         db_path = self._workspace_path / "store.duckdb"
         self._conn: duckdb.DuckDBPyConnection | None = duckdb.connect(str(db_path))
 
-        # Enable WAL mode for concurrent read/write
+        # Disable progress bar for non-interactive usage
         self._conn.execute("PRAGMA enable_progress_bar=false")
 
         # DuckDB connection tuning
@@ -268,11 +270,6 @@ class WorkspaceStore:
     def workspace_path(self) -> Path:
         """Root directory of the workspace."""
         return self._workspace_path
-
-    @property
-    def degraded(self) -> bool:
-        """Whether the store is in degraded mode (writes skipped)."""
-        return self._degraded
 
     @property
     def array_store(self) -> ArrayStore:
@@ -299,17 +296,15 @@ class WorkspaceStore:
     ) -> None:
         """Execute a write statement with retry on transient DuckDB lock errors.
 
-        If all retries fail, the store enters degraded mode so that
-        subsequent writes are skipped instantly.
+        Raises the last ``TransactionException`` after all retries are
+        exhausted.
 
         Args:
             sql: SQL statement to execute.
             params: Query parameters.
             max_retries: Maximum number of retry attempts.
-            base_delay: Initial delay in seconds (doubles each retry).
+            base_delay: Initial delay in seconds (doubles each retry with jitter).
         """
-        if self._degraded:
-            return
         with self._lock:
             conn = self._ensure_open()
             last_error: Exception = Exception("DuckDB retry exhausted")
@@ -320,17 +315,12 @@ class WorkspaceStore:
                 except duckdb.TransactionException as e:
                     last_error = e
                     if attempt < max_retries:
-                        delay = base_delay * (2 ** attempt)
+                        delay = _jittered_delay(base_delay, attempt)
                         logger.warning(
-                            "DuckDB lock conflict (attempt %d/%d), retrying in %.1fs: %s",
+                            "DuckDB lock conflict (attempt %d/%d), retrying in %.2fs: %s",
                             attempt + 1, max_retries, delay, e,
                         )
                         time.sleep(delay)
-            self._degraded = True
-            logger.warning(
-                "DuckDB store entering degraded mode after persistent lock failure. "
-                "All subsequent store writes will be skipped. Predictions are still tracked in-memory.",
-            )
             raise last_error
 
     def _safe_execute(self, sql: str, params: list[object] | None = None) -> None:
@@ -339,8 +329,6 @@ class WorkspaceStore:
         Used for non-critical operations (logging, error recording) that
         must never crash the pipeline.
         """
-        if self._degraded:
-            return
         with contextlib.suppress(duckdb.TransactionException):
             self._execute_with_retry(sql, params)
 
@@ -367,19 +355,53 @@ class WorkspaceStore:
                 return pl.DataFrame()
 
     # ------------------------------------------------------------------
-    # Context manager
+    # Context manager / lifecycle
     # ------------------------------------------------------------------
+
+    @contextlib.contextmanager
+    def transaction(self) -> Generator[None, None, None]:
+        """Execute a block inside a single DuckDB transaction.
+
+        Batches multiple writes into one ``BEGIN … COMMIT`` to reduce
+        lock-contention windows.  Rolls back on any exception.
+        """
+        with self._lock:
+            conn = self._ensure_open()
+            conn.execute("BEGIN TRANSACTION")
+            try:
+                yield
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
 
     def close(self) -> None:
         """Close the database connection and release resources.
 
-        Safe to call multiple times.  After closing, all other methods
-        will raise ``RuntimeError``.
+        Flushes the WAL via ``CHECKPOINT`` before closing so that no
+        orphaned ``.wal`` file remains on disk.  Safe to call multiple
+        times.  After closing, all other methods will raise
+        ``RuntimeError``.
         """
         with self._lock:
             if self._conn is not None:
+                with contextlib.suppress(Exception):
+                    self._conn.execute("CHECKPOINT")
                 self._conn.close()
                 self._conn = None
+
+    def __del__(self) -> None:
+        """Safety net: close connection if caller forgot to call :meth:`close`."""
+        with contextlib.suppress(Exception):
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
+
+    def __enter__(self) -> WorkspaceStore:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
     # =====================================================================
     # Run lifecycle
@@ -520,8 +542,6 @@ class WorkspaceStore:
             pipeline_id: Identifier returned by :meth:`begin_pipeline`.
             error: Human-readable error description.
         """
-        if self._degraded:
-            return
         try:
             with self._lock:
                 self._ensure_open()

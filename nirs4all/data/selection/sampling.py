@@ -63,13 +63,13 @@ def stratified_sample(
     max_bins = min(n_bins, n_unique, n_select // 2)
 
     if max_bins < 2:
-        return rng.choice(n_total, size=n_select, replace=False)
+        return np.asarray(rng.choice(n_total, size=n_select, replace=False))
 
     y_binned = np.digitize(y, np.percentile(y, np.linspace(0, 100, max_bins + 1)[1:-1]))
     bin_counts = np.bincount(y_binned)
 
     if np.any(bin_counts < 2):
-        return rng.choice(n_total, size=n_select, replace=False)
+        return np.asarray(rng.choice(n_total, size=n_select, replace=False))
 
     try:
         sss = StratifiedShuffleSplit(
@@ -78,9 +78,9 @@ def stratified_sample(
             random_state=seed,
         )
         _, indices = next(sss.split(X, y_binned))
-        return indices
+        return np.asarray(indices)
     except ValueError:
-        return rng.choice(n_total, size=n_select, replace=False)
+        return np.asarray(rng.choice(n_total, size=n_select, replace=False))
 
 
 def kmeans_sample(

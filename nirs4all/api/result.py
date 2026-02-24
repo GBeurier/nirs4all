@@ -17,6 +17,7 @@ Phase 1 Implementation (v0.6.0):
 
 from __future__ import annotations
 
+import contextlib
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -261,6 +262,28 @@ class RunResult:
     _refit_runtime_context: Any = field(default=None, repr=False)
     _refit_artifact_registry: Any = field(default=None, repr=False)
     _refit_executor: Any = field(default=None, repr=False)
+
+    # --- Lifecycle ---
+
+    def close(self) -> None:
+        """Close the underlying WorkspaceStore to release DuckDB resources.
+
+        Safe to call multiple times.  After closing, :meth:`export` with
+        ``chain_id`` will no longer work.
+        """
+        if self._runner is not None:
+            self._runner.close()
+
+    def __enter__(self) -> RunResult:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        """Safety net: close store if caller forgot."""
+        with contextlib.suppress(Exception):
+            self.close()
 
     # --- Primary accessors ---
 
