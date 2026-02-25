@@ -1498,6 +1498,11 @@ class BranchController(OperatorController):
         if isinstance(step, (int, float, bool)):
             return str(step)
 
+        if isinstance(step, list):
+            # Subpipeline (e.g., from _cartesian_ expansion) — join sub-step names
+            names = [n for n in (self._get_single_step_name(s) for s in step) if n]
+            return "_".join(names[:3]) if names else None
+
         if isinstance(step, str):
             return step.split(".")[-1] if "." in step else step
 

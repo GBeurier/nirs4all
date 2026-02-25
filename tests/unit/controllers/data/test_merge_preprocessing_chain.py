@@ -327,8 +327,8 @@ class TestEndToEndBranchMergePreprocessingChain:
 
         # Must NOT be just "Std" — that was the bug
         assert short_str != "Std", (
-            f"Preprocessing string is just 'Std' — issue #24 regression! "
-            f"Expected to contain branch preprocessing chains."
+            "Preprocessing string is just 'Std' — issue #24 regression! "
+            "Expected to contain branch preprocessing chains."
         )
         # Must contain X1 preprocessing elements
         assert "MSC" in short_str

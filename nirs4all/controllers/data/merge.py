@@ -992,6 +992,72 @@ class MergeController(OperatorController):
                 f"Supported: {self.SUPPORTED_KEYWORDS}"
             )
 
+    def _resolve_auto_merge(
+        self,
+        raw_config: Any,
+        context: "ExecutionContext",
+    ) -> Any:
+        """Resolve auto-detect merge syntax to an explicit merge configuration.
+
+        Translates user-friendly shorthand merge values into concrete merge
+        configurations by inspecting the branch context flags set by
+        BranchController.
+
+        Supported auto-detect syntaxes:
+            - ``"auto"``: Explicit auto-detect string
+            - ``True``: Simplest possible merge syntax
+            - ``{"branch": ...}``: Dict with "branch" key and no explicit
+              merge keys (features, predictions, sources, concat)
+
+        Auto-detection mappings based on context.custom:
+            - separation_type == "by_source" -> {"sources": "concat"}
+            - branch_type == "separation" (by_tag/by_metadata/by_filter) -> "concat"
+            - branch_type == "duplication" -> "features"
+
+        Args:
+            raw_config: The raw value from {"merge": raw_config}.
+            context: Pipeline execution context with branch flags.
+
+        Returns:
+            Resolved merge configuration value suitable for MergeConfigParser.parse().
+
+        Raises:
+            ValueError: If auto-detection is requested but no branch context exists.
+        """
+        is_auto = (
+            raw_config is True
+            or raw_config == "auto"
+            or (isinstance(raw_config, dict) and "branch" in raw_config
+                and not any(k in raw_config for k in ("features", "predictions", "sources", "concat")))
+        )
+
+        if not is_auto:
+            return raw_config
+
+        in_branch_mode = context.custom.get("in_branch_mode", False)
+        if not in_branch_mode:
+            raise ValueError(
+                "Auto-detect merge (\"auto\", True, or {\"branch\": ...}) requires an active "
+                "branch context. Use merge only after a branch step."
+            )
+
+        in_source_branch_mode = context.custom.get("in_source_branch_mode", False)
+        separation_type = context.custom.get("separation_type")
+        branch_type = context.custom.get("branch_type", "duplication")
+
+        resolved: str | dict[str, str]
+        if in_source_branch_mode or separation_type == "by_source":
+            resolved = {"sources": "concat"}
+            logger.info("Auto-detected merge strategy: {\"sources\": \"concat\"} (source branch)")
+        elif branch_type == "separation":
+            resolved = "concat"
+            logger.info(f"Auto-detected merge strategy: \"concat\" (separation branch, {separation_type})")
+        else:
+            resolved = "features"
+            logger.info("Auto-detected merge strategy: \"features\" (duplication branch)")
+
+        return resolved
+
     def _execute_branch_merge(
         self,
         step_info: "ParsedStep",
@@ -1007,11 +1073,9 @@ class MergeController(OperatorController):
 
         Combines outputs from multiple branches and exits branch mode.
 
-        Phase 8 Enhancement:
-        In prediction mode, if branch_contexts are not available (because branches
-        were already processed), we reconstruct the merge from loaded metadata.
-        The merge step doesn't persist binary artifacts - it combines features/predictions
-        that were already transformed by upstream branch steps.
+        Supports auto-detection via ``"auto"``, ``True``, or ``{"branch": ...}``
+        syntaxes which resolve to the appropriate strategy based on the active
+        branch context (see ``_resolve_auto_merge``).
 
         Args:
             step_info: Parsed step containing merge configuration
@@ -1026,8 +1090,9 @@ class MergeController(OperatorController):
         Returns:
             Tuple of (updated_context, StepOutput)
         """
-        # Parse configuration
+        # Parse configuration (with auto-detection for "auto", True, {"branch": ...})
         raw_config = step_info.original_step.get("merge")
+        raw_config = self._resolve_auto_merge(raw_config, context)
         config = MergeConfigParser.parse(raw_config)
 
         # Phase 5: Handle source merge within merge keyword
