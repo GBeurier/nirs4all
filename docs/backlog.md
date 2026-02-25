@@ -12,6 +12,10 @@ Effort scale:
 - `1`: low
 - `5`: high
 
+## BUGS
+- pypi page has no images
+
+
 ## Milestones
 
 - `v0.8.0`: webapp `0.1.0` alignment and UI-compliant baseline.
