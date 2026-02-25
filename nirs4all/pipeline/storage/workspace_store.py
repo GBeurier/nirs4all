@@ -20,6 +20,7 @@ Workspace layout after migration::
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import hashlib
 import inspect
@@ -263,6 +264,11 @@ class WorkspaceStore:
         self._artifacts_dir = self._workspace_path / "artifacts"
         self._artifacts_dir.mkdir(parents=True, exist_ok=True)
 
+        # Register atexit so the connection is closed before interpreter shutdown.
+        # atexit handlers run while all C extensions (including DuckDB) are still live,
+        # avoiding the SIGSEGV that occurs when DuckDB's tp_dealloc fires during teardown.
+        atexit.register(self.close)
+
         # Parquet-backed array storage
         self._array_store = ArrayStore(self._workspace_path)
 
@@ -392,6 +398,9 @@ class WorkspaceStore:
 
     def __del__(self) -> None:
         """Safety net: close connection if caller forgot to call :meth:`close`."""
+        import sys
+        if sys.is_finalizing():
+            return  # DuckDB C library is already being torn down; calling close() here segfaults.
         with contextlib.suppress(Exception):
             if self._conn is not None:
                 self._conn.close()
