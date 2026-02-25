@@ -82,8 +82,11 @@ pip install nirs4all[all-gpu]
 
 ### Conda
 
+**Coming soon!** We're working with conda-forge to make NIRS4ALL available through conda. In the meantime, use `pip install nirs4all` or docker.
+
 ```bash
-conda install -c conda-forge nirs4all
+# Available soon:
+# conda install -c conda-forge nirs4all
 ```
 
 ### Docker
