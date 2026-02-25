@@ -193,5 +193,6 @@ def retrain(
     return RunResult(
         predictions=predictions,
         per_dataset=per_dataset,
-        _runner=runner
+        _runner=runner,
+        _owns_runner=session is None,
     )
