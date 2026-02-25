@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.2] - DuckDB Stability, Branch/Merge Fixes & Parallel Tests - 2026-02-25
+
+### 🐛 Bug Fixes
+
+#### DuckDB / Storage Stability
+- **`WorkspaceStore` atexit handler**: Registers an `atexit` callback to close the DuckDB connection on interpreter shutdown, preventing segfaults when the process exits without an explicit `close()` call
+- **`_jittered_delay` return type**: Fixed return type to always be `float`, removing potential `int` return that caused type errors in retry logic
+
+#### Branch / Merge Pipeline Correctness
+- **Preserve preprocessing chains after merge** (closes #24): `MergeController.add_merged_features()` was calling `reset_features()` which wiped per-branch preprocessing history from the run summary `Preprocessing` column. Fix builds composite processing names from branch contexts before the reset; added 3 helper methods to `MergeController`, fixed 6 call sites, and removed dead code in `dataset.py`
+- **Runner ownership in `RunResult`**: `RunResult` now tracks `WorkspaceStore` ownership so it is closed deterministically when the result object is garbage-collected or used in a `with` block, preventing premature closure when the store is shared across `retrain()` and `session` workflows
+
+### 🧪 Tests
+
+#### Merge Auto-Detection
+- **Integration tests** (`test_merge_auto_detect.py`): Validate auto-detect merge strategy selection for duplication and separation branches across common configurations
+- **Unit tests** (`test_merge_auto_detect.py`): Cover `MergeController` auto-detect logic for all merge modes
+
+#### Separation Branch Generators
+- **Integration tests** (`test_separation_branch_generators.py`): Extensive coverage for generator keywords (`_or_`, `_range_`, `_grid_`, etc.) inside separation branches, including parallelisation scenarios
+
+#### Preprocessing Chain Regression
+- **Unit tests** (`test_merge_preprocessing_chain.py`): 13 regression tests ensuring per-branch preprocessing chains survive merge operations
+
+#### Pipeline Config Expansion
+- **Unit tests** (`test_pipeline_config_separation_expansion.py`): Verify correct generator expansion for separation branch configs
+- **Unit tests** (`test_pipeline_config_separation_gen_keys.py`): Confirm accurate detection of generator usage in separation branches
+
+### 🔧 Improvements
+
+#### Pre-publish Script
+- **Parallel example categories** (`pre-publish.sh`): Example categories now run in parallel with per-category log files, reducing total pre-publish validation time
+
+---
+
 ## [0.8.1] - DuckDB Resilience, PCA Projections & Sampling - 2026-02-25
 
 ### ✨ New Features

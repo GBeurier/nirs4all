@@ -1,5 +1,5 @@
 {% set name = "nirs4all" %}
-{% set version = "0.8.1" %}
+{% set version = "0.8.2" %}
 {% set python_min = "3.11" %}
 
 package:
