@@ -14,6 +14,10 @@ from .generator import ALL_KEYWORDS, count_combinations, expand_spec, expand_spe
 
 logger = logging.getLogger(__name__)
 
+# Separation branch keywords — generators inside these must be expanded at
+# PipelineConfigs level (top-level expansion), not at BranchController runtime.
+_SEPARATION_BRANCH_KEYS = frozenset({"by_tag", "by_metadata", "by_filter", "by_source"})
+
 class PipelineConfigs:
     """
     Class to hold the configuration for a pipeline.
@@ -103,21 +107,32 @@ class PipelineConfigs:
 
         Args:
             obj: Configuration object to check
-            skip_branch: If True, skip generator detection inside 'branch' keys
-                         (these are handled by BranchController at runtime)
+            skip_branch: If True, skip generator detection inside duplication
+                         branch content (handled by BranchController at runtime).
+                         Separation branches (by_source, by_tag, etc.) are always
+                         checked so their generators get expanded at this level.
 
         Returns:
             True if generator keys are found at the pipeline level
         """
         if isinstance(obj, dict):
-            # Skip content inside 'branch' key - BranchController handles those
             if skip_branch and "branch" in obj:
-                # Check other keys but skip branch content
-                return any(
-                    PipelineConfigs._has_gen_keys(v, skip_branch)
-                    for k, v in obj.items()
-                    if k != "branch"
+                branch_val = obj["branch"]
+                # Separation branches: recurse into content to detect generators
+                # (they must be expanded here, not by BranchController).
+                # Duplication branches: skip content (BranchController handles them).
+                is_separation = (
+                    isinstance(branch_val, dict)
+                    and bool(_SEPARATION_BRANCH_KEYS & set(branch_val.keys()))
                 )
+                if not is_separation:
+                    # Duplication branch — skip branch content (original behavior)
+                    return any(
+                        PipelineConfigs._has_gen_keys(v, skip_branch)
+                        for k, v in obj.items()
+                        if k != "branch"
+                    )
+                # Separation branch — fall through to check ALL keys
 
             if any(k in obj for k in ALL_KEYWORDS):
                 return True
