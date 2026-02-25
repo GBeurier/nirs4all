@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.1] - DuckDB Resilience, PCA Projections & Sampling - 2026-02-25
+
+### ✨ New Features
+
+#### PCA Projection Utility
+- **`nirs4all.analysis.projections`**: New PCA projection module for quick dataset visualization and dimensionality analysis
+
+#### Sampling Functions
+- **`nirs4all.data.selection.sampling`**: New sampling utilities for dataset subsampling and selection strategies
+
+#### AOM-PLS Benchmarking Framework
+- **`bench/AOM/`**: Next-generation benchmarking framework for AOM-PLS models including DARTS-PLS, MoE-PLS, zero-shot router, and enhanced AOM variants
+
+### 🔧 Improvements
+
+#### DuckDB Concurrency & Crash Recovery
+- **Context manager support**: `WorkspaceStore` now supports `with` statement for deterministic resource management
+- **Safety net in `__del__`**: Ensures connections are closed if not explicitly done by the user
+- **Per-operation retry with jitter**: Replaced irreversible degraded mode with per-operation retries and jitter to avoid thundering herd
+- **Transaction batching**: New transaction management to batch multiple writes, reducing lock contention
+- **Orphaned file cleanup**: `ArrayStore` cleans up orphaned temporary files during initialization
+- **Explicit connection closing**: CLI commands and `api/run.py` now close `WorkspaceStore` after use
+
+#### CI/CD
+- **Version consistency check**: CI workflow verifies version consistency across `pyproject.toml`, `__init__.py`, and `conda-forge/meta.yaml`
+- **Conda-forge update notification**: CI alerts when conda-forge recipe needs updating
+
+### 🧪 Testing
+
+- **PCA projection tests**: Unit tests for the new projections module
+- **Sampling function tests**: Unit tests for the new sampling utilities
+
+---
+
 ## [0.8.0] - AOM*-PLS, Parquet Storage & Scoring Overhaul - 2026-02-20
 
 ### ✨ New Features
