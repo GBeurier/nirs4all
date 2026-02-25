@@ -499,5 +499,6 @@ def run(
         predictions=all_predictions,
         per_dataset=all_per_dataset,
         _runner=runner,
+        _owns_runner=session is None,
         _per_model_selections=per_model_selections,
     )

@@ -252,6 +252,7 @@ class RunResult:
     predictions: Predictions
     per_dataset: dict[str, Any]
     _runner: PipelineRunner | None = field(default=None, repr=False)
+    _owns_runner: bool = field(default=True, repr=False)
 
     # Lazy refit dependencies (set by the orchestrator when per-model
     # selections are available so that ``models`` returns lazy results)
@@ -270,8 +271,11 @@ class RunResult:
 
         Safe to call multiple times.  After closing, :meth:`export` with
         ``chain_id`` will no longer work.
+
+        Only closes the runner when this result owns it (i.e. created
+        without a session).  Session-owned runners are closed by the session.
         """
-        if self._runner is not None:
+        if self._runner is not None and self._owns_runner:
             self._runner.close()
 
     def __enter__(self) -> RunResult:

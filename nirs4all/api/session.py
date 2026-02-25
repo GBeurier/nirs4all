@@ -207,7 +207,8 @@ class Session:
             self._last_result = RunResult(
                 predictions=predictions,
                 per_dataset=per_dataset,
-                _runner=self.runner
+                _runner=self.runner,
+                _owns_runner=False,
             )
             self._status = "trained"
 
@@ -343,7 +344,8 @@ class Session:
         self._last_result = RunResult(
             predictions=predictions,
             per_dataset=per_dataset,
-            _runner=self.runner
+            _runner=self.runner,
+            _owns_runner=False,
         )
 
         # Record in history
