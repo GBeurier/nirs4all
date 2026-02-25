@@ -815,7 +815,7 @@ Created: {created_at}
 import base64
 import io
 import sys
-from typing import Any, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -831,9 +831,9 @@ except ImportError:
 # Embedded Artifacts (base64 encoded)
 # =============================================================================
 
-ARTIFACTS = {artifacts_dict_str}
+ARTIFACTS: Dict[str, str] = {artifacts_dict_str}
 
-STEP_INFO = {step_info_str}
+STEP_INFO: Dict[int, Dict[str, str]] = {step_info_str}
 
 FOLD_WEIGHTS: Dict[int, float] = {fold_weights}
 

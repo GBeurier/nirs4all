@@ -109,7 +109,7 @@ _BASE_DELAY = 0.15
 
 def _jittered_delay(base: float, attempt: int) -> float:
     """Exponential backoff with random jitter to avoid thundering herd."""
-    return base * (2 ** attempt) * (0.5 + random.random() * 0.5)
+    return float(base * (2 ** attempt) * (0.5 + random.random() * 0.5))
 
 
 def _retry_on_lock(func: Callable[..., Any]) -> Callable[..., Any]:
