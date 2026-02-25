@@ -83,6 +83,7 @@ Priority: 5 (same as BranchController)
 """
 
 import copy
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional, Union
 
@@ -1271,10 +1272,11 @@ class MergeController(OperatorController):
                 merge_info["merged_shape"] = merged_features.shape
                 logger.info(f"  Final merged shape: {merged_features.shape}")
 
-                # Store merged features in dataset
-                processing_name = "merged"
-                if config.source_names and len(config.source_names) > 0:
-                    processing_name = config.source_names[0]
+                # Build composite processing name from branch chains
+                feature_branches = config.get_feature_branches(n_branches)
+                processing_name = self._build_merged_processing_name(
+                    branch_contexts, feature_branches
+                )
 
                 dataset.add_merged_features(
                     features=merged_features,
@@ -1469,9 +1471,11 @@ class MergeController(OperatorController):
             merged_features = np.concatenate(merged_parts, axis=1)
             merge_info["merged_shape"] = merged_features.shape
 
+            processing_name = self._build_processing_name_from_dataset(dataset)
+
             dataset.add_merged_features(
                 features=merged_features,
-                processing_name="merged",
+                processing_name=processing_name,
                 source=0
             )
             logger.info(f"  Concatenated to shape {merged_features.shape}")
@@ -1627,9 +1631,9 @@ class MergeController(OperatorController):
         logger.info(f"  Final merged shape: {final_merged.shape}")
 
         # Store merged features in dataset
-        processing_name = "merged"
-        if config.source_names and len(config.source_names) > 0:
-            processing_name = config.source_names[0]
+        processing_name = self._build_merged_processing_name(
+            branch_contexts, list(range(len(branch_contexts)))
+        )
 
         dataset.add_merged_features(
             features=final_merged,
@@ -1744,9 +1748,9 @@ class MergeController(OperatorController):
                 merge_info.update(feature_info)
 
                 # Store merged features
-                processing_name = "merged"
-                if config.source_names and len(config.source_names) > 0:
-                    processing_name = config.source_names[0]
+                processing_name = self._build_merged_processing_name(
+                    branch_contexts, list(range(len(branch_contexts)))
+                )
 
                 dataset.add_merged_features(
                     features=merged_features,
@@ -1780,7 +1784,7 @@ class MergeController(OperatorController):
                         merged_features = np.concatenate([merged_features, predictions_array], axis=1)
                         dataset.add_merged_features(
                             features=merged_features,
-                            processing_name="merged",
+                            processing_name=processing_name,
                             source=0
                         )
                     else:
@@ -2982,6 +2986,107 @@ class MergeController(OperatorController):
         concat_axis = 1 if layout == "2d" else 2
         return np.concatenate(source_features, axis=concat_axis)
 
+    @staticmethod
+    def _shorten_processing_chain(processing_id: str) -> str:
+        """Shorten a single processing ID string to a compact display form.
+
+        Applies the same abbreviation logic as SpectroDataset.short_preprocessings_str().
+
+        Args:
+            processing_id: Raw processing ID (e.g., "raw_StandardNormalVariate_1_SavitzkyGolay_2")
+
+        Returns:
+            Shortened form (e.g., "SNV>SG")
+        """
+        replacements = [
+            ("raw_", ""),
+            ("SavitzkyGolay", "SG"),
+            ("MultiplicativeScatterCorrection", "MSC"),
+            ("StandardNormalVariate", "SNV"),
+            ("FirstDerivative", "1stDer"),
+            ("SecondDerivative", "2ndDer"),
+            ("Detrend", "Detr"),
+            ("Gaussian", "Gauss"),
+            ("Haar", "Haar"),
+            ("LogTransform", "Log"),
+            ("MinMaxScaler", "MinMax"),
+            ("RobustScaler", "Rbt"),
+            ("StandardScaler", "Std"),
+            ("QuantileTransformer", "Quant"),
+            ("PowerTransformer", "Pow"),
+        ]
+        result = processing_id
+        for long, short in replacements:
+            result = result.replace(long, short)
+        result = re.sub(r'_\d+_', '>', result)
+        result = re.sub(r'_\d+', '', result)
+        return result
+
+    def _build_merged_processing_name(
+        self,
+        branch_contexts: list[dict[str, Any]],
+        branch_indices: list[int],
+    ) -> str:
+        """Build a composite processing name from branch preprocessing chains.
+
+        Extracts per-branch processing chains from branch contexts, shortens
+        them, and joins with '+' to produce a descriptive merged processing name.
+
+        Args:
+            branch_contexts: List of branch context dictionaries.
+            branch_indices: List of branch indices to include.
+
+        Returns:
+            Composite processing name (e.g., "SNV>SG+Std"), or "merged" as fallback.
+        """
+        if not branch_contexts or not branch_indices:
+            return "merged"
+
+        parts = []
+        for idx in branch_indices:
+            branch_ctx = self._get_branch_context(branch_contexts, idx)
+            if branch_ctx is None:
+                continue
+
+            ctx = branch_ctx.get("context")
+            if ctx is None or not hasattr(ctx, "selector"):
+                continue
+
+            processing = getattr(ctx.selector, "processing", None)
+            if not processing:
+                continue
+
+            # processing is list[list[str]], take the last processing ID per source
+            # (the most recent / fully-chained processing)
+            for src_processings in processing:
+                if src_processings:
+                    chain = self._shorten_processing_chain(src_processings[-1])
+                    if chain and chain != "raw":
+                        parts.append(chain)
+
+        return "+".join(parts) if parts else "merged"
+
+    def _build_processing_name_from_dataset(self, dataset: "SpectroDataset") -> str:
+        """Build a composite processing name from the dataset's current processing IDs.
+
+        Used in predict-mode merges where branch contexts are not available
+        but the dataset still has per-source processing info.
+
+        Args:
+            dataset: Dataset with current processing state.
+
+        Returns:
+            Composite processing name or "merged" as fallback.
+        """
+        parts = []
+        for src_idx in range(dataset.features_sources()):
+            proc_ids = dataset.features_processings(src_idx)
+            if proc_ids:
+                chain = self._shorten_processing_chain(proc_ids[-1])
+                if chain and chain != "raw":
+                    parts.append(chain)
+        return "+".join(parts) if parts else "merged"
+
     def _get_branch_context(
         self,
         branch_contexts: list[dict[str, Any]],
@@ -3886,9 +3991,7 @@ class MergeController(OperatorController):
             logger.info(f"  Final merged shape (predict): {merged_features.shape}")
 
             # Store in dataset
-            processing_name = "merged"
-            if config.source_names and len(config.source_names) > 0:
-                processing_name = config.source_names[0]
+            processing_name = self._build_processing_name_from_dataset(dataset)
 
             dataset.add_merged_features(
                 features=merged_features,

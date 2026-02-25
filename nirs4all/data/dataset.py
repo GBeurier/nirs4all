@@ -1434,8 +1434,6 @@ class SpectroDataset:
 
     def short_preprocessings_str(self) -> str:
         """Get shortened processing string for display."""
-        processings_list = self._features.sources[0].processing_ids
-        processings_list.pop(0)
         processings = "|".join(self.features_processings(0))
         replacements = [
             ("raw_", ""),
