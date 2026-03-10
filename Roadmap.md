@@ -1,11 +1,14 @@
 ## ROADMAP
 
-> [MB-PLS] en multi-source, en multi pp, etc.
-> [Branching] Preprocessing to source ou preprocessings to branch cf. MB-PLS
+> [TaskType] Ensure tasktype correctly detected or customized
 
 > [Predictions] Simplify and verify save
 
-> [Loader] read scientific expr in csv
+> [MB-PLS] en multi-source, en multi pp, etc.
+
+> [Branching] Preprocessing to source ou preprocessings to branch cf. MB-PLS
+
+
 
 
 **RELEASE** (webapp 0.1.0) - 0.8.0 UI compliant
@@ -19,6 +22,8 @@
 > [Optuma] Modularize god class
 
 > [multivariate]
+
+> [run] Pause, Resume, Restart, propose checkpoint on Ctrl+C and nirs4all.resume() takes the last checkpoint
 
 > [Transfer] Partial layers retraining or partial retrain on new data.
 
