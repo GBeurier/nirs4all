@@ -205,7 +205,7 @@ class FolderParser(BaseParser):
         warnings = []
 
         # Get all files in folder
-        all_files = list(folder.glob("*"))
+        all_files = sorted(folder.glob("*"), key=lambda p: p.name)
 
         # Match files to patterns
         for key, patterns in FILE_PATTERNS.items():
