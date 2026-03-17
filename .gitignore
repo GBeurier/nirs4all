@@ -152,3 +152,4 @@ predict/
 .github/copilot-instructions.md
 
 bench/AOM/workspace/
+coverage.xml

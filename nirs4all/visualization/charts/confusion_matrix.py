@@ -141,6 +141,10 @@ class ConfusionMatrixChart(BaseChart):
                 **ds_filters
             )
 
+            # Filter out regression models — confusion matrices are classification-only
+            if top_preds:
+                top_preds = [p for p in top_preds if 'classification' in str(p.get('task_type', '')).lower()]
+
             if not top_preds:
                 # Create empty figure for this dataset
                 fig = self._create_empty_figure(
@@ -256,7 +260,7 @@ class ConfusionMatrixChart(BaseChart):
 
             # Create overall title for this dataset
             rank_metric_abbrev = abbreviate_metric(rank_metric)
-            overall_title = f'Top {k} Models - {rank_metric_abbrev} [{rank_partition}→{display_partition}]'
+            overall_title = f'{ds} — Top {k} Models - {rank_metric_abbrev} [{rank_partition}→{display_partition}]'
             if aggregate:
                 overall_title += f' (agg: {aggregate})'
             fig.suptitle(overall_title, fontsize=self.config.title_fontsize, fontweight='bold')
