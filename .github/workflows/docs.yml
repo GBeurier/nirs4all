@@ -59,7 +59,7 @@ jobs:
           fi
 
       - name: Upload documentation artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: documentation-html
           path: docs/_build/html/
@@ -108,7 +108,7 @@ jobs:
           fi
 
       - name: Upload linkcheck report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: linkcheck-report
           path: docs/_build/linkcheck/
