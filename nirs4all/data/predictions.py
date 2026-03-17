@@ -1913,6 +1913,18 @@ class Predictions:
                 except (json.JSONDecodeError, TypeError):
                     scores_dict = {}
 
+            # When the entry's partition differs from display_partition and we
+            # need to fall back to array computation, fetch the correct
+            # partition's arrays so we don't compute metrics on the wrong data.
+            entry_partition = row.get("partition", "")
+            display_y_true = y_true
+            display_y_pred = y_pred
+            if entry_partition != display_partition and not was_aggregated:
+                display_part = self.get_entry_partitions(row).get(display_partition)
+                if display_part is not None:
+                    display_y_true = display_part.get("y_true")
+                    display_y_pred = display_part.get("y_pred")
+
             for m in display_metrics:
                 # If aggregated, always recalculate
                 if was_aggregated and y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0 and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
@@ -1923,10 +1935,10 @@ class Predictions:
                 # Try pre-computed scores
                 elif isinstance(scores_dict, dict) and display_partition in scores_dict and m in scores_dict[display_partition]:
                     enriched[m] = scores_dict[display_partition][m]
-                # Compute from arrays
-                elif y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0 and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
+                # Compute from arrays (use display_partition arrays)
+                elif display_y_true is not None and isinstance(display_y_true, np.ndarray) and display_y_true.size > 0 and display_y_pred is not None and isinstance(display_y_pred, np.ndarray) and display_y_pred.size > 0:
                     try:
-                        enriched[m] = evaluator.eval(y_true, y_pred, m)
+                        enriched[m] = evaluator.eval(display_y_true, display_y_pred, m)
                     except Exception:
                         enriched[m] = None
                 else:
