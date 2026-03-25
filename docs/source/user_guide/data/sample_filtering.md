@@ -13,9 +13,8 @@ Sample filtering in nirs4all provides a non-destructive mechanism for identifyin
 ### Basic Usage in Pipeline
 
 ```python
+import nirs4all
 from nirs4all.operators.filters import YOutlierFilter
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.data import DatasetConfigs
 from sklearn.model_selection import KFold
 from sklearn.cross_decomposition import PLSRegression
 
@@ -33,9 +32,7 @@ pipeline = [
     {"model": PLSRegression(n_components=5)},
 ]
 
-config = PipelineConfigs(pipeline, name="filtered_pipeline")
-runner = PipelineRunner()
-runner.run(config, DatasetConfigs("my_dataset"))
+result = nirs4all.run(pipeline=pipeline, dataset="my_dataset", name="filtered_pipeline")
 ```
 
 ### Programmatic Usage

@@ -23,12 +23,8 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import MinMaxScaler
 
-from nirs4all.data import DatasetConfigs
-from nirs4all.pipeline import PipelineRunner, PipelineConfigs
+import nirs4all
 from nirs4all.operators.models import MetaModel
-
-# Load dataset
-dataset = DatasetConfigs("path/to/data/")
 
 # Pipeline with base models and meta-learner
 pipeline = [
@@ -39,8 +35,7 @@ pipeline = [
     {"model": MetaModel(model=Ridge(alpha=1.0))},       # Meta-learner
 ]
 
-runner = PipelineRunner()
-predictions, _ = runner.run(PipelineConfigs(pipeline, "Stacking"), dataset)
+result = nirs4all.run(pipeline=pipeline, dataset="path/to/data/", name="Stacking")
 ```
 
 ## Core Concepts
@@ -313,26 +308,23 @@ Solution: Ensure cross-validation splitter is before base models
 
 ### Debugging Tips
 
-1. **Check predictions store**:
+1. **Check result properties**:
    ```python
-   predictions = runner.predictions
-   for pred in predictions.filter(partition="val"):
-       print(f"{pred['model_name']}: fold={pred.get('fold_id')}")
+   result = nirs4all.run(pipeline=pipeline, dataset=dataset, name="Stacking")
+   print(f"Best RMSE: {result.best_rmse:.4f}")
+   print(f"Best R²: {result.best_r2:.4f}")
    ```
 
-2. **Verify source models exist**:
+2. **Inspect top models**:
    ```python
    # After run
-   all_models = predictions.filter(partition="val")
-   model_names = set(p['model_name'] for p in all_models)
-   print(f"Available models: {model_names}")
+   for entry in result.top(5):
+       print(f"{entry.name}: RMSE={entry.rmse:.4f}")
    ```
 
-3. **Check coverage**:
+3. **Export best model**:
    ```python
-   meta_preds = predictions.filter(model_name_contains="MetaModel")
-   if meta_preds:
-       print(f"Coverage: {meta_preds[0].get('coverage_ratio', 'N/A')}")
+   result.export("stacking_model.n4a")
    ```
 
 ## API Reference

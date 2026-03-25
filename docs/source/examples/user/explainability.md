@@ -26,7 +26,7 @@ This section covers model interpretation and explainability using SHAP (SHapley 
 ### What You'll Learn
 
 - Why SHAP for model interpretation
-- Running SHAP analysis with `runner.explain()`
+- Running SHAP analysis with `nirs4all.explain()`
 - Spectral, waterfall, and beeswarm visualizations
 - Binning and aggregation for spectral data
 
@@ -53,15 +53,18 @@ SHAP provides model-agnostic explanations:
 ### Running SHAP Analysis
 
 ```python
-from nirs4all.pipeline import PipelineRunner, PipelineConfigs
-from nirs4all.data import DatasetConfigs
+import nirs4all
 
 # Train a model
-runner = PipelineRunner(save_artifacts=True, verbose=0)
-predictions, _ = runner.run(pipeline_config, dataset_config)
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset=dataset_config,
+    save_artifacts=True,
+    verbose=0,
+)
 
 # Get best model
-best = predictions.top(n=1, rank_metric='rmse')[0]
+best = result.top(n=1, rank_metric='rmse')[0]
 
 # Run SHAP analysis
 shap_params = {
@@ -70,11 +73,11 @@ shap_params = {
     'visualizations': ['spectral', 'waterfall']
 }
 
-shap_results, output_dir = runner.explain(
+shap_results = nirs4all.explain(
     best,
     dataset_config,
     shap_params=shap_params,
-    plots_visible=True
+    plots_visible=True,
 )
 ```
 
@@ -310,8 +313,8 @@ Check if SHAP values make chemical sense:
 ```python
 # Compare SHAP patterns across different models
 for model_name in ['PLS', 'RF', 'Ridge']:
-    model_pred = predictions.filter(model_name=model_name).top(1)[0]
-    shap_results, _ = runner.explain(model_pred, dataset_config, shap_params)
+    model_pred = result.predictions.filter(model_name=model_name).top(1)[0]
+    shap_results = nirs4all.explain(model_pred, dataset_config, shap_params)
     # Compare spectral patterns
 ```
 

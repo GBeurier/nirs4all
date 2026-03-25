@@ -254,12 +254,15 @@ class TestArtifactFlow:
 
     def test_train_creates_store_with_artifacts(self, workspace_path, dataset):
         """Test that training creates store.duckdb and artifacts."""
-        runner = PipelineRunner(
-            workspace_path=workspace_path,
+        import nirs4all
+
+        result = nirs4all.run(
+            pipeline=pipeline,
+            dataset=dataset,
+            workspace=workspace_path,
             save_artifacts=True,
             verbose=0,
         )
-        predictions, _ = runner.run(PipelineConfigs(pipeline), dataset)
 
         assert (workspace_path / "store.duckdb").exists()
         artifacts = list((workspace_path / "artifacts").rglob("*.joblib"))

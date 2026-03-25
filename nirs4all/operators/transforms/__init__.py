@@ -110,6 +110,12 @@ from .scalers import (
     norml,
     spl_norml,
 )
+
+# Common shorthand aliases used throughout docs, examples, and README
+SNV = StandardNormalVariate
+RNV = RobustStandardNormalVariate
+MSC = MultiplicativeScatterCorrection
+EMSC = ExtendedMultiplicativeScatterCorrection
 from .signal import Baseline, Detrend, Gaussian, baseline, detrend, gaussian
 from .signal_conversion import (
     FractionToPercent,
@@ -159,8 +165,12 @@ __all__ = [
     # Sklearn aliases
     "IdentityTransformer",  # sklearn.preprocessing.FunctionTransformer alias
     "StandardNormalVariate",
+    "SNV",
     "LocalStandardNormalVariate",
     "RobustStandardNormalVariate",
+    "RNV",
+    "MSC",
+    "EMSC",
 
     # NIRS transformations
     "SavitzkyGolay",

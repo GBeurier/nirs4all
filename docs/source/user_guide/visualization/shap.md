@@ -168,35 +168,33 @@ Standard SHAP summary plot showing overall feature importance.
 ### Basic Example
 
 ```python
-from nirs4all.pipeline import PipelineRunner
+import nirs4all
 
 # Train model
-runner = PipelineRunner(save_artifacts=True)
-predictions, _ = runner.run(pipeline_config, dataset_config)
-best = predictions.top(n=1, rank_metric='rmse')[0]
+result = nirs4all.run(pipeline=pipeline, dataset="my_data/", verbose=1)
+best = result.best
 
 # Explain with SHAP (default binning)
-explainer = PipelineRunner()
-shap_params = {
-    'n_samples': 200,
-    'visualizations': ['spectral', 'beeswarm', 'waterfall']
-}
-
-results, output_dir = explainer.explain(best, dataset_config, shap_params)
+explanation = nirs4all.explain(
+    model=best,
+    data="my_data/",
+    n_samples=200,
+    visualizations=['spectral', 'beeswarm', 'waterfall'],
+)
 ```
 
 ### Custom Binning (Same for All)
 
 ```python
-shap_params = {
-    'n_samples': 200,
-    'visualizations': ['spectral', 'beeswarm', 'waterfall'],
-    'bin_size': 50,              # Wider bins
-    'bin_stride': 25,            # 50% overlap
-    'bin_aggregation': 'mean_abs'  # Average absolute SHAP values
-}
-
-results, output_dir = explainer.explain(best, dataset_config, shap_params)
+explanation = nirs4all.explain(
+    model=best,
+    data="my_data/",
+    n_samples=200,
+    visualizations=['spectral', 'beeswarm', 'waterfall'],
+    bin_size=50,              # Wider bins
+    bin_stride=25,            # 50% overlap
+    bin_aggregation='mean_abs',  # Average absolute SHAP values
+)
 ```
 
 ### Custom Binning (Per-Visualization)
@@ -224,7 +222,7 @@ shap_params = {
     }
 }
 
-results, output_dir = explainer.explain(best, dataset_config, shap_params)
+explanation = nirs4all.explain(model=best, data="my_data/", **shap_params)
 ```
 
 **Why use different binning per visualization?**
@@ -290,11 +288,13 @@ Look for:
 ### Example Workflow
 
 ```python
+import nirs4all
+
 # Explain top 3 models
-top_models = predictions.top(n=3, rank_metric='rmse', rank_partition='test')
+top_models = result.top(n=3)
 
 for model in top_models:
-    results, output_dir = explainer.explain(model, dataset_config, shap_params)
+    explanation = nirs4all.explain(model=model, data="my_data/", **shap_params)
     # Compare which regions are consistently important
 ```
 
@@ -303,21 +303,32 @@ for model in top_models:
 ### Experiment with Bin Sizes
 
 ```python
+import nirs4all
+
 # Try different bin sizes to find optimal resolution
 for bin_size in [10, 20, 30, 50]:
-    shap_params['bin_size'] = bin_size
-    shap_params['bin_stride'] = bin_size // 2  # Always 50% overlap
-
-    results, _ = explainer.explain(best, dataset_config, shap_params)
+    explanation = nirs4all.explain(
+        model=best,
+        data="my_data/",
+        n_samples=200,
+        bin_size=bin_size,
+        bin_stride=bin_size // 2,  # Always 50% overlap
+    )
     # Compare results
 ```
 
 ### Compare Aggregation Methods
 
 ```python
+import nirs4all
+
 for agg in ['sum', 'sum_abs', 'mean', 'mean_abs']:
-    shap_params['bin_aggregation'] = agg
-    results, _ = explainer.explain(best, dataset_config, shap_params)
+    explanation = nirs4all.explain(
+        model=best,
+        data="my_data/",
+        n_samples=200,
+        bin_aggregation=agg,
+    )
     # See which gives clearest insights
 ```
 
