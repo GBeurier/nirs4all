@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.3] - API Documentation, Bug Fixes & CI Updates - 2026-03-25
+
+### ✨ Improvements
+
+- **Module-level API documentation**: Updated documentation and examples to use the module-level API (`nirs4all.run()`, `nirs4all.predict()`, etc.); added shorthand aliases for transforms
+
+### 🐛 Bug Fixes
+
+- **Repetitions & scores sorting**: Fixed repetition handling and scores sorting issues
+- **Confusion matrix balanced_accuracy**: Resolved balanced_accuracy mismatch and regression model filtering in confusion matrix (closes #31, #32)
+- **Folder parser file ordering**: Sort files in folder parser for consistent processing order across platforms
+
+### 🔧 Chores
+
+- **CI**: Bump `docker/metadata-action` from 5 to 6; bump GitHub Actions to latest versions
+
+---
+
 ## [0.8.2] - DuckDB Stability, Branch/Merge Fixes & Parallel Tests - 2026-02-25
 
 ### 🐛 Bug Fixes
