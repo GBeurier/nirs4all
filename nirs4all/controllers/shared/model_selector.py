@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import numpy as np
 
 from nirs4all.core.logging import get_logger
+from nirs4all.core.metrics import infer_ascending
 from nirs4all.operators.data.merge import (
     BranchPredictionConfig,
     SelectionStrategy,
@@ -55,11 +56,7 @@ class ModelSelector:
     Attributes:
         prediction_store: Prediction storage instance.
         context: Execution context.
-        LOWER_IS_BETTER_METRICS: Set of metrics where lower values are better.
     """
-
-    # Metrics where lower values are better (for ascending sort)
-    LOWER_IS_BETTER_METRICS = {"rmse", "mse", "mae", "mape", "log_loss", "nrmse", "nmse", "nmae"}
 
     def __init__(
         self,
@@ -236,7 +233,7 @@ class ModelSelector:
             return available_models
 
         # Determine sort order based on metric
-        ascending = metric.lower() in self.LOWER_IS_BETTER_METRICS
+        ascending = infer_ascending(metric)
 
         # Sort by score
         model_scores.sort(key=lambda x: x[1], reverse=not ascending)
@@ -440,7 +437,7 @@ class ModelSelector:
                             score = scores_dict["val"][metric]
                             if best_score is None:
                                 best_score = score
-                            elif metric.lower() in self.LOWER_IS_BETTER_METRICS:
+                            elif infer_ascending(metric):
                                 best_score = min(best_score, score)
                             else:
                                 best_score = max(best_score, score)
@@ -464,7 +461,7 @@ class ModelSelector:
             return available_models
 
         # Determine sort order based on metric
-        ascending = metric.lower() in self.LOWER_IS_BETTER_METRICS
+        ascending = infer_ascending(metric)
 
         # Sort by score
         model_scores.sort(key=lambda x: x[1], reverse=not ascending)

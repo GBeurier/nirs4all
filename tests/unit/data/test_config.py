@@ -321,6 +321,132 @@ class TestDatasetConfigAggregateMethod:
         dataset = dataset_config.get_dataset_at(0)
         assert dataset.aggregate_exclude_outliers is True
 
+class TestRepetitionAggregateWiring:
+    """Test that repetition auto-enables aggregate and vice versa."""
+
+    def test_repetition_auto_enables_aggregate(self):
+        """Setting repetition should auto-enable aggregate with same column."""
+        X = np.random.rand(4, 6).astype(np.float32)
+        M = pd.DataFrame({"sample_id": ["s1", "s1", "s2", "s2"]})
+
+        config = DatasetConfigs(
+            {"train_x": X, "train_m": M},
+            repetition="sample_id",
+        )
+        dataset = config.get_dataset_at(0)
+
+        assert dataset.repetition == "sample_id"
+        assert dataset.aggregate == "sample_id"
+
+    def test_aggregate_config_dict_auto_enables_repetition(self):
+        """Setting aggregate in config dict should auto-enable repetition."""
+        X = np.random.rand(4, 6).astype(np.float32)
+
+        config = DatasetConfigs({"train_x": X, "aggregate": "sample_id"})
+        # The existing forward link: aggregate -> repetition
+        assert config._repetitions[0] == "sample_id"
+
+    def test_repetition_with_explicit_aggregate_uses_explicit(self):
+        """Explicit aggregate should override auto-enable from repetition."""
+        X = np.random.rand(4, 6).astype(np.float32)
+        M = pd.DataFrame({"sample_id": ["s1", "s1", "s2", "s2"], "batch": ["A", "A", "B", "B"]})
+
+        config = DatasetConfigs(
+            {"train_x": X, "train_m": M},
+            repetition="sample_id",
+            aggregate="batch",
+        )
+        dataset = config.get_dataset_at(0)
+
+        assert dataset.repetition == "sample_id"
+        assert dataset.aggregate == "batch"
+
+    def test_repetition_with_aggregate_true(self):
+        """Explicit aggregate=True should override auto-enable from repetition."""
+        X = np.random.rand(4, 6).astype(np.float32)
+        M = pd.DataFrame({"sample_id": ["s1", "s1", "s2", "s2"]})
+
+        config = DatasetConfigs(
+            {"train_x": X, "train_m": M},
+            repetition="sample_id",
+            aggregate=True,
+        )
+        dataset = config.get_dataset_at(0)
+
+        assert dataset.repetition == "sample_id"
+        assert dataset.aggregate == "y"
+
+    def test_no_repetition_no_aggregate_by_default(self):
+        """Without repetition or aggregate, both should be None."""
+        X = np.random.rand(4, 6).astype(np.float32)
+
+        config = DatasetConfigs({"train_x": X})
+        dataset = config.get_dataset_at(0)
+
+        assert dataset.repetition is None
+        assert dataset.aggregate is None
+
+    def test_repetition_via_config_dict_auto_enables_aggregate(self):
+        """Setting repetition in config dict should auto-enable aggregate."""
+        X = np.random.rand(4, 6).astype(np.float32)
+        M = pd.DataFrame({"sample_id": ["s1", "s1", "s2", "s2"]})
+
+        config = DatasetConfigs(
+            {"train_x": X, "train_m": M, "repetition": "sample_id"},
+        )
+        dataset = config.get_dataset_at(0)
+
+        assert dataset.repetition == "sample_id"
+        assert dataset.aggregate == "sample_id"
+
+    def test_aggregate_constructor_parameter(self):
+        """Test aggregate as constructor parameter."""
+        X = np.random.rand(4, 6).astype(np.float32)
+
+        config = DatasetConfigs(
+            {"train_x": X},
+            aggregate="sample_id",
+        )
+        dataset = config.get_dataset_at(0)
+
+        assert dataset.aggregate == "sample_id"
+        # aggregate should also set repetition via existing forward link
+        assert dataset.repetition == "sample_id"
+
+    def test_aggregate_constructor_overrides_config_dict(self):
+        """Constructor aggregate should override config dict aggregate."""
+        X = np.random.rand(4, 6).astype(np.float32)
+
+        config = DatasetConfigs(
+            {"train_x": X, "aggregate": "old_col"},
+            aggregate="new_col",
+        )
+
+        assert config._aggregates[0] == "new_col"
+
+    def test_aggregate_constructor_list(self):
+        """Test aggregate as list for multi-dataset configs."""
+        X = np.random.rand(4, 6).astype(np.float32)
+
+        config = DatasetConfigs(
+            [{"train_x": X}, {"train_x": X}],
+            aggregate=["col_a", "col_b"],
+        )
+
+        assert config._aggregates[0] == "col_a"
+        assert config._aggregates[1] == "col_b"
+
+    def test_aggregate_constructor_list_length_mismatch(self):
+        """Aggregate list length must match datasets count."""
+        X = np.random.rand(4, 6).astype(np.float32)
+
+        with pytest.raises(ValueError, match="aggregate list length"):
+            DatasetConfigs(
+                [{"train_x": X}, {"train_x": X}],
+                aggregate=["col_a"],
+            )
+
+
 class TestSpectroDatasetAggregateMethod:
     """Test suite for aggregate_method and aggregate_exclude_outliers in SpectroDataset."""
 

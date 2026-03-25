@@ -168,6 +168,9 @@ class StepRunner:
         if parsed_step.keyword:
             context = context.with_metadata(keyword=parsed_step.keyword)
 
+        # Capture shape before execution for change logging
+        shape_before = (dataset.num_samples, dataset.num_features)
+
         # Execute controller
         try:
             controller_result = controller.execute(
@@ -189,6 +192,12 @@ class StepRunner:
                 )
 
             updated_context, output_data = controller_result
+
+            # Log shape changes
+            shape_after = (dataset.num_samples, dataset.num_features)
+            if shape_before != shape_after:
+                step_label = operator_name or controller_name
+                logger.warning(f"{step_label}: shape {shape_before} -> {shape_after}")
 
             # Check if output_data is StepOutput or list of artifacts
             from nirs4all.pipeline.execution.result import StepOutput

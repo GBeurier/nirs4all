@@ -69,17 +69,20 @@ def workspace_list_runs(args):
 
 def workspace_query_best(args):
     """Query best predictions from workspace store."""
+    from nirs4all.core.metrics import infer_ascending
     from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
 
     try:
+        ascending = True if args.ascending else infer_ascending(args.metric)
         with WorkspaceStore(workspace_path) as store:
             top_df = store.top_predictions(
                 n=args.n,
                 dataset_name=args.dataset,
                 metric=args.metric,
+                ascending=ascending,
             )
         if top_df.height == 0:
             logger.info("No predictions found matching criteria.")

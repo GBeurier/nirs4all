@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from nirs4all.core import metrics as evaluator
+from nirs4all.core.metrics import HIGHER_IS_BETTER_METRICS, infer_ascending, is_higher_better
 
 
 class TestMetricsDefaults:
@@ -58,3 +59,47 @@ class TestMetricsDefaults:
         scores = evaluator.eval_list(y_true, y_pred, metrics)
         assert len(scores) == 3
         assert all(isinstance(s, float) for s in scores)
+
+
+class TestMetricDirection:
+    """Tests for the centralized metric direction functions."""
+
+    @pytest.mark.parametrize("metric", [
+        "rmse", "mse", "mae", "mape", "log_loss", "nrmse", "nmse", "nmae",
+        "bias", "sep", "hamming_loss",
+    ])
+    def test_lower_is_better_metrics(self, metric):
+        assert is_higher_better(metric) is False
+        assert infer_ascending(metric) is True
+
+    @pytest.mark.parametrize("metric", [
+        "r2", "accuracy", "balanced_accuracy", "f1", "precision", "recall",
+        "auc", "roc_auc", "kappa", "cohen_kappa", "rpd", "rpiq",
+        "specificity", "matthews_corrcoef", "mcc", "jaccard",
+        "f1_micro", "f1_macro", "precision_micro", "recall_macro",
+        "explained_variance", "pearson_r", "spearman_r", "consistency",
+    ])
+    def test_higher_is_better_metrics(self, metric):
+        assert is_higher_better(metric) is True
+        assert infer_ascending(metric) is False
+
+    def test_case_insensitive(self):
+        assert is_higher_better("R2") is True
+        assert is_higher_better("RMSE") is False
+        assert infer_ascending("Balanced_Accuracy") is False
+
+    def test_unknown_metric_defaults_to_lower_is_better(self):
+        assert is_higher_better("unknown_metric") is False
+        assert infer_ascending("unknown_metric") is True
+
+    def test_metric_metadata_consistency(self):
+        """Ensure METRIC_METADATA in pipeline/run.py is consistent with centralized direction."""
+        from nirs4all.pipeline.run import METRIC_METADATA
+
+        for metric_name, meta in METRIC_METADATA.items():
+            if metric_name == "default":
+                continue
+            assert is_higher_better(metric_name) == meta["higher_is_better"], (
+                f"Mismatch for '{metric_name}': is_higher_better={is_higher_better(metric_name)} "
+                f"but METRIC_METADATA says higher_is_better={meta['higher_is_better']}"
+            )

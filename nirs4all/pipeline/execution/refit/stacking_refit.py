@@ -27,6 +27,7 @@ from typing import Any
 import numpy as np
 
 from nirs4all.core.logging import get_logger
+from nirs4all.core.metrics import infer_ascending as _infer_ascending_for_metric
 from nirs4all.pipeline.analysis.topology import PipelineTopology
 from nirs4all.pipeline.config.context import ExecutionPhase, RuntimeContext
 from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
@@ -425,24 +426,6 @@ def _get_branch_scores(
         bid: sum(scores) / len(scores)
         for bid, scores in branch_scores.items()
     }
-
-def _infer_ascending_for_metric(metric: str) -> bool:
-    """Infer whether lower-is-better from the metric name.
-
-    Args:
-        metric: Metric name string.
-
-    Returns:
-        ``True`` if lower is better (error metrics like RMSE, MAE).
-    """
-    if not metric:
-        return True
-    metric_lower = metric.lower()
-    higher_is_better = {
-        "r2", "accuracy", "f1", "precision", "recall",
-        "auc", "roc_auc", "balanced_accuracy",
-    }
-    return metric_lower not in higher_is_better
 
 # ---------------------------------------------------------------------------
 # Main entry point

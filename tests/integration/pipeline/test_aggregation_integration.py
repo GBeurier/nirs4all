@@ -236,6 +236,120 @@ class TestAggregationIntegration:
         assert dataset_config._aggregates[0] == "sample_id"
         assert dataset_config._aggregates[1] == "batch_id"
 
+class TestRepetitionAutoAggregation:
+    """Test that setting repetition= auto-enables aggregation."""
+
+    @pytest.fixture
+    def test_data_manager(self, tmp_path):
+        """Create test data manager with datasets including metadata."""
+        manager = TestDataManager(base_temp_dir=str(tmp_path))
+        manager.create_regression_dataset("regression")
+
+        regression_path = manager.get_temp_directory() / "regression"
+
+        X_train = pd.read_csv(regression_path / "Xcal.csv.gz", compression='gzip', sep=';', header=0)
+        X_val = pd.read_csv(regression_path / "Xval.csv.gz", compression='gzip', sep=';', header=0)
+        n_train = X_train.shape[0]
+        n_val = X_val.shape[0]
+
+        train_sample_ids = [f"S{i // 4:04d}" for i in range(n_train)]
+        val_sample_ids = [f"V{i // 4:04d}" for i in range(n_val)]
+
+        pd.DataFrame({"sample_id": train_sample_ids}).to_csv(
+            regression_path / "Mcal.csv.gz", index=False, compression='gzip', sep=';'
+        )
+        pd.DataFrame({"sample_id": val_sample_ids}).to_csv(
+            regression_path / "Mval.csv.gz", index=False, compression='gzip', sep=';'
+        )
+
+        yield manager
+        manager.cleanup()
+
+    def test_repetition_only_enables_runner_last_aggregate(self, test_data_manager):
+        """Setting only repetition= should make runner.last_aggregate return the column name."""
+        temp_dir = test_data_manager.get_temp_directory()
+
+        config = {
+            "train_x": str(temp_dir / "regression" / "Xcal.csv.gz"),
+            "train_y": str(temp_dir / "regression" / "Ycal.csv.gz"),
+            "train_group": str(temp_dir / "regression" / "Mcal.csv.gz"),
+        }
+
+        # Use repetition= only, NOT aggregate=
+        dataset_config = DatasetConfigs(config, repetition="sample_id")
+
+        pipeline = [
+            MinMaxScaler(),
+            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            {"model": PLSRegression(n_components=5)},
+        ]
+
+        pipeline_config = PipelineConfigs(pipeline, "test_rep_agg")
+
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        # Core assertion: runner.last_aggregate should be set from repetition
+        assert runner.last_aggregate == "sample_id"
+        assert predictions.num_predictions > 0
+
+    def test_repetition_config_dict_enables_aggregate(self, test_data_manager):
+        """Setting repetition in config dict should also auto-enable aggregate."""
+        temp_dir = test_data_manager.get_temp_directory()
+
+        config = {
+            "train_x": str(temp_dir / "regression" / "Xcal.csv.gz"),
+            "train_y": str(temp_dir / "regression" / "Ycal.csv.gz"),
+            "train_group": str(temp_dir / "regression" / "Mcal.csv.gz"),
+            "repetition": "sample_id",
+        }
+
+        dataset_config = DatasetConfigs(config)
+
+        pipeline = [
+            MinMaxScaler(),
+            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            {"model": PLSRegression(n_components=5)},
+        ]
+
+        pipeline_config = PipelineConfigs(pipeline, "test_rep_dict_agg")
+
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        assert runner.last_aggregate == "sample_id"
+
+    def test_repetition_with_explicit_aggregate_override(self, test_data_manager):
+        """Explicit aggregate should override the auto-aggregate from repetition."""
+        temp_dir = test_data_manager.get_temp_directory()
+
+        config = {
+            "train_x": str(temp_dir / "regression" / "Xcal.csv.gz"),
+            "train_y": str(temp_dir / "regression" / "Ycal.csv.gz"),
+            "train_group": str(temp_dir / "regression" / "Mcal.csv.gz"),
+        }
+
+        dataset_config = DatasetConfigs(
+            config,
+            repetition="sample_id",
+            aggregate=True,  # Override: use y-based aggregation instead
+        )
+
+        pipeline = [
+            MinMaxScaler(),
+            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            {"model": PLSRegression(n_components=5)},
+        ]
+
+        pipeline_config = PipelineConfigs(pipeline, "test_rep_explicit_agg")
+
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        # aggregate=True overrides the auto-set from repetition
+        assert runner.last_aggregate == "y"
+
+
 class TestAggregationReporting:
     """Test aggregated reporting in pipeline output."""
 

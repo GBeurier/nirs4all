@@ -307,9 +307,6 @@ class TopKByMetricSelector(SourceModelSelector):
         >>> selector = TopKByMetricSelector(k=3, metric="rmse", ascending=True)
     """
 
-    # Metrics where lower is better
-    _LOWER_IS_BETTER = {'rmse', 'mse', 'mae', 'mape', 'loss'}
-
     def __init__(
         self,
         k: int,
@@ -337,16 +334,9 @@ class TopKByMetricSelector(SourceModelSelector):
         self.per_class = per_class
 
     def _infer_ascending(self, metric: str) -> bool:
-        """Infer sort direction from metric name.
-
-        Args:
-            metric: Metric name.
-
-        Returns:
-            True if lower is better, False if higher is better.
-        """
-        metric_lower = metric.lower()
-        return any(m in metric_lower for m in self._LOWER_IS_BETTER)
+        """Infer sort direction from metric name."""
+        from nirs4all.core.metrics import infer_ascending
+        return infer_ascending(metric)
 
     def select(
         self,
@@ -383,7 +373,14 @@ class TopKByMetricSelector(SourceModelSelector):
         # Determine sort direction
         ascending = self.ascending
         if ascending is None:
-            ascending = self._infer_ascending(self.metric)
+            # When metric is a column name (val_score/test_score/train_score),
+            # infer direction from the actual metric stored in candidates.
+            infer_from = self.metric
+            if self.metric in ("val_score", "test_score", "train_score") and valid_candidates:
+                candidate_metric = valid_candidates[0].metric
+                if candidate_metric:
+                    infer_from = candidate_metric
+            ascending = self._infer_ascending(infer_from)
 
         if self.per_class:
             # Select top K per class

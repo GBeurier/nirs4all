@@ -27,6 +27,7 @@ class DatasetConfigs:
         task_type: str | list[str] = "auto",
         signal_type: SignalTypeInput | list[SignalTypeInput] | None = None,
         repetition: str | list[str | None] | None = None,
+        aggregate: str | bool | list[str | bool | None] | None = None,
         aggregate_method: str | list[str] | None = None,
         aggregate_exclude_outliers: bool | list[bool] | None = None
     ):
@@ -66,7 +67,17 @@ class DatasetConfigs:
                 - str: Metadata column name (e.g., 'Sample_ID', 'ID')
                 - list: Per-dataset settings (must match number of datasets)
                 When set, splits will automatically group by this column to prevent
-                data leakage. This is the preferred way to handle repeated measurements.
+                data leakage, and prediction aggregation is automatically enabled
+                using the same column. This is the preferred way to handle repeated
+                measurements.
+
+            aggregate: Aggregation column for prediction reporting. Normally set
+                automatically from ``repetition``. Use this parameter only when
+                the aggregation column differs from the repetition column.
+                - None (default): Inherit from ``repetition`` if set, otherwise no aggregation
+                - True: Aggregate by target values (y_true)
+                - str: Aggregate by specified metadata column
+                - list: Per-dataset settings (must match number of datasets)
 
             aggregate_method: Aggregation method for combining predictions.
                 - None (default): Use 'mean' for regression, 'vote' for classification
@@ -182,8 +193,22 @@ class DatasetConfigs:
                 for st in signal_type
             ]
 
-        # Use config-level aggregate if available, otherwise None
-        self._aggregates: list[str | bool | None] = list(self._config_aggregates)
+        # Normalize aggregate to a list matching configs length
+        # Priority: constructor parameter > config dict > None
+        if aggregate is None:
+            self._aggregates: list[str | bool | None] = list(self._config_aggregates)
+        elif isinstance(aggregate, (str, bool)):
+            self._aggregates = [aggregate] * len(self.configs)
+        else:
+            if len(aggregate) != len(self.configs):
+                raise ValueError(
+                    f"aggregate list length ({len(aggregate)}) must match "
+                    f"number of datasets ({len(self.configs)})"
+                )
+            self._aggregates = [
+                agg if agg is not None else self._config_aggregates[i]
+                for i, agg in enumerate(aggregate)
+            ]
 
         # Normalize aggregate_method to a list matching configs length
         if aggregate_method is None:
@@ -316,10 +341,16 @@ class DatasetConfigs:
         # Apply repetition setting if specified
         if repetition is not None:
             dataset.set_repetition(repetition)
+            # Auto-enable aggregation with same column if not explicitly set
+            if aggregate is None:
+                dataset.set_aggregate(repetition)
 
         # Apply aggregation settings if specified
         if aggregate is not None:
             dataset.set_aggregate(aggregate)
+            # Auto-enable repetition grouping with same column if not explicitly set
+            if repetition is None and isinstance(aggregate, str):
+                dataset.set_repetition(aggregate)
         if aggregate_method is not None:
             dataset.set_aggregate_method(aggregate_method)
         if aggregate_exclude_outliers:

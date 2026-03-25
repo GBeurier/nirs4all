@@ -17,7 +17,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from nirs4all.pipeline.storage.workspace_store import WorkspaceStore, _infer_metric_ascending
+from nirs4all.core.metrics import infer_ascending as _infer_metric_ascending
+from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 # =========================================================================
 # Helpers

@@ -346,25 +346,9 @@ class PredictionAnalyzer:
 
     @staticmethod
     def _is_higher_better(metric: str) -> bool:
-        """Check if metric is higher-is-better.
-
-        Args:
-            metric: Metric name to check.
-
-        Returns:
-            True if higher values are better, False otherwise.
-        """
-        metric_lower = metric.lower()
-        higher_is_better = [
-            'accuracy', 'balanced_accuracy',
-            'precision', 'balanced_precision', 'precision_micro', 'precision_macro',
-            'recall', 'balanced_recall', 'recall_micro', 'recall_macro',
-            'f1', 'f1_micro', 'f1_macro',
-            'specificity', 'roc_auc', 'auc',
-            'matthews_corrcoef', 'cohen_kappa', 'jaccard',
-            'r2', 'r2_score'
-        ]
-        return metric_lower in higher_is_better
+        """Check if metric is higher-is-better."""
+        from nirs4all.core.metrics import is_higher_better
+        return is_higher_better(metric)
 
     def _save_figure(self, fig: Figure, chart_type: str, dataset_name: str | None = None):
         """Save figure to disk with versioning.

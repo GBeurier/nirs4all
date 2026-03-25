@@ -1,4 +1,4 @@
-# Sample Aggregation
+# Sample Repetition & Aggregation
 
 ## Overview
 
@@ -8,16 +8,14 @@ In NIRS applications, it's common to have multiple spectral measurements (repeti
 - Multiple measurements at different positions on a grain sample
 - Repeated measurements for quality control
 
-The **aggregation** feature allows you to:
+The **repetition** feature handles this by:
 
-1. Train models on all individual spectra (to maximize data)
-2. Evaluate and report performance on **aggregated predictions** (one prediction per physical sample)
+1. **Fold grouping**: Keeping all spectra from the same sample in the same cross-validation fold (prevents data leakage)
+2. **Prediction aggregation**: Combining predictions from multiple spectra into one prediction per physical sample, then reporting both raw and aggregated metrics
 
-When aggregation is enabled, predictions from multiple spectra of the same biological sample are automatically combined, and both raw and aggregated metrics are reported.
+Setting `repetition` automatically enables both behaviors. You only need a single parameter.
 
 ## Quick Start
-
-### Define Aggregation at Dataset Level
 
 ```python
 from nirs4all.data import DatasetConfigs
@@ -27,10 +25,10 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
-# Define dataset with aggregation column
+# Define dataset with repetition column
 dataset = DatasetConfigs(
     "path/to/spectra",
-    aggregate="sample_id"  # Aggregate by sample_id column in metadata
+    repetition="sample_id"  # Metadata column identifying physical samples
 )
 
 # Define pipeline
@@ -40,7 +38,7 @@ pipeline = [
     {"model": PLSRegression(n_components=10)}
 ]
 
-# Run pipeline
+# Run pipeline — folds are grouped by sample_id, aggregated metrics are reported
 runner = PipelineRunner(verbose=1)
 predictions, _ = runner.run(PipelineConfigs(pipeline, "PLS"), dataset)
 
@@ -51,39 +49,38 @@ analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggrega
 fig = analyzer.plot_top_k(k=5)  # Automatically aggregated by sample_id
 ```
 
-## Aggregation Methods
+## Setting Repetition
 
-### By Metadata Column (Recommended)
-
-Use a column from your metadata file to group samples:
+### Via Constructor Parameter (Recommended)
 
 ```python
 # Metadata file should contain a column like 'sample_id', 'ID', 'batch', etc.
-dataset = DatasetConfigs("path/to/data", aggregate="sample_id")
-```
-
-### By Target Values
-
-For classification tasks, aggregate by target class:
-
-```python
-# Aggregate spectra sharing the same target value
-dataset = DatasetConfigs("path/to/data", aggregate=True)
+dataset = DatasetConfigs("path/to/data", repetition="sample_id")
 ```
 
 ### Via Config Dictionary
-
-When using configuration dictionaries:
 
 ```python
 config = {
     "train_x": "data/spectra.csv",
     "train_y": "data/targets.csv",
     "train_m": "data/metadata.csv",  # Contains 'sample_id' column
-    "aggregate": "sample_id"
+    "repetition": "sample_id"
 }
 
 dataset = DatasetConfigs(config)
+```
+
+### Aggregate-Only (Without Fold Grouping)
+
+In rare cases you may want aggregation with a different column than fold grouping, or aggregation by target values:
+
+```python
+# Aggregate by target values (y_true) — no fold grouping
+dataset = DatasetConfigs("path/to/data", aggregate=True)
+
+# Different columns for fold grouping and aggregation
+dataset = DatasetConfigs("path/to/data", repetition="sample_id", aggregate="batch_id")
 ```
 
 ## Pipeline Output
@@ -148,40 +145,40 @@ fig = analyzer.plot_top_k(k=5, aggregate='sample_id')
 fig = analyzer.plot_heatmap('model', 'preprocessing', aggregate='sample_id')
 ```
 
-## Multi-Dataset Aggregation
+## Multi-Dataset Configuration
 
-Different datasets can have different aggregation columns:
+Different datasets can have different repetition columns:
 
 ```python
 config1 = {
     "train_x": "dataset1/spectra.csv",
     "train_y": "dataset1/targets.csv",
     "train_m": "dataset1/metadata.csv",
-    "aggregate": "sample_id"  # Dataset 1 uses sample_id
+    "repetition": "sample_id"
 }
 
 config2 = {
     "train_x": "dataset2/spectra.csv",
     "train_y": "dataset2/targets.csv",
     "train_m": "dataset2/metadata.csv",
-    "aggregate": "batch_number"  # Dataset 2 uses batch_number
+    "repetition": "batch_number"
 }
 
 dataset = DatasetConfigs([config1, config2])
 ```
 
-Alternatively, use a list of aggregate values:
+Alternatively, use a list:
 
 ```python
 dataset = DatasetConfigs(
     [config1, config2],
-    aggregate=["sample_id", "batch_number"]
+    repetition=["sample_id", "batch_number"]
 )
 ```
 
 ## Priority Resolution
 
-When aggregation is specified in multiple places, the priority order is:
+When repetition/aggregation is specified in multiple places, the priority order is:
 
 1. **Constructor parameter** (highest priority)
 2. **Config dictionary** (lower priority)
@@ -189,12 +186,18 @@ When aggregation is specified in multiple places, the priority order is:
 ```python
 config = {
     "train_x": "...",
-    "aggregate": "sample_id"  # Config-level setting
+    "repetition": "sample_id"  # Config-level setting
 }
 
 # Constructor parameter overrides config dict
-dataset = DatasetConfigs(config, aggregate="batch_id")  # Uses "batch_id"
+dataset = DatasetConfigs(config, repetition="batch_id")  # Uses "batch_id"
 ```
+
+### Automatic Linking
+
+- Setting `repetition` automatically enables aggregation with the same column
+- Setting `aggregate` (string) automatically enables fold grouping with the same column
+- You can override this by setting both `repetition` and `aggregate` to different values
 
 ## Aggregation Algorithm
 
@@ -259,32 +262,23 @@ fig2 = analyzer.plot_heatmap('model_name', 'preprocessings')
 plt.show()
 ```
 
-## Repetition Handling
+## Repetition Details
 
-### Setting Repetition Column
+### How Repetition Works
 
-The repetition column identifies which spectra belong to the same physical sample. This is fundamental for proper cross-validation (preventing data leakage) and score aggregation:
+The repetition column identifies which spectra belong to the same physical sample. When set, it enables two behaviors:
+
+1. **Cross-validation grouping**: All spectra from the same sample stay in the same fold, preventing data leakage
+2. **Prediction aggregation**: Both raw (per-spectrum) and aggregated (per-sample) metrics are reported
 
 ```python
 from nirs4all.data import DatasetConfigs
 
-# Create dataset
-dataset = DatasetConfigs("path/to/data")
-
-# Set repetition column from metadata
-dataset.set_repetition('Sample_ID')
+# Set repetition at creation time (recommended)
+dataset = DatasetConfigs("path/to/data", repetition="Sample_ID")
 
 # Check current setting
 print(f"Repetition column: {dataset.repetition}")
-```
-
-The repetition column must exist in your metadata. You can also set it at dataset creation time:
-
-```python
-dataset = DatasetConfigs(
-    "path/to/data",
-    repetition="Sample_ID"
-)
 ```
 
 ### Repetition Statistics
@@ -325,28 +319,28 @@ max_reps = max(len(v) for v in groups.values())
 print(f"Maximum repetitions: {max_reps}")
 ```
 
-## Configuring Aggregation
+## Advanced Aggregation Configuration
 
-### Enable Aggregation
+In most cases, setting `repetition` is sufficient — aggregation is automatically enabled with the same column. The following options are for advanced use cases where you need finer control.
 
-Aggregation determines how predictions are combined when you have multiple spectra per sample:
+### Independent Aggregation
+
+Use `set_aggregate()` directly when the aggregation column differs from the repetition column:
 
 ```python
-# Aggregate by metadata column (recommended)
-dataset.set_aggregate('Sample_ID')
+# Aggregate by a different column than repetition
+dataset.set_aggregate('batch_id')
 
 # Aggregate by target values (y_true)
 dataset.set_aggregate(True)
 
-# Disable aggregation
+# Disable aggregation (keep fold grouping only)
 dataset.set_aggregate(None)
 
 # Check current setting
 agg_setting = dataset.aggregate
 print(f"Aggregation: {agg_setting}")
 ```
-
-When aggregation is enabled, both raw (per-spectrum) and aggregated (per-sample) metrics are computed and displayed.
 
 ### Aggregation Methods
 
@@ -397,54 +391,45 @@ When enabled, outlier repetitions are identified using the T² statistic and exc
 
 ## Complete Example
 
-Here's a complete workflow showing repetition handling and aggregation:
+Here's a complete workflow showing repetition handling with aggregation:
 
 ```python
 import nirs4all
+from nirs4all.data import DatasetConfigs
+from nirs4all.pipeline import PipelineRunner, PipelineConfigs
+from nirs4all.visualization.predictions import PredictionAnalyzer
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import ShuffleSplit
 
-# Load data and configure repetition
-dataset = nirs4all.data.DatasetConfigs("soil_samples/")
-dataset.set_repetition('Sample_ID')
-
-# Inspect repetition statistics
-stats = dataset.repetition_stats
-print(f"{stats['n_groups']} samples with {stats['mean']:.1f} reps each")
-if stats['is_variable']:
-    print(f"Warning: variable repetition counts ({stats['min']}-{stats['max']})")
-
-# Configure aggregation
-dataset.set_aggregate('Sample_ID')
-dataset.set_aggregate_method('robust_mean')
-dataset.set_aggregate_exclude_outliers(True, threshold=0.95)
-
-# Check configuration
-print(f"Aggregation: {dataset.aggregate}")
-print(f"Method: {dataset.aggregate_method}")
-print(f"Outlier exclusion: {dataset.aggregate_exclude_outliers}")
+# Load data with repetition — automatically enables fold grouping AND aggregation
+dataset = DatasetConfigs(
+    "soil_samples/",
+    repetition="Sample_ID",          # Single entry point for both features
+    aggregate_method="robust_mean",  # Optional: override aggregation method
+    aggregate_exclude_outliers=True,  # Optional: T² outlier exclusion
+)
 
 # Run pipeline
-result = nirs4all.run(
-    pipeline=[
+runner = PipelineRunner(verbose=1)
+predictions, _ = runner.run(
+    PipelineConfigs([
         MinMaxScaler(),
         ShuffleSplit(n_splits=5, test_size=0.2),
         {"model": PLSRegression(n_components=10)}
-    ],
-    dataset=dataset,
-    verbose=1
+    ], "SoilPLS"),
+    dataset
 )
 
-# Results will show both raw and aggregated metrics
-print(f"Best RMSE (raw): {result.best_rmse:.4f}")
+# Results show both raw and aggregated metrics automatically
+# Create analyzer with aggregation from the run
+analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
 
-# Get predictions with aggregation
-from nirs4all.visualization.predictions import PredictionAnalyzer
-analyzer = PredictionAnalyzer(result.predictions)
+# All visualizations use aggregated metrics
+fig = analyzer.plot_top_k(k=3, rank_metric='rmse')
 
 # Top models ranked by aggregated metrics
-top_models = result.predictions.top(5, rank_metric='rmse', by_repetition='Sample_ID')
+top_models = predictions.top(5, rank_metric='rmse', by_repetition='Sample_ID')
 for i, model in enumerate(top_models, 1):
     print(f"{i}. {model['model_name']}: RMSE={model['val_score']:.4f}")
 ```
@@ -485,11 +470,11 @@ for i, model in enumerate(top_models, 1):
 
 - `dataset.set_repetition(column: Optional[str])` → None
 
-  Set the column name identifying sample repetitions. Pass None to disable.
+  Set the column name identifying sample repetitions. Pass None to disable. Note: when using `DatasetConfigs(repetition=...)`, aggregation is automatically enabled.
 
 - `dataset.set_aggregate(value: Union[str, bool, None])` → None
 
-  Enable sample-level aggregation. Pass True for y-based aggregation, column name for metadata-based, or None to disable.
+  Enable sample-level aggregation. Pass True for y-based aggregation, column name for metadata-based, or None to disable. Normally set automatically from `repetition`.
 
 - `dataset.set_aggregate_method(value: Optional[str])` → None
 

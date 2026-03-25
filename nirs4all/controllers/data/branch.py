@@ -1367,7 +1367,7 @@ class BranchController(OperatorController):
         """
         import copy
 
-        from nirs4all.data.predictions import _infer_ascending
+        from nirs4all.core.metrics import infer_ascending as _infer_ascending
         from nirs4all.pipeline.config.context import BestChainEntry
 
         n_pred_after = prediction_store.num_predictions
