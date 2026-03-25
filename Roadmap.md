@@ -8,7 +8,7 @@
 
 > [Branching] Preprocessing to source ou preprocessings to branch cf. MB-PLS
 
-> [] Precompute transformer memory allocation and skip if too big
+> [NN] Precompute transformer memory allocation and skip if too big
 
 
 **RELEASE** (webapp 0.1.0) - 0.8.0 UI compliant
