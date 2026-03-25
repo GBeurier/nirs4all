@@ -18,8 +18,8 @@ Setting `repetition` automatically enables both behaviors. You only need a singl
 ## Quick Start
 
 ```python
+import nirs4all
 from nirs4all.data import DatasetConfigs
-from nirs4all.pipeline import PipelineRunner, PipelineConfigs
 from nirs4all.visualization.predictions import PredictionAnalyzer
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
@@ -39,11 +39,10 @@ pipeline = [
 ]
 
 # Run pipeline — folds are grouped by sample_id, aggregated metrics are reported
-runner = PipelineRunner(verbose=1)
-predictions, _ = runner.run(PipelineConfigs(pipeline, "PLS"), dataset)
+result = nirs4all.run(pipeline=pipeline, dataset=dataset, name="PLS", verbose=1)
 
 # Create analyzer with same aggregate setting
-analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
+analyzer = PredictionAnalyzer(result.predictions, default_aggregate=result.last_aggregate)
 
 # All plots now use aggregation by default
 fig = analyzer.plot_top_k(k=5)  # Automatically aggregated by sample_id
@@ -109,7 +108,7 @@ When you set `default_aggregate` on the analyzer, all visualization methods use 
 
 ```python
 # Get aggregate setting from last run
-analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
+analyzer = PredictionAnalyzer(result.predictions, default_aggregate=result.last_aggregate)
 
 # All these plots use aggregation automatically
 fig1 = analyzer.plot_top_k(k=5)
@@ -217,8 +216,8 @@ Example: Soil Analysis with Multiple Scans per Sample
 Each soil sample has 4 spectral scans to reduce measurement noise.
 """
 
+import nirs4all
 from nirs4all.data import DatasetConfigs
-from nirs4all.pipeline import PipelineRunner, PipelineConfigs
 from nirs4all.visualization.predictions import PredictionAnalyzer
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
@@ -249,11 +248,10 @@ for n in [5, 10, 15, 20]:
     pipeline.append({"model": PLSRegression(n_components=n)})
 
 # Run
-runner = PipelineRunner(verbose=1)
-predictions, _ = runner.run(PipelineConfigs(pipeline, "SoilPLS"), dataset)
+result = nirs4all.run(pipeline=pipeline, dataset=dataset, name="SoilPLS", verbose=1)
 
 # Analyze with aggregation
-analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
+analyzer = PredictionAnalyzer(result.predictions, default_aggregate=result.last_aggregate)
 
 # All visualizations use aggregated metrics
 fig1 = analyzer.plot_top_k(k=3, rank_metric='rmse')
@@ -396,7 +394,6 @@ Here's a complete workflow showing repetition handling with aggregation:
 ```python
 import nirs4all
 from nirs4all.data import DatasetConfigs
-from nirs4all.pipeline import PipelineRunner, PipelineConfigs
 from nirs4all.visualization.predictions import PredictionAnalyzer
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.preprocessing import MinMaxScaler
@@ -411,27 +408,28 @@ dataset = DatasetConfigs(
 )
 
 # Run pipeline
-runner = PipelineRunner(verbose=1)
-predictions, _ = runner.run(
-    PipelineConfigs([
+result = nirs4all.run(
+    pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=5, test_size=0.2),
         {"model": PLSRegression(n_components=10)}
-    ], "SoilPLS"),
-    dataset
+    ],
+    dataset=dataset,
+    name="SoilPLS",
+    verbose=1,
 )
 
 # Results show both raw and aggregated metrics automatically
 # Create analyzer with aggregation from the run
-analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
+analyzer = PredictionAnalyzer(result.predictions, default_aggregate=result.last_aggregate)
 
 # All visualizations use aggregated metrics
 fig = analyzer.plot_top_k(k=3, rank_metric='rmse')
 
 # Top models ranked by aggregated metrics
-top_models = predictions.top(5, rank_metric='rmse', by_repetition='Sample_ID')
+top_models = result.top(5, rank_metric='rmse', by_repetition='Sample_ID')
 for i, model in enumerate(top_models, 1):
-    print(f"{i}. {model['model_name']}: RMSE={model['val_score']:.4f}")
+    print(f"{i}. RMSE={model.best_rmse:.4f}")
 ```
 
 ## Properties and Methods Reference

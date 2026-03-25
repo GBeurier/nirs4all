@@ -111,16 +111,17 @@ Cross-validation (e.g., `ShuffleSplit`, `KFold`) is required to:
 
 ### How do I save my results?
 
-Results are automatically saved when using `PipelineRunner`:
+Results are automatically saved when using `save_artifacts=True`:
 
 ```python
-from nirs4all.pipeline import PipelineRunner
+import nirs4all
 
-runner = PipelineRunner(
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset=dataset,
     save_artifacts=True,
-    workspace_path="workspace/"
+    workspace="workspace/",
 )
-predictions, _ = runner.run(pipeline, dataset)
 ```
 
 ### Error: "No splitter found in pipeline"

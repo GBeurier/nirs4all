@@ -15,14 +15,15 @@ The nirs4all logging system provides:
 ## Quick Start
 
 ```python
-from nirs4all.pipeline import PipelineRunner
+import nirs4all
 
 # Basic usage - logging is configured automatically
-runner = PipelineRunner(verbose=1)
-predictions, _ = runner.run(pipeline, dataset)
+result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=1)
 
 # With logging options
-runner = PipelineRunner(
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset=dataset,
     verbose=2,              # Detailed output
     log_file=True,          # Write to workspace/logs/
     log_format="pretty",    # Human-readable format
@@ -72,10 +73,13 @@ Everything from verbose=1, plus:
 
 ## Configuration Options
 
-### PipelineRunner Parameters
+### nirs4all.run() Parameters
 
 ```python
-runner = PipelineRunner(
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset=dataset,
+
     # Verbosity
     verbose=1,              # 0-3, controls log level
 
@@ -214,9 +218,11 @@ configure_logging(
 For integration with log aggregation systems (ELK, Loki, etc.):
 
 ```python
-runner = PipelineRunner(
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset=dataset,
     log_file=True,
-    json_output=True  # Write .jsonl file
+    json_output=True,  # Write .jsonl file
 )
 ```
 
@@ -295,7 +301,9 @@ def my_function():
 For HPC systems without Unicode support:
 
 ```python
-runner = PipelineRunner(
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset=dataset,
     use_unicode=False,  # ASCII-only symbols
     use_colors=False,   # No ANSI escape codes
 )
@@ -371,7 +379,7 @@ export NIRS4ALL_NO_COLOR=1
 
 Check verbosity level:
 ```python
-runner = PipelineRunner(verbose=1)  # INFO level
+result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=1)  # INFO level
 ```
 
 ### Progress bars not working
@@ -381,7 +389,7 @@ Progress bars require a TTY. In non-interactive environments (notebooks, CI), th
 ### Unicode errors on cluster
 
 ```python
-runner = PipelineRunner(use_unicode=False)
+result = nirs4all.run(pipeline=pipeline, dataset=dataset, use_unicode=False)
 ```
 
 ### Finding log files

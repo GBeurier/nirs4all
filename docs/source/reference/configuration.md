@@ -1,65 +1,50 @@
 # Configuration Reference
 
-This page provides the complete specification for `PipelineConfigs` and `DatasetConfigs`.
+This page provides the complete specification for pipeline and dataset configuration.
 
-## PipelineConfigs
+## Pipeline Configuration
 
-`PipelineConfigs` defines the processing pipeline: preprocessing steps, cross-validation, and models.
+The pipeline definition specifies the processing steps: preprocessing, cross-validation, and models.
 
-### Constructor
+### Usage
 
-```python
-from nirs4all.pipeline import PipelineConfigs
-
-config = PipelineConfigs(
-    definition,                   # Pipeline definition (list, dict, or path)
-    name="",                      # Pipeline name
-    description="",               # Optional description
-    max_generation_count=10000    # Maximum pipeline variants to generate
-)
-```
-
-### Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `definition` | list, dict, str | *required* | Pipeline steps as list, dict with `pipeline` key, or path to YAML/JSON |
-| `name` | str | `""` | Pipeline name (used in artifacts and results) |
-| `description` | str | `""` | Human-readable description |
-| `max_generation_count` | int | `10000` | Maximum pipeline variants from generators |
-
-### Definition Formats
+Pipeline definitions are passed directly to `nirs4all.run()` as a list, dict, or path to a YAML/JSON file. You do not need to instantiate `PipelineConfigs` manually.
 
 #### List of Steps (Recommended)
 
 ```python
+import nirs4all
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 
-pipeline = PipelineConfigs([
+pipeline = [
     MinMaxScaler(),
     ShuffleSplit(n_splits=3),
     {"model": PLSRegression(n_components=10)}
-], name="MyPipeline")
+]
+
+result = nirs4all.run(pipeline=pipeline, dataset="data/", name="MyPipeline")
 ```
 
 #### Dictionary with Pipeline Key
 
 ```python
-pipeline = PipelineConfigs({
+pipeline = {
     "pipeline": [
         MinMaxScaler(),
         ShuffleSplit(n_splits=3),
         {"model": PLSRegression(n_components=10)}
     ]
-}, name="MyPipeline")
+}
+
+result = nirs4all.run(pipeline=pipeline, dataset="data/", name="MyPipeline")
 ```
 
 #### YAML File Path
 
 ```python
-pipeline = PipelineConfigs("config/pipeline.yaml", name="MyPipeline")
+result = nirs4all.run(pipeline="config/pipeline.yaml", dataset="data/", name="MyPipeline")
 ```
 
 **pipeline.yaml:**
@@ -78,7 +63,7 @@ pipeline:
 #### JSON File Path
 
 ```python
-pipeline = PipelineConfigs("config/pipeline.json", name="MyPipeline")
+result = nirs4all.run(pipeline="config/pipeline.json", dataset="data/", name="MyPipeline")
 ```
 
 ### Step Serialization
@@ -90,21 +75,6 @@ Steps are serialized to a canonical format:
 | `MinMaxScaler()` | `{"class": "sklearn.preprocessing.MinMaxScaler"}` |
 | `PLSRegression(n_components=10)` | `{"class": "...", "params": {"n_components": 10}}` |
 | `{"model": PLSRegression()}` | `{"model": {"class": "..."}}` |
-
-### Accessing Pipeline Configurations
-
-```python
-pipeline = PipelineConfigs([...], name="MyPipeline")
-
-# Access expanded configurations (list of step lists)
-pipeline.steps           # List of step configurations
-
-# Access names (includes hash for uniqueness)
-pipeline.names           # ["MyPipeline_a1b2c3"]
-
-# Check if generators were used
-pipeline.has_configurations  # True if _or_, _range_ expanded
-```
 
 ---
 
@@ -329,21 +299,21 @@ all_datasets = dataset.get_datasets()
 ### Full Pipeline Configuration
 
 ```python
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+import nirs4all
 from nirs4all.data import DatasetConfigs
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 from nirs4all.operators.transforms import StandardNormalVariate
 
-# Pipeline configuration
-pipeline = PipelineConfigs([
+# Pipeline definition
+pipeline = [
     MinMaxScaler(),
     StandardNormalVariate(),
     {"y_processing": MinMaxScaler()},
     ShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
     {"model": PLSRegression(n_components=10)}
-], name="ProductionPipeline", description="NIR protein prediction model")
+]
 
 # Dataset configuration
 dataset = DatasetConfigs({
@@ -358,8 +328,13 @@ dataset = DatasetConfigs({
 }, task_type="regression", aggregate="sample_id")
 
 # Run
-runner = PipelineRunner(verbose=1, save_artifacts=True)
-predictions, per_dataset = runner.run(pipeline, dataset)
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset=dataset,
+    name="ProductionPipeline",
+    verbose=1,
+    save_artifacts=True,
+)
 ```
 
 ### YAML Configuration File
@@ -403,14 +378,17 @@ task_type: regression
 
 **Python usage:**
 ```python
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+import nirs4all
 from nirs4all.data import DatasetConfigs
 
-pipeline = PipelineConfigs("config/pipeline.yaml", name="YAMLPipeline")
 dataset = DatasetConfigs("config/dataset.yaml")
 
-runner = PipelineRunner(verbose=1)
-predictions, _ = runner.run(pipeline, dataset)
+result = nirs4all.run(
+    pipeline="config/pipeline.yaml",
+    dataset=dataset,
+    name="YAMLPipeline",
+    verbose=1,
+)
 ```
 
 ## See Also

@@ -14,8 +14,8 @@ The pipeline module is designed around a **layered architecture** with **separat
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        PipelineRunner                           │
-│                   (Public API / Facade)                         │
+│                   nirs4all.run() / PipelineRunner                │
+│                       (Public API / Facade)                     │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │
                                   ▼
@@ -51,22 +51,26 @@ The pipeline module is designed around a **layered architecture** with **separat
 
 ## Key Components
 
-### 1. PipelineRunner
+### 1. Module-Level API / PipelineRunner
 
-**Location**: `nirs4all/pipeline/runner.py`
+**Location**: `nirs4all/api/run.py`, `nirs4all/pipeline/runner.py`
 
-**Role**: The public entry point (Facade pattern)
+**Role**: The public entry point (Facade pattern). Users call `nirs4all.run()`, which delegates to `PipelineRunner` internally.
 
 **Responsibilities**:
-- Provides simple API for users (`run()`, `predict()`, `export()`, `retrain()`)
+- Provides simple API for users (`nirs4all.run()`, `nirs4all.predict()`, `nirs4all.explain()`, `nirs4all.retrain()`)
 - Initializes the environment (workspace, logging)
 - Delegates work to the Orchestrator
 
 ```python
-from nirs4all.pipeline import PipelineRunner
+import nirs4all
 
-runner = PipelineRunner(save_artifacts=True, verbose=1)
-predictions, per_dataset = runner.run(pipeline, dataset)
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset=dataset,
+    save_artifacts=True,
+    verbose=1,
+)
 ```
 
 ### 2. PipelineOrchestrator
@@ -245,12 +249,13 @@ Controllers compete for steps based on priority. Lower numbers = higher priority
 
 ### Facade Pattern
 
-`PipelineRunner` hides complexity from users, providing a simple API:
+The module-level API hides complexity from users, providing a simple interface:
 
 ```python
-runner = PipelineRunner()
-predictions, _ = runner.run(pipeline, dataset)
-y_pred, _ = runner.predict(source, new_data)
+import nirs4all
+
+result = nirs4all.run(pipeline, dataset)
+preds = nirs4all.predict(model, new_data)
 ```
 
 ### Context Object Pattern

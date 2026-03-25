@@ -33,6 +33,8 @@ nirs4all/
 │   ├── transforms/ # TransformerMixinController, YTransformerMixinController
 │   ├── models/     # SklearnModelController, PyTorchModelController, TF, JAX
 │   ├── data/       # BranchController, MergeController, ExcludeController, TagController
+│   ├── flow/       # RepetitionController, ConcatTransformController, AutoTransferPreprocController
+│   ├── shared/     # ModelSelector, PredictionAggregator
 │   ├── splitters/  # CrossValidatorController
 │   └── charts/     # Spectra, targets, folds, augmentation charts
 ├── data/           # SpectroDataset (X, y, metadata, folds, multi-source), Predictions
@@ -89,8 +91,13 @@ pipeline = [
 | `y_processing` | Target scaling |
 | `tag` | Mark samples (non-removal) |
 | `exclude` | Remove samples from training (`mode`: "any"/"all" for multiple) |
-| `branch` | Duplication branches (parallel pipelines) or separation branches (by_metadata/by_tag/by_source) |
-| `merge` | Combine branches: `"predictions"` (stacking), `"features"`, `"concat"` (reassembly) |
+| `branch` | Duplication branches (parallel pipelines) or separation branches (by_metadata/by_tag/by_filter/by_source) |
+| `merge` | Combine branches: `"predictions"` (stacking), `"features"`, `"all"`, `"concat"` (reassembly) |
+| `sample_augmentation` | Data augmentation applied to training samples |
+| `feature_augmentation` | Feature-level augmentation |
+| `concat_transform` | Concatenate transformed features |
+| `rep_to_sources` | Convert repetition groups to multi-source format |
+| `rep_to_pp` | Convert repetition groups to preprocessing pipelines |
 
 ### Generator Syntax (Hyperparameter Sweeps)
 

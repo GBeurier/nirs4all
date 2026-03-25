@@ -419,11 +419,12 @@ result = nirs4all.run(
 Charts are automatically saved when using artifacts:
 
 ```python
-runner = PipelineRunner(
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset="data/",
     save_artifacts=True,
-    workspace_path="workspace/"
+    workspace="workspace/",
 )
-predictions, _ = runner.run(pipeline, dataset)
 # Charts saved in: workspace/runs/<run_id>/artifacts/
 ```
 

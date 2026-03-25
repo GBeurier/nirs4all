@@ -26,18 +26,21 @@ This section covers saving, loading, and deploying trained NIRS4ALL models for p
 
 ### What You'll Learn
 
-- Automatic model saving with PipelineRunner
-- Prediction with prediction entries
-- Prediction with model IDs
+- Training and automatic model saving
+- Prediction on new data
+- Exporting and loading models
 - Verifying prediction consistency
 
 ### Training with Model Saving
 
-Enable `save_artifacts=True` to persist trained models:
+Train a pipeline using the module-level API:
 
 ```python
-from nirs4all.pipeline import PipelineRunner, PipelineConfigs
-from nirs4all.data import DatasetConfigs
+import nirs4all
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import ShuffleSplit
+from sklearn.cross_decomposition import PLSRegression
+from nirs4all.operators.transforms import SNV, FirstDerivative
 
 # Define pipeline
 pipeline = [
@@ -48,41 +51,33 @@ pipeline = [
     {"model": PLSRegression(n_components=10)}
 ]
 
-# Run with saving enabled
-runner = PipelineRunner(save_artifacts=True, verbose=1)
-predictions, _ = runner.run(
-    PipelineConfigs(pipeline, "MyPipeline"),
-    DatasetConfigs("sample_data/regression")
+# Run training
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset="sample_data/regression",
+    name="MyPipeline",
+    verbose=1,
 )
 
 # Get best model info
-best = predictions.top(n=1)[0]
-model_id = best['id']
-print(f"Model ID: {model_id}")
+print(f"Best RMSE: {result.best_rmse:.4f}")
 ```
 
-### Prediction Methods
+### Exporting and Predicting
 
-#### Method 1: Using Prediction Entry
+#### Export the Trained Model
 
 ```python
-# Create predictor
-predictor = PipelineRunner()
+# Export as a portable .n4a bundle
+result.export("my_model.n4a")
+```
 
-# New data for prediction
-new_data = DatasetConfigs({'X_test': 'path/to/new_data.csv'})
+#### Predict on New Data
 
-# Predict using the prediction entry directly
-new_predictions, _ = predictor.predict(best, new_data)
+```python
+# Predict using the exported bundle
+new_predictions = nirs4all.predict("my_model.n4a", "path/to/new_data.csv")
 print(f"Predictions shape: {new_predictions.shape}")
-```
-
-#### Method 2: Using Model ID
-
-```python
-# Predict using just the model ID string
-predictor = PipelineRunner()
-new_predictions, _ = predictor.predict(model_id, new_data)
 ```
 
 ### Prediction on NumPy Arrays
@@ -93,9 +88,8 @@ import numpy as np
 # Create synthetic new data
 X_new = np.random.randn(10, 2151)  # Must match training feature count
 
-# Create dataset from array
-new_data = DatasetConfigs({'X_test': X_new})
-predictions, _ = predictor.predict(model_id, new_data)
+# Predict directly from array
+predictions = nirs4all.predict("my_model.n4a", X_new)
 ```
 
 ### Model Storage Location
@@ -128,14 +122,15 @@ workspace/runs/<run_id>/
 ### Creating a Bundle
 
 ```python
-from nirs4all.pipeline.bundle import export_bundle, import_bundle
+import nirs4all
 
-# After training, export the best model
-export_bundle(
-    prediction_entry=best,
-    output_path="my_model.n4a",
-    include_metadata=True
+# After training, export the best model as a bundle
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset="sample_data/regression",
+    verbose=1,
 )
+result.export("my_model.n4a")
 ```
 
 ### Bundle Contents
@@ -150,14 +145,13 @@ A `.n4a` bundle is a compressed archive containing:
 | `requirements.txt` | Python dependencies |
 | `manifest.json` | Bundle structure info |
 
-### Importing a Bundle
+### Loading a Bundle for Prediction
 
 ```python
-# Load bundle
-predictor = import_bundle("my_model.n4a")
+import nirs4all
 
-# Use for prediction
-predictions = predictor.predict(X_new)
+# Predict using the exported bundle
+predictions = nirs4all.predict("my_model.n4a", X_new)
 ```
 
 ### Bundle Portability
@@ -259,64 +253,55 @@ for model in list_library():
 - Cross-validation with sklearn
 - Integration with sklearn pipelines
 
-### SklearnWrapper
+### NIRSPipeline
 
-Wrap trained models for sklearn compatibility:
+Load a trained bundle as a sklearn-compatible estimator:
 
 ```python
-from nirs4all.sklearn import SklearnWrapper
+from nirs4all.sklearn import NIRSPipeline
 
-# Wrap a trained model
-wrapper = SklearnWrapper(prediction_entry=best)
+# Load from exported bundle
+model = NIRSPipeline.from_bundle("my_model.n4a")
 
 # Use like any sklearn estimator
-predictions = wrapper.predict(X_new)
+predictions = model.predict(X_new)
 
 # Works with sklearn utilities
 from sklearn.metrics import mean_squared_error
-mse = mean_squared_error(y_true, wrapper.predict(X_test))
+mse = mean_squared_error(y_true, model.predict(X_test))
 ```
 
-### sklearn Cross-Validation
+### SHAP Integration
 
 ```python
-from sklearn.model_selection import cross_val_score
+import shap
+from nirs4all.sklearn import NIRSPipeline
 
-# Create wrapper
-wrapper = SklearnWrapper(prediction_entry=best)
+# Load model as sklearn-compatible wrapper
+model = NIRSPipeline.from_bundle("my_model.n4a")
 
-# Use sklearn cross-validation
-scores = cross_val_score(wrapper, X, y, cv=5, scoring='neg_mean_squared_error')
-print(f"CV RMSE: {np.sqrt(-scores.mean()):.4f}")
+# Use with SHAP
+explainer = shap.Explainer(model, X_train)
+shap_values = explainer(X_test)
 ```
 
 ### sklearn Pipeline Integration
 
 ```python
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from nirs4all.sklearn import NIRSPipeline
 
-# Create sklearn pipeline with NIRS4ALL model
+# Create sklearn pipeline with nirs4all model
+model = NIRSPipeline.from_bundle("my_model.n4a")
 sklearn_pipeline = Pipeline([
     ('scaler', StandardScaler()),
-    ('model', SklearnWrapper(prediction_entry=best))
+    ('model', model)
 ])
 
 # Fit and predict
 sklearn_pipeline.fit(X_train, y_train)
 predictions = sklearn_pipeline.predict(X_test)
-```
-
-### Grid Search with sklearn
-
-```python
-from sklearn.model_selection import GridSearchCV
-
-# Note: Hyperparameter tuning should be done in NIRS4ALL
-# Use sklearn GridSearch only for final pipeline tuning
-
-param_grid = {'model__scale_factor': [0.9, 1.0, 1.1]}
-grid_search = GridSearchCV(sklearn_pipeline, param_grid, cv=5)
-grid_search.fit(X, y)
 ```
 
 ---
@@ -326,9 +311,10 @@ grid_search.fit(X, y)
 ### 1. Always Validate Before Deployment
 
 ```python
-# Load the saved model
-predictor = PipelineRunner()
-preds, _ = predictor.predict(model_id, test_dataset)
+import nirs4all
+
+# Load and predict with the exported bundle
+preds = nirs4all.predict("my_model.n4a", test_dataset)
 
 # Verify against training results
 assert np.allclose(preds[:5], reference_preds[:5])
@@ -337,30 +323,21 @@ assert np.allclose(preds[:5], reference_preds[:5])
 ### 2. Document Model Requirements
 
 ```python
-# Include in bundle metadata
-export_bundle(
-    prediction_entry=best,
-    output_path="model.n4a",
-    metadata={
-        "description": "Sugar content prediction for NIR spectra",
-        "input_shape": (None, 2151),
-        "wavelength_range": "1000-2500 nm",
-        "preprocessing": "SNV + FirstDerivative",
-        "training_date": "2024-12-31",
-        "training_rmse": 1.23
-    }
-)
+# Export with descriptive naming
+result.export("sugar_model_snv_pls.n4a")
+
+# Training metadata is automatically included in the bundle:
+# - Pipeline configuration
+# - Training metrics (RMSE, R2)
+# - Dataset information
+# - Library versions
 ```
 
 ### 3. Version Your Models
 
 ```python
-# Use semantic versioning
-add_to_library(
-    model_id=best['id'],
-    name="SugarModel_v2.1.0",
-    changelog="Improved preprocessing, added MSC"
-)
+# Use descriptive versioned file names for your exports
+result.export("sugar_model_v2.1.0.n4a")
 ```
 
 ### 4. Monitor Prediction Quality
