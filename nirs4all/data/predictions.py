@@ -305,6 +305,15 @@ class Predictions:
             if row.get("sample_indices") is not None:
                 sample_indices = np.array(row["sample_indices"], dtype=np.int64)
 
+            # Restore per-sample metadata from JSON
+            metadata: dict[str, Any] = {}
+            raw_meta = row.get("sample_metadata")
+            if raw_meta is not None and isinstance(raw_meta, str):
+                try:
+                    metadata = json.loads(raw_meta)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
             self.add_prediction(
                 dataset_name=row.get("dataset_name", ""),
                 model_name=row.get("model_name", ""),
@@ -317,6 +326,7 @@ class Predictions:
                 y_pred=y_pred,
                 y_proba=y_proba,
                 sample_indices=sample_indices,
+                metadata=metadata,
             )
 
     def _populate_buffer_from_store(
@@ -333,6 +343,7 @@ class Predictions:
             pred_id = row["prediction_id"]
 
             y_true = y_pred = y_proba = sample_indices = None
+            metadata: dict[str, Any] = {}
             if load_arrays:
                 arrays = store.array_store.load_single(pred_id, dataset_name=row.get("dataset_name"))
                 if arrays:
@@ -340,6 +351,7 @@ class Predictions:
                     y_pred = arrays.get("y_pred")
                     y_proba = arrays.get("y_proba")
                     sample_indices = arrays.get("sample_indices")
+                    metadata = arrays.get("sample_metadata") or {}
 
             scores = row.get("scores")
             if isinstance(scores, str):
@@ -379,6 +391,7 @@ class Predictions:
                 y_proba=y_proba,
                 sample_indices=sample_indices,
                 pipeline_uid=row.get("pipeline_id", ""),
+                metadata=metadata,
             )
 
     # ------------------------------------------------------------------
@@ -780,6 +793,7 @@ class Predictions:
                     "y_proba": y_proba if (y_proba is not None and isinstance(y_proba, np.ndarray) and y_proba.size > 0) else None,
                     "sample_indices": np.array(sample_indices, dtype=np.int64) if sample_indices and len(sample_indices) > 0 else None,
                     "weights": np.array(weights, dtype=np.float64) if weights and len(weights) > 0 else None,
+                    "sample_metadata": row.get("metadata") or None,
                 })
 
         # Batch write all arrays to Parquet (one write per dataset)

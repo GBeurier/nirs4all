@@ -62,6 +62,16 @@ def _arr_to_list(arr: np.ndarray | None, dtype: str = "float") -> list | None:
         return flat.astype(np.int32).tolist()
     return flat.astype(np.float64).tolist()
 
+def _json_default(obj: Any) -> Any:
+    """Handle numpy scalars for json.dumps."""
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
 def _shape_to_list(arr: np.ndarray | None) -> list[int] | None:
     """Return the shape of an array as a list of ints, or None."""
     if arr is None:
@@ -84,6 +94,7 @@ _PARQUET_SCHEMA = pa.schema([
     ("y_proba_shape", pa.list_(pa.int32())),
     ("sample_indices", pa.list_(pa.int32())),
     ("weights", pa.list_(pa.float64())),
+    ("sample_metadata", pa.utf8()),
 ])
 
 class ArrayStore:
@@ -172,6 +183,13 @@ class ArrayStore:
             columns["y_proba_shape"].append(_shape_to_list(y_proba))
             columns["sample_indices"].append(_arr_to_list(sample_indices, dtype="int"))
             columns["weights"].append(_arr_to_list(weights))
+
+            # Serialize per-sample metadata as JSON string
+            metadata = rec.get("sample_metadata")
+            if metadata:
+                columns["sample_metadata"].append(json.dumps(metadata, default=_json_default))
+            else:
+                columns["sample_metadata"].append(None)
 
         arrays = [pa.array(columns[field.name], type=field.type) for field in _PARQUET_SCHEMA]
         return pa.table(arrays, schema=_PARQUET_SCHEMA)
@@ -321,6 +339,16 @@ class ArrayStore:
                     arrays["sample_indices"] = np.array(val, dtype=np.int32)
                 else:
                     arrays["sample_indices"] = None
+
+                # Deserialize per-sample metadata from JSON
+                raw_meta = row.get("sample_metadata")
+                if raw_meta is not None and isinstance(raw_meta, str):
+                    try:
+                        arrays["sample_metadata"] = json.loads(raw_meta)
+                    except (json.JSONDecodeError, TypeError):
+                        arrays["sample_metadata"] = {}
+                else:
+                    arrays["sample_metadata"] = {}
 
                 result[pid] = arrays
                 id_set.discard(pid)
