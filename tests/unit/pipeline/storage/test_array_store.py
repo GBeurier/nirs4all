@@ -350,3 +350,105 @@ class TestArrayStoreLoadWithoutDatasetName:
 
         arrays = store.load_single("p1")
         assert arrays is not None
+
+
+class TestArrayStoreMetadata:
+    """Round-trip persistence of per-sample metadata."""
+
+    def test_metadata_roundtrip(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        metadata = {
+            "Sample_ID": ["S001", "S002", "S003"],
+            "site": ["A", "B", "A"],
+            "batch": [1, 2, 1],
+        }
+        rec = _make_record(prediction_id="meta_001", n_samples=3)
+        rec["sample_metadata"] = metadata
+        store.save_batch([rec])
+
+        arrays = store.load_single("meta_001", dataset_name="wheat")
+        assert arrays is not None
+        assert arrays["sample_metadata"] == metadata
+
+    def test_metadata_none_returns_empty_dict(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        rec = _make_record(prediction_id="no_meta")
+        # No sample_metadata key
+        store.save_batch([rec])
+
+        arrays = store.load_single("no_meta", dataset_name="wheat")
+        assert arrays is not None
+        assert arrays["sample_metadata"] == {}
+
+    def test_metadata_empty_dict_returns_empty(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        rec = _make_record(prediction_id="empty_meta")
+        rec["sample_metadata"] = {}
+        store.save_batch([rec])
+
+        arrays = store.load_single("empty_meta", dataset_name="wheat")
+        assert arrays is not None
+        assert arrays["sample_metadata"] == {}
+
+    def test_metadata_with_mixed_types(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        metadata = {
+            "id": ["A", "B"],
+            "value": [1.5, 2.7],
+            "count": [10, 20],
+        }
+        rec = _make_record(prediction_id="mixed_meta", n_samples=2)
+        rec["sample_metadata"] = metadata
+        store.save_batch([rec])
+
+        arrays = store.load_single("mixed_meta", dataset_name="wheat")
+        assert arrays is not None
+        assert arrays["sample_metadata"]["id"] == ["A", "B"]
+        assert arrays["sample_metadata"]["value"] == [1.5, 2.7]
+        assert arrays["sample_metadata"]["count"] == [10, 20]
+
+    def test_backward_compat_old_parquet_without_metadata(self, tmp_path: Path) -> None:
+        """Old Parquet files without sample_metadata column should load gracefully."""
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        store = _make_store(tmp_path)
+        # Write a Parquet file using the old schema (no sample_metadata column)
+        old_schema = pa.schema([
+            ("prediction_id", pa.utf8()),
+            ("dataset_name", pa.utf8()),
+            ("model_name", pa.utf8()),
+            ("fold_id", pa.utf8()),
+            ("partition", pa.utf8()),
+            ("metric", pa.utf8()),
+            ("val_score", pa.float64()),
+            ("task_type", pa.utf8()),
+            ("y_true", pa.list_(pa.float64())),
+            ("y_pred", pa.list_(pa.float64())),
+            ("y_proba", pa.list_(pa.float64())),
+            ("y_proba_shape", pa.list_(pa.int32())),
+            ("sample_indices", pa.list_(pa.int32())),
+            ("weights", pa.list_(pa.float64())),
+        ])
+        table = pa.table({
+            "prediction_id": ["old_pred"],
+            "dataset_name": ["wheat"],
+            "model_name": ["PLS"],
+            "fold_id": ["0"],
+            "partition": ["val"],
+            "metric": ["rmse"],
+            "val_score": [0.5],
+            "task_type": ["regression"],
+            "y_true": [[1.0, 2.0]],
+            "y_pred": [[1.1, 2.1]],
+            "y_proba": [None],
+            "y_proba_shape": [None],
+            "sample_indices": [[0, 1]],
+            "weights": [None],
+        }, schema=old_schema)
+        pq.write_table(table, store.arrays_dir / "wheat.parquet")
+
+        arrays = store.load_single("old_pred", dataset_name="wheat")
+        assert arrays is not None
+        assert arrays["sample_metadata"] == {}
+        np.testing.assert_array_almost_equal(arrays["y_true"], np.array([1.0, 2.0]))
