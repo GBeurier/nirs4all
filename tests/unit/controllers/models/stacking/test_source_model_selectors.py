@@ -458,10 +458,10 @@ class TestTopKByMetricSelector:
     def test_per_class_selection(self):
         """Test top K per class selection."""
         candidates = create_candidates([
-            {'name': 'PLS_1', 'step': 2, 'fold': 0, 'classname': 'PLSRegression', 'score': 0.85},
-            {'name': 'PLS_2', 'step': 2, 'fold': 1, 'classname': 'PLSRegression', 'score': 0.88},
-            {'name': 'RF_1', 'step': 3, 'fold': 0, 'classname': 'RandomForest', 'score': 0.90},
-            {'name': 'RF_2', 'step': 3, 'fold': 1, 'classname': 'RandomForest', 'score': 0.92},
+            {'name': 'PLS_1', 'step': 2, 'fold': 0, 'classname': 'PLSRegression', 'score': 0.85, 'metric': 'r2'},
+            {'name': 'PLS_2', 'step': 2, 'fold': 1, 'classname': 'PLSRegression', 'score': 0.88, 'metric': 'r2'},
+            {'name': 'RF_1', 'step': 3, 'fold': 0, 'classname': 'RandomForest', 'score': 0.90, 'metric': 'r2'},
+            {'name': 'RF_2', 'step': 3, 'fold': 1, 'classname': 'RandomForest', 'score': 0.92, 'metric': 'r2'},
         ])
 
         # Top 1 per class

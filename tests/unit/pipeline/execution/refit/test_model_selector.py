@@ -22,10 +22,10 @@ from nirs4all.pipeline.analysis.topology import (
     PipelineTopology,
     analyze_topology,
 )
+from nirs4all.core.metrics import infer_ascending as _infer_ascending
 from nirs4all.pipeline.execution.refit.model_selector import (
     PerModelSelection,
     _aggregate_scores_per_variant,
-    _infer_ascending,
     _resolve_variant_index,
     select_best_per_model,
 )

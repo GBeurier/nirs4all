@@ -57,12 +57,18 @@ METRIC_METADATA = {
 
     # Classification metrics
     "accuracy": {"higher_is_better": True, "optimal": 1.0, "range": (0.0, 1.0)},
+    "balanced_accuracy": {"higher_is_better": True, "optimal": 1.0, "range": (0.0, 1.0)},
     "precision": {"higher_is_better": True, "optimal": 1.0, "range": (0.0, 1.0)},
     "recall": {"higher_is_better": True, "optimal": 1.0, "range": (0.0, 1.0)},
     "f1": {"higher_is_better": True, "optimal": 1.0, "range": (0.0, 1.0)},
     "f1_score": {"higher_is_better": True, "optimal": 1.0, "range": (0.0, 1.0)},
+    "specificity": {"higher_is_better": True, "optimal": 1.0, "range": (0.0, 1.0)},
     "auc": {"higher_is_better": True, "optimal": 1.0, "range": (0.0, 1.0)},
     "roc_auc": {"higher_is_better": True, "optimal": 1.0, "range": (0.0, 1.0)},
+    "kappa": {"higher_is_better": True, "optimal": 1.0, "range": (-1.0, 1.0)},
+    "cohen_kappa": {"higher_is_better": True, "optimal": 1.0, "range": (-1.0, 1.0)},
+    "matthews_corrcoef": {"higher_is_better": True, "optimal": 1.0, "range": (-1.0, 1.0)},
+    "rpiq": {"higher_is_better": True, "optimal": float('inf'), "range": (0.0, float('inf'))},
 
     # Default for unknown metrics
     "default": {"higher_is_better": True, "optimal": 1.0, "range": (-float('inf'), float('inf'))},

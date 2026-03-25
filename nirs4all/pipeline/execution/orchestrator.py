@@ -14,7 +14,8 @@ from joblib import Parallel, delayed
 from nirs4all.core.logging import get_logger
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.data.predictions import Predictions, _infer_ascending
+from nirs4all.core.metrics import infer_ascending as _infer_ascending
+from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.analysis.topology import analyze_topology
 from nirs4all.pipeline.config.context import BestChainEntry, RuntimeContext
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
@@ -1959,7 +1960,7 @@ class PipelineOrchestrator:
         # Generate the global summary table (using pre-built index for efficiency)
         summary = TabReportManager.generate_per_model_summary(
             rankable,
-            ascending=True,  # Will be adjusted based on metric
+            ascending=_infer_ascending(metric),
             metric=metric,
             aggregate=aggregate_column,
             aggregate_method=aggregate_method,

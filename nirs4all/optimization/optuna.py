@@ -39,20 +39,7 @@ VALID_APPROACHES = {"single", "grouped", "individual"}
 VALID_EVAL_MODES = {"best", "mean", "robust_best"}
 VALID_PRUNERS = {"none", "median", "successive_halving", "hyperband"}
 
-# Metrics supported for the unified ``metric`` field in finetune_params.
-# Direction is auto-inferred from the metric when not explicitly set.
-METRIC_DIRECTION = {
-    # Regression (minimize)
-    "mse": "minimize",
-    "rmse": "minimize",
-    "mae": "minimize",
-    # Regression (maximize)
-    "r2": "maximize",
-    # Classification (maximize)
-    "accuracy": "maximize",
-    "balanced_accuracy": "maximize",
-    "f1": "maximize",
-}
+from nirs4all.core.metrics import is_higher_better as _is_higher_better
 
 # Aliases normalized at entry time
 _EVAL_MODE_ALIASES = {"avg": "mean"}
@@ -591,8 +578,8 @@ class OptunaManager:
     def _resolve_metric_direction(self, finetune_params: dict[str, Any], dataset: 'SpectroDataset') -> dict[str, Any]:
         """Resolve metric name and direction from finetune_params and dataset task_type.
 
-        When ``metric`` is set, auto-infers ``direction`` from METRIC_DIRECTION
-        unless explicitly overridden. When ``metric`` is not set, preserves the
+        When ``metric`` is set, auto-infers ``direction`` from the centralized
+        ``is_higher_better`` function unless explicitly overridden. When ``metric`` is not set, preserves the
         existing default behavior (MSE for regression, -balanced_accuracy for
         classification).
 
@@ -607,15 +594,9 @@ class OptunaManager:
         metric = params.get('metric')
 
         if metric is not None:
-            # Validate the metric is supported
-            if metric not in METRIC_DIRECTION:
-                raise ValueError(
-                    f"Unknown metric '{metric}' for finetuning. "
-                    f"Supported: {sorted(METRIC_DIRECTION.keys())}"
-                )
             # Auto-infer direction if not explicitly set
             if 'direction' not in finetune_params:
-                params['direction'] = METRIC_DIRECTION[metric]
+                params['direction'] = "maximize" if _is_higher_better(metric) else "minimize"
         else:
             # No explicit metric — use defaults based on task_type
             task_type = getattr(dataset, 'task_type', 'regression')

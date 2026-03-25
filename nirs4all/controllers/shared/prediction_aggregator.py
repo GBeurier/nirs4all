@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import numpy as np
 
 from nirs4all.core.logging import get_logger
+from nirs4all.core.metrics import is_higher_better
 from nirs4all.operators.data.merge import AggregationStrategy
 
 if TYPE_CHECKING:
@@ -54,8 +55,6 @@ class PredictionAggregator:
     All methods are static as no instance state is needed.
     """
 
-    # Reference to LOWER_IS_BETTER_METRICS for weighted_mean
-    LOWER_IS_BETTER_METRICS = {"rmse", "mse", "mae", "mape", "log_loss", "nrmse", "nmse", "nmae"}
 
     @staticmethod
     def aggregate(
@@ -208,7 +207,7 @@ class PredictionAggregator:
         valid_models = []
 
         # Determine if higher or lower scores are better
-        lower_is_better = (metric or "rmse").lower() in PredictionAggregator.LOWER_IS_BETTER_METRICS
+        lower_is_better = not is_higher_better(metric or "rmse")
 
         for name in model_names:
             score = model_scores.get(name)
@@ -331,7 +330,7 @@ class PredictionAggregator:
                 return np.asarray(np.mean(fold_predictions, axis=0))
 
             # Compute weights
-            lower_is_better = (metric or "rmse").lower() in PredictionAggregator.LOWER_IS_BETTER_METRICS
+            lower_is_better = not is_higher_better(metric or "rmse")
 
             weights = []
             for score in fold_scores:
@@ -348,7 +347,7 @@ class PredictionAggregator:
             if fold_scores is None:
                 return fold_predictions[0]
 
-            lower_is_better = (metric or "rmse").lower() in PredictionAggregator.LOWER_IS_BETTER_METRICS
+            lower_is_better = not is_higher_better(metric or "rmse")
 
             best_idx = int(np.argmin(fold_scores) if lower_is_better else np.argmax(fold_scores))
 

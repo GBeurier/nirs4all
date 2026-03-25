@@ -1364,7 +1364,8 @@ class BaseModelController(OperatorController, ABC):
         test_score = prediction_data['test_score']
         metric = prediction_data['metric']
         from nirs4all.core.logging.formatters import get_symbols
-        direction = get_symbols().direction(metric in ['r2', 'accuracy', 'balanced_accuracy'])
+        from nirs4all.core.metrics import is_higher_better
+        direction = get_symbols().direction(is_higher_better(metric))
 
         summary = f"{model_name} {metric} {direction} [test: {test_score:.4f}], [val: {val_score:.4f}]" if val_score is not None else f"{model_name} {metric} {direction} [test: {test_score:.4f}]"
         if fold_id not in [None, 'None', 'avg', 'w_avg']:

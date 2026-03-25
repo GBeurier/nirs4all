@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from nirs4all.core.logging import get_logger
+from nirs4all.core.metrics import infer_ascending as _infer_ascending
 from nirs4all.pipeline.analysis.topology import PipelineTopology
 
 logger = get_logger(__name__)
@@ -254,19 +255,3 @@ def _aggregate_scores_per_variant(
         counts[variant_idx] += 1
 
     return {vi: sums[vi] / counts[vi] for vi in sums}
-
-def _infer_ascending(metric: str) -> bool:
-    """Infer whether lower-is-better from the metric name.
-
-    Args:
-        metric: Metric name string.
-
-    Returns:
-        ``True`` if lower is better (error metrics), ``False`` otherwise.
-    """
-    if not metric:
-        return True  # Default: lower is better (RMSE, MSE, MAE)
-
-    metric_lower = metric.lower()
-    higher_is_better = {"r2", "accuracy", "f1", "precision", "recall", "auc", "roc_auc", "balanced_accuracy"}
-    return metric_lower not in higher_is_better

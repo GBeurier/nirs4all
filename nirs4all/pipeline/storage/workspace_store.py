@@ -44,6 +44,7 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+from nirs4all.core.metrics import infer_ascending as _infer_metric_ascending
 from nirs4all.pipeline.storage.array_store import ArrayStore
 from nirs4all.pipeline.storage.store_queries import (
     CASCADE_DELETE_PIPELINE_CHAINS,
@@ -184,26 +185,6 @@ def _deserialize_artifact(data: bytes, fmt: str) -> Any:
 def _format_to_ext(fmt: str) -> str:
     """Map serialisation format to file extension."""
     return {"joblib": "joblib", "pickle": "pkl", "cloudpickle": "pkl"}.get(fmt, "bin")
-
-# ---- Metric direction heuristics ----------------------------------------
-
-_HIGHER_IS_BETTER_METRICS: frozenset[str] = frozenset({
-    "r2", "accuracy", "f1", "precision", "recall",
-    "auc", "roc_auc", "balanced_accuracy", "kappa",
-    "rpd", "rpiq",
-})
-
-def _infer_metric_ascending(metric: str) -> bool:
-    """Infer sort direction from a metric name.
-
-    Args:
-        metric: Metric name (e.g. ``"rmse"``, ``"r2"``).
-
-    Returns:
-        ``True`` if lower is better (ascending sort),
-        ``False`` if higher is better (descending sort).
-    """
-    return metric.lower() not in _HIGHER_IS_BETTER_METRICS
 
 class WorkspaceStore:
     """Database-backed workspace storage.

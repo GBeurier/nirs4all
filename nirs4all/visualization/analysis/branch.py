@@ -494,11 +494,8 @@ class BranchAnalyzer:
 
         # Determine sort order
         if ascending is None:
-            higher_better_metrics = [
-                'accuracy', 'balanced_accuracy', 'r2', 'f1',
-                'precision', 'recall', 'specificity', 'roc_auc'
-            ]
-            ascending = metric.lower() not in higher_better_metrics
+            from nirs4all.core.metrics import infer_ascending
+            ascending = infer_ascending(metric)
 
         # Sort by mean
         ranked = sorted(

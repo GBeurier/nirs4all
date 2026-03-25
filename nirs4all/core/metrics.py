@@ -114,6 +114,52 @@ METRIC_ABBREVIATIONS = {
     'hamming_loss': 'Hamming',
 }
 
+# ---- Metric direction (single source of truth) ---------------------------
+
+HIGHER_IS_BETTER_METRICS: frozenset[str] = frozenset({
+    # Classification metrics
+    "accuracy", "balanced_accuracy",
+    "precision", "balanced_precision", "precision_micro", "precision_macro",
+    "recall", "balanced_recall", "recall_micro", "recall_macro",
+    "f1", "f1_score", "f1_micro", "f1_macro",
+    "specificity", "roc_auc", "auc",
+    "matthews_corrcoef", "mcc", "cohen_kappa", "kappa", "jaccard",
+    # Regression metrics (higher is better)
+    "r2", "r2_score", "rpd", "rpiq",
+    "explained_variance", "explained_variance_score",
+    "pearson_r", "spearman_r", "consistency",
+})
+
+
+def is_higher_better(metric: str) -> bool:
+    """Check whether higher values indicate better performance.
+
+    This is the **single source of truth** for metric direction across the
+    entire codebase.  All other sort-direction helpers must delegate here.
+
+    Args:
+        metric: Metric name (e.g. ``"rmse"``, ``"balanced_accuracy"``).
+
+    Returns:
+        ``True`` if higher values are better, ``False`` if lower values are
+        better.  Unknown metrics default to ``False`` (lower is better).
+    """
+    return metric.lower() in HIGHER_IS_BETTER_METRICS
+
+
+def infer_ascending(metric: str) -> bool:
+    """Infer sort direction from a metric name.
+
+    Args:
+        metric: Metric name.
+
+    Returns:
+        ``True`` if the metric should be sorted ascending (lower is better),
+        ``False`` for descending (higher is better).
+    """
+    return not is_higher_better(metric)
+
+
 def abbreviate_metric(metric: str) -> str:
     """Convert metric name to abbreviated form.
 

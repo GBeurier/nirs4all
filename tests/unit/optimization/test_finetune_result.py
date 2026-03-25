@@ -2,8 +2,8 @@
 
 import pytest
 
+from nirs4all.core.metrics import is_higher_better
 from nirs4all.optimization.optuna import (
-    METRIC_DIRECTION,
     FinetuneResult,
     OptunaManager,
     TrialSummary,
@@ -139,20 +139,20 @@ class TestFinetuneResult:
         assert result.metric == "accuracy"
 
 class TestMetricDirection:
-    """Tests for METRIC_DIRECTION mapping."""
+    """Tests for metric direction via centralized is_higher_better."""
 
     def test_regression_metrics_minimize(self):
-        assert METRIC_DIRECTION["mse"] == "minimize"
-        assert METRIC_DIRECTION["rmse"] == "minimize"
-        assert METRIC_DIRECTION["mae"] == "minimize"
+        assert is_higher_better("mse") is False
+        assert is_higher_better("rmse") is False
+        assert is_higher_better("mae") is False
 
     def test_regression_r2_maximize(self):
-        assert METRIC_DIRECTION["r2"] == "maximize"
+        assert is_higher_better("r2") is True
 
     def test_classification_metrics_maximize(self):
-        assert METRIC_DIRECTION["accuracy"] == "maximize"
-        assert METRIC_DIRECTION["balanced_accuracy"] == "maximize"
-        assert METRIC_DIRECTION["f1"] == "maximize"
+        assert is_higher_better("accuracy") is True
+        assert is_higher_better("balanced_accuracy") is True
+        assert is_higher_better("f1") is True
 
 class TestResolveMetricDirection:
     """Tests for _resolve_metric_direction method."""
@@ -201,8 +201,8 @@ class TestResolveMetricDirection:
         )
         assert params["direction"] == "maximize"
 
-    def test_unknown_metric_raises(self, manager):
-        with pytest.raises(ValueError, match="Unknown metric 'bogus'"):
-            manager._resolve_metric_direction(
-                {"metric": "bogus"}, self._mock_dataset()
-            )
+    def test_unknown_metric_defaults_to_minimize(self, manager):
+        params = manager._resolve_metric_direction(
+            {"metric": "bogus"}, self._mock_dataset()
+        )
+        assert params["direction"] == "minimize"

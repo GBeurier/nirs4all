@@ -69,17 +69,7 @@ def _json_default(obj: Any) -> Any:
         return float(obj)
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
-def _infer_ascending(metric: str) -> bool:
-    """Infer sort direction from metric name.
-
-    Args:
-        metric: Metric name (e.g. ``"rmse"``, ``"r2"``, ``"accuracy"``).
-
-    Returns:
-        ``True`` if lower is better, ``False`` if higher is better.
-    """
-    higher_is_better = {"r2", "accuracy", "f1", "precision", "recall", "auc", "roc_auc", "balanced_accuracy", "kappa", "rpd", "rpiq"}
-    return metric.lower() not in higher_is_better
+from nirs4all.core.metrics import infer_ascending as _infer_ascending
 
 _CASE_INSENSITIVE_COLS = {"model_name", "model_classname", "preprocessings", "dataset_name", "config_name"}
 

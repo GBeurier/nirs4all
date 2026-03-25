@@ -10,7 +10,6 @@ import numpy as np
 import pytest
 
 from nirs4all.optimization.optuna import (
-    METRIC_DIRECTION,
     FinetuneResult,
     OptunaManager,
 )

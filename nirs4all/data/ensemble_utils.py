@@ -226,36 +226,9 @@ class EnsembleUtils:
 
     @staticmethod
     def _is_higher_better(metric: str) -> bool:
-        """
-        Determine if higher values are better for a given metric.
-
-        Args:
-            metric: Metric name
-
-        Returns:
-            True if higher is better, False if lower is better
-        """
-        # Metrics where higher is better
-        higher_better_metrics = {
-            'r2', 'accuracy', 'f1', 'precision', 'recall',
-            'auc', 'roc_auc', 'score'
-        }
-
-        # Metrics where lower is better
-        lower_better_metrics = {
-            'mse', 'rmse', 'mae', 'loss', 'error',
-            'mean_squared_error', 'mean_absolute_error', 'root_mean_squared_error'
-        }
-
-        metric_lower = metric.lower()
-
-        if metric_lower in higher_better_metrics:
-            return True
-        elif metric_lower in lower_better_metrics:
-            return False
-        else:
-            # Default assumption: if it contains 'error', 'loss', or 'mse', lower is better
-            return not any(term in metric_lower for term in ['error', 'loss', 'mse', 'mae'])
+        """Determine if higher values are better for a given metric."""
+        from nirs4all.core.metrics import is_higher_better
+        return is_higher_better(metric)
 
     @staticmethod
     def _scores_to_weights(scores: np.ndarray, higher_is_better: bool) -> np.ndarray:
