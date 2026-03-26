@@ -232,15 +232,17 @@ class BaseChart(ABC):
 
         Notes:
             - When analyzer is provided, uses cached data access for performance
-            - Charts that need one result per model should use group_by=['model_name']
+            - Charts that need one result per model should use
+              group_by=['model_name'] with n=1, then slice the ranked list
+              to the desired total count.
             - Charts that show distributions should NOT use group_by (or set it to None)
             - The global sort order is always preserved - group_by takes first per group
 
         Examples:
             >>> # TopK/ConfusionMatrix: one best per model
             >>> preds = self._get_ranked_predictions(
-            ...     n=5, rank_metric='rmse', group_by=['model_name']
-            ... )
+            ...     n=1, rank_metric='rmse', group_by=['model_name']
+            ... )[:5]
             >>>
             >>> # Histogram/Candlestick: all predictions for distribution
             >>> preds = self._get_ranked_predictions(
