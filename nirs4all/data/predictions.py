@@ -309,10 +309,8 @@ class Predictions:
             metadata: dict[str, Any] = {}
             raw_meta = row.get("sample_metadata")
             if raw_meta is not None and isinstance(raw_meta, str):
-                try:
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
                     metadata = json.loads(raw_meta)
-                except (json.JSONDecodeError, TypeError):
-                    pass
 
             self.add_prediction(
                 dataset_name=row.get("dataset_name", ""),
@@ -351,7 +349,8 @@ class Predictions:
                     y_pred = arrays.get("y_pred")
                     y_proba = arrays.get("y_proba")
                     sample_indices = arrays.get("sample_indices")
-                    metadata = arrays.get("sample_metadata") or {}
+                    raw_meta = arrays.get("sample_metadata")
+                    metadata = raw_meta if isinstance(raw_meta, dict) else {}
 
             scores = row.get("scores")
             if isinstance(scores, str):

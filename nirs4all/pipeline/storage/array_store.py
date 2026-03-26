@@ -280,7 +280,7 @@ class ArrayStore:
         self,
         prediction_ids: list[str],
         dataset_name: str | None = None,
-    ) -> dict[str, dict[str, np.ndarray | None]]:
+    ) -> dict[str, dict[str, Any]]:
         """Load arrays for multiple predictions.
 
         Uses predicate pushdown on ``prediction_id`` for efficient reads.
@@ -290,13 +290,13 @@ class ArrayStore:
             dataset_name: If given, reads only that dataset's file.
 
         Returns:
-            ``{prediction_id: {y_true, y_pred, y_proba, sample_indices, weights}}``
+            ``{prediction_id: {y_true, y_pred, y_proba, sample_indices, weights, sample_metadata}}``
         """
         if not prediction_ids:
             return {}
 
         id_set = set(prediction_ids)
-        result: dict[str, dict[str, np.ndarray | None]] = {}
+        result: dict[str, dict[str, Any]] = {}
 
         files = [self._parquet_path(dataset_name)] if dataset_name else sorted(self._arrays_dir.glob("*.parquet"))
 
@@ -318,7 +318,7 @@ class ArrayStore:
 
             for row in df.iter_rows(named=True):
                 pid = row["prediction_id"]
-                arrays: dict[str, np.ndarray | None] = {}
+                arrays: dict[str, Any] = {}
 
                 for field in ("y_true", "y_pred", "y_proba", "weights"):
                     val = row.get(field)
@@ -362,7 +362,7 @@ class ArrayStore:
         self,
         prediction_id: str,
         dataset_name: str | None = None,
-    ) -> dict[str, np.ndarray | None] | None:
+    ) -> dict[str, Any] | None:
         """Load arrays for one prediction.
 
         Args:
