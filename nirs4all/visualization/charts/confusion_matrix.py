@@ -130,20 +130,23 @@ class ConfusionMatrixChart(BaseChart):
             # Get top models for this specific dataset using common helper
             ds_filters = {**filters, 'dataset_name': ds}
             top_preds = self._get_ranked_predictions(
-                n=k,
+                n=1,
                 rank_metric=rank_metric,
                 rank_partition=rank_partition,
                 display_metrics=display_metrics,
                 display_partition=display_partition,
                 aggregate_partitions=True,
                 aggregate=aggregate,
-                group_by=['model_name'],  # Keep only best per model_name
+                group_by=['model_name'],  # Keep only the best entry per model_name
                 **ds_filters
             )
 
             # Filter out regression models — confusion matrices are classification-only
             if top_preds:
                 top_preds = [p for p in top_preds if 'classification' in str(p.get('task_type', '')).lower()]
+
+            # Keep only the top-k unique models after deduplication.
+            top_preds = top_preds[:k]
 
             if not top_preds:
                 # Create empty figure for this dataset

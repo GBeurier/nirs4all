@@ -349,7 +349,8 @@ class Predictions:
                     y_pred = arrays.get("y_pred")
                     y_proba = arrays.get("y_proba")
                     sample_indices = arrays.get("sample_indices")
-                    metadata = arrays.get("sample_metadata") or {}
+                    raw_meta = arrays.get("sample_metadata")
+                    metadata = raw_meta if isinstance(raw_meta, dict) else {}
 
             scores = row.get("scores")
             if isinstance(scores, str):

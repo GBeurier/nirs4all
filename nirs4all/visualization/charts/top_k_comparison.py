@@ -101,16 +101,20 @@ class TopKComparisonChart(BaseChart):
 
         # Get top models using common helper with group_by for deduplication
         top_predictions = self._get_ranked_predictions(
-            n=k,
+            n=1,
             rank_metric=rank_metric,
             rank_partition=rank_partition,
             display_partition='test',  # Ignored when aggregate_partitions=True
             display_metrics=[display_metric] if display_metric else None,
             aggregate_partitions=True,
             aggregate=aggregate,
-            group_by=['model_name'],  # Keep only best per model_name
+            group_by=['model_name'],  # Keep only the best entry per model_name
             **filters
         )
+
+        # group_by uses "top N per group" semantics, so request n=1 above and
+        # limit to the top-k models after deduplication.
+        top_predictions = top_predictions[:k]
 
         if not top_predictions:
             return self._create_empty_figure(
