@@ -309,10 +309,8 @@ class Predictions:
             metadata: dict[str, Any] = {}
             raw_meta = row.get("sample_metadata")
             if raw_meta is not None and isinstance(raw_meta, str):
-                try:
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
                     metadata = json.loads(raw_meta)
-                except (json.JSONDecodeError, TypeError):
-                    pass
 
             self.add_prediction(
                 dataset_name=row.get("dataset_name", ""),

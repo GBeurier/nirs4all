@@ -15,12 +15,12 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from nirs4all.core.metrics import infer_ascending as _infer_ascending_for_metric
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.analysis.topology import PipelineTopology, analyze_topology
 from nirs4all.pipeline.config.context import ExecutionPhase, RuntimeContext
 from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
 from nirs4all.pipeline.execution.refit.executor import RefitResult
-from nirs4all.core.metrics import infer_ascending as _infer_ascending_for_metric
 from nirs4all.pipeline.execution.refit.stacking_refit import (
     DEFAULT_MAX_STACKING_DEPTH,
     _branch_contains_stacking,
