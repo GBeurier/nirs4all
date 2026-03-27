@@ -248,30 +248,16 @@ if should_run examples; then
       $PYTHON -m pip install --quiet -r requirements-examples.txt
       $PYTHON -m pip install --quiet -e .
       cd examples
-      chmod +x run.sh
+      chmod +x run_ci_examples.sh
 
-      # Run categories in parallel (mirrors CI matrix strategy)
-      pids=()
+      # Run categories sequentially using CI launcher (fast mode + parameter caps)
       cats=($EXAMPLES_CATS)
-      cat_logs=()
-      for cat in \"\${cats[@]}\"; do
-        logfile=\"\$(mktemp)\"
-        cat_logs+=(\"\$logfile\")
-        echo \"--- Launching category: \$cat (parallel) ---\"
-        ./run.sh -c \"\$cat\" >\"\$logfile\" 2>&1 &
-        pids+=(\$!)
-      done
-
-      # Wait for all and collect results
       failed=()
-      for i in \"\${!pids[@]}\"; do
-        if ! wait \"\${pids[\$i]}\"; then
-          failed+=(\"\${cats[\$i]}\")
+      for cat in \"\${cats[@]}\"; do
+        echo \"--- Running category: \$cat ---\"
+        if ! ./run_ci_examples.sh -c \"\$cat\" -k; then
+          failed+=(\"\$cat\")
         fi
-        echo \"\"
-        echo \"=== Output: \${cats[\$i]} ===\"
-        cat \"\${cat_logs[\$i]}\"
-        rm -f \"\${cat_logs[\$i]}\"
       done
 
       if [ \${#failed[@]} -gt 0 ]; then
