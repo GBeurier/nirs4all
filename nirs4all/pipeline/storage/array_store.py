@@ -78,6 +78,20 @@ def _shape_to_list(arr: np.ndarray | None) -> list[int] | None:
         return None
     return list(arr.shape)
 
+def _align_to_schema(table: pa.Table, target_schema: pa.Schema) -> pa.Table:
+    """Align a table to the target schema, adding missing columns (as null) and dropping extra ones."""
+    columns = []
+    for field in target_schema:
+        if field.name in table.schema.names:
+            col = table.column(field.name)
+            if col.type != field.type:
+                col = col.cast(field.type)
+            columns.append(col)
+        else:
+            columns.append(pa.nulls(len(table), type=field.type))
+    return pa.table(columns, schema=target_schema)
+
+
 # Shared Arrow schema for all Parquet files
 _PARQUET_SCHEMA = pa.schema([
     ("prediction_id", pa.utf8()),
@@ -263,6 +277,8 @@ class ArrayStore:
 
             if path.exists():
                 existing = pq.read_table(path)
+                if existing.schema != _PARQUET_SCHEMA:
+                    existing = _align_to_schema(existing, _PARQUET_SCHEMA)
                 combined = pa.concat_tables([existing, table])
                 self._atomic_write_parquet(combined, path)
             else:
