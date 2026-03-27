@@ -279,10 +279,16 @@ class PredictionAnalyzer:
         effective_method = aggregate_method if aggregate_method is not None else self.default_aggregate_method
         effective_exclude = aggregate_exclude_outliers if aggregate_exclude_outliers is not None else self.default_aggregate_exclude_outliers
 
-        # Create cache key (n is intentionally excluded as we cache large result sets)
-        # We request more than needed and slice, so the same cache entry serves
-        # multiple calls with different n values
-        cache_n = max(n, 1000)  # Cache a larger result set
+        # For ungrouped queries, cache a larger result set and slice locally so the
+        # same cache entry can serve multiple n values. With group_by, n means
+        # "per group", so overfetching and slicing would change semantics.
+        is_grouped_query = bool(group_by)
+        cache_n = n if is_grouped_query else max(n, 1000)
+
+        cache_filters = dict(filters)
+        if is_grouped_query:
+            # n changes query semantics for grouped results, so include it in the key.
+            cache_filters["_grouped_n"] = n
 
         cache_key = self._cache.make_key(
             aggregate=aggregate,
@@ -293,7 +299,7 @@ class PredictionAnalyzer:
             display_partition=display_partition,
             group_by=group_by,
             score_scope=score_scope,
-            **filters
+            **cache_filters
         )
 
         def compute():
@@ -326,7 +332,11 @@ class PredictionAnalyzer:
         # Get from cache or compute
         result = self._cache.get_or_compute(cache_key, compute)
 
-        # Return only the requested number of results
+        # Return only the requested number of results for ungrouped queries.
+        # Grouped queries already used the exact n and may legitimately return
+        # more than n total results because n is "per group".
+        if is_grouped_query:
+            return result
         return result[:n] if len(result) > n else result
 
     def _get_default_metric(self) -> str:
