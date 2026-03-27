@@ -1,5 +1,5 @@
 """
-Explore predictions from workspace DuckDB stores.
+Explore predictions from workspace SQLite stores.
 
 Prints the best final model RMSEP per dataset, exactly like the
 global summary printed at the end of a nirs4all.run().
@@ -18,16 +18,16 @@ from nirs4all.visualization.reports import TabReportManager
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Explore workspace DuckDB predictions")
+    parser = argparse.ArgumentParser(description="Explore workspace predictions")
     parser.add_argument("--dataset", "-d", default=None, help="Filter datasets by glob pattern (e.g. 'CORN*', '*LeafTraits*')")
     args = parser.parse_args()
 
     workspace_path = Path('.')
-    if not (workspace_path / "store.duckdb").exists():
-        print(f"Error: No store.duckdb found at {workspace_path}")
+    if not (workspace_path / "store.sqlite").exists():
+        print(f"Error: No store.sqlite found at {workspace_path}")
         return
 
-    # Load predictions from DuckDB
+    # Load predictions from workspace store
     predictions = Predictions.from_workspace(workspace_path, load_arrays=False)
     print(f"Loaded {predictions.num_predictions} predictions: {len(predictions.get_datasets())} datasets, {len(predictions.get_models())} models\n")
 

@@ -23,7 +23,7 @@ nirs4all/
 ├── api/            # Public interface: run(), predict(), explain(), retrain(), session(), generate()
 ├── pipeline/
 │   ├── execution/  # PipelineOrchestrator (parallel n_jobs), PipelineExecutor, refit
-│   ├── storage/    # WorkspaceStore (DuckDB metadata), ArrayStore (Parquet arrays)
+│   ├── storage/    # WorkspaceStore (SQLite metadata), ArrayStore (Parquet arrays)
 │   ├── steps/      # StepParser → ControllerRouter → StepRunner
 │   ├── bundle/     # BundleGenerator/BundleLoader (.n4a export)
 │   ├── config/     # PipelineConfigs, PipelineGenerator, ExecutionContext
@@ -142,11 +142,11 @@ class MyController(OperatorController):
 
 ## Storage (Workspace)
 
-Hybrid DuckDB + Parquet model:
+Hybrid SQLite + Parquet model:
 
 ```
 workspace/
-  store.duckdb                          # Metadata: runs, pipelines, chains, logs, artifacts
+  store.sqlite                          # Metadata: runs, pipelines, chains, logs, artifacts
   arrays/<dataset_name>.parquet         # Prediction arrays (Zstd-compressed)
   artifacts/<hash>.joblib               # Content-addressed model binaries
   runs/<dataset>/0001_xxx/manifest.yaml # Run manifests
@@ -154,7 +154,7 @@ workspace/
   library/templates/                    # Pipeline templates
 ```
 
-- `WorkspaceStore` — DuckDB-backed, thread-safe, retry-on-lock
+- `WorkspaceStore` — SQLite WAL-backed, thread-safe, retry-on-lock
 - `ArrayStore` — Parquet-backed prediction arrays with tombstone deletes
 - `Predictions` — Facade combining metadata queries + array retrieval
 
@@ -168,7 +168,7 @@ workspace/
 | `PipelineRunner` | `pipeline.runner` | Main training orchestration |
 | `PipelineOrchestrator` | `pipeline.execution.orchestrator` | Parallel variant execution |
 | `PipelineExecutor` | `pipeline.execution.executor` | Single variant execution |
-| `WorkspaceStore` | `pipeline.storage.workspace_store` | DuckDB metadata store |
+| `WorkspaceStore` | `pipeline.storage.workspace_store` | SQLite metadata store |
 | `ArrayStore` | `pipeline.storage.array_store` | Parquet prediction arrays |
 | `RunResult` | `api.result` | Training results (best_score, export()) |
 | `NIRSPipeline` | `sklearn` | SHAP-compatible sklearn wrapper |

@@ -3,16 +3,16 @@
 **Version**: 5.0
 **Status**: Implemented
 
-This document describes the nirs4all workspace directory structure, which uses a hybrid DuckDB + Parquet storage backend.
+This document describes the nirs4all workspace directory structure, which uses a hybrid SQLite + Parquet storage backend.
 
 ## Design Principles
 
 | Principle | Description |
 |-----------|-------------|
-| **Hybrid storage** | Structured metadata in DuckDB, dense arrays in Parquet sidecar files |
+| **Hybrid storage** | Structured metadata in SQLite, dense arrays in Parquet sidecar files |
 | **Content-addressed artifacts** | Binary deduplication via SHA-256 hashing in flat `artifacts/` directory |
 | **Export on demand** | No export files written during training — only on explicit `export()` calls |
-| **Zero-copy queries** | DuckDB returns Polars DataFrames via Arrow transfer |
+| **Polars integration** | Query results returned as Polars DataFrames |
 | **Library flexibility** | Pipeline templates stored as JSON with category and tag support |
 
 ---
@@ -21,7 +21,7 @@ This document describes the nirs4all workspace directory structure, which uses a
 
 ```
 workspace/
-├── store.duckdb                        # Structured metadata (7 DuckDB tables)
+├── store.sqlite                        # Structured metadata (7 SQLite tables)
 ├── arrays/                              # Prediction arrays (Parquet sidecar files)
 │   ├── wheat.parquet                    # All arrays for dataset "wheat"
 │   └── corn.parquet                     # All arrays for dataset "corn"
@@ -39,7 +39,7 @@ workspace/
 
 ---
 
-## DuckDB Tables
+## SQLite Tables
 
 | Table | Purpose |
 |-------|---------|

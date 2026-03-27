@@ -51,7 +51,7 @@ Bundles are portable -- copy the `.n4a` file to another machine and predict with
 
 ## From a Chain ID
 
-If you are working within a workspace that has a DuckDB store, you can predict directly from a stored chain without exporting first:
+If you are working within a workspace that has a store, you can predict directly from a stored chain without exporting first:
 
 ```python
 import nirs4all

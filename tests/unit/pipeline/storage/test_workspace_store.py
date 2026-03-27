@@ -1,4 +1,4 @@
-"""Comprehensive unit tests for WorkspaceStore (DuckDB implementation).
+"""Comprehensive unit tests for WorkspaceStore (SQLite implementation).
 
 Tests cover the full CRUD lifecycle, queries, export operations,
 artifact deduplication, garbage collection, cascade deletion, and
@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import threading
 import zipfile
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -797,7 +798,7 @@ class TestArtifactDedup:
 
         # Check ref_count
         conn = store._ensure_open()
-        result = conn.execute("SELECT ref_count FROM artifacts WHERE artifact_id = $1", [aid1]).fetchone()
+        result = conn.execute("SELECT ref_count FROM artifacts WHERE artifact_id = ?", [aid1]).fetchone()
         assert result[0] == 2
 
         store.close()
@@ -824,7 +825,7 @@ class TestArtifactGC:
 
         # Decrement ref_count to 0
         conn = store._ensure_open()
-        conn.execute("UPDATE artifacts SET ref_count = 0 WHERE artifact_id = $1", [aid])
+        conn.execute("UPDATE artifacts SET ref_count = 0 WHERE artifact_id = ?", [aid])
 
         # GC should remove the file
         removed = store.gc_artifacts()
@@ -925,7 +926,7 @@ class TestDeleteCascade:
         assert store.get_chain(ids["chain_id"]) is None
         assert store.get_prediction(ids["pred_id"]) is None
 
-        # Check DuckDB tables are empty
+        # Check SQLite tables are empty
         conn = store._ensure_open()
         for table in ["runs", "pipelines", "chains", "predictions", "logs"]:
             count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -1095,10 +1096,9 @@ class TestConcurrentReadWrite:
         """Concurrent read and write threads do not corrupt data."""
         workspace = tmp_path / "workspace"
 
-        # DuckDB uses a single-writer model, so concurrent connections
-        # writing simultaneously will conflict.  Instead, test that a
-        # single store can be used safely from multiple threads (the
-        # connection serialises access).
+        # SQLite WAL allows concurrent readers but serialises writes.
+        # Test that a single store can be used safely from multiple
+        # threads (the connection serialises access via RLock).
         store = WorkspaceStore(workspace)
         errors = []
 
@@ -1192,9 +1192,9 @@ class TestSchemaCreationViaStore:
         conn = store._ensure_open()
 
         result = conn.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'main' AND table_type = 'BASE TABLE' "
-            "ORDER BY table_name"
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' "
+            "ORDER BY name"
         ).fetchall()
         tables = sorted([row[0] for row in result])
 
@@ -1203,8 +1203,7 @@ class TestSchemaCreationViaStore:
 
         # Verify chain summary VIEW exists
         views = conn.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'main' AND table_type = 'VIEW'"
+            "SELECT name FROM sqlite_master WHERE type = 'view'"
         ).fetchall()
         view_names = [row[0] for row in views]
         assert "v_chain_summary" in view_names
@@ -1219,11 +1218,32 @@ class TestSchemaCreationViaStore:
         assert artifacts_dir.is_dir()
         store.close()
 
-    def test_store_duckdb_file_created(self, tmp_path):
-        """WorkspaceStore constructor creates store.duckdb file."""
+    def test_store_sqlite_file_created(self, tmp_path):
+        """WorkspaceStore constructor creates store.sqlite file."""
         store = _make_store(tmp_path)
-        db_path = tmp_path / "workspace" / "store.duckdb"
+        db_path = tmp_path / "workspace" / "store.sqlite"
         assert db_path.exists()
+        store.close()
+
+    def test_wal_mode_active(self, tmp_path):
+        """WorkspaceStore uses WAL journal mode for concurrent access."""
+        import sqlite3
+
+        store = _make_store(tmp_path)
+        db_path = tmp_path / "workspace" / "store.sqlite"
+        store.close()
+
+        conn = sqlite3.connect(str(db_path))
+        mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        conn.close()
+        assert mode == "wal"
+
+    def test_foreign_keys_enabled(self, tmp_path):
+        """WorkspaceStore enables foreign key enforcement."""
+        store = _make_store(tmp_path)
+        conn = store._ensure_open()
+        fk = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+        assert fk == 1
         store.close()
 
 # =========================================================================
@@ -1397,6 +1417,21 @@ class TestListRuns:
 
         df = store.list_runs(dataset="wheat")
         assert len(df) == 2  # run1 and run3
+
+        store.close()
+
+    def test_run_timestamps_are_datetimes(self, tmp_path):
+        """SQLite reads preserve timestamp columns as datetime objects."""
+        store = _make_store(tmp_path)
+
+        run_id = store.begin_run("run1", config={}, datasets=[])
+        run = store.get_run(run_id)
+        assert run is not None
+        assert isinstance(run["created_at"], datetime)
+
+        df = store.list_runs()
+        assert len(df) == 1
+        assert isinstance(df["created_at"][0], datetime)
 
         store.close()
 

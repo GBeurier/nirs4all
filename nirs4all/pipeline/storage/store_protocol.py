@@ -2,7 +2,7 @@
 
 Provides a structural subtyping contract (``typing.Protocol``) that any
 storage backend must satisfy.  This enables testing with in-memory stubs
-and, in the future, swapping DuckDB for another backend without changing
+and, in the future, swapping the database backend without changing
 consumer code.
 
 The protocol captures the *minimal* set of methods that all consumers

@@ -6,12 +6,12 @@ file embeds lightweight metadata columns (model_name, fold_id, partition,
 metric, val_score, task_type) making it self-describing and portable.
 
 The relational metadata (runs, pipelines, chains, full scores) stays in
-DuckDB.  This module only manages the array sidecar files.
+SQLite.  This module only manages the array sidecar files.
 
 Workspace layout::
 
     workspace/
-        store.duckdb          # Metadata only
+        store.sqlite          # Metadata only
         arrays/
             wheat.parquet     # All prediction arrays for dataset "wheat"
             corn.parquet      # All prediction arrays for dataset "corn"

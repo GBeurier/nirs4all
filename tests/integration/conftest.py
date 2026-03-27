@@ -2,7 +2,7 @@
 Integration test configuration — per-test workspace isolation.
 
 Each integration test gets its own temporary workspace directory so that
-DuckDB stores (``store.duckdb``) do not accumulate state across tests
+SQLite stores (``store.sqlite``) do not accumulate state across tests
 within the same xdist worker.  This prevents foreign-key constraint
 errors that arise when unrelated tests share a single database file.
 """

@@ -16,10 +16,14 @@ class _DummyRunner:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         self.cache_config = None
+        self.workspace_path = kwargs.get("workspace_path", "/tmp/dummy")
         _DummyRunner.instances.append(self)
 
     def run(self, pipeline, dataset, pipeline_name, refit, **kwargs):
         return Predictions(), {}
+
+    def close(self):
+        pass
 
 def test_run_sets_default_cache_config_when_cache_none(monkeypatch):
     """run(cache=None) should still initialize a default CacheConfig."""

@@ -1,6 +1,6 @@
 """Chain builder for converting ExecutionTrace to WorkspaceStore chain format.
 
-Bridges the trace/artifact system and the DuckDB WorkspaceStore by converting
+Bridges the trace/artifact system and the WorkspaceStore by converting
 an ExecutionTrace (recorded during pipeline execution) into the chain dict
 format expected by ``store.save_chain()``.
 
@@ -29,7 +29,7 @@ class ChainBuilder:
 
     The builder extracts the ordered sequence of non-skipped steps,
     identifies model steps, collects fold and shared artifact IDs,
-    and produces chain descriptors ready for DuckDB persistence.
+    and produces chain descriptors ready for SQLite persistence.
 
     When the trace has multiple model steps, ``build_all()`` produces
     one chain per model.  ``build()`` returns the chain for the trace's

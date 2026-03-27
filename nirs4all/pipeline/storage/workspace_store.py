@@ -1,10 +1,10 @@
-"""Database-backed workspace storage.
+"""SQLite-backed workspace storage.
 
 Replaces: ManifestManager, SimulationSaver, PipelineWriter,
           PredictionStorage, ArrayRegistry, WorkspaceExporter,
           PredictionResolver/TargetResolver.
 
-All metadata, configs, logs, chains, and predictions are stored in a DuckDB
+All metadata, configs, logs, chains, and predictions are stored in a SQLite
 database. Binary artifacts (fitted models, transformers) are stored in a flat
 content-addressed directory alongside the database file. Human-readable files
 (exported bundles, CSVs, charts) are produced only by explicit export operations.
@@ -12,7 +12,7 @@ content-addressed directory alongside the database file. Human-readable files
 Workspace layout after migration::
 
     workspace/
-        store.duckdb                    # All structured data
+        store.sqlite                    # All structured data
         artifacts/                      # Flat content-addressed binaries
             ab/abc123def456.joblib
         exports/                        # User-triggered exports (on demand)
@@ -28,6 +28,7 @@ import io
 import json
 import logging
 import random
+import sqlite3
 import threading
 import time
 import zipfile
@@ -37,31 +38,35 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-import duckdb
 import numpy as np
 import polars as pl
 import yaml
 
 logger = logging.getLogger(__name__)
 
+def _parse_sqlite_timestamp(raw_value: bytes) -> datetime:
+    """Parse SQLite ``TIMESTAMP`` values into ``datetime`` objects."""
+    text = raw_value.decode("utf-8")
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    elif " " in text and "T" not in text:
+        text = text.replace(" ", "T", 1)
+    return datetime.fromisoformat(text)
+
+sqlite3.register_converter("TIMESTAMP", _parse_sqlite_timestamp)
+sqlite3.register_converter("DATETIME", _parse_sqlite_timestamp)
+
 from nirs4all.core.metrics import infer_ascending as _infer_metric_ascending
 from nirs4all.pipeline.storage.array_store import ArrayStore
 from nirs4all.pipeline.storage.store_queries import (
-    CASCADE_DELETE_PIPELINE_CHAINS,
-    CASCADE_DELETE_PIPELINE_LOGS,
-    CASCADE_DELETE_PIPELINE_PREDICTIONS,
     CASCADE_DELETE_RUN_CHAINS,
     CASCADE_DELETE_RUN_LOGS,
     CASCADE_DELETE_RUN_PIPELINES,
     CASCADE_DELETE_RUN_PREDICTIONS,
-    CASCADE_NULLIFY_CHAIN_PREDICTIONS,
-    CLEAR_RUN_PROJECT,
     COMPLETE_PIPELINE,
     COMPLETE_RUN,
     DECREMENT_ARTIFACT_REF,
-    DELETE_CHAIN,
     DELETE_GC_ARTIFACTS,
-    DELETE_PIPELINE,
     DELETE_PREDICTION,
     DELETE_PROJECT,
     DELETE_RUN,
@@ -115,12 +120,12 @@ def _jittered_delay(base: float, attempt: int) -> float:
 
 
 def _retry_on_lock(func: Callable[..., Any]) -> Callable[..., Any]:
-    """Decorator that retries the wrapped method on DuckDB lock errors.
+    """Decorator that retries the wrapped method on SQLite lock errors.
 
-    DuckDB uses process-level file locks that can conflict when another
-    process holds the WAL lock (e.g. a lingering child process from
-    parallel execution).  Retries with exponential backoff + jitter,
-    then raises the last error.
+    SQLite uses file-level locks that can conflict when another process
+    holds the WAL lock (e.g. a lingering child process from parallel
+    execution).  Retries with exponential backoff + jitter, then raises
+    the last error.
 
     The first argument (``self``) must be a :class:`WorkspaceStore`.
     """
@@ -128,21 +133,21 @@ def _retry_on_lock(func: Callable[..., Any]) -> Callable[..., Any]:
 
     @functools.wraps(func)
     def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
-        last_error: Exception = Exception("DuckDB retry exhausted")
+        last_error: Exception = Exception("SQLite retry exhausted")
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 return func(self, *args, **kwargs)
-            except duckdb.TransactionException as e:
+            except sqlite3.OperationalError as e:
                 last_error = e
                 if attempt < _MAX_RETRIES:
                     delay = _jittered_delay(_BASE_DELAY, attempt)
                     logger.warning(
-                        "DuckDB lock conflict in %s (attempt %d/%d), retrying in %.2fs: %s",
+                        "SQLite lock conflict in %s (attempt %d/%d), retrying in %.2fs: %s",
                         func.__name__, attempt + 1, _MAX_RETRIES, delay, e,
                     )
                     time.sleep(delay)
         logger.error(
-            "DuckDB lock conflict persisted after %d retries in %s",
+            "SQLite lock conflict persisted after %d retries in %s",
             _MAX_RETRIES, func.__name__,
         )
         raise last_error
@@ -187,7 +192,7 @@ def _format_to_ext(fmt: str) -> str:
     return {"joblib": "joblib", "pickle": "pkl", "cloudpickle": "pkl"}.get(fmt, "bin")
 
 class WorkspaceStore:
-    """Database-backed workspace storage.
+    """SQLite-backed workspace storage.
 
     Central storage facade for all workspace data: runs, pipelines, chains,
     predictions, prediction arrays, artifacts, and structured execution logs.
@@ -198,7 +203,7 @@ class WorkspaceStore:
 
     The store manages three on-disk resources:
 
-    * ``store.duckdb`` -- a single DuckDB database for relational metadata
+    * ``store.sqlite`` -- a single SQLite database for relational metadata
       (runs, pipelines, chains, predictions, artifacts, logs).
     * ``arrays/`` -- one Parquet file per dataset containing dense
       prediction arrays (y_true, y_pred, y_proba, etc.) with Zstd
@@ -207,12 +212,12 @@ class WorkspaceStore:
       artifacts (fitted models, transformers, etc.).
 
     All query methods that return tabular data return ``polars.DataFrame``
-    via DuckDB's zero-copy Arrow transfer, enabling efficient downstream
-    analysis with Polars or conversion to pandas/numpy.
+    enabling efficient downstream analysis with Polars or conversion to
+    pandas/numpy.
 
     Args:
         workspace_path: Root directory of the workspace.  The database file
-            ``store.duckdb`` and the ``artifacts/`` directory are created
+            ``store.sqlite`` and the ``artifacts/`` directory are created
             inside this path.
 
     Example:
@@ -227,16 +232,29 @@ class WorkspaceStore:
         self._workspace_path.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
 
-        db_path = self._workspace_path / "store.duckdb"
-        self._conn: duckdb.DuckDBPyConnection | None = duckdb.connect(str(db_path))
+        sqlite_path = self._workspace_path / "store.sqlite"
+        duckdb_path = self._workspace_path / "store.duckdb"
 
-        # Disable progress bar for non-interactive usage
-        self._conn.execute("PRAGMA enable_progress_bar=false")
+        # Auto-detect and migrate legacy DuckDB stores
+        if not sqlite_path.exists() and duckdb_path.exists():
+            from nirs4all.pipeline.storage.migration import migrate_duckdb_to_sqlite
+            report = migrate_duckdb_to_sqlite(self._workspace_path)
+            if not sqlite_path.exists():
+                reason = "; ".join(report.errors) or "migration did not produce store.sqlite"
+                raise RuntimeError(
+                    f"Cannot open legacy workspace at {self._workspace_path}: {reason}"
+                )
 
-        # DuckDB connection tuning
-        self._conn.execute("SET memory_limit = '2GB'")
-        self._conn.execute("SET threads = 4")
-        self._conn.execute("SET checkpoint_threshold = '256MB'")
+        self._conn: sqlite3.Connection | None = sqlite3.connect(
+            str(sqlite_path),
+            check_same_thread=False,
+            detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
+            isolation_level=None,  # autocommit mode
+        )
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA foreign_keys=ON")
+        self._conn.execute("PRAGMA busy_timeout=5000")
 
         # Create schema (auto-migrates legacy prediction_arrays if present)
         create_schema(self._conn, workspace_path=self._workspace_path)
@@ -246,8 +264,6 @@ class WorkspaceStore:
         self._artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         # Register atexit so the connection is closed before interpreter shutdown.
-        # atexit handlers run while all C extensions (including DuckDB) are still live,
-        # avoiding the SIGSEGV that occurs when DuckDB's tp_dealloc fires during teardown.
         atexit.register(self.close)
 
         # Parquet-backed array storage
@@ -267,7 +283,7 @@ class WorkspaceStore:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _ensure_open(self) -> duckdb.DuckDBPyConnection:
+    def _ensure_open(self) -> sqlite3.Connection:
         """Return the connection or raise if closed."""
         if self._conn is None:
             raise RuntimeError("WorkspaceStore is closed")
@@ -281,9 +297,9 @@ class WorkspaceStore:
         max_retries: int = _MAX_RETRIES,
         base_delay: float = _BASE_DELAY,
     ) -> None:
-        """Execute a write statement with retry on transient DuckDB lock errors.
+        """Execute a write statement with retry on transient SQLite lock errors.
 
-        Raises the last ``TransactionException`` after all retries are
+        Raises the last ``OperationalError`` after all retries are
         exhausted.
 
         Args:
@@ -294,52 +310,54 @@ class WorkspaceStore:
         """
         with self._lock:
             conn = self._ensure_open()
-            last_error: Exception = Exception("DuckDB retry exhausted")
+            last_error: Exception = Exception("SQLite retry exhausted")
             for attempt in range(max_retries + 1):
                 try:
                     conn.execute(sql, params or [])
                     return
-                except duckdb.TransactionException as e:
+                except sqlite3.OperationalError as e:
                     last_error = e
                     if attempt < max_retries:
                         delay = _jittered_delay(base_delay, attempt)
                         logger.warning(
-                            "DuckDB lock conflict (attempt %d/%d), retrying in %.2fs: %s",
+                            "SQLite lock conflict (attempt %d/%d), retrying in %.2fs: %s",
                             attempt + 1, max_retries, delay, e,
                         )
                         time.sleep(delay)
             raise last_error
 
     def _safe_execute(self, sql: str, params: list[object] | None = None) -> None:
-        """Execute a write statement, suppressing DuckDB lock errors after retries.
+        """Execute a write statement, suppressing SQLite lock errors after retries.
 
         Used for non-critical operations (logging, error recording) that
         must never crash the pipeline.
         """
-        with contextlib.suppress(duckdb.TransactionException):
+        with contextlib.suppress(sqlite3.OperationalError):
             self._execute_with_retry(sql, params)
 
     def _fetch_one(self, sql: str, params: list[object] | None = None) -> dict | None:
         """Execute *sql* and return the first row as a dict, or ``None``."""
         with self._lock:
             conn = self._ensure_open()
-            result = conn.execute(sql, params or [])
-            row = result.fetchone()
+            cursor = conn.execute(sql, params or [])
+            row = cursor.fetchone()
             if row is None:
                 return None
-            columns = [desc[0] for desc in result.description]
-            return dict(zip(columns, row, strict=False))
+            return dict(row)
 
     def _fetch_pl(self, sql: str, params: list[object] | None = None) -> pl.DataFrame:
         """Execute *sql* and return results as a Polars DataFrame."""
         with self._lock:
             conn = self._ensure_open()
-            result = conn.execute(sql, params or [])
-            try:
-                return result.pl()
-            except Exception:
-                # Empty result sets may fail .pl(); return empty frame
+            cursor = conn.execute(sql, params or [])
+            description = cursor.description
+            if description is None:
                 return pl.DataFrame()
+            columns = [desc[0] for desc in description]
+            rows = cursor.fetchall()
+            if not rows:
+                return pl.DataFrame()
+            return pl.DataFrame([dict(zip(columns, row, strict=False)) for row in rows])
 
     # ------------------------------------------------------------------
     # Context manager / lifecycle
@@ -347,7 +365,7 @@ class WorkspaceStore:
 
     @contextlib.contextmanager
     def transaction(self) -> Generator[None, None, None]:
-        """Execute a block inside a single DuckDB transaction.
+        """Execute a block inside a single SQLite transaction.
 
         Batches multiple writes into one ``BEGIN … COMMIT`` to reduce
         lock-contention windows.  Rolls back on any exception.
@@ -365,15 +383,11 @@ class WorkspaceStore:
     def close(self) -> None:
         """Close the database connection and release resources.
 
-        Flushes the WAL via ``CHECKPOINT`` before closing so that no
-        orphaned ``.wal`` file remains on disk.  Safe to call multiple
-        times.  After closing, all other methods will raise
-        ``RuntimeError``.
+        Safe to call multiple times.  After closing, all other methods
+        will raise ``RuntimeError``.
         """
         with self._lock:
             if self._conn is not None:
-                with contextlib.suppress(Exception):
-                    self._conn.execute("CHECKPOINT")
                 self._conn.close()
                 self._conn = None
 
@@ -381,7 +395,7 @@ class WorkspaceStore:
         """Safety net: close connection if caller forgot to call :meth:`close`."""
         import sys
         if sys.is_finalizing():
-            return  # DuckDB C library is already being torn down; calling close() here segfaults.
+            return
         with contextlib.suppress(Exception):
             if self._conn is not None:
                 self._conn.close()
@@ -437,7 +451,8 @@ class WorkspaceStore:
             summary: Free-form summary dictionary persisted alongside the
                 run record.
         """
-        self._execute_with_retry(COMPLETE_RUN, [run_id, _to_json(summary)])
+        # COMPLETE_RUN param order: [summary, run_id]
+        self._execute_with_retry(COMPLETE_RUN, [_to_json(summary), run_id])
 
     def fail_run(self, run_id: str, error: str) -> None:
         """Mark a run as failed.
@@ -446,14 +461,15 @@ class WorkspaceStore:
         message.  Any pipelines still in ``"running"`` status under this
         run should be considered implicitly failed.
 
-        Uses :meth:`_safe_execute` so that a DuckDB lock conflict in the
+        Uses :meth:`_safe_execute` so that a lock conflict in the
         error-handling path never masks the original pipeline error.
 
         Args:
             run_id: Identifier returned by :meth:`begin_run`.
             error: Human-readable error description or traceback excerpt.
         """
-        self._safe_execute(FAIL_RUN, [run_id, error])
+        # FAIL_RUN param order: [error, run_id]
+        self._safe_execute(FAIL_RUN, [error, run_id])
 
     # =====================================================================
     # Pipeline lifecycle
@@ -516,7 +532,8 @@ class WorkspaceStore:
             metric: Name of the metric used for ranking (e.g. ``"rmse"``).
             duration_ms: Total execution time in milliseconds.
         """
-        self._execute_with_retry(COMPLETE_PIPELINE, [pipeline_id, best_val, best_test, metric, duration_ms])
+        # COMPLETE_PIPELINE param order: [best_val, best_test, metric, duration_ms, pipeline_id]
+        self._execute_with_retry(COMPLETE_PIPELINE, [best_val, best_test, metric, duration_ms, pipeline_id])
 
     def fail_pipeline(self, pipeline_id: str, error: str) -> None:
         """Mark a pipeline execution as failed and roll back its data.
@@ -525,7 +542,7 @@ class WorkspaceStore:
         removed.  Artifacts whose reference count drops to zero become
         candidates for garbage collection.
 
-        Uses :meth:`_safe_execute` so that a DuckDB lock conflict in the
+        Uses :meth:`_safe_execute` so that a lock conflict in the
         error-handling path never masks the original pipeline error.
 
         Args:
@@ -538,7 +555,8 @@ class WorkspaceStore:
                 self._decrement_artifact_refs_for_pipeline(pipeline_id)
         except Exception:
             logger.warning("Could not decrement artifact refs for pipeline %s", pipeline_id)
-        self._safe_execute(FAIL_PIPELINE, [pipeline_id, error])
+        # FAIL_PIPELINE param order: [error, pipeline_id]
+        self._safe_execute(FAIL_PIPELINE, [error, pipeline_id])
 
     # =====================================================================
     # Chain management
@@ -609,7 +627,7 @@ class WorkspaceStore:
             # Resolve dataset_name from parent pipeline if not provided
             if dataset_name is None:
                 row = conn.execute(
-                    "SELECT dataset_name FROM pipelines WHERE pipeline_id = $1",
+                    "SELECT dataset_name FROM pipelines WHERE pipeline_id = ?",
                     [pipeline_id],
                 ).fetchone()
                 if row is not None:
@@ -668,46 +686,68 @@ class WorkspaceStore:
             # --- CV averages ---
             cv_row = conn.execute(
                 "SELECT "
-                "  FIRST(model_name) AS model_name, "
-                "  FIRST(metric) AS metric, "
-                "  FIRST(task_type) AS task_type, "
-                "  FIRST(best_params) AS best_params, "
                 "  AVG(val_score) AS avg_val, "
                 "  AVG(test_score) AS avg_test, "
                 "  AVG(train_score) AS avg_train, "
                 "  COUNT(DISTINCT fold_id) AS fold_count "
                 "FROM predictions "
-                "WHERE chain_id = $1 AND refit_context IS NULL",
+                "WHERE chain_id = ? AND refit_context IS NULL",
                 [chain_id],
             ).fetchone()
 
-            model_name = cv_row[0] if cv_row else None
-            metric = cv_row[1] if cv_row else None
-            task_type = cv_row[2] if cv_row else None
-            best_params = cv_row[3] if cv_row else None
-            avg_val = cv_row[4] if cv_row else None
-            avg_test = cv_row[5] if cv_row else None
-            avg_train = cv_row[6] if cv_row else None
-            fold_count = cv_row[7] if cv_row else 0
+            avg_val = cv_row[0] if cv_row else None
+            avg_test = cv_row[1] if cv_row else None
+            avg_train = cv_row[2] if cv_row else None
+            fold_count = cv_row[3] if cv_row else 0
 
-            # If no CV predictions exist, try to get model_name etc. from any prediction
-            if model_name is None:
-                any_row = conn.execute(
-                    "SELECT FIRST(model_name), FIRST(metric), FIRST(task_type), FIRST(best_params) "
-                    "FROM predictions WHERE chain_id = $1",
+            representative_row = conn.execute(
+                "SELECT model_name, metric, task_type "
+                "FROM predictions "
+                "WHERE chain_id = ? AND refit_context IS NULL "
+                "ORDER BY created_at ASC, prediction_id ASC "
+                "LIMIT 1",
+                [chain_id],
+            ).fetchone()
+            if representative_row is None:
+                representative_row = conn.execute(
+                    "SELECT model_name, metric, task_type "
+                    "FROM predictions "
+                    "WHERE chain_id = ? "
+                    "ORDER BY created_at ASC, prediction_id ASC "
+                    "LIMIT 1",
                     [chain_id],
                 ).fetchone()
-                if any_row:
-                    model_name = any_row[0]
-                    metric = any_row[1]
-                    task_type = any_row[2]
-                    best_params = any_row[3]
+
+            model_name = representative_row[0] if representative_row else None
+            metric = representative_row[1] if representative_row else None
+            task_type = representative_row[2] if representative_row else None
+
+            best_params_row = conn.execute(
+                "SELECT best_params "
+                "FROM predictions "
+                "WHERE chain_id = ? AND refit_context IS NULL "
+                "  AND best_params IS NOT NULL AND best_params != '{}' "
+                "ORDER BY created_at ASC, prediction_id ASC "
+                "LIMIT 1",
+                [chain_id],
+            ).fetchone()
+            if best_params_row is None:
+                best_params_row = conn.execute(
+                    "SELECT best_params "
+                    "FROM predictions "
+                    "WHERE chain_id = ? "
+                    "  AND best_params IS NOT NULL AND best_params != '{}' "
+                    "ORDER BY created_at ASC, prediction_id ASC "
+                    "LIMIT 1",
+                    [chain_id],
+                ).fetchone()
+            best_params = best_params_row[0] if best_params_row else None
 
             # --- CV multi-metric averages (cv_scores JSON) ---
             cv_scores_json: str | None = None
             cv_metrics_rows = conn.execute(
                 "SELECT partition, scores FROM predictions "
-                "WHERE chain_id = $1 AND refit_context IS NULL "
+                "WHERE chain_id = ? AND refit_context IS NULL "
                 "AND partition IN ('val', 'test')",
                 [chain_id],
             ).fetchall()
@@ -740,8 +780,9 @@ class WorkspaceStore:
             final_row = conn.execute(
                 "SELECT test_score, train_score, scores "
                 "FROM predictions "
-                "WHERE chain_id = $1 AND refit_context IS NOT NULL "
+                "WHERE chain_id = ? AND refit_context IS NOT NULL "
                 "AND fold_id = 'final' AND partition = 'test' "
+                "ORDER BY created_at ASC, prediction_id ASC "
                 "LIMIT 1",
                 [chain_id],
             ).fetchone()
@@ -750,8 +791,11 @@ class WorkspaceStore:
             final_train = final_row[1] if final_row else None
             final_scores_json = final_row[2] if final_row else None
 
+            # UPDATE_CHAIN_SUMMARY param order: [model_name, metric, task_type,
+            #   best_params, cv_val_score, cv_test_score, cv_train_score,
+            #   cv_fold_count, cv_scores, final_test_score, final_train_score,
+            #   final_scores, chain_id]
             conn.execute(UPDATE_CHAIN_SUMMARY, [
-                chain_id,
                 model_name,
                 metric,
                 task_type,
@@ -764,6 +808,7 @@ class WorkspaceStore:
                 final_test,
                 final_train,
                 final_scores_json,
+                chain_id,
             ])
 
     @_retry_on_lock
@@ -771,7 +816,7 @@ class WorkspaceStore:
         """Recompute CV/final summary for multiple chains in bulk SQL.
 
         Uses set-based aggregation instead of per-chain queries,
-        reducing DuckDB round-trips from ``4 × N`` to ``4`` total.
+        reducing round-trips from ``4 x N`` to ``4`` total.
 
         Args:
             chain_ids: List of chain identifiers to update.
@@ -783,88 +828,151 @@ class WorkspaceStore:
             conn = self._ensure_open()
 
             # Create a temp table with the chain IDs to update
-            conn.execute("CREATE TEMP TABLE IF NOT EXISTS _bulk_chain_ids (chain_id VARCHAR)")
+            conn.execute("CREATE TEMP TABLE IF NOT EXISTS _bulk_chain_ids (chain_id TEXT)")
             conn.execute("DELETE FROM _bulk_chain_ids")
             conn.executemany(
-                "INSERT INTO _bulk_chain_ids VALUES ($1)",
+                "INSERT INTO _bulk_chain_ids VALUES (?)",
                 [(cid,) for cid in chain_ids],
             )
 
-            # --- Bulk CV averages ---
+            # --- Bulk scalar summary fields ---
             conn.execute("""
                 UPDATE chains SET
-                    model_name = COALESCE(chains.model_name, sub.model_name),
-                    metric = COALESCE(chains.metric, sub.metric),
-                    task_type = COALESCE(chains.task_type, sub.task_type),
-                    best_params = COALESCE(chains.best_params, sub.best_params),
-                    cv_val_score = sub.avg_val,
-                    cv_test_score = sub.avg_test,
-                    cv_train_score = sub.avg_train,
-                    cv_fold_count = sub.fold_count
-                FROM (
-                    SELECT chain_id,
-                        FIRST(model_name) AS model_name,
-                        FIRST(metric) AS metric,
-                        FIRST(task_type) AS task_type,
-                        FIRST(best_params) AS best_params,
-                        AVG(val_score) AS avg_val,
-                        AVG(test_score) AS avg_test,
-                        AVG(train_score) AS avg_train,
-                        COUNT(DISTINCT fold_id) AS fold_count
-                    FROM predictions
-                    WHERE refit_context IS NULL
-                      AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)
-                    GROUP BY chain_id
-                ) sub
-                WHERE chains.chain_id = sub.chain_id
-            """)
-
-            # --- Fallback: get model_name etc. from any prediction for
-            #     chains that had no CV predictions ---
-            conn.execute("""
-                UPDATE chains SET
-                    model_name = COALESCE(chains.model_name, sub.model_name),
-                    metric = COALESCE(chains.metric, sub.metric),
-                    task_type = COALESCE(chains.task_type, sub.task_type),
-                    best_params = COALESCE(chains.best_params, sub.best_params)
-                FROM (
-                    SELECT chain_id,
-                        FIRST(model_name) AS model_name,
-                        FIRST(metric) AS metric,
-                        FIRST(task_type) AS task_type,
-                        FIRST(best_params) AS best_params
-                    FROM predictions
-                    WHERE chain_id IN (
-                        SELECT chain_id FROM _bulk_chain_ids
-                        WHERE chain_id NOT IN (
-                            SELECT chain_id FROM predictions
-                            WHERE refit_context IS NULL AND chain_id IS NOT NULL
-                            GROUP BY chain_id
+                    model_name = COALESCE(
+                        chains.model_name,
+                        (
+                            SELECT p.model_name
+                            FROM predictions p
+                            WHERE p.chain_id = chains.chain_id
+                              AND p.refit_context IS NULL
+                            ORDER BY p.created_at ASC, p.prediction_id ASC
+                            LIMIT 1
+                        ),
+                        (
+                            SELECT p.model_name
+                            FROM predictions p
+                            WHERE p.chain_id = chains.chain_id
+                            ORDER BY p.created_at ASC, p.prediction_id ASC
+                            LIMIT 1
                         )
+                    ),
+                    metric = COALESCE(
+                        chains.metric,
+                        (
+                            SELECT p.metric
+                            FROM predictions p
+                            WHERE p.chain_id = chains.chain_id
+                              AND p.refit_context IS NULL
+                            ORDER BY p.created_at ASC, p.prediction_id ASC
+                            LIMIT 1
+                        ),
+                        (
+                            SELECT p.metric
+                            FROM predictions p
+                            WHERE p.chain_id = chains.chain_id
+                            ORDER BY p.created_at ASC, p.prediction_id ASC
+                            LIMIT 1
+                        )
+                    ),
+                    task_type = COALESCE(
+                        chains.task_type,
+                        (
+                            SELECT p.task_type
+                            FROM predictions p
+                            WHERE p.chain_id = chains.chain_id
+                              AND p.refit_context IS NULL
+                            ORDER BY p.created_at ASC, p.prediction_id ASC
+                            LIMIT 1
+                        ),
+                        (
+                            SELECT p.task_type
+                            FROM predictions p
+                            WHERE p.chain_id = chains.chain_id
+                            ORDER BY p.created_at ASC, p.prediction_id ASC
+                            LIMIT 1
+                        )
+                    ),
+                    best_params = COALESCE(
+                        chains.best_params,
+                        (
+                            SELECT p.best_params
+                            FROM predictions p
+                            WHERE p.chain_id = chains.chain_id
+                              AND p.refit_context IS NULL
+                              AND p.best_params IS NOT NULL
+                              AND p.best_params != '{}'
+                            ORDER BY p.created_at ASC, p.prediction_id ASC
+                            LIMIT 1
+                        ),
+                        (
+                            SELECT p.best_params
+                            FROM predictions p
+                            WHERE p.chain_id = chains.chain_id
+                              AND p.best_params IS NOT NULL
+                              AND p.best_params != '{}'
+                            ORDER BY p.created_at ASC, p.prediction_id ASC
+                            LIMIT 1
+                        )
+                    ),
+                    cv_val_score = (
+                        SELECT AVG(p.val_score)
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.refit_context IS NULL
+                    ),
+                    cv_test_score = (
+                        SELECT AVG(p.test_score)
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.refit_context IS NULL
+                    ),
+                    cv_train_score = (
+                        SELECT AVG(p.train_score)
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.refit_context IS NULL
+                    ),
+                    cv_fold_count = COALESCE((
+                        SELECT COUNT(DISTINCT p.fold_id)
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.refit_context IS NULL
+                    ), 0),
+                    final_test_score = (
+                        SELECT p.test_score
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.refit_context IS NOT NULL
+                          AND p.fold_id = 'final'
+                          AND p.partition = 'test'
+                        ORDER BY p.created_at ASC, p.prediction_id ASC
+                        LIMIT 1
+                    ),
+                    final_train_score = (
+                        SELECT p.train_score
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.refit_context IS NOT NULL
+                          AND p.fold_id = 'final'
+                          AND p.partition = 'test'
+                        ORDER BY p.created_at ASC, p.prediction_id ASC
+                        LIMIT 1
+                    ),
+                    final_scores = (
+                        SELECT p.scores
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.refit_context IS NOT NULL
+                          AND p.fold_id = 'final'
+                          AND p.partition = 'test'
+                        ORDER BY p.created_at ASC, p.prediction_id ASC
+                        LIMIT 1
                     )
-                    GROUP BY chain_id
-                ) sub
-                WHERE chains.chain_id = sub.chain_id
-            """)
-
-            # --- Bulk final/refit scores ---
-            conn.execute("""
-                UPDATE chains SET
-                    final_test_score = sub.test_score,
-                    final_train_score = sub.train_score,
-                    final_scores = sub.scores
-                FROM (
-                    SELECT chain_id, test_score, train_score, scores
-                    FROM predictions
-                    WHERE refit_context IS NOT NULL AND fold_id = 'final'
-                      AND partition = 'test'
-                      AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)
-                ) sub
-                WHERE chains.chain_id = sub.chain_id
+                WHERE chains.chain_id IN (SELECT chain_id FROM _bulk_chain_ids)
             """)
 
             # --- Bulk cv_scores (averaged multi-metric JSON) ---
-            # DuckDB JSON aggregation is limited, so we use a single
+            # SQLite JSON aggregation is limited, so we use a single
             # query to fetch all rows and compute in Python once.
             import json as _json
 
@@ -898,8 +1006,8 @@ class WorkspaceStore:
                         averaged[part] = {m: round(sum(vs) / len(vs), 6) for m, vs in metrics.items() if vs}
                     if averaged:
                         conn.execute(
-                            "UPDATE chains SET cv_scores = $2 WHERE chain_id = $1",
-                            [chain_id, _json.dumps(averaged)],
+                            "UPDATE chains SET cv_scores = ? WHERE chain_id = ?",
+                            [_json.dumps(averaged), chain_id],
                         )
 
             conn.execute("DROP TABLE IF EXISTS _bulk_chain_ids")
@@ -986,16 +1094,16 @@ class WorkspaceStore:
             if branch_id is not None:
                 existing = conn.execute(
                     "SELECT prediction_id FROM predictions "
-                    "WHERE pipeline_id = $1 AND chain_id = $2 AND fold_id = $3 AND partition = $4 "
-                    "AND model_name = $5 AND branch_id = $6 "
+                    "WHERE pipeline_id = ? AND chain_id = ? AND fold_id = ? AND partition = ? "
+                    "AND model_name = ? AND branch_id = ? "
                     "LIMIT 1",
                     [pipeline_id, chain_id, fold_id, partition, model_name, branch_id],
                 ).fetchone()
             else:
                 existing = conn.execute(
                     "SELECT prediction_id FROM predictions "
-                    "WHERE pipeline_id = $1 AND chain_id = $2 AND fold_id = $3 AND partition = $4 "
-                    "AND model_name = $5 AND branch_id IS NULL "
+                    "WHERE pipeline_id = ? AND chain_id = ? AND fold_id = ? AND partition = ? "
+                    "AND model_name = ? AND branch_id IS NULL "
                     "LIMIT 1",
                     [pipeline_id, chain_id, fold_id, partition, model_name],
                 ).fetchone()
@@ -1009,7 +1117,7 @@ class WorkspaceStore:
                 # Explicit prediction_id provided — guard against PK collision
                 # from a different natural key (e.g. different chain/branch).
                 pk_existing = conn.execute(
-                    "SELECT 1 FROM predictions WHERE prediction_id = $1",
+                    "SELECT 1 FROM predictions WHERE prediction_id = ?",
                     [prediction_id],
                 ).fetchone()
                 if pk_existing is not None:
@@ -1104,7 +1212,7 @@ class WorkspaceStore:
         """Register an artifact that was already saved to disk.
 
         This is used to bridge the ArtifactRegistry (which persists files
-        during pipeline execution) with the DuckDB ``artifacts`` table so
+        during pipeline execution) with the ``artifacts`` table so
         that :meth:`load_artifact` and chain replay can find them.
 
         If an artifact with the same *artifact_id* already exists the call
@@ -1115,8 +1223,8 @@ class WorkspaceStore:
             path: Relative path within the ``artifacts/`` directory.
             content_hash: SHA-256 hex digest of the serialised content.
             operator_class: Class name of the operator that produced it.
-            artifact_type: Category label (``"model"``, ``"transformer"``, …).
-            format: Serialisation format (``"joblib"``, ``"cloudpickle"``, …).
+            artifact_type: Category label (``"model"``, ``"transformer"``, ...).
+            format: Serialisation format (``"joblib"``, ``"cloudpickle"``, ...).
             size_bytes: Size of the serialised content in bytes.
 
         Returns:
@@ -1225,11 +1333,12 @@ class WorkspaceStore:
             if existing is not None:
                 conn.execute(INCREMENT_ARTIFACT_REF, [existing["artifact_id"]])
                 # Update cache key on the existing record
+                # UPDATE_ARTIFACT_CACHE_KEY param order: [chain_path_hash, input_data_hash, dataset_hash, artifact_id]
                 conn.execute(UPDATE_ARTIFACT_CACHE_KEY, [
-                    existing["artifact_id"],
                     chain_path_hash,
                     input_data_hash,
                     dataset_hash,
+                    existing["artifact_id"],
                 ])
                 return str(existing["artifact_id"])
 
@@ -1269,8 +1378,9 @@ class WorkspaceStore:
         """
         with self._lock:
             conn = self._ensure_open()
+            # UPDATE_ARTIFACT_CACHE_KEY param order: [chain_path_hash, input_data_hash, dataset_hash, artifact_id]
             conn.execute(UPDATE_ARTIFACT_CACHE_KEY, [
-                artifact_id, chain_path_hash, input_data_hash, dataset_hash,
+                chain_path_hash, input_data_hash, dataset_hash, artifact_id,
             ])
 
     def find_cached_artifact(
@@ -1321,7 +1431,7 @@ class WorkspaceStore:
             # Count matching rows before invalidation
             count_row = conn.execute(
                 "SELECT COUNT(*) AS cnt FROM artifacts "
-                "WHERE dataset_hash = $1 AND chain_path_hash IS NOT NULL",
+                "WHERE dataset_hash = ? AND chain_path_hash IS NOT NULL",
                 [dataset_hash],
             ).fetchone()
             count = count_row[0] if count_row else 0
@@ -1415,29 +1525,25 @@ class WorkspaceStore:
         """
         conditions: list[str] = []
         params: list[object] = []
-        idx = 1
 
         if status is not None:
-            conditions.append(f"status = ${idx}")
+            conditions.append("status = ?")
             params.append(status)
-            idx += 1
 
         if dataset is not None:
-            # JSON contains check -- search for dataset name in the JSON array
-            conditions.append(f"datasets::VARCHAR LIKE ${idx}")
+            # JSON contains check -- search for dataset name in the JSON text
+            conditions.append("CAST(datasets AS TEXT) LIKE ?")
             params.append(f"%{dataset}%")
-            idx += 1
 
         if project_id is not None:
-            conditions.append(f"project_id = ${idx}")
+            conditions.append("project_id = ?")
             params.append(project_id)
-            idx += 1
 
         where = ""
         if conditions:
             where = " WHERE " + " AND ".join(conditions)
 
-        sql = f"SELECT * FROM runs{where} ORDER BY created_at DESC LIMIT ${idx} OFFSET ${idx + 1}"
+        sql = f"SELECT * FROM runs{where} ORDER BY created_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
         return self._fetch_pl(sql, params)
@@ -1483,16 +1589,13 @@ class WorkspaceStore:
         """
         conditions: list[str] = []
         params: list[object] = []
-        idx = 1
 
         if run_id is not None:
-            conditions.append(f"run_id = ${idx}")
+            conditions.append("run_id = ?")
             params.append(run_id)
-            idx += 1
         if dataset_name is not None:
-            conditions.append(f"dataset_name = ${idx}")
+            conditions.append("dataset_name = ?")
             params.append(dataset_name)
-            idx += 1
 
         where = ""
         if conditions:
@@ -1722,7 +1825,7 @@ class WorkspaceStore:
         """Query aggregated predictions ranked by best score for a metric.
 
         Uses metric-direction heuristics (lower-is-better for error
-        metrics like RMSE, higher-is-better for score metrics like R²)
+        metrics like RMSE, higher-is-better for score metrics like R2)
         when *ascending* is not explicitly provided.
 
         Args:
@@ -1904,20 +2007,22 @@ class WorkspaceStore:
         """Update project attributes."""
         with self._lock:
             conn = self._ensure_open()
-            conn.execute(UPDATE_PROJECT, [project_id, name, description, color])
+            # UPDATE_PROJECT param order: [name, description, color, project_id]
+            conn.execute(UPDATE_PROJECT, [name, description, color, project_id])
 
     def delete_project(self, project_id: str) -> None:
         """Delete a project.  Runs referencing it will have ``project_id`` set to NULL."""
         with self._lock:
             conn = self._ensure_open()
-            conn.execute("UPDATE runs SET project_id = NULL WHERE project_id = $1", [project_id])
+            conn.execute("UPDATE runs SET project_id = NULL WHERE project_id = ?", [project_id])
             conn.execute(DELETE_PROJECT, [project_id])
 
     def set_run_project(self, run_id: str, project_id: str) -> None:
         """Assign a run to a project."""
         with self._lock:
             conn = self._ensure_open()
-            conn.execute(SET_RUN_PROJECT, [run_id, project_id])
+            # SET_RUN_PROJECT param order: [project_id, run_id]
+            conn.execute(SET_RUN_PROJECT, [project_id, run_id])
 
     def get_or_create_project(self, name: str) -> str:
         """Get an existing project by name, or create one.
@@ -2199,7 +2304,7 @@ class WorkspaceStore:
             # Collect prediction_ids for Parquet array deletion
             pred_ids_result = conn.execute(
                 "SELECT prediction_id FROM predictions WHERE pipeline_id IN "
-                "(SELECT pipeline_id FROM pipelines WHERE run_id = $1)",
+                "(SELECT pipeline_id FROM pipelines WHERE run_id = ?)",
                 [run_id],
             ).fetchall()
             pred_ids = {row[0] for row in pred_ids_result}
@@ -2213,14 +2318,14 @@ class WorkspaceStore:
                 ("pipelines", "run_id"),
             ]:
                 if table in ("logs", "predictions", "chains"):
-                    sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = $1)"
+                    sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = ?)"
                 else:
-                    sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE {column} = $1"
+                    sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE {column} = ?"
                 result = conn.execute(sql, [run_id]).fetchone()
                 total += result[0] if result else 0
 
             # Count the run itself
-            run_exists = conn.execute("SELECT COUNT(*) FROM runs WHERE run_id = $1", [run_id]).fetchone()
+            run_exists = conn.execute("SELECT COUNT(*) FROM runs WHERE run_id = ?", [run_id]).fetchone()
             if run_exists and run_exists[0] > 0:
                 total += 1
 
@@ -2231,8 +2336,7 @@ class WorkspaceStore:
             if pred_ids:
                 self._array_store.delete_batch(pred_ids)
 
-            # Manual cascade (DuckDB does not support ON DELETE CASCADE).
-            # Delete in reverse dependency order.
+            # Manual cascade: delete in reverse dependency order.
             conn.execute(CASCADE_DELETE_RUN_LOGS, [run_id])
             conn.execute(CASCADE_DELETE_RUN_PREDICTIONS, [run_id])
             conn.execute(CASCADE_DELETE_RUN_CHAINS, [run_id])
@@ -2275,7 +2379,7 @@ class WorkspaceStore:
         with self._lock:
             conn = self._ensure_open()
             rows = conn.execute(
-                "SELECT prediction_id FROM predictions WHERE dataset_name = $1",
+                "SELECT prediction_id FROM predictions WHERE dataset_name = ?",
                 [dataset_name],
             ).fetchall()
             pred_ids = {row[0] for row in rows}
@@ -2285,7 +2389,7 @@ class WorkspaceStore:
             # Delete arrays (Parquet file + tombstones)
             self._array_store.delete_dataset(dataset_name)
 
-            conn.execute("DELETE FROM predictions WHERE dataset_name = $1", [dataset_name])
+            conn.execute("DELETE FROM predictions WHERE dataset_name = ?", [dataset_name])
             return len(pred_ids)
 
     def cleanup_transient_artifacts(
@@ -2314,7 +2418,7 @@ class WorkspaceStore:
            existing prediction entry are preserved, even if they are
            otherwise transient.
 
-        Prediction records in DuckDB are **never** deleted -- they are
+        Prediction records are **never** deleted -- they are
         lightweight metadata useful for analysis.
 
         Chain records are **never** deleted -- only the binary files
@@ -2376,7 +2480,7 @@ class WorkspaceStore:
 
             # Get all pipelines for this run and dataset
             all_pipelines = conn.execute(
-                "SELECT pipeline_id FROM pipelines WHERE run_id = $1 AND dataset_name = $2",
+                "SELECT pipeline_id FROM pipelines WHERE run_id = ? AND dataset_name = ?",
                 [run_id, dataset_name],
             ).fetchall()
 
@@ -2392,7 +2496,7 @@ class WorkspaceStore:
                 all_chain_rows = conn.execute(
                     "SELECT pipeline_id, chain_id, fold_artifacts, shared_artifacts "
                     "FROM chains WHERE pipeline_id IN ("
-                    "  SELECT pipeline_id FROM pipelines WHERE run_id = $1 AND dataset_name = $2"
+                    "  SELECT pipeline_id FROM pipelines WHERE run_id = ? AND dataset_name = ?"
                     ")",
                     [run_id, dataset_name],
                 ).fetchall()
@@ -2421,8 +2525,8 @@ class WorkspaceStore:
                 SELECT p.chain_id, p.fold_id
                 FROM predictions p
                 JOIN pipelines pl ON p.pipeline_id = pl.pipeline_id
-                WHERE pl.run_id = $1
-                  AND p.dataset_name = $2
+                WHERE pl.run_id = ?
+                  AND p.dataset_name = ?
                   AND p.chain_id IS NOT NULL
                 """,
                 [run_id, dataset_name],
@@ -2500,11 +2604,11 @@ class WorkspaceStore:
                 for aid, cnt in Counter(artifacts_to_decrement).items():
                     decrement_counts.setdefault(cnt, []).append(aid)
                 for delta, ids in decrement_counts.items():
-                    placeholders = ", ".join(f"${i+2}" for i in range(len(ids)))
+                    placeholders = ", ".join("?" for _ in ids)
                     conn.execute(
-                        f"UPDATE artifacts SET ref_count = ref_count - $1 "
+                        f"UPDATE artifacts SET ref_count = ref_count - ? "
                         f"WHERE artifact_id IN ({placeholders})",
-                        [delta] + ids,
+                        [delta, *ids],
                     )
 
         # Run garbage collection to remove orphaned files
@@ -2554,10 +2658,10 @@ class WorkspaceStore:
             return count
 
     def vacuum(self) -> None:
-        """Reclaim unused space in the DuckDB database file.
+        """Reclaim unused space in the database file.
 
         Equivalent to ``VACUUM`` in SQL.  Call after large deletions
-        to reduce the on-disk size of ``store.duckdb``.
+        to reduce the on-disk size of ``store.sqlite``.
         """
         with self._lock:
             conn = self._ensure_open()
@@ -2689,7 +2793,7 @@ class WorkspaceStore:
         """Decrement ref counts for all artifacts referenced by chains in a pipeline."""
         with self._lock:
             conn = self._ensure_open()
-            result = conn.execute("SELECT fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id = $1", [pipeline_id])
+            result = conn.execute("SELECT fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id = ?", [pipeline_id])
             desc = result.description
             chains = result.fetchall()
             if not chains or not desc:
@@ -2704,7 +2808,7 @@ class WorkspaceStore:
         """Decrement ref counts for all artifacts referenced by chains in a run."""
         with self._lock:
             conn = self._ensure_open()
-            sql = "SELECT fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = $1)"
+            sql = "SELECT fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = ?)"
             result = conn.execute(sql, [run_id])
             desc = result.description
             chains = result.fetchall()

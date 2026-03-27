@@ -48,7 +48,7 @@ Takes your pipeline definition, expands variants from generators, executes steps
 
 Persists run metadata, chains, predictions, and artifacts. Enables replay, export, and analysis long after the Python process exits.
 
-**Key object**: `WorkspaceStore` — DuckDB-backed persistence layer
+**Key object**: `WorkspaceStore` — SQLite-backed persistence layer
 
 ::::{admonition} In Short
 :class: tip
@@ -76,7 +76,7 @@ flowchart TD
     J --> L[ExecutionContext]
     F --> M[Predictions]
     F --> N[WorkspaceStore]
-    N --> O[store.duckdb]
+    N --> O[store.sqlite]
     N --> P[artifacts/]
 ```
 
@@ -99,7 +99,7 @@ flowchart TD
 | `RuntimeContext` | Infrastructure wiring (store, artifact registry, trace, cache) |
 | `OperatorController` | Behavior adapter between abstract steps and execution |
 | `Predictions` | Accumulated prediction records with arrays and metrics |
-| `WorkspaceStore` | DuckDB-backed persistence facade |
+| `WorkspaceStore` | SQLite-backed persistence facade |
 
 Each object owns a distinct concern. Execution frequently crosses object boundaries, but the separation keeps the system modular and testable.
 

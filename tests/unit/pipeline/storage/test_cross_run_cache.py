@@ -1,4 +1,4 @@
-"""Tests for cross-run artifact caching (DuckDB-backed).
+"""Tests for cross-run artifact caching (SQLite-backed).
 
 Validates the storage layer and query mechanisms for persisting
 step-level cache keys across runs:
@@ -13,9 +13,9 @@ step-level cache keys across runs:
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
-import duckdb
 import pytest
 
 from nirs4all.pipeline.storage.store_schema import create_schema
@@ -27,8 +27,8 @@ from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 @pytest.fixture
 def conn():
-    """Create an in-memory DuckDB connection with schema."""
-    connection = duckdb.connect(":memory:")
+    """Create an in-memory SQLite connection with schema."""
+    connection = sqlite3.connect(":memory:")
     create_schema(connection)
     yield connection
     connection.close()
@@ -47,11 +47,8 @@ class TestCacheKeySchema:
 
     def test_artifacts_table_has_cache_key_columns(self, conn):
         """The artifacts table includes chain_path_hash, input_data_hash, dataset_hash."""
-        result = conn.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_name = 'artifacts' ORDER BY ordinal_position"
-        ).fetchall()
-        columns = [row[0] for row in result]
+        result = conn.execute("PRAGMA table_info('artifacts')").fetchall()
+        columns = [row[1] for row in result]
         assert "chain_path_hash" in columns
         assert "input_data_hash" in columns
         assert "dataset_hash" in columns
@@ -75,20 +72,14 @@ class TestCacheKeySchema:
 
     def test_cache_key_index_exists(self, conn):
         """The composite index on (chain_path_hash, input_data_hash) is created."""
-        result = conn.execute(
-            "SELECT index_name FROM duckdb_indexes() "
-            "WHERE table_name = 'artifacts'"
-        ).fetchall()
-        index_names = [row[0] for row in result]
+        result = conn.execute("PRAGMA index_list('artifacts')").fetchall()
+        index_names = [row[1] for row in result]
         assert "idx_artifacts_cache_key" in index_names
 
     def test_dataset_hash_index_exists(self, conn):
         """The index on dataset_hash is created."""
-        result = conn.execute(
-            "SELECT index_name FROM duckdb_indexes() "
-            "WHERE table_name = 'artifacts'"
-        ).fetchall()
-        index_names = [row[0] for row in result]
+        result = conn.execute("PRAGMA index_list('artifacts')").fetchall()
+        index_names = [row[1] for row in result]
         assert "idx_artifacts_dataset_hash" in index_names
 
 # =========================================================================
@@ -100,17 +91,17 @@ class TestCacheKeyMigration:
 
     def test_migration_adds_cache_key_columns(self):
         """Calling create_schema on a database without cache key columns adds them."""
-        conn = duckdb.connect(":memory:")
+        conn = sqlite3.connect(":memory:")
         # Create old schema without cache key columns
         conn.execute("""
             CREATE TABLE IF NOT EXISTS artifacts (
-                artifact_id VARCHAR PRIMARY KEY,
-                artifact_path VARCHAR NOT NULL,
-                content_hash VARCHAR NOT NULL,
-                operator_class VARCHAR,
-                artifact_type VARCHAR,
-                format VARCHAR DEFAULT 'joblib',
-                size_bytes BIGINT,
+                artifact_id TEXT PRIMARY KEY,
+                artifact_path TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                operator_class TEXT,
+                artifact_type TEXT,
+                format TEXT DEFAULT 'joblib',
+                size_bytes INTEGER,
                 ref_count INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT current_timestamp
             )
@@ -118,102 +109,91 @@ class TestCacheKeyMigration:
         # Also create required parent tables so schema creation succeeds
         conn.execute("""
             CREATE TABLE IF NOT EXISTS runs (
-                run_id VARCHAR PRIMARY KEY,
-                name VARCHAR NOT NULL,
-                config JSON,
-                datasets JSON,
-                status VARCHAR DEFAULT 'running',
+                run_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                config TEXT,
+                datasets TEXT,
+                status TEXT DEFAULT 'running',
                 created_at TIMESTAMP DEFAULT current_timestamp,
                 completed_at TIMESTAMP,
-                summary JSON,
-                error VARCHAR
+                summary TEXT,
+                error TEXT
             )
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS pipelines (
-                pipeline_id VARCHAR PRIMARY KEY,
-                run_id VARCHAR NOT NULL REFERENCES runs(run_id),
-                name VARCHAR NOT NULL,
-                expanded_config JSON,
-                generator_choices JSON,
-                dataset_name VARCHAR NOT NULL,
-                dataset_hash VARCHAR,
-                status VARCHAR DEFAULT 'running',
+                pipeline_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL REFERENCES runs(run_id),
+                name TEXT NOT NULL,
+                expanded_config TEXT,
+                generator_choices TEXT,
+                dataset_name TEXT NOT NULL,
+                dataset_hash TEXT,
+                status TEXT DEFAULT 'running',
                 created_at TIMESTAMP DEFAULT current_timestamp,
                 completed_at TIMESTAMP,
-                best_val DOUBLE,
-                best_test DOUBLE,
-                metric VARCHAR,
+                best_val REAL,
+                best_test REAL,
+                metric TEXT,
                 duration_ms INTEGER,
-                error VARCHAR
+                error TEXT
             )
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS chains (
-                chain_id VARCHAR PRIMARY KEY,
-                pipeline_id VARCHAR NOT NULL REFERENCES pipelines(pipeline_id),
-                steps JSON NOT NULL,
+                chain_id TEXT PRIMARY KEY,
+                pipeline_id TEXT NOT NULL REFERENCES pipelines(pipeline_id),
+                steps TEXT NOT NULL,
                 model_step_idx INTEGER NOT NULL,
-                model_class VARCHAR NOT NULL,
-                preprocessings VARCHAR DEFAULT '',
-                fold_strategy VARCHAR DEFAULT 'per_fold',
-                fold_artifacts JSON,
-                shared_artifacts JSON,
-                branch_path JSON,
+                model_class TEXT NOT NULL,
+                preprocessings TEXT DEFAULT '',
+                fold_strategy TEXT DEFAULT 'per_fold',
+                fold_artifacts TEXT,
+                shared_artifacts TEXT,
+                branch_path TEXT,
                 source_index INTEGER,
                 created_at TIMESTAMP DEFAULT current_timestamp
             )
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS predictions (
-                prediction_id VARCHAR PRIMARY KEY,
-                pipeline_id VARCHAR NOT NULL REFERENCES pipelines(pipeline_id),
-                chain_id VARCHAR REFERENCES chains(chain_id),
-                dataset_name VARCHAR NOT NULL,
-                model_name VARCHAR NOT NULL,
-                model_class VARCHAR NOT NULL,
-                fold_id VARCHAR NOT NULL,
-                partition VARCHAR NOT NULL,
-                val_score DOUBLE,
-                test_score DOUBLE,
-                train_score DOUBLE,
-                metric VARCHAR NOT NULL,
-                task_type VARCHAR NOT NULL,
+                prediction_id TEXT PRIMARY KEY,
+                pipeline_id TEXT NOT NULL REFERENCES pipelines(pipeline_id),
+                chain_id TEXT REFERENCES chains(chain_id),
+                dataset_name TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                model_class TEXT NOT NULL,
+                fold_id TEXT NOT NULL,
+                partition TEXT NOT NULL,
+                val_score REAL,
+                test_score REAL,
+                train_score REAL,
+                metric TEXT NOT NULL,
+                task_type TEXT NOT NULL,
                 n_samples INTEGER,
                 n_features INTEGER,
-                scores JSON,
-                best_params JSON,
-                preprocessings VARCHAR DEFAULT '',
+                scores TEXT,
+                best_params TEXT,
+                preprocessings TEXT DEFAULT '',
                 branch_id INTEGER,
-                branch_name VARCHAR,
+                branch_name TEXT,
                 exclusion_count INTEGER DEFAULT 0,
-                exclusion_rate DOUBLE DEFAULT 0.0,
-                refit_context VARCHAR DEFAULT NULL,
+                exclusion_rate REAL DEFAULT 0.0,
+                refit_context TEXT DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT current_timestamp
             )
         """)
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS prediction_arrays (
-                prediction_id VARCHAR PRIMARY KEY
-                    REFERENCES predictions(prediction_id),
-                y_true DOUBLE[],
-                y_pred DOUBLE[],
-                y_proba DOUBLE[],
-                sample_indices INTEGER[],
-                weights DOUBLE[]
-            )
-        """)
-        conn.execute("""
             CREATE TABLE IF NOT EXISTS logs (
-                log_id VARCHAR PRIMARY KEY,
-                pipeline_id VARCHAR NOT NULL REFERENCES pipelines(pipeline_id),
+                log_id TEXT PRIMARY KEY,
+                pipeline_id TEXT NOT NULL REFERENCES pipelines(pipeline_id),
                 step_idx INTEGER NOT NULL,
-                operator_class VARCHAR,
-                event VARCHAR NOT NULL,
+                operator_class TEXT,
+                event TEXT NOT NULL,
                 duration_ms INTEGER,
-                message VARCHAR,
-                details JSON,
-                level VARCHAR DEFAULT 'info',
+                message TEXT,
+                details TEXT,
+                level TEXT DEFAULT 'info',
                 created_at TIMESTAMP DEFAULT current_timestamp
             )
         """)
@@ -231,11 +211,8 @@ class TestCacheKeyMigration:
         create_schema(conn)
 
         # Verify columns were added
-        result = conn.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_name = 'artifacts' ORDER BY ordinal_position"
-        ).fetchall()
-        columns = [row[0] for row in result]
+        result = conn.execute("PRAGMA table_info('artifacts')").fetchall()
+        columns = [row[1] for row in result]
         assert "chain_path_hash" in columns
         assert "input_data_hash" in columns
         assert "dataset_hash" in columns
@@ -276,7 +253,7 @@ class TestSaveArtifactWithCacheKey:
         # Verify cache key was stored
         row = store._fetch_one(
             "SELECT chain_path_hash, input_data_hash, dataset_hash "
-            "FROM artifacts WHERE artifact_id = $1",
+            "FROM artifacts WHERE artifact_id = ?",
             [art_id],
         )
         assert row is not None
@@ -296,7 +273,7 @@ class TestSaveArtifactWithCacheKey:
         )
         row = store._fetch_one(
             "SELECT chain_path_hash, input_data_hash, dataset_hash "
-            "FROM artifacts WHERE artifact_id = $1",
+            "FROM artifacts WHERE artifact_id = ?",
             [art_id],
         )
         assert row is not None
@@ -327,7 +304,7 @@ class TestUpdateArtifactCacheKey:
 
         row = store._fetch_one(
             "SELECT chain_path_hash, input_data_hash, dataset_hash "
-            "FROM artifacts WHERE artifact_id = $1",
+            "FROM artifacts WHERE artifact_id = ?",
             [art_id],
         )
         assert row["chain_path_hash"] == "chain_abc"
@@ -454,11 +431,11 @@ class TestInvalidateDatasetCache:
 
         # But artifacts still exist (only cache keys cleared)
         row1 = store._fetch_one(
-            "SELECT artifact_id FROM artifacts WHERE artifact_id = $1",
+            "SELECT artifact_id FROM artifacts WHERE artifact_id = ?",
             [art1],
         )
         row2 = store._fetch_one(
-            "SELECT artifact_id FROM artifacts WHERE artifact_id = $1",
+            "SELECT artifact_id FROM artifacts WHERE artifact_id = ?",
             [art2],
         )
         assert row1 is not None

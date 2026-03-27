@@ -7,7 +7,6 @@ scikit-learn>=1.2.0
 # Data processing
 polars>=1.0.0
 pyarrow>=14.0.0
-duckdb>=1.0.0
 h5py>=3.8.0
 openpyxl>=3.1.0
 umap-learn
@@ -35,6 +34,9 @@ pydantic>=2.0.0
 
 # NIRS-specific splitting methods
 kennard-stone>=2.2.0
+
+# Legacy DuckDB migration (for migration tests)
+duckdb>=1.0.0
 
 # Testing
 build>=1.0.0

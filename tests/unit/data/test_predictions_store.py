@@ -27,7 +27,7 @@ def _make_store(tmp_path: Path) -> WorkspaceStore:
 def _setup_store_hierarchy(store: WorkspaceStore, dataset_name: str = "wheat") -> tuple[str, str]:
     """Create run -> pipeline -> chain hierarchy and return (pipeline_id, chain_id).
 
-    The DuckDB schema enforces foreign key constraints, so predictions
+    The SQLite schema enforces foreign key constraints, so predictions
     require valid pipeline_id and chain_id references.
     """
     run_id = store.begin_run(
@@ -564,14 +564,14 @@ class TestPredictionsFromWorkspacePath:
         assert len(preds.get_models()) == 5
         preds.close()
 
-    def test_predictions_from_duckdb_file(self, tmp_path):
-        """Predictions.from_file('store.duckdb') works."""
+    def test_predictions_from_sqlite_file(self, tmp_path):
+        """Predictions.from_file('store.sqlite') works."""
         store = _make_store(tmp_path)
         pipeline_id, chain_id = _setup_store_hierarchy(store)
         _flush_predictions_to_store(store, pipeline_id, chain_id, n=3)
         store.close()
 
-        db_file = tmp_path / "workspace" / "store.duckdb"
+        db_file = tmp_path / "workspace" / "store.sqlite"
         preds = Predictions.from_file(db_file)
         assert preds.num_predictions == 3
         preds.close()
@@ -859,7 +859,7 @@ class TestStoreStats:
     """Test store_stats() helper."""
 
     def test_store_stats(self, tmp_path):
-        """store_stats() returns combined DuckDB + Parquet stats."""
+        """store_stats() returns combined SQLite + Parquet stats."""
         store = _make_store(tmp_path)
         pipeline_id, chain_id = _setup_store_hierarchy(store)
         _flush_predictions_to_store(store, pipeline_id, chain_id, n=5)
@@ -900,7 +900,7 @@ class TestContextManager:
     """Test context manager protocol."""
 
     def test_context_manager(self, tmp_path):
-        """with Predictions(path) as p: works and closes store."""
+        """with Predictions(path) as p: loads data and releases store immediately."""
         store = _make_store(tmp_path)
         pipeline_id, chain_id = _setup_store_hierarchy(store)
         _flush_predictions_to_store(store, pipeline_id, chain_id, n=3)
@@ -909,12 +909,9 @@ class TestContextManager:
         workspace_dir = tmp_path / "workspace"
         with Predictions(workspace_dir) as p:
             assert p.num_predictions == 3
-            assert p._store is not None
-            assert p._owns_store is True
-
-        # After exiting, store should be closed
-        assert p._store is None
-        assert p._owns_store is False
+            # Store is closed immediately after loading (Phase 0)
+            assert p._store is None
+            assert p._owns_store is False
 
     def test_context_manager_no_store(self):
         """Context manager works in memory-only mode too."""

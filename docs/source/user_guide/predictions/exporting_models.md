@@ -155,7 +155,7 @@ import nirs4all
 preds = nirs4all.predict(model="model.n4a", data=X_new)
 ```
 
-No workspace, no DuckDB store, no artifacts directory needed on the target machine. The bundle contains everything.
+No workspace, no store, no artifacts directory needed on the target machine. The bundle contains everything.
 
 ## Loading Bundles as sklearn Pipelines
 

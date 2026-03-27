@@ -470,7 +470,7 @@ class TestBranchArtifactPersistence:
             dataset
         )
 
-        # Check that artifacts directory exists (DuckDB storage uses flat artifacts dir)
+        # Check that artifacts directory exists (SQLite storage uses flat artifacts dir)
         artifacts_dir = workspace_path / "artifacts"
         assert artifacts_dir.exists(), "Artifacts directory should exist"
 
@@ -482,7 +482,7 @@ class TestBranchArtifactPersistence:
     def test_store_contains_branch_metadata(
         self, runner_with_save, dataset, workspace_path
     ):
-        """Test that DuckDB store contains branch metadata for chains."""
+        """Test that SQLite store contains branch metadata for chains."""
         pipeline = [
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
             {"branch": [
@@ -497,9 +497,9 @@ class TestBranchArtifactPersistence:
             dataset
         )
 
-        # Verify store.duckdb exists
-        store_path = workspace_path / "store.duckdb"
-        assert store_path.exists(), "store.duckdb should be created"
+        # Verify store.sqlite exists
+        store_path = workspace_path / "store.sqlite"
+        assert store_path.exists(), "store.sqlite should be created"
 
         # Verify artifacts directory has files
         artifacts_dir = workspace_path / "artifacts"

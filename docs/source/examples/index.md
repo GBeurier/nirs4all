@@ -314,7 +314,7 @@ Model persistence, bundle export, sklearn integration, workspace management.
 |---------|------------|-------------|
 | [U01: Save, Load, Predict](https://github.com/GBeurier/nirs4all/blob/main/examples/user/06_deployment/U01_save_load_predict.py) | ★★☆☆☆ | Basic prediction workflow with workspace |
 | [U02: Export Bundle](https://github.com/GBeurier/nirs4all/blob/main/examples/user/06_deployment/U02_export_bundle.py) | ★★☆☆☆ | Export to .n4a and .n4a.py portable bundles |
-| [U03: Workspace Management](https://github.com/GBeurier/nirs4all/blob/main/examples/user/06_deployment/U03_workspace_management.py) | ★★☆☆☆ | Session context, DuckDB storage, library management |
+| [U03: Workspace Management](https://github.com/GBeurier/nirs4all/blob/main/examples/user/06_deployment/U03_workspace_management.py) | ★★☆☆☆ | Session context, SQLite storage, library management |
 | [U04: sklearn Integration](https://github.com/GBeurier/nirs4all/blob/main/examples/user/06_deployment/U04_sklearn_integration.py) | ★★☆☆☆ | Use NIRSPipeline as sklearn estimator for GridSearchCV |
 
 **Key APIs**: `nirs4all.predict()`, `export()`, `NIRSPipeline`, `nirs4all.session()`

@@ -168,7 +168,7 @@ class ExecutorBuilder:
         return self
 
     def with_store(self, store: Any) -> "ExecutorBuilder":
-        """Set the WorkspaceStore for DuckDB-backed persistence.
+        """Set the WorkspaceStore for SQLite-backed persistence.
 
         Args:
             store: WorkspaceStore instance

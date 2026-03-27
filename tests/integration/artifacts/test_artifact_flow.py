@@ -2,9 +2,9 @@
 Integration tests for complete artifact flow.
 
 Tests the full lifecycle of artifacts from training to prediction:
-- Training creates artifacts in DuckDB store + content-addressed artifacts/
+- Training creates artifacts in SQLite store + content-addressed artifacts/
 - Prediction loads artifacts correctly via chain replay
-- Artifact records in store.duckdb have valid paths
+- Artifact records in store.sqlite have valid paths
 - Artifact integrity is preserved
 """
 
@@ -65,7 +65,7 @@ class TestTrainingArtifactCreation:
     def test_training_creates_store_with_artifacts(
         self, runner, dataset, workspace_path
     ):
-        """Verify training creates DuckDB store with chain and artifact records."""
+        """Verify training creates SQLite store with chain and artifact records."""
         pipeline = [
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
             {"class": "sklearn.preprocessing.StandardScaler"},
@@ -80,9 +80,9 @@ class TestTrainingArtifactCreation:
         assert predictions is not None
         assert len(predictions) > 0
 
-        # Verify store.duckdb exists
-        store_path = workspace_path / "store.duckdb"
-        assert store_path.exists(), "store.duckdb should be created"
+        # Verify store.sqlite exists
+        store_path = workspace_path / "store.sqlite"
+        assert store_path.exists(), "store.sqlite should be created"
 
         # Verify artifacts directory exists
         artifacts_dir = workspace_path / "artifacts"
@@ -113,7 +113,7 @@ class TestTrainingArtifactCreation:
     def test_artifact_paths_in_store_are_valid(
         self, runner, dataset, workspace_path
     ):
-        """Verify artifact paths in store.duckdb point to existing files."""
+        """Verify artifact paths in store.sqlite point to existing files."""
         pipeline = [
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
             {"class": "sklearn.preprocessing.StandardScaler"},

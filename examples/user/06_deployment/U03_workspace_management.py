@@ -8,7 +8,7 @@ This tutorial covers:
 
 * Session context manager for multiple runs
 * Workspace structure and navigation
-* DuckDB-backed prediction storage
+* SQLite-backed prediction storage
 * Library management for pipeline templates
 
 Prerequisites
@@ -67,7 +67,7 @@ Sessions and workspace management help you:
 
   📁 WORKSPACE STRUCTURE
      workspace/
-     ├── store.duckdb    # All structured data (runs, predictions, etc.)
+     ├── store.sqlite    # All structured data (runs, predictions, etc.)
      ├── artifacts/      # Content-addressed binary artifacts
      ├── exports/        # Exported best results
      └── library/        # Saved pipeline templates
@@ -368,7 +368,7 @@ Session and Workspace Workflow:
 
 Workspace Structure:
   workspace/
-  ├── store.duckdb    # All structured data (runs, predictions, etc.)
+  ├── store.sqlite    # All structured data (runs, predictions, etc.)
   ├── artifacts/      # Content-addressed binary artifacts
   ├── exports/        # Exported best results (.n4a bundles)
   └── library/        # Saved pipeline templates (.json)

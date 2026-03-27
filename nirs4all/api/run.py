@@ -495,10 +495,18 @@ def run(
             project_id = store.get_or_create_project(project)
             store.set_run_project(run_id, project_id)
 
-    return RunResult(
+    result = RunResult(
         predictions=all_predictions,
         per_dataset=all_per_dataset,
         _runner=runner,
         _owns_runner=session is None,
+        _workspace_path=runner.workspace_path,
         _per_model_selections=per_model_selections,
     )
+
+    # For non-session runs, detach from the runner immediately to release
+    # the DB connection.  Export operations will re-open the store on demand.
+    if session is None:
+        result.detach()
+
+    return result

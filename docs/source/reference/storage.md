@@ -1,6 +1,6 @@
 # Storage API Reference
 
-This document provides the API reference for the nirs4all storage system, which uses a hybrid DuckDB + Parquet architecture.
+This document provides the API reference for the nirs4all storage system, which uses a hybrid SQLite + Parquet architecture.
 
 ## Module: `nirs4all.pipeline.storage`
 
@@ -14,7 +14,7 @@ class WorkspaceStore:
     predictions, artifacts, and structured execution logs.
 
     The store manages three on-disk resources:
-    - store.duckdb: DuckDB database with 7 tables (runs, pipelines, chains,
+    - store.sqlite: SQLite database with 7 tables (runs, pipelines, chains,
       predictions, artifacts, logs, projects)
     - arrays/: Per-dataset Parquet files for prediction arrays (via ArrayStore)
     - artifacts/: A flat, content-addressed directory for binary artifacts
@@ -28,7 +28,7 @@ def __init__(self, workspace_path: Path) -> None:
     """
     Initialize the workspace store.
 
-    Creates store.duckdb and artifacts/ directory if they don't exist.
+    Creates store.sqlite and artifacts/ directory if they don't exist.
     Schema is created automatically on first use.
 
     Args:
@@ -137,7 +137,7 @@ def get_chains_for_pipeline(self, pipeline_id: str) -> pl.DataFrame:
 
 #### Prediction Storage
 
-Prediction scalar scores are stored in DuckDB. Dense arrays (y_true, y_pred, etc.) are stored in per-dataset Parquet sidecar files via `ArrayStore`.
+Prediction scalar scores are stored in SQLite. Dense arrays (y_true, y_pred, etc.) are stored in per-dataset Parquet sidecar files via `ArrayStore`.
 
 ```python
 def save_prediction(
@@ -150,7 +150,7 @@ def save_prediction(
     exclusion_count: int, exclusion_rate: float,
     preprocessings: str = "",
 ) -> str:
-    """Store a single prediction record (scalar scores in DuckDB).
+    """Store a single prediction record (scalar scores in SQLite).
 
     Returns:
         A unique prediction identifier (UUID string).
@@ -295,7 +295,7 @@ def get_run_log_summary(self, run_id: str) -> pl.DataFrame:
 
 #### Export Operations
 
-Exports produce files on demand from the store. No files are written during training except `store.duckdb` and artifact binaries.
+Exports produce files on demand from the store. No files are written during training except `store.sqlite` and artifact binaries.
 
 ```python
 def export_chain(
@@ -360,7 +360,7 @@ def gc_artifacts(self) -> int:
     """Garbage-collect unreferenced artifacts (ref_count == 0)."""
 
 def vacuum(self) -> None:
-    """Reclaim unused space in the DuckDB database file."""
+    """Reclaim unused space in the SQLite database file."""
 
 def close(self) -> None:
     """Close the database connection."""

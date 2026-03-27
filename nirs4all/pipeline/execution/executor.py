@@ -28,7 +28,7 @@ class PipelineExecutor:
 
     Attributes:
         step_runner: Executes individual steps
-        store: WorkspaceStore for DuckDB-backed persistence
+        store: WorkspaceStore for SQLite-backed persistence
         verbose: Verbosity level
         mode: Execution mode (train/predict/explain)
         continue_on_error: Whether to continue on step failures
@@ -53,7 +53,7 @@ class PipelineExecutor:
             verbose: Verbosity level
             mode: Execution mode (train/predict/explain)
             continue_on_error: Whether to continue on step failures
-            store: WorkspaceStore for DuckDB-backed persistence
+            store: WorkspaceStore for SQLite-backed persistence
             save_artifacts: Whether to save binary artifacts
             artifact_loader: Artifact loader for predict/explain modes
             artifact_registry: Artifact registry for v2 artifact management
@@ -287,7 +287,7 @@ class PipelineExecutor:
 
         except Exception as e:
             # Fail pipeline in store.  Use try/except to prevent store
-            # errors from masking the original pipeline error (e.g. DuckDB
+            # errors from masking the original pipeline error (e.g. SQLite
             # lock conflicts from concurrent processes).
             if self.mode == "train" and store and pipeline_id:
                 with contextlib.suppress(Exception):
@@ -307,7 +307,7 @@ class PipelineExecutor:
         prediction_store: Predictions,
         runtime_context: Any = None,
     ) -> None:
-        """Flush in-memory predictions to the DuckDB store.
+        """Flush in-memory predictions to the SQLite store.
 
         Maps each prediction to its corresponding chain via step_idx → model_step_idx,
         preserving the Predictions object's short ID as the store prediction_id.

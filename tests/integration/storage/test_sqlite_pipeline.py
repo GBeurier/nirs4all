@@ -1,10 +1,10 @@
-"""Integration tests for Phase 2: DuckDB-backed pipeline execution.
+"""Integration tests for Phase 2: SQLite-backed pipeline execution.
 
 Validates that the full pipeline execution flow works with WorkspaceStore
 replacing ManifestManager, SimulationSaver, and PipelineWriter.
 
 Tests verify:
-- nirs4all.run() produces valid RunResult with DuckDB storage
+- nirs4all.run() produces valid RunResult with SQLite storage
 - No legacy filesystem hierarchy (no runs/ folder, manifest.yaml, pipeline.json)
 - Artifacts are saved in flat content-addressed workspace/artifacts/ structure
 - Chains are built from ExecutionTrace with correct steps and artifacts
@@ -138,8 +138,8 @@ class TestNoFileHierarchy:
         pipeline_json_files = list(temp_workspace.rglob("pipeline.json"))
         assert len(pipeline_json_files) == 0, f"Legacy pipeline.json files found: {pipeline_json_files}"
 
-    def test_store_duckdb_exists(self, temp_workspace, regression_data):
-        """After run: store.duckdb file exists."""
+    def test_store_sqlite_exists(self, temp_workspace, regression_data):
+        """After run: store.sqlite file exists."""
         X, y = regression_data
         pipeline = [MinMaxScaler(), PLSRegression(n_components=3)]
 
@@ -149,8 +149,8 @@ class TestNoFileHierarchy:
         )
         runner.run(pipeline, (X, y))
 
-        store_file = temp_workspace / "store.duckdb"
-        assert store_file.exists(), f"store.duckdb should exist at {store_file}"
+        store_file = temp_workspace / "store.sqlite"
+        assert store_file.exists(), f"store.sqlite should exist at {store_file}"
 
 class TestArtifactsFlat:
     """Test that artifacts are saved in flat content-addressed structure."""
@@ -181,7 +181,7 @@ class TestChainFromTrace:
     """Test that chains are built correctly from ExecutionTrace."""
 
     def test_chain_stored_in_database(self, temp_workspace, regression_data):
-        """Chain built from ExecutionTrace is stored in DuckDB."""
+        """Chain built from ExecutionTrace is stored in SQLite."""
         X, y = regression_data
         pipeline = [
             MinMaxScaler(),

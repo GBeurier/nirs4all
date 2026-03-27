@@ -118,7 +118,7 @@ class BundleGenerator:
         """Export a chain from WorkspaceStore as a standalone bundle.
 
         This is the preferred export path.  It reads the chain directly
-        from the DuckDB store, collects all referenced artifacts, and
+        from the workspace store, collects all referenced artifacts, and
         packages them into the requested format.
 
         Args:

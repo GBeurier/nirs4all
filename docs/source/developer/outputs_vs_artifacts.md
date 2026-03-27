@@ -30,7 +30,7 @@ To ensure clean separation of concerns and testability, controllers **do not sav
 **Benefits:**
 - Automatic deduplication (identical objects stored once)
 - Content-addressed (SHA256) for integrity
-- Referenced in DuckDB `artifacts` table with `ref_count` tracking
+- Referenced in SQLite `artifacts` table with `ref_count` tracking
 - Space-efficient (e.g., 25% reduction in tests)
 
 **Example:**
@@ -81,7 +81,7 @@ return context, StepOutput(
 
 ```
 workspace/
-├── store.duckdb                  # All structured data (runs, pipelines, chains,
+├── store.sqlite                  # All structured data (runs, pipelines, chains,
 │                                 #   predictions, artifacts registry, logs)
 ├── artifacts/                    # Binary artifacts (models, transformers)
 │   ├── ab/
@@ -121,7 +121,7 @@ runner = PipelineRunner(save_artifacts=False, save_charts=False)
 ```
 
 When `save_artifacts=False`:
-- **Executor** skips saving artifacts to DuckDB and artifacts/ directory
+- **Executor** skips saving artifacts to SQLite and artifacts/ directory
 - Pipeline can still run and generate predictions
 - Models won't be reloadable for predict mode or chain replay
 
@@ -197,8 +197,8 @@ workspace/exports/
 ### Models and Transformers (Artifacts)
 
 ```bash
-# Artifact references are in store.duckdb (artifacts and chains tables)
-workspace/store.duckdb
+# Artifact references are in store.sqlite (artifacts and chains tables)
+workspace/store.sqlite
 
 # Binary artifacts are in content-addressed storage
 workspace/artifacts/ab/abc123...joblib  # Model file
@@ -264,7 +264,7 @@ A: Models are binary -- not human-readable. Use `WorkspaceStore.replay_chain()` 
 |---------|-----------|---------|
 | **Purpose** | Internal binary objects | Human-readable files |
 | **Location** | `artifacts/<hash[:2]>/` | `exports/<dataset>_<pipeline>/` |
-| **Registry** | DuckDB `artifacts` table | On-disk files |
+| **Registry** | SQLite `artifacts` table | On-disk files |
 | **Names** | Hash-based | Human-readable |
 | **Deduplication** | Yes (content-addressed) | No |
 | **Easy to find** | No (use store queries) | Yes |

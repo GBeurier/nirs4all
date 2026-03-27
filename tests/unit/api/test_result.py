@@ -208,9 +208,9 @@ class TestRunResult:
         )
 
     def test_export_no_runner(self, mock_predictions):
-        """Test export() raises when no runner available."""
+        """Test export() raises when no runner or workspace path available."""
         result = RunResult(predictions=mock_predictions, per_dataset={})
-        with pytest.raises(RuntimeError, match="runner reference not available"):
+        with pytest.raises(RuntimeError, match="no workspace path available"):
             result.export('output/model.n4a')
 
     def test_export_no_predictions(self, mock_runner, mock_predictions):

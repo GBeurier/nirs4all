@@ -213,9 +213,9 @@ class TestFeatureMergePredictionMode:
         assert predictions is not None
         assert len(predictions) > 0
 
-        # Verify DuckDB store was created
-        store_path = workspace_path / "store.duckdb"
-        assert store_path.exists(), "store.duckdb should be created"
+        # Verify SQLite store was created
+        store_path = workspace_path / "store.sqlite"
+        assert store_path.exists(), "store.sqlite should be created"
 
         # Check artifacts directory exists
         artifacts_dir = workspace_path / "artifacts"
@@ -352,7 +352,7 @@ class TestMixedMergePredictionMode:
         assert len(predictions) > 0
 
 class TestMergeMetadataInStore:
-    """Test that merge configuration is properly saved to DuckDB store."""
+    """Test that merge configuration is properly saved to SQLite store."""
 
     @pytest.fixture
     def workspace_path(self, tmp_path):
@@ -380,7 +380,7 @@ class TestMergeMetadataInStore:
     def test_merge_config_in_store(
         self, runner_with_save, dataset, workspace_path
     ):
-        """Test that merge configuration is saved in DuckDB store."""
+        """Test that merge configuration is saved in SQLite store."""
         pipeline = [
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
             {"branch": [
@@ -396,9 +396,9 @@ class TestMergeMetadataInStore:
             dataset
         )
 
-        # Verify store.duckdb was created
-        store_path = workspace_path / "store.duckdb"
-        assert store_path.exists(), "store.duckdb should be created"
+        # Verify store.sqlite was created
+        store_path = workspace_path / "store.sqlite"
+        assert store_path.exists(), "store.sqlite should be created"
 
         # Verify predictions were produced
         assert predictions is not None

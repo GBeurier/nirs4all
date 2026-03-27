@@ -1,9 +1,14 @@
-"""Migration from DuckDB prediction_arrays to Parquet sidecar files.
+"""Migration utilities for workspace storage.
 
-Provides :func:`migrate_arrays_to_parquet` which reads dense prediction
-arrays from the legacy ``prediction_arrays`` DuckDB table, writes them
-to per-dataset Parquet files via :class:`ArrayStore`, verifies data
-integrity, and optionally drops the legacy table.
+Provides:
+
+- :func:`migrate_arrays_to_parquet` — migrates dense prediction arrays
+  from a legacy DuckDB ``prediction_arrays`` table to Parquet sidecar
+  files.  Requires ``duckdb`` to be installed.
+
+- :func:`migrate_duckdb_to_sqlite` — one-time migration of workspace
+  metadata from ``store.duckdb`` to ``store.sqlite``.  Requires
+  ``duckdb`` to be installed.  Will be removed in v1.0.
 
 Usage::
 
@@ -14,19 +19,31 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import json
 import logging
+import os
 import shutil
+import sqlite3
 import time
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import Path
 
-import duckdb
 import numpy as np
 
 from nirs4all.pipeline.storage.array_store import ArrayStore
 
+try:
+    import duckdb
+    HAS_DUCKDB = True
+except ImportError:
+    HAS_DUCKDB = False
+
 logger = logging.getLogger(__name__)
+
+_MIGRATION_LOCK_STALE_SECONDS = 300.0
 
 @dataclass
 class MigrationReport:
@@ -35,6 +52,7 @@ class MigrationReport:
     total_rows: int = 0
     rows_migrated: int = 0
     datasets_migrated: list[str] = field(default_factory=list)
+    tables_migrated: dict[str, int] = field(default_factory=dict)
     verification_passed: bool = False
     verification_sample_size: int = 0
     verification_mismatches: int = 0
@@ -44,8 +62,16 @@ class MigrationReport:
     duration_seconds: float = 0.0
     errors: list[str] = field(default_factory=list)
 
-def _table_exists(conn: duckdb.DuckDBPyConnection, table_name: str) -> bool:
-    """Check whether a table exists in the DuckDB database."""
+def _require_duckdb():
+    """Raise ImportError with helpful message if duckdb is not installed."""
+    if not HAS_DUCKDB:
+        raise ImportError(
+            "The 'duckdb' package is required to migrate legacy DuckDB workspaces. "
+            "Install it with: pip install nirs4all[migration]"
+        )
+
+def _table_exists_duckdb(conn, table_name: str) -> bool:
+    """Check whether a table exists in a DuckDB database."""
     result = conn.execute(
         "SELECT 1 FROM information_schema.tables "
         "WHERE table_name = $1 AND table_type = 'BASE TABLE'",
@@ -60,6 +86,97 @@ def _array_checksum(arr: list | np.ndarray | None) -> str:
     if isinstance(arr, list):
         arr = np.array(arr, dtype=np.float64)
     return hashlib.md5(np.ascontiguousarray(arr, dtype=np.float64).tobytes()).hexdigest()
+
+def _sqlite_compatible_value(value: object) -> object:
+    """Normalize values before inserting them into SQLite."""
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ")
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+def _read_lock_metadata(lock_path: Path) -> dict[str, object]:
+    """Read JSON metadata from a migration lock file.
+
+    Returns an empty dict when the file is missing or malformed.
+    """
+    try:
+        result: dict[str, object] = json.loads(lock_path.read_text(encoding="utf-8"))
+        return result
+    except (FileNotFoundError, OSError, ValueError, TypeError):
+        return {}
+
+def _is_pid_running(pid: int) -> bool:
+    """Return ``True`` when *pid* appears to reference a live process."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+def _lock_owner_pid(lock_path: Path) -> int | None:
+    """Extract the owning PID from a lock file, if available."""
+    metadata = _read_lock_metadata(lock_path)
+    raw_pid = metadata.get("pid")
+    if isinstance(raw_pid, int):
+        return raw_pid
+    if isinstance(raw_pid, str) and raw_pid.isdigit():
+        return int(raw_pid)
+    return None
+
+def _is_stale_migration_lock(lock_path: Path) -> bool:
+    """Return ``True`` when the migration lock is stale and safe to remove."""
+    owner_pid = _lock_owner_pid(lock_path)
+    if owner_pid is not None:
+        return not _is_pid_running(owner_pid)
+
+    try:
+        age_seconds = time.time() - lock_path.stat().st_mtime
+    except FileNotFoundError:
+        return False
+    return age_seconds > _MIGRATION_LOCK_STALE_SECONDS
+
+def _acquire_migration_lock(lock_path: Path, sqlite_tmp: Path) -> None:
+    """Acquire the migration lock or raise if another process owns it."""
+    lock_payload = {
+        "pid": os.getpid(),
+        "created_at": time.time(),
+    }
+
+    def _write_lock() -> None:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(lock_payload, handle)
+
+    try:
+        _write_lock()
+        return
+    except FileExistsError:
+        pass
+
+    owner_pid = _lock_owner_pid(lock_path)
+    if not _is_stale_migration_lock(lock_path):
+        owner_note = f" (pid {owner_pid})" if owner_pid is not None else ""
+        raise RuntimeError(
+            f"Another DuckDB-to-SQLite migration is already in progress for {lock_path.parent}{owner_note}."
+        )
+
+    logger.warning("Removing stale DuckDB-to-SQLite migration lock: %s", lock_path)
+    with contextlib.suppress(FileNotFoundError):
+        lock_path.unlink()
+    if sqlite_tmp.exists():
+        sqlite_tmp.unlink()
+
+    try:
+        _write_lock()
+    except FileExistsError as exc:
+        raise RuntimeError(
+            f"Another DuckDB-to-SQLite migration is already in progress for {lock_path.parent}."
+        ) from exc
 
 def migrate_arrays_to_parquet(
     workspace_path: str | Path,
@@ -107,9 +224,10 @@ def migrate_arrays_to_parquet(
 
     report.duckdb_size_before = db_path.stat().st_size
 
+    _require_duckdb()
     conn = duckdb.connect(str(db_path))
     try:
-        if not _table_exists(conn, "prediction_arrays"):
+        if not _table_exists_duckdb(conn, "prediction_arrays"):
             report.errors.append("No prediction_arrays table found — nothing to migrate.")
             report.duration_seconds = time.monotonic() - start_time
             return report
@@ -324,10 +442,14 @@ def verify_migrated_store(workspace_path: str | Path) -> MigrationReport:
 
     db_path = workspace_path / "store.duckdb"
     if not db_path.exists():
-        report.errors.append(f"DuckDB file not found: {db_path}")
+        # After DuckDB→SQLite migration, the file is renamed to .bak
+        db_path = workspace_path / "store.duckdb.bak"
+    if not db_path.exists():
+        report.errors.append("DuckDB file not found (checked store.duckdb and store.duckdb.bak)")
         report.duration_seconds = time.monotonic() - start_time
         return report
 
+    _require_duckdb()
     array_store = ArrayStore(workspace_path)
     conn = duckdb.connect(str(db_path), read_only=True)
     try:
@@ -359,6 +481,181 @@ def verify_migrated_store(workspace_path: str | Path) -> MigrationReport:
         report.rows_migrated = stats["total_rows"]
     finally:
         conn.close()
+        report.duration_seconds = time.monotonic() - start_time
+
+    return report
+
+# =========================================================================
+# DuckDB → SQLite migration  🗑️ remove-at-v1
+# =========================================================================
+
+# Tables in FK-safe insertion order
+_MIGRATION_TABLES = ["projects", "runs", "pipelines", "chains", "predictions", "artifacts", "logs"]
+
+def migrate_duckdb_to_sqlite(workspace_path: str | Path) -> MigrationReport:
+    """Migrate workspace metadata from store.duckdb to store.sqlite.
+
+    This is a one-time migration tool triggered automatically by
+    ``WorkspaceStore.__init__`` when ``store.duckdb`` exists but
+    ``store.sqlite`` does not.  Requires the ``duckdb`` package.
+
+    Steps:
+        1. Open store.duckdb in read-only mode.
+        2. Create store.sqlite.tmp with the SQLite schema.
+        3. Copy all rows table by table in FK order.
+        4. Verify row counts + PRAGMA integrity_check.
+        5. Rename store.sqlite.tmp → store.sqlite.
+        6. Rename store.duckdb → store.duckdb.bak.
+
+    Args:
+        workspace_path: Root directory of the workspace.
+
+    Returns:
+        A :class:`MigrationReport` with migration statistics.
+
+    Raises:
+        ImportError: If duckdb is not installed.
+        RuntimeError: If migration verification fails.
+
+    .. deprecated::
+        Will be removed in v1.0 when DuckDB support is fully dropped.
+    """
+    _require_duckdb()
+
+    workspace_path = Path(workspace_path)
+    report = MigrationReport()
+    start_time = time.monotonic()
+
+    duckdb_path = workspace_path / "store.duckdb"
+    sqlite_tmp = workspace_path / "store.sqlite.tmp"
+    sqlite_path = workspace_path / "store.sqlite"
+    lock_path = workspace_path / ".migration.lock"
+
+    if not duckdb_path.exists():
+        report.errors.append(f"DuckDB file not found: {duckdb_path}")
+        report.duration_seconds = time.monotonic() - start_time
+        return report
+
+    if sqlite_path.exists():
+        logger.info("store.sqlite already exists — skipping migration.")
+        report.verification_passed = True
+        report.duration_seconds = time.monotonic() - start_time
+        return report
+
+    lock_acquired = False
+    try:
+        _acquire_migration_lock(lock_path, sqlite_tmp)
+        lock_acquired = True
+    except RuntimeError as exc:
+        report.errors.append(str(exc))
+        report.duration_seconds = time.monotonic() - start_time
+        return report
+
+    if sqlite_tmp.exists():
+        sqlite_tmp.unlink()
+
+    report.duckdb_size_before = duckdb_path.stat().st_size
+
+    try:
+        duck_conn = duckdb.connect(str(duckdb_path), read_only=True)
+        lite_conn = sqlite3.connect(str(sqlite_tmp))
+
+        try:
+            # Create SQLite schema
+            from nirs4all.pipeline.storage.store_schema import create_schema
+            create_schema(lite_conn)
+
+            # Copy tables in FK order
+            total_rows = 0
+            for table_name in _MIGRATION_TABLES:
+                # Check if table exists in DuckDB
+                has_table = duck_conn.execute(
+                    "SELECT 1 FROM information_schema.tables WHERE table_name = $1 AND table_type = 'BASE TABLE'",
+                    [table_name],
+                ).fetchone()
+                if has_table is None:
+                    continue
+
+                # Get column names from DuckDB
+                cols = [row[0] for row in duck_conn.execute("SELECT column_name FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position", [table_name]).fetchall()]
+
+                # Get columns that exist in SQLite
+                lite_cols = {row[1] for row in lite_conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()}
+                # Only copy columns that exist in both
+                shared_cols = [c for c in cols if c in lite_cols]
+
+                if not shared_cols:
+                    continue
+
+                col_list = ", ".join(shared_cols)
+                placeholders = ", ".join("?" for _ in shared_cols)
+
+                rows = duck_conn.execute(f"SELECT {col_list} FROM {table_name}").fetchall()
+                if rows:
+                    sqlite_rows = [
+                        tuple(_sqlite_compatible_value(value) for value in row)
+                        for row in rows
+                    ]
+                    lite_conn.executemany(
+                        f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})",
+                        sqlite_rows,
+                    )
+                    total_rows += len(rows)
+
+                report.tables_migrated[table_name] = len(rows)
+
+            lite_conn.commit()
+            report.total_rows = total_rows
+            report.rows_migrated = total_rows
+
+            # Verify row counts
+            mismatches = 0
+            for table_name in _MIGRATION_TABLES:
+                has_table = duck_conn.execute("SELECT 1 FROM information_schema.tables WHERE table_name = $1 AND table_type = 'BASE TABLE'", [table_name]).fetchone()
+                if has_table is None:
+                    continue
+
+                duck_row = duck_conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+                lite_row = lite_conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+                duck_count = duck_row[0] if duck_row else 0
+                lite_count = lite_row[0] if lite_row else 0
+                if duck_count != lite_count:
+                    mismatches += 1
+                    report.errors.append(f"Row count mismatch for {table_name}: DuckDB={duck_count}, SQLite={lite_count}")
+
+            # Integrity check
+            integrity = lite_conn.execute("PRAGMA integrity_check").fetchone()
+            if integrity is None or integrity[0] != "ok":
+                mismatches += 1
+                report.errors.append(f"SQLite integrity check failed: {integrity[0]}")
+
+            report.verification_mismatches = mismatches
+            report.verification_passed = mismatches == 0
+
+        finally:
+            duck_conn.close()
+            lite_conn.close()
+
+        if not report.verification_passed:
+            # Rollback: delete tmp file
+            if sqlite_tmp.exists():
+                sqlite_tmp.unlink()
+            raise RuntimeError(f"DuckDB→SQLite migration verification failed: {report.errors}")
+
+        # Atomic rename — the SQLite file is the critical deliverable
+        sqlite_tmp.rename(sqlite_path)
+        # Best-effort backup of the old DuckDB file (non-fatal if it fails)
+        with contextlib.suppress(OSError):
+            duckdb_path.rename(duckdb_path.with_suffix(".duckdb.bak"))
+        logger.info("Migrated store.duckdb → store.sqlite (%d rows across %d tables)", total_rows, len(_MIGRATION_TABLES))
+
+    finally:
+        # Clean up lock
+        if lock_acquired and lock_path.exists():
+            lock_path.unlink()
+        # Clean up tmp on failure
+        if lock_acquired and sqlite_tmp.exists():
+            sqlite_tmp.unlink()
         report.duration_seconds = time.monotonic() - start_time
 
     return report

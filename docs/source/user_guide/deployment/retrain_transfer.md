@@ -293,7 +293,7 @@ finetune_preds, _ = runner.retrain(
 
 ```python
 # Error: Artifact not found
-# Solution: Artifacts are stored automatically in store.duckdb + artifacts/
+# Solution: Artifacts are stored automatically in store.sqlite + artifacts/
 # Ensure the workspace path is correct and artifacts/ directory is intact
 ```
 

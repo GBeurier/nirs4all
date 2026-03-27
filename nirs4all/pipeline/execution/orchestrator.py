@@ -49,7 +49,7 @@ class PipelineOrchestrator:
 
     Attributes:
         workspace_path: Root workspace directory
-        store: WorkspaceStore for DuckDB-backed persistence
+        store: WorkspaceStore for SQLite-backed persistence
         verbose: Verbosity level
         mode: Execution mode (train/predict/explain)
         save_artifacts: Whether to save binary artifacts
@@ -103,7 +103,7 @@ class PipelineOrchestrator:
             )
         self.workspace_path = Path(workspace_path)
 
-        # Create WorkspaceStore for DuckDB-backed persistence
+        # Create WorkspaceStore for SQLite-backed persistence
         self.store = WorkspaceStore(self.workspace_path)
 
         # Create exports directory for on-demand exports
@@ -754,7 +754,7 @@ class PipelineOrchestrator:
         except Exception as e:
             # Fail run in store (only if we manage the lifecycle).
             # Use try/except to prevent store errors from masking the
-            # original pipeline error (e.g. DuckDB lock conflicts).
+            # original pipeline error (e.g. SQLite lock conflicts).
             if run_id and self.mode == "train" and manage_store_run:
                 with contextlib.suppress(Exception):
                     self.store.fail_run(run_id, str(e))

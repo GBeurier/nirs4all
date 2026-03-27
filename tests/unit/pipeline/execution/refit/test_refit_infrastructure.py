@@ -8,9 +8,9 @@ Covers:
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
-import duckdb
 import pytest
 
 from nirs4all.pipeline.storage.store_schema import (
@@ -138,22 +138,19 @@ class TestRefitContextColumn:
 
     def test_predictions_table_has_refit_context_column(self):
         """The predictions table includes refit_context in its DDL."""
-        conn = duckdb.connect(":memory:")
+        conn = sqlite3.connect(":memory:")
         try:
             create_schema(conn)
-            result = conn.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name = 'predictions' ORDER BY ordinal_position"
-            ).fetchall()
-            columns = [row[0] for row in result]
+            columns = {row[1] for row in conn.execute("PRAGMA table_info('predictions')").fetchall()}
             assert "refit_context" in columns
         finally:
             conn.close()
 
     def test_refit_context_default_null(self):
         """refit_context defaults to NULL for CV entries."""
-        conn = duckdb.connect(":memory:")
+        conn = sqlite3.connect(":memory:")
         try:
+            conn.execute("PRAGMA foreign_keys=ON")
             create_schema(conn)
             # Insert run and pipeline first (FK constraint)
             conn.execute("INSERT INTO runs (run_id, name) VALUES ('r1', 'run')")
@@ -404,31 +401,31 @@ class TestRefitContextColumn:
 
     def test_schema_migration_adds_refit_context(self):
         """Migration adds refit_context to existing databases."""
-        conn = duckdb.connect(":memory:")
+        conn = sqlite3.connect(":memory:")
         try:
             # Simulate old schema without refit_context
             old_ddl = """
             CREATE TABLE IF NOT EXISTS runs (
-                run_id VARCHAR PRIMARY KEY,
-                name VARCHAR NOT NULL
+                run_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS predictions (
-                prediction_id VARCHAR PRIMARY KEY,
-                pipeline_id VARCHAR NOT NULL,
-                fold_id VARCHAR NOT NULL,
-                partition VARCHAR NOT NULL,
-                val_score DOUBLE,
-                metric VARCHAR NOT NULL,
-                task_type VARCHAR NOT NULL
+                prediction_id TEXT PRIMARY KEY,
+                pipeline_id TEXT NOT NULL,
+                fold_id TEXT NOT NULL,
+                partition TEXT NOT NULL,
+                val_score REAL,
+                metric TEXT NOT NULL,
+                task_type TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS artifacts (
-                artifact_id VARCHAR PRIMARY KEY,
-                artifact_path VARCHAR NOT NULL,
-                content_hash VARCHAR NOT NULL,
-                operator_class VARCHAR,
-                artifact_type VARCHAR,
-                format VARCHAR DEFAULT 'joblib',
-                size_bytes BIGINT,
+                artifact_id TEXT PRIMARY KEY,
+                artifact_path TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                operator_class TEXT,
+                artifact_type TEXT,
+                format TEXT DEFAULT 'joblib',
+                size_bytes INTEGER,
                 ref_count INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT current_timestamp
             );
@@ -446,11 +443,7 @@ class TestRefitContextColumn:
             _migrate_schema(conn)
 
             # Check column was added
-            result = conn.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name = 'predictions'"
-            ).fetchall()
-            columns = [row[0] for row in result]
+            columns = {row[1] for row in conn.execute("PRAGMA table_info('predictions')").fetchall()}
             assert "refit_context" in columns
         finally:
             conn.close()

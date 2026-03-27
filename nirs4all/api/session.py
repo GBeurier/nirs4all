@@ -382,7 +382,7 @@ class Session:
         """Clean up session resources.
 
         Called automatically when exiting a context manager block.
-        Closes the WorkspaceStore to release DuckDB file locks (required on
+        Closes the WorkspaceStore to release SQLite file locks (required on
         Windows where open handles prevent file deletion).
         """
         if self._runner is not None:

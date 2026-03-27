@@ -126,7 +126,7 @@ The executor initializes an `ExecutionContext` containing:
 
 | Service | Purpose |
 | --- | --- |
-| `store` | WorkspaceStore for DuckDB-backed persistence |
+| `store` | WorkspaceStore for SQLite-backed persistence |
 | `artifact_registry` | Artifact management during training |
 | `artifact_loader` / `artifact_provider` | For predict/explain modes |
 | `step_runner` | For executing sub-steps (e.g., inside branches) |

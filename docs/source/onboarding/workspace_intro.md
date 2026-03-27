@@ -37,7 +37,7 @@ A workspace is initialized with this structure:
 
 ```
 workspace/
-├── store.duckdb          # DuckDB database (runs, chains, predictions metadata)
+├── store.sqlite          # SQLite database (runs, chains, predictions metadata)
 ├── arrays/               # Prediction arrays (Parquet sidecar files per dataset)
 │   ├── wheat.parquet
 │   └── corn.parquet
@@ -54,25 +54,25 @@ workspace/
 └── logs/                 # Log files (optional)
 ```
 
-**Key principle**: Structured metadata lives in DuckDB, dense arrays in Parquet sidecar files, binary artifacts in content-addressed files.
+**Key principle**: Structured metadata lives in SQLite, dense arrays in Parquet sidecar files, binary artifacts in content-addressed files.
 
 ## Store-First Architecture
 
-The workspace uses a **store-first architecture**: structured runtime data lives in DuckDB (`store.duckdb`).
+The workspace uses a **store-first architecture**: structured runtime data lives in SQLite WAL (`store.sqlite`).
 
-**Why DuckDB?**
+**Why SQLite WAL?**
 
-- Fast analytical queries
-- Embedded (no server setup)
+- Zero-dependency embedded database (part of Python stdlib)
+- WAL mode enables concurrent readers with a single writer
+- Robust and battle-tested across billions of deployments
 - SQL access for custom queries
-- ACID transactions
-- Efficient storage with compression
+- ACID transactions with crash-safe journaling
 
 The DB is the **source of truth** for runs and predictions, avoiding scattered manifest files and simplifying query/ranking workflows.
 
 ## Core Store Tables
 
-The DuckDB database contains these core tables:
+The SQLite database contains these core tables:
 
 | Table | Purpose |
 | --- | --- |
@@ -361,7 +361,7 @@ Backup workspace database, arrays, and artifacts:
 
 ```bash
 # Database + arrays only (fast)
-cp workspace/store.duckdb workspace_backup/store.duckdb
+cp workspace/store.sqlite workspace_backup/store.sqlite
 cp -r workspace/arrays/ workspace_backup/arrays/
 
 # Full backup (slow)
@@ -375,12 +375,12 @@ For production, use incremental artifact backups (copy only new artifacts by mod
 <details>
 <summary><strong>Custom Queries</strong></summary>
 
-Access workspace database directly with DuckDB:
+Access workspace database directly with SQLite:
 
 ```python
-import duckdb
+import sqlite3
 
-conn = duckdb.connect("workspace/store.duckdb", read_only=True)
+conn = sqlite3.connect("workspace/store.sqlite")
 result = conn.execute("""
     SELECT pipeline_name, AVG(rmse) as avg_rmse
     FROM predictions

@@ -5,7 +5,7 @@ Tests artifact persistence and loading:
 - All branch artifacts are saved correctly in content-addressed artifacts/ directory
 - Artifacts from different branches have unique paths
 - Branch artifacts are isolated (no cross-contamination)
-- DuckDB store contains correct chain and artifact records
+- SQLite store contains correct chain and artifact records
 """
 
 from pathlib import Path
@@ -74,7 +74,7 @@ class TestBranchArtifactCompleteness:
         Verify all branch artifacts are saved correctly.
 
         Per spec §5.1.2: All artifacts should be persisted.
-        DuckDB storage: artifacts stored in store.duckdb + flat artifacts/ directory.
+        SQLite storage: artifacts stored in store.sqlite + flat artifacts/ directory.
         """
         pipeline = [
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
@@ -90,9 +90,9 @@ class TestBranchArtifactCompleteness:
             dataset
         )
 
-        # DuckDB storage: verify store.duckdb was created
-        store_file = workspace_path / "store.duckdb"
-        assert store_file.exists(), "store.duckdb should exist"
+        # SQLite storage: verify store.sqlite was created
+        store_file = workspace_path / "store.sqlite"
+        assert store_file.exists(), "store.sqlite should exist"
 
         # Verify artifacts are stored (either in artifacts/ via WorkspaceStore
         # or in binaries/ via V3 artifact registry)
@@ -329,7 +329,7 @@ class TestManifestBranchMetadata:
         self, runner_with_save, dataset, workspace_path
     ):
         """
-        Test that DuckDB store contains branch metadata for chains and predictions.
+        Test that SQLite store contains branch metadata for chains and predictions.
 
         Per spec §5.1.2.
         """
@@ -347,9 +347,9 @@ class TestManifestBranchMetadata:
             dataset
         )
 
-        # Verify store.duckdb exists and artifacts directory has files
-        store_path = workspace_path / "store.duckdb"
-        assert store_path.exists(), "store.duckdb should be created"
+        # Verify store.sqlite exists and artifacts directory has files
+        store_path = workspace_path / "store.sqlite"
+        assert store_path.exists(), "store.sqlite should be created"
 
         artifacts_dir = workspace_path / "artifacts"
         artifact_files = list(artifacts_dir.glob("**/*.joblib")) + list(artifacts_dir.glob("**/*.pkl"))

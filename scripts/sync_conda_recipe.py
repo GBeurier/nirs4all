@@ -21,7 +21,6 @@ META_YAML = ROOT / "conda-forge" / "meta.yaml"
 
 # PyPI package name -> conda-forge package name
 PYPI_TO_CONDA = {
-    "duckdb": "python-duckdb",
     "matplotlib": "matplotlib-base",
     "pywavelets": "pywavelets",  # PyPI: PyWavelets, conda: pywavelets
 }
