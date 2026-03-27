@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.4] - Predictions Metadata, Parquet Schema Alignment & SQLite Migration - 2026-03-27
+
+### ✨ Improvements
+
+- **Per-sample metadata in predictions**: Implement per-sample metadata storage and retrieval in predictions
+- **Predictions grouped queries**: Refined prediction retrieval logic for grouped queries; updated chart examples
+- **Parquet schema alignment**: Added schema alignment for Parquet tables to handle evolving column sets
+- **Augmentation docs**: Updated augmentation module documentation
+
+### 🧪 Tests
+
+- **SQLite migration tests**: Refactored test suite for SQLite migration
+
+### 🐛 Bug Fixes
+
+- **Code quality**: Fixed ruff and mypy errors
+
+### 🔧 Chores
+
+- **CI**: Bump `codecov/codecov-action` from 5 to 6
+- **Docs**: Archived docs
+
+---
+
 ## [0.8.3] - API Documentation, Bug Fixes & CI Updates - 2026-03-25
 
 ### ✨ Improvements
