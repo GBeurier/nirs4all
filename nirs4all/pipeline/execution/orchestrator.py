@@ -12,9 +12,9 @@ import numpy as np
 from joblib import Parallel, delayed
 
 from nirs4all.core.logging import get_logger
+from nirs4all.core.metrics import infer_ascending as _infer_ascending
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.core.metrics import infer_ascending as _infer_ascending
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.analysis.topology import analyze_topology
 from nirs4all.pipeline.config.context import BestChainEntry, RuntimeContext

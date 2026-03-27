@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import pytest
 
+from nirs4all.core.metrics import infer_ascending as _infer_ascending
 from nirs4all.pipeline.analysis.topology import (
     ModelNodeInfo,
     PipelineTopology,
     analyze_topology,
 )
-from nirs4all.core.metrics import infer_ascending as _infer_ascending
 from nirs4all.pipeline.execution.refit.model_selector import (
     PerModelSelection,
     _aggregate_scores_per_variant,
