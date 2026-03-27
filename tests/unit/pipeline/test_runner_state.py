@@ -177,15 +177,15 @@ class TestStateTransitions:
         assert runner_with_workspace.pipeline_uid is not None
         assert isinstance(runner_with_workspace.pipeline_uid, str)
 
-    def test_store_duckdb_created_during_run(self, runner_with_workspace, test_data):
-        """Test that store.duckdb is created during run."""
+    def test_store_sqlite_created_during_run(self, runner_with_workspace, test_data):
+        """Test that store.sqlite is created during run."""
         dataset_path = str(test_data.get_temp_directory() / "regression")
         pipeline = [{"model": LinearRegression()}]
 
         runner_with_workspace.run(pipeline, dataset_path)
 
-        store_file = runner_with_workspace.workspace_path / "store.duckdb"
-        assert store_file.exists(), "store.duckdb should be created during run"
+        store_file = runner_with_workspace.workspace_path / "store.sqlite"
+        assert store_file.exists(), "store.sqlite should be created during run"
 
     def test_pipeline_uid_set_after_run(self, runner_with_workspace, test_data):
         """Test that pipeline_uid is set after run completes."""

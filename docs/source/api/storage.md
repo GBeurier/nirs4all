@@ -3,7 +3,7 @@
 **Version**: 5.0
 **Status**: Implemented
 
-This document provides the API reference for the nirs4all storage system, which uses a hybrid DuckDB + Parquet architecture.
+This document provides the API reference for the nirs4all storage system, which uses a hybrid SQLite + Parquet architecture.
 
 ## Module: `nirs4all.pipeline.storage`
 
@@ -19,7 +19,7 @@ class WorkspaceStore:
     predictions, artifacts, and structured execution logs.
 
     Manages three on-disk resources:
-    - store.duckdb: DuckDB database with 7 tables (runs, pipelines, chains,
+    - store.sqlite: SQLite database with 7 tables (runs, pipelines, chains,
       predictions, artifacts, logs, projects)
     - arrays/: Per-dataset Parquet files for prediction arrays (via ArrayStore)
     - artifacts/: A flat, content-addressed directory for binary artifacts
@@ -33,7 +33,7 @@ def __init__(self, workspace_path: Path) -> None:
     """
     Initialize the workspace store.
 
-    Creates store.duckdb and artifacts/ directory if they don't exist.
+    Creates store.sqlite and artifacts/ directory if they don't exist.
     Schema is created automatically on first use.
 
     Args:
@@ -203,7 +203,7 @@ def get_chains_for_pipeline(self, pipeline_id: str) -> polars.DataFrame:
 
 ### Prediction Storage
 
-Prediction scalar scores are stored in DuckDB. Dense arrays (y_true, y_pred, etc.) are stored in per-dataset Parquet sidecar files via `ArrayStore`.
+Prediction scalar scores are stored in SQLite. Dense arrays (y_true, y_pred, etc.) are stored in per-dataset Parquet sidecar files via `ArrayStore`.
 
 ```python
 def save_prediction(
@@ -230,7 +230,7 @@ def save_prediction(
     exclusion_rate: float,
     preprocessings: str = "",
 ) -> str:
-    """Store a single prediction record (scalar scores in DuckDB).
+    """Store a single prediction record (scalar scores in SQLite).
 
     Arrays are stored separately via ArrayStore in Parquet sidecar files.
 
@@ -639,7 +639,7 @@ def gc_artifacts(self) -> int:
     """
 
 def vacuum(self) -> None:
-    """Reclaim unused space in the DuckDB database file."""
+    """Reclaim unused space in the SQLite database file."""
 
 def close(self) -> None:
     """Close the database connection. Safe to call multiple times."""
@@ -692,7 +692,7 @@ class ChainBuilder:
 
     Extracts the ordered sequence of non-skipped steps, identifies the model
     step, collects fold and shared artifact IDs, and produces a chain descriptor
-    ready for DuckDB persistence.
+    ready for SQLite persistence.
 
     Args:
         trace: Finalized ExecutionTrace from TraceRecorder.
@@ -755,7 +755,7 @@ def replay_chain(
 
 ---
 
-## DuckDB Tables
+## SQLite Tables
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
@@ -767,7 +767,7 @@ def replay_chain(
 | `logs` | Structured execution logs per step | log_id, pipeline_id, step_idx, event, duration_ms |
 | `projects` | Project grouping for runs | project_id, name, description, color |
 
-Dense prediction arrays (y_true, y_pred, y_proba, sample_indices, weights) are stored in per-dataset Parquet sidecar files under `arrays/`, managed by `ArrayStore`. Legacy workspaces with a `prediction_arrays` DuckDB table are auto-migrated on first access.
+Dense prediction arrays (y_true, y_pred, y_proba, sample_indices, weights) are stored in per-dataset Parquet sidecar files under `arrays/`, managed by `ArrayStore`. Legacy workspaces with a `prediction_arrays` table from the former DuckDB backend are auto-migrated on first access.
 
 ---
 

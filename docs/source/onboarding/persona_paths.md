@@ -323,24 +323,25 @@ Run monthly via cron.
 <details>
 <summary><strong>How do I query workspace data?</strong></summary>
 
-Use DuckDB directly:
+Use SQLite directly:
 
 ```python
-import duckdb
+import sqlite3
 
-conn = duckdb.connect("workspace/store.duckdb", read_only=True)
+conn = sqlite3.connect("workspace/store.sqlite")
 
 # Query top pipelines
-result = conn.execute("""
+cursor = conn.execute("""
     SELECT pipeline_name, AVG(rmse) as avg_rmse, COUNT(*) as n_runs
     FROM predictions
     WHERE dataset_name = 'my_dataset'
     GROUP BY pipeline_name
     ORDER BY avg_rmse
     LIMIT 10
-""").fetchdf()
+""")
 
-print(result)
+for row in cursor.fetchall():
+    print(row)
 ```
 
 </details>
@@ -502,9 +503,9 @@ A structured plan for your first week contributing to NIRS4ALL:
 
 **Morning:**
 - [ ] Run example with workspace: `examples/user/01_getting_started/U02_workspace.py`
-- [ ] Inspect `workspace/store.duckdb` with DuckDB CLI:
+- [ ] Inspect `workspace/store.sqlite` with SQLite CLI:
   ```bash
-  duckdb workspace/store.duckdb
+  sqlite3 workspace/store.sqlite
   .tables
   SELECT * FROM runs;
   SELECT * FROM predictions LIMIT 10;

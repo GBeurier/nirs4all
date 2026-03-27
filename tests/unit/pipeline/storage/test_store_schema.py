@@ -1,4 +1,4 @@
-"""Schema tests for the DuckDB workspace store.
+"""Schema tests for the SQLite workspace store.
 
 Validates that the DDL creates all expected tables and indexes, that
 the schema creation is idempotent, and that foreign key and cascade
@@ -7,7 +7,8 @@ constraints work correctly.
 
 from __future__ import annotations
 
-import duckdb
+import sqlite3
+
 import pytest
 
 from nirs4all.pipeline.storage.store_schema import (
@@ -21,8 +22,8 @@ from nirs4all.pipeline.storage.store_schema import (
 
 @pytest.fixture
 def conn():
-    """Create an in-memory DuckDB connection."""
-    connection = duckdb.connect(":memory:")
+    """Create an in-memory SQLite connection."""
+    connection = sqlite3.connect(":memory:")
     yield connection
     connection.close()
 
@@ -38,8 +39,7 @@ class TestSchemaCreation:
         create_schema(conn)
 
         result = conn.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'main' AND table_type = 'BASE TABLE' ORDER BY table_name"
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         ).fetchall()
         actual_tables = sorted([row[0] for row in result])
         expected_tables = sorted(TABLE_NAMES)
@@ -51,8 +51,7 @@ class TestSchemaCreation:
         create_schema(conn)
 
         result = conn.execute(
-            "SELECT COUNT(*) FROM information_schema.tables "
-            "WHERE table_schema = 'main' AND table_type = 'BASE TABLE'"
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
         ).fetchone()
         assert result[0] == len(TABLE_NAMES)
 
@@ -61,8 +60,7 @@ class TestSchemaCreation:
         create_schema(conn)
 
         result = conn.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'main' AND table_type = 'VIEW'"
+            "SELECT name FROM sqlite_master WHERE type='view'"
         ).fetchall()
         view_names = [row[0] for row in result]
         assert 'v_chain_summary' in view_names
@@ -70,11 +68,8 @@ class TestSchemaCreation:
     def test_runs_table_columns(self, conn):
         """The runs table has the expected columns."""
         create_schema(conn)
-        result = conn.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_name = 'runs' ORDER BY ordinal_position"
-        ).fetchall()
-        columns = [row[0] for row in result]
+        result = conn.execute("PRAGMA table_info('runs')").fetchall()
+        columns = [row[1] for row in result]
         expected = [
             "run_id", "name", "config", "datasets", "status",
             "created_at", "completed_at", "summary", "error", "project_id",
@@ -84,11 +79,8 @@ class TestSchemaCreation:
     def test_predictions_table_columns(self, conn):
         """The predictions table has the expected columns."""
         create_schema(conn)
-        result = conn.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_name = 'predictions' ORDER BY ordinal_position"
-        ).fetchall()
-        columns = [row[0] for row in result]
+        result = conn.execute("PRAGMA table_info('predictions')").fetchall()
+        columns = [row[1] for row in result]
         assert "prediction_id" in columns
         assert "pipeline_id" in columns
         assert "chain_id" in columns
@@ -102,19 +94,15 @@ class TestSchemaCreation:
         """The prediction_arrays table no longer exists (arrays moved to Parquet)."""
         create_schema(conn)
         result = conn.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_name = 'prediction_arrays' AND table_type = 'BASE TABLE'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='prediction_arrays'"
         ).fetchall()
         assert len(result) == 0
 
     def test_artifacts_table_columns(self, conn):
         """The artifacts table has ref_count column."""
         create_schema(conn)
-        result = conn.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_name = 'artifacts' ORDER BY ordinal_position"
-        ).fetchall()
-        columns = [row[0] for row in result]
+        result = conn.execute("PRAGMA table_info('artifacts')").fetchall()
+        columns = [row[1] for row in result]
         assert "artifact_id" in columns
         assert "content_hash" in columns
         assert "ref_count" in columns
@@ -134,8 +122,7 @@ class TestSchemaIdempotent:
         create_schema(conn)
 
         result = conn.execute(
-            "SELECT COUNT(*) FROM information_schema.tables "
-            "WHERE table_schema = 'main' AND table_type = 'BASE TABLE'"
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
         ).fetchone()
         assert result[0] == len(TABLE_NAMES)
 
@@ -162,7 +149,8 @@ class TestForeignKeys:
     def test_foreign_keys(self, conn):
         """Inserting a pipeline with a non-existent run_id fails."""
         create_schema(conn)
-        with pytest.raises(duckdb.ConstraintException):
+        conn.execute("PRAGMA foreign_keys=ON")
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "INSERT INTO pipelines "
                 "(pipeline_id, run_id, name, dataset_name) "
@@ -172,7 +160,8 @@ class TestForeignKeys:
     def test_chain_requires_valid_pipeline(self, conn):
         """Inserting a chain with a non-existent pipeline_id fails."""
         create_schema(conn)
-        with pytest.raises(duckdb.ConstraintException):
+        conn.execute("PRAGMA foreign_keys=ON")
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "INSERT INTO chains "
                 "(chain_id, pipeline_id, steps, model_step_idx, model_class) "
@@ -182,7 +171,8 @@ class TestForeignKeys:
     def test_prediction_requires_valid_pipeline(self, conn):
         """Inserting a prediction with a non-existent pipeline_id fails."""
         create_schema(conn)
-        with pytest.raises(duckdb.ConstraintException):
+        conn.execute("PRAGMA foreign_keys=ON")
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "INSERT INTO predictions "
                 "(prediction_id, pipeline_id, dataset_name, model_name, "
@@ -193,7 +183,8 @@ class TestForeignKeys:
     def test_log_requires_valid_pipeline(self, conn):
         """Inserting a log with a non-existent pipeline_id fails."""
         create_schema(conn)
-        with pytest.raises(duckdb.ConstraintException):
+        conn.execute("PRAGMA foreign_keys=ON")
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "INSERT INTO logs "
                 "(log_id, pipeline_id, step_idx, event) "
@@ -207,8 +198,8 @@ class TestForeignKeys:
 class TestFKBlocksParentDeletion:
     """Verify FK constraints block deletion of parent rows with children.
 
-    DuckDB does not support ``ON DELETE CASCADE``, so deleting a parent
-    row while children exist raises a :class:`duckdb.ConstraintException`.
+    SQLite with ``PRAGMA foreign_keys=ON`` blocks deletion of parent
+    rows while children exist, raising :class:`sqlite3.IntegrityError`.
     Cascade logic is handled by :class:`WorkspaceStore` at the application
     layer.
     """
@@ -216,6 +207,7 @@ class TestFKBlocksParentDeletion:
     def _setup_hierarchy(self, conn):
         """Insert a full run -> pipeline -> chain -> prediction hierarchy."""
         create_schema(conn)
+        conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("INSERT INTO runs (run_id, name) VALUES ('r1', 'run')")
         conn.execute(
             "INSERT INTO pipelines (pipeline_id, run_id, name, dataset_name) "
@@ -238,15 +230,15 @@ class TestFKBlocksParentDeletion:
         )
 
     def test_run_delete_blocked_by_pipelines(self, conn):
-        """Deleting a run with existing pipelines raises ConstraintException."""
+        """Deleting a run with existing pipelines raises IntegrityError."""
         self._setup_hierarchy(conn)
-        with pytest.raises(duckdb.ConstraintException):
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute("DELETE FROM runs WHERE run_id = 'r1'")
 
     def test_pipeline_delete_blocked_by_chains(self, conn):
-        """Deleting a pipeline with existing chains raises ConstraintException."""
+        """Deleting a pipeline with existing chains raises IntegrityError."""
         self._setup_hierarchy(conn)
-        with pytest.raises(duckdb.ConstraintException):
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute("DELETE FROM pipelines WHERE pipeline_id = 'p1'")
 
     def test_prediction_can_be_deleted(self, conn):
@@ -259,9 +251,9 @@ class TestFKBlocksParentDeletion:
         assert count == 0
 
     def test_chain_delete_blocked_by_predictions(self, conn):
-        """Deleting a chain referenced by predictions raises ConstraintException."""
+        """Deleting a chain referenced by predictions raises IntegrityError."""
         self._setup_hierarchy(conn)
-        with pytest.raises(duckdb.ConstraintException):
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute("DELETE FROM chains WHERE chain_id = 'c1'")
 
 # =========================================================================

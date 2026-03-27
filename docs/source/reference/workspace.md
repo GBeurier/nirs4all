@@ -3,13 +3,13 @@
 **Version**: 5.0
 **Status**: Implemented
 
-This document describes the nirs4all workspace structure, which uses a hybrid DuckDB + Parquet storage backend.
+This document describes the nirs4all workspace structure, which uses a hybrid SQLite + Parquet storage backend.
 
 ## Design Principles
 
 | Principle | Description |
 |-----------|-------------|
-| **Hybrid storage** | Structured metadata in DuckDB (`store.duckdb`), dense arrays in Parquet sidecar files (`arrays/`) |
+| **Hybrid storage** | Structured metadata in SQLite (`store.sqlite`), dense arrays in Parquet sidecar files (`arrays/`) |
 | **Flat artifacts** | Binary artifacts in content-addressed flat directory |
 | **Export on demand** | Human-readable files produced only by explicit export operations |
 | **Chain as first-class entity** | The preprocessing-to-model chain is stored, not reconstructed |
@@ -21,7 +21,7 @@ This document describes the nirs4all workspace structure, which uses a hybrid Du
 
 ```
 workspace/
-├── store.duckdb                        # Structured metadata (DuckDB database)
+├── store.sqlite                        # Structured metadata (SQLite database)
 │                                        #   Tables: runs, pipelines, chains,
 │                                        #   predictions, artifacts, logs, projects
 │
@@ -45,7 +45,7 @@ workspace/
 
 ---
 
-## DuckDB Schema (7 tables)
+## SQLite Schema (7 tables)
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
@@ -67,7 +67,7 @@ Dense prediction arrays (y_true, y_pred, y_proba, sample_indices, weights) are s
 - **Lazy deletion**: Tombstone-based deletes with periodic compaction
 - **Self-describing**: Each Parquet file embeds metadata columns (model_name, fold_id, partition, metric, val_score, task_type)
 
-Legacy workspaces with a `prediction_arrays` DuckDB table are auto-migrated to Parquet on first access.
+Legacy workspaces with a `prediction_arrays` table from the former DuckDB backend are auto-migrated to Parquet on first access.
 
 ---
 
@@ -146,7 +146,7 @@ result = nirs4all.run(
     dataset="sample_data/regression",
     verbose=1,
 )
-# Metadata in store.duckdb, arrays in arrays/*.parquet, binaries in artifacts/
+# Metadata in store.sqlite, arrays in arrays/*.parquet, binaries in artifacts/
 ```
 
 ### 2. Export Best Model

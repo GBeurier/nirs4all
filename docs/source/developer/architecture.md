@@ -194,9 +194,9 @@ nirs4all/
 │   │   ├── generator.py         # BundleGenerator
 │   │   └── loader.py            # BundleLoader
 │   └── storage/                 # Persistence layer
-│       ├── workspace_store.py   # DuckDB-backed metadata (runs, pipelines, chains)
+│       ├── workspace_store.py   # SQLite-backed metadata (runs, pipelines, chains)
 │       ├── array_store.py       # Parquet-backed prediction arrays
-│       ├── migration.py         # DuckDB→Parquet array migration tool
+│       ├── migration.py         # Legacy DuckDB→Parquet array migration tool
 │       ├── chain_builder.py     # Operator chain construction
 │       ├── chain_replay.py      # Chain replay for prediction
 │       ├── library.py           # Pipeline template library
@@ -211,7 +211,7 @@ nirs4all/
 ├── data/                        # Data handling
 │   ├── config.py                # DatasetConfigs
 │   ├── dataset.py               # SpectroDataset
-│   └── predictions.py           # Predictions facade (DuckDB metadata + Parquet arrays)
+│   └── predictions.py           # Predictions facade (SQLite metadata + Parquet arrays)
 └── operators/                   # Pipeline operators
     ├── transforms/              # NIRS-specific transformers (SNV, MSC, SG, NorrisWilliams, OSC, EPO, WaveletDenoise, ...)
     ├── augmentation/            # Data augmentation (20+ spectral augmenters)

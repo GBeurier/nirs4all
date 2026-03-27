@@ -212,8 +212,7 @@ class TestViewCreation:
         store = _make_store(tmp_path)
         conn = store._ensure_open()
         result = conn.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_type = 'VIEW' AND table_name = 'v_chain_summary'"
+            "SELECT name FROM sqlite_master WHERE type='view' AND name='v_chain_summary'"
         ).fetchone()
         assert result is not None
         store.close()
@@ -225,8 +224,7 @@ class TestViewCreation:
         store2 = WorkspaceStore(tmp_path / "workspace")
         conn = store2._ensure_open()
         result = conn.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_type = 'VIEW' AND table_name = 'v_chain_summary'"
+            "SELECT name FROM sqlite_master WHERE type='view' AND name='v_chain_summary'"
         ).fetchone()
         assert result is not None
         store2.close()
@@ -341,6 +339,88 @@ class TestAggregation:
         if isinstance(best_params, str):
             best_params = json.loads(best_params)
         assert best_params == {"n_components": 10}
+        store.close()
+
+    def test_best_params_uses_first_prediction_not_lexical_min(self, tmp_path):
+        """Chain summaries keep the earliest prediction params deterministically."""
+        store = _make_store(tmp_path)
+        run_id = store.begin_run("test_run", config={"metric": "rmse"}, datasets=[{"name": "wheat"}])
+        pipeline_id = store.begin_pipeline(
+            run_id=run_id,
+            name="0001_pls",
+            expanded_config=[],
+            generator_choices=[],
+            dataset_name="wheat",
+            dataset_hash="abc123",
+        )
+        chain_id = store.save_chain(
+            pipeline_id=pipeline_id,
+            steps=[{"step_idx": 0, "operator_class": "PLSRegression", "params": {}, "artifact_id": None, "stateless": False}],
+            model_step_idx=0,
+            model_class="sklearn.cross_decomposition.PLSRegression",
+            preprocessings="",
+            fold_strategy="per_fold",
+            fold_artifacts={},
+            shared_artifacts={},
+        )
+
+        store.save_prediction(
+            pipeline_id=pipeline_id,
+            chain_id=chain_id,
+            dataset_name="wheat",
+            model_name="PLSRegression",
+            model_class="sklearn.cross_decomposition.PLSRegression",
+            fold_id="fold_0",
+            partition="val",
+            val_score=0.10,
+            test_score=0.12,
+            train_score=0.08,
+            metric="rmse",
+            task_type="regression",
+            n_samples=100,
+            n_features=200,
+            scores={"val": {"rmse": 0.10}},
+            best_params={"alpha": 2},
+            branch_id=None,
+            branch_name=None,
+            exclusion_count=0,
+            exclusion_rate=0.0,
+            prediction_id="pred_0001",
+        )
+        store.save_prediction(
+            pipeline_id=pipeline_id,
+            chain_id=chain_id,
+            dataset_name="wheat",
+            model_name="PLSRegression",
+            model_class="sklearn.cross_decomposition.PLSRegression",
+            fold_id="fold_1",
+            partition="val",
+            val_score=0.11,
+            test_score=0.13,
+            train_score=0.09,
+            metric="rmse",
+            task_type="regression",
+            n_samples=100,
+            n_features=200,
+            scores={"val": {"rmse": 0.11}},
+            best_params={"alpha": 10},
+            branch_id=None,
+            branch_name=None,
+            exclusion_count=0,
+            exclusion_rate=0.0,
+            prediction_id="pred_0002",
+        )
+
+        store.update_chain_summary(chain_id)
+        row = store.get_chain(chain_id)
+        assert row is not None
+
+        import json
+        best_params = row.get("best_params")
+        if isinstance(best_params, str):
+            best_params = json.loads(best_params)
+        assert best_params == {"alpha": 2}
+
         store.close()
 
 # =========================================================================

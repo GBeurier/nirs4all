@@ -253,6 +253,7 @@ class RunResult:
     per_dataset: dict[str, Any]
     _runner: PipelineRunner | None = field(default=None, repr=False)
     _owns_runner: bool = field(default=True, repr=False)
+    _workspace_path: Path | None = field(default=None, repr=False)
 
     # Lazy refit dependencies (set by the orchestrator when per-model
     # selections are available so that ``models`` returns lazy results)
@@ -266,14 +267,26 @@ class RunResult:
 
     # --- Lifecycle ---
 
+    def detach(self) -> None:
+        """Detach from the runner by closing its store and dropping the reference.
+
+        After detaching, the RunResult operates in detached mode: export
+        operations re-open the store on demand.  This releases the DB
+        connection so other processes can access the workspace.
+
+        Called automatically by :func:`nirs4all.run` for non-session runs.
+        """
+        if self._runner is not None and self._owns_runner:
+            if self._workspace_path is None:
+                self._workspace_path = getattr(self._runner, 'workspace_path', None)
+            self._runner.close()
+            self._runner = None
+
     def close(self) -> None:
-        """Close the underlying WorkspaceStore to release DuckDB resources.
+        """Close the underlying WorkspaceStore to release DB resources.
 
-        Safe to call multiple times.  After closing, :meth:`export` with
-        ``chain_id`` will no longer work.
-
-        Only closes the runner when this result owns it (i.e. created
-        without a session).  Session-owned runners are closed by the session.
+        Safe to call multiple times.  For detached results this is a no-op.
+        Session-owned runners are closed by the session.
         """
         if self._runner is not None and self._owns_runner:
             self._runner.close()
@@ -563,6 +576,8 @@ class RunResult:
         Returns:
             Path to the workspace directory, or None if not available.
         """
+        if self._workspace_path is not None:
+            return self._workspace_path
         if self._runner and hasattr(self._runner, 'workspace_path'):
             return self._runner.workspace_path
         return None
@@ -660,6 +675,34 @@ class RunResult:
 
     # --- Export methods ---
 
+    def _open_store_for_export(self):
+        """Open a temporary WorkspaceStore for export operations.
+
+        Returns a context-managed store that is closed after use.
+        Works in both attached (runner alive) and detached modes.
+        """
+        # Attached mode: use runner's store directly
+        if self._runner is not None:
+            return contextlib.nullcontext(self._runner.store)
+
+        # Detached mode: open a fresh store
+        if self._workspace_path is None:
+            raise RuntimeError("Cannot export: no workspace path available (result was not created from a workspace run)")
+
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        class _TempStore:
+            def __init__(self, path: Path):
+                self._store = WorkspaceStore(path)
+
+            def __enter__(self):
+                return self._store
+
+            def __exit__(self, *exc: object):
+                self._store.close()
+
+        return _TempStore(self._workspace_path)
+
     def export(
         self,
         output_path: str | Path,
@@ -672,13 +715,17 @@ class RunResult:
         Two export paths are supported:
 
         **Store-based** (preferred) -- pass ``chain_id`` to export
-        directly from the DuckDB workspace:
+        directly from the workspace store:
 
         >>> result.export("model.n4a", chain_id="abc123")
 
-        **Resolver-based** (legacy) -- exports via ``PipelineRunner.export``:
+        **Resolver-based** -- exports via ``BundleGenerator``:
 
         >>> result.export("model.n4a")  # uses best prediction
+
+        Works in both attached (runner alive) and detached modes.
+        In detached mode, a temporary store is opened for the export
+        and closed immediately after.
 
         Args:
             output_path: Path for the exported bundle file.
@@ -686,39 +733,42 @@ class RunResult:
             source: Prediction dict to export. If None, exports best model.
             chain_id: Chain identifier for store-based export.
                 When provided, ``source`` is ignored and the chain is
-                exported directly from the DuckDB store.
+                exported directly from the workspace store.
 
         Returns:
             Path to the exported bundle file.
 
         Raises:
-            RuntimeError: If runner reference is not available.
+            RuntimeError: If no workspace path available.
             ValueError: If no predictions available and source not provided.
         """
-        if self._runner is None:
-            raise RuntimeError("Cannot export: runner reference not available")
-
         # Store-based export path
         if chain_id is not None:
-            store = self._runner.store
-            if store is None:
-                raise RuntimeError(
-                    "Cannot export from chain_id: no WorkspaceStore available on runner"
-                )
-            return Path(store.export_chain(chain_id, Path(output_path), format=format))
+            with self._open_store_for_export() as store:
+                if store is None:
+                    raise RuntimeError("Cannot export from chain_id: no WorkspaceStore available")
+                return Path(store.export_chain(chain_id, Path(output_path), format=format))
 
-        # Legacy resolver-based path
+        # Resolver-based path
         if source is None:
-            # Prefer the refit entry when available (single model)
             source = self.final or self.best
             if not source:
                 raise ValueError("No predictions available to export")
 
-        return Path(self._runner.export(
-            source=source,
-            output_path=output_path,
-            format=format
-        ))
+        # Attached mode: delegate to runner
+        if self._runner is not None:
+            return Path(self._runner.export(source=source, output_path=output_path, format=format))
+
+        # Detached mode: create BundleGenerator with temporary store
+        workspace_path = self._workspace_path
+        if workspace_path is None:
+            raise RuntimeError("Cannot export: no workspace path available")
+
+        from nirs4all.pipeline.bundle import BundleGenerator
+
+        with self._open_store_for_export() as store:
+            generator = BundleGenerator(workspace_path=workspace_path, verbose=0, store=store)
+            return generator.export(source=source, output_path=output_path, format=format)
 
     def export_model(
         self,
@@ -730,6 +780,7 @@ class RunResult:
         """Export only the model artifact (lightweight).
 
         Unlike export() which creates a full bundle, this exports just the model.
+        Works in both attached (runner alive) and detached modes.
 
         Args:
             output_path: Path for the output model file.
@@ -741,22 +792,62 @@ class RunResult:
             Path to the exported model file.
 
         Raises:
-            RuntimeError: If runner reference is not available.
+            RuntimeError: If no workspace path available.
         """
-        if self._runner is None:
-            raise RuntimeError("Cannot export: runner reference not available")
-
         if source is None:
             source = self.best
             if not source:
                 raise ValueError("No predictions available to export")
 
-        return self._runner.export_model(
-            source=source,
-            output_path=output_path,
-            format=format,
-            fold=fold
-        )
+        # Attached mode: delegate to runner
+        if self._runner is not None:
+            return self._runner.export_model(source=source, output_path=output_path, format=format, fold=fold)
+
+        # Detached mode: replicate runner.export_model logic with temporary store
+        workspace_path = self._workspace_path
+        if workspace_path is None:
+            raise RuntimeError("Cannot export: no workspace path available")
+
+        from nirs4all.pipeline.resolver import PredictionResolver
+        from nirs4all.pipeline.storage.artifacts.artifact_persistence import to_bytes
+
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with self._open_store_for_export() as store:
+            resolver = PredictionResolver(workspace_path=workspace_path, runs_dir=workspace_path, store=store)
+            resolved = resolver.resolve(source, verbose=0)
+
+            if resolved.model_step_index is None:
+                raise ValueError("No model step found in the resolved prediction")
+            if resolved.artifact_provider is None:
+                raise ValueError("No artifact provider available for this source")
+
+            artifacts = resolved.artifact_provider.get_artifacts_for_step(resolved.model_step_index)
+            if not artifacts:
+                raise ValueError(f"No model artifacts found at step {resolved.model_step_index}")
+
+            if fold is not None:
+                model = None
+                for artifact_id, artifact in artifacts:
+                    if f":{fold}" in str(artifact_id) or artifact_id.endswith(f"_{fold}"):
+                        model = artifact
+                        break
+                if model is None:
+                    raise ValueError(f"No artifact found for fold {fold}")
+            else:
+                _, model = artifacts[0]
+
+        if format is None:
+            ext = output_path.suffix.lower()
+            format_map = {'.joblib': 'joblib', '.pkl': 'cloudpickle', '.pickle': 'cloudpickle', '.h5': 'keras_h5', '.hdf5': 'keras_h5', '.keras': 'tensorflow_keras', '.pt': 'pytorch_state_dict', '.pth': 'pytorch_state_dict'}
+            format = format_map.get(ext, 'joblib')
+
+        data, _actual_format = to_bytes(model, format)
+        with open(output_path, 'wb') as f:
+            f.write(data)
+
+        return output_path
 
     # --- Utility methods ---
 

@@ -4,18 +4,18 @@ This guide covers the artifact storage system and workspace structure in nirs4al
 
 ## Overview
 
-The storage system uses a hybrid DuckDB + Parquet architecture via `WorkspaceStore`:
+The storage system uses a hybrid SQLite + Parquet architecture via `WorkspaceStore`:
 
-- **Hybrid storage** -- structured metadata in DuckDB (`store.duckdb`), dense prediction arrays in Parquet sidecar files (`arrays/`)
+- **Hybrid storage** -- structured metadata in SQLite (`store.sqlite`), dense prediction arrays in Parquet sidecar files (`arrays/`)
 - **Content-addressed artifacts** -- binary deduplication via SHA-256 hashing in flat `artifacts/` directory
 - **Chain-based replay** -- in-workspace prediction by replaying stored chains
-- **Export on demand** -- no export files written during training; only `store.duckdb`, `arrays/`, and artifact binaries are produced
+- **Export on demand** -- no export files written during training; only `store.sqlite`, `arrays/`, and artifact binaries are produced
 
 ## Workspace Structure
 
 ```
 workspace/
-├── store.duckdb                   # Structured metadata (7 DuckDB tables)
+├── store.sqlite                   # Structured metadata (7 SQLite tables)
 ├── arrays/                        # Prediction arrays (Parquet sidecar files)
 │   ├── wheat.parquet              # All arrays for dataset "wheat"
 │   └── corn.parquet               # All arrays for dataset "corn"
@@ -30,7 +30,7 @@ workspace/
         └── baseline_pls.json
 ```
 
-## DuckDB Tables
+## SQLite Tables
 
 | Table | Purpose |
 |-------|---------|
@@ -52,7 +52,7 @@ The `WorkspaceStore` is the central class for all workspace persistence:
 from pathlib import Path
 from nirs4all.pipeline.storage import WorkspaceStore
 
-# Initialize (creates store.duckdb and artifacts/ if they don't exist)
+# Initialize (creates store.sqlite and artifacts/ if they don't exist)
 store = WorkspaceStore(Path("./workspace"))
 
 # Run lifecycle
@@ -233,11 +233,11 @@ store.export_predictions_parquet(
 
 2. **Use chain replay for in-workspace prediction** -- `store.replay_chain()` loads artifacts and applies transformations without exporting to `.n4a` bundles.
 
-3. **Export on demand** -- the workspace only produces `store.duckdb` and `artifacts/` during training. Use the export methods to create shareable files.
+3. **Export on demand** -- the workspace only produces `store.sqlite` and `artifacts/` during training. Use the export methods to create shareable files.
 
 4. **Clean up periodically** -- use `gc_artifacts()` after deleting runs or pipelines to reclaim disk space from unreferenced artifact files.
 
-5. **Close the store when done** -- call `store.close()` to release the DuckDB connection.
+5. **Close the store when done** -- call `store.close()` to release the SQLite connection.
 
 ## See Also
 

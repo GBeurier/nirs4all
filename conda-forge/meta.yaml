@@ -35,7 +35,6 @@ requirements:
     # Data processing
     - polars >=1.0.0
     - pyarrow >=14.0.0
-    - python-duckdb >=1.0.0
     - h5py >=3.8.0
     - umap-learn
     # Signal processing

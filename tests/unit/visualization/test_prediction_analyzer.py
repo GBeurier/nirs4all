@@ -491,3 +491,23 @@ class TestGetCachedPredictions:
 
         call_kwargs = mock_predictions.top.call_args[1]
         assert call_kwargs.get("aggregate_method") == "mean"
+
+    def test_grouped_queries_do_not_overfetch(self, mock_predictions):
+        """Grouped queries must use exact n because n means per-group."""
+        mock_predictions.top.return_value = []
+
+        analyzer = PredictionAnalyzer(mock_predictions)
+        analyzer.get_cached_predictions(n=1, rank_metric="rmse", group_by=["model_name"])
+
+        call_kwargs = mock_predictions.top.call_args[1]
+        assert call_kwargs.get("n") == 1
+
+    def test_grouped_queries_use_n_in_cache_key(self, mock_predictions):
+        """Different grouped n values must not share the same cache entry."""
+        mock_predictions.top.return_value = []
+
+        analyzer = PredictionAnalyzer(mock_predictions)
+        analyzer.get_cached_predictions(n=1, rank_metric="rmse", group_by=["model_name"])
+        analyzer.get_cached_predictions(n=2, rank_metric="rmse", group_by=["model_name"])
+
+        assert mock_predictions.top.call_count == 2

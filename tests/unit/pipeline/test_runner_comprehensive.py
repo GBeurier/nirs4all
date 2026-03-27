@@ -161,7 +161,7 @@ class TestRunnerInitialization:
         """Test that workspace directories are created."""
         runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
 
-        # DuckDB storage: workspace path exists, store.duckdb created on first run
+        # SQLite storage: workspace path exists, store.sqlite created on first run
         assert temp_workspace.exists()
         assert (temp_workspace / "exports").exists()
 
@@ -438,9 +438,9 @@ class TestRunMethod:
 
         assert run_predictions.num_predictions > 0
 
-        # DuckDB storage: verify store.duckdb was created
-        store_file = temp_workspace / "store.duckdb"
-        assert store_file.exists(), "store.duckdb should exist when saving artifacts"
+        # SQLite storage: verify store.sqlite was created
+        store_file = temp_workspace / "store.sqlite"
+        assert store_file.exists(), "store.sqlite should exist when saving artifacts"
 
     def test_run_keep_datasets_true(self, test_data_manager, temp_workspace):
         """Test that raw_data and pp_data are populated when keep_datasets=True."""
@@ -553,7 +553,7 @@ class TestWorkspaceManagement:
         assert exports_dir.exists()
 
     def test_store_created_during_run(self, test_data_manager, temp_workspace):
-        """Test that store.duckdb is created during run."""
+        """Test that store.sqlite is created during run."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
             save_artifacts=False, save_charts=False,
@@ -566,8 +566,8 @@ class TestWorkspaceManagement:
 
         runner.run(pipeline, dataset_path)
 
-        # After run, store.duckdb should exist
-        store_file = temp_workspace / "store.duckdb"
+        # After run, store.sqlite should exist
+        store_file = temp_workspace / "store.sqlite"
         assert store_file.exists()
 
 # ============================================================================
@@ -705,8 +705,8 @@ class TestIntegration:
         assert len(datasets_predictions) == 1
         assert runner.pipeline_uid is not None
 
-        # DuckDB storage: verify store.duckdb was created
-        store_file = temp_workspace / "store.duckdb"
+        # SQLite storage: verify store.sqlite was created
+        store_file = temp_workspace / "store.sqlite"
         assert store_file.exists()
 
         # Check that data was captured

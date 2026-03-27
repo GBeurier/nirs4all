@@ -1209,7 +1209,7 @@ class RuntimeContext:
     It replaces the "God Object" pattern of passing the runner everywhere.
 
     Attributes:
-        store: WorkspaceStore for DuckDB-backed persistence.
+        store: WorkspaceStore for SQLite-backed persistence.
         artifact_loader: ArtifactLoader for predict/explain modes.
         artifact_provider: ArtifactProvider for controller-agnostic artifact injection.
         artifact_registry: ArtifactRegistry for artifact management.
@@ -1227,7 +1227,7 @@ class RuntimeContext:
         best_refit_chains: Accumulator for best preprocessing chain per
             model during CV.  Shared across pipeline variants.
     """
-    store: Any = None  # WorkspaceStore for DuckDB-backed persistence
+    store: Any = None  # WorkspaceStore for SQLite-backed persistence
     artifact_loader: Any = None
     artifact_provider: Optional["ArtifactProvider"] = None  # Phase 3: controller-agnostic artifact injection
     artifact_registry: Any = None

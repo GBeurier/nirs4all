@@ -8,7 +8,7 @@ Key features:
 - Automatic detection of safe parallelization (avoids nested parallelization)
 - Support for n_jobs parameter at branch level
 - Support for n_jobs parameter in finetune_params (Optuna)
-- Thread-safe DuckDB access for concurrent branches
+- Thread-safe SQLite access for concurrent branches
 - Smart detection of GPU/neural net models to avoid conflicts
 
 Usage:

@@ -1,8 +1,7 @@
 """Store-backed predictions management.
 
 This module provides the ``Predictions`` facade for accumulating, ranking,
-filtering, and exporting prediction records.  In Phase 3 of the DuckDB
-storage migration the class was rewritten to work exclusively with
+filtering, and exporting prediction records.  After the SQLite storage migration the class was rewritten to work exclusively with
 :class:`~nirs4all.pipeline.storage.workspace_store.WorkspaceStore`.
 
 When a *store* is supplied (normal execution path), every call to
@@ -184,7 +183,7 @@ class Predictions:
     """Facade for prediction management.
 
     When constructed with a :class:`WorkspaceStore`, prediction records are
-    buffered in memory during pipeline execution and flushed to DuckDB at
+    buffered in memory during pipeline execution and flushed to SQLite at
     the end of each pipeline via :meth:`flush`.  Queries delegate to the
     store's columnar engine.
 
@@ -194,10 +193,10 @@ class Predictions:
     ``Predictions`` instances (tests, visualisation adapters, the webapp).
 
     Args:
-        db_path: Path to a workspace directory, ``.duckdb`` file, or
-            ``.parquet`` file.  Auto-detects the mode:
+        db_path: Path to a workspace directory, ``.sqlite`` or ``.duckdb``
+            file, or ``.parquet`` file.  Auto-detects the mode:
 
-            - Directory or ``.duckdb`` file → opens a
+            - Directory or ``.sqlite``/``.duckdb`` file → opens a
               :class:`WorkspaceStore`, loads predictions, keeps store ref.
             - ``.parquet`` file → portable mode: loads arrays into the
               in-memory buffer without a store.
@@ -235,6 +234,7 @@ class Predictions:
     ) -> None:
         self._store = store
         self._owns_store = False
+        self._workspace_path: Path | None = None
         # In-memory buffer for predictions accumulated during a pipeline run.
         self._buffer: list[dict[str, Any]] = []
         # Dataset repetition column for by_repetition=True resolution
@@ -257,8 +257,8 @@ class Predictions:
         """Open a workspace or parquet file from *path*."""
         if path.suffix == ".parquet":
             self._load_portable_parquet(path)
-        elif path.suffix == ".duckdb":
-            # Derive workspace dir from the .duckdb file location
+        elif path.suffix in (".duckdb", ".sqlite"):
+            # Derive workspace dir from the DB file location
             self._open_store(path.parent, dataset_name=dataset_name, load_arrays=load_arrays)
         else:
             # Assume it's a workspace directory
@@ -271,18 +271,23 @@ class Predictions:
         dataset_name: str | None = None,
         load_arrays: bool = True,
     ) -> None:
-        """Open a WorkspaceStore and load predictions into the buffer."""
+        """Open a WorkspaceStore, load predictions into the buffer, then close.
+
+        The store is closed immediately after loading so that the DB
+        connection is not held open for the lifetime of this object.
+        The workspace path is stored for operations that need to
+        re-open the store (e.g. ``store_stats``).
+        """
         from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
         store = WorkspaceStore(workspace_path)
-        self._store = store
-        self._owns_store = True
-
-        df = store.query_predictions(dataset_name=dataset_name)
-        if df.is_empty():
-            return
-
-        self._populate_buffer_from_store(store, df, load_arrays=load_arrays)
+        self._workspace_path = workspace_path
+        try:
+            df = store.query_predictions(dataset_name=dataset_name)
+            if not df.is_empty():
+                self._populate_buffer_from_store(store, df, load_arrays=load_arrays)
+        finally:
+            store.close()
 
     def _load_portable_parquet(self, path: Path) -> None:
         """Load a standalone .parquet file into the in-memory buffer."""
@@ -334,8 +339,25 @@ class Predictions:
         *,
         load_arrays: bool = True,
     ) -> None:
-        """Populate the in-memory buffer from a query result DataFrame."""
+        """Populate the in-memory buffer from a query result DataFrame.
+
+        When *load_arrays* is ``True``, prediction arrays are loaded in
+        batch (one ``load_batch`` call per dataset) instead of one
+        ``load_single`` call per prediction row.
+        """
         import json as _json
+
+        # Batch-load all arrays grouped by dataset_name
+        arrays_by_id: dict[str, dict[str, Any]] = {}
+        if load_arrays:
+            # Group prediction IDs by dataset name for efficient Parquet reads
+            groups: dict[str, list[str]] = {}
+            for row in df.iter_rows(named=True):
+                ds = row.get("dataset_name", "")
+                groups.setdefault(ds, []).append(row["prediction_id"])
+            for ds_name, pred_ids in groups.items():
+                batch = store.array_store.load_batch(pred_ids, dataset_name=ds_name)
+                arrays_by_id.update(batch)
 
         for row in df.iter_rows(named=True):
             pred_id = row["prediction_id"]
@@ -343,7 +365,7 @@ class Predictions:
             y_true = y_pred = y_proba = sample_indices = None
             metadata: dict[str, Any] = {}
             if load_arrays:
-                arrays = store.array_store.load_single(pred_id, dataset_name=row.get("dataset_name"))
+                arrays = arrays_by_id.get(pred_id)
                 if arrays:
                     y_true = arrays.get("y_true")
                     y_pred = arrays.get("y_pred")
@@ -428,16 +450,15 @@ class Predictions:
         dataset_name: str | None = None,
         load_arrays: bool = True,
     ) -> Predictions:
-        """Load predictions from a workspace DuckDB store.
+        """Load predictions from a workspace store.
 
         Opens the workspace store, queries all predictions (with optional
-        dataset filter), loads associated arrays (y_true, y_pred), and
-        returns a fully populated ``Predictions`` instance ready for use
-        with ``PredictionAnalyzer``.
+        dataset filter), loads associated arrays (y_true, y_pred), closes
+        the store, and returns a pure in-memory ``Predictions`` instance.
 
         Args:
             workspace_path: Path to the workspace directory containing
-                ``store.duckdb``.
+                the metadata store (``store.sqlite``).
             dataset_name: Optional dataset name filter.
             load_arrays: If ``True`` (default), load y_true/y_pred arrays
                 for each prediction.  Set to ``False`` for metadata-only
@@ -445,8 +466,8 @@ class Predictions:
 
         Returns:
             A ``Predictions`` instance with the buffer populated from
-            the store.  The instance owns the store and can be used as
-            a context manager.
+            the store.  The store is closed; the instance is purely
+            in-memory.
 
         Example:
             >>> predictions = Predictions.from_workspace("workspace")
@@ -458,11 +479,12 @@ class Predictions:
     def from_file(cls, path: str | Path, **kwargs: Any) -> Predictions:
         """Open predictions from a file with auto-detection.
 
-        Accepts a workspace directory, ``.duckdb`` file, or ``.parquet``
-        file and delegates to the constructor.
+        Accepts a workspace directory, ``.sqlite`` or ``.duckdb`` file,
+        or ``.parquet`` file and delegates to the constructor.
 
         Args:
-            path: Path to workspace dir, ``.duckdb``, or ``.parquet``.
+            path: Path to workspace dir, ``.sqlite``, ``.duckdb``,
+                or ``.parquet``.
             **kwargs: Forwarded to ``__init__`` (``dataset_name``,
                 ``load_arrays``).
 
@@ -700,7 +722,7 @@ class Predictions:
     ) -> None:
         """Persist buffered predictions to the workspace store.
 
-        Metadata is written row-by-row to DuckDB via
+        Metadata is written row-by-row to SQLite via
         :meth:`WorkspaceStore.save_prediction`.  Arrays are accumulated
         and written in a single batch to Parquet via
         :meth:`ArrayStore.save_batch` at the end of the flush cycle.
@@ -2155,7 +2177,7 @@ class Predictions:
     def clean_dead_links(self, *, dry_run: bool = False) -> dict[str, int]:
         """Remove orphaned metadata or array entries.
 
-        Compares prediction IDs in DuckDB against prediction IDs in
+        Compares prediction IDs in the store against prediction IDs in
         the Parquet array files and removes entries that exist in only
         one side.
 
@@ -2171,8 +2193,8 @@ class Predictions:
         db_ids = set(df["prediction_id"].to_list()) if not df.is_empty() else set()
 
         check = store.array_store.integrity_check(expected_ids=db_ids)
-        # missing_ids: in DuckDB but not in Parquet (metadata orphans)
-        # orphan_ids: in Parquet but not in DuckDB (array orphans → cleaned by compact)
+        # missing_ids: in the store but not in Parquet (metadata orphans)
+        # orphan_ids: in Parquet but not in the store (array orphans → cleaned by compact)
         metadata_orphans = check["missing_ids"]
         array_orphans = check["orphan_ids"]
 
@@ -2289,29 +2311,59 @@ class Predictions:
         store = self._require_store()
         return store.array_store.compact(dataset_name)
 
+    def _find_store_db_path(self, workspace_path: Path) -> Path | None:
+        """Locate the metadata store file in a workspace directory.
+
+        Checks ``store.sqlite`` first (current engine), then
+        ``store.duckdb`` (legacy engine before migration).
+        """
+        for name in ("store.sqlite", "store.duckdb"):
+            candidate = workspace_path / name
+            if candidate.exists():
+                return candidate
+        return None
+
     def store_stats(self) -> dict[str, Any]:
-        """Combined DuckDB metadata + Parquet array storage statistics.
+        """Combined metadata store + Parquet array storage statistics.
+
+        Works with both an attached store and in detached mode
+        (re-opens the store temporarily using ``_workspace_path``).
 
         Returns:
             ``{db_file_bytes, tables: {...}, arrays: {...}}``
         """
-        store = self._require_store()
+        # Attached mode: use existing store
+        if self._store is not None:
+            store = self._store
+            db_path = self._find_store_db_path(store.workspace_path)
+            db_bytes = db_path.stat().st_size if db_path is not None and db_path.exists() else 0
 
-        # DuckDB file size
-        db_path = store.workspace_path / "store.duckdb"
-        db_bytes = db_path.stat().st_size if db_path.exists() else 0
+            tables: dict[str, int] = {}
+            for table_name in ("runs", "pipelines", "chains", "predictions", "artifacts", "logs"):
+                df = store._fetch_pl(f"SELECT COUNT(*) AS cnt FROM {table_name}")
+                tables[table_name] = df["cnt"][0] if not df.is_empty() else 0
 
-        # Table row counts
-        tables: dict[str, int] = {}
-        for table_name in ("runs", "pipelines", "chains", "predictions", "artifacts", "logs"):
-            df = store._fetch_pl(f"SELECT COUNT(*) AS cnt FROM {table_name}")
-            tables[table_name] = df["cnt"][0] if not df.is_empty() else 0
+            return {"db_file_bytes": db_bytes, "tables": tables, "arrays": store.array_store.stats()}
 
-        return {
-            "db_file_bytes": db_bytes,
-            "tables": tables,
-            "arrays": store.array_store.stats(),
-        }
+        # Detached mode: re-open the store temporarily
+        if self._workspace_path is None:
+            raise RuntimeError("This operation requires a workspace store (not available in portable/in-memory mode).")
+
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        db_path = self._find_store_db_path(self._workspace_path)
+        db_bytes = db_path.stat().st_size if db_path is not None and db_path.exists() else 0
+
+        store = WorkspaceStore(self._workspace_path)
+        try:
+            tables = {}
+            for table_name in ("runs", "pipelines", "chains", "predictions", "artifacts", "logs"):
+                df = store._fetch_pl(f"SELECT COUNT(*) AS cnt FROM {table_name}")
+                tables[table_name] = df["cnt"][0] if not df.is_empty() else 0
+
+            return {"db_file_bytes": db_bytes, "tables": tables, "arrays": store.array_store.stats()}
+        finally:
+            store.close()
 
     def query(self, sql: str) -> pl.DataFrame:
         """Run arbitrary read-only SQL against the metadata store.

@@ -210,7 +210,7 @@ nirs4all v0.8 moved prediction arrays from DuckDB to Parquet sidecar files for b
 | Prediction arrays | `prediction_arrays` DuckDB table | `arrays/<dataset>.parquet` Parquet files |
 | Array format | DuckDB `DOUBLE[]` columns | Zstd-compressed Parquet with list columns |
 | Array management | `WorkspaceStore.save_prediction_arrays()` | `ArrayStore.save_batch()` |
-| DuckDB tables | 7 (including `prediction_arrays`) | 7 (replaced with `projects`) |
+| Database tables | 7 (including `prediction_arrays`) | 7 (replaced with `projects`) |
 
 ### Automatic Migration
 
@@ -236,7 +236,7 @@ verify_migrated_store("workspace/")
 - [ ] Backup your workspace before upgrading (optional but recommended)
 - [ ] Open workspace with nirs4all v0.8+ (auto-migration happens automatically)
 - [ ] Verify `workspace/arrays/` directory contains per-dataset `.parquet` files
-- [ ] Verify `prediction_arrays` table no longer exists in DuckDB
+- [ ] Verify `prediction_arrays` table no longer exists in the database
 
 ---
 

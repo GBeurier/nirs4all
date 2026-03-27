@@ -7,7 +7,7 @@ nirs4all models. It wraps PipelineRunner.predict() with ergonomic defaults.
 Two prediction paths are supported:
 
 1. **Store-based** (preferred): ``nirs4all.predict(chain_id="abc", data=X)``
-   replays a stored chain directly from the DuckDB workspace.
+   replays a stored chain directly from the workspace store.
 
 2. **Model-based** (legacy): ``nirs4all.predict(model="model.n4a", data=X)``
    resolves via PredictionResolver / BundleLoader.
@@ -95,7 +95,7 @@ def predict(
             - Dict: ``{"X": X, "metadata": meta}``
             - SpectroDataset instance
 
-        chain_id: Chain identifier in the workspace DuckDB store.
+        chain_id: Chain identifier in the workspace store.
             When provided, uses the fast store-based replay path.
             Mutually exclusive with ``model``.
 

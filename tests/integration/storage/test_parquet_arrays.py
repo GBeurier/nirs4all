@@ -4,7 +4,7 @@ Validates the full pipeline:
   nirs4all.run() → predictions.top() → arrays load correctly from Parquet.
 
 Covers:
-- Pipeline execution writes arrays to Parquet sidecar files (not DuckDB)
+- Pipeline execution writes arrays to Parquet sidecar files (not inline in SQLite)
 - WorkspaceStore.get_prediction(load_arrays=True) returns arrays from Parquet
 - ArrayStore files exist on disk with correct structure
 - Round-trip: arrays match between save and load
@@ -64,7 +64,7 @@ class TestFullPipelineWithParquetArrays:
         assert len(parquet_files) > 0, "At least one .parquet file should exist"
 
     def test_no_prediction_arrays_table(self, temp_workspace, regression_data):
-        """The prediction_arrays DuckDB table no longer exists."""
+        """The prediction_arrays legacy table no longer exists."""
         X, y = regression_data
         pipeline = [MinMaxScaler(), PLSRegression(n_components=3)]
 
@@ -77,8 +77,8 @@ class TestFullPipelineWithParquetArrays:
         store = WorkspaceStore(temp_workspace)
         try:
             result = store._conn.execute(
-                "SELECT table_name FROM information_schema.tables "
-                "WHERE table_name = 'prediction_arrays' AND table_type = 'BASE TABLE'"
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name='prediction_arrays'"
             ).fetchall()
             assert len(result) == 0, "prediction_arrays table should not exist"
         finally:

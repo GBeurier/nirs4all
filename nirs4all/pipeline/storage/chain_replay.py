@@ -1,7 +1,7 @@
 """Chain replay -- predict from stored chains via WorkspaceStore.
 
 This module provides a standalone ``replay_chain`` function that loads a chain
-from the DuckDB-backed WorkspaceStore and applies it to new feature data.
+from the WorkspaceStore and applies it to new feature data.
 
 The function is the primary in-workspace prediction path: it replays
 preprocessing transformers in order and averages fold-model predictions.

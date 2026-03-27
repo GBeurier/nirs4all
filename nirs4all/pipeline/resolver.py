@@ -299,7 +299,7 @@ class PredictionResolver:
         Args:
             workspace_path: Root workspace directory
             runs_dir: Optional runs directory override (default: workspace/runs)
-            store: Optional WorkspaceStore for DuckDB-backed resolution
+            store: Optional WorkspaceStore for store-based resolution
             resolution_mode: Resolver mode policy.
                 - ``"auto"``: Try store first, fallback to filesystem.
                 - ``"store"``: Store-only resolution (no filesystem fallback).
@@ -1112,7 +1112,7 @@ class PredictionResolver:
         return 'unknown'
 
     # =========================================================================
-    # Store-based resolution (DuckDB)
+    # Store-based resolution
     # =========================================================================
 
     def _resolve_from_store(
@@ -1122,7 +1122,7 @@ class PredictionResolver:
     ) -> ResolvedPrediction | None:
         """Try to resolve a prediction using the WorkspaceStore.
 
-        Looks up the pipeline and chain data in the DuckDB store and
+        Looks up the pipeline and chain data in the workspace store and
         builds a :class:`ResolvedPrediction` with a :class:`MapArtifactProvider`
         backed by store-loaded artifacts.
 

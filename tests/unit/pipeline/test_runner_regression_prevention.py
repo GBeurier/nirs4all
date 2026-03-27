@@ -265,7 +265,7 @@ class TestCriticalBehavior:
         """
         CRITICAL: File saving must create proper storage structure.
 
-        When save_artifacts=True, DuckDB store and artifact directories must be created.
+        When save_artifacts=True, SQLite store and artifact directories must be created.
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
@@ -280,7 +280,7 @@ class TestCriticalBehavior:
         runner.run(pipeline, dataset_path)
 
         # CRITICAL ASSERTIONS: Required structure must exist
-        assert (tmp_path / "store.duckdb").exists(), "DuckDB store must exist"
+        assert (tmp_path / "store.sqlite").exists(), "SQLite store must exist"
         assert (tmp_path / "exports").exists()
 
         # Pipeline UID should be set

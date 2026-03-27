@@ -60,7 +60,6 @@ dependencies = [
     # Data processing
     "polars>=1.0.0",
     "pyarrow>=14.0.0",
-    "duckdb>=1.0.0",
     "h5py>=3.8.0",
     "umap-learn",
 
@@ -101,6 +100,9 @@ gpu = ["tensorflow[and-cuda]>=2.14.0"]
 torch = ["torch>=2.1.0", "tabpfn>=2.0.0"]
 keras = ["keras>=3.0.0"]
 jax = ["jax>=0.4.20", "jaxlib>=0.4.20", "flax>=0.8.0"]
+
+# Legacy DuckDB workspace migration (only needed for pre-v0.9 workspaces)
+migration = ["duckdb>=1.0.0"]
 
 # AutoML
 autogluon = ["autogluon>=1.0.0"]

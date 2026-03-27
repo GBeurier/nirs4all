@@ -5,7 +5,7 @@ Welcome to the NIRS4ALL deep dive! This section helps you build a mental model o
 Think of NIRS4ALL as more than just a tool — it's a comprehensive system for spectroscopy data analysis that brings together:
 - Smart data management (handling multi-source spectra with complex metadata)
 - Flexible pipeline execution (supporting countless ML/DL frameworks)
-- Reproducible experiment tracking (with DuckDB-backed persistence)
+- Reproducible experiment tracking (with SQLite-backed persistence)
 - Production-ready deployment (export and replay capabilities)
 
 ## Choose Your Learning Path
@@ -71,7 +71,7 @@ persona_paths
 
 **Controller-driven**: The execution engine uses a flexible controller pattern, allowing you to extend behavior without modifying core code.
 
-**Workspace-backed**: Every experiment is persisted in a DuckDB store with content-addressed artifacts, giving you full traceability and reproducibility.
+**Workspace-backed**: Every experiment is persisted in a SQLite store with content-addressed artifacts, giving you full traceability and reproducibility.
 
 **Multi-framework**: Seamlessly mix sklearn, TensorFlow, PyTorch, JAX, and AutoGluon in a single pipeline.
 

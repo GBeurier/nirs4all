@@ -84,9 +84,9 @@ The full lifecycle of a prediction, from training to deployment:
 2. STORE
    For each pipeline x fold x partition:
        - Compute predictions (y_pred) and scores
-       - Save prediction record to store.duckdb
+       - Save prediction record to store.sqlite
        - Save arrays (y_true, y_pred) to arrays/*.parquet (via ArrayStore)
-       - Save chain (fitted artifacts) to store.duckdb + artifacts/
+       - Save chain (fitted artifacts) to store.sqlite + artifacts/
        |
        v
 3. QUERY
@@ -109,11 +109,11 @@ The full lifecycle of a prediction, from training to deployment:
 
 ## Workspace Storage
 
-Prediction data uses a hybrid DuckDB + Parquet architecture inside the workspace directory:
+Prediction data uses a hybrid SQLite + Parquet architecture inside the workspace directory:
 
 ```
 workspace/
-    store.duckdb          # Structured metadata (runs, pipelines, chains, predictions)
+    store.sqlite          # Structured metadata (runs, pipelines, chains, predictions)
     arrays/               # Prediction arrays (Parquet sidecar files per dataset)
         wheat.parquet
         corn.parquet
@@ -122,7 +122,7 @@ workspace/
     exports/              # User-triggered exports (on demand)
 ```
 
-The DuckDB database contains seven tables:
+The SQLite database contains seven tables:
 
 | Table | Contents |
 |-------|----------|

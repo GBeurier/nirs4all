@@ -6,14 +6,14 @@ This guide covers internal implementation details and extension points for the n
 
 The storage system has two layers:
 
-1. **WorkspaceStore** (`nirs4all.pipeline.storage.workspace_store`) -- DuckDB-backed central store for all structured data and artifact management.
+1. **WorkspaceStore** (`nirs4all.pipeline.storage.workspace_store`) -- SQLite-backed central store for all structured data and artifact management.
 2. **Artifacts subpackage** (`nirs4all.pipeline.storage.artifacts/`) -- Low-level artifact utilities (types, serialization, operator chains) used by WorkspaceStore and the execution engine.
 
 ```
 nirs4all/pipeline/storage/
 ├── __init__.py               # Public API exports (WorkspaceStore, ChainBuilder, etc.)
-├── workspace_store.py        # DuckDB-backed central store
-├── store_schema.py           # DuckDB table schema creation
+├── workspace_store.py        # SQLite-backed central store
+├── store_schema.py           # SQLite table schema creation
 ├── store_queries.py          # SQL query constants
 ├── store_protocol.py         # StoreProtocol abstract interface
 ├── chain_builder.py          # ChainBuilder (ExecutionTrace -> chain dict)
@@ -253,7 +253,7 @@ class TestArtifactFlow:
     """Integration tests for training -> prediction artifact flow."""
 
     def test_train_creates_store_with_artifacts(self, workspace_path, dataset):
-        """Test that training creates store.duckdb and artifacts."""
+        """Test that training creates store.sqlite and artifacts."""
         import nirs4all
 
         result = nirs4all.run(
@@ -264,7 +264,7 @@ class TestArtifactFlow:
             verbose=0,
         )
 
-        assert (workspace_path / "store.duckdb").exists()
+        assert (workspace_path / "store.sqlite").exists()
         artifacts = list((workspace_path / "artifacts").rglob("*.joblib"))
         assert len(artifacts) >= 1
 ```
@@ -295,14 +295,14 @@ print(f"Fold artifacts: {chain['fold_artifacts']}")
 store.close()
 ```
 
-### DuckDB Direct Queries
+### SQLite Direct Queries
 
-For advanced debugging, query the DuckDB store directly:
+For advanced debugging, query the SQLite store directly:
 
 ```python
-import duckdb
+import sqlite3
 
-conn = duckdb.connect(str(workspace_path / "store.duckdb"))
+conn = sqlite3.connect(str(workspace_path / "store.sqlite"))
 
 # Count records
 print(conn.execute("SELECT COUNT(*) FROM predictions").fetchone())

@@ -422,12 +422,12 @@ class PipelineRunner:
         """Get the WorkspaceStore from the orchestrator.
 
         Returns:
-            WorkspaceStore instance for DuckDB-backed persistence
+            WorkspaceStore instance for metadata persistence.
         """
         return self.orchestrator.store
 
     def close(self) -> None:
-        """Close the underlying WorkspaceStore to release DuckDB resources."""
+        """Close the underlying WorkspaceStore to release DB resources."""
         if hasattr(self, "orchestrator") and self.orchestrator is not None:
             store = self.orchestrator.store
             if store is not None:
@@ -438,7 +438,7 @@ class PipelineRunner:
         """Get runs directory (legacy compatibility).
 
         Returns:
-            Path to workspace root (runs are now in DuckDB, not filesystem)
+            Path to workspace root (runs are now in SQLite, not filesystem)
         """
         return self.workspace_path
 

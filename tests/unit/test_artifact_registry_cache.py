@@ -357,7 +357,7 @@ class TestRegistryLifespan:
                 keep_datasets=False,
                 enable_tab_reports=False,
             )
-            # Stub out the store to avoid real DuckDB
+            # Stub out the store to avoid real SQLite
             orchestrator.store = MagicMock()
             orchestrator.store.begin_run.return_value = "run-id"
 

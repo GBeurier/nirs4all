@@ -33,7 +33,7 @@ def workspace_init(args):
         logger.error(f"Path exists and is a file, not a directory: {workspace_path}")
         sys.exit(1)
 
-    # WorkspaceStore creates the DuckDB database and workspace directories
+    # WorkspaceStore creates the SQLite database and workspace directories
     store = WorkspaceStore(workspace_path)
     store.close()
 
@@ -43,7 +43,7 @@ def workspace_init(args):
 
     logger.success(f"Workspace initialized at: {workspace_path}")
     logger.info("  Created:")
-    logger.info("    - nirs4all.duckdb (workspace database)")
+    logger.info("    - store.sqlite (workspace database)")
     logger.info("    - exports/")
     logger.info("    - library/")
 
