@@ -58,7 +58,8 @@ class TopKComparisonChart(BaseChart):
                dataset_name: str | None = None,
                figsize: tuple | None = None,
                aggregate: str | None = None,
-               **filters) -> Figure:
+               task_type: str | None = None,
+               **filters) -> Figure | list[Figure]:
         """Plot top K models with predicted vs true and residuals.
 
         Uses the top() method to rank models by a metric on rank_partition,
@@ -74,14 +75,42 @@ class TopKComparisonChart(BaseChart):
             dataset_name: Optional dataset filter.
             figsize: Figure size tuple (default: from config).
             aggregate: If provided, aggregate predictions by this metadata column or 'y'.
+            task_type: If provided, filter predictions to this task type. When None
+                and mixed task types exist, renders separate figures per task type.
             **filters: Additional filters.
 
         Returns:
-            matplotlib Figure object.
+            matplotlib Figure object, or a list of Figures when auto-separating by task type.
         """
+        # Auto-separate when mixed task types and no explicit task_type
+        if task_type is None:
+            unique_types = self._get_unique_task_types()
+            has_clf = any('classification' in t for t in unique_types)
+            has_reg = 'regression' in unique_types
+            if has_clf and has_reg:
+                import warnings
+                warnings.warn(
+                    "Mixed task types detected — rendering separate figures per task type.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                figures = []
+                for tt in unique_types:
+                    fig = self.render(
+                        k=k, rank_metric=rank_metric, rank_partition=rank_partition,
+                        display_metric=display_metric, display_partition=display_partition,
+                        show_scores=show_scores, dataset_name=dataset_name, figsize=figsize,
+                        aggregate=aggregate, task_type=tt, **filters,
+                    )
+                    if isinstance(fig, list):
+                        figures.extend(fig)
+                    else:
+                        figures.append(fig)
+                return figures
+
         # Auto-detect metric if not provided
         if rank_metric is None:
-            rank_metric = self._get_default_metric()
+            rank_metric = self._get_default_metric(task_type_filter=task_type)
         if not display_metric:
             display_metric = rank_metric
 
@@ -109,6 +138,7 @@ class TopKComparisonChart(BaseChart):
             aggregate_partitions=True,
             aggregate=aggregate,
             group_by=['model_name'],  # Keep only the best entry per model_name
+            task_type=task_type,
             **filters
         )
 

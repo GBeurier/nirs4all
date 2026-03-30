@@ -354,8 +354,9 @@ class HeatmapChart(BaseChart):
         top_k: int | None = None,
         sort_by_value: bool = False,
         sort_by: str | None = None,
+        task_type: str | None = None,
         **filters
-    ) -> Figure:
+    ) -> Figure | list[Figure]:
         """Render performance heatmap (Optimized with Polars).
 
         Uses vectorized operations for 20x+ speedup.
@@ -390,16 +391,48 @@ class HeatmapChart(BaseChart):
                 - 'borda': Sort by Borda count (sum of ranks across columns).
                 - 'condorcet': Sort by pairwise wins (Copeland method).
                 - 'consensus': Sort by consensus (geometric mean of normalized ranks).
+            task_type: If provided, filter predictions to this task type. When None
+                and mixed task types exist, renders separate figures per task type.
             **filters: Additional filters for predictions.
 
         Returns:
-            Matplotlib Figure with the heatmap.
+            Matplotlib Figure with the heatmap, or a list of Figures when auto-separating by task type.
         """
         t0 = time.time()
 
+        # Auto-separate when mixed task types and no explicit task_type
+        if task_type is None:
+            unique_types = self._get_unique_task_types()
+            has_clf = any('classification' in t for t in unique_types)
+            has_reg = 'regression' in unique_types
+            if has_clf and has_reg:
+                import warnings
+                warnings.warn(
+                    "Mixed task types detected — rendering separate figures per task type.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                figures = []
+                for tt in unique_types:
+                    fig = self.render(
+                        x_var=x_var, y_var=y_var, rank_metric=rank_metric,
+                        rank_partition=rank_partition, display_metric=display_metric,
+                        display_partition=display_partition, figsize=figsize,
+                        normalize=normalize, rank_agg=rank_agg, display_agg=display_agg,
+                        show_counts=show_counts, local_scale=local_scale,
+                        column_scale=column_scale, aggregate=aggregate, top_k=top_k,
+                        sort_by_value=sort_by_value, sort_by=sort_by, task_type=tt,
+                        **filters,
+                    )
+                    if isinstance(fig, list):
+                        figures.extend(fig)
+                    else:
+                        figures.append(fig)
+                return figures
+
         # Auto-detect metric if not provided
         if rank_metric is None:
-            rank_metric = display_metric if display_metric else self._get_default_metric()
+            rank_metric = display_metric if display_metric else self._get_default_metric(task_type_filter=task_type)
 
         self.validate_inputs(x_var, y_var, rank_metric)
 
@@ -433,6 +466,7 @@ class HeatmapChart(BaseChart):
                 aggregate=aggregate,
                 top_k=top_k,
                 sort_by=effective_sort_by,
+                task_type=task_type,
                 **filters
             )
 
@@ -453,6 +487,18 @@ class HeatmapChart(BaseChart):
 
         # --- POLARS OPTIMIZATION START ---
         df = self.predictions.to_dataframe()
+
+        # Filter by task_type if specified
+        if task_type is not None and 'task_type' in df.columns:
+            tt_lower = task_type.lower()
+            if tt_lower in ('classification', 'clf'):
+                df = df.filter(pl.col('task_type').str.contains('classification'))
+            elif tt_lower == 'binary':
+                df = df.filter(pl.col('task_type') == 'binary_classification')
+            elif tt_lower == 'multiclass':
+                df = df.filter(pl.col('task_type') == 'multiclass_classification')
+            else:
+                df = df.filter(pl.col('task_type') == ('regression' if tt_lower in ('reg', 'regression') else task_type))
 
         # Normalize model_name to lowercase to merge case-insensitive duplicates
         if 'model_name' in df.columns:
@@ -956,6 +1002,7 @@ class HeatmapChart(BaseChart):
         aggregate: str,
         top_k: int | None = None,
         sort_by: str | None = None,
+        task_type: str | None = None,
         **filters
     ) -> Figure:
         """Render heatmap with aggregation support.
@@ -982,6 +1029,18 @@ class HeatmapChart(BaseChart):
             all_filters.pop(k, None)
 
         df = self.predictions.to_dataframe()
+
+        # Filter by task_type if specified
+        if task_type is not None and 'task_type' in df.columns:
+            tt_lower = task_type.lower()
+            if tt_lower in ('classification', 'clf'):
+                df = df.filter(pl.col('task_type').str.contains('classification'))
+            elif tt_lower == 'binary':
+                df = df.filter(pl.col('task_type') == 'binary_classification')
+            elif tt_lower == 'multiclass':
+                df = df.filter(pl.col('task_type') == 'multiclass_classification')
+            else:
+                df = df.filter(pl.col('task_type') == ('regression' if tt_lower in ('reg', 'regression') else task_type))
 
         # For case-insensitive grouping, create a lowercase version of model_name
         original_model_names = {}
@@ -1035,6 +1094,7 @@ class HeatmapChart(BaseChart):
                 aggregate_partitions=True,
                 aggregate=aggregate,
                 group_by=group_by_cols,  # Group by y_var for heatmap rows
+                task_type=task_type,
                 **all_filters
             )
         except Exception as e:

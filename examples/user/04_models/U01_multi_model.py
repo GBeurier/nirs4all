@@ -305,11 +305,11 @@ result_classif = nirs4all.run(
 )
 
 print("\nClassification results:")
-for i, pred in enumerate(result_classif.top(5, display_metrics=['rmse', 'r2']), 1):
+for i, pred in enumerate(result_classif.top(5, task_type="classification", display_metrics=['accuracy', 'balanced_accuracy']), 1):
     model_name = pred.get('model_name', 'Unknown')
-    # For classification, 'rmse' is actually error rate
-    accuracy = (1 - pred.get('rmse', 0)) * 100
-    print(f"   {i}. {model_name}: Accuracy={accuracy:.1f}%")
+    accuracy = pred.get('accuracy', 0) * 100
+    bal_acc = pred.get('balanced_accuracy', 0) * 100
+    print(f"   {i}. {model_name}: Accuracy={accuracy:.1f}%, Balanced Accuracy={bal_acc:.1f}%")
 
 # =============================================================================
 # Summary

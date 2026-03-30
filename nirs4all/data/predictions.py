@@ -33,6 +33,7 @@ import polars as pl
 
 from nirs4all.core import metrics as evaluator
 from nirs4all.core.logging import get_logger
+from nirs4all.core.task_type import matches_task_type
 
 from ._predictions.result import PredictionResult, PredictionResultsList
 
@@ -841,6 +842,7 @@ class Predictions:
         repetition_exclude_outliers: bool = False,
         group_by: str | list[str] | None = None,
         return_grouped: bool = False,
+        task_type: str | None = None,
         **filters: Any,
     ) -> PredictionResultsList | dict[tuple, PredictionResultsList]:
         """Get top *n* predictions ranked by a metric.
@@ -884,6 +886,10 @@ class Predictions:
                 measurements before aggregating within each group.
             group_by: Group predictions by column(s) for ranking.
             return_grouped: Return dict of group->results.
+            task_type: Filter by task type.  Supports aliases:
+                ``"regression"``/``"reg"``, ``"classification"``/``"clf"``
+                (matches both binary and multiclass), ``"binary"``,
+                ``"multiclass"``.  ``None`` disables filtering.
             **filters: Additional filter criteria.
 
         Returns:
@@ -943,6 +949,10 @@ class Predictions:
             if rank_partition and not is_final and r.get("partition") != rank_partition:
                 continue
 
+            # Apply task_type filter
+            if task_type is not None and not matches_task_type(r.get("task_type"), task_type):
+                continue
+
             # Apply custom filters
             if filter_items and not all(r.get(k) == v for k, v in filter_items):
                 continue
@@ -957,8 +967,28 @@ class Predictions:
                 return {}
             return PredictionResultsList([])
 
-        # Resolve effective metric
-        effective_metric = rank_metric or candidates[0].get("metric", "mse")
+        # Warn on mixed task types when no explicit task_type or rank_metric
+        if task_type is None and not rank_metric:
+            task_types_in_candidates = {c.get("task_type") for c in candidates} - {None}
+            has_clf = any("classification" in str(t) for t in task_types_in_candidates)
+            has_reg = "regression" in task_types_in_candidates
+            if has_clf and has_reg:
+                warnings.warn(
+                    f"Mixed task types found ({task_types_in_candidates}). "
+                    "Specify task_type or rank_metric to avoid cross-task comparison.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
+        # Resolve effective metric — task-type-aware default
+        if rank_metric:
+            effective_metric = rank_metric
+        else:
+            first_task = str(candidates[0].get("task_type", "regression"))
+            if "classification" in first_task:
+                effective_metric = "balanced_accuracy"
+            else:
+                effective_metric = candidates[0].get("metric", "rmse")
 
         # Determine sort direction
         if ascending is None:
@@ -1175,6 +1205,7 @@ class Predictions:
         by_repetition: bool | str | None = None,
         repetition_method: str | None = None,
         repetition_exclude_outliers: bool = False,
+        task_type: str | None = None,
         **filters: Any,
     ) -> PredictionResult | None:
         """Get the best prediction for a specific metric.
@@ -1194,6 +1225,7 @@ class Predictions:
                 - ``False``/``None`` (default): No aggregation.
             repetition_method: Aggregation method (``"mean"``, ``"median"``, ``"vote"``).
             repetition_exclude_outliers: Exclude outliers before aggregation.
+            task_type: Filter by task type.  See :meth:`top` for aliases.
             **filters: Additional filter criteria.
 
         Returns:
@@ -1209,6 +1241,7 @@ class Predictions:
             by_repetition=by_repetition,
             repetition_method=repetition_method,
             repetition_exclude_outliers=repetition_exclude_outliers,
+            task_type=task_type,
             **filters,
         )
         # Fallback to test partition
@@ -1223,6 +1256,7 @@ class Predictions:
                 by_repetition=by_repetition,
                 repetition_method=repetition_method,
                 repetition_exclude_outliers=repetition_exclude_outliers,
+                task_type=task_type,
                 **filters,
             )
         if isinstance(results_list, dict):
@@ -1243,6 +1277,7 @@ class Predictions:
         step_idx: int | None = None,
         branch_id: int | None = None,
         branch_name: str | None = None,
+        task_type: str | None = None,
         load_arrays: bool = True,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
@@ -1257,6 +1292,10 @@ class Predictions:
             step_idx: Filter by step index.
             branch_id: Filter by branch ID.
             branch_name: Filter by branch name.
+            task_type: Filter by task type.  Supports aliases:
+                ``"regression"``/``"reg"``, ``"classification"``/``"clf"``
+                (matches both binary and multiclass), ``"binary"``,
+                ``"multiclass"``.
             load_arrays: If ``True``, include arrays (y_true, y_pred).
             **kwargs: Additional filter criteria.
 
@@ -1289,6 +1328,8 @@ class Predictions:
         results: list[dict[str, Any]] = []
         for row in self._buffer:
             if all(row.get(k) == v for k, v in filter_items):
+                if task_type is not None and not matches_task_type(row.get("task_type"), task_type):
+                    continue
                 if not load_arrays:
                     results.append({k: v for k, v in row.items() if k not in _ARRAY_KEYS})
                 else:

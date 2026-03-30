@@ -130,24 +130,45 @@ class BaseChart(ABC):
             return int(part) if part.isdigit() else part.lower()
         return [convert(c) for c in re.split(r'(\d+)', str(text))]
 
-    def _get_default_metric(self) -> str:
+    def _get_default_metric(self, task_type_filter: str | None = None) -> str:
         """Get default metric based on task type from predictions.
 
         Uses task_type already stored in predictions - does NOT recompute.
 
+        When predictions contain mixed task types and no *task_type_filter*
+        is supplied, defaults to ``'rmse'`` (regression).  Use
+        *task_type_filter* to request the metric for a specific task type.
+
+        Args:
+            task_type_filter: Restrict to this task type when choosing the
+                default metric (e.g. ``"classification"``, ``"regression"``).
+
         Returns:
-            'balanced_accuracy' for classification, 'rmse' for regression.
+            ``'balanced_accuracy'`` for classification, ``'rmse'`` for regression.
         """
+        if task_type_filter is not None:
+            if "classification" in task_type_filter.lower() or task_type_filter.lower() in ("clf", "binary", "multiclass"):
+                return 'balanced_accuracy'
+            return 'rmse'
+
         if self.predictions.num_predictions > 0:
             try:
-                # Try to get unique task types using public API
                 task_types = self.predictions.get_unique_values('task_type')
-                # Check if ANY task type is classification
-                if any(t and 'classification' in str(t).lower() for t in task_types):
+                has_clf = any(t and 'classification' in str(t).lower() for t in task_types)
+                has_reg = any(t and str(t).lower() == 'regression' for t in task_types)
+                if has_clf and not has_reg:
                     return 'balanced_accuracy'
+                # Mixed or regression-only -> regression default
             except Exception:
                 pass
         return 'rmse'
+
+    def _get_unique_task_types(self) -> list[str]:
+        """Return the distinct task types present in the predictions buffer."""
+        try:
+            return [str(t) for t in self.predictions.get_unique_values('task_type') if t]
+        except Exception:
+            return []
 
     def _get_score(self, partition_data: dict[str, Any], metric: str) -> float | None:
         """Get score from partition data, computing it if necessary.
@@ -194,6 +215,7 @@ class BaseChart(ABC):
         aggregate: str | None = None,
         group_by: str | list[str] | None = None,
         aggregate_partitions: bool = True,
+        task_type: str | None = None,
         **filters
     ):
         """
@@ -255,6 +277,10 @@ class BaseChart(ABC):
             ...     group_by=['model_name', 'preprocessings']
             ... )
         """
+        # Inject task_type into filters for the analyzer/top() paths
+        if task_type is not None:
+            filters["task_type"] = task_type
+
         # Use analyzer's cached method if available
         if self.analyzer is not None:
             return self.analyzer.get_cached_predictions(

@@ -360,11 +360,11 @@ class PredictionAnalyzer:
         from nirs4all.core.metrics import is_higher_better
         return is_higher_better(metric)
 
-    def _save_figure(self, fig: Figure, chart_type: str, dataset_name: str | None = None):
+    def _save_figure(self, fig: Figure | list[Figure], chart_type: str, dataset_name: str | None = None):
         """Save figure to disk with versioning.
 
         Args:
-            fig: Matplotlib Figure to save.
+            fig: Matplotlib Figure (or list of Figures) to save.
             chart_type: Type of chart (e.g., 'top_k', 'heatmap').
             dataset_name: Name of the dataset associated with the chart.
         """
@@ -409,11 +409,17 @@ class PredictionAnalyzer:
         filename = f"{base_name}_{next_counter}.png"
         filepath = os.path.join(self.output_dir, filename)
 
-        try:
-            fig.savefig(filepath, bbox_inches='tight')
-            logger.info(f"Saved chart to {filepath}")
-        except Exception as e:
-            logger.error(f"Failed to save chart to {filepath}: {e}")
+        figs = fig if isinstance(fig, list) else [fig]
+        for i, single_fig in enumerate(figs):
+            if len(figs) > 1:
+                save_path = os.path.join(self.output_dir, f"{base_name}_{next_counter + i}.png")
+            else:
+                save_path = filepath
+            try:
+                single_fig.savefig(save_path, bbox_inches='tight')
+                logger.info(f"Saved chart to {save_path}")
+            except Exception as e:
+                logger.error(f"Failed to save chart to {save_path}: {e}")
 
     def plot_top_k(
         self,
@@ -424,6 +430,7 @@ class PredictionAnalyzer:
         display_partition: str = 'all',
         show_scores: bool = True,
         aggregate: str | None = None,
+        task_type: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
     ) -> Figure | list[Figure]:
@@ -446,6 +453,9 @@ class PredictionAnalyzer:
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
                       Aggregated predictions have recalculated metrics.
+            task_type: If provided, filter predictions to this task type (e.g.,
+                      'regression', 'classification'). When None and mixed task types
+                      exist, renders separate figures per task type.
             config: Optional ChartConfig to override analyzer's default config for this chart.
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
@@ -482,11 +492,15 @@ class PredictionAnalyzer:
                         display_partition=display_partition,
                         show_scores=show_scores,
                         aggregate=effective_aggregate,
+                        task_type=task_type,
                         dataset_name=dataset,
                         **kwargs
                     )
                     self._save_figure(fig, "top_k", dataset)
-                    figures.append(fig)
+                    if isinstance(fig, list):
+                        figures.extend(fig)
+                    else:
+                        figures.append(fig)
                 return figures
 
         # Single dataset or dataset_name specified
@@ -498,6 +512,7 @@ class PredictionAnalyzer:
             display_partition=display_partition,
             show_scores=show_scores,
             aggregate=effective_aggregate,
+            task_type=task_type,
             **kwargs
         )
         self._save_figure(fig, "top_k", str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None)
@@ -512,6 +527,7 @@ class PredictionAnalyzer:
         display_partition: str = 'test',
         show_scores: bool = True,
         aggregate: str | None = None,
+        task_type: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
     ) -> Figure | list[Figure]:
@@ -531,6 +547,8 @@ class PredictionAnalyzer:
             display_partition: Partition to display confusion matrix from (default: 'test').
             show_scores: If True, show scores in chart titles (default: True).
             aggregate: If provided, aggregate predictions by this metadata column or 'y'.
+            task_type: If provided, filter predictions to this task type (e.g.,
+                      'classification'). Passed through to the chart's render method.
             config: Optional ChartConfig to override analyzer's default config for this chart.
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
@@ -548,6 +566,8 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
+        if task_type is not None:
+            kwargs['task_type'] = task_type
         chart = ConfusionMatrixChart(
             self.predictions,
             self.dataset_name_override,
@@ -602,6 +622,7 @@ class PredictionAnalyzer:
         display_metric: str | None = None,
         display_partition: str = 'test',
         aggregate: str | None = None,
+        task_type: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
     ) -> Figure | list[Figure]:
@@ -617,6 +638,9 @@ class PredictionAnalyzer:
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
                       Aggregated predictions have recalculated metrics.
+            task_type: If provided, filter predictions to this task type (e.g.,
+                      'regression', 'classification'). Passed through to the chart's
+                      render method as a filter.
             config: Optional ChartConfig to override analyzer's default config for this chart.
             **kwargs: Additional parameters (dataset_name, bins, figsize, filters).
 
@@ -629,6 +653,8 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
+        if task_type is not None:
+            kwargs['task_type'] = task_type
         chart = ScoreHistogramChart(
             self.predictions,
             self.dataset_name_override,
@@ -653,7 +679,10 @@ class PredictionAnalyzer:
                         **kwargs
                     )
                     self._save_figure(fig, "histogram", dataset)
-                    figures.append(fig)
+                    if isinstance(fig, list):
+                        figures.extend(fig)
+                    else:
+                        figures.append(fig)
                 return figures
 
         # Single dataset or dataset_name specified
@@ -684,9 +713,10 @@ class PredictionAnalyzer:
         top_k: int | None = None,
         sort_by_value: bool = False,
         sort_by: str | None = None,
+        task_type: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
-    ) -> Figure:
+    ) -> Figure | list[Figure]:
         """Plot performance heatmap across two variables.
 
         For each (x_var, y_var) cell:
@@ -723,6 +753,9 @@ class PredictionAnalyzer:
                 - 'borda': Sort by Borda count (sum of ranks across columns).
                 - 'condorcet': Sort by pairwise wins (Copeland method).
                 - 'consensus': Sort by consensus (geometric mean of normalized ranks).
+            task_type: If provided, filter predictions to this task type (e.g.,
+                      'regression', 'classification'). Passed through to the chart's
+                      render method as a filter.
             config: Optional ChartConfig to override analyzer's default config for this chart.
             **kwargs: Additional filters (dataset_name, model_name, etc.).
 
@@ -758,6 +791,8 @@ class PredictionAnalyzer:
 
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
+        if task_type is not None:
+            kwargs['task_type'] = task_type
         chart = HeatmapChart(
             self.predictions,
             self.dataset_name_override,
@@ -792,9 +827,10 @@ class PredictionAnalyzer:
         display_metric: str | None = None,
         display_partition: str = 'test',
         aggregate: str | None = None,
+        task_type: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
-    ) -> Figure:
+    ) -> Figure | list[Figure]:
         """Plot candlestick chart for score distribution by variable.
 
         Args:
@@ -805,6 +841,9 @@ class PredictionAnalyzer:
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
                       Aggregated predictions have recalculated metrics.
+            task_type: If provided, filter predictions to this task type (e.g.,
+                      'regression', 'classification'). Passed through to the chart's
+                      render method as a filter.
             config: Optional ChartConfig to override analyzer's default config for this chart.
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
@@ -817,6 +856,8 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
+        if task_type is not None:
+            kwargs['task_type'] = task_type
         chart = CandlestickChart(
             self.predictions,
             self.dataset_name_override,
@@ -832,87 +873,6 @@ class PredictionAnalyzer:
         )
         self._save_figure(fig, "candlestick", str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None)
         return fig
-
-    # # Backward compatibility aliases
-    # def plot_top_k_comparison(self, *args, **kwargs):
-    #     """Alias for plot_top_k() (backward compatibility)."""
-    #     return self.plot_top_k(*args, **kwargs)
-
-    # def plot_top_k_confusionMatrix(self, *args, **kwargs):
-    #     """Alias for plot_confusion_matrix() (backward compatibility).
-
-    #     Note: Old 'partition' kwarg is mapped to both 'rank_partition' and 'display_partition'
-    #     for backward compatibility with the old single-partition behavior.
-    #     """
-    #     # Map old 'partition' param if present and new params not specified
-    #     if 'partition' in kwargs:
-    #         old_partition = kwargs.pop('partition')
-    #         if 'rank_partition' not in kwargs:
-    #             kwargs['rank_partition'] = old_partition
-    #         if 'display_partition' not in kwargs:
-    #             kwargs['display_partition'] = old_partition
-    #     return self.plot_confusion_matrix(*args, **kwargs)
-
-    # def plot_score_histogram(self, *args, **kwargs):
-    #     """Alias for plot_histogram() (backward compatibility)."""
-    #     return self.plot_histogram(*args, **kwargs)
-
-    # def plot_heatmap_v2(self, *args, **kwargs) -> Figure:
-    #     """Alias for plot_heatmap() (backward compatibility)."""
-    #     return self.plot_heatmap(*args, **kwargs)
-
-    # def plot_variable_heatmap(self, x_var: str, y_var: str, filters: dict = None,
-    #                           partition: str = 'val', metric: str = 'rmse',
-    #                           score_partition: str = 'test', score_metric: str = '',
-    #                           **kwargs) -> Figure:
-    #     """Alias for plot_heatmap() (backward compatibility).
-
-    #     Maps old parameters to new API:
-    #     - filters['partition'] -> rank_partition
-    #     - partition -> rank_partition
-    #     - metric -> rank_metric
-    #     - score_partition -> display_partition
-    #     - score_metric -> display_metric
-    #     """
-    #     # Extract filters if provided
-    #     extra_filters = filters.copy() if filters else {}
-
-    #     # Map old parameters to new ones
-    #     rank_partition = extra_filters.pop('partition', partition)
-    #     rank_metric = metric
-    #     display_partition = score_partition
-    #     display_metric = score_metric if score_metric else metric
-
-    #     # Merge remaining filters
-    #     kwargs.update(extra_filters)
-
-    #     return self.plot_heatmap(
-    #         x_var=x_var,
-    #         y_var=y_var,
-    #         rank_metric=rank_metric,
-    #         rank_partition=rank_partition,
-    #         display_metric=display_metric,
-    #         display_partition=display_partition,
-    #         **kwargs
-    #     )
-
-    # def plot_variable_candlestick(self, filters: dict, variable: str,
-    #                                metric: str = 'rmse', **kwargs) -> Figure:
-    #     """Alias for plot_candlestick() (backward compatibility).
-
-    #     Maps old parameters to new API:
-    #     - filters -> extracted and passed as kwargs
-    #     """
-    #     # Extract filters
-    #     extra_filters = filters.copy() if filters else {}
-    #     partition = extra_filters.pop('partition', None)
-
-    #     # Merge filters
-    #     if partition:
-    #         kwargs['partition'] = partition
-    #     kwargs.update(extra_filters)
-
-    #     return self.plot_candlestick(variable=variable, metric=metric, **kwargs)
 
     # =========================================================================
     # BRANCH ANALYSIS METHODS (Phase 4)
@@ -1384,7 +1344,7 @@ class PredictionAnalyzer:
         aggregate: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
-    ) -> Figure:
+    ) -> Figure | list[Figure]:
         """Plot heatmap of branch performance across folds or other variable.
 
         Creates a heatmap with branches on x-axis and another variable (e.g., fold_id)
@@ -1765,14 +1725,16 @@ class PredictionAnalyzer:
 
             # Branch heatmap
             try:
-                fig = self.plot_branch_heatmap(
+                heatmap_fig = self.plot_branch_heatmap(
                     y_var='fold_id',
                     display_metric=metrics[0],
                     display_partition=partition
                 )
+                heatmap_figs = heatmap_fig if isinstance(heatmap_fig, list) else [heatmap_fig]
                 html_parts.append('<h3>Branch × Fold Heatmap</h3>')
-                html_parts.append(self._figure_to_html(fig))
-                plt.close(fig)
+                for hf in heatmap_figs:
+                    html_parts.append(self._figure_to_html(hf))
+                    plt.close(hf)
             except Exception as e:
                 html_parts.append(f'<p class="error">Error creating heatmap: {e}</p>')
 

@@ -339,7 +339,8 @@ class RunResult:
         Returns:
             RMSE value or NaN if unavailable.
         """
-        best = self.best
+        entry = self.predictions.get_best(metric="rmse", task_type="regression")
+        best = entry if entry else self.best
         if not best:
             return float('nan')
 
@@ -372,7 +373,8 @@ class RunResult:
         Returns:
             R² value or NaN if unavailable.
         """
-        best = self.best
+        entry = self.predictions.get_best(metric="r2", task_type="regression")
+        best = entry if entry else self.best
         if not best:
             return float('nan')
 
@@ -398,7 +400,8 @@ class RunResult:
         Returns:
             Accuracy value or NaN if unavailable.
         """
-        best = self.best
+        entry = self.predictions.get_best(metric="accuracy", task_type="classification")
+        best = entry if entry else self.best
         if not best:
             return float('nan')
 
