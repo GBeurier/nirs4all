@@ -7,6 +7,8 @@ style positional parameters for safe parameterised execution via SQLite.
 
 from __future__ import annotations
 
+from nirs4all.core.task_type import resolve_task_type_sql
+
 # Columns that can be used for ordering / grouping in prediction queries.
 # Used to guard against SQL injection when column names are interpolated.
 _PREDICTION_COLUMNS: frozenset[str] = frozenset({
@@ -407,12 +409,19 @@ def build_prediction_query(
     branch_id: int | None = None,
     pipeline_id: str | None = None,
     run_id: str | None = None,
+    task_type: str | None = None,
     limit: int | None = None,
     offset: int = 0,
 ) -> tuple[str, list[object]]:
     """Build a full ``SELECT`` query for the predictions table.
 
     Supports joining through ``pipelines`` when filtering by *run_id*.
+
+    Args:
+        task_type: Filter by task type.  Supports aliases:
+            ``"regression"``/``"reg"``, ``"classification"``/``"clf"``
+            (matches both binary and multiclass), ``"binary"``,
+            ``"multiclass"``.
 
     Returns:
         ``(sql, params)`` ready for ``conn.execute(sql, params)``.
@@ -445,6 +454,11 @@ def build_prediction_query(
         conditions.append("pl.run_id = ?")
         params.append(run_id)
 
+    if task_type is not None:
+        sql_frag, tt_params = resolve_task_type_sql(task_type)
+        conditions.append(f"{prefix}{sql_frag}" if prefix else sql_frag)
+        params.extend(tt_params)
+
     where = ""
     if conditions:
         where = " WHERE " + " AND ".join(conditions)
@@ -467,6 +481,7 @@ def build_top_predictions_query(
     ascending: bool = True,
     partition: str = "val",
     dataset_name: str | None = None,
+    task_type: str | None = None,
     group_by: str | None = None,
 ) -> tuple[str, list[object]]:
     """Build a ranking query for top-N predictions.
@@ -481,6 +496,10 @@ def build_top_predictions_query(
         ascending: Sort direction.
         partition: Only consider this partition.
         dataset_name: Optional dataset filter.
+        task_type: Filter by task type.  Supports aliases:
+            ``"regression"``/``"reg"``, ``"classification"``/``"clf"``
+            (matches both binary and multiclass), ``"binary"``,
+            ``"multiclass"``.
         group_by: Optional grouping column.  Must be a valid prediction
             column if provided.
 
@@ -506,6 +525,11 @@ def build_top_predictions_query(
     if dataset_name is not None:
         conditions.append("dataset_name = ?")
         params.append(dataset_name)
+
+    if task_type is not None:
+        sql_frag, tt_params = resolve_task_type_sql(task_type)
+        conditions.append(sql_frag)
+        params.extend(tt_params)
 
     where = " WHERE " + " AND ".join(conditions)
 

@@ -62,7 +62,8 @@ class CandlestickChart(BaseChart):
                display_partition: str = 'test', dataset_name: str | None = None,
                figsize: tuple | None = None, aggregate: str | None = None,
                clip_outliers: bool = True, iqr_factor: float = 1.5,
-               **filters) -> Figure:
+               task_type: str | None = None,
+               **filters) -> Figure | list[Figure]:
         """Render candlestick chart showing metric distribution by variable (Optimized with Polars).
 
         Args:
@@ -79,16 +80,44 @@ class CandlestickChart(BaseChart):
                           and let extreme outliers go off-frame (default: True).
             iqr_factor: Factor to multiply IQR for determining outlier bounds.
                        Higher values show more of the tails (default: 1.5).
+            task_type: If provided, filter predictions to this task type. When None
+                and mixed task types exist, renders separate figures per task type.
             **filters: Additional filters (config_name, etc.).
 
         Returns:
-            matplotlib Figure object.
+            matplotlib Figure object, or a list of Figures when auto-separating by task type.
         """
         t0 = time.time()
 
+        # Auto-separate when mixed task types and no explicit task_type
+        if task_type is None:
+            unique_types = self._get_unique_task_types()
+            has_clf = any('classification' in t for t in unique_types)
+            has_reg = 'regression' in unique_types
+            if has_clf and has_reg:
+                import warnings
+                warnings.warn(
+                    "Mixed task types detected — rendering separate figures per task type.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                figures = []
+                for tt in unique_types:
+                    fig = self.render(
+                        variable=variable, display_metric=display_metric,
+                        display_partition=display_partition, dataset_name=dataset_name,
+                        figsize=figsize, aggregate=aggregate, clip_outliers=clip_outliers,
+                        iqr_factor=iqr_factor, task_type=tt, **filters,
+                    )
+                    if isinstance(fig, list):
+                        figures.extend(fig)
+                    else:
+                        figures.append(fig)
+                return figures
+
         # Auto-detect metric if not provided
         if display_metric is None:
-            display_metric = self._get_default_metric()
+            display_metric = self._get_default_metric(task_type_filter=task_type)
 
         self.validate_inputs(variable, display_metric)
 
@@ -110,11 +139,24 @@ class CandlestickChart(BaseChart):
                 aggregate=aggregate,
                 clip_outliers=clip_outliers,
                 iqr_factor=iqr_factor,
+                task_type=task_type,
                 **all_filters
             )
 
         # --- POLARS OPTIMIZATION START ---
         df = self.predictions.to_dataframe()
+
+        # Filter by task_type if specified
+        if task_type is not None and 'task_type' in df.columns:
+            tt_lower = task_type.lower()
+            if tt_lower in ('classification', 'clf'):
+                df = df.filter(pl.col('task_type').str.contains('classification'))
+            elif tt_lower == 'binary':
+                df = df.filter(pl.col('task_type') == 'binary_classification')
+            elif tt_lower == 'multiclass':
+                df = df.filter(pl.col('task_type') == 'multiclass_classification')
+            else:
+                df = df.filter(pl.col('task_type') == ('regression' if tt_lower in ('reg', 'regression') else task_type))
 
         # Add partition filter (already have other filters in all_filters)
         all_filters['partition'] = display_partition
@@ -247,6 +289,7 @@ class CandlestickChart(BaseChart):
         aggregate: str,
         clip_outliers: bool = True,
         iqr_factor: float = 1.5,
+        task_type: str | None = None,
         **filters
     ) -> Figure:
         """Render candlestick with aggregation support.
@@ -270,6 +313,7 @@ class CandlestickChart(BaseChart):
                 aggregate_partitions=True,
                 aggregate=aggregate,
                 group_by=None,  # Keep all predictions for distribution
+                task_type=task_type,
                 **filters
             )
         except Exception as e:

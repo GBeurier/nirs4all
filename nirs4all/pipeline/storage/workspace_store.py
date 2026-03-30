@@ -1651,6 +1651,7 @@ class WorkspaceStore:
         branch_id: int | None = None,
         pipeline_id: str | None = None,
         run_id: str | None = None,
+        task_type: str | None = None,
         limit: int | None = None,
         offset: int = 0,
     ) -> pl.DataFrame:
@@ -1669,6 +1670,10 @@ class WorkspaceStore:
             branch_id: Filter by branch index.
             pipeline_id: Filter by parent pipeline.
             run_id: Filter by parent run (joins through pipelines).
+            task_type: Filter by task type.  Supports aliases:
+                ``"regression"``/``"reg"``, ``"classification"``/``"clf"``
+                (matches both binary and multiclass), ``"binary"``,
+                ``"multiclass"``.
             limit: Maximum number of rows.  ``None`` for unlimited.
             offset: Number of rows to skip.
 
@@ -1685,6 +1690,7 @@ class WorkspaceStore:
             branch_id=branch_id,
             pipeline_id=pipeline_id,
             run_id=run_id,
+            task_type=task_type,
             limit=limit,
             offset=offset,
         )
@@ -1697,6 +1703,7 @@ class WorkspaceStore:
         ascending: bool = True,
         partition: str = "val",
         dataset_name: str | None = None,
+        task_type: str | None = None,
         group_by: str | None = None,
     ) -> pl.DataFrame:
         """Return the top-N predictions ranked by a score column.
@@ -1714,6 +1721,10 @@ class WorkspaceStore:
                 ``False`` for higher-is-better metrics like R2.
             partition: Only consider predictions from this partition.
             dataset_name: Optional dataset filter.
+            task_type: Filter by task type.  Supports aliases:
+                ``"regression"``/``"reg"``, ``"classification"``/``"clf"``
+                (matches both binary and multiclass), ``"binary"``,
+                ``"multiclass"``.
             group_by: Optional grouping column (e.g. ``"model_class"``,
                 ``"dataset_name"``).  When set, the result contains
                 top *n* rows per distinct value of this column.
@@ -1727,6 +1738,7 @@ class WorkspaceStore:
             ascending=ascending,
             partition=partition,
             dataset_name=dataset_name,
+            task_type=task_type,
             group_by=group_by,
         )
         df = self._fetch_pl(sql, params)

@@ -57,6 +57,7 @@ def mock_predictions():
     mock.get_datasets.return_value = ['wheat']
     mock.get_models.return_value = ['PLSRegression', 'RandomForest']
     mock.filter_predictions.return_value = sample_entries
+    mock.get_best.return_value = None  # Falls back to self.best via top()
 
     return mock
 
