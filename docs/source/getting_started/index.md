@@ -8,6 +8,7 @@ Welcome to NIRS4ALL! This section will help you get up and running quickly.
 
 installation
 quickstart
+tutorial
 concepts
 ```
 
@@ -20,10 +21,10 @@ NIRS4ALL is designed to make Near-Infrared Spectroscopy data analysis accessible
 3. **Understand** the core concepts
 4. **Explore** what's possible
 
-::::{grid} 3
+::::{grid} 2
 :gutter: 3
 
-:::{grid-item-card} 📦 Installation
+:::{grid-item-card} Installation
 :link: installation
 :link-type: doc
 
@@ -33,7 +34,7 @@ Install NIRS4ALL and verify your setup.
 {bdg-primary}`First Step`
 :::
 
-:::{grid-item-card} 🚀 Quickstart
+:::{grid-item-card} Quickstart
 :link: quickstart
 :link-type: doc
 
@@ -43,14 +44,24 @@ Your first pipeline in 5 minutes.
 {bdg-success}`5 Minutes`
 :::
 
-:::{grid-item-card} 💡 Core Concepts
-:link: concepts
+:::{grid-item-card} Tutorial
+:link: tutorial
 :link-type: doc
 
-Understand pipelines, datasets, and results.
+Progressive tutorial from hello world to model stacking in 20 minutes.
 
 +++
-{bdg-info}`Essential`
+{bdg-info}`20 Minutes`
+:::
+
+:::{grid-item-card} Core Concepts
+:link: /concepts/index
+:link-type: doc
+
+Understand pipelines, datasets, branching, generators, and more.
+
++++
+{bdg-secondary}`Essential`
 :::
 
 ::::

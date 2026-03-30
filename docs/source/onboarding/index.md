@@ -1,8 +1,12 @@
-# Understanding NIRS4ALL
+# Architecture Deep Dive
 
-Welcome to the NIRS4ALL deep dive! This section helps you build a mental model of the library's architecture, design philosophy, and internal workflows.
+This section covers the internal architecture, execution engine, and design philosophy of NIRS4ALL. It is aimed at developers who want to understand or extend the library at the code level.
 
-Think of NIRS4ALL as more than just a tool — it's a comprehensive system for spectroscopy data analysis that brings together:
+:::{note}
+Looking for user-facing concepts like pipelines, branching, or augmentation? See {doc}`/concepts/index`.
+:::
+
+NIRS4ALL is a comprehensive system for spectroscopy data analysis that brings together:
 - Smart data management (handling multi-source spectra with complex metadata)
 - Flexible pipeline execution (supporting countless ML/DL frameworks)
 - Reproducible experiment tracking (with SQLite-backed persistence)

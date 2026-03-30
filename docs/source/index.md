@@ -8,43 +8,54 @@
 
 **NIRS4ALL** is a comprehensive machine learning library specifically designed for Near-Infrared Spectroscopy (NIRS) data analysis. It bridges the gap between spectroscopic data and machine learning by providing a unified framework for data loading, preprocessing, model training, and evaluation.
 
-::::{grid} 2
+::::{grid} 3
 :gutter: 3
 
-:::{grid-item-card} 🚀 Getting Started
+:::{grid-item-card} Getting Started
 :link: getting_started/index
 :link-type: doc
 :class-card: sd-bg-light
 
-New to nirs4all? Start here with installation and your first pipeline.
+New to nirs4all? Installation, quickstart, and a progressive tutorial.
 
 +++
-{bdg-primary}`Beginner` {bdg-info}`5 min`
+{bdg-primary}`Beginner` {bdg-info}`5-20 min`
 :::
 
-:::{grid-item-card} 📖 User Guide
+:::{grid-item-card} Concepts
+:link: concepts/index
+:link-type: doc
+:class-card: sd-bg-light
+
+Pipelines, datasets, branching, generators, cross-validation, augmentation, and deployment.
+
++++
+{bdg-info}`Conceptual` {bdg-success}`Essential`
+:::
+
+:::{grid-item-card} User Guide
 :link: user_guide/index
 :link-type: doc
 :class-card: sd-bg-light
 
-Step-by-step guides for preprocessing, stacking, export, and more.
+Step-by-step how-to guides for preprocessing, stacking, export, and more.
 
 +++
 {bdg-secondary}`How-to` {bdg-success}`Task-oriented`
 :::
 
-:::{grid-item-card} 📚 Reference
+:::{grid-item-card} Reference
 :link: reference/index
 :link-type: doc
 :class-card: sd-bg-light
 
-Complete API reference, pipeline syntax, and operator catalog.
+Complete API reference, pipeline syntax, and operator catalog by category.
 
 +++
-{bdg-warning}`Reference` {bdg-dark}`Complete`
+{bdg-warning}`Reference` {bdg-dark}`Lookup`
 :::
 
-:::{grid-item-card} 🔧 Developer Guide
+:::{grid-item-card} Developer Guide
 :link: developer/index
 :link-type: doc
 :class-card: sd-bg-light
@@ -55,20 +66,15 @@ Architecture, internals, and contribution guidelines.
 {bdg-danger}`Advanced` {bdg-info}`Contribute`
 :::
 
-::::
-
-::::{grid} 1
-:gutter: 3
-
-:::{grid-item-card} 🧠 Understanding NIRS4ALL
+:::{grid-item-card} Architecture Deep Dive
 :link: onboarding/index
 :link-type: doc
 :class-card: sd-bg-light
 
-Deep dive into architecture, mental models, and design philosophy.
+Internal architecture, execution engine, controller pattern, and design philosophy.
 
 +++
-{bdg-info}`Architecture` {bdg-success}`Concepts`
+{bdg-info}`Architecture` {bdg-dark}`Internals`
 :::
 
 ::::
@@ -130,6 +136,7 @@ See {doc}`examples/index` for 50+ working examples organized by topic.
 :caption: Documentation
 
 getting_started/index
+concepts/index
 user_guide/index
 reference/index
 developer/index
