@@ -1,6 +1,6 @@
 ## ROADMAP
 
-> [TaskType] Ensure tasktype correctly detected or customized
+> [TaskType] Review > Ensure tasktype correctly detected or customized >>> 2 in the same workspace induce bugs.
 
 > [Predictions] Simplify and verify save
 

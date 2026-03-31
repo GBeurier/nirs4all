@@ -1194,7 +1194,6 @@ class TestBundleEdgeCases:
                 "model_step_index": 6,
             }
             zf.writestr('manifest.json', json.dumps(manifest))
-
             # Various step formats
             pipeline_config = {
                 "steps": [

@@ -327,7 +327,8 @@ class RunResult:
         Returns:
             The test_score value from best prediction, or NaN if unavailable.
         """
-        return float(self.best.get('test_score', float('nan')))
+        score = self.best.get('test_score')
+        return float(score) if score is not None else float('nan')
 
     @property
     def best_rmse(self) -> float:

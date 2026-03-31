@@ -113,9 +113,9 @@ class PredictionDataAssembler:
             'model_classname': identifiers.classname,
             'model_path': f"{dataset_name}/{pipeline_name}/{identifiers.step_id}_{identifiers.name}_{identifiers.operation_counter}.pkl",
             'fold_id': identifiers.fold_idx,
-            'val_score': scores.get('val', 0.0),
-            'test_score': scores.get('test', 0.0),
-            'train_score': scores.get('train', 0.0),
+            'val_score': scores.get('val'),
+            'test_score': scores.get('test'),
+            'train_score': scores.get('train'),
             'metric': scores.get('metric', 'unknown'),
             'task_type': task_type_str,
             'n_features': X_shape[1] if len(X_shape) > 1 else 1,
@@ -210,9 +210,9 @@ class PredictionDataAssembler:
             avg_prediction['step_idx'] = int(step_idx) if step_idx and str(step_idx).strip() else 0
 
         # Update scores
-        avg_prediction['train_score'] = averaged_scores.get('train', 0.0)
-        avg_prediction['val_score'] = averaged_scores.get('val', 0.0)
-        avg_prediction['test_score'] = averaged_scores.get('test', 0.0)
+        avg_prediction['train_score'] = averaged_scores.get('train')
+        avg_prediction['val_score'] = averaged_scores.get('val')
+        avg_prediction['test_score'] = averaged_scores.get('test')
 
         # Update partition predictions with averaged values
         updated_partitions = []

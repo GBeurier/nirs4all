@@ -98,8 +98,8 @@ nicon is a specialized CNN for NIRS data. Use it with 'model' + 'train_params':
         {
             'model': nicon,
             'train_params': {
-                'epochs': 30,
-                'batch_size': 16,
+                'epochs': 10,
+                'batch_size': 256,
                 'learning_rate': 0.001,
                 'verbose': 0
             }
@@ -116,8 +116,8 @@ pipeline_nicon = [
     {
         'model': nicon,
         'train_params': {
-            'epochs': 20,
-            'batch_size': 16,
+            'epochs': 10,
+            'batch_size': 256,
             'learning_rate': 0.001,
             'verbose': 0
         }
@@ -152,7 +152,7 @@ decon uses depthwise separable convolutions:
         {
             'model': decon,
             'train_params': {
-                'epochs': 20,
+                'epochs': 10,
                 'verbose': 0
             }
         }
@@ -168,8 +168,8 @@ pipeline_decon = [
     {
         'model': decon,
         'train_params': {
-            'epochs': 20,
-            'batch_size': 16,
+            'epochs': 10,
+            'batch_size': 256,
             'learning_rate': 0.001,
             'verbose': 0
         }
@@ -206,7 +206,7 @@ pipeline_compare = [
         "pls": [PLSRegression(n_components=10)],
         "nicon": [{
             'model': nicon,
-            'train_params': {'epochs': 15, 'verbose': 0}
+            'train_params': {'epochs': 10, 'batch_size': 256, 'verbose': 0}
         }],
     }},
 ]

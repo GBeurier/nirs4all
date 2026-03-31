@@ -1298,7 +1298,7 @@ class BaseModelController(OperatorController, ABC):
         }
 
         # === 8. ASSEMBLE PREDICTION DATA ===
-        scores_dict = {
+        scores_dict: dict[str, float | str | None] = {
             'train': partition_scores.train,
             'val': partition_scores.val,
             'test': partition_scores.test,
@@ -1367,7 +1367,12 @@ class BaseModelController(OperatorController, ABC):
         from nirs4all.core.metrics import is_higher_better
         direction = get_symbols().direction(is_higher_better(metric))
 
-        summary = f"{model_name} {metric} {direction} [test: {test_score:.4f}], [val: {val_score:.4f}]" if val_score is not None else f"{model_name} {metric} {direction} [test: {test_score:.4f}]"
+        parts = [f"{model_name} {metric} {direction}"]
+        if test_score is not None:
+            parts.append(f"[test: {test_score:.4f}]")
+        if val_score is not None:
+            parts.append(f"[val: {val_score:.4f}]")
+        summary = " ".join(parts) if len(parts) > 1 else parts[0]
         if fold_id not in [None, 'None', 'avg', 'w_avg']:
             summary += f", (fold: {fold_id}, id: {op_counter})"
         elif fold_id in ['avg', 'w_avg']:
@@ -2045,9 +2050,9 @@ class BaseModelController(OperatorController, ABC):
             'model_classname': str(model_classname),
             'model_path': "",
             'fold_id': fold_id,
-            'val_score': scores.val if scores else 0.0,
-            'test_score': scores.test if scores else 0.0,
-            'train_score': scores.train if scores else 0.0,
+            'val_score': scores.val if scores else None,
+            'test_score': scores.test if scores else None,
+            'train_score': scores.train if scores else None,
             'metric': scores.metric if scores else ModelUtils.get_best_score_metric(dataset.task_type)[0],
             'task_type': dataset.task_type,
             'target_processing': context.state.y_processing,  # Track which target processing was used

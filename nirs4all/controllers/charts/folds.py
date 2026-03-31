@@ -348,23 +348,10 @@ class FoldChartController(OperatorController):
             # In CV mode: expand fold indices to include augmented samples, then map to origins
             # In fallback mode: direct indexing (indices already into concatenated array)
             if is_cv_folds:
-                # CV folds mode: folds contain base sample indices. Expand to include augmented samples.
-                train_idx_arr = np.array(train_idx) if isinstance(train_idx, list) else train_idx
-                test_idx_arr = np.array(test_idx) if isinstance(test_idx, list) else test_idx
-
-                # Map relative indices to actual sample IDs (origins)
-                if base_sample_ids is not None:
-                    try:
-                        train_origins = base_sample_ids[train_idx_arr]
-                        test_origins = base_sample_ids[test_idx_arr]
-                    except IndexError:
-                        # Fallback if indices don't match
-                        logger.warning(f"Fold indices out of bounds for partition '{partition}'. Using indices as origins.")
-                        train_origins = train_idx_arr
-                        test_origins = test_idx_arr
-                else:
-                    train_origins = train_idx_arr
-                    test_origins = test_idx_arr
+                # CV folds mode: folds already contain absolute sample IDs (stored by the splitter controller).
+                # Use them directly as origins — no positional-to-ID mapping needed.
+                train_origins = np.array(train_idx) if isinstance(train_idx, list) else train_idx
+                test_origins = np.array(test_idx) if isinstance(test_idx, list) else test_idx
 
                 train_idx_list = train_origins.tolist() if hasattr(train_origins, 'tolist') else list(train_origins)
                 test_idx_list = test_origins.tolist() if hasattr(test_origins, 'tolist') else list(test_origins)
