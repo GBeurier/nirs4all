@@ -517,7 +517,8 @@ class MeasurementModeSimulator:
             Reflectance values (0-1).
         """
         reflectance = 10 ** (-absorbance)
-        return np.clip(reflectance, 0, 1)
+        result: np.ndarray = np.clip(reflectance, 0, 1)
+        return result
 
     def reflectance_to_absorbance(self, reflectance: np.ndarray) -> np.ndarray:
         """

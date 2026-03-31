@@ -106,8 +106,8 @@ def create_synthetic_data(n_samples=30, n_wavelengths=100, n_reps=4, random_stat
         X_all, y_all, sample_ids, rep_ids = [], [], [], []
         for i in range(len(X_base)):
             for r in range(n_reps):
-                # Add small noise for each repetition
-                noise = np.random.randn(n_wavelengths) * 0.1
+                # Add realistic measurement noise for each repetition
+                noise = np.random.randn(n_wavelengths) * 1.5
                 X_all.append(X_base[i] + noise)
                 y_all.append(y_base[i])
                 sample_ids.append(f"sample_{start_idx + i:03d}")
@@ -211,7 +211,7 @@ Both raw and aggregated metrics are available:
 
 # Get best model with raw metrics
 top_raw = predictions.top(1, rank_metric='rmse', by_repetition=False)
-assert isinstance(top_raw, list)
+assert isinstance(top_raw, list) and len(top_raw) > 0, "Raw top() returned empty list"
 best_raw = top_raw[0]
 model_name = best_raw.get('model_name', 'Unknown')
 
@@ -226,10 +226,12 @@ print(f"   Test RMSE: {test_rmse_raw:.4f}" if not np.isnan(test_rmse_raw) else "
 
 # Get same model with repetition-aggregated metrics
 top_agg = predictions.top(1, rank_metric='rmse', by_repetition='sample_id')
-assert isinstance(top_agg, list)
+assert isinstance(top_agg, list) and len(top_agg) > 0, "Aggregated top() returned empty list"
 best_agg = top_agg[0]
 val_rmse_agg = float(best_agg.get('val_score', np.nan))
 test_rmse_agg = float(best_agg.get('test_score', np.nan))
+assert np.isfinite(val_rmse_agg), f"Aggregated val_score is not finite: {val_rmse_agg}"
+assert best_agg.get('aggregated', False), "Result should be marked as aggregated"
 print("\nRepetition-aggregated metrics (per sample):")
 print(f"   Val RMSE:  {val_rmse_agg:.4f}" if not np.isnan(val_rmse_agg) else "   Val RMSE:  N/A")
 print(f"   Test RMSE: {test_rmse_agg:.4f}" if not np.isnan(test_rmse_agg) else "   Test RMSE: N/A")

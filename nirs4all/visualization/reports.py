@@ -1168,48 +1168,25 @@ class TabReportManager:
             List of formatted cell values
         """
         if task_type == TaskType.REGRESSION:
-            # For aggregated rows, skip descriptive stats (Mean, Median, Min, Max, SD, CV)
-            # since they don't make sense after averaging predictions
-            if is_aggregated:
-                row = [
-                    display_name,
-                    str(data.get('nsample', '')),
-                    str(n_features) if n_features > 0 else '',
-                    '',  # Mean - blank for aggregated
-                    '',  # Median - blank for aggregated
-                    '',  # Min - blank for aggregated
-                    '',  # Max - blank for aggregated
-                    '',  # SD - blank for aggregated
-                    '',  # CV - blank for aggregated
-                    f"{data.get('r2', ''):.3f}" if data.get('r2') else '',
-                    f"{data.get('rmse', ''):.3f}" if data.get('rmse') else '',
-                    f"{data.get('mse', ''):.3f}" if data.get('mse') else '',
-                    f"{data.get('sep', ''):.3f}" if data.get('sep') else '',
-                    f"{data.get('mae', ''):.3f}" if data.get('mae') else '',
-                    f"{data.get('rpd', ''):.2f}" if data.get('rpd') and data.get('rpd') != float('inf') else '',
-                    f"{data.get('bias', ''):.3f}" if data.get('bias') else '',
-                    f"{data.get('consistency', ''):.1f}" if data.get('consistency') else ''
-                ]
-            else:
-                row = [
-                    display_name,
-                    str(data.get('nsample', '')),
-                    str(n_features) if n_features > 0 else '',
-                    f"{data.get('mean', ''):.3f}" if data.get('mean') is not None else '',
-                    f"{data.get('median', ''):.3f}" if data.get('median') is not None else '',
-                    f"{data.get('min', ''):.3f}" if data.get('min') is not None else '',
-                    f"{data.get('max', ''):.3f}" if data.get('max') is not None else '',
-                    f"{data.get('sd', ''):.3f}" if data.get('sd') else '',
-                    f"{data.get('cv', ''):.3f}" if data.get('cv') else '',
-                    f"{data.get('r2', ''):.3f}" if data.get('r2') else '',
-                    f"{data.get('rmse', ''):.3f}" if data.get('rmse') else '',
-                    f"{data.get('mse', ''):.3f}" if data.get('mse') else '',
-                    f"{data.get('sep', ''):.3f}" if data.get('sep') else '',
-                    f"{data.get('mae', ''):.3f}" if data.get('mae') else '',
-                    f"{data.get('rpd', ''):.2f}" if data.get('rpd') and data.get('rpd') != float('inf') else '',
-                    f"{data.get('bias', ''):.3f}" if data.get('bias') else '',
-                    f"{data.get('consistency', ''):.1f}" if data.get('consistency') else ''
-                ]
+            row = [
+                display_name,
+                str(data.get('nsample', '')),
+                str(n_features) if n_features > 0 else '',
+                f"{data.get('mean', ''):.3f}" if data.get('mean') is not None else '',
+                f"{data.get('median', ''):.3f}" if data.get('median') is not None else '',
+                f"{data.get('min', ''):.3f}" if data.get('min') is not None else '',
+                f"{data.get('max', ''):.3f}" if data.get('max') is not None else '',
+                f"{data.get('sd', ''):.3f}" if data.get('sd') else '',
+                f"{data.get('cv', ''):.3f}" if data.get('cv') else '',
+                f"{data.get('r2', ''):.3f}" if data.get('r2') else '',
+                f"{data.get('rmse', ''):.3f}" if data.get('rmse') else '',
+                f"{data.get('mse', ''):.3f}" if data.get('mse') else '',
+                f"{data.get('sep', ''):.3f}" if data.get('sep') else '',
+                f"{data.get('mae', ''):.3f}" if data.get('mae') else '',
+                f"{data.get('rpd', ''):.2f}" if data.get('rpd') and data.get('rpd') != float('inf') else '',
+                f"{data.get('bias', ''):.3f}" if data.get('bias') else '',
+                f"{data.get('consistency', ''):.1f}" if data.get('consistency') else ''
+            ]
         else:  # Classification
             row = [
                 display_name,
@@ -1331,48 +1308,26 @@ class TabReportManager:
         aggregated_label = aggregate_column if is_aggregated and aggregate_column else ''
 
         if task_type == TaskType.REGRESSION:
-            if is_aggregated:
-                row = [
-                    display_name,
-                    data.get('nsample', ''),
-                    n_features if n_features > 0 else '',
-                    '',  # Mean - blank for aggregated
-                    '',  # Median - blank for aggregated
-                    '',  # Min - blank for aggregated
-                    '',  # Max - blank for aggregated
-                    '',  # SD - blank for aggregated
-                    '',  # CV - blank for aggregated
-                    f"{data.get('r2', ''):.3f}" if data.get('r2') else '',
-                    f"{data.get('rmse', ''):.3f}" if data.get('rmse') else '',
-                    f"{data.get('mse', ''):.3f}" if data.get('mse') else '',
-                    f"{data.get('sep', ''):.3f}" if data.get('sep') else '',
-                    f"{data.get('mae', ''):.3f}" if data.get('mae') else '',
-                    f"{data.get('rpd', ''):.2f}" if data.get('rpd') and data.get('rpd') != float('inf') else '',
-                    f"{data.get('bias', ''):.3f}" if data.get('bias') else '',
-                    f"{data.get('consistency', ''):.1f}" if data.get('consistency') else '',
-                    aggregated_label
-                ]
-            else:
-                row = [
-                    display_name,
-                    data.get('nsample', ''),
-                    n_features if n_features > 0 else '',
-                    f"{data.get('mean', ''):.3f}" if data.get('mean') is not None else '',
-                    f"{data.get('median', ''):.3f}" if data.get('median') is not None else '',
-                    f"{data.get('min', ''):.3f}" if data.get('min') is not None else '',
-                    f"{data.get('max', ''):.3f}" if data.get('max') is not None else '',
-                    f"{data.get('sd', ''):.3f}" if data.get('sd') else '',
-                    f"{data.get('cv', ''):.3f}" if data.get('cv') else '',
-                    f"{data.get('r2', ''):.3f}" if data.get('r2') else '',
-                    f"{data.get('rmse', ''):.3f}" if data.get('rmse') else '',
-                    f"{data.get('mse', ''):.3f}" if data.get('mse') else '',
-                    f"{data.get('sep', ''):.3f}" if data.get('sep') else '',
-                    f"{data.get('mae', ''):.3f}" if data.get('mae') else '',
-                    f"{data.get('rpd', ''):.2f}" if data.get('rpd') and data.get('rpd') != float('inf') else '',
-                    f"{data.get('bias', ''):.3f}" if data.get('bias') else '',
-                    f"{data.get('consistency', ''):.1f}" if data.get('consistency') else '',
-                    ''  # Not aggregated
-                ]
+            row = [
+                display_name,
+                data.get('nsample', ''),
+                n_features if n_features > 0 else '',
+                f"{data.get('mean', ''):.3f}" if data.get('mean') is not None else '',
+                f"{data.get('median', ''):.3f}" if data.get('median') is not None else '',
+                f"{data.get('min', ''):.3f}" if data.get('min') is not None else '',
+                f"{data.get('max', ''):.3f}" if data.get('max') is not None else '',
+                f"{data.get('sd', ''):.3f}" if data.get('sd') else '',
+                f"{data.get('cv', ''):.3f}" if data.get('cv') else '',
+                f"{data.get('r2', ''):.3f}" if data.get('r2') else '',
+                f"{data.get('rmse', ''):.3f}" if data.get('rmse') else '',
+                f"{data.get('mse', ''):.3f}" if data.get('mse') else '',
+                f"{data.get('sep', ''):.3f}" if data.get('sep') else '',
+                f"{data.get('mae', ''):.3f}" if data.get('mae') else '',
+                f"{data.get('rpd', ''):.2f}" if data.get('rpd') and data.get('rpd') != float('inf') else '',
+                f"{data.get('bias', ''):.3f}" if data.get('bias') else '',
+                f"{data.get('consistency', ''):.1f}" if data.get('consistency') else '',
+                aggregated_label if is_aggregated else ''
+            ]
         else:  # Classification
             row = [
                 display_name,

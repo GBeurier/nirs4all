@@ -6,6 +6,7 @@ Verifies that aggregation settings propagate correctly from DatasetConfigs
 through the pipeline to the TabReportManager.
 """
 
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -409,3 +410,241 @@ class TestAggregationReporting:
         # Aggregated should have n_unique samples
         assert len(result['y_pred']) == n_unique
         assert len(result['y_true']) == n_unique
+
+
+class TestAggregationEndToEnd:
+    """End-to-end tests verifying aggregated scores are correct and survive store reload."""
+
+    @pytest.fixture
+    def repetition_data(self, tmp_path):
+        """Create synthetic NIRS data with 20 unique samples x 4 repetitions."""
+        np.random.seed(42)
+        n_unique = 20
+        n_reps = 4
+        n_wavelengths = 50
+        n_train = int(n_unique * 0.75)  # 15 unique train samples
+        n_test = n_unique - n_train  # 5 unique test samples
+
+        # Generate base spectra and targets
+        X_base = np.random.randn(n_unique, n_wavelengths)
+        y_base = np.random.rand(n_unique) * 10 + 5
+
+        def expand(X_base, y_base, prefix, start_idx=0):
+            X_all, y_all, sample_ids = [], [], []
+            for i in range(len(X_base)):
+                for r in range(n_reps):
+                    # Add significant noise per repetition so aggregation changes scores
+                    noise = np.random.randn(n_wavelengths) * 0.5
+                    X_all.append(X_base[i] + noise)
+                    y_all.append(y_base[i])
+                    sample_ids.append(f"{prefix}{start_idx + i:03d}")
+            return np.array(X_all), np.array(y_all), sample_ids
+
+        X_train, y_train, train_ids = expand(X_base[:n_train], y_base[:n_train], "S")
+        X_test, y_test, test_ids = expand(X_base[n_train:], y_base[n_train:], "T")
+
+        data_path = tmp_path / "rep_data"
+        data_path.mkdir()
+
+        pd.DataFrame(X_train).to_csv(data_path / "Xcal.csv.gz", index=False, header=False, compression='gzip', sep=';')
+        pd.DataFrame(y_train).to_csv(data_path / "Ycal.csv.gz", index=False, header=False, compression='gzip', sep=';')
+        pd.DataFrame({"sample_id": train_ids}).to_csv(data_path / "Mcal.csv", index=False, sep=';')
+
+        pd.DataFrame(X_test).to_csv(data_path / "Xval.csv.gz", index=False, header=False, compression='gzip', sep=';')
+        pd.DataFrame(y_test).to_csv(data_path / "Yval.csv.gz", index=False, header=False, compression='gzip', sep=';')
+        pd.DataFrame({"sample_id": test_ids}).to_csv(data_path / "Mval.csv", index=False, sep=';')
+
+        return data_path, n_train, n_test, n_reps
+
+    def _make_dataset_config(self, data_path):
+        return DatasetConfigs(
+            {
+                "train_x": str(data_path / "Xcal.csv.gz"),
+                "train_y": str(data_path / "Ycal.csv.gz"),
+                "train_m": str(data_path / "Mcal.csv"),
+                "test_x": str(data_path / "Xval.csv.gz"),
+                "test_y": str(data_path / "Yval.csv.gz"),
+                "test_m": str(data_path / "Mval.csv"),
+                "train_x_params": {"has_header": False},
+                "train_y_params": {"has_header": False},
+                "train_m_params": {"has_header": True},
+                "test_x_params": {"has_header": False},
+                "test_y_params": {"has_header": False},
+                "test_m_params": {"has_header": True},
+            },
+            repetition="sample_id",
+        )
+
+    def _make_pipeline_config(self):
+        pipeline = [
+            MinMaxScaler(),
+            ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
+            {"model": PLSRegression(n_components=3)},
+        ]
+        return PipelineConfigs(pipeline, "test_e2e_agg")
+
+    def test_aggregated_score_differs_from_raw(self, repetition_data):
+        """Aggregated test_score must differ from raw test_score.
+
+        top() by default returns test-partition entries (display_partition='test'),
+        so aggregation updates test_score from the aggregated test arrays.
+        """
+        data_path, _, _, _ = repetition_data
+
+        dataset_config = self._make_dataset_config(data_path)
+        pipeline_config = self._make_pipeline_config()
+
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        top_raw = predictions.top(1, rank_metric='rmse', by_repetition=False)
+        top_agg = predictions.top(1, rank_metric='rmse', by_repetition='sample_id')
+
+        assert len(top_raw) > 0, "Raw top() returned empty"
+        assert len(top_agg) > 0, "Aggregated top() returned empty"
+
+        # Default top() returns test-partition entries, so check test_score
+        raw_test = top_raw[0].get('test_score')
+        agg_test = top_agg[0].get('test_score')
+
+        assert raw_test is not None and np.isfinite(raw_test), f"Raw test_score invalid: {raw_test}"
+        assert agg_test is not None and np.isfinite(agg_test), f"Agg test_score invalid: {agg_test}"
+        assert agg_test != raw_test, (
+            f"Aggregated test_score ({agg_test}) must differ from raw ({raw_test}). "
+            f"Score recomputation after aggregation is broken."
+        )
+        assert top_agg[0].get('aggregated', False), "Result must be marked as aggregated"
+
+        # Also verify CV entries get updated val_score when queried directly
+        top_cv_raw = predictions.top(1, rank_metric='rmse', rank_partition='val',
+                                      score_scope='cv', by_repetition=False)
+        top_cv_agg = predictions.top(1, rank_metric='rmse', rank_partition='val',
+                                      score_scope='cv', by_repetition='sample_id')
+        if len(top_cv_raw) > 0 and len(top_cv_agg) > 0:
+            cv_raw = top_cv_raw[0]
+            cv_agg = top_cv_agg[0]
+            if cv_raw.get('partition') == 'val' and cv_agg.get('partition') == 'val':
+                raw_val = cv_raw.get('val_score')
+                agg_val = cv_agg.get('val_score')
+                if raw_val is not None and agg_val is not None:
+                    assert agg_val != raw_val, (
+                        f"CV aggregated val_score ({agg_val}) must differ from raw ({raw_val})."
+                    )
+
+    def test_aggregated_result_has_fewer_samples(self, repetition_data):
+        """Aggregated y_pred must have fewer elements than raw y_pred."""
+        data_path, _, _, n_reps = repetition_data
+
+        dataset_config = self._make_dataset_config(data_path)
+        pipeline_config = self._make_pipeline_config()
+
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        top_raw = predictions.top(1, rank_metric='rmse', by_repetition=False)
+        top_agg = predictions.top(1, rank_metric='rmse', by_repetition='sample_id')
+
+        raw_y_pred = top_raw[0].get('y_pred')
+        agg_y_pred = top_agg[0].get('y_pred')
+
+        assert raw_y_pred is not None, "Raw y_pred is None"
+        assert agg_y_pred is not None, "Aggregated y_pred is None"
+        assert len(agg_y_pred) < len(raw_y_pred), (
+            f"Aggregated y_pred ({len(agg_y_pred)}) should have fewer samples "
+            f"than raw ({len(raw_y_pred)})"
+        )
+        # With n_reps repetitions, aggregated count should be raw / n_reps
+        assert len(agg_y_pred) == len(raw_y_pred) // n_reps
+
+    def test_store_reload_preserves_aggregation(self, repetition_data, tmp_path):
+        """Aggregation must work after reloading predictions from the store."""
+        data_path, _, _, _ = repetition_data
+
+        ws_path = tmp_path / "workspace"
+        ws_path.mkdir()
+
+        dataset_config = self._make_dataset_config(data_path)
+        pipeline_config = self._make_pipeline_config()
+
+        runner = PipelineRunner(
+            save_artifacts=False, save_charts=False, verbose=0,
+            workspace_path=str(ws_path),
+        )
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        # Get aggregated score from in-memory predictions (test-partition entry)
+        top_agg_mem = predictions.top(1, rank_metric='rmse', by_repetition='sample_id')
+        assert len(top_agg_mem) > 0
+        agg_test_mem = top_agg_mem[0].get('test_score')
+        assert agg_test_mem is not None and np.isfinite(agg_test_mem)
+
+        # Reload predictions from the store
+        store_path = ws_path / "store.sqlite"
+        assert store_path.exists(), f"Store not found at {store_path}"
+
+        reloaded = Predictions(db_path=str(store_path))
+
+        top_agg_reload = reloaded.top(1, rank_metric='rmse', by_repetition='sample_id')
+        assert len(top_agg_reload) > 0, "Reloaded aggregated top() returned empty"
+
+        agg_test_reload = top_agg_reload[0].get('test_score')
+        assert agg_test_reload is not None and np.isfinite(agg_test_reload), (
+            f"Reloaded aggregated test_score invalid: {agg_test_reload}"
+        )
+        assert top_agg_reload[0].get('aggregated', False), "Reloaded result must be marked as aggregated"
+
+        # Scores should match between in-memory and reloaded
+        assert abs(agg_test_mem - agg_test_reload) < 1e-6, (
+            f"Reloaded aggregated score ({agg_test_reload}) differs from "
+            f"in-memory ({agg_test_mem})"
+        )
+
+    def test_repetition_no_leakage_across_folds(self, repetition_data):
+        """All repetitions of the same sample must stay in the same CV fold.
+
+        If sample S001 has 4 repetitions, all 4 must be in train OR val
+        for each fold — never split across both.
+        """
+        data_path, n_train, _, n_reps = repetition_data
+
+        dataset_config = self._make_dataset_config(data_path)
+        pipeline_config = self._make_pipeline_config()
+
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        # Check each individual CV fold (fold_id = 0, 1, 2)
+        for fold_id in ["0", "1", "2"]:
+            # Get val-partition entry for this fold
+            val_entries = predictions.filter_predictions(
+                partition="val", fold_id=fold_id
+            )
+            train_entries = predictions.filter_predictions(
+                partition="train", fold_id=fold_id
+            )
+
+            if not val_entries or not train_entries:
+                continue
+
+            val_meta = val_entries[0].get("metadata", {})
+            train_meta = train_entries[0].get("metadata", {})
+
+            val_sample_ids = set(val_meta.get("sample_id", []))
+            train_sample_ids = set(train_meta.get("sample_id", []))
+
+            assert len(val_sample_ids) > 0, f"Fold {fold_id}: no val sample_ids"
+            assert len(train_sample_ids) > 0, f"Fold {fold_id}: no train sample_ids"
+
+            overlap = val_sample_ids & train_sample_ids
+            assert len(overlap) == 0, (
+                f"Fold {fold_id}: data leakage! {len(overlap)} sample(s) appear in "
+                f"both train and val: {overlap}"
+            )
+
+            # Also verify each sample_id appears exactly n_reps times in its partition
+            val_ids = val_meta.get("sample_id", [])
+            for sid in val_sample_ids:
+                count = val_ids.count(sid) if isinstance(val_ids, list) else np.sum(np.array(val_ids) == sid)
+                assert count == n_reps, (
+                    f"Fold {fold_id}: sample '{sid}' has {count} reps in val, expected {n_reps}"
+                )
