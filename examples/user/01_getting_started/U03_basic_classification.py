@@ -123,7 +123,8 @@ result = nirs4all.run(
     name="BasicClassification",
     verbose=1,
     save_artifacts=True,
-    plots_visible=args.plots
+    plots_visible=args.plots,
+    random_state=42
 )
 
 print("\n📊 Training complete!")
@@ -133,7 +134,7 @@ print(f"   Generated {result.num_predictions} predictions")
 # Section 3: Display Results
 # =============================================================================
 print("\n" + "-" * 60)
-print("Top 5 Models by Accuracy")
+print("Top 5 Models by Balanced Accuracy")
 print("-" * 60)
 
 # Get predictions object for analysis
@@ -141,15 +142,15 @@ predictions = result.predictions
 
 # Display top models with classification metrics
 # Use display_metrics to include accuracy and balanced_recall in results
-top_models = predictions.top(5, rank_metric='accuracy', display_metrics=['accuracy', 'balanced_recall'])
+top_models = predictions.top(5, rank_metric='balanced_accuracy', display_metrics=['balanced_accuracy', 'balanced_recall'])
 assert isinstance(top_models, list)
 for i, pred in enumerate(top_models, 1):
     model_name = pred.get('model_name', 'unknown')
     preproc = pred.get('preprocessings', 'N/A')
-    accuracy = pred.get('accuracy', 0)
+    accuracy = pred.get('balanced_accuracy', 0)
     balanced = pred.get('balanced_recall', 0)
     print(f"{i}. {model_name}")
-    print(f"   Accuracy: {accuracy:.4f} | Balanced Recall: {balanced:.4f}")
+    print(f"   balanced_accuracy: {accuracy:.4f} | Balanced Recall: {balanced:.4f}")
     print(f"   Preprocessing: {preproc}")
 
 # =============================================================================
@@ -164,7 +165,7 @@ analyzer = PredictionAnalyzer(predictions)
 # Confusion matrix for top 4 models
 fig1 = analyzer.plot_confusion_matrix(
     k=4,
-    rank_metric='accuracy',
+    rank_metric='balanced_accuracy',
     rank_partition='val',
     display_partition='test'
 )
@@ -173,15 +174,15 @@ print("   ✓ Created confusion matrices for top 4 models")
 # Candlestick chart for model comparison
 fig2 = analyzer.plot_candlestick(
     variable="model_name",
-    display_metric='accuracy',
+    display_metric='balanced_accuracy',
 )
-print("   ✓ Created candlestick chart (accuracy)")
+print("   ✓ Created candlestick chart (balanced accuracy)")
 
 # Heatmap: models vs preprocessing
 fig3 = analyzer.plot_heatmap(
     x_var="model_name",
     y_var="preprocessings",
-    display_metric='accuracy',
+    display_metric='balanced_accuracy',
 )
 print("   ✓ Created heatmap: models vs preprocessing")
 
@@ -201,7 +202,7 @@ print("""
 What we learned:
 1. Classification pipeline setup with sklearn classifiers
 2. Feature augmentation for preprocessing exploration
-3. Classification metrics: accuracy, balanced_recall
+3. Classification metrics: accuracy, balanced_recall, balanced_accuracy
 4. Confusion matrix visualization
 
 Key classification metrics:

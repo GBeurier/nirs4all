@@ -510,7 +510,10 @@ class HeatmapChart(BaseChart):
                 df = df.filter(pl.col(k) == v)
 
         if df.height == 0:
-            raise ValueError(f"No predictions found with filters: {all_filters}")
+            return self._create_empty_figure(
+                figsize,
+                f'No predictions found for x={x_var}, y={y_var}, metric={display_metric}'
+            )
 
         # 2. Define Score Extraction Logic (Vectorized)
         def get_score_expr(metric_name, partition_name):
@@ -1058,13 +1061,19 @@ class HeatmapChart(BaseChart):
                 df = df.filter(pl.col(k) == v)
 
         if df.height == 0:
-            raise ValueError(f"No predictions found with filters: {all_filters}")
+            return self._create_empty_figure(
+                figsize,
+                f'No predictions found for x={x_var}, y={y_var}, metric={display_metric}'
+            )
 
         # Get unique combinations of x_var and y_var
         source_df = df if is_partition_grouped else df.filter(pl.col("partition") == display_partition)
 
         if source_df.height == 0:
-            raise ValueError(f"No predictions found for partition: {display_partition}")
+            return self._create_empty_figure(
+                figsize,
+                f'No predictions found for partition: {display_partition}'
+            )
 
         # Get unique x and y values
         x_labels = sorted([str(x) for x in source_df[x_var].unique().to_list()], key=self._natural_sort_key)
@@ -1101,7 +1110,10 @@ class HeatmapChart(BaseChart):
             raise ValueError(f"Failed to get aggregated predictions: {e}") from e
 
         if not all_top_preds:
-            raise ValueError("No predictions found after aggregation")
+            return self._create_empty_figure(
+                figsize,
+                f'No predictions found for x={x_var}, y={y_var}, metric={display_metric}'
+            )
 
         # Predictions are already grouped by y_var from _get_ranked_predictions(group_by=[y_var])
         # and sorted by rank_score. Build y_labels in rank order.

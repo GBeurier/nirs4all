@@ -18,11 +18,15 @@ from ..utilities import ModelControllerUtils as ModelUtils
 
 @dataclass
 class PartitionScores:
-    """Scores for a single partition."""
+    """Scores for a single partition.
 
-    train: float
-    val: float
-    test: float
+    Scores are None when no data was available for that partition
+    (e.g. no validation set during refit).
+    """
+
+    train: float | None
+    val: float | None
+    test: float | None
     metric: str
     higher_is_better: bool
     detailed_scores: dict[str, float] | None = None
@@ -64,8 +68,8 @@ class ScoreCalculator:
         task_type_enum = task_type if isinstance(task_type, TaskType) else TaskType(task_type)
         metric, higher_is_better = ModelUtils.get_best_score_metric(task_type_enum)
 
-        # Calculate scores for each partition
-        scores: dict[str, float] = {}
+        # Calculate scores for each partition (None when no data available)
+        scores: dict[str, float | None] = {}
         for partition in ['train', 'val', 'test']:
             if partition in y_true and partition in y_pred:
                 if y_true[partition].shape[0] > 0 and y_pred[partition].shape[0] > 0:
@@ -75,14 +79,14 @@ class ScoreCalculator:
                         metric
                     ))
                 else:
-                    scores[partition] = 0.0
+                    scores[partition] = None
             else:
-                scores[partition] = 0.0
+                scores[partition] = None
 
         return PartitionScores(
-            train=scores.get('train', 0.0),
-            val=scores.get('val', 0.0),
-            test=scores.get('test', 0.0),
+            train=scores.get('train'),
+            val=scores.get('val'),
+            test=scores.get('test'),
             metric=metric,
             higher_is_better=higher_is_better
         )
@@ -125,9 +129,8 @@ class ScoreCalculator:
         """
         from nirs4all.core.logging.formatters import get_symbols
         direction = get_symbols().direction(scores.higher_is_better)
-        return (
-            f"Train: {scores.train:.4f} | "
-            f"Val: {scores.val:.4f} | "
-            f"Test: {scores.test:.4f} "
-            f"({scores.metric} {direction})"
-        )
+        parts = []
+        for label, value in [("Train", scores.train), ("Val", scores.val), ("Test", scores.test)]:
+            if value is not None:
+                parts.append(f"{label}: {value:.4f}")
+        return f"{' | '.join(parts)} ({scores.metric} {direction})"

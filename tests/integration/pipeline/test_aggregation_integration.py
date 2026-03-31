@@ -121,8 +121,9 @@ class TestAggregationIntegration:
 
         # Verify the pipeline completed successfully
         best_pred = predictions.get_best(ascending=True)
-        assert np.isfinite(best_pred['val_score'])
-        assert np.isfinite(best_pred['test_score'])
+        assert best_pred['val_score'] is not None and np.isfinite(best_pred['val_score'])
+        # test_score is None when no test partition exists in the dataset
+        assert best_pred['test_score'] is None or np.isfinite(best_pred['test_score'])
 
     def test_context_stores_aggregate_column(self, test_data_manager):
         """Test that ExecutionContext stores the aggregate_column property."""

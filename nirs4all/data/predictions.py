@@ -962,6 +962,25 @@ class Predictions:
             c["is_final"] = is_final
             candidates.append(c)
 
+        # Deduplicate final entries: finals store separate train/test records;
+        # keep one per model identity, preferring display_partition.
+        final_groups: dict[tuple, list[dict[str, Any]]] = {}
+        non_final_candidates: list[dict[str, Any]] = []
+        for c in candidates:
+            if c["is_final"]:
+                identity = (c.get("model_name"), c.get("pipeline_id"), c.get("preprocessings"))
+                final_groups.setdefault(identity, []).append(c)
+            else:
+                non_final_candidates.append(c)
+        deduped_finals: list[dict[str, Any]] = []
+        for entries in final_groups.values():
+            preferred = next(
+                (e for e in entries if e.get("partition") == display_partition),
+                entries[0],
+            )
+            deduped_finals.append(preferred)
+        candidates = deduped_finals + non_final_candidates
+
         if not candidates:
             if return_grouped:
                 return {}
@@ -998,8 +1017,13 @@ class Predictions:
         partition_key = f"{rank_partition}_score" if rank_partition in ("val", "test", "train") else "val_score"
         for r in candidates:
             if r["is_final"]:
-                # Final entries rank by their selection score
-                r["rank_score"] = r.get("selection_score")
+                # For finals, compute from arrays using the entry's own partition
+                # so ranking matches displayed values. Fall back to selection_score.
+                entry_part = r.get("partition", "test")
+                entry_part_key = f"{entry_part}_score" if entry_part in ("val", "test", "train") else "test_score"
+                by_rep_str = effective_by_repetition if isinstance(effective_by_repetition, str) else None
+                score = self._get_rank_score(r, effective_metric, entry_part, entry_part_key, by_rep_str, effective_repetition_method, effective_repetition_exclude_outliers)
+                r["rank_score"] = score if score is not None else r.get("selection_score")
             else:
                 by_rep_str = effective_by_repetition if isinstance(effective_by_repetition, str) else None
                 score = self._get_rank_score(r, effective_metric, rank_partition, partition_key, by_rep_str, effective_repetition_method, effective_repetition_exclude_outliers)
@@ -1053,6 +1077,23 @@ class Predictions:
             PredictionResult(self._enrich_result(r, display_metrics, display_partition, aggregate_partitions, by_rep_enrich))
             for r in candidates
         ]
+
+        # Re-sort by display metric when it was computed, so displayed
+        # values are in the expected order (rank_partition and
+        # display_partition may differ, causing order mismatches).
+        if display_metrics and effective_metric in display_metrics:
+            _sentinel = float("inf") if ascending else float("-inf")
+
+            def _display_sort_key(r: dict[str, Any]) -> float:
+                v = r.get(effective_metric)
+                if v is None:
+                    return _sentinel
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    return _sentinel
+
+            enriched_results.sort(key=_display_sort_key, reverse=not ascending)
 
         if return_grouped and effective_group_by:
             grouped_out: dict[tuple[Any, ...], PredictionResultsList] = {}
