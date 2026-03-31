@@ -1288,7 +1288,8 @@ class InstrumentSimulator:
     def _apply_photometric_range(self, spectra: np.ndarray) -> np.ndarray:
         """Clip spectra to instrument photometric range."""
         pmin, pmax = self.archetype.photometric_range
-        return np.clip(spectra, pmin, pmax)
+        result: np.ndarray = np.clip(spectra, pmin, pmax)
+        return result
 
 # ============================================================================
 # Module-level exports

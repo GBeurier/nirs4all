@@ -733,17 +733,14 @@ class SampleAugmentationController(OperatorController):
 
         # Concatenate all augmented data
         # Handle both single-source (arrays) and multi-source (list of arrays)
+        combined_data: np.ndarray | list[np.ndarray]
         if n_sources == 1:
             # Single source: all_batch_data is list of arrays
             combined_data = np.concatenate(all_batch_data, axis=0)
         else:
             # Multi-source: all_batch_data is list of lists of arrays
             # Need to concatenate per-source, then return as list
-            combined_data = []
-            for source_idx in range(n_sources):
-                source_arrays = [batch[source_idx] for batch in all_batch_data]
-                combined_source = np.concatenate(source_arrays, axis=0)
-                combined_data.append(combined_source)
+            combined_data = [np.concatenate([batch[source_idx] for batch in all_batch_data], axis=0) for source_idx in range(n_sources)]
 
         # Single batch insert for ALL augmented samples from ALL transformers
         dataset.add_samples_batch(data=combined_data, indexes_list=all_indexes)

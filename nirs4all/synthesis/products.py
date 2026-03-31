@@ -1186,7 +1186,7 @@ class CategoryGenerator:
         headers = [str(int(wl)) for wl in wavelengths]
 
         # Add training samples
-        train_meta = {"partition": "train"}
+        train_meta: dict[str, object] = {"partition": "train"}
         if include_template_labels:
             train_meta["template_id"] = template_ids[:n_train]
         dataset.add_samples(
@@ -1198,7 +1198,7 @@ class CategoryGenerator:
         dataset.add_targets(y_combined[:n_train])
 
         # Add test samples
-        test_meta = {"partition": "test"}
+        test_meta: dict[str, object] = {"partition": "test"}
         if include_template_labels:
             test_meta["template_id"] = template_ids[n_train:]
         dataset.add_samples(

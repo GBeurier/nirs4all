@@ -2011,6 +2011,30 @@ class Predictions:
                 enriched["aggregated"] = True
                 y_true, y_pred = agg_y_true, agg_y_pred
 
+                # Recompute partition score from aggregated arrays
+                entry_partition = row.get("partition", "")
+                stored_metric = row.get("metric", "")
+                if stored_metric and agg_y_true is not None and agg_y_pred is not None:
+                    try:
+                        agg_score = float(evaluator.eval(agg_y_true, agg_y_pred, stored_metric))
+                        score_key = f"{entry_partition}_score"
+                        if score_key in enriched:
+                            enriched[score_key] = agg_score
+                        # Update scores dict so display metrics also read aggregated values
+                        sc = enriched.get("scores")
+                        if isinstance(sc, str):
+                            try:
+                                sc = json.loads(sc)
+                            except (json.JSONDecodeError, TypeError):
+                                sc = {}
+                        if isinstance(sc, dict):
+                            if entry_partition not in sc:
+                                sc[entry_partition] = {}
+                            sc[entry_partition][stored_metric] = agg_score
+                            enriched["scores"] = sc
+                    except Exception:
+                        pass
+
         # Compute display metrics on the fly
         if display_metrics:
             scores_dict = row.get("scores", {})
