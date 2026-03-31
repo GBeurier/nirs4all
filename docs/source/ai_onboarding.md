@@ -2,7 +2,7 @@
 
 **Complete reference for AI assistants working with nirs4all.** This document is self-contained -- everything needed to build, train, export, and deploy NIRS pipelines is here.
 
-**Version**: 0.8.4 | **Python**: 3.11+ | **License**: CeCILL-2.1
+**Version**: 0.8.5 | **Python**: 3.11+ | **License**: CeCILL-2.1
 
 ---
 

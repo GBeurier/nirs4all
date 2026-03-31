@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.5] - Task Type Filtering, Visualization Improvements & Documentation - 2026-03-31
+
+### ✨ Improvements
+
+- **Task type filtering in visualization charts**: Added `task_type` parameter to Candlestick, Heatmap, Histogram, and TopK Comparison charts with auto-separation of mixed task types
+- **Model training parameters**: Updated model training parameters, enhanced prediction handling, and improved error messaging in visualizations
+- **Documentation overhaul**: Added comprehensive reference docs for pipeline keywords, models, transforms, splitters, filters, and augmentations
+
+### 🧪 Tests
+
+- **Task type matching tests**: Added tests for task-type matching and filtering in predictions for regression and classification tasks
+- **Chart task type tests**: Added tests for task-type auto-separation in visualization charts
+
+### 🐛 Bug Fixes
+
+- **Prediction handling**: Enhanced prediction retrieval and error messaging in visualization components
+
+### 🔧 Chores
+
+- **Docs**: Added new concept guides (augmentation, branching, cross-validation, datasets, generators, pipelines, predictions & deployment)
+
+---
+
 ## [0.8.4] - Predictions Metadata, Parquet Schema Alignment & SQLite Migration - 2026-03-27
 
 ### ✨ Improvements
