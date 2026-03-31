@@ -205,18 +205,17 @@ class TestTabReportManagerAggregation:
         assert "Cros Val" in formatted
         # Aggregated rows may or may not be present depending on which partitions have metadata
 
-    def test_aggregated_stats_columns_blank(self, regression_partition_data):
-        """Test that aggregated rows have blank descriptive stats (Mean, Median, etc.)."""
+    def test_aggregated_stats_columns_populated(self, regression_partition_data):
+        """Test that aggregated rows have descriptive stats computed from aggregated y_true."""
         formatted, csv_content = TabReportManager.generate_best_score_tab_report(
             regression_partition_data,
             aggregate='sample_id'
         )
 
-        # Parse CSV to check that Mean/Median/etc are blank for aggregated rows
+        # Parse CSV to check that Mean/Median/etc are populated for aggregated rows
         lines = csv_content.strip().split('\n')
         header = lines[0].split(',')
 
-        # Find column indices for stats that should be blank
         mean_idx = header.index('Mean')
         median_idx = header.index('Median')
 
@@ -224,9 +223,8 @@ class TestTabReportManagerAggregation:
             cells = line.split(',')
             row_name = cells[0]
             if '*' in row_name:  # Aggregated row
-                # Mean and Median should be blank
-                assert cells[mean_idx] == '', f"Mean should be blank for aggregated row: {line}"
-                assert cells[median_idx] == '', f"Median should be blank for aggregated row: {line}"
+                assert cells[mean_idx] != '', f"Mean should be populated for aggregated row: {line}"
+                assert cells[median_idx] != '', f"Median should be populated for aggregated row: {line}"
 
     def test_classification_with_aggregation(self, classification_partition_data):
         """Test aggregation works with classification data."""

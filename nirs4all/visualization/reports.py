@@ -1162,7 +1162,7 @@ class TabReportManager:
             n_features: Number of features
             task_type: Task type (regression or classification)
             is_binary: Whether this is binary classification
-            is_aggregated: Whether this is an aggregated row (stats columns blank)
+            is_aggregated: Whether this is an aggregated row
 
         Returns:
             List of formatted cell values
