@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # scripts/pre-publish.sh
 # Mirrors .github/workflows/pre-publish.yml locally.
+# Steps: ruff → mypy → tests → docs → examples → build
 #
 # Usage:
 #   ./scripts/pre-publish.sh [OPTIONS]
@@ -12,6 +13,7 @@
 #   --skip-build        Skip package build / twine check
 #   --only STEP         Run only one step: ruff | mypy | tests | docs | examples | build
 #   --examples-cat CAT  Example categories to run (default: "user developer reference")
+#   -j JOBS             Parallel workers for tests and examples (default: nproc)
 #   --python PYTHON     Python interpreter to use (default: python3)
 #   --docker            Run inside a clean ubuntu:24.04 Docker container (closest to GitHub Actions)
 #   -h, --help          Show this help
@@ -49,6 +51,7 @@ SKIP_EXAMPLES=false
 SKIP_BUILD=false
 ONLY_STEP=""
 EXAMPLES_CATS="user developer reference"
+JOBS="$(nproc 2>/dev/null || echo 4)"
 PYTHON="${PYTHON:-python3}"
 USE_DOCKER=false
 
@@ -60,6 +63,7 @@ while [[ $# -gt 0 ]]; do
     --skip-build)     SKIP_BUILD=true; shift ;;
     --only)           ONLY_STEP="$2"; shift 2 ;;
     --examples-cat)   EXAMPLES_CATS="$2"; shift 2 ;;
+    -j)               JOBS="$2"; shift 2 ;;
     --python)         PYTHON="$2"; shift 2 ;;
     --docker)         USE_DOCKER=true; shift ;;
     -h|--help)
@@ -204,13 +208,13 @@ if should_run tests; then
       $PYTHON -m pip install --quiet -e . --no-deps
 
       echo '--- Serial subset (known write-contention) ---'
-      $PYTHON -m pytest -v \
+      $PYTHON -m pytest -n 0 \
         tests/integration/pipeline/test_merge_mixed.py \
         tests/integration/pipeline/test_merge_per_branch.py \
         --cov=nirs4all --cov-append
 
-      echo '--- Parallel remainder ---'
-      $PYTHON -m pytest -v -n 8 --dist worksteal tests/ \
+      echo \"--- Parallel remainder (-n $JOBS) ---\"
+      $PYTHON -m pytest -n $JOBS --dist worksteal tests/ \
         --ignore=tests/integration/pipeline/test_merge_mixed.py \
         --ignore=tests/integration/pipeline/test_merge_per_branch.py \
         --cov=nirs4all --cov-append --cov-report=xml
@@ -254,8 +258,8 @@ if should_run examples; then
       cats=($EXAMPLES_CATS)
       failed=()
       for cat in \"\${cats[@]}\"; do
-        echo \"--- Running category: \$cat ---\"
-        if ! ./run_ci_examples.sh -c \"\$cat\" -k; then
+        echo \"--- Running category: \$cat (-j $JOBS) ---\"
+        if ! ./run_ci_examples.sh -c \"\$cat\" -j $JOBS -k; then
           failed+=(\"\$cat\")
         fi
       done

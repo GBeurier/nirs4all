@@ -5,15 +5,28 @@
 ## Commands
 
 ```bash
+# Tests
 pytest tests/                     # All tests
 pytest tests/unit/                # Unit only
 pytest tests/integration/         # Integration only
 pytest -m sklearn                 # sklearn-only
 pytest --cov=nirs4all             # With coverage
+
+# Examples (from examples/ directory)
+./run.sh                          # All examples
+./run.sh -c user                  # User examples only
+./run_ci_examples.sh -c all -j 4  # CI runner with 4 parallel workers
+
+# Code quality
 ruff check .                      # Lint
 mypy .                            # Type check
-cd examples && ./run.sh           # All examples
-cd examples && ./run.sh -c user   # User examples only
+
+# Pre-publish validation (mirrors CI locally, runs all steps with -j nproc parallelism)
+./scripts/pre-publish.sh                    # Full: ruff, mypy, tests, docs, examples, build
+./scripts/pre-publish.sh -j 4               # Limit to 4 parallel workers
+./scripts/pre-publish.sh --only tests       # Single step
+./scripts/pre-publish.sh --skip-docs        # Skip a step
+./scripts/pre-publish.sh --docker           # Run in clean ubuntu:24.04 container
 ```
 
 ## Architecture

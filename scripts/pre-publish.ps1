@@ -1,5 +1,6 @@
 # scripts/pre-publish.ps1
 # Mirrors .github/workflows/pre-publish.yml locally (Windows PowerShell).
+# Steps: ruff -> mypy -> tests -> docs -> examples -> build
 #
 # Usage:
 #   .\scripts\pre-publish.ps1 [OPTIONS]
@@ -11,6 +12,7 @@
 #   -SkipBuild          Skip package build / twine check
 #   -Only STEP          Run only one step: ruff | mypy | tests | docs | examples | build
 #   -ExamplesCat CAT    Example categories to run (default: "user developer reference")
+#   -Jobs N             Parallel workers for tests and examples (default: processor count)
 #   -Python PYTHON      Python interpreter to use (default: auto-detect .venv or python)
 
 param(
@@ -23,6 +25,7 @@ param(
     [string]$Only = "",
 
     [string]$ExamplesCat = "user developer reference",
+    [int]$Jobs = [Environment]::ProcessorCount,
     [string]$Python = ""
 )
 
@@ -168,14 +171,14 @@ if (Test-ShouldRun "tests") {
             if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 
             Write-Host "--- Serial subset (known write-contention) ---"
-            & $Python -m pytest -v `
+            & $Python -m pytest -v -n 0 `
                 tests/integration/pipeline/test_merge_mixed.py `
                 tests/integration/pipeline/test_merge_per_branch.py `
                 --cov=nirs4all --cov-append
             if ($LASTEXITCODE -ne 0) { throw "serial tests failed" }
 
-            Write-Host "--- Parallel remainder ---"
-            & $Python -m pytest -v -n 8 --dist worksteal tests/ `
+            Write-Host "--- Parallel remainder (-n $Jobs) ---"
+            & $Python -m pytest -v -n $Jobs --dist worksteal tests/ `
                 --ignore=tests/integration/pipeline/test_merge_mixed.py `
                 --ignore=tests/integration/pipeline/test_merge_per_branch.py `
                 --cov=nirs4all --cov-append --cov-report=xml
@@ -227,8 +230,8 @@ if (Test-ShouldRun "examples") {
             try {
                 $runScript = Join-Path $RepoRoot "examples\run_ci_examples.ps1"
                 foreach ($cat in $cats) {
-                    Write-Host "--- Running category: $cat ---"
-                    & $runScript -Category $cat
+                    Write-Host "--- Running category: $cat (-Jobs $Jobs) ---"
+                    & $runScript -Category $cat -Jobs $Jobs -KeepGoing
                     if ($LASTEXITCODE -ne 0) { throw "examples category '$cat' failed" }
                 }
             } finally {

@@ -2016,7 +2016,8 @@ class Predictions:
                 stored_metric = row.get("metric", "")
                 if stored_metric and agg_y_true is not None and agg_y_pred is not None:
                     try:
-                        agg_score = float(evaluator.eval(agg_y_true, agg_y_pred, stored_metric))
+                        raw_score = evaluator.eval(agg_y_true, agg_y_pred, stored_metric)
+                        agg_score = raw_score if isinstance(raw_score, float) else float(next(iter(raw_score.values())))
                         score_key = f"{entry_partition}_score"
                         if score_key in enriched:
                             enriched[score_key] = agg_score
