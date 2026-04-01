@@ -30,6 +30,7 @@ def mock_predictions():
     preds.get_datasets.return_value = ["dataset_a"]
     preds.get_unique_values.return_value = ["regression"]
     preds.top.return_value = []
+    preds.repetition_column = None
     return preds
 
 @pytest.fixture
@@ -54,10 +55,22 @@ class TestPredictionAnalyzerInit:
         analyzer = PredictionAnalyzer(mock_predictions)
         assert analyzer.default_aggregate is None
 
+    def test_default_aggregate_inferred_from_predictions_repetition(self, mock_predictions):
+        """Test that repetition context is inferred automatically from predictions."""
+        mock_predictions.repetition_column = "sample_id"
+        analyzer = PredictionAnalyzer(mock_predictions)
+        assert analyzer.default_aggregate == "sample_id"
+
     def test_default_aggregate_set(self, mock_predictions):
         """Test setting default_aggregate via constructor."""
         analyzer = PredictionAnalyzer(mock_predictions, default_aggregate="sample_id")
         assert analyzer.default_aggregate == "sample_id"
+
+    def test_explicit_default_aggregate_overrides_inferred_repetition(self, mock_predictions):
+        """Test that explicit constructor argument wins over inferred repetition."""
+        mock_predictions.repetition_column = "sample_id"
+        analyzer = PredictionAnalyzer(mock_predictions, default_aggregate="lot_id")
+        assert analyzer.default_aggregate == "lot_id"
 
     def test_default_aggregate_method_none(self, mock_predictions):
         """Test that default_aggregate_method is None by default."""
@@ -284,6 +297,47 @@ class TestPlotTopK:
         call_kwargs = mock_chart.render.call_args[1]
         assert call_kwargs.get("aggregate") is None
 
+    @patch("nirs4all.visualization.predictions.TopKComparisonChart")
+    def test_plot_top_k_returns_raw_and_aggregated_figures(self, mock_chart_class, mock_predictions):
+        """Aggregated chart requests should return both raw and aggregated figures."""
+        mock_chart = Mock()
+        raw_fig = Mock()
+        agg_fig = Mock()
+        mock_chart.render.side_effect = [raw_fig, agg_fig]
+        mock_chart_class.return_value = mock_chart
+
+        analyzer = PredictionAnalyzer(mock_predictions, default_aggregate="sample_id")
+        result = analyzer.plot_top_k(k=5)
+
+        assert mock_chart.render.call_count == 2
+        assert mock_chart.render.call_args_list[0][1].get("aggregate") is None
+        assert mock_chart.render.call_args_list[1][1].get("aggregate") == "sample_id"
+        assert result == [raw_fig, agg_fig]
+
+    @patch("nirs4all.visualization.predictions.TopKComparisonChart")
+    def test_plot_top_k_skips_when_task_type_is_classification(self, mock_chart_class, mock_predictions):
+        """Regression-only charts must not be constructed for classification filters."""
+        analyzer = PredictionAnalyzer(mock_predictions)
+
+        result = analyzer.plot_top_k(k=5, task_type="classification")
+
+        mock_chart_class.assert_not_called()
+        assert result == []
+
+    @patch("nirs4all.visualization.predictions.TopKComparisonChart")
+    def test_plot_top_k_forces_regression_filter_when_tasks_are_mixed(self, mock_chart_class, mock_predictions):
+        """Mixed-task top-k plots should render only the regression-compatible view."""
+        mock_predictions.get_unique_values.return_value = ["regression", "binary_classification"]
+        mock_chart = Mock()
+        mock_chart.render.return_value = Mock()
+        mock_chart_class.return_value = mock_chart
+
+        analyzer = PredictionAnalyzer(mock_predictions)
+        analyzer.plot_top_k(k=5)
+
+        call_kwargs = mock_chart.render.call_args[1]
+        assert call_kwargs.get("task_type") == "regression"
+
 # ---------------------------------------------------------------------------
 # TestPlotHistogram
 # ---------------------------------------------------------------------------
@@ -422,6 +476,48 @@ class TestPlotConfusionMatrix:
         call_kwargs = mock_chart.render.call_args[1]
         assert call_kwargs.get("aggregate") == "sample_id"
 
+    @patch("nirs4all.visualization.predictions.ConfusionMatrixChart")
+    def test_plot_confusion_matrix_returns_raw_and_aggregated_figures(self, mock_chart_class, mock_predictions):
+        """Aggregated confusion-matrix requests should return raw and aggregated figures."""
+        mock_predictions.get_unique_values.return_value = ["binary_classification"]
+        mock_chart = Mock()
+        raw_fig = Mock()
+        agg_fig = Mock()
+        mock_chart.render.side_effect = [raw_fig, agg_fig]
+        mock_chart_class.return_value = mock_chart
+
+        analyzer = PredictionAnalyzer(mock_predictions, default_aggregate="sample_id")
+        result = analyzer.plot_confusion_matrix(k=3)
+
+        assert mock_chart.render.call_count == 2
+        assert mock_chart.render.call_args_list[0][1].get("aggregate") is None
+        assert mock_chart.render.call_args_list[1][1].get("aggregate") == "sample_id"
+        assert result == [raw_fig, agg_fig]
+
+    @patch("nirs4all.visualization.predictions.ConfusionMatrixChart")
+    def test_plot_confusion_matrix_skips_when_task_type_is_regression(self, mock_chart_class, mock_predictions):
+        """Classification-only charts must not be constructed for regression filters."""
+        analyzer = PredictionAnalyzer(mock_predictions)
+
+        result = analyzer.plot_confusion_matrix(k=3, task_type="regression")
+
+        mock_chart_class.assert_not_called()
+        assert result == []
+
+    @patch("nirs4all.visualization.predictions.ConfusionMatrixChart")
+    def test_plot_confusion_matrix_forces_classification_filter_when_tasks_are_mixed(self, mock_chart_class, mock_predictions):
+        """Mixed-task confusion-matrix plots should render only classification results."""
+        mock_predictions.get_unique_values.return_value = ["regression", "binary_classification"]
+        mock_chart = Mock()
+        mock_chart.render.return_value = Mock()
+        mock_chart_class.return_value = mock_chart
+
+        analyzer = PredictionAnalyzer(mock_predictions)
+        analyzer.plot_confusion_matrix(k=3)
+
+        call_kwargs = mock_chart.render.call_args[1]
+        assert call_kwargs.get("task_type") == "classification"
+
 # ---------------------------------------------------------------------------
 # TestGetCachedPredictions
 # ---------------------------------------------------------------------------
@@ -480,7 +576,7 @@ class TestGetCachedPredictions:
         analyzer.get_cached_predictions(n=5, rank_metric="rmse")
 
         call_kwargs = mock_predictions.top.call_args[1]
-        assert call_kwargs.get("aggregate_method") == "median"
+        assert call_kwargs.get("repetition_method") == "median"
 
     def test_explicit_aggregate_method_overrides_default(self, mock_predictions):
         """Test that explicit aggregate_method overrides default."""
@@ -490,7 +586,17 @@ class TestGetCachedPredictions:
         analyzer.get_cached_predictions(n=5, rank_metric="rmse", aggregate_method="mean")
 
         call_kwargs = mock_predictions.top.call_args[1]
-        assert call_kwargs.get("aggregate_method") == "mean"
+        assert call_kwargs.get("repetition_method") == "mean"
+
+    def test_aggregate_is_forwarded_as_by_repetition(self, mock_predictions):
+        """Visualization aggregation must use the Predictions by_repetition API."""
+        mock_predictions.top.return_value = []
+
+        analyzer = PredictionAnalyzer(mock_predictions)
+        analyzer.get_cached_predictions(n=5, rank_metric="rmse", aggregate="sample_id")
+
+        call_kwargs = mock_predictions.top.call_args[1]
+        assert call_kwargs.get("by_repetition") == "sample_id"
 
     def test_grouped_queries_do_not_overfetch(self, mock_predictions):
         """Grouped queries must use exact n because n means per-group."""

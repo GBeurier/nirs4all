@@ -14,7 +14,7 @@ This section covers cross-validation strategies to properly evaluate model perfo
 | [U01](#u01-cv-strategies) | CV Strategies | ★★☆☆☆ | ~4 min |
 | [U02](#u02-group-splitting) | Group Splitting | ★★☆☆☆ | ~3 min |
 | [U03](#u03-sample-filtering) | Sample Filtering | ★★☆☆☆ | ~3 min |
-| [U04](#u04-aggregation) | Aggregation | ★★☆☆☆ | ~3 min |
+| [U04](#u04-aggregation) | Repetition Aggregation | ★★★☆☆ | ~4 min |
 
 ---
 
@@ -268,65 +268,80 @@ pipeline = [
 
 ## U04: Aggregation
 
-**Aggregate results across folds and variants.**
+**Aggregate repeated measurements into one prediction per physical sample.**
 
 [📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/user/05_cross_validation/U04_aggregation.py)
 
 ### What You'll Learn
 
-- Aggregating metrics across folds
-- Statistical summaries
-- Confidence intervals
+- Setting `repetition` in `DatasetConfigs`
+- Comparing raw vs sample-aggregated metrics
+- Overriding aggregation for individual plots
+- Ranking models with custom aggregation columns
 
 ### Understanding Aggregation
 
-When you run a pipeline with cross-validation, you get:
-- One prediction per fold
-- Multiple folds per model configuration
+When several spectra belong to the same physical sample, evaluation can happen at
+two levels:
 
-**Aggregation** summarizes these:
+- Raw: one prediction per spectrum
+- Aggregated: one prediction per sample after combining repetitions
+- Custom: one prediction per another metadata key such as `lot_id`
+
+The example enables this with the dataset repetition column:
 
 ```python
-# Get predictions
-result = nirs4all.run(pipeline=pipeline, dataset=dataset)
-
-# Aggregate across folds
-summary = result.predictions.aggregate(
-    by=['model_name', 'preprocessings'],
-    metrics=['rmse', 'r2'],
-    aggregations=['mean', 'std', 'min', 'max']
+dataset_config = DatasetConfigs(
+    {
+        "train_x": "...",
+        "train_y": "...",
+        "train_m": "...",
+        "test_x": "...",
+        "test_y": "...",
+        "test_m": "...",
+    },
+    repetition="sample_id",
 )
 ```
 
 ### Aggregation Options
 
-| Aggregation | Description |
+| Option | Description |
 |-------------|-------------|
-| `mean` | Average across folds |
-| `std` | Standard deviation |
-| `min`, `max` | Range |
-| `median` | Robust central tendency |
-| `ci_95` | 95% confidence interval |
+| `repetition="sample_id"` | Use a metadata column as the default aggregation key |
+| `predictions.top(..., by_repetition=False)` | Rank using raw per-spectrum metrics |
+| `predictions.top(..., by_repetition="sample_id")` | Rank using sample-level metrics |
+| `predictions.top(..., by_repetition="lot_id")` | Rank using another metadata grouping |
 
 ### Visualization with Aggregation
 
 ```python
-analyzer = PredictionAnalyzer(result.predictions)
+analyzer = PredictionAnalyzer(predictions)
 
-# Candlestick shows distribution
-analyzer.plot_candlestick(
-    variable="model_name",
-    display_metric='rmse'
-)
+# Raw + sample_id aggregation
+analyzer.plot_top_k(k=3, rank_metric="rmse")
 
-# Heatmap with aggregation
+# Raw + custom lot_id aggregation
 analyzer.plot_heatmap(
-    x_var="model_name",
-    y_var="preprocessings",
-    aggregation='mean',  # or 'best', 'median'
-    display_metric='rmse'
+    "partition",
+    "model_name",
+    rank_metric="rmse",
+    display_metric="rmse",
+    aggregate="lot_id",
 )
+
+# Raw only for this chart
+analyzer.plot_histogram(display_metric="rmse", aggregate="")
 ```
+
+### When to Use It
+
+- Repeated technical measurements with the same target
+- Multiple spectra per physical sample
+- Sample-level reporting or ranking
+
+Avoid it when each spectrum is an independent sample or when the target changes
+between repetitions.
 
 ---
 

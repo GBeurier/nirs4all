@@ -85,8 +85,9 @@ print("Section 2: Creating Synthetic Data")
 print("-" * 60)
 
 def create_synthetic_data(n_samples=30, n_wavelengths=100, n_reps=4, random_state=42):
-    """Create NIRS data with multiple repetitions per sample."""
+    """Create NIRS data with repetition and a second custom grouping column."""
     np.random.seed(random_state)
+    samples_per_lot = 2
 
     # Split samples into train and test
     n_train = int(n_samples * 0.8)
@@ -94,7 +95,9 @@ def create_synthetic_data(n_samples=30, n_wavelengths=100, n_reps=4, random_stat
 
     # Generate base spectra for unique samples
     X_base = np.random.randn(n_samples, n_wavelengths)
-    y_base = np.random.rand(n_samples) * 10 + 5
+    n_lots = int(np.ceil(n_samples / samples_per_lot))
+    lot_targets = np.random.rand(n_lots) * 10 + 5
+    y_base = np.array([lot_targets[i // samples_per_lot] for i in range(n_samples)])
 
     # Split train/test
     X_base_train = X_base[:n_train]
@@ -103,28 +106,31 @@ def create_synthetic_data(n_samples=30, n_wavelengths=100, n_reps=4, random_stat
     y_base_test = y_base[n_train:]
 
     def expand_with_reps(X_base, y_base, start_idx=0):
-        X_all, y_all, sample_ids, rep_ids = [], [], [], []
+        X_all, y_all, sample_ids, lot_ids, rep_ids = [], [], [], [], []
         for i in range(len(X_base)):
+            sample_idx = start_idx + i
+            lot_idx = sample_idx // samples_per_lot
             for r in range(n_reps):
                 # Add realistic measurement noise for each repetition
                 noise = np.random.randn(n_wavelengths) * 1.5
                 X_all.append(X_base[i] + noise)
                 y_all.append(y_base[i])
-                sample_ids.append(f"sample_{start_idx + i:03d}")
+                sample_ids.append(f"sample_{sample_idx:03d}")
+                lot_ids.append(f"lot_{lot_idx:03d}")
                 rep_ids.append(r + 1)
-        return np.array(X_all), np.array(y_all), sample_ids, rep_ids
+        return np.array(X_all), np.array(y_all), sample_ids, lot_ids, rep_ids
 
-    X_train, y_train, train_ids, train_reps = expand_with_reps(X_base_train, y_base_train, 0)
-    X_test, y_test, test_ids, test_reps = expand_with_reps(X_base_test, y_base_test, n_train)
+    X_train, y_train, train_ids, train_lots, train_reps = expand_with_reps(X_base_train, y_base_train, 0)
+    X_test, y_test, test_ids, test_lots, test_reps = expand_with_reps(X_base_test, y_base_test, n_train)
 
     # Create metadata DataFrames
-    train_meta = pd.DataFrame({'sample_id': train_ids, 'repetition': train_reps})
-    test_meta = pd.DataFrame({'sample_id': test_ids, 'repetition': test_reps})
+    train_meta = pd.DataFrame({'sample_id': train_ids, 'lot_id': train_lots, 'repetition': train_reps})
+    test_meta = pd.DataFrame({'sample_id': test_ids, 'lot_id': test_lots, 'repetition': test_reps})
 
     # Save to temp directory
     temp_dir = Path(tempfile.gettempdir()) / "nirs4all_examples" / "u20_aggregation"
     if temp_dir.exists():
-        shutil.rmtree(temp_dir)
+        shutil.rmtree(temp_dir, ignore_errors=True)
     temp_dir.mkdir(parents=True, exist_ok=True)
 
     pd.DataFrame(X_train).to_csv(temp_dir / "Xcal.csv.gz", index=False, header=False, compression='gzip', sep=';')
@@ -142,6 +148,7 @@ data_path, n_train, n_test, n_reps = create_synthetic_data()
 print("Created synthetic dataset:")
 print(f"   Train: {n_train} samples × {n_reps} reps = {n_train * n_reps} spectra")
 print(f"   Test:  {n_test} samples × {n_reps} reps = {n_test * n_reps} spectra")
+print("   Metadata columns: sample_id (dataset repetition), lot_id (custom grouping)")
 
 # =============================================================================
 # Section 3: Running with Repetition
@@ -189,12 +196,13 @@ runner = PipelineRunner(
     save_artifacts=False,
     save_charts=False,
     verbose=1,
-    plots_visible=args.plots
+    # This example manages chart display explicitly with PredictionAnalyzer below.
+    plots_visible=False,
 )
 
 predictions, _run_info = runner.run(pipeline_config, dataset_config)
 
-print(f"\nRepetition setting: '{runner.last_aggregate}'")
+print(f"\nRepetition setting: '{predictions.repetition_column}'")
 
 # =============================================================================
 # Section 4: Raw vs Aggregated Metrics
@@ -207,6 +215,7 @@ print("""
 Both raw and aggregated metrics are available:
   - Raw: One prediction per spectrum
   - Aggregated: One prediction per sample (averaged)
+  - Custom: One prediction per lot_id (2 samples merged)
 """)
 
 # Get best model with raw metrics
@@ -225,7 +234,7 @@ print(f"   Val RMSE:  {val_rmse_raw:.4f}" if not np.isnan(val_rmse_raw) else "  
 print(f"   Test RMSE: {test_rmse_raw:.4f}" if not np.isnan(test_rmse_raw) else "   Test RMSE: N/A")
 
 # Get same model with repetition-aggregated metrics
-top_agg = predictions.top(1, rank_metric='rmse', by_repetition='sample_id')
+top_agg = predictions.top(1, rank_metric='rmse', by_repetition=True)
 assert isinstance(top_agg, list) and len(top_agg) > 0, "Aggregated top() returned empty list"
 best_agg = top_agg[0]
 val_rmse_agg = float(best_agg.get('val_score', np.nan))
@@ -235,6 +244,17 @@ assert best_agg.get('aggregated', False), "Result should be marked as aggregated
 print("\nRepetition-aggregated metrics (per sample):")
 print(f"   Val RMSE:  {val_rmse_agg:.4f}" if not np.isnan(val_rmse_agg) else "   Val RMSE:  N/A")
 print(f"   Test RMSE: {test_rmse_agg:.4f}" if not np.isnan(test_rmse_agg) else "   Test RMSE: N/A")
+
+top_lot = predictions.top(1, rank_metric='rmse', by_repetition='lot_id')
+assert isinstance(top_lot, list) and len(top_lot) > 0, "Custom-aggregated top() returned empty list"
+best_lot = top_lot[0]
+val_rmse_lot = float(best_lot.get('val_score', np.nan))
+test_rmse_lot = float(best_lot.get('test_score', np.nan))
+
+print("\nCustom aggregation metrics (per lot_id):")
+print(f"   Val RMSE:  {val_rmse_lot:.4f}" if not np.isnan(val_rmse_lot) else "   Val RMSE:  N/A")
+print(f"   Test RMSE: {test_rmse_lot:.4f}" if not np.isnan(test_rmse_lot) else "   Test RMSE: N/A")
+print(f"\nDisplayed predictions count: raw={len(best_raw['y_pred'])}, sample_id={len(best_agg['y_pred'])}, lot_id={len(best_lot['y_pred'])}")
 
 print("\nNote: Aggregated RMSE is typically LOWER due to noise averaging!")
 
@@ -246,32 +266,100 @@ print("Section 5: Visualization with Aggregation")
 print("-" * 60)
 
 print("""
-Pass default_aggregate to PredictionAnalyzer for automatic aggregation.
+PredictionAnalyzer supports two aggregation modes:
+  - PredictionAnalyzer(predictions) -> raw + repetition-aggregated figures (dual)
+  - aggregate='lot_id' on one plot -> only the custom-aggregated figure
 """)
 
-# Create analyzer with default aggregation (uses repetition column)
-analyzer = PredictionAnalyzer(
-    predictions,
-    default_aggregate=runner.last_aggregate  # Uses sample_id from repetition
-)
+# Create analyzer with automatic default aggregation from predictions.repetition_column
+analyzer = PredictionAnalyzer(predictions)
 
 print(f"Analyzer default_aggregate: '{analyzer.default_aggregate}'")
 
 if args.plots:
-    # Top-K with aggregation (automatic)
-    fig1 = analyzer.plot_top_k(k=3, rank_metric='rmse')
-    if isinstance(fig1, plt.Figure):
-        fig1.suptitle("Top Models (Aggregated by sample_id)", y=1.02)
+    def as_figure_list(fig_or_figs):
+        if isinstance(fig_or_figs, list):
+            return fig_or_figs
+        if fig_or_figs is None:
+            return []
+        return [fig_or_figs]
 
-    # Override: disable aggregation for specific plot
-    fig2 = analyzer.plot_histogram(aggregate='')  # Empty string = no aggregation
-    if isinstance(fig2, plt.Figure):
-        fig2.suptitle("Histogram (Raw predictions)", y=1.02)
+    def show_figures_and_wait(figures):
+        """Show all figures and return when the last visible window is closed."""
+        if not figures:
+            return
 
-    print("Charts generated")
+        # Explicitly show each manager so every chart window becomes visible.
+        for fig in figures:
+            manager = getattr(fig.canvas, "manager", None)
+            if manager is None:
+                continue
+            try:
+                manager.show()
+            except Exception:
+                pass
+
+        # Drive the GUI event loop until all figures are closed by the user.
+        plt.show(block=False)
+        while any(plt.fignum_exists(fig.number) for fig in figures):
+            plt.pause(0.1)
+
+    def show_batch(label, figures):
+        """Display one chart family at a time to avoid hidden windows."""
+        if not figures:
+            return
+
+        print(f"\nShowing {label}. Close the window(s) to continue.")
+        try:
+            show_figures_and_wait(figures)
+        finally:
+            for fig in figures:
+                plt.close(fig)
+            plt.close('all')
+
+    # 1. Default dataset repetition behavior: raw + sample_id aggregation (dual)
+    top_k_figures = [
+        *as_figure_list(analyzer.plot_top_k(k=3, rank_metric='rmse')),
+        *as_figure_list(analyzer.plot_top_k(k=3, rank_metric='rmse', aggregate='lot_id')),
+    ]
+
+    # 2. Explicit aggregate override: only the aggregated chart (no raw)
+    heatmap_figures = [
+        *as_figure_list(analyzer.plot_heatmap(
+            'partition',
+            'model_name',
+            rank_metric='rmse',
+            display_metric='rmse',
+        )),
+        *as_figure_list(analyzer.plot_heatmap(
+            'partition',
+            'model_name',
+            rank_metric='rmse',
+            display_metric='rmse',
+            aggregate='lot_id',
+        )),
+    ]
+
+    # 3. Raw-only override on a single plot
+    raw_histogram = as_figure_list(analyzer.plot_histogram(display_metric='rmse', aggregate=''))
+
+    print("\nChart behavior:")
+    print(f"   plot_top_k() returned {len(top_k_figures)} figure(s): raw + sample_id aggregation (dual)")
+    print(f"   plot_heatmap(..., aggregate='lot_id') returned {len(heatmap_figures)} figure(s): lot_id aggregation only")
+    print(f"   plot_histogram(..., aggregate='') returned {len(raw_histogram)} figure(s): raw only")
+
+    all_figures = [*top_k_figures, *heatmap_figures, *raw_histogram]
 
     if args.show:
-        plt.show()
+        show_batch("top-k comparison", top_k_figures)
+        show_batch("heatmap comparison", heatmap_figures)
+        show_batch("raw histogram", raw_histogram)
+    else:
+        for fig in all_figures:
+            plt.close(fig)
+        plt.close('all')
+
+runner.close()
 
 # =============================================================================
 # Section 6: When to Use Repetition
@@ -308,20 +396,19 @@ Repetition Configuration:
      )
 
   2. ACCESS AFTER RUN:
-     runner.last_aggregate  # Returns the repetition column name
+     predictions.repetition_column  # Returns the repetition column name
 
   3. VISUALIZATION:
-     analyzer = PredictionAnalyzer(
-         predictions,
-         default_aggregate=runner.last_aggregate
-     )
+     analyzer = PredictionAnalyzer(predictions)
 
   4. OVERRIDE PER-PLOT:
      analyzer.plot_histogram(aggregate='')  # Disable for this plot
      analyzer.plot_histogram(aggregate='sample_id')  # Force aggregation
+     analyzer.plot_heatmap('partition', 'model_name', aggregate='lot_id')  # Custom grouping
 
   5. TOP MODELS (uses by_repetition):
-     predictions.top(5, by_repetition='sample_id')  # Aggregate for ranking
+     predictions.top(5, by_repetition=True)         # Use dataset repetition
+     predictions.top(5, by_repetition='lot_id')     # Custom aggregation
 
 Result Output:
   - Raw metrics: Evaluated on individual spectra

@@ -1,5 +1,8 @@
 ## ROADMAP
 
+> [clean] See God Classes Modularization Guide
+> [Optuna] Modularize god class
+
 > [TaskType] Review > Ensure tasktype correctly detected or customized >>> 2 in the same workspace induce bugs.
 
 > [Predictions] Simplify and verify save
@@ -17,9 +20,6 @@
 > [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
 
 ## FEATURES
-> [Docs] Updated
-
-> [Optuma] Modularize god class
 
 > [multivariate]
 
@@ -80,6 +80,7 @@
 
 > [Profiling] Code Optimization, Improve performances
 
+> [Docs] Updated
 
 ## Deploy
 

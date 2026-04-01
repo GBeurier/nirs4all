@@ -263,6 +263,29 @@ class TestRankingWithAggregation:
         # Without aggregation: 12 samples
         assert len(results_no_agg[0]["y_pred"]) == 12
 
+    def test_aggregate_partitions_enriches_partition_arrays(self, predictions_with_metadata_for_aggregation):
+        """Partition payloads should reflect aggregated arrays and scores."""
+        predictions = predictions_with_metadata_for_aggregation
+
+        results = predictions.top(
+            n=1,
+            rank_metric="rmse",
+            rank_partition="val",
+            display_partition="test",
+            display_metrics=["rmse"],
+            aggregate_partitions=True,
+            by_repetition="ID",
+        )
+
+        assert len(results) == 1
+        partitions = results[0]["partitions"]
+        assert set(partitions) == {"train", "val", "test"}
+
+        for partition_name, part in partitions.items():
+            assert part.get("aggregated", False) is True, f"{partition_name} partition should be marked aggregated"
+            assert len(part["y_pred"]) == 3, f"{partition_name} partition should shrink to unique IDs"
+            assert np.isfinite(part["rmse"]), f"{partition_name} partition should expose aggregated rmse"
+
 class TestGroupByFiltering:
     """Test group_by filtering for ranking."""
 
