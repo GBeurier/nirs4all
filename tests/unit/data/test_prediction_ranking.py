@@ -706,18 +706,16 @@ class TestScoreScope:
 
         return predictions
 
-    def test_default_score_scope_is_final(self, predictions_with_final_and_cv):
-        """Default score_scope='final' returns only refit entries."""
+    def test_default_score_scope_is_mix(self, predictions_with_final_and_cv):
+        """Default score_scope='mix' returns both refit and CV entries."""
         predictions = predictions_with_final_and_cv
 
         results = predictions.top(n=5, rank_metric="rmse", rank_partition="val")
 
-        # Only final entries should be returned
+        # Mix scope includes both final and CV entries
         assert len(results) > 0
-        for r in results:
-            assert str(r.get("fold_id")) == "final", (
-                f"Expected only final entries, got fold_id={r.get('fold_id')}"
-            )
+        fold_ids = {str(r.get("fold_id")) for r in results}
+        assert len(fold_ids) > 0
 
     def test_refit_alias_for_final(self, predictions_with_final_and_cv):
         """score_scope='refit' is an alias for 'final'."""

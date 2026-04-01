@@ -1,6 +1,7 @@
 """
 BaseChart - Abstract base class for all prediction visualization charts.
 """
+import contextlib
 import re
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Optional, Union
@@ -169,6 +170,22 @@ class BaseChart(ABC):
             return [str(t) for t in self.predictions.get_unique_values('task_type') if t]
         except Exception:
             return []
+
+    def _normalize_aggregate(self, aggregate: bool | str | None) -> str | None:
+        """Normalize chart aggregate input to an explicit column name."""
+        if aggregate in (None, False, ""):
+            return None
+
+        if aggregate is True:
+            repetition_column = getattr(self.predictions, "repetition_column", None)
+            if callable(repetition_column):
+                with contextlib.suppress(Exception):
+                    repetition_column = repetition_column()
+            if isinstance(repetition_column, str) and repetition_column:
+                return repetition_column
+            return None
+
+        return str(aggregate)
 
     def _get_score(self, partition_data: dict[str, Any], metric: str) -> float | None:
         """Get score from partition data, computing it if necessary.
