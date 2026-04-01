@@ -22,6 +22,7 @@ import polars as pl
 from matplotlib.figure import Figure
 
 from nirs4all.data.predictions import Predictions
+from nirs4all.core.task_type import matches_task_type
 from nirs4all.visualization.charts import CandlestickChart, ChartConfig, ConfusionMatrixChart, HeatmapChart, ScoreHistogramChart, TopKComparisonChart
 from nirs4all.visualization.prediction_cache import PredictionCache
 
@@ -83,10 +84,10 @@ class PredictionAnalyzer:
         >>> # Check cache stats
         >>> print(analyzer.get_cache_stats())
         >>>
-        >>> # With default aggregation from dataset config
+        >>> # Dataset repetition context is inferred automatically when available
         >>> runner = PipelineRunner()
         >>> predictions, _ = runner.run(pipeline, DatasetConfigs({"train_x": path, "aggregate": "sample_id"}))
-        >>> analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
+        >>> analyzer = PredictionAnalyzer(predictions)
         >>> # All plots now use sample_id aggregation by default
         >>> fig = analyzer.plot_top_k(k=5)  # Aggregated automatically
     """
@@ -114,7 +115,8 @@ class PredictionAnalyzer:
             default_aggregate: Default aggregation column for all visualization methods.
                 If set, all plots will use this aggregation unless overridden.
                 Can be 'y' (aggregate by target values) or a metadata column name.
-                Typically obtained from `runner.last_aggregate` after a pipeline run.
+                When omitted, the analyzer will automatically use
+                ``predictions.repetition_column`` if available.
             default_aggregate_method: Default aggregation method for all visualization methods.
                 - None (default): Use 'mean' for regression, 'vote' for classification
                 - 'mean': Average predictions within each group
@@ -124,20 +126,29 @@ class PredictionAnalyzer:
                 before aggregation (default: False).
 
         Example:
-            >>> # With default aggregation from dataset config
+            >>> # With repetition context stored in predictions
             >>> runner = PipelineRunner()
             >>> predictions, _ = runner.run(pipeline, DatasetConfigs({"train_x": path, "aggregate": "sample_id"}))
-            >>> analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
+            >>> analyzer = PredictionAnalyzer(predictions)
             >>> # All plots now use sample_id aggregation by default
             >>> fig = analyzer.plot_top_k(k=5)  # Aggregated
             >>> fig = analyzer.plot_top_k(k=5, aggregate=None)  # Explicit override to no aggregation
         """
+        inferred_default_aggregate = default_aggregate
+        if inferred_default_aggregate is None:
+            repetition_column = getattr(predictions_obj, "repetition_column", None)
+            if callable(repetition_column):
+                with contextlib.suppress(Exception):
+                    repetition_column = repetition_column()
+            if isinstance(repetition_column, str) and repetition_column:
+                inferred_default_aggregate = repetition_column
+
         self.predictions = predictions_obj
         self.dataset_name_override = dataset_name_override
         self.config = config or ChartConfig()
         self.output_dir = output_dir if output_dir is not None else _get_default_figures_dir()
         self._cache = PredictionCache(max_entries=cache_size)
-        self.default_aggregate = default_aggregate
+        self.default_aggregate = inferred_default_aggregate
         self.default_aggregate_method = default_aggregate_method
         self.default_aggregate_exclude_outliers = default_aggregate_exclude_outliers
 
@@ -322,9 +333,9 @@ class PredictionAnalyzer:
                 display_metrics=effective_display_metrics,
                 ascending=ascending,
                 aggregate_partitions=aggregate_partitions,
-                aggregate=aggregate,
-                aggregate_method=effective_method,
-                aggregate_exclude_outliers=effective_exclude,
+                by_repetition=aggregate,
+                repetition_method=effective_method,
+                repetition_exclude_outliers=effective_exclude,
                 group_by=group_by,
                 **filters
             )
@@ -421,6 +432,107 @@ class PredictionAnalyzer:
             except Exception as e:
                 logger.error(f"Failed to save chart to {save_path}: {e}")
 
+    @staticmethod
+    def _figure_list(fig: Any) -> list[Any]:
+        """Normalize a render result to a flat list of figure-like objects."""
+        if fig is None:
+            return []
+        if isinstance(fig, list):
+            return [item for item in fig if item is not None]
+        return [fig]
+
+    def _merge_render_results(self, *results: Any) -> Figure | list[Figure]:
+        """Merge raw/aggregated render results into the public return shape."""
+        figures: list[Any] = []
+        for result in results:
+            figures.extend(self._figure_list(result))
+        if not figures:
+            return []
+        if len(figures) == 1:
+            return figures[0]
+        return figures
+
+    def _render_chart_variants(
+        self,
+        render_fn,
+        chart_type: str,
+        dataset_name: str | None = None,
+        aggregate: str | None = None,
+        dual: bool = False,
+    ) -> Figure | list[Figure]:
+        """Render chart variants depending on aggregation mode.
+
+        Args:
+            render_fn: Callable that accepts an aggregate value and returns a Figure.
+            chart_type: Chart type identifier for file naming.
+            dataset_name: Optional dataset name for file naming.
+            aggregate: Aggregation column name, or None for raw.
+            dual: If True, render both raw and aggregated charts (used when
+                aggregate was inferred from the dataset repetition column).
+                If False, render only the aggregated chart.
+        """
+        if aggregate is None:
+            result = render_fn(None)
+            self._save_figure(result, chart_type, dataset_name)
+            return result
+
+        if dual:
+            raw_result = render_fn(None)
+            aggregated_result = render_fn(aggregate)
+            merged = self._merge_render_results(raw_result, aggregated_result)
+            self._save_figure(merged, chart_type, dataset_name)
+            return merged
+
+        result = render_fn(aggregate)
+        self._save_figure(result, chart_type, dataset_name)
+        return result
+
+    def _resolve_chart_task_type(
+        self,
+        task_type: str | None,
+        required_family: str | None = None,
+    ) -> str | None | bool:
+        """Resolve the effective task type for a chart, or False when inapplicable.
+
+        Args:
+            task_type: User-specified task-type filter, if any.
+            required_family: ``"regression"``, ``"classification"``, or ``None``.
+
+        Returns:
+            Effective task type to pass to the chart, ``None`` when no extra
+            restriction is needed, or ``False`` when the chart should be skipped.
+        """
+        if required_family is None:
+            return task_type
+
+        def _filter_matches_required(filter_value: str) -> bool:
+            if required_family == "regression":
+                return matches_task_type("regression", filter_value)
+            return (
+                matches_task_type("binary_classification", filter_value)
+                or matches_task_type("multiclass_classification", filter_value)
+            )
+
+        if task_type is not None:
+            return task_type if _filter_matches_required(task_type) else False
+
+        try:
+            available = [
+                str(t) for t in self.predictions.get_unique_values("task_type")
+                if t is not None
+            ]
+        except Exception:
+            available = []
+
+        if not available:
+            return None
+
+        matching = [tt for tt in available if _filter_matches_required(tt)]
+        if not matching:
+            return False
+
+        return required_family
+
     def plot_top_k(
         self,
         k: int = 5,
@@ -452,15 +564,18 @@ class PredictionAnalyzer:
             aggregate: If provided, aggregate predictions by this metadata column or 'y'.
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
-                      Aggregated predictions have recalculated metrics.
+                      Aggregated predictions have recalculated metrics. When explicitly
+                      set, only the aggregated chart is returned. When aggregation is
+                      inferred from the dataset repetition column (default_aggregate),
+                      both raw and aggregated charts are returned.
             task_type: If provided, filter predictions to this task type (e.g.,
-                      'regression', 'classification'). When None and mixed task types
-                      exist, renders separate figures per task type.
+                      'regression', 'classification'). Regression-only views are
+                      skipped for classification filters.
             config: Optional ChartConfig to override analyzer's default config for this chart.
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
         Returns:
-            matplotlib Figure object or list of Figure objects (one per dataset).
+            matplotlib Figure object or list of Figure objects.
 
         Example:
             >>> fig = analyzer.plot_top_k(k=3, rank_metric='r2')
@@ -468,12 +583,32 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
+        is_dual = aggregate is None and effective_aggregate is not None
+        effective_task_type = self._resolve_chart_task_type(task_type, required_family="regression")
+        if effective_task_type is False:
+            return []
         chart = TopKComparisonChart(
             self.predictions,
             self.dataset_name_override,
             effective_config,
             analyzer=self  # Pass analyzer for cached data access
         )
+
+        def _render(aggregate_value: str | None, dataset: str | None = None):
+            render_kwargs = dict(kwargs)
+            if dataset is not None:
+                render_kwargs["dataset_name"] = dataset
+            return chart.render(
+                k=k,
+                rank_metric=rank_metric,
+                rank_partition=rank_partition,
+                display_metric=display_metric,
+                display_partition=display_partition,
+                show_scores=show_scores,
+                aggregate=aggregate_value,
+                task_type=effective_task_type if isinstance(effective_task_type, str) else None,
+                **render_kwargs
+            )
 
         # Check if dataset_name is specified in kwargs
         if 'dataset_name' not in kwargs:
@@ -484,19 +619,13 @@ class PredictionAnalyzer:
             if len(datasets) > 1:
                 figures = []
                 for dataset in datasets:
-                    fig = chart.render(
-                        k=k,
-                        rank_metric=rank_metric,
-                        rank_partition=rank_partition,
-                        display_metric=display_metric,
-                        display_partition=display_partition,
-                        show_scores=show_scores,
-                        aggregate=effective_aggregate,
-                        task_type=task_type,
+                    fig = self._render_chart_variants(
+                        lambda agg, dataset_name=dataset: _render(agg, dataset_name),
+                        "top_k",
                         dataset_name=dataset,
-                        **kwargs
+                        aggregate=effective_aggregate,
+                        dual=is_dual,
                     )
-                    self._save_figure(fig, "top_k", dataset)
                     if isinstance(fig, list):
                         figures.extend(fig)
                     else:
@@ -504,18 +633,13 @@ class PredictionAnalyzer:
                 return figures
 
         # Single dataset or dataset_name specified
-        fig = chart.render(
-            k=k,
-            rank_metric=rank_metric,
-            rank_partition=rank_partition,
-            display_metric=display_metric,
-            display_partition=display_partition,
-            show_scores=show_scores,
+        fig = self._render_chart_variants(
+            lambda agg: _render(agg),
+            "top_k",
+            dataset_name=str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None,
             aggregate=effective_aggregate,
-            task_type=task_type,
-            **kwargs
+            dual=is_dual,
         )
-        self._save_figure(fig, "top_k", str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None)
         return fig
 
     def plot_confusion_matrix(
@@ -547,13 +671,17 @@ class PredictionAnalyzer:
             display_partition: Partition to display confusion matrix from (default: 'test').
             show_scores: If True, show scores in chart titles (default: True).
             aggregate: If provided, aggregate predictions by this metadata column or 'y'.
+                      When explicitly set, only the aggregated chart is returned.
+                      When aggregation is inferred from the dataset repetition column,
+                      both raw and aggregated charts are returned.
             task_type: If provided, filter predictions to this task type (e.g.,
-                      'classification'). Passed through to the chart's render method.
+                      'classification'). Classification-only views are skipped for
+                      regression filters.
             config: Optional ChartConfig to override analyzer's default config for this chart.
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
         Returns:
-            matplotlib Figure object or list of Figure objects (one per dataset).
+            matplotlib Figure object or list of Figure objects.
 
         Example:
             >>> fig = analyzer.plot_confusion_matrix(k=3, rank_metric='f1')
@@ -566,14 +694,33 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
-        if task_type is not None:
-            kwargs['task_type'] = task_type
+        is_dual = aggregate is None and effective_aggregate is not None
+        effective_task_type = self._resolve_chart_task_type(task_type, required_family="classification")
+        if effective_task_type is False:
+            return []
         chart = ConfusionMatrixChart(
             self.predictions,
             self.dataset_name_override,
             effective_config,
             analyzer=self  # Pass analyzer for cached data access
         )
+
+        def _render(aggregate_value: str | None, dataset: str | None = None):
+            render_kwargs = dict(kwargs)
+            if dataset is not None:
+                render_kwargs["dataset_name"] = dataset
+            if isinstance(effective_task_type, str):
+                render_kwargs["task_type"] = effective_task_type
+            return chart.render(
+                k=k,
+                rank_metric=rank_metric,
+                rank_partition=rank_partition,
+                display_metric=display_metric,
+                display_partition=display_partition,
+                show_scores=show_scores,
+                aggregate=aggregate_value,
+                **render_kwargs
+            )
 
         # Check if dataset_name is specified in kwargs
         if 'dataset_name' not in kwargs:
@@ -584,37 +731,27 @@ class PredictionAnalyzer:
             if len(datasets) > 1:
                 figures: list[Figure] = []
                 for dataset in datasets:
-                    fig = chart.render(
-                        k=k,
-                        rank_metric=rank_metric,
-                        rank_partition=rank_partition,
-                        display_metric=display_metric,
-                        display_partition=display_partition,
-                        show_scores=show_scores,
-                        aggregate=effective_aggregate,
+                    fig = self._render_chart_variants(
+                        lambda agg, dataset_name=dataset: _render(agg, dataset_name),
+                        "confusion_matrix",
                         dataset_name=dataset,
-                        **kwargs
+                        aggregate=effective_aggregate,
+                        dual=is_dual,
                     )
-                    if isinstance(fig, Figure):
-                        self._save_figure(fig, "confusion_matrix", dataset)
-                        figures.append(fig)
-                    elif isinstance(fig, list):
+                    if isinstance(fig, list):
                         figures.extend(fig)
+                    else:
+                        figures.append(fig)
                 return figures
 
         # Single dataset or dataset_name specified
-        fig = chart.render(
-            k=k,
-            rank_metric=rank_metric,
-            rank_partition=rank_partition,
-            display_metric=display_metric,
-            display_partition=display_partition,
-            show_scores=show_scores,
+        fig = self._render_chart_variants(
+            lambda agg: _render(agg),
+            "confusion_matrix",
+            dataset_name=str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None,
             aggregate=effective_aggregate,
-            **kwargs
+            dual=is_dual,
         )
-        if isinstance(fig, Figure):
-            self._save_figure(fig, "confusion_matrix", str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None)
         return fig
 
     def plot_histogram(
@@ -637,7 +774,10 @@ class PredictionAnalyzer:
             aggregate: If provided, aggregate predictions by this metadata column or 'y'.
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
-                      Aggregated predictions have recalculated metrics.
+                      Aggregated predictions have recalculated metrics. When explicitly
+                      set, only the aggregated chart is returned. When aggregation is
+                      inferred from the dataset repetition column (default_aggregate),
+                      both raw and aggregated charts are returned.
             task_type: If provided, filter predictions to this task type (e.g.,
                       'regression', 'classification'). Passed through to the chart's
                       render method as a filter.
@@ -645,7 +785,7 @@ class PredictionAnalyzer:
             **kwargs: Additional parameters (dataset_name, bins, figsize, filters).
 
         Returns:
-            matplotlib Figure object or list of Figure objects (one per dataset).
+            matplotlib Figure object or list of Figure objects.
 
         Example:
             >>> fig = analyzer.plot_histogram(display_metric='r2', display_partition='val')
@@ -653,14 +793,27 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
-        if task_type is not None:
-            kwargs['task_type'] = task_type
+        is_dual = aggregate is None and effective_aggregate is not None
+        effective_task_type = self._resolve_chart_task_type(task_type)
         chart = ScoreHistogramChart(
             self.predictions,
             self.dataset_name_override,
             effective_config,
             analyzer=self  # Pass analyzer for cached data access
         )
+
+        def _render(aggregate_value: str | None, dataset: str | None = None):
+            render_kwargs = dict(kwargs)
+            if dataset is not None:
+                render_kwargs["dataset_name"] = dataset
+            if isinstance(effective_task_type, str):
+                render_kwargs["task_type"] = effective_task_type
+            return chart.render(
+                display_metric=display_metric,
+                display_partition=display_partition,
+                aggregate=aggregate_value,
+                **render_kwargs
+            )
 
         # Check if dataset_name is specified in kwargs
         if 'dataset_name' not in kwargs:
@@ -671,14 +824,13 @@ class PredictionAnalyzer:
             if len(datasets) > 1:
                 figures = []
                 for dataset in datasets:
-                    fig = chart.render(
-                        display_metric=display_metric,
-                        display_partition=display_partition,
-                        aggregate=effective_aggregate,
+                    fig = self._render_chart_variants(
+                        lambda agg, dataset_name=dataset: _render(agg, dataset_name),
+                        "histogram",
                         dataset_name=dataset,
-                        **kwargs
+                        aggregate=effective_aggregate,
+                        dual=is_dual,
                     )
-                    self._save_figure(fig, "histogram", dataset)
                     if isinstance(fig, list):
                         figures.extend(fig)
                     else:
@@ -686,13 +838,13 @@ class PredictionAnalyzer:
                 return figures
 
         # Single dataset or dataset_name specified
-        fig = chart.render(
-            display_metric=display_metric,
-            display_partition=display_partition,
+        fig = self._render_chart_variants(
+            lambda agg: _render(agg),
+            "histogram",
+            dataset_name=str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None,
             aggregate=effective_aggregate,
-            **kwargs
+            dual=is_dual,
         )
-        self._save_figure(fig, "histogram", str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None)
         return fig
 
     def plot_heatmap(
@@ -740,6 +892,9 @@ class PredictionAnalyzer:
             column_scale: If True, normalize colors per column (best in column = 1.0).
                          Automatically sets local_scale=False when enabled (default: False).
             aggregate: If provided, aggregate predictions by this metadata column (e.g., 'ID').
+                       When explicitly set, only the aggregated chart is returned.
+                       When aggregation is inferred from the dataset repetition column,
+                       both raw and aggregated charts are returned.
             top_k: If provided, show only top K models. Selection uses Borda count:
                    first keeps top-1 per column, then ranks by Borda count.
             sort_by_value: If True, sort Y-axis by ranking score (best first) instead
@@ -760,7 +915,7 @@ class PredictionAnalyzer:
             **kwargs: Additional filters (dataset_name, model_name, etc.).
 
         Returns:
-            matplotlib Figure object.
+            matplotlib Figure object or list of Figure objects.
 
         Example:
             >>> # Rank on best val RMSE, display mean test RMSE
@@ -791,34 +946,46 @@ class PredictionAnalyzer:
 
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
-        if task_type is not None:
-            kwargs['task_type'] = task_type
+        is_dual = aggregate is None and effective_aggregate is not None
+        effective_task_type = self._resolve_chart_task_type(task_type)
         chart = HeatmapChart(
             self.predictions,
             self.dataset_name_override,
             effective_config,
             analyzer=self  # Pass analyzer for cached data access
         )
-        fig = chart.render(
-            x_var=x_var,
-            y_var=y_var,
-            rank_metric=rank_metric,
-            rank_partition=rank_partition,
-            display_metric=display_metric,
-            display_partition=display_partition,
-            normalize=normalize,
-            rank_agg=rank_agg,
-            display_agg=display_agg,
-            show_counts=show_counts,
-            local_scale=local_scale,
-            column_scale=column_scale,
+
+        def _render(aggregate_value: str | None):
+            render_kwargs = dict(kwargs)
+            if isinstance(effective_task_type, str):
+                render_kwargs["task_type"] = effective_task_type
+            return chart.render(
+                x_var=x_var,
+                y_var=y_var,
+                rank_metric=rank_metric,
+                rank_partition=rank_partition,
+                display_metric=display_metric,
+                display_partition=display_partition,
+                normalize=normalize,
+                rank_agg=rank_agg,
+                display_agg=display_agg,
+                show_counts=show_counts,
+                local_scale=local_scale,
+                column_scale=column_scale,
+                aggregate=aggregate_value,
+                top_k=top_k,
+                sort_by_value=sort_by_value,
+                sort_by=sort_by,
+                **render_kwargs
+            )
+
+        fig = self._render_chart_variants(
+            _render,
+            "heatmap",
+            dataset_name=str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None,
             aggregate=effective_aggregate,
-            top_k=top_k,
-            sort_by_value=sort_by_value,
-            sort_by=sort_by,
-            **kwargs
+            dual=is_dual,
         )
-        self._save_figure(fig, "heatmap", str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None)
         return fig
 
     def plot_candlestick(
@@ -840,7 +1007,10 @@ class PredictionAnalyzer:
             aggregate: If provided, aggregate predictions by this metadata column or 'y'.
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
-                      Aggregated predictions have recalculated metrics.
+                      Aggregated predictions have recalculated metrics. When explicitly
+                      set, only the aggregated chart is returned. When aggregation is
+                      inferred from the dataset repetition column (default_aggregate),
+                      both raw and aggregated charts are returned.
             task_type: If provided, filter predictions to this task type (e.g.,
                       'regression', 'classification'). Passed through to the chart's
                       render method as a filter.
@@ -848,7 +1018,7 @@ class PredictionAnalyzer:
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
         Returns:
-            matplotlib Figure object.
+            matplotlib Figure object or list of Figure objects.
 
         Example:
             >>> fig = analyzer.plot_candlestick('model_name', display_metric='rmse')
@@ -856,22 +1026,34 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
-        if task_type is not None:
-            kwargs['task_type'] = task_type
+        is_dual = aggregate is None and effective_aggregate is not None
+        effective_task_type = self._resolve_chart_task_type(task_type)
         chart = CandlestickChart(
             self.predictions,
             self.dataset_name_override,
             effective_config,
             analyzer=self  # Pass analyzer for cached data access
         )
-        fig = chart.render(
-            variable=variable,
-            display_metric=display_metric,
-            display_partition=display_partition,
+
+        def _render(aggregate_value: str | None):
+            render_kwargs = dict(kwargs)
+            if isinstance(effective_task_type, str):
+                render_kwargs["task_type"] = effective_task_type
+            return chart.render(
+                variable=variable,
+                display_metric=display_metric,
+                display_partition=display_partition,
+                aggregate=aggregate_value,
+                **render_kwargs
+            )
+
+        fig = self._render_chart_variants(
+            _render,
+            "candlestick",
+            dataset_name=str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None,
             aggregate=effective_aggregate,
-            **kwargs
+            dual=is_dual,
         )
-        self._save_figure(fig, "candlestick", str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None)
         return fig
 
     # =========================================================================

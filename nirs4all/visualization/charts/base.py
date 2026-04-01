@@ -315,7 +315,7 @@ class BaseChart(ABC):
             display_metrics=display_metrics,
             ascending=ascending,
             aggregate_partitions=aggregate_partitions,
-            aggregate=aggregate,
+            by_repetition=aggregate,
             group_by=group_by,
             **filters
         )

@@ -85,7 +85,7 @@ The User Path provides a complete introduction to nirs4all, from your first pipe
 | U01_cv_strategies.py | KFold, ShuffleSplit, RepeatedKFold | ★★☆☆☆ |
 | U02_group_splitting.py | GroupKFold, repetition | ★★★☆☆ |
 | U03_sample_filtering.py | Outlier filtering (IQR, Z-score) | ★★★☆☆ |
-| U04_aggregation.py | Aggregation of repetitions | ★★☆☆☆ |
+| U04_aggregation.py | Repetition/sample aggregation | ★★★☆☆ |
 
 ### 06_deployment/ - Deployment
 

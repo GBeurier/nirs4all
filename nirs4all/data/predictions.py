@@ -1074,7 +1074,17 @@ class Predictions:
         # Enrich results
         by_rep_enrich = effective_by_repetition if isinstance(effective_by_repetition, str) else None
         enriched_results = [
-            PredictionResult(self._enrich_result(r, display_metrics, display_partition, aggregate_partitions, by_rep_enrich))
+            PredictionResult(
+                self._enrich_result(
+                    r,
+                    display_metrics,
+                    display_partition,
+                    aggregate_partitions,
+                    by_rep_enrich,
+                    effective_repetition_method,
+                    effective_repetition_exclude_outliers,
+                )
+            )
             for r in candidates
         ]
 
@@ -1984,6 +1994,8 @@ class Predictions:
         display_partition: str = "test",
         aggregate_partitions: bool = False,
         by_repetition: str | None = None,
+        repetition_method: str | None = None,
+        repetition_exclude_outliers: bool = False,
     ) -> dict[str, Any]:
         """Enrich a raw buffer row into a user-facing result dict.
 
@@ -2003,6 +2015,7 @@ class Predictions:
             metadata = row.get("metadata", {})
             agg_y_true, agg_y_pred, agg_y_proba, was_aggregated = self._apply_aggregation(
                 y_true, y_pred, y_proba, metadata, by_repetition, row.get("model_name", ""),
+                repetition_method, repetition_exclude_outliers,
             )
             if was_aggregated:
                 enriched["y_true"] = agg_y_true
@@ -2051,17 +2064,31 @@ class Predictions:
             entry_partition = row.get("partition", "")
             display_y_true = y_true
             display_y_pred = y_pred
-            if entry_partition != display_partition and not was_aggregated:
+            display_was_aggregated = was_aggregated
+            if entry_partition != display_partition:
                 display_part = self.get_entry_partitions(row).get(display_partition)
                 if display_part is not None:
                     display_y_true = display_part.get("y_true")
                     display_y_pred = display_part.get("y_pred")
+                    display_y_proba = display_part.get("y_proba")
+                    if by_repetition and display_y_pred is not None and isinstance(display_y_pred, np.ndarray) and display_y_pred.size > 0:
+                        display_metadata = display_part.get("metadata", {})
+                        display_y_true, display_y_pred, display_y_proba, display_was_aggregated = self._apply_aggregation(
+                            display_y_true,
+                            display_y_pred,
+                            display_y_proba,
+                            display_metadata,
+                            by_repetition,
+                            row.get("model_name", ""),
+                            repetition_method,
+                            repetition_exclude_outliers,
+                        )
 
             for m in display_metrics:
-                # If aggregated, always recalculate
-                if was_aggregated and y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0 and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
+                # If aggregation changed the display arrays, always recalculate.
+                if display_was_aggregated and display_y_true is not None and isinstance(display_y_true, np.ndarray) and display_y_true.size > 0 and display_y_pred is not None and isinstance(display_y_pred, np.ndarray) and display_y_pred.size > 0:
                     try:
-                        enriched[m] = evaluator.eval(y_true, y_pred, m)
+                        enriched[m] = evaluator.eval(display_y_true, display_y_pred, m)
                     except Exception:
                         enriched[m] = None
                 # Try pre-computed scores
@@ -2082,7 +2109,15 @@ class Predictions:
             enriched["partitions"] = {}
             for part_name, part_data in partitions_data.items():
                 if part_data is not None:
-                    enriched["partitions"][part_name] = part_data
+                    enriched["partitions"][part_name] = self._enrich_result(
+                        part_data,
+                        display_metrics=display_metrics,
+                        display_partition=part_name,
+                        aggregate_partitions=False,
+                        by_repetition=by_repetition,
+                        repetition_method=repetition_method,
+                        repetition_exclude_outliers=repetition_exclude_outliers,
+                    )
 
         return enriched
 

@@ -10,19 +10,129 @@ import shutil
 import tempfile
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import ShuffleSplit
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.pipeline.config.context import ExecutionContext
+from nirs4all.visualization.predictions import PredictionAnalyzer
 from tests.fixtures.data_generators import SyntheticNIRSDataGenerator, TestDataManager
+
+
+def _write_repeated_regression_dataset(base_path: Path, seed: int = 42) -> None:
+    """Create a repeated-measurement regression dataset with a custom lot grouping."""
+    rng = np.random.default_rng(seed)
+    n_lots = 8
+    samples_per_lot = 2
+    n_reps = 3
+    n_wavelengths = 60
+    n_samples = n_lots * samples_per_lot
+    n_train = 12
+
+    lot_targets = rng.uniform(5.0, 15.0, size=n_lots)
+    X_base = rng.normal(size=(n_samples, n_wavelengths))
+
+    def build_partition(sample_indices, prefix):
+        x_all, y_all, meta_rows = [], [], []
+        for sample_idx in sample_indices:
+            lot_idx = sample_idx // samples_per_lot
+            target = float(lot_targets[lot_idx])
+            spectrum = X_base[sample_idx] + target * 0.15
+            for rep in range(n_reps):
+                x_all.append(spectrum + rng.normal(scale=0.25, size=n_wavelengths))
+                y_all.append(target)
+                meta_rows.append({
+                    "sample_id": f"{prefix}_sample_{sample_idx:03d}",
+                    "lot_id": f"lot_{lot_idx:03d}",
+                    "repetition": rep + 1,
+                })
+        return np.asarray(x_all), np.asarray(y_all), pd.DataFrame(meta_rows)
+
+    X_train, y_train, m_train = build_partition(np.arange(0, n_train), "train")
+    X_test, y_test, m_test = build_partition(np.arange(n_train, n_samples), "test")
+
+    pd.DataFrame(X_train).to_csv(base_path / "Xcal.csv.gz", index=False, header=False, compression="gzip", sep=";")
+    pd.DataFrame(y_train).to_csv(base_path / "Ycal.csv.gz", index=False, header=False, compression="gzip", sep=";")
+    m_train.to_csv(base_path / "Mcal.csv", index=False, sep=";")
+    pd.DataFrame(X_test).to_csv(base_path / "Xval.csv.gz", index=False, header=False, compression="gzip", sep=";")
+    pd.DataFrame(y_test).to_csv(base_path / "Yval.csv.gz", index=False, header=False, compression="gzip", sep=";")
+    m_test.to_csv(base_path / "Mval.csv", index=False, sep=";")
+
+
+def _write_repeated_classification_dataset(base_path: Path, seed: int = 123) -> None:
+    """Create a repeated-measurement classification dataset with a custom lot grouping."""
+    rng = np.random.default_rng(seed)
+    n_classes = 3
+    lots_per_class = 3
+    samples_per_lot = 2
+    n_reps = 3
+    n_wavelengths = 60
+    n_lots = n_classes * lots_per_class
+    n_samples = n_lots * samples_per_lot
+    n_train = 12
+
+    class_centers = rng.normal(size=(n_classes, n_wavelengths))
+    lot_classes = np.repeat(np.arange(n_classes), lots_per_class)
+
+    def build_partition(sample_indices, prefix):
+        x_all, y_all, meta_rows = [], [], []
+        for sample_idx in sample_indices:
+            lot_idx = sample_idx // samples_per_lot
+            class_idx = int(lot_classes[lot_idx])
+            spectrum = class_centers[class_idx] + rng.normal(scale=0.15, size=n_wavelengths)
+            for rep in range(n_reps):
+                x_all.append(spectrum + rng.normal(scale=0.08, size=n_wavelengths))
+                y_all.append(class_idx)
+                meta_rows.append({
+                    "sample_id": f"{prefix}_sample_{sample_idx:03d}",
+                    "lot_id": f"lot_{lot_idx:03d}",
+                    "repetition": rep + 1,
+                })
+        return np.asarray(x_all), np.asarray(y_all), pd.DataFrame(meta_rows)
+
+    X_train, y_train, m_train = build_partition(np.arange(0, n_train), "train")
+    X_test, y_test, m_test = build_partition(np.arange(n_train, n_samples), "test")
+
+    pd.DataFrame(X_train).to_csv(base_path / "Xcal.csv.gz", index=False, header=False, compression="gzip", sep=";")
+    pd.DataFrame(y_train).to_csv(base_path / "Ycal.csv.gz", index=False, header=False, compression="gzip", sep=";")
+    m_train.to_csv(base_path / "Mcal.csv", index=False, sep=";")
+    pd.DataFrame(X_test).to_csv(base_path / "Xval.csv.gz", index=False, header=False, compression="gzip", sep=";")
+    pd.DataFrame(y_test).to_csv(base_path / "Yval.csv.gz", index=False, header=False, compression="gzip", sep=";")
+    m_test.to_csv(base_path / "Mval.csv", index=False, sep=";")
+
+
+def _repeated_dataset_config(data_path: Path, task_type: str | None = None) -> DatasetConfigs:
+    """Build DatasetConfigs for repeated datasets with metadata files."""
+    kwargs = {"repetition": "sample_id"}
+    if task_type is not None:
+        kwargs["task_type"] = task_type
+
+    return DatasetConfigs(
+        {
+            "train_x": str(data_path / "Xcal.csv.gz"),
+            "train_y": str(data_path / "Ycal.csv.gz"),
+            "train_m": str(data_path / "Mcal.csv"),
+            "test_x": str(data_path / "Xval.csv.gz"),
+            "test_y": str(data_path / "Yval.csv.gz"),
+            "test_m": str(data_path / "Mval.csv"),
+            "train_x_params": {"has_header": False},
+            "train_y_params": {"has_header": False},
+            "train_m_params": {"has_header": True},
+            "test_x_params": {"has_header": False},
+            "test_y_params": {"has_header": False},
+            "test_m_params": {"has_header": True},
+        },
+        **kwargs,
+    )
 
 
 class TestAggregationIntegration:
@@ -410,6 +520,84 @@ class TestAggregationReporting:
         # Aggregated should have n_unique samples
         assert len(result['y_pred']) == n_unique
         assert len(result['y_true']) == n_unique
+
+
+class TestAnalyzerCustomAggregationCharts:
+    """Verify analyzer charts use custom aggregation columns end-to-end."""
+
+    def test_regression_plots_render_raw_and_custom_aggregated_variants(self, tmp_path):
+        """Regression chart families should build raw + custom aggregated plots."""
+        data_path = tmp_path / "regression_custom_agg"
+        data_path.mkdir()
+        _write_repeated_regression_dataset(data_path)
+
+        dataset_config = _repeated_dataset_config(data_path)
+        pipeline = [
+            MinMaxScaler(),
+            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            {"model": PLSRegression(n_components=3)},
+            {"model": PLSRegression(n_components=5)},
+            {"model": RandomForestRegressor(n_estimators=10, random_state=42)},
+        ]
+
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
+        predictions, _ = runner.run(PipelineConfigs(pipeline, "test_chart_custom_agg_reg"), dataset_config)
+        analyzer = PredictionAnalyzer(predictions)
+
+        figures = []
+        try:
+            top_k = analyzer.plot_top_k(k=2, aggregate="lot_id")
+            histogram = analyzer.plot_histogram(display_metric="rmse", aggregate="lot_id")
+            heatmap = analyzer.plot_heatmap("partition", "model_name", rank_metric="rmse", display_metric="rmse", aggregate="lot_id")
+            candlestick = analyzer.plot_candlestick("model_name", display_metric="rmse", aggregate="lot_id")
+
+            figures.extend(top_k if isinstance(top_k, list) else [top_k])
+            figures.extend(histogram if isinstance(histogram, list) else [histogram])
+            figures.extend(heatmap if isinstance(heatmap, list) else [heatmap])
+            figures.extend(candlestick if isinstance(candlestick, list) else [candlestick])
+
+            assert isinstance(top_k, list) and len(top_k) == 2
+            assert isinstance(histogram, list) and len(histogram) == 2
+            assert isinstance(heatmap, list) and len(heatmap) == 2
+            assert isinstance(candlestick, list) and len(candlestick) == 2
+
+            assert "lot_id" in top_k[1]._suptitle.get_text()
+            assert "not applied" not in top_k[1]._suptitle.get_text()
+            assert "lot_id" in histogram[1].axes[0].get_title()
+            assert "lot_id" in heatmap[1].axes[0].get_title()
+            assert "lot_id" in candlestick[1].axes[0].get_title()
+        finally:
+            for fig in figures:
+                plt.close(fig)
+
+    def test_classification_confusion_matrix_renders_custom_aggregated_variant(self, tmp_path):
+        """Confusion-matrix plots should also honor custom aggregation columns."""
+        data_path = tmp_path / "classification_custom_agg"
+        data_path.mkdir()
+        _write_repeated_classification_dataset(data_path)
+
+        dataset_config = _repeated_dataset_config(data_path, task_type="multiclass_classification")
+        pipeline = [
+            StandardScaler(),
+            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            {"model": RandomForestClassifier(max_depth=6, random_state=42)},
+            {"model": RandomForestClassifier(max_depth=10, random_state=42)},
+        ]
+
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
+        predictions, _ = runner.run(PipelineConfigs(pipeline, "test_chart_custom_agg_clf"), dataset_config)
+        analyzer = PredictionAnalyzer(predictions)
+
+        figures = []
+        try:
+            confusion = analyzer.plot_confusion_matrix(k=2, aggregate="lot_id")
+            figures.extend(confusion if isinstance(confusion, list) else [confusion])
+
+            assert isinstance(confusion, list) and len(confusion) == 2
+            assert "lot_id" in confusion[1]._suptitle.get_text()
+        finally:
+            for fig in figures:
+                plt.close(fig)
 
 
 class TestAggregationEndToEnd:
