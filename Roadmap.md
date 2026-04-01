@@ -1,5 +1,9 @@
 ## ROADMAP
 
+> [model_typology] Introduce 3 types of models: folds (all models with val data), cv (all avg, w-avg, models with RMSECV score and ValMean and so on), final (the refit models or trained on all train data)
+
+> [Top] remove display params. It should be sort params, groups, aggregation and that's all in a sort, then top return top X.
+
 > [clean] See God Classes Modularization Guide
 > [Optuna] Modularize god class
 

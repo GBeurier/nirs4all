@@ -216,8 +216,24 @@ class PipelineOrchestrator:
         run_id = store_run_id
         if self.mode == "train" and run_id is None and manage_store_run:
             dataset_meta = []
-            for _config, name in dataset_configs.configs:
-                dataset_meta.append({"name": name})
+            aggregates = getattr(dataset_configs, "_aggregates", [])
+            aggregate_methods = getattr(dataset_configs, "_aggregate_methods", [])
+            aggregate_exclude_outliers = getattr(dataset_configs, "_aggregate_exclude_outliers", [])
+            repetitions = getattr(dataset_configs, "repetitions", [])
+            for idx, (_config, name) in enumerate(dataset_configs.configs):
+                raw_aggregate = aggregates[idx] if idx < len(aggregates) else None
+                effective_aggregate = "y" if raw_aggregate is True else raw_aggregate
+                dataset_meta.append(
+                    {
+                        "name": name,
+                        "aggregate": effective_aggregate,
+                        "aggregate_method": aggregate_methods[idx] if idx < len(aggregate_methods) else None,
+                        "aggregate_exclude_outliers": bool(
+                            aggregate_exclude_outliers[idx] if idx < len(aggregate_exclude_outliers) else False
+                        ),
+                        "repetition": repetitions[idx] if idx < len(repetitions) else None,
+                    }
+                )
             run_id = self.store.begin_run(
                 name=pipeline_name or "run",
                 config={"n_pipelines": n_pipelines, "n_datasets": n_datasets},
@@ -549,6 +565,11 @@ class PipelineOrchestrator:
                         # Pass dataset repetition context for by_repetition=True resolution
                         if dataset.repetition:
                             config_predictions.set_repetition_column(dataset.repetition)
+                        config_predictions.set_aggregate_context(
+                            dataset.aggregate,
+                            dataset.aggregate_method,
+                            dataset.aggregate_exclude_outliers,
+                        )
 
                         # Enter deferred mode before execution
                         if use_deferred and artifact_registry is not None:
@@ -2026,6 +2047,11 @@ def _execute_single_variant(variant_data: dict[str, Any]) -> dict[str, Any]:
     config_predictions = Predictions()
     if dataset.repetition:
         config_predictions.set_repetition_column(dataset.repetition)
+    config_predictions.set_aggregate_context(
+        dataset.aggregate,
+        dataset.aggregate_method,
+        dataset.aggregate_exclude_outliers,
+    )
 
     # Track execution time
     start_time = time.monotonic()

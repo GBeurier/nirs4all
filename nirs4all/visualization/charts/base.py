@@ -209,10 +209,12 @@ class BaseChart(ABC):
         n: int,
         rank_metric: str,
         rank_partition: str = 'val',
-        score_scope: str = 'mix',
+        score_scope: str = 'final',
         display_partition: str = 'test',
         display_metrics: list[str] | None = None,
-        aggregate: str | None = None,
+        aggregate: bool | str | None = None,
+        aggregate_method: str | None = None,
+        aggregate_exclude_outliers: bool | None = None,
         group_by: str | list[str] | None = None,
         aggregate_partitions: bool = True,
         task_type: str | None = None,
@@ -241,8 +243,13 @@ class BaseChart(ABC):
             rank_partition: Partition to rank on (default: 'val').
             display_partition: Partition to display results from (default: 'test').
             display_metrics: List of metrics to compute for display.
-            aggregate: If provided, aggregate predictions by this metadata column.
-                      Example: 'ID' to average multiple scans per sample.
+            aggregate: Aggregation mode for the query.
+                ``None`` disables aggregation, ``True`` uses the dataset
+                repetition column, and strings select an explicit grouping key.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                or ``"vote"``).
+            aggregate_exclude_outliers: Whether grouped aggregation excludes
+                outliers before reducing each group.
             group_by: Group predictions and keep only the best per group.
                      Can be a single column name (str) or list of columns.
                      Examples: 'model_name', ['model_name', 'preprocessings']
@@ -291,6 +298,8 @@ class BaseChart(ABC):
                 display_partition=display_partition,
                 display_metrics=display_metrics,
                 aggregate=aggregate,
+                aggregate_method=aggregate_method,
+                aggregate_exclude_outliers=aggregate_exclude_outliers,
                 group_by=group_by,
                 aggregate_partitions=aggregate_partitions,
                 **filters
@@ -316,6 +325,8 @@ class BaseChart(ABC):
             ascending=ascending,
             aggregate_partitions=aggregate_partitions,
             by_repetition=aggregate,
+            repetition_method=aggregate_method,
+            repetition_exclude_outliers=bool(aggregate_exclude_outliers),
             group_by=group_by,
             **filters
         )

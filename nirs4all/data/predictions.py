@@ -240,6 +240,10 @@ class Predictions:
         self._buffer: list[dict[str, Any]] = []
         # Dataset repetition column for by_repetition=True resolution
         self._dataset_repetition: str | None = None
+        # Dataset-level aggregation defaults for visualization helpers
+        self._dataset_aggregate: str | None = None
+        self._dataset_aggregate_method: str | None = None
+        self._dataset_aggregate_exclude_outliers: bool = False
 
         if db_path is not None:
             self._open_from_path(Path(db_path), dataset_name=dataset_name, load_arrays=load_arrays)
@@ -287,6 +291,7 @@ class Predictions:
             df = store.query_predictions(dataset_name=dataset_name)
             if not df.is_empty():
                 self._populate_buffer_from_store(store, df, load_arrays=load_arrays)
+                self._restore_workspace_context(store, df)
         finally:
             store.close()
 
@@ -360,8 +365,40 @@ class Predictions:
                 batch = store.array_store.load_batch(pred_ids, dataset_name=ds_name)
                 arrays_by_id.update(batch)
 
+        # Reload chain-level metadata that is not persisted on prediction rows,
+        # such as model_step_idx used for variant-specific lookups after reload.
+        chain_context_by_id: dict[str, dict[str, Any]] = {}
+        if "pipeline_id" in df.columns and "chain_id" in df.columns:
+            pipeline_ids = {
+                str(pipeline_id)
+                for pipeline_id in df["pipeline_id"].to_list()
+                if pipeline_id is not None and str(pipeline_id)
+            }
+            for pipeline_id in pipeline_ids:
+                chains_df = store.get_chains_for_pipeline(pipeline_id)
+                if chains_df.is_empty():
+                    continue
+                for chain_row in chains_df.iter_rows(named=True):
+                    chain_id = chain_row.get("chain_id")
+                    if chain_id is None or not str(chain_id):
+                        continue
+
+                    branch_path = chain_row.get("branch_path")
+                    if isinstance(branch_path, str):
+                        try:
+                            branch_path = _json.loads(branch_path)
+                        except (json.JSONDecodeError, TypeError):
+                            branch_path = None
+
+                    chain_context_by_id[str(chain_id)] = {
+                        "step_idx": chain_row.get("model_step_idx"),
+                        "branch_path": branch_path if isinstance(branch_path, list) else None,
+                    }
+
         for row in df.iter_rows(named=True):
             pred_id = row["prediction_id"]
+            chain_id = row.get("chain_id")
+            chain_context = chain_context_by_id.get(str(chain_id), {}) if chain_id is not None else {}
 
             y_true = y_pred = y_proba = sample_indices = None
             metadata: dict[str, Any] = {}
@@ -389,8 +426,16 @@ class Predictions:
                 except (json.JSONDecodeError, TypeError):
                     best_params = None
 
+            step_idx = chain_context.get("step_idx")
+            if isinstance(step_idx, str):
+                step_idx = int(step_idx) if step_idx.isdigit() else 0
+            elif step_idx is None:
+                step_idx = 0
+
             self.add_prediction(
                 dataset_name=row.get("dataset_name", ""),
+                pipeline_uid=row.get("pipeline_id", ""),
+                step_idx=step_idx,
                 model_name=row.get("model_name", ""),
                 model_classname=row.get("model_class", ""),
                 fold_id=row.get("fold_id", ""),
@@ -406,15 +451,20 @@ class Predictions:
                 scores=scores,
                 best_params=best_params,
                 branch_id=row.get("branch_id"),
+                branch_path=chain_context.get("branch_path"),
                 branch_name=row.get("branch_name"),
                 refit_context=row.get("refit_context"),
                 y_true=y_true,
                 y_pred=y_pred,
                 y_proba=y_proba,
                 sample_indices=sample_indices,
-                pipeline_uid=row.get("pipeline_id", ""),
                 metadata=metadata,
             )
+            loaded_row = self._buffer[-1]
+            loaded_row["id"] = pred_id
+            loaded_row["prediction_id"] = pred_id
+            loaded_row["pipeline_id"] = row.get("pipeline_id", "")
+            loaded_row["chain_id"] = chain_id or ""
 
     # ------------------------------------------------------------------
     # Context manager
@@ -540,6 +590,7 @@ class Predictions:
             return predictions
 
         predictions._populate_buffer_from_store(store, df, load_arrays=load_arrays)
+        predictions._restore_workspace_context(store, df)
         return predictions
 
     # =========================================================================
@@ -570,6 +621,144 @@ class Predictions:
             The repetition column name from dataset context, or None.
         """
         return self._dataset_repetition
+
+    def set_aggregate_context(
+        self,
+        column: str | None,
+        method: str | None = None,
+        exclude_outliers: bool = False,
+    ) -> None:
+        """Set dataset-level aggregation defaults for visualization.
+
+        Args:
+            column: Default aggregation column or ``"y"``.
+            method: Aggregation method (``"mean"``, ``"median"``, ``"vote"``).
+            exclude_outliers: Whether aggregated views exclude outliers.
+        """
+        self._dataset_aggregate = column
+        self._dataset_aggregate_method = method
+        self._dataset_aggregate_exclude_outliers = bool(exclude_outliers)
+
+    @property
+    def aggregate_column(self) -> str | None:
+        """Get the dataset-level default aggregation column, if available."""
+        return self._dataset_aggregate
+
+    @property
+    def aggregate_method(self) -> str | None:
+        """Get the dataset-level default aggregation method, if available."""
+        return self._dataset_aggregate_method
+
+    @property
+    def aggregate_exclude_outliers(self) -> bool:
+        """Get the dataset-level default outlier exclusion flag."""
+        return self._dataset_aggregate_exclude_outliers
+
+    @staticmethod
+    def _normalize_workspace_context(
+        context: dict[str, Any],
+    ) -> tuple[str | None, str | None, str | None, bool]:
+        """Normalize run-stored aggregation context for one dataset entry."""
+        repetition = context.get("repetition")
+        repetition_value = repetition if isinstance(repetition, str) and repetition else None
+
+        aggregate = context.get("aggregate")
+        if aggregate is True:
+            aggregate_value = "y"
+        elif isinstance(aggregate, str) and aggregate:
+            aggregate_value = aggregate
+        else:
+            aggregate_value = None
+
+        if repetition_value is None and aggregate_value not in (None, "y"):
+            repetition_value = aggregate_value
+        if aggregate_value is None and repetition_value is not None:
+            aggregate_value = repetition_value
+
+        method = context.get("aggregate_method")
+        method_value = method if isinstance(method, str) and method else None
+        exclude_outliers = bool(context.get("aggregate_exclude_outliers", False))
+        return repetition_value, aggregate_value, method_value, exclude_outliers
+
+    def _restore_workspace_context(
+        self,
+        store: WorkspaceStore,
+        df: pl.DataFrame,
+    ) -> None:
+        """Restore dataset-level aggregation context from workspace run metadata."""
+        if df.is_empty() or "pipeline_id" not in df.columns:
+            return
+
+        pipeline_ids = {
+            str(pipeline_id)
+            for pipeline_id in df["pipeline_id"].to_list()
+            if pipeline_id is not None and str(pipeline_id)
+        }
+        if not pipeline_ids:
+            return
+
+        dataset_names = {
+            str(dataset_name)
+            for dataset_name in df["dataset_name"].to_list()
+            if dataset_name is not None and str(dataset_name)
+        }
+        if not dataset_names:
+            return
+
+        contexts: list[dict[str, Any]] = []
+        seen_run_ids: set[str] = set()
+
+        for pipeline_id in pipeline_ids:
+            pipeline = store.get_pipeline(pipeline_id)
+            if not pipeline:
+                continue
+
+            run_id = pipeline.get("run_id")
+            if not isinstance(run_id, str) or not run_id or run_id in seen_run_ids:
+                continue
+            seen_run_ids.add(run_id)
+
+            run = store.get_run(run_id)
+            if not run:
+                continue
+
+            datasets = run.get("datasets")
+            if not isinstance(datasets, list):
+                continue
+
+            for dataset_entry in datasets:
+                if not isinstance(dataset_entry, dict):
+                    continue
+                dataset_name = dataset_entry.get("name")
+                if isinstance(dataset_name, str) and dataset_name in dataset_names:
+                    contexts.append(dataset_entry)
+
+        if not contexts:
+            return
+
+        repetition_values: set[str] = set()
+        aggregate_values: set[str] = set()
+        method_values: set[str] = set()
+        exclude_outliers_values: set[bool] = set()
+
+        for context in contexts:
+            repetition, aggregate, method, exclude_outliers = self._normalize_workspace_context(context)
+            if repetition is not None:
+                repetition_values.add(repetition)
+            if aggregate is not None:
+                aggregate_values.add(aggregate)
+            if method is not None:
+                method_values.add(method)
+            exclude_outliers_values.add(exclude_outliers)
+
+        if len(repetition_values) == 1:
+            self._dataset_repetition = next(iter(repetition_values))
+        if len(aggregate_values) == 1:
+            self._dataset_aggregate = next(iter(aggregate_values))
+        if len(method_values) == 1:
+            self._dataset_aggregate_method = next(iter(method_values))
+        if len(exclude_outliers_values) == 1:
+            self._dataset_aggregate_exclude_outliers = next(iter(exclude_outliers_values))
 
     # =========================================================================
     # CORE CRUD OPERATIONS
@@ -831,7 +1020,7 @@ class Predictions:
         n: int,
         rank_metric: str = "",
         rank_partition: str = "val",
-        score_scope: str = "mix",
+        score_scope: str = "final",
         display_metrics: list[str] | None = None,
         display_partition: str = "test",
         aggregate_partitions: bool = False,
@@ -863,13 +1052,14 @@ class Predictions:
 
                - ``"final"``: Only refit entries (``fold_id="final"``),
                  ranked by their selection score (``selection_score``).
+                 ``"refit"`` is an alias for ``"final"``.
                - ``"cv"``: Only CV entries (exclude refit entries).
-               - ``"mix"``: Refit entries ranked first, then CV entries
-                 below.  Each group ranked independently.
+               - ``"mix"``: All entries (refit + CV) ranked together
+                 by score.  No special ordering — best score wins.
                - ``"flat"``: All entries ranked equally, no special
                  treatment for refit entries.
 
-               Default is ``"mix"``.  ``"auto"`` is an alias for ``"mix"``.
+               Default is ``"final"``.  ``"auto"`` is an alias for ``"mix"``.
             display_metrics: Metrics to compute for display.
             display_partition: Partition to display results from.
             aggregate_partitions: If ``True``, add train/val/test dicts.
@@ -926,8 +1116,9 @@ class Predictions:
         _ = filters.pop("aggregate_method", None)
         _ = filters.pop("aggregate_exclude_outliers", None)
 
-        # Normalise score_scope alias
-        effective_scope = score_scope if score_scope != "auto" else "mix"
+        # Normalise score_scope aliases
+        _scope_aliases = {"auto": "mix", "refit": "final"}
+        effective_scope = _scope_aliases.get(score_scope, score_scope)
 
         # Filter the in-memory buffer first, then copy only matching entries.
         # This avoids creating ~N shallow dict copies when only a fraction
@@ -1040,17 +1231,8 @@ class Predictions:
 
         candidates = [r for r in candidates if _is_valid(r["rank_score"])]
 
-        # Sort by rank_score
-        if effective_scope == "mix":
-            # Two-level sort: final entries first, then CV entries
-            # Within each group, sort by rank_score
-            finals = [r for r in candidates if r["is_final"]]
-            cvs = [r for r in candidates if r.get("refit_context") is None]
-            finals.sort(key=lambda r: r["rank_score"], reverse=not ascending)
-            cvs.sort(key=lambda r: r["rank_score"], reverse=not ascending)
-            candidates = finals + cvs
-        else:
-            candidates.sort(key=lambda r: r["rank_score"], reverse=not ascending)
+        # Sort by rank_score (uniform sort for all scopes)
+        candidates.sort(key=lambda r: r["rank_score"], reverse=not ascending)
 
         effective_group_by: list[str] | None = None
         if group_by is not None:
@@ -1251,7 +1433,7 @@ class Predictions:
         self,
         metric: str = "",
         ascending: bool | None = None,
-        score_scope: str = "mix",
+        score_scope: str = "final",
         aggregate_partitions: bool = False,
         by_repetition: bool | str | None = None,
         repetition_method: str | None = None,
@@ -1268,7 +1450,7 @@ class Predictions:
             metric: Metric to optimise.
             ascending: Sort order.  ``None`` infers from metric.
             score_scope: Controls how refit (final) entries interact with
-               CV entries.  See :meth:`top` for details.  Default ``"mix"``.
+               CV entries.  See :meth:`top` for details.  Default ``"final"``.
             aggregate_partitions: If ``True``, add partition data.
             by_repetition: Aggregate predictions by repetition column.
                 - ``True``: Uses ``dataset.repetition`` from context.
@@ -1479,6 +1661,12 @@ class Predictions:
         # Inherit repetition column if not already set
         if self._dataset_repetition is None and other._dataset_repetition is not None:
             self._dataset_repetition = other._dataset_repetition
+        if self._dataset_aggregate is None and other._dataset_aggregate is not None:
+            self._dataset_aggregate = other._dataset_aggregate
+        if self._dataset_aggregate_method is None and other._dataset_aggregate_method is not None:
+            self._dataset_aggregate_method = other._dataset_aggregate_method
+        if not self._dataset_aggregate_exclude_outliers and other._dataset_aggregate_exclude_outliers:
+            self._dataset_aggregate_exclude_outliers = other._dataset_aggregate_exclude_outliers
 
     def clear(self) -> None:
         """Clear all buffered predictions."""
@@ -1500,6 +1688,11 @@ class Predictions:
         result._buffer = self._buffer[n:]
         if self._dataset_repetition is not None:
             result._dataset_repetition = self._dataset_repetition
+        if self._dataset_aggregate is not None:
+            result._dataset_aggregate = self._dataset_aggregate
+        if self._dataset_aggregate_method is not None:
+            result._dataset_aggregate_method = self._dataset_aggregate_method
+        result._dataset_aggregate_exclude_outliers = self._dataset_aggregate_exclude_outliers
         return result
 
     def iter_entries(self, fold_id: str | None = None) -> list[dict[str, Any]]:

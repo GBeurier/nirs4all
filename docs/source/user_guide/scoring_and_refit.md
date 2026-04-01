@@ -317,11 +317,11 @@ result.best_score
 # Best refit test score (RMSEP)
 result.best_rmse  # alias for best test score
 
-# Top N results (CV scope)
+# Top N results (default: final/refit scope)
 result.top(5)
 
-# Top N results (refit/final scope)
-result.top(5, score_scope="final")
+# Top N results (CV-only scope)
+result.top(5, score_scope="cv")
 
 # CV-only best
 result.cv_best
@@ -336,8 +336,8 @@ The `score_scope` parameter controls which entries are considered:
 | Scope | Behavior |
 |-------|----------|
 | `"cv"` | Only cross-validation entries |
-| `"final"` | Only refit entries (`fold_id="final"`) |
-| `"mix"` | Finals first, then CV (default) |
+| `"final"` / `"refit"` | Only refit entries (`fold_id="final"`) (default) |
+| `"mix"` | Finals first, then CV |
 | `"flat"` | All entries treated equally |
 
 ---

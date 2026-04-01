@@ -57,7 +57,10 @@ class TopKComparisonChart(BaseChart):
                display_partition: str = 'all', show_scores: bool = True,
                dataset_name: str | None = None,
                figsize: tuple | None = None,
-               aggregate: str | None = None,
+               aggregate: bool | str | None = None,
+               aggregate_method: str | None = None,
+               aggregate_exclude_outliers: bool | None = None,
+               score_scope: str = 'final',
                task_type: str | None = None,
                **filters) -> Figure | list[Figure]:
         """Plot top K models with predicted vs true and residuals.
@@ -74,7 +77,11 @@ class TopKComparisonChart(BaseChart):
             show_scores: If True, show scores in chart titles (default: True).
             dataset_name: Optional dataset filter.
             figsize: Figure size tuple (default: from config).
-            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
+            aggregate: Aggregation mode for the chart.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                or ``"vote"``).
+            aggregate_exclude_outliers: Whether grouped aggregation excludes
+                outliers before reducing each group.
             task_type: If provided, filter predictions to this task type. When None
                 and mixed task types exist, renders separate figures per task type.
             **filters: Additional filters.
@@ -100,7 +107,12 @@ class TopKComparisonChart(BaseChart):
                         k=k, rank_metric=rank_metric, rank_partition=rank_partition,
                         display_metric=display_metric, display_partition=display_partition,
                         show_scores=show_scores, dataset_name=dataset_name, figsize=figsize,
-                        aggregate=aggregate, task_type=tt, **filters,
+                        aggregate=aggregate,
+                        aggregate_method=aggregate_method,
+                        aggregate_exclude_outliers=aggregate_exclude_outliers,
+                        score_scope=score_scope,
+                        task_type=tt,
+                        **filters,
                     )
                     if isinstance(fig, list):
                         figures.extend(fig)
@@ -137,8 +149,11 @@ class TopKComparisonChart(BaseChart):
             display_metrics=[display_metric] if display_metric else None,
             aggregate_partitions=True,
             aggregate=aggregate,
+            aggregate_method=aggregate_method,
+            aggregate_exclude_outliers=aggregate_exclude_outliers,
             group_by=['model_name'],  # Keep only the best entry per model_name
             task_type=task_type,
+            score_scope=score_scope,
             **filters
         )
 

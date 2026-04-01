@@ -55,19 +55,19 @@ class TestPredictionAnalyzerInit:
         analyzer = PredictionAnalyzer(mock_predictions)
         assert analyzer.default_aggregate is None
 
-    def test_default_aggregate_inferred_from_predictions_repetition(self, mock_predictions):
-        """Test that repetition context is inferred automatically from predictions."""
+    def test_default_aggregate_is_not_inferred_from_predictions_repetition(self, mock_predictions):
+        """Plots should stay raw unless aggregation is requested explicitly."""
         mock_predictions.repetition_column = "sample_id"
         analyzer = PredictionAnalyzer(mock_predictions)
-        assert analyzer.default_aggregate == "sample_id"
+        assert analyzer.default_aggregate is None
 
     def test_default_aggregate_set(self, mock_predictions):
         """Test setting default_aggregate via constructor."""
         analyzer = PredictionAnalyzer(mock_predictions, default_aggregate="sample_id")
         assert analyzer.default_aggregate == "sample_id"
 
-    def test_explicit_default_aggregate_overrides_inferred_repetition(self, mock_predictions):
-        """Test that explicit constructor argument wins over inferred repetition."""
+    def test_explicit_default_aggregate_ignores_repetition_context(self, mock_predictions):
+        """Test that explicit constructor argument wins over repetition context."""
         mock_predictions.repetition_column = "sample_id"
         analyzer = PredictionAnalyzer(mock_predictions, default_aggregate="lot_id")
         assert analyzer.default_aggregate == "lot_id"
@@ -181,6 +181,22 @@ class TestResolveAggregate:
         """Test that explicitly passing None uses default."""
         analyzer = PredictionAnalyzer(mock_predictions, default_aggregate="ID")
         assert analyzer._resolve_aggregate(None) == "ID"
+
+    def test_true_uses_repetition_column_when_available(self, mock_predictions):
+        """Test that aggregate=True resolves to the repetition column."""
+        mock_predictions.repetition_column = "sample_id"
+        analyzer = PredictionAnalyzer(mock_predictions)
+        assert analyzer._resolve_aggregate(True) == "sample_id"
+
+    def test_true_returns_none_without_repetition_column(self, mock_predictions):
+        """Test that aggregate=True becomes raw when no repetition column exists."""
+        analyzer = PredictionAnalyzer(mock_predictions)
+        assert analyzer._resolve_aggregate(True) is None
+
+    def test_false_disables_default_aggregation(self, mock_predictions):
+        """Test that explicit False disables aggregation even with a default set."""
+        analyzer = PredictionAnalyzer(mock_predictions, default_aggregate="sample_id")
+        assert analyzer._resolve_aggregate(False) is None
 
 # ---------------------------------------------------------------------------
 # TestResolveAggregateMethod
@@ -324,21 +340,46 @@ class TestPlotTopK:
         assert call_kwargs.get("aggregate") is None
 
     @patch("nirs4all.visualization.predictions.TopKComparisonChart")
-    def test_plot_top_k_returns_raw_and_aggregated_figures(self, mock_chart_class, mock_predictions):
-        """Aggregated chart requests should return both raw and aggregated figures."""
+    def test_plot_top_k_returns_single_aggregated_figure(self, mock_chart_class, mock_predictions):
+        """Aggregated chart requests should render only the requested variant."""
         mock_chart = Mock()
-        raw_fig = Mock()
         agg_fig = Mock()
-        mock_chart.render.side_effect = [raw_fig, agg_fig]
+        mock_chart.render.return_value = agg_fig
         mock_chart_class.return_value = mock_chart
 
         analyzer = PredictionAnalyzer(mock_predictions, default_aggregate="sample_id")
         result = analyzer.plot_top_k(k=5)
 
-        assert mock_chart.render.call_count == 2
-        assert mock_chart.render.call_args_list[0][1].get("aggregate") is None
-        assert mock_chart.render.call_args_list[1][1].get("aggregate") == "sample_id"
-        assert result == [raw_fig, agg_fig]
+        assert mock_chart.render.call_count == 1
+        assert mock_chart.render.call_args[1].get("aggregate") == "sample_id"
+        assert result is agg_fig
+
+    @patch("nirs4all.visualization.predictions.TopKComparisonChart")
+    def test_plot_top_k_true_uses_repetition_column(self, mock_chart_class, mock_predictions):
+        """aggregate=True should resolve to the dataset repetition column."""
+        mock_predictions.repetition_column = "sample_id"
+        mock_chart = Mock()
+        mock_chart.render.return_value = Mock()
+        mock_chart_class.return_value = mock_chart
+
+        analyzer = PredictionAnalyzer(mock_predictions)
+        analyzer.plot_top_k(k=5, aggregate=True)
+
+        call_kwargs = mock_chart.render.call_args[1]
+        assert call_kwargs.get("aggregate") == "sample_id"
+
+    @patch("nirs4all.visualization.predictions.TopKComparisonChart")
+    def test_plot_top_k_forwards_aggregate_method(self, mock_chart_class, mock_predictions):
+        """Plot methods should forward aggregate_method to the chart."""
+        mock_chart = Mock()
+        mock_chart.render.return_value = Mock()
+        mock_chart_class.return_value = mock_chart
+
+        analyzer = PredictionAnalyzer(mock_predictions)
+        analyzer.plot_top_k(k=5, aggregate="sample_id", aggregate_method="median")
+
+        call_kwargs = mock_chart.render.call_args[1]
+        assert call_kwargs.get("aggregate_method") == "median"
 
     @patch("nirs4all.visualization.predictions.TopKComparisonChart")
     def test_plot_top_k_skips_when_task_type_is_classification(self, mock_chart_class, mock_predictions):
@@ -503,22 +544,20 @@ class TestPlotConfusionMatrix:
         assert call_kwargs.get("aggregate") == "sample_id"
 
     @patch("nirs4all.visualization.predictions.ConfusionMatrixChart")
-    def test_plot_confusion_matrix_returns_raw_and_aggregated_figures(self, mock_chart_class, mock_predictions):
-        """Aggregated confusion-matrix requests should return raw and aggregated figures."""
+    def test_plot_confusion_matrix_returns_single_aggregated_figure(self, mock_chart_class, mock_predictions):
+        """Aggregated confusion-matrix requests should render only one figure."""
         mock_predictions.get_unique_values.return_value = ["binary_classification"]
         mock_chart = Mock()
-        raw_fig = Mock()
         agg_fig = Mock()
-        mock_chart.render.side_effect = [raw_fig, agg_fig]
+        mock_chart.render.return_value = agg_fig
         mock_chart_class.return_value = mock_chart
 
         analyzer = PredictionAnalyzer(mock_predictions, default_aggregate="sample_id")
         result = analyzer.plot_confusion_matrix(k=3)
 
-        assert mock_chart.render.call_count == 2
-        assert mock_chart.render.call_args_list[0][1].get("aggregate") is None
-        assert mock_chart.render.call_args_list[1][1].get("aggregate") == "sample_id"
-        assert result == [raw_fig, agg_fig]
+        assert mock_chart.render.call_count == 1
+        assert mock_chart.render.call_args[1].get("aggregate") == "sample_id"
+        assert result is agg_fig
 
     @patch("nirs4all.visualization.predictions.ConfusionMatrixChart")
     def test_plot_confusion_matrix_skips_when_task_type_is_regression(self, mock_chart_class, mock_predictions):
@@ -623,6 +662,27 @@ class TestGetCachedPredictions:
 
         call_kwargs = mock_predictions.top.call_args[1]
         assert call_kwargs.get("by_repetition") == "sample_id"
+
+    def test_true_aggregate_resolves_to_repetition_column(self, mock_predictions):
+        """aggregate=True should use the dataset repetition column."""
+        mock_predictions.top.return_value = []
+        mock_predictions.repetition_column = "sample_id"
+
+        analyzer = PredictionAnalyzer(mock_predictions)
+        analyzer.get_cached_predictions(n=5, rank_metric="rmse", aggregate=True)
+
+        call_kwargs = mock_predictions.top.call_args[1]
+        assert call_kwargs.get("by_repetition") == "sample_id"
+
+    def test_true_aggregate_without_repetition_column_disables_aggregation(self, mock_predictions):
+        """aggregate=True should fall back to raw predictions when no repetition column exists."""
+        mock_predictions.top.return_value = []
+
+        analyzer = PredictionAnalyzer(mock_predictions)
+        analyzer.get_cached_predictions(n=5, rank_metric="rmse", aggregate=True)
+
+        call_kwargs = mock_predictions.top.call_args[1]
+        assert call_kwargs.get("by_repetition") is None
 
     def test_grouped_queries_do_not_overfetch(self, mock_predictions):
         """Grouped queries must use exact n because n means per-group."""

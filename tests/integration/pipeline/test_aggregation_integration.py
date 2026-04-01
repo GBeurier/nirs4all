@@ -231,7 +231,7 @@ class TestAggregationIntegration:
         assert predictions.num_predictions > 0
 
         # Verify the pipeline completed successfully
-        best_pred = predictions.get_best(ascending=True)
+        best_pred = predictions.get_best(ascending=True, score_scope="cv")
         assert best_pred['val_score'] is not None and np.isfinite(best_pred['val_score'])
         # test_score is None when no test partition exists in the dataset
         assert best_pred['test_score'] is None or np.isfinite(best_pred['test_score'])
@@ -556,16 +556,16 @@ class TestAnalyzerCustomAggregationCharts:
             figures.extend(heatmap if isinstance(heatmap, list) else [heatmap])
             figures.extend(candlestick if isinstance(candlestick, list) else [candlestick])
 
-            assert isinstance(top_k, list) and len(top_k) == 2
-            assert isinstance(histogram, list) and len(histogram) == 2
-            assert isinstance(heatmap, list) and len(heatmap) == 2
-            assert isinstance(candlestick, list) and len(candlestick) == 2
+            assert not isinstance(top_k, list)
+            assert not isinstance(histogram, list)
+            assert not isinstance(heatmap, list)
+            assert not isinstance(candlestick, list)
 
-            assert "lot_id" in top_k[1]._suptitle.get_text()
-            assert "not applied" not in top_k[1]._suptitle.get_text()
-            assert "lot_id" in histogram[1].axes[0].get_title()
-            assert "lot_id" in heatmap[1].axes[0].get_title()
-            assert "lot_id" in candlestick[1].axes[0].get_title()
+            assert "lot_id" in top_k._suptitle.get_text()
+            assert "not applied" not in top_k._suptitle.get_text()
+            assert "lot_id" in histogram.axes[0].get_title()
+            assert "lot_id" in heatmap.axes[0].get_title()
+            assert "lot_id" in candlestick.axes[0].get_title()
         finally:
             for fig in figures:
                 plt.close(fig)
@@ -593,8 +593,8 @@ class TestAnalyzerCustomAggregationCharts:
             confusion = analyzer.plot_confusion_matrix(k=2, aggregate="lot_id")
             figures.extend(confusion if isinstance(confusion, list) else [confusion])
 
-            assert isinstance(confusion, list) and len(confusion) == 2
-            assert "lot_id" in confusion[1]._suptitle.get_text()
+            assert not isinstance(confusion, list)
+            assert "lot_id" in confusion._suptitle.get_text()
         finally:
             for fig in figures:
                 plt.close(fig)
@@ -786,6 +786,129 @@ class TestAggregationEndToEnd:
             f"Reloaded aggregated score ({agg_test_reload}) differs from "
             f"in-memory ({agg_test_mem})"
         )
+
+    def test_store_reload_preserves_repetition_context_for_aggregate_true(self, repetition_data, tmp_path):
+        """PredictionAnalyzer should resolve aggregate=True from repetition context after reload."""
+        data_path, _, _, _ = repetition_data
+
+        ws_path = tmp_path / "workspace"
+        ws_path.mkdir()
+
+        dataset_config = self._make_dataset_config(data_path)
+        pipeline_config = self._make_pipeline_config()
+
+        runner = PipelineRunner(
+            save_artifacts=False,
+            save_charts=False,
+            verbose=0,
+            workspace_path=str(ws_path),
+        )
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        live_analyzer = PredictionAnalyzer(predictions)
+        live_fig = live_analyzer.plot_top_k(k=2, rank_metric="rmse", aggregate=True)
+        live_figures = live_fig if isinstance(live_fig, list) else [live_fig]
+
+        reloaded = Predictions.from_workspace(ws_path)
+        assert reloaded.repetition_column == "sample_id"
+
+        reloaded_analyzer = PredictionAnalyzer(reloaded)
+        reloaded_fig = reloaded_analyzer.plot_top_k(k=2, rank_metric="rmse", aggregate=True)
+        reloaded_figures = reloaded_fig if isinstance(reloaded_fig, list) else [reloaded_fig]
+
+        try:
+            assert live_analyzer.default_aggregate is None
+            assert reloaded_analyzer.default_aggregate is None
+            assert len(live_figures) == 1
+            assert len(reloaded_figures) == 1
+            assert "aggregated by sample_id" in live_figures[0]._suptitle.get_text()
+            assert "aggregated by sample_id" in reloaded_figures[0]._suptitle.get_text()
+        finally:
+            for fig in [*live_figures, *reloaded_figures]:
+                plt.close(fig)
+
+    def test_store_reload_explicit_aggregate_works_without_context(self, repetition_data, tmp_path):
+        """Explicit aggregation should work even if dataset context is unavailable."""
+        data_path, _, _, _ = repetition_data
+
+        ws_path = tmp_path / "workspace"
+        ws_path.mkdir()
+
+        dataset_config = self._make_dataset_config(data_path)
+        pipeline_config = self._make_pipeline_config()
+
+        runner = PipelineRunner(
+            save_artifacts=False,
+            save_charts=False,
+            verbose=0,
+            workspace_path=str(ws_path),
+        )
+        _predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        reloaded = Predictions.from_workspace(ws_path)
+        # Simulate a fresh install / portable context where aggregate metadata
+        # is not available and the user must pass the aggregate column explicitly.
+        reloaded.set_repetition_column(None)
+        reloaded.set_aggregate_context(None)
+
+        top_explicit = reloaded.top(1, rank_metric="rmse", by_repetition="sample_id")
+        assert len(top_explicit) > 0
+        assert top_explicit[0].get("aggregated", False)
+
+        analyzer = PredictionAnalyzer(reloaded)
+        figures = analyzer.plot_top_k(k=2, rank_metric="rmse", aggregate="sample_id")
+        figure_list = figures if isinstance(figures, list) else [figures]
+        try:
+            assert len(figure_list) == 1
+            assert "aggregated by sample_id" in figure_list[0]._suptitle.get_text()
+        finally:
+            for fig in figure_list:
+                plt.close(fig)
+
+    def test_store_reload_preserves_variant_step_idx_lookup(self, repetition_data, tmp_path):
+        """Reloaded predictions must preserve step_idx for variant-specific queries."""
+        data_path, _, _, _ = repetition_data
+
+        ws_path = tmp_path / "workspace"
+        ws_path.mkdir()
+
+        dataset_config = self._make_dataset_config(data_path)
+        pipeline_config = self._make_pipeline_config()
+
+        runner = PipelineRunner(
+            save_artifacts=False,
+            save_charts=False,
+            verbose=0,
+            workspace_path=str(ws_path),
+        )
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        best_raw = predictions.top(
+            1,
+            rank_metric="rmse",
+            rank_partition="test",
+            display_partition="test",
+            score_scope="final",
+            by_repetition=False,
+        )[0]
+        model_name = best_raw["model_name"]
+        step_idx = best_raw["step_idx"]
+
+        reloaded = Predictions.from_workspace(ws_path)
+        matched = reloaded.top(
+            1,
+            rank_metric="rmse",
+            rank_partition="test",
+            display_partition="test",
+            score_scope="final",
+            by_repetition=True,
+            model_name=model_name,
+            step_idx=step_idx,
+        )
+
+        assert len(matched) == 1
+        assert matched[0]["step_idx"] == step_idx
+        assert matched[0].get("aggregated", False)
 
     def test_repetition_no_leakage_across_folds(self, repetition_data):
         """All repetitions of the same sample must stay in the same CV fold.

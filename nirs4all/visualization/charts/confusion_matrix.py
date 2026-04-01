@@ -59,7 +59,10 @@ class ConfusionMatrixChart(BaseChart):
                display_partition: str = 'test', show_scores: bool = True,
                dataset_name: str | None = None,
                figsize: tuple | None = None,
-               aggregate: str | None = None,
+               aggregate: bool | str | None = None,
+               aggregate_method: str | None = None,
+               aggregate_exclude_outliers: bool | None = None,
+               score_scope: str = 'final',
                **filters) -> Figure | list[Figure]:
         """Plot confusion matrices for top K classification models per dataset.
 
@@ -78,7 +81,12 @@ class ConfusionMatrixChart(BaseChart):
             show_scores: If True, show scores in chart titles (default: True).
             dataset_name: Optional dataset filter. If provided, only shows that dataset.
             figsize: Figure size tuple (default: from config).
-            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
+            aggregate: Aggregation mode for the chart.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                or ``"vote"``).
+            aggregate_exclude_outliers: Whether grouped aggregation excludes
+                outliers before reducing each group.
+            score_scope: Score scope for ranking — 'final' (refitted) or 'cv' (cross-validation). Default: 'final'.
             **filters: Additional filters (e.g., config_name="config1").
 
         Returns:
@@ -137,6 +145,9 @@ class ConfusionMatrixChart(BaseChart):
                 display_partition=display_partition,
                 aggregate_partitions=True,
                 aggregate=aggregate,
+                aggregate_method=aggregate_method,
+                aggregate_exclude_outliers=aggregate_exclude_outliers,
+                score_scope=score_scope,
                 group_by=['model_name'],  # Keep only the best entry per model_name
                 **ds_filters
             )

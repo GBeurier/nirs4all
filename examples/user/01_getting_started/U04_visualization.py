@@ -267,19 +267,19 @@ When refit is enabled (default), nirs4all retrains the best model
 on the full training set after cross-validation. The score_scope
 parameter controls how these "final" entries interact with rankings:
 
-  score_scope='mix'   (default) - Final entries first, then CV entries
-  score_scope='cv'    - Only cross-validation entries (no refit)
-  score_scope='final' - Only final/refit entries
-  score_scope='flat'  - All entries ranked together by raw score
+  score_scope='final'  (default) - Only final/refit entries ("refit" is an alias)
+  score_scope='cv'     - Only cross-validation entries (no refit)
+  score_scope='mix'    - Final entries first, then CV entries
+  score_scope='flat'   - All entries ranked together by raw score
 
-The score_scope flows through all visualization methods via **kwargs:
+The score_scope is passed as an explicit parameter to visualization methods:
 """)
 
 # Top-k with only CV entries (ignoring refit)
 fig14 = analyzer.plot_top_k(k=3, rank_metric='rmse', score_scope='cv')
 print("   ✓ plot_top_k(score_scope='cv') - CV entries only")
 
-# Top-k with default mix mode (final entries ranked first)
+# Top-k with mix mode (final entries ranked first, then CV)
 fig15 = analyzer.plot_top_k(k=3, rank_metric='rmse', score_scope='mix')
 print("   ✓ plot_top_k(score_scope='mix') - Final entries first, then CV")
 

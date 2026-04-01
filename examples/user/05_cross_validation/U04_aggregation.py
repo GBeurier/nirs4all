@@ -39,8 +39,8 @@ from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
-import nirs4all
 from nirs4all.data import DatasetConfigs
+from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.visualization import PredictionAnalyzer, show_figures
 
@@ -144,6 +144,7 @@ def create_synthetic_data(n_samples=30, n_wavelengths=100, n_reps=4, random_stat
     return str(temp_dir), n_train, n_test, n_reps
 
 data_path, n_train, n_test, n_reps = create_synthetic_data()
+workspace_path = Path(data_path) / "workspace"
 
 print("Created synthetic dataset:")
 print(f"   Train: {n_train} samples × {n_reps} reps = {n_train * n_reps} spectra")
@@ -196,6 +197,7 @@ runner = PipelineRunner(
     save_artifacts=False,
     save_charts=False,
     verbose=1,
+    workspace_path=str(workspace_path),
     # This example manages chart display explicitly with PredictionAnalyzer below.
     plots_visible=False,
 )
@@ -218,45 +220,154 @@ Both raw and aggregated metrics are available:
   - Custom: One prediction per lot_id (2 samples merged)
 """)
 
-# Get best model with raw metrics
-top_raw = predictions.top(1, rank_metric='rmse', by_repetition=False)
-assert isinstance(top_raw, list) and len(top_raw) > 0, "Raw top() returned empty list"
-best_raw = top_raw[0]
+def require_single_result(results, message):
+    assert isinstance(results, list) and len(results) > 0, message
+    return results[0]
+
+def get_variant_result(
+    predictions_obj,
+    *,
+    model_name,
+    step_idx,
+    rank_partition,
+    display_partition,
+    score_scope,
+    by_repetition,
+):
+    return require_single_result(
+        predictions_obj.top(
+            1,
+            rank_metric='rmse',
+            rank_partition=rank_partition,
+            display_partition=display_partition,
+            score_scope=score_scope,
+            by_repetition=by_repetition,
+            model_name=model_name,
+            step_idx=step_idx,
+        ),
+        f"No result found for model={model_name}, step_idx={step_idx}, partition={display_partition}",
+    )
+
+# Pick the best refit/final model, then compare raw vs aggregated metrics for the SAME variant
+best_raw = require_single_result(
+    predictions.top(
+        1,
+        rank_metric='rmse',
+        rank_partition='test',
+        display_partition='test',
+        score_scope='final',
+        by_repetition=False,
+    ),
+    "Raw final top() returned empty list",
+)
 model_name = best_raw.get('model_name', 'Unknown')
+step_idx = best_raw.get('step_idx')
 
-print(f"\nBest model: {model_name}")
+print(f"\nBest model variant: {model_name} (step_idx={step_idx})")
 
-# Raw metrics
-val_rmse_raw = float(best_raw.get('val_score', np.nan))
-test_rmse_raw = float(best_raw.get('test_score', np.nan))
+# Raw metrics for the selected variant
+raw_val_entry = get_variant_result(
+    predictions,
+    model_name=model_name,
+    step_idx=step_idx,
+    rank_partition='val',
+    display_partition='val',
+    score_scope='cv',
+    by_repetition=False,
+)
+raw_test_entry = get_variant_result(
+    predictions,
+    model_name=model_name,
+    step_idx=step_idx,
+    rank_partition='test',
+    display_partition='test',
+    score_scope='final',
+    by_repetition=False,
+)
+val_rmse_raw = float(raw_val_entry.get('val_score'))
+test_rmse_raw = float(raw_test_entry.get('test_score'))
 print("\nRaw metrics (per spectrum):")
-print(f"   Val RMSE:  {val_rmse_raw:.4f}" if not np.isnan(val_rmse_raw) else "   Val RMSE:  N/A")
-print(f"   Test RMSE: {test_rmse_raw:.4f}" if not np.isnan(test_rmse_raw) else "   Test RMSE: N/A")
+print(f"   Val RMSE:  {val_rmse_raw:.4f}")
+print(f"   Test RMSE: {test_rmse_raw:.4f}")
 
-# Get same model with repetition-aggregated metrics
-top_agg = predictions.top(1, rank_metric='rmse', by_repetition=True)
-assert isinstance(top_agg, list) and len(top_agg) > 0, "Aggregated top() returned empty list"
-best_agg = top_agg[0]
-val_rmse_agg = float(best_agg.get('val_score', np.nan))
-test_rmse_agg = float(best_agg.get('test_score', np.nan))
-assert np.isfinite(val_rmse_agg), f"Aggregated val_score is not finite: {val_rmse_agg}"
-assert best_agg.get('aggregated', False), "Result should be marked as aggregated"
+# Same model with repetition-aggregated metrics
+agg_val_entry = get_variant_result(
+    predictions,
+    model_name=model_name,
+    step_idx=step_idx,
+    rank_partition='val',
+    display_partition='val',
+    score_scope='cv',
+    by_repetition=True,
+)
+agg_test_entry = get_variant_result(
+    predictions,
+    model_name=model_name,
+    step_idx=step_idx,
+    rank_partition='test',
+    display_partition='test',
+    score_scope='final',
+    by_repetition=True,
+)
+val_rmse_agg = float(agg_val_entry.get('val_score'))
+test_rmse_agg = float(agg_test_entry.get('test_score'))
+assert agg_test_entry.get('aggregated', False), "Result should be marked as aggregated"
 print("\nRepetition-aggregated metrics (per sample):")
-print(f"   Val RMSE:  {val_rmse_agg:.4f}" if not np.isnan(val_rmse_agg) else "   Val RMSE:  N/A")
-print(f"   Test RMSE: {test_rmse_agg:.4f}" if not np.isnan(test_rmse_agg) else "   Test RMSE: N/A")
+print(f"   Val RMSE:  {val_rmse_agg:.4f}")
+print(f"   Test RMSE: {test_rmse_agg:.4f}")
 
-top_lot = predictions.top(1, rank_metric='rmse', by_repetition='lot_id')
-assert isinstance(top_lot, list) and len(top_lot) > 0, "Custom-aggregated top() returned empty list"
-best_lot = top_lot[0]
-val_rmse_lot = float(best_lot.get('val_score', np.nan))
-test_rmse_lot = float(best_lot.get('test_score', np.nan))
+lot_val_entry = get_variant_result(
+    predictions,
+    model_name=model_name,
+    step_idx=step_idx,
+    rank_partition='val',
+    display_partition='val',
+    score_scope='cv',
+    by_repetition='lot_id',
+)
+lot_test_entry = get_variant_result(
+    predictions,
+    model_name=model_name,
+    step_idx=step_idx,
+    rank_partition='test',
+    display_partition='test',
+    score_scope='final',
+    by_repetition='lot_id',
+)
+val_rmse_lot = float(lot_val_entry.get('val_score'))
+test_rmse_lot = float(lot_test_entry.get('test_score'))
 
 print("\nCustom aggregation metrics (per lot_id):")
-print(f"   Val RMSE:  {val_rmse_lot:.4f}" if not np.isnan(val_rmse_lot) else "   Val RMSE:  N/A")
-print(f"   Test RMSE: {test_rmse_lot:.4f}" if not np.isnan(test_rmse_lot) else "   Test RMSE: N/A")
-print(f"\nDisplayed predictions count: raw={len(best_raw['y_pred'])}, sample_id={len(best_agg['y_pred'])}, lot_id={len(best_lot['y_pred'])}")
+print(f"   Val RMSE:  {val_rmse_lot:.4f}")
+print(f"   Test RMSE: {test_rmse_lot:.4f}")
+print(
+    f"\nDisplayed predictions count: "
+    f"raw={len(raw_test_entry['y_pred'])}, "
+    f"sample_id={len(agg_test_entry['y_pred'])}, "
+    f"lot_id={len(lot_test_entry['y_pred'])}"
+)
 
 print("\nNote: Aggregated RMSE is typically LOWER due to noise averaging!")
+
+print("\nReloading predictions from workspace to verify aggregation context survives persistence...")
+reloaded_predictions = Predictions.from_workspace(workspace_path)
+print(f"Reloaded repetition setting: '{reloaded_predictions.repetition_column}'")
+
+reload_agg_test_entry = get_variant_result(
+    reloaded_predictions,
+    model_name=model_name,
+    step_idx=step_idx,
+    rank_partition='test',
+    display_partition='test',
+    score_scope='final',
+    by_repetition=True,
+)
+reload_test_rmse = float(reload_agg_test_entry.get('test_score'))
+assert reload_agg_test_entry.get('aggregated', False), "Reloaded result should be marked as aggregated"
+
+print("\nReloaded repetition-aggregated metrics (per sample):")
+print(f"   Test RMSE: {reload_test_rmse:.4f}" if not np.isnan(reload_test_rmse) else "   Test RMSE: N/A")
+print(f"   Same aggregation after reload: {np.isclose(test_rmse_agg, reload_test_rmse)}")
 
 # =============================================================================
 # Section 5: Visualization with Aggregation
@@ -266,71 +377,58 @@ print("Section 5: Visualization with Aggregation")
 print("-" * 60)
 
 print("""
-PredictionAnalyzer supports two aggregation modes:
-  - PredictionAnalyzer(predictions, save=True) -> raw + repetition-aggregated figures (dual)
-  - aggregate='lot_id' on one plot -> only the custom-aggregated figure
+PredictionAnalyzer supports the same aggregation workflow from:
+  - live run predictions
+  - workspace-reloaded predictions
+
+This example renders the same plot batch twice:
+  - default aggregation from dataset repetition (sample_id)
+  - custom aggregation override (lot_id)
 """)
 
-# Create analyzer with automatic default aggregation from predictions.repetition_column
-analyzer = PredictionAnalyzer(predictions, save=args.plots or args.show)
+# Create analyzers with automatic default aggregation from prediction context
+live_analyzer = PredictionAnalyzer(
+    predictions,
+    save=args.plots,
+    output_dir=str(workspace_path / "figures" / "live") if args.plots else None,
+)
+reloaded_analyzer = PredictionAnalyzer(
+    reloaded_predictions,
+    save=args.plots,
+    output_dir=str(workspace_path / "figures" / "reloaded") if args.plots else None,
+)
 
-print(f"Analyzer default_aggregate: '{analyzer.default_aggregate}'")
+print(f"Live analyzer default_aggregate: '{live_analyzer.default_aggregate}'")
+print(f"Reloaded analyzer default_aggregate: '{reloaded_analyzer.default_aggregate}'")
 
-if args.plots or args.show:
-    def as_figure_list(fig_or_figs):
-        if isinstance(fig_or_figs, list):
-            return fig_or_figs
-        if fig_or_figs is None:
-            return []
-        return [fig_or_figs]
+def as_figure_list(fig_or_figs):
+    if isinstance(fig_or_figs, list):
+        return fig_or_figs
+    if fig_or_figs is None:
+        return []
+    return [fig_or_figs]
 
-    def show_batch(label, figures):
-        """Display one chart family at a time to avoid hidden windows."""
-        if not figures:
-            return
-
-        print(f"\nShowing {label}. Close the window(s) to continue.")
-        show_figures(figures, block=True, close=True)
-
-    # 1. Default dataset repetition behavior: raw + sample_id aggregation (dual)
-    top_k_figures = [
+def render_plot_batch(analyzer, label):
+    """Render the same plot batch for a given Predictions source."""
+    figures = [
         *as_figure_list(analyzer.plot_top_k(k=3, rank_metric='rmse')),
+        *as_figure_list(analyzer.plot_top_k(k=3, rank_metric='rmse', aggregate=True)),
         *as_figure_list(analyzer.plot_top_k(k=3, rank_metric='rmse', aggregate='lot_id')),
     ]
+    print(f"\n{label}: generated {len(figures)} figure(s)")
+    return figures
 
-    # 2. Explicit aggregate override: only the aggregated chart (no raw)
-    heatmap_figures = [
-        *as_figure_list(analyzer.plot_heatmap(
-            'partition',
-            'model_name',
-            rank_metric='rmse',
-            display_metric='rmse',
-        )),
-        *as_figure_list(analyzer.plot_heatmap(
-            'partition',
-            'model_name',
-            rank_metric='rmse',
-            display_metric='rmse',
-            aggregate='lot_id',
-        )),
-    ]
-
-    # 3. Raw-only override on a single plot
-    raw_histogram = as_figure_list(analyzer.plot_histogram(display_metric='rmse', aggregate=''))
-
-    print("\nChart behavior:")
-    print(f"   plot_top_k() returned {len(top_k_figures)} figure(s): raw + sample_id aggregation (dual)")
-    print(f"   plot_heatmap(..., aggregate='lot_id') returned {len(heatmap_figures)} figure(s): lot_id aggregation only")
-    print(f"   plot_histogram(..., aggregate='') returned {len(raw_histogram)} figure(s): raw only")
-
-    all_figures = [*top_k_figures, *heatmap_figures, *raw_histogram]
+if args.plots or args.show:
+    live_figures = render_plot_batch(live_analyzer, "Live run predictions")
+    reloaded_figures = render_plot_batch(reloaded_analyzer, "Workspace-reloaded predictions")
 
     if args.show:
-        show_batch("top-k comparison", top_k_figures)
-        show_batch("heatmap comparison", heatmap_figures)
-        show_batch("raw histogram", raw_histogram)
+        print("\nShowing live run prediction figures. Close the window(s) to continue.")
+        show_figures(live_figures, block=True, close=True)
+        print("\nShowing workspace-reloaded prediction figures. Close the window(s) to continue.")
+        show_figures(reloaded_figures, block=True, close=True)
     else:
-        for fig in all_figures:
+        for fig in [*live_figures, *reloaded_figures]:
             plt.close(fig)
         plt.close('all')
 
@@ -372,9 +470,11 @@ Repetition Configuration:
 
   2. ACCESS AFTER RUN:
      predictions.repetition_column  # Returns the repetition column name
+     reloaded = Predictions.from_workspace(workspace_path)
 
   3. VISUALIZATION:
      analyzer = PredictionAnalyzer(predictions, save=True)
+     analyzer_reload = PredictionAnalyzer(reloaded, save=True)
 
   4. OVERRIDE PER-PLOT:
      analyzer.plot_histogram(aggregate='')  # Disable for this plot
@@ -384,10 +484,12 @@ Repetition Configuration:
   5. TOP MODELS (uses by_repetition):
      predictions.top(5, by_repetition=True)         # Use dataset repetition
      predictions.top(5, by_repetition='lot_id')     # Custom aggregation
+     reloaded.top(5, by_repetition=True)            # Same after workspace reload
 
 Result Output:
   - Raw metrics: Evaluated on individual spectra
   - Aggregated metrics (*): Averaged predictions per sample
+  - Workspace reload keeps the same aggregation context
   - Both shown in TabReport output
 
 Benefits of Repetition Aggregation:

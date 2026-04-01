@@ -244,7 +244,7 @@ def test_best_val_comes_from_avg_fold():
     )
 
     # get_best with fold_id="avg" should return the avg entry
-    avg_entry = predictions.get_best(ascending=True, fold_id="avg")
+    avg_entry = predictions.get_best(ascending=True, fold_id="avg", score_scope="cv")
     assert avg_entry is not None
     assert avg_entry["fold_id"] == "avg"
     assert avg_entry["val_score"] == pytest.approx(avg_rmsecv)
@@ -281,12 +281,12 @@ def test_best_val_avg_not_best_individual_fold():
         metric="rmse",
     )
 
-    avg_entry = predictions.get_best(ascending=True, fold_id="avg")
+    avg_entry = predictions.get_best(ascending=True, fold_id="avg", score_scope="cv")
     assert avg_entry is not None
     assert avg_entry["val_score"] == pytest.approx(3.1)
 
     # Best individual fold has score 2.0, but avg is 3.1
-    best_any = predictions.get_best(ascending=True)
+    best_any = predictions.get_best(ascending=True, score_scope="cv")
     assert best_any is not None
     # Without fold_id filter, the best overall is the lowest score (2.0)
     assert best_any["val_score"] == pytest.approx(2.0)

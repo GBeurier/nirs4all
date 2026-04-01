@@ -69,7 +69,7 @@ class PredictionAnalyzer:
         output_dir: Directory used for chart persistence when saving is enabled.
         save: Whether chart persistence is enabled.
         cache: PredictionCache for caching aggregated results.
-        default_aggregate: Default aggregation column for all visualization methods.
+        default_aggregate: Default aggregation mode for all visualization methods.
 
     Example:
         >>> from nirs4all.data.predictions import Predictions
@@ -85,12 +85,11 @@ class PredictionAnalyzer:
         >>> # Check cache stats
         >>> print(analyzer.get_cache_stats())
         >>>
-        >>> # Dataset repetition context is inferred automatically when available
+        >>> # Reuse one aggregation mode across plots when desired
         >>> runner = PipelineRunner()
         >>> predictions, _ = runner.run(pipeline, DatasetConfigs({"train_x": path, "aggregate": "sample_id"}))
-        >>> analyzer = PredictionAnalyzer(predictions)
-        >>> # All plots now use sample_id aggregation by default
-        >>> fig = analyzer.plot_top_k(k=5)  # Aggregated automatically
+        >>> analyzer = PredictionAnalyzer(predictions, default_aggregate=True)
+        >>> fig = analyzer.plot_top_k(k=5)  # Aggregated by the repetition column
         >>> saver = PredictionAnalyzer(predictions, output_dir="workspace/figures")
         >>> saver.plot_top_k(k=5)
     """
@@ -103,7 +102,7 @@ class PredictionAnalyzer:
         output_dir: str | None = None,
         save: bool = False,
         cache_size: int = 50,
-        default_aggregate: str | None = None,
+        default_aggregate: bool | str | None = None,
         default_aggregate_method: str | None = None,
         default_aggregate_exclude_outliers: bool = False
     ):
@@ -118,11 +117,11 @@ class PredictionAnalyzer:
             save: Whether to persist generated charts. If True and output_dir is
                 omitted, uses NIRS4ALL_WORKSPACE/figures or "workspace/figures".
             cache_size: Maximum number of cached query results. Defaults to 50.
-            default_aggregate: Default aggregation column for all visualization methods.
+            default_aggregate: Default aggregation mode for all visualization methods.
                 If set, all plots will use this aggregation unless overridden.
-                Can be 'y' (aggregate by target values) or a metadata column name.
-                When omitted, the analyzer will automatically use
-                ``predictions.repetition_column`` if available.
+                Can be ``True`` (use the dataset repetition column), ``"y"``
+                (aggregate by target values), or a metadata column name.
+                When omitted, plots default to no aggregation.
             default_aggregate_method: Default aggregation method for all visualization methods.
                 - None (default): Use 'mean' for regression, 'vote' for classification
                 - 'mean': Average predictions within each group
@@ -132,32 +131,19 @@ class PredictionAnalyzer:
                 before aggregation (default: False).
 
         Example:
-            >>> # With repetition context stored in predictions
-            >>> runner = PipelineRunner()
-            >>> predictions, _ = runner.run(pipeline, DatasetConfigs({"train_x": path, "aggregate": "sample_id"}))
-            >>> analyzer = PredictionAnalyzer(predictions)
-            >>> # All plots now use sample_id aggregation by default
-            >>> fig = analyzer.plot_top_k(k=5)  # Aggregated
-            >>> fig = analyzer.plot_top_k(k=5, aggregate=None)  # Explicit override to no aggregation
+            >>> analyzer = PredictionAnalyzer(predictions, default_aggregate="sample_id")
+            >>> fig = analyzer.plot_top_k(k=5)  # Aggregated by sample_id
+            >>> fig = analyzer.plot_top_k(k=5, aggregate=False)  # Explicit override to no aggregation
             >>> saver = PredictionAnalyzer(predictions, save=True)
             >>> saver.plot_top_k(k=5)
         """
-        inferred_default_aggregate = default_aggregate
-        if inferred_default_aggregate is None:
-            repetition_column = getattr(predictions_obj, "repetition_column", None)
-            if callable(repetition_column):
-                with contextlib.suppress(Exception):
-                    repetition_column = repetition_column()
-            if isinstance(repetition_column, str) and repetition_column:
-                inferred_default_aggregate = repetition_column
-
         self.predictions = predictions_obj
         self.dataset_name_override = dataset_name_override
         self.config = config or ChartConfig()
         self.save = save or output_dir is not None
         self.output_dir = output_dir if output_dir is not None else (_get_default_figures_dir() if self.save else None)
         self._cache = PredictionCache(max_entries=cache_size)
-        self.default_aggregate = inferred_default_aggregate
+        self.default_aggregate = default_aggregate
         self.default_aggregate_method = default_aggregate_method
         self.default_aggregate_exclude_outliers = default_aggregate_exclude_outliers
 
@@ -172,27 +158,39 @@ class PredictionAnalyzer:
         if callable(clear_caches):
             clear_caches()
 
-    def _resolve_aggregate(self, aggregate: str | None) -> str | None:
+    def _get_predictions_context_value(self, attribute: str) -> Any:
+        """Safely resolve a predictions context attribute or property."""
+        value = getattr(self.predictions, attribute, None)
+        if callable(value):
+            with contextlib.suppress(Exception):
+                value = value()
+        return value
+
+    def _resolve_aggregate(self, aggregate: bool | str | None) -> str | None:
         """Resolve effective aggregate value, considering default.
 
         Args:
             aggregate: Explicit aggregate value passed to method.
-                - None: Use default_aggregate (if set).
-                - Explicit value: Use that value (overrides default).
+                - ``None``: Use ``default_aggregate`` if one was configured.
+                - ``False`` / ``""``: Disable aggregation.
+                - ``True``: Use the dataset repetition column when available.
+                - ``"y"`` / explicit column name: Aggregate by that key.
 
         Returns:
             Effective aggregate column name or None.
-
-        Note:
-            To explicitly disable aggregation when a default is set,
-            callers should use an empty string '' which is truthy enough
-            to override but evaluates to no aggregation.
         """
-        # If aggregate is explicitly provided (not None), use it
-        if aggregate is not None:
-            return aggregate if aggregate else None  # '' means no aggregation
-        # Otherwise, fall back to default
-        return self.default_aggregate
+        effective = self.default_aggregate if aggregate is None else aggregate
+
+        if effective in (None, False, ""):
+            return None
+
+        if effective is True:
+            repetition_column = self._get_predictions_context_value("repetition_column")
+            if isinstance(repetition_column, str) and repetition_column:
+                return repetition_column
+            return None
+
+        return str(effective)
 
     def _resolve_aggregate_method(self, method: str | None) -> str | None:
         """Resolve effective aggregate method, considering default.
@@ -245,10 +243,10 @@ class PredictionAnalyzer:
         n: int,
         rank_metric: str,
         rank_partition: str = 'val',
-        score_scope: str = 'mix',
+        score_scope: str = 'final',
         display_partition: str = 'test',
         display_metrics: list[str] | None = None,
-        aggregate: str | None = None,
+        aggregate: bool | str | None = None,
         aggregate_method: str | None = None,
         aggregate_exclude_outliers: bool | None = None,
         group_by: str | list[str] | None = None,
@@ -270,10 +268,11 @@ class PredictionAnalyzer:
             rank_partition: Partition for ranking (default: 'val').
             score_scope: Controls how refit (final) entries interact with
                CV entries.  See :meth:`Predictions.top` for details.
-               Default ``"mix"``.
+               Default ``"final"``.
             display_partition: Partition for display (default: 'test').
             display_metrics: List of metrics to compute for display.
-            aggregate: Aggregation column (e.g., 'ID') or None.
+            aggregate: Aggregation mode (metadata column, ``"y"``, ``True``,
+                or None).
             aggregate_method: Aggregation method ('mean', 'median', 'vote').
                 If None, uses default_aggregate_method from constructor.
             aggregate_exclude_outliers: If True, exclude outliers using T² before aggregation.
@@ -298,6 +297,7 @@ class PredictionAnalyzer:
         # Resolve effective aggregate settings
         effective_method = aggregate_method if aggregate_method is not None else self.default_aggregate_method
         effective_exclude = aggregate_exclude_outliers if aggregate_exclude_outliers is not None else self.default_aggregate_exclude_outliers
+        effective_aggregate = self._resolve_aggregate(aggregate)
 
         # For ungrouped queries, cache a larger result set and slice locally so the
         # same cache entry can serve multiple n values. With group_by, n means
@@ -311,7 +311,7 @@ class PredictionAnalyzer:
             cache_filters["_grouped_n"] = n
 
         cache_key = self._cache.make_key(
-            aggregate=aggregate,
+            aggregate=effective_aggregate,
             aggregate_method=effective_method,
             aggregate_exclude_outliers=effective_exclude,
             rank_metric=rank_metric,
@@ -342,7 +342,7 @@ class PredictionAnalyzer:
                 display_metrics=effective_display_metrics,
                 ascending=ascending,
                 aggregate_partitions=aggregate_partitions,
-                by_repetition=aggregate,
+                by_repetition=effective_aggregate,
                 repetition_method=effective_method,
                 repetition_exclude_outliers=effective_exclude,
                 group_by=group_by,
@@ -450,48 +450,21 @@ class PredictionAnalyzer:
             return [item for item in fig if item is not None]
         return [fig]
 
-    def _merge_render_results(self, *results: Any) -> Figure | list[Figure]:
-        """Merge raw/aggregated render results into the public return shape."""
-        figures: list[Any] = []
-        for result in results:
-            figures.extend(self._figure_list(result))
-        if not figures:
-            return []
-        if len(figures) == 1:
-            return figures[0]  # type: ignore[no-any-return]
-        return figures
-
-    def _render_chart_variants(
+    def _render_chart(
         self,
         render_fn,
         chart_type: str,
         dataset_name: str | None = None,
         aggregate: str | None = None,
-        dual: bool = False,
     ) -> Figure | list[Figure]:
-        """Render chart variants depending on aggregation mode.
+        """Render a single chart with the requested aggregation mode.
 
         Args:
             render_fn: Callable that accepts an aggregate value and returns a Figure.
             chart_type: Chart type identifier for file naming.
             dataset_name: Optional dataset name for file naming.
             aggregate: Aggregation column name, or None for raw.
-            dual: If True, render both raw and aggregated charts (used when
-                aggregate was inferred from the dataset repetition column).
-                If False, render only the aggregated chart.
         """
-        if aggregate is None:
-            result = render_fn(None)
-            self._save_figure(result, chart_type, dataset_name)
-            return result  # type: ignore[no-any-return]
-
-        if dual:
-            raw_result = render_fn(None)
-            aggregated_result = render_fn(aggregate)
-            merged = self._merge_render_results(raw_result, aggregated_result)
-            self._save_figure(merged, chart_type, dataset_name)
-            return merged
-
         result = render_fn(aggregate)
         self._save_figure(result, chart_type, dataset_name)
         return result  # type: ignore[no-any-return]
@@ -550,7 +523,9 @@ class PredictionAnalyzer:
         display_metric: str = '',
         display_partition: str = 'all',
         show_scores: bool = True,
-        aggregate: str | None = None,
+        aggregate: bool | str | None = None,
+        aggregate_method: str | None = None,
+        score_scope: str = 'final',
         task_type: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
@@ -570,11 +545,14 @@ class PredictionAnalyzer:
             display_metric: Metric to display in titles (default: same as rank_metric).
             display_partition: Partition(s) to display ('all' or specific partition).
             show_scores: If True, show scores in chart titles (default: True).
-            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
-                      When 'y', groups by y_true values.
-                      When a column name (e.g., 'ID'), groups by that metadata column.
-                      Aggregated predictions have recalculated metrics. Both raw and
-                      aggregated charts are returned as a list of Figure objects.
+            aggregate: Aggregation mode for the plot.
+                - ``None`` / ``False``: no aggregation.
+                - ``True``: aggregate by the dataset repetition column.
+                - ``"y"`` or a metadata column name: aggregate by that key.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                or ``"vote"``).
+            score_scope: Controls which predictions are included in ranking.
+                        See :meth:`Predictions.top` for details. Default ``"final"``.
             task_type: If provided, filter predictions to this task type (e.g.,
                       'regression', 'classification'). Regression-only views are
                       skipped for classification filters.
@@ -590,7 +568,6 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
-        is_dual = effective_aggregate is not None
         effective_task_type = self._resolve_chart_task_type(task_type, required_family="regression")
         if effective_task_type is False:
             return []
@@ -613,6 +590,8 @@ class PredictionAnalyzer:
                 display_partition=display_partition,
                 show_scores=show_scores,
                 aggregate=aggregate_value,
+                aggregate_method=aggregate_method,
+                score_scope=score_scope,
                 task_type=effective_task_type if isinstance(effective_task_type, str) else None,
                 **render_kwargs
             )
@@ -626,26 +605,21 @@ class PredictionAnalyzer:
             if len(datasets) > 1:
                 figures = []
                 for dataset in datasets:
-                    fig = self._render_chart_variants(
+                    fig = self._render_chart(
                         lambda agg, dataset_name=dataset: _render(agg, dataset_name),
                         "top_k",
                         dataset_name=dataset,
                         aggregate=effective_aggregate,
-                        dual=is_dual,
                     )
-                    if isinstance(fig, list):
-                        figures.extend(fig)
-                    else:
-                        figures.append(fig)
+                    figures.extend(self._figure_list(fig))
                 return figures
 
         # Single dataset or dataset_name specified
-        fig = self._render_chart_variants(
+        fig = self._render_chart(
             lambda agg: _render(agg),
             "top_k",
             dataset_name=str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None,
             aggregate=effective_aggregate,
-            dual=is_dual,
         )
         return fig
 
@@ -657,7 +631,9 @@ class PredictionAnalyzer:
         display_metric: str | list[str] = '',
         display_partition: str = 'test',
         show_scores: bool = True,
-        aggregate: str | None = None,
+        aggregate: bool | str | None = None,
+        aggregate_method: str | None = None,
+        score_scope: str = 'final',
         task_type: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
@@ -677,10 +653,14 @@ class PredictionAnalyzer:
                           shown in abbreviated form (default: same as rank_metric).
             display_partition: Partition to display confusion matrix from (default: 'test').
             show_scores: If True, show scores in chart titles (default: True).
-            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
-                      When explicitly set, only the aggregated chart is returned.
-                      When aggregation is inferred from the dataset repetition column,
-                      both raw and aggregated charts are returned.
+            aggregate: Aggregation mode for the plot.
+                - ``None`` / ``False``: no aggregation.
+                - ``True``: aggregate by the dataset repetition column.
+                - ``"y"`` or a metadata column name: aggregate by that key.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                or ``"vote"``).
+            score_scope: Controls which predictions are included in ranking.
+                        See :meth:`Predictions.top` for details. Default ``"final"``.
             task_type: If provided, filter predictions to this task type (e.g.,
                       'classification'). Classification-only views are skipped for
                       regression filters.
@@ -701,7 +681,6 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
-        is_dual = effective_aggregate is not None
         effective_task_type = self._resolve_chart_task_type(task_type, required_family="classification")
         if effective_task_type is False:
             return []
@@ -726,6 +705,8 @@ class PredictionAnalyzer:
                 display_partition=display_partition,
                 show_scores=show_scores,
                 aggregate=aggregate_value,
+                aggregate_method=aggregate_method,
+                score_scope=score_scope,
                 **render_kwargs
             )
 
@@ -738,26 +719,21 @@ class PredictionAnalyzer:
             if len(datasets) > 1:
                 figures: list[Figure] = []
                 for dataset in datasets:
-                    fig = self._render_chart_variants(
+                    fig = self._render_chart(
                         lambda agg, dataset_name=dataset: _render(agg, dataset_name),
                         "confusion_matrix",
                         dataset_name=dataset,
                         aggregate=effective_aggregate,
-                        dual=is_dual,
                     )
-                    if isinstance(fig, list):
-                        figures.extend(fig)
-                    else:
-                        figures.append(fig)
+                    figures.extend(self._figure_list(fig))
                 return figures
 
         # Single dataset or dataset_name specified
-        fig = self._render_chart_variants(
+        fig = self._render_chart(
             lambda agg: _render(agg),
             "confusion_matrix",
             dataset_name=str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None,
             aggregate=effective_aggregate,
-            dual=is_dual,
         )
         return fig
 
@@ -765,7 +741,9 @@ class PredictionAnalyzer:
         self,
         display_metric: str | None = None,
         display_partition: str = 'test',
-        aggregate: str | None = None,
+        aggregate: bool | str | None = None,
+        aggregate_method: str | None = None,
+        score_scope: str = 'final',
         task_type: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
@@ -778,11 +756,14 @@ class PredictionAnalyzer:
         Args:
             display_metric: Metric to plot (default: auto-detect from task type).
             display_partition: Partition to display scores from (default: 'test').
-            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
-                      When 'y', groups by y_true values.
-                      When a column name (e.g., 'ID'), groups by that metadata column.
-                      Aggregated predictions have recalculated metrics. Both raw and
-                      aggregated charts are returned as a list of Figure objects.
+            aggregate: Aggregation mode for the plot.
+                - ``None`` / ``False``: no aggregation.
+                - ``True``: aggregate by the dataset repetition column.
+                - ``"y"`` or a metadata column name: aggregate by that key.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                or ``"vote"``).
+            score_scope: Controls which predictions are included in ranking.
+                        See :meth:`Predictions.top` for details. Default ``"final"``.
             task_type: If provided, filter predictions to this task type (e.g.,
                       'regression', 'classification'). Passed through to the chart's
                       render method as a filter.
@@ -798,7 +779,6 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
-        is_dual = effective_aggregate is not None
         effective_task_type = self._resolve_chart_task_type(task_type)
         chart = ScoreHistogramChart(
             self.predictions,
@@ -817,6 +797,8 @@ class PredictionAnalyzer:
                 display_metric=display_metric,
                 display_partition=display_partition,
                 aggregate=aggregate_value,
+                aggregate_method=aggregate_method,
+                score_scope=score_scope,
                 **render_kwargs
             )
 
@@ -829,26 +811,21 @@ class PredictionAnalyzer:
             if len(datasets) > 1:
                 figures = []
                 for dataset in datasets:
-                    fig = self._render_chart_variants(
+                    fig = self._render_chart(
                         lambda agg, dataset_name=dataset: _render(agg, dataset_name),
                         "histogram",
                         dataset_name=dataset,
                         aggregate=effective_aggregate,
-                        dual=is_dual,
                     )
-                    if isinstance(fig, list):
-                        figures.extend(fig)
-                    else:
-                        figures.append(fig)
+                    figures.extend(self._figure_list(fig))
                 return figures
 
         # Single dataset or dataset_name specified
-        fig = self._render_chart_variants(
+        fig = self._render_chart(
             lambda agg: _render(agg),
             "histogram",
             dataset_name=str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None,
             aggregate=effective_aggregate,
-            dual=is_dual,
         )
         return fig
 
@@ -866,7 +843,9 @@ class PredictionAnalyzer:
         show_counts: bool = True,
         local_scale: bool = False,
         column_scale: bool = False,
-        aggregate: str | None = None,
+        aggregate: bool | str | None = None,
+        aggregate_method: str | None = None,
+        score_scope: str = 'final',
         top_k: int | None = None,
         sort_by_value: bool = False,
         sort_by: str | None = None,
@@ -896,10 +875,14 @@ class PredictionAnalyzer:
             local_scale: If True, colorbar shows actual metric values; if False, shows 0-1 normalized (default: False).
             column_scale: If True, normalize colors per column (best in column = 1.0).
                          Automatically sets local_scale=False when enabled (default: False).
-            aggregate: If provided, aggregate predictions by this metadata column (e.g., 'ID').
-                       When explicitly set, only the aggregated chart is returned.
-                       When aggregation is inferred from the dataset repetition column,
-                       both raw and aggregated charts are returned.
+            aggregate: Aggregation mode for the plot.
+                - ``None`` / ``False``: no aggregation.
+                - ``True``: aggregate by the dataset repetition column.
+                - ``"y"`` or a metadata column name: aggregate by that key.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                or ``"vote"``).
+            score_scope: Controls which predictions are included in ranking.
+                        See :meth:`Predictions.top` for details. Default ``"final"``.
             top_k: If provided, show only top K models. Selection uses Borda count:
                    first keeps top-1 per column, then ranks by Borda count.
             sort_by_value: If True, sort Y-axis by ranking score (best first) instead
@@ -951,7 +934,6 @@ class PredictionAnalyzer:
 
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
-        is_dual = effective_aggregate is not None
         effective_task_type = self._resolve_chart_task_type(task_type)
         chart = HeatmapChart(
             self.predictions,
@@ -978,18 +960,19 @@ class PredictionAnalyzer:
                 local_scale=local_scale,
                 column_scale=column_scale,
                 aggregate=aggregate_value,
+                aggregate_method=aggregate_method,
+                score_scope=score_scope,
                 top_k=top_k,
                 sort_by_value=sort_by_value,
                 sort_by=sort_by,
                 **render_kwargs
             )
 
-        fig = self._render_chart_variants(
+        fig = self._render_chart(
             _render,
             "heatmap",
             dataset_name=str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None,
             aggregate=effective_aggregate,
-            dual=is_dual,
         )
         return fig
 
@@ -998,7 +981,9 @@ class PredictionAnalyzer:
         variable: str,
         display_metric: str | None = None,
         display_partition: str = 'test',
-        aggregate: str | None = None,
+        aggregate: bool | str | None = None,
+        aggregate_method: str | None = None,
+        score_scope: str = 'final',
         task_type: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
@@ -1009,11 +994,14 @@ class PredictionAnalyzer:
             variable: Variable to group by (e.g., 'model_name', 'preprocessings').
             display_metric: Metric to analyze (default: auto-detect from task type).
             display_partition: Partition to display scores from (default: 'test').
-            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
-                      When 'y', groups by y_true values.
-                      When a column name (e.g., 'ID'), groups by that metadata column.
-                      Aggregated predictions have recalculated metrics. Both raw and
-                      aggregated charts are returned as a list of Figure objects.
+            aggregate: Aggregation mode for the plot.
+                - ``None`` / ``False``: no aggregation.
+                - ``True``: aggregate by the dataset repetition column.
+                - ``"y"`` or a metadata column name: aggregate by that key.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                or ``"vote"``).
+            score_scope: Controls which predictions are included in ranking.
+                        See :meth:`Predictions.top` for details. Default ``"final"``.
             task_type: If provided, filter predictions to this task type (e.g.,
                       'regression', 'classification'). Passed through to the chart's
                       render method as a filter.
@@ -1029,7 +1017,6 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
-        is_dual = effective_aggregate is not None
         effective_task_type = self._resolve_chart_task_type(task_type)
         chart = CandlestickChart(
             self.predictions,
@@ -1047,15 +1034,16 @@ class PredictionAnalyzer:
                 display_metric=display_metric,
                 display_partition=display_partition,
                 aggregate=aggregate_value,
+                aggregate_method=aggregate_method,
+                score_scope=score_scope,
                 **render_kwargs
             )
 
-        fig = self._render_chart_variants(
+        fig = self._render_chart(
             _render,
             "candlestick",
             dataset_name=str(kwargs['dataset_name']) if 'dataset_name' in kwargs else None,
             aggregate=effective_aggregate,
-            dual=is_dual,
         )
         return fig
 
@@ -1099,7 +1087,9 @@ class PredictionAnalyzer:
         self,
         metrics: list[str] | None = None,
         display_partition: str = 'test',
-        aggregate: str | None = None,
+        aggregate: bool | str | None = None,
+        aggregate_method: str | None = None,
+        score_scope: str = 'final',
         as_dataframe: bool = True,
         **filters
     ) -> pd.DataFrame | dict[str, dict[str, Any]]:
@@ -1111,8 +1101,11 @@ class PredictionAnalyzer:
             metrics: List of metrics to compute (default: ['rmse', 'r2'] or
                     ['balanced_accuracy', 'f1'] for classification).
             display_partition: Partition to compute metrics from (default: 'test').
-            aggregate: If provided, aggregate predictions by this metadata column
-                      (e.g., 'ID') before computing statistics.
+            aggregate: Aggregation mode for the summary.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                or ``"vote"``).
+            score_scope: Controls which predictions are included in ranking.
+                        See :meth:`Predictions.top` for details. Default ``"final"``.
             as_dataframe: If True, return pandas DataFrame. If False, return dict.
             **filters: Additional filter criteria.
 
@@ -1148,9 +1141,11 @@ class PredictionAnalyzer:
             n=100000,  # Large number to get all
             rank_metric=metrics[0],
             rank_partition='val',
+            score_scope=score_scope,
             display_partition=display_partition,
             display_metrics=metrics,
             aggregate=effective_aggregate,
+            aggregate_method=aggregate_method,
             aggregate_partitions=True,
             **filters
         )
@@ -1227,7 +1222,9 @@ class PredictionAnalyzer:
         rank_metric: str | None = None,
         display_metric: str | None = None,
         display_partition: str = 'test',
-        aggregate: str | None = None,
+        aggregate: bool | str | None = None,
+        aggregate_method: str | None = None,
+        score_scope: str = 'final',
         show_ci: bool = True,
         ci_level: float = 0.95,
         figsize: tuple | None = None,
@@ -1243,7 +1240,11 @@ class PredictionAnalyzer:
             rank_metric: Metric for ranking models (default: auto-detect).
             display_metric: Metric to display (default: same as rank_metric).
             display_partition: Partition to display results from (default: 'test').
-            aggregate: If provided, aggregate predictions by this metadata column.
+            aggregate: Aggregation mode for the plot.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                or ``"vote"``).
+            score_scope: Controls which predictions are included in ranking.
+                        See :meth:`Predictions.top` for details. Default ``"final"``.
             show_ci: If True, show confidence intervals (default: True).
             ci_level: Confidence level for intervals (default: 0.95).
             figsize: Figure size tuple (default: auto-computed).
@@ -1279,6 +1280,8 @@ class PredictionAnalyzer:
             metrics=[display_metric],
             display_partition=display_partition,
             aggregate=effective_aggregate,
+            aggregate_method=aggregate_method,
+            score_scope=score_scope,
             as_dataframe=True,
             **filters
         )
@@ -1352,8 +1355,8 @@ class PredictionAnalyzer:
 
         # Build title
         title = f'Branch Comparison: {abbreviate_metric(display_metric)} [{display_partition}]'
-        if aggregate:
-            title += f' (aggregated by {aggregate})'
+        if effective_aggregate:
+            title += f' (aggregated by {effective_aggregate})'
         ax.set_title(title, fontsize=effective_config.title_fontsize)
 
         # Add value labels on bars
@@ -1376,7 +1379,9 @@ class PredictionAnalyzer:
         rank_metric: str | None = None,
         display_metric: str | None = None,
         display_partition: str = 'test',
-        aggregate: str | None = None,
+        aggregate: bool | str | None = None,
+        aggregate_method: str | None = None,
+        score_scope: str = 'final',
         figsize: tuple | None = None,
         config: ChartConfig | None = None,
         **filters
@@ -1389,7 +1394,11 @@ class PredictionAnalyzer:
             rank_metric: Metric for ranking models (default: auto-detect).
             display_metric: Metric to display (default: same as rank_metric).
             display_partition: Partition to display results from (default: 'test').
-            aggregate: If provided, aggregate predictions by this metadata column.
+            aggregate: Aggregation mode for the plot.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                or ``"vote"``).
+            score_scope: Controls which predictions are included in ranking.
+                        See :meth:`Predictions.top` for details. Default ``"final"``.
             figsize: Figure size tuple (default: auto-computed).
             config: Optional ChartConfig to override defaults.
             **filters: Additional filter criteria.
@@ -1421,9 +1430,11 @@ class PredictionAnalyzer:
             n=100000,
             rank_metric=rank_metric,
             rank_partition='val',
+            score_scope=score_scope,
             display_partition=display_partition,
             display_metrics=[display_metric],
             aggregate=effective_aggregate,
+            aggregate_method=aggregate_method,
             aggregate_partitions=True,
             **filters
         )
@@ -1510,8 +1521,8 @@ class PredictionAnalyzer:
 
         # Build title
         title = f'Branch Distribution: {abbreviate_metric(display_metric)} [{display_partition}]'
-        if aggregate:
-            title += f' (aggregated by {aggregate})'
+        if effective_aggregate:
+            title += f' (aggregated by {effective_aggregate})'
         ax.set_title(title, fontsize=effective_config.title_fontsize)
 
         ax.grid(axis='y', alpha=0.3)
@@ -1526,7 +1537,9 @@ class PredictionAnalyzer:
         rank_metric: str | None = None,
         display_metric: str | None = None,
         display_partition: str = 'test',
-        aggregate: str | None = None,
+        aggregate: bool | str | None = None,
+        aggregate_method: str | None = None,
+        score_scope: str = 'final',
         config: ChartConfig | None = None,
         **kwargs
     ) -> Figure | list[Figure]:
@@ -1540,7 +1553,11 @@ class PredictionAnalyzer:
             rank_metric: Metric for ranking (default: auto-detect).
             display_metric: Metric to display (default: same as rank_metric).
             display_partition: Partition to display (default: 'test').
-            aggregate: If provided, aggregate predictions by this metadata column.
+            aggregate: Aggregation mode for the plot.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                or ``"vote"``).
+            score_scope: Controls which predictions are included in ranking.
+                        See :meth:`Predictions.top` for details. Default ``"final"``.
             config: Optional ChartConfig to override defaults.
             **kwargs: Additional parameters passed to plot_heatmap.
 
@@ -1566,6 +1583,8 @@ class PredictionAnalyzer:
             display_metric=display_metric,
             display_partition=display_partition,
             aggregate=aggregate,
+            aggregate_method=aggregate_method,
+            score_scope=score_scope,
             config=config,
             **kwargs
         )
@@ -1626,6 +1645,7 @@ class PredictionAnalyzer:
         metric: str | None = None,
         partition: str = 'test',
         plot_type: str = 'grouped_bar',
+        score_scope: str = 'final',
         figsize: tuple | None = None,
         config: ChartConfig | None = None,
         **filters
@@ -1640,6 +1660,8 @@ class PredictionAnalyzer:
             metric: Metric to display (default: auto-detect).
             partition: Partition for metrics (default: 'test').
             plot_type: Type of plot ('grouped_bar', 'facet').
+            score_scope: Controls which predictions are included in ranking.
+                        See :meth:`Predictions.top` for details. Default ``"final"``.
             figsize: Figure size tuple.
             config: Optional ChartConfig to override defaults.
             **filters: Additional filter criteria.
@@ -1667,6 +1689,7 @@ class PredictionAnalyzer:
             n=100000,
             rank_metric=metric,
             rank_partition='val',
+            score_scope=score_scope,
             display_partition=partition,
             display_metrics=[metric],
             aggregate_partitions=True,
