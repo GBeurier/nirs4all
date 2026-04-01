@@ -350,7 +350,10 @@ class HeatmapChart(BaseChart):
         show_counts: bool = True,
         local_scale: bool = False,
         column_scale: bool = False,
-        aggregate: str | None = None,
+        aggregate: bool | str | None = None,
+        aggregate_method: str | None = None,
+        aggregate_exclude_outliers: bool | None = None,
+        score_scope: str = 'final',
         top_k: int | None = None,
         sort_by_value: bool = False,
         sort_by: str | None = None,
@@ -377,7 +380,11 @@ class HeatmapChart(BaseChart):
             local_scale: If True, use local scale for colors.
             column_scale: If True, normalize colors per column (best in column = 1.0).
                          Automatically sets local_scale=False when enabled.
-            aggregate: Aggregation column for sample-level aggregation.
+            aggregate: Aggregation mode for sample-level aggregation.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                or ``"vote"``).
+            aggregate_exclude_outliers: Whether grouped aggregation excludes
+                outliers before reducing each group.
             top_k: If provided, show only top K models. Selection uses Borda count:
                    first keeps top-1 per column, then ranks by Borda count.
             sort_by_value: If True, sort Y-axis by ranking score (best first) instead
@@ -420,7 +427,10 @@ class HeatmapChart(BaseChart):
                         display_partition=display_partition, figsize=figsize,
                         normalize=normalize, rank_agg=rank_agg, display_agg=display_agg,
                         show_counts=show_counts, local_scale=local_scale,
-                        column_scale=column_scale, aggregate=aggregate, top_k=top_k,
+                        column_scale=column_scale, aggregate=aggregate,
+                        aggregate_method=aggregate_method,
+                        aggregate_exclude_outliers=aggregate_exclude_outliers,
+                        score_scope=score_scope, top_k=top_k,
                         sort_by_value=sort_by_value, sort_by=sort_by, task_type=tt,
                         **filters,
                     )
@@ -464,6 +474,9 @@ class HeatmapChart(BaseChart):
                 local_scale=local_scale,
                 column_scale=column_scale,
                 aggregate=aggregate,
+                aggregate_method=aggregate_method,
+                aggregate_exclude_outliers=aggregate_exclude_outliers,
+                score_scope=score_scope,
                 top_k=top_k,
                 sort_by=effective_sort_by,
                 task_type=task_type,
@@ -1003,6 +1016,9 @@ class HeatmapChart(BaseChart):
         local_scale: bool,
         column_scale: bool,
         aggregate: str,
+        aggregate_method: str | None = None,
+        aggregate_exclude_outliers: bool | None = None,
+        score_scope: str = 'final',
         top_k: int | None = None,
         sort_by: str | None = None,
         task_type: str | None = None,
@@ -1102,7 +1118,10 @@ class HeatmapChart(BaseChart):
                 display_partition=display_partition,
                 aggregate_partitions=True,
                 aggregate=aggregate,
+                aggregate_method=aggregate_method,
+                aggregate_exclude_outliers=aggregate_exclude_outliers,
                 group_by=group_by_cols,  # Group by y_var for heatmap rows
+                score_scope=score_scope,
                 task_type=task_type,
                 **all_filters
             )

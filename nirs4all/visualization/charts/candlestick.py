@@ -60,9 +60,11 @@ class CandlestickChart(BaseChart):
 
     def render(self, variable: str, display_metric: str | None = None,
                display_partition: str = 'test', dataset_name: str | None = None,
-               figsize: tuple | None = None, aggregate: str | None = None,
+               figsize: tuple | None = None, aggregate: bool | str | None = None,
+               aggregate_method: str | None = None,
+               aggregate_exclude_outliers: bool | None = None,
                clip_outliers: bool = True, iqr_factor: float = 1.5,
-               task_type: str | None = None,
+               task_type: str | None = None, score_scope: str = 'final',
                **filters) -> Figure | list[Figure]:
         """Render candlestick chart showing metric distribution by variable (Optimized with Polars).
 
@@ -72,10 +74,11 @@ class CandlestickChart(BaseChart):
             display_partition: Partition to display scores from (default: 'test').
             dataset_name: Optional dataset filter.
             figsize: Figure size tuple (default: from config).
-            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
-                      When 'y', groups by y_true values.
-                      When a column name (e.g., 'ID'), groups by that metadata column.
-                      Aggregated predictions have recalculated metrics.
+            aggregate: Aggregation mode for the chart.
+            aggregate_method: Aggregation method (``"mean"``, ``"median"``,
+                or ``"vote"``).
+            aggregate_exclude_outliers: Whether grouped aggregation excludes
+                outliers before reducing each group.
             clip_outliers: If True, constrain the y-axis to show the main distribution
                           and let extreme outliers go off-frame (default: True).
             iqr_factor: Factor to multiply IQR for determining outlier bounds.
@@ -106,8 +109,12 @@ class CandlestickChart(BaseChart):
                     fig = self.render(
                         variable=variable, display_metric=display_metric,
                         display_partition=display_partition, dataset_name=dataset_name,
-                        figsize=figsize, aggregate=aggregate, clip_outliers=clip_outliers,
-                        iqr_factor=iqr_factor, task_type=tt, **filters,
+                        figsize=figsize,
+                        aggregate=aggregate,
+                        aggregate_method=aggregate_method,
+                        aggregate_exclude_outliers=aggregate_exclude_outliers,
+                        clip_outliers=clip_outliers,
+                        iqr_factor=iqr_factor, task_type=tt, score_scope=score_scope, **filters,
                     )
                     if isinstance(fig, list):
                         figures.extend(fig)
@@ -137,9 +144,12 @@ class CandlestickChart(BaseChart):
                 display_partition=display_partition,
                 figsize=figsize,
                 aggregate=aggregate,
+                aggregate_method=aggregate_method,
+                aggregate_exclude_outliers=aggregate_exclude_outliers,
                 clip_outliers=clip_outliers,
                 iqr_factor=iqr_factor,
                 task_type=task_type,
+                score_scope=score_scope,
                 **all_filters
             )
 
@@ -287,9 +297,12 @@ class CandlestickChart(BaseChart):
         display_partition: str,
         figsize: tuple,
         aggregate: str,
+        aggregate_method: str | None = None,
+        aggregate_exclude_outliers: bool | None = None,
         clip_outliers: bool = True,
         iqr_factor: float = 1.5,
         task_type: str | None = None,
+        score_scope: str = 'final',
         **filters
     ) -> Figure:
         """Render candlestick with aggregation support.
@@ -312,8 +325,11 @@ class CandlestickChart(BaseChart):
                 display_partition=display_partition,
                 aggregate_partitions=True,
                 aggregate=aggregate,
+                aggregate_method=aggregate_method,
+                aggregate_exclude_outliers=aggregate_exclude_outliers,
                 group_by=None,  # Keep all predictions for distribution
                 task_type=task_type,
+                score_scope=score_scope,
                 **filters
             )
         except Exception as e:

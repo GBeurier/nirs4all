@@ -223,7 +223,7 @@ class TestPredictionsTop:
         _add_sample_predictions(preds, n=10)
 
         # Lower RMSE is better (ascending)
-        top_5 = preds.top(5, rank_metric="", rank_partition="val", ascending=True)
+        top_5 = preds.top(5, rank_metric="", rank_partition="val", ascending=True, score_scope="cv")
 
         assert len(top_5) == 5
 
@@ -407,7 +407,7 @@ class TestResultBestScore:
             n_features=50,
         )
 
-        best = preds.get_best(metric="", ascending=True)
+        best = preds.get_best(metric="", ascending=True, score_scope="cv")
         assert best is not None
         assert best["model_name"] == "PLS_3"
         assert best["val_score"] == 0.05
@@ -437,11 +437,11 @@ class TestResultBestScore:
             n_features=50,
         )
 
-        results = preds.top(1, rank_partition="val", rank_metric="rmse")
+        results = preds.top(1, rank_partition="val", rank_metric="rmse", score_scope="cv")
         assert len(results) == 1
         assert results[0]["rank_score"] == 0.99
 
-        results_r2 = preds.top(1, rank_partition="val", rank_metric="r2")
+        results_r2 = preds.top(1, rank_partition="val", rank_metric="r2", score_scope="cv")
         assert len(results_r2) == 1
         assert results_r2[0]["rank_score"] == 0.01
 

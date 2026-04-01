@@ -87,14 +87,14 @@ class TestPredictionsScores:
         )
 
         # Rank by RMSE
-        results = predictions.top(1, rank_partition="test", rank_metric="rmse")
+        results = predictions.top(1, rank_partition="test", rank_metric="rmse", score_scope="cv")
 
         assert len(results) == 1
         # Should use the fake score, not the calculated one
         assert results[0]["rank_score"] == 999.0
 
         # Rank by R2
-        results = predictions.top(1, rank_partition="test", rank_metric="r2")
+        results = predictions.top(1, rank_partition="test", rank_metric="r2", score_scope="cv")
         assert results[0]["rank_score"] == -999.0
 
     def test_top_fallback_calculation(self, base_prediction_params):
@@ -120,7 +120,7 @@ class TestPredictionsScores:
         )
 
         # Rank by MAE (not in scores)
-        results = predictions.top(1, rank_partition="test", rank_metric="mae")
+        results = predictions.top(1, rank_partition="test", rank_metric="mae", score_scope="cv")
 
         assert len(results) == 1
         # Should have calculated MAE: mean(|0.1|, |0.1|) = 0.1
@@ -147,7 +147,8 @@ class TestPredictionsScores:
             1,
             rank_partition="test",
             rank_metric="rmse",
-            display_metrics=["custom_metric"]
+            display_metrics=["custom_metric"],
+            score_scope="cv",
         )
 
         assert len(results) == 1
