@@ -134,7 +134,8 @@ result = nirs4all.run(
     dataset="sample_data/regression",
     name="JaxMLPRegressor",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nJaxMLPRegressor predictions: {result.num_predictions}")
@@ -239,7 +240,8 @@ result = nirs4all.run(
     dataset="sample_data/regression",
     name="niconJAX",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nnicon_jax predictions: {result.num_predictions}")
@@ -277,7 +279,8 @@ result = nirs4all.run(
     dataset="sample_data/regression",
     name="JAXComparison",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nModel comparison predictions: {result.num_predictions}")

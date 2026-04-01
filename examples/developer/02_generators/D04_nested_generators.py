@@ -300,7 +300,8 @@ result = nirs4all.run(
     dataset="sample_data/regression",
     name="NestedGenerator",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nTotal predictions: {result.num_predictions}")

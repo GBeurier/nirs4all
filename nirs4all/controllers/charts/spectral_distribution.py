@@ -10,6 +10,7 @@ import numpy as np
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.header_units import get_axis_label
+from nirs4all.visualization.display import keep_or_close_figures
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
@@ -131,11 +132,11 @@ class SpectralDistributionController(OperatorController):
 
             outputs.append((img_png_binary, chart_name, "png"))
 
-            if runtime_context.step_runner.plots_visible:
-                runtime_context.step_runner._figure_refs.append(fig)
-                plt.show()
-            else:
-                plt.close(fig)
+            keep_or_close_figures(
+                fig,
+                visible=runtime_context.step_runner.plots_visible,
+                figure_refs=runtime_context.step_runner._figure_refs,
+            )
 
         return context, StepOutput(outputs=outputs)
 

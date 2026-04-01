@@ -262,6 +262,7 @@ class PipelineOrchestrator:
                     .with_continue_on_error(self.continue_on_error)
                     .with_show_spinner(self.show_spinner)
                     .with_plots_visible(self.plots_visible)
+                    .with_figure_refs(self._figure_refs)
                     .with_artifact_loader(artifact_loader)
                     .with_artifact_registry(artifact_registry)
                     .with_store(self.store)

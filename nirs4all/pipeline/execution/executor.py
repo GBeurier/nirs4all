@@ -43,6 +43,7 @@ class PipelineExecutor:
         continue_on_error: bool = False,
         store: Any = None,
         save_artifacts: bool = True,
+        save_charts: bool = True,
         artifact_loader: Any = None,
         artifact_registry: Any = None
     ) -> None:
@@ -55,6 +56,7 @@ class PipelineExecutor:
             continue_on_error: Whether to continue on step failures
             store: WorkspaceStore for SQLite-backed persistence
             save_artifacts: Whether to save binary artifacts
+            save_charts: Whether to save visual outputs
             artifact_loader: Artifact loader for predict/explain modes
             artifact_registry: Artifact registry for v2 artifact management
         """
@@ -64,6 +66,7 @@ class PipelineExecutor:
         self.continue_on_error = continue_on_error
         self.store = store
         self.save_artifacts = save_artifacts
+        self.save_charts = save_charts
         self.artifact_loader = artifact_loader
         self.artifact_registry = artifact_registry
 
@@ -179,6 +182,7 @@ class PipelineExecutor:
             if not runtime_context.pipeline_name:
                 runtime_context.pipeline_name = config_name
             runtime_context.save_artifacts = self.save_artifacts
+            runtime_context.save_charts = self.save_charts
 
         # Initialize prediction store if not provided
         if prediction_store is None:
@@ -880,7 +884,7 @@ class PipelineExecutor:
             # Save step outputs to disk and log to store
             store = runtime_context.store if runtime_context else self.store
             pipeline_id = runtime_context.pipeline_id if runtime_context else None
-            if store and pipeline_id:
+            if store and pipeline_id and self.save_charts:
                 for output in step_result.outputs:
                     if isinstance(output, tuple) and len(output) >= 3:
                         data, name, type_hint = output

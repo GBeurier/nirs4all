@@ -14,6 +14,7 @@ from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.config.context import ExecutionContext
+from nirs4all.visualization.display import keep_or_close_figures
 
 logger = get_logger(__name__)
 
@@ -225,12 +226,11 @@ class FoldChartController(OperatorController):
             outputs=[(img_png_binary, image_name, "png")]
         )
 
-        if runtime_context.step_runner.plots_visible:
-            # Store figure reference - user will call plt.show() at the end
-            runtime_context.step_runner._figure_refs.append(fig)
-            plt.show()
-        else:
-            plt.close(fig)
+        keep_or_close_figures(
+            fig,
+            visible=runtime_context.step_runner.plots_visible,
+            figure_refs=runtime_context.step_runner._figure_refs,
+        )
 
         return context, step_output
 
@@ -598,4 +598,3 @@ class FoldChartController(OperatorController):
 
             ax.bar(position, 1, bottom=i, width=bar_width,
                    color=color, edgecolor=darker_color, linewidth=0.5)
-

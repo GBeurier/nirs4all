@@ -132,7 +132,8 @@ if TORCH_AVAILABLE:
         dataset="sample_data/regression",
         name="NICON",
         verbose=1,
-        plots_visible=args.plots
+        save_charts=args.plots or args.show,
+        plots_visible=args.show
     )
 
     print(f"\nNICON predictions: {result.num_predictions}")
@@ -235,7 +236,8 @@ Custom models work like any model, using 'model' + 'train_params':
         dataset="sample_data/regression",
         name="CustomPyTorch",
         verbose=1,
-        plots_visible=args.plots
+        save_charts=args.plots or args.show,
+        plots_visible=args.show
     )
 
     print(f"\nCustom model predictions: {result.num_predictions}")
@@ -388,7 +390,8 @@ Compare architectures using branching:
         dataset="sample_data/regression",
         name="CustomVsNICON",
         verbose=1,
-        plots_visible=args.plots
+        save_charts=args.plots or args.show,
+        plots_visible=args.show
     )
 
     print(f"\nModel comparison predictions: {result.num_predictions}")

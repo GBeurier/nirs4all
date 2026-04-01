@@ -100,7 +100,8 @@ result_single = nirs4all.run(
     dataset="sample_data/regression",
     name="SingleSource",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nSingle source predictions: {result_single.num_predictions}")

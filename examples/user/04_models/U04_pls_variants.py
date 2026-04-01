@@ -437,8 +437,8 @@ for i, pred in enumerate(result_all.top(10, display_metrics=['rmse', 'r2']), 1):
 # =============================================================================
 # Section 10: Visualization
 # =============================================================================
-if args.plots:
-    analyzer = PredictionAnalyzer(result_all.predictions)
+if args.plots or args.show:
+    analyzer = PredictionAnalyzer(result_all.predictions, save=args.plots or args.show)
     fig1 = analyzer.plot_top_k(k=7, rank_metric='rmse')
     fig2 = analyzer.plot_candlestick(variable="model_name", display_partition="test")
 

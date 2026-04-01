@@ -40,7 +40,7 @@ from nirs4all.operators.transforms import Resampler, StandardNormalVariate
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U04 Wavelength Handling Example')
-parser.add_argument('--plots', action='store_true', help='Generate plots')
+parser.add_argument('--plots', action='store_true', help='Save plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
@@ -165,7 +165,8 @@ result4 = nirs4all.run(
     name="ResampledModel",
     verbose=1,
     save_artifacts=True,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print("\n📊 Model trained on resampled data:")

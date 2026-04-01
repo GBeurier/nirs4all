@@ -47,7 +47,7 @@ from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U03 Basic Classification Example')
-parser.add_argument('--plots', action='store_true', help='Generate plots')
+parser.add_argument('--plots', action='store_true', help='Save plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
@@ -123,7 +123,8 @@ result = nirs4all.run(
     name="BasicClassification",
     verbose=1,
     save_artifacts=True,
-    plots_visible=args.plots,
+    save_charts=args.plots or args.show,
+    plots_visible=args.show,
     random_state=42
 )
 
@@ -160,7 +161,7 @@ print("\n" + "-" * 60)
 print("Creating Visualizations")
 print("-" * 60)
 
-analyzer = PredictionAnalyzer(predictions)
+analyzer = PredictionAnalyzer(predictions, save=args.plots or args.show)
 
 # Confusion matrix for top 4 models
 fig1 = analyzer.plot_confusion_matrix(

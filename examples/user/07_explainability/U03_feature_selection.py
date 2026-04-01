@@ -35,7 +35,7 @@ from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U03 Feature Selection Example')
-parser.add_argument('--plots', action='store_true', help='Generate plots')
+parser.add_argument('--plots', action='store_true', help='Save plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
@@ -115,9 +115,9 @@ pipeline_config = PipelineConfigs(cars_pipeline, name="CARS_Selection")
 print("\nRunning CARS pipeline...")
 runner = PipelineRunner(
     save_artifacts=False,
-    save_charts=False,
+    save_charts=args.plots or args.show,
     verbose=1,
-    plots_visible=args.plots
+    plots_visible=args.show
 )
 predictions_cars, _run_info1 = runner.run(pipeline_config, dataset_config)
 

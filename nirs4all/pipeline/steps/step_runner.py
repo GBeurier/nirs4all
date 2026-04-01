@@ -34,7 +34,8 @@ class StepRunner:
         verbose: int = 0,
         mode: str = "train",
         show_spinner: bool = True,
-        plots_visible: bool = False
+        plots_visible: bool = False,
+        figure_refs: list[Any] | None = None,
     ):
         """Initialize step runner.
 
@@ -45,6 +46,7 @@ class StepRunner:
             mode: Execution mode (train/predict/explain)
             show_spinner: Whether to show spinner for long operations
             plots_visible: Whether to display plots
+            figure_refs: Shared figure references for deferred display
         """
         self.parser = parser or StepParser()
         self.router = router or ControllerRouter()
@@ -52,7 +54,7 @@ class StepRunner:
         self.mode = mode
         self.show_spinner = show_spinner
         self.plots_visible = plots_visible
-        self._figure_refs: list[Any] = []
+        self._figure_refs = figure_refs if figure_refs is not None else []
 
     def execute(
         self,

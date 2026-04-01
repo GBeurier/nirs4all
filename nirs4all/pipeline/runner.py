@@ -19,6 +19,7 @@ from nirs4all.pipeline.execution.orchestrator import PipelineOrchestrator
 from nirs4all.pipeline.explainer import Explainer
 from nirs4all.pipeline.predictor import Predictor
 from nirs4all.pipeline.retrainer import ExtractedPipeline, Retrainer, StepMode
+from nirs4all.visualization.display import show_figures as show_registered_figures
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.storage.library import PipelineLibrary
@@ -432,6 +433,10 @@ class PipelineRunner:
             store = self.orchestrator.store
             if store is not None:
                 store.close()
+
+    def show_figures(self, *, block: bool = True, close: bool = False) -> bool:
+        """Show figures registered during pipeline execution."""
+        return show_registered_figures(self._figure_refs, block=block, close=close)
 
     @property
     def runs_dir(self) -> Path:

@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from nirs4all.core.logging import get_logger
+from nirs4all.visualization.display import close_figures, show_figures
 
 logger = get_logger(__name__)
 
@@ -51,6 +52,15 @@ class ShapAnalyzer:
         self.bin_size = 20
         self.bin_stride = 10
         self.bin_aggregation = 'sum'  # 'sum', 'sum_abs', 'mean', 'mean_abs'
+
+    @staticmethod
+    def _finalize_figure(fig: Any = None, *, plots_visible: bool) -> None:
+        """Handle post-render plot lifecycle in one place."""
+        target = fig if fig is not None else plt.gcf()
+        if plots_visible:
+            show_figures(target, block=True, close=True, context="SHAP plot")
+        else:
+            close_figures(target)
 
     def explain_model(
         self,
@@ -168,9 +178,10 @@ class ShapAnalyzer:
                 logger.info(f"     {viz}: size={self.bin_size_dict[viz]}, stride={self.bin_stride_dict[viz]}, agg={self.bin_aggregation_dict[viz]}")
 
         # Step 3: Generate visualizations
-        if output_dir and visualizations:
-            output_path = Path(output_dir)
-            output_path.mkdir(parents=True, exist_ok=True)
+        if visualizations:
+            output_path = Path(output_dir) if output_dir else None
+            if output_path is not None:
+                output_path.mkdir(parents=True, exist_ok=True)
 
             logger.info("Generating visualizations...")
 
@@ -182,7 +193,7 @@ class ShapAnalyzer:
 
                 self.plot_spectral_importance(
                     feature_names=feature_names,
-                    output_path=str(output_path / "spectral_importance.png"),
+                    output_path=str(output_path / "spectral_importance.png") if output_path is not None else None,
                     plots_visible=plots_visible
                 )
                 logger.success("   Spectral importance")
@@ -190,7 +201,7 @@ class ShapAnalyzer:
             if 'summary' in visualizations:
                 self.plot_summary(
                     feature_names=feature_names,
-                    output_path=str(output_path / "summary.png"),
+                    output_path=str(output_path / "summary.png") if output_path is not None else None,
                     plots_visible=plots_visible
                 )
                 logger.success("   Summary plot")
@@ -203,7 +214,7 @@ class ShapAnalyzer:
 
                 self.plot_waterfall_binned(
                     sample_idx=0,
-                    output_path=str(output_path / "waterfall_binned.png"),
+                    output_path=str(output_path / "waterfall_binned.png") if output_path is not None else None,
                     plots_visible=plots_visible
                 )
                 logger.success("   Waterfall plot (binned)")
@@ -212,7 +223,7 @@ class ShapAnalyzer:
                 self.plot_force(
                     sample_idx=0,
                     feature_names=feature_names,
-                    output_path=str(output_path / "force.html"),
+                    output_path=str(output_path / "force.html") if output_path is not None else None,
                     plots_visible=plots_visible
                 )
                 logger.success("   Force plot")
@@ -224,7 +235,7 @@ class ShapAnalyzer:
                 self.bin_aggregation = self.bin_aggregation_dict.get('beeswarm', 'sum')
 
                 self.plot_beeswarm_binned(
-                    output_path=str(output_path / "beeswarm_binned.png"),
+                    output_path=str(output_path / "beeswarm_binned.png") if output_path is not None else None,
                     plots_visible=plots_visible
                 )
                 logger.success("   Beeswarm plot (binned)")
@@ -521,10 +532,7 @@ class ShapAnalyzer:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
             logger.info(f"   Saved: {output_path}")
 
-        if not plots_visible:
-            plt.close(fig)
-        else:
-            plt.show()  # Blocking
+        self._finalize_figure(fig, plots_visible=plots_visible)
 
     def plot_summary(
         self,
@@ -552,10 +560,7 @@ class ShapAnalyzer:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
             logger.info(f"   Saved: {output_path}")
 
-        if not plots_visible:
-            plt.close()
-        else:
-            plt.show()  # Blocking
+        self._finalize_figure(plots_visible=plots_visible)
 
     def plot_beeswarm(
         self,
@@ -585,10 +590,7 @@ class ShapAnalyzer:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
             logger.info(f"   Saved: {output_path}")
 
-        if not plots_visible:
-            plt.close()
-        else:
-            plt.show()  # Blocking
+        self._finalize_figure(plots_visible=plots_visible)
 
     def plot_waterfall(
         self,
@@ -621,10 +623,7 @@ class ShapAnalyzer:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
             logger.info(f"   Saved: {output_path}")
 
-        if not plots_visible:
-            plt.close()
-        else:
-            plt.show()  # Blocking
+        self._finalize_figure(plots_visible=plots_visible)
 
     def plot_force(
         self,
@@ -657,9 +656,8 @@ class ShapAnalyzer:
             )
         if output_path:
             logger.info(f"   Saved: {output_path}")
-        if plots_visible and output_path is None:
-            plt.show()  # Blocking
-            plt.close()
+        elif output_path is None:
+            self._finalize_figure(plots_visible=plots_visible)
 
     def plot_dependence(
         self,
@@ -687,10 +685,7 @@ class ShapAnalyzer:
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
 
-        if not plots_visible:
-            plt.close()
-        else:
-            plt.show()  # Blocking
+        self._finalize_figure(plots_visible=plots_visible)
 
     def _aggregate_shap_bins(self, shap_values: np.ndarray) -> tuple[np.ndarray, list[str]]:
         """
@@ -804,10 +799,7 @@ class ShapAnalyzer:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
             logger.info(f"   Saved: {output_path}")
 
-        if plots_visible:
-            plt.show()  # Blocking
-        else:
-            plt.close()
+        self._finalize_figure(plots_visible=plots_visible)
 
     def plot_waterfall_binned(
         self,
@@ -863,10 +855,7 @@ class ShapAnalyzer:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
             logger.info(f"   Saved: {output_path}")
 
-        if not plots_visible:
-            plt.close()
-        else:
-            plt.show()  # Blocking
+        self._finalize_figure(plots_visible=plots_visible)
 
     def get_feature_importance(self, top_n: int | None = None) -> dict[int, float]:
         """
@@ -907,4 +896,3 @@ class ShapAnalyzer:
             data = f.read()
         result: dict[str, Any] = from_bytes(data, 'cloudpickle')
         return result
-

@@ -1218,6 +1218,7 @@ class RuntimeContext:
         pipeline_name: Human-readable pipeline name (e.g., "0001_abc123").
         run_id: WorkspaceStore run identifier (UUID).
         save_artifacts: Whether to persist binary artifacts to storage.
+        save_charts: Whether to persist visual outputs to storage.
         step_runner: StepRunner for executing sub-steps.
         operation_count: Counter for operation IDs.
         substep_number: Current substep number.
@@ -1236,6 +1237,7 @@ class RuntimeContext:
     pipeline_name: str | None = None  # Human-readable pipeline name (replaces saver.pipeline_id)
     run_id: str | None = None  # WorkspaceStore run UUID
     save_artifacts: bool = True  # Whether to persist binary artifacts
+    save_charts: bool = True  # Whether to persist visual outputs
     step_runner: Any = None
     step_number: int = 0
     operation_count: int = 0

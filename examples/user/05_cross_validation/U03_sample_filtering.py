@@ -41,7 +41,7 @@ from nirs4all.operators.transforms import StandardNormalVariate
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U03 Sample Filtering Example')
-parser.add_argument('--plots', action='store_true', help='Generate plots')
+parser.add_argument('--plots', action='store_true', help='Save plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
@@ -160,7 +160,8 @@ result_filtered = nirs4all.run(
     dataset="sample_data/regression",
     name="Filtered",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nFiltered pipeline RMSE: {result_filtered.best_rmse:.4f}")
@@ -268,10 +269,11 @@ result_visual = nirs4all.run(
     dataset="sample_data/regression",
     name="VisualFilter",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
-print("Charts generated (use --plots to view)")
+print("Charts saved with --plots and shown with --show")
 
 # =============================================================================
 # Section 7: Effect on Model Performance

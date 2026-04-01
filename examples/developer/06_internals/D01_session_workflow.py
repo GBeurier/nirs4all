@@ -120,7 +120,8 @@ Run the session to train the pipeline:
 
 result = session.run(
     dataset="sample_data/regression",
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print("\nSession run complete")

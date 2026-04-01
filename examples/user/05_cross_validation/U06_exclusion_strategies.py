@@ -39,7 +39,7 @@ from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U06 Exclusion Strategies Example')
-parser.add_argument('--plots', action='store_true', help='Generate plots')
+parser.add_argument('--plots', action='store_true', help='Save plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
@@ -91,7 +91,8 @@ result_single = nirs4all.run(
     dataset="sample_data/regression",
     name="SingleFilter",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nSingle filter RMSE: {result_single.best_rmse:.4f}")
@@ -133,7 +134,8 @@ result_any = nirs4all.run(
     dataset="sample_data/regression",
     name="AnyMode",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\n'any' mode RMSE: {result_any.best_rmse:.4f}")
@@ -176,7 +178,8 @@ result_all = nirs4all.run(
     dataset="sample_data/regression",
     name="AllMode",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\n'all' mode RMSE: {result_all.best_rmse:.4f}")
@@ -218,7 +221,8 @@ result_y = nirs4all.run(
     dataset="sample_data/regression",
     name="YExclusion",
     verbose=0,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 result_x = nirs4all.run(
@@ -226,7 +230,8 @@ result_x = nirs4all.run(
     dataset="sample_data/regression",
     name="XExclusion",
     verbose=0,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nY-based exclusion RMSE: {result_y.best_rmse:.4f}")
@@ -270,7 +275,8 @@ result_combined = nirs4all.run(
     dataset="sample_data/regression",
     name="CombinedTagExclude",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nCombined approach RMSE: {result_combined.best_rmse:.4f}")
@@ -295,7 +301,8 @@ result_none = nirs4all.run(
     dataset="sample_data/regression",
     name="NoExclusion",
     verbose=0,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print("""

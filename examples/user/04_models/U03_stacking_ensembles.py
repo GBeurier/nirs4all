@@ -353,9 +353,9 @@ print("\n" + "-" * 60)
 print("Section 7: Visualization")
 print("-" * 60)
 
-if args.plots:
+if args.plots or args.show:
     # Visualize regression results
-    analyzer = PredictionAnalyzer(result_stacking.predictions)
+    analyzer = PredictionAnalyzer(result_stacking.predictions, save=args.plots or args.show)
 
     fig1 = analyzer.plot_top_k(k=4, rank_metric='rmse')
     fig2 = analyzer.plot_candlestick(variable="model_name", display_partition="test")

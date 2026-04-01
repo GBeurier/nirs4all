@@ -56,7 +56,7 @@ from nirs4all.operators.transforms import (
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U03 Sample Augmentation Example')
-parser.add_argument('--plots', action='store_true', help='Generate plots')
+parser.add_argument('--plots', action='store_true', help='Save plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
@@ -141,7 +141,8 @@ result_basic = nirs4all.run(
     dataset="sample_data/regression",
     name="BasicAug",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nResult with augmentation: RMSE = {result_basic.best_rmse:.4f}")
@@ -186,10 +187,11 @@ result_visual = nirs4all.run(
     dataset="sample_data/regression",
     name="VisualAug",
     verbose=0,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
-print("Charts generated (use --plots to view)")
+print("Charts saved with --plots and shown with --show")
 
 # =============================================================================
 # Section 4: Balanced Augmentation for Classification
@@ -228,7 +230,8 @@ result_balanced = nirs4all.run(
     dataset="sample_data/classification",
     name="BalancedAug",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 # =============================================================================
@@ -325,7 +328,8 @@ result_reg_balanced = nirs4all.run(
     dataset="sample_data/regression",
     name="RegBalanced",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nBalanced regression augmentation: RMSE = {result_reg_balanced.best_rmse:.4f}")
@@ -373,7 +377,8 @@ result_comprehensive = nirs4all.run(
     dataset="sample_data/regression",
     name="Comprehensive",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nComprehensive augmentation: RMSE = {result_comprehensive.best_rmse:.4f}")

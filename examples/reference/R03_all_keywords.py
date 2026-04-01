@@ -76,8 +76,8 @@ from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description="R03 All Keywords Integration Test")
-parser.add_argument("--plots", action="store_true", help="Show plots interactively")
-parser.add_argument("--show", action="store_true", help="Show all plots")
+parser.add_argument("--plots", action="store_true", help="Save plots")
+parser.add_argument("--show", action="store_true", help="Display plots interactively")
 parser.add_argument("--verbose", "-v", type=int, default=1, help="Verbosity level")
 args = parser.parse_args()
 
@@ -270,7 +270,8 @@ runner = PipelineRunner(
     workspace_path="workspace/reference_test",
     verbose=args.verbose,
     save_artifacts=True,
-    plots_visible=args.plots,
+    save_charts=args.plots or args.show,
+    plots_visible=args.show,
 )
 
 try:

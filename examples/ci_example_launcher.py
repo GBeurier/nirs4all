@@ -265,7 +265,7 @@ def main() -> int:
     if str(examples_dir) not in sys.path:
         sys.path.insert(0, str(examples_dir))
 
-    plots_requested = "--plots" in args.example_args
+    plots_requested = "--plots" in args.example_args or "--show" in args.example_args
 
     if _is_fast_mode():
         _patch_nirs4all_fast_mode(plots=plots_requested)

@@ -268,7 +268,6 @@ from nirs4all.visualization.predictions import PredictionAnalyzer
 
 analyzer = PredictionAnalyzer(
     result.predictions,
-    output_dir="figures",
 )
 ```
 
@@ -356,9 +355,14 @@ fig = analyzer.plot_top_k(k=5, rank_metric="rmse")
 
 ### Saving Charts
 
-Charts are saved automatically to the `output_dir`:
+Charts stay in memory by default. Save them only when you explicitly pass an
+`output_dir` or enable `save=True`:
 
 ```python
+# In-memory only
+analyzer = PredictionAnalyzer(result.predictions)
+
+# Save charts to an explicit directory
 analyzer = PredictionAnalyzer(
     result.predictions,
     output_dir="workspace/figures",
@@ -366,7 +370,7 @@ analyzer = PredictionAnalyzer(
 
 # Save a chart
 fig = analyzer.plot_top_k(k=10, rank_metric="rmse")
-# Saved to workspace/figures/top_k_rmse.png
+# Saved to workspace/figures/...
 ```
 
 ## Exporting Prediction Data

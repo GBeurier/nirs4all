@@ -110,7 +110,8 @@ result_basic = nirs4all.run(
     dataset="sample_data/regression",
     name="MetaModelBasic",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nMeta-stacking predictions: {result_basic.num_predictions}")
@@ -202,7 +203,8 @@ result_cross = nirs4all.run(
     dataset="sample_data/regression",
     name="CrossBranchStacking",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nCross-branch stacking predictions: {result_cross.num_predictions}")
@@ -244,7 +246,8 @@ result_coverage = nirs4all.run(
     dataset="sample_data/regression",
     name="CoverageStrategy",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nWith coverage strategy: {result_coverage.num_predictions} predictions")
@@ -287,7 +290,8 @@ result_3level = nirs4all.run(
     dataset="sample_data/regression",
     name="ThreeLevelStacking",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nMulti-level stacking predictions: {result_3level.num_predictions}")
@@ -405,7 +409,8 @@ result_heterogeneous = nirs4all.run(
     dataset="sample_data/regression",
     name="HeterogeneousStacking",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nHeterogeneous stacking predictions: {result_heterogeneous.num_predictions}")

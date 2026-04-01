@@ -102,7 +102,8 @@ result = nirs4all.run(
     dataset="sample_data/regression",
     name="BasicConcat",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nPredictions: {result.num_predictions}")
@@ -141,7 +142,8 @@ result_chained = nirs4all.run(
     dataset="sample_data/regression",
     name="ChainedConcat",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nPredictions: {result_chained.num_predictions}")
@@ -180,7 +182,8 @@ result_multi = nirs4all.run(
     dataset="sample_data/regression",
     name="MultiConcat",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nPredictions: {result_multi.num_predictions}")
@@ -259,7 +262,8 @@ result_augment = nirs4all.run(
     dataset="sample_data/regression",
     name="AugmentConcat",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nPredictions: {result_augment.num_predictions}")

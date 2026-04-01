@@ -40,6 +40,7 @@ class ExecutorBuilder:
         self._continue_on_error: bool = False
         self._show_spinner: bool = True
         self._plots_visible: bool = False
+        self._figure_refs: list[Any] | None = None
         self._artifact_loader: Any = None
         self._artifact_registry: Any = None
         self._store: Any = None  # WorkspaceStore
@@ -143,6 +144,11 @@ class ExecutorBuilder:
         self._plots_visible = plots_visible
         return self
 
+    def with_figure_refs(self, figure_refs: list[Any]) -> "ExecutorBuilder":
+        """Set shared figure references for deferred display."""
+        self._figure_refs = figure_refs
+        return self
+
     def with_artifact_loader(self, artifact_loader: Any) -> "ExecutorBuilder":
         """Set artifact loader for predict/explain modes.
 
@@ -214,7 +220,8 @@ class ExecutorBuilder:
                 verbose=self._verbose,
                 mode=self._mode,
                 show_spinner=self._show_spinner,
-                plots_visible=self._plots_visible
+                plots_visible=self._plots_visible,
+                figure_refs=self._figure_refs,
             )
 
         # Build and return executor
@@ -225,6 +232,7 @@ class ExecutorBuilder:
             continue_on_error=self._continue_on_error,
             store=self._store,
             save_artifacts=self._save_artifacts,
+            save_charts=self._save_charts,
             artifact_loader=self._artifact_loader,
             artifact_registry=self._artifact_registry
         )

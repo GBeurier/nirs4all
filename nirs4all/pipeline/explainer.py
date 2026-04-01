@@ -138,6 +138,7 @@ class Explainer:
                 .with_continue_on_error(self.runner.continue_on_error)
                 .with_show_spinner(self.runner.show_spinner)
                 .with_plots_visible(plots_visible)
+                .with_figure_refs(self.runner._figure_refs)
                 .with_artifact_loader(self.artifact_loader)
                 .build()
             )

@@ -40,7 +40,7 @@ from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U02 Basic Regression Example')
-parser.add_argument('--plots', action='store_true', help='Generate plots')
+parser.add_argument('--plots', action='store_true', help='Save plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
@@ -85,7 +85,7 @@ pipeline = [
         }
     },
 
-    # Visualization (only shown if --plots is passed)
+    # Visualization (saved with --plots, shown interactively with --show)
     "chart_2d",
 
     # Cross-validation
@@ -117,7 +117,8 @@ result = nirs4all.run(
     name="BasicRegression",
     verbose=1,
     save_artifacts=True,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print("\n📊 Training complete!")
@@ -148,7 +149,7 @@ print("Creating Visualizations")
 print("-" * 60)
 
 # Create the analyzer
-analyzer = PredictionAnalyzer(result.predictions)
+analyzer = PredictionAnalyzer(result.predictions, save=args.plots or args.show)
 
 # Plot top-k comparison
 fig1 = analyzer.plot_top_k(k=3, rank_metric='rmse')

@@ -114,15 +114,41 @@ class TestPredictionAnalyzerInit:
         assert analyzer.dataset_name_override == "my_dataset"
 
     def test_output_dir_default(self, mock_predictions):
-        """Test that output_dir has a default value."""
+        """Test that output_dir is disabled by default."""
         analyzer = PredictionAnalyzer(mock_predictions)
+        assert analyzer.output_dir is None
+        assert analyzer.save is False
+
+    def test_output_dir_default_when_save_enabled(self, mock_predictions):
+        """Test that save=True enables the default figures directory."""
+        analyzer = PredictionAnalyzer(mock_predictions, save=True)
         assert analyzer.output_dir is not None
         assert isinstance(analyzer.output_dir, str)
+        assert analyzer.save is True
 
     def test_output_dir_custom(self, mock_predictions):
         """Test setting a custom output_dir."""
         analyzer = PredictionAnalyzer(mock_predictions, output_dir="/tmp/my_figs")
         assert analyzer.output_dir == "/tmp/my_figs"
+        assert analyzer.save is True
+
+    def test_save_figure_is_noop_when_saving_disabled(self, mock_predictions):
+        """Test that _save_figure does nothing when saving is disabled."""
+        analyzer = PredictionAnalyzer(mock_predictions)
+        fig = Mock()
+
+        analyzer._save_figure(fig, "top_k")
+
+        fig.savefig.assert_not_called()
+
+    def test_save_figure_writes_when_output_dir_is_configured(self, mock_predictions, tmp_path):
+        """Test that _save_figure writes when chart saving is enabled."""
+        analyzer = PredictionAnalyzer(mock_predictions, output_dir=str(tmp_path))
+        fig = Mock()
+
+        analyzer._save_figure(fig, "top_k")
+
+        fig.savefig.assert_called_once()
 
 # ---------------------------------------------------------------------------
 # TestResolveAggregate

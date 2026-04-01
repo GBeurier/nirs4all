@@ -321,7 +321,8 @@ result = nirs4all.run(
     dataset="sample_data/regression",
     name="IteratorDemo",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nPredictions: {result.num_predictions}")
