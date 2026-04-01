@@ -136,14 +136,16 @@ class CandlestickChart(BaseChart):
         if dataset_name:
             all_filters['dataset_name'] = dataset_name
 
+        effective_aggregate = self._normalize_aggregate(aggregate)
+
         # If aggregation is requested, use the slower but accurate path
-        if aggregate is not None:
+        if effective_aggregate is not None:
             return self._render_with_aggregation(
                 variable=variable,
                 display_metric=display_metric,
                 display_partition=display_partition,
                 figsize=figsize,
-                aggregate=aggregate,
+                aggregate=effective_aggregate,
                 aggregate_method=aggregate_method,
                 aggregate_exclude_outliers=aggregate_exclude_outliers,
                 clip_outliers=clip_outliers,

@@ -457,8 +457,10 @@ class HeatmapChart(BaseChart):
         if sort_by_value and sort_by is None:
             effective_sort_by = 'value'
 
+        effective_aggregate = self._normalize_aggregate(aggregate)
+
         # If aggregation is requested, use the slower but accurate path
-        if aggregate is not None:
+        if effective_aggregate is not None:
             return self._render_with_aggregation(
                 x_var=x_var,
                 y_var=y_var,
@@ -473,7 +475,7 @@ class HeatmapChart(BaseChart):
                 show_counts=show_counts,
                 local_scale=local_scale,
                 column_scale=column_scale,
-                aggregate=aggregate,
+                aggregate=effective_aggregate,
                 aggregate_method=aggregate_method,
                 aggregate_exclude_outliers=aggregate_exclude_outliers,
                 score_scope=score_scope,

@@ -685,13 +685,13 @@ class TestAggregationEndToEnd:
         runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
-        top_raw = predictions.top(1, rank_metric='rmse', by_repetition=False)
-        top_agg = predictions.top(1, rank_metric='rmse', by_repetition='sample_id')
+        top_raw = predictions.top(1, rank_metric='rmse', score_scope='final', by_repetition=False)
+        top_agg = predictions.top(1, rank_metric='rmse', score_scope='final', by_repetition='sample_id')
 
         assert len(top_raw) > 0, "Raw top() returned empty"
         assert len(top_agg) > 0, "Aggregated top() returned empty"
 
-        # Default top() returns test-partition entries, so check test_score
+        # Refit entries carry test-partition arrays, so check test_score
         raw_test = top_raw[0].get('test_score')
         agg_test = top_agg[0].get('test_score')
 
@@ -729,8 +729,8 @@ class TestAggregationEndToEnd:
         runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
-        top_raw = predictions.top(1, rank_metric='rmse', by_repetition=False)
-        top_agg = predictions.top(1, rank_metric='rmse', by_repetition='sample_id')
+        top_raw = predictions.top(1, rank_metric='rmse', score_scope='final', by_repetition=False)
+        top_agg = predictions.top(1, rank_metric='rmse', score_scope='final', by_repetition='sample_id')
 
         raw_y_pred = top_raw[0].get('y_pred')
         agg_y_pred = top_agg[0].get('y_pred')

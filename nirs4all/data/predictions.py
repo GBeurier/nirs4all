@@ -1020,7 +1020,7 @@ class Predictions:
         n: int,
         rank_metric: str = "",
         rank_partition: str = "val",
-        score_scope: str = "final",
+        score_scope: str = "mix",
         display_metrics: list[str] | None = None,
         display_partition: str = "test",
         aggregate_partitions: bool = False,
@@ -1059,7 +1059,7 @@ class Predictions:
                - ``"flat"``: All entries ranked equally, no special
                  treatment for refit entries.
 
-               Default is ``"final"``.  ``"auto"`` is an alias for ``"mix"``.
+               Default is ``"mix"``.  ``"auto"`` is an alias for ``"mix"``.
             display_metrics: Metrics to compute for display.
             display_partition: Partition to display results from.
             aggregate_partitions: If ``True``, add train/val/test dicts.
@@ -1433,7 +1433,7 @@ class Predictions:
         self,
         metric: str = "",
         ascending: bool | None = None,
-        score_scope: str = "final",
+        score_scope: str = "mix",
         aggregate_partitions: bool = False,
         by_repetition: bool | str | None = None,
         repetition_method: str | None = None,
@@ -1450,7 +1450,7 @@ class Predictions:
             metric: Metric to optimise.
             ascending: Sort order.  ``None`` infers from metric.
             score_scope: Controls how refit (final) entries interact with
-               CV entries.  See :meth:`top` for details.  Default ``"final"``.
+               CV entries.  See :meth:`top` for details.  Default ``"mix"``.
             aggregate_partitions: If ``True``, add partition data.
             by_repetition: Aggregate predictions by repetition column.
                 - ``True``: Uses ``dataset.repetition`` from context.
