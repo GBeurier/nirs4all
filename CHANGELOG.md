@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.6] - Prediction Aggregation, Plot Display Lifecycle & Metadata Loading - 2026-04-01
+
+### ✨ Improvements
+
+- **Prediction aggregation defaults**: `PredictionAnalyzer` now infers repetition-based aggregation from prediction context, supports explicit repetition aggregation options, and recalculates display metrics against the effective partition arrays
+- **Visualization rendering flow**: Added shared figure lifecycle helpers for display/show/close behavior, opt-in chart saving, and cleaner handling of raw vs aggregated chart variants
+- **Task-family-aware charts**: Visualization views now skip incompatible regression/classification chart families more cleanly while preserving task-type filtering
+
+### 🧪 Tests
+
+- **Aggregation and plotting coverage**: Added integration and unit tests for prediction ranking, aggregation analysis, plot visibility flags, and dual raw/aggregated chart outputs
+- **SHAP plotting coverage**: Added integration coverage for SHAP visualization behavior
+
+### 🐛 Bug Fixes
+
+- **Metadata NA handling**: `load_XY()` now forces metadata inputs to use `na_policy='ignore'`, preserving metadata rows even when metadata columns contain missing values
+
+### 🔧 Chores
+
+- **Docs and examples**: Refreshed cross-validation docs, example scripts, and developer notes to match the new aggregation and plotting behavior
+
+---
+
 ## [0.8.5] - Task Type Filtering, Visualization Improvements & Documentation - 2026-03-31
 
 ### ✨ Improvements
@@ -897,4 +920,3 @@ This release introduces significant architectural changes, refactoring the codeb
 - Restructured tests to mirror source code.
 - Added a few architecture reviews, roadmap updates, and developer guides.
 - Removed obsolete or review documents.
-

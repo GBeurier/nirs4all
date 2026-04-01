@@ -338,6 +338,7 @@ class TestRegistryLifespan:
             mock_builder_instance.with_continue_on_error.return_value = mock_builder_instance
             mock_builder_instance.with_show_spinner.return_value = mock_builder_instance
             mock_builder_instance.with_plots_visible.return_value = mock_builder_instance
+            mock_builder_instance.with_figure_refs.return_value = mock_builder_instance
             mock_builder_instance.with_artifact_loader.return_value = mock_builder_instance
             mock_builder_instance.with_artifact_registry.return_value = mock_builder_instance
             mock_builder_instance.with_store.return_value = mock_builder_instance
