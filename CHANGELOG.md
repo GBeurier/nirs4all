@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.7] - Score Scope Defaults, Aggregation Normalization & Ranking Enhancements - 2026-04-01
+
+### ✨ Improvements
+
+- **Default score_scope changed to 'mix'**: `Predictions.top()` and `Predictions.ranked_scores()` now default to `score_scope='mix'`, returning both refit and CV entries ranked together instead of only refit entries
+- **Chart aggregate normalization**: Added `_normalize_aggregate()` to `BaseChart`, resolving `aggregate=True` to the actual repetition column name before passing to rendering methods
+- **Prediction ranking and aggregation**: Enhanced prediction ranking with improved score scope handling, better partition-aware display, and more robust aggregation workflows
+
+### 🧪 Tests
+
+- **Score scope and ranking tests**: Updated tests to reflect new `score_scope='mix'` default, added explicit `score_scope='final'` where refit-only behavior is required
+- **Aggregation integration tests**: Expanded end-to-end aggregation tests with explicit score scope parameters
+
+### 🔧 Chores
+
+- **Examples updated**: Refreshed visualization and aggregation examples to document score_scope options accurately
+
+---
+
 ## [0.8.6] - Prediction Aggregation, Plot Display Lifecycle & Metadata Loading - 2026-04-01
 
 ### ✨ Improvements
