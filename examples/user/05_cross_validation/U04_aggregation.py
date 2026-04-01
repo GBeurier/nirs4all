@@ -42,7 +42,7 @@ from sklearn.preprocessing import MinMaxScaler
 import nirs4all
 from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.visualization.predictions import PredictionAnalyzer
+from nirs4all.visualization import PredictionAnalyzer, show_figures
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U04 Aggregation Example')
@@ -267,16 +267,16 @@ print("-" * 60)
 
 print("""
 PredictionAnalyzer supports two aggregation modes:
-  - PredictionAnalyzer(predictions) -> raw + repetition-aggregated figures (dual)
+  - PredictionAnalyzer(predictions, save=True) -> raw + repetition-aggregated figures (dual)
   - aggregate='lot_id' on one plot -> only the custom-aggregated figure
 """)
 
 # Create analyzer with automatic default aggregation from predictions.repetition_column
-analyzer = PredictionAnalyzer(predictions)
+analyzer = PredictionAnalyzer(predictions, save=args.plots or args.show)
 
 print(f"Analyzer default_aggregate: '{analyzer.default_aggregate}'")
 
-if args.plots:
+if args.plots or args.show:
     def as_figure_list(fig_or_figs):
         if isinstance(fig_or_figs, list):
             return fig_or_figs
@@ -284,38 +284,13 @@ if args.plots:
             return []
         return [fig_or_figs]
 
-    def show_figures_and_wait(figures):
-        """Show all figures and return when the last visible window is closed."""
-        if not figures:
-            return
-
-        # Explicitly show each manager so every chart window becomes visible.
-        for fig in figures:
-            manager = getattr(fig.canvas, "manager", None)
-            if manager is None:
-                continue
-            try:
-                manager.show()
-            except Exception:
-                pass
-
-        # Drive the GUI event loop until all figures are closed by the user.
-        plt.show(block=False)
-        while any(plt.fignum_exists(fig.number) for fig in figures):
-            plt.pause(0.1)
-
     def show_batch(label, figures):
         """Display one chart family at a time to avoid hidden windows."""
         if not figures:
             return
 
         print(f"\nShowing {label}. Close the window(s) to continue.")
-        try:
-            show_figures_and_wait(figures)
-        finally:
-            for fig in figures:
-                plt.close(fig)
-            plt.close('all')
+        show_figures(figures, block=True, close=True)
 
     # 1. Default dataset repetition behavior: raw + sample_id aggregation (dual)
     top_k_figures = [
@@ -399,7 +374,7 @@ Repetition Configuration:
      predictions.repetition_column  # Returns the repetition column name
 
   3. VISUALIZATION:
-     analyzer = PredictionAnalyzer(predictions)
+     analyzer = PredictionAnalyzer(predictions, save=True)
 
   4. OVERRIDE PER-PLOT:
      analyzer.plot_histogram(aggregate='')  # Disable for this plot

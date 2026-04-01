@@ -35,7 +35,7 @@ import nirs4all
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U01 Hello World Example')
-parser.add_argument('--plots', action='store_true', help='Generate plots')
+parser.add_argument('--plots', action='store_true', help='Save plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
@@ -74,7 +74,8 @@ result = nirs4all.run(
     name="HelloWorld",
     verbose=1,
     save_artifacts=True,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 # =============================================================================

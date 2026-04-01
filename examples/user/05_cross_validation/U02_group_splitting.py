@@ -45,7 +45,7 @@ from nirs4all.operators.transforms import StandardNormalVariate
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U02 Group Splitting Example')
-parser.add_argument('--plots', action='store_true', help='Generate plots')
+parser.add_argument('--plots', action='store_true', help='Save plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
@@ -109,7 +109,8 @@ result_groupkfold = nirs4all.run(
     dataset="sample_data/classification",
     name="GroupKFold",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 accuracy = (1 - result_groupkfold.best_rmse) * 100 if not np.isnan(result_groupkfold.best_rmse) else float('nan')
@@ -144,7 +145,8 @@ result_strat_group = nirs4all.run(
     dataset="sample_data/classification",
     name="StratifiedGroupKFold",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 accuracy = (1 - result_strat_group.best_rmse) * 100 if not np.isnan(result_strat_group.best_rmse) else float('nan')
@@ -184,7 +186,8 @@ result_auto = nirs4all.run(
     dataset=DatasetConfigs("sample_data/classification", repetition="Sample_ID"),
     name="AutoGroup_KFold",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 accuracy = (1 - result_auto.best_rmse) * 100 if not np.isnan(result_auto.best_rmse) else float('nan')
@@ -214,7 +217,8 @@ result_shuffle_group = nirs4all.run(
     dataset=DatasetConfigs("sample_data/classification", repetition="Sample_ID"),
     name="AutoGroup_Shuffle",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 accuracy = (1 - result_shuffle_group.best_rmse) * 100 if not np.isnan(result_shuffle_group.best_rmse) else float('nan')
@@ -245,7 +249,8 @@ result_strat_auto = nirs4all.run(
     dataset=DatasetConfigs("sample_data/classification", repetition="Sample_ID"),
     name="AutoGroup_Stratified",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 accuracy = (1 - result_strat_auto.best_rmse) * 100 if not np.isnan(result_strat_auto.best_rmse) else float('nan')

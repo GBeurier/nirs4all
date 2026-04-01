@@ -113,7 +113,8 @@ result_feature = nirs4all.run(
     dataset="sample_data/regression",
     name="FeatureMerge",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nPredictions after feature merge: {result_feature.num_predictions}")
@@ -160,7 +161,8 @@ result_prediction = nirs4all.run(
     dataset="sample_data/regression",
     name="PredictionMerge",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nMeta-model predictions: {result_prediction.num_predictions}")
@@ -199,7 +201,8 @@ result_mixed = nirs4all.run(
     dataset="sample_data/regression",
     name="MixedMerge",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nMixed merge predictions: {result_mixed.num_predictions}")
@@ -238,7 +241,8 @@ result_selection = nirs4all.run(
     dataset="sample_data/regression",
     name="BranchSelection",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nSelected branch merge: {result_selection.num_predictions}")
@@ -276,7 +280,8 @@ result_aggregation = nirs4all.run(
     dataset="sample_data/regression",
     name="FeatureAggregation",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nAggregated feature merge: {result_aggregation.num_predictions}")
@@ -323,7 +328,8 @@ result_nested = nirs4all.run(
     dataset="sample_data/regression",
     name="NestedBranching",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nNested branching predictions: {result_nested.num_predictions}")
@@ -359,7 +365,8 @@ result_with_original = nirs4all.run(
     dataset="sample_data/regression",
     name="MergeWithOriginal",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nMerge with original: {result_with_original.num_predictions}")

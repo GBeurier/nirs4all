@@ -47,7 +47,7 @@ return context, StepOutput(
 ### Outputs (Human-Readable Files)
 
 **Purpose:** User-accessible files for viewing and sharing
-**Location:** `workspace/exports/<dataset>_<pipeline>/<filename>`
+**Location:** `workspace/outputs/<filename>`
 **Method:** Return `StepOutput(outputs=[...])`
 **Respects save_charts flag:** Yes
 
@@ -74,7 +74,7 @@ img_png_binary = ...
 return context, StepOutput(
     outputs=[(img_png_binary, "2D_Chart", "png")]
 )
-# Executor saves to: workspace/exports/regression_Q1_47be36/2D_Chart.png
+# Executor saves to: workspace/outputs/2D_Chart.png
 ```
 
 ## Directory Structure
@@ -89,13 +89,11 @@ workspace/
 │   └── cd/
 │       └── cdef456...pkl
 │
-├── exports/                      # User-triggered exports & human-readable outputs
-│   ├── regression_Q1_47be36/
-│   │   ├── 2D_Chart.png         # Charts
-│   │   ├── Y_distribution_train_test.png
-│   │   └── fold_visualization_3folds_train.png
-│   ├── model.n4a                # Bundle exports
-│   └── results.parquet          # Prediction exports
+├── exports/                      # User-triggered exports (.n4a bundles, etc.)
+├── outputs/                      # Pipeline step outputs (charts, reports)
+│   ├── 2D_Chart.png
+│   ├── Y_distribution_train_test.png
+│   └── fold_visualization_3folds_train.png
 │
 └── library/                      # Reusable pipeline templates
     └── templates/
@@ -185,13 +183,12 @@ Controllers return `StepOutput`:
 ### Charts and Reports (Outputs)
 
 ```bash
-# All outputs organized by pipeline in the exports directory
-workspace/exports/
-├── regression_Q1_47be36/
-│   ├── 2D_Chart.png              # Your charts are here
-│   ├── 3D_Chart.png
-│   ├── Y_distribution_train_test.png
-│   └── fold_visualization_3folds_train.png
+# All step outputs are written to the outputs directory
+workspace/outputs/
+├── 2D_Chart.png                  # Your charts are here
+├── 3D_Chart.png
+├── Y_distribution_train_test.png
+└── fold_visualization_3folds_train.png
 ```
 
 ### Models and Transformers (Artifacts)
@@ -210,7 +207,7 @@ workspace/artifacts/cd/cdef456...pkl    # Scaler file
 1. **For human viewing** (charts, reports) -- Return in `outputs` list
 2. **For pipeline replay** (models, transformers) -- Return in `artifacts` dict
 3. **Disable saving for tests** -- Set `save_artifacts=False, save_charts=False`
-4. **Check exports directory** -- `workspace/exports/<dataset>_<pipeline>/`
+4. **Check outputs directory** -- `workspace/outputs/`
 
 ## Implementation Details
 
@@ -234,11 +231,14 @@ The executor handles the actual saving:
 
 ```python
 # In PipelineExecutor._execute_steps
-for output_data, name, ext in step_result.outputs:
-    self.saver.save_output(name=name, data=output_data, extension=ext)
+if self.save_charts:
+    for output_data, name, ext in step_result.outputs:
+        output_path = self.store.workspace_path / "outputs" / f"{name}.{ext}"
+        ...
 
-for name, artifact in step_result.artifacts.items():
-    self.saver.persist_artifact(step_number, name, artifact)
+if self.save_artifacts:
+    for artifact in step_result.artifacts:
+        self._process_step_artifacts(...)
 ```
 
 ## FAQ
@@ -247,13 +247,13 @@ for name, artifact in step_result.artifacts.items():
 A: Charts are outputs meant for human viewing, not pipeline replay. They don't need deduplication or content-addressing.
 
 **Q: Where did my charts go after the refactoring?**
-A: Check `workspace/exports/<dataset>_<pipeline>/`.
+A: Check `workspace/outputs/`.
 
 **Q: Can I disable chart saving?**
 A: Yes! Set `save_artifacts=False, save_charts=False` when creating `PipelineRunner`.
 
 **Q: What if two pipelines generate the same chart?**
-A: Each pipeline gets its own outputs directory, so charts won't conflict.
+A: Pipeline step outputs are written to `workspace/outputs/` using the returned filename hint. If you need per-run archival, export or rename them after the run.
 
 **Q: Can I extract artifacts to readable locations?**
 A: Models are binary -- not human-readable. Use `WorkspaceStore.replay_chain()` or export to `.n4a` bundle to load them.

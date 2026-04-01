@@ -19,6 +19,7 @@ from sklearn.decomposition import PCA
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
+from nirs4all.visualization.display import keep_or_close_figures
 
 logger = get_logger(__name__)
 
@@ -290,11 +291,11 @@ class ExclusionChartController(OperatorController):
 
         image_name = f"exclusion_chart_{partition}_{color_by}"
 
-        if runtime_context.step_runner.plots_visible:
-            runtime_context.step_runner._figure_refs.append(fig)
-            plt.show()
-        else:
-            plt.close(fig)
+        keep_or_close_figures(
+            fig,
+            visible=runtime_context.step_runner.plots_visible,
+            figure_refs=runtime_context.step_runner._figure_refs,
+        )
 
         return [(img_png_binary, image_name, "png")]
 

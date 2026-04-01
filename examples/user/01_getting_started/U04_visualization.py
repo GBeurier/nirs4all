@@ -101,7 +101,7 @@ print("Section 2: PredictionAnalyzer Basics")
 print("-" * 60)
 
 # Create the analyzer
-analyzer = PredictionAnalyzer(predictions)
+analyzer = PredictionAnalyzer(predictions, save=args.plots or args.show)
 
 print("""
 PredictionAnalyzer provides:

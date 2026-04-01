@@ -440,8 +440,8 @@ print("\n" + "-" * 60)
 print("Section 8: Visualizing Tuning Results")
 print("-" * 60)
 
-if args.plots:
-    analyzer = PredictionAnalyzer(result_combined.predictions)
+if args.plots or args.show:
+    analyzer = PredictionAnalyzer(result_combined.predictions, save=args.plots or args.show)
 
     # Top-k comparison
     fig1 = analyzer.plot_top_k(k=10, rank_metric='rmse')

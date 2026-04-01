@@ -39,7 +39,7 @@ from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U01 SHAP Basics Example')
-parser.add_argument('--plots', action='store_true', help='Generate plots')
+parser.add_argument('--plots', action='store_true', help='Save plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
@@ -90,7 +90,11 @@ pipeline_config = PipelineConfigs(pipeline, "U01_SHAP")
 dataset_config = DatasetConfigs("sample_data/regression_2")
 
 print("Training model...")
-runner = PipelineRunner(save_artifacts=True, verbose=0)
+runner = PipelineRunner(
+    save_artifacts=True,
+    save_charts=args.plots or args.show,
+    verbose=0,
+)
 predictions, _run_info = runner.run(pipeline_config, dataset_config)
 
 # Get best model
@@ -129,7 +133,7 @@ shap_results, output_dir = runner.explain(
     dict(best_prediction),
     dataset_config,
     shap_params=shap_params,
-    plots_visible=args.plots
+    plots_visible=args.show
 )
 
 print("\n✓ SHAP analysis complete")
@@ -181,7 +185,7 @@ shap_results_adv, output_dir_adv = runner.explain(
     dict(best_prediction),
     dataset_config,
     shap_params=shap_params_advanced,
-    plots_visible=args.plots
+    plots_visible=args.show
 )
 
 print("\n✓ Advanced SHAP analysis complete")
@@ -267,7 +271,7 @@ print("""
 SHAP Analysis Workflow:
 
   1. TRAIN MODEL:
-     runner = PipelineRunner(save_artifacts=True)
+     runner = PipelineRunner(save_artifacts=True, save_charts=args.plots or args.show)
      predictions, _ = runner.run(pipeline_config, dataset_config)
      best = predictions.top(1)[0]
 

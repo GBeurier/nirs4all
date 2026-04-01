@@ -66,7 +66,8 @@ class PredictionAnalyzer:
         predictions: Predictions object containing prediction data.
         dataset_name_override: Optional dataset name override for display.
         config: ChartConfig for customization across all charts.
-        output_dir: Directory to save generated charts.
+        output_dir: Directory used for chart persistence when saving is enabled.
+        save: Whether chart persistence is enabled.
         cache: PredictionCache for caching aggregated results.
         default_aggregate: Default aggregation column for all visualization methods.
 
@@ -90,6 +91,8 @@ class PredictionAnalyzer:
         >>> analyzer = PredictionAnalyzer(predictions)
         >>> # All plots now use sample_id aggregation by default
         >>> fig = analyzer.plot_top_k(k=5)  # Aggregated automatically
+        >>> saver = PredictionAnalyzer(predictions, output_dir="workspace/figures")
+        >>> saver.plot_top_k(k=5)
     """
 
     def __init__(
@@ -98,6 +101,7 @@ class PredictionAnalyzer:
         dataset_name_override: str | None = None,
         config: ChartConfig | None = None,
         output_dir: str | None = None,
+        save: bool = False,
         cache_size: int = 50,
         default_aggregate: str | None = None,
         default_aggregate_method: str | None = None,
@@ -109,8 +113,10 @@ class PredictionAnalyzer:
             predictions_obj: The predictions object containing prediction data.
             dataset_name_override: Optional dataset name override for display.
             config: Optional ChartConfig for customization across all charts.
-            output_dir: Directory to save generated charts. If None, uses
-                NIRS4ALL_WORKSPACE/figures or defaults to "workspace/figures".
+            output_dir: Directory to save generated charts. When omitted, charts
+                stay in-memory unless ``save=True`` is requested.
+            save: Whether to persist generated charts. If True and output_dir is
+                omitted, uses NIRS4ALL_WORKSPACE/figures or "workspace/figures".
             cache_size: Maximum number of cached query results. Defaults to 50.
             default_aggregate: Default aggregation column for all visualization methods.
                 If set, all plots will use this aggregation unless overridden.
@@ -133,6 +139,8 @@ class PredictionAnalyzer:
             >>> # All plots now use sample_id aggregation by default
             >>> fig = analyzer.plot_top_k(k=5)  # Aggregated
             >>> fig = analyzer.plot_top_k(k=5, aggregate=None)  # Explicit override to no aggregation
+            >>> saver = PredictionAnalyzer(predictions, save=True)
+            >>> saver.plot_top_k(k=5)
         """
         inferred_default_aggregate = default_aggregate
         if inferred_default_aggregate is None:
@@ -146,7 +154,8 @@ class PredictionAnalyzer:
         self.predictions = predictions_obj
         self.dataset_name_override = dataset_name_override
         self.config = config or ChartConfig()
-        self.output_dir = output_dir if output_dir is not None else _get_default_figures_dir()
+        self.save = save or output_dir is not None
+        self.output_dir = output_dir if output_dir is not None else (_get_default_figures_dir() if self.save else None)
         self._cache = PredictionCache(max_entries=cache_size)
         self.default_aggregate = inferred_default_aggregate
         self.default_aggregate_method = default_aggregate_method
@@ -379,7 +388,7 @@ class PredictionAnalyzer:
             chart_type: Type of chart (e.g., 'top_k', 'heatmap').
             dataset_name: Name of the dataset associated with the chart.
         """
-        if not self.output_dir:
+        if not self.save or not self.output_dir:
             return
 
         # Ensure output directory exists

@@ -39,7 +39,7 @@ from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U05 Tagging Analysis Example')
-parser.add_argument('--plots', action='store_true', help='Generate plots')
+parser.add_argument('--plots', action='store_true', help='Save plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
@@ -95,7 +95,8 @@ result_tagged = nirs4all.run(
     dataset="sample_data/regression",
     name="TaggedPipeline",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nPredictions: {result_tagged.num_predictions}")
@@ -135,7 +136,8 @@ result_multi = nirs4all.run(
     dataset="sample_data/regression",
     name="MultiTagged",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print("\nMultiple tags applied")
@@ -178,7 +180,8 @@ result_with = nirs4all.run(
     dataset="sample_data/regression",
     name="WithOutliers",
     verbose=0,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 result_without = nirs4all.run(
@@ -186,7 +189,8 @@ result_without = nirs4all.run(
     dataset="sample_data/regression",
     name="WithoutOutliers",
     verbose=0,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nWith outliers (tag only):    RMSE = {result_with.best_rmse:.4f}")

@@ -5,6 +5,7 @@ Tests SHAP explainer with different types and visualizations.
 Based on Q8_shap.py example.
 """
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
@@ -64,6 +65,44 @@ class TestShapIntegration:
         )
 
         # Verify SHAP results
+        assert shap_results is not None
+        assert output_dir is not None
+
+    @pytest.mark.shap
+    def test_shap_plots_do_not_call_show_when_hidden(self, test_data_manager, monkeypatch):
+        """plots_visible=False must not enter Matplotlib's interactive show loop."""
+        pytest.importorskip("shap")
+
+        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
+
+        pipeline = [
+            MinMaxScaler(),
+            PLSRegression(n_components=5),
+        ]
+
+        pipeline_config = PipelineConfigs(pipeline, "shap_hidden_display_test")
+        dataset_config = DatasetConfigs(dataset_folder)
+
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+        best_prediction = predictions.get_best(ascending=True)
+
+        def _fail_show(*args, **kwargs):
+            raise AssertionError("SHAP hidden plots must not call plt.show()")
+
+        monkeypatch.setattr(plt, "show", _fail_show)
+
+        shap_results, output_dir = runner.explain(
+            best_prediction,
+            dataset_config,
+            shap_params={
+                "n_samples": 20,
+                "explainer_type": "auto",
+                "visualizations": ["spectral"],
+            },
+            plots_visible=False,
+        )
+
         assert shap_results is not None
         assert output_dir is not None
 

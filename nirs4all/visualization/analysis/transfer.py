@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from nirs4all.core.logging import get_logger
+from nirs4all.visualization.display import show_figures
 
 logger = get_logger(__name__)
 import matplotlib.cm as cm
@@ -1075,7 +1076,6 @@ class PreprocPCAEvaluator:
         # figs.append(self.plot_distance_network(metric='cka'))
 
         if show:
-            plt.show()
+            show_figures(figs, block=True, close=False)
 
         return figs
-

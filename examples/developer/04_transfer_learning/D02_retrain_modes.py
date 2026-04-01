@@ -84,7 +84,8 @@ result = nirs4all.run(
     name="BaseModel",
     verbose=1,
     save_artifacts=True,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nBase model trained: RMSE = {result.best_rmse:.4f}")

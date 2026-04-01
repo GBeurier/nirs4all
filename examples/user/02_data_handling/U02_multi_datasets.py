@@ -43,7 +43,7 @@ from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U02 Multi-Datasets Example')
-parser.add_argument('--plots', action='store_true', help='Generate plots')
+parser.add_argument('--plots', action='store_true', help='Save plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
@@ -115,7 +115,8 @@ result = nirs4all.run(
     dataset=data_paths,
     name="MultiDataset",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 predictions = result.predictions
@@ -155,7 +156,7 @@ print("Creating Cross-Dataset Visualizations")
 print("-" * 60)
 
 # Create analyzer with all predictions
-analyzer = PredictionAnalyzer(predictions)
+analyzer = PredictionAnalyzer(predictions, save=args.plots or args.show)
 
 # Heatmap: models vs datasets
 fig1 = analyzer.plot_heatmap(

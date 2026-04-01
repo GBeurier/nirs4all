@@ -98,7 +98,8 @@ result_basic = nirs4all.run(
     dataset="sample_data/regression",
     name="BasicBranching",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nTotal predictions: {result_basic.num_predictions}")
@@ -134,7 +135,8 @@ result_named = nirs4all.run(
     dataset="sample_data/regression",
     name="NamedBranches",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nBranch names: {result_named.predictions.get_unique_values('branch_name')}")
@@ -168,7 +170,8 @@ result_generator = nirs4all.run(
     dataset="sample_data/regression",
     name="GeneratorBranches",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nBranches from generator: {result_generator.predictions.get_unique_values('branch_name')}")
@@ -209,7 +212,8 @@ result_multistep = nirs4all.run(
     dataset="sample_data/regression",
     name="MultiStepBranches",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nMulti-step branches: {result_multistep.predictions.get_unique_values('branch_name')}")
@@ -242,7 +246,8 @@ result_in_branch = nirs4all.run(
     dataset="sample_data/regression",
     name="InBranchModels",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nIn-branch model predictions: {result_in_branch.num_predictions}")

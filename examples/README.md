@@ -34,6 +34,15 @@ examples/
 
 **Output Directory**: Examples save generated files to `workspace/examples_output/`
 
+## Plot Flags
+
+User examples follow one consistent plotting contract:
+
+- `--plots`: generate and save charts
+- `--show`: display charts interactively
+
+If a script needs to build figures before they can be displayed, `--show` also enables chart generation automatically. Internal pipeline chart steps no longer open GUI windows during execution; examples show figures explicitly at the top level.
+
 ---
 
 ## 👤 User Path
@@ -261,6 +270,6 @@ Results are saved to `workspace/ci_output/run_YYYYMMDD_HHMMSS/`:
 2. **Per-folder numbering**: Each folder has its own U01, U02, etc. - this makes it easier to add new examples
 3. **Follow the path**: Examples within each folder are numbered for sequential learning
 4. **Check prerequisites**: Some examples require specific packages (TensorFlow, PyTorch, etc.)
-5. **Use `--plots`**: Add `--plots --show` to visualize results
+5. **Use `--plots` / `--show` intentionally**: `--plots` saves charts, `--show` displays them interactively, and `--plots --show` does both
 6. **Read docstrings**: Each example has detailed documentation at the top
 7. **Check outputs**: Generated files are saved to `workspace/examples_output/`

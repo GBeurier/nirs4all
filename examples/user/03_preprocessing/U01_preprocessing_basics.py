@@ -55,7 +55,7 @@ from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U01 Preprocessing Basics Example')
-parser.add_argument('--plots', action='store_true', help='Generate plots')
+parser.add_argument('--plots', action='store_true', help='Save plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
@@ -110,7 +110,8 @@ result_snv = nirs4all.run(
     dataset="sample_data/regression",
     name="SNV",
     verbose=0,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 print(f"   SNV - RMSE: {result_snv.best_rmse:.4f}")
 
@@ -128,7 +129,8 @@ result_msc = nirs4all.run(
     dataset="sample_data/regression",
     name="MSC",
     verbose=0,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 print(f"   MSC - RMSE: {result_msc.best_rmse:.4f}")
 
@@ -237,7 +239,8 @@ result_combined = nirs4all.run(
     dataset="sample_data/regression",
     name="SNV_D1",
     verbose=0,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 print(f"   SNV + FirstDerivative - RMSE: {result_combined.best_rmse:.4f}")
 

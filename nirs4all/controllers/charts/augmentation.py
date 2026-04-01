@@ -11,6 +11,7 @@ from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.utils.header_units import apply_x_axis_limits, get_x_values_and_label
+from nirs4all.visualization.display import keep_or_close_figures
 
 logger = get_logger(__name__)
 
@@ -140,11 +141,11 @@ class AugmentationChartController(OperatorController):
 
             img_list.append((img_png_binary, image_name, "png"))
 
-            if runtime_context.step_runner.plots_visible:
-                runtime_context.step_runner._figure_refs.append(fig)
-                plt.show()
-            else:
-                plt.close(fig)
+            keep_or_close_figures(
+                fig,
+                visible=runtime_context.step_runner.plots_visible,
+                figure_refs=runtime_context.step_runner._figure_refs,
+            )
 
         return context, StepOutput(outputs=img_list)
 

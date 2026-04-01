@@ -129,7 +129,8 @@ result = nirs4all.run(
     dataset="sample_data/regression",
     name="NiconModel",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nnicon predictions: {result.num_predictions}")
@@ -181,7 +182,8 @@ result = nirs4all.run(
     dataset="sample_data/regression",
     name="DeconModel",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\ndecon predictions: {result.num_predictions}")
@@ -216,7 +218,8 @@ result = nirs4all.run(
     dataset="sample_data/regression",
     name="PLSvsNicon",
     verbose=1,
-    plots_visible=args.plots
+    save_charts=args.plots or args.show,
+    plots_visible=args.show
 )
 
 print(f"\nPLS vs nicon comparison: {result.num_predictions} predictions")

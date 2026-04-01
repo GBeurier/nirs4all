@@ -8,6 +8,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
@@ -312,3 +313,63 @@ class TestBasicPipelineIntegration:
 
         # Should still work despite chart operations
         assert predictions.num_predictions > 0
+
+    def test_chart_operations_do_not_save_outputs_when_disabled(self, test_data_manager, tmp_path):
+        """Chart outputs should not be persisted when save_charts is False."""
+        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
+
+        pipeline = [
+            "chart_2d",
+            ShuffleSplit(n_splits=1, test_size=0.25, random_state=42),
+            {"model": PLSRegression(n_components=5)},
+        ]
+
+        pipeline_config = PipelineConfigs(pipeline, "test_charts_no_output_files")
+        dataset_config = DatasetConfigs(dataset_folder)
+
+        runner = PipelineRunner(
+            workspace_path=tmp_path,
+            save_artifacts=False,
+            save_charts=False,
+            verbose=0,
+        )
+        predictions, _ = runner.run(pipeline_config, dataset_config)
+
+        assert predictions.num_predictions > 0
+        outputs_dir = tmp_path / "outputs"
+        png_files = list(outputs_dir.glob("*.png")) if outputs_dir.exists() else []
+        assert png_files == []
+
+    def test_chart_operations_defer_display_when_visible(self, test_data_manager, tmp_path, monkeypatch):
+        """Plots stay registered for later display without calling plt.show() in controllers."""
+        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
+
+        pipeline = [
+            "chart_2d",
+            ShuffleSplit(n_splits=1, test_size=0.25, random_state=42),
+            {"model": PLSRegression(n_components=5)},
+        ]
+
+        pipeline_config = PipelineConfigs(pipeline, "test_charts_deferred_display")
+        dataset_config = DatasetConfigs(dataset_folder)
+
+        def _fail_show(*args, **kwargs):
+            raise AssertionError("Chart controllers must not call plt.show() directly")
+
+        monkeypatch.setattr(plt, "show", _fail_show)
+
+        runner = PipelineRunner(
+            workspace_path=tmp_path,
+            save_artifacts=False,
+            save_charts=False,
+            verbose=0,
+            plots_visible=True,
+        )
+
+        try:
+            predictions, _ = runner.run(pipeline_config, dataset_config)
+            assert predictions.num_predictions > 0
+            assert len(runner._figure_refs) > 0
+        finally:
+            for fig in runner._figure_refs:
+                plt.close(fig)
