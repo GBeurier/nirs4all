@@ -294,10 +294,9 @@ def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | 
                 m_params_copy['categorical_mode'] = 'preserve'  # Keep original types for metadata
             if 'data_type' not in m_params_copy:
                 m_params_copy['data_type'] = 'metadata'
-            # Use 'remove_sample' policy but we'll ignore the removed rows for metadata
-            # (we want to keep all metadata rows even if some columns have NAs)
-            if 'na_policy' not in m_params_copy:
-                m_params_copy['na_policy'] = 'remove_sample'
+            # Metadata must never abort on NAs — we want to keep all rows even if
+            # some columns have missing values. Override any inherited na_policy.
+            m_params_copy['na_policy'] = 'ignore'
 
             m_df_temp, m_report, m_na_mask, m_headers, _ = _load_file_with_registry(m_path, **m_params_copy)
 
