@@ -95,12 +95,16 @@ def show_figures(
     if not figs:
         return False
 
-    if not has_interactive_display() and context not in _HEADLESS_WARNING_CONTEXTS:
-        logger.warning(
-            f"Interactive {context} display requested, but the current Matplotlib backend "
-            "or environment may be headless. Plots may not appear."
-        )
-        _HEADLESS_WARNING_CONTEXTS.add(context)
+    if not has_interactive_display():
+        if context not in _HEADLESS_WARNING_CONTEXTS:
+            logger.warning(
+                f"Interactive {context} display requested, but the current Matplotlib backend "
+                "or environment may be headless. Plots may not appear."
+            )
+            _HEADLESS_WARNING_CONTEXTS.add(context)
+        if close:
+            close_figures(figs)
+        return False
 
     try:
         plt.show(block=block)

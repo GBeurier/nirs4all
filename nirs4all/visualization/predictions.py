@@ -458,7 +458,7 @@ class PredictionAnalyzer:
         if not figures:
             return []
         if len(figures) == 1:
-            return figures[0]
+            return figures[0]  # type: ignore[no-any-return]
         return figures
 
     def _render_chart_variants(
@@ -483,7 +483,7 @@ class PredictionAnalyzer:
         if aggregate is None:
             result = render_fn(None)
             self._save_figure(result, chart_type, dataset_name)
-            return result
+            return result  # type: ignore[no-any-return]
 
         if dual:
             raw_result = render_fn(None)
@@ -494,7 +494,7 @@ class PredictionAnalyzer:
 
         result = render_fn(aggregate)
         self._save_figure(result, chart_type, dataset_name)
-        return result
+        return result  # type: ignore[no-any-return]
 
     def _resolve_chart_task_type(
         self,
@@ -573,10 +573,8 @@ class PredictionAnalyzer:
             aggregate: If provided, aggregate predictions by this metadata column or 'y'.
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
-                      Aggregated predictions have recalculated metrics. When explicitly
-                      set, only the aggregated chart is returned. When aggregation is
-                      inferred from the dataset repetition column (default_aggregate),
-                      both raw and aggregated charts are returned.
+                      Aggregated predictions have recalculated metrics. Both raw and
+                      aggregated charts are returned as a list of Figure objects.
             task_type: If provided, filter predictions to this task type (e.g.,
                       'regression', 'classification'). Regression-only views are
                       skipped for classification filters.
@@ -592,7 +590,7 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
-        is_dual = aggregate is None and effective_aggregate is not None
+        is_dual = effective_aggregate is not None
         effective_task_type = self._resolve_chart_task_type(task_type, required_family="regression")
         if effective_task_type is False:
             return []
@@ -703,7 +701,7 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
-        is_dual = aggregate is None and effective_aggregate is not None
+        is_dual = effective_aggregate is not None
         effective_task_type = self._resolve_chart_task_type(task_type, required_family="classification")
         if effective_task_type is False:
             return []
@@ -783,10 +781,8 @@ class PredictionAnalyzer:
             aggregate: If provided, aggregate predictions by this metadata column or 'y'.
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
-                      Aggregated predictions have recalculated metrics. When explicitly
-                      set, only the aggregated chart is returned. When aggregation is
-                      inferred from the dataset repetition column (default_aggregate),
-                      both raw and aggregated charts are returned.
+                      Aggregated predictions have recalculated metrics. Both raw and
+                      aggregated charts are returned as a list of Figure objects.
             task_type: If provided, filter predictions to this task type (e.g.,
                       'regression', 'classification'). Passed through to the chart's
                       render method as a filter.
@@ -802,7 +798,7 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
-        is_dual = aggregate is None and effective_aggregate is not None
+        is_dual = effective_aggregate is not None
         effective_task_type = self._resolve_chart_task_type(task_type)
         chart = ScoreHistogramChart(
             self.predictions,
@@ -955,7 +951,7 @@ class PredictionAnalyzer:
 
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
-        is_dual = aggregate is None and effective_aggregate is not None
+        is_dual = effective_aggregate is not None
         effective_task_type = self._resolve_chart_task_type(task_type)
         chart = HeatmapChart(
             self.predictions,
@@ -1016,10 +1012,8 @@ class PredictionAnalyzer:
             aggregate: If provided, aggregate predictions by this metadata column or 'y'.
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
-                      Aggregated predictions have recalculated metrics. When explicitly
-                      set, only the aggregated chart is returned. When aggregation is
-                      inferred from the dataset repetition column (default_aggregate),
-                      both raw and aggregated charts are returned.
+                      Aggregated predictions have recalculated metrics. Both raw and
+                      aggregated charts are returned as a list of Figure objects.
             task_type: If provided, filter predictions to this task type (e.g.,
                       'regression', 'classification'). Passed through to the chart's
                       render method as a filter.
@@ -1035,7 +1029,7 @@ class PredictionAnalyzer:
         """
         effective_config = config if config is not None else self.config
         effective_aggregate = self._resolve_aggregate(aggregate)
-        is_dual = aggregate is None and effective_aggregate is not None
+        is_dual = effective_aggregate is not None
         effective_task_type = self._resolve_chart_task_type(task_type)
         chart = CandlestickChart(
             self.predictions,
