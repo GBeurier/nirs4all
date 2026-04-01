@@ -226,6 +226,8 @@ You are operating within a constrained context window and strict system prompts.
 - Run `npx tsc --noEmit` (or the project's equivalent type-check)
 - Run `npx eslint . --quiet` (if configured)
 - Fixed ALL resulting errors
+- In particular ensure ruff and mypy checks pass !
+
 
 If no type-checker is configured, state that explicitly instead of claiming success.
 

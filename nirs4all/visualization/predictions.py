@@ -21,8 +21,8 @@ import pandas as pd
 import polars as pl
 from matplotlib.figure import Figure
 
-from nirs4all.data.predictions import Predictions
 from nirs4all.core.task_type import matches_task_type
+from nirs4all.data.predictions import Predictions
 from nirs4all.visualization.charts import CandlestickChart, ChartConfig, ConfusionMatrixChart, HeatmapChart, ScoreHistogramChart, TopKComparisonChart
 from nirs4all.visualization.prediction_cache import PredictionCache
 
