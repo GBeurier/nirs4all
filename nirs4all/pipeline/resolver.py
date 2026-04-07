@@ -811,7 +811,7 @@ class PredictionResolver:
         if hasattr(run, "best"):
             best_pred = run.best()
         elif hasattr(run, "predictions") and hasattr(run.predictions, "top"):
-            top = run.predictions.top(n=1)
+            top = run.predictions.top(n=1, score_scope="all")
             if top:
                 best_pred = top[0]
             else:

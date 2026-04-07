@@ -243,7 +243,7 @@ class PredictionAnalyzer:
         n: int,
         rank_metric: str,
         rank_partition: str = 'val',
-        score_scope: str = 'final',
+        score_scope: str = 'refit',
         display_partition: str = 'test',
         display_metrics: list[str] | None = None,
         aggregate: bool | str | None = None,
@@ -515,6 +515,21 @@ class PredictionAnalyzer:
 
         return required_family
 
+    def _get_filtered_datasets(self, task_type: str | None) -> list[str]:
+        """Return datasets that have at least one prediction matching *task_type*.
+
+        Args:
+            task_type: Task type filter (e.g. ``"regression"``). When ``None``,
+                returns all datasets (same as ``get_datasets()``).
+
+        Returns:
+            Sorted list of matching dataset names.
+        """
+        datasets = self.predictions.get_datasets()
+        if task_type is None:
+            return datasets
+        return [ds for ds in datasets if self.predictions.filter_predictions(dataset_name=ds, task_type=task_type, load_arrays=False)]
+
     def plot_top_k(
         self,
         k: int = 5,
@@ -525,7 +540,7 @@ class PredictionAnalyzer:
         show_scores: bool = True,
         aggregate: bool | str | None = None,
         aggregate_method: str | None = None,
-        score_scope: str = 'final',
+        score_scope: str = 'refit',
         task_type: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
@@ -598,8 +613,8 @@ class PredictionAnalyzer:
 
         # Check if dataset_name is specified in kwargs
         if 'dataset_name' not in kwargs:
-            # Get all datasets
-            datasets = self.predictions.get_datasets()
+            # Get datasets matching the requested task type
+            datasets = self._get_filtered_datasets(effective_task_type if isinstance(effective_task_type, str) else None)
 
             # If multiple datasets, create one figure per dataset
             if len(datasets) > 1:
@@ -633,7 +648,7 @@ class PredictionAnalyzer:
         show_scores: bool = True,
         aggregate: bool | str | None = None,
         aggregate_method: str | None = None,
-        score_scope: str = 'final',
+        score_scope: str = 'refit',
         task_type: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
@@ -712,8 +727,8 @@ class PredictionAnalyzer:
 
         # Check if dataset_name is specified in kwargs
         if 'dataset_name' not in kwargs:
-            # Get all datasets
-            datasets = self.predictions.get_datasets()
+            # Get datasets matching the requested task type
+            datasets = self._get_filtered_datasets(effective_task_type if isinstance(effective_task_type, str) else None)
 
             # If multiple datasets, create one figure per dataset
             if len(datasets) > 1:
@@ -743,7 +758,7 @@ class PredictionAnalyzer:
         display_partition: str = 'test',
         aggregate: bool | str | None = None,
         aggregate_method: str | None = None,
-        score_scope: str = 'final',
+        score_scope: str = 'refit',
         task_type: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
@@ -804,8 +819,8 @@ class PredictionAnalyzer:
 
         # Check if dataset_name is specified in kwargs
         if 'dataset_name' not in kwargs:
-            # Get all datasets
-            datasets = self.predictions.get_datasets()
+            # Get datasets matching the requested task type
+            datasets = self._get_filtered_datasets(effective_task_type if isinstance(effective_task_type, str) else None)
 
             # If multiple datasets, create one figure per dataset
             if len(datasets) > 1:
@@ -845,7 +860,7 @@ class PredictionAnalyzer:
         column_scale: bool = False,
         aggregate: bool | str | None = None,
         aggregate_method: str | None = None,
-        score_scope: str = 'final',
+        score_scope: str = 'refit',
         top_k: int | None = None,
         sort_by_value: bool = False,
         sort_by: str | None = None,
@@ -983,7 +998,7 @@ class PredictionAnalyzer:
         display_partition: str = 'test',
         aggregate: bool | str | None = None,
         aggregate_method: str | None = None,
-        score_scope: str = 'final',
+        score_scope: str = 'refit',
         task_type: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
@@ -1089,7 +1104,7 @@ class PredictionAnalyzer:
         display_partition: str = 'test',
         aggregate: bool | str | None = None,
         aggregate_method: str | None = None,
-        score_scope: str = 'final',
+        score_scope: str = 'refit',
         as_dataframe: bool = True,
         **filters
     ) -> pd.DataFrame | dict[str, dict[str, Any]]:
@@ -1224,7 +1239,7 @@ class PredictionAnalyzer:
         display_partition: str = 'test',
         aggregate: bool | str | None = None,
         aggregate_method: str | None = None,
-        score_scope: str = 'final',
+        score_scope: str = 'refit',
         show_ci: bool = True,
         ci_level: float = 0.95,
         figsize: tuple | None = None,
@@ -1381,7 +1396,7 @@ class PredictionAnalyzer:
         display_partition: str = 'test',
         aggregate: bool | str | None = None,
         aggregate_method: str | None = None,
-        score_scope: str = 'final',
+        score_scope: str = 'refit',
         figsize: tuple | None = None,
         config: ChartConfig | None = None,
         **filters
@@ -1539,7 +1554,7 @@ class PredictionAnalyzer:
         display_partition: str = 'test',
         aggregate: bool | str | None = None,
         aggregate_method: str | None = None,
-        score_scope: str = 'final',
+        score_scope: str = 'refit',
         config: ChartConfig | None = None,
         **kwargs
     ) -> Figure | list[Figure]:
@@ -1645,7 +1660,7 @@ class PredictionAnalyzer:
         metric: str | None = None,
         partition: str = 'test',
         plot_type: str = 'grouped_bar',
-        score_scope: str = 'final',
+        score_scope: str = 'refit',
         figsize: tuple | None = None,
         config: ChartConfig | None = None,
         **filters

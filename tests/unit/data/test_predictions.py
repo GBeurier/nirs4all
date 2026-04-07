@@ -50,7 +50,7 @@ class TestPredictions:
         # Verify through top() which is the public API
         # Note: Must specify rank_partition since we only added a "test" partition record
         # Use rank_metric="" to use the stored metric (mse) and precomputed test_score
-        all_preds = predictions.top(100, rank_partition="test", rank_metric="", score_scope="cv")
+        all_preds = predictions.top(100, rank_partition="test", rank_metric="", score_scope="folds")
         assert len(all_preds) >= 1
 
     def test_add_prediction_with_numpy_arrays(self, base_prediction_params):
@@ -66,7 +66,7 @@ class TestPredictions:
 
         assert pred_id is not None
         # Check serialization through top()
-        preds = predictions.top(1, rank_partition="test", rank_metric="", score_scope="cv")
+        preds = predictions.top(1, rank_partition="test", rank_metric="", score_scope="folds")
         assert len(preds) == 1
         # Arrays should be available in results
         assert "y_true" in preds[0]
@@ -126,7 +126,7 @@ class TestPredictions:
             )
 
         # Best by lowest test_score (using stored metric)
-        best = predictions.top(1, rank_partition="test", rank_metric="", ascending=True, score_scope="cv")
+        best = predictions.top(1, rank_partition="test", rank_metric="", ascending=True, score_scope="folds")
         assert len(best) == 1
         assert best[0]["test_score"] == 0.01
 
@@ -146,7 +146,7 @@ class TestPredictions:
             )
 
         # Top 3 by lowest test_score (using stored metric)
-        top_3 = predictions.top(n=3, rank_metric="", ascending=True, rank_partition="test", score_scope="cv")
+        top_3 = predictions.top(n=3, rank_metric="", ascending=True, rank_partition="test", score_scope="folds")
         assert len(top_3) == 3
         # Should be sorted by test_score ascending
         assert top_3[0]["test_score"] <= top_3[1]["test_score"]
@@ -172,7 +172,7 @@ class TestPredictions:
             **base_prediction_params
         )
 
-        best_test = predictions.top(1, rank_partition="test", rank_metric="", ascending=True, score_scope="cv")
+        best_test = predictions.top(1, rank_partition="test", rank_metric="", ascending=True, score_scope="folds")
         assert len(best_test) == 1
         assert best_test[0]["partition"] == "test"
         assert best_test[0]["test_score"] == 0.02
@@ -188,7 +188,7 @@ class TestPredictions:
             **base_prediction_params
         )
 
-        best = predictions.top(1, rank_partition="test", rank_metric="", ascending=True, score_scope="cv")
+        best = predictions.top(1, rank_partition="test", rank_metric="", ascending=True, score_scope="folds")
         assert "pipeline_uid" in best[0]
         assert best[0]["pipeline_uid"] == "pipe_123"
 
@@ -270,7 +270,7 @@ class TestPredictions:
             **base_prediction_params
         )
 
-        preds = predictions.top(1, rank_partition="test", rank_metric="", score_scope="cv")
+        preds = predictions.top(1, rank_partition="test", rank_metric="", score_scope="folds")
         assert len(preds) == 1
         # Weights should be available
         assert "weights" in preds[0]
@@ -287,7 +287,7 @@ class TestPredictions:
             **base_prediction_params
         )
 
-        preds = predictions.top(1, rank_partition="test", rank_metric="", score_scope="cv")
+        preds = predictions.top(1, rank_partition="test", rank_metric="", score_scope="folds")
         assert len(preds) == 1
         # Should handle None gracefully
         assert "weights" in preds[0]
@@ -317,7 +317,7 @@ class TestPredictions:
             rank_metric="",
             ascending=True,
             group_by="dataset_name",
-            score_scope="cv"
+            score_scope="folds"
         )
 
         assert len(top_per_ds) == 6  # 3 per dataset * 2 datasets
@@ -362,7 +362,7 @@ class TestPredictions:
             ascending=True,
             group_by="dataset_name",
             return_grouped=True,
-            score_scope="cv"
+            score_scope="folds"
         )
 
         assert isinstance(grouped, dict)
@@ -400,7 +400,7 @@ class TestPredictions:
             rank_metric="",
             ascending=True,
             group_by=["dataset_name", "model_classname"],
-            score_scope="cv"
+            score_scope="folds"
         )
 
         # 2 datasets * 2 model classes * 2 per group = 8

@@ -1020,7 +1020,7 @@ class Predictions:
         n: int,
         rank_metric: str = "",
         rank_partition: str = "val",
-        score_scope: str = "mix",
+        score_scope: str = "all",
         display_metrics: list[str] | None = None,
         display_partition: str = "test",
         aggregate_partitions: bool = False,
@@ -1050,16 +1050,20 @@ class Predictions:
             score_scope: Controls how refit (final) entries interact with
                CV entries in ranking.  One of:
 
-               - ``"final"``: Only refit entries (``fold_id="final"``),
+               - ``"refit"``: Only refit entries (``fold_id="final"``),
                  ranked by their selection score (``selection_score``).
-                 ``"refit"`` is an alias for ``"final"``.
-               - ``"cv"``: Only CV entries (exclude refit entries).
-               - ``"mix"``: All entries (refit + CV) ranked together
+                 ``"final"`` is an alias for ``"refit"``.
+               - ``"folds"``: Only CV fold entries (exclude refit entries).
+                 ``"cv"`` is an alias for ``"folds"``.
+               - ``"all"``: All entries (refit + CV) ranked together
                  by score.  No special ordering — best score wins.
+                 ``"mix"`` and ``"auto"`` are aliases for ``"all"``.
                - ``"flat"``: All entries ranked equally, no special
                  treatment for refit entries.
 
-               Default is ``"mix"``.  ``"auto"`` is an alias for ``"mix"``.
+               Default is ``"all"``.  Simple pipelines without a refit
+               phase have no ``fold_id="final"`` entries, so ``"all"``
+               is the only default that returns something for them.
             display_metrics: Metrics to compute for display.
             display_partition: Partition to display results from.
             aggregate_partitions: If ``True``, add train/val/test dicts.
@@ -1117,7 +1121,7 @@ class Predictions:
         _ = filters.pop("aggregate_exclude_outliers", None)
 
         # Normalise score_scope aliases
-        _scope_aliases = {"auto": "mix", "refit": "final"}
+        _scope_aliases = {"auto": "all", "mix": "all", "final": "refit", "cv": "folds"}
         effective_scope = _scope_aliases.get(score_scope, score_scope)
 
         # Filter the in-memory buffer first, then copy only matching entries.
@@ -1131,9 +1135,9 @@ class Predictions:
             refit_context = r.get("refit_context")
 
             # Apply score_scope filtering
-            if effective_scope == "final" and not is_final:
+            if effective_scope == "refit" and not is_final:
                 continue
-            if effective_scope == "cv" and refit_context is not None:
+            if effective_scope == "folds" and refit_context is not None:
                 continue
 
             # Apply rank_partition filtering
@@ -1433,7 +1437,7 @@ class Predictions:
         self,
         metric: str = "",
         ascending: bool | None = None,
-        score_scope: str = "mix",
+        score_scope: str = "all",
         aggregate_partitions: bool = False,
         by_repetition: bool | str | None = None,
         repetition_method: str | None = None,
@@ -1450,7 +1454,7 @@ class Predictions:
             metric: Metric to optimise.
             ascending: Sort order.  ``None`` infers from metric.
             score_scope: Controls how refit (final) entries interact with
-               CV entries.  See :meth:`top` for details.  Default ``"mix"``.
+               CV entries.  See :meth:`top` for details.  Default ``"all"``.
             aggregate_partitions: If ``True``, add partition data.
             by_repetition: Aggregate predictions by repetition column.
                 - ``True``: Uses ``dataset.repetition`` from context.
