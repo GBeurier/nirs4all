@@ -26,7 +26,7 @@ from .selection import (
 )
 
 # Import sklearn models (lightweight, always available)
-from .sklearn import IKPLS, KOPLS, LWPLS, MBPLS, OPLS, OPLSDA, PLSDA, SIMPLS, DiPLS, IntervalPLS, RecursivePLS, RobustPLS, SparsePLS
+from .sklearn import IKPLS, KOPLS, LWPLS, MBPLS, OPLS, OPLSDA, PCR, PLSDA, SIMPLS, DiPLS, IntervalPLS, RecursivePLS, RobustPLS, SparsePLS
 from .sklearn.aom_pls import (
     AOMPLSRegressor,
     ComposedOperator,
@@ -80,6 +80,7 @@ __all__ = [
     "IKPLS",
     "OPLS",
     "OPLSDA",
+    "PCR",
     "MBPLS",
     "DiPLS",
     "SparsePLS",

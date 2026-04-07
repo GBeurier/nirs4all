@@ -30,6 +30,7 @@ from .nlpls import KPLS, NLPLS, KernelPLS
 from .oklmpls import OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
 from .opls import OPLS
 from .oplsda import OPLSDA
+from .pcr import PCR
 from .plsda import PLSDA
 from .pop_pls import POPPLSRegressor, pop_pls_operator_bank
 from .pop_pls_classifier import POPPLSClassifier
@@ -43,6 +44,7 @@ __all__ = [
     "IKPLS",
     "OPLS",
     "OPLSDA",
+    "PCR",
     "MBPLS",
     "DiPLS",
     "SparsePLS",

@@ -89,7 +89,7 @@ class Resampler(TransformerMixin, BaseEstimator):
 
     def __init__(
         self,
-        target_wavelengths: np.ndarray,
+        target_wavelengths: np.ndarray | None = None,
         method: Literal['linear', 'nearest', 'cubic', 'quadratic', 'slinear', 'zero'] = 'linear',
         crop_range: tuple[float, float] | None = None,
         fill_value: float | str = 0.0,
@@ -175,6 +175,28 @@ class Resampler(TransformerMixin, BaseEstimator):
         """
         X = check_array(X, dtype=np.float64, ensure_all_finite='allow-nan', copy=self.copy)
 
+        # Identity mode: no target_wavelengths configured → act as pass-through
+        if self.target_wavelengths is None:
+            self._identity_ = True
+            self.n_features_in_ = X.shape[1]
+            self.n_features_out_ = X.shape[1]
+            self.original_wavelengths_ = (
+                np.asarray(wavelengths, dtype=float)
+                if wavelengths is not None
+                else np.arange(X.shape[1], dtype=float)
+            )
+            self.crop_mask_ = None
+            self.wavelengths_after_crop_ = self.original_wavelengths_
+            self.interpolator_params_ = {
+                'target_wavelengths': self.original_wavelengths_,
+                'method': self.method,
+                'fill_value': self.fill_value,
+                'bounds_error': self.bounds_error,
+            }
+            return self
+
+        self._identity_ = False
+
         if wavelengths is None:
             raise ValueError(
                 "Wavelengths must be provided to fit(). "
@@ -249,6 +271,10 @@ class Resampler(TransformerMixin, BaseEstimator):
         check_is_fitted(self, ['original_wavelengths_', 'interpolator_params_'])
 
         X = check_array(X, dtype=np.float64, ensure_all_finite='allow-nan', copy=self.copy)
+
+        # Identity mode: return input unchanged
+        if getattr(self, '_identity_', False):
+            return X
 
         # Check that input matches the original shape
         if X.shape[1] != self.n_features_in_:

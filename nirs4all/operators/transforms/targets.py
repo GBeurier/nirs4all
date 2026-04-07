@@ -37,12 +37,19 @@ class RangeDiscretizer(BaseEstimator, TransformerMixin):
         "tags": ["discretization", "binning", "target-processing", "range-based"],
     }
 
-    def __init__(self, bins):
-        # Store the original bins as received (could be list, array, etc.)
+    def __init__(self, bins=5):
+        # Store the original bins as received (could be int, list, array, etc.)
         self.bins = bins
-        # Convert to numpy array for internal use
-        self._bins_array = np.array(bins)
-        self.n_bins = len(bins) + 1
+        # Convert to numpy array for internal use. An int default simply means
+        # "no edges configured yet" and produces an empty edge array so that
+        # instantiation with defaults succeeds (edges would normally be supplied
+        # explicitly at pipeline-construction time).
+        if isinstance(bins, int):
+            self._bins_array = np.array([], dtype=float)
+            self.n_bins = bins
+        else:
+            self._bins_array = np.array(bins)
+            self.n_bins = len(bins) + 1
 
     def get_params(self, deep=True):
         """Get parameters for this estimator."""
@@ -54,8 +61,12 @@ class RangeDiscretizer(BaseEstimator, TransformerMixin):
         for key, value in params.items():
             if key == 'bins':
                 self.bins = value
-                self._bins_array = np.array(value)
-                self.n_bins = len(value) + 1
+                if isinstance(value, int):
+                    self._bins_array = np.array([], dtype=float)
+                    self.n_bins = value
+                else:
+                    self._bins_array = np.array(value)
+                    self.n_bins = len(value) + 1
             else:
                 setattr(self, key, value)
         return self

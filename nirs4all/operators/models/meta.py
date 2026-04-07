@@ -241,7 +241,7 @@ class MetaModel(BaseModelOperator):
 
     def __init__(
         self,
-        model: Any,
+        model: Any = None,
         source_models: str | list[str] = "all",
         use_proba: bool = False,
         stacking_config: StackingConfig | None = None,
@@ -274,6 +274,11 @@ class MetaModel(BaseModelOperator):
             ValueError: If model doesn't have required fit/predict methods.
             ValueError: If source_models is not "all" or a list of strings.
         """
+        # Default to Ridge regression when no meta-learner is supplied
+        if model is None:
+            from sklearn.linear_model import Ridge
+            model = Ridge()
+
         # Validate model has required methods
         if not hasattr(model, 'fit') or not hasattr(model, 'predict'):
             raise ValueError(
