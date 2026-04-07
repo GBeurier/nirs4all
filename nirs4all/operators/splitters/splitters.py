@@ -196,7 +196,7 @@ class SystematicCircularSplitter(CustomSplitter):
         "tags": ["splitter", "circular", "systematic", "sampling"],
     }
 
-    def __init__(self, test_size, random_state=None):
+    def __init__(self, test_size: float = 0.25, random_state=None):
         super().__init__()
         self.test_size = test_size
         self.random_state = random_state
@@ -209,10 +209,12 @@ class SystematicCircularSplitter(CustomSplitter):
         if self.random_state is not None:
             rd.seed(self.random_state)
 
+        y = np.asarray(y).reshape(-1)
+
         n_samples = _num_samples(X)
         n_train, n_test = _validate_shuffle_split(n_samples, self.test_size, None)
 
-        ordered_idx = np.argsort(y[:, 0], axis=0)
+        ordered_idx = np.argsort(y, axis=0)
         rotated_idx = np.roll(ordered_idx, rd.randint(0, n_samples))
 
         step = n_samples / n_train
@@ -236,7 +238,7 @@ class KBinsStratifiedSplitter(CustomSplitter):
         "tags": ["splitter", "stratified", "binning", "discretization"],
     }
 
-    def __init__(self, test_size, random_state=None, n_bins=10, strategy="uniform", encode="ordinal"):
+    def __init__(self, test_size: float = 0.25, random_state=None, n_bins=10, strategy="uniform", encode="ordinal"):
         super().__init__()
         self.test_size = test_size
         self.random_state = random_state
@@ -249,9 +251,11 @@ class KBinsStratifiedSplitter(CustomSplitter):
         if y is None:
             raise ValueError("Y data are required to use KBins stratified sampling")
 
+        y_arr = np.asarray(y).reshape(-1, 1)
+
         discretizer = KBinsDiscretizer(n_bins=self.n_bins, encode=self.encode, strategy=self.strategy,
                                        subsample=200000)
-        y_discrete = discretizer.fit_transform(y)
+        y_discrete = discretizer.fit_transform(y_arr)
 
         split_model = StratifiedShuffleSplit(
             n_splits=self.n_splits,
@@ -445,7 +449,7 @@ class KMeansSplitter(CustomSplitter):
         "tags": ["splitter", "kmeans", "clustering", "sampling"],
     }
 
-    def __init__(self, test_size, random_state=None, pca_components=None, metric="euclidean"):
+    def __init__(self, test_size: float = 0.25, random_state=None, pca_components=None, metric="euclidean"):
         super().__init__()
         self.test_size = test_size
         self.random_state = random_state
@@ -498,7 +502,7 @@ class KennardStoneSplitter(CustomSplitter):
         "tags": ["splitter", "kennard-stone", "max-min-distance", "sampling"],
     }
 
-    def __init__(self, test_size, random_state=None, pca_components=None, metric="euclidean"):
+    def __init__(self, test_size: float = 0.25, random_state=None, pca_components=None, metric="euclidean"):
         super().__init__()
         self.test_size = test_size
         self.random_state = random_state
@@ -559,7 +563,7 @@ class SPXYSplitter(CustomSplitter):
         "tags": ["splitter", "spxy", "joint-xy-distance", "sampling"],
     }
 
-    def __init__(self, test_size, random_state=None, pca_components=None, metric="euclidean"):
+    def __init__(self, test_size: float = 0.25, random_state=None, pca_components=None, metric="euclidean"):
         """
         metric : str or callable, optional
             The distance metric to use. If a string, the distance function can be
@@ -583,13 +587,16 @@ class SPXYSplitter(CustomSplitter):
         n_samples = _num_samples(X)
         n_train, _ = _validate_shuffle_split(n_samples, self.test_size, None)
 
+        y_arr = np.asarray(y)
+        if y_arr.ndim == 1:
+            y_arr = y_arr.reshape(-1, 1)
         if self.pca_components is not None:
             pca = PCA(self.pca_components, random_state=self.random_state)
             X_transformed = pca.fit_transform(X)
-            y_transformed = pca.fit_transform(y.reshape(-1, 1)) if y.ndim == 1 else pca.fit_transform(y)
+            y_transformed = pca.fit_transform(y_arr)
         else:
             X_transformed = X
-            y_transformed = y
+            y_transformed = y_arr
 
         if n_train < 2:
             raise ValueError("Train sample size should be at least 2.")
@@ -641,7 +648,7 @@ class SPlitSplitter(CustomSplitter):
         "tags": ["splitter", "split", "twinning", "sampling"],
     }
 
-    def __init__(self, test_size, random_state=None):
+    def __init__(self, test_size: float = 0.25, random_state=None):
         super().__init__()
         self.test_size = test_size
         self.random_state = random_state

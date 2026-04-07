@@ -38,7 +38,7 @@ class ResampleTransformer(BaseEstimator, TransformerMixin):
 
     _stateless = True
 
-    def __init__(self, num_samples: int):
+    def __init__(self, num_samples: int | None = None):
         self.num_samples = num_samples
 
     def fit(self, X, y=None):
@@ -49,6 +49,10 @@ class ResampleTransformer(BaseEstimator, TransformerMixin):
             raise ValueError("Input must be a numpy array")
         if X.ndim != 2:
             raise ValueError("Input must be a 2D numpy array")
+
+        # Identity when no target length configured
+        if self.num_samples is None:
+            return X
 
         resampled = []
         for x in X:
