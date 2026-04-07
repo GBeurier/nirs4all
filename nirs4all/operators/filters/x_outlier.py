@@ -225,8 +225,14 @@ class XOutlierFilter(SampleFilter):
         else:
             max_components = 50
 
-        if n_features > n_samples - 1 or n_features > max_components:
-            n_comp = min(n_samples - 1, n_features, max_components)
+        # Ensure enough degrees of freedom for stable covariance estimation.
+        # Cap at n_samples // 3 to avoid singular/ill-conditioned covariance
+        # (n_comp close to n_samples makes all Mahalanobis distances identical).
+        max_stable = max(n_samples // 3, 2)
+        effective_max = min(max_components, max_stable)
+
+        if n_features > effective_max:
+            n_comp = min(effective_max, n_features)
             pca = PCA(n_components=n_comp)
             X_reduced = pca.fit_transform(X)
             self.pca_ = pca
@@ -256,13 +262,18 @@ class XOutlierFilter(SampleFilter):
 
         # Compute distances for threshold calculation
         distances = cov_estimator.mahalanobis(X_reduced)
-        self._distances_ = np.sqrt(distances)  # Convert to standard deviations
+        self._distances_ = np.sqrt(distances)  # Convert to root-Mahalanobis scale
 
         # Set threshold
         if self.threshold is not None:
             self.threshold_ = self.threshold
         else:
-            self.threshold_ = 3.0  # Default: 3 standard deviations
+            # Use chi-squared distribution for a statistically grounded threshold.
+            # Squared Mahalanobis distances follow chi²(p) where p = n_features.
+            # The sqrt threshold corresponds to sqrt(chi²_0.975(p)).
+            from scipy.stats import chi2
+            p = X_reduced.shape[1]
+            self.threshold_ = np.sqrt(chi2.ppf(0.975, df=p))
 
     def _fit_pca(self, X: np.ndarray) -> None:
         """Fit PCA-based detection (residual or leverage)."""
