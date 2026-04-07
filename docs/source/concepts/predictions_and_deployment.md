@@ -37,7 +37,7 @@ By default, ranking uses the cross-validation score. You can switch to refit
 scores:
 
 ```python
-result.top(5, score_scope="final")
+result.top(5, score_scope="refit")
 ```
 
 ---

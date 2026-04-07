@@ -145,7 +145,7 @@ class TestRankingWithRepetition:
                 rank_metric="rmse",
                 rank_partition="val",
                 by_repetition="ID",  # New parameter name
-                score_scope="cv",
+                score_scope="folds",
             )
 
             # No deprecation warning for new parameter
@@ -171,7 +171,7 @@ class TestRankingWithRepetition:
                 rank_metric="rmse",
                 rank_partition="val",
                 by_repetition=True,  # Should use "ID" from context
-                score_scope="cv",
+                score_scope="folds",
             )
 
             # No warnings - context was set
@@ -194,7 +194,7 @@ class TestRankingWithRepetition:
                 rank_metric="rmse",
                 rank_partition="val",
                 by_repetition=True,  # No context set
-                score_scope="cv",
+                score_scope="folds",
             )
 
             # Should warn about missing context
@@ -229,7 +229,7 @@ class TestRankingWithAggregation:
             rank_metric="rmse",
             rank_partition="val",
             by_repetition="ID",
-            score_scope="cv",
+            score_scope="folds",
         )
 
         assert len(results) == 2
@@ -250,7 +250,7 @@ class TestRankingWithAggregation:
             rank_partition="val",
             display_partition="val",  # Use val partition for display too
             by_repetition="ID",
-            score_scope="cv",
+            score_scope="folds",
         )
 
         # Get without aggregation
@@ -259,7 +259,7 @@ class TestRankingWithAggregation:
             rank_metric="rmse",
             rank_partition="val",
             display_partition="val",  # Use val partition for display too
-            score_scope="cv",
+            score_scope="folds",
         )
 
         assert len(results_agg) > 0, "Expected results with aggregation"
@@ -281,7 +281,7 @@ class TestRankingWithAggregation:
             display_metrics=["rmse"],
             aggregate_partitions=True,
             by_repetition="ID",
-            score_scope="cv",
+            score_scope="folds",
         )
 
         assert len(results) == 1
@@ -305,7 +305,7 @@ class TestGroupByFiltering:
             rank_metric="rmse",
             rank_partition="val",
             group_by=["model_name"],
-            score_scope="cv",
+            score_scope="folds",
         )
 
         # With n=1 and group_by, should have 1 per group = 5 unique models
@@ -347,7 +347,7 @@ class TestGroupByFiltering:
             rank_metric="rmse",
             rank_partition="val",
             group_by=["model_classname"],
-            score_scope="cv",
+            score_scope="folds",
         )
 
         # Should have 3 unique model classes (1 per class)
@@ -362,7 +362,7 @@ class TestGroupByFiltering:
             rank_metric="rmse",
             rank_partition="val",
             group_by=["model_name", "fold_id"],
-            score_scope="cv",
+            score_scope="folds",
         )
         assert len(results_multi) == 10  # 5 models x 2 folds
 
@@ -423,7 +423,7 @@ class TestGroupByFiltering:
             rank_partition="val",
             group_by=["model_classname"],
             return_grouped=True,
-            score_scope="cv",
+            score_scope="folds",
         )
 
         # Should be a dict
@@ -615,7 +615,7 @@ class TestEdgeCases:
             rank_metric="rmse",
             rank_partition="val",
             group_by=["model_name"],
-            score_scope="cv",
+            score_scope="folds",
         )
 
         # Should return all predictions per model (2 folds each), so 5 models * 2 = 10
@@ -632,7 +632,7 @@ class TestEdgeCases:
             rank_metric="rmse",
             rank_partition="val",
             group_by=["nonexistent_column"],
-            score_scope="cv",
+            score_scope="folds",
         )
 
         # All predictions have None for nonexistent_column, forming one group
@@ -651,7 +651,7 @@ class TestEdgeCases:
                 rank_metric="rmse",
                 rank_partition="val",
                 by_repetition="nonexistent_id",
-                score_scope="cv",
+                score_scope="folds",
             )
 
             # Should have warnings about missing column
@@ -706,26 +706,32 @@ class TestScoreScope:
 
         return predictions
 
-    def test_default_score_scope_is_mix(self, predictions_with_final_and_cv):
-        """Default score_scope='mix' returns both refit and CV entries."""
+    def test_default_score_scope_is_all(self, predictions_with_final_and_cv):
+        """Default score_scope='all' returns both refit and CV entries.
+
+        The default must not filter out CV entries, otherwise simple pipelines
+        without a refit phase would return empty results from .top()/.get_best().
+        """
         predictions = predictions_with_final_and_cv
 
-        results = predictions.top(n=5, rank_metric="rmse", rank_partition="val")
+        results = predictions.top(n=10, rank_metric="rmse", rank_partition="val")
 
-        # Mix scope includes both final and CV entries
-        assert len(results) > 0
+        # Both refit ('final') and CV (numeric fold_id) entries should appear.
         fold_ids = {str(r.get("fold_id")) for r in results}
-        assert len(fold_ids) > 0
+        assert "final" in fold_ids, f"Expected refit entries in default scope, got {fold_ids}"
+        assert any(fid not in {"final", "avg", "w_avg"} for fid in fold_ids), (
+            f"Expected CV entries in default scope, got {fold_ids}"
+        )
 
     def test_refit_alias_for_final(self, predictions_with_final_and_cv):
-        """score_scope='refit' is an alias for 'final'."""
+        """score_scope='final' is an alias for 'refit'."""
         predictions = predictions_with_final_and_cv
 
-        results_final = predictions.top(
-            n=5, rank_metric="rmse", rank_partition="val", score_scope="final"
-        )
         results_refit = predictions.top(
             n=5, rank_metric="rmse", rank_partition="val", score_scope="refit"
+        )
+        results_final = predictions.top(
+            n=5, rank_metric="rmse", rank_partition="val", score_scope="final"
         )
 
         assert len(results_final) == len(results_refit)
@@ -734,7 +740,7 @@ class TestScoreScope:
             assert r1["rank_score"] == r2["rank_score"]
 
     def test_mix_scope_unified_sort(self, base_prediction_params):
-        """score_scope='mix' sorts all entries by score, not grouped by type."""
+        """score_scope='all' sorts all entries by score, not grouped by type."""
         predictions = Predictions()
         y_true = np.array([1.0, 2.0, 3.0, 4.0])
 
@@ -769,7 +775,7 @@ class TestScoreScope:
 
         results = predictions.top(
             n=10, rank_metric="rmse", rank_partition="val",
-            score_scope="mix", ascending=True,
+            score_scope="all", ascending=True,
         )
 
         assert len(results) == 2
@@ -778,18 +784,18 @@ class TestScoreScope:
         assert results[1]["model_name"] == "bad_final_model"
         assert results[0]["rank_score"] < results[1]["rank_score"]
 
-    def test_auto_alias_still_maps_to_mix(self, predictions_with_final_and_cv):
-        """score_scope='auto' is an alias for 'mix'."""
+    def test_auto_alias_still_maps_to_all(self, predictions_with_final_and_cv):
+        """score_scope='auto' is an alias for 'all'."""
         predictions = predictions_with_final_and_cv
 
-        results_mix = predictions.top(
-            n=5, rank_metric="rmse", rank_partition="val", score_scope="mix"
+        results_all = predictions.top(
+            n=5, rank_metric="rmse", rank_partition="val", score_scope="all"
         )
         results_auto = predictions.top(
             n=5, rank_metric="rmse", rank_partition="val", score_scope="auto"
         )
 
-        assert len(results_mix) == len(results_auto)
-        for r1, r2 in zip(results_mix, results_auto):
+        assert len(results_all) == len(results_auto)
+        for r1, r2 in zip(results_all, results_auto):
             assert r1["model_name"] == r2["model_name"]
             assert r1["rank_score"] == r2["rank_score"]

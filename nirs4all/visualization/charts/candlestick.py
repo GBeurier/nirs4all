@@ -64,7 +64,7 @@ class CandlestickChart(BaseChart):
                aggregate_method: str | None = None,
                aggregate_exclude_outliers: bool | None = None,
                clip_outliers: bool = True, iqr_factor: float = 1.5,
-               task_type: str | None = None, score_scope: str = 'final',
+               task_type: str | None = None, score_scope: str = 'refit',
                **filters) -> Figure | list[Figure]:
         """Render candlestick chart showing metric distribution by variable (Optimized with Polars).
 
@@ -304,7 +304,7 @@ class CandlestickChart(BaseChart):
         clip_outliers: bool = True,
         iqr_factor: float = 1.5,
         task_type: str | None = None,
-        score_scope: str = 'final',
+        score_scope: str = 'refit',
         **filters
     ) -> Figure:
         """Render candlestick with aggregation support.

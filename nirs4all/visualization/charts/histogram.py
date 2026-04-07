@@ -65,7 +65,7 @@ class ScoreHistogramChart(BaseChart):
                clip_outliers: bool = True, iqr_factor: float = 1.5,
                layout: Literal['standard', 'stacked', 'staggered'] = 'standard',
                task_type: str | None = None,
-               score_scope: str = 'final',
+               score_scope: str = 'refit',
                **filters) -> Figure | list[Figure]:
         """Render score distribution histogram (Optimized with Polars).
 
@@ -288,7 +288,7 @@ class ScoreHistogramChart(BaseChart):
         iqr_factor: float = 1.5,
         layout: Literal['standard', 'stacked', 'staggered'] = 'standard',
         task_type: str | None = None,
-        score_scope: str = 'final',
+        score_scope: str = 'refit',
         **filters
     ) -> Figure:
         """Render histogram with aggregation support.

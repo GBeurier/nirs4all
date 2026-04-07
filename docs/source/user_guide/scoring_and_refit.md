@@ -321,7 +321,7 @@ result.best_rmse  # alias for best test score
 result.top(5)
 
 # Top N results (CV-only scope)
-result.top(5, score_scope="cv")
+result.top(5, score_scope="folds")
 
 # CV-only best
 result.cv_best
