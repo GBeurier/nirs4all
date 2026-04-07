@@ -340,7 +340,7 @@ class RunResult:
         Returns:
             RMSE value or NaN if unavailable.
         """
-        entry = self.predictions.get_best(metric="rmse", task_type="regression")
+        entry = self.predictions.get_best(metric="rmse", task_type="regression", score_scope="all")
         best = entry if entry else self.best
         if not best:
             return float('nan')
@@ -374,7 +374,7 @@ class RunResult:
         Returns:
             R² value or NaN if unavailable.
         """
-        entry = self.predictions.get_best(metric="r2", task_type="regression")
+        entry = self.predictions.get_best(metric="r2", task_type="regression", score_scope="all")
         best = entry if entry else self.best
         if not best:
             return float('nan')
@@ -401,7 +401,7 @@ class RunResult:
         Returns:
             Accuracy value or NaN if unavailable.
         """
-        entry = self.predictions.get_best(metric="accuracy", task_type="classification")
+        entry = self.predictions.get_best(metric="accuracy", task_type="classification", score_scope="all")
         best = entry if entry else self.best
         if not best:
             return float('nan')
@@ -438,7 +438,7 @@ class RunResult:
         Returns:
             Best refit prediction dict, or empty dict if no refit entries.
         """
-        results = self.predictions.top(n=1, score_scope="final")
+        results = self.predictions.top(n=1, score_scope="refit")
         top = cast(list, results)
         return top[0] if top else {}
 
@@ -497,7 +497,7 @@ class RunResult:
         Returns:
             Best CV prediction dict, or empty dict if no CV predictions.
         """
-        results = self.predictions.top(n=1, score_scope="cv")
+        results = self.predictions.top(n=1, score_scope="folds")
         top = cast(list, results)
         return top[0] if top else {}
 

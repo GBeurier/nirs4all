@@ -464,7 +464,7 @@ class PipelineOrchestrator:
                                     )
 
                                     # Compute metrics for complete_pipeline
-                                    best = config_predictions.get_best(ascending=None, score_scope="cv")
+                                    best = config_predictions.get_best(ascending=None, score_scope="folds")
                                     best_val = float(best.get("val_score", 0.0) or 0.0) if best else 0.0
                                     best_test = float(best.get("test_score", 0.0) or 0.0) if best else 0.0
                                     metric = str(best.get("metric", "rmse") or "rmse") if best else "rmse"
@@ -767,7 +767,7 @@ class PipelineOrchestrator:
             if run_id and self.mode == "train" and manage_store_run:
                 summary: dict[str, Any] = {"total_pipelines": total_runs}
                 if run_predictions.num_predictions > 0:
-                    best = run_predictions.get_best(ascending=None)
+                    best = run_predictions.get_best(ascending=None, score_scope="all")
                     if best:
                         summary["best_score"] = best.get("test_score")
                         summary["best_metric"] = best.get("metric")
@@ -1680,7 +1680,7 @@ class PipelineOrchestrator:
         avg_entries_raw = predictions.top(
             n=30,
             ascending=asc,
-            score_scope="cv",
+            score_scope="folds",
             rank_partition="val",
             fold_id="avg",
         )
@@ -1776,7 +1776,7 @@ class PipelineOrchestrator:
             logger.info(sep)
 
         # --- Detail: CV selection summary (always visible) ---
-        cv_best = predictions.get_best(ascending=None, score_scope="cv")
+        cv_best = predictions.get_best(ascending=None, score_scope="folds")
         if cv_best:
             cv_summary_msg = (
                 f"CV selection summary for dataset '{name}': "
@@ -1804,7 +1804,7 @@ class PipelineOrchestrator:
         aggregate_exclude_outliers: bool,
     ) -> None:
         """Print report when no final (refit) entries exist — CV only."""
-        best = predictions.get_best(ascending=None)
+        best = predictions.get_best(ascending=None, score_scope="all")
         if best is None:
             return
         logger.success(f"Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")

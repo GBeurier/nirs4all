@@ -111,40 +111,40 @@ class TestTopWithTaskType:
     """Verify top() respects task_type filtering and aliases."""
 
     def test_top_regression_only(self, mixed_predictions):
-        results = mixed_predictions.top(5, rank_metric="rmse", rank_partition="val", task_type="regression", score_scope="cv")
+        results = mixed_predictions.top(5, rank_metric="rmse", rank_partition="val", task_type="regression", score_scope="folds")
         assert len(results) == 2
         assert all(r["task_type"] == "regression" for r in results)
 
     def test_top_classification_only(self, mixed_predictions):
-        results = mixed_predictions.top(5, rank_metric="balanced_accuracy", rank_partition="val", task_type="classification", score_scope="cv")
+        results = mixed_predictions.top(5, rank_metric="balanced_accuracy", rank_partition="val", task_type="classification", score_scope="folds")
         assert len(results) == 2
         assert all("classification" in r["task_type"] for r in results)
 
     def test_top_clf_alias(self, mixed_predictions):
-        results = mixed_predictions.top(5, rank_metric="balanced_accuracy", rank_partition="val", task_type="clf", score_scope="cv")
+        results = mixed_predictions.top(5, rank_metric="balanced_accuracy", rank_partition="val", task_type="clf", score_scope="folds")
         assert len(results) == 2
         assert all("classification" in r["task_type"] for r in results)
 
     def test_top_reg_alias(self, mixed_predictions):
-        results = mixed_predictions.top(5, rank_metric="rmse", rank_partition="val", task_type="reg", score_scope="cv")
+        results = mixed_predictions.top(5, rank_metric="rmse", rank_partition="val", task_type="reg", score_scope="folds")
         assert len(results) == 2
         assert all(r["task_type"] == "regression" for r in results)
 
     def test_top_binary_alias(self, mixed_predictions):
-        results = mixed_predictions.top(5, rank_metric="balanced_accuracy", rank_partition="val", task_type="binary", score_scope="cv")
+        results = mixed_predictions.top(5, rank_metric="balanced_accuracy", rank_partition="val", task_type="binary", score_scope="folds")
         assert len(results) == 2
         assert all(r["task_type"] == "binary_classification" for r in results)
 
     def test_top_no_filter_returns_all(self, mixed_predictions):
         """Without task_type filter, all predictions are returned."""
-        results = mixed_predictions.top(10, rank_metric="rmse", rank_partition="val", score_scope="cv")
+        results = mixed_predictions.top(10, rank_metric="rmse", rank_partition="val", score_scope="folds")
         assert len(results) == 4
 
     def test_top_mixed_warns(self, mixed_predictions):
         """Calling top() without task_type or rank_metric on mixed data warns."""
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            mixed_predictions.top(5, rank_partition="val", score_scope="cv")
+            mixed_predictions.top(5, rank_partition="val", score_scope="folds")
             user_warnings = [x for x in w if issubclass(x.category, UserWarning)]
             assert any("Mixed task types" in str(uw.message) for uw in user_warnings)
 
@@ -165,12 +165,12 @@ class TestGetBestWithTaskType:
     """Verify get_best() respects task_type filtering."""
 
     def test_get_best_regression(self, mixed_predictions):
-        best = mixed_predictions.get_best(metric="rmse", task_type="regression", score_scope="cv")
+        best = mixed_predictions.get_best(metric="rmse", task_type="regression", score_scope="folds")
         assert best is not None
         assert best["task_type"] == "regression"
 
     def test_get_best_classification(self, mixed_predictions):
-        best = mixed_predictions.get_best(metric="balanced_accuracy", task_type="classification", score_scope="cv")
+        best = mixed_predictions.get_best(metric="balanced_accuracy", task_type="classification", score_scope="folds")
         assert best is not None
         assert "classification" in best["task_type"]
 

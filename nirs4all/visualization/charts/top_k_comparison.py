@@ -60,7 +60,7 @@ class TopKComparisonChart(BaseChart):
                aggregate: bool | str | None = None,
                aggregate_method: str | None = None,
                aggregate_exclude_outliers: bool | None = None,
-               score_scope: str = 'final',
+               score_scope: str = 'refit',
                task_type: str | None = None,
                **filters) -> Figure | list[Figure]:
         """Plot top K models with predicted vs true and residuals.

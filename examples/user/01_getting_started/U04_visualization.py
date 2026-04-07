@@ -267,30 +267,30 @@ When refit is enabled (default), nirs4all retrains the best model
 on the full training set after cross-validation. The score_scope
 parameter controls how these "final" entries interact with rankings:
 
-  score_scope='final'  (default) - Only final/refit entries ("refit" is an alias)
-  score_scope='cv'     - Only cross-validation entries (no refit)
-  score_scope='mix'    - Final entries first, then CV entries
-  score_scope='flat'   - All entries ranked together by raw score
+  score_scope='all'    (default) - Refit and CV entries ranked together ("mix" is an alias)
+  score_scope='refit'  - Only refit/final entries ("final" is an alias)
+  score_scope='folds'  - Only cross-validation entries ("cv" is an alias)
+  score_scope='flat'   - All entries ranked together by raw score (no refit preference)
 
 The score_scope is passed as an explicit parameter to visualization methods:
 """)
 
 # Top-k with only CV entries (ignoring refit)
-fig14 = analyzer.plot_top_k(k=3, rank_metric='rmse', score_scope='cv')
-print("   ✓ plot_top_k(score_scope='cv') - CV entries only")
+fig14 = analyzer.plot_top_k(k=3, rank_metric='rmse', score_scope='folds')
+print("   ✓ plot_top_k(score_scope='folds') - CV entries only")
 
 # Top-k with mix mode (final entries ranked first, then CV)
-fig15 = analyzer.plot_top_k(k=3, rank_metric='rmse', score_scope='mix')
-print("   ✓ plot_top_k(score_scope='mix') - Final entries first, then CV")
+fig15 = analyzer.plot_top_k(k=3, rank_metric='rmse', score_scope='all')
+print("   ✓ plot_top_k(score_scope='all') - Refit entries first, then CV")
 
 # Heatmap with final-only entries
 fig16 = analyzer.plot_heatmap(
     x_var="model_name",
     y_var="preprocessings",
     rank_metric="rmse",
-    score_scope='final',
+    score_scope='refit',
 )
-print("   ✓ plot_heatmap(score_scope='final') - Refit entries only")
+print("   ✓ plot_heatmap(score_scope='refit') - Refit entries only")
 
 # =============================================================================
 # Summary
@@ -322,7 +322,7 @@ Key parameters:
   rank_partition - Partition for ranking: 'val', 'test', 'train'
   display_partition - Partition to display
   aggregation    - 'best', 'mean', 'median'
-  score_scope    - Refit awareness: 'mix', 'cv', 'final', 'flat'
+  score_scope    - Refit awareness: 'all' (default), 'refit', 'folds', 'flat'
 
 Next: U05_flexible_inputs.py - Different data input formats
 """)
