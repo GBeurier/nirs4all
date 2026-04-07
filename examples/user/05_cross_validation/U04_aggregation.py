@@ -255,7 +255,7 @@ best_raw = require_single_result(
         rank_metric='rmse',
         rank_partition='test',
         display_partition='test',
-        score_scope='final',
+        score_scope='refit',
         by_repetition=False,
     ),
     "Raw final top() returned empty list",
@@ -272,7 +272,7 @@ raw_val_entry = get_variant_result(
     step_idx=step_idx,
     rank_partition='val',
     display_partition='val',
-    score_scope='cv',
+    score_scope='folds',
     by_repetition=False,
 )
 raw_test_entry = get_variant_result(
@@ -281,7 +281,7 @@ raw_test_entry = get_variant_result(
     step_idx=step_idx,
     rank_partition='test',
     display_partition='test',
-    score_scope='final',
+    score_scope='refit',
     by_repetition=False,
 )
 val_rmse_raw = float(raw_val_entry.get('val_score'))
@@ -297,7 +297,7 @@ agg_val_entry = get_variant_result(
     step_idx=step_idx,
     rank_partition='val',
     display_partition='val',
-    score_scope='cv',
+    score_scope='folds',
     by_repetition=True,
 )
 agg_test_entry = get_variant_result(
@@ -306,7 +306,7 @@ agg_test_entry = get_variant_result(
     step_idx=step_idx,
     rank_partition='test',
     display_partition='test',
-    score_scope='final',
+    score_scope='refit',
     by_repetition=True,
 )
 val_rmse_agg = float(agg_val_entry.get('val_score'))
@@ -322,7 +322,7 @@ lot_val_entry = get_variant_result(
     step_idx=step_idx,
     rank_partition='val',
     display_partition='val',
-    score_scope='cv',
+    score_scope='folds',
     by_repetition='lot_id',
 )
 lot_test_entry = get_variant_result(
@@ -331,7 +331,7 @@ lot_test_entry = get_variant_result(
     step_idx=step_idx,
     rank_partition='test',
     display_partition='test',
-    score_scope='final',
+    score_scope='refit',
     by_repetition='lot_id',
 )
 val_rmse_lot = float(lot_val_entry.get('val_score'))
@@ -359,7 +359,7 @@ reload_agg_test_entry = get_variant_result(
     step_idx=step_idx,
     rank_partition='test',
     display_partition='test',
-    score_scope='final',
+    score_scope='refit',
     by_repetition=True,
 )
 reload_test_rmse = float(reload_agg_test_entry.get('test_score'))

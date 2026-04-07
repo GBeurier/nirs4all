@@ -49,7 +49,7 @@ def main():
         print("No final (refit) entries found. Showing best CV results instead.\n")
         # Fallback: show top per dataset from CV
         for ds in predictions.get_datasets():
-            top = predictions.top(1, rank_partition="val", score_scope="cv", dataset_name=ds)
+            top = predictions.top(1, rank_partition="val", score_scope="folds", dataset_name=ds)
             if top:
                 r = top[0]
                 print(f"  {ds:<50} {r.get('model_name', '?'):<20} val={r.get('val_score', 0):.4f}  test={r.get('test_score', 0):.4f}  [{r.get('metric', '?')}]")

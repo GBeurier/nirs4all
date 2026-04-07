@@ -262,7 +262,7 @@ class PipelineExecutor:
                         metric = avg_entry.get("metric", "") or ""
                     else:
                         # Fallback to best entry if no avg fold exists
-                        pipeline_best = prediction_store.get_best(ascending=None)
+                        pipeline_best = prediction_store.get_best(ascending=None, score_scope="all")
                         if pipeline_best:
                             best_val = pipeline_best.get("val_score", 0.0) or 0.0
                             best_test = pipeline_best.get("test_score", 0.0) or 0.0
@@ -279,7 +279,7 @@ class PipelineExecutor:
             if prediction_store.num_predictions > 0:
                 # Use None for ascending to let ranker infer from metric
                 pipeline_best = prediction_store.get_best(
-                    ascending=None
+                    ascending=None, score_scope="all"
                 )
                 if pipeline_best:
                     logger.success(f"Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")

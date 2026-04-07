@@ -62,7 +62,7 @@ class ConfusionMatrixChart(BaseChart):
                aggregate: bool | str | None = None,
                aggregate_method: str | None = None,
                aggregate_exclude_outliers: bool | None = None,
-               score_scope: str = 'final',
+               score_scope: str = 'refit',
                **filters) -> Figure | list[Figure]:
         """Plot confusion matrices for top K classification models per dataset.
 
@@ -86,7 +86,7 @@ class ConfusionMatrixChart(BaseChart):
                 or ``"vote"``).
             aggregate_exclude_outliers: Whether grouped aggregation excludes
                 outliers before reducing each group.
-            score_scope: Score scope for ranking — 'final' (refitted) or 'cv' (cross-validation). Default: 'final'.
+            score_scope: Score scope for ranking — 'refit' (refitted) or 'folds' (cross-validation). Default: 'refit'.
             **filters: Additional filters (e.g., config_name="config1").
 
         Returns:

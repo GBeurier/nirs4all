@@ -148,7 +148,12 @@ run_step() {
   STEP_LOG[$name]="$logfile"
 
   header "$name"
-  if "$@" 2>&1 | tee "$logfile"; then
+  # Use PIPESTATUS so a failure in the step (LHS of the pipe) is not masked by `tee` (RHS).
+  set +e
+  "$@" 2>&1 | tee "$logfile"
+  local rc=${PIPESTATUS[0]}
+  set -e
+  if [[ $rc -eq 0 ]]; then
     STEP_RESULT[$name]="pass"
     success "$name — PASSED"
   else
@@ -176,7 +181,7 @@ cd "$REPO_ROOT"
 
 # ── 1. Ruff ──────────────────────────────────────────────────────────────────
 if should_run ruff; then
-  run_step ruff bash -c "
+  run_step ruff bash -eo pipefail -c "
     $PYTHON -m pip install --quiet --upgrade ruff
     ruff check .
   "
@@ -186,7 +191,7 @@ fi
 
 # ── 2. Mypy ──────────────────────────────────────────────────────────────────
 if should_run mypy; then
-  run_step mypy bash -c "
+  run_step mypy bash -eo pipefail -c "
     $PYTHON -m pip install --quiet --upgrade pip setuptools wheel
     $PYTHON -m pip install --quiet numpy -r requirements-test.txt
     $PYTHON -m pip install --quiet -e . --no-deps
@@ -202,7 +207,7 @@ if should_run tests; then
   if $SKIP_TESTS; then
     skip_step tests
   else
-    run_step tests bash -c "
+    run_step tests bash -eo pipefail -c "
       $PYTHON -m pip install --quiet --upgrade pip setuptools wheel
       $PYTHON -m pip install --quiet numpy -r requirements-test.txt
       $PYTHON -m pip install --quiet -e . --no-deps
@@ -229,7 +234,7 @@ if should_run docs; then
   if $SKIP_DOCS; then
     skip_step docs
   else
-    run_step docs bash -c "
+    run_step docs bash -eo pipefail -c "
       $PYTHON -m pip install --quiet --upgrade pip setuptools wheel
       $PYTHON -m pip install --quiet -r docs/readthedocs.requirements.txt
       $PYTHON -m pip install --quiet -e .
@@ -246,7 +251,7 @@ if should_run examples; then
   if $SKIP_EXAMPLES; then
     skip_step examples
   else
-    run_step examples bash -c "
+    run_step examples bash -eo pipefail -c "
       $PYTHON -m pip install --quiet --upgrade pip setuptools wheel
       $PYTHON -m pip install --quiet numpy
       $PYTHON -m pip install --quiet -r requirements-examples.txt
@@ -279,13 +284,19 @@ if should_run build; then
   if $SKIP_BUILD; then
     skip_step build
   else
-    run_step build bash -c "
+    run_step build bash -eo pipefail -c "
       $PYTHON -m pip install --quiet --upgrade build twine
+      # Start from a clean dist/ so stale wheels from previous versions
+      # can't collide with the freshly-built one during the smoke-test install.
+      rm -rf dist
       $PYTHON -m build --sdist --wheel --outdir dist
       $PYTHON -m twine check dist/*
-      # Smoke-test the wheel in a temp venv
+      # Smoke-test the freshly-built wheel in a temp venv (just the new wheel,
+      # not dist/*.whl — otherwise any leftover wheels would cause a version conflict).
+      new_wheel=\$(ls -1t dist/*.whl | head -n1)
+      rm -rf /tmp/nirs4all_wheel_test
       $PYTHON -m venv /tmp/nirs4all_wheel_test
-      /tmp/nirs4all_wheel_test/bin/pip install --quiet dist/*.whl
+      /tmp/nirs4all_wheel_test/bin/pip install --quiet \"\$new_wheel\"
       /tmp/nirs4all_wheel_test/bin/python -c \"import nirs4all; print(f'nirs4all {nirs4all.__version__} installed OK')\"
       rm -rf /tmp/nirs4all_wheel_test
     "

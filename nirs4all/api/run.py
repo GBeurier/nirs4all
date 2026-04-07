@@ -469,7 +469,7 @@ def run(
             if store is not None and hasattr(store, 'complete_run'):
                 summary: dict[str, Any] = {"total_pipelines": total_combos}
                 if all_predictions.num_predictions > 0:
-                    best = all_predictions.get_best(ascending=None)
+                    best = all_predictions.get_best(ascending=None, score_scope="all")
                     if best:
                         summary["best_score"] = best.get("test_score")
                         summary["best_metric"] = best.get("metric")

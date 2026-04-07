@@ -231,7 +231,7 @@ class TestAggregationIntegration:
         assert predictions.num_predictions > 0
 
         # Verify the pipeline completed successfully
-        best_pred = predictions.get_best(ascending=True, score_scope="cv")
+        best_pred = predictions.get_best(ascending=True, score_scope="folds")
         assert best_pred['val_score'] is not None and np.isfinite(best_pred['val_score'])
         # test_score is None when no test partition exists in the dataset
         assert best_pred['test_score'] is None or np.isfinite(best_pred['test_score'])
@@ -685,8 +685,8 @@ class TestAggregationEndToEnd:
         runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
-        top_raw = predictions.top(1, rank_metric='rmse', score_scope='final', by_repetition=False)
-        top_agg = predictions.top(1, rank_metric='rmse', score_scope='final', by_repetition='sample_id')
+        top_raw = predictions.top(1, rank_metric='rmse', score_scope='refit', by_repetition=False)
+        top_agg = predictions.top(1, rank_metric='rmse', score_scope='refit', by_repetition='sample_id')
 
         assert len(top_raw) > 0, "Raw top() returned empty"
         assert len(top_agg) > 0, "Aggregated top() returned empty"
@@ -705,9 +705,9 @@ class TestAggregationEndToEnd:
 
         # Also verify CV entries get updated val_score when queried directly
         top_cv_raw = predictions.top(1, rank_metric='rmse', rank_partition='val',
-                                      score_scope='cv', by_repetition=False)
+                                      score_scope='folds', by_repetition=False)
         top_cv_agg = predictions.top(1, rank_metric='rmse', rank_partition='val',
-                                      score_scope='cv', by_repetition='sample_id')
+                                      score_scope='folds', by_repetition='sample_id')
         if len(top_cv_raw) > 0 and len(top_cv_agg) > 0:
             cv_raw = top_cv_raw[0]
             cv_agg = top_cv_agg[0]
@@ -729,8 +729,8 @@ class TestAggregationEndToEnd:
         runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
-        top_raw = predictions.top(1, rank_metric='rmse', score_scope='final', by_repetition=False)
-        top_agg = predictions.top(1, rank_metric='rmse', score_scope='final', by_repetition='sample_id')
+        top_raw = predictions.top(1, rank_metric='rmse', score_scope='refit', by_repetition=False)
+        top_agg = predictions.top(1, rank_metric='rmse', score_scope='refit', by_repetition='sample_id')
 
         raw_y_pred = top_raw[0].get('y_pred')
         agg_y_pred = top_agg[0].get('y_pred')
@@ -888,7 +888,7 @@ class TestAggregationEndToEnd:
             rank_metric="rmse",
             rank_partition="test",
             display_partition="test",
-            score_scope="final",
+            score_scope="refit",
             by_repetition=False,
         )[0]
         model_name = best_raw["model_name"]
@@ -900,7 +900,7 @@ class TestAggregationEndToEnd:
             rank_metric="rmse",
             rank_partition="test",
             display_partition="test",
-            score_scope="final",
+            score_scope="refit",
             by_repetition=True,
             model_name=model_name,
             step_idx=step_idx,

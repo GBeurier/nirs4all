@@ -198,7 +198,7 @@ class TestTopAndGetBest:
         _add_sample_prediction(preds, model_name="A", val_score=0.5, metric="rmse")
         _add_sample_prediction(preds, model_name="B", val_score=0.2, metric="rmse")
         _add_sample_prediction(preds, model_name="C", val_score=0.8, metric="rmse")
-        results = preds.top(3, rank_metric="rmse", score_scope="cv")
+        results = preds.top(3, rank_metric="rmse", score_scope="folds")
         scores = [r["val_score"] for r in results]
         assert scores == sorted(scores), "RMSE should sort ascending (lower is better)"
 
@@ -208,7 +208,7 @@ class TestTopAndGetBest:
         _add_sample_prediction(preds, model_name="A", val_score=0.5, metric="r2")
         _add_sample_prediction(preds, model_name="B", val_score=0.9, metric="r2")
         _add_sample_prediction(preds, model_name="C", val_score=0.3, metric="r2")
-        results = preds.top(3, rank_metric="r2", score_scope="cv")
+        results = preds.top(3, rank_metric="r2", score_scope="folds")
         scores = [r["val_score"] for r in results]
         assert scores == sorted(scores, reverse=True), "R2 should sort descending (higher is better)"
 
@@ -216,7 +216,7 @@ class TestTopAndGetBest:
         preds = Predictions()
         for i in range(10):
             _add_sample_prediction(preds, model_name=f"M{i}", val_score=float(i))
-        results = preds.top(3, rank_metric="rmse", score_scope="cv")
+        results = preds.top(3, rank_metric="rmse", score_scope="folds")
         assert len(results) == 3
 
     def test_get_best_returns_best_model(self):
@@ -224,7 +224,7 @@ class TestTopAndGetBest:
         _add_sample_prediction(preds, model_name="Bad", val_score=1.0, metric="rmse")
         _add_sample_prediction(preds, model_name="Best", val_score=0.1, metric="rmse")
         _add_sample_prediction(preds, model_name="Mid", val_score=0.5, metric="rmse")
-        best = preds.get_best(metric="rmse", score_scope="cv")
+        best = preds.get_best(metric="rmse", score_scope="folds")
         assert best is not None
         assert best["model_name"] == "Best"
 
@@ -232,7 +232,7 @@ class TestTopAndGetBest:
         preds = Predictions()
         _add_sample_prediction(preds, dataset_name="wheat", model_name="PLS", val_score=0.1, metric="rmse")
         _add_sample_prediction(preds, dataset_name="corn", model_name="RF", val_score=0.05, metric="rmse")
-        best = preds.get_best(metric="rmse", score_scope="cv", dataset_name="wheat")
+        best = preds.get_best(metric="rmse", score_scope="folds", dataset_name="wheat")
         assert best is not None
         assert best["dataset_name"] == "wheat"
 

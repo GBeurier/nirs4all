@@ -226,7 +226,7 @@ class BaseChart(ABC):
         n: int,
         rank_metric: str,
         rank_partition: str = 'val',
-        score_scope: str = 'final',
+        score_scope: str = 'refit',
         display_partition: str = 'test',
         display_metrics: list[str] | None = None,
         aggregate: bool | str | None = None,
