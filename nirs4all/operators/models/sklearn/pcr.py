@@ -7,6 +7,8 @@ components. Classic chemometrics baseline alongside PLS.
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from sklearn.base import BaseEstimator, RegressorMixin
@@ -30,7 +32,7 @@ class PCR(BaseEstimator, RegressorMixin):
     def __init__(self, n_components: int = 10):
         self.n_components = n_components
 
-    def fit(self, X: ArrayLike, y: ArrayLike) -> "PCR":
+    def fit(self, X: ArrayLike, y: ArrayLike) -> PCR:
         X = np.asarray(X, dtype=float)
         y = np.asarray(y, dtype=float)
         self.pca_ = PCA(n_components=self.n_components)
@@ -44,4 +46,4 @@ class PCR(BaseEstimator, RegressorMixin):
         check_is_fitted(self, ["pca_", "regressor_"])
         X = np.asarray(X, dtype=float)
         scores = self.pca_.transform(X)
-        return self.regressor_.predict(scores)
+        return cast(NDArray[np.floating], np.asarray(self.regressor_.predict(scores), dtype=float))
