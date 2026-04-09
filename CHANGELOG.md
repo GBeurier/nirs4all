@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.8] - PCR Model, score_scope Rename & Operator Refinements - 2026-04-09
+
+### ✨ Improvements
+
+- **New PCR model**: Added `PCR` (Principal Component Regression) under `nirs4all.operators.models.sklearn`, exposed from `operators.models`
+- **score_scope rename**: Renamed `score_scope` value from `'final'` to `'refit'` across the codebase (API, executor, orchestrator, resolver, predictions, charts) for consistency with refit semantics; cv-scope value renamed from `'cv'` to `'folds'`
+- **XOutlierFilter**: Improved PCA component selection and threshold computation using a chi-squared distribution for better statistical grounding
+- **Splitters**: Input-shape-aware handling in splitters to support multi-dimensional feature arrays
+- **Operator defaults**: Sensible defaults added for `HighLeverageFilter`, `ResampleTransformer`, `Resampler`, and `RangeDiscretizer` to reduce boilerplate
+- **Task-type filtering**: New `PredictionAnalyzer` helper to filter datasets by `task_type`
+
+### 🐛 Bug Fixes
+
+- **PCR**: Fixed type hint in `PCR.fit`
+- **Resampler**: Removed unused `crop_mask_` declaration
+
+### 🧪 Tests
+
+- Updated tests to reflect `score_scope='refit'` and cv-scope `'folds'` renames across prediction, ranking, scoring, and aggregation suites
+
+### 🔧 Chores
+
+- **pre-publish script**: Improved error handling during execution
+- **Examples & docs**: Updated visualization and cross-validation examples and user guide to use the new `score_scope` values
+
+---
+
 ## [0.8.7] - Score Scope Defaults, Aggregation Normalization & Ranking Enhancements - 2026-04-01
 
 ### ✨ Improvements
