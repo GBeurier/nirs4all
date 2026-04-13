@@ -673,10 +673,10 @@ class TestCompetingBranchesRefit:
 
     def test_same_model_class_with_different_names_refits_once(self, tmp_path):
         """Competing branches should refit once per model class, not per custom name."""
-        import nirs4all
         from sklearn.cross_decomposition import PLSRegression
         from sklearn.model_selection import KFold
 
+        import nirs4all
         from nirs4all.synthesis.builder import SyntheticDatasetBuilder
 
         dataset = (
