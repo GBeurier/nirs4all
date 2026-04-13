@@ -1191,6 +1191,8 @@ class BestChainEntry:
         branch_steps: Expanded branch steps (preprocessing + model steps).
         best_params: Best hyperparameters from finetuning (Optuna).
         metric: Metric name used for scoring (e.g. ``"rmse"``).
+        pipeline_id: Source CV pipeline ID for the winning chain.
+        config_name: Source CV config name for the winning chain.
     """
 
     model_name: str
@@ -1198,6 +1200,8 @@ class BestChainEntry:
     branch_steps: list
     best_params: dict
     metric: str
+    pipeline_id: str = ""
+    config_name: str = ""
 
 @dataclass
 class RuntimeContext:

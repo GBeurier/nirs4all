@@ -1273,3 +1273,69 @@ class TestExtractTopConfigs:
         assert config.config_name == "pipeline_0"
         assert len(config.expanded_steps) == 3
         store.close()
+
+    def test_refit_pipelines_are_excluded_from_rmsecv_ranking(self, tmp_path):
+        """Completed refit pipelines must not outrank CV pipelines by best_val=0."""
+        from nirs4all.pipeline.execution.refit.config_extractor import extract_top_configs
+
+        store, run_id, pipeline_ids = self._setup_store_with_pipelines(tmp_path)
+
+        refit_pid = store.begin_pipeline(
+            run_id=run_id,
+            name="pipeline_0_refit",
+            expanded_config=[
+                {"class": "sklearn.preprocessing.MinMaxScaler"},
+                {"class": "nirs4all.pipeline.execution.refit.executor._FullTrainFoldSplitter"},
+                {"model": {"class": "sklearn.cross_decomposition.PLSRegression", "params": {"n_components": 5}}},
+            ],
+            generator_choices=[],
+            dataset_name="ds",
+            dataset_hash="hrefit",
+        )
+        refit_chain_id = store.save_chain(
+            pipeline_id=refit_pid,
+            steps=[{"step_idx": 0, "operator_class": "PLS", "params": {}, "artifact_id": None, "stateless": False}],
+            model_step_idx=0,
+            model_class="PLSRegression",
+            preprocessings="",
+            fold_strategy="single_refit",
+            fold_artifacts={},
+            shared_artifacts={},
+        )
+        store.save_prediction(
+            pipeline_id=refit_pid,
+            chain_id=refit_chain_id,
+            dataset_name="ds",
+            model_name="PLS",
+            model_class="PLSRegression",
+            fold_id="final",
+            partition="test",
+            val_score=0.0,
+            test_score=0.05,
+            train_score=0.04,
+            metric="rmse",
+            task_type="regression",
+            n_samples=100,
+            n_features=200,
+            scores={},
+            best_params={},
+            branch_id=None,
+            branch_name=None,
+            exclusion_count=0,
+            exclusion_rate=0.0,
+            refit_context="standalone",
+        )
+        store.complete_pipeline(
+            pipeline_id=refit_pid,
+            best_val=0.0,
+            best_test=0.05,
+            metric="rmse",
+            duration_ms=50,
+        )
+
+        configs = extract_top_configs(store, run_id, [RefitCriterion(top_k=1)], dataset_name="ds")
+
+        assert len(configs) == 1
+        assert configs[0].pipeline_id == pipeline_ids[0]
+        assert configs[0].config_name == "pipeline_0"
+        store.close()

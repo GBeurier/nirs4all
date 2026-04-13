@@ -773,6 +773,69 @@ class TestExtractWinningConfig:
         assert config.selection_score == 0.05
         store.close()
 
+    def test_extraction_ignores_completed_refit_pipelines(self, tmp_path):
+        """Winner selection must ignore persisted refit pipelines."""
+        from nirs4all.pipeline.execution.refit import extract_winning_config
+
+        store = _make_store(tmp_path)
+        ids = _create_run_with_predictions(store, n_variants=2, best_variant_idx=0)
+
+        refit_pipeline_id = store.begin_pipeline(
+            run_id=ids["run_id"],
+            name="variant_0_refit",
+            expanded_config=[{"step": "MinMaxScaler"}, {"model": "PLSRegression", "params": {"n_components": 5}}],
+            generator_choices=[],
+            dataset_name="wheat",
+            dataset_hash="refit_hash",
+        )
+        refit_chain_id = store.save_chain(
+            pipeline_id=refit_pipeline_id,
+            steps=[{"step_idx": 0, "operator_class": "PLSRegression", "params": {}, "artifact_id": None, "stateless": False}],
+            model_step_idx=0,
+            model_class="sklearn.cross_decomposition.PLSRegression",
+            preprocessings="MinMaxScaler",
+            fold_strategy="single_refit",
+            fold_artifacts={},
+            shared_artifacts={},
+        )
+        store.save_prediction(
+            pipeline_id=refit_pipeline_id,
+            chain_id=refit_chain_id,
+            dataset_name="wheat",
+            model_name="PLSRegression",
+            model_class="sklearn.cross_decomposition.PLSRegression",
+            fold_id="final",
+            partition="test",
+            val_score=0.0,
+            test_score=0.03,
+            train_score=0.02,
+            metric="rmse",
+            task_type="regression",
+            n_samples=100,
+            n_features=200,
+            scores={"test": {"rmse": 0.03}},
+            best_params={"n_components": 5},
+            branch_id=None,
+            branch_name=None,
+            exclusion_count=0,
+            exclusion_rate=0.0,
+            refit_context=REFIT_CONTEXT_STANDALONE,
+        )
+        store.complete_pipeline(
+            pipeline_id=refit_pipeline_id,
+            best_val=0.0,
+            best_test=0.03,
+            metric="rmse",
+            duration_ms=50,
+        )
+
+        config = extract_winning_config(store, ids["run_id"])
+
+        assert config.pipeline_id == ids["pipeline_ids"][0]
+        assert config.config_name == "variant_0"
+        assert config.selection_score == pytest.approx(0.05)
+        store.close()
+
     def test_refit_config_dataclass(self):
         """RefitConfig dataclass works correctly."""
         from nirs4all.pipeline.execution.refit import RefitConfig

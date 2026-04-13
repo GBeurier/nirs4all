@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import polars as pl
 
 from nirs4all.core.logging import get_logger
 
@@ -23,6 +24,30 @@ if TYPE_CHECKING:
     from nirs4all.pipeline.execution.refit.model_selector import PerModelSelection
 
 logger = get_logger(__name__)
+
+
+def _is_refit_pipeline_name(name: Any) -> bool:
+    """Return ``True`` when a stored pipeline record represents a refit pass."""
+    return isinstance(name, str) and "_refit" in name
+
+
+def _filter_completed_cv_pipelines(pipelines_df: Any) -> Any:
+    """Keep only completed CV pipelines.
+
+    Refit pipelines persist ``best_val=0`` because they have no validation
+    fold. They must never participate in winner selection.
+    """
+    completed = pipelines_df.filter(pipelines_df["status"] == "completed")
+    if completed.is_empty():
+        return completed
+
+    keep_mask = [
+        not _is_refit_pipeline_name(name)
+        for name in completed["name"].to_list()
+    ]
+    if all(keep_mask):
+        return completed
+    return completed.filter(pl.Series("keep_cv_pipeline", keep_mask))
 
 @dataclass
 class RefitConfig:
@@ -162,7 +187,7 @@ def extract_top_configs(
     if pipelines_df.is_empty():
         raise ValueError(f"Run {run_id} has no pipelines")
 
-    completed = pipelines_df.filter(pipelines_df["status"] == "completed")
+    completed = _filter_completed_cv_pipelines(pipelines_df)
     if completed.is_empty():
         raise ValueError(f"Run {run_id} has no completed pipelines")
 
@@ -417,7 +442,7 @@ def extract_winning_config(
         raise ValueError(f"Run {run_id} has no pipelines")
 
     # Filter to completed pipelines
-    completed = pipelines_df.filter(pipelines_df["status"] == "completed")
+    completed = _filter_completed_cv_pipelines(pipelines_df)
     if completed.is_empty():
         raise ValueError(f"Run {run_id} has no completed pipelines")
 
@@ -560,7 +585,7 @@ def extract_per_model_configs(
     if pipelines_df.is_empty():
         return {}
 
-    completed = pipelines_df.filter(pipelines_df["status"] == "completed")
+    completed = _filter_completed_cv_pipelines(pipelines_df)
     if completed.is_empty() or len(completed) <= 1:
         return {}
 
