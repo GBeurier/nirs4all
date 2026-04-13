@@ -498,12 +498,12 @@ class RunResult:
             Best CV prediction dict, or empty dict if no CV predictions.
         """
         results = self.predictions.top(n=1, score_scope="folds", fold_id="avg")
-        top = cast(list, results)
+        top = cast(list[dict[str, Any]], results)
         if top:
             return top[0]
 
         results = self.predictions.top(n=1, score_scope="folds")
-        top = cast(list, results)
+        top = cast(list[dict[str, Any]], results)
         return top[0] if top else {}
 
     @property
