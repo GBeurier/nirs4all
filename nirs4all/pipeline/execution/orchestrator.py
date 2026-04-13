@@ -463,11 +463,22 @@ class PipelineOrchestrator:
                                         runtime_context=None,
                                     )
 
-                                    # Compute metrics for complete_pipeline
-                                    best = config_predictions.get_best(ascending=None, score_scope="folds")
-                                    best_val = float(best.get("val_score", 0.0) or 0.0) if best else 0.0
-                                    best_test = float(best.get("test_score", 0.0) or 0.0) if best else 0.0
-                                    metric = str(best.get("metric", "rmse") or "rmse") if best else "rmse"
+                                    # Mirror PipelineExecutor semantics: persist best_val from
+                                    # the avg fold (true RMSECV), not the best individual fold.
+                                    avg_entry = config_predictions.get_best(
+                                        ascending=None,
+                                        fold_id="avg",
+                                        score_scope="folds",
+                                    )
+                                    if avg_entry:
+                                        best_val = float(avg_entry.get("val_score", 0.0) or 0.0)
+                                        best_test = float(avg_entry.get("test_score", 0.0) or 0.0)
+                                        metric = str(avg_entry.get("metric", "rmse") or "rmse")
+                                    else:
+                                        best = config_predictions.get_best(ascending=None, score_scope="all")
+                                        best_val = float(best.get("val_score", 0.0) or 0.0) if best else 0.0
+                                        best_test = float(best.get("test_score", 0.0) or 0.0) if best else 0.0
+                                        metric = str(best.get("metric", "rmse") or "rmse") if best else "rmse"
                                     duration_ms = int(result.get("duration_ms", 0))
 
                                     # Complete pipeline record
@@ -1337,11 +1348,6 @@ class PipelineOrchestrator:
         Returns:
             A :class:`RefitResult` summarizing the outcome.
         """
-        # Extract pre-branch steps from the original expanded pipeline
-        steps = refit_config.expanded_steps
-        branch_info = _find_branch_step(steps)
-        pre_branch_steps = steps[:branch_info[0]] if branch_info is not None else []
-
         logger.info(
             f"Accumulated refit: {len(best_refit_chains)} model(s) "
             f"({', '.join(best_refit_chains.keys())})"
@@ -1351,7 +1357,33 @@ class PipelineOrchestrator:
         all_success = True
 
         for model_name, entry in best_refit_chains.items():
-            flat_steps = copy.deepcopy(pre_branch_steps) + copy.deepcopy(entry.branch_steps)
+            source_pipeline_id = entry.pipeline_id or refit_config.pipeline_id
+            source_config_name = entry.config_name or refit_config.config_name
+            source_steps = refit_config.expanded_steps
+            source_generator_choices = refit_config.generator_choices
+
+            if self.store is not None and source_pipeline_id:
+                with contextlib.suppress(Exception):
+                    source_record = self.store.get_pipeline(source_pipeline_id)
+                    if source_record is not None:
+                        record_steps = source_record.get("expanded_config")
+                        if isinstance(record_steps, list) and record_steps:
+                            source_steps = record_steps
+                        record_choices = source_record.get("generator_choices")
+                        if isinstance(record_choices, list):
+                            source_generator_choices = record_choices
+
+            branch_info = _find_branch_step(source_steps)
+            if branch_info is not None:
+                branch_idx = branch_info[0]
+                flat_steps = (
+                    copy.deepcopy(source_steps[:branch_idx])
+                    + copy.deepcopy(entry.branch_steps)
+                    + copy.deepcopy(source_steps[branch_idx + 1 :])
+                )
+            else:
+                flat_steps = copy.deepcopy(entry.branch_steps)
+
             # Filter out None steps (from _or_ generators expanding to None)
             flat_steps = [s for s in flat_steps if s is not None]
 
@@ -1359,11 +1391,11 @@ class PipelineOrchestrator:
                 expanded_steps=flat_steps,
                 best_params=entry.best_params,
                 variant_index=refit_config.variant_index,
-                generator_choices=refit_config.generator_choices,
-                pipeline_id=refit_config.pipeline_id,
+                generator_choices=source_generator_choices,
+                pipeline_id=source_pipeline_id,
                 metric=entry.metric,
                 selection_score=entry.avg_val_score,
-                config_name=refit_config.config_name,
+                config_name=source_config_name,
             )
 
             logger.info(
@@ -1776,7 +1808,13 @@ class PipelineOrchestrator:
             logger.info(sep)
 
         # --- Detail: CV selection summary (always visible) ---
-        cv_best = predictions.get_best(ascending=None, score_scope="folds")
+        cv_best = predictions.get_best(
+            ascending=None,
+            score_scope="folds",
+            fold_id="avg",
+        )
+        if cv_best is None:
+            cv_best = predictions.get_best(ascending=None, score_scope="folds")
         if cv_best:
             cv_summary_msg = (
                 f"CV selection summary for dataset '{name}': "

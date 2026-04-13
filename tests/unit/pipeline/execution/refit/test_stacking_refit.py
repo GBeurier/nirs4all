@@ -17,7 +17,7 @@ import pytest
 
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.analysis.topology import PipelineTopology, analyze_topology
-from nirs4all.pipeline.config.context import ExecutionPhase, RuntimeContext
+from nirs4all.pipeline.config.context import BestChainEntry, ExecutionPhase, RuntimeContext
 from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
 from nirs4all.pipeline.execution.refit.executor import RefitResult
 from nirs4all.pipeline.execution.refit.stacking_refit import (
@@ -1040,6 +1040,108 @@ class TestOrchestratorStackingDispatch:
 
             # execute_stacking_refit should have been called
             mock_stacking.assert_called_once()
+
+        store.close()
+
+    def test_accumulated_refit_uses_model_source_pipeline_identity(self, tmp_path):
+        """Accumulated refit must reuse the exact winning CV variant per model."""
+        from nirs4all.pipeline.execution.orchestrator import PipelineOrchestrator
+
+        orchestrator = PipelineOrchestrator(
+            workspace_path=tmp_path / "workspace",
+            mode="train",
+        )
+        store = orchestrator.store
+
+        run_id = store.begin_run("test", config={}, datasets=[{"name": "ds"}])
+
+        cv_steps_a = [
+            {"class": "sklearn.preprocessing.MinMaxScaler"},
+            {"class": "sklearn.model_selection.KFold", "params": {"n_splits": 3}},
+            {"branch": [
+                [{"class": "sklearn.preprocessing.StandardScaler"}, {"model": {"class": "sklearn.cross_decomposition.PLSRegression", "params": {"n_components": 2}}}],
+            ]},
+            {"class": "after_a"},
+        ]
+        cv_steps_b = [
+            {"class": "sklearn.preprocessing.RobustScaler"},
+            {"class": "sklearn.model_selection.KFold", "params": {"n_splits": 3}},
+            {"branch": [
+                [{"class": "sklearn.preprocessing.Normalizer"}, {"model": {"class": "sklearn.cross_decomposition.PLSRegression", "params": {"n_components": 8}}}],
+            ]},
+            {"class": "after_b"},
+        ]
+
+        pid_a = store.begin_pipeline(
+            run_id=run_id,
+            name="config_a",
+            expanded_config=cv_steps_a,
+            generator_choices=[{"_or_": "a"}],
+            dataset_name="ds",
+            dataset_hash="ha",
+        )
+        pid_b = store.begin_pipeline(
+            run_id=run_id,
+            name="config_b",
+            expanded_config=cv_steps_b,
+            generator_choices=[{"_or_": "b"}],
+            dataset_name="ds",
+            dataset_hash="hb",
+        )
+        store.complete_pipeline(pid_a, best_val=5.0, best_test=5.2, metric="rmse", duration_ms=10)
+        store.complete_pipeline(pid_b, best_val=3.0, best_test=3.2, metric="rmse", duration_ms=10)
+        store.complete_run(run_id, summary={})
+
+        global_config = RefitConfig(
+            expanded_steps=cv_steps_a,
+            generator_choices=[{"_or_": "a"}],
+            pipeline_id=pid_a,
+            metric="rmse",
+            selection_score=5.0,
+            config_name="config_a",
+        )
+        best_refit_chains = {
+            "PLS": BestChainEntry(
+                model_name="PLS",
+                avg_val_score=3.0,
+                branch_steps=[
+                    {"class": "sklearn.preprocessing.Normalizer"},
+                    {"model": {"class": "sklearn.cross_decomposition.PLSRegression", "params": {"n_components": 8}}},
+                ],
+                best_params={"n_components": 8},
+                metric="rmse",
+                pipeline_id=pid_b,
+                config_name="config_b",
+            )
+        }
+
+        captured_configs: list[RefitConfig] = []
+
+        def _capture_refit(*, refit_config, **kwargs):
+            captured_configs.append(refit_config)
+            return RefitResult(success=True, predictions_count=0)
+
+        with patch("nirs4all.pipeline.execution.orchestrator.execute_simple_refit", side_effect=_capture_refit):
+            result = orchestrator._execute_accumulated_refit(
+                refit_config=global_config,
+                best_refit_chains=best_refit_chains,
+                dataset=_DummyDataset(name="ds"),
+                runtime_context=RuntimeContext(),
+                artifact_registry=MagicMock(),
+                executor=_make_mock_executor(),
+                run_dataset_predictions=Predictions(),
+            )
+
+        assert result.success is True
+        assert len(captured_configs) == 1
+        chosen = captured_configs[0]
+        assert chosen.pipeline_id == pid_b
+        assert chosen.config_name == "config_b"
+        assert chosen.generator_choices == [{"_or_": "b"}]
+        assert chosen.expanded_steps[0] == {"class": "sklearn.preprocessing.RobustScaler"}
+        assert chosen.expanded_steps[2] == {"class": "sklearn.preprocessing.Normalizer"}
+        assert chosen.expanded_steps[3] == {"model": {"class": "sklearn.cross_decomposition.PLSRegression", "params": {"n_components": 8}}}
+        assert chosen.expanded_steps[4] == {"class": "after_b"}
 
         store.close()
 

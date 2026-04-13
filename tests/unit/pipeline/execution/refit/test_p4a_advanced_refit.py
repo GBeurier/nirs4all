@@ -671,6 +671,49 @@ class TestCompetingBranchesRefit:
                 if isinstance(step, dict):
                     assert "merge" not in step
 
+    def test_same_model_class_with_different_names_refits_once(self, tmp_path):
+        """Competing branches should refit once per model class, not per custom name."""
+        import nirs4all
+        from sklearn.cross_decomposition import PLSRegression
+        from sklearn.model_selection import KFold
+
+        from nirs4all.synthesis.builder import SyntheticDatasetBuilder
+
+        dataset = (
+            SyntheticDatasetBuilder(n_samples=80, random_state=42)
+            .with_features(complexity="simple")
+            .with_targets(distribution="uniform", range=(10, 50))
+            .with_partitions(train_ratio=0.8)
+            .build()
+        )
+
+        pipeline = [
+            KFold(n_splits=3, shuffle=True, random_state=42),
+            {"branch": [
+                [{"name": "pls_2", "model": PLSRegression(n_components=2)}],
+                [{"name": "pls_6", "model": PLSRegression(n_components=6)}],
+                [{"name": "pls_8", "model": PLSRegression(n_components=8)}],
+            ]},
+        ]
+
+        result = nirs4all.run(
+            pipeline=pipeline,
+            dataset=dataset,
+            verbose=0,
+            workspace_path=str(tmp_path / "workspace"),
+            refit=True,
+            random_state=42,
+        )
+
+        final_entries = result.predictions.filter_predictions(
+            fold_id="final",
+            partition="test",
+            load_arrays=False,
+        )
+
+        assert len(final_entries) == 1
+        assert final_entries[0].get("model_name") == "pls_8"
+
 # =========================================================================
 # Orchestrator dispatch
 # =========================================================================

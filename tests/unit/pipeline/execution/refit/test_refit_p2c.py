@@ -427,7 +427,7 @@ class TestRunResultRefitProperties:
             preds.add_prediction(
                 dataset_name="ds",
                 model_name="PLSRegression",
-                fold_id="w_avg",
+                fold_id="avg",
                 partition="val",
                 val_score=0.08,
                 test_score=0.10,
@@ -439,8 +439,8 @@ class TestRunResultRefitProperties:
                 model_name="PLSRegression",
                 fold_id="fold_0",
                 partition="val",
-                val_score=0.09,
-                test_score=0.11,
+                val_score=0.05,
+                test_score=0.07,
                 metric="rmse",
                 task_type="regression",
             )
@@ -484,11 +484,12 @@ class TestRunResultRefitProperties:
         assert result.final_score is None
 
     def test_cv_best_excludes_refit_entries(self):
-        """RunResult.cv_best excludes refit entries from ranking."""
+        """RunResult.cv_best excludes refit entries and uses the avg fold."""
         result = self._make_run_result(include_refit=True, include_cv=True)
         cv_entry = result.cv_best
         assert cv_entry.get("fold_id") != "final"
         assert cv_entry.get("refit_context") is None
+        assert cv_entry.get("fold_id") == "avg"
 
     def test_cv_best_score(self):
         """RunResult.cv_best_score returns the best CV val score."""

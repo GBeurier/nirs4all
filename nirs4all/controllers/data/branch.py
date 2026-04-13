@@ -1349,6 +1349,8 @@ class BranchController(OperatorController):
         prediction_store: Any,
         n_pred_before: int,
         branch_steps: list,
+        pipeline_id: str | None = None,
+        config_name: str | None = None,
     ) -> None:
         """Update the best-refit-chains accumulator after a branch variant.
 
@@ -1364,6 +1366,8 @@ class BranchController(OperatorController):
             prediction_store: Predictions instance with new entries appended.
             n_pred_before: Buffer length before this branch variant started.
             branch_steps: Expanded steps for this branch variant.
+            pipeline_id: Source CV pipeline ID for this branch variant.
+            config_name: Source CV config name for this branch variant.
         """
         import copy
 
@@ -1387,42 +1391,130 @@ class BranchController(OperatorController):
             else:
                 preprocessing_steps.append(step)
 
-        # Group prediction entries by model_name
-        model_scores: dict[str, list[float]] = {}
-        model_params: dict[str, dict] = {}
-        model_metric: dict[str, str] = {}
+        def _load_best_params(raw: Any) -> dict:
+            """Normalize serialized best_params for candidate matching."""
+            if isinstance(raw, str):
+                import json
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, dict):
+                        return parsed
+                return {}
+            if isinstance(raw, dict):
+                return raw
+            return {}
+
+        def _stable_serialize(raw: Any) -> str:
+            """Build a stable key for grouping candidate chains."""
+            import json
+
+            params = _load_best_params(raw)
+            try:
+                return json.dumps(params, sort_keys=True, default=str)
+            except Exception:
+                return str(params)
+
+        def _normalize_model_identity(raw_class: Any, raw_name: Any) -> str:
+            """Use model class identity for refit grouping.
+
+            Refit should happen once per model type, even when generator-expanded
+            branches assign different user-facing names to the same class.
+            """
+            if isinstance(raw_class, str) and raw_class:
+                return raw_class.rsplit(".", 1)[-1]
+            if raw_class is not None:
+                return type(raw_class).__name__
+            if isinstance(raw_name, str) and raw_name:
+                return raw_name
+            return "unknown_model"
+
+        # Track candidate variants per model. A single branch variant can emit
+        # multiple candidate chains for the same model (for example from
+        # finetuning). Refit must keep the best candidate chain, not the mean
+        # across all candidates under the model identity.
+        candidate_data: dict[tuple[str, str, str], dict[str, Any]] = {}
 
         for entry in new_entries:
             model_name = entry.get("model_name")
             val_score = entry.get("val_score")
-            if model_name is None or val_score is None:
+            if (
+                model_name is None
+                or val_score is None
+                or entry.get("refit_context") is not None
+            ):
                 continue
 
             model_name = str(model_name)
-            if model_name not in model_scores:
-                model_scores[model_name] = []
-                model_params[model_name] = {}
-                model_metric[model_name] = entry.get("metric", "rmse")
+            model_identity = _normalize_model_identity(
+                entry.get("model_classname") or entry.get("model_class"),
+                model_name,
+            )
+            best_params = _load_best_params(entry.get("best_params"))
+            candidate_key = (
+                model_identity,
+                str(entry.get("preprocessings") or ""),
+                _stable_serialize(best_params),
+            )
+            candidate = candidate_data.setdefault(
+                candidate_key,
+                {
+                    "model_identity": model_identity,
+                    "model_name": model_name,
+                    "metric": entry.get("metric", "rmse"),
+                    "best_params": best_params,
+                    "avg_score": None,
+                    "fold_scores": {},
+                },
+            )
 
-            model_scores[model_name].append(float(val_score))
+            fold_id = str(entry.get("fold_id") or "")
+            if fold_id == "avg":
+                candidate["avg_score"] = float(val_score)
+                continue
+            if fold_id in {"w_avg", "final"}:
+                continue
 
-            # Capture best_params (same for all folds in unified mode)
-            bp = entry.get("best_params")
-            if bp and not model_params[model_name]:
-                if isinstance(bp, str):
-                    import json
-                    with contextlib.suppress(json.JSONDecodeError, TypeError):
-                        model_params[model_name] = json.loads(bp)
-                elif isinstance(bp, dict):
-                    model_params[model_name] = bp
+            # Use one score per CV fold. Multiple partition rows for the same
+            # fold should not change the candidate's CV ranking.
+            candidate["fold_scores"].setdefault(fold_id, float(val_score))
+
+        # Pick the best candidate chain per model identity within this branch.
+        best_candidate_by_model: dict[str, dict[str, Any]] = {}
+        for candidate in candidate_data.values():
+            if candidate["avg_score"] is not None:
+                candidate_score = float(candidate["avg_score"])
+            else:
+                fold_scores = list(candidate["fold_scores"].values())
+                if not fold_scores:
+                    continue
+                candidate_score = float(sum(fold_scores) / len(fold_scores))
+
+            model_identity = str(candidate["model_identity"])
+            metric = str(candidate.get("metric", "rmse"))
+            ascending = _infer_ascending(metric)
+            current_best = best_candidate_by_model.get(model_identity)
+            if current_best is not None:
+                is_better = (
+                    (ascending and candidate_score < current_best["avg_val_score"])
+                    or (not ascending and candidate_score > current_best["avg_val_score"])
+                )
+                if not is_better:
+                    continue
+            best_candidate_by_model[model_identity] = {
+                "model_identity": model_identity,
+                "model_name": candidate["model_name"],
+                "avg_val_score": candidate_score,
+                "best_params": candidate.get("best_params", {}),
+                "metric": metric,
+            }
 
         # Update accumulator for each model
-        for model_name, scores in model_scores.items():
-            avg_score = sum(scores) / len(scores)
-            metric = model_metric.get(model_name, "rmse")
+        for model_identity, candidate in best_candidate_by_model.items():
+            avg_score = float(candidate["avg_val_score"])
+            metric = str(candidate["metric"])
             ascending = _infer_ascending(metric)
 
-            existing = best_chains.get(model_name)
+            existing = best_chains.get(model_identity)
             if existing is not None:
                 is_better = (
                     (ascending and avg_score < existing.avg_val_score)
@@ -1432,19 +1524,21 @@ class BranchController(OperatorController):
                     continue
 
             # Build model-specific steps: preprocessing + only this model's step
-            model_step = model_steps_by_name.get(model_name)
+            model_step = model_steps_by_name.get(str(candidate["model_name"]))
             if model_step is not None:
                 model_specific_steps = preprocessing_steps + [model_step]
             else:
                 # Fallback: store full branch_steps (shouldn't happen)
                 model_specific_steps = branch_steps
 
-            best_chains[model_name] = BestChainEntry(
-                model_name=model_name,
+            best_chains[model_identity] = BestChainEntry(
+                model_name=str(candidate["model_name"]),
                 avg_val_score=avg_score,
                 branch_steps=copy.deepcopy(model_specific_steps),
-                best_params=model_params.get(model_name, {}),
+                best_params=dict(candidate.get("best_params", {})),
                 metric=metric,
+                pipeline_id=str(pipeline_id or ""),
+                config_name=str(config_name or ""),
             )
 
     def _use_cow_snapshots(self, runtime_context: "RuntimeContext") -> bool:
@@ -2080,6 +2174,8 @@ class BranchController(OperatorController):
                     prediction_store,
                     n_pred_before,
                     branch_steps,
+                    pipeline_id=runtime_context.pipeline_id,
+                    config_name=runtime_context.pipeline_name,
                 )
 
         return branch_contexts, all_artifacts
@@ -2309,6 +2405,8 @@ class BranchController(OperatorController):
                         prediction_store,
                         n_pred_before,
                         result["branch_steps"],
+                        pipeline_id=runtime_context.pipeline_id,
+                        config_name=runtime_context.pipeline_name,
                     )
 
         total_predictions = prediction_store.num_predictions if prediction_store is not None else 0

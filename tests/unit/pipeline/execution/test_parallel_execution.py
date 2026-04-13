@@ -7,6 +7,7 @@ variant_data and use a module-level function (not bound method) for dispatch.
 """
 
 import numpy as np
+import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
@@ -115,3 +116,55 @@ class TestParallelExecution:
 
         assert result is not None
         assert result.best_rmse is not None
+
+    def test_parallel_pipeline_best_val_uses_avg_fold(self, tmp_path):
+        """Parallel store reconstruction must persist RMSECV from fold_id='avg'.
+
+        Regression test for the parallel reconstruction path in
+        PipelineOrchestrator: best_val must match the avg-fold CV entry,
+        not the best individual fold selected by get_best(score_scope="folds").
+        """
+        import nirs4all
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        dataset = _make_dataset()
+        workspace = tmp_path / "workspace"
+
+        pipeline = [
+            ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
+            {"_or_": [None, StandardScaler()]},
+            {"model": PLSRegression(n_components=4)},
+        ]
+
+        result = nirs4all.run(
+            pipeline=pipeline,
+            dataset=dataset,
+            verbose=0,
+            n_jobs=2,
+            workspace_path=str(workspace),
+            random_state=42,
+        )
+
+        assert result is not None
+
+        store = WorkspaceStore(workspace_path=workspace)
+        try:
+            pipelines_df = store.list_pipelines()
+            checked = 0
+
+            for row in pipelines_df.iter_rows(named=True):
+                avg_df = store.query_predictions(
+                    pipeline_id=row["pipeline_id"],
+                    partition="val",
+                    fold_id="avg",
+                )
+                if len(avg_df) != 1:
+                    continue
+                avg_row = avg_df.row(0, named=True)
+                assert avg_row["val_score"] is not None
+                assert row["best_val"] == pytest.approx(avg_row["val_score"])
+                checked += 1
+
+            assert checked == 2
+        finally:
+            store.close()

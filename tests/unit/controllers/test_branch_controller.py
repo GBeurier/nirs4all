@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from nirs4all.controllers.data.branch import BranchController
+from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
 from nirs4all.pipeline.execution.result import StepOutput, StepResult
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
@@ -833,3 +834,118 @@ class TestBranchGeneratorInNamedBranches:
 
         dynamic = [b for b in result if b["name"].startswith("dynamic_")]
         assert len(dynamic) == 2
+
+
+class TestBestRefitAccumulator:
+    """Regression tests for BranchController's refit accumulator."""
+
+    @staticmethod
+    def _add_cv_entry(
+        predictions: Predictions,
+        *,
+        fold_id: str,
+        val_score: float,
+        best_params: dict[str, int],
+        model_name: str = "PLS",
+    ) -> None:
+        predictions.add_prediction(
+            dataset_name="dataset",
+            dataset_path="/tmp/dataset",
+            config_name="config",
+            config_path="/tmp/config",
+            pipeline_uid="pipe",
+            step_idx=0,
+            op_counter=1,
+            model_name=model_name,
+            model_classname="PLSRegression",
+            fold_id=fold_id,
+            partition="val",
+            val_score=val_score,
+            metric="rmse",
+            task_type="regression",
+            n_samples=10,
+            n_features=5,
+            preprocessings="SNV",
+            best_params=best_params,
+        )
+
+    def test_accumulator_keeps_best_candidate_per_model(self):
+        """Refit selection must keep the best candidate chain for a model."""
+        predictions = Predictions()
+
+        for fold_id, val_score in [("0", 30.0), ("1", 22.0), ("2", 23.0), ("avg", 25.164)]:
+            self._add_cv_entry(
+                predictions,
+                fold_id=fold_id,
+                val_score=val_score,
+                best_params={"n_components": 2},
+            )
+
+        for fold_id, val_score in [("0", 10.621), ("1", 12.555), ("2", 12.395), ("avg", 11.857)]:
+            self._add_cv_entry(
+                predictions,
+                fold_id=fold_id,
+                val_score=val_score,
+                best_params={"n_components": 6},
+            )
+
+        best_chains: dict[str, object] = {}
+        BranchController._update_best_refit_chains(
+            best_chains=best_chains,
+            prediction_store=predictions,
+            n_pred_before=0,
+            branch_steps=[
+                {"class": "nirs4all.preprocessing.SNV"},
+                {"name": "PLS", "model": "placeholder"},
+            ],
+            pipeline_id="pipeline-best",
+            config_name="config_best",
+        )
+
+        assert "PLSRegression" in best_chains
+        best = best_chains["PLSRegression"]
+        assert best.avg_val_score == pytest.approx(11.857)
+        assert best.best_params == {"n_components": 6}
+        assert len(best.branch_steps) == 2
+        assert best.pipeline_id == "pipeline-best"
+        assert best.config_name == "config_best"
+
+    def test_accumulator_groups_same_model_class_under_different_names(self):
+        """Same model class should refit once, even with multiple custom names."""
+        predictions = Predictions()
+
+        for fold_id, val_score in [("0", 30.0), ("1", 22.0), ("2", 23.0), ("avg", 25.164)]:
+            self._add_cv_entry(
+                predictions,
+                fold_id=fold_id,
+                val_score=val_score,
+                best_params={"n_components": 2},
+                model_name="pls_2",
+            )
+
+        for fold_id, val_score in [("0", 10.621), ("1", 12.555), ("2", 12.395), ("avg", 11.857)]:
+            self._add_cv_entry(
+                predictions,
+                fold_id=fold_id,
+                val_score=val_score,
+                best_params={"n_components": 6},
+                model_name="pls_6",
+            )
+
+        best_chains: dict[str, object] = {}
+        BranchController._update_best_refit_chains(
+            best_chains=best_chains,
+            prediction_store=predictions,
+            n_pred_before=0,
+            branch_steps=[
+                {"class": "nirs4all.preprocessing.SNV"},
+                {"name": "pls_2", "model": "placeholder_2"},
+                {"name": "pls_6", "model": "placeholder_6"},
+            ],
+        )
+
+        assert list(best_chains) == ["PLSRegression"]
+        best = best_chains["PLSRegression"]
+        assert best.model_name == "pls_6"
+        assert best.avg_val_score == pytest.approx(11.857)
+        assert best.best_params == {"n_components": 6}
