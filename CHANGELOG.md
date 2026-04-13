@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.9] - Refit Enhancements & Branch Improvements - 2026-04-13
+
+### ✨ Improvements
+
+- **Refit pipeline metadata**: Best chain entries now include `pipeline_id` and `config_name` for better traceability
+- **Refit candidate selection**: Improved candidate selection logic to ensure refit pipelines are excluded from CV ranking
+- **Branch controller**: Enhanced branch controller with more robust handling and improved internals
+
+### 🧪 Tests
+
+- Added branch controller unit tests
+- Added advanced refit, refit executor, and refit infrastructure tests
+- Extended stacking refit and parallel execution test coverage
+
+---
+
 ## [0.8.8] - PCR Model, score_scope Rename & Operator Refinements - 2026-04-09
 
 ### ✨ Improvements

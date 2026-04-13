@@ -76,7 +76,7 @@ class HighLeverageFilter(SampleFilter):
         self,
         method: Literal["hat", "pca"] = "hat",
         threshold_multiplier: float = 2.0,
-        absolute_threshold: float | None = 0.999,
+        absolute_threshold: float | None = None,
         n_components: int | None = None,
         center: bool = True,
         reason: str | None = None,

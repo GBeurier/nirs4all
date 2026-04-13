@@ -144,9 +144,12 @@ print("-" * 60)
 # Downsample then train a model
 target_wl_model = np.linspace(11012, 5966, 50)  # 50 evenly spaced
 
+# Pipeline configs serialize numpy arrays to plain Python lists.
+# Wrap the single-source wavelength grid so the controller keeps the
+# per-source structure when the pipeline is reconstructed.
 pipeline_full = [
     # Downsample
-    Resampler(target_wavelengths=target_wl_model, method='linear'),
+    Resampler(target_wavelengths=[target_wl_model], method='linear'),
 
     # Standard preprocessing
     MinMaxScaler(),
