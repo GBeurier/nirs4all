@@ -967,6 +967,114 @@ class TestDeleteCascade:
 
         store.close()
 
+    def test_delete_prediction_group_prunes_empty_chain_pipeline_and_artifact(self, tmp_path):
+        """Deleting the last fold group removes the empty chain and pipeline."""
+        store = _make_store(tmp_path)
+        ids = _create_full_run(store)
+
+        artifact_path = store.get_artifact_path(ids["artifact_id"])
+        assert artifact_path.exists()
+
+        summary = store.delete_predictions_matching(
+            chain_id=ids["chain_id"],
+            fold_id="fold_0",
+        )
+
+        assert summary["deleted_predictions"] == 1
+        assert summary["deleted_chains"] == 1
+        assert summary["deleted_pipelines"] == 1
+        assert summary["deleted_artifacts"] == 1
+        assert store.get_prediction(ids["pred_id"]) is None
+        assert store.get_chain(ids["chain_id"]) is None
+        assert store.get_pipeline(ids["pipeline_id"]) is None
+        assert store.get_run(ids["run_id"]) is not None
+        assert not artifact_path.exists()
+
+        store.close()
+
+    def test_delete_prediction_group_updates_surviving_chain_summary(self, tmp_path):
+        """Deleting one fold group refreshes the remaining chain summary."""
+        store = _make_store(tmp_path)
+        ids = _create_full_run(store)
+
+        final_pred_id = store.save_prediction(
+            pipeline_id=ids["pipeline_id"],
+            chain_id=ids["chain_id"],
+            dataset_name="wheat",
+            model_name="PLSRegression",
+            model_class="sklearn.cross_decomposition.PLSRegression",
+            fold_id="final",
+            partition="test",
+            val_score=None,
+            test_score=0.09,
+            train_score=0.07,
+            metric="rmse",
+            task_type="regression",
+            n_samples=100,
+            n_features=200,
+            scores={"test": {"rmse": 0.09}, "train": {"rmse": 0.07}},
+            best_params={"n_components": 10},
+            branch_id=None,
+            branch_name=None,
+            exclusion_count=0,
+            exclusion_rate=0.0,
+            preprocessings="MinMax",
+            refit_context="standalone",
+        )
+        assert final_pred_id
+        store.update_chain_summary(ids["chain_id"])
+
+        summary = store.delete_predictions_matching(
+            chain_id=ids["chain_id"],
+            fold_id="final",
+        )
+
+        assert summary["deleted_predictions"] == 1
+        assert summary["deleted_chains"] == 0
+        assert summary["updated_chains"] == 1
+
+        chain_df = store.query_chain_summaries(chain_id=ids["chain_id"])
+        assert len(chain_df) == 1
+        row = chain_df.row(0, named=True)
+        assert row["cv_fold_count"] == 1
+        assert row["cv_val_score"] == pytest.approx(0.12)
+        assert row["final_test_score"] is None
+
+        store.close()
+
+    def test_delete_dataset_predictions_keeps_shared_artifact_until_last_reference(self, tmp_path):
+        """Dataset deletion must not remove an artifact that is still referenced elsewhere."""
+        store = _make_store(tmp_path)
+        wheat_ids = _create_full_run(store, dataset_name="wheat")
+        barley_ids = _create_full_run(store, dataset_name="barley")
+
+        assert wheat_ids["artifact_id"] == barley_ids["artifact_id"]
+        artifact_path = store.get_artifact_path(wheat_ids["artifact_id"])
+        assert artifact_path.exists()
+
+        wheat_summary = store.delete_predictions_matching(dataset_name="wheat")
+
+        assert wheat_summary["deleted_predictions"] == 1
+        assert wheat_summary["deleted_chains"] == 1
+        assert wheat_summary["deleted_pipelines"] == 1
+        assert wheat_summary["deleted_artifacts"] == 0
+        assert store.get_prediction(wheat_ids["pred_id"]) is None
+        assert store.get_chain(wheat_ids["chain_id"]) is None
+        assert store.get_pipeline(wheat_ids["pipeline_id"]) is None
+        assert store.get_prediction(barley_ids["pred_id"]) is not None
+        assert store.get_chain(barley_ids["chain_id"]) is not None
+        assert artifact_path.exists()
+
+        barley_summary = store.delete_predictions_matching(dataset_name="barley")
+
+        assert barley_summary["deleted_predictions"] == 1
+        assert barley_summary["deleted_chains"] == 1
+        assert barley_summary["deleted_pipelines"] == 1
+        assert barley_summary["deleted_artifacts"] == 1
+        assert not artifact_path.exists()
+
+        store.close()
+
 # =========================================================================
 # test_export_chain_n4a
 # =========================================================================

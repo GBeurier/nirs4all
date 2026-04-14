@@ -144,23 +144,35 @@ class SklearnModelController(BaseModelController):
         Raises:
             ValueError: If model instance cannot be created from the configuration.
         """
-        # If we have a model_instance (class or instance) and force_params, we need to rebuild with new params
+        # model_instance can be:
+        # - a live estimator instance
+        # - a class reference
+        # - a serialized config dict that parse-time deserialization could not instantiate
+        #
+        # Only return live estimator instances directly. Everything else should go
+        # back through ModelFactory so we never hand raw config dicts to clone().
         if 'model_instance' in model_config:
             model = model_config['model_instance']
 
-            # If no force_params (None or empty dict), return the instance directly
-            if not force_params:
+            is_live_model_instance = (
+                not isinstance(model, (dict, str))
+                and not inspect.isclass(model)
+                and not inspect.isfunction(model)
+                and not inspect.isbuiltin(model)
+                and hasattr(model, 'fit')
+                and hasattr(model, 'predict')
+            )
+
+            if is_live_model_instance and not force_params:
                 return model
 
-            # We have force_params with actual values — rebuild with new params
-            # For instances, pass the instance itself to preserve structural parameters (e.g., estimators in StackingRegressor)
-            # For classes, pass the class
-            if isinstance(model, type):
-                model_class = model
-                return ModelFactory.build_single_model(model_class, dataset, force_params)
-            else:
-                # Pass instance to preserve structural parameters through _from_instance path
+            try:
                 return ModelFactory.build_single_model(model, dataset, force_params)
+            except Exception as e:
+                raise ValueError(
+                    "Could not instantiate sklearn model from 'model_instance' "
+                    f"configuration: {model!r}"
+                ) from e
 
         # Handle new serialization formats: {'function': ..., 'params': ...} or {'class': ..., 'params': ...}
         if any(key in model_config for key in ('function', 'class', 'import')):
