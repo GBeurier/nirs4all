@@ -1,6 +1,4 @@
-"""
-Unit tests for group-based cross-validation with metadata.
-"""
+"""Unit tests for grouped splitting validation and execution."""
 
 from unittest.mock import Mock
 
@@ -9,14 +7,24 @@ import pandas as pd
 import pytest
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit, KFold
 
-from nirs4all.controllers.splitters.split import CrossValidatorController
+from nirs4all.controllers.splitters.split import (
+    CrossValidatorController,
+    compute_effective_groups,
+    resolve_split_groups,
+)
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
+from nirs4all.pipeline.config.context import (
+    DataSelector,
+    ExecutionContext,
+    PipelineState,
+    RuntimeContext,
+    StepMetadata,
+)
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
 
 
 def make_step_info(operator, step=None):
-    """Helper to create ParsedStep for testing."""
+    """Create a ParsedStep instance for controller tests."""
     if step is None:
         step = {}
     return ParsedStep(
@@ -24,358 +32,452 @@ def make_step_info(operator, step=None):
         keyword="",
         step_type=StepType.DIRECT,
         original_step=step,
-        metadata={}
+        metadata={},
     )
 
+
 def make_mock_runtime_context():
-    """Create a mock runtime context without saver."""
-    mock_runtime = Mock()
-    mock_runtime.saver = None  # No saver, so controller will use fallback
+    """Create a minimal runtime context for controller execution."""
+    mock_runtime = Mock(spec=RuntimeContext)
+    mock_runtime.saver = None
     return mock_runtime
 
+
+def make_execution_context():
+    """Create a train execution context."""
+    return ExecutionContext(
+        selector=DataSelector(processing=[["raw"]]),
+        state=PipelineState(),
+        metadata=StepMetadata(),
+    )
+
+
+def make_dataset():
+    """Create a dataset with metadata columns usable for grouping tests."""
+    dataset = SpectroDataset(name="test")
+    X = np.random.RandomState(0).rand(16, 6)
+    y = np.linspace(0.0, 1.0, 16)
+    metadata = pd.DataFrame(
+        {
+            "sample_id": [f"S{i}" for i in range(1, 9) for _ in range(2)],
+            "batch": ["B1", "B2", "B3", "B4"] * 4,
+            "location": ["L1", "L1", "L2", "L2"] * 4,
+        }
+    )
+
+    dataset.add_samples(X, {"partition": "train"})
+    dataset.add_targets(y)
+    dataset.add_metadata(metadata)
+    return dataset
+
+
+def make_train_context(dataset):
+    """Return the train-only selector used by grouped split helpers."""
+    return make_execution_context().with_partition("train")
+
+
+def assert_no_group_overlap(groups, folds):
+    """Assert that no effective group appears in both train and validation."""
+    for train_idx, val_idx in folds:
+        train_groups = set(groups[train_idx])
+        val_groups = set(groups[val_idx])
+        assert not (train_groups & val_groups)
+
+
 class TestGroupSplitSyntax:
-    """Test new split syntax with group parameter."""
+    """Basic controller matching tests."""
 
     def test_matches_split_keyword(self):
-        """Test controller matches on 'split' keyword."""
         controller = CrossValidatorController()
         step = {"split": GroupKFold(), "group": "batch"}
         assert controller.matches(step, None, "split")
 
     def test_matches_split_in_dict(self):
-        """Test controller matches dict with 'split' key."""
         controller = CrossValidatorController()
-        step = {"split": GroupKFold(), "group": "batch"}
+        step = {"split": GroupKFold(), "group_by": "batch"}
         assert controller.matches(step, None, "")
 
     def test_backward_compatible_matching(self):
-        """Test backward compatibility with direct operator."""
         controller = CrossValidatorController()
         splitter = GroupKFold()
         assert controller.matches(splitter, splitter, "")
 
     def test_no_match_without_split(self):
-        """Test no match for non-splitter objects."""
         controller = CrossValidatorController()
         assert not controller.matches({"other": "value"}, None, "")
 
     def test_no_match_none_operator(self):
-        """Test no match when operator is None and no keyword."""
         controller = CrossValidatorController()
         assert not controller.matches({}, None, "")
 
+
+class TestResolveSplitGroups:
+    """Unit tests for the shared group resolution helper."""
+
+    def test_required_without_repetition_or_group_by_errors(self):
+        dataset = make_dataset()
+
+        with pytest.raises(ValueError, match="requires an effective group"):
+            resolve_split_groups(
+                dataset=dataset,
+                splitter=GroupKFold(n_splits=4),
+                context=make_train_context(dataset),
+                include_augmented=False,
+            )
+
+    def test_required_with_repetition_only_warns_and_resolves(self):
+        dataset = make_dataset()
+        dataset.set_repetition("sample_id")
+
+        with pytest.warns(UserWarning, match="only the configured dataset repetition"):
+            resolved = resolve_split_groups(
+                dataset=dataset,
+                splitter=GroupKFold(n_splits=4),
+                context=make_train_context(dataset),
+                include_augmented=False,
+            )
+
+        assert resolved.group_by is None
+        assert resolved.satisfied_by_repetition_only is True
+        assert resolved.requires_wrapper is False
+        assert resolved.effective_groups is not None
+        assert tuple(resolved.effective_groups[:4]) == ("S1", "S1", "S2", "S2")
+
+    def test_required_with_group_by_only_resolves_without_warning(self):
+        dataset = make_dataset()
+
+        resolved = resolve_split_groups(
+            dataset=dataset,
+            splitter=GroupKFold(n_splits=4),
+            group_by="batch",
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+
+        assert resolved.group_by == "batch"
+        assert resolved.satisfied_by_repetition_only is False
+        assert resolved.requires_wrapper is False
+        assert tuple(resolved.effective_groups[:4]) == ("B1", "B2", "B3", "B4")
+
+    def test_required_with_group_by_and_repetition_combines_groups(self):
+        dataset = make_dataset()
+        dataset.set_repetition("sample_id")
+
+        resolved = resolve_split_groups(
+            dataset=dataset,
+            splitter=GroupKFold(n_splits=4),
+            group_by="batch",
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+
+        assert resolved.effective_groups is not None
+        assert list(resolved.effective_groups[:4]) == [0, 0, 1, 1]
+
+    def test_optional_with_legacy_group_alias_warns_and_normalizes(self):
+        dataset = make_dataset()
+
+        with pytest.warns(DeprecationWarning, match="Use 'group_by' instead"):
+            resolved = resolve_split_groups(
+                dataset=dataset,
+                splitter=KFold(n_splits=4),
+                legacy_group="batch",
+                context=make_train_context(dataset),
+                include_augmented=False,
+            )
+
+        assert resolved.group_by == "batch"
+        assert resolved.requires_wrapper is True
+        assert resolved.effective_groups is not None
+
+
 class TestGroupSplitExecution:
-    """Test execution with metadata groups."""
+    """Execution-level tests for grouped and wrapped splitters."""
 
-    @pytest.fixture
-    def dataset_with_metadata(self):
-        """Create dataset with metadata for testing."""
-        dataset = SpectroDataset(name="test")
-        X = np.random.rand(100, 10)
-        y = np.random.rand(100)
-        metadata = pd.DataFrame({
-            'batch': [1]*25 + [2]*25 + [3]*25 + [4]*25,
-            'location': ['A']*50 + ['B']*50,
-            'sample_id': range(100)
-        })
+    def test_required_splitter_without_repetition_or_group_by_errors(self):
+        dataset = make_dataset()
+        controller = CrossValidatorController()
 
-        dataset.add_samples(X, {"partition": "train"})
-        dataset.add_targets(y)
-        dataset.add_metadata(metadata)
-        return dataset
+        with pytest.raises(ValueError, match="requires an effective group"):
+            controller.execute(
+                step_info=make_step_info(GroupKFold(n_splits=4), {"split": GroupKFold(n_splits=4)}),
+                dataset=dataset,
+                context=make_execution_context(),
+                runtime_context=make_mock_runtime_context(),
+                mode="train",
+            )
 
-    def test_group_split_with_batch(self, dataset_with_metadata):
-        """Test GroupKFold with batch column."""
+    def test_required_splitter_with_repetition_only_warns_and_executes(self):
+        dataset = make_dataset()
+        dataset.set_repetition("sample_id")
+        step = {"split": GroupKFold(n_splits=4)}
+        controller = CrossValidatorController()
+
+        with pytest.warns(UserWarning, match="only the configured dataset repetition"):
+            _, step_output = controller.execute(
+                step_info=make_step_info(step["split"], step),
+                dataset=dataset,
+                context=make_execution_context(),
+                runtime_context=make_mock_runtime_context(),
+                mode="train",
+            )
+
+        assert len(dataset.folds) == 4
+        sample_groups = compute_effective_groups(
+            dataset,
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+        assert sample_groups is not None
+        assert_no_group_overlap(sample_groups, dataset.folds)
+        assert "groups-rep-sample_id" in step_output.outputs[0][1]
+
+    def test_required_splitter_with_group_by_only_executes(self):
+        dataset = make_dataset()
+        step = {"split": GroupKFold(n_splits=4), "group_by": "batch"}
+        controller = CrossValidatorController()
+
+        _, step_output = controller.execute(
+            step_info=make_step_info(step["split"], step),
+            dataset=dataset,
+            context=make_execution_context(),
+            runtime_context=make_mock_runtime_context(),
+            mode="train",
+        )
+
+        assert len(dataset.folds) == 4
+        batch_groups = compute_effective_groups(
+            dataset,
+            group_by="batch",
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+        assert batch_groups is not None
+        assert_no_group_overlap(batch_groups, dataset.folds)
+        assert "groups-batch" in step_output.outputs[0][1]
+
+    def test_required_splitter_with_group_by_and_repetition_combines_groups(self):
+        dataset = make_dataset()
+        dataset.set_repetition("sample_id")
+        step = {
+            "split": GroupShuffleSplit(n_splits=3, test_size=0.5, random_state=42),
+            "group_by": "batch",
+        }
+        controller = CrossValidatorController()
+
+        _, step_output = controller.execute(
+            step_info=make_step_info(step["split"], step),
+            dataset=dataset,
+            context=make_execution_context(),
+            runtime_context=make_mock_runtime_context(),
+            mode="train",
+        )
+
+        effective_groups = compute_effective_groups(
+            dataset,
+            group_by="batch",
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+        assert effective_groups is not None
+        assert_no_group_overlap(effective_groups, dataset.folds)
+        assert "groups-rep-sample_id+batch" in step_output.outputs[0][1]
+
+    def test_optional_splitter_with_repetition_only_executes_via_wrapper(self):
+        dataset = make_dataset()
+        dataset.set_repetition("sample_id")
+        step = {"split": KFold(n_splits=4, shuffle=False)}
+        controller = CrossValidatorController()
+
+        _, step_output = controller.execute(
+            step_info=make_step_info(step["split"], step),
+            dataset=dataset,
+            context=make_execution_context(),
+            runtime_context=make_mock_runtime_context(),
+            mode="train",
+        )
+
+        sample_groups = compute_effective_groups(
+            dataset,
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+        assert sample_groups is not None
+        assert len(dataset.folds) == 4
+        assert_no_group_overlap(sample_groups, dataset.folds)
+        assert "groups-rep-sample_id" in step_output.outputs[0][1]
+
+    def test_optional_splitter_with_group_by_only_executes_via_wrapper(self):
+        dataset = make_dataset()
+        step = {"split": KFold(n_splits=4, shuffle=False), "group_by": "batch"}
+        controller = CrossValidatorController()
+
+        _, step_output = controller.execute(
+            step_info=make_step_info(step["split"], step),
+            dataset=dataset,
+            context=make_execution_context(),
+            runtime_context=make_mock_runtime_context(),
+            mode="train",
+        )
+
+        batch_groups = compute_effective_groups(
+            dataset,
+            group_by="batch",
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+        assert batch_groups is not None
+        assert len(dataset.folds) == 4
+        assert_no_group_overlap(batch_groups, dataset.folds)
+        assert "groups-batch" in step_output.outputs[0][1]
+
+    def test_optional_splitter_with_repetition_and_group_by_combines_groups(self):
+        dataset = make_dataset()
+        dataset.set_repetition("sample_id")
+        step = {"split": KFold(n_splits=2, shuffle=False), "group_by": "batch"}
+        controller = CrossValidatorController()
+
+        _, step_output = controller.execute(
+            step_info=make_step_info(step["split"], step),
+            dataset=dataset,
+            context=make_execution_context(),
+            runtime_context=make_mock_runtime_context(),
+            mode="train",
+        )
+
+        effective_groups = compute_effective_groups(
+            dataset,
+            group_by="batch",
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+        assert effective_groups is not None
+        assert len(dataset.folds) == 2
+        assert_no_group_overlap(effective_groups, dataset.folds)
+        assert "groups-rep-sample_id+batch" in step_output.outputs[0][1]
+
+    def test_combined_constraints_prevent_raw_group_by_overlap(self):
+        dataset = make_dataset()
+        dataset.set_repetition("sample_id")
+        step = {"split": KFold(n_splits=2, shuffle=False), "group_by": "batch"}
+        controller = CrossValidatorController()
+
+        controller.execute(
+            step_info=make_step_info(step["split"], step),
+            dataset=dataset,
+            context=make_execution_context(),
+            runtime_context=make_mock_runtime_context(),
+            mode="train",
+        )
+
+        effective_groups = compute_effective_groups(
+            dataset,
+            group_by="batch",
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+        raw_group_by_only = compute_effective_groups(
+            dataset,
+            group_by="batch",
+            ignore_repetition=True,
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+
+        assert effective_groups is not None
+        assert raw_group_by_only is not None
+        assert_no_group_overlap(effective_groups, dataset.folds)
+        assert not any(
+            set(raw_group_by_only[train_idx]) & set(raw_group_by_only[val_idx])
+            for train_idx, val_idx in dataset.folds
+        )
+
+    def test_group_by_must_exist_in_metadata(self):
+        dataset = make_dataset()
+        step = {"split": GroupKFold(n_splits=4), "group_by": "missing"}
+        controller = CrossValidatorController()
+
+        with pytest.raises(ValueError, match="Grouping column 'missing' not found in metadata"):
+            controller.execute(
+                step_info=make_step_info(step["split"], step),
+                dataset=dataset,
+                context=make_execution_context(),
+                runtime_context=make_mock_runtime_context(),
+                mode="train",
+            )
+
+    def test_required_splitter_with_legacy_group_alias_warns_and_executes(self):
+        dataset = make_dataset()
         step = {"split": GroupKFold(n_splits=4), "group": "batch"}
         controller = CrossValidatorController()
-        context = ExecutionContext(
-            selector=DataSelector(processing=[["raw"]]),
-            state=PipelineState(),
-            metadata=StepMetadata()
-        )
 
-        context, step_output = controller.execute(
-            step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-            context=context, runtime_context=make_mock_runtime_context(), mode="train"
-        )
-
-        # Verify folds created
-        assert dataset_with_metadata._folds is not None
-        assert len(dataset_with_metadata._folds) == 4
-
-        # Verify no batch leakage between train/val
-        for train_idx, val_idx in dataset_with_metadata._folds:
-            train_batches = dataset_with_metadata.metadata_column("batch")[train_idx]
-            val_batches = dataset_with_metadata.metadata_column("batch")[val_idx]
-            # No overlap in batches
-            assert len(set(train_batches) & set(val_batches)) == 0
-
-        # Verify binary filename includes group
-        assert len(step_output.outputs) == 1
-        assert "group-batch" in step_output.outputs[0][1]
-
-    def test_default_group_column(self, dataset_with_metadata):
-        """Test default to first metadata column."""
-        step = {"split": GroupKFold(n_splits=4)}  # No group specified
-        controller = CrossValidatorController()
-        context = ExecutionContext(
-            selector=DataSelector(processing=[["raw"]]),
-            state=PipelineState(),
-            metadata=StepMetadata()
-        )
-
-        # Should use first column (batch) by default
-        context, step_output = controller.execute(
-            step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-            context=context, runtime_context=make_mock_runtime_context(), mode="train"
-        )
-
-        assert dataset_with_metadata._folds is not None
-        assert "group-batch" in step_output.outputs[0][1]
-
-    def test_group_shuffle_split(self, dataset_with_metadata):
-        """Test GroupShuffleSplit with location column."""
-        step = {"split": GroupShuffleSplit(n_splits=3, test_size=0.5, random_state=42), "group": "location"}
-        controller = CrossValidatorController()
-        context = ExecutionContext(
-            selector=DataSelector(processing=[["raw"]]),
-            state=PipelineState(),
-            metadata=StepMetadata()
-        )
-
-        context, step_output = controller.execute(
-            step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-            context=context, runtime_context=make_mock_runtime_context(), mode="train"
-        )
-
-        # Verify folds created
-        assert dataset_with_metadata._folds is not None
-        assert len(dataset_with_metadata._folds) == 3
-
-        # Verify no location leakage
-        for train_idx, val_idx in dataset_with_metadata._folds:
-            train_locations = set(dataset_with_metadata.metadata_column("location")[train_idx])
-            val_locations = set(dataset_with_metadata.metadata_column("location")[val_idx])
-            assert len(train_locations & val_locations) == 0
-
-    def test_invalid_group_column(self, dataset_with_metadata):
-        """Test error on invalid group column."""
-        step = {"split": GroupKFold(n_splits=4), "group": "nonexistent"}
-        controller = CrossValidatorController()
-        context = ExecutionContext(
-            selector=DataSelector(processing=[["raw"]]),
-            state=PipelineState(),
-            metadata=StepMetadata()
-        )
-
-        with pytest.raises(ValueError, match="not found in metadata"):
-            controller.execute(
-                step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-                context=context, runtime_context=make_mock_runtime_context(), mode="train"
+        with pytest.warns(DeprecationWarning, match="Use 'group_by' instead"):
+            _, step_output = controller.execute(
+                step_info=make_step_info(step["split"], step),
+                dataset=dataset,
+                context=make_execution_context(),
+                runtime_context=make_mock_runtime_context(),
+                mode="train",
             )
 
-    def test_no_metadata_error(self):
-        """Test error when no metadata available."""
-        dataset = SpectroDataset(name="test")
-        dataset.add_samples(np.random.rand(100, 10), {"partition": "train"})
-        dataset.add_targets(np.random.rand(100))
+        batch_groups = compute_effective_groups(
+            dataset,
+            group_by="batch",
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+        assert batch_groups is not None
+        assert_no_group_overlap(batch_groups, dataset.folds)
+        assert "groups-batch" in step_output.outputs[0][1]
 
-        step = {"split": GroupKFold(n_splits=4), "group": "batch"}
+    def test_prediction_mode_still_creates_dummy_folds(self):
+        dataset = make_dataset()
+        step = {"split": GroupKFold(n_splits=4), "group_by": "batch"}
         controller = CrossValidatorController()
-        context = ExecutionContext(
-            selector=DataSelector(processing=[["raw"]]),
-            state=PipelineState(),
-            metadata=StepMetadata()
+
+        _, step_output = controller.execute(
+            step_info=make_step_info(step["split"], step),
+            dataset=dataset,
+            context=make_execution_context(),
+            runtime_context=make_mock_runtime_context(),
+            mode="predict",
         )
 
-        with pytest.raises(ValueError, match="no metadata"):
-            controller.execute(step_info=make_step_info(step["split"], step), dataset=dataset,
-                             context=context, runtime_context=make_mock_runtime_context(), mode="train")
+        assert dataset.folds is not None
+        assert len(dataset.folds) == 4
+        assert len(step_output.outputs) == 0
 
-    def test_non_string_group_type(self, dataset_with_metadata):
-        """Test error when group is not a string."""
-        step = {"split": GroupKFold(n_splits=4), "group": 123}
-        controller = CrossValidatorController()
-        context = ExecutionContext(
-            selector=DataSelector(processing=[["raw"]]),
-            state=PipelineState(),
-            metadata=StepMetadata()
-        )
-
-        with pytest.raises(TypeError, match="must be a string"):
-            controller.execute(
-                step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-                context=context, runtime_context=make_mock_runtime_context(), mode="train"
-            )
-
-    def test_non_grouped_splitter(self, dataset_with_metadata):
-        """Test non-grouped splitter still works."""
-        step = KFold(n_splits=5)  # No groups needed
-        controller = CrossValidatorController()
-        context = ExecutionContext(
-            selector=DataSelector(processing=[["raw"]]),
-            state=PipelineState(),
-            metadata=StepMetadata()
-        )
-
-        context, step_output = controller.execute(
-            step_info=make_step_info(step), dataset=dataset_with_metadata,
-            context=context, runtime_context=make_mock_runtime_context(), mode="train"
-        )
-
-        assert dataset_with_metadata._folds is not None
-        assert len(dataset_with_metadata._folds) == 5
-
-    def test_prediction_mode(self, dataset_with_metadata):
-        """Test prediction mode doesn't fail."""
-        step = {"split": GroupKFold(n_splits=4), "group": "batch"}
-        controller = CrossValidatorController()
-        context = ExecutionContext(
-            selector=DataSelector(processing=[["raw"]]),
-            state=PipelineState(),
-            metadata=StepMetadata()
-        )
-
-        context, step_output = controller.execute(
-            step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-            context=context, runtime_context=make_mock_runtime_context(), mode="predict"
-        )
-
-        # Should create dummy folds for prediction mode
-        assert dataset_with_metadata._folds is not None
-        assert len(step_output.outputs) == 0  # No binaries in predict mode
-
-class TestGroupWarnings:
-    """Test warnings when 'group' is used with non-native-group splitters."""
-
-    @pytest.fixture
-    def dataset_with_metadata(self):
-        """Create dataset with metadata for testing."""
-        dataset = SpectroDataset(name="test")
-        X = np.random.rand(100, 10)
-        y = np.random.rand(100)
-        metadata = pd.DataFrame({
-            'batch': [1]*25 + [2]*25 + [3]*25 + [4]*25,
-            'location': ['A']*50 + ['B']*50,
-            'sample_id': range(100)
-        })
-
-        dataset.add_samples(X, {"partition": "train"})
-        dataset.add_targets(y)
-        dataset.add_metadata(metadata)
-        return dataset
-
-    def test_warning_kfold_with_group(self, dataset_with_metadata):
-        """Test that using 'group' with KFold emits a warning."""
-        import warnings
-
-        step = {"split": KFold(n_splits=3), "group": "batch"}
-        controller = CrossValidatorController()
-        context = ExecutionContext(
-            selector=DataSelector(processing=[["raw"]]),
-            state=PipelineState(),
-            metadata=StepMetadata()
-        )
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            controller.execute(
-                step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-                context=context, runtime_context=make_mock_runtime_context(), mode="train"
-            )
-
-            # Check that a warning was issued
-            assert len(w) >= 1
-            warning_messages = [str(warning.message) for warning in w]
-            assert any("'group' parameter" in msg for msg in warning_messages)
-            assert any("KFold" in msg for msg in warning_messages)
-
-    def test_warning_shuffle_split_with_group(self, dataset_with_metadata):
-        """Test that using 'group' with ShuffleSplit emits a warning."""
-        import warnings
-
-        from sklearn.model_selection import ShuffleSplit
-
-        step = {"split": ShuffleSplit(n_splits=1, test_size=0.2), "group": "batch"}
-        controller = CrossValidatorController()
-        context = ExecutionContext(
-            selector=DataSelector(processing=[["raw"]]),
-            state=PipelineState(),
-            metadata=StepMetadata()
-        )
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            controller.execute(
-                step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-                context=context, runtime_context=make_mock_runtime_context(), mode="train"
-            )
-
-            # Check that a warning was issued
-            assert len(w) >= 1
-            warning_messages = [str(warning.message) for warning in w]
-            assert any("'group' parameter" in msg for msg in warning_messages)
-            assert any("ShuffleSplit" in msg for msg in warning_messages)
-
-    def test_no_warning_groupkfold_with_group(self, dataset_with_metadata):
-        """Test that using 'group' with GroupKFold does NOT emit our warning."""
-        import warnings
-
-        step = {"split": GroupKFold(n_splits=4), "group": "batch"}
-        controller = CrossValidatorController()
-        context = ExecutionContext(
-            selector=DataSelector(processing=[["raw"]]),
-            state=PipelineState(),
-            metadata=StepMetadata()
-        )
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            controller.execute(
-                step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-                context=context, runtime_context=make_mock_runtime_context(), mode="train"
-            )
-
-            # Check that no group warning was issued for native group splitters
-            group_warnings = [
-                warning for warning in w
-                if "'group' parameter" in str(warning.message)
-            ]
-            assert len(group_warnings) == 0
 
 class TestSerialization:
-    """Test serialization of new syntax."""
+    """Serialization should keep the legacy alias for compatibility."""
 
     def test_serialize_split_with_group(self):
-        """Test serialization preserves group parameter."""
-        from nirs4all.pipeline.config.component_serialization import serialize_component
         from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 
-        pipeline = [
-            {"split": GroupKFold(n_splits=5), "group": "batch_id"}
-        ]
-
+        pipeline = [{"split": GroupKFold(n_splits=5), "group": "batch_id"}]
         config = PipelineConfigs(pipeline)
-        # Use serialize_component directly (serializable_steps was removed in refactoring)
         serialized = config.steps[0]
 
-        # Verify structure preserved
         assert "split" in serialized[0]
         assert "group" in serialized[0]
         assert serialized[0]["group"] == "batch_id"
 
     def test_roundtrip_serialization(self):
-        """Test save/load roundtrip."""
         import json
 
         from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 
         original = [
-            {"split": {"class": "sklearn.model_selection.GroupKFold", "params": {"n_splits": 5}}, "group": "sample"}
+            {
+                "split": {
+                    "class": "sklearn.model_selection.GroupKFold",
+                    "params": {"n_splits": 5},
+                },
+                "group": "sample",
+            }
         ]
 
         config = PipelineConfigs(original)
-        # Steps are already serialized in PipelineConfigs
         serialized = json.dumps(config.steps[0])
         deserialized = json.loads(serialized)
 
@@ -383,17 +485,10 @@ class TestSerialization:
         assert "GroupKFold" in deserialized[0]["split"]["class"]
 
     def test_backward_compatible_serialization(self):
-        """Test that old format still works."""
         from nirs4all.pipeline.config.component_serialization import serialize_component
 
-        old_format = GroupKFold(n_splits=5)
-        # serialize_component doesn't take include_runtime parameter in refactored version
-        serialized = serialize_component(old_format)
+        serialized = serialize_component(GroupKFold(n_splits=5))
 
-        # Should serialize without error
         assert "class" in serialized or isinstance(serialized, str)
         if isinstance(serialized, dict):
             assert "GroupKFold" in serialized["class"]
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])

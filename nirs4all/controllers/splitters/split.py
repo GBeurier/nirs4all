@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import copy
 import inspect
 import warnings
-from typing import TYPE_CHECKING, Any, Optional, Union
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -19,17 +19,171 @@ if TYPE_CHECKING:  # pragma: no cover
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.steps.parser import ParsedStep
 
-# Native group-aware splitter class names (sklearn and nirs4all)
-# These splitters have built-in group support and handle groups directly
-_NATIVE_GROUP_SPLITTERS = frozenset({
-    "GroupKFold",
-    "GroupShuffleSplit",
-    "LeaveOneGroupOut",
-    "LeavePGroupsOut",
-    "StratifiedGroupKFold",
-    "SPXYGFold",
-    "BinnedStratifiedGroupKFold",
-})
+SplitGroupHandling = Literal["native", "wrapper"]
+
+
+@dataclass(frozen=True)
+class SplitGroupingCapability:
+    group_required: bool
+    group_handling: SplitGroupHandling
+
+
+@dataclass(frozen=True)
+class ResolvedSplitGroups:
+    capability: SplitGroupingCapability
+    group_by: str | list[str] | None
+    effective_groups: np.ndarray | None
+    uses_repetition: bool
+    uses_group_by: bool
+    satisfied_by_repetition_only: bool
+
+    @property
+    def requires_wrapper(self) -> bool:
+        return (
+            self.effective_groups is not None
+            and self.capability.group_handling == "wrapper"
+        )
+
+
+_NATIVE_REQUIRED_GROUP_CAPABILITY = SplitGroupingCapability(
+    group_required=True,
+    group_handling="native",
+)
+_OPTIONAL_WRAPPER_GROUP_CAPABILITY = SplitGroupingCapability(
+    group_required=False,
+    group_handling="wrapper",
+)
+
+# Source of truth for how splitters consume effective groups.
+_SPLITTER_GROUPING_CAPABILITIES: dict[str, SplitGroupingCapability] = {
+    "GroupKFold": _NATIVE_REQUIRED_GROUP_CAPABILITY,
+    "GroupShuffleSplit": _NATIVE_REQUIRED_GROUP_CAPABILITY,
+    "LeaveOneGroupOut": _NATIVE_REQUIRED_GROUP_CAPABILITY,
+    "LeavePGroupsOut": _NATIVE_REQUIRED_GROUP_CAPABILITY,
+    "StratifiedGroupKFold": _NATIVE_REQUIRED_GROUP_CAPABILITY,
+    "BinnedStratifiedGroupKFold": _NATIVE_REQUIRED_GROUP_CAPABILITY,
+    "SPXYGFold": _NATIVE_REQUIRED_GROUP_CAPABILITY,
+    "KFold": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+    "RepeatedKFold": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+    "ShuffleSplit": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+    "StratifiedKFold": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+    "StratifiedShuffleSplit": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+    "RepeatedStratifiedKFold": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+    "LeaveOneOut": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+    "TimeSeriesSplit": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+    "KennardStoneSplitter": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+    "SPXYSplitter": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+    "KMeansSplitter": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+    "SPlitSplitter": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+    "KBinsStratifiedSplitter": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+    "SystematicCircularSplitter": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+}
+
+
+def get_split_grouping_capability(splitter: Any) -> SplitGroupingCapability:
+    """Return how a splitter consumes effective groups."""
+    return _SPLITTER_GROUPING_CAPABILITIES.get(
+        splitter.__class__.__name__,
+        _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
+    )
+
+
+def _freeze_group_value(value: Any) -> Any:
+    """Normalize a group label into a stable, hashable key."""
+    if isinstance(value, np.generic):
+        value = value.item()
+
+    if value is None:
+        return ("__missing__", "none")
+
+    if isinstance(value, (float, np.floating)) and np.isnan(value):
+        return ("__missing__", "nan")
+
+    if isinstance(value, np.ndarray):
+        value = value.tolist()
+
+    if isinstance(value, list):
+        return tuple(_freeze_group_value(item) for item in value)
+
+    if isinstance(value, tuple):
+        return tuple(_freeze_group_value(item) for item in value)
+
+    return value
+
+
+def _build_group_constraint(
+    dataset: SpectroDataset,
+    columns: list[str],
+    context: Any | None,
+    include_augmented: bool,
+) -> np.ndarray:
+    """Return one grouping constraint from one or more metadata columns."""
+    if len(columns) == 1:
+        return dataset.metadata_column(
+            columns[0],
+            context,
+            include_augmented=include_augmented,
+        )
+
+    arrays = [
+        dataset.metadata_column(col, context, include_augmented=include_augmented)
+        for col in columns
+    ]
+    tuple_groups = [tuple(row) for row in zip(*arrays, strict=False)]
+    groups = np.empty(len(tuple_groups), dtype=object)
+    groups[:] = tuple_groups
+    return groups
+
+
+def _compute_connected_group_components(
+    constraints: list[np.ndarray],
+) -> np.ndarray:
+    """Resolve multiple grouping constraints into connected component labels."""
+    if not constraints:
+        return np.array([], dtype=int)
+
+    n_samples = len(constraints[0])
+    if any(len(constraint) != n_samples for constraint in constraints):
+        raise ValueError("All grouping constraints must have the same length.")
+
+    parent = list(range(n_samples))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        root_left = find(left)
+        root_right = find(right)
+        if root_left != root_right:
+            parent[root_right] = root_left
+
+    for constraint in constraints:
+        first_seen_by_value: dict[Any, int] = {}
+        for sample_idx, raw_value in enumerate(constraint):
+            value = _freeze_group_value(raw_value)
+            first_idx = first_seen_by_value.get(value)
+            if first_idx is None:
+                first_seen_by_value[value] = sample_idx
+            else:
+                union(first_idx, sample_idx)
+
+    component_ids = np.empty(n_samples, dtype=int)
+    root_to_component: dict[int, int] = {}
+    next_component_id = 0
+
+    for sample_idx in range(n_samples):
+        root = find(sample_idx)
+        component_id = root_to_component.get(root)
+        if component_id is None:
+            component_id = next_component_id
+            root_to_component[root] = component_id
+            next_component_id += 1
+        component_ids[sample_idx] = component_id
+
+    return component_ids
 
 def compute_effective_groups(
     dataset: SpectroDataset,
@@ -40,10 +194,16 @@ def compute_effective_groups(
 ) -> np.ndarray | None:
     """Compute final group labels for splitting.
 
-    Combines repetition column (if defined and not ignored) with
-    additional group_by columns into tuple-based group identifiers.
-    This ensures that all spectra from the same physical sample
-    (and optionally the same metadata groups) stay together in folds.
+    Applies repetition and explicit ``group_by`` columns as split constraints.
+    When both are present, the effective groups are the connected components
+    induced by:
+    - same repetition value
+    - same explicit ``group_by`` value (or tuple of values for multi-column
+      ``group_by``)
+
+    This is stricter than a plain tuple of ``(repetition, group_by)`` because
+    it guarantees that raw ``group_by`` values cannot leak across folds when
+    the dataset repetition column is also enforced.
 
     Parameters
     ----------
@@ -68,7 +228,10 @@ def compute_effective_groups(
     np.ndarray or None
         Array of group labels (one per sample), or None if no grouping needed.
         - For single column: array of column values
-        - For multiple columns: array of tuples (e.g., (Sample_ID, Year))
+        - For multi-column explicit ``group_by`` without repetition:
+          array of tuples (e.g., ``(Site, Year)``)
+        - For repetition + explicit ``group_by``:
+          connected-component labels enforcing both constraints
 
     Examples
     --------
@@ -78,7 +241,7 @@ def compute_effective_groups(
 
     >>> # Repetition + additional grouping
     >>> groups = compute_effective_groups(dataset, group_by=['Year'])
-    >>> # groups = [('S1', 2020), ('S1', 2020), ('S2', 2021), ...]
+    >>> # groups = connected-component labels enforcing both sample_id and Year
 
     >>> # Explicit grouping without repetition
     >>> groups = compute_effective_groups(dataset, group_by='Batch', ignore_repetition=True)
@@ -112,22 +275,37 @@ def compute_effective_groups(
                 f"Available columns: {available_columns}"
             )
 
-    # Extract column values
     if len(columns_to_use) == 1:
-        # Single column: return simple array
         return dataset.metadata_column(
             columns_to_use[0],
             context,
-            include_augmented=include_augmented
+            include_augmented=include_augmented,
         )
-    else:
-        # Multiple columns: create tuple identifiers
-        arrays = [
-            dataset.metadata_column(col, context, include_augmented=include_augmented)
-            for col in columns_to_use
-        ]
-        # Create array of tuples for multi-column grouping
-        return np.array([tuple(row) for row in zip(*arrays, strict=False)], dtype=object)
+
+    repetition_column = dataset.repetition if not ignore_repetition else None
+    if repetition_column and columns_to_use[0] == repetition_column:
+        repetition_constraint = dataset.metadata_column(
+            repetition_column,
+            context,
+            include_augmented=include_augmented,
+        )
+        explicit_group_columns = columns_to_use[1:]
+        explicit_group_constraint = _build_group_constraint(
+            dataset,
+            explicit_group_columns,
+            context,
+            include_augmented,
+        )
+        return _compute_connected_group_components(
+            [repetition_constraint, explicit_group_constraint],
+        )
+
+    return _build_group_constraint(
+        dataset,
+        columns_to_use,
+        context,
+        include_augmented,
+    )
 
 def _is_native_group_splitter(splitter: Any) -> bool:
     """Check if splitter has native group support.
@@ -135,7 +313,133 @@ def _is_native_group_splitter(splitter: Any) -> bool:
     Returns True if the splitter is a known group-aware splitter that
     properly handles the 'groups' parameter directly.
     """
-    return splitter.__class__.__name__ in _NATIVE_GROUP_SPLITTERS
+    return get_split_grouping_capability(splitter).group_handling == "native"
+
+
+def _normalize_group_columns(
+    group_by: Any,
+) -> str | list[str] | None:
+    """Validate and normalize explicit group column input."""
+    if group_by is None:
+        return None
+
+    if isinstance(group_by, str):
+        return group_by or None
+
+    if isinstance(group_by, (list, tuple)):
+        normalized: list[str] = []
+        for index, column in enumerate(group_by):
+            if not isinstance(column, str):
+                raise TypeError(
+                    "group_by must be a string or a list of strings. "
+                    f"Entry {index} has type {type(column).__name__}."
+                )
+            if column:
+                normalized.append(column)
+        return normalized or None
+
+    raise TypeError(
+        "group_by must be a string or a list of strings, "
+        f"got {type(group_by).__name__}."
+    )
+
+
+def _normalize_group_alias(
+    group_by: Any,
+    legacy_group: Any = None,
+) -> str | list[str] | None:
+    """Normalize legacy ``group`` onto ``group_by`` with deprecation warning."""
+    normalized_group_by = _normalize_group_columns(group_by)
+    normalized_legacy_group = _normalize_group_columns(legacy_group)
+
+    if normalized_legacy_group is None:
+        return normalized_group_by
+
+    if normalized_group_by is not None and normalized_group_by != normalized_legacy_group:
+        raise ValueError(
+            "Use only 'group_by'. The legacy 'group' alias cannot be combined with "
+            "a different 'group_by' value."
+        )
+
+    warnings.warn(
+        "The legacy 'group' alias is deprecated and will be removed in a future "
+        "release. Use 'group_by' instead.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+    return normalized_group_by if normalized_group_by is not None else normalized_legacy_group
+
+
+def resolve_split_groups(
+    dataset: SpectroDataset,
+    splitter: Any,
+    group_by: Any = None,
+    *,
+    legacy_group: Any = None,
+    group_required: bool | None = None,
+    ignore_repetition: bool = False,
+    context: Any | None = None,
+    include_augmented: bool = False,
+) -> ResolvedSplitGroups:
+    """Resolve effective split groups from repetition + explicit grouping."""
+    capability = get_split_grouping_capability(splitter)
+    normalized_group_by = _normalize_group_alias(group_by, legacy_group)
+    uses_repetition = bool(dataset.repetition and not ignore_repetition)
+    uses_group_by = normalized_group_by is not None
+    effective_group_required = (
+        capability.group_required if group_required is None else group_required
+    )
+
+    if effective_group_required and not uses_repetition and not uses_group_by:
+        raise ValueError(
+            f"{splitter.__class__.__name__} requires an effective group, but neither "
+            "dataset repetition nor 'group_by' was provided."
+        )
+
+    effective_groups = compute_effective_groups(
+        dataset=dataset,
+        group_by=normalized_group_by,
+        ignore_repetition=ignore_repetition,
+        context=context,
+        include_augmented=include_augmented,
+    )
+
+    satisfied_by_repetition_only = effective_group_required and uses_repetition and not uses_group_by
+    if satisfied_by_repetition_only:
+        warnings.warn(
+            f"{splitter.__class__.__name__} requires an effective group. No explicit "
+            f"'group_by' was provided, so the split will use only the configured dataset "
+            f"repetition '{dataset.repetition}'.",
+            UserWarning,
+            stacklevel=3,
+        )
+
+    return ResolvedSplitGroups(
+        capability=capability,
+        group_by=normalized_group_by,
+        effective_groups=effective_groups,
+        uses_repetition=uses_repetition,
+        uses_group_by=uses_group_by,
+        satisfied_by_repetition_only=satisfied_by_repetition_only,
+    )
+
+
+def _group_info_parts(
+    resolved_groups: ResolvedSplitGroups,
+    repetition_column: str | None,
+) -> list[str]:
+    """Return filename-friendly group labels for the resolved configuration."""
+    parts: list[str] = []
+
+    if resolved_groups.uses_repetition and repetition_column:
+        parts.append(f"rep-{repetition_column}")
+
+    if isinstance(resolved_groups.group_by, str):
+        parts.append(resolved_groups.group_by)
+    elif resolved_groups.group_by:
+        parts.extend(resolved_groups.group_by)
+
+    return parts
 
 def _needs(splitter: Any) -> tuple[bool, bool]:
     """Return booleans *(needs_y, needs_groups)* for the given splitter.
@@ -258,12 +562,14 @@ class CrossValidatorController(OperatorController):
 
         # Extract grouping parameters from step dict
         group_by = None
+        legacy_group = None
         ignore_repetition = False
         aggregation = "mean"
         y_aggregation = None
 
         if isinstance(step_info.original_step, dict):
             group_by = step_info.original_step.get("group_by")
+            legacy_group = step_info.original_step.get("group")
             ignore_repetition = step_info.original_step.get("ignore_repetition", False)
             aggregation = step_info.original_step.get("aggregation", "mean")
             y_aggregation = step_info.original_step.get("y_aggregation")
@@ -273,7 +579,7 @@ class CrossValidatorController(OperatorController):
             # Don't filter by partition - prediction data may be in "test" partition
             local_context = context.copy()
             local_context.selector.partition = None
-            needs_y, needs_g = _needs(op)
+            needs_y, _ = _needs(op)
             X_raw = dataset.x(local_context, layout="2d", concat_source=True)
             X = np.asarray(X_raw) if isinstance(X_raw, list) else X_raw
             n_samples = X.shape[0]
@@ -289,43 +595,18 @@ class CrossValidatorController(OperatorController):
             dataset.set_folds([(list(range(n_samples)), [])] * n_folds)
             return context, StepOutput()
 
-        # Extract group column specification from step dict (train mode only)
-        group_column = None
-        if isinstance(step_info.original_step, dict) and "group" in step_info.original_step:
-            group_column = step_info.original_step["group"]
-            if not isinstance(group_column, str):
-                raise TypeError(
-                    f"Group column must be a string, got {type(group_column).__name__}"
-                )
-
-            # Warn if 'group' is used with a non-native-group splitter
-            # These splitters will silently ignore the groups parameter
-            if not _is_native_group_splitter(op):
-                splitter_name = op.__class__.__name__
-                warnings.warn(
-                    f"'group' parameter specified with {splitter_name}, which does not "
-                    f"natively support groups. The 'group' parameter will be ignored.\n"
-                    f"Use 'repetition' parameter in DatasetConfigs for automatic grouping, "
-                    f"or 'group_by' for explicit grouping:\n"
-                    f"    DatasetConfigs(folder, repetition='{group_column}')\n"
-                    f"    {{'split': {splitter_name}(...), 'group_by': '{group_column}'}}",
-                    UserWarning,
-                    stacklevel=2
-                )
-
-        use_effective_groups = False  # Track if we should use compute_effective_groups
-
-        # Check if we should compute effective groups (from repetition + group_by)
-        has_repetition_or_group_by = (
-            (dataset.repetition and not ignore_repetition) or
-            group_by is not None
+        local_context = context.with_partition("train")
+        resolved_groups = resolve_split_groups(
+            dataset=dataset,
+            splitter=op,
+            group_by=group_by,
+            legacy_group=legacy_group,
+            ignore_repetition=ignore_repetition,
+            context=local_context,
+            include_augmented=False,
         )
 
-        if has_repetition_or_group_by:
-            use_effective_groups = True
-
-        local_context = context.with_partition("train")
-        needs_y, needs_g = _needs(op)
+        needs_y, _ = _needs(op)
         # IMPORTANT: Only split on base samples (exclude augmented) to prevent data leakage
         X_raw_train = dataset.x(local_context, layout="2d", concat_source=True, include_augmented=False)
         X = np.asarray(X_raw_train) if isinstance(X_raw_train, list) else X_raw_train
@@ -337,102 +618,44 @@ class CrossValidatorController(OperatorController):
             local_context.selector, include_augmented=False, include_excluded=False
         )
 
-        y: np.ndarray | None = None
-        if needs_y or use_effective_groups:
-            # Get y for splitters that need it, or for effective_groups wrapper
-            y = dataset.y(local_context, include_augmented=False)
-
-        # Get groups from metadata if available
-        # Priority: use_effective_groups > group (legacy)
-        groups = None
-
-        if use_effective_groups:
-            # NEW Phase 2: Use compute_effective_groups to combine repetition + group_by
-            # This is the primary path for automatic grouping
-            groups = compute_effective_groups(
-                dataset=dataset,
-                group_by=group_by,
-                ignore_repetition=ignore_repetition,
-                context=local_context,
-                include_augmented=False
+        groups = resolved_groups.effective_groups
+        if groups is not None and len(groups) != X.shape[0]:
+            raise ValueError(
+                f"Effective groups array length ({len(groups)}) doesn't match X rows ({X.shape[0]})"
             )
-            if groups is not None and len(groups) != X.shape[0]:
-                raise ValueError(
-                    f"Effective groups array length ({len(groups)}) doesn't match X rows ({X.shape[0]})"
-                )
 
-        elif needs_g and (group_column is not None or _is_native_group_splitter(op)):
-            # Legacy 'group' parameter for native group splitters
-            # Only extract groups if:
-            # 1. Explicit group column specified (user requested grouping), OR
-            # 2. Splitter is a native group splitter (GroupKFold, etc.) that requires groups
-            if group_column is not None:
-                # Explicit group column specified - validate and extract
-                if not hasattr(dataset, 'metadata_columns') or not dataset.metadata_columns:
-                    raise ValueError(
-                        f"Group column '{group_column}' specified but dataset has no metadata columns."
-                    )
-                if group_column not in dataset.metadata_columns:
-                    raise ValueError(
-                        f"Group column '{group_column}' not found in metadata.\n"
-                        f"Available columns: {dataset.metadata_columns}"
-                    )
-                # Extract groups from specified column (base samples only)
-                try:
-                    groups = dataset.metadata_column(group_column, local_context, include_augmented=False)
-                    if len(groups) != X.shape[0]:
-                        raise ValueError(
-                            f"Group array length ({len(groups)}) doesn't match X rows ({X.shape[0]})"
-                        )
-                except Exception as e:
-                    raise ValueError(
-                        f"Failed to extract groups from metadata column '{group_column}': {e}"
-                    ) from e
-            elif _is_native_group_splitter(op):
-                # Native group splitter without explicit group column.
-                # Auto-detect from first metadata column if available.
-                if hasattr(dataset, 'metadata_columns') and dataset.metadata_columns:
-                    group_column = dataset.metadata_columns[0]
-                    groups = dataset.metadata_column(group_column, local_context, include_augmented=False)
-                    if len(groups) != X.shape[0]:
-                        raise ValueError(
-                            f"Group array length ({len(groups)}) doesn't match X rows ({X.shape[0]})"
-                        )
+        y: np.ndarray | None = None
+        if needs_y or groups is not None:
+            # Get y for splitters that need it, or for grouped wrapper/native grouped flow.
+            y = dataset.y(local_context, include_augmented=False)
 
         # Wrap splitter with GroupedSplitterWrapper if groups exist and splitter
         # is NOT a native group splitter (e.g., GroupKFold, StratifiedGroupKFold)
         # Native group splitters handle groups directly via the groups parameter
-        requires_wrapper = groups is not None and not _is_native_group_splitter(op)
+        requires_wrapper = resolved_groups.requires_wrapper
 
         if requires_wrapper:
             logger.debug(
                 f"Wrapping {op.__class__.__name__} with GroupedSplitterWrapper "
-                f"(groups from: {'repetition' if dataset.repetition else 'group_by'})"
+                f"(group handling: {resolved_groups.capability.group_handling})"
             )
             op = GroupedSplitterWrapper(
                 splitter=op,
                 aggregation=aggregation,
                 y_aggregation=y_aggregation
             )
-            # Update needs_y and needs_g for the wrapped splitter
-            needs_y, needs_g = _needs(op)
-
-        n_samples = X.shape[0]
 
         # Build kwargs for split()
         kwargs: dict[str, Any] = {}
-        if needs_y or use_effective_groups:
-            # Provide y for splitters that need it, or for effective_groups wrapper
+        if needs_y:
             if needs_y and y is None:
                 raise ValueError(
                     f"{op.__class__.__name__} requires y but dataset.y returned None"
                 )
-            if y is not None:
-                kwargs["y"] = y
+            kwargs["y"] = y
+        elif groups is not None and y is not None:
+            kwargs["y"] = y
         if groups is not None:
-            # Provide groups for:
-            # 1. Native group splitters (needs_g is True)
-            # 2. Effective_groups wrapped splitters (wrapper needs groups)
             kwargs["groups"] = groups
 
         # Train mode: perform actual fold splitting
@@ -484,55 +707,18 @@ class CrossValidatorController(OperatorController):
                     row_values.append("")  # Empty cell if this fold has fewer samples
             binary += ",".join(row_values).encode("utf-8") + b"\n"
 
-        # Filename includes group column if used
-        # For effective_groups, use the inner splitter's name
-        if use_effective_groups and requires_wrapper:
-            # Phase 2: effective groups from repetition + group_by
-            inner_splitter = op.splitter  # GroupedSplitterWrapper stores inner splitter
-            folds_name = f"folds_{inner_splitter.__class__.__name__}"
-            # Build group info string
-            group_info_parts = []
-            if dataset.repetition and not ignore_repetition:
-                group_info_parts.append(f"rep-{dataset.repetition}")
-            if group_by:
-                if isinstance(group_by, str):
-                    group_info_parts.append(group_by)
-                else:
-                    group_info_parts.extend(group_by)
+        base_splitter = op.splitter if requires_wrapper else op
+        folds_name = f"folds_{base_splitter.__class__.__name__}"
+        if groups is not None:
+            group_info_parts = _group_info_parts(resolved_groups, dataset.repetition)
             if group_info_parts:
                 folds_name += f"_groups-{'+'.join(group_info_parts)}"
-            if aggregation != "mean":
+            if requires_wrapper and aggregation != "mean":
                 folds_name += f"_{aggregation}"
-            if hasattr(inner_splitter, "random_state"):
-                seed = inner_splitter.random_state
-                if seed is not None:
-                    folds_name += f"_seed{seed}"
-        elif use_effective_groups:
-            # Native group splitter with effective groups (no wrapper)
-            folds_name = f"folds_{op.__class__.__name__}"
-            # Build group info string
-            group_info_parts = []
-            if dataset.repetition and not ignore_repetition:
-                group_info_parts.append(f"rep-{dataset.repetition}")
-            if group_by:
-                if isinstance(group_by, str):
-                    group_info_parts.append(group_by)
-                else:
-                    group_info_parts.extend(group_by)
-            if group_info_parts:
-                folds_name += f"_groups-{'+'.join(group_info_parts)}"
-            if hasattr(op, "random_state"):
-                seed = op.random_state
-                if seed is not None:
-                    folds_name += f"_seed{seed}"
-        else:
-            folds_name = f"folds_{op.__class__.__name__}"
-            if group_column:
-                folds_name += f"_group-{group_column}"
-            if hasattr(op, "random_state"):
-                seed = op.random_state
-                if seed is not None:
-                    folds_name += f"_seed{seed}"
+        if hasattr(base_splitter, "random_state"):
+            seed = base_splitter.random_state
+            if seed is not None:
+                folds_name += f"_seed{seed}"
         # folds_name += ".csv" # Extension handled by StepOutput tuple
 
         # print(f"Generated {len(folds)} folds.")
