@@ -1131,6 +1131,11 @@ class Predictions:
         candidates: list[dict[str, Any]] = []
         for r in self._buffer:
             fold_id_str = str(r.get("fold_id", ""))
+            # Persisted repetition-aggregated twins (suffix "_agg") are a
+            # display-only companion for the webapp; library ranking uses
+            # raw entries and computes aggregation on demand via by_repetition.
+            if fold_id_str.endswith("_agg"):
+                continue
             is_final = fold_id_str == "final"
             refit_context = r.get("refit_context")
 
