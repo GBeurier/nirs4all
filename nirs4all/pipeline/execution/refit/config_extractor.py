@@ -49,6 +49,37 @@ def _filter_completed_cv_pipelines(pipelines_df: Any) -> Any:
         return completed
     return completed.filter(pl.Series("keep_cv_pipeline", keep_mask))
 
+
+def _list_pipelines_in_creation_order(
+    store: Any,
+    run_id: str,
+    dataset_name: str | None = None,
+) -> Any:
+    """Return pipeline rows in stable creation order.
+
+    ``created_at`` only has second-level resolution in SQLite, so pipelines
+    created in the same second can be returned in nondeterministic order.
+    ``rowid`` preserves insertion order for this table and is stable enough
+    for reconstructing variant indices within one run.
+    """
+    if hasattr(store, "_fetch_pl"):
+        sql = "SELECT rowid AS _rowid, * FROM pipelines WHERE run_id = ?"
+        params: list[Any] = [run_id]
+        if dataset_name is not None:
+            sql += " AND dataset_name = ?"
+            params.append(dataset_name)
+        sql += " ORDER BY rowid ASC"
+        return store._fetch_pl(sql, params)  # noqa: SLF001
+
+    pipelines_df = _list_pipelines_in_creation_order(
+        store,
+        run_id=run_id,
+        dataset_name=dataset_name,
+    )
+    if "created_at" in getattr(pipelines_df, "columns", []):
+        return pipelines_df.sort("created_at")
+    return pipelines_df
+
 @dataclass
 class RefitConfig:
     """Configuration for a refit execution.
@@ -437,7 +468,11 @@ def extract_winning_config(
     from nirs4all.pipeline.storage.workspace_store import _infer_metric_ascending
 
     # Get pipelines for this run, filtered by dataset if specified
-    pipelines_df = store.list_pipelines(run_id=run_id, dataset_name=dataset_name)
+    pipelines_df = _list_pipelines_in_creation_order(
+        store,
+        run_id=run_id,
+        dataset_name=dataset_name,
+    )
     if pipelines_df.is_empty():
         raise ValueError(f"Run {run_id} has no pipelines")
 
@@ -581,7 +616,11 @@ def extract_per_model_configs(
     from nirs4all.pipeline.execution.refit.model_selector import PerModelSelection
     from nirs4all.pipeline.storage.workspace_store import _infer_metric_ascending
 
-    pipelines_df = store.list_pipelines(run_id=run_id, dataset_name=dataset_name)
+    pipelines_df = _list_pipelines_in_creation_order(
+        store,
+        run_id=run_id,
+        dataset_name=dataset_name,
+    )
     if pipelines_df.is_empty():
         return {}
 
