@@ -261,10 +261,21 @@ class GroupedSplitterWrapper(BaseCrossValidator):
         X_rep, y_rep, group_indices, unique_groups = self._aggregate(X, y, groups)
 
         # Split on representative samples
-        for train_rep, test_rep in self.splitter.split(X_rep, y_rep):
-            train_indices = self._expand_indices(train_rep, group_indices)
-            test_indices = self._expand_indices(test_rep, group_indices)
-            yield train_indices, test_indices
+        try:
+            for train_rep, test_rep in self.splitter.split(X_rep, y_rep):
+                train_indices = self._expand_indices(train_rep, group_indices)
+                test_indices = self._expand_indices(test_rep, group_indices)
+                yield train_indices, test_indices
+        except ValueError as exc:
+            if "Cannot have number of splits" in str(exc):
+                n_splits = getattr(self.splitter, "n_splits", None)
+                if n_splits is not None:
+                    raise ValueError(
+                        f"{self.splitter.__class__.__name__} cannot create {n_splits} folds from only "
+                        f"{len(unique_groups)} effective groups. Reduce n_splits or relax the grouping "
+                        "constraints."
+                    ) from exc
+            raise
 
     def get_n_splits(self, X=None, y=None, groups=None):
         """Return the number of splitting iterations.

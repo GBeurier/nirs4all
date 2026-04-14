@@ -211,6 +211,21 @@ class TestSPXYGFold:
         unique_test_groups = np.unique(all_test_groups)
         assert len(unique_test_groups) == len(np.unique(groups))
 
+    def test_group_aware_tuple_groups(self, sample_grouped_data):
+        """Tuple/object groups should stay together without NumPy broadcast errors."""
+        X, y, groups = sample_grouped_data
+        tuple_groups = np.empty(len(groups), dtype=object)
+        tuple_groups[:] = [(int(group), int(group % 3)) for group in groups]
+
+        splitter = SPXYGFold(n_splits=4)
+        folds = list(splitter.split(X, y, groups=tuple_groups))
+
+        assert len(folds) == 4
+        for train, test in folds:
+            train_groups = set(tuple_groups[train])
+            test_groups = set(tuple_groups[test])
+            assert len(train_groups & test_groups) == 0
+
     def test_group_aggregation_mean(self, sample_grouped_data):
         """Test that mean aggregation is used for groups."""
         X, y, groups = sample_grouped_data

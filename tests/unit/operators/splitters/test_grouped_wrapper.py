@@ -296,6 +296,15 @@ class TestGroupedSplitterWrapper:
         with pytest.raises(ValueError, match="y_aggregation must be one of"):
             GroupedSplitterWrapper(KFold(n_splits=5), y_aggregation="invalid")
 
+    def test_reports_effective_group_count_when_too_many_folds(self, unequal_grouped_data):
+        """Grouped errors should mention the effective group count."""
+        X, y, groups = unequal_grouped_data
+
+        wrapper = GroupedSplitterWrapper(KFold(n_splits=7))
+
+        with pytest.raises(ValueError, match="cannot create 7 folds from only 6 effective groups"):
+            list(wrapper.split(X, y, groups=groups))
+
     # --- Repr Test ---
 
     def test_repr(self):

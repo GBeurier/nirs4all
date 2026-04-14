@@ -1059,22 +1059,34 @@ class SPXYGFold(CustomSplitter):
             Unique group labels in order.
         """
         groups = np.asarray(groups)
-        unique_groups = np.unique(groups)
+
+        # Keep first-seen order and support tuple/object groups produced by
+        # repetition + group_by resolution. ``np.unique`` plus ``groups == g``
+        # breaks on tuple-like object groups because NumPy attempts elementwise
+        # broadcasting instead of scalar object equality.
+        group_to_indices: dict[object, list[int]] = {}
+        for idx, group in enumerate(groups):
+            key = tuple(group) if hasattr(group, "__iter__") and not isinstance(group, str) else group
+            if key not in group_to_indices:
+                group_to_indices[key] = []
+            group_to_indices[key].append(idx)
+
+        unique_groups = list(group_to_indices.keys())
         n_groups = len(unique_groups)
 
         # Compute group representatives for X
         X_rep = np.zeros((n_groups, X.shape[1]))
         group_indices = []
 
-        for i, g in enumerate(unique_groups):
-            mask = groups == g
-            indices = np.where(mask)[0].tolist()
+        for i, group_key in enumerate(unique_groups):
+            indices = group_to_indices[group_key]
             group_indices.append(indices)
+            X_group = X[indices]
 
             if self.aggregation == "mean":
-                X_rep[i] = X[mask].mean(axis=0)
+                X_rep[i] = X_group.mean(axis=0)
             else:  # median
-                X_rep[i] = np.median(X[mask], axis=0)
+                X_rep[i] = np.median(X_group, axis=0)
 
         # Compute group representatives for y
         y_rep = None
@@ -1084,22 +1096,23 @@ class SPXYGFold(CustomSplitter):
                 y = y.reshape(-1, 1)
 
             y_rep = np.zeros((n_groups, y.shape[1]))
-            for i, g in enumerate(unique_groups):
-                mask = groups == g
+            for i, group_key in enumerate(unique_groups):
+                indices = group_to_indices[group_key]
+                y_group = y[indices]
                 if self.y_metric == "hamming":
                     # For classification: use mode (most common value)
                     from scipy import stats
                     for j in range(y.shape[1]):
-                        mode_result = stats.mode(y[mask, j], keepdims=True)
+                        mode_result = stats.mode(y_group[:, j], keepdims=True)
                         y_rep[i, j] = mode_result.mode[0]
                 else:
                     # For regression: use mean/median
                     if self.aggregation == "mean":
-                        y_rep[i] = y[mask].mean(axis=0)
+                        y_rep[i] = y_group.mean(axis=0)
                     else:
-                        y_rep[i] = np.median(y[mask], axis=0)
+                        y_rep[i] = np.median(y_group, axis=0)
 
-        return X_rep, y_rep, group_indices, unique_groups
+        return X_rep, y_rep, group_indices, np.array(unique_groups, dtype=object)
 
     def _compute_distance_matrix(self, X, y):
         """Compute combined X+Y distance matrix.
