@@ -249,8 +249,19 @@ class StepParser:
         if isinstance(value, dict):
             if '_runtime_instance' in value:
                 return value['_runtime_instance']
-            if 'class' in value or 'function' in value:
-                return deserialize_component(value)
+            if 'class' in value or 'function' in value or 'instance' in value:
+                deserialized = deserialize_component(value)
+                if deserialized is value:
+                    component_ref = (
+                        value.get('class')
+                        or value.get('function')
+                        or value.get('instance')
+                    )
+                    raise ValueError(
+                        f"Could not deserialize component '{component_ref}'. "
+                        "Check that the import path is correct."
+                    )
+                return deserialized
             # Try to deserialize the whole dict
             return deserialize_component(value)
 

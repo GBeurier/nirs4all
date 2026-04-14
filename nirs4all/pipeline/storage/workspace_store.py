@@ -59,6 +59,7 @@ sqlite3.register_converter("DATETIME", _parse_sqlite_timestamp)
 from nirs4all.core.metrics import infer_ascending as _infer_metric_ascending
 from nirs4all.pipeline.storage.array_store import ArrayStore
 from nirs4all.pipeline.storage.store_queries import (
+    CASCADE_DELETE_PIPELINE_LOGS,
     CASCADE_DELETE_RUN_CHAINS,
     CASCADE_DELETE_RUN_LOGS,
     CASCADE_DELETE_RUN_PIPELINES,
@@ -66,7 +67,9 @@ from nirs4all.pipeline.storage.store_queries import (
     COMPLETE_PIPELINE,
     COMPLETE_RUN,
     DECREMENT_ARTIFACT_REF,
+    DELETE_CHAIN,
     DELETE_GC_ARTIFACTS,
+    DELETE_PIPELINE,
     DELETE_PREDICTION,
     DELETE_PROJECT,
     DELETE_RUN,
@@ -109,6 +112,7 @@ from nirs4all.pipeline.storage.store_queries import (
     build_top_predictions_query,
 )
 from nirs4all.pipeline.storage.store_schema import create_schema
+from nirs4all.pipeline.trace.execution_trace import fold_key_candidates
 
 _MAX_RETRIES = 8
 _BASE_DELAY = 0.15
@@ -2370,14 +2374,37 @@ class WorkspaceStore:
             ``True`` if the prediction existed and was deleted,
             ``False`` otherwise.
         """
-        with self._lock:
-            conn = self._ensure_open()
-            existing = self._fetch_one(GET_PREDICTION, [prediction_id])
-            if existing is None:
-                return False
-            self._array_store.delete_batch({prediction_id})
-            conn.execute(DELETE_PREDICTION, [prediction_id])
-            return True
+        summary = self.delete_predictions_matching(prediction_ids=[prediction_id])
+        return bool(summary["deleted_predictions"])
+
+    def delete_prediction_group(self, chain_id: str, fold_id: str) -> int:
+        """Delete all prediction rows for one chain/fold group.
+
+        This matches the UI notion of a single prediction row, where one
+        displayed item may contain multiple partition rows (train/val/test)
+        for the same ``(chain_id, fold_id)`` pair.
+
+        Args:
+            chain_id: Chain identifier.
+            fold_id: Fold identifier (canonical or legacy form).
+
+        Returns:
+            Number of prediction rows deleted.
+        """
+        summary = self.delete_predictions_matching(chain_id=chain_id, fold_id=fold_id)
+        return int(summary["deleted_predictions"])
+
+    def delete_chain_predictions(self, chain_id: str) -> int:
+        """Delete all prediction rows belonging to a chain.
+
+        Args:
+            chain_id: Chain identifier.
+
+        Returns:
+            Number of prediction rows deleted.
+        """
+        summary = self.delete_predictions_matching(chain_id=chain_id)
+        return int(summary["deleted_predictions"])
 
     def delete_dataset_predictions(self, dataset_name: str) -> int:
         """Delete all predictions for a dataset and their arrays.
@@ -2388,21 +2415,115 @@ class WorkspaceStore:
         Returns:
             Number of predictions deleted.
         """
+        summary = self.delete_predictions_matching(dataset_name=dataset_name)
+        return int(summary["deleted_predictions"])
+
+    def delete_predictions_matching(
+        self,
+        *,
+        prediction_ids: list[str] | None = None,
+        chain_id: str | None = None,
+        fold_id: str | None = None,
+        dataset_name: str | None = None,
+    ) -> dict[str, int | bool]:
+        """Delete predictions matching a scoped filter and prune empty parents.
+
+        Supported scopes:
+
+        - single prediction row via ``prediction_ids=[...]``
+        - displayed prediction group via ``chain_id`` + ``fold_id``
+        - full chain via ``chain_id``
+        - full dataset via ``dataset_name``
+
+        For chains that still have remaining prediction rows, the stored chain
+        summary is recomputed. Chains that become empty are deleted and their
+        artifact references decremented. Pipelines that lose all predictions and
+        chains are also removed, but parent runs are preserved unless the caller
+        explicitly deletes the run through :meth:`delete_run`.
+
+        Returns:
+            Summary dict with deleted row/file counts.
+        """
+        if not prediction_ids and chain_id is None and fold_id is None and dataset_name is None:
+            raise ValueError("At least one prediction deletion filter must be provided")
+
+        conditions: list[str] = []
+        params: list[Any] = []
+
+        if prediction_ids is not None:
+            if not prediction_ids:
+                return {
+                    "success": True,
+                    "deleted_predictions": 0,
+                    "deleted_arrays": 0,
+                    "deleted_chains": 0,
+                    "deleted_pipelines": 0,
+                    "deleted_artifacts": 0,
+                    "updated_chains": 0,
+                }
+            placeholders = ", ".join("?" for _ in prediction_ids)
+            conditions.append(f"prediction_id IN ({placeholders})")
+            params.extend(prediction_ids)
+
+        if chain_id is not None:
+            conditions.append("chain_id = ?")
+            params.append(chain_id)
+
+        if fold_id is not None:
+            candidates = fold_key_candidates(fold_id)
+            placeholders = ", ".join("?" for _ in candidates)
+            conditions.append(f"fold_id IN ({placeholders})")
+            params.extend(candidates)
+
+        if dataset_name is not None:
+            conditions.append("dataset_name = ?")
+            params.append(dataset_name)
+
+        where_sql = " AND ".join(conditions) if conditions else "1 = 1"
+
         with self._lock:
             conn = self._ensure_open()
-            rows = conn.execute(
-                "SELECT prediction_id FROM predictions WHERE dataset_name = ?",
-                [dataset_name],
-            ).fetchall()
-            pred_ids = {row[0] for row in rows}
+            rows_result = conn.execute(
+                f"SELECT prediction_id, chain_id, pipeline_id FROM predictions WHERE {where_sql}",
+                params,
+            )
+            rows = rows_result.fetchall()
+            pred_ids = {str(row[0]) for row in rows if row[0]}
+            affected_chain_ids = {str(row[1]) for row in rows if row[1]}
+            affected_pipeline_ids = {str(row[2]) for row in rows if row[2]}
             if not pred_ids:
-                return 0
+                return {
+                    "success": True,
+                    "deleted_predictions": 0,
+                    "deleted_arrays": 0,
+                    "deleted_chains": 0,
+                    "deleted_pipelines": 0,
+                    "deleted_artifacts": 0,
+                    "updated_chains": 0,
+                }
 
-            # Delete arrays (Parquet file + tombstones)
-            self._array_store.delete_dataset(dataset_name)
+            self._array_store.delete_batch(pred_ids)
+            conn.execute(f"DELETE FROM predictions WHERE {where_sql}", params)
 
-            conn.execute("DELETE FROM predictions WHERE dataset_name = ?", [dataset_name])
-            return len(pred_ids)
+            deleted_chains, updated_chains, pruned_pipeline_ids = self._prune_empty_chains(
+                conn,
+                affected_chain_ids,
+            )
+            deleted_pipelines = self._prune_empty_pipelines(
+                conn,
+                affected_pipeline_ids | pruned_pipeline_ids,
+            )
+            deleted_artifacts = self.gc_artifacts() if deleted_chains > 0 else 0
+
+            return {
+                "success": True,
+                "deleted_predictions": len(pred_ids),
+                "deleted_arrays": len(pred_ids),
+                "deleted_chains": deleted_chains,
+                "deleted_pipelines": deleted_pipelines,
+                "deleted_artifacts": deleted_artifacts,
+                "updated_chains": updated_chains,
+            }
 
     def cleanup_transient_artifacts(
         self,
@@ -2787,19 +2908,92 @@ class WorkspaceStore:
         ids: set[str] = set()
         fold_artifacts = _from_json(row.get("fold_artifacts")) if isinstance(row.get("fold_artifacts"), str) else row.get("fold_artifacts")
         shared_artifacts = _from_json(row.get("shared_artifacts")) if isinstance(row.get("shared_artifacts"), str) else row.get("shared_artifacts")
-        if fold_artifacts:
+        if isinstance(fold_artifacts, dict):
             for v in fold_artifacts.values():
-                if v:
+                if isinstance(v, str) and v:
                     ids.add(v)
-        if shared_artifacts:
-            for v in shared_artifacts.values():
+        if isinstance(shared_artifacts, dict):
+            for key, v in shared_artifacts.items():
+                # Metadata keys (e.g. "_source_map") carry dict payloads, not artifact IDs.
+                if str(key).startswith("_"):
+                    continue
                 if isinstance(v, list):
                     for aid in v:
-                        if aid:
+                        if isinstance(aid, str) and aid:
                             ids.add(aid)
-                elif v:
+                elif isinstance(v, str) and v:
                     ids.add(v)
         return ids
+
+    def _prune_empty_chains(
+        self,
+        conn: Any,
+        chain_ids: set[str],
+    ) -> tuple[int, int, set[str]]:
+        """Delete chains that no longer have predictions and refresh survivors."""
+        deleted = 0
+        updated = 0
+        affected_pipeline_ids: set[str] = set()
+
+        for chain_id in chain_ids:
+            remaining = conn.execute(
+                "SELECT COUNT(*) FROM predictions WHERE chain_id = ?",
+                [chain_id],
+            ).fetchone()
+            remaining_count = int(remaining[0]) if remaining else 0
+
+            if remaining_count > 0:
+                self.update_chain_summary(chain_id)
+                updated += 1
+                continue
+
+            result = conn.execute(
+                "SELECT pipeline_id, fold_artifacts, shared_artifacts "
+                "FROM chains WHERE chain_id = ?",
+                [chain_id],
+            )
+            row = result.fetchone()
+            desc = result.description
+            if row is None or not desc:
+                continue
+
+            columns = [d[0] for d in desc]
+            row_dict = dict(zip(columns, row, strict=False))
+            pipeline_id = row_dict.get("pipeline_id")
+            if pipeline_id:
+                affected_pipeline_ids.add(str(pipeline_id))
+
+            for aid in self._collect_artifact_ids_from_chain_row(row_dict):
+                conn.execute(DECREMENT_ARTIFACT_REF, [aid])
+
+            conn.execute(DELETE_CHAIN, [chain_id])
+            deleted += 1
+
+        return deleted, updated, affected_pipeline_ids
+
+    def _prune_empty_pipelines(self, conn: Any, pipeline_ids: set[str]) -> int:
+        """Delete pipelines that no longer have chains or predictions."""
+        deleted = 0
+
+        for pipeline_id in pipeline_ids:
+            pred_row = conn.execute(
+                "SELECT COUNT(*) FROM predictions WHERE pipeline_id = ?",
+                [pipeline_id],
+            ).fetchone()
+            chain_row = conn.execute(
+                "SELECT COUNT(*) FROM chains WHERE pipeline_id = ?",
+                [pipeline_id],
+            ).fetchone()
+            pred_count = int(pred_row[0]) if pred_row else 0
+            chain_count = int(chain_row[0]) if chain_row else 0
+            if pred_count > 0 or chain_count > 0:
+                continue
+
+            conn.execute(CASCADE_DELETE_PIPELINE_LOGS, [pipeline_id])
+            conn.execute(DELETE_PIPELINE, [pipeline_id])
+            deleted += 1
+
+        return deleted
 
     def _decrement_artifact_refs_for_pipeline(self, pipeline_id: str) -> None:
         """Decrement ref counts for all artifacts referenced by chains in a pipeline."""

@@ -74,7 +74,17 @@ METRIC_METADATA = {
     "default": {"higher_is_better": True, "optimal": 1.0, "range": (-float('inf'), float('inf'))},
 }
 
-def get_metric_info(metric_name: str) -> dict[str, Any]:
+
+def _coerce_metric_name(metric_name: Any, default: str) -> str:
+    """Normalize persisted metric names while tolerating legacy nulls."""
+    if isinstance(metric_name, str):
+        normalized = metric_name.strip()
+        if normalized:
+            return normalized
+    return default
+
+
+def get_metric_info(metric_name: str | None) -> dict[str, Any]:
     """
     Get metadata for a metric.
 
@@ -84,10 +94,11 @@ def get_metric_info(metric_name: str) -> dict[str, Any]:
     Returns:
         Dict with 'higher_is_better', 'optimal', and 'range' keys
     """
-    metric_lower = metric_name.lower()
+    metric_lower = _coerce_metric_name(metric_name, "default").lower()
     return METRIC_METADATA.get(metric_lower, METRIC_METADATA["default"])
 
-def is_better_score(score: float, best_score: float, metric: str) -> bool:
+
+def is_better_score(score: float, best_score: float, metric: str | None) -> bool:
     """
     Compare two scores and determine if the new score is better.
 
@@ -105,6 +116,7 @@ def is_better_score(score: float, best_score: float, metric: str) -> bool:
     else:
         return score < best_score
 
+
 @dataclass
 class TemplateInfo:
     """Information about a pipeline template in a run."""
@@ -113,6 +125,7 @@ class TemplateInfo:
     file_path: str | None = None
     expansion_count: int = 1
     description: str | None = None
+
 
 @dataclass
 class DatasetInfo:
@@ -328,7 +341,7 @@ class Run:
             cv_folds=config_data.get("cv_folds", 5),
             cv_strategy=config_data.get("cv_strategy", "kfold"),
             random_state=config_data.get("random_state", 42),
-            metric=config_data.get("metric", "r2"),
+            metric=_coerce_metric_name(config_data.get("metric"), "r2"),
             save_predictions=config_data.get("save_predictions", True),
             save_models=config_data.get("save_models", True),
         )
