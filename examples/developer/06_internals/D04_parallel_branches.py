@@ -15,6 +15,8 @@ Usage:
     python D04_parallel_branches.py
 """
 
+from pathlib import Path
+
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
@@ -23,6 +25,8 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import nirs4all
 from nirs4all.operators.splitters.splitters import SPXYGFold
 from nirs4all.operators.transforms import MultiplicativeScatterCorrection, SavitzkyGolay, StandardNormalVariate
+
+DATASET_PATH = str(Path(__file__).resolve().parents[2] / "sample_data" / "regression")
 
 # =============================================================================
 # Example 1: Basic Parallel Execution
@@ -47,7 +51,7 @@ pipeline_basic = [
 # This will execute 3 branches in parallel (auto-detected: min(3, cpu_count))
 result = nirs4all.run(
     pipeline=pipeline_basic,
-    dataset="sample_data/regression",
+    dataset=DATASET_PATH,
     verbose=2,
 )
 
@@ -79,7 +83,7 @@ pipeline_explicit = [
 
 result = nirs4all.run(
     pipeline=pipeline_explicit,
-    dataset="sample_data/regression",
+    dataset=DATASET_PATH,
     verbose=2,
 )
 
@@ -132,7 +136,7 @@ pipeline_optuna = [
 
 result = nirs4all.run(
     pipeline=pipeline_optuna,
-    dataset="sample_data/regression",
+    dataset=DATASET_PATH,
     verbose=2,
 )
 
@@ -163,7 +167,7 @@ pipeline_smart = [
 
 result = nirs4all.run(
     pipeline=pipeline_smart,
-    dataset="sample_data/regression",
+    dataset=DATASET_PATH,
     verbose=2,
 )
 
@@ -192,7 +196,7 @@ pipeline_named = [
 
 result = nirs4all.run(
     pipeline=pipeline_named,
-    dataset="sample_data/regression",
+    dataset=DATASET_PATH,
     verbose=2,
 )
 
@@ -230,7 +234,7 @@ pipeline_mixed = [
 
 result = nirs4all.run(
     pipeline=pipeline_mixed,
-    dataset="sample_data/regression",
+    dataset=DATASET_PATH,
     verbose=2,
 )
 

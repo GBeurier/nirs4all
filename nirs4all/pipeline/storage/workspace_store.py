@@ -2374,10 +2374,10 @@ class WorkspaceStore:
             ``True`` if the prediction existed and was deleted,
             ``False`` otherwise.
         """
-        summary = self.delete_predictions_matching(prediction_ids=[prediction_id])
+        summary = self._delete_predictions_matching(prediction_ids=[prediction_id])
         return bool(summary["deleted_predictions"])
 
-    def delete_prediction_group(self, chain_id: str, fold_id: str) -> int:
+    def _delete_prediction_group(self, chain_id: str, fold_id: str) -> int:
         """Delete all prediction rows for one chain/fold group.
 
         This matches the UI notion of a single prediction row, where one
@@ -2391,10 +2391,10 @@ class WorkspaceStore:
         Returns:
             Number of prediction rows deleted.
         """
-        summary = self.delete_predictions_matching(chain_id=chain_id, fold_id=fold_id)
+        summary = self._delete_predictions_matching(chain_id=chain_id, fold_id=fold_id)
         return int(summary["deleted_predictions"])
 
-    def delete_chain_predictions(self, chain_id: str) -> int:
+    def _delete_chain_predictions(self, chain_id: str) -> int:
         """Delete all prediction rows belonging to a chain.
 
         Args:
@@ -2403,7 +2403,7 @@ class WorkspaceStore:
         Returns:
             Number of prediction rows deleted.
         """
-        summary = self.delete_predictions_matching(chain_id=chain_id)
+        summary = self._delete_predictions_matching(chain_id=chain_id)
         return int(summary["deleted_predictions"])
 
     def delete_dataset_predictions(self, dataset_name: str) -> int:
@@ -2415,10 +2415,10 @@ class WorkspaceStore:
         Returns:
             Number of predictions deleted.
         """
-        summary = self.delete_predictions_matching(dataset_name=dataset_name)
+        summary = self._delete_predictions_matching(dataset_name=dataset_name)
         return int(summary["deleted_predictions"])
 
-    def delete_predictions_matching(
+    def _delete_predictions_matching(
         self,
         *,
         prediction_ids: list[str] | None = None,

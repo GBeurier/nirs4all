@@ -975,7 +975,7 @@ class TestDeleteCascade:
         artifact_path = store.get_artifact_path(ids["artifact_id"])
         assert artifact_path.exists()
 
-        summary = store.delete_predictions_matching(
+        summary = store._delete_predictions_matching(
             chain_id=ids["chain_id"],
             fold_id="fold_0",
         )
@@ -1024,7 +1024,7 @@ class TestDeleteCascade:
         assert final_pred_id
         store.update_chain_summary(ids["chain_id"])
 
-        summary = store.delete_predictions_matching(
+        summary = store._delete_predictions_matching(
             chain_id=ids["chain_id"],
             fold_id="final",
         )
@@ -1052,7 +1052,7 @@ class TestDeleteCascade:
         artifact_path = store.get_artifact_path(wheat_ids["artifact_id"])
         assert artifact_path.exists()
 
-        wheat_summary = store.delete_predictions_matching(dataset_name="wheat")
+        wheat_summary = store._delete_predictions_matching(dataset_name="wheat")
 
         assert wheat_summary["deleted_predictions"] == 1
         assert wheat_summary["deleted_chains"] == 1
@@ -1065,7 +1065,7 @@ class TestDeleteCascade:
         assert store.get_chain(barley_ids["chain_id"]) is not None
         assert artifact_path.exists()
 
-        barley_summary = store.delete_predictions_matching(dataset_name="barley")
+        barley_summary = store._delete_predictions_matching(dataset_name="barley")
 
         assert barley_summary["deleted_predictions"] == 1
         assert barley_summary["deleted_chains"] == 1

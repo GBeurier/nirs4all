@@ -7,6 +7,8 @@ import pandas as pd
 import pytest
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit, KFold
 
+from nirs4all.operators.splitters import SPXYGFold
+
 from nirs4all.controllers.splitters.split import (
     CrossValidatorController,
     compute_effective_groups,
@@ -71,6 +73,25 @@ def make_dataset():
     return dataset
 
 
+def make_transitive_union_dataset():
+    """Create a dataset where repetition + group_by collapses via transitive links."""
+    dataset = SpectroDataset(name="transitive-test")
+    X = np.random.RandomState(1).rand(6, 4)
+    y = np.linspace(0.0, 1.0, 6)
+    metadata = pd.DataFrame(
+        {
+            "sample_id": ["S1", "S1", "S2", "S2", "S3", "S3"],
+            "batch": ["B1", "B2", "B2", "B3", "B3", "B4"],
+        }
+    )
+
+    dataset.add_samples(X, {"partition": "train"})
+    dataset.add_targets(y)
+    dataset.add_metadata(metadata)
+    dataset.set_repetition("sample_id")
+    return dataset
+
+
 def make_train_context(dataset):
     """Return the train-only selector used by grouped split helpers."""
     return make_execution_context().with_partition("train")
@@ -113,6 +134,20 @@ class TestGroupSplitSyntax:
 
 class TestResolveSplitGroups:
     """Unit tests for the shared group resolution helper."""
+
+    def test_spxygfold_without_groups_is_allowed(self):
+        dataset = make_dataset()
+
+        resolved = resolve_split_groups(
+            dataset=dataset,
+            splitter=SPXYGFold(n_splits=4),
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+
+        assert resolved.capability.group_required is False
+        assert resolved.effective_groups is None
+        assert resolved.requires_wrapper is False
 
     def test_required_without_repetition_or_group_by_errors(self):
         dataset = make_dataset()
@@ -174,6 +209,24 @@ class TestResolveSplitGroups:
         assert resolved.effective_groups is not None
         assert list(resolved.effective_groups[:4]) == [0, 0, 1, 1]
 
+    def test_repetition_and_group_by_use_transitive_connected_components(self):
+        dataset = make_transitive_union_dataset()
+
+        effective_groups = compute_effective_groups(
+            dataset,
+            group_by="batch",
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+
+        assert effective_groups is not None
+        assert len(set(zip(
+            dataset.metadata_column("sample_id", make_train_context(dataset), include_augmented=False),
+            dataset.metadata_column("batch", make_train_context(dataset), include_augmented=False),
+            strict=False,
+        ))) == 6
+        assert np.unique(effective_groups).size == 1
+
     def test_optional_with_legacy_group_alias_warns_and_normalizes(self):
         dataset = make_dataset()
 
@@ -193,6 +246,21 @@ class TestResolveSplitGroups:
 
 class TestGroupSplitExecution:
     """Execution-level tests for grouped and wrapped splitters."""
+
+    def test_spxygfold_without_groups_executes(self):
+        dataset = make_dataset()
+        controller = CrossValidatorController()
+
+        _, step_output = controller.execute(
+            step_info=make_step_info(SPXYGFold(n_splits=4), {"split": SPXYGFold(n_splits=4)}),
+            dataset=dataset,
+            context=make_execution_context(),
+            runtime_context=make_mock_runtime_context(),
+            mode="train",
+        )
+
+        assert len(dataset.folds) == 4
+        assert step_output.outputs[0][1].startswith("folds_SPXYGFold")
 
     def test_required_splitter_without_repetition_or_group_by_errors(self):
         dataset = make_dataset()
@@ -281,6 +349,44 @@ class TestGroupSplitExecution:
         )
         assert effective_groups is not None
         assert_no_group_overlap(effective_groups, dataset.folds)
+        assert "groups-rep-sample_id+batch" in step_output.outputs[0][1]
+
+    def test_required_groupkfold_with_repetition_and_group_by_prevents_raw_group_by_overlap(self):
+        dataset = make_dataset()
+        dataset.set_repetition("sample_id")
+        step = {"split": GroupKFold(n_splits=2), "group_by": "batch"}
+        controller = CrossValidatorController()
+
+        _, step_output = controller.execute(
+            step_info=make_step_info(step["split"], step),
+            dataset=dataset,
+            context=make_execution_context(),
+            runtime_context=make_mock_runtime_context(),
+            mode="train",
+        )
+
+        effective_groups = compute_effective_groups(
+            dataset,
+            group_by="batch",
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+        raw_group_by_only = compute_effective_groups(
+            dataset,
+            group_by="batch",
+            ignore_repetition=True,
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+
+        assert effective_groups is not None
+        assert raw_group_by_only is not None
+        assert len(dataset.folds) == 2
+        assert_no_group_overlap(effective_groups, dataset.folds)
+        assert not any(
+            set(raw_group_by_only[train_idx]) & set(raw_group_by_only[val_idx])
+            for train_idx, val_idx in dataset.folds
+        )
         assert "groups-rep-sample_id+batch" in step_output.outputs[0][1]
 
     def test_optional_splitter_with_repetition_only_executes_via_wrapper(self):

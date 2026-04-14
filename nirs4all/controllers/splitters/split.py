@@ -49,6 +49,10 @@ _NATIVE_REQUIRED_GROUP_CAPABILITY = SplitGroupingCapability(
     group_required=True,
     group_handling="native",
 )
+_NATIVE_OPTIONAL_GROUP_CAPABILITY = SplitGroupingCapability(
+    group_required=False,
+    group_handling="native",
+)
 _OPTIONAL_WRAPPER_GROUP_CAPABILITY = SplitGroupingCapability(
     group_required=False,
     group_handling="wrapper",
@@ -62,7 +66,7 @@ _SPLITTER_GROUPING_CAPABILITIES: dict[str, SplitGroupingCapability] = {
     "LeavePGroupsOut": _NATIVE_REQUIRED_GROUP_CAPABILITY,
     "StratifiedGroupKFold": _NATIVE_REQUIRED_GROUP_CAPABILITY,
     "BinnedStratifiedGroupKFold": _NATIVE_REQUIRED_GROUP_CAPABILITY,
-    "SPXYGFold": _NATIVE_REQUIRED_GROUP_CAPABILITY,
+    "SPXYGFold": _NATIVE_OPTIONAL_GROUP_CAPABILITY,
     "KFold": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
     "RepeatedKFold": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
     "ShuffleSplit": _OPTIONAL_WRAPPER_GROUP_CAPABILITY,
@@ -788,4 +792,3 @@ class CrossValidatorController(OperatorController):
                 UserWarning,
                 stacklevel=3,
             )
-

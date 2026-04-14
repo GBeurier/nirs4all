@@ -59,7 +59,7 @@ class TestSampleAugmentationIntegration:
                 }
             },
             "fold_chart",
-            GroupKFold(n_splits=2),
+            {"split": GroupKFold(n_splits=2), "group_by": "Sample_ID"},
         ]
 
         pipeline_config = PipelineConfigs(pipeline, "standard_augmentation_test")
