@@ -11,6 +11,7 @@ from typing import Any, cast
 import numpy as np
 from joblib import Parallel, delayed
 
+import nirs4all.core.metrics as evaluator
 from nirs4all.core.logging import get_logger
 from nirs4all.core.metrics import infer_ascending as _infer_ascending
 from nirs4all.data.config import DatasetConfigs
@@ -721,6 +722,16 @@ class PipelineOrchestrator:
                 self.last_aggregate_method = dataset.aggregate_method
                 self.last_aggregate_exclude_outliers = dataset.aggregate_exclude_outliers
 
+                # Persist repetition-aggregated twin predictions (fold_id="<orig>_agg")
+                # when the dataset defines an aggregation column. These expose the
+                # same aggregated scores that TabReport shows, through the webapp.
+                if self.mode == "train" and dataset.aggregate and dataset.aggregate != "y":
+                    self._save_aggregated_twins(
+                        dataset=dataset,
+                        run_dataset_predictions=run_dataset_predictions,
+                        run_predictions=run_predictions,
+                    )
+
                 # Print best results for this dataset
                 logger.info(
                     f"Preparing to print results for dataset '{name}': "
@@ -1214,6 +1225,242 @@ class PipelineOrchestrator:
             refit_preds = run_dataset_predictions.slice_after(pre_refit_count)
             run_predictions.merge_predictions(refit_preds)
             logger.debug(f"Synced {new_count} refit prediction(s) to global buffer")
+
+    def _save_aggregated_twins(
+        self,
+        dataset: SpectroDataset,
+        run_dataset_predictions: Predictions,
+        run_predictions: Predictions,
+    ) -> None:
+        """Add repetition-aggregated twin entries (``fold_id="<orig>_agg"``).
+
+        For every prediction whose sample metadata carries the dataset's
+        aggregate column, compute group-mean ``y_pred``/``y_true`` via
+        :meth:`Predictions.aggregate` and rescore with the same metrics.
+        The twin is stored with the original fold_id suffixed ``_agg`` so
+        all downstream queries (chain summary view, predictions listing,
+        webapp adapters) pick it up with zero schema change.
+        """
+        agg_col = dataset.aggregate
+        if not agg_col or agg_col == "y":
+            return
+        method = dataset.aggregate_method or "mean"
+        exclude_outliers = bool(dataset.aggregate_exclude_outliers)
+
+        pre_count = run_dataset_predictions.num_predictions
+        source_entries = list(run_dataset_predictions.iter_entries())
+        added = 0
+
+        for entry in source_entries:
+            fold_id = str(entry.get("fold_id") or "")
+            if not fold_id or fold_id.endswith("_agg"):
+                continue
+            y_true = entry.get("y_true")
+            y_pred = entry.get("y_pred")
+            if y_true is None or y_pred is None:
+                continue
+            y_true_arr = np.asarray(y_true).flatten()
+            y_pred_arr = np.asarray(y_pred).flatten()
+            if y_true_arr.size == 0 or y_pred_arr.size == 0:
+                continue
+
+            metadata = entry.get("metadata") or {}
+            group_ids_raw = metadata.get(agg_col)
+            if group_ids_raw is None:
+                continue
+            group_ids = np.asarray(group_ids_raw)
+            if group_ids.size != y_pred_arr.size:
+                continue
+            # Skip if no aggregation is possible (all groups singletons).
+            if len(np.unique(group_ids)) == y_pred_arr.size:
+                continue
+
+            y_proba_raw = entry.get("y_proba")
+            y_proba_arr: np.ndarray | None = None
+            if y_proba_raw is not None:
+                y_proba_candidate = np.asarray(y_proba_raw)
+                if y_proba_candidate.size > 0:
+                    y_proba_arr = y_proba_candidate
+
+            try:
+                agg = Predictions.aggregate(
+                    y_pred=y_pred_arr,
+                    group_ids=group_ids,
+                    y_true=y_true_arr,
+                    y_proba=y_proba_arr,
+                    method=method,
+                    exclude_outliers=exclude_outliers,
+                )
+            except Exception as e:
+                logger.debug(f"Aggregation failed for prediction {entry.get('id')}: {e}")
+                continue
+
+            agg_y_true = agg.get("y_true")
+            agg_y_pred = agg.get("y_pred")
+            if agg_y_true is None or agg_y_pred is None or len(agg_y_true) == 0:
+                continue
+
+            partition = entry.get("partition", "")
+            primary_metric = entry.get("metric") or "rmse"
+            orig_scores = entry.get("scores") or {}
+            metric_names: list[str] = []
+            for part_scores in orig_scores.values():
+                if isinstance(part_scores, dict) and part_scores:
+                    metric_names = list(part_scores.keys())
+                    break
+            if not metric_names:
+                metric_names = [primary_metric]
+
+            try:
+                metric_values = evaluator.eval_list(agg_y_true, agg_y_pred, metric_names)
+            except Exception as e:
+                logger.debug(f"Rescoring aggregated predictions failed for {entry.get('id')}: {e}")
+                continue
+
+            agg_partition_scores = {
+                m: (float(v) if v is not None else None)
+                for m, v in zip(metric_names, metric_values, strict=False)
+            }
+            primary_value = agg_partition_scores.get(primary_metric)
+
+            run_dataset_predictions.add_prediction(
+                dataset_name=entry.get("dataset_name", ""),
+                dataset_path=entry.get("dataset_path", ""),
+                config_name=entry.get("config_name", ""),
+                config_path=entry.get("config_path", ""),
+                pipeline_uid=entry.get("pipeline_uid"),
+                step_idx=entry.get("step_idx", 0),
+                op_counter=entry.get("op_counter", 0),
+                model_name=entry.get("model_name", ""),
+                model_classname=entry.get("model_classname", ""),
+                model_path=entry.get("model_path", ""),
+                fold_id=f"{fold_id}_agg",
+                sample_indices=None,
+                weights=None,
+                metadata={},
+                partition=partition,
+                y_true=agg_y_true,
+                y_pred=agg_y_pred,
+                y_proba=agg.get("y_proba"),
+                val_score=primary_value if partition in ("val", "validation") else entry.get("val_score"),
+                test_score=primary_value if partition == "test" else entry.get("test_score"),
+                train_score=primary_value if partition == "train" else entry.get("train_score"),
+                metric=primary_metric,
+                task_type=entry.get("task_type", "regression"),
+                n_samples=int(len(agg_y_true)),
+                n_features=entry.get("n_features", 0),
+                preprocessings=entry.get("preprocessings", ""),
+                best_params=entry.get("best_params") or {},
+                scores={partition: agg_partition_scores} if partition else {"": agg_partition_scores},
+                branch_id=entry.get("branch_id"),
+                branch_path=entry.get("branch_path"),
+                branch_name=entry.get("branch_name"),
+                exclusion_count=entry.get("exclusion_count"),
+                exclusion_rate=entry.get("exclusion_rate"),
+                model_artifact_id=entry.get("model_artifact_id"),
+                trace_id=entry.get("trace_id"),
+                refit_context=entry.get("refit_context"),
+                target_processing=entry.get("target_processing", ""),
+            )
+            added += 1
+
+        if added == 0:
+            return
+
+        twins = run_dataset_predictions.slice_after(pre_count)
+        run_predictions.merge_predictions(twins)
+
+        # Persist twins directly to the SQLite store + array store.
+        # Each twin copies the chain_id from its sibling (already flushed).
+        sibling_chain_ids = {
+            str(e.get("id")): str(e.get("chain_id") or "")
+            for e in source_entries
+        }
+        # Index source entries by (fold_id, partition) to map twins to siblings.
+        source_index = {
+            (str(e.get("fold_id") or ""), str(e.get("partition") or ""), str(e.get("model_name") or ""), str(e.get("branch_id") or "")): e
+            for e in source_entries
+        }
+        affected_chain_ids: set[str] = set()
+        array_records: list[dict[str, Any]] = []
+        for twin_row in twins.iter_entries():
+            twin_fold = str(twin_row.get("fold_id") or "")
+            if not twin_fold.endswith("_agg"):
+                continue
+            base_fold = twin_fold[:-4]
+            sibling = source_index.get((
+                base_fold,
+                str(twin_row.get("partition") or ""),
+                str(twin_row.get("model_name") or ""),
+                str(twin_row.get("branch_id") or ""),
+            ))
+            if sibling is None:
+                continue
+            chain_id = sibling_chain_ids.get(str(sibling.get("id")), "") or str(sibling.get("chain_id") or "")
+            pipeline_id = str(sibling.get("pipeline_uid") or sibling.get("pipeline_id") or "")
+            if not chain_id or not pipeline_id:
+                continue
+            twin_row["chain_id"] = chain_id
+            pred_id = self.store.save_prediction(
+                pipeline_id=pipeline_id,
+                chain_id=chain_id,
+                dataset_name=twin_row.get("dataset_name", ""),
+                model_name=twin_row.get("model_name", ""),
+                model_class=twin_row.get("model_classname", ""),
+                fold_id=twin_fold,
+                partition=twin_row.get("partition", ""),
+                val_score=twin_row.get("val_score"),
+                test_score=twin_row.get("test_score"),
+                train_score=twin_row.get("train_score"),
+                metric=twin_row.get("metric", "rmse"),
+                task_type=twin_row.get("task_type", "regression"),
+                n_samples=int(twin_row.get("n_samples") or 0),
+                n_features=int(twin_row.get("n_features") or 0),
+                scores=twin_row.get("scores") or {},
+                best_params=twin_row.get("best_params") or {},
+                branch_id=twin_row.get("branch_id"),
+                branch_name=twin_row.get("branch_name") or None,
+                exclusion_count=twin_row.get("exclusion_count") or 0,
+                exclusion_rate=twin_row.get("exclusion_rate") or 0.0,
+                preprocessings=twin_row.get("preprocessings", ""),
+                prediction_id=twin_row.get("id"),
+                refit_context=twin_row.get("refit_context"),
+            )
+            y_true_twin = twin_row.get("y_true")
+            y_pred_twin = twin_row.get("y_pred")
+            has_arrays = (
+                isinstance(y_true_twin, np.ndarray) and y_true_twin.size > 0
+                or isinstance(y_pred_twin, np.ndarray) and y_pred_twin.size > 0
+            )
+            if has_arrays:
+                y_proba_twin = twin_row.get("y_proba")
+                array_records.append({
+                    "prediction_id": pred_id,
+                    "dataset_name": twin_row.get("dataset_name", ""),
+                    "model_name": twin_row.get("model_name", ""),
+                    "fold_id": twin_fold,
+                    "partition": twin_row.get("partition", ""),
+                    "metric": twin_row.get("metric", "rmse"),
+                    "val_score": twin_row.get("val_score"),
+                    "task_type": twin_row.get("task_type", "regression"),
+                    "y_true": y_true_twin if isinstance(y_true_twin, np.ndarray) and y_true_twin.size > 0 else None,
+                    "y_pred": y_pred_twin if isinstance(y_pred_twin, np.ndarray) and y_pred_twin.size > 0 else None,
+                    "y_proba": y_proba_twin if isinstance(y_proba_twin, np.ndarray) and y_proba_twin.size > 0 else None,
+                    "sample_indices": None,
+                    "weights": None,
+                    "sample_metadata": None,
+                })
+            affected_chain_ids.add(chain_id)
+
+        if array_records:
+            self.store.array_store.save_batch(array_records)
+        if affected_chain_ids:
+            self.store.bulk_update_chain_summaries(list(affected_chain_ids))
+
+        logger.info(
+            f"Saved {added} repetition-aggregated prediction twin(s) "
+            f"(column='{agg_col}', method='{method}')"
+        )
 
     def _execute_single_refit(
         self,

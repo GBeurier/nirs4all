@@ -695,7 +695,8 @@ class WorkspaceStore:
                 "  AVG(train_score) AS avg_train, "
                 "  COUNT(DISTINCT fold_id) AS fold_count "
                 "FROM predictions "
-                "WHERE chain_id = ? AND refit_context IS NULL",
+                "WHERE chain_id = ? AND refit_context IS NULL "
+                "  AND SUBSTR(fold_id, -4) != '_agg'",
                 [chain_id],
             ).fetchone()
 
@@ -752,7 +753,8 @@ class WorkspaceStore:
             cv_metrics_rows = conn.execute(
                 "SELECT partition, scores FROM predictions "
                 "WHERE chain_id = ? AND refit_context IS NULL "
-                "AND partition IN ('val', 'test')",
+                "AND partition IN ('val', 'test') "
+                "AND SUBSTR(fold_id, -4) != '_agg'",
                 [chain_id],
             ).fetchall()
             if cv_metrics_rows:
@@ -795,10 +797,19 @@ class WorkspaceStore:
             final_train = final_row[1] if final_row else None
             final_scores_json = final_row[2] if final_row else None
 
-            # UPDATE_CHAIN_SUMMARY param order: [model_name, metric, task_type,
-            #   best_params, cv_val_score, cv_test_score, cv_train_score,
-            #   cv_fold_count, cv_scores, final_test_score, final_train_score,
-            #   final_scores, chain_id]
+            # --- Repetition-aggregated refit scores (fold_id='final_agg') ---
+            final_agg_row = conn.execute(
+                "SELECT test_score, train_score, scores "
+                "FROM predictions "
+                "WHERE chain_id = ? AND fold_id = 'final_agg' AND partition = 'test' "
+                "ORDER BY created_at ASC, prediction_id ASC "
+                "LIMIT 1",
+                [chain_id],
+            ).fetchone()
+            final_agg_test = final_agg_row[0] if final_agg_row else None
+            final_agg_train = final_agg_row[1] if final_agg_row else None
+            final_agg_scores_json = final_agg_row[2] if final_agg_row else None
+
             conn.execute(UPDATE_CHAIN_SUMMARY, [
                 model_name,
                 metric,
@@ -812,6 +823,9 @@ class WorkspaceStore:
                 final_test,
                 final_train,
                 final_scores_json,
+                final_agg_test,
+                final_agg_train,
+                final_agg_scores_json,
                 chain_id,
             ])
 
@@ -923,24 +937,28 @@ class WorkspaceStore:
                         FROM predictions p
                         WHERE p.chain_id = chains.chain_id
                           AND p.refit_context IS NULL
+                          AND SUBSTR(p.fold_id, -4) != '_agg'
                     ),
                     cv_test_score = (
                         SELECT AVG(p.test_score)
                         FROM predictions p
                         WHERE p.chain_id = chains.chain_id
                           AND p.refit_context IS NULL
+                          AND SUBSTR(p.fold_id, -4) != '_agg'
                     ),
                     cv_train_score = (
                         SELECT AVG(p.train_score)
                         FROM predictions p
                         WHERE p.chain_id = chains.chain_id
                           AND p.refit_context IS NULL
+                          AND SUBSTR(p.fold_id, -4) != '_agg'
                     ),
                     cv_fold_count = COALESCE((
                         SELECT COUNT(DISTINCT p.fold_id)
                         FROM predictions p
                         WHERE p.chain_id = chains.chain_id
                           AND p.refit_context IS NULL
+                          AND SUBSTR(p.fold_id, -4) != '_agg'
                     ), 0),
                     final_test_score = (
                         SELECT p.test_score
@@ -971,6 +989,33 @@ class WorkspaceStore:
                           AND p.partition = 'test'
                         ORDER BY p.created_at ASC, p.prediction_id ASC
                         LIMIT 1
+                    ),
+                    final_agg_test_score = (
+                        SELECT p.test_score
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.fold_id = 'final_agg'
+                          AND p.partition = 'test'
+                        ORDER BY p.created_at ASC, p.prediction_id ASC
+                        LIMIT 1
+                    ),
+                    final_agg_train_score = (
+                        SELECT p.train_score
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.fold_id = 'final_agg'
+                          AND p.partition = 'test'
+                        ORDER BY p.created_at ASC, p.prediction_id ASC
+                        LIMIT 1
+                    ),
+                    final_agg_scores = (
+                        SELECT p.scores
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.fold_id = 'final_agg'
+                          AND p.partition = 'test'
+                        ORDER BY p.created_at ASC, p.prediction_id ASC
+                        LIMIT 1
                     )
                 WHERE chains.chain_id IN (SELECT chain_id FROM _bulk_chain_ids)
             """)
@@ -984,6 +1029,7 @@ class WorkspaceStore:
                 "SELECT chain_id, partition, scores FROM predictions "
                 "WHERE refit_context IS NULL "
                 "AND partition IN ('val', 'test') "
+                "AND SUBSTR(fold_id, -4) != '_agg' "
                 "AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)",
             ).fetchall()
 
