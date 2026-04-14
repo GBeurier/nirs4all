@@ -113,7 +113,10 @@ UPDATE chains SET
     cv_scores = ?,
     final_test_score = ?,
     final_train_score = ?,
-    final_scores = ?
+    final_scores = ?,
+    final_agg_test_score = ?,
+    final_agg_train_score = ?,
+    final_agg_scores = ?
 WHERE chain_id = ?
 """
 

@@ -90,6 +90,9 @@ CREATE TABLE IF NOT EXISTS chains (
     final_test_score REAL,
     final_train_score REAL,
     final_scores TEXT,
+    final_agg_test_score REAL,
+    final_agg_train_score REAL,
+    final_agg_scores TEXT,
     created_at TIMESTAMP DEFAULT current_timestamp
 );
 
@@ -185,6 +188,9 @@ SELECT
     c.final_test_score,
     c.final_train_score,
     c.final_scores,
+    c.final_agg_test_score,
+    c.final_agg_train_score,
+    c.final_agg_scores,
     pl.run_id,
     pl.status AS pipeline_status
 FROM chains c
@@ -700,6 +706,9 @@ def _migrate_schema(conn: sqlite3.Connection, *, workspace_path: Path | None = N
         ("final_test_score", "REAL"),
         ("final_train_score", "REAL"),
         ("final_scores", "TEXT"),
+        ("final_agg_test_score", "REAL"),
+        ("final_agg_train_score", "REAL"),
+        ("final_agg_scores", "TEXT"),
     ]
     added_chain_cols = False
     for col_name, col_type in _chain_summary_cols:
