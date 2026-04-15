@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.10] - Repetition Aggregation, Grouped Splitters & Storage Refinements - 2026-04-15
+
+### ✨ Improvements
+
+- **Repetition-aggregated predictions**: Added support for storing and retrieving repetition-aggregated prediction scores; database schema updated with aggregation score columns
+- **Stable pipeline ordering**: Pipelines are now retained in creation order in `extract_winning_config` and `extract_per_model_configs` for deterministic results
+- **Grouped splitters**: Enhanced grouped splitters with explicit error handling and support for tuple groups
+- **SPXYGFold capability**: Marked group capability as optional to permit non-grouped usage
+- **WorkspaceStore deletion API**: Renamed deletion methods for naming consistency and added prediction-deletion helpers
+- **SklearnModelController**: Improved model instance handling and error reporting; added metric normalization
+
+### 🐛 Bug Fixes
+
+- **D04_parallel_branches**: Refactored dataset path handling for portability
+
+### 🧪 Tests
+
+- Extended group-splitting and execution test coverage
+- Added tests for model instantiation, prediction deletion, and tuple-group handling
+
+---
+
 ## [0.8.9] - Refit Enhancements & Branch Improvements - 2026-04-13
 
 ### ✨ Improvements

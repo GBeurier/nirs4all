@@ -7,14 +7,13 @@ import pandas as pd
 import pytest
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit, KFold
 
-from nirs4all.operators.splitters import SPXYGFold
-
 from nirs4all.controllers.splitters.split import (
     CrossValidatorController,
     compute_effective_groups,
     resolve_split_groups,
 )
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.operators.splitters import SPXYGFold
 from nirs4all.pipeline.config.context import (
     DataSelector,
     ExecutionContext,

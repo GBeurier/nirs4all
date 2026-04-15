@@ -1317,9 +1317,10 @@ class PipelineOrchestrator:
                 logger.debug(f"Rescoring aggregated predictions failed for {entry.get('id')}: {e}")
                 continue
 
-            agg_partition_scores = {
-                m: (float(v) if v is not None else None)
+            agg_partition_scores: dict[str, float] = {
+                m: float(v)
                 for m, v in zip(metric_names, metric_values, strict=False)
+                if v is not None
             }
             primary_value = agg_partition_scores.get(primary_metric)
 
