@@ -1,6 +1,6 @@
 # nirs4all — Python NIRS Analysis Library
 
-**Version**: 0.8.9 | **Python**: 3.11+ | **License**: CeCILL-2.1
+**Version**: 0.8.10 | **Python**: 3.11+ | **License**: CeCILL-2.1
 
 ## Commands
 
