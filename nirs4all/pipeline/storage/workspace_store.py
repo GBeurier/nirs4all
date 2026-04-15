@@ -361,7 +361,15 @@ class WorkspaceStore:
             rows = cursor.fetchall()
             if not rows:
                 return pl.DataFrame()
-            return pl.DataFrame([dict(zip(columns, row, strict=False)) for row in rows])
+            records = [dict(zip(columns, row, strict=False)) for row in rows]
+
+            # SQLite views can expose columns that stay NULL for many rows before
+            # later records introduce their real type (for example the
+            # ``final_agg_*`` chain-summary fields). Polars' default schema
+            # sampling can then lock those columns to ``Null`` and fail when it
+            # encounters a later float/string value, so infer against the full
+            # materialized record set here.
+            return pl.DataFrame(records, infer_schema_length=None)
 
     # ------------------------------------------------------------------
     # Context manager / lifecycle
