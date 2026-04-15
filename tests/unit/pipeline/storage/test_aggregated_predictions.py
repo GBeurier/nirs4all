@@ -236,6 +236,37 @@ class TestViewCreation:
         assert len(df) == 0
         store.close()
 
+    def test_fetch_pl_handles_late_non_null_column_types(self, tmp_path):
+        """Late non-null values must not break row-oriented Polars inference.
+
+        Regression test for chain-summary views where ``final_agg_*`` columns
+        stay NULL for the first 100+ rows and only later introduce floats/JSON.
+        """
+        store = _make_store(tmp_path)
+        conn = store._ensure_open()
+        conn.execute("""
+            CREATE TABLE late_values (
+                row_idx INTEGER PRIMARY KEY,
+                final_agg_test_score REAL,
+                final_agg_scores TEXT
+            )
+        """)
+        conn.executemany(
+            "INSERT INTO late_values(row_idx, final_agg_test_score, final_agg_scores) VALUES (?, ?, ?)",
+            [(idx, None, None) for idx in range(1, 102)]
+            + [(102, 46.16182423540343, '{"test":{"rmse":46.161824}}')],
+        )
+
+        df = store._fetch_pl(
+            "SELECT row_idx, final_agg_test_score, final_agg_scores FROM late_values ORDER BY row_idx"
+        )
+
+        assert df.shape == (102, 3)
+        assert df["final_agg_test_score"].null_count() == 101
+        assert df.row(df.height - 1, named=True)["final_agg_test_score"] == pytest.approx(46.16182423540343)
+        assert df.row(df.height - 1, named=True)["final_agg_scores"] == '{"test":{"rmse":46.161824}}'
+        store.close()
+
 # =========================================================================
 # Chain summary correctness
 # =========================================================================
