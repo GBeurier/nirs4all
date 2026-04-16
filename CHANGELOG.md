@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.0] - Webapp-Ready Release: Stable Signatures & Schemas - 2026-04-16
+
+### 🎯 Highlights
+
+This release marks the first version of `nirs4all` that is **ready for integration with the nirs4all webapp**. Public API signatures (`run`, `predict`, `explain`, `retrain`, `session`, `generate`), result objects (`RunResult`, `PredictResult`, `ExplainResult`), and the workspace storage schemas (`WorkspaceStore` SQLite tables, `ArrayStore` Parquet layout, run manifest structure, `.n4a` bundle format) are now considered stable contracts that the webapp backend can depend on without risk of breaking changes within the 0.9.x line.
+
+### ✅ Stable Contracts for the Webapp
+
+- **Public API signatures**: module-level entry points (`nirs4all.run/predict/explain/retrain/session/generate`) have finalized keyword arguments and return types
+- **Result schemas**: `RunResult`, `PredictResult`, and `ExplainResult` expose a locked-in surface (`best_score`, `best_rmse`, `best_r2`, `top(n)`, `export()`) for frontend consumption
+- **Workspace schema**: SQLite tables (runs, pipelines, chains, logs, artifacts, predictions metadata) and Parquet array layout are frozen for the 0.9.x series
+- **Run manifest**: `dataset_info`, versioning fields, and run identifiers stable for dataset-compatibility checks
+- **Bundle format**: `.n4a` export/load contract stable for prediction and retraining workflows
+
+### 🔧 Chores
+
+- Version bumped to 0.9.0 to signal webapp-readiness and schema stability
+
+---
+
 ## [0.8.10] - Repetition Aggregation, Grouped Splitters & Storage Refinements - 2026-04-15
 
 ### ✨ Improvements
