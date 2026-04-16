@@ -236,6 +236,35 @@ class TestViewCreation:
         assert len(df) == 0
         store.close()
 
+    def test_view_excludes_chains_without_prediction_rows(self, tmp_path):
+        """Chain summaries without predictions must stay hidden from aggregated results."""
+        store = _make_store(tmp_path)
+        ids = _populate_store(store)
+
+        empty_chain_id = store.save_chain(
+            pipeline_id=ids["pipeline_id"],
+            steps=[
+                {"step_idx": 0, "operator_class": "SNV", "params": {}, "artifact_id": None, "stateless": True},
+                {"step_idx": 1, "operator_class": "Ridge", "params": {"alpha": 1.0}, "artifact_id": None, "stateless": False},
+            ],
+            model_step_idx=1,
+            model_class="sklearn.linear_model.Ridge",
+            preprocessings="SNV",
+            fold_strategy="per_fold",
+            fold_artifacts={},
+            shared_artifacts={},
+            branch_path=None,
+            source_index=None,
+        )
+
+        df = store.query_aggregated_predictions()
+
+        assert len(df) == 1
+        assert df["chain_id"].to_list() == [ids["chain_id"]]
+        assert empty_chain_id not in df["chain_id"].to_list()
+
+        store.close()
+
     def test_fetch_pl_handles_late_non_null_column_types(self, tmp_path):
         """Late non-null values must not break row-oriented Polars inference.
 
