@@ -194,7 +194,12 @@ SELECT
     pl.run_id,
     pl.status AS pipeline_status
 FROM chains c
-JOIN pipelines pl ON c.pipeline_id = pl.pipeline_id;
+JOIN pipelines pl ON c.pipeline_id = pl.pipeline_id
+WHERE EXISTS (
+    SELECT 1
+    FROM predictions p
+    WHERE p.chain_id = c.chain_id
+);
 """
 
 # =========================================================================
