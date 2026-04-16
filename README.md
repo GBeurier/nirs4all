@@ -22,12 +22,27 @@
 
 ---
 
+## Which nirs4all do you need?
+
+nirs4all comes in two flavors — pick the one that fits your workflow:
+
+| | **nirs4all Studio** (Desktop App) | **nirs4all** (Python Library) |
+|---|---|---|
+| **Best for** | Researchers, technicians, and anyone who prefers a visual interface | Developers, data scientists, and anyone who writes Python scripts |
+| **What it is** | A desktop application with drag-and-drop pipelines, interactive charts, and one-click model training | A `pip install` Python package with a declarative API for building NIRS pipelines in code |
+| **Install** | [Download the installer](https://github.com/GBeurier/nirs4all-webapp/releases/latest) | `pip install nirs4all` |
+| **Repository** | [GBeurier/nirs4all-webapp](https://github.com/GBeurier/nirs4all-webapp) | **You are here** |
+
+> **Not sure?** If you've never written Python code, start with **nirs4all Studio**. It uses this library under the hood and gives you all the same capabilities through a graphical interface.
+
+---
+
 ## Overview
 
 NIRS4ALL bridges the gap between spectroscopic data and machine learning by providing a unified framework for **data loading**, **preprocessing**, **model training**, and **evaluation**. Built for researchers and practitioners working with Near-Infrared Spectroscopy data.
 
 <div align="center">
-<img src="docs/source/assets/pipeline.jpg" width="400" alt="Performance Heatmap">
+<img src="docs/source/assets/pipeline.jpg" width="400" alt="Pipeline Overview">
 </div>
 
 ### Key Features
@@ -41,6 +56,7 @@ NIRS4ALL bridges the gap between spectroscopic data and machine learning by prov
 - **Rich Visualizations** — Performance heatmaps, candlestick plots, SHAP explanations
 - **Model Deployment** — Export trained pipelines as portable `.n4a` bundles
 - **sklearn Compatible** — `NIRSPipeline` wrapper for SHAP, cross-validation, and more
+- **Stable API Contracts** — Public API signatures, result schemas, and workspace storage format are stable since v0.9.0
 
 <div align="center">
 <img src="docs/source/assets/heatmap.png" width="400" alt="Performance Heatmap">
@@ -78,15 +94,6 @@ pip install nirs4all[all]
 
 # All frameworks with GPU support
 pip install nirs4all[all-gpu]
-```
-
-### Conda
-
-**Coming soon!** We're working with conda-forge to make NIRS4ALL available through conda. In the meantime, use `pip install nirs4all` or docker.
-
-```bash
-# Available soon:
-# conda install -c conda-forge nirs4all
 ```
 
 ### Docker
@@ -193,6 +200,26 @@ explainer = shap.Explainer(pipe.predict, X_background)
 shap_values = explainer(X_test)
 shap.summary_plot(shap_values)
 ```
+
+---
+
+## Public API (v0.9.0+)
+
+The following entry points and result objects are **stable contracts** — their signatures and return types are guaranteed within the 0.9.x series:
+
+```python
+import nirs4all
+
+result = nirs4all.run(pipeline=[...], dataset="path/to/data", verbose=1)
+preds  = nirs4all.predict("model.n4a", new_data)
+expl   = nirs4all.explain("model.n4a", data)
+result = nirs4all.retrain("model.n4a", new_data, mode="transfer")
+sess   = nirs4all.session(...)
+sess   = nirs4all.load_session(path)
+ds     = nirs4all.generate(n_samples=500, complexity="realistic")
+```
+
+**Result objects**: `RunResult`, `PredictResult`, `ExplainResult` — expose `best_score`, `best_rmse`, `best_r2`, `best_accuracy`, `top(n)`, `export()`, `filter(**kwargs)`, `get_datasets()`, `get_models()`.
 
 ---
 
@@ -381,7 +408,7 @@ If you use NIRS4ALL in your research, please cite:
   author = {Gregory Beurier and Denis Cornet and Lauriane Rouan},
   title = {NIRS4ALL: Open spectroscopy for everyone},
   url = {https://github.com/GBeurier/nirs4all},
-  version = {0.7.1},
+  version = {0.9.0},
   year = {2026},
 }
 ```
