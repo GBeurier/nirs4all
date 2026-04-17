@@ -58,6 +58,37 @@ DatasetSpec: TypeAlias = (
     | list[SingleDatasetSpec]      # List of datasets for batch execution
 )
 
+def _is_pipeline_wrapper_dict(obj: Any) -> bool:
+    """Return True for dicts that wrap a full pipeline definition."""
+    return isinstance(obj, dict) and any(key in obj for key in ("pipeline", "steps"))
+
+def _is_batch_pipeline_list(pipeline: list[Any]) -> bool:
+    """Return True only when every outer item is clearly a full pipeline spec.
+
+    This prevents nested canonical steps such as ``[[...], {...}]`` from being
+    misread as a batch of pipelines when they are actually one pipeline with a
+    nested list step followed by ordinary steps.
+    """
+    if not pipeline:
+        return False
+
+    saw_pipeline_spec = False
+    for item in pipeline:
+        if isinstance(item, (PipelineConfigs, str, Path)):
+            saw_pipeline_spec = True
+            continue
+        if isinstance(item, list):
+            saw_pipeline_spec = True
+            continue
+        if _is_pipeline_wrapper_dict(item):
+            saw_pipeline_spec = True
+            continue
+        if isinstance(item, dict) or _looks_like_step(item):
+            return False
+        return False
+
+    return saw_pipeline_spec
+
 def _is_single_pipeline(pipeline: Any) -> bool:
     """Check if pipeline is a single pipeline definition (not a list of pipelines).
 
@@ -76,28 +107,7 @@ def _is_single_pipeline(pipeline: Any) -> bool:
     if isinstance(pipeline, list):
         if len(pipeline) == 0:
             return True  # Empty list treated as single empty pipeline
-
-        # Check the first element to determine if this is a list of pipelines
-        # or a single pipeline (list of steps)
-        first = pipeline[0]
-
-        # If the first element is a list, this could be:
-        # 1. A list of pipelines (each is a list of steps)
-        # 2. A single pipeline with a sub-pipeline as first step (rare)
-        #
-        # Heuristic: if the first element is a list AND contains typical step objects
-        # (dicts with known keys like "model", "preprocessing", etc., or class instances),
-        # it's likely a list of pipelines.
-
-        if isinstance(first, list) and len(first) > 0:
-            inner_first = first[0]
-            # If inner elements are dicts, classes, instances, etc., it's likely
-            # that the outer list is a list of pipelines
-            if isinstance(inner_first, (dict, str)) or _looks_like_step(inner_first):
-                return False  # It's a list of pipelines
-
-        # Otherwise, treat as a single pipeline
-        return True
+        return not _is_batch_pipeline_list(pipeline)
 
     return True
 
