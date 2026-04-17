@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.1] - Pipeline Definition Ergonomics - 2026-04-17
+
+### ✨ Improvements
+
+- **`steps` key alias**: Pipeline definitions accept `{"steps": [...]}` in addition to `{"pipeline": [...]}` for dict-based configs (JSON/YAML and in-code)
+- **Batch pipeline detection**: Refined detection so that a single pipeline starting with a nested list step (e.g. `[[...], {...}]`) is no longer misread as a batch of pipelines
+- **README**: Clarified nirs4all offerings and documented the stable API contracts introduced in 0.9.0
+
+### 🧪 Tests
+
+- Added coverage for `steps`-key pipeline definitions and nested-list batch detection edge cases
+
+---
+
 ## [0.9.0] - Webapp-Ready Release: Stable Signatures & Schemas - 2026-04-16
 
 ### 🎯 Highlights
