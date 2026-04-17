@@ -16,10 +16,20 @@ class _DummyRunner:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         self.cache_config = None
+        self.calls: list[dict[str, object]] = []
         self.workspace_path = kwargs.get("workspace_path", "/tmp/dummy")
         _DummyRunner.instances.append(self)
 
     def run(self, pipeline, dataset, pipeline_name, refit, **kwargs):
+        self.calls.append(
+            {
+                "pipeline": pipeline,
+                "dataset": dataset,
+                "pipeline_name": pipeline_name,
+                "refit": refit,
+                "kwargs": kwargs,
+            }
+        )
         return Predictions(), {}
 
     def close(self):
@@ -61,3 +71,25 @@ def test_run_uses_explicit_cache_config(monkeypatch):
 
     runner = _DummyRunner.instances[-1]
     assert runner.cache_config is explicit_cache
+
+def test_run_keeps_nested_list_pipeline_as_single_pipeline(monkeypatch):
+    """Nested list steps should not be reinterpreted as a batch of pipelines."""
+    run_module = importlib.import_module("nirs4all.api.run")
+
+    _DummyRunner.instances.clear()
+    monkeypatch.setattr(run_module, "PipelineRunner", _DummyRunner)
+
+    nested_pipeline = [
+        [{"class": "sklearn.preprocessing.StandardScaler"}],
+        {"model": {"class": "sklearn.linear_model.Ridge"}},
+    ]
+
+    run_module.run(
+        pipeline=nested_pipeline,
+        dataset="dummy_dataset",
+        verbose=0,
+    )
+
+    runner = _DummyRunner.instances[-1]
+    assert len(runner.calls) == 1
+    assert runner.calls[0]["pipeline"] == nested_pipeline

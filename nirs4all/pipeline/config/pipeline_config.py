@@ -209,10 +209,24 @@ class PipelineConfigs:
         elif isinstance(definition, list):
             return definition
         elif isinstance(definition, dict):
+            steps_key = None
             if "pipeline" in definition:
-                return list(definition["pipeline"])
-            else:
-                raise ValueError("Invalid pipeline definition format. Expected a list, dict with 'pipeline' key, or string.")
+                steps_key = "pipeline"
+            elif "steps" in definition:
+                steps_key = "steps"
+
+            if steps_key is None:
+                raise ValueError(
+                    "Invalid pipeline definition format. "
+                    "Expected a list, dict with 'pipeline' or 'steps' key, or string."
+                )
+
+            steps = definition[steps_key]
+            if not isinstance(steps, list):
+                raise ValueError(
+                    f"Pipeline definition key '{steps_key}' must contain a list of steps."
+                )
+            return list(steps)
         else:
             raise TypeError("Pipeline definition must be a list, dict, or string.")
 
@@ -303,7 +317,7 @@ class PipelineConfigs:
         if not pipeline_definition:
             raise ValueError(
                 "Pipeline definition is empty or invalid.\n"
-                "The configuration file must contain a 'pipeline' key with a list of steps."
+                "The configuration file must contain a 'pipeline' or 'steps' key with a list of steps."
             )
 
         return PipelineConfigs._load_steps(pipeline_definition)

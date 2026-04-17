@@ -85,6 +85,17 @@ class TestPipelineNormalization:
         assert isinstance(normalized, PipelineConfigs)
         assert len(normalized.steps) >= 1
 
+    def test_normalize_pipeline_editor_steps_dict(self, sample_pipeline_steps):
+        """Test that editor-style dicts with 'steps' normalize correctly."""
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
+
+        normalized = runner.orchestrator._normalize_pipeline(
+            {"steps": sample_pipeline_steps, "name": "editor_pipeline"}
+        )
+
+        assert isinstance(normalized, PipelineConfigs)
+        assert len(normalized.steps) >= 1
+
     def test_normalize_pipeline_json_file(self):
         """Test that JSON file path is loaded and converted to PipelineConfigs."""
         runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
