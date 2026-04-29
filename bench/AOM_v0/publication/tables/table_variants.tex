@@ -1,0 +1,27 @@
+\begin{tabular}{lllll}
+\toprule
+Label & Selection & Engine & Bank / preproc. & Role \\
+\midrule
+PLS-standard-numpy & none & pls\_standard & identity & baseline \\
+nirs4all-AOM-PLS-default & external & nirs4all\_aom & production default & deployed reference \\
+nirs4all-POP-PLS-default & external & nirs4all\_pop & production default & deployed POP \\
+AOM-default-nipals-adjoint-numpy & global & nipals\_adjoint & default & parity replica \\
+AOM-default-simpls-covariance-numpy & global & simpls\_covariance & default & strict-SIMPLS contrast \\
+AOM-compact-simpls-covariance-numpy & global & simpls\_covariance & compact & compact bank \\
+POP-nipals-adjoint-numpy & per-component & nipals\_adjoint & compact & POP ablation \\
+POP-simpls-covariance-numpy & per-component & simpls\_covariance & compact & POP ablation \\
+Superblock-raw-simpls-numpy & superblock & simpls\_covariance & compact & multi-view baseline \\
+ActiveSuperblock-simpls-numpy & active superblock & simpls\_covariance & default & balanced multi-view \\
+AOM-explorer-simpls-numpy & explorer-global & simpls\_covariance & beam bank & bank search \\
+AOM-compact-press-numpy & global & nipals\_adjoint & compact & PRESS criterion \\
+AOM-compact-cv3-numpy & global & nipals\_adjoint & compact & 3-fold CV criterion \\
+SNV-AOM-default-numpy & global & nipals\_adjoint & SNV + default & scatter preproc. \\
+SNV-AOM-compact-numpy & global & nipals\_adjoint & SNV + compact & scatter preproc. \\
+MSC-AOM-default-numpy & global & nipals\_adjoint & MSC + default & scatter preproc. \\
+MSC-AOM-compact-numpy & global & nipals\_adjoint & MSC + compact & scatter preproc. \\
+OSC-AOM-default-numpy & global & nipals\_adjoint & OSC + default & supervised preproc. \\
+OSC-AOM-compact-numpy & global & nipals\_adjoint & OSC + compact & supervised preproc. \\
+SNV-OSC-AOM-default-numpy & global & nipals\_adjoint & SNV+OSC + default & composite preproc. \\
+MSC-OSC-AOM-default-numpy & global & nipals\_adjoint & MSC+OSC + default & composite preproc. \\
+\bottomrule
+\end{tabular}

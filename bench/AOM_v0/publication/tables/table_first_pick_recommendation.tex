@@ -1,0 +1,13 @@
+\begin{tabular}{rlrrr}
+\toprule
+Try \# & Pipeline & Med rel RMSEP & Wins/57 & Fit (s) \\
+\midrule
+1 & ASLS \textrightarrow AOM (compact, CV-5) & 0.960 & 42 & 1.36 \\
+2 & ASLS \textrightarrow AOM (response-dedup, CV-3) & 0.964 & 37 & 4.57 \\
+3 & ASLS \textrightarrow AOM (family-pruned, CV-3) & 0.964 & 38 & 1.60 \\
+4 & ASLS \textrightarrow AOM (compact, repCV-3) & 0.975 & 39 & 2.21 \\
+5 & ASLS \textrightarrow AOM (compact, CV-3) & 0.979 & 38 & 0.91 \\
+6 & SNV+ASLS \textrightarrow AOM (compact, repCV-3) & 0.981 & 33 & 2.33 \\
+7 & AOM (compact, repCV-3) & 0.984 & 39 & 2.08 \\
+\bottomrule
+\end{tabular}
