@@ -1,0 +1,7 @@
+variant,median_rel_pls,median_rel_ridge,median_rel_tabpfn_opt,wins_vs_pls,n_datasets,median_fit_time_s
+mkR-softmax_cv,0.9502,1.0033,1.3712,2,3,39.0484
+BLUP-reml,0.9915,1.0469,1.4221,2,3,46.2874
+MKM-reml,0.9915,1.0469,1.4221,2,3,54.1315
+mkR-kta,1.1705,1.1842,2.1163,0,3,17.6377
+mkR-uniform,1.3548,1.3706,2.1543,0,3,22.1375
+Ridge-raw,2.3703,2.3979,3.0863,0,3,0.0814
