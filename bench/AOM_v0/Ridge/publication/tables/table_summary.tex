@@ -1,0 +1,15 @@
+\begin{tabular}{lrrrr}
+\toprule
+Baseline & median $\Delta$ (\%) & mean $\Delta$ (capped, \%) & win-rate (\%) & wins / N \\
+\midrule
+Ridge & -3.90 & -7.67 & 84.2 & 32/38 \\
+PLS & -5.75 & -10.45 & 76.3 & 29/38 \\
+CNN & -17.95 & -21.89 & 78.8 & 26/33 \\
+Catboost & -10.72 & -21.26 & 76.3 & 29/38 \\
+TabPFN-Raw & -7.06 & -17.83 & 76.3 & 29/38 \\
+TabPFN-opt & +0.88 & +1.38 & 50.0 & 19/38 \\
+\bottomrule
+\end{tabular}
+
+% Cohort: N=38 datasets after excluding ['QUARTZ']. $\Delta$ = (AOM-Ridge $-$ baseline) / baseline. Mean delta is capped at +/-200\%.
+

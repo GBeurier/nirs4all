@@ -5,14 +5,16 @@ from __future__ import annotations
 import csv
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Final, Literal, cast
 
 import numpy as np
 
 from nirsyntheticpfn.evaluation.prior_checks import PHASE_A_GATE_OVERRIDE
 from nirsyntheticpfn.evaluation.realism import RealDataset, align_to_real_grid, load_real_spectra
 
-TransferStatus = Literal["completed", "blocked", "unsupported"]
+REALISM_GATE_BLOCKED_STATUS: Final = "BLOCKED_BY_REALISM_GATE"
+
+TransferStatus = Literal["completed", "blocked", "unsupported", "BLOCKED_BY_REALISM_GATE"]
 
 B2_REALISM_RISK = "B2_realism_failed"
 REAL_ONLY_CLAIM_STATUS = "not_applicable_real_only"
@@ -58,6 +60,10 @@ class TransferRow:
     b2_realism_risk: str
     synthetic_transfer_claim_status: str
     blocked_reason: str
+    raw_compared: int | None = None
+    raw_smoke_failures: int | None = None
+    raw_blocked: int | None = None
+    raw_missing_auc: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return cast("dict[str, Any]", _to_builtin(asdict(self)))

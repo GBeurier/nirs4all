@@ -1,0 +1,153 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyperFirstAtBeginDocument{\AtBeginDocument}
+\HyperFirstAtBeginDocument{\ifx\hyper@anchor\@undefined
+\global\let\oldcontentsline\contentsline
+\gdef\contentsline#1#2#3#4{\oldcontentsline{#1}{#2}{#3}}
+\global\let\oldnewlabel\newlabel
+\gdef\newlabel#1#2{\newlabelxx{#1}#2}
+\gdef\newlabelxx#1#2#3#4#5#6{\oldnewlabel{#1}{{#2}{#3}}}
+\AtEndDocument{\ifx\hyper@anchor\@undefined
+\let\contentsline\oldcontentsline
+\let\newlabel\oldnewlabel
+\fi}
+\fi}
+\global\let\hyper@last\relax 
+\gdef\HyperFirstAtBeginDocument#1{#1}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{williams2007implementation,rinnan2009review}
+\citation{hoerl1970ridge,hoerl1970application,hastie2009elements}
+\citation{saunders1998ridge,scholkopf2002learning}
+\citation{hollmann2023tabpfn,hollmann2025tabpfn}
+\citation{beurier2026aompls}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\newlabel{sec:intro}{{1}{1}{Introduction}{section.1}{}}
+\citation{hollmann2025tabpfn}
+\citation{beurier2026aompls}
+\@writefile{toc}{\contentsline {paragraph}{Relation to AOM-PLS.}{3}{section*.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Method}{3}{section.2}\protected@file@percent }
+\newlabel{sec:method}{{2}{3}{Method}{section.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Notation and the strict-linear operator contract}{3}{subsection.2.1}\protected@file@percent }
+\newlabel{sec:method-notation}{{2.1}{3}{Notation and the strict-linear operator contract}{subsection.2.1}{}}
+\newlabel{eq:operator-action}{{1}{3}{Notation and the strict-linear operator contract}{equation.2.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Single-operator dual Ridge}{3}{subsection.2.2}\protected@file@percent }
+\newlabel{sec:method-single}{{2.2}{3}{Single-operator dual Ridge}{subsection.2.2}{}}
+\newlabel{eq:single-beta}{{5}{3}{Single-operator dual Ridge}{equation.2.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Superblock dual Ridge}{3}{subsection.2.3}\protected@file@percent }
+\newlabel{sec:method-superblock}{{2.3}{3}{Superblock dual Ridge}{subsection.2.3}{}}
+\newlabel{eq:phi-superblock}{{6}{3}{Superblock dual Ridge}{equation.2.6}{}}
+\citation{beurier2026aompls}
+\newlabel{eq:superblock-kernel}{{8}{4}{Superblock dual Ridge}{equation.2.8}{}}
+\newlabel{eq:M-U-K}{{9}{4}{Superblock dual Ridge}{equation.2.9}{}}
+\newlabel{eq:beta-superblock}{{10}{4}{Superblock dual Ridge}{equation.2.10}{}}
+\@writefile{toc}{\contentsline {paragraph}{Equivalence with the explicit superblock.}{4}{section*.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}Block scaling}{4}{subsection.2.4}\protected@file@percent }
+\newlabel{sec:method-blockscale}{{2.4}{4}{Block scaling}{subsection.2.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{Fold-local computation.}{4}{section*.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.5}Selection modes}{4}{subsection.2.5}\protected@file@percent }
+\newlabel{sec:method-selection}{{2.5}{4}{Selection modes}{subsection.2.5}{}}
+\citation{cristianini2002kernel}
+\citation{lanckriet2004learning,bach2008consistency,gonen2011multiple}
+\citation{cristianini2002kernel}
+\citation{lanckriet2004learning}
+\citation{cristianini2002kernel}
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {superblock}.}{5}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {global}.}{5}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {active\_superblock}.}{5}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {branch\_global}.}{5}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {mkl}.}{5}{section*.8}\protected@file@percent }
+\newlabel{eq:mkl-kernel}{{12}{5}{\texttt {mkl}}{equation.2.12}{}}
+\citation{breiman1984classification}
+\citation{harris2020array}
+\citation{virtanen2020scipy}
+\citation{pedregosa2011scikit}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}Fold-local CV anti-leakage invariants}{6}{subsection.2.6}\protected@file@percent }
+\newlabel{sec:method-foldlocal}{{2.6}{6}{Fold-local CV anti-leakage invariants}{subsection.2.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.7}Adaptive alpha grid and the 1-SE rule}{6}{subsection.2.7}\protected@file@percent }
+\newlabel{sec:method-alpha}{{2.7}{6}{Adaptive alpha grid and the 1-SE rule}{subsection.2.7}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Implementation}{6}{section.3}\protected@file@percent }
+\newlabel{sec:implementation}{{3}{6}{Implementation}{section.3}{}}
+\citation{galvao2005method}
+\citation{hollmann2025tabpfn}
+\citation{beurier2026aompls}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Adaptive trace-relative $\alpha $ grid and boundary expansion mechanism. Left: the initial 50-point log grid centred on $\mathrm  {trace}(\mathbf  {K})/n$. Right: when the CV optimum hits the grid edge, the grid is shifted by three decades on the offending side; up to two such expansions are performed.\relax }}{7}{figure.caption.9}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:alpha-grid}{{1}{7}{Adaptive trace-relative $\alpha $ grid and boundary expansion mechanism. Left: the initial 50-point log grid centred on $\mathrm {trace}(\Kmat )/n$. Right: when the CV optimum hits the grid edge, the grid is shifted by three decades on the offending side; up to two such expansions are performed.\relax }{figure.caption.9}{}}
+\@writefile{toc}{\contentsline {paragraph}{Cross-validation interface.}{7}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Solver.}{7}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Architecture.}{7}{section*.12}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces AOM-Ridge framework. From left to right: raw spectra $\mathbf  {X}$ fed through optional non-linear branches (\texttt  {none}, \textsc  {SNV}\xspace  , \textsc  {MSC}\xspace  ), through a bank of strict-linear operators $\{\mathbf  {A}_b\}$, through fold-local centering and block scaling, into the dual kernel $\mathbf  {K}=\DOTSB \sum@ \slimits@ _b s_b^2\mathbf  {X}\mathbf  {A}_b^\top \mathbf  {A}_b\mathbf  {X}^\top $, and finally into the Ridge solve $(\mathbf  {K}+\alpha \mathbf  {I})\mathbf  {C}=\mathbf  {Y}_{\!c}$ that returns an original-space coefficient $\bm  {\beta }=\mathbf  {U}\mathbf  {C}$. The five selection modes branch on top of this single core.\relax }}{8}{figure.caption.13}\protected@file@percent }
+\newlabel{fig:aomridge-framework}{{2}{8}{AOM-Ridge framework. From left to right: raw spectra $\Xmat $ fed through optional non-linear branches (\texttt {none}, \SNV , \MSC ), through a bank of strict-linear operators $\{\Amat _b\}$, through fold-local centering and block scaling, into the dual kernel $\Kmat =\sum _b s_b^2\Xmat \Amat _b^\top \Amat _b\Xmat ^\top $, and finally into the Ridge solve $(\Kmat +\alpha \identity )\Cmat =\Yc $ that returns an original-space coefficient $\bm \beta =\Umat \Cmat $. The five selection modes branch on top of this single core.\relax }{figure.caption.13}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Experimental protocol}{8}{section.4}\protected@file@percent }
+\newlabel{sec:experiments}{{4}{8}{Experimental protocol}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Cohort sources}{8}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Variants}{8}{subsection.4.2}\protected@file@percent }
+\citation{galvao2005method}
+\citation{demsar2006statistical,benavoli2017time}
+\citation{nadeau2003inference}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Outer split and inner CV}{9}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Hyperparameters}{9}{subsection.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}Statistical comparison}{9}{subsection.4.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6}Leakage safety}{9}{subsection.4.6}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Headline regression: \textsc  {AOM-Ridge}\xspace  \ vs.\ paper Ridge HPO on the 39-dataset NIRS regression cohort. \emph  {Wins} counts datasets where \textsc  {AOM-Ridge}\xspace  \ strictly improves test RMSEP. \emph  {Median delta} is the per-dataset relative-RMSEP delta against paper Ridge HPO. \emph  {Quartz} \texttt  {spxy70} is excluded from relative-RMSEP and win summaries because its paper-Ridge reference is degenerate ($\mathrm  {RMSEP}\approx 3.4\!\times \!10^{-9}$) and produces unbounded ratios; we keep it in the absolute-RMSEP table for completeness. The median is therefore computed on 38 paired datasets. Generated from \texttt  {benchmark\_runs/curated/results.csv}.\relax }}{10}{table.caption.14}\protected@file@percent }
+\newlabel{tab:headline}{{1}{10}{Headline regression: \AOMR \ vs.\ paper Ridge HPO on the 39-dataset NIRS regression cohort. \emph {Wins} counts datasets where \AOMR \ strictly improves test RMSEP. \emph {Median delta} is the per-dataset relative-RMSEP delta against paper Ridge HPO. \emph {Quartz} \texttt {spxy70} is excluded from relative-RMSEP and win summaries because its paper-Ridge reference is degenerate ($\mathrm {RMSEP}\approx 3.4\!\times \!10^{-9}$) and produces unbounded ratios; we keep it in the absolute-RMSEP table for completeness. The median is therefore computed on 38 paired datasets. Generated from \texttt {benchmark\_runs/curated/results.csv}.\relax }{table.caption.14}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Per-mode breakdown: number of datasets on which each mode is the \textsc  {AOM-Ridge}\xspace  \ winner under the inner-CV criterion. Numbers are approximate and read off from the curated results CSV. Per-mode percentages sum to 100\% across the 38 paired datasets. Generated from \texttt  {benchmark\_runs/curated/results.csv} by the summariser script.\relax }}{10}{table.caption.15}\protected@file@percent }
+\newlabel{tab:per-mode}{{2}{10}{Per-mode breakdown: number of datasets on which each mode is the \AOMR \ winner under the inner-CV criterion. Numbers are approximate and read off from the curated results CSV. Per-mode percentages sum to 100\% across the 38 paired datasets. Generated from \texttt {benchmark\_runs/curated/results.csv} by the summariser script.\relax }{table.caption.15}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Results}{10}{section.5}\protected@file@percent }
+\newlabel{sec:results}{{5}{10}{Results}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Headline regression table}{10}{subsection.5.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Wilcoxon signed-rank tests of \textsc  {AOM-Ridge}\xspace  \ (best mode per dataset) against each baseline. Test statistic and \emph  {one-sided directional} $p$-value (alternative: $\mathrm  {RMSEP}_{\textsc  {AOM-Ridge}\xspace  } < \mathrm  {RMSEP}_{\text  {baseline}}$) over the paired-dataset subset (complete cases only; $N=38$ for all baselines except CNN, where $N=33$).\relax }}{11}{table.caption.16}\protected@file@percent }
+\newlabel{tab:wilcoxon}{{3}{11}{Wilcoxon signed-rank tests of \AOMR \ (best mode per dataset) against each baseline. Test statistic and \emph {one-sided directional} $p$-value (alternative: $\mathrm {RMSEP}_{\AOMR } < \mathrm {RMSEP}_{\text {baseline}}$) over the paired-dataset subset (complete cases only; $N=38$ for all baselines except CNN, where $N=33$).\relax }{table.caption.16}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Per-mode behaviour}{11}{subsection.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Statistical comparison}{11}{subsection.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Discussion}{11}{section.6}\protected@file@percent }
+\newlabel{sec:discussion}{{6}{11}{Discussion}{section.6}{}}
+\@writefile{toc}{\contentsline {paragraph}{What works.}{11}{section*.22}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Limitations: $y$-based splits and inner-CV mis-calibration.}{11}{section*.23}\protected@file@percent }
+\citation{cristianini2002kernel}
+\citation{lanckriet2004learning}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Critical-difference diagram across the regression cohort (complete-case subset $N=33$ after dropping QUARTZ and any rows with missing CNN baseline), Friedman/Nemenyi at the conventional significance level. Lower average rank is better. Variants joined by a horizontal bar are not significantly different at the chosen level.\relax }}{12}{figure.caption.17}\protected@file@percent }
+\newlabel{fig:cd-regression}{{3}{12}{Critical-difference diagram across the regression cohort (complete-case subset $N=33$ after dropping QUARTZ and any rows with missing CNN baseline), Friedman/Nemenyi at the conventional significance level. Lower average rank is better. Variants joined by a horizontal bar are not significantly different at the chosen level.\relax }{figure.caption.17}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Per-dataset signed RMSEP delta against paper Ridge HPO. Each bar is one dataset; bars below the zero line are wins. Six bars sit above zero (BEER \texttt  {YbaseSplit}, AMYLOSE, TIC, and three others); they are discussed in Section\nobreakspace  {}\ref  {sec:discussion}.\relax }}{12}{figure.caption.18}\protected@file@percent }
+\newlabel{fig:per-dataset-delta}{{4}{12}{Per-dataset signed RMSEP delta against paper Ridge HPO. Each bar is one dataset; bars below the zero line are wins. Six bars sit above zero (BEER \texttt {YbaseSplit}, AMYLOSE, TIC, and three others); they are discussed in Section~\ref {sec:discussion}.\relax }{figure.caption.18}{}}
+\@writefile{toc}{\contentsline {paragraph}{Limitations: SNV-on-outliers.}{12}{section*.24}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{What does not work yet.}{12}{section*.25}\protected@file@percent }
+\citation{beurier2026aompls}
+\citation{hollmann2025tabpfn}
+\citation{nirs4all2025}
+\bibstyle{plainnat}
+\bibdata{refs}
+\bibcite{bach2008consistency}{{1}{2008}{{Bach}}{{}}}
+\bibcite{benavoli2017time}{{2}{2017}{{Benavoli et~al.}}{{Benavoli, Corani, Dem{\v {s}}ar, and Zaffalon}}}
+\bibcite{nirs4all2025}{{3}{2025}{{Beurier and {nirs4all contributors}}}{{}}}
+\bibcite{beurier2026aompls}{{4}{2026}{{Beurier and {nirs4all contributors}}}{{}}}
+\bibcite{breiman1984classification}{{5}{1984}{{Breiman et~al.}}{{Breiman, Friedman, Stone, and Olshen}}}
+\@writefile{toc}{\contentsline {paragraph}{Future work.}{13}{section*.26}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Conclusion}{13}{section.7}\protected@file@percent }
+\newlabel{sec:conclusion}{{7}{13}{Conclusion}{section.7}{}}
+\bibcite{cristianini2002kernel}{{6}{2002}{{Cristianini et~al.}}{{Cristianini, Shawe-Taylor, Elisseeff, and Kandola}}}
+\bibcite{demsar2006statistical}{{7}{2006}{{Dem{\v {s}}ar}}{{}}}
+\bibcite{galvao2005method}{{8}{2005}{{Galv{\~a}o et~al.}}{{Galv{\~a}o, Araujo, Jose, Pontes, Silva, and Saldanha}}}
+\bibcite{gonen2011multiple}{{9}{2011}{{G{\"o}nen and Alpayd{\i }n}}{{}}}
+\bibcite{harris2020array}{{10}{2020}{{Harris et~al.}}{{Harris, Millman, van~der Walt, Gommers, Virtanen, Cournapeau, Wieser, Taylor, Berg, Smith, et~al.}}}
+\bibcite{hastie2009elements}{{11}{2009}{{Hastie et~al.}}{{Hastie, Tibshirani, and Friedman}}}
+\bibcite{hoerl1970application}{{12}{1970{a}}{{Hoerl and Kennard}}{{}}}
+\bibcite{hoerl1970ridge}{{13}{1970{b}}{{Hoerl and Kennard}}{{}}}
+\bibcite{hollmann2023tabpfn}{{14}{2023}{{Hollmann et~al.}}{{Hollmann, M{\"u}ller, Eggensperger, and Hutter}}}
+\bibcite{hollmann2025tabpfn}{{15}{2025}{{Hollmann et~al.}}{{Hollmann, M{\"u}ller, Purucker, Krishnakumar, K{\"o}rfer, Hoo, Schirrmeister, and Hutter}}}
+\bibcite{lanckriet2004learning}{{16}{2004}{{Lanckriet et~al.}}{{Lanckriet, Cristianini, Bartlett, El~Ghaoui, and Jordan}}}
+\bibcite{nadeau2003inference}{{17}{2003}{{Nadeau and Bengio}}{{}}}
+\bibcite{pedregosa2011scikit}{{18}{2011}{{Pedregosa et~al.}}{{Pedregosa, Varoquaux, Gramfort, Michel, Thirion, Grisel, Blondel, Prettenhofer, Weiss, Dubourg, et~al.}}}
+\bibcite{rinnan2009review}{{19}{2009}{{Rinnan et~al.}}{{Rinnan, van~den Berg, and Engelsen}}}
+\bibcite{saunders1998ridge}{{20}{1998}{{Saunders et~al.}}{{Saunders, Gammerman, and Vovk}}}
+\bibcite{scholkopf2002learning}{{21}{2002}{{Sch{\"o}lkopf and Smola}}{{}}}
+\bibcite{virtanen2020scipy}{{22}{2020}{{Virtanen et~al.}}{{Virtanen, Gommers, Oliphant, Haberland, Reddy, Cournapeau, Burovski, Peterson, Weckesser, Bright, et~al.}}}
+\bibcite{williams2007implementation}{{23}{2007}{{Williams and Norris}}{{}}}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Per-dataset relative-RMSEP heatmap (datasets $\times $ methods). Cells are coloured by $\mathrm  {RMSEP}_{\text  {method}}/ \mathrm  {RMSEP}_{\text  {paper Ridge HPO}}$; values $<1$ (blue) indicate a win. \textsc  {AOM-Ridge}\xspace  \ is the rightmost block of columns and dominates the heatmap on most rows.\relax }}{16}{figure.caption.19}\protected@file@percent }
+\newlabel{fig:heatmap}{{5}{16}{Per-dataset relative-RMSEP heatmap (datasets $\times $ methods). Cells are coloured by $\mathrm {RMSEP}_{\text {method}}/ \mathrm {RMSEP}_{\text {paper Ridge HPO}}$; values $<1$ (blue) indicate a win. \AOMR \ is the rightmost block of columns and dominates the heatmap on most rows.\relax }{figure.caption.19}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Cumulative iRMSEP relative to TabPFN-Raw, sorted by $n_{\text  {features}}$ (left) and $n_{\text  {train}}$ (right). Each curve is the running sum of dataset-level $\mathrm  {iRMSEP}_M = (\mathrm  {RMSEP}_{\text  {TabPFN-Raw}} - \mathrm  {RMSEP}_M)/\mathrm  {RMSEP}_{\text  {TabPFN-Raw}}$; positive means improvement. The two top \textsc  {AOM-Ridge}\xspace  \ variants and the two top AOM-PLS variants are bold; paper baselines are muted. End-of-curve labels report the cumulative iRMSEP at the cohort level.\relax }}{17}{figure.caption.20}\protected@file@percent }
+\newlabel{fig:cumulative-irmsep}{{6}{17}{Cumulative iRMSEP relative to TabPFN-Raw, sorted by $n_{\text {features}}$ (left) and $n_{\text {train}}$ (right). Each curve is the running sum of dataset-level $\mathrm {iRMSEP}_M = (\mathrm {RMSEP}_{\text {TabPFN-Raw}} - \mathrm {RMSEP}_M)/\mathrm {RMSEP}_{\text {TabPFN-Raw}}$; positive means improvement. The two top \AOMR \ variants and the two top AOM-PLS variants are bold; paper baselines are muted. End-of-curve labels report the cumulative iRMSEP at the cohort level.\relax }{figure.caption.20}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Mean iRMSEP versus training time across the cohort. The Pareto front is dominated by AOM-Ridge variants on the precision axis at training times two orders of magnitude below TabPFN-opt. Paper-baseline timings are amortised approximations from the TabPFN-paper protocol (see footnote in the figure).\relax }}{17}{figure.caption.21}\protected@file@percent }
+\newlabel{fig:irmsep-vs-time}{{7}{17}{Mean iRMSEP versus training time across the cohort. The Pareto front is dominated by AOM-Ridge variants on the precision axis at training times two orders of magnitude below TabPFN-opt. Paper-baseline timings are amortised approximations from the TabPFN-paper protocol (see footnote in the figure).\relax }{figure.caption.21}{}}
+\gdef \@abspage@last{17}

@@ -27,11 +27,31 @@ PRESETS = [
     ("fruit", "classification", 2),
     ("dairy", "regression", 1),
     ("meat", "classification", 3),
+    ("wine", "regression", 1),
+    ("juice", "regression", 1),
     ("baking", "regression", 1),
     ("tablets", "classification", 4),
     ("powders", "regression", 1),
+    ("soil", "regression", 1),
     ("fuel", "classification", 2),
 ]
+PRESET_SOURCE_OVERRIDES: dict[str, dict[str, object]] = {
+    "wine": {
+        "measurement_mode": "transmittance",
+        "matrix_type": "liquid",
+        "particle_size": 5.0,
+    },
+    "juice": {
+        "measurement_mode": "transmittance",
+        "matrix_type": "liquid",
+        "particle_size": 5.0,
+    },
+    "soil": {
+        "measurement_mode": "reflectance",
+        "matrix_type": "powder",
+        "particle_size": 75.0,
+    },
+}
 
 
 def main() -> None:
@@ -107,7 +127,7 @@ def render_markdown(
         "",
         "## Objective",
         "",
-        "Generate 10 finite synthetic datasets from 10 canonical A1-style records.",
+        f"Generate {len(PRESETS)} finite synthetic datasets from canonical A1-style records.",
         "",
         "## Command",
         "",
@@ -164,7 +184,7 @@ def render_markdown(
         "",
         "## Unsupported Fields",
         "",
-        "None for this smoke set. A2 maps target, row-normalized concentration mixtures, temperature, particle-size scatter, edge roll-off, batch, instrument, and mode fields explicitly.",
+        "None for this smoke set. A2 maps target, row-normalized concentration mixtures, temperature, particle-size scatter, edge roll-off, batch, instrument, matrix, and mode fields explicitly.",
         "",
         "Note: `measurement_mode` is passed to `SyntheticNIRSGenerator` and preserved in metadata; this smoke validates the executable dataset contract, not mode-specific optical physics.",
         "",
@@ -230,7 +250,7 @@ def _preset_source(
             "n_targets": target_size,
             "nonlinearity": "none",
         }
-    return {
+    source: dict[str, object] = {
         "domain": domain_alias,
         "domain_category": "research",
         "instrument": "foss_xds",
@@ -247,6 +267,8 @@ def _preset_source(
         "target_config": target_config,
         "random_state": seed,
     }
+    source.update(PRESET_SOURCE_OVERRIDES.get(domain_alias, {}))
+    return source
 
 
 def _first_valid_domain_components(domain_key: str, n_components: int) -> list[str]:
