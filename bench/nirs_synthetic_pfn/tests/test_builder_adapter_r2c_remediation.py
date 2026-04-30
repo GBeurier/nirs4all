@@ -41,6 +41,9 @@ from nirsyntheticpfn.adapters.builder_adapter import (
     R2U_REMEDIATION_PROFILES,
     R2V_REMEDIATION_PROFILES,
     R2W_REMEDIATION_PROFILES,
+    R2X_REMEDIATION_PROFILES,
+    R2Y_REMEDIATION_PROFILES,
+    R2Z_REMEDIATION_PROFILES,
     _convolve_rows,
     _gaussian_kernel,
     build_synthetic_dataset_run,
@@ -3832,3 +3835,325 @@ def test_r2w_non_manure_draws_are_identical_to_r2s(source: dict[str, object]) ->
     assert r2w_audit == r2s_audit
     np.testing.assert_allclose(r2w_run.X, r2s_run.X)
     np.testing.assert_allclose(r2w_run.y, r2s_run.y)
+
+
+# ---------------------------------------------------------------------------
+# R2x sentinel matrix remediation profile (explicit MANURE21-only albedo dispersion).
+# ---------------------------------------------------------------------------
+
+
+def test_r2x_profile_is_opt_in_listed_and_records_non_oracle_manure21_route() -> None:
+    assert R2X_REMEDIATION_PROFILES == ("r2x_sentinel_matrix_v1",)
+    assert "r2x_sentinel_matrix_v1" in ALL_REMEDIATION_PROFILES
+    assert "r2w_sentinel_matrix_v1" in ALL_REMEDIATION_PROFILES
+
+    remediated = build_synthetic_dataset_run(
+        canonicalize_prior_config(_r2n_manure21_source(seed=122)),
+        n_samples=24,
+        random_seed=4242,
+        remediation_profile="r2x_sentinel_matrix_v1",
+    )
+
+    audit = remediated.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r2x_sentinel_matrix_v1"
+    assert audit["scope"] == "bench_only_r2x_sentinel_matrix_remediation"
+    assert audit["domain_key"] == "environmental_soil"
+    assert audit["applied_to_concentrations"] is True
+    assert audit["applied_to_spectra"] is True
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == (
+        "dried_manure_coarse_albedo_dispersion_centered_readout"
+    )
+    assert params["spectra_source"] == (
+        "fixed_coarse_dark_organic_albedo_dispersion_plus_centered_particle_scatter_bands"
+    )
+    assert params["path_factor_range"] == [0.8, 1.0]
+    assert params["additive_baseline_range"] == [0.7, 1.02]
+    assert params["scatter_slope_absorbance_range"] == [-0.16, 0.16]
+    assert params["moisture_patch_absorbance_range"] == [0.0, 0.14]
+    assert params["organic_lump_absorbance_range"] == [0.0, 0.13]
+    assert params["mineral_ash_absorbance_range"] == [-0.1, 0.1]
+    assert params["balanced_centered_draws"] is True
+    assert params["readout_centering_grid"] == "uniform_wavenumber"
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert (
+        params["heterogeneity_source"]
+        == "fixed_dried_manure_coarse_albedo_dispersion_centered_particle_moisture_mineral_scatter_prior"
+    )
+    assert params["albedo_source"] == (
+        "fixed_wide_dark_organic_mineral_albedo_dispersion_prior"
+    )
+    assert params["manure21_readout_route_marker"] == "manure21"
+    assert params["manure21_readout_route_non_oracle"] is True
+    assert params["manure21_readout_route_real_stat_capture"] is False
+    assert params["manure21_readout_route_thresholds_modified"] is False
+    for key in (
+        "oracle",
+        "label_inputs_used",
+        "target_inputs_used",
+        "split_inputs_used",
+        "source_oracle_used",
+        "learned",
+        "real_stat_capture",
+        "thresholds_modified",
+        "metrics_modified",
+        "imputed",
+        "replays_real_rows",
+    ):
+        assert audit[key] is False, f"audit flag {key!r} must be False"
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        _r2s_diesel_source(seed=123),
+        _r2r_fruit_puree_source(seed=124),
+        _r2q_lucas_ph_organic_source(seed=125),
+        _r2p_phosphorus_source(seed=126),
+        _r2o_beer_source(seed=127),
+        _r2m_milk_source(seed=128),
+        _juice_source(seed=129),
+    ),
+)
+def test_r2x_non_manure_draws_are_identical_to_r2s(source: dict[str, object]) -> None:
+    record = canonicalize_prior_config(source)
+    r2s_run = build_synthetic_dataset_run(
+        record,
+        n_samples=24,
+        random_seed=4242,
+        remediation_profile="r2s_sentinel_matrix_v1",
+    )
+    r2x_run = build_synthetic_dataset_run(
+        record,
+        n_samples=24,
+        random_seed=4242,
+        remediation_profile="r2x_sentinel_matrix_v1",
+    )
+
+    r2s_audit = r2s_run.metadata["r2c_mechanistic_remediation"]
+    r2x_audit = r2x_run.metadata["r2c_mechanistic_remediation"]
+    assert r2x_audit["profile"] == r2s_audit["profile"]
+    assert r2x_audit["transform_params"].get("spectra_rule") != (
+        "dried_manure_coarse_albedo_dispersion_centered_readout"
+    )
+    assert r2x_audit == r2s_audit
+    np.testing.assert_allclose(r2x_run.X, r2s_run.X)
+    np.testing.assert_allclose(r2x_run.y, r2s_run.y)
+
+
+# ---------------------------------------------------------------------------
+# R2y sentinel matrix remediation profile (explicit MANURE21-only soft low-frequency dispersion).
+# ---------------------------------------------------------------------------
+
+
+def test_r2y_profile_is_opt_in_listed_and_records_non_oracle_manure21_route() -> None:
+    assert R2Y_REMEDIATION_PROFILES == ("r2y_sentinel_matrix_v1",)
+    assert "r2y_sentinel_matrix_v1" in ALL_REMEDIATION_PROFILES
+    assert "r2w_sentinel_matrix_v1" in ALL_REMEDIATION_PROFILES
+
+    remediated = build_synthetic_dataset_run(
+        canonicalize_prior_config(_r2n_manure21_source(seed=130)),
+        n_samples=24,
+        random_seed=4242,
+        remediation_profile="r2y_sentinel_matrix_v1",
+    )
+
+    audit = remediated.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r2y_sentinel_matrix_v1"
+    assert audit["scope"] == "bench_only_r2y_sentinel_matrix_remediation"
+    assert audit["domain_key"] == "environmental_soil"
+    assert audit["applied_to_concentrations"] is True
+    assert audit["applied_to_spectra"] is True
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == (
+        "dried_manure_soft_low_frequency_albedo_dispersion_centered_readout"
+    )
+    assert params["spectra_source"] == (
+        "fixed_soft_low_frequency_dark_organic_albedo_dispersion_plus_centered_particle_scatter_bands"
+    )
+    assert params["path_factor_range"] == [0.82, 1.02]
+    assert params["additive_baseline_range"] == [0.7, 1.02]
+    assert params["scatter_slope_absorbance_range"] == [-0.15, 0.15]
+    assert params["moisture_patch_absorbance_range"] == [0.0, 0.14]
+    assert params["organic_lump_absorbance_range"] == [0.0, 0.13]
+    assert params["mineral_ash_absorbance_range"] == [-0.1, 0.1]
+    assert params["balanced_centered_draws"] is True
+    assert params["readout_centering_grid"] == "uniform_wavenumber"
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert (
+        params["heterogeneity_source"]
+        == "fixed_dried_manure_soft_low_frequency_albedo_dispersion_centered_particle_moisture_mineral_scatter_prior"
+    )
+    assert params["albedo_source"] == (
+        "fixed_soft_wide_dark_organic_mineral_albedo_dispersion_prior"
+    )
+    assert params["manure21_readout_route_marker"] == "manure21"
+    assert params["manure21_readout_route_non_oracle"] is True
+    assert params["manure21_readout_route_real_stat_capture"] is False
+    assert params["manure21_readout_route_thresholds_modified"] is False
+    for key in (
+        "oracle",
+        "label_inputs_used",
+        "target_inputs_used",
+        "split_inputs_used",
+        "source_oracle_used",
+        "learned",
+        "real_stat_capture",
+        "thresholds_modified",
+        "metrics_modified",
+        "imputed",
+        "replays_real_rows",
+    ):
+        assert audit[key] is False, f"audit flag {key!r} must be False"
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        _r2s_diesel_source(seed=131),
+        _r2r_fruit_puree_source(seed=132),
+        _r2q_lucas_ph_organic_source(seed=133),
+        _r2p_phosphorus_source(seed=134),
+        _r2o_beer_source(seed=135),
+        _r2m_milk_source(seed=136),
+        _juice_source(seed=137),
+    ),
+)
+def test_r2y_non_manure_draws_are_identical_to_r2s(source: dict[str, object]) -> None:
+    record = canonicalize_prior_config(source)
+    r2s_run = build_synthetic_dataset_run(
+        record,
+        n_samples=24,
+        random_seed=4242,
+        remediation_profile="r2s_sentinel_matrix_v1",
+    )
+    r2y_run = build_synthetic_dataset_run(
+        record,
+        n_samples=24,
+        random_seed=4242,
+        remediation_profile="r2y_sentinel_matrix_v1",
+    )
+
+    r2s_audit = r2s_run.metadata["r2c_mechanistic_remediation"]
+    r2y_audit = r2y_run.metadata["r2c_mechanistic_remediation"]
+    assert r2y_audit["profile"] == r2s_audit["profile"]
+    assert r2y_audit["transform_params"].get("spectra_rule") != (
+        "dried_manure_soft_low_frequency_albedo_dispersion_centered_readout"
+    )
+    assert r2y_audit == r2s_audit
+    np.testing.assert_allclose(r2y_run.X, r2s_run.X)
+    np.testing.assert_allclose(r2y_run.y, r2s_run.y)
+
+
+# ---------------------------------------------------------------------------
+# R2z sentinel matrix remediation profile (explicit MANURE21-only compositional heterogeneity).
+# ---------------------------------------------------------------------------
+
+
+def test_r2z_profile_is_opt_in_listed_and_records_non_oracle_manure21_route() -> None:
+    assert R2Z_REMEDIATION_PROFILES == ("r2z_sentinel_matrix_v1",)
+    assert "r2z_sentinel_matrix_v1" in ALL_REMEDIATION_PROFILES
+    assert "r2w_sentinel_matrix_v1" in ALL_REMEDIATION_PROFILES
+
+    remediated = build_synthetic_dataset_run(
+        canonicalize_prior_config(_r2n_manure21_source(seed=138)),
+        n_samples=24,
+        random_seed=4242,
+        remediation_profile="r2z_sentinel_matrix_v1",
+    )
+
+    audit = remediated.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r2z_sentinel_matrix_v1"
+    assert audit["scope"] == "bench_only_r2z_sentinel_matrix_remediation"
+    assert audit["domain_key"] == "environmental_soil"
+    assert audit["applied_to_concentrations"] is True
+    assert audit["applied_to_spectra"] is True
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == (
+        "dried_manure_compositional_heterogeneity_centered_readout"
+    )
+    assert params["spectra_source"] == (
+        "fixed_mean_neutral_compositional_heterogeneity_plus_smooth_centered_scatter_bands"
+    )
+    assert params["path_factor_range"] == [0.84, 1.02]
+    assert params["additive_baseline_range"] == [0.71, 1.01]
+    assert params["scatter_slope_absorbance_range"] == [-0.1, 0.1]
+    assert params["moisture_patch_absorbance_range"] == [0.0, 0.12]
+    assert params["organic_lump_absorbance_range"] == [0.0, 0.11]
+    assert params["mineral_ash_absorbance_range"] == [-0.08, 0.08]
+    assert params["composition_heterogeneity"] == (
+        "mean_neutral_dirichlet_concentration_scaled"
+    )
+    assert params["composition_alpha_concentration_scale"] == 0.72
+    assert params["balanced_centered_draws"] is True
+    assert params["readout_centering_grid"] == "uniform_wavenumber"
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert (
+        params["heterogeneity_source"]
+        == "fixed_dried_manure_mean_neutral_compositional_heterogeneity_smooth_centered_scatter_prior"
+    )
+    assert params["albedo_source"] == (
+        "fixed_wide_dark_organic_mineral_albedo_prior_r2w_envelope"
+    )
+    assert params["manure21_readout_route_marker"] == "manure21"
+    assert params["manure21_readout_route_non_oracle"] is True
+    assert params["manure21_readout_route_real_stat_capture"] is False
+    assert params["manure21_readout_route_thresholds_modified"] is False
+    for key in (
+        "oracle",
+        "label_inputs_used",
+        "target_inputs_used",
+        "split_inputs_used",
+        "source_oracle_used",
+        "learned",
+        "real_stat_capture",
+        "thresholds_modified",
+        "metrics_modified",
+        "imputed",
+        "replays_real_rows",
+    ):
+        assert audit[key] is False, f"audit flag {key!r} must be False"
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        _r2s_diesel_source(seed=139),
+        _r2r_fruit_puree_source(seed=140),
+        _r2q_lucas_ph_organic_source(seed=141),
+        _r2p_phosphorus_source(seed=142),
+        _r2o_beer_source(seed=143),
+        _r2m_milk_source(seed=144),
+        _juice_source(seed=145),
+    ),
+)
+def test_r2z_non_manure_draws_are_identical_to_r2s(source: dict[str, object]) -> None:
+    record = canonicalize_prior_config(source)
+    r2s_run = build_synthetic_dataset_run(
+        record,
+        n_samples=24,
+        random_seed=4242,
+        remediation_profile="r2s_sentinel_matrix_v1",
+    )
+    r2z_run = build_synthetic_dataset_run(
+        record,
+        n_samples=24,
+        random_seed=4242,
+        remediation_profile="r2z_sentinel_matrix_v1",
+    )
+
+    r2s_audit = r2s_run.metadata["r2c_mechanistic_remediation"]
+    r2z_audit = r2z_run.metadata["r2c_mechanistic_remediation"]
+    assert r2z_audit["profile"] == r2s_audit["profile"]
+    assert r2z_audit["transform_params"].get("spectra_rule") != (
+        "dried_manure_compositional_heterogeneity_centered_readout"
+    )
+    assert r2z_audit == r2s_audit
+    np.testing.assert_allclose(r2z_run.X, r2s_run.X)
+    np.testing.assert_allclose(r2z_run.y, r2s_run.y)

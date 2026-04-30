@@ -17,7 +17,7 @@ Implemented criteria:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Sequence
+from typing import Any, Callable, List, Optional, Sequence
 
 import numpy as np
 from sklearn.model_selection import KFold
@@ -62,6 +62,7 @@ class CriterionConfig:
     holdout_seed: int = 42
     repeats: int = 1
     one_se_rule: bool = False
+    cv_splitter: Any = None  # optional sklearn-compatible splitter
 
 
 # ---------------------------------------------------------------------------

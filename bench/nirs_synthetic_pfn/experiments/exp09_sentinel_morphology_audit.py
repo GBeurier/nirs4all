@@ -52,6 +52,9 @@ from nirsyntheticpfn.adapters.builder_adapter import (
     R2U_REMEDIATION_PROFILES,
     R2V_REMEDIATION_PROFILES,
     R2W_REMEDIATION_PROFILES,
+    R2X_REMEDIATION_PROFILES,
+    R2Y_REMEDIATION_PROFILES,
+    R2Z_REMEDIATION_PROFILES,
     build_synthetic_dataset_run,
 )
 from nirsyntheticpfn.adapters.prior_adapter import canonicalize_domain, canonicalize_prior_config
@@ -686,6 +689,12 @@ def _remediation_token_source_overrides(
     dataset: RealDataset, profile: str
 ) -> dict[str, object]:
     """Dispatch token-based source overrides per remediation profile."""
+    if profile in R2Z_REMEDIATION_PROFILES:
+        return _r2t_token_source_overrides(dataset)
+    if profile in R2Y_REMEDIATION_PROFILES:
+        return _r2t_token_source_overrides(dataset)
+    if profile in R2X_REMEDIATION_PROFILES:
+        return _r2t_token_source_overrides(dataset)
     if profile in R2W_REMEDIATION_PROFILES:
         return _r2t_token_source_overrides(dataset)
     if profile in R2U_REMEDIATION_PROFILES:
@@ -730,6 +739,30 @@ def _effective_remediation_profile_for_dataset(
     profile: str | None,
 ) -> str | None:
     """Return the remediation profile that should reach the synthetic builder."""
+    if profile in R2Z_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2n_manure21_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r2s_sentinel_matrix_v1",
+        )
+    if profile in R2Y_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2n_manure21_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r2s_sentinel_matrix_v1",
+        )
+    if profile in R2X_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2n_manure21_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r2s_sentinel_matrix_v1",
+        )
     if profile in R2W_REMEDIATION_PROFILES:
         text, tokens = _dataset_text_and_tokens(dataset)
         if _has_r2n_manure21_marker(text, tokens):
@@ -1238,6 +1271,9 @@ def _effective_matrix_route_from_metadata(
             "dried_manure_bounded_centered_scatter_readout",
             "dried_manure_balanced_centered_scatter_readout",
             "dried_manure_albedo_variance_centered_scatter_readout",
+            "dried_manure_coarse_albedo_dispersion_centered_readout",
+            "dried_manure_soft_low_frequency_albedo_dispersion_centered_readout",
+            "dried_manure_compositional_heterogeneity_centered_readout",
         }
         and transform_params.get("manure21_readout_route_marker") == "manure21"
     ):
@@ -2480,6 +2516,171 @@ def render_markdown(
                     f"- MANURE21 rows dominated by `variance_over` = {manure_variance_over}/{len(manure_rows)} and `derivative_over` = {manure_derivative_over}/{len(manure_rows)}; systematic over-correction should be treated as `needs-review`.",
                     f"- Non-target rows accidentally reported on R2w = {non_target_r2w}/{len(compared) - len(manure_rows)}.",
                     "- This is single-seed diagnostic evidence only; it is not a B2/B3/B4/B5 gate and does not claim scientific validation.",
+                "",
+            ]
+        )
+    if remediation_profile in R2X_REMEDIATION_PROFILES:
+        manure_rows = [
+            row
+            for row in compared
+            if "manure21" in row.dataset.casefold()
+            or row.effective_matrix_route == "manure_organic_mineral_matrix"
+        ]
+        non_target_r2x = sum(
+            1
+            for row in compared
+            if row not in manure_rows
+            and row.remediation_profile == "r2x_sentinel_matrix_v1"
+        )
+        if manure_rows:
+            manure_mean_shift = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            manure_amplitude_under = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "amplitude_under"
+            )
+            manure_variance_under = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "variance_under"
+            )
+            manure_variance_over = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            manure_derivative_over = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            lines.extend(
+                [
+                    "## R2x MANURE21 Provenance",
+                    "",
+                    "- R2x inherits R2s routing and changes only explicit MANURE21 dried/ground manure rows in this audit path; R2t/R2u/R2v/R2w remain available but are not the baseline profile for this report.",
+                    "- The MANURE21 spectra rule is `dried_manure_coarse_albedo_dispersion_centered_readout`: R2w's balanced centered residual/scatter readout is kept while a slightly wider fixed dark organic/mineral albedo dispersion and coarser particulate smoothing transfer more cup-scale variance without derivative-over dominance.",
+                    "- Variability is carried by balanced albedo draws plus centered residual, particle-size scatter, moisture patch, organic lump, and mineral ash broad-band terms; no row-specific real statistic is captured.",
+                    "- No real MANURE21 spectra, marginal statistics, covariance/PCA structure, quantiles, labels, targets, splits, adversarial AUC, morphology gap score, thresholds, or downstream result was read to set these constants.",
+                    f"- MANURE21 diagnostic rows under R2x = {len(manure_rows)}; rows still dominated by `mean_shift` = {manure_mean_shift}/{len(manure_rows)}.",
+                    f"- MANURE21 rows still dominated by `amplitude_under` = {manure_amplitude_under}/{len(manure_rows)} and `variance_under` = {manure_variance_under}/{len(manure_rows)}; residual under-transfer remains non-gate.",
+                    f"- MANURE21 rows dominated by `variance_over` = {manure_variance_over}/{len(manure_rows)} and `derivative_over` = {manure_derivative_over}/{len(manure_rows)}; systematic over-correction should be treated as `needs-review`.",
+                    f"- Non-target rows accidentally reported on R2x = {non_target_r2x}/{len(compared) - len(manure_rows)}.",
+                    "- This is single-seed diagnostic evidence only; it is not a B2/B3/B4/B5 gate and does not claim scientific validation.",
+                    "",
+                ]
+            )
+    if remediation_profile in R2Y_REMEDIATION_PROFILES:
+        manure_rows = [
+            row
+            for row in compared
+            if "manure21" in row.dataset.casefold()
+            or row.effective_matrix_route == "manure_organic_mineral_matrix"
+        ]
+        non_target_r2y = sum(
+            1
+            for row in compared
+            if row not in manure_rows
+            and row.remediation_profile == "r2y_sentinel_matrix_v1"
+        )
+        if manure_rows:
+            manure_mean_shift = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            manure_amplitude_under = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "amplitude_under"
+            )
+            manure_variance_under = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "variance_under"
+            )
+            manure_variance_over = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            manure_derivative_over = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            lines.extend(
+                [
+                    "## R2y MANURE21 Provenance",
+                    "",
+                    "- R2y inherits R2s routing and changes only explicit MANURE21 dried/ground manure rows in this audit path; R2w remains the conservative baseline profile for this report.",
+                    "- The MANURE21 spectra rule is `dried_manure_soft_low_frequency_albedo_dispersion_centered_readout`: R2w's balanced centered residual/scatter readout is kept while a softer fixed albedo dispersion and low-frequency particulate smoothing transfer cup-scale variance without using sharper derivative structure.",
+                    "- Variability is carried by balanced albedo draws plus centered residual, particle-size scatter, moisture patch, organic lump, and mineral ash broad-band terms; no row-specific real statistic is captured.",
+                    "- No real MANURE21 spectra, marginal statistics, covariance/PCA structure, quantiles, labels, targets, splits, adversarial AUC, morphology gap score, thresholds, or downstream result was read to set these constants.",
+                    f"- MANURE21 diagnostic rows under R2y = {len(manure_rows)}; rows still dominated by `mean_shift` = {manure_mean_shift}/{len(manure_rows)}.",
+                    f"- MANURE21 rows still dominated by `amplitude_under` = {manure_amplitude_under}/{len(manure_rows)} and `variance_under` = {manure_variance_under}/{len(manure_rows)}; residual under-transfer remains non-gate.",
+                    f"- MANURE21 rows dominated by `variance_over` = {manure_variance_over}/{len(manure_rows)} and `derivative_over` = {manure_derivative_over}/{len(manure_rows)}; any non-zero repeated-seed derivative-over should be treated as `needs-review`.",
+                    f"- Non-target rows accidentally reported on R2y = {non_target_r2y}/{len(compared) - len(manure_rows)}.",
+                    "- This is single-seed diagnostic evidence only; it is not a B2/B3/B4/B5 gate and does not claim scientific validation.",
+                    "",
+                ]
+            )
+    if remediation_profile in R2Z_REMEDIATION_PROFILES:
+        manure_rows = [
+            row
+            for row in compared
+            if "manure21" in row.dataset.casefold()
+            or row.effective_matrix_route == "manure_organic_mineral_matrix"
+        ]
+        non_target_r2z = sum(
+            1
+            for row in compared
+            if row not in manure_rows
+            and row.remediation_profile == "r2z_sentinel_matrix_v1"
+        )
+        if manure_rows:
+            manure_mean_shift = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            manure_amplitude_under = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "amplitude_under"
+            )
+            manure_variance_under = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "variance_under"
+            )
+            manure_variance_over = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            manure_derivative_over = sum(
+                1
+                for row in manure_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            lines.extend(
+                [
+                    "## R2z MANURE21 Provenance",
+                    "",
+                    "- R2z inherits R2s routing and changes only explicit MANURE21 dried/ground manure rows in this audit path; R2w remains the conservative baseline profile for comparison.",
+                    "- The MANURE21 spectra rule is `dried_manure_compositional_heterogeneity_centered_readout`: R2w's centered albedo envelope is kept while mean-neutral Dirichlet concentration scaling increases organic/mineral composition heterogeneity and the readout uses smooth low-frequency centered scatter bands.",
+                    "- Variability is carried by mean-neutral composition heterogeneity plus balanced albedo draws and centered residual, particle-size scatter, moisture patch, organic lump, and mineral ash broad-band terms; no row-specific real statistic is captured.",
+                    "- No real MANURE21 spectra, marginal statistics, covariance/PCA structure, quantiles, labels, targets, splits, adversarial AUC, morphology gap score, thresholds, or downstream result was read to set these constants.",
+                    f"- MANURE21 diagnostic rows under R2z = {len(manure_rows)}; rows still dominated by `mean_shift` = {manure_mean_shift}/{len(manure_rows)}.",
+                    f"- MANURE21 rows still dominated by `amplitude_under` = {manure_amplitude_under}/{len(manure_rows)} and `variance_under` = {manure_variance_under}/{len(manure_rows)}; residual under-transfer remains non-gate.",
+                    f"- MANURE21 rows dominated by `variance_over` = {manure_variance_over}/{len(manure_rows)} and `derivative_over` = {manure_derivative_over}/{len(manure_rows)}; any non-zero repeated-seed over-correction should be treated as `needs-review`.",
+                    f"- Non-target rows accidentally reported on R2z = {non_target_r2z}/{len(compared) - len(manure_rows)}.",
+                    "- This is single-seed diagnostic evidence only; it is not a B2/B3/B4/B5 gate and does not claim scientific validation.",
                     "",
                 ]
             )
@@ -2682,8 +2883,8 @@ def main() -> None:
             "fuel rows to a shorter blank-referenced micro-path CH overtone "
             "readout. R2t keeps R2s routing and changes only MANURE21 dried/"
             "ground manure rows to a heterogeneous scatter/patch readout. "
-            "R2u/R2v/R2w keep R2s routing and change only MANURE21 rows with "
-            "centered manure albedo/scatter readouts. "
+            "R2u/R2v/R2w/R2x/R2y/R2z keep R2s routing and change only MANURE21 rows with "
+            "centered manure albedo/scatter/composition readouts. "
             "Each profile re-biases composition with a tight Dirichlet and "
             "applies a mechanistic spectra transform (optical-path scale and, "
             "for CORN/SOIL, instrumental Gaussian smoothing). Audit recorded per "
@@ -2753,6 +2954,9 @@ __all__ = [
     "R2U_REMEDIATION_PROFILES",
     "R2V_REMEDIATION_PROFILES",
     "R2W_REMEDIATION_PROFILES",
+    "R2X_REMEDIATION_PROFILES",
+    "R2Y_REMEDIATION_PROFILES",
+    "R2Z_REMEDIATION_PROFILES",
     "SECONDARY_FRUIT_SENTINEL_TOKENS",
     "SECONDARY_MILK_SENTINEL_TOKENS",
     "SECONDARY_SOIL_SENTINEL_TOKENS",

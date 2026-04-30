@@ -5355,6 +5355,484 @@ def test_r2w_repeated_seed_summary_csv_matches_report_contract() -> None:
     assert "Non-target rows accidentally reported on R2w profile: `0/75`" in md
 
 
+def test_exp09_exposes_r2x_profile_and_changes_only_manure21_vs_r2s() -> None:
+    exp09 = _load_exp09_module()
+    assert "r2x_sentinel_matrix_v1" in exp09.R2X_REMEDIATION_PROFILES
+    assert "r2x_sentinel_matrix_v1" in exp09.ALL_REMEDIATION_PROFILES
+    assert "R2X_REMEDIATION_PROFILES" in exp09.__all__
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+            "r2x_sentinel_matrix_v1",
+        )
+        == "r2x_sentinel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("DIESEL_bp50_246_b-a"),
+            "r2x_sentinel_matrix_v1",
+        )
+        == "r2s_sentinel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("PHOSPHORUS_SOIL"),
+            "r2x_sentinel_matrix_v1",
+        )
+        == "r2p_sentinel_matrix_v1"
+    )
+
+
+def test_r2x_manure21_build_records_coarse_albedo_dispersion_provenance() -> None:
+    exp09 = _load_exp09_module()
+    manure = _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type")
+    run = exp09._build_baseline_synthetic_run(
+        dataset=manure,
+        preset=exp09.select_synthetic_preset_for_dataset(manure),
+        n_samples=8,
+        seed=123,
+        remediation_profile="r2x_sentinel_matrix_v1",
+    )
+
+    audit = run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r2x_sentinel_matrix_v1"
+    assert audit["scope"] == "bench_only_r2x_sentinel_matrix_remediation"
+    assert audit["real_stat_capture"] is False
+    assert audit["thresholds_modified"] is False
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == (
+        "dried_manure_coarse_albedo_dispersion_centered_readout"
+    )
+    assert params["path_factor_range"] == [0.8, 1.0]
+    assert params["additive_baseline_range"] == [0.7, 1.02]
+    assert params["scatter_slope_absorbance_range"] == [-0.16, 0.16]
+    assert params["balanced_centered_draws"] is True
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r2x_sentinel_matrix_v1",
+        metadata=run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "manure_organic_mineral_matrix"
+
+
+def test_render_markdown_emits_r2x_manure_non_gate_note(tmp_path: Path) -> None:
+    exp09 = _load_exp09_module()
+    row = exp09.MorphologyRow(
+        status="compared",
+        source="AOM_regression",
+        task="regression",
+        dataset="MANURE21/All_manure_K2O_SPXY_strat_Manure_type",
+        synthetic_preset="soil",
+        effective_matrix_route="manure_organic_mineral_matrix",
+        comparison_space=exp09.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=10,
+        wavelength_min=1100.0,
+        wavelength_max=2500.0,
+        real_global_mean=0.1,
+        synthetic_global_mean=0.1,
+        global_mean_delta=0.0,
+        real_global_std=0.2,
+        synthetic_global_std=0.14,
+        global_std_ratio=0.7,
+        log10_global_std_ratio=-0.1549,
+        real_amplitude_p50=1.0,
+        synthetic_amplitude_p50=0.7,
+        amplitude_p50_ratio=0.7,
+        log10_amplitude_p50_ratio=-0.1549,
+        real_derivative_std_p50=0.01,
+        synthetic_derivative_std_p50=0.012,
+        derivative_std_p50_ratio=1.2,
+        log10_derivative_std_p50_ratio=0.0792,
+        mean_curve_corr=0.9,
+        inverted_mean_curve_corr=-0.9,
+        morphology_gap_score=0.488,
+        dominant_morphology_gap="variance_under",
+        audit_oracle=False,
+        audit_label_inputs_used=False,
+        audit_target_inputs_used=False,
+        audit_split_inputs_used=False,
+        audit_source_oracle_used=False,
+        audit_learned=False,
+        audit_real_stat_capture=False,
+        audit_thresholds_modified=False,
+        audit_metrics_modified=False,
+        audit_imputed=False,
+        audit_replays_real_rows=False,
+        audit_scope="bench_only_r2x_sentinel_morphology_audit",
+        remediation_profile="r2x_sentinel_matrix_v1",
+        r2c_remediation_enabled=True,
+        r2c_remediation_domain_key="environmental_soil",
+        r2c_remediation_concentrations_applied=True,
+        r2c_remediation_spectra_applied=True,
+        r2c_remediation_spectra_rule=(
+            "dried_manure_coarse_albedo_dispersion_centered_readout"
+        ),
+        r2c_remediation_composition_source=(
+            "textbook_dried_manure_organic_mineral_composition"
+        ),
+        r2c_remediation_spectra_source=(
+            "fixed_coarse_dark_organic_albedo_dispersion_plus_centered_particle_scatter_bands"
+        ),
+        r2c_remediation_provenance_source="exp09_dataset_token_manure21_route",
+        r2c_remediation_route_variant="",
+        r2c_remediation_constant_status="fixed_mechanistic_prior",
+        r2c_remediation_readout_space="dried_ground_manure_raw_apparent_absorbance",
+        r2c_remediation_calibration_source="none",
+        r2c_remediation_real_stat_source="none",
+        r2c_remediation_threshold_source="none",
+        blocked_reason="",
+    )
+    result = {
+        "status": "completed",
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "rows": [row],
+        "remediation_profile": "r2x_sentinel_matrix_v1",
+    }
+
+    md = exp09.render_markdown(
+        result=result,
+        report_path=tmp_path / "r2x.md",
+        csv_path=tmp_path / "r2x.csv",
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seed=1234,
+        sentinel_tokens=list(exp09.DEFAULT_SENTINEL_TOKENS),
+        remediation_profile="r2x_sentinel_matrix_v1",
+    )
+
+    assert "## R2x MANURE21 Provenance" in md
+    assert "`dried_manure_coarse_albedo_dispersion_centered_readout`" in md
+    assert "coarser particulate smoothing" in md
+    assert "rows dominated by `variance_over` = 0/1 and `derivative_over` = 0/1" in md
+    assert "not a B2/B3/B4/B5 gate" in md
+
+
+def test_exp09_exposes_r2y_profile_and_changes_only_manure21_vs_r2s() -> None:
+    exp09 = _load_exp09_module()
+    assert "r2y_sentinel_matrix_v1" in exp09.R2Y_REMEDIATION_PROFILES
+    assert "r2y_sentinel_matrix_v1" in exp09.ALL_REMEDIATION_PROFILES
+    assert "R2Y_REMEDIATION_PROFILES" in exp09.__all__
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+            "r2y_sentinel_matrix_v1",
+        )
+        == "r2y_sentinel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("DIESEL_bp50_246_b-a"),
+            "r2y_sentinel_matrix_v1",
+        )
+        == "r2s_sentinel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("PHOSPHORUS_SOIL"),
+            "r2y_sentinel_matrix_v1",
+        )
+        == "r2p_sentinel_matrix_v1"
+    )
+
+
+def test_r2y_manure21_build_records_soft_low_frequency_provenance() -> None:
+    exp09 = _load_exp09_module()
+    manure = _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type")
+    run = exp09._build_baseline_synthetic_run(
+        dataset=manure,
+        preset=exp09.select_synthetic_preset_for_dataset(manure),
+        n_samples=8,
+        seed=123,
+        remediation_profile="r2y_sentinel_matrix_v1",
+    )
+
+    audit = run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r2y_sentinel_matrix_v1"
+    assert audit["scope"] == "bench_only_r2y_sentinel_matrix_remediation"
+    assert audit["real_stat_capture"] is False
+    assert audit["thresholds_modified"] is False
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == (
+        "dried_manure_soft_low_frequency_albedo_dispersion_centered_readout"
+    )
+    assert params["path_factor_range"] == [0.82, 1.02]
+    assert params["additive_baseline_range"] == [0.7, 1.02]
+    assert params["scatter_slope_absorbance_range"] == [-0.15, 0.15]
+    assert params["balanced_centered_draws"] is True
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r2y_sentinel_matrix_v1",
+        metadata=run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "manure_organic_mineral_matrix"
+
+
+def test_render_markdown_emits_r2y_manure_non_gate_note(tmp_path: Path) -> None:
+    exp09 = _load_exp09_module()
+    row = exp09.MorphologyRow(
+        status="compared",
+        source="AOM_regression",
+        task="regression",
+        dataset="MANURE21/All_manure_K2O_SPXY_strat_Manure_type",
+        synthetic_preset="soil",
+        effective_matrix_route="manure_organic_mineral_matrix",
+        comparison_space=exp09.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=10,
+        wavelength_min=1100.0,
+        wavelength_max=2500.0,
+        real_global_mean=0.1,
+        synthetic_global_mean=0.1,
+        global_mean_delta=0.0,
+        real_global_std=0.2,
+        synthetic_global_std=0.14,
+        global_std_ratio=0.7,
+        log10_global_std_ratio=-0.1549,
+        real_amplitude_p50=1.0,
+        synthetic_amplitude_p50=0.7,
+        amplitude_p50_ratio=0.7,
+        log10_amplitude_p50_ratio=-0.1549,
+        real_derivative_std_p50=0.01,
+        synthetic_derivative_std_p50=0.012,
+        derivative_std_p50_ratio=1.2,
+        log10_derivative_std_p50_ratio=0.0792,
+        mean_curve_corr=0.9,
+        inverted_mean_curve_corr=-0.9,
+        morphology_gap_score=0.488,
+        dominant_morphology_gap="variance_under",
+        audit_oracle=False,
+        audit_label_inputs_used=False,
+        audit_target_inputs_used=False,
+        audit_split_inputs_used=False,
+        audit_source_oracle_used=False,
+        audit_learned=False,
+        audit_real_stat_capture=False,
+        audit_thresholds_modified=False,
+        audit_metrics_modified=False,
+        audit_imputed=False,
+        audit_replays_real_rows=False,
+        audit_scope="bench_only_r2y_sentinel_morphology_audit",
+        remediation_profile="r2y_sentinel_matrix_v1",
+        r2c_remediation_enabled=True,
+        r2c_remediation_domain_key="environmental_soil",
+        r2c_remediation_concentrations_applied=True,
+        r2c_remediation_spectra_applied=True,
+        r2c_remediation_spectra_rule=(
+            "dried_manure_soft_low_frequency_albedo_dispersion_centered_readout"
+        ),
+        r2c_remediation_composition_source=(
+            "textbook_dried_manure_organic_mineral_composition"
+        ),
+        r2c_remediation_spectra_source=(
+            "fixed_soft_low_frequency_dark_organic_albedo_dispersion_plus_centered_particle_scatter_bands"
+        ),
+        r2c_remediation_provenance_source="exp09_dataset_token_manure21_route",
+        r2c_remediation_route_variant="",
+        r2c_remediation_constant_status="fixed_mechanistic_prior",
+        r2c_remediation_readout_space="dried_ground_manure_raw_apparent_absorbance",
+        r2c_remediation_calibration_source="none",
+        r2c_remediation_real_stat_source="none",
+        r2c_remediation_threshold_source="none",
+        blocked_reason="",
+    )
+    result = {
+        "status": "completed",
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "rows": [row],
+        "remediation_profile": "r2y_sentinel_matrix_v1",
+    }
+
+    md = exp09.render_markdown(
+        result=result,
+        report_path=tmp_path / "r2y.md",
+        csv_path=tmp_path / "r2y.csv",
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seed=1234,
+        sentinel_tokens=list(exp09.DEFAULT_SENTINEL_TOKENS),
+        remediation_profile="r2y_sentinel_matrix_v1",
+    )
+
+    assert "## R2y MANURE21 Provenance" in md
+    assert "`dried_manure_soft_low_frequency_albedo_dispersion_centered_readout`" in md
+    assert "low-frequency particulate smoothing" in md
+    assert "rows dominated by `variance_over` = 0/1 and `derivative_over` = 0/1" in md
+    assert "not a B2/B3/B4/B5 gate" in md
+
+
+def test_exp09_exposes_r2z_profile_and_changes_only_manure21_vs_r2s() -> None:
+    exp09 = _load_exp09_module()
+    assert "r2z_sentinel_matrix_v1" in exp09.R2Z_REMEDIATION_PROFILES
+    assert "r2z_sentinel_matrix_v1" in exp09.ALL_REMEDIATION_PROFILES
+    assert "R2Z_REMEDIATION_PROFILES" in exp09.__all__
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+            "r2z_sentinel_matrix_v1",
+        )
+        == "r2z_sentinel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("DIESEL_bp50_246_b-a"),
+            "r2z_sentinel_matrix_v1",
+        )
+        == "r2s_sentinel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("PHOSPHORUS_SOIL"),
+            "r2z_sentinel_matrix_v1",
+        )
+        == "r2p_sentinel_matrix_v1"
+    )
+
+
+def test_r2z_manure21_build_records_composition_heterogeneity_provenance() -> None:
+    exp09 = _load_exp09_module()
+    manure = _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type")
+    run = exp09._build_baseline_synthetic_run(
+        dataset=manure,
+        preset=exp09.select_synthetic_preset_for_dataset(manure),
+        n_samples=8,
+        seed=123,
+        remediation_profile="r2z_sentinel_matrix_v1",
+    )
+
+    audit = run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r2z_sentinel_matrix_v1"
+    assert audit["scope"] == "bench_only_r2z_sentinel_matrix_remediation"
+    assert audit["real_stat_capture"] is False
+    assert audit["thresholds_modified"] is False
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == (
+        "dried_manure_compositional_heterogeneity_centered_readout"
+    )
+    assert params["path_factor_range"] == [0.84, 1.02]
+    assert params["additive_baseline_range"] == [0.71, 1.01]
+    assert params["scatter_slope_absorbance_range"] == [-0.1, 0.1]
+    assert params["composition_alpha_concentration_scale"] == 0.72
+    assert params["balanced_centered_draws"] is True
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r2z_sentinel_matrix_v1",
+        metadata=run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "manure_organic_mineral_matrix"
+
+
+def test_render_markdown_emits_r2z_manure_non_gate_note(tmp_path: Path) -> None:
+    exp09 = _load_exp09_module()
+    row = exp09.MorphologyRow(
+        status="compared",
+        source="AOM_regression",
+        task="regression",
+        dataset="MANURE21/All_manure_K2O_SPXY_strat_Manure_type",
+        synthetic_preset="soil",
+        effective_matrix_route="manure_organic_mineral_matrix",
+        comparison_space=exp09.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=10,
+        wavelength_min=1100.0,
+        wavelength_max=2500.0,
+        real_global_mean=0.1,
+        synthetic_global_mean=0.1,
+        global_mean_delta=0.0,
+        real_global_std=0.2,
+        synthetic_global_std=0.14,
+        global_std_ratio=0.7,
+        log10_global_std_ratio=-0.1549,
+        real_amplitude_p50=1.0,
+        synthetic_amplitude_p50=0.7,
+        amplitude_p50_ratio=0.7,
+        log10_amplitude_p50_ratio=-0.1549,
+        real_derivative_std_p50=0.01,
+        synthetic_derivative_std_p50=0.012,
+        derivative_std_p50_ratio=1.2,
+        log10_derivative_std_p50_ratio=0.0792,
+        mean_curve_corr=0.9,
+        inverted_mean_curve_corr=-0.9,
+        morphology_gap_score=0.488,
+        dominant_morphology_gap="variance_under",
+        audit_oracle=False,
+        audit_label_inputs_used=False,
+        audit_target_inputs_used=False,
+        audit_split_inputs_used=False,
+        audit_source_oracle_used=False,
+        audit_learned=False,
+        audit_real_stat_capture=False,
+        audit_thresholds_modified=False,
+        audit_metrics_modified=False,
+        audit_imputed=False,
+        audit_replays_real_rows=False,
+        audit_scope="bench_only_r2z_sentinel_morphology_audit",
+        remediation_profile="r2z_sentinel_matrix_v1",
+        r2c_remediation_enabled=True,
+        r2c_remediation_domain_key="environmental_soil",
+        r2c_remediation_concentrations_applied=True,
+        r2c_remediation_spectra_applied=True,
+        r2c_remediation_spectra_rule=(
+            "dried_manure_compositional_heterogeneity_centered_readout"
+        ),
+        r2c_remediation_composition_source=(
+            "textbook_dried_manure_organic_mineral_composition"
+        ),
+        r2c_remediation_spectra_source=(
+            "fixed_mean_neutral_compositional_heterogeneity_plus_smooth_centered_scatter_bands"
+        ),
+        r2c_remediation_provenance_source="exp09_dataset_token_manure21_route",
+        r2c_remediation_route_variant="",
+        r2c_remediation_constant_status="fixed_mechanistic_prior",
+        r2c_remediation_readout_space="dried_ground_manure_raw_apparent_absorbance",
+        r2c_remediation_calibration_source="none",
+        r2c_remediation_real_stat_source="none",
+        r2c_remediation_threshold_source="none",
+        blocked_reason="",
+    )
+    result = {
+        "status": "completed",
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "rows": [row],
+        "remediation_profile": "r2z_sentinel_matrix_v1",
+    }
+
+    md = exp09.render_markdown(
+        result=result,
+        report_path=tmp_path / "r2z.md",
+        csv_path=tmp_path / "r2z.csv",
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seed=1234,
+        sentinel_tokens=list(exp09.DEFAULT_SENTINEL_TOKENS),
+        remediation_profile="r2z_sentinel_matrix_v1",
+    )
+
+    assert "## R2z MANURE21 Provenance" in md
+    assert "`dried_manure_compositional_heterogeneity_centered_readout`" in md
+    assert "mean-neutral Dirichlet concentration scaling" in md
+    assert "rows dominated by `variance_over` = 0/1 and `derivative_over` = 0/1" in md
+    assert "not a B2/B3/B4/B5 gate" in md
+
+
 def test_render_markdown_emits_r2u_manure_centered_scatter_non_gate_note(
     tmp_path: Path,
 ) -> None:

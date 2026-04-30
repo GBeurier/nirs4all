@@ -663,6 +663,95 @@ criterion is the dominant cost on the 9-operator bank, not the bias of
 the holdout itself; CV's improvement is consistent with that
 interpretation.
 
+## Negative results: what does NOT help (HPO, SPXY, hybrid POP-ASLS)
+
+Three plausible directions were tested and **did not improve** on the
+ASLS-AOM-compact-CV5 plateau (median 0.960, 42/57 wins). They are
+documented here so future work knows to skip them on this cohort.
+
+### HPO over ASLS / preprocessing / criterion
+
+We ran 25-trial Optuna TPE searches per dataset over
+`{norm, asls_lambda, asls_p, cv, max_components, one_se_rule}` for the
+top-3 banks (compact, family-pruned, response-dedup), using a per-fold
+80/20 holdout as the inner objective. On the 49 datasets where all 3
+HPO variants completed:
+
+| Variant | Median | Wins/49 | Fit time |
+|---|---|---|---|
+| ASLS-AOM-compact-CV5 (fixed config) | **0.960** | **36** | **1.34 s** |
+| ASLS-AOM-family-pruned-CV3 (fixed) | 0.964 | 33 | 1.56 s |
+| HPO-AOM-response-dedup (25 trials) | 0.968 | 30 | 436 s |
+| HPO-AOM-family-pruned (25 trials) | 0.989 | 28 | 84 s |
+| HPO-AOM-compact (25 trials) | 0.997 | 26 | 39 s |
+| nirs4all-AOM-PLS (production) | 1.004 | 24 | 0.82 s |
+
+**HPO is 30-300x slower and consistently worse than the fixed-config
+champion**. The inner-CV criterion (single-shot 80/20 holdout) does not
+provide a low-enough-variance signal to distinguish ASLS configurations
+on small NIRS splits, so TPE wanders. Repeated-CV inner objectives are
+too expensive to run at HPO scale. Conclusion: **stop tuning**, use
+the fixed `ASLS(λ=1e6, p=0.01) + AOM-compact-CV-5` recipe.
+
+### SPXYFold instead of random KFold for the inner CV
+
+Hypothesis: a chemistry-aware splitter (Kennard-Stone joint X-y
+distance partition) reduces selection variance better than HPO. Three
+variants tested (top-3 banks × ASLS + SPXYFold(5 or 3)):
+
+| Variant | Splitter | Median | Wins/54 |
+|---|---|---|---|
+| ASLS-AOM-compact-CV5 | random KFold | **0.959** | **40** |
+| ASLS-AOM-response-dedup-CV3 | random KFold | 0.963 | 35 |
+| ASLS-AOM-family-pruned-CV3 | random KFold | 0.964 | 36 |
+| SPXY-AOM-compact-CV5 | SPXYFold(5) | 0.986 | 31 |
+| SPXY-AOM-response-dedup-CV3 | SPXYFold(3) | 0.962 | 35 |
+| SPXY-AOM-family-pruned-CV3 | SPXYFold(3) | 0.966 | 36 |
+
+**SPXYFold ties or marginally loses to random KFold on every recipe**.
+The interpretation: random KFold variance is already bounded by the
+ASLS preprocessing (which removes the dominant baseline source of
+variance). Adding a smarter splitter on top doesn't help — the
+remaining noise floor is in the chemistry signal, not the fold split.
+A separate SPXY-pure (no ASLS) experiment showed SPXYFold alone reaches
+0.963 / 41 wins, comparable to ASLS+random-KFold (0.960 / 40), so the
+two mechanisms are largely redundant. **Combining SPXY+ASLS hurts**
+(0.986 vs 0.960 with random KFold) — pick one stabilisation, not both.
+
+### Level C: POP-ASLS-bank (multi-block)
+
+The cleanest version of the user's "ASLS in the bank" idea is to
+stack `[X | ASLS_soft(X) | ASLS_med(X) | ASLS_default(X) |
+ASLS_hard(X)]` into a 5p-augmented matrix and run POP per-component
+with `BlockMaskOperator` instances that pick one view per LV. The
+strict-linear contract is preserved by the diagonal mask (zeros all
+columns outside the chosen block).
+
+**Result on smoke tests**: POP picks `block_1` (soft ASLS) at LV1,
+auto-prefix CV scoring stops at k=1, and the model degenerates to
+single-LV PLS in the soft-ASLS-corrected space. The fundamental issue:
+the block-mask bank only contains 5 ASLS-strength operators with no
+diversity in spectral filtering (no SG, no FD, no detrend). To get
+Niveau C properly we'd need a tensor-product bank of 5 ASLS strengths
+× 9 compact operators = 45 operators per LV, where each operator is
+"apply ASLS_b, then filter f_j". That is significantly more
+implementation work and was deferred.
+
+The simpler AOM-global on the 5-block bank works (k=6 with block_3 on
+Beer) but reaches only RMSEP 0.375 vs 0.20 for ASLS+AOM-compact-CV5 —
+because the block bank lacks chemistry filters. **Conclusion**: the
+ASLS-block-bank approach is not productive without the full tensor
+product, and the gain even with the tensor would have to overcome the
+0.96 plateau which 5 distinct preprocessing variants did not.
+
+### Synthesis
+
+The 0.96 plateau appears robust under three failed escape attempts:
+HPO (more search), SPXY (smarter splitter), and POP-ASLS-bank (per-LV
+preprocessing choice). To break it would require either a non-linear
+estimator (TabPFN, deep learning) or a richer multi-view PLS structure
+(MB-PLS, sparse multi-block, mixture-of-experts).
+
 ## Why the gap to TabPFN-opt?
 
 TabPFN-opt is a tuned tabular foundation model. Its predictive power

@@ -169,7 +169,10 @@ def _auto_prefix_score(
                 preds_per_prefix.append(pred_k + y_mean)
             return preds_per_prefix
 
-        rmses_per_prefix = _cv_score_per_prefix(Xc, yc, _fp_fold_full_fit, criterion.cv, criterion.random_state, n_components, repeats=criterion.repeats)
+        rmses_per_prefix = _cv_score_per_prefix(
+            Xc, yc, _fp_fold_full_fit, criterion.cv, criterion.random_state,
+            n_components, repeats=criterion.repeats, cv_splitter=criterion.cv_splitter,
+        )
         for k_idx, val in enumerate(rmses_per_prefix):
             scores[k_idx] = val
         if scores.size == 0 or np.all(np.isinf(scores)):
@@ -232,24 +235,36 @@ def _safe_residual(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
 
 def _cv_score_per_prefix(
     Xc: np.ndarray, yc: np.ndarray, fit_predict_per_prefix, n_splits: int, random_state: int, n_components: int,
-    repeats: int = 1
+    repeats: int = 1, cv_splitter=None,
 ) -> List[float]:
     """K-fold CV scoring that fits once per fold and evaluates all prefixes.
 
-    When `repeats > 1`, runs `repeats` independent K-fold splits with
-    different random seeds derived from `random_state` and returns the
-    mean per-prefix RMSE averaged across all (repeat * fold) blocks. This
-    reduces selection variance by sqrt(repeats) at the cost of `repeats`
-    times more fits.
+    When `cv_splitter is None`, uses `KFold(n_splits, shuffle=True,
+    random_state=random_state+r)` for r in [0, repeats). When
+    `cv_splitter` is provided, repeats > 1 raises (most chemistry-aware
+    splitters such as SPXYFold are deterministic — repeating gives the
+    same fold partition).
     """
     from sklearn.model_selection import KFold
-    total_blocks = max(1, int(repeats)) * n_splits
+    n_repeats = max(1, int(repeats))
+    if cv_splitter is not None and n_repeats > 1:
+        raise ValueError(
+            "repeats > 1 is not supported with a custom cv_splitter; pass repeats=1."
+        )
+    if cv_splitter is not None:
+        eff_n_splits = int(cv_splitter.get_n_splits()) if hasattr(cv_splitter, "get_n_splits") else int(cv_splitter.n_splits)
+    else:
+        eff_n_splits = int(n_splits)
+    total_blocks = n_repeats * eff_n_splits
     fold_rmses = np.full((total_blocks, n_components), np.inf)
     block = 0
-    for r in range(max(1, int(repeats))):
-        seed = int(random_state) + r
-        kf = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
-        for train_idx, val_idx in kf.split(Xc):
+    for r in range(n_repeats):
+        if cv_splitter is not None:
+            splitter = cv_splitter
+        else:
+            seed = int(random_state) + r
+            splitter = KFold(n_splits=eff_n_splits, shuffle=True, random_state=seed)
+        for train_idx, val_idx in splitter.split(Xc, yc):
             X_tr, X_va = Xc[train_idx], Xc[val_idx]
             y_tr, y_va = yc[train_idx], yc[val_idx]
             try:

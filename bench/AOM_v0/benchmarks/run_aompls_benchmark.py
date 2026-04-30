@@ -358,6 +358,8 @@ def _build_estimator(variant: Dict, criterion: str, max_components: int, cv: int
     variant_criterion = variant.get("criterion_override", criterion)
     variant_cv = int(variant.get("cv_override", cv))
     variant_repeats = int(variant.get("repeats_override", 1))
+    factory = variant.get("cv_splitter_factory")
+    variant_cv_splitter = factory(seed) if callable(factory) else None
     variant_one_se = bool(variant.get("one_se_override", False))
     variant_kmax = int(variant.get("max_components_override", max_components))
     # Use variant_kmax in place of the global max_components from here on.
@@ -384,7 +386,7 @@ def _build_estimator(variant: Dict, criterion: str, max_components: int, cv: int
             selection="global",
             criterion=variant_criterion,
             operator_bank=active,
-            cv=variant_cv, repeats=variant_repeats, one_se_rule=variant_one_se,
+            cv=variant_cv, repeats=variant_repeats, one_se_rule=variant_one_se, cv_splitter=variant_cv_splitter,
             random_state=seed,
             backend=backend,
         )
@@ -397,7 +399,7 @@ def _build_estimator(variant: Dict, criterion: str, max_components: int, cv: int
             selection="active_superblock",
             criterion=variant_criterion,
             operator_bank=bank,
-            cv=variant_cv, repeats=variant_repeats, one_se_rule=variant_one_se,
+            cv=variant_cv, repeats=variant_repeats, one_se_rule=variant_one_se, cv_splitter=variant_cv_splitter,
             random_state=seed,
             backend=backend,
         )
@@ -413,7 +415,7 @@ def _build_estimator(variant: Dict, criterion: str, max_components: int, cv: int
             selection="soft",
             criterion=variant_criterion,
             operator_bank=bank,
-            cv=variant_cv, repeats=variant_repeats, one_se_rule=variant_one_se,
+            cv=variant_cv, repeats=variant_repeats, one_se_rule=variant_one_se, cv_splitter=variant_cv_splitter,
             random_state=seed,
             backend=backend,
         )
@@ -425,7 +427,7 @@ def _build_estimator(variant: Dict, criterion: str, max_components: int, cv: int
             selection="superblock",
             criterion=variant_criterion,
             operator_bank=bank,
-            cv=variant_cv, repeats=variant_repeats, one_se_rule=variant_one_se,
+            cv=variant_cv, repeats=variant_repeats, one_se_rule=variant_one_se, cv_splitter=variant_cv_splitter,
             random_state=seed,
             backend=backend,
         )
@@ -437,7 +439,7 @@ def _build_estimator(variant: Dict, criterion: str, max_components: int, cv: int
             selection="none",
             criterion=variant_criterion,
             operator_bank=bank,
-            cv=variant_cv, repeats=variant_repeats, one_se_rule=variant_one_se,
+            cv=variant_cv, repeats=variant_repeats, one_se_rule=variant_one_se, cv_splitter=variant_cv_splitter,
             random_state=seed,
             backend=backend,
         )
@@ -448,7 +450,7 @@ def _build_estimator(variant: Dict, criterion: str, max_components: int, cv: int
         selection=selection,
         criterion=variant_criterion,
         operator_bank=bank,
-        cv=variant_cv, repeats=variant_repeats, one_se_rule=variant_one_se,
+        cv=variant_cv, repeats=variant_repeats, one_se_rule=variant_one_se, cv_splitter=variant_cv_splitter,
         random_state=seed,
         backend=backend,
     )

@@ -1,7 +1,9 @@
 variant,ALPINE_P_291_KS,Beer_OriginalExtract_60_KS,Rice_Amylose_313_YbasedSplit
-BLUP-reml,0.9915,0.6183,1.1745
 MKM-reml,0.9915,0.6183,1.1745
-Ridge-raw,1.1882,2.3703,2.6443
-mkR-kta,1.0461,1.1705,1.8133
+MKM-reml-asls,1.0024,0.589,1.0224
+MKM-reml-msc,1.0258,0.4699,1.0581
+MKM-reml-snv,1.0307,0.4685,1.0782
 mkR-softmax_cv,0.9502,0.6377,1.1748
-mkR-uniform,1.0959,1.3548,1.8458
+mkR-softmax_cv-asls,0.9829,0.5782,1.1843
+mkR-softmax_cv-msc,0.9815,0.3821,1.0404
+mkR-softmax_cv-snv,0.9774,0.3818,1.0527

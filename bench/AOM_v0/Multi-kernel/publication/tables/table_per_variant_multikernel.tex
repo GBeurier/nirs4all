@@ -2,11 +2,13 @@
 \toprule
 variant & median_rel_pls & median_rel_ridge & median_rel_tabpfn_opt & wins_vs_pls & n_datasets & median_fit_time_s \\
 \midrule
-mkR-softmax_cv & 0.950 & 1.003 & 1.371 & 2 & 3 & 39.048 \\
-BLUP-reml & 0.992 & 1.047 & 1.422 & 2 & 3 & 46.287 \\
-MKM-reml & 0.992 & 1.047 & 1.422 & 2 & 3 & 54.132 \\
-mkR-kta & 1.171 & 1.184 & 2.116 & 0 & 3 & 17.638 \\
-mkR-uniform & 1.355 & 1.371 & 2.154 & 0 & 3 & 22.137 \\
-Ridge-raw & 2.370 & 2.398 & 3.086 & 0 & 3 & 0.081 \\
+mkR-softmax_cv & 0.950 & 1.003 & 1.371 & 2 & 3 & 29.755 \\
+mkR-softmax_cv-snv & 0.977 & 1.032 & 1.229 & 2 & 3 & 19.127 \\
+mkR-softmax_cv-msc & 0.982 & 1.036 & 1.214 & 2 & 3 & 20.003 \\
+mkR-softmax_cv-asls & 0.983 & 1.038 & 1.410 & 2 & 3 & 15.030 \\
+MKM-reml & 0.992 & 1.047 & 1.422 & 2 & 3 & 46.266 \\
+MKM-reml-asls & 1.002 & 1.035 & 1.438 & 1 & 3 & 52.268 \\
+MKM-reml-msc & 1.026 & 1.071 & 1.369 & 1 & 3 & 27.160 \\
+MKM-reml-snv & 1.031 & 1.088 & 1.365 & 1 & 3 & 40.491 \\
 \bottomrule
 \end{tabular}

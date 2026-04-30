@@ -70,6 +70,7 @@ RESULT_COLUMNS = [
     "variant", "status", "error",
     "operator_bank", "weight_strategy", "method", "branch_preproc",
     "alpha", "kernel_alignment_max", "fit_time_s", "predict_time_s",
+    "converged", "boundary_components",
     "rmsep", "mae", "r2",
     "ref_rmse_pls", "ref_rmse_ridge",
     "ref_rmse_tabpfn_raw", "ref_rmse_tabpfn_opt",
@@ -190,6 +191,7 @@ def _run_variant(
         "alpha": None,
         "kernel_alignment_max": None,
         "fit_time_s": None, "predict_time_s": None,
+        "converged": None, "boundary_components": None,
         "rmsep": None, "mae": None, "r2": None,
         "status": "ok", "error": None,
     }
@@ -230,6 +232,8 @@ def _run_variant(
             info["weight_strategy"] = "REML/ML"
             info["method"] = strategy
             info["kernel_alignment_max"] = float(model.kernel_alignment_max_)
+            info["converged"] = bool(model.converged_)
+            info["boundary_components"] = ",".join(map(str, model.boundary_components_))
         elif family == "BLUP":
             model = AOMMultiKernelBLUP(
                 operator_bank=operator_bank,
@@ -243,6 +247,8 @@ def _run_variant(
             info["weight_strategy"] = "REML/ML"
             info["method"] = strategy
             info["kernel_alignment_max"] = float(model.kernel_alignment_max_)
+            info["converged"] = bool(model.converged_)
+            info["boundary_components"] = ",".join(map(str, model.boundary_components_))
         else:
             raise ValueError(f"unknown variant family {family!r}")
         info["fit_time_s"] = time.time() - t0
