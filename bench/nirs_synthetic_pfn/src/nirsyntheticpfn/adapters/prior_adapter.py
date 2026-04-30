@@ -74,6 +74,20 @@ VALID_TARGET_TYPES = {"regression", "classification"}
 VALID_REGRESSION_NONLINEARITIES = {"none", "mild", "moderate"}
 VALID_CLASSIFICATION_SEPARATIONS = {"easy", "moderate", "hard"}
 
+# Bench-only domain-specific component aliases for R2c sentinel remediation.
+# Each (domain_key, alias_lower) entry maps a non-registered fuel/matrix label
+# to an existing nirs4all component that shares its dominant NIR signature.
+# Mechanistic mapping only: never reads real spectra, labels, splits, or
+# targets, never modifies nirs4all/ component definitions, and always records
+# the substitution under ``source_prior_config["_bench_component_aliases"]``.
+BENCH_ONLY_COMPONENT_ALIASES: dict[tuple[str, str], str] = {
+    # Diesel is a saturated-hydrocarbon-dominated fuel blend; its NIR signature
+    # is well approximated by the existing "oil" component (long-chain C-H
+    # overtones and combinations). Used by R2c petrochem_fuels remediation.
+    ("petrochem_fuels", "diesel"): "oil",
+}
+BENCH_ONLY_COMPONENT_ALIAS_SCOPE = "bench_only_r2c_petrochem_fuels_diesel_alias"
+
 
 @dataclass(frozen=True)
 class PriorValidationIssue:
@@ -134,7 +148,11 @@ def canonicalize_domain(domain: Any) -> str:
     return canonical
 
 
-def canonicalize_prior_config(source: dict[str, Any]) -> PriorConfigRecord:
+def canonicalize_prior_config(
+    source: dict[str, Any],
+    *,
+    allow_bench_wavelength_support_override: bool = False,
+) -> PriorConfigRecord:
     """Validate and canonicalize one raw ``PriorSampler`` config."""
     issues: list[PriorValidationIssue] = []
 
@@ -190,15 +208,26 @@ def canonicalize_prior_config(source: dict[str, Any]) -> PriorConfigRecord:
     spectral_resolution = source.get("spectral_resolution")
     wavelength_policy: dict[str, Any] = {}
     if wavelength_range is not None and instrument is not None and domain_config is not None:
+        domain_range, wavelength_support_audit = _wavelength_support_domain_range(
+            source=source,
+            default_domain_range=domain_config.wavelength_range,
+            allow_bench_wavelength_support_override=allow_bench_wavelength_support_override,
+            issues=issues,
+        )
         wavelength_policy = _validate_wavelengths(
             wavelength_range=wavelength_range,
             spectral_resolution=spectral_resolution,
             instrument_range=instrument.wavelength_range,
-            domain_range=domain_config.wavelength_range,
+            domain_range=domain_range,
             issues=issues,
         )
+        wavelength_policy["bench_wavelength_support_override"] = wavelength_support_audit
 
-    component_keys = _validate_components(source.get("components", ()), issues)
+    raw_components = source.get("components", ())
+    aliased_components, alias_audit = _apply_bench_component_aliases(
+        domain_key, raw_components
+    )
+    component_keys = _validate_components(aliased_components, issues)
     if domain_config is not None:
         _validate_domain_components(component_keys, domain_config, issues)
     concentration_prior = _build_concentration_prior(domain_key, component_keys)
@@ -213,6 +242,18 @@ def canonicalize_prior_config(source: dict[str, Any]) -> PriorConfigRecord:
     if issues:
         raise PriorCanonicalizationError(issues)
 
+    source_with_audit = dict(source)
+    if alias_audit:
+        source_with_audit["components"] = list(aliased_components)
+        source_with_audit["_bench_component_aliases"] = {
+            "scope": BENCH_ONLY_COMPONENT_ALIAS_SCOPE,
+            "applied": True,
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "translations": alias_audit,
+            "raw_components": [str(name) for name in raw_components],
+        }
     return PriorConfigRecord(
         domain_key=domain_key,
         product_key=_optional_str(source.get("product_key")),
@@ -226,7 +267,7 @@ def canonicalize_prior_config(source: dict[str, Any]) -> PriorConfigRecord:
         target_prior=target_prior,
         task_prior=task_prior,
         random_seed=_optional_int(source.get("random_state")),
-        source_prior_config=_to_builtin(dict(source)),
+        source_prior_config=_to_builtin(source_with_audit),
     )
 
 
@@ -466,6 +507,133 @@ def _validate_wavelengths(
         "effective_range_nm": [float(overlap[0]), float(overlap[1])],
         "spectral_resolution_nm": resolution,
     }
+
+
+def _wavelength_support_domain_range(
+    *,
+    source: dict[str, Any],
+    default_domain_range: tuple[float, float],
+    allow_bench_wavelength_support_override: bool,
+    issues: list[PriorValidationIssue],
+) -> tuple[tuple[float, float], dict[str, Any]]:
+    raw_override = source.get("_bench_wavelength_support_override")
+    default_range = (float(default_domain_range[0]), float(default_domain_range[1]))
+    base_audit: dict[str, Any] = {
+        "enabled": False,
+        "applied": False,
+        "reason": "not_requested",
+        "rule": "",
+        "scope": "bench_only_real_grid_support",
+        "default_domain_range_nm": [default_range[0], default_range[1]],
+        "override_domain_range_nm": None,
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "oracle": False,
+        "label_inputs_used": False,
+        "target_inputs_used": False,
+        "split_inputs_used": False,
+        "source_oracle_used": False,
+        "thresholds_modified": False,
+        "metrics_modified": False,
+        "covariance_enabled": False,
+        "imputed": False,
+        "replays_real_rows": False,
+    }
+    if raw_override is None:
+        return default_range, base_audit
+    if not isinstance(raw_override, dict) or raw_override.get("enabled") is not True:
+        audit = dict(base_audit)
+        audit["reason"] = "override_present_but_disabled_or_malformed"
+        return default_range, audit
+
+    source_fields = raw_override.get("source_fields", ())
+    if not isinstance(source_fields, (list, tuple)):
+        source_fields = ()
+    audit = {
+        **base_audit,
+        "enabled": True,
+        "reason": str(raw_override.get("reason", "")),
+        "rule": str(raw_override.get("rule", "")),
+        "source_fields": [str(field) for field in source_fields],
+    }
+    if not allow_bench_wavelength_support_override:
+        audit["reason"] = "explicit_canonicalization_flag_not_enabled"
+        return default_range, audit
+
+    required_false_fields = (
+        "oracle",
+        "label_inputs_used",
+        "target_inputs_used",
+        "split_inputs_used",
+        "source_oracle_used",
+        "thresholds_modified",
+        "metrics_modified",
+        "covariance_enabled",
+        "imputed",
+        "replays_real_rows",
+    )
+    invalid_fields = [
+        field_name
+        for field_name in required_false_fields
+        if raw_override.get(field_name) not in (False, None)
+    ]
+    if raw_override.get("non_oracle") is not True:
+        invalid_fields.append("non_oracle")
+    if raw_override.get("no_target_or_label") is not True:
+        invalid_fields.append("no_target_or_label")
+    if invalid_fields:
+        issues.append(PriorValidationIssue(
+            reason="invalid_bench_wavelength_support_override",
+            field="_bench_wavelength_support_override",
+            message=f"Unsafe wavelength support override audit fields: {invalid_fields!r}",
+        ))
+        return default_range, audit
+
+    override_range = _coerce_range(
+        raw_override.get("domain_range"),
+        "_bench_wavelength_support_override.domain_range",
+        issues,
+    )
+    if override_range is None:
+        return default_range, audit
+
+    override_range = (float(override_range[0]), float(override_range[1]))
+    audit["applied"] = True
+    audit["override_domain_range_nm"] = [override_range[0], override_range[1]]
+    return override_range, audit
+
+
+def _apply_bench_component_aliases(
+    domain_key: str,
+    components: Any,
+) -> tuple[Any, list[dict[str, str]]]:
+    """Translate bench-only domain-specific component aliases.
+
+    Mechanistic substitution only: maps non-registered fuel/matrix labels
+    (e.g. ``"diesel"`` for ``petrochem_fuels``) to existing nirs4all components
+    that share the dominant NIR signature. Returns ``(translated_components,
+    audit)`` where ``audit`` lists each substitution. The translation never
+    reads real spectra, labels, splits, or targets.
+    """
+    if not isinstance(components, (list, tuple)):
+        return components, []
+    audit: list[dict[str, str]] = []
+    translated: list[Any] = []
+    for raw in components:
+        name = str(raw)
+        alias_key = (domain_key, name.lower())
+        canonical = BENCH_ONLY_COMPONENT_ALIASES.get(alias_key)
+        if canonical is None:
+            translated.append(raw)
+            continue
+        translated.append(canonical)
+        audit.append({
+            "domain_key": domain_key,
+            "raw_component": name,
+            "canonical_component": canonical,
+            "rule": "non_registered_blend_label_to_dominant_nir_component",
+        })
+    return translated, audit
 
 
 def _validate_components(value: Any, issues: list[PriorValidationIssue]) -> list[str]:

@@ -41,6 +41,7 @@ for path in (ROOT, AOM_ROOT, REPO_ROOT):
     if s not in sys.path:
         sys.path.insert(0, s)
 
+from aomridge.aom_ridge_pls import AOMRidgePLS, AOMRidgePLSCV  # noqa: E402
 from aomridge.estimators import AOMRidgeRegressor  # noqa: E402
 
 CODE_VERSION = "AOM_v0/Ridge/0.1.0"
@@ -188,10 +189,39 @@ FULL_VARIANTS: list[Variant] = SMOKE_VARIANTS + [
             extra={"active_top_m": 12}),
 ]
 
+# ``selection="ridge_pls"`` is a marker handled by ``_run_variant``: it
+# dispatches to ``AOMRidgePLS`` (Sprint 1, fixed alpha) or to ``AOMRidgePLSCV``
+# (Sprint 2, alpha + n_components grid) based on the ``extra`` keys provided.
+LEAN_VARIANTS: list[Variant] = [
+    # Baseline regressions for comparison.
+    Variant("Ridge-raw", selection="superblock", operator_bank="identity",
+            block_scaling="none"),
+    Variant("AOMRidge-global-compact-none", selection="global",
+            block_scaling="none"),
+    # Sprint 1 - fixed (H, alpha) Ridge-PLS at the default settings.
+    Variant("AOMRidgePLS-compact-h10-a1", selection="ridge_pls",
+            operator_bank="compact", block_scaling="frobenius",
+            extra={"n_components": 10, "ridge_alpha": 1.0}),
+    Variant("AOMRidgePLS-compact-h15-a1", selection="ridge_pls",
+            operator_bank="compact", block_scaling="frobenius",
+            extra={"n_components": 15, "ridge_alpha": 1.0}),
+    # Sprint 2 - CV over (H, alpha) on a 3-fold split, repeated 3 times via
+    # the seeds= argument when running the bench.
+    Variant("AOMRidgePLS-compact-cv3-rep3", selection="ridge_pls",
+            operator_bank="compact", block_scaling="frobenius",
+            extra={
+                "n_components_grid": (2, 5, 10, 15, 20),
+                "ridge_alpha_grid": np.logspace(-4.0, 4.0, 9).tolist(),
+                "cv_splits": 3,
+            }),
+]
+
 
 def _resolve_variants(name: str) -> list[Variant]:
     if name == "smoke":
         return SMOKE_VARIANTS
+    if name == "lean":
+        return LEAN_VARIANTS
     if name == "full":
         return FULL_VARIANTS
     raise ValueError(f"unknown variants set: {name!r}")
@@ -246,6 +276,34 @@ def _append_row(results_path: Path, row: dict[str, object]) -> None:
         writer.writerow(row)
 
 
+def _build_ridge_pls(variant: Variant, seed: int, cv_obj):
+    """Construct ``AOMRidgePLS`` or ``AOMRidgePLSCV`` from a Ridge-PLS variant.
+
+    ``variant.extra`` may include either a fixed ``n_components`` /
+    ``ridge_alpha`` pair (-> ``AOMRidgePLS``) or grid keys
+    ``n_components_grid`` / ``ridge_alpha_grid`` (-> ``AOMRidgePLSCV``).
+    """
+    extra = dict(variant.extra)
+    base_kwargs = {
+        "operator_bank": variant.operator_bank,
+        "block_scaling": variant.block_scaling,
+        "random_state": seed,
+    }
+    cv_splits = int(extra.pop("cv_splits", 0)) or 0
+    if "n_components_grid" in extra or "ridge_alpha_grid" in extra:
+        cv_for_inner = cv_splits if cv_splits > 0 else cv_obj
+        return AOMRidgePLSCV(
+            **base_kwargs,
+            n_components_grid=tuple(extra.pop("n_components_grid", (2, 5, 10, 15, 20))),
+            ridge_alpha_grid=extra.pop(
+                "ridge_alpha_grid", np.logspace(-4.0, 4.0, 9).tolist(),
+            ),
+            cv=cv_for_inner,
+            **extra,
+        )
+    return AOMRidgePLS(**base_kwargs, cv=cv_obj, **extra)
+
+
 def _run_variant(
     variant: Variant,
     Xtr: np.ndarray,
@@ -255,6 +313,34 @@ def _run_variant(
     seed: int,
     cv_obj,
 ) -> dict[str, object]:
+    if variant.selection == "ridge_pls":
+        est = _build_ridge_pls(variant, seed=seed, cv_obj=cv_obj)
+        t0 = time.perf_counter()
+        est.fit(Xtr, ytr)
+        fit_time = time.perf_counter() - t0
+        t1 = time.perf_counter()
+        yhat = est.predict(Xte)
+        predict_time = time.perf_counter() - t1
+        diag = est.get_diagnostics()
+        return {
+            "selection": variant.selection,
+            "operator_bank": variant.operator_bank,
+            "alpha": float(diag.get("ridge_alpha", 0.0)),
+            "alpha_index": None,
+            "alpha_at_boundary": None,
+            "grid_expansions": 0,
+            "cv_min_score": diag.get("best_score"),
+            "block_scaling": variant.block_scaling,
+            "scale_power": 1.0,
+            "x_scale": "center",
+            "active_operator_names": "",
+            "selected_operator_names": json.dumps(diag.get("operator_names", [])),
+            "rmsep": rmse(yte, yhat),
+            "mae": mae(yte, yhat),
+            "r2": r2(yte, yhat),
+            "fit_time_s": float(fit_time),
+            "predict_time_s": float(predict_time),
+        }
     kwargs = {
         "selection": variant.selection,
         "operator_bank": variant.operator_bank,
@@ -492,7 +578,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="dataset cohort selection",
     )
     parser.add_argument(
-        "--variants", default="smoke", choices=["smoke", "full"],
+        "--variants", default="smoke", choices=["smoke", "lean", "full"],
         help="variant set",
     )
     parser.add_argument("--cv", type=int, default=3, help="CV split count")

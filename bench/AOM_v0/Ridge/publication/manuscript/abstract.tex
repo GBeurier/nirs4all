@@ -1,0 +1,45 @@
+%% =====================================================================
+%% Abstract for "AOM-Ridge: Operator-Adaptive Kernel Ridge Regression
+%% for Near-Infrared Spectroscopy"
+%% =====================================================================
+
+\begin{abstract}
+Ridge regression is a strong baseline for near-infrared spectroscopy
+(NIRS) calibration but, like \PLS, it depends on a long chain of
+spectral preprocessing decisions that practitioners typically search as
+an external Cartesian grid. We present \emph{Operator-Adaptive Kernel
+Ridge Regression} (\AOMR), a kernel formulation that absorbs that
+preprocessing search into the Ridge solve itself. Each strict linear
+spectral operator $\Amat_b\in\R^{p\times p}$ defines a view
+$\Xmat_b=\Xmat\Amat_b^\top$; we form the superblock dual kernel
+$K=\sum_b s_b^2\,\Xmat\Amat_b^\top\Amat_b\Xmat^\top$ and a metric matrix
+$U=\sum_b s_b^2\Amat_b^\top\Amat_b\Xmat^\top$ such that the original-
+space Ridge coefficient is $\bm\beta=U C$ with
+$C=(K+\alpha I)^{-1}\Yc$. Because Ridge is geometry-dependent, the
+covariance-space shortcut available to \PLS does not extend to Ridge:
+the kernel must be assembled explicitly per operator. The estimator
+exposes five selection modes --- \texttt{superblock} (one Ridge over the
+full bank), \texttt{global} (hard $(b^\star,\alpha^\star)$ selection by
+fold-local CV), \texttt{active\_superblock} (top-$m$ + diversity
+pruning), \texttt{branch\_global} (fold-local CV over (branch, op,
+$\alpha$) with non-strict-linear branches in
+\{\texttt{none}, \SNV, \MSC\}), and \texttt{mkl} (kernel-target-alignment
+weighted block sum) --- all of which run on top of a single fold-local
+CV core that rebuilds means, operator clones, scales, and kernels
+inside every fold. Anti-leakage is verified by spy operators that fail
+when any fold-local invariant is broken. On a 39-dataset NIRS regression
+cohort assembled from the TabPFN paper benchmark, \AOMR\ wins on
+\textbf{32/38 datasets (84\%)} against the published Ridge HPO baseline,
+with a median test-RMSEP delta of \textbf{$-3.64\%$}; the strongest
+single mode (\texttt{global}) wins on $\sim$33\% of datasets, with
+SNV-branch and family-pruned variants contributing the remainder.
+The estimator returns an original-space coefficient
+$\bm\beta\in\R^{p\times q}$, is sklearn-compatible, and is shipped as a
+self-contained package (\texttt{aomridge}) under
+\texttt{bench/AOM\_v0/Ridge/}.
+\end{abstract}
+
+\medskip
+\noindent\textbf{Keywords:} Ridge regression; kernel methods; NIRS;
+operator-adaptive preprocessing; multiple kernel learning; TabPFN;
+reproducible benchmark.

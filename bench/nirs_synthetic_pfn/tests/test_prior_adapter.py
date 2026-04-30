@@ -100,6 +100,68 @@ def test_invalid_instrument_mode_wavelength_and_target_are_classified() -> None:
     assert reasons["invalid_target_prior"] == 2
 
 
+def test_bench_wavelength_support_override_is_disabled_by_default() -> None:
+    source = _valid_source("wine")
+    source["wavelength_range"] = (1100.0, 2250.0)
+    source["_bench_wavelength_support_override"] = _bench_wavelength_support_override()
+
+    record = canonicalize_prior_config(source)
+
+    assert record.wavelength_policy["effective_range_nm"] == [1100.0, 1700.0]
+    audit = record.wavelength_policy["bench_wavelength_support_override"]
+    assert audit["enabled"] is True
+    assert audit["applied"] is False
+    assert audit["reason"] == "explicit_canonicalization_flag_not_enabled"
+
+
+def test_bench_wavelength_support_override_requires_explicit_flag_and_is_audited() -> None:
+    source = _valid_source("wine")
+    source["wavelength_range"] = (1100.0, 2250.0)
+    source["_bench_wavelength_support_override"] = _bench_wavelength_support_override()
+
+    record = canonicalize_prior_config(
+        source,
+        allow_bench_wavelength_support_override=True,
+    )
+
+    assert record.wavelength_policy["effective_range_nm"] == [1100.0, 2250.0]
+    audit = record.wavelength_policy["bench_wavelength_support_override"]
+    assert audit["enabled"] is True
+    assert audit["applied"] is True
+    assert audit["rule"] == "unit_b2_real_grid_support"
+    assert audit["non_oracle"] is True
+    assert audit["no_target_or_label"] is True
+    assert audit["oracle"] is False
+    assert audit["label_inputs_used"] is False
+    assert audit["target_inputs_used"] is False
+    assert audit["split_inputs_used"] is False
+    assert audit["thresholds_modified"] is False
+    assert audit["metrics_modified"] is False
+    assert audit["covariance_enabled"] is False
+    assert audit["imputed"] is False
+    assert record.source_prior_config["_bench_wavelength_support_override"]["enabled"] is True
+
+
+def test_bench_wavelength_support_override_rejects_oracle_or_metric_audit_flags() -> None:
+    source = _valid_source("wine")
+    source["wavelength_range"] = (1100.0, 2250.0)
+    override = _bench_wavelength_support_override()
+    override["oracle"] = True
+    override["covariance_enabled"] = True
+    source["_bench_wavelength_support_override"] = override
+
+    with pytest.raises(PriorCanonicalizationError) as exc:
+        canonicalize_prior_config(
+            source,
+            allow_bench_wavelength_support_override=True,
+        )
+
+    assert exc.value.reason_counts == {"invalid_bench_wavelength_support_override": 1}
+    message = exc.value.issues[0].message
+    assert "oracle" in message
+    assert "covariance_enabled" in message
+
+
 def test_ten_alias_domain_presets_validate_with_domain_components() -> None:
     aliases = [
         "grain",
@@ -295,3 +357,25 @@ def _valid_source_component(component: str) -> str | None:
         return get_component(component).name
     except ValueError:
         return None
+
+
+def _bench_wavelength_support_override() -> dict[str, object]:
+    return {
+        "enabled": True,
+        "scope": "bench_only_real_grid_support",
+        "reason": "unit test explicit B2 real-grid support",
+        "rule": "unit_b2_real_grid_support",
+        "domain_range": (1100.0, 2250.0),
+        "source_fields": ["source", "task", "database_name", "dataset", "preset", "real_wavelengths"],
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "oracle": False,
+        "label_inputs_used": False,
+        "target_inputs_used": False,
+        "split_inputs_used": False,
+        "source_oracle_used": False,
+        "thresholds_modified": False,
+        "metrics_modified": False,
+        "imputed": False,
+        "replays_real_rows": False,
+    }

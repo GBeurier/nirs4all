@@ -19,7 +19,7 @@ from nirs4all.synthesis.validation import (
 )
 
 ScorecardStatus = Literal["compared", "synthetic_only", "blocked", "skipped"]
-ComparisonSpace = Literal["raw", "snv"]
+ComparisonSpace = Literal["raw", "snv", "uncalibrated_raw", "calibrated_raw_diagnostic"]
 
 PROVISIONAL_THRESHOLDS: dict[str, float] = {
     "adversarial_auc_smoke": 0.85,
@@ -167,7 +167,11 @@ def discover_local_real_datasets(root: Path) -> tuple[list[RealDataset], list[Co
 
 
 def load_real_spectra(dataset: RealDataset, *, root: Path) -> tuple[np.ndarray, np.ndarray]:
-    """Load train+test spectra and infer wavelengths from numeric CSV headers."""
+    """Load train+test spectra and infer wavelengths from numeric CSV headers.
+
+    Non-finite values are preserved so the caller can run
+    :func:`sanitize_finite_spectra` and audit the chosen drop policy.
+    """
     train_path = root / dataset.train_path
     test_path = root / dataset.test_path
     X_train, wavelengths = _load_semicolon_matrix(train_path)
@@ -180,6 +184,323 @@ def load_real_spectra(dataset: RealDataset, *, root: Path) -> tuple[np.ndarray, 
     if not np.allclose(wavelengths, test_wavelengths):
         wavelengths = np.arange(X_train.shape[1], dtype=float)
     return np.vstack([X_train, X_test]), wavelengths
+
+
+def sanitize_finite_spectra(
+    X: np.ndarray,
+    wavelengths: np.ndarray,
+    *,
+    side: str,
+    min_samples: int = 8,
+    min_wavelengths: int = 3,
+) -> tuple[np.ndarray | None, np.ndarray | None, dict[str, Any], str | None]:
+    """Audit-aware non-finite sanitation by row/column drop without imputation.
+
+    The sanitizer prefers dropping rows when retention permits, then falls back
+    to dropping wavelength columns, and finally to greedy mixed row/column drops.
+    Imputation is never used, thresholds are not modified, and metric definitions
+    are not weakened. Returns ``(X, wavelengths, audit, blocked_reason)`` where
+    ``blocked_reason`` is non-empty if neither drop policy retains enough finite
+    samples and wavelengths.
+    """
+    arr = np.asarray(X, dtype=float)
+    wl = np.asarray(wavelengths, dtype=float)
+    if arr.ndim != 2:
+        raise ValueError(f"expected 2D spectra, got shape {arr.shape}")
+    n_rows, n_cols = arr.shape
+    if wl.ndim != 1 or wl.size != n_cols:
+        wl = np.arange(n_cols, dtype=float)
+    finite_mask = np.isfinite(arr)
+    base_audit: dict[str, Any] = {
+        "side": side,
+        "n_rows_before": int(n_rows),
+        "n_cols_before": int(n_cols),
+        "n_nonfinite_cells": int((~finite_mask).sum()),
+        "min_samples": int(min_samples),
+        "min_wavelengths": int(min_wavelengths),
+        "finite_policy": "drop_nonfinite_no_imputation",
+        "thresholds_modified": False,
+        "metrics_modified": False,
+        "imputed": False,
+        "oracle": False,
+        "label_inputs_used": False,
+        "target_inputs_used": False,
+        "split_inputs_used": False,
+        "source_oracle_used": False,
+    }
+    if finite_mask.all():
+        audit = {
+            **base_audit,
+            "action": "no_op",
+            "dropped_rows": 0,
+            "dropped_cols": 0,
+            "n_rows_after": int(n_rows),
+            "n_cols_after": int(n_cols),
+        }
+        return arr.copy(), wl.copy(), audit, None
+
+    def build_result(
+        row_mask: np.ndarray,
+        col_mask: np.ndarray,
+        *,
+        action: str,
+    ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]] | None:
+        rows_after = int(row_mask.sum())
+        cols_after = int(col_mask.sum())
+        if rows_after < min_samples or cols_after < min_wavelengths:
+            return None
+        cleaned = arr[np.ix_(row_mask, col_mask)]
+        if not np.isfinite(cleaned).all():
+            return None
+        audit = {
+            **base_audit,
+            "action": action,
+            "dropped_rows": int(n_rows - rows_after),
+            "dropped_cols": int(n_cols - cols_after),
+            "n_rows_after": rows_after,
+            "n_cols_after": cols_after,
+        }
+        return cleaned.copy(), wl[col_mask].copy(), audit
+
+    all_rows = np.ones(n_rows, dtype=bool)
+    all_cols = np.ones(n_cols, dtype=bool)
+    row_finite = finite_mask.all(axis=1)
+    col_finite = finite_mask.all(axis=0)
+    rows_kept = int(row_finite.sum())
+    cols_kept = int(col_finite.sum())
+
+    candidates = [
+        build_result(row_finite, all_cols, action="drop_rows"),
+        build_result(all_rows, col_finite, action="drop_columns"),
+        _greedy_finite_submatrix(
+            arr,
+            wavelengths=wl,
+            base_audit=base_audit,
+            side=side,
+            min_samples=min_samples,
+            min_wavelengths=min_wavelengths,
+            column_priority=True,
+        ),
+        _greedy_finite_submatrix(
+            arr,
+            wavelengths=wl,
+            base_audit=base_audit,
+            side=side,
+            min_samples=min_samples,
+            min_wavelengths=min_wavelengths,
+            column_priority=False,
+        ),
+    ]
+    valid_candidates = [candidate for candidate in candidates if candidate is not None]
+    if valid_candidates:
+        best = max(
+            valid_candidates,
+            key=lambda candidate: (
+                int(candidate[0].shape[0] * candidate[0].shape[1]),
+                int(candidate[0].shape[1]),
+                int(candidate[0].shape[0]),
+            ),
+        )
+        return best[0], best[1], best[2], None
+
+    audit = {
+        **base_audit,
+        "action": "blocked",
+        "dropped_rows": int(n_rows - rows_kept),
+        "dropped_cols": int(n_cols - cols_kept),
+        "n_rows_after": int(rows_kept),
+        "n_cols_after": int(cols_kept),
+    }
+    blocked_reason = (
+        f"non_finite_retention_below_threshold: side={side}, "
+        f"rows_finite={rows_kept}/{n_rows}, cols_finite={cols_kept}/{n_cols}, "
+        f"min_samples={min_samples}, min_wavelengths={min_wavelengths}"
+    )
+    return None, None, audit, blocked_reason
+
+
+def _greedy_finite_submatrix(
+    arr: np.ndarray,
+    *,
+    wavelengths: np.ndarray,
+    base_audit: dict[str, Any],
+    side: str,
+    min_samples: int,
+    min_wavelengths: int,
+    column_priority: bool,
+) -> tuple[np.ndarray, np.ndarray, dict[str, Any]] | None:
+    row_mask = np.ones(arr.shape[0], dtype=bool)
+    col_mask = np.ones(arr.shape[1], dtype=bool)
+    first_axis: str | None = None
+    while True:
+        sub_finite = np.isfinite(arr[np.ix_(row_mask, col_mask)])
+        if sub_finite.all():
+            rows_after = int(row_mask.sum())
+            cols_after = int(col_mask.sum())
+            if rows_after < min_samples or cols_after < min_wavelengths:
+                return None
+            if first_axis == "columns":
+                action = "drop_columns_then_rows" if np.any(~row_mask) else "drop_columns"
+            elif first_axis == "rows":
+                action = "drop_rows_then_columns" if np.any(~col_mask) else "drop_rows"
+            else:
+                action = "no_op"
+            audit = {
+                **base_audit,
+                "side": side,
+                "action": action,
+                "dropped_rows": int(arr.shape[0] - rows_after),
+                "dropped_cols": int(arr.shape[1] - cols_after),
+                "n_rows_after": rows_after,
+                "n_cols_after": cols_after,
+            }
+            cleaned = arr[np.ix_(row_mask, col_mask)].copy()
+            return cleaned, wavelengths[col_mask].copy(), audit
+
+        rows_remaining = int(row_mask.sum())
+        cols_remaining = int(col_mask.sum())
+        row_bad_counts = (~sub_finite).sum(axis=1)
+        col_bad_counts = (~sub_finite).sum(axis=0)
+        max_row_bad = int(row_bad_counts.max(initial=0))
+        max_col_bad = int(col_bad_counts.max(initial=0))
+        can_drop_row = rows_remaining > min_samples and max_row_bad > 0
+        can_drop_col = cols_remaining > min_wavelengths and max_col_bad > 0
+        if not can_drop_row and not can_drop_col:
+            return None
+        drop_col = False
+        if can_drop_row and can_drop_col:
+            drop_col = (
+                max_col_bad > max_row_bad
+                or (max_col_bad == max_row_bad and column_priority)
+            )
+        elif can_drop_col:
+            drop_col = True
+        if drop_col:
+            kept_cols = np.flatnonzero(col_mask)
+            drop_idx = kept_cols[int(np.argmax(col_bad_counts))]
+            col_mask[drop_idx] = False
+            if first_axis is None:
+                first_axis = "columns"
+        else:
+            kept_rows = np.flatnonzero(row_mask)
+            drop_idx = kept_rows[int(np.argmax(row_bad_counts))]
+            row_mask[drop_idx] = False
+            if first_axis is None:
+                first_axis = "rows"
+
+
+def apply_covariance_calibration(
+    real_X: np.ndarray,
+    synthetic_X: np.ndarray,
+    *,
+    max_rank: int = 8,
+    shrinkage: float = 0.1,
+    blend: float = 0.85,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Strong but non-oracle low-rank covariance calibration of synthetic spectra.
+
+    Fits a rank-capped PCA on ``real_X`` only (no labels, no targets, no splits,
+    no source oracle), projects synthetic spectra onto the same component basis,
+    rescales each component to match the real per-component variance with a
+    deterministic shrinkage toward synthetic variance, and rescales the
+    orthogonal complement uniformly toward the real residual variance. The
+    reconstruction is then blended deterministically with the original
+    synthetic spectra. Synthetic rows can never collapse onto real rows because
+    every adjustment is a function of the synthetic content (no row replay).
+    """
+    real = _as_2d_float(real_X)
+    synthetic = _as_2d_float(synthetic_X)
+    if real.shape[1] != synthetic.shape[1]:
+        raise ValueError(
+            f"covariance calibration requires aligned wavelengths; "
+            f"got real shape {real.shape} vs synthetic shape {synthetic.shape}"
+        )
+    n_real, n_features = real.shape
+    rank_cap = int(min(max_rank, n_real - 2, n_features))
+    base_metadata: dict[str, Any] = {
+        "method": "low_rank_pca_variance_match_with_orth_shrinkage_blend",
+        "fit_inputs": "real_X_only",
+        "max_rank": int(max_rank),
+        "shrinkage": float(shrinkage),
+        "blend": float(blend),
+        "n_real_samples": int(n_real),
+        "n_synthetic_samples": int(synthetic.shape[0]),
+        "n_features": int(n_features),
+        "deterministic": True,
+        "oracle": False,
+        "label_inputs_used": False,
+        "target_inputs_used": False,
+        "split_inputs_used": False,
+        "source_oracle_used": False,
+        "thresholds_modified": False,
+        "metrics_modified": False,
+        "imputed": False,
+        "replays_real_rows": False,
+        "strength": "strong",
+        "status": "provisional",
+        "warning": (
+            "Strong provisional covariance calibration for B2 diagnostics only; "
+            "not a calibrated domain gate or transfer-benefit claim."
+        ),
+    }
+    if rank_cap < 2:
+        metadata = {
+            **base_metadata,
+            "enabled": False,
+            "rank": 0,
+            "reason": "rank_cap_below_two",
+        }
+        return synthetic.copy(), metadata
+
+    real_mean = real.mean(axis=0)
+    real_centered = real - real_mean
+    syn_mean = synthetic.mean(axis=0)
+    syn_centered = synthetic - syn_mean
+
+    _, _, vt = np.linalg.svd(real_centered, full_matrices=False)
+    components = vt[:rank_cap]
+
+    real_scores = real_centered @ components.T
+    syn_scores = syn_centered @ components.T
+
+    real_var = real_scores.var(axis=0, ddof=1) + 1e-12
+    syn_var = syn_scores.var(axis=0, ddof=1) + 1e-12
+    target_var = (1.0 - shrinkage) * real_var + shrinkage * syn_var
+    scale = np.sqrt(target_var / syn_var)
+
+    real_proj = real_scores @ components
+    real_orth = real_centered - real_proj
+    syn_proj = syn_scores @ components
+    syn_orth = syn_centered - syn_proj
+
+    real_orth_var = float(np.var(real_orth, ddof=1)) + 1e-12
+    syn_orth_var = float(np.var(syn_orth, ddof=1)) + 1e-12
+    orth_target_var = (1.0 - shrinkage) * real_orth_var + shrinkage * syn_orth_var
+    orth_scale = float(np.sqrt(orth_target_var / syn_orth_var))
+
+    syn_new_proj = (syn_scores * scale) @ components
+    syn_new_orth = syn_orth * orth_scale
+    new_centered = syn_new_proj + syn_new_orth
+    blended = (1.0 - blend) * syn_centered + blend * new_centered
+    calibrated = blended + syn_mean
+
+    metadata = {
+        **base_metadata,
+        "enabled": True,
+        "rank": int(rank_cap),
+        "reason": "applied",
+        "real_pc_variance_median_before": float(np.median(real_var)),
+        "synthetic_pc_variance_median_before": float(np.median(syn_var)),
+        "synthetic_pc_variance_median_after": float(
+            np.median(((syn_scores * scale) ** 2).mean(axis=0))
+        ),
+        "scale_per_pc_min": float(np.min(scale)),
+        "scale_per_pc_max": float(np.max(scale)),
+        "orth_scale": orth_scale,
+        "real_orth_variance": real_orth_var,
+        "synthetic_orth_variance_before": syn_orth_var,
+    }
+    return np.asarray(calibrated, dtype=float), metadata
 
 
 def summarize_spectra(X: np.ndarray, wavelengths: np.ndarray) -> SpectralSummary:
@@ -241,6 +562,7 @@ def fit_real_marginal_calibration(
         "source_oracle_used": False,
         "thresholds_modified": False,
         "metrics_modified": False,
+        "imputed": False,
         "n_real_samples": int(real.shape[0]),
         "n_wavelengths": int(real.shape[1]),
         "wavelength_min": float(wavelengths[0]),
@@ -323,6 +645,7 @@ def apply_real_marginal_calibration(
         "source_oracle_used": False,
         "thresholds_modified": False,
         "metrics_modified": False,
+        "imputed": False,
         "replays_real_rows": False,
         "deterministic": True,
         "grid_strategy": grid_strategy,
@@ -666,7 +989,7 @@ def write_scorecard_csv(rows: list[ScorecardRow], path: Path) -> None:
         ).to_dict()]
     fieldnames = list(dict_rows[0])
     with path.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer = csv.DictWriter(file, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(dict_rows)
 
@@ -740,8 +1063,6 @@ def _load_semicolon_matrix(path: Path) -> tuple[np.ndarray, np.ndarray]:
     X = np.genfromtxt(path, delimiter=";", skip_header=1, dtype=float)
     X = np.atleast_2d(X)
     wavelengths = _header_wavelengths(header, X.shape[1])
-    if not np.isfinite(X).all():
-        raise ValueError(f"non-finite spectra in {path}")
     return X, wavelengths
 
 
@@ -749,12 +1070,25 @@ def _header_wavelengths(header: list[str], n_features: int) -> np.ndarray:
     if len(header) != n_features:
         return np.arange(n_features, dtype=float)
     try:
-        wavelengths = np.asarray([float(item.strip().strip('"')) for item in header], dtype=float)
+        wavelengths = np.asarray(
+            [float(_clean_header_token(item)) for item in header], dtype=float
+        )
     except ValueError:
         return np.arange(n_features, dtype=float)
     if wavelengths.size < 2 or not np.all(np.diff(wavelengths) > 0):
         return np.arange(n_features, dtype=float)
     return wavelengths
+
+
+def _clean_header_token(item: str) -> str:
+    """Strip BOM, surrounding quotes, whitespace, and common unit suffixes from a header token."""
+    text = str(item).strip().lstrip("﻿").strip().strip('"').strip("'").strip()
+    lower = text.lower()
+    for suffix in ("_nm", " nm", "nm", "_um", " um", "um", "_µm", " µm", "µm"):
+        if lower.endswith(suffix):
+            text = text[: len(text) - len(suffix)].strip()
+            break
+    return text
 
 
 def _as_2d_float(X: np.ndarray) -> np.ndarray:
@@ -887,6 +1221,17 @@ def _quantile_map_columns(
             right=target_quantiles[-1, col_idx],
         )
     return mapped
+
+
+def is_index_fallback_grid(wavelengths: np.ndarray) -> bool:
+    """Return True iff the array equals ``np.arange(n)`` and was not parsed from a numeric header."""
+    arr = np.asarray(wavelengths, dtype=float)
+    if arr.ndim != 1 or arr.size < 2:
+        return True
+    if not np.isfinite(arr).all():
+        return True
+    expected = np.arange(arr.size, dtype=float)
+    return bool(np.allclose(arr, expected))
 
 
 def _wavelengths_or_index(wavelengths: np.ndarray, n_features: int) -> np.ndarray:
