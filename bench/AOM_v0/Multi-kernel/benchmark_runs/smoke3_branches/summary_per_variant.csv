@@ -1,1 +1,9 @@
 variant,median_rel_pls,median_rel_ridge,median_rel_tabpfn_opt,median_rmsep,median_fit_time_s,n_datasets
+mkR-softmax_cv,0.9502,1.0033,1.3712,0.2414,29.7552,3
+mkR-softmax_cv-snv,0.9774,1.032,1.2287,0.1445,19.1272,3
+mkR-softmax_cv-msc,0.9815,1.0363,1.2143,0.1447,20.003,3
+mkR-softmax_cv-asls,0.9829,1.0378,1.4097,0.2189,15.0302,3
+MKM-reml,0.9915,1.0469,1.4221,0.2341,46.2657,3
+MKM-reml-asls,1.0024,1.0352,1.4377,0.223,52.2678,3
+MKM-reml-msc,1.0258,1.0713,1.3694,0.1779,27.1597,3
+MKM-reml-snv,1.0307,1.0883,1.3653,0.1774,40.4908,3

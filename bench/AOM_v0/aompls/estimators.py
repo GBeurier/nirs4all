@@ -43,6 +43,7 @@ class _AOMPLSBase(BaseEstimator, RegressorMixin):
         backend: str = "numpy",
         repeats: int = 1,
         one_se_rule: bool = False,
+        cv_splitter=None,
     ) -> None:
         self.n_components = n_components
         self.max_components = max_components
@@ -58,6 +59,7 @@ class _AOMPLSBase(BaseEstimator, RegressorMixin):
         self.backend = backend
         self.repeats = repeats
         self.one_se_rule = one_se_rule
+        self.cv_splitter = cv_splitter
 
     # ---------------------------------------------------------- fitting
 
@@ -109,6 +111,7 @@ class _AOMPLSBase(BaseEstimator, RegressorMixin):
             task="regression",
             repeats=getattr(self, "repeats", 1),
             one_se_rule=getattr(self, "one_se_rule", False),
+            cv_splitter=getattr(self, "cv_splitter", None),
         )
         # Orthogonalization resolution
         orth = self.orthogonalization
@@ -247,6 +250,7 @@ class AOMPLSRegressor(_AOMPLSBase):
         backend: str = "numpy",
         repeats: int = 1,
         one_se_rule: bool = False,
+        cv_splitter=None,
     ) -> None:
         super().__init__(
             n_components=n_components,
@@ -263,6 +267,7 @@ class AOMPLSRegressor(_AOMPLSBase):
             backend=backend,
             repeats=repeats,
             one_se_rule=one_se_rule,
+            cv_splitter=cv_splitter,
         )
 
 
@@ -290,6 +295,7 @@ class POPPLSRegressor(_AOMPLSBase):
         backend: str = "numpy",
         repeats: int = 1,
         one_se_rule: bool = False,
+        cv_splitter=None,
     ) -> None:
         super().__init__(
             n_components=n_components,
@@ -306,4 +312,5 @@ class POPPLSRegressor(_AOMPLSBase):
             backend=backend,
             repeats=repeats,
             one_se_rule=one_se_rule,
+            cv_splitter=cv_splitter,
         )

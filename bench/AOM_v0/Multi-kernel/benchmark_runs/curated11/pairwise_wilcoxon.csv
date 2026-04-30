@@ -1,0 +1,7 @@
+variant,n_paired,median_log_ratio,pvalue
+MKM-reml,2,,
+MKM-reml-asls,2,,
+MKM-reml-msc,2,,
+Ridge-raw,2,,
+mkR-softmax_cv-msc,2,,
+mkR-softmax_cv-snv,2,,

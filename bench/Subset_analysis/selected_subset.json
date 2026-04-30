@@ -1,0 +1,101 @@
+{
+  "seed": 1234,
+  "n_core_datasets": 57,
+  "n_models_core": 128,
+  "selected_size": 11,
+  "selected_datasets": [
+    "All_manure_P2O5_SPXY_strat_Manure_type",
+    "Fv_Fm_grp70_30",
+    "ta_groupSampleID_stratDateVar_balRows",
+    "WOOD_N_402_Olale",
+    "An_spxyG70_30_byCultivar_MicroNIR",
+    "All_manure_CaO_SPXY_strat_Manure_type",
+    "DIESEL_bp50_246_b-a",
+    "Malaria_Sporozoite_229_Maia",
+    "Chla+b_spxyG_block2deg",
+    "DIESEL_bp50_246_hla-b",
+    "Beef_Marbling_RandomSplit"
+  ],
+  "metrics_full_vs_subset": {
+    "spearman": 0.9952459367080697,
+    "kendall": 0.9502865418739734,
+    "pairwise_agreement": 0.9710875984251969,
+    "rank_mae": 2.453125,
+    "agg_mae": 0.05228679348520518,
+    "composite": 0.9718962770987187
+  },
+  "bootstrap": {
+    "spearman_mean": 0.9942121630163818,
+    "spearman_p05": 0.9906750710347787,
+    "spearman_p95": 0.9964757260987919,
+    "kendall_mean": 0.9503260074725705,
+    "kendall_p05": 0.9358592960792168,
+    "pairwise_mean": 0.971402969160105,
+    "pairwise_p05": 0.9636995570866143,
+    "pairwise_p95": 0.9778543307086615,
+    "n_boot": 300,
+    "size": 11
+  },
+  "thresholds": {
+    "spearman": 0.98,
+    "kendall": 0.95,
+    "pairwise_agreement": 0.97,
+    "boot_spearman_p05": 0.95,
+    "boot_pairwise_p05": 0.95
+  },
+  "selection_reason": "Tous les seuils sont satisfaits.",
+  "conservative_alternative": {
+    "size": 26,
+    "datasets": [
+      "All_manure_P2O5_SPXY_strat_Manure_type",
+      "Fv_Fm_grp70_30",
+      "ta_groupSampleID_stratDateVar_balRows",
+      "WOOD_N_402_Olale",
+      "An_spxyG70_30_byCultivar_MicroNIR",
+      "All_manure_CaO_SPXY_strat_Manure_type",
+      "DIESEL_bp50_246_b-a",
+      "Malaria_Sporozoite_229_Maia",
+      "Chla+b_spxyG_block2deg",
+      "DIESEL_bp50_246_hla-b",
+      "Beef_Marbling_RandomSplit",
+      "All_manure_Total_N_SPXY_strat_Manure_type",
+      "WOOD_Density_402_Olale",
+      "Milk_Urea_1224_KS",
+      "grapevine_chloride_556_KS",
+      "WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+      "Corn_Starch_80_ZhengChenPelegYbaseSplit",
+      "An_spxyG70_30_byCultivar_ASD",
+      "ph_groupSampleID_stratDateVar_balRows",
+      "ALPINE_P_291_KS",
+      "LP_spxyG",
+      "Rd25_spxy70",
+      "Milk_Lactose_1224_KS",
+      "brix_groupSampleID_stratDateVar_balRows",
+      "LUCAS_SOC_Cropland_8731_NocitaKS",
+      "Ccar_spxyG_block2deg"
+    ],
+    "metrics_full_vs_subset": {
+      "spearman": 0.9969913346518636,
+      "kendall": 0.9623607128973949,
+      "pairwise_agreement": 0.9788385826771654,
+      "rank_mae": 1.9375,
+      "agg_mae": 0.04133001916303511,
+      "composite": 0.9790898215749618
+    },
+    "bootstrap": {
+      "spearman_mean": 0.9962371272352577,
+      "spearman_p05": 0.9945111626837833,
+      "spearman_p95": 0.9979229921719805,
+      "kendall_mean": 0.9627816413482462,
+      "kendall_p05": 0.9518250265794066,
+      "pairwise_mean": 0.9792084973753282,
+      "pairwise_p05": 0.9737881397637795,
+      "pairwise_p95": 0.9847502460629921,
+      "n_boot": 300,
+      "size": 26
+    },
+    "extra_threshold": {
+      "boot_kendall_p05": 0.95
+    }
+  }
+}

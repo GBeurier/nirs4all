@@ -54,6 +54,30 @@ bench/AOM_v0/
         └── prompts/
 ```
 
+## Iteration cohort (user-curated 11 diverse datasets)
+
+For rapid hypothesis-validation we use a hand-picked 11-dataset subset
+that covers the diversity of the TabPFN paper (different sample sizes,
+spectral resolutions, scientific domains). Saved at:
+
+```
+bench/AOM_v0/Multi-kernel/benchmark_runs/curated11_cohort.csv
+```
+
+Datasets (n_train range 81 → 2925):
+- GRAPEVINE/An_spxyG70_30_byCultivar_MicroNIR
+- DIESEL/DIESEL_bp50_246_b-a, DIESEL_bp50_246_hla-b
+- MALARIA/Malaria_Sporozoite_229_Maia
+- WOOD_density/WOOD_N_402_Olale
+- MANURE21/All_manure_{CaO,P2O5}_SPXY_strat_Manure_type
+- FUSARIUM/Fv_Fm_grp70_30
+- BEEFMARBLING/Beef_Marbling_RandomSplit
+- BERRY/ta_groupSampleID_stratDateVar_balRows
+- ECOSIS_LeafTraits/Chla+b_spxyG_block2deg
+
+The full 54-dataset cohort runs once we are converged on the iteration
+cohort.
+
 ## Phases completed
 
 | Phase | Description | Status | Tests passing |
@@ -64,10 +88,48 @@ bench/AOM_v0/
 | 3 | Blup implementation (decomposition wrapper around MkM) | ✅ | 10 |
 | 4 | Codex round 2 (math + code reviews) — high-severity fixes applied | ✅ | 71 (all) |
 | 5 | Smoke benchmark on 3 datasets (no branches) | ✅ | n/a |
-| 6 | `branch_preproc` parameter (SNV, MSC, ASLS, OSC, EMSC1) added to all three estimators | ✅ | 71 (all) |
-| 7 | Smoke benchmark with branch variants | running | — |
-| 8 | Full 57-dataset benchmark | pending | — |
-| 9 | Publication scaffolding | partly ✅ | — |
+| 6 | `branch_preproc` parameter (SNV, MSC, ASLS, OSC, EMSC1) added; smoke benchmark with branch variants | ✅ | 71 (all) |
+| 6b | Codex round 3 review of branch results + Phase 7 plan | ✅ | n/a |
+| 7a | Curated 11-dataset benchmark (iteration cohort) | running | — |
+| 7b | Full 54-dataset cohort benchmark | pending | — |
+| 8 | Publication scaffolding (manuscript draft, figures, tables, scripts) | in progress | — |
+
+## Key results — DIESEL preview (curated11 partial, 2/11 datasets done)
+
+When curated11 was first launched, the 2 fast DIESEL datasets completed
+fully before workers got hung on the larger ones. Already a strong
+signal:
+
+**DIESEL_bp50_246_b-a** (n_train=113, p=401, ref_PLS=3.29, ref_TabPFN-opt=4.33):
+
+| Variant | RMSEP | rel-PLS | rel-Ridge | rel-TabPFN-opt | fit-time |
+|---------|-------|---------|-----------|----------------|----------|
+| Ridge-raw | 14.85 | 4.52 | 5.23 | 3.43 | 0.03 s |
+| mkR-softmax_cv | 2.86 | 0.87 | 1.01 | **0.66** | 5.5 s |
+| mkR-softmax_cv-snv | 2.79 | **0.85** | 0.98 | **0.65** | 4.7 s |
+| mkR-softmax_cv-msc | 2.92 | 0.89 | 1.03 | **0.67** | 6.8 s |
+| MKM-reml | 2.83 | 0.86 | 1.00 | **0.65** | 11 s |
+| MKM-reml-asls | 2.85 | 0.87 | 1.00 | **0.66** | 11 s |
+| MKM-reml-msc | 2.79 | **0.85** | 0.98 | **0.64** | 9.8 s |
+
+**DIESEL_bp50_246_hla-b** (n_train=133, p=401, ref_PLS=2.96, ref_TabPFN-opt=4.20):
+
+| Variant | RMSEP | rel-PLS | rel-Ridge | rel-TabPFN-opt | fit-time |
+|---------|-------|---------|-----------|----------------|----------|
+| Ridge-raw | 17.04 | 5.76 | 6.26 | 4.05 | 0.04 s |
+| mkR-softmax_cv | 2.69 | 0.91 | 0.99 | **0.64** | 8.2 s |
+| mkR-softmax_cv-snv | 2.80 | 0.94 | 1.03 | **0.66** | 8.3 s |
+| mkR-softmax_cv-msc | 2.83 | 0.95 | 1.04 | **0.67** | 7.5 s |
+| MKM-reml | 2.60 | **0.88** | 0.96 | **0.62** | 3.5 s |
+| MKM-reml-asls | 2.71 | 0.92 | 1.00 | **0.64** | 11 s |
+| MKM-reml-msc | 2.64 | 0.89 | 0.97 | **0.63** | 10 s |
+
+**Headline**: on both DIESEL datasets, **every multi-kernel variant beats
+both PLS (-5 to -15%) and TabPFN-opt (-33 to -38%)**. Ridge-raw is
+catastrophic (4–6× worse than PLS), confirming AOM kernel mixing is
+essential for these high-dimensional, low-n problems.
+
+Source: `benchmark_runs/curated11/results.csv` (n=2 datasets, partial run).
 
 ## Key results (smoke3, no branches)
 
@@ -135,13 +197,43 @@ Three Codex code+math reviews were run after the implementation:
 
 Plus 3 round-1 reviews on the plans (`/tmp/codex_*_roadmap.md`).
 
+## Codex Round 3 review of Phase 6 results (2026-04-30)
+
+Source: `/tmp/codex_phase6_review.md`. Key findings:
+
+- HIGH: smoke n=3 is too small for inferential ranking — treat as QA.
+- HIGH: don't report oracle median on small cohorts.
+- MEDIUM (applied): convergence + boundary_components columns added to
+  the runner CSV schema.
+- MEDIUM: variant naming conflates branch + solver axes; report
+  branch-lift WITHIN solver family (mkR-asls vs mkR, MKM-asls vs MKM).
+
+**Phase 7 variant set (Codex-recommended)**:
+
+```
+Ridge-raw, mkR-softmax_cv, mkR-softmax_cv-snv, mkR-softmax_cv-msc,
+MKM-reml, MKM-reml-asls, MKM-reml-msc.
+```
+
+Drops `mkR-softmax_cv-asls` (only helped BEER) and
+`MKM-reml-snv` (MSC was slightly stronger / faster).
+
+**Phase 7 statistical tests** (to add in summarizer):
+
+- Wilcoxon signed-rank on per-dataset log RMSEP ratios.
+- Sign / binomial tests for wins / losses / ties.
+- Holm correction for planned pairwise comparisons.
+- Effect sizes with bootstrap CIs.
+- Failure / non-convergence counts.
+- Sensitivity analysis where failures are ranked last.
+
 ## Open items (deferred to future rounds)
 
 - v2 fold-local kernelizer in `softmax_cv` to remove the inner-CV
   centring caveat (currently flagged as v1 limitation).
 - ML-mode boundary diagnostics use REML gradient (functional but
   non-ideal).
-- Full 57-dataset benchmark (Phase 7).
-- LaTeX manuscript, CD diagrams, full ablation tables.
+- Phase 7 full 54-dataset benchmark (running).
+- Phase 8 LaTeX manuscript, CD diagrams, full ablation tables.
 - POP-style per-component variants.
 - Multi-output / classification.

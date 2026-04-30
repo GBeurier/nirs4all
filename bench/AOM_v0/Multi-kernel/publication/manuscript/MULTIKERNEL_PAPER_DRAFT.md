@@ -249,10 +249,46 @@ Per-dataset best variants (`benchmark_runs/smoke3/summary_per_dataset.csv`):
 
 ### 5.2 Smoke benchmark with branches (3 datasets, 8 variants)
 
-From `benchmark_runs/smoke3_branches/`:
+From `benchmark_runs/smoke3_branches/summary_per_variant.csv`:
 
-[fill in once benchmark completes — should show whether SNV/MSC/ASLS
-help close the gap on AMYLOSE].
+| Variant | median rel-PLS | median rel-Ridge | median rel-TabPFN-opt | median fit-time (s) |
+|---------|----------------|------------------|-----------------------|---------------------|
+| **mkR-softmax_cv** | **0.95** | 1.00 | 1.37 | 30 |
+| mkR-softmax_cv-snv | 0.98 | 1.03 | **1.23** | 19 |
+| mkR-softmax_cv-msc | 0.98 | 1.04 | **1.21** | 20 |
+| mkR-softmax_cv-asls | 0.98 | 1.04 | 1.41 | 15 |
+| MKM-reml | 0.99 | 1.05 | 1.42 | 46 |
+| MKM-reml-asls | 1.00 | 1.04 | 1.44 | 52 |
+| MKM-reml-msc | 1.03 | 1.07 | 1.37 | 27 |
+| MKM-reml-snv | 1.03 | 1.09 | 1.37 | 40 |
+
+**Key findings**:
+
+1. The **median rel-PLS is dominated by ALPINE** (where mkR-softmax_cv
+   without branches is best at 0.95). Branches HURT mkR slightly on
+   ALPINE because the bank already captures the relevant smoothing.
+2. **Branches help dramatically on the small dataset BEER** (n=40):
+   `mkR-softmax_cv-snv` reaches **rel-PLS = 0.38** (62% improvement
+   over PLS) and **rel-TabPFN-opt = 1.11** (only 11% behind the
+   pretrained TabPFN-opt model).
+3. **MKM-reml-asls closes the AMYLOSE gap** from 1.17 (no branch) to
+   **1.02** (with ASLS) — essentially matching PLS.
+
+Per-dataset best variants (`benchmark_runs/smoke3_branches/summary_per_dataset.csv`):
+
+| Dataset | Best variant | RMSEP | rel-PLS | rel-Ridge | rel-TabPFN-opt |
+|---------|--------------|-------|---------|-----------|----------------|
+| ALPINE | mkR-softmax_cv | 0.0592 | **0.95** | 1.00 | 1.36 |
+| AMYLOSE | MKM-reml-asls | 1.948 | **1.02** | 1.04 | 1.19 |
+| BEER | mkR-softmax_cv-snv | 0.144 | **0.38** | 0.39 | **1.11** |
+
+The **per-dataset oracle** (best of 8 variants per dataset) achieves a
+mean rel-PLS of `(0.95 + 1.02 + 0.38) / 3 = 0.78` and a mean
+rel-TabPFN-opt of `(1.36 + 1.19 + 1.11) / 3 = 1.22`. This shows that
+branch preprocessing is dataset-dependent: SNV/MSC are most useful on
+small, scatter-affected datasets (BEER); ASLS captures asymmetric
+baselines (AMYLOSE); and the best mkR/MKM choice varies with operator
+relevance and dataset structure.
 
 ### 5.3 Extended benchmark (12 datasets) — Phase 7a
 
@@ -264,7 +300,44 @@ help close the gap on AMYLOSE].
 
 ### 5.5 Ablations
 
-[future].
+[future — to be filled in from Phase 7 results].
+
+### 5.6 Interpretability case study (BLUP variance decomposition)
+
+On ALPINE/ALPINE_P_291_KS (n_train=247, p=2151) with `BLUP-reml-asls`:
+
+```
+sigma2_blocks:
+  identity         : 3.06e-7    (machine epsilon — collapsed)
+  sg_smooth_w11_p2 : 3.06e-7    (collapsed)
+  sg_smooth_w21_p3 : 3.06e-7    (collapsed)
+  sg_d1_w11_p2     : 3.06e-7    (collapsed)
+  sg_d1_w21_p3     : 3.06e-7    (collapsed)
+  sg_d2_w11_p2     : 3.06e-7    (collapsed)
+  detrend_d1       : 3.06e-7    (collapsed)
+  detrend_d2       : 0.214      (DOMINANT)
+  fd_d1            : 0.00216    (minor)
+
+sigma2_residual    : 0.00437
+RMSE_test          : 0.0624
+```
+
+After ASLS baseline removal, the **second-order detrend operator
+(`detrend_d2`)** captures essentially all the signal variance on this
+dataset. This is consistent with the ALPINE chemistry, where
+NIR-relevant absorption peaks sit on top of slowly-varying baselines
+that ASLS removes; what's left is a high-curvature (≈ second-derivative)
+spectral feature.
+
+`fig_blup_decomposition.pdf` shows the per-block contribution to
+predicted `y` for the top-10 deviating test samples: the height of the
+`detrend_d2` slice tracks the observed `y` value, confirming this block
+is doing the prediction work. `fig_blup_variance_components.pdf` shows
+the relative variance contributions as a bar chart.
+
+This kind of post-hoc, per-block decomposition is **uniquely BLUP**:
+neither AOM-PLS nor AOM-Ridge can attribute prediction variance to
+individual operators in a clean linear sense.
 
 ## 6. Discussion
 
@@ -319,7 +392,112 @@ and were preserved in `bench/AOM_v0/Ridge/benchmark_runs/all57_cohort.csv`.
 AOM-PLS is implemented in `bench/AOM_v0/Multi-kernel/aompls`; AOM-Ridge
 in `bench/AOM_v0/Ridge`.
 
-## 8. References
+## 8. References (skeleton — to be enriched and BibTeX-formatted)
 
-[fill in: PLS, Ridge, KTA (Cristianini), HSIC, REML (Patterson-Thompson),
-BLUP (Henderson), kernel methods, AOM-PLS draft].
+### NIRS / chemometrics
+
+- Wold, S., Sjöström, M., Eriksson, L. (2001). PLS-regression: a basic
+  tool of chemometrics. *Chemom. Intell. Lab. Syst.* 58 (2), 109–130.
+- Geladi, P., MacDougall, D., Martens, H. (1985). Linearization and
+  scatter-correction for near-infrared reflectance spectra of meat.
+  *Appl. Spectrosc.* 39 (3), 491–500.    *(MSC)*
+- Barnes, R., Dhanoa, M., Lister, S. (1989). Standard normal variate
+  transformation and de-trending of near-infrared diffuse reflectance
+  spectra. *Appl. Spectrosc.* 43 (5), 772–777.    *(SNV / detrend)*
+- Eilers, P. H. C., Boelens, H. F. M. (2005). Baseline correction with
+  asymmetric least squares smoothing. *Leiden Univ. Med. Centre Tech.
+  Rep.*    *(ASLS)*
+- Savitzky, A., Golay, M. J. E. (1964). Smoothing and differentiation
+  of data by simplified least squares procedures. *Anal. Chem.*
+  36 (8), 1627–1639.
+
+### Kernel methods
+
+- Cristianini, N., Shawe-Taylor, J., Elisseeff, A., Kandola, J. (2002).
+  On kernel-target alignment. In *NIPS 2001*.    *(KTA)*
+- Gönen, M., Alpaydın, E. (2011). Multiple kernel learning algorithms.
+  *J. Mach. Learn. Res.* 12, 2211–2268.    *(MKL survey)*
+- Schölkopf, B., Smola, A. J., Müller, K.-R. (1998). Nonlinear component
+  analysis as a kernel eigenvalue problem. *Neural Comput.* 10 (5),
+  1299–1319.    *(kernel-PCA centring)*
+
+### Mixed models / REML / BLUP
+
+- Patterson, H. D., Thompson, R. (1971). Recovery of inter-block
+  information when block sizes are unequal. *Biometrika* 58 (3),
+  545–554.    *(REML)*
+- Henderson, C. R. (1975). Best linear unbiased estimation and
+  prediction under a selection model. *Biometrics* 31 (2), 423–447.
+  *(BLUP)*
+- Searle, S. R., Casella, G., McCulloch, C. E. (1992). *Variance
+  Components.* Wiley-Interscience.
+- Kackar, R. N., Harville, D. A. (1984). Approximations for standard
+  errors of estimators of fixed and random effects in mixed linear
+  models. *J. Am. Stat. Assoc.* 79 (388), 853–862.    *(E-BLUP correction)*
+
+### Statistical comparison
+
+- Wilcoxon, F. (1945). Individual comparisons by ranking methods.
+  *Biometrics* 1 (6), 80–83.
+- Demšar, J. (2006). Statistical comparisons of classifiers over
+  multiple data sets. *J. Mach. Learn. Res.* 7, 1–30.    *(CD diagrams)*
+
+### Reference benchmarks
+
+- (TabPFN paper / NIRS cohort): the 54-dataset cohort and reference
+  RMSEs for PLS / Ridge / TabPFN-raw / TabPFN-opt / CNN-NICON /
+  CatBoost are taken from the TabPFN paper (NeurIPS 2024). Cohort CSV
+  preserved in
+  `bench/AOM_v0/Ridge/benchmark_runs/all57_cohort.csv`.
+- AOM-PLS sister manuscript at
+  `bench/AOM_v0/Multi-kernel/publication/manuscript/main.tex`.
+
+## Appendix A — sklearn API quick reference
+
+```python
+from aomridge.mkr_estimator import AOMMultiKernelRidge
+from mkm.estimator import AOMMultiKernelMixedModel
+from blup.estimator import AOMMultiKernelBLUP
+
+# mkR: prediction-driven, simplex weights from softmax-CV.
+mkr = AOMMultiKernelRidge(
+    operator_bank="compact",
+    weight_strategy="softmax_cv",  # or "uniform" / "kta" / "manual"
+    branch_preproc="none",          # or "snv" / "msc" / "asls" / "osc" / "emsc1"
+    alpha_grid_size=20, alpha_cv_n_splits=3,
+    weight_n_restarts=2, weight_max_iter=20,
+    random_state=0,
+)
+mkr.fit(X_train, y_train).predict(X_test)
+mkr.eta_                     # simplex weights, shape (B,)
+mkr.coef_                    # original-space coefficient (when no branch)
+mkr.kernel_alignment_max_    # max off-diagonal kernel alignment
+
+# MKM: likelihood-driven, REML variance components.
+mkm = AOMMultiKernelMixedModel(
+    operator_bank="compact",
+    method="reml",
+    branch_preproc="asls",
+    n_random_restarts=3, max_iter=80,
+    random_state=0,
+)
+mkm.fit(X_train, y_train).predict(X_test)
+mkm.sigma2_blocks_           # per-block variance components (B,)
+mkm.sigma2_residual_         # residual noise variance
+mkm.relative_contributions_  # dict block_name -> sigma_b^2 / total
+
+# BLUP: same prediction as MKM, plus per-block decomposition.
+blup = AOMMultiKernelBLUP(
+    operator_bank="compact",
+    method="reml",
+    branch_preproc="asls",
+    random_state=0,
+)
+blup.fit(X_train, y_train)
+y_pred = blup.predict(X_test)
+comps = blup.predict_components(X_test)
+# {"fixed": (n_test,),
+#  "random": OrderedDict[block_name, (n_test,)],
+#  "total":  (n_test,)}
+assert np.allclose(comps["total"], y_pred)  # decomposition identity
+```

@@ -175,6 +175,26 @@ R2V_REMEDIATION_PROFILES: tuple[str, ...] = ("r2v_sentinel_matrix_v1",)
 # statistical capture.
 R2W_REMEDIATION_PROFILES: tuple[str, ...] = ("r2w_sentinel_matrix_v1",)
 
+# R2x sentinel matrix remediation profiles. Bench-only opt-in extension of
+# R2s that changes only explicit MANURE21 rows. R2x keeps R2w's mean-neutral
+# balanced albedo/scatter readout, adds a slightly wider centered albedo
+# dispersion, and uses coarser particulate smoothing so variance can rise
+# without making derivative-over the dominant repeated-seed failure mode.
+R2X_REMEDIATION_PROFILES: tuple[str, ...] = ("r2x_sentinel_matrix_v1",)
+
+# R2y sentinel matrix remediation profiles. Bench-only opt-in extension of
+# R2s that changes only explicit MANURE21 rows. R2y restarts from R2w's
+# centered albedo/scatter readout and adds only softer low-frequency,
+# mean-neutral dispersion to reduce residual under-transfer without using
+# statistical capture.
+R2Y_REMEDIATION_PROFILES: tuple[str, ...] = ("r2y_sentinel_matrix_v1",)
+
+# R2z sentinel matrix remediation profiles. Bench-only opt-in extension of
+# R2s that changes only explicit MANURE21 rows. R2z starts from R2w's
+# conservative centered albedo/scatter route and adds mean-neutral
+# compositional heterogeneity plus smooth low-frequency readout variability.
+R2Z_REMEDIATION_PROFILES: tuple[str, ...] = ("r2z_sentinel_matrix_v1",)
+
 # Union of every supported remediation profile id. Used by the bench-only
 # ``--remediation-profile`` flag and the validation guard.
 ALL_REMEDIATION_PROFILES: tuple[str, ...] = (
@@ -198,6 +218,9 @@ ALL_REMEDIATION_PROFILES: tuple[str, ...] = (
     *R2U_REMEDIATION_PROFILES,
     *R2V_REMEDIATION_PROFILES,
     *R2W_REMEDIATION_PROFILES,
+    *R2X_REMEDIATION_PROFILES,
+    *R2Y_REMEDIATION_PROFILES,
+    *R2Z_REMEDIATION_PROFILES,
 )
 
 SUPPORTED_TARGET_MAPPINGS = {
@@ -459,6 +482,20 @@ def build_synthetic_dataset_run(
     dried-manure scatter readout, preserving the fixed continuum expectation
     while using bounded centered shape perturbations to reduce seed-dependent
     mean drift.
+
+    When set to ``"r2x_sentinel_matrix_v1"``, R2s inheritance is kept for all
+    non-MANURE21 rows. Only explicit MANURE21 records use a coarser particulate
+    albedo-dispersion readout that keeps R2w's centered continuum expectation
+    while reducing residual variance-under without derivative-over dominance.
+
+    When set to ``"r2y_sentinel_matrix_v1"``, R2s inheritance is kept for all
+    non-MANURE21 rows. Only explicit MANURE21 records use a soft low-frequency
+    centered albedo-dispersion readout derived from R2w's conservative route.
+
+    When set to ``"r2z_sentinel_matrix_v1"``, R2s inheritance is kept for all
+    non-MANURE21 rows. Only explicit MANURE21 records use R2w's conservative
+    centered albedo envelope with mean-neutral compositional heterogeneity and
+    smooth low-frequency readout variability.
     """
     builder_config = prior_to_builder_config(
         record,
@@ -1287,6 +1324,21 @@ _R2W_AUDIT_BASE: dict[str, Any] = {
     "scope": "bench_only_r2w_sentinel_matrix_remediation",
 }
 
+_R2X_AUDIT_BASE: dict[str, Any] = {
+    **_R2C_AUDIT_BASE,
+    "scope": "bench_only_r2x_sentinel_matrix_remediation",
+}
+
+_R2Y_AUDIT_BASE: dict[str, Any] = {
+    **_R2C_AUDIT_BASE,
+    "scope": "bench_only_r2y_sentinel_matrix_remediation",
+}
+
+_R2Z_AUDIT_BASE: dict[str, Any] = {
+    **_R2C_AUDIT_BASE,
+    "scope": "bench_only_r2z_sentinel_matrix_remediation",
+}
+
 # Tight Dirichlet alphas centered on textbook beer-style beverage composition
 # (water-dominant aqueous solution with secondary ethanol and reducing sugars,
 # trace acids/tannins). Constants are mechanistic prior knowledge, not derived
@@ -2062,6 +2114,142 @@ _R2W_DOMAIN_RULES: dict[str, dict[str, Any]] = {
     },
 }
 
+# R2x keeps the albedo midpoint used by R2w but widens the balanced cup-scale
+# albedo dispersion slightly and applies coarser fixed particulate smoothing.
+# These are mechanistic constants only; no sentinel metrics or real statistics
+# are read to set them.
+_R2X_MANURE21_RESIDUAL_PATH_FACTOR_RANGE: tuple[float, float] = (0.80, 1.00)
+_R2X_MANURE21_SMOOTHING_FWHM_NM: float = 26.0
+_R2X_MANURE21_ORGANIC_ALBEDO_ABSORBANCE_RANGE: tuple[float, float] = (
+    0.70,
+    1.02,
+)
+_R2X_MANURE21_PARTICLE_SCATTER_SLOPE_RANGE: tuple[float, float] = (-0.16, 0.16)
+_R2X_MANURE21_MOISTURE_PATCH_ABSORBANCE_RANGE: tuple[float, float] = (0.00, 0.14)
+_R2X_MANURE21_ORGANIC_LUMP_ABSORBANCE_RANGE: tuple[float, float] = (0.00, 0.13)
+_R2X_MANURE21_MINERAL_ASH_ABSORBANCE_RANGE: tuple[float, float] = (-0.10, 0.10)
+
+_R2X_DOMAIN_RULES: dict[str, dict[str, Any]] = {
+    **_R2S_DOMAIN_RULES,
+    "environmental_soil": {
+        **_R2N_DOMAIN_RULES["environmental_soil"],
+        "path_factor_range": _R2X_MANURE21_RESIDUAL_PATH_FACTOR_RANGE,
+        "spectra_rule": "dried_manure_coarse_albedo_dispersion_centered_readout",
+        "spectra_source": (
+            "fixed_coarse_dark_organic_albedo_dispersion_plus_centered_particle_scatter_bands"
+        ),
+        "smoothing_fwhm_nm": _R2X_MANURE21_SMOOTHING_FWHM_NM,
+        "additive_baseline_range": _R2X_MANURE21_ORGANIC_ALBEDO_ABSORBANCE_RANGE,
+        "scatter_slope_absorbance_range": _R2X_MANURE21_PARTICLE_SCATTER_SLOPE_RANGE,
+        "moisture_patch_absorbance_range": _R2X_MANURE21_MOISTURE_PATCH_ABSORBANCE_RANGE,
+        "organic_lump_absorbance_range": _R2X_MANURE21_ORGANIC_LUMP_ABSORBANCE_RANGE,
+        "mineral_ash_absorbance_range": _R2X_MANURE21_MINERAL_ASH_ABSORBANCE_RANGE,
+        "balanced_centered_draws": True,
+        "readout_centering_range_nm": (1100.0, 2500.0),
+        "readout_centering_grid": "uniform_wavenumber",
+        "heterogeneity_source": (
+            "fixed_dried_manure_coarse_albedo_dispersion_centered_particle_moisture_mineral_scatter_prior"
+        ),
+        "scatter_source": "fixed_dried_manure_coarse_centered_scatter_prior",
+        "albedo_source": "fixed_wide_dark_organic_mineral_albedo_dispersion_prior",
+        "output_clip_absorbance": (0.0, None),
+    },
+}
+
+# R2y restarts from R2w rather than pushing R2x. The continuum midpoint stays
+# fixed and centered, the albedo spread matches R2x's bounded range while the
+# residual path/slopes stay softer, and the fixed particulate smoothing is
+# low-frequency so variance/amplitude transfer does not rely on sharper
+# derivative structure.
+_R2Y_MANURE21_RESIDUAL_PATH_FACTOR_RANGE: tuple[float, float] = (0.82, 1.02)
+_R2Y_MANURE21_SMOOTHING_FWHM_NM: float = 30.0
+_R2Y_MANURE21_ORGANIC_ALBEDO_ABSORBANCE_RANGE: tuple[float, float] = (
+    0.70,
+    1.02,
+)
+_R2Y_MANURE21_PARTICLE_SCATTER_SLOPE_RANGE: tuple[float, float] = (-0.15, 0.15)
+_R2Y_MANURE21_MOISTURE_PATCH_ABSORBANCE_RANGE: tuple[float, float] = (0.00, 0.14)
+_R2Y_MANURE21_ORGANIC_LUMP_ABSORBANCE_RANGE: tuple[float, float] = (0.00, 0.13)
+_R2Y_MANURE21_MINERAL_ASH_ABSORBANCE_RANGE: tuple[float, float] = (-0.10, 0.10)
+
+_R2Y_DOMAIN_RULES: dict[str, dict[str, Any]] = {
+    **_R2S_DOMAIN_RULES,
+    "environmental_soil": {
+        **_R2N_DOMAIN_RULES["environmental_soil"],
+        "path_factor_range": _R2Y_MANURE21_RESIDUAL_PATH_FACTOR_RANGE,
+        "spectra_rule": "dried_manure_soft_low_frequency_albedo_dispersion_centered_readout",
+        "spectra_source": (
+            "fixed_soft_low_frequency_dark_organic_albedo_dispersion_plus_centered_particle_scatter_bands"
+        ),
+        "smoothing_fwhm_nm": _R2Y_MANURE21_SMOOTHING_FWHM_NM,
+        "additive_baseline_range": _R2Y_MANURE21_ORGANIC_ALBEDO_ABSORBANCE_RANGE,
+        "scatter_slope_absorbance_range": _R2Y_MANURE21_PARTICLE_SCATTER_SLOPE_RANGE,
+        "moisture_patch_absorbance_range": _R2Y_MANURE21_MOISTURE_PATCH_ABSORBANCE_RANGE,
+        "organic_lump_absorbance_range": _R2Y_MANURE21_ORGANIC_LUMP_ABSORBANCE_RANGE,
+        "mineral_ash_absorbance_range": _R2Y_MANURE21_MINERAL_ASH_ABSORBANCE_RANGE,
+        "balanced_centered_draws": True,
+        "readout_centering_range_nm": (1100.0, 2500.0),
+        "readout_centering_grid": "uniform_wavenumber",
+        "heterogeneity_source": (
+            "fixed_dried_manure_soft_low_frequency_albedo_dispersion_centered_particle_moisture_mineral_scatter_prior"
+        ),
+        "scatter_source": "fixed_dried_manure_soft_low_frequency_centered_scatter_prior",
+        "albedo_source": "fixed_soft_wide_dark_organic_mineral_albedo_dispersion_prior",
+        "output_clip_absorbance": (0.0, None),
+    },
+}
+
+# R2z keeps R2w's albedo envelope and balanced centering, but shifts part of
+# the extra variance transfer into the dried-manure composition prior. Scaling
+# all MANURE21 alphas by the same factor preserves the textbook component
+# means while lowering concentration, which increases inter-sample
+# organic/mineral heterogeneity without reading real MANURE21 statistics.
+_R2Z_MANURE21_ALPHA_CONCENTRATION_SCALE: float = 0.72
+_R2Z_MANURE21_ALPHAS: dict[str, float] = {
+    name: value * _R2Z_MANURE21_ALPHA_CONCENTRATION_SCALE
+    for name, value in _R2N_MANURE21_ALPHAS.items()
+}
+_R2Z_MANURE21_RESIDUAL_PATH_FACTOR_RANGE: tuple[float, float] = (0.84, 1.02)
+_R2Z_MANURE21_SMOOTHING_FWHM_NM: float = 32.0
+_R2Z_MANURE21_ORGANIC_ALBEDO_ABSORBANCE_RANGE: tuple[float, float] = (
+    0.71,
+    1.01,
+)
+_R2Z_MANURE21_PARTICLE_SCATTER_SLOPE_RANGE: tuple[float, float] = (-0.10, 0.10)
+_R2Z_MANURE21_MOISTURE_PATCH_ABSORBANCE_RANGE: tuple[float, float] = (0.00, 0.12)
+_R2Z_MANURE21_ORGANIC_LUMP_ABSORBANCE_RANGE: tuple[float, float] = (0.00, 0.11)
+_R2Z_MANURE21_MINERAL_ASH_ABSORBANCE_RANGE: tuple[float, float] = (-0.08, 0.08)
+
+_R2Z_DOMAIN_RULES: dict[str, dict[str, Any]] = {
+    **_R2S_DOMAIN_RULES,
+    "environmental_soil": {
+        **_R2N_DOMAIN_RULES["environmental_soil"],
+        "alphas": _R2Z_MANURE21_ALPHAS,
+        "path_factor_range": _R2Z_MANURE21_RESIDUAL_PATH_FACTOR_RANGE,
+        "spectra_rule": "dried_manure_compositional_heterogeneity_centered_readout",
+        "spectra_source": (
+            "fixed_mean_neutral_compositional_heterogeneity_plus_smooth_centered_scatter_bands"
+        ),
+        "smoothing_fwhm_nm": _R2Z_MANURE21_SMOOTHING_FWHM_NM,
+        "additive_baseline_range": _R2Z_MANURE21_ORGANIC_ALBEDO_ABSORBANCE_RANGE,
+        "scatter_slope_absorbance_range": _R2Z_MANURE21_PARTICLE_SCATTER_SLOPE_RANGE,
+        "moisture_patch_absorbance_range": _R2Z_MANURE21_MOISTURE_PATCH_ABSORBANCE_RANGE,
+        "organic_lump_absorbance_range": _R2Z_MANURE21_ORGANIC_LUMP_ABSORBANCE_RANGE,
+        "mineral_ash_absorbance_range": _R2Z_MANURE21_MINERAL_ASH_ABSORBANCE_RANGE,
+        "balanced_centered_draws": True,
+        "readout_centering_range_nm": (1100.0, 2500.0),
+        "readout_centering_grid": "uniform_wavenumber",
+        "composition_heterogeneity": "mean_neutral_dirichlet_concentration_scaled",
+        "composition_alpha_concentration_scale": _R2Z_MANURE21_ALPHA_CONCENTRATION_SCALE,
+        "heterogeneity_source": (
+            "fixed_dried_manure_mean_neutral_compositional_heterogeneity_smooth_centered_scatter_prior"
+        ),
+        "scatter_source": "fixed_dried_manure_smooth_low_frequency_centered_scatter_prior",
+        "albedo_source": "fixed_wide_dark_organic_mineral_albedo_prior_r2w_envelope",
+        "output_clip_absorbance": (0.0, None),
+    },
+}
+
 _PROFILE_DOMAIN_RULES: dict[str, dict[str, dict[str, Any]]] = {
     "r2c_sentinel_matrix_v1": _R2C_DOMAIN_RULES,
     "r2d_sentinel_matrix_v1": _R2D_DOMAIN_RULES,
@@ -2083,6 +2271,9 @@ _PROFILE_DOMAIN_RULES: dict[str, dict[str, dict[str, Any]]] = {
     "r2u_sentinel_matrix_v1": _R2U_DOMAIN_RULES,
     "r2v_sentinel_matrix_v1": _R2V_DOMAIN_RULES,
     "r2w_sentinel_matrix_v1": _R2W_DOMAIN_RULES,
+    "r2x_sentinel_matrix_v1": _R2X_DOMAIN_RULES,
+    "r2y_sentinel_matrix_v1": _R2Y_DOMAIN_RULES,
+    "r2z_sentinel_matrix_v1": _R2Z_DOMAIN_RULES,
 }
 
 
@@ -2257,6 +2448,27 @@ def _effective_builder_remediation_profile(
 ) -> str:
     _validate_r2c_profile(profile)
     domain_key = record.domain_key
+    if profile in R2Z_REMEDIATION_PROFILES:
+        if domain_key == "environmental_soil" and _is_r2n_manure21_record(record):
+            return profile
+        return _effective_builder_remediation_profile(
+            "r2s_sentinel_matrix_v1",
+            record,
+        )
+    if profile in R2Y_REMEDIATION_PROFILES:
+        if domain_key == "environmental_soil" and _is_r2n_manure21_record(record):
+            return profile
+        return _effective_builder_remediation_profile(
+            "r2s_sentinel_matrix_v1",
+            record,
+        )
+    if profile in R2X_REMEDIATION_PROFILES:
+        if domain_key == "environmental_soil" and _is_r2n_manure21_record(record):
+            return profile
+        return _effective_builder_remediation_profile(
+            "r2s_sentinel_matrix_v1",
+            record,
+        )
     if profile in R2W_REMEDIATION_PROFILES:
         if domain_key == "environmental_soil" and _is_r2n_manure21_record(record):
             return profile
@@ -2353,6 +2565,12 @@ def _effective_builder_remediation_profile(
 
 
 def _audit_base_for(profile: str) -> dict[str, Any]:
+    if profile in R2Z_REMEDIATION_PROFILES:
+        return _R2Z_AUDIT_BASE
+    if profile in R2Y_REMEDIATION_PROFILES:
+        return _R2Y_AUDIT_BASE
+    if profile in R2X_REMEDIATION_PROFILES:
+        return _R2X_AUDIT_BASE
     if profile in R2W_REMEDIATION_PROFILES:
         return _R2W_AUDIT_BASE
     if profile in R2V_REMEDIATION_PROFILES:
@@ -3114,12 +3332,15 @@ def _apply_r2c_spectra_remediation(
             "dried_manure_bounded_centered_scatter_readout",
             "dried_manure_balanced_centered_scatter_readout",
             "dried_manure_albedo_variance_centered_scatter_readout",
+            "dried_manure_coarse_albedo_dispersion_centered_readout",
+            "dried_manure_soft_low_frequency_albedo_dispersion_centered_readout",
+            "dried_manure_compositional_heterogeneity_centered_readout",
         }
     ):
         route = _r2n_manure21_route(record)
         if route is None:
             msg = (
-                "R2t/R2u/R2v/R2w manure heterogeneity readout requires explicit bench-only "
+                "R2t/R2u/R2v/R2w/R2x/R2y/R2z manure heterogeneity readout requires explicit bench-only "
                 "MANURE21 route provenance; route was missing or non-compliant"
             )
             raise ValueError(msg)
@@ -3291,6 +3512,13 @@ def _apply_r2c_spectra_remediation(
                 route.get("thresholds_modified", True)
             ),
         })
+        if "composition_alpha_concentration_scale" in rule:
+            transform_params.update({
+                "composition_heterogeneity": rule["composition_heterogeneity"],
+                "composition_alpha_concentration_scale": float(
+                    rule["composition_alpha_concentration_scale"]
+                ),
+            })
     else:
         low, high = rule["path_factor_range"]
         factors = np.asarray(rng.uniform(low, high, size=X_smoothed.shape[0]), dtype=float)

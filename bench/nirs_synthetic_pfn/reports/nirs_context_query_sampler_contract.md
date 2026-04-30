@@ -4,10 +4,11 @@
 
 Phase D2 introduces a deterministic, declarative context/query sampler that
 sits between the canonical latent / spectral view contracts (C1 / C2 / C3)
-and the D1 `NIRSPriorTask`. The sampler emits explicit integer index
-splits that `NIRSPriorTask.from_batches` consumes directly. D2 does **not**
-introduce any downstream training, evaluation, multi-output (D3),
-cross-instrument shift, or domain transfer logic.
+and the D1/D3 `NIRSPriorTask`. The sampler emits explicit integer index
+splits that `NIRSPriorTask.from_batches` consumes directly. D2/D3 now
+support multi-output targets structurally. This report still does **not**
+introduce any downstream training, evaluation, cross-instrument shift, or
+domain transfer logic.
 
 D2 is bench-only. No nirs4all library code is added or modified by this
 phase.
@@ -49,8 +50,9 @@ The new symbols are re-exported from `nirsyntheticpfn.data`.
 - Requires `latent_batch.target_metadata["type"] == "classification"`,
   otherwise raises with reason `strategy_target_mismatch`.
 - Selects labels from `target_clean` or `target_noisy` per
-  `config.target_source`. Multi-output targets (2D with >1 column) are
-  rejected with reason `multi_output_unsupported`.
+  `config.target_source`. Multi-output classification is supported
+  structurally by stratifying on joint output-label tuples. Labels must be
+  integer-like and finite in every output column.
 - Labels must be integer-like and finite, else
   `invalid_classification_labels`.
 - Per-class context and query allocations use the largest-remainder method
@@ -144,12 +146,17 @@ on the resulting task:
 When the resolved split policy declares `phase == "D2"`, the task's
 `provenance.limitations.context_query_sampler_implemented` is set to
 `True`. When the policy is the default D1 stub, the flag remains
-`False`. `multi_output_supported` stays `False` in both cases.
+`False`. `multi_output_supported` is now `True` for structurally valid
+single-output and multi-output tasks, with `n_outputs` recording the
+target width. This is a structural task-container and split-contract
+claim only; the task gates remain blocked until upstream realism,
+transfer, encoder, and integration artifacts pass.
 
 ## Out of scope (still)
 
-- Multi-output regression and multi-target classification (deferred to
-  D3).
+- Task gates are still blocked by upstream realism/transfer/encoder/
+  integration evidence until those gate artifacts pass.
 - Downstream model training, evaluation, or transfer claims.
-- Cross-instrument or cross-domain context/query splits.
+- Cross-instrument or cross-domain validation suites. `group_holdout` is
+  only a structural split strategy and is not a full shift suite.
 - Realism scorecards and transfer validation.
