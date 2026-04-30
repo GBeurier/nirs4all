@@ -1,0 +1,4 @@
+dataset_group,dataset,variant,rmsep,rel_rmsep_vs_pls,rel_rmsep_vs_ridge,rel_rmsep_vs_tabpfn_opt,fit_time_s
+ALPINE,ALPINE_P_291_KS,mkR-softmax_cv,0.0592,0.9502,1.0033,1.3628,39.0484
+AMYLOSE,Rice_Amylose_313_YbasedSplit,MKM-reml,2.2379,1.1745,1.1893,1.3708,54.1315
+BEER,Beer_OriginalExtract_60_KS,MKM-reml,0.2341,0.6183,0.6255,1.8018,29.4572
