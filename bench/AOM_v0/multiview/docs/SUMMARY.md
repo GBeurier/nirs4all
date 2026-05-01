@@ -232,7 +232,67 @@ Genotype10_250 shows the same pattern as regression Beer_60 — block-aware
 preprocessing-mixture beats single-operator AOM-PLS by 20+ percentage
 points on the right dataset.
 
-## 8. Next steps
+## 8. Phase 7: iterating top contenders to beat TabPFN-opt
+
+### What was tried (smoke-10 + partial full-57)
+
+- **K-sweep on moe-view-soft**: K=3, 4, 5, 6, 7, 8, 10 plus per-expert components 10/15/20.
+- **Bigger banks for moe-preproc-soft**: family_pruned (15 ops) vs response_dedup (47 ops) vs compact (8 ops).
+- **ASLS outer preproc** (the AOM_v0 champion's secret sauce): wraps any multi-view estimator with `ASLSBaseline(λ=1e6, p=0.01)` upstream.
+- **bestof-multiview**: inner-holdout variant selection (`BestOfStackedRegressor` in `multiview/stacking_select.py`).
+- **Ridge / NNLS stacking**: `StackingHybrid` with 4-base OOF + meta-Ridge or meta-NNLS.
+
+### Smoke-10 best (median rel-RMSEP vs PLS-standard)
+
+| Variant | Median | Wins vs TabPFN-opt |
+|---------|-------:|-------------------:|
+| ridge-stack-multiview | **0.873** | 2/10 |
+| moe-view-soft-pls (K=3) | 0.892 | 4/10 |
+| nnls-stack-multiview | 0.906 | 3/10 |
+| moe-view-soft-K5 | 0.907 | **5/10** |
+| moe-preproc-soft-compact | 0.917 | 2/10 |
+
+K=5 beat K=3 on smoke-10 vs TabPFN-opt (5/10 vs 4/10), and on Beer_OE_60 specifically: **K=5 hits 0.147 RMSEP vs TabPFN-opt 0.152 — first multi-view win on Beer**.
+
+### Full-57 follow-up (honest negative)
+
+K=5 was launched on the full cohort. **It does not generalise** — full-57 K=5
+has 11/58 wins vs TabPFN-opt (worse than K=3's 14/58, median 0.971 vs 0.948).
+Smoke-10's K=5 advantage was sample-size luck. K-parameter is dataset-dependent
+and no fixed K dominates.
+
+Ridge-stack ran on 6 datasets before being killed (per-dataset cost ~5-10 min
+on n>1000): marginally improved one dataset (Rice_Amylose) but lost on Beer
+to the simpler K=5. Stacking overhead doesn't pay off vs simple per-dataset
+variant selection.
+
+### Oracle multi-view ceiling
+
+Per-dataset best-of-{moe-preproc-soft, moe-view-soft, moe-view-K5,
+lazy-V1-POP, lazy-V2-AOM} wins **20/58 vs TabPFN-opt** (vs 14 for best
+single variant). **+6 wins** are achievable via correct per-dataset
+variant selection. The `bestof-multiview` inner-holdout selector falls
+short of this oracle because the holdout signal is noisy on small datasets.
+
+| Reference | Wins vs TabPFN-opt (out of 58 with TabPFN ref) |
+|-----------|------------------------------------------------:|
+| AOM-PLS-compact-numpy | 12 |
+| moe-preproc-soft-pls-compact | 12 |
+| moe-view-soft-pls (K=3) | **14** ← top single |
+| moe-view-soft-K5 | 11 |
+| lazy-V2-AOM-combined-compact | 10 |
+| **oracle (per-dataset multi-view best)** | **20** ← practical ceiling |
+
+### Phase 7 conclusions
+
+- **No new single variant** beats `moe-view-soft-pls (K=3)` for wins vs TabPFN-opt.
+- **K=3 was the right default**; smoke-10 K=5 win was statistical noise.
+- **Stacking adds ~marginal wins** vs the cost (5-10 min per dataset).
+- **+6 wins available via oracle**, motivating future meta-learning per dataset.
+- **Beer K=5 hits 0.147** — first multi-view win on Beer_OE_60 — proves the
+  K-knob has real reach when tuned per dataset.
+
+## 9. Next steps
 
 1. **Full-57** — running with top variants (moe-view-soft, moe-preproc-soft,
    lazy-V2-AOM-combined, lazy-V1-POP, plus references). Block-sparse-V1 is
