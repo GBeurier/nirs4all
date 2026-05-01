@@ -34,17 +34,16 @@ from benchmarks.run_aompls_benchmark import _existing_keys, run_dataset  # noqa:
 
 
 SMOKE_DATASETS = [
-    "All_manure_P2O5_SPXY_strat_Manure_type",
-    "Fv_Fm_grp70_30",
-    "ta_groupSampleID_stratDateVar_balRows",
-    "WOOD_N_402_Olale",
-    "An_spxyG70_30_byCultivar_MicroNIR",
-    "All_manure_CaO_SPXY_strat_Manure_type",
-    "DIESEL_bp50_246_b-a",
-    "Malaria_Sporozoite_229_Maia",
+    "All_manure_MgO_SPXY_strat_Manure_type",
+    "An_spxyG70_30_byCultivar_NeoSpectra",
+    "TIC_spxy70",
+    "Chla+b_spxyG_species",
+    "ALPINE_P_291_KS",
+    "Beer_OriginalExtract_60_YbaseSplit",
+    "All_manure_Total_N_SPXY_strat_Manure_type",
     "Chla+b_spxyG_block2deg",
-    "DIESEL_bp50_246_hla-b",
-    "Beef_Marbling_RandomSplit",
+    "N_woOutlier",
+    "grapevine_chloride_556_KS",
 ]
 
 
