@@ -56,3 +56,7 @@ GRAPEVINES,grapevine_chloride_556_KS,stack-ridge-4base,0,388,167,1023,980.730401
 GRAPEVINES,grapevine_chloride_556_KS,stack-nnls-4base,0,388,167,1023,961.5956541607736,0.5862075423324169,-1,24.474090812029317,"aom_pls:0.291,block_sparse_v1:0.245,moe_preproc_soft:0.436,lazy_v1_pop:0.004",,ok,
 MANURE21,All_manure_MgO_SPXY_strat_Manure_type,stack-ridge-4base,0,343,147,1003,0.7802227202945105,0.8908371250100204,-1,23.73874992801575,"aom_pls:+0.527,block_sparse_v1:+0.031,moe_preproc_soft:+0.449,lazy_v1_pop:-0.049",,ok,
 MANURE21,All_manure_MgO_SPXY_strat_Manure_type,stack-nnls-4base,0,343,147,1003,0.7821089480784608,0.890308673488299,-1,18.291663981974125,"aom_pls:0.518,block_sparse_v1:0.027,moe_preproc_soft:0.458,lazy_v1_pop:0.000",,ok,
+BEER,Beer_OriginalExtract_60_YbaseSplit,tabpfn-standalone,0,40,20,576,0.207714642400726,0.9927566178561282,-1,212.0600094399997,,,ok,
+BEER,Beer_OriginalExtract_60_YbaseSplit,aom-ridge-standalone,0,40,20,576,0.4314911351590606,0.9687427382892265,-1,18.92091517098015,,,ok,
+BEER,Beer_OriginalExtract_60_YbaseSplit,hetero-ridge-stack,0,40,20,576,0.24474050669057598,0.9899441477591598,-1,682.7883518210147,"aom_pls:+0.011,moe_preproc_soft:+0.397,moe_view_soft:+0.255,lazy_v2_aom:+0.405,aom_ridge:-0.177,tabpfn:+0.132",,ok,
+BEER,Beer_OriginalExtract_60_YbaseSplit,hetero-nnls-stack,0,40,20,576,0.49099897730587083,0.959526724924582,-1,614.9227731110295,"aom_pls:+0.000,moe_preproc_soft:+0.000,moe_view_soft:+0.125,lazy_v2_aom:+0.796,aom_ridge:+0.000,tabpfn:+0.079",,ok,
