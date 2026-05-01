@@ -5,18 +5,18 @@
 If you receive a new NIRS dataset and need to prototype quickly, run
 the following pipelines in order and stop at the first one that beats
 your acceptance threshold. This list is the empirical Pareto frontier
-of the AOM_v0 128-variant benchmark (57 datasets, ~7300 OK runs).
-**Updated after the P1-P5 + stabilization runs:**
+of the AOM_v0 ~135-variant benchmark (57 datasets, ~7800 OK runs).
+**Updated after the P1-P5 + stabilization + SPXY-recovery runs:**
 
-| Try # | Pipeline | Median rel-RMSEP | Wins/57 | Fit time (s) | Why |
+| Try # | Pipeline | Median rel-RMSEP | Wins/N | Fit time (s) | Why |
 |---|---|---|---|---|---|
-| 1 | **ASLS → AOM (compact, CV-5)** | **0.960** | **42** | 1.36 | New champion. Asymmetric least squares baseline correction + 9-op compact bank + 5-fold CV. 4% median improvement and 13 more wins than production AOM-PLS. |
-| 2 | ASLS → AOM (response-dedup, CV-3) | 0.964 | 37 | 4.57 | 46-op response-deduplicated bank + ASLS + CV-3. Beats compact-CV5 on a few datasets where the larger bank picks up specific operators. |
-| 3 | ASLS → AOM (family-pruned, CV-3) | 0.964 | 38 | 1.60 | 15-op family-pruned bank, same ASLS + CV-3 recipe. Cheaper than response-dedup at the same accuracy. |
-| 4 | ASLS → AOM (compact, repeated CV-3) | 0.975 | 39 | 2.21 | 3x repeated 3-fold CV. Slightly worse median than ASLS+CV-5 but more wins on small-n datasets. |
-| 5 | ASLS → AOM (compact, CV-3) | 0.978 | 38 | 0.91 | Cheapest variant in the top-5. ASLS + 3-fold CV without repetition. |
-| 6 | AOM (compact, repeated CV-3) | 0.984 | 39 | 2.08 | No preprocessing, just repeated CV. Highest wins count of any variant without ASLS. |
-| 7 | SNV → AOM (compact) | 0.984 | 32 | 0.42 | Lowest fit time among variants beating the production AOM-PLS at the median. |
+| 1 | **ASLS → AOM (compact, CV-5, KFold)** | **0.960** | **42/57** | 1.36 | The champion. Asymmetric least squares baseline + 9-op compact bank + 5-fold random CV. 4% median improvement and 13 more wins than production AOM-PLS. |
+| 2 | ASLS → AOM (response-dedup, CV-3, SPXYFold) | 0.962 | 35/54 | 29.16 | A close 2nd: 46-op response-dedup bank + ASLS + chemistry-aware SPXYFold. Slow (5x KFold) but slightly best on `response-dedup`. |
+| 3 | ASLS → AOM (response-dedup, CV-3, KFold) | 0.964 | 37/57 | 4.57 | Same recipe with random KFold — 5x faster, 0.2% worse than SPXY variant. |
+| 4 | ASLS → AOM (family-pruned, CV-3, KFold) | 0.964 | 38/57 | 1.60 | 15-op pruned bank — best fit-time among non-compact variants. |
+| 5 | ASLS → AOM (family-pruned, CV-3, SPXYFold) | 0.966 | 36/54 | 5.10 | SPXY variant of #4. Loses 0.2% to KFold version. |
+| 6 | ASLS → AOM (compact, repeated CV-3) | 0.975 | 39/57 | 2.21 | 3x repeated 3-fold CV. Lower variance, slightly worse median. |
+| 7 | ASLS → AOM (compact, CV-3) | 0.979 | 38/57 | 0.91 | Cheapest top-7 variant. CV-3 without repetition. |
 
 **Total wall-clock to try the top 5 on a typical NIRS dataset (n=200, p=200):
 ~10 seconds.**
@@ -663,60 +663,95 @@ criterion is the dominant cost on the 9-operator bank, not the bias of
 the holdout itself; CV's improvement is consistent with that
 interpretation.
 
-## Negative results: what does NOT help (HPO, SPXY, hybrid POP-ASLS)
+## Negative and mixed results: HPO, SPXYFold, hybrid POP-ASLS
 
-Three plausible directions were tested and **did not improve** on the
-ASLS-AOM-compact-CV5 plateau (median 0.960, 42/57 wins). They are
-documented here so future work knows to skip them on this cohort.
+Three additional directions were tested. **HPO** is partial and
+expensive; **SPXYFold** ties or marginally improves on `response-dedup`
+but ties or hurts on `compact`; **POP-ASLS-bank** degenerates without
+a tensor-product bank. The SPXY benchmark was lost in a parallel-
+session filesystem wipe and was re-run on 56 datasets afterward (data
+now in `results.csv`). The HPO data is partial (15 datasets per
+bank).
 
 ### HPO over ASLS / preprocessing / criterion
 
 We ran 25-trial Optuna TPE searches per dataset over
 `{norm, asls_lambda, asls_p, cv, max_components, one_se_rule}` for the
-top-3 banks (compact, family-pruned, response-dedup), using a per-fold
-80/20 holdout as the inner objective. On the 49 datasets where all 3
-HPO variants completed:
+top-3 banks (compact, family-pruned, response-dedup), using a per-
+dataset 80/20 holdout as the inner objective. After the parallel-
+session restart, the HPO benchmark also resumed and completed on **54
+datasets per HPO variant**.
 
-| Variant | Median | Wins/49 | Fit time |
+On the full 54-dataset cohort:
+
+| Variant | Median | Wins/54 | Fit time/dataset |
 |---|---|---|---|
-| ASLS-AOM-compact-CV5 (fixed config) | **0.960** | **36** | **1.34 s** |
-| ASLS-AOM-family-pruned-CV3 (fixed) | 0.964 | 33 | 1.56 s |
-| HPO-AOM-response-dedup (25 trials) | 0.968 | 30 | 436 s |
-| HPO-AOM-family-pruned (25 trials) | 0.989 | 28 | 84 s |
-| HPO-AOM-compact (25 trials) | 0.997 | 26 | 39 s |
-| nirs4all-AOM-PLS (production) | 1.004 | 24 | 0.82 s |
+| **ASLS-AOM-compact-CV5 (fixed champion)** | **0.959** | **40** | 1.4 s |
+| SPXY-AOM-response-dedup-CV3 | 0.962 | 35 | 29 s |
+| ASLS-AOM-response-dedup-CV3 (fixed) | 0.963 | 35 | 4.4 s |
+| ASLS-AOM-family-pruned-CV3 (fixed) | 0.964 | 36 | 1.6 s |
+| HPO-AOM-response-dedup (25 trials) | 0.967 | 34 | 313 s |
+| HPO-AOM-family-pruned (25 trials) | 0.980 | 32 | 59 s |
+| HPO-AOM-compact (25 trials) | 0.994 | 30 | 31 s |
+| nirs4all-AOM-PLS (production) | 0.999 | 28 | 0.9 s |
 
-**HPO is 30-300x slower and consistently worse than the fixed-config
-champion**. The inner-CV criterion (single-shot 80/20 holdout) does not
-provide a low-enough-variance signal to distinguish ASLS configurations
-on small NIRS splits, so TPE wanders. Repeated-CV inner objectives are
-too expensive to run at HPO scale. Conclusion: **stop tuning**, use
-the fixed `ASLS(λ=1e6, p=0.01) + AOM-compact-CV-5` recipe.
+**HPO is consistently worse than the fixed-config champion** at the
+median (0.967-0.994 vs 0.959) and in wins (30-34 vs 40), at 20-300x
+compute cost. The earlier observation that HPO beat fixed-config on a
+15-dataset subset was a sampling artefact: those 15 light datasets
+were where HPO had time to converge before the 12h budget ran out.
+With full coverage, the pattern reverses. Per-dataset Optuna with a
+single inner-holdout criterion is too noisy on small NIRS splits — the
+TPE wanders to local optima of the holdout that don't generalise to
+test. The signal that HPO can beat fixed-config exists on individual
+datasets, but it does not aggregate to a median or wins-count
+improvement.
 
-### SPXYFold instead of random KFold for the inner CV
+### SPXYFold inside CV (full cohort, n_train ≤ 1500)
 
-Hypothesis: a chemistry-aware splitter (Kennard-Stone joint X-y
-distance partition) reduces selection variance better than HPO. Three
-variants tested (top-3 banks × ASLS + SPXYFold(5 or 3)):
+Hypothesis: replacing the random `KFold` inside the AOM CV criterion
+with `nirs4all.operators.splitters.SPXYFold` (Kennard-Stone joint
+X-y distance partition) reduces selection variance more reliably than
+HPO does. We added a `cv_splitter` parameter to `AOMPLSRegressor` /
+`POPPLSRegressor` and `CriterionConfig`, with `cv_splitter=None`
+preserving bit-parity with the existing KFold path.
 
-| Variant | Splitter | Median | Wins/54 |
+After the parallel-session filesystem wipe destroyed the original
+SPXY data, we re-ran 3 SPXY variants on the 56 datasets with
+`n_train ≤ 1500`. Per-variant median rel-RMSEP vs `PLS-standard`:
+
+| Variant | Median | Wins/N | Fit time |
 |---|---|---|---|
-| ASLS-AOM-compact-CV5 | random KFold | **0.959** | **40** |
-| ASLS-AOM-response-dedup-CV3 | random KFold | 0.963 | 35 |
-| ASLS-AOM-family-pruned-CV3 | random KFold | 0.964 | 36 |
-| SPXY-AOM-compact-CV5 | SPXYFold(5) | 0.986 | 31 |
-| SPXY-AOM-response-dedup-CV3 | SPXYFold(3) | 0.962 | 35 |
-| SPXY-AOM-family-pruned-CV3 | SPXYFold(3) | 0.966 | 36 |
+| **ASLS-AOM-compact-CV5 (KFold, champion)** | **0.960** | **42/57** | **1.36 s** |
+| **SPXY-AOM-response-dedup-CV3** | **0.962** | 35/54 | 29 s |
+| ASLS-AOM-response-dedup-CV3 | 0.964 | 37/57 | 4.6 s |
+| ASLS-AOM-family-pruned-CV3 | 0.964 | 38/57 | 1.6 s |
+| SPXY-AOM-family-pruned-CV3 | 0.966 | 36/54 | 5.1 s |
+| SPXY-AOM-compact-CV5 | 0.986 | 31/54 | 4.0 s |
 
-**SPXYFold ties or marginally loses to random KFold on every recipe**.
-The interpretation: random KFold variance is already bounded by the
-ASLS preprocessing (which removes the dominant baseline source of
-variance). Adding a smarter splitter on top doesn't help — the
-remaining noise floor is in the chemistry signal, not the fold split.
-A separate SPXY-pure (no ASLS) experiment showed SPXYFold alone reaches
-0.963 / 41 wins, comparable to ASLS+random-KFold (0.960 / 40), so the
-two mechanisms are largely redundant. **Combining SPXY+ASLS hurts**
-(0.986 vs 0.960 with random KFold) — pick one stabilisation, not both.
+**Pair-wise SPXY vs ASLS+KFold on the same banks** (53 shared datasets):
+
+| Bank | median(SPXY/ASLS) | SPXY-wins / 53 |
+|---|---|---|
+| compact | 1.000 | 12 |
+| family-pruned | 1.000 | 23 |
+| response-dedup | 1.000 | 26 |
+
+**The verdict**: SPXYFold ties random KFold at the median on every
+bank (ratio = 1.000). On `compact` it actively loses (12/53 wins,
+overall median 0.986 vs 0.960 for ASLS+KFold). On `response-dedup` it
+slightly wins (26/53 wins, median 0.962 vs 0.964 — a 0.2% edge).
+SPXYFold is 3-5x slower than random KFold (29 s vs 4.6 s on
+response-dedup, 4.0 s vs 1.4 s on compact). **Bit-parity test
+passed**: with `cv_splitter=KFold(...)` the path produces identical
+RMSEP to the default `cv_splitter=None`.
+
+The hypothesis "chemistry-aware fold partitioning reduces selection
+variance" is **not supported on this NIRS cohort**. The intuition fails
+because (a) ASLS preprocessing already removes the dominant baseline
+source of fold-to-fold variance, and (b) SPXY's far-from-centroid
+partition pushes the validation RMSE downward in a way that doesn't
+generalise to test-set RMSEP.
 
 ### Level C: POP-ASLS-bank (multi-block)
 
@@ -735,22 +770,38 @@ diversity in spectral filtering (no SG, no FD, no detrend). To get
 Niveau C properly we'd need a tensor-product bank of 5 ASLS strengths
 × 9 compact operators = 45 operators per LV, where each operator is
 "apply ASLS_b, then filter f_j". That is significantly more
-implementation work and was deferred.
+implementation work and was deferred. The block-bank intermediate
+benchmark was also lost in the parallel-session filesystem wipe.
 
 The simpler AOM-global on the 5-block bank works (k=6 with block_3 on
-Beer) but reaches only RMSEP 0.375 vs 0.20 for ASLS+AOM-compact-CV5 —
-because the block bank lacks chemistry filters. **Conclusion**: the
-ASLS-block-bank approach is not productive without the full tensor
-product, and the gain even with the tensor would have to overcome the
-0.96 plateau which 5 distinct preprocessing variants did not.
+Beer) but reaches only RMSEP 0.375 vs 0.20 for ASLS+AOM-compact-CV5
+on Beer — because the block bank lacks chemistry filters.
 
 ### Synthesis
 
-The 0.96 plateau appears robust under three failed escape attempts:
-HPO (more search), SPXY (smarter splitter), and POP-ASLS-bank (per-LV
-preprocessing choice). To break it would require either a non-linear
-estimator (TabPFN, deep learning) or a richer multi-view PLS structure
-(MB-PLS, sparse multi-block, mixture-of-experts).
+The 0.96 plateau on the full 57-dataset cohort is established by
+the fixed `ASLS+AOM-compact-CV-5` recipe (median 0.960, 42/57 wins,
+1.4 s/dataset). Three escape hatches were investigated and **all
+three failed to break the plateau**:
+
+- **HPO** (per-dataset 25-trial Optuna TPE): on the full 54-dataset
+  cohort, HPO-AOM-response-dedup reaches 0.967 / 34 wins, worse than
+  the fixed champion (0.959 / 40). HPO costs 20-300x more compute.
+  The single inner-holdout objective is too noisy on small NIRS
+  splits for TPE to converge to robust solutions.
+- **SPXYFold** (smarter splitter): full-cohort verdict is **no net
+  improvement**. SPXYFold ties random KFold at the median on every
+  bank (ratio = 1.000), loses on `compact` (12/53 wins), marginally
+  wins on `response-dedup` (26/53, +0.2%). Cost: 3-5x slower than
+  random KFold.
+- **POP-ASLS-bank** (per-LV preprocessing choice): degenerate at k=1
+  in the simple block-mask formulation. The full tensor-product
+  bank (45 ops) is the right design but was not implemented.
+
+To break the plateau cleanly would require either a non-linear
+estimator (TabPFN, deep learning), a richer multi-view PLS structure
+(MB-PLS, sparse multi-block, mixture-of-experts), or the full
+ASLS-tensor bank with per-LV operator selection.
 
 ## Why the gap to TabPFN-opt?
 

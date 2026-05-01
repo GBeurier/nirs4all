@@ -208,6 +208,34 @@ HPO_VARIANTS = [
 ]
 EXT_REG_VARIANTS = EXT_REG_VARIANTS + HPO_VARIANTS
 
+
+# ---------------------------------------------------------------------------
+# SPXYFold variants: replace the random KFold inside the AOM CV criterion
+# with `nirs4all.operators.splitters.SPXYFold` (Kennard-Stone joint X-y
+# distance partition). Hypothesis: chemistry-aware fold partitioning
+# reduces selection variance better than HPO does. This run re-creates
+# the SPXY data lost in the parallel-session filesystem wipe.
+# ---------------------------------------------------------------------------
+def _spxy_factory(n_splits: int):
+    """Return a `(seed) -> SPXYFold` factory for the benchmark resume key.
+
+    The seed only affects the optional PCA inside SPXYFold; the joint X-y
+    distance partition itself is deterministic given (X, y, n_splits).
+    """
+    def _factory(seed: int):
+        from nirs4all.operators.splitters import SPXYFold
+        return SPXYFold(n_splits=int(n_splits), random_state=int(seed))
+    return _factory
+
+
+SPXY_VARIANTS = [
+    {"label": "SPXY-AOM-compact-cv5-numpy", "kind": "regression", "selection": "global", "engine": "nipals_adjoint", "operator_bank": "compact", "backend": "numpy", "preproc": "none+asls+none", "criterion_override": "cv", "cv_override": 5, "cv_splitter_factory": _spxy_factory(5)},
+    {"label": "SPXY-AOM-family-pruned-cv3-numpy", "kind": "regression", "selection": "global", "engine": "nipals_adjoint", "operator_bank": "family_pruned", "backend": "numpy", "preproc": "none+asls+none", "criterion_override": "cv", "cv_override": 3, "cv_splitter_factory": _spxy_factory(3)},
+    {"label": "SPXY-AOM-response-dedup-cv3-numpy", "kind": "regression", "selection": "global", "engine": "nipals_adjoint", "operator_bank": "response_dedup", "backend": "numpy", "preproc": "none+asls+none", "criterion_override": "cv", "cv_override": 3, "cv_splitter_factory": _spxy_factory(3)},
+]
+EXT_REG_VARIANTS = EXT_REG_VARIANTS + SPXY_VARIANTS
+
+
 EXT_CLF_VARIANTS = [
     {"label": "PLS-DA-standard", "kind": "classification", "selection": "none", "engine": "pls_standard", "operator_bank": "identity", "backend": "numpy"},
     {"label": "AOM-PLS-DA-default-simpls-covariance", "kind": "classification", "selection": "global", "engine": "simpls_covariance", "operator_bank": "default", "backend": "numpy"},
