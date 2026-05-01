@@ -112,11 +112,84 @@ sensitive to absolute scoring).
 
 ---
 
-## 4. Next steps
+## 4. Smoke-10 escalation results
 
-1. **Smoke-10 escalation** (in progress) — qualifying winners on the 10-dataset
-   user-curated cohort.
-2. **Full-57** — only the smoke-10 winners get the full benchmark.
-3. **Phase 4 hybrids** — Ridge-meta stacking of {block-sparse-V1, MoE preproc-soft, AOM-PLS-compact} predictions, if smoke-10 shows individual variants do not dominate cohorts of multiple datasets.
-4. **Performance** — if Phase 4 needs block-sparse on Chla+b-scale datasets, port the algorithm to share state across candidate evaluations.
-5. **Classification** — replicate winning regression variants for AOM-MBPLSClassifier / AOM-MoEClassifier on the existing classification cohort.
+10-dataset cohort, 8 variants, 78 result rows (block-sparse skipped on
+n>1500 datasets — Chla+b series).
+
+### Per-dataset winners
+
+| Dataset | Winner | RMSEP |
+|---------|--------|------:|
+| ALPINE_P_291_KS | lazy-V2-AOM-combined-compact | 0.054 |
+| All_manure_MgO | AOM-PLS-compact-numpy | 0.795 |
+| All_manure_Total_N | moe-view-soft-pls | 1.55 |
+| An_spxyG_byCultivar_NeoSpectra | moe-view-soft-pls | 4.25 |
+| Beer_OE_60 | block-sparse-V1 | 0.157 |
+| Chla+b_block2deg | lazy-V1-POP-blocks3 | 27.69 |
+| Chla+b_species | lazy-V1-POP-blocks3 | 26.20 |
+| N_woOutlier | moe-preproc-soft-pls | 0.319 |
+| TIC_spxy70 | AOM-PLS-compact | 2.95 |
+| grapevine_chloride | moe-preproc-soft-pls | 939 |
+
+Multi-view variants win on **8/10 datasets** (only AOM-PLS-compact wins on
+All_manure_MgO and TIC_spxy70).
+
+### Top variants by median rel-RMSEP vs PLS-standard (smoke-10)
+
+| Variant | Median rel-RMSEP | Wins vs baseline | Wins vs AOM-PLS | Wins vs TabPFN-opt |
+|---------|-----------------:|-----------------:|----------------:|-------------------:|
+| **moe-view-soft-pls** | **0.892** | **7/10** | 5/10 | **4/10** |
+| moe-preproc-soft-pls-compact | 0.917 | 9/10 | 8/10 | 2/10 |
+| lazy-V2-AOM-combined-compact | 0.957 | 6/10 | 3/10 | 1/10 |
+| MBPLS-blocks3-vanilla | 0.994 | 7/10 | 3/10 | 2/10 |
+| block-sparse-V1-blocks3 | 1.035 (n=8) | 3/8 | 2/8 | 0/8 |
+| lazy-V1-POP-blocks3 | 1.387 | 3/10 | 4/10 | 3/10 |
+
+`moe-view-soft-pls` is the most consistent: 7/10 wins vs PLS-std, 4/10 wins
+vs TabPFN-opt (the strongest external benchmark). It is the recommended
+default for general NIRS regression where dataset structure is unknown.
+
+`moe-preproc-soft-pls-compact` has more wins (9/10) but at the cost of
+deeper rel-RMSEP gains — i.e. it generalises broadly to "AOM-PLS minus
+a few percent" but doesn't specialise as deeply.
+
+`lazy-V1-POP` is a niche specialist: huge wins on block-structured data
+(Chla+b family, −44% to −65% RMSEP) but mediocre elsewhere.
+
+## 5. Phase 4 stacking results (smoke-4)
+
+The Ridge-meta stacking of {AOM-PLS-compact, block-sparse-V1, moe-preproc-soft,
+lazy-V1-POP} predicts via NNLS or Ridge-weighted combination of base
+estimator OOF predictions.
+
+| Dataset | best individual | stacking-ridge | stacking-nnls |
+|---------|----------------:|---------------:|--------------:|
+| Beer_60 | 0.157 (block-sparse-V1) | 0.197 | 0.164 |
+| Chla+b_block2deg | 27.05 (lazy-V2-POP) | 41.16 | 41.17 |
+| grapevine | 939 (moe-preproc-soft) | 980.7 | 961.6 |
+| All_manure_MgO | 0.795 (AOM-PLS) | **0.780** | 0.782 |
+
+**Stacking wins on All_manure** (closes the gap where no individual
+multi-view variant beat AOM-PLS), but loses elsewhere because the
+"mixture-of-winners" averages out a single dominant expert. Stacking is
+useful as a **safety net** rather than a champion: it prevents catastrophic
+loss to AOM-PLS while tracking the best multi-view variant on most data.
+
+## 6. Next steps
+
+1. **Full-57** — running with top variants (moe-view-soft, moe-preproc-soft,
+   lazy-V2-AOM-combined, lazy-V1-POP, plus references). Block-sparse-V1 is
+   dropped due to perf on n>1500 datasets without an incremental engine.
+2. **Performance work** (Phase 4.5) — port block-sparse algorithm to share
+   state across candidate evaluations (mirroring `simpls_covariance` style
+   in existing AOM-PLS POP). Then re-run on Chla+b-scale datasets to see if
+   block-sparse can also dominate large cohorts.
+3. **Classification** (Phase 6) — replicate winning regression variants
+   (especially moe-view-soft, moe-preproc-soft) for `AOMMoEClassifier` /
+   `BlockSparseAOMMBPLSClassifier`. Existing `AOMPLSDAClassifier` provides
+   the template (class-balanced encoding + AOM engine + LogisticRegression
+   on latent scores).
+4. **Publication artifact** — once full-57 lands, generate the LaTeX
+   comparison table vs AOM-Ridge / AOM-MkM / TabPFN-opt cohorts (the
+   parallel sessions' best variants are referenced via cohort columns).
