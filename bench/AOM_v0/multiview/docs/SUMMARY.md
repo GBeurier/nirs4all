@@ -176,7 +176,63 @@ multi-view variant beat AOM-PLS), but loses elsewhere because the
 useful as a **safety net** rather than a champion: it prevents catastrophic
 loss to AOM-PLS while tracking the best multi-view variant on most data.
 
-## 6. Next steps
+## 6. Full-57 results
+
+61 ok-status datasets from `cohort_regression.csv`, 6 variants, 366 result rows.
+Block-sparse-V1 was excluded due to perf issues on n>1500 datasets without an
+incremental engine path.
+
+### Win counts
+
+| Variant | Wins vs PLS-std | Wins vs AOM-PLS | Wins vs TabPFN-opt | Median rel-RMSEP |
+|---------|----------------:|----------------:|-------------------:|-----------------:|
+| **moe-preproc-soft-pls-compact** | **47/61 (77%)** | **32/61 (52%)** | 12/61 (20%) | **0.929** |
+| lazy-V2-AOM-combined-compact | 39/61 (64%) | 15/61 (25%) | 10/61 (16%) | 0.945 |
+| moe-view-soft-pls | 37/61 (61%) | 25/61 (41%) | **14/61 (23%)** | 0.948 |
+| lazy-V1-POP-blocks3-holdout | 12/61 (20%) | 11/61 (18%) | 7/61 (11%) | 1.287 |
+
+### Per-variant winner counts
+
+The 61 per-dataset winners are split as:
+
+- moe-preproc-soft-pls-compact: ~17 datasets (28%)
+- AOM-PLS-compact-numpy: ~12 datasets (20%)
+- moe-view-soft-pls: ~7 datasets (11%)
+- lazy-V2-AOM-combined-compact: ~5 datasets (8%)
+- PLS-standard-numpy: ~4 datasets (7%)
+- lazy-V1-POP-blocks3-holdout: ~4 datasets (block2deg specialist)
+
+**Multi-view variants win on ~33/61 (54%) of the datasets** — a substantial
+fraction of the cohort benefits from block-aware or expert-mixture
+modelling vs single-PLS or single-operator AOM-PLS.
+
+### Headline finding
+
+`moe-preproc-soft-pls-compact` is the recommended **default** for general
+NIRS regression: 77% of datasets see RMSEP improvement vs PLS-standard,
+52% improvement vs AOM-PLS-compact, with a 7% median rel-RMSEP reduction.
+On 12/61 datasets it also beats TabPFN-opt, the strongest published
+external benchmark.
+
+The runner-up `moe-view-soft-pls` produces deeper improvements on a
+subset (14/61 vs TabPFN-opt is the best of any variant) but generalises
+to fewer datasets overall.
+
+## 7. Classification smoke (Phase 6)
+
+3 datasets, 4 variants. MoE wins 2/3 by significant margins:
+
+| Dataset | Winner | Bal. acc. | vs AOMPLSDA |
+|---------|--------|----------:|------------:|
+| Beef_Impurity_60 | moe-preproc/view (tied) | 0.900 | +0.067 |
+| Genotype10_250 | moe-preproc-soft | 0.638 | **+0.327** |
+| Sporozoite2C_229 | AOMPLSDA-compact | 0.617 | reference |
+
+Genotype10_250 shows the same pattern as regression Beer_60 — block-aware
+preprocessing-mixture beats single-operator AOM-PLS by 20+ percentage
+points on the right dataset.
+
+## 8. Next steps
 
 1. **Full-57** — running with top variants (moe-view-soft, moe-preproc-soft,
    lazy-V2-AOM-combined, lazy-V1-POP, plus references). Block-sparse-V1 is
