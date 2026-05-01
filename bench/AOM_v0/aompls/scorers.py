@@ -113,6 +113,7 @@ def cv_score_regression(
     fit_predict: Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray],
     n_splits: int,
     random_state: int,
+    cv_splitter: Any = None,
 ) -> float:
     """Compute K-fold CV RMSE on already-centered `Xc, yc`.
 
@@ -124,10 +125,17 @@ def cv_score_regression(
     Note: this helper passes the *raw* centered training matrices to
     `fit_predict`, which is responsible for any per-fold (re)centering.
     Standard practice in PLS is to re-center within each fold.
+
+    When `cv_splitter is None`, falls back to `KFold(n_splits, shuffle=True,
+    random_state=random_state)`. Otherwise the caller-provided splitter is
+    used directly (e.g. SPXYFold for chemistry-aware folds).
     """
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    if cv_splitter is None:
+        kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    else:
+        kf = cv_splitter
     rmses = []
-    for train_idx, val_idx in kf.split(Xc):
+    for train_idx, val_idx in kf.split(Xc, yc):
         X_tr, X_va = Xc[train_idx], Xc[val_idx]
         y_tr, y_va = yc[train_idx], yc[val_idx]
         try:
