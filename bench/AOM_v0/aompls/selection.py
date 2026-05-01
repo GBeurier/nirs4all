@@ -624,7 +624,10 @@ def _criterion_score_at_indices(
             if pred.ndim == 2 and pred.shape[1] == 1:
                 pred = pred.ravel()
             return pred + y_mean
-        return cv_score_regression(Xc, yc, _fp, criterion.cv, criterion.random_state), None
+        return cv_score_regression(
+            Xc, yc, _fp, criterion.cv, criterion.random_state,
+            cv_splitter=criterion.cv_splitter,
+        ), None
     if criterion.kind == "holdout":
         def _fp(X_tr, y_tr, X_va):
             x_mean = X_tr.mean(axis=0)
