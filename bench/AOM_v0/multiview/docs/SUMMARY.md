@@ -359,7 +359,77 @@ After Phases 1-7.5, the recommended NIRS regression workflow is:
    stitched detector ranges), explicitly run `lazy-V1-POP-blocks3` —
    produces 30-65% RMSEP reductions on Chla+b family, Malaria Oocist.
 
-## 11. Next steps
+## 11. Phase 8: heterogeneous experts (AOM-Ridge + TabPFN attempt)
+
+User-requested expansion to include parallel-session estimators and TabPFN
+itself as base estimators in a heterogeneous stacking ensemble.
+
+### Implementation
+
+- `multiview/hetero_stack.py` — wrappers for parallel-session bases:
+  - `TabPFNAdapter` — sklearn-compat with `n_max=5000` subsample.
+  - `make_aom_ridge` — pulls `AOMRidgeRegressor` from
+    `bench/AOM_v0/Ridge/aomridge/`. `fast=True` skips alpha CV (~10x faster).
+  - `make_nicon_stack` — pulls NICON-V2 `StackedRegressor` (ridge+pls+v1c-CNN).
+- `benchmarks/run_smoke4_hetero.py` — Ridge/NNLS-stack of 6 bases on smoke-4.
+- `benchmarks/run_full57_tabpfn.py` — TabPFN-standalone full-57 runner.
+- `benchmarks/run_full57_aom_ridge.py` — AOM-Ridge full-57 (with `--fast`
+  and `--n-max` for kernel-matrix size cap).
+- `benchmarks/run_meta_selector_v2.py` — meta-selector with the
+  multi-view ∪ {AOM-Ridge, TabPFN} pool.
+
+### What worked
+
+- AOM-Ridge integration: `AOMRidgeRegressor` runs cleanly via the
+  parallel-session import. `fast=True` (alpha=1.0, no CV grid) brings
+  per-dataset time from 16 min → 2 min on n=1500 data.
+- TabPFN integration: `TabPFNRegressor` from `tabpfn` package works
+  end-to-end on smoke synthetic data.
+
+### What didn't work / honest negatives
+
+- **TabPFN on full-57 is impractical.** First dataset (ALPINE_P_291,
+  p=2151) ran for 24 min without completing. TabPFN's attention is
+  `O(p² · n)` and big-p NIRS spectra blow past its pretraining feature
+  limit (500). Even with `ignore_pretraining_limits=True`, throughput
+  is too low to run 61 datasets in reasonable time on CPU.
+- **TabPFN in OOF stacking is much worse.** The `hetero-ridge-stack`
+  variant on smoke-4 ran for 51 min on Beer alone (3 OOF folds × 6 base
+  estimators × TabPFN cost) before being killed.
+- **AOM-Ridge OOMs on big-n datasets.** `LMA_spxyG_block2deg` (n=39225)
+  needs an n×n kernel matrix = 12GB. Even with `--n-max=8000` filter,
+  AOM-Ridge stalled on `LUCAS_SOC_Cropland_8731` (n=6111, p=4200) for
+  40+ min before killing. Final partial run: 36/61 datasets completed.
+- **NICON-V2 stack** works but takes 50s on a tiny synthetic dataset
+  (CNN training overhead). Skipped for full-57.
+
+### Result on the 34-dataset subset where AOM-Ridge completed
+
+| Approach | Wins vs TabPFN-opt | Median rel-RMSEP vs PLS |
+|----------|-------------------:|------------------------:|
+| oracle (multi-view only) | 13/34 | 0.945 |
+| **oracle (multi-view + AOM-Ridge)** | **14/34 (+1)** | **0.898 (5% better)** |
+| meta-logreg (mv only) | 8/34 | 0.983 |
+| **meta-logreg (mv + AOM-Ridge)** | **9/34 (+1)** | 0.984 |
+| meta-rf (mv only) | 7/34 | 0.970 |
+| meta-rf (mv + AOM-Ridge) | 8/34 (+1) | 0.967 |
+
+**+1 win consistently** across oracle, meta-logreg, meta-rf when
+AOM-Ridge is added to the pool. Median rel-RMSEP improvement of 5%
+on the oracle — AOM-Ridge fills gaps that multi-view doesn't cover.
+
+### Phase 8 conclusions
+
+- **AOM-Ridge is a useful heterogeneous base** when it can be run —
+  contributes +1 win over multi-view-only on the 34-dataset subset.
+- **TabPFN is impractical at the cohort scale on CPU.** A viable path
+  would be GPU + TabPFN-light (smaller model) or saving its predictions
+  ahead of time and using them as a fixed base. Both are out of scope
+  for this session.
+- **The meta-selector still leaves a 4-6 win gap to oracle** — closing
+  it requires per-dataset routing or more meta-training datasets.
+
+## 12. Next steps
 
 1. **Full-57** — running with top variants (moe-view-soft, moe-preproc-soft,
    lazy-V2-AOM-combined, lazy-V1-POP, plus references). Block-sparse-V1 is
