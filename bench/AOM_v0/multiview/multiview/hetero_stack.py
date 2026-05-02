@@ -97,14 +97,31 @@ class TabPFNAdapter(BaseEstimator, RegressorMixin):
         return np.asarray(self._model.predict(X)).ravel()
 
 
-def make_aom_ridge(seed: int = 0, selection: str = "superblock") -> Optional[BaseEstimator]:
-    """Build AOM-Ridge from bench/AOM_v0/Ridge (parallel session). Returns
-    `None` if the package can't be imported.
+def make_aom_ridge(
+    seed: int = 0,
+    selection: str = "superblock",
+    fast: bool = False,
+) -> Optional[BaseEstimator]:
+    """Build AOM-Ridge from bench/AOM_v0/Ridge (parallel session).
+
+    ``fast=True`` uses ``alpha=1.0`` (no alpha CV grid search) for ~10x
+    speed-up at the cost of suboptimal regularisation. Use for full-cohort
+    sweeps where end-to-end runtime dominates.
+
+    Returns `None` if the package can't be imported.
     """
     try:
         from aomridge.estimators import AOMRidgeRegressor
     except ImportError:
         return None
+    if fast:
+        return AOMRidgeRegressor(
+            selection=selection,
+            operator_bank="compact",
+            alpha=1.0,  # bypass alphas CV
+            center=True,
+            random_state=seed,
+        )
     return AOMRidgeRegressor(
         selection=selection,
         operator_bank="compact",

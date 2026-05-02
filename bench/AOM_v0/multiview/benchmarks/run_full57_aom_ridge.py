@@ -2,7 +2,8 @@
 
 Runs AOMRidgeRegressor (selection='superblock', operator_bank='compact')
 from the parallel session at bench/AOM_v0/Ridge/aomridge/. Output appended
-to full57.csv as variant `aom-ridge-standalone`.
+to full57.csv as variant `aom-ridge-standalone` (CV α grid) or
+`aom-ridge-fast` (fixed α=1.0, ~10x faster).
 """
 
 from __future__ import annotations
@@ -39,6 +40,11 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--cohort", default="bench/AOM_v0/benchmarks/cohort_regression.csv",
     )
+    parser.add_argument("--fast", action="store_true",
+                        help="Skip alpha CV — fixed alpha=1.0 (~10x faster)")
+    parser.add_argument("--n-max", type=int, default=8000,
+                        help="Skip datasets with n_train > n-max (AOM-Ridge "
+                             "kernel matrix is n x n; >8000 OOMs on 16GB.)")
     args = parser.parse_args(argv)
 
     workspace = Path(args.workspace)
@@ -52,6 +58,9 @@ def main(argv=None) -> int:
 
     n_appended = 0
     for _, cohort_row in valid.iterrows():
+        if pd.notna(cohort_row.get("n_train")) and int(cohort_row["n_train"]) > args.n_max:
+            print(f"[aom-ridge-full57] skip {cohort_row['dataset']} (n_train={cohort_row['n_train']} > {args.n_max})")
+            continue
         try:
             Xtr = _load_csv_array(cohort_row["train_path"])
             Xte = _load_csv_array(cohort_row["test_path"])
@@ -60,7 +69,7 @@ def main(argv=None) -> int:
         except Exception as exc:
             print(f"[aom-ridge-full57] ERROR loading {cohort_row['dataset']}: {exc}")
             continue
-        label = "aom-ridge-standalone"
+        label = "aom-ridge-fast" if args.fast else "aom-ridge-standalone"
         key = (str(cohort_row["dataset"]), label, int(args.seed))
         if key in existing:
             continue
@@ -75,7 +84,7 @@ def main(argv=None) -> int:
             "status": "ok",
         }
         try:
-            est = make_aom_ridge(seed=args.seed)
+            est = make_aom_ridge(seed=args.seed, fast=args.fast)
             t0 = time.perf_counter()
             est.fit(Xtr, ytr)
             pred = np.asarray(est.predict(Xte)).ravel()
