@@ -54,7 +54,7 @@ def _intercept_design(n: int) -> np.ndarray:
     return np.ones((n, 1), dtype=float)
 
 
-class AOMMultiKernelMixedModel(BaseEstimator, RegressorMixin):
+class AOMMultiKernelMixedModel(RegressorMixin, BaseEstimator):
     """REML / ML multi-kernel mixed model with AOM block kernels."""
 
     def __init__(
@@ -70,9 +70,12 @@ class AOMMultiKernelMixedModel(BaseEstimator, RegressorMixin):
         kernel_center: bool = True,
         kernel_normalize: str = "trace",
         kernel_eps: float = 1e-12,
+        kernel_top_k_active: int | None = None,
+        kernel_screen_score_method: str = "norm",
         zero_trace_policy: str = "raise",
         feature_scaling: str = "center",
         branch_preproc: str = "none",
+        sigma2_top_k_post: int | None = None,
         random_state: int | None = 0,
         verbose: int = 0,
     ) -> None:
@@ -86,9 +89,12 @@ class AOMMultiKernelMixedModel(BaseEstimator, RegressorMixin):
         self.kernel_center = kernel_center
         self.kernel_normalize = kernel_normalize
         self.kernel_eps = kernel_eps
+        self.kernel_top_k_active = kernel_top_k_active
+        self.kernel_screen_score_method = kernel_screen_score_method
         self.zero_trace_policy = zero_trace_policy
         self.feature_scaling = feature_scaling
         self.branch_preproc = branch_preproc
+        self.sigma2_top_k_post = sigma2_top_k_post
         self.random_state = random_state
         self.verbose = verbose
 
@@ -132,6 +138,8 @@ class AOMMultiKernelMixedModel(BaseEstimator, RegressorMixin):
             normalize=self.kernel_normalize,
             eps=self.kernel_eps,
             zero_trace_policy=self.zero_trace_policy,
+            top_k_active=self.kernel_top_k_active,
+            screen_score_method=self.kernel_screen_score_method,
         )
         K_blocks = kernelizer.fit_transform(X_arr, y_arr)
         B = len(K_blocks)
@@ -179,9 +187,25 @@ class AOMMultiKernelMixedModel(BaseEstimator, RegressorMixin):
         self.boundary_components_ = list(opt_res.boundary_components)
         self.optimisation_diagnostics_ = dict(opt_res.diagnostics)
 
+        # Optional post-REML sparsification of variance components.
+        # Keep only the top-k components by magnitude; zero out the rest;
+        # re-solve V and alpha_dual at the sparsified theta.
+        if self.sigma2_top_k_post is not None and 1 <= self.sigma2_top_k_post < B:
+            keep_idx = np.argsort(-sigma2)[: self.sigma2_top_k_post]
+            theta_sparse = opt_res.theta.copy()
+            for j in range(B):
+                if j not in keep_idx:
+                    theta_sparse[j] = -50.0  # effectively zero variance
+            self.theta_ = theta_sparse
+            sigma2 = np.exp(theta_sparse[:-1])
+            sigma2_e = float(np.exp(theta_sparse[-1]))
+            self.sigma2_blocks_ = sigma2
+            self.sigma2_residual_ = sigma2_e
+            self.sparse_active_count_ = int(self.sigma2_top_k_post)
+
         # Recompute final solve for prediction state.
         final_res = compute_neg_log_reml(
-            opt_res.theta, K_blocks, y_arr, X_f, jitter=self.jitter
+            self.theta_, K_blocks, y_arr, X_f, jitter=self.jitter
         )
         self.beta_fixed_ = final_res.beta_hat
         self.alpha_dual_ = final_res.alpha_dual

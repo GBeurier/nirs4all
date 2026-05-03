@@ -38,7 +38,7 @@ from mkm.estimator import AOMMultiKernelMixedModel
 __all__ = ["AOMMultiKernelBLUP"]
 
 
-class AOMMultiKernelBLUP(BaseEstimator, RegressorMixin):
+class AOMMultiKernelBLUP(RegressorMixin, BaseEstimator):
     """E-BLUP with AOM block kernels and per-block prediction decomposition.
 
     Parameters mirror :class:`AOMMultiKernelMixedModel`. Fit delegates to the
@@ -59,6 +59,8 @@ class AOMMultiKernelBLUP(BaseEstimator, RegressorMixin):
         kernel_center: bool = True,
         kernel_normalize: str = "trace",
         kernel_eps: float = 1e-12,
+        kernel_top_k_active: int | None = None,
+        kernel_screen_score_method: str = "norm",
         zero_trace_policy: str = "raise",
         feature_scaling: str = "center",
         branch_preproc: str = "none",
@@ -75,6 +77,8 @@ class AOMMultiKernelBLUP(BaseEstimator, RegressorMixin):
         self.kernel_center = kernel_center
         self.kernel_normalize = kernel_normalize
         self.kernel_eps = kernel_eps
+        self.kernel_top_k_active = kernel_top_k_active
+        self.kernel_screen_score_method = kernel_screen_score_method
         self.zero_trace_policy = zero_trace_policy
         self.feature_scaling = feature_scaling
         self.branch_preproc = branch_preproc
@@ -97,6 +101,8 @@ class AOMMultiKernelBLUP(BaseEstimator, RegressorMixin):
             kernel_center=self.kernel_center,
             kernel_normalize=self.kernel_normalize,
             kernel_eps=self.kernel_eps,
+            kernel_top_k_active=self.kernel_top_k_active,
+            kernel_screen_score_method=self.kernel_screen_score_method,
             zero_trace_policy=self.zero_trace_policy,
             feature_scaling=self.feature_scaling,
             branch_preproc=self.branch_preproc,

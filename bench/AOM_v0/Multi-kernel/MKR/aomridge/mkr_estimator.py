@@ -139,7 +139,7 @@ def _select_alpha_with_one_se(
 # ----------------------------------------------------------------------
 
 
-class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
+class AOMMultiKernelRidge(RegressorMixin, BaseEstimator):
     """Multi-kernel Ridge with explicit per-block weights (mkR).
 
     Parameters
@@ -180,6 +180,8 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
         weight_strategy: str = "uniform",
         weight_init: Sequence[float] | None = None,
         weight_top_k: int | None = None,
+        weight_top_k_post: int | None = None,
+        weight_top_k_post_retune_alpha: bool = True,
         weight_n_restarts: int = 3,
         lambda_eta: float = 1e-3,
         weight_max_iter: int = 50,
@@ -191,8 +193,12 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
         kernel_center: bool = True,
         kernel_normalize: str = "trace",
         kernel_eps: float = 1e-12,
+        kernel_top_k_active: int | None = None,
+        kernel_screen_score_method: str = "norm",
         feature_scaling: str = "center",
         branch_preproc: str = "none",
+        add_rbf: bool = False,
+        rbf_gammas: list | None = None,
         one_se_rule: bool = False,
         random_state: int | None = 0,
         verbose: int = 0,
@@ -201,6 +207,8 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
         self.weight_strategy = weight_strategy
         self.weight_init = weight_init
         self.weight_top_k = weight_top_k
+        self.weight_top_k_post = weight_top_k_post
+        self.weight_top_k_post_retune_alpha = weight_top_k_post_retune_alpha
         self.weight_n_restarts = weight_n_restarts
         self.lambda_eta = lambda_eta
         self.weight_max_iter = weight_max_iter
@@ -212,8 +220,12 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
         self.kernel_center = kernel_center
         self.kernel_normalize = kernel_normalize
         self.kernel_eps = kernel_eps
+        self.kernel_top_k_active = kernel_top_k_active
+        self.kernel_screen_score_method = kernel_screen_score_method
         self.feature_scaling = feature_scaling
         self.branch_preproc = branch_preproc
+        self.add_rbf = add_rbf
+        self.rbf_gammas = rbf_gammas
         self.one_se_rule = one_se_rule
         self.random_state = random_state
         self.verbose = verbose
@@ -230,29 +242,77 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
         self._y_mean_ = float(y_arr.mean())
         y_c = y_arr - self._y_mean_
 
-        # Branch preprocessor (fitted on training only).
-        self._branch_ = None
-        if self.branch_preproc and self.branch_preproc != "none":
-            from .branches import (
-                fit_transform_branch,
-                make_branch_preproc,
+        # Branch preprocessor (fitted on training only). Supports
+        # single-branch ``str`` or multi-branch ``list[str]``. Multi-branch
+        # mode concatenates the kernels from each branch into one big block
+        # list, then learns weights jointly across all blocks.
+        if isinstance(self.branch_preproc, (list, tuple)):
+            branches = list(self.branch_preproc)
+        else:
+            branches = [self.branch_preproc or "none"]
+        self._branches_ = []  # list of (branch_name, preproc, kernelizer)
+        self._is_multi_branch_ = len(branches) > 1
+        K_blocks: list[np.ndarray] = []
+        block_names_all: list[str] = []
+        from .branches import apply_branch_train
+        for branch in branches:
+            if branch == "none":
+                preproc = None
+                X_b = X_arr.copy()
+            else:
+                preproc, X_b = apply_branch_train(branch, X_arr, y_arr)
+            kernelizer_b = AOMKernelizer(
+                operator_bank=self.operator_bank,
+                center=self.kernel_center,
+                normalize=self.kernel_normalize,
+                eps=self.kernel_eps,
+                top_k_active=self.kernel_top_k_active,
+                screen_score_method=self.kernel_screen_score_method,
             )
-            self._branch_ = make_branch_preproc(self.branch_preproc)
-            X_arr = fit_transform_branch(self._branch_, X_arr, y_arr)
-
-        # Build kernelizer (also fits operators).
-        kernelizer = AOMKernelizer(
-            operator_bank=self.operator_bank,
-            center=self.kernel_center,
-            normalize=self.kernel_normalize,
-            eps=self.kernel_eps,
-        )
-        K_blocks = kernelizer.fit_transform(X_arr, y_arr)
+            K_blocks_b = kernelizer_b.fit_transform(X_b, y_arr)
+            K_blocks.extend(K_blocks_b)
+            for nm in (kernelizer_b.block_names_ or []):
+                if self._is_multi_branch_:
+                    block_names_all.append(f"{branch}::{nm}")
+                else:
+                    block_names_all.append(nm)
+            # Optional RBF block (DKL-light): adds non-linear similarity
+            # alongside the linear AOM operators. Kernel is double-centred and
+            # trace-normalised to match the AOM kernel API.
+            if self.add_rbf:
+                from sklearn.metrics.pairwise import pairwise_distances
+                d2_train = pairwise_distances(X_b, X_b, metric='sqeuclidean')
+                gamma = self.rbf_gammas[0] if self.rbf_gammas else 1.0 / float(np.median(d2_train[d2_train > 0]) or 1.0)
+                K_rbf_raw = np.exp(-gamma * d2_train)
+                n_b = K_rbf_raw.shape[0]
+                mu_b = K_rbf_raw.mean(axis=1)              # (n,)
+                nu_b = float(K_rbf_raw.mean())              # scalar
+                # Double-centre: K - mu mu.T-style via subtraction
+                K_rbf_c = K_rbf_raw - mu_b[:, None] - mu_b[None, :] + nu_b
+                tau_b = n_b / max(float(np.trace(K_rbf_c)), 1e-30)
+                K_rbf_norm = tau_b * K_rbf_c
+                K_blocks.append(K_rbf_norm)
+                nm_rbf = f"rbf_g{gamma:.3g}"
+                block_names_all.append(f"{branch}::{nm_rbf}" if self._is_multi_branch_ else nm_rbf)
+                if not hasattr(self, '_rbf_per_branch_'):
+                    self._rbf_per_branch_ = []
+                self._rbf_per_branch_.append({
+                    'branch': branch, 'gamma': gamma, 'tau': tau_b,
+                    'X_train': X_b.copy(), 'mu': mu_b, 'nu': nu_b,
+                })
+            self._branches_.append((branch, preproc, kernelizer_b))
+        # Single-branch back-compat: keep _branch_ and kernelizer_ scalars
+        if not self._is_multi_branch_:
+            self._branch_ = self._branches_[0][1]
+            self.kernelizer_ = self._branches_[0][2]
+            X_arr = X_arr if branches[0] == "none" else apply_branch_train(branches[0], X_arr, y_arr)[1]
+        else:
+            self._branch_ = None
+            self.kernelizer_ = None
         B = len(K_blocks)
         if B < 1:
             raise ValueError("operator bank produced no blocks")
-        self.kernelizer_ = kernelizer
-        self.block_names_ = list(kernelizer.block_names_ or [])
+        self.block_names_ = block_names_all
         self.B_ = B
 
         # Build alpha grid from a representative kernel (use the uniform-mean
@@ -294,21 +354,49 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
         self.dual_coef_ = C
 
         # Recover original-space coef (strict-linear bank only).
-        # coef_ = U_eta @ C with U_eta = sum_b eta_b * tau_b * A_b^T A_b X_train_c^T
-        Xc = X_arr - kernelizer.x_mean_
-        operators = list(kernelizer.operators_ or [])
-        stats = list(kernelizer.block_stats_ or [])
-        U_eta = np.zeros(p, dtype=float)
-        # We need U_eta as (p,) since y is 1D.
-        Xt = Xc.T  # (p, n)
-        for op, stat, w in zip(operators, stats, eta, strict=False):
-            if w == 0.0:
-                continue
-            AXt = op.apply_cov(Xt)
-            AtAXt = op.adjoint_vec(AXt)  # (p, n)
-            U_eta += float(w) * float(stat.tau) * (AtAXt @ C)
-        self.coef_ = U_eta
-        self.intercept_ = float(self._y_mean_ - kernelizer.x_mean_ @ U_eta)
+        # Single-branch: standard primal coef. Multi-branch: defer to dual
+        # prediction (no scalar coef_ defined; predict() routes to dual path).
+        if not self._is_multi_branch_:
+            kernelizer = self.kernelizer_
+            Xc = X_arr - kernelizer.x_mean_
+            operators = list(kernelizer.operators_ or [])
+            stats = list(kernelizer.block_stats_ or [])
+            U_eta = np.zeros(p, dtype=float)
+            for op, stat, w in zip(operators, stats, eta, strict=False):
+                if w == 0.0:
+                    continue
+                AXt = op.apply_cov(Xc.T)
+                AtAXt = op.adjoint_vec(AXt)
+                U_eta += float(w) * float(stat.tau) * (AtAXt @ C)
+            self.coef_ = U_eta
+            self.intercept_ = float(self._y_mean_ - kernelizer.x_mean_ @ U_eta)
+        else:
+            # Store per-branch coefs for primal prediction across branches.
+            # y_pred = sum_branch (X_branch_c @ coef_branch) + y_mean
+            self.coef_ = None
+            self.intercept_ = float(self._y_mean_)
+            self._coef_branches_: list[tuple[str, object, np.ndarray, np.ndarray]] = []
+            cursor = 0
+            for branch, preproc, kernelizer_b in self._branches_:
+                stats_b = list(kernelizer_b.block_stats_ or [])
+                ops_b = list(kernelizer_b.operators_ or [])
+                Bb = len(ops_b)
+                if branch == "none":
+                    X_b = X_arr.copy()
+                else:
+                    X_b = apply_branch_train(branch, X_arr, y_arr)[1]
+                Xc_b = X_b - kernelizer_b.x_mean_
+                U_branch = np.zeros(Xc_b.shape[1], dtype=float)
+                for j, (op, stat) in enumerate(zip(ops_b, stats_b, strict=False)):
+                    w = float(eta[cursor + j])
+                    if w == 0.0:
+                        continue
+                    AXt = op.apply_cov(Xc_b.T)
+                    AtAXt = op.adjoint_vec(AXt)
+                    U_branch += w * float(stat.tau) * (AtAXt @ C)
+                # store the primal coef for this branch (in branch feature space)
+                self._coef_branches_.append((branch, preproc, U_branch, kernelizer_b.x_mean_))
+                cursor += Bb
 
         # Diagnostics.
         A = kernel_alignment_matrix(K_blocks)
@@ -337,10 +425,23 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
         X_arr = np.asarray(X, dtype=float)
         if X_arr.ndim != 2:
             raise ValueError("X must be 2D")
+        # RBF blocks are non-linear; primal coef recovery is not defined for
+        # them. Route to dual prediction when add_rbf is set.
+        if getattr(self, "add_rbf", False):
+            return self.predict_dual(X_arr)
+        if getattr(self, "_is_multi_branch_", False):
+            # Multi-branch primal: sum per-branch contributions, then add y_mean
+            from .branches import apply_branch_transform
+            y_pred = np.full(X_arr.shape[0], self._y_mean_, dtype=float)
+            for branch, preproc, coef_branch, x_mean_branch in self._coef_branches_:
+                X_b = X_arr if preproc is None else apply_branch_transform(preproc, X_arr)
+                X_bc = X_b - x_mean_branch
+                y_pred += X_bc @ coef_branch
+            return y_pred
+        # Single-branch primal
         if self._branch_ is not None:
             from .branches import apply_branch_transform
             X_arr = apply_branch_transform(self._branch_, X_arr)
-        # Primal form: y_hat = X @ coef_ + intercept_
         return X_arr @ self.coef_ + self.intercept_
 
     def predict_dual(self, X: np.ndarray) -> np.ndarray:
@@ -348,15 +449,36 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
         agreement with primal."""
         self._check_fitted()
         X_arr = np.asarray(X, dtype=float)
-        if self._branch_ is not None:
-            from .branches import apply_branch_transform
-            X_arr = apply_branch_transform(self._branch_, X_arr)
-        K_blocks_cross = self.kernelizer_.transform(X_arr)
-        K_eta_cross = np.zeros_like(K_blocks_cross[0])
-        for K_b, w in zip(K_blocks_cross, self.eta_, strict=False):
-            if w == 0.0:
-                continue
-            K_eta_cross += float(w) * K_b
+        from .branches import apply_branch_transform
+        K_eta_cross = None
+        cursor = 0
+        rbf_index = 0
+        rbf_metas = list(getattr(self, '_rbf_per_branch_', []) or [])
+        for branch_idx, (branch, preproc, kernelizer_b) in enumerate(self._branches_):
+            X_b = X_arr if preproc is None else apply_branch_transform(preproc, X_arr)
+            K_blocks_cross_b = kernelizer_b.transform(X_b)
+            if K_eta_cross is None:
+                K_eta_cross = np.zeros_like(K_blocks_cross_b[0])
+            for K_b, w in zip(K_blocks_cross_b, self.eta_[cursor:cursor + len(K_blocks_cross_b)], strict=False):
+                if float(w) == 0.0:
+                    continue
+                K_eta_cross = K_eta_cross + float(w) * K_b
+            cursor += len(K_blocks_cross_b)
+            # Optional RBF block per-branch
+            if getattr(self, 'add_rbf', False) and rbf_index < len(rbf_metas):
+                meta = rbf_metas[rbf_index]
+                from sklearn.metrics.pairwise import pairwise_distances
+                d2_cross = pairwise_distances(X_b, meta['X_train'], metric='sqeuclidean')
+                K_rbf_cross_raw = np.exp(-meta['gamma'] * d2_cross)
+                # Centre using training mu, nu
+                r_star = K_rbf_cross_raw.mean(axis=1)
+                K_rbf_cross_c = K_rbf_cross_raw - r_star[:, None] - meta['mu'][None, :] + meta['nu']
+                K_rbf_cross = meta['tau'] * K_rbf_cross_c
+                w_rbf = float(self.eta_[cursor])
+                if w_rbf != 0.0:
+                    K_eta_cross = K_eta_cross + w_rbf * K_rbf_cross
+                cursor += 1
+                rbf_index += 1
         return K_eta_cross @ self.dual_coef_ + self._y_mean_
 
     def score(self, X: np.ndarray, y: np.ndarray) -> float:
@@ -391,6 +513,11 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
         return X_arr, y_arr
 
     def _check_fitted(self) -> None:
+        # Multi-branch sets coef_ to None and uses _coef_branches_ instead.
+        if getattr(self, "_is_multi_branch_", False):
+            if not hasattr(self, "_coef_branches_"):
+                raise RuntimeError("AOMMultiKernelRidge must be fitted first")
+            return
         if not hasattr(self, "coef_") or self.coef_ is None:
             raise RuntimeError("AOMMultiKernelRidge must be fitted first")
 
@@ -446,6 +573,12 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
                 "cv_min_score": float(np.min(rmse_per_alpha)),
             })
             return eta, alpha_star, diag
+        if strategy == "pop_greedy":
+            eta, alpha_star, pop_diag = self._pop_greedy_select(
+                K_blocks, y_c, alpha_grid, cv, B
+            )
+            diag.update(pop_diag)
+            return eta, alpha_star, diag
         if strategy == "softmax_cv":
             res: WeightLearningResult = softmax_cv_weights(
                 K_blocks,
@@ -457,6 +590,8 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
                 lambda_eta=self.lambda_eta,
                 max_iter=self.weight_max_iter,
                 random_state=self.random_state,
+                top_k_post=self.weight_top_k_post,
+                top_k_post_retune_alpha=self.weight_top_k_post_retune_alpha,
             )
             diag.update({
                 "n_iterations": int(res.n_iterations),
@@ -467,5 +602,64 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
             return res.eta, res.alpha, diag
         raise ValueError(
             f"unknown weight_strategy {strategy!r}; expected "
-            "'uniform', 'manual', 'kta', or 'softmax_cv'"
+            "'uniform', 'manual', 'kta', 'softmax_cv', or 'pop_greedy'"
         )
+
+    def _pop_greedy_select(
+        self,
+        K_blocks: Sequence[np.ndarray],
+        y_c: np.ndarray,
+        alpha_grid: np.ndarray,
+        cv: KFold,
+        B: int,
+    ) -> tuple[np.ndarray, float, dict]:
+        """Greedy forward selection of kernel blocks (POP-PLS style).
+
+        At each step, find the (block_b, weight_w, alpha) that minimises
+        inner-CV RMSE when added to the current accumulated kernel
+        ``K_eta = sum_b eta_b K_b``. Stop when relative improvement falls
+        below ``pop_tol`` or after ``pop_max_steps`` selections.
+        """
+        max_steps = int(getattr(self, "pop_max_steps", 5) or 5)
+        weight_grid = np.array([0.1, 0.3, 1.0, 3.0])
+        tol = 1e-3
+        eta = np.zeros(B, dtype=float)
+        K_current = np.zeros_like(K_blocks[0])
+        # Initial best: uniform over all blocks (sanity reference).
+        best_alpha = float(alpha_grid[len(alpha_grid) // 2])
+        best_rmse = float("inf")
+        selected: list[int] = []
+        history: list[tuple[int, float, float, float]] = []
+        for step in range(min(max_steps, B)):
+            step_best = (None, None, None, float("inf"))
+            for b in range(B):
+                if b in selected:
+                    continue
+                for w in weight_grid:
+                    K_test = K_current + float(w) * K_blocks[b]
+                    rmses = _inner_cv_rmse_alpha(
+                        [K_test], y_c, np.array([1.0]), alpha_grid, cv
+                    )
+                    a_idx = int(np.argmin(rmses))
+                    rmse_b = float(rmses[a_idx])
+                    if rmse_b < step_best[3]:
+                        step_best = (b, float(w), float(alpha_grid[a_idx]), rmse_b)
+            if step_best[0] is None:
+                break
+            improvement = (best_rmse - step_best[3]) / max(best_rmse, 1e-12)
+            if step > 0 and improvement < tol:
+                break
+            best_b, best_w, best_alpha, best_rmse = step_best
+            selected.append(best_b)
+            eta[best_b] += best_w
+            K_current = K_current + best_w * K_blocks[best_b]
+            history.append(step_best)
+        if eta.sum() <= 0.0:
+            eta = uniform_weights(B)
+        else:
+            eta = eta / eta.sum()
+        return eta, best_alpha, {
+            "n_selected": len(selected),
+            "selected_blocks": selected,
+            "best_inner_rmse": float(best_rmse),
+        }

@@ -154,22 +154,144 @@ def _safe(x):
     return None if (x is None or (isinstance(x, float) and np.isnan(x))) else x
 
 
-def _parse_variant(name: str) -> tuple[str, str | None, str]:
-    """Return (family, strategy_or_method, branch).
+def _parse_variant(name: str) -> tuple[str, str | None, str, dict]:
+    """Return (family, strategy_or_method, branch, extras).
 
-    Variant naming convention: ``<family>-<strategy>[-<branch>]``.
+    Variant naming convention:
+    ``<family>-<strategy>[-<branch>][-<extras>]``.
+
+    Recognised "extras" tokens:
+    - ``default``: use ``operator_bank='default'`` (100 ops) instead of
+      compact (9 ops).
+    - ``activeNN``: pre-screen the bank to top NN operators by KTA
+      (``top_k_active=NN``).
+    - ``kta`` / ``norm`` / ``blend``: choose the screening score method.
+
     Examples:
-    - ``mkR-softmax_cv``           → family=mkR, strategy=softmax_cv, branch=none
-    - ``mkR-softmax_cv-asls``      → family=mkR, strategy=softmax_cv, branch=asls
-    - ``MKM-reml-snv``             → family=MKM, strategy=reml, branch=snv
-    - ``Ridge-raw``                → family=Ridge, strategy=raw, branch=none
+    - ``mkR-softmax_cv``                       → compact, no branch.
+    - ``mkR-softmax_cv-asls``                  → compact, ASLS branch.
+    - ``mkR-softmax_cv-default-active15``      → default bank, top-15.
+    - ``mkR-softmax_cv-snv-default-active15``  → default+SNV+top-15.
+    - ``MKM-reml-default-active10-kta``        → default+top-10+KTA score.
+    - ``Ridge-raw``                            → sklearn Ridge baseline.
     """
     parts = name.split("-")
+    branch = "none"
+    extras = {"operator_bank": "compact",
+              "top_k_active": None,
+              "screen_score_method": "norm",
+              "budget": "default",
+              "weight_top_k_post": None,
+              "weight_top_k_post_retune_alpha": True}
+    branch_options = {"none", "snv", "msc", "asls", "osc", "emsc1"}
+    # Multi-branch tokens: combinations of base branches glued by '+' or
+    # by short codes (aslmsc=asls+msc, aslmscsnv=asls+msc+snv, etc.).
+    multi_branch_codes = {
+        "aslmsc": ["asls", "msc"],
+        "aslsnv": ["asls", "snv"],
+        "mscsnv": ["msc", "snv"],
+        "aslmscsnv": ["asls", "msc", "snv"],
+    }
     if len(parts) == 1:
-        return parts[0], None, "none"
-    if len(parts) == 2:
-        return parts[0], parts[1], "none"
-    return parts[0], parts[1], "-".join(parts[2:])
+        return parts[0], None, branch, extras
+    family = parts[0]
+    strategy = parts[1] if len(parts) >= 2 else None
+    rest = parts[2:]
+    for token in rest:
+        if token in multi_branch_codes:
+            branch = multi_branch_codes[token]
+        elif token in branch_options:
+            branch = token
+        elif token == "default":
+            extras["operator_bank"] = "default"
+        elif token == "compact":
+            extras["operator_bank"] = "compact"
+        elif token == "extended":
+            extras["operator_bank"] = "extended"
+        elif token == "deep":
+            extras["operator_bank"] = "deep"
+        elif token.startswith("active") and token[6:].isdigit():
+            extras["top_k_active"] = int(token[6:])
+        elif token in ("kta", "norm", "blend"):
+            extras["screen_score_method"] = token
+        elif token in ("tuned", "fast"):
+            extras["budget"] = token
+        elif token.startswith("sparse") and token[6:].isdigit():
+            extras["weight_top_k_post"] = int(token[6:])
+        elif token == "noretune":
+            extras["weight_top_k_post_retune_alpha"] = False
+        else:
+            raise ValueError(f"unknown variant token {token!r} in {name!r}")
+    return family, strategy, branch, extras
+
+
+def _build_stack_5(operator_bank: str, random_state: int):
+    """Build a 5-base-learner StackingRegressor combining the 5 strongest
+    multi-kernel variants identified on diverse10:
+
+    - Ridge-raw (winner on n >> p, e.g. ECOSIS)
+    - mkR-softmax_cv (winner on smooth high-dim spectra, e.g. ALPINE)
+    - mkR-softmax_cv-snv (winner on scatter-affected spectra, e.g. MANURE)
+    - MKM-reml (likelihood-based, robust on small n)
+    - MKM-reml-asls (winner on asymmetric-baseline spectra, e.g. AMYLOSE)
+
+    A Ridge meta-model combines the base predictions linearly. cv=3 for
+    OOF fitting (each base learner fits 4 times: 3 folds + 1 final refit).
+    """
+    from sklearn.ensemble import StackingRegressor
+    from sklearn.linear_model import Ridge as SkRidge
+    return StackingRegressor(
+        estimators=[
+            (
+                "ridge_raw",
+                SkRidge(alpha=1.0, random_state=random_state),
+            ),
+            (
+                "mkR",
+                AOMMultiKernelRidge(
+                    operator_bank=operator_bank,
+                    weight_strategy="softmax_cv",
+                    weight_n_restarts=2, weight_max_iter=15,
+                    alpha_grid_size=15, alpha_cv_n_splits=3,
+                    branch_preproc="none",
+                    random_state=random_state,
+                ),
+            ),
+            (
+                "mkR_snv",
+                AOMMultiKernelRidge(
+                    operator_bank=operator_bank,
+                    weight_strategy="softmax_cv",
+                    weight_n_restarts=2, weight_max_iter=15,
+                    alpha_grid_size=15, alpha_cv_n_splits=3,
+                    branch_preproc="snv",
+                    random_state=random_state,
+                ),
+            ),
+            (
+                "MKM",
+                AOMMultiKernelMixedModel(
+                    operator_bank=operator_bank,
+                    method="reml",
+                    n_random_restarts=2, max_iter=50,
+                    branch_preproc="none",
+                    random_state=random_state,
+                ),
+            ),
+            (
+                "MKM_asls",
+                AOMMultiKernelMixedModel(
+                    operator_bank=operator_bank,
+                    method="reml",
+                    n_random_restarts=2, max_iter=50,
+                    branch_preproc="asls",
+                    random_state=random_state,
+                ),
+            ),
+        ],
+        final_estimator=SkRidge(alpha=1.0, random_state=random_state),
+        cv=3, passthrough=False, n_jobs=1, verbose=0,
+    )
 
 
 def _run_variant(
@@ -181,10 +303,24 @@ def _run_variant(
     random_state: int = 0,
 ) -> dict:
     """Fit one variant and return a dict ready to merge into the result row."""
-    family, strategy, branch = _parse_variant(variant_name)
+    family, strategy, branch, extras = _parse_variant(variant_name)
+    bank = extras.get("operator_bank") or operator_bank
+    top_k_active = extras.get("top_k_active")
+    score_method = extras.get("screen_score_method", "norm")
+    budget = extras.get("budget", "default")
+    # Budget tiers — larger = more thorough optimisation but slower fits.
+    if budget == "fast":
+        mkr_n_restarts, mkr_max_iter, alpha_grid_size, cv_n_splits = 1, 10, 12, 3
+        mkm_n_restarts, mkm_max_iter = 2, 30
+    elif budget == "tuned":
+        mkr_n_restarts, mkr_max_iter, alpha_grid_size, cv_n_splits = 5, 40, 40, 5
+        mkm_n_restarts, mkm_max_iter = 6, 150
+    else:  # default
+        mkr_n_restarts, mkr_max_iter, alpha_grid_size, cv_n_splits = 2, 20, 20, 3
+        mkm_n_restarts, mkm_max_iter = 3, 80
     info: dict = {
         "variant": variant_name,
-        "operator_bank": operator_bank,
+        "operator_bank": bank,
         "weight_strategy": None,
         "method": None,
         "branch_preproc": branch,
@@ -205,13 +341,17 @@ def _run_variant(
             info["alpha"] = 1.0
         elif family == "mkR":
             model = AOMMultiKernelRidge(
-                operator_bank=operator_bank,
+                operator_bank=bank,
                 weight_strategy=strategy,
-                weight_n_restarts=2,
-                weight_max_iter=20,
-                alpha_grid_size=20,
-                alpha_cv_n_splits=3,
+                weight_n_restarts=mkr_n_restarts,
+                weight_max_iter=mkr_max_iter,
+                weight_top_k_post=extras.get("weight_top_k_post"),
+                weight_top_k_post_retune_alpha=extras.get("weight_top_k_post_retune_alpha", True),
+                alpha_grid_size=alpha_grid_size,
+                alpha_cv_n_splits=cv_n_splits,
                 branch_preproc=branch,
+                kernel_top_k_active=top_k_active,
+                kernel_screen_score_method=score_method,
                 random_state=random_state,
             )
             model.fit(X_train, y_train)
@@ -221,11 +361,14 @@ def _run_variant(
             info["kernel_alignment_max"] = float(model.kernel_alignment_max_)
         elif family == "MKM":
             model = AOMMultiKernelMixedModel(
-                operator_bank=operator_bank,
+                operator_bank=bank,
                 method=strategy,
-                n_random_restarts=3,
-                max_iter=80,
+                n_random_restarts=mkm_n_restarts,
+                max_iter=mkm_max_iter,
                 branch_preproc=branch,
+                kernel_top_k_active=top_k_active,
+                kernel_screen_score_method=score_method,
+                sigma2_top_k_post=extras.get("weight_top_k_post"),
                 random_state=random_state,
             )
             model.fit(X_train, y_train)
@@ -236,11 +379,13 @@ def _run_variant(
             info["boundary_components"] = ",".join(map(str, model.boundary_components_))
         elif family == "BLUP":
             model = AOMMultiKernelBLUP(
-                operator_bank=operator_bank,
+                operator_bank=bank,
                 method=strategy,
                 n_random_restarts=3,
                 max_iter=80,
                 branch_preproc=branch,
+                kernel_top_k_active=top_k_active,
+                kernel_screen_score_method=score_method,
                 random_state=random_state,
             )
             model.fit(X_train, y_train)
@@ -249,6 +394,22 @@ def _run_variant(
             info["kernel_alignment_max"] = float(model.kernel_alignment_max_)
             info["converged"] = bool(model.converged_)
             info["boundary_components"] = ",".join(map(str, model.boundary_components_))
+        elif family == "Stack":
+            # Stack-5: 5 base learners + Ridge meta-model.
+            model = _build_stack_5(operator_bank=operator_bank,
+                                    random_state=random_state)
+            model.fit(X_train, y_train)
+            info["weight_strategy"] = "stacking-OOF-Ridge-meta"
+            info["method"] = "Stack-5"
+            # Capture the meta-model coefficients (one per base learner).
+            try:
+                info["alpha"] = float(model.final_estimator_.alpha)
+                meta_coef = model.final_estimator_.coef_
+                info["boundary_components"] = ",".join(
+                    f"{c:.3f}" for c in meta_coef
+                )
+            except Exception:
+                pass
         else:
             raise ValueError(f"unknown variant family {family!r}")
         info["fit_time_s"] = time.time() - t0

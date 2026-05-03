@@ -257,6 +257,8 @@ def softmax_cv_weights(
     lambda_eta: float = 1e-3,
     max_iter: int = 50,
     random_state: int | None = 0,
+    top_k_post: int | None = None,
+    top_k_post_retune_alpha: bool = True,
 ) -> WeightLearningResult:
     """Optimise ``eta = softmax(theta)`` and ``alpha`` jointly on inner CV RMSE.
 
@@ -280,6 +282,16 @@ def softmax_cv_weights(
         L-BFGS-B max iterations per restart.
     random_state : int | None
         Seed for inner CV and restart initialisation.
+    top_k_post : int | None
+        Post-hoc sparsification: keep only the top-``k`` weights of the
+        optimised eta and renormalise. The alpha is then re-screened on the
+        same grid at the sparse eta, and the inner-CV RMSE is recomputed.
+        ``None`` (default) leaves eta dense.
+    top_k_post_retune_alpha : bool
+        When ``top_k_post`` is set, re-search ``alpha`` on the grid at the
+        sparsified eta. When ``False`` the dense optimum alpha is reused
+        unchanged (used for the iter7 ablation that isolates structural
+        pruning from alpha rotation).
 
     Returns
     -------
@@ -354,7 +366,43 @@ def softmax_cv_weights(
             best_iter = int(res.nit)
             best_converged = bool(res.success)
 
-    inner_rmse = _inner_cv_rmse(K_blocks, y_arr, best_eta, best_alpha, cv)
+    sparse_meta: dict = {}
+    if top_k_post is not None and 1 <= top_k_post < B:
+        sorted_idx = np.argsort(-best_eta)[:top_k_post]
+        sparse_eta = np.zeros(B, dtype=float)
+        sparse_eta[sorted_idx] = best_eta[sorted_idx]
+        s = float(sparse_eta.sum())
+        if s > 0.0:
+            sparse_eta = sparse_eta / s
+            if top_k_post_retune_alpha:
+                best_sparse_alpha = best_alpha
+                best_sparse_rmse = float("inf")
+                for a in alpha_grid:
+                    rmse_a = _inner_cv_rmse(
+                        K_blocks, y_arr, sparse_eta, float(a), cv
+                    )
+                    if rmse_a < best_sparse_rmse:
+                        best_sparse_rmse = float(rmse_a)
+                        best_sparse_alpha = float(a)
+                best_eta = sparse_eta
+                best_alpha = best_sparse_alpha
+                inner_rmse = best_sparse_rmse
+            else:
+                best_eta = sparse_eta
+                inner_rmse = _inner_cv_rmse(
+                    K_blocks, y_arr, best_eta, best_alpha, cv
+                )
+            sparse_meta = {
+                "top_k_post": int(top_k_post),
+                "sparse_active_count": int(np.sum(best_eta > 0)),
+                "post_hoc_rmse": float(inner_rmse),
+                "alpha_retuned": bool(top_k_post_retune_alpha),
+            }
+        else:
+            inner_rmse = _inner_cv_rmse(K_blocks, y_arr, best_eta, best_alpha, cv)
+    else:
+        inner_rmse = _inner_cv_rmse(K_blocks, y_arr, best_eta, best_alpha, cv)
+
     return WeightLearningResult(
         eta=best_eta,
         alpha=best_alpha,
@@ -368,5 +416,6 @@ def softmax_cv_weights(
             "lambda_eta": float(lambda_eta),
             "n_restarts": int(n_restarts),
             "best_loss": float(best_loss),
+            **sparse_meta,
         },
     )
