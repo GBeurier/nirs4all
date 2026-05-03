@@ -191,6 +191,10 @@ class AOMKernelizer:
         eps: float = 1e-12,
         zero_trace_policy: str = "raise",
         zero_trace_threshold: float = 1e-12,
+        top_k_active: int | None = None,
+        screen_score_method: str = "norm",
+        screen_diversity_threshold: float = 0.98,
+        screen_keep_identity: bool = True,
     ) -> None:
         if normalize not in ("trace", "none"):
             raise ValueError("normalize must be 'trace' or 'none'")
@@ -202,12 +206,22 @@ class AOMKernelizer:
             )
         if zero_trace_threshold <= 0.0:
             raise ValueError("zero_trace_threshold must be > 0")
+        if top_k_active is not None and top_k_active < 1:
+            raise ValueError("top_k_active must be >= 1 or None")
+        if screen_score_method not in ("norm", "kta", "blend"):
+            raise ValueError(
+                "screen_score_method must be 'norm', 'kta', or 'blend'"
+            )
         self.operator_bank = operator_bank
         self.center = bool(center)
         self.normalize = normalize
         self.eps = float(eps)
         self.zero_trace_policy = zero_trace_policy
         self.zero_trace_threshold = float(zero_trace_threshold)
+        self.top_k_active = top_k_active
+        self.screen_score_method = screen_score_method
+        self.screen_diversity_threshold = float(screen_diversity_threshold)
+        self.screen_keep_identity = bool(screen_keep_identity)
         # Fitted state
         self.operators_: list[LinearSpectralOperator] | None = None
         self.block_names_: list[str] | None = None
@@ -224,7 +238,12 @@ class AOMKernelizer:
     def fit(self, X: np.ndarray, y: np.ndarray | None = None) -> "AOMKernelizer":
         """Fit operators to ``X`` and store training kernel statistics.
 
-        ``y`` is unused (kept for sklearn API compatibility).
+        If ``top_k_active`` is set and ``y`` is provided, the operator bank is
+        pre-screened using the supplied ``screen_score_method`` and only the
+        top-k operators (by alignment with ``y``) are kept. This lets the
+        caller use a large bank like ``"default"`` (100 ops) without paying
+        the full kernel-construction cost or suffering from selection
+        variance during weight learning.
         """
         Xa = _check_2d(X, "X")
         n, p = Xa.shape
@@ -234,6 +253,32 @@ class AOMKernelizer:
         ops_template = resolve_operator_bank(self.operator_bank, p=p)
         ops = clone_operator_bank(ops_template, p=p)
         fit_operator_bank(ops, Xc)
+
+        # Active screening: if top_k_active < len(ops) and y is supplied,
+        # use the existing `screen_active_operators` to keep only the most
+        # informative subset BEFORE we materialize the kernels.
+        if (
+            self.top_k_active is not None
+            and y is not None
+            and len(ops) > self.top_k_active
+        ):
+            from .selection import screen_active_operators
+            y_arr = np.asarray(y, dtype=float)
+            if y_arr.ndim == 1:
+                y_2d = y_arr.reshape(-1, 1)
+            else:
+                y_2d = y_arr
+            active_indices, _, _ = screen_active_operators(
+                Xa, y_2d, ops,
+                top_m=self.top_k_active,
+                diversity_threshold=self.screen_diversity_threshold,
+                keep_identity=self.screen_keep_identity,
+                score_method=self.screen_score_method,
+            )
+            ops = [ops[i] for i in active_indices]
+            # Re-fit the (already-fitted) clones to bind p again — defensive.
+            fit_operator_bank(ops, Xc)
+        self._n_active_ = len(ops)
 
         K_blocks: list[np.ndarray] = []
         stats: list[BlockKernelStats] = []
