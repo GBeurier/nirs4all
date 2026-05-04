@@ -255,23 +255,21 @@ class AdaptiveSuperLearner(BaseEstimator, RegressorMixin):
     Strategy:
     - `n_train < small_threshold`: recipe selection — fit each recipe via
       inner-CV, pick the one with lowest OOF RMSE.
-    - `small_threshold <= n_train < big_threshold`: NNLS simplex stacker
-      on atom bases.
-    - `n_train >= big_threshold`: NNLS stacker (Ridge meta tested
-      empirically only if simplex fails — kept simple here).
+    - `small_threshold <= n_train < huge_threshold`: NNLS simplex stacker
+      on full `atoms` list.
+    - `n_train >= huge_threshold`: NNLS simplex stacker on `light_atoms`
+      (smaller atom subset to control cost on big-n datasets).
 
     Parameters
     ----------
     atoms : sequence of (name, estimator)
-        Base estimators ("atoms") used for stacking.
+        Base estimators ("atoms") used for stacking when n < huge_threshold.
+    light_atoms : sequence of (name, estimator), optional
+        Base estimators used when n >= huge_threshold. Defaults to `atoms`.
     recipes : sequence of (name, estimator)
         Pre-built ensembles used for selection on small datasets.
-    small_threshold : int
-        Below this, run recipe selection.
-    big_threshold : int
-        Below this, run simplex on atoms; at-or-above also simplex.
+    small_threshold, huge_threshold : int
     n_oof_folds : int
-        Folds for both recipe selection and simplex OOF.
     """
 
     _estimator_type = "regressor"
@@ -280,8 +278,10 @@ class AdaptiveSuperLearner(BaseEstimator, RegressorMixin):
         self,
         atoms: Optional[Sequence] = None,
         recipes: Optional[Sequence] = None,
+        light_atoms: Optional[Sequence] = None,
         small_threshold: int = 100,
         big_threshold: int = 200,
+        huge_threshold: int = 3000,
         n_oof_folds: int = 5,
         min_margin: float = 0.005,
         calibrate: bool = True,
@@ -289,8 +289,10 @@ class AdaptiveSuperLearner(BaseEstimator, RegressorMixin):
     ) -> None:
         self.atoms = atoms
         self.recipes = recipes
+        self.light_atoms = light_atoms
         self.small_threshold = small_threshold
         self.big_threshold = big_threshold
+        self.huge_threshold = huge_threshold
         self.n_oof_folds = n_oof_folds
         self.min_margin = min_margin
         self.calibrate = calibrate
@@ -306,11 +308,16 @@ class AdaptiveSuperLearner(BaseEstimator, RegressorMixin):
             self.mode_ = "recipe-select"
             self._build_recipe_selector(X, y)
         else:
-            self.mode_ = "nnls-stack"
-            if not self.atoms:
-                raise ValueError("atoms must be provided for n >= small_threshold")
+            if n >= self.huge_threshold and self.light_atoms:
+                self.mode_ = "nnls-stack-light"
+                stacker_atoms = list(self.light_atoms)
+            else:
+                self.mode_ = "nnls-stack"
+                if not self.atoms:
+                    raise ValueError("atoms must be provided for n >= small_threshold")
+                stacker_atoms = list(self.atoms)
             self._stacker = NNLSSimplexStacker(
-                bases=list(self.atoms),
+                bases=stacker_atoms,
                 n_oof_folds=self.n_oof_folds,
                 min_margin=self.min_margin,
                 calibrate=self.calibrate,

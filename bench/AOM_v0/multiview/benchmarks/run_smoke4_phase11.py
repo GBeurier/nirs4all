@@ -135,10 +135,13 @@ def _runner_adaptive(Xtr, ytr, Xte, yte, seed, max_components):
             criterion="holdout", operator_bank="compact", random_state=seed,
         )),
     ]
+    # Light atoms for huge n: drop lazy-V2-AOM (slowest atom) to keep cost
+    # bounded on Chla+b-species/LUCAS-scale datasets.
+    light_atoms = [a for a in atoms if a[0] != "lazy-V2-AOM"]
     t0 = time.perf_counter()
     est = AdaptiveSuperLearner(
-        atoms=atoms, recipes=recipes,
-        small_threshold=100, big_threshold=200,
+        atoms=atoms, recipes=recipes, light_atoms=light_atoms,
+        small_threshold=100, big_threshold=200, huge_threshold=3000,
         n_oof_folds=3, calibrate=False, random_state=seed,
     )
     est.fit(Xtr, ytr)
