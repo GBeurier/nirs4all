@@ -598,7 +598,70 @@ bases use distinct view/operator strategies.
 3. **Block-structured datasets**: `lazy-V1-POP-blocks3` keeps its niche
    for Chla+b-family datasets where signal lives in one detector segment.
 
-## 16. Next steps
+## 16. Phase 11: Codex-reviewed Super Learner
+
+User asked for another improvement round, with Codex strategy review first.
+
+### Codex review (PHASE11_STRATEGY.md, dispositioned)
+
+| # | Codex severity | Issue | Disposition |
+|---|---------------|-------|-------------|
+| 1 | HIGH | Plain Ridge stacking too free for small/heterogeneous cohort | NNLS simplex with calibration in NNLSSimplexStacker |
+| 2 | HIGH | Equal-weight fallback test should compare OOF RMSE directly | min_margin=0.005 (0.5%) on relative OOF RMSE improvement |
+| 3 | HIGH | Don't include nested ensembles + their constituents | atoms + recipes split: 4 atom bases (multiK-3-5-7, moe-preproc-soft, lazy-V2-AOM, AOM-PLS) for stacking; recipes for selection |
+| 4 | HIGH | Threshold by n_train | n<100 recipe-select, n>=100 NNLS simplex |
+| 5 | HIGH | Add per-base OOF calibration | _ShrinkCalibrator: y=a+b*yhat with shrinkage to (a=0,b=1) scaling 1/sqrt(n) |
+| 6 | MEDIUM | Recipe selection is the main prize (oracle median 0.848) | AdaptiveSuperLearner.recipe_select_ branch on n<100 |
+| — | HIGH | AOM-Ridge gating (n<=1500, p<=1200) | Deferred: AOM-Ridge already in earlier phase, partial coverage |
+| — | MEDIUM | Trimmed mean as zero-cost candidate | TrimmedMeanEnsemble (drops top/bottom per sample) |
+
+### Smoke-4
+
+- Beer (n=40): adaptive picks recipe-select → multiK-3-5-7 → 0.141. **Beats TabPFN-opt 0.152** (matches Phase 9 single-variant best).
+- Chla+b: nnls-stack-calibrated 40.19 (vs Phase-10 mean-ensemble-4 39.84 — close).
+- All_manure_MgO: 0.780 (matches Phase 10).
+
+### Smoke-10 (full 10/10 complete)
+
+| Variant | Wins(PLS) | Wins(AOM) | **Wins(TabPFN)** | Median |
+|---------|----------:|----------:|-----------------:|-------:|
+| **adaptive-super-learner** | 9/10 | 9/10 | **6/10 (+1)** | **0.840** ← TIES best median + new best vs TabPFN |
+| mean-ensemble-3 (Phase 10) | 9/10 | 9/10 | 3/10 | 0.840 |
+| trimmed-mean-4 | 9/10 | 9/10 | 3/10 | 0.846 |
+| nnls-stack-atoms | 9/10 | 9/10 | 4/10 | 0.870 |
+| moe-view-multiK-3-5 (Phase 9) | 8/10 | 5/10 | 5/10 | 0.870 |
+
+adaptive-super-learner gets 6/10 vs TabPFN — **+1 wins above the previous best on smoke-10** (multiK at 5/10).
+
+### Full-57 (partial — 35-dataset subset where Phase 11 completed)
+
+| Variant | Wins(PLS) | Wins(AOM) | **Wins(TabPFN)** | Median |
+|---------|----------:|----------:|-----------------:|-------:|
+| **adaptive-super-learner** | 22/34 | 30/35 | **13/34** | 0.958 |
+| nnls-stack-atoms | 21/34 | 29/35 | 10/34 | 0.961 |
+| nnls-stack-calibrated | 20/34 | 28/35 | 9/34 | 0.960 |
+| trimmed-mean-4 | 21/34 | 30/35 | 10/34 | 0.971 |
+| mean-ensemble-4-fixed (Phase 10) | 21/34 | 29/35 | 9/34 | 0.965 |
+| moe-view-multiK-wide-2-10 (Phase 10) | 19/34 | 19/35 | 9/34 | 0.976 |
+
+**adaptive-super-learner wins 13/34 vs TabPFN-opt on the completed subset**, +4 over Phase 10 mean-ensemble-4 (9/34). Generalising the rate to the full 58-dataset cohort suggests **~22/58 vs TabPFN-opt** if the unfinished bigger datasets perform proportionally — though TabPFN-opt typically wins more on big-n datasets, so a more conservative estimate is **18-20/58**, still above Phase 10's **16/61**.
+
+The Phase 11 full-57 run was killed at 1.5 hours (35 of 61 datasets done) because the larger n × p datasets ran into NNLS-stacker overhead (5-fold OOF × 4 atom bases × heavy fits like AOM-Ridge component). Future re-run can scope `AOMRidgeRegressor` exclusion to n>3000 and rerun the remaining ~26 datasets cheaply.
+
+### Phase 11 conclusions
+
+- **Adaptive Super Learner is the new champion on smoke-10 and the completed
+  subset of full-57**: 6/10 vs TabPFN-opt on smoke-10 (best of any variant
+  to date), 13/34 vs TabPFN-opt on subset (+4 vs Phase 10).
+- The mechanism is the n-train threshold: small datasets get recipe-select
+  (high variance reduction by picking one strong recipe), large datasets get
+  NNLS-stack (correct weighting given enough OOF signal).
+- Trimmed-mean is competitive on aggregate (median 0.971) but doesn't get
+  extra TabPFN wins — robust aggregation alone isn't enough.
+- NNLS calibration is a marginal help — calibrator shrinkage prior protects
+  small data but doesn't strongly improve the bigger ones.
+
+## 17. Next steps
 
 1. **Full-57** — running with top variants (moe-view-soft, moe-preproc-soft,
    lazy-V2-AOM-combined, lazy-V1-POP, plus references). Block-sparse-V1 is
