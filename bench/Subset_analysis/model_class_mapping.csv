@@ -1,0 +1,14 @@
+model_class,source_model,n_core_scores,coverage_ratio,included_in_balanced_analysis,reason
+AOM_PLS_Best,nicon_v2 long_per_dataset::AOM-PLS-best,57,1.0,True,included_main_equal_class_weight
+AOM_PLS_Standard,nicon_v2 long_per_dataset::AOM-PLS PLS-standard,57,1.0,True,included_main_equal_class_weight
+Paper_CNN,TabPFN paper master_pivot,51,0.8947368421052632,True,included_main_equal_class_weight
+Paper_CatBoost,TabPFN paper master_pivot,56,0.9824561403508771,True,included_main_equal_class_weight
+Paper_PLS,TabPFN paper master_pivot,54,0.9473684210526315,True,included_main_equal_class_weight
+Paper_Ridge,TabPFN paper master_pivot,54,0.9473684210526315,True,included_main_equal_class_weight
+Paper_TabPFN_Opt,TabPFN paper master_pivot,57,1.0,True,included_main_equal_class_weight
+Paper_TabPFN_Raw,TabPFN paper master_pivot,57,1.0,True,included_main_equal_class_weight
+AOM_Ridge_Best,nicon_v2 long_per_dataset::AOM-Ridge-best,39,0.6842105263157895,False,excluded_from_main_low_core_coverage
+Nicon_CNN_V1c,nicon_v2 long_per_dataset::nicon_v2 V1c-concat-bjerrum (CNN-only),39,0.6842105263157895,False,excluded_from_main_low_core_coverage
+Nicon_Internal_PLS,nicon_v2 long_per_dataset::nicon_v2 internal PLS,38,0.6666666666666666,False,excluded_from_main_low_core_coverage
+Nicon_Internal_Ridge,nicon_v2 long_per_dataset::nicon_v2 internal Ridge,39,0.6842105263157895,False,excluded_from_main_low_core_coverage
+Nicon_Stack_Ridge_PLS_V1c,nicon_v2 long_per_dataset::nicon_v2 Stack-Ridge-PLS-V1c,38,0.6666666666666666,False,excluded_from_main_low_core_coverage

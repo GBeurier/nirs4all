@@ -59,6 +59,26 @@ extended_smoke results reported and curated-cohort benchmark in progress.
 | 1     | Plan + scaffolding (Phase 0 docs) | 26 (2 C, 9 H) | yes |
 | 2     | Phase 1a code (V1a model + tests) | 6 (4 H+) | yes |
 | 3     | Phase 1c + stacking | 6 (2 H, 3 M) | yes |
+| 6     | V2A / V2B (round-5 AOM-superblock) | F1 (L2 reg loss inactive) | yes |
+| 7     | V2C / V2D / V2E ablation | block-channel SE diagnosis | yes |
+| 8     | V2H low-rank | rank=32 confirmed best | n/a (positive) |
+| 9     | V2L / V2M ceiling diagnosis | architecture-only ceiling ≈ 1.20-1.30 vs AOM-PLS | yes |
+| 10    | V3 / V6 / V7 round-12 review | no critical/high; NO-GO pure arch; GO V6b + SWA | yes |
+| 11    | Final review (rounds 12-16) | 4 medium issues (none invalidate verdict); NO_GO; start publication pass | yes (RMS reset M2 fixed) |
+
+## V2 deep-learning iterations (representative cohort, 10 datasets, seed 0)
+
+| Round | Best CNN | Median Δ% vs Ridge | Wins/10 vs Ridge | Δ% vs AOM-Ridge-best | Notes |
+|------:|----------|------:|-----:|-----:|------|
+| 8 | V2H-lowrank-r32 | +30 % | — | +35.6 % | Low-rank A ≈ U V^T |
+| 10 | V2L-learnableRMS | +18 % | 4/10 | +29.4 % | Learnable RMS (round-10 production) |
+| 11 | V2L-perbranchInit1 | +18 % | 4/10 | +35.5 % | Init=1 diagnostic; 1/10 wins for V2M-deeper |
+| **12** | V2L / V6-Distill-V2M | +12 % | 4/10 | +28.2 % | Transformer (V3) and TTA (V7) hurt; distillation marginal +0.9 % |
+| 13 | V6b-DistillExtended-V2M | +11 % | 4/10 | +22.9 % | Extended-bank teacher + V2M trunk → 6.5 pp closure on AOM-Ridge-best (seed 0 only) |
+| 14 (5 seeds) | V6b-V2M ≡ V2L | — | 0/10, Ridge wins 7 | — | Multi-seed: 50 paired obs, V6b vs V2L median Δ% = −0.33%, mean = +2.81%, Wilcoxon p = 0.76. **R13 signal was seed-0 noise**. CNN beats Ridge only on the 2 Chla+b sets. |
+| 15 (seed 0) | V6b-LucasPretrained-V2M | +12 % | 4/10 | +22 % | LUCAS-SOC pretrained backbone (5k samples, R²=0.76 on LUCAS-val). 4/10 best CNN, all soil-related. Domain mismatch hurts Beer (+130 %); distillation acts as safety-net. |
+| 16 (5 seeds) | V6b-LUCAS ≡ V2L (final) | — | 1/10 as overall best, Ridge wins 7 | — | Multi-seed: 50 paired obs, V6b-LUCAS vs V2M median Δ% = −1.4%, p = 0.21 (directional but not significant); vs V2L median = −0.2%, p = 0.76 (tied). **End of deep-learning programme: V2L is production CNN.** |
+| **publication (39-dataset curated)** | **V2L significantly worse than Ridge** | +29.5 % vs Ridge | **4/38** wins (vs 7 PLS, 5 V6b-LUCAS) | +40.5 % | Wilcoxon p = 1.7e-6 in wrong direction. Smoke gate failed on all 3 sub-criteria. CNN wins on 4-5 plant-chemistry small-n datasets only. |
 
 ## Known limitations / deferred
 

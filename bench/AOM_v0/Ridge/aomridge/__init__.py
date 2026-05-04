@@ -15,6 +15,10 @@ __all__ = [
     "AOMKernelizer",
     "AOMRidgePLS",
     "AOMRidgePLSCV",
+    "AOMRidgeAutoSelector",
+    "AOMRidgeBlender",
+    "AOMMultiBranchMKL",
+    "AOMLocalRidge",
 ]
 
 
@@ -31,4 +35,12 @@ def __getattr__(name: str):
         return import_module(".aom_ridge_pls", __name__).AOMRidgePLS
     if name == "AOMRidgePLSCV":
         return import_module(".aom_ridge_pls", __name__).AOMRidgePLSCV
+    if name == "AOMRidgeAutoSelector":
+        return import_module(".auto_selector", __name__).AOMRidgeAutoSelector
+    if name == "AOMRidgeBlender":
+        return import_module(".blender", __name__).AOMRidgeBlender
+    if name == "AOMMultiBranchMKL":
+        return import_module(".multi_branch_mkl", __name__).AOMMultiBranchMKL
+    if name == "AOMLocalRidge":
+        return import_module(".local_ridge", __name__).AOMLocalRidge
     raise AttributeError(f"module 'aomridge' has no attribute {name!r}")

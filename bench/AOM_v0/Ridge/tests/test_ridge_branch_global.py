@@ -456,3 +456,176 @@ def test_osc_fold_local_no_leak(monkeypatch):
 
     assert est.diagnostics_["chosen_branch"] == "osc"
     assert np.all(np.isfinite(est.predict(X)))
+
+
+# ----------------------------------------------------------------------
+# Phase H2 tests — 10-branch expanded list and 1-SE rule on the full triple table
+# ----------------------------------------------------------------------
+
+# Subset of branches first introduced for the Phase H2 ``branch_global`` headline
+# variant. Main now exposes a richer registry but these labels remain valid.
+TEN_BRANCHES = (
+    "none", "snv", "msc", "emsc1", "emsc2",
+    "asls_soft", "asls", "asls_hard", "snv_asls", "msc_asls",
+)
+
+
+def test_branch_global_10branches_runs():
+    """End-to-end fit with the 10-branch list converges and selects a valid branch."""
+    rng = np.random.default_rng(123)
+    n, p = 60, 32
+    base = np.sin(np.linspace(0.0, 4 * np.pi, p))
+    y = rng.uniform(-1.0, 1.0, size=n)
+    X = (
+        base[None, :]
+        + 0.5 * y[:, None] * np.cos(np.linspace(0.0, 4 * np.pi, p))[None, :]
+        + rng.uniform(-2.0, 2.0, size=(n, 1))
+    )
+    X += 0.05 * rng.normal(size=(n, p))
+
+    est = AOMRidgeRegressor(
+        selection="branch_global",
+        operator_bank=[IdentityOperator()],
+        branches=TEN_BRANCHES,
+        block_scaling="none",
+        cv=3,
+        random_state=0,
+    ).fit(X, y)
+
+    assert est.diagnostics_["chosen_branch"] in TEN_BRANCHES
+    assert len(est.diagnostics_["branches"]) == 10
+    pred = est.predict(X[:8])
+    assert pred.shape == (8,)
+    assert np.all(np.isfinite(pred))
+    assert est._selection_rmse_table.shape[0] == 10
+
+
+def test_branch_global_10branches_no_leak(monkeypatch):
+    """Spy every branch's fit; validation rows never enter branch fitting."""
+    from aompls.preprocessing import ASLSBaseline as _ASLSAdapter
+    from aompls.preprocessing import StandardNormalVariate
+
+    from nirs4all.operators.transforms.nirs import (
+        ASLSBaseline,
+        ExtendedMultiplicativeScatterCorrection,
+    )
+
+    rng = np.random.default_rng(31)
+    n, p = 30, 20
+    X = rng.normal(size=(n, p)) + 5.0
+    y = rng.normal(size=n)
+    cv = KFold(n_splits=3, shuffle=False)
+    folds = list(cv.split(X, y))
+
+    allowed_row_sets: list[frozenset[int]] = [
+        frozenset(int(i) for i in tr) for tr, _ in folds
+    ]
+    allowed_row_sets.append(frozenset(range(n)))
+    leaky_row_sets: list[frozenset[int]] = [
+        frozenset(int(i) for i in va) for _, va in folds
+    ]
+
+    seen_calls: list[tuple[str, np.ndarray]] = []
+
+    def _classify(X_in: np.ndarray) -> str:
+        n_in = X_in.shape[0]
+        row_to_idx: dict[bytes, int] = {}
+        for i in range(n):
+            row_to_idx[X[i].tobytes()] = i
+        idx_set: set[int] = set()
+        for r in range(n_in):
+            key = X_in[r].tobytes()
+            if key not in row_to_idx:
+                return "downstream"
+            idx_set.add(row_to_idx[key])
+        idx_fset = frozenset(idx_set)
+        if idx_fset in allowed_row_sets:
+            return "ok"
+        if idx_fset in leaky_row_sets:
+            return "valid"
+        return "unknown"
+
+    real_msc_fit = MultiplicativeScatterCorrection.fit
+    real_emsc_fit = ExtendedMultiplicativeScatterCorrection.fit
+    real_snv_fit = StandardNormalVariate.fit
+    real_asls_fit = ASLSBaseline.fit
+
+    def make_recorder(name: str, original):
+        def _recording(self, X_in, y_in=None):
+            seen_calls.append((name, np.asarray(X_in, dtype=float).copy()))
+            try:
+                return original(self, X_in, y_in)
+            except TypeError:
+                return original(self, X_in)
+        return _recording
+
+    monkeypatch.setattr(
+        MultiplicativeScatterCorrection, "fit",
+        make_recorder("msc", real_msc_fit),
+    )
+    monkeypatch.setattr(
+        ExtendedMultiplicativeScatterCorrection, "fit",
+        make_recorder("emsc", real_emsc_fit),
+    )
+    monkeypatch.setattr(
+        StandardNormalVariate, "fit",
+        make_recorder("snv", real_snv_fit),
+    )
+    monkeypatch.setattr(
+        ASLSBaseline, "fit",
+        make_recorder("asls", real_asls_fit),
+    )
+    assert _ASLSAdapter is not None  # silence unused import
+
+    AOMRidgeRegressor(
+        selection="branch_global",
+        operator_bank=[IdentityOperator()],
+        branches=TEN_BRANCHES,
+        block_scaling="none",
+        cv=cv,
+        random_state=0,
+    ).fit(X, y)
+
+    leak_count = 0
+    for _name, X_in in seen_calls:
+        cls = _classify(X_in)
+        if cls == "valid":
+            leak_count += 1
+    assert leak_count == 0, f"{leak_count} branch fits saw validation rows (LEAK)"
+    assert len(seen_calls) >= len(TEN_BRANCHES) - 1
+
+
+def test_branch_global_pick_1se_helper_prefers_more_regularised():
+    """1-SE rule on the (branch, op, alpha) tensor prefers the largest alpha
+    among triples within one SE of the minimum."""
+    from aomridge.selection import _branch_global_pick_1se
+
+    alphas = np.logspace(-3, 3, 7)
+    n_branches, n_ops = 2, 1
+    rmse_table = np.full((n_branches, n_ops, len(alphas)), 0.30)
+    rmse_table[0, 0, 1] = 0.20    # global min at alpha=1e-2
+    rmse_table[0, 0, 2] = 0.21    # within 1 SE
+    rmse_table[0, 0, 3] = 0.22    # within 1 SE
+    rmse_table[0, 0, 4] = 0.23    # within 1 SE
+    rmse_table[0, 0, 5] = 0.40    # outside 1 SE
+    rmse_se = np.full_like(rmse_table, 0.05)
+
+    bi_min, oi_min, ai_min = 0, 0, 1
+    bi_1se, oi_1se, ai_1se = _branch_global_pick_1se(
+        rmse_table, rmse_se, alphas,
+    )
+    assert (bi_min, oi_min, ai_min) == (0, 0, 1)
+    assert ai_1se > ai_min, (
+        f"1-SE alpha index {ai_1se} not greater than min index {ai_min}"
+    )
+    assert (
+        rmse_table[bi_1se, oi_1se, ai_1se]
+        <= rmse_table[bi_min, oi_min, ai_min] + rmse_se[bi_min, oi_min, ai_min]
+    )
+
+
+def test_ten_branches_subset_of_registry():
+    """Every label in ``TEN_BRANCHES`` is in ``VALID_BRANCHES``."""
+    from aomridge.branches import VALID_BRANCHES as _VALID
+    for b in TEN_BRANCHES:
+        assert b in _VALID

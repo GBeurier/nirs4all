@@ -125,6 +125,35 @@ class TrainConfig:
     augmenter: object | None = None     # callable(x, generator) -> x'
     cmixup: object | None = None        # callable(x, y, sigma_y, generator) -> (x, y)
     cmixup_sigma_y: float = 0.0
+    # V6 — knowledge distillation from a training-time teacher.
+    teacher_predictions: np.ndarray | None = None    # shape (n,), aligned with X_train_scaled
+    distill_lambda: float = 0.0                       # weight on distillation MSE term
+    # R13 — Stochastic Weight Averaging.
+    use_swa: bool = False                              # enable SWA over the last epochs
+    swa_start_frac: float = 0.75                      # SWA averaging starts at swa_start_frac * epochs
+    swa_lr: float | None = None                        # constant SWA LR; None → uses current optimiser LR
+
+
+def _model_extra_loss(model: nn.Module) -> torch.Tensor | None:
+    """Return a model-side penalty (e.g. AOM operator L2-from-init) or None.
+
+    Looks for a method named ``operator_regularisation_loss`` (preferred) or
+    ``regularisation_loss`` and calls it. Both V2A and the operator layers expose it.
+    Codex round 6 F1: this was previously *defined* but never *called* during
+    training, so the L2-from-init penalty was inactive.
+    """
+    for attr in ("operator_regularisation_loss", "regularisation_loss"):
+        fn = getattr(model, attr, None)
+        if callable(fn):
+            try:
+                val = fn()
+            except Exception:
+                continue
+            if isinstance(val, torch.Tensor) and val.requires_grad:
+                return val
+            if isinstance(val, torch.Tensor) and val.detach().abs().sum().item() > 0.0:
+                return val
+    return None
 
 
 def _make_loaders(
@@ -134,11 +163,15 @@ def _make_loaders(
     batch_size: int,
     device: torch.device,
     seed: int,
+    teacher_predictions: np.ndarray | None = None,
 ) -> tuple[DataLoader, DataLoader, np.ndarray, np.ndarray]:
     """Train/val split (random) + tensor loaders. Returns (train_loader, val_loader, X_val, y_val).
 
     All tensors are kept on the target device for small datasets (NIRS is tiny);
     we don't pin / multi-worker because the per-batch overhead exceeds the gain.
+
+    If `teacher_predictions` is given (shape (n,), aligned with X_train), each
+    train batch yields a third tensor ``z_teacher`` for distillation.
     """
     n = X_train.shape[0]
     rng = np.random.default_rng(seed)
@@ -152,7 +185,11 @@ def _make_loaders(
     X_va = torch.from_numpy(X_train[val_idx]).float().to(device)
     y_va = torch.from_numpy(y_train[val_idx]).float().to(device)
 
-    train_ds = TensorDataset(X_tr, y_tr)
+    if teacher_predictions is not None:
+        z_tr = torch.from_numpy(np.asarray(teacher_predictions)[train_idx]).float().to(device)
+        train_ds: TensorDataset = TensorDataset(X_tr, y_tr, z_tr)
+    else:
+        train_ds = TensorDataset(X_tr, y_tr)
     val_ds = TensorDataset(X_va, y_va)
 
     train_loader = DataLoader(
@@ -188,8 +225,14 @@ def train_torch_regressor(
         raise NotImplementedError("Phase 0 only supports n_input_channels=1")
     X_train_scaled = X_train_scaled.reshape(n, 1, p)
 
+    distill_active = (
+        config.distill_lambda > 0.0
+        and config.teacher_predictions is not None
+        and len(config.teacher_predictions) == n
+    )
     train_loader, val_loader, _, _ = _make_loaders(
         X_train_scaled, y_train_scaled, config.val_fraction, config.batch_size, device, config.seed,
+        teacher_predictions=(config.teacher_predictions if distill_active else None),
     )
 
     optim = torch.optim.AdamW(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
@@ -204,6 +247,14 @@ def train_torch_regressor(
     else:
         scheduler = None
 
+    # R13 — Stochastic Weight Averaging.
+    swa_active = bool(config.use_swa)
+    swa_start_epoch = int(round(config.swa_start_frac * config.epochs)) if swa_active else config.epochs + 1
+    swa_model: torch.optim.swa_utils.AveragedModel | None = None
+    if swa_active:
+        swa_model = torch.optim.swa_utils.AveragedModel(model)
+        swa_lr = float(config.swa_lr) if config.swa_lr is not None else float(config.lr) * 0.1
+
     loss_fn = nn.MSELoss()
     best_val = math.inf
     best_state: dict[str, torch.Tensor] | None = None
@@ -213,28 +264,57 @@ def train_torch_regressor(
     scaler_amp = torch.amp.GradScaler("cuda") if use_amp else None
     aug_generator = torch.Generator(device=device).manual_seed(config.seed + 1)
     t0 = time.time()
+    distill_lambda = float(config.distill_lambda) if distill_active else 0.0
     for epoch in range(config.epochs):
         model.train()
-        for xb, yb in train_loader:
+        for batch in train_loader:
+            if distill_active:
+                xb, yb, zb = batch
+            else:
+                xb, yb = batch
+                zb = None
             optim.zero_grad(set_to_none=True)
             if config.augmenter is not None:
                 xb = config.augmenter(xb, aug_generator)
             if config.cmixup is not None and config.cmixup_sigma_y > 0:
+                # cmixup also blends y; if distillation is active we stop teacher
+                # mixing for that batch (mixed sample has no clean teacher target).
                 xb, yb = config.cmixup(xb, yb, config.cmixup_sigma_y, aug_generator)
+                zb = None
+            # Codex round 6 F1 — wire model.operator_regularisation_loss() (or
+            # any other extra penalty exposed by the model) into the training loss.
             if use_amp:
                 with torch.amp.autocast("cuda"):
                     pred = model(xb).squeeze(-1)
                     loss = loss_fn(pred, yb)
+                    if zb is not None:
+                        loss = loss + distill_lambda * loss_fn(pred, zb)
+                    extra = _model_extra_loss(model)
+                    if extra is not None:
+                        loss = loss + extra
                 scaler_amp.scale(loss).backward()
                 scaler_amp.step(optim)
                 scaler_amp.update()
             else:
                 pred = model(xb).squeeze(-1)
                 loss = loss_fn(pred, yb)
+                if zb is not None:
+                    loss = loss + distill_lambda * loss_fn(pred, zb)
+                extra = _model_extra_loss(model)
+                if extra is not None:
+                    loss = loss + extra
                 loss.backward()
                 optim.step()
-            if scheduler is not None:
+            # During SWA, freeze the OneCycleLR schedule at swa_lr.
+            if scheduler is not None and not (swa_active and epoch >= swa_start_epoch):
                 scheduler.step()
+
+        # SWA: hold LR constant at swa_lr and update the averaged weights.
+        if swa_active and epoch >= swa_start_epoch:
+            for pg in optim.param_groups:
+                pg["lr"] = swa_lr
+            assert swa_model is not None
+            swa_model.update_parameters(model)
 
         model.eval()
         with torch.no_grad():
@@ -253,7 +333,30 @@ def train_torch_regressor(
             if bad_epochs >= config.patience:
                 break
 
-    if best_state is not None:
+    # Final selection: prefer SWA weights if their val loss is strictly better
+    # than the early-stopping checkpoint; otherwise use the early-stopping
+    # checkpoint (this prevents SWA from regressing on small datasets where the
+    # average of late-epoch models has drifted past the optimum).
+    used_swa = False
+    if swa_active and swa_model is not None:
+        # SWA must be evaluated through its module attribute; AveragedModel forwards.
+        swa_model.eval()
+        with torch.no_grad():
+            val_losses = []
+            for xb, yb in val_loader:
+                pred = swa_model(xb).squeeze(-1)
+                val_losses.append(loss_fn(pred, yb).item())
+        swa_val = float(np.mean(val_losses)) if val_losses else math.inf
+        if swa_val + 1e-8 < best_val:
+            # Copy SWA weights into model.state_dict (drop the AveragedModel "module." prefix).
+            swa_sd = {k.replace("module.", "", 1): v.detach().cpu().clone()
+                      for k, v in swa_model.module.state_dict().items()}
+            model.load_state_dict(swa_sd)
+            used_swa = True
+            best_val = swa_val
+        elif best_state is not None:
+            model.load_state_dict(best_state)
+    elif best_state is not None:
         model.load_state_dict(best_state)
     train_time = time.time() - t0
 
@@ -262,6 +365,7 @@ def train_torch_regressor(
         "best_epoch": int(best_epoch),
         "train_time_s": float(train_time),
         "device": str(device),
+        "used_swa": bool(used_swa),
     }
 
 

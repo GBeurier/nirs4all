@@ -1,0 +1,34 @@
+cohort,variant,median_rel_pls,n_datasets,wins,wins_frac
+smoke3 (3 ds),BLUP-reml,0.9915464156060828,3,2,0.6666666666666666
+smoke3 (3 ds),MKM-reml,0.9915464156060828,3,2,0.6666666666666666
+smoke3 (3 ds),Ridge-raw,2.370313596958989,3,0,0.0
+smoke3 (3 ds),mkR-kta,1.1705401949914425,3,0,0.0
+smoke3 (3 ds),mkR-softmax_cv,0.9501912008142952,3,2,0.6666666666666666
+smoke3 (3 ds),mkR-uniform,1.3548056457319986,3,0,0.0
+"smoke3+branches (3 ds, 8 var)",MKM-reml,0.9915464156060828,3,2,0.6666666666666666
+"smoke3+branches (3 ds, 8 var)",MKM-reml-asls,1.0024409510452263,3,1,0.3333333333333333
+"smoke3+branches (3 ds, 8 var)",MKM-reml-msc,1.025800854024732,3,1,0.3333333333333333
+"smoke3+branches (3 ds, 8 var)",MKM-reml-snv,1.0307190184421156,3,1,0.3333333333333333
+"smoke3+branches (3 ds, 8 var)",mkR-softmax_cv,0.9501912008142952,3,2,0.6666666666666666
+"smoke3+branches (3 ds, 8 var)",mkR-softmax_cv-asls,0.9828793241393088,3,2,0.6666666666666666
+"smoke3+branches (3 ds, 8 var)",mkR-softmax_cv-msc,0.9815090942772798,3,2,0.6666666666666666
+"smoke3+branches (3 ds, 8 var)",mkR-softmax_cv-snv,0.977394154495589,3,2,0.6666666666666666
+curated10 (10 div ds),MKM-reml,0.9852569814788716,10,6,0.6
+curated10 (10 div ds),MKM-reml-asls,0.9637673070373274,10,6,0.6
+curated10 (10 div ds),MKM-reml-msc,0.95177725508878,10,7,0.7
+curated10 (10 div ds),Ridge-raw,1.263055801600139,10,1,0.1
+curated10 (10 div ds),mkR-softmax_cv,0.9754633645632328,10,5,0.5
+curated10 (10 div ds),mkR-softmax_cv-msc,0.9765195948869064,10,5,0.5
+curated10 (10 div ds),mkR-softmax_cv-snv,0.9773379531940514,10,5,0.5
+diverse10 (10 user-curated v2),MKM-reml,1.0955770155071156,9,4,0.4444444444444444
+diverse10 (10 user-curated v2),MKM-reml-asls,1.002440978555016,9,3,0.3333333333333333
+diverse10 (10 user-curated v2),MKM-reml-msc,1.025800860575673,9,3,0.3333333333333333
+diverse10 (10 user-curated v2),Ridge-raw,1.147742033580252,10,3,0.3
+diverse10 (10 user-curated v2),mkR-softmax_cv,1.0535683772500166,9,4,0.4444444444444444
+diverse10 (10 user-curated v2),mkR-softmax_cv-snv,0.9931737238574668,9,5,0.5555555555555556
+all54_stageA (51 ds),MKM-reml,0.9838408550173968,51,30,0.5882352941176471
+all54_stageA (51 ds),MKM-reml-asls,0.9875662947348828,51,29,0.5686274509803921
+all54_stageA (51 ds),MKM-reml-msc,0.9821307404079714,51,29,0.5686274509803921
+all54_stageA (51 ds),Ridge-raw,1.222233852174454,51,12,0.23529411764705882
+all54_stageA (51 ds),mkR-softmax_cv,0.9840861339612108,51,27,0.5294117647058824
+all54_stageA (51 ds),mkR-softmax_cv-snv,0.9920373770843692,51,29,0.5686274509803921

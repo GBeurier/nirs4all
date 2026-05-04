@@ -20,12 +20,14 @@ from aomridge.aom_ridge_pls import (
     AOMRidgePLSCV,
     _build_superblock,
 )
+from aomridge.cv import RepeatedSPXYFold
 from aomridge.kernels import (
     clone_operator_bank,
     fit_operator_bank,
     resolve_operator_bank,
 )
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.exceptions import NotFittedError
 
 # ----------------------------------------------------------------------
 # Helpers
@@ -159,19 +161,60 @@ def test_no_pls_predict_used():
 
 
 def test_block_scaling_no_leakage():
-    """The operator bank must only see training rows during fit."""
+    """The operator bank must only see training rows during fit.
+
+    ``AOMRidgePLS`` deep-copies the user-supplied bank inside ``fit`` (via
+    ``clone_operator_bank``), so the original spy on the user side stays
+    empty: leakage cannot be observed there. The right place to look is the
+    *cloned* spy stored on ``est._operators_`` after fit. The fitted clone is
+    the one that actually runs ``fit`` / ``transform`` during training, so any
+    leakage of validation rows would show up in its recorded signatures.
+    """
     X, y = _make_data(n=80, p=24, seed=5)
     train_idx = np.arange(0, 60)
     val_idx = np.arange(60, 80)
-    spy = _SpyOperator()
-    bank = [spy, IdentityOperator()]
+    bank = [_SpyOperator(), IdentityOperator()]
     est = AOMRidgePLS(operator_bank=bank, n_components=3, ridge_alpha=0.5)
     est.fit(X[train_idx], y[train_idx])
+    cloned_spy = est._operators_[0]
+    assert isinstance(cloned_spy, _SpyOperator)
     train_signatures = {tuple(row.tolist()) for row in X[train_idx]}
     val_signatures = {tuple(row.tolist()) for row in X[val_idx]}
-    seen = set(spy.fit_signatures) | set(spy.transform_signatures)
+    seen = set(cloned_spy.fit_signatures) | set(cloned_spy.transform_signatures)
+    assert seen, "spy operator should have recorded at least one training row"
     assert seen.issubset(train_signatures)
     assert val_signatures.isdisjoint(seen)
+
+
+def test_block_scaling_no_leak_via_clones():
+    """Inspecting the cloned spies confirms no validation row reaches the bank.
+
+    Companion check that explicitly walks every fitted operator clone after a
+    fit / predict round-trip. Both ``fit`` (training) and ``predict`` (test)
+    must only feed rows that belong to the call's own input matrix.
+    """
+    X_tr, y_tr = _make_data(n=60, p=20, seed=11)
+    X_te, _ = _make_data(n=30, p=20, seed=12)
+    bank = [_SpyOperator(), _SpyOperator(), IdentityOperator()]
+    est = AOMRidgePLS(operator_bank=bank, n_components=3, ridge_alpha=0.7)
+    est.fit(X_tr, y_tr)
+    train_sig = {tuple(row.tolist()) for row in X_tr}
+    for op in est._operators_:
+        if isinstance(op, _SpyOperator):
+            seen = set(op.fit_signatures) | set(op.transform_signatures)
+            assert seen.issubset(train_sig), "fit leak via cloned spy"
+    # Reset clone signatures and call predict on test rows.
+    for op in est._operators_:
+        if isinstance(op, _SpyOperator):
+            op.fit_signatures.clear()
+            op.transform_signatures.clear()
+    est.predict(X_te)
+    test_sig = {tuple(row.tolist()) for row in X_te}
+    for op in est._operators_:
+        if isinstance(op, _SpyOperator):
+            seen = set(op.transform_signatures)
+            assert seen.issubset(test_sig), "predict leak via cloned spy"
+            assert not (seen & train_sig), "predict reused training rows"
 
 
 def test_score_shrinkage():
@@ -354,3 +397,197 @@ def test_get_params_set_params_roundtrip():
     est.set_params(n_components=3, ridge_alpha=0.0)
     assert est.n_components == 3
     assert est.ridge_alpha == 0.0
+
+
+# ----------------------------------------------------------------------
+# Round-2 fixes (Codex review)
+# ----------------------------------------------------------------------
+
+
+def test_n_components_clipped_to_fold_size():
+    """``AOMRidgePLSCV`` drops ``H`` values that exceed any fold-train size.
+
+    With ``H_max=50`` and ``n_train=20`` plus a 5-fold CV (~16 train rows per
+    fold), only ``H <= 15`` are evaluable. The CV must not score larger ``H``
+    silently against a smaller fold-local effective rank.
+    """
+    X, y = _make_data(n=20, p=12, seed=101)
+    grid_h = (3, 5, 10, 30, 50)
+    cv = AOMRidgePLSCV(
+        operator_bank="compact",
+        n_components_grid=grid_h,
+        ridge_alpha_grid=np.logspace(-2, 2, 5),
+        cv=5,
+        random_state=0,
+    ).fit(X, y)
+    n_components_used = cv.cv_results_["n_components"]
+    # Smallest fold-train size with 5-fold on 20 rows is 16; cap = 15.
+    assert int(n_components_used.max()) <= 15
+    # Per-fold actual_n_components must never exceed the smallest fold train size - 1
+    actual = cv.cv_results_["actual_n_components"]
+    assert actual.max() <= 15
+
+
+def test_repeated_cv_actually_repeats():
+    """``RepeatedSPXYFold(n_repeats=3)`` produces 3 * n_splits folds."""
+    X, y = _make_data(n=60, p=20, seed=103)
+    splitter = RepeatedSPXYFold(n_splits=3, n_repeats=3, random_state=0)
+    cv = AOMRidgePLSCV(
+        operator_bank="compact",
+        n_components_grid=(2, 5),
+        ridge_alpha_grid=np.logspace(-2, 2, 3),
+        cv=splitter,
+        random_state=0,
+    ).fit(X, y)
+    per_fold = cv.cv_results_["per_fold_rmse"]
+    # 3 repeats x 3 splits = 9 folds.
+    assert per_fold.shape[0] == 9
+
+
+def test_alpha_relative_mode():
+    """``relative_to_score_variance`` uses ``alpha * median(diag(T^T T))``."""
+    X, y = _make_data(n=70, p=24, seed=109)
+    H = 5
+    factor = 0.7
+    est = AOMRidgePLS(
+        n_components=H,
+        ridge_alpha=factor,
+        ridge_alpha_mode="relative_to_score_variance",
+    ).fit(X, y)
+    expected = factor * float(np.median(est.score_diag_))
+    np.testing.assert_allclose(est.alpha_effective_, expected, atol=1e-12)
+
+
+def test_one_se_picks_more_regularised():
+    """1-SE rule picks an alpha at least as large as the argmin alpha.
+
+    Synthetic CV setup with a small training fraction makes the late
+    components sensitive: the most-regularised value within one SE is
+    typically larger than the strict argmin.
+    """
+    rng = np.random.default_rng(31)
+    n, p = 60, 32
+    X = rng.normal(size=(n, p))
+    coef = rng.normal(size=p)
+    y = X @ coef + 0.5 * rng.normal(size=n)
+    grid_a = np.logspace(-3, 3, 9)
+    cv_min = AOMRidgePLSCV(
+        operator_bank="compact",
+        n_components_grid=(5, 10),
+        ridge_alpha_grid=grid_a,
+        cv=3,
+        selection_rule="min",
+        random_state=0,
+    ).fit(X, y)
+    cv_1se = AOMRidgePLSCV(
+        operator_bank="compact",
+        n_components_grid=(5, 10),
+        ridge_alpha_grid=grid_a,
+        cv=3,
+        selection_rule="1se",
+        random_state=0,
+    ).fit(X, y)
+    # 1-SE must never pick a *smaller* alpha than min.
+    assert cv_1se.best_ridge_alpha_ >= cv_min.best_ridge_alpha_
+
+
+def test_check_is_fitted_raises():
+    """Calling ``predict`` before ``fit`` must raise ``NotFittedError``."""
+    est = AOMRidgePLS(n_components=3, ridge_alpha=1.0)
+    with pytest.raises(NotFittedError):
+        est.predict(np.zeros((4, 8)))
+    cv = AOMRidgePLSCV(n_components_grid=(2, 5), ridge_alpha_grid=(0.1, 1.0), cv=3)
+    with pytest.raises(NotFittedError):
+        cv.predict(np.zeros((4, 8)))
+
+
+def test_cv_perf_no_redundant_pls_fits(monkeypatch):
+    """The CV path must fit PLS only once per (fold, H), not per (fold, H, alpha).
+
+    With 3 folds, an ``n_components_grid`` of length 5 and an
+    ``alpha_grid`` of length 9, the old loop calls ``PLSRegression.fit``
+    ``5 * 9 * 3 = 135`` times. The refactored path reduces this to
+    ``5 * 3 = 15``: one PLS fit per (fold, H) state.
+    """
+    X, y = _make_data(n=60, p=20, seed=131)
+    grid_h = (2, 3, 5, 7, 10)
+    grid_a = np.logspace(-3, 3, 9)
+    counter = {"calls": 0}
+    real_fit = PLSRegression.fit
+
+    def _counted_fit(self, X_, y_=None):
+        counter["calls"] += 1
+        return real_fit(self, X_, y_)
+
+    monkeypatch.setattr(PLSRegression, "fit", _counted_fit)
+    cv = AOMRidgePLSCV(
+        operator_bank="compact",
+        n_components_grid=grid_h,
+        ridge_alpha_grid=grid_a,
+        cv=3,
+        random_state=0,
+    )
+    cv.fit(X, y)
+    # 5 H values x 3 folds = 15 PLS fits during the CV loop, plus 1 refit on
+    # the full training set. Allow a small slack to cover internal sklearn
+    # validation calls but ensure we are far below 135.
+    assert counter["calls"] <= 5 * 3 + 5  # 15 + refit cushion
+    assert counter["calls"] < 135
+
+
+def test_per_component_penalty_modes():
+    """Variant 3: ``per_component_penalty`` builds an exponentiated lambda_h."""
+    X, y = _make_data(n=70, p=24, seed=137)
+    H = 5
+    alpha = 1.5
+    est_uniform = AOMRidgePLS(
+        n_components=H, ridge_alpha=alpha, per_component_penalty="uniform",
+    ).fit(X, y)
+    est_05 = AOMRidgePLS(
+        n_components=H, ridge_alpha=alpha, per_component_penalty="exponent_0.5",
+    ).fit(X, y)
+    est_10 = AOMRidgePLS(
+        n_components=H, ridge_alpha=alpha, per_component_penalty="exponent_1.0",
+    ).fit(X, y)
+    np.testing.assert_allclose(
+        est_uniform.alpha_per_component_, np.full(H, alpha), atol=1e-12,
+    )
+    h_idx = np.arange(1, H + 1, dtype=float)
+    np.testing.assert_allclose(
+        est_05.alpha_per_component_, alpha * h_idx ** 0.5, atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        est_10.alpha_per_component_, alpha * h_idx, atol=1e-12,
+    )
+
+
+def test_block_component_importance_normalised():
+    """Spec Section 5: ``block_component_importance_`` columns sum to 1."""
+    X, y = _make_data(n=60, p=24, seed=139)
+    operators = [
+        IdentityOperator(),
+        SavitzkyGolayOperator(window_length=11, polyorder=2, deriv=0),
+        DetrendProjectionOperator(degree=1),
+    ]
+    est = AOMRidgePLS(
+        operator_bank=operators, n_components=4, ridge_alpha=0.5,
+    ).fit(X, y)
+    M = est.block_component_importance_
+    assert M.shape == (3, 4)
+    np.testing.assert_allclose(M.sum(axis=0), np.ones(4), atol=1e-10)
+    # Ridge-weighted importance must equal columns scaled by shrinkage.
+    expected = M * est.shrinkage_factors_[None, :]
+    np.testing.assert_allclose(
+        est.block_component_importance_ridge_, expected, atol=1e-12,
+    )
+
+
+def test_n_features_in_set():
+    """``n_features_in_`` is set during fit (sklearn API)."""
+    X, y = _make_data(n=40, p=16, seed=141)
+    est = AOMRidgePLS(n_components=3, ridge_alpha=0.5).fit(X, y)
+    assert est.n_features_in_ == 16
+    cv = AOMRidgePLSCV(
+        n_components_grid=(2, 3), ridge_alpha_grid=(0.1, 1.0), cv=3,
+    ).fit(X, y)
+    assert cv.n_features_in_ == 16

@@ -3,44 +3,44 @@ Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
 The top-level auxiliary file: aomridge_paper.aux
 The style file: plainnat.bst
 Database file #1: refs.bib
-You've used 23 entries,
+You've used 26 entries,
             2773 wiz_defined-function locations,
-            732 strings with 9550 characters,
-and the built_in function-call counts, 12504 in all, are:
-= -- 1088
-> -- 917
+            754 strings with 10138 characters,
+and the built_in function-call counts, 14036 in all, are:
+= -- 1229
+> -- 1007
 < -- 12
-+ -- 309
-- -- 285
-* -- 1091
-:= -- 1968
-add.period$ -- 78
-call.type$ -- 23
-change.case$ -- 159
-chr.to.int$ -- 22
-cite$ -- 46
-duplicate$ -- 483
-empty$ -- 882
-format.name$ -- 324
-if$ -- 2561
++ -- 339
+- -- 312
+* -- 1237
+:= -- 2202
+add.period$ -- 88
+call.type$ -- 26
+change.case$ -- 177
+chr.to.int$ -- 25
+cite$ -- 52
+duplicate$ -- 546
+empty$ -- 1005
+format.name$ -- 354
+if$ -- 2876
 int.to.chr$ -- 2
 int.to.str$ -- 1
-missing$ -- 24
-newline$ -- 132
-num.names$ -- 92
-pop$ -- 307
+missing$ -- 27
+newline$ -- 148
+num.names$ -- 104
+pop$ -- 336
 preamble$ -- 1
-purify$ -- 138
+purify$ -- 153
 quote$ -- 0
-skip$ -- 406
+skip$ -- 451
 stack$ -- 0
-substring$ -- 448
-swap$ -- 44
+substring$ -- 529
+swap$ -- 47
 text.length$ -- 2
 text.prefix$ -- 0
 top$ -- 0
-type$ -- 238
+type$ -- 271
 warning$ -- 0
-while$ -- 103
+while$ -- 118
 width$ -- 0
-write$ -- 318
+write$ -- 359

@@ -55,6 +55,27 @@ from nirsyntheticpfn.adapters.builder_adapter import (
     R2X_REMEDIATION_PROFILES,
     R2Y_REMEDIATION_PROFILES,
     R2Z_REMEDIATION_PROFILES,
+    R3A_REMEDIATION_PROFILES,
+    R3B_REMEDIATION_PROFILES,
+    R3C_REMEDIATION_PROFILES,
+    R3D_REMEDIATION_PROFILES,
+    R3E_REMEDIATION_PROFILES,
+    R3F_REMEDIATION_PROFILES,
+    R3G_REMEDIATION_PROFILES,
+    R4A_REMEDIATION_PROFILES,
+    R4B_REMEDIATION_PROFILES,
+    R4C_REMEDIATION_PROFILES,
+    R5A_REMEDIATION_PROFILES,
+    R5B_REMEDIATION_PROFILES,
+    R5C_REMEDIATION_PROFILES,
+    R6A_REMEDIATION_PROFILES,
+    R7A_REMEDIATION_PROFILES,
+    R8A_REMEDIATION_PROFILES,
+    R8B_REMEDIATION_PROFILES,
+    R9B_REMEDIATION_PROFILES,
+    R9C_REMEDIATION_PROFILES,
+    R9D_REMEDIATION_PROFILES,
+    R9E_REMEDIATION_PROFILES,
     build_synthetic_dataset_run,
 )
 from nirsyntheticpfn.adapters.prior_adapter import canonicalize_domain, canonicalize_prior_config
@@ -489,6 +510,11 @@ def _has_r2o_beer_marker(text: str, tokens: set[str]) -> bool:
     return "beer" in tokens or "beer" in text
 
 
+def _has_r3a_corn_marker(text: str, tokens: set[str]) -> bool:
+    del text
+    return "corn" in tokens
+
+
 def _has_r2p_phosphorus_marker(text: str, tokens: set[str]) -> bool:
     return "phosphorus" in tokens or "phosphorus" in text
 
@@ -685,10 +711,585 @@ def _r2t_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
     return _r2s_token_source_overrides(dataset)
 
 
+def _r3a_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R3a overrides, changing only explicitly marked CORN rows."""
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r3a_corn_marker(text, tokens):
+        overrides = _r2d_token_source_overrides(dataset)
+        overrides["_r3a_corn_readout_route"] = {
+            "enabled": True,
+            "route_marker": "corn",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r2t_token_source_overrides(dataset)
+
+
+def _r3b_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R3b overrides, changing only explicitly marked CORN rows."""
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r3a_corn_marker(text, tokens):
+        overrides = _r2d_token_source_overrides(dataset)
+        overrides["_r3b_corn_readout_route"] = {
+            "enabled": True,
+            "route_marker": "corn",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r2t_token_source_overrides(dataset)
+
+
+def _r3c_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R3c overrides, changing only explicitly marked DIESEL rows."""
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r3c_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3b_token_source_overrides(dataset)
+
+
+def _r3d_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R3d overrides, changing only explicitly marked DIESEL rows."""
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r3d_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3c_token_source_overrides(dataset)
+
+
+def _r3e_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R3e overrides, changing only explicitly marked DIESEL rows."""
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r3e_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
+def _r3f_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R3f overrides, changing only explicitly marked DIESEL rows."""
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r3f_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3e_token_source_overrides(dataset)
+
+
+def _r3g_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R3g overrides, changing only explicitly marked DIESEL rows."""
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r3g_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3f_token_source_overrides(dataset)
+
+
+def _r4a_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R4a overrides, changing only explicitly marked DIESEL rows.
+
+    Falls back to R3d (NOT R3e/R3f/R3g) for any unmarked row so the diagnostic
+    R4a profile inherits the accepted R3d baseline outside the DIESEL route.
+    """
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r4a_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
+def _r4b_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R4b overrides, changing only explicitly marked DIESEL rows.
+
+    Falls back to R3d (NOT R4a) for any unmarked row so the diagnostic R4b
+    profile inherits the accepted R3d baseline outside the DIESEL route.
+    """
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r4b_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
+def _r4c_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R4c overrides, changing only explicitly marked DIESEL rows.
+
+    Falls back to R3d (NOT R4a/R4b) for any unmarked row so the diagnostic R4c
+    profile inherits the accepted R3d baseline outside the DIESEL route.
+    """
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r4c_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
+def _r5a_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R5a overrides, changing only explicitly marked DIESEL rows.
+
+    Falls back to R3d (NOT R4a/R4b/R4c) for any unmarked row so the diagnostic
+    R5a profile inherits the accepted R3d baseline outside the DIESEL route.
+    """
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r5a_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
+def _r5b_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R5b overrides, changing only explicitly marked DIESEL rows.
+
+    Falls back to R3d (NOT R4a/R4b/R4c) for any unmarked row so the diagnostic
+    R5b profile inherits the accepted R3d baseline outside the DIESEL route.
+    """
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r5b_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
+def _r5c_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R5c overrides, changing only explicitly marked DIESEL rows.
+
+    Falls back to R3d (NOT R4a/R4b/R4c) for any unmarked row so the diagnostic
+    R5c profile inherits the accepted R3d baseline outside the DIESEL route.
+    """
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r5c_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
+def _r6a_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R6a overrides, changing only explicitly marked DIESEL rows.
+
+    Falls back to R3d (NOT R4a/R4b/R4c/R5a/R5b/R5c) for any unmarked row so the
+    diagnostic R6a profile inherits the accepted R3d baseline outside the
+    DIESEL route. The R6a route marker uses ``_r6a_diesel_shape_route`` rather
+    than a readout-route key because R6a only adds a fixed mean-neutral
+    hydrocarbon shape envelope on the 750-1550 nm support; it does not vary
+    the readout space.
+    """
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r6a_diesel_shape_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
+def _r7a_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R7a overrides, changing only explicitly marked DIESEL rows.
+
+    Falls back to R3d (NOT R4a/R4b/R4c/R5a/R5b/R5c/R6a) for any unmarked row
+    so the diagnostic R7a profile inherits the accepted R3d baseline outside
+    the DIESEL route. The R7a route marker uses ``_r7a_diesel_residual_route``
+    because R7a is a support-centered residual transfer step on top of an
+    R4a-like absorbance base; it does not vary the readout space and is not a
+    shape envelope.
+    """
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r7a_diesel_residual_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
+def _r8a_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R8a overrides, changing only explicitly marked DIESEL rows.
+
+    Falls back to R3d (NOT R4a/R4b/R4c/R5a/R5b/R5c/R6a/R7a) for any unmarked
+    row so the diagnostic R8a profile inherits the accepted R3d baseline
+    outside the DIESEL route. Explicit DIESEL rows also carry a compliant R3d
+    fallback route marker so a non-compliant R8a marker cannot drop below the
+    R3d baseline. The R8a route marker uses ``_r8a_diesel_micro_path_route``
+    because R8a is a mean-preserving multiplicative micro-path modulation step
+    applied on top of an R4a-like absorbance base after the standard
+    non-negative final clip; it is not a readout-space transform, not a shape
+    envelope, and not a residual transfer addition.
+    """
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r3d_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        overrides["_r8a_diesel_micro_path_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
+def _r8b_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R8b overrides, changing only explicitly marked DIESEL rows.
+
+    Falls back to R3d for every non-DIESEL row. Explicit DIESEL rows also
+    carry a compliant R3d fallback route marker so a non-compliant R8b marker
+    cannot drop below the accepted R3d baseline. The R8b route marker uses
+    ``_r8b_diesel_micro_path_route`` because R8b is the R4c-base variant of
+    the R8a support-mean-preserving multiplicative modulation.
+    """
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r3d_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        overrides["_r8b_diesel_micro_path_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp09_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
+def _r9b_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R9b overrides, changing only explicitly marked DIESEL rows.
+
+    Falls back to R3d for every non-DIESEL row. Explicit DIESEL rows also
+    carry a compliant R3d fallback route marker so a non-compliant R9b marker
+    cannot drop below the accepted R3d baseline. The R9b route marker uses
+    ``_r9b_diesel_support_intercept_route`` because R9b is a fixed
+    mechanistic absorbance intercept added on the 750-1550 nm support after
+    the R4c base non-negative output clip; it is not a readout-space
+    transform, not a shape envelope, not a residual transfer addition, and
+    not a multiplicative micro-path modulation.
+    """
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r3d_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp11_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        overrides["_r9b_diesel_support_intercept_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp11_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
+def _r9c_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R9c overrides, changing only explicitly marked DIESEL rows.
+
+    Falls back to R3d for every non-DIESEL row. Explicit DIESEL rows also
+    carry a compliant R3d fallback route marker so a non-compliant R9c marker
+    cannot drop below the accepted R3d baseline. The R9c route marker uses
+    ``_r9c_diesel_support_shape_route`` because R9c is a fixed mechanistic
+    support-shape modulation (Gaussian CH band sums plus support-localized
+    damping windows plus a small support hump) added on the 750-1550 nm
+    support after the R3d non-negative output clip; it is not a readout-
+    space transform, not a residual transfer addition, not a multiplicative
+    micro-path modulation, and not a scalar offset.
+    """
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r3d_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp12_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        overrides["_r9c_diesel_support_shape_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp12_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
+def _r9d_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R9d overrides, changing only explicitly marked DIESEL rows.
+
+    Falls back to R3d for every non-DIESEL row. Explicit DIESEL rows also
+    carry a compliant R3d fallback route marker so a non-compliant R9d marker
+    cannot drop below the accepted R3d baseline. The R9d route marker uses
+    ``_r9d_diesel_support_redistribution_route`` because R9d is a fixed
+    mechanistic energy-normalized mean-neutral multiplicative redistribution
+    on the 750-1550 nm support after the R3d non-negative output clip; it is
+    not a readout-space transform, not a residual transfer addition, not a
+    R8a/R8b mean-preserving micro-path modulation (different shape source
+    and different normalization), not the R9b support intercept, not the
+    R9c additive support shape, and not a scalar offset.
+    """
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r3d_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp13_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        overrides["_r9d_diesel_support_redistribution_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp13_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
+def _r9e_token_source_overrides(dataset: RealDataset) -> dict[str, object]:
+    """Return R9e overrides, changing only explicitly marked DIESEL rows.
+
+    Falls back to R3d for every non-DIESEL row. Explicit DIESEL rows also
+    carry a compliant R3d fallback route marker so a non-compliant R9e marker
+    cannot drop below the accepted R3d baseline. The R9e route marker uses
+    ``_r9e_diesel_reference_attenuation_route`` because R9e is a fixed
+    positive support-only multiplicative pathlength/reference attenuation
+    after the R3d non-negative output clip; it is not a readout-space
+    transform, R9d shape redistribution, support-mean renormalization, scalar
+    offset, or additional guard clip.
+    """
+    text, tokens = _dataset_text_and_tokens(dataset)
+    if _has_r2j_diesel_marker(text, tokens):
+        overrides = _r2c_token_source_overrides(dataset)
+        overrides["_r3d_diesel_readout_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp15_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        overrides["_r9e_diesel_reference_attenuation_route"] = {
+            "enabled": True,
+            "route_marker": "diesel",
+            "source": "exp15_dataset_token",
+            "non_oracle": True,
+            "no_target_or_label": True,
+            "real_stat_capture": False,
+            "thresholds_modified": False,
+        }
+        return overrides
+    return _r3d_token_source_overrides(dataset)
+
+
 def _remediation_token_source_overrides(
     dataset: RealDataset, profile: str
 ) -> dict[str, object]:
     """Dispatch token-based source overrides per remediation profile."""
+    if profile in R9E_REMEDIATION_PROFILES:
+        return _r9e_token_source_overrides(dataset)
+    if profile in R9D_REMEDIATION_PROFILES:
+        return _r9d_token_source_overrides(dataset)
+    if profile in R9C_REMEDIATION_PROFILES:
+        return _r9c_token_source_overrides(dataset)
+    if profile in R9B_REMEDIATION_PROFILES:
+        return _r9b_token_source_overrides(dataset)
+    if profile in R8B_REMEDIATION_PROFILES:
+        return _r8b_token_source_overrides(dataset)
+    if profile in R8A_REMEDIATION_PROFILES:
+        return _r8a_token_source_overrides(dataset)
+    if profile in R7A_REMEDIATION_PROFILES:
+        return _r7a_token_source_overrides(dataset)
+    if profile in R6A_REMEDIATION_PROFILES:
+        return _r6a_token_source_overrides(dataset)
+    if profile in R5C_REMEDIATION_PROFILES:
+        return _r5c_token_source_overrides(dataset)
+    if profile in R5B_REMEDIATION_PROFILES:
+        return _r5b_token_source_overrides(dataset)
+    if profile in R5A_REMEDIATION_PROFILES:
+        return _r5a_token_source_overrides(dataset)
+    if profile in R4C_REMEDIATION_PROFILES:
+        return _r4c_token_source_overrides(dataset)
+    if profile in R4B_REMEDIATION_PROFILES:
+        return _r4b_token_source_overrides(dataset)
+    if profile in R4A_REMEDIATION_PROFILES:
+        return _r4a_token_source_overrides(dataset)
+    if profile in R3G_REMEDIATION_PROFILES:
+        return _r3g_token_source_overrides(dataset)
+    if profile in R3F_REMEDIATION_PROFILES:
+        return _r3f_token_source_overrides(dataset)
+    if profile in R3E_REMEDIATION_PROFILES:
+        return _r3e_token_source_overrides(dataset)
+    if profile in R3D_REMEDIATION_PROFILES:
+        return _r3d_token_source_overrides(dataset)
+    if profile in R3C_REMEDIATION_PROFILES:
+        return _r3c_token_source_overrides(dataset)
+    if profile in R3B_REMEDIATION_PROFILES:
+        return _r3b_token_source_overrides(dataset)
+    if profile in R3A_REMEDIATION_PROFILES:
+        return _r3a_token_source_overrides(dataset)
     if profile in R2Z_REMEDIATION_PROFILES:
         return _r2t_token_source_overrides(dataset)
     if profile in R2Y_REMEDIATION_PROFILES:
@@ -739,6 +1340,174 @@ def _effective_remediation_profile_for_dataset(
     profile: str | None,
 ) -> str | None:
     """Return the remediation profile that should reach the synthetic builder."""
+    if profile in R9E_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R9D_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R9C_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R9B_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R8B_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R8A_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R7A_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R6A_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R5C_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R5B_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R5A_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R4C_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R4B_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R4A_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R3G_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3f_diesel_matrix_v1",
+        )
+    if profile in R3F_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3e_diesel_matrix_v1",
+        )
+    if profile in R3E_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3d_diesel_matrix_v1",
+        )
+    if profile in R3D_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3c_diesel_matrix_v1",
+        )
+    if profile in R3C_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r2j_diesel_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r3b_corn_matrix_v1",
+        )
+    if profile in R3B_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r3a_corn_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r2w_sentinel_matrix_v1",
+        )
+    if profile in R3A_REMEDIATION_PROFILES:
+        text, tokens = _dataset_text_and_tokens(dataset)
+        if _has_r3a_corn_marker(text, tokens):
+            return profile
+        return _effective_remediation_profile_for_dataset(
+            dataset,
+            "r2w_sentinel_matrix_v1",
+        )
     if profile in R2Z_REMEDIATION_PROFILES:
         text, tokens = _dataset_text_and_tokens(dataset)
         if _has_r2n_manure21_marker(text, tokens):
@@ -1308,6 +2077,16 @@ def _effective_matrix_route_from_metadata(
         return "beer_beverage_matrix"
     if spectra_rule == "powder_reflectance_smoothing_and_scatter":
         return "corn_grain_matrix" if domain_key == "agriculture_grain" else None
+    if (
+        spectra_rule == "corn_powder_albedo_baseline_smoothing_readout"
+        and transform_params.get("corn_readout_route_marker") == "corn"
+    ):
+        return "corn_grain_powder_matrix"
+    if (
+        spectra_rule == "corn_powder_albedo_path_dispersion_smoothing_readout"
+        and transform_params.get("corn_readout_route_marker") == "corn"
+    ):
+        return "corn_grain_powder_matrix"
     if spectra_rule == "cloudy_berry_percent_transmittance_readout":
         return "berry_juice_matrix"
     if spectra_rule == "strawberry_puree_transflectance_residual_readout":
@@ -2684,6 +3463,948 @@ def render_markdown(
                     "",
                 ]
             )
+    if remediation_profile in R3C_REMEDIATION_PROFILES:
+        diesel_rows = [
+            row
+            for row in compared
+            if row.synthetic_preset == "fuel" or "diesel" in row.dataset.casefold()
+        ]
+        non_target_r3c = sum(
+            1
+            for row in compared
+            if row not in diesel_rows and row.remediation_profile == "r3c_diesel_matrix_v1"
+        )
+        if diesel_rows:
+            diesel_mean_shift = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            diesel_derivative_under = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_under"
+            )
+            diesel_derivative_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            diesel_variance_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            lines.extend(
+                [
+                    "## R3c DIESEL Provenance",
+                    "",
+                    "- R3c inherits R3b routing for every non-DIESEL row in this audit path; only explicit DIESEL/petrochem fuel rows use the R3c readout.",
+                    "- The DIESEL spectra rule is `micro_path_fuel_ch_overtone_contrast_readout`: R2s' blank-referenced CH-overtone continuum/residual mechanism is kept, with a lower fixed continuum path and mildly damped residual/CH ranges to reduce broadband absorbance offset and large variance.",
+                    "- Variability is carried by fixed hydrocarbon CH overtone centers, a fixed continuum/residual split, and bounded synthetic-only path/contrast draws; no row-specific real statistic is captured.",
+                    "- No real DIESEL spectra, marginal statistics, covariance/PCA structure, quantiles, labels, targets, splits, adversarial AUC, morphology gap score, thresholds, or downstream result was read to set these constants.",
+                    f"- DIESEL diagnostic rows under R3c = {len(diesel_rows)}; rows still dominated by `mean_shift` = {diesel_mean_shift}/{len(diesel_rows)}.",
+                    f"- DIESEL rows dominated by `derivative_under` = {diesel_derivative_under}/{len(diesel_rows)} and `derivative_over` = {diesel_derivative_over}/{len(diesel_rows)}; systematic repeated-seed derivative dominance should be treated as `needs-review`.",
+                    f"- DIESEL rows dominated by `variance_over` = {diesel_variance_over}/{len(diesel_rows)}; this is a monitored failure mode, not a pass.",
+                    f"- Non-target rows accidentally reported on R3c = {non_target_r3c}/{len(compared) - len(diesel_rows)}.",
+                    "- This is single-seed diagnostic evidence only; it is not a B2/B3/B4/B5 gate and does not claim scientific validation.",
+                    "",
+                ]
+            )
+    if remediation_profile in R3D_REMEDIATION_PROFILES:
+        diesel_rows = [
+            row
+            for row in compared
+            if row.synthetic_preset == "fuel" or "diesel" in row.dataset.casefold()
+        ]
+        non_target_r3d = sum(
+            1
+            for row in compared
+            if row not in diesel_rows and row.remediation_profile == "r3d_diesel_matrix_v1"
+        )
+        if diesel_rows:
+            diesel_mean_shift = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            diesel_derivative_under = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_under"
+            )
+            diesel_derivative_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            diesel_variance_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            lines.extend(
+                [
+                    "## R3d DIESEL Provenance",
+                    "",
+                    "- R3d inherits R3c routing for every non-DIESEL row in this audit path; only explicit DIESEL/petrochem fuel rows use the R3d readout.",
+                    "- The DIESEL spectra rule remains `micro_path_fuel_ch_overtone_contrast_readout`: R3c's blank-referenced CH-overtone continuum/residual mechanism is kept, with a shorter fixed continuum path and lower detector offset to reduce broadband absorbance shift.",
+                    "- Variability is carried by fixed hydrocarbon CH overtone centers, a fixed continuum/residual split, and bounded synthetic-only path/contrast draws; no row-specific real statistic is captured.",
+                    "- No real DIESEL spectra, marginal statistics, covariance/PCA structure, quantiles, labels, targets, splits, adversarial AUC, morphology gap score, thresholds, or downstream result was read to set these constants.",
+                    f"- DIESEL diagnostic rows under R3d = {len(diesel_rows)}; rows still dominated by `mean_shift` = {diesel_mean_shift}/{len(diesel_rows)}.",
+                    f"- DIESEL rows dominated by `derivative_under` = {diesel_derivative_under}/{len(diesel_rows)} and `derivative_over` = {diesel_derivative_over}/{len(diesel_rows)}; systematic repeated-seed derivative dominance should be treated as `needs-review`.",
+                    f"- DIESEL rows dominated by `variance_over` = {diesel_variance_over}/{len(diesel_rows)}; this is a monitored failure mode, not a pass.",
+                    f"- Non-target rows accidentally reported on R3d = {non_target_r3d}/{len(compared) - len(diesel_rows)}.",
+                    "- This is single-seed diagnostic evidence only; it is not a B2/B3/B4/B5 gate and does not claim scientific validation.",
+                    "",
+                ]
+            )
+    if remediation_profile in R3E_REMEDIATION_PROFILES:
+        diesel_rows = [
+            row
+            for row in compared
+            if row.synthetic_preset == "fuel" or "diesel" in row.dataset.casefold()
+        ]
+        non_target_r3e = sum(
+            1
+            for row in compared
+            if row not in diesel_rows and row.remediation_profile == "r3e_diesel_matrix_v1"
+        )
+        if diesel_rows:
+            diesel_mean_shift = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            diesel_derivative_under = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_under"
+            )
+            diesel_derivative_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            diesel_variance_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            lines.extend(
+                [
+                    "## R3e DIESEL Provenance",
+                    "",
+                    "- R3e inherits R3d routing for every non-DIESEL row in this audit path; only explicit DIESEL/petrochem fuel rows use the R3e readout.",
+                    "- The DIESEL spectra rule remains `micro_path_fuel_ch_overtone_contrast_readout`: R3d's blank-referenced CH-overtone continuum/residual mechanism is kept, with a minimal fixed continuum path, near-zero detector offset, and slightly retained residual contrast to reduce broadband absorbance shift without a wavelength-uniform compression.",
+                    "- Variability is carried by fixed hydrocarbon CH overtone centers, a fixed continuum/residual split, and bounded synthetic-only path/contrast draws; no row-specific real statistic is captured.",
+                    "- No real DIESEL spectra, marginal statistics, covariance/PCA structure, quantiles, labels, targets, splits, adversarial AUC, morphology gap score, thresholds, or downstream result was read to set these constants.",
+                    f"- DIESEL diagnostic rows under R3e = {len(diesel_rows)}; rows still dominated by `mean_shift` = {diesel_mean_shift}/{len(diesel_rows)}.",
+                    f"- DIESEL rows dominated by `derivative_under` = {diesel_derivative_under}/{len(diesel_rows)} and `derivative_over` = {diesel_derivative_over}/{len(diesel_rows)}; systematic repeated-seed derivative dominance should be treated as `needs-review`.",
+                    f"- DIESEL rows dominated by `variance_over` = {diesel_variance_over}/{len(diesel_rows)}; this is a monitored failure mode, not a pass.",
+                    f"- Non-target rows accidentally reported on R3e = {non_target_r3e}/{len(compared) - len(diesel_rows)}.",
+                    "- This is single-seed diagnostic evidence only; it is not a B2/B3/B4/B5 gate and does not claim scientific validation.",
+                    "",
+                ]
+            )
+    if remediation_profile in R3F_REMEDIATION_PROFILES:
+        diesel_rows = [
+            row
+            for row in compared
+            if row.synthetic_preset == "fuel" or "diesel" in row.dataset.casefold()
+        ]
+        non_target_r3f = sum(
+            1
+            for row in compared
+            if row not in diesel_rows and row.remediation_profile == "r3f_diesel_matrix_v1"
+        )
+        if diesel_rows:
+            diesel_mean_shift = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            diesel_derivative_under = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_under"
+            )
+            diesel_derivative_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            diesel_variance_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            lines.extend(
+                [
+                    "## R3f DIESEL Provenance",
+                    "",
+                    "- R3f inherits R3e routing for every non-DIESEL row in this audit path; only explicit DIESEL/petrochem fuel rows use the R3f readout.",
+                    "- The DIESEL spectra rule remains `micro_path_fuel_ch_overtone_contrast_readout`: R3e's lowered blank reference is kept while R3d residual contrast and fixed CH-overtone path perturbation carry hydrocarbon shape.",
+                    "- Variability is carried by fixed hydrocarbon CH overtone centers, a fixed continuum/residual split, and bounded synthetic-only path/contrast draws; no row-specific real statistic is captured.",
+                    "- No real DIESEL spectra, marginal statistics, covariance/PCA structure, quantiles, labels, targets, splits, adversarial AUC, morphology gap score, thresholds, or downstream result was read to set these constants.",
+                    f"- DIESEL diagnostic rows under R3f = {len(diesel_rows)}; rows still dominated by `mean_shift` = {diesel_mean_shift}/{len(diesel_rows)}.",
+                    f"- DIESEL rows dominated by `derivative_under` = {diesel_derivative_under}/{len(diesel_rows)} and `derivative_over` = {diesel_derivative_over}/{len(diesel_rows)}; systematic repeated-seed derivative dominance should be treated as `needs-review`.",
+                    f"- DIESEL rows dominated by `variance_over` = {diesel_variance_over}/{len(diesel_rows)}; this is a monitored failure mode, not a pass.",
+                    f"- Non-target rows accidentally reported on R3f = {non_target_r3f}/{len(compared) - len(diesel_rows)}.",
+                    "- This is single-seed diagnostic evidence only; it is not a B2/B3/B4/B5 gate and does not claim scientific validation.",
+                    "",
+                ]
+            )
+    if remediation_profile in R3G_REMEDIATION_PROFILES:
+        diesel_rows = [
+            row
+            for row in compared
+            if row.synthetic_preset == "fuel" or "diesel" in row.dataset.casefold()
+        ]
+        non_target_r3g = sum(
+            1
+            for row in compared
+            if row not in diesel_rows and row.remediation_profile == "r3g_diesel_matrix_v1"
+        )
+        if diesel_rows:
+            diesel_mean_shift = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            diesel_derivative_under = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_under"
+            )
+            diesel_derivative_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            diesel_variance_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            lines.extend(
+                [
+                    "## R3g DIESEL Provenance",
+                    "",
+                    "- R3g inherits R3f routing for every non-DIESEL row in this audit path; only explicit DIESEL/petrochem fuel rows use the R3g readout.",
+                    "- The DIESEL spectra rule remains `micro_path_fuel_ch_overtone_contrast_readout`: R3f's lowered micro-path readout is kept and a fixed mean-neutral hydrocarbon CH-band envelope is added from general NIR spectroscopy.",
+                    "- The fixed envelope uses textbook hydrocarbon CH/overtone bands, bounded synthetic-only path/contrast draws, and no row-specific real statistic.",
+                    "- No real DIESEL spectra, marginal statistics, covariance/PCA structure, quantiles, labels, targets, splits, adversarial AUC, morphology gap score, thresholds, or downstream result was read to set these constants.",
+                    f"- DIESEL diagnostic rows under R3g = {len(diesel_rows)}; rows still dominated by `mean_shift` = {diesel_mean_shift}/{len(diesel_rows)}.",
+                    f"- DIESEL rows dominated by `derivative_under` = {diesel_derivative_under}/{len(diesel_rows)} and `derivative_over` = {diesel_derivative_over}/{len(diesel_rows)}; systematic repeated-seed derivative dominance should be treated as `needs-review`.",
+                    f"- DIESEL rows dominated by `variance_over` = {diesel_variance_over}/{len(diesel_rows)}; this is a monitored failure mode, not a pass.",
+                    f"- Non-target rows accidentally reported on R3g = {non_target_r3g}/{len(compared) - len(diesel_rows)}.",
+                    "- This is single-seed diagnostic evidence only; it is not a B2/B3/B4/B5 gate and does not claim scientific validation.",
+                    "",
+                ]
+            )
+    r5_profile_specs: tuple[
+        tuple[tuple[str, ...], str, str, str, str], ...
+    ] = (
+        (
+            R5A_REMEDIATION_PROFILES,
+            "R5a",
+            "r5a_diesel_absorbance_readout_v1",
+            "absorbance (A -> A)",
+            "byte-identical to R4c on the same seed and explicit DIESEL route",
+        ),
+        (
+            R5B_REMEDIATION_PROFILES,
+            "R5b",
+            "r5b_diesel_transmittance_readout_v1",
+            "transmittance (A -> 10**-A) clipped to [0, 1]",
+            "non-linear monotonic remap of R4c absorbance",
+        ),
+        (
+            R5C_REMEDIATION_PROFILES,
+            "R5c",
+            "r5c_diesel_blank_referenced_intensity_v1",
+            "blank-referenced intensity (A -> 1 - 10**-A) clipped to [0, 1]",
+            "complementary non-linear monotonic remap of R4c absorbance",
+        ),
+    )
+    for r5_profiles, label, profile_id, readout_text, identity_note in r5_profile_specs:
+        if remediation_profile not in r5_profiles:
+            continue
+        diesel_rows = [
+            row
+            for row in compared
+            if row.synthetic_preset == "fuel" or "diesel" in row.dataset.casefold()
+        ]
+        non_target_r5 = sum(
+            1
+            for row in compared
+            if row not in diesel_rows and row.remediation_profile == profile_id
+        )
+        if diesel_rows:
+            diesel_mean_shift = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            diesel_derivative_under = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_under"
+            )
+            diesel_derivative_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            diesel_variance_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            lines.extend(
+                [
+                    f"## {label} DIESEL Provenance",
+                    "",
+                    (
+                        f"- {label} inherits R3d routing for every non-DIESEL row "
+                        "in this audit path (NOT R4a/R4b/R4c); only explicit "
+                        f"DIESEL/petrochem fuel rows use the {label} readout-space "
+                        "remediation."
+                    ),
+                    (
+                        f"- The DIESEL spectra rule remains `micro_path_fuel_ch_overtone_contrast_readout` "
+                        f"with the full R4c balanced-derivative pipeline (R3d "
+                        "micro-path continuum and detector offset, support-only "
+                        "CH overtones at narrower width / higher gain than R4b, "
+                        "weaker / narrower 1100-1500 nm residual damping, and a "
+                        "narrower lower-amplitude 975 nm short-continuum hump on "
+                        f"the 750-1550 nm support); only the final readout space is "
+                        f"varied to {readout_text} ({identity_note})."
+                    ),
+                    (
+                        "- Variability is carried by fixed hydrocarbon CH "
+                        "overtone priors, fixed narrow residual damping windows, "
+                        "a fixed support-restricted low-amplitude short-continuum "
+                        "hump, and bounded synthetic-only path/contrast draws; "
+                        "no row-specific real statistic is captured. The readout "
+                        "transform is purely deterministic and adds no new "
+                        "calibration, real-stat capture, or threshold tuning."
+                    ),
+                    (
+                        "- No real DIESEL spectra, marginal statistics, "
+                        "covariance/PCA structure, quantiles, labels, targets, "
+                        "splits, adversarial AUC, morphology gap score, "
+                        "thresholds, or downstream result was read to set "
+                        "these constants."
+                    ),
+                    f"- DIESEL diagnostic rows under {label} = {len(diesel_rows)}; rows still dominated by `mean_shift` = {diesel_mean_shift}/{len(diesel_rows)}.",
+                    f"- DIESEL rows dominated by `derivative_under` = {diesel_derivative_under}/{len(diesel_rows)}, `derivative_over` = {diesel_derivative_over}/{len(diesel_rows)}, and `variance_over` = {diesel_variance_over}/{len(diesel_rows)}; any repeated-seed dominance remains diagnostic follow-up evidence, not a pass.",
+                    f"- Non-target rows accidentally reported on {label} = {non_target_r5}/{len(compared) - len(diesel_rows)}.",
+                    f"- {label} is diagnostic-only; it is not a B2/B3/B4/B5 gate, not a promotion over R3d, and does not authorize any nirs4all integration.",
+                    "",
+                ]
+            )
+    if remediation_profile in R8B_REMEDIATION_PROFILES:
+        diesel_rows = [
+            row
+            for row in compared
+            if row.synthetic_preset == "fuel" or "diesel" in row.dataset.casefold()
+        ]
+        non_target_r8b = sum(
+            1
+            for row in compared
+            if row not in diesel_rows
+            and row.remediation_profile
+            == "r8b_diesel_r4c_base_mean_preserving_micro_path_modulation_v1"
+        )
+        if diesel_rows:
+            diesel_mean_shift = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            diesel_derivative_under = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_under"
+            )
+            diesel_derivative_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            diesel_variance_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            lines.extend(
+                [
+                    "## R8b DIESEL Provenance",
+                    "",
+                    (
+                        "- R8b inherits R3d routing for every non-DIESEL row "
+                        "in this audit path (NOT R4a/R4b/R4c/R5a/R5b/R5c/R6a/"
+                        "R7a/R8a); only explicit DIESEL/petrochem fuel rows "
+                        "that carry the explicit R8b micro-path modulation route "
+                        "use the R8b R4c-base mean-preserving micro-path "
+                        "modulation remediation."
+                    ),
+                    (
+                        "- The DIESEL spectra rule remains "
+                        "`micro_path_fuel_ch_overtone_contrast_readout` with "
+                        "the full R4c balanced-derivative absorbance base "
+                        "(R3d micro-path continuum and detector offset, "
+                        "support-only CH overtones at narrower width / higher "
+                        "gain than R4b, weaker / narrower 1100-1500 nm "
+                        "residual damping, and a narrower lower-amplitude 975 "
+                        "nm short-continuum hump on the 750-1550 nm support); "
+                        "on top of this absorbance base R8b applies the same "
+                        "bounded mean-preserving multiplicative modulation as "
+                        "R8a after the base non-negative absorbance clip."
+                    ),
+                    (
+                        "- The modulation step takes the synthetic hydrocarbon "
+                        "residual ``X_in - continuum`` (an internal "
+                        "synthetic-only quantity), masks it to the 750-1550 nm "
+                        "support, row-centers it on the support, normalizes by "
+                        "p95 of |residual| with a numerical epsilon, clips the "
+                        "dimensionless shape to [-1, 1], and applies "
+                        "``X_support *= exp(strength * shape)``. The support "
+                        "row mean of the R4c base is then exactly preserved by "
+                        "multiplicative renormalization."
+                    ),
+                    (
+                        "- A final non-negative absorbance guard clip is "
+                        "recorded for audit (clip rule, clip fraction, "
+                        "pre/post-modulation min/max); since the R4c base is "
+                        "non-negative and the multiplicative modulation is "
+                        "positive, this guard is expected to be a no-op."
+                    ),
+                    (
+                        "- The R8b route key is `_r8b_diesel_micro_path_route` "
+                        "(a bench-only DIESEL micro-path modulation route, not "
+                        "a readout-space route, not a shape envelope route, "
+                        "and not a raw residual transfer route); explicit "
+                        "DIESEL audit rows also carry `_r3d_diesel_readout_route` "
+                        "as the compliant fallback marker. No real spectra, "
+                        "marginal statistics, covariance/PCA structure, "
+                        "quantiles, labels, targets, splits, adversarial AUC, "
+                        "morphology gap score, thresholds, or downstream "
+                        "result was read to set these constants."
+                    ),
+                    f"- DIESEL diagnostic rows under R8b = {len(diesel_rows)}; rows still dominated by `mean_shift` = {diesel_mean_shift}/{len(diesel_rows)}.",
+                    f"- DIESEL rows dominated by `derivative_under` = {diesel_derivative_under}/{len(diesel_rows)}, `derivative_over` = {diesel_derivative_over}/{len(diesel_rows)}, and `variance_over` = {diesel_variance_over}/{len(diesel_rows)}; any repeated-seed dominance remains diagnostic follow-up evidence, not a pass.",
+                    f"- Non-target rows accidentally reported on R8b = {non_target_r8b}/{len(compared) - len(diesel_rows)}.",
+                    "- R8b is diagnostic-only; it is not a B2/B3/B4/B5 gate, not a promotion over R3d, and does not authorize any nirs4all integration.",
+                    "",
+                ]
+            )
+    if remediation_profile in R8A_REMEDIATION_PROFILES:
+        diesel_rows = [
+            row
+            for row in compared
+            if row.synthetic_preset == "fuel" or "diesel" in row.dataset.casefold()
+        ]
+        non_target_r8a = sum(
+            1
+            for row in compared
+            if row not in diesel_rows
+            and row.remediation_profile
+            == "r8a_diesel_mean_preserving_micro_path_modulation_v1"
+        )
+        if diesel_rows:
+            diesel_mean_shift = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            diesel_derivative_under = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_under"
+            )
+            diesel_derivative_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            diesel_variance_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            lines.extend(
+                [
+                    "## R8a DIESEL Provenance",
+                    "",
+                    (
+                        "- R8a inherits R3d routing for every non-DIESEL row "
+                        "in this audit path (NOT R4a/R4b/R4c/R5a/R5b/R5c/R6a/"
+                        "R7a); only explicit DIESEL/petrochem fuel rows that "
+                        "carry the explicit micro-path modulation route use "
+                        "the R8a mean-preserving micro-path modulation "
+                        "remediation."
+                    ),
+                    (
+                        "- The DIESEL spectra rule remains "
+                        "`micro_path_fuel_ch_overtone_contrast_readout` with "
+                        "the R4a-like absorbance base (R3d micro-path "
+                        "continuum and detector offset, support-only CH "
+                        "overtone centers 1150/1210/1390/1460 nm at width 46 "
+                        "nm and gain 0.055-0.105, R4a damping windows "
+                        "((1180, 70, 1.0), (1425, 85, 1.0)) at strength "
+                        "0.30-0.50, and a 975 nm short-continuum "
+                        "hydrocarbon hump on the 750-1550 nm support); on "
+                        "top of this absorbance base R8a applies a bounded "
+                        "mean-preserving multiplicative modulation in "
+                        "[0.10, 0.30] strength on the support after the "
+                        "standard R4a non-negative absorbance clip."
+                    ),
+                    (
+                        "- The modulation step takes the synthetic "
+                        "hydrocarbon residual ``X_in - continuum`` (an "
+                        "internal synthetic-only quantity), masks it to the "
+                        "750-1550 nm DIESEL real basis support, row-centers "
+                        "it on the support so its support-mean is zero by "
+                        "construction, normalizes by a robust synthetic-only "
+                        "scale (p95 of |residual| with a small numerical "
+                        "epsilon) to a dimensionless shape clipped to "
+                        "[-1, 1], and applies "
+                        "``X_support *= exp(strength * shape)``. The "
+                        "support row mean of the R4a base is then exactly "
+                        "preserved by a multiplicative renormalization. "
+                        "Outside the support the readout is identically "
+                        "equal to the R4a base."
+                    ),
+                    (
+                        "- A final non-negative absorbance guard clip is "
+                        "recorded for audit (clip rule, clip fraction, "
+                        "pre/post-modulation min/max); since the R4a base "
+                        "is non-negative and the multiplicative modulation "
+                        "is positive, this guard is expected to be a "
+                        "no-op."
+                    ),
+                    (
+                        "- The R8a route key is `_r8a_diesel_micro_path_route` "
+                        "(a bench-only DIESEL micro-path modulation route, "
+                        "not a readout-space route, not a shape envelope "
+                        "route, and not a raw residual transfer route); no "
+                        "real spectra, marginal statistics, covariance/PCA "
+                        "structure, quantiles, labels, targets, splits, "
+                        "adversarial AUC, morphology gap score, thresholds, "
+                        "or downstream result was read to set these "
+                        "constants."
+                    ),
+                    f"- DIESEL diagnostic rows under R8a = {len(diesel_rows)}; rows still dominated by `mean_shift` = {diesel_mean_shift}/{len(diesel_rows)}.",
+                    f"- DIESEL rows dominated by `derivative_under` = {diesel_derivative_under}/{len(diesel_rows)}, `derivative_over` = {diesel_derivative_over}/{len(diesel_rows)}, and `variance_over` = {diesel_variance_over}/{len(diesel_rows)}; any repeated-seed dominance remains diagnostic follow-up evidence, not a pass.",
+                    f"- Non-target rows accidentally reported on R8a = {non_target_r8a}/{len(compared) - len(diesel_rows)}.",
+                    "- R8a is diagnostic-only; it is not a B2/B3/B4/B5 gate, not a promotion over R3d, and does not authorize any nirs4all integration.",
+                    "",
+                ]
+            )
+    if remediation_profile in R7A_REMEDIATION_PROFILES:
+        diesel_rows = [
+            row
+            for row in compared
+            if row.synthetic_preset == "fuel" or "diesel" in row.dataset.casefold()
+        ]
+        non_target_r7a = sum(
+            1
+            for row in compared
+            if row not in diesel_rows
+            and row.remediation_profile
+            == "r7a_diesel_support_centered_residual_transfer_v1"
+        )
+        if diesel_rows:
+            diesel_mean_shift = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            diesel_derivative_under = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_under"
+            )
+            diesel_derivative_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            diesel_variance_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            lines.extend(
+                [
+                    "## R7a DIESEL Provenance",
+                    "",
+                    (
+                        "- R7a inherits R3d routing for every non-DIESEL row in "
+                        "this audit path (NOT R4a/R4b/R4c/R5a/R5b/R5c/R6a); only "
+                        "explicit DIESEL/petrochem fuel rows that carry the "
+                        "explicit residual route use the R7a support-centered "
+                        "residual transfer remediation."
+                    ),
+                    (
+                        "- The DIESEL spectra rule remains "
+                        "`micro_path_fuel_ch_overtone_contrast_readout` with the "
+                        "R4a-like absorbance base (R3d micro-path continuum and "
+                        "detector offset, support-only CH overtone centers "
+                        "1150/1210/1390/1460 nm at width 46 nm and gain "
+                        "0.055-0.105, R4a damping windows ((1180, 70, 1.0), "
+                        "(1425, 85, 1.0)) at strength 0.30-0.50, and a 975 nm "
+                        "short-continuum hydrocarbon hump on the 750-1550 nm "
+                        "support); on top of this absorbance base R7a adds a "
+                        "bounded support-centered residual transfer in [0.08, "
+                        "0.18] before the final non-negative absorbance clip."
+                    ),
+                    (
+                        "- The residual transfer step decouples R4a-like "
+                        "continuum/baseline from the synthetic hydrocarbon "
+                        "residual ``X_in - continuum``: the residual is masked "
+                        "to the 750-1550 nm DIESEL real basis support, "
+                        "row-centered on the support so its support-mean is zero "
+                        "by construction, scaled by a fixed bounded draw, and "
+                        "added to the R4a base. Outside the support the "
+                        "addition is identically zero by the support mask."
+                    ),
+                    (
+                        "- A final non-negative absorbance clip is applied after "
+                        "the residual transfer; the audit records the clip rule, "
+                        "the clip fraction, and the pre/post-clip min/max so any "
+                        "non-zero clip activity remains observable."
+                    ),
+                    (
+                        "- The R7a route key is `_r7a_diesel_residual_route` (a "
+                        "bench-only DIESEL residual transfer route, not a "
+                        "readout-space route and not a shape envelope route); "
+                        "no real spectra, marginal statistics, covariance/PCA "
+                        "structure, quantiles, labels, targets, splits, "
+                        "adversarial AUC, morphology gap score, thresholds, or "
+                        "downstream result was read to set these constants."
+                    ),
+                    f"- DIESEL diagnostic rows under R7a = {len(diesel_rows)}; rows still dominated by `mean_shift` = {diesel_mean_shift}/{len(diesel_rows)}.",
+                    f"- DIESEL rows dominated by `derivative_under` = {diesel_derivative_under}/{len(diesel_rows)}, `derivative_over` = {diesel_derivative_over}/{len(diesel_rows)}, and `variance_over` = {diesel_variance_over}/{len(diesel_rows)}; any repeated-seed dominance remains diagnostic follow-up evidence, not a pass.",
+                    f"- Non-target rows accidentally reported on R7a = {non_target_r7a}/{len(compared) - len(diesel_rows)}.",
+                    "- R7a is diagnostic-only; it is not a B2/B3/B4/B5 gate, not a promotion over R3d, and does not authorize any nirs4all integration.",
+                    "",
+                ]
+            )
+    if remediation_profile in R6A_REMEDIATION_PROFILES:
+        diesel_rows = [
+            row
+            for row in compared
+            if row.synthetic_preset == "fuel" or "diesel" in row.dataset.casefold()
+        ]
+        non_target_r6a = sum(
+            1
+            for row in compared
+            if row not in diesel_rows
+            and row.remediation_profile == "r6a_diesel_centered_hydrocarbon_shape_v1"
+        )
+        if diesel_rows:
+            diesel_mean_shift = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            diesel_derivative_under = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_under"
+            )
+            diesel_derivative_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            diesel_variance_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            lines.extend(
+                [
+                    "## R6a DIESEL Provenance",
+                    "",
+                    (
+                        "- R6a inherits R3d routing for every non-DIESEL row in "
+                        "this audit path (NOT R4a/R4b/R4c/R5a/R5b/R5c); only "
+                        "explicit DIESEL/petrochem fuel rows that carry the "
+                        "explicit shape route use the R6a centered hydrocarbon "
+                        "shape remediation."
+                    ),
+                    (
+                        "- The DIESEL spectra rule remains "
+                        "`micro_path_fuel_ch_overtone_contrast_readout` with the "
+                        "full R4c balanced-derivative pipeline (R3d micro-path "
+                        "continuum and detector offset, support-only CH overtones "
+                        "at narrower width / higher gain than R4b, weaker / "
+                        "narrower 1100-1500 nm residual damping, and a narrower "
+                        "lower-amplitude 975 nm short-continuum hump on the "
+                        "750-1550 nm support); on top of this absorbance pipeline "
+                        "R6a adds a small fixed mean-neutral hydrocarbon CH-band "
+                        "shape envelope that is identically zero outside the "
+                        "750-1550 nm support and zero-mean on the support."
+                    ),
+                    (
+                        "- The shape envelope uses textbook hydrocarbon CH "
+                        "overtone bands (1150/1210/1390/1460 nm), fixed widths "
+                        "(30/34/42/46 nm), fixed weights (0.65/1.00/0.55/0.72), "
+                        "and a small bounded amplitude range (2e-4 to 5e-4); "
+                        "no real spectra, marginal statistics, covariance/PCA "
+                        "structure, quantiles, labels, targets, splits, "
+                        "adversarial AUC, morphology gap score, thresholds, or "
+                        "downstream result was read to set these constants."
+                    ),
+                    (
+                        "- The R6a route key is `_r6a_diesel_shape_route` (a "
+                        "bench-only DIESEL shape route, not a readout-space "
+                        "route); R6a uses the same RNG seed source as "
+                        "R4c/R5a so target draws and the R4c portion of the "
+                        "spectra RNG sequence stay aligned with the R4c/R5a "
+                        "paired comparison."
+                    ),
+                    (
+                        "- The inherited R4c `output_clip_absorbance` metadata "
+                        "applies before the R6a shape envelope; R6a records "
+                        "final min/max absorbance separately and does not apply "
+                        "a post-envelope clip, preserving the zero-mean shape "
+                        "addition."
+                    ),
+                    f"- DIESEL diagnostic rows under R6a = {len(diesel_rows)}; rows still dominated by `mean_shift` = {diesel_mean_shift}/{len(diesel_rows)}.",
+                    f"- DIESEL rows dominated by `derivative_under` = {diesel_derivative_under}/{len(diesel_rows)}, `derivative_over` = {diesel_derivative_over}/{len(diesel_rows)}, and `variance_over` = {diesel_variance_over}/{len(diesel_rows)}; any repeated-seed dominance remains diagnostic follow-up evidence, not a pass.",
+                    f"- Non-target rows accidentally reported on R6a = {non_target_r6a}/{len(compared) - len(diesel_rows)}.",
+                    "- R6a is diagnostic-only; it is not a B2/B3/B4/B5 gate, not a promotion over R3d, and does not authorize any nirs4all integration.",
+                    "",
+                ]
+            )
+    if remediation_profile in R4C_REMEDIATION_PROFILES:
+        diesel_rows = [
+            row
+            for row in compared
+            if row.synthetic_preset == "fuel" or "diesel" in row.dataset.casefold()
+        ]
+        non_target_r4c = sum(
+            1
+            for row in compared
+            if row not in diesel_rows
+            and row.remediation_profile == "r4c_diesel_balanced_derivative_v1"
+        )
+        if diesel_rows:
+            diesel_mean_shift = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            diesel_derivative_under = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_under"
+            )
+            diesel_derivative_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            diesel_variance_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            lines.extend(
+                [
+                    "## R4c DIESEL Provenance",
+                    "",
+                    "- R4c inherits R3d routing for every non-DIESEL row in this audit path (NOT R4a/R4b); only explicit DIESEL/petrochem fuel rows use the R4c balanced-derivative readout.",
+                    "- The DIESEL spectra rule remains `micro_path_fuel_ch_overtone_contrast_readout`: R3d's blank-referenced micro-path continuum and detector offset are kept, the 1720 nm CH center is dropped, the remaining CH overtones use a narrower width than R4b (36 nm vs 38 nm) at a slightly higher gain so first-derivative structure is sharpened, residual damping inside the 1100-1500 nm region is weaker and narrower than R4b, and a narrower lower-amplitude short-continuum hydrocarbon hump is kept at 975 nm inside the 750-1550 nm support.",
+                    "- Variability is carried by fixed hydrocarbon CH overtone priors, fixed narrow residual damping windows, a fixed support-restricted low-amplitude short-continuum hump, and bounded synthetic-only path/contrast draws; no row-specific real statistic is captured.",
+                    "- No real DIESEL spectra, marginal statistics, covariance/PCA structure, quantiles, labels, targets, splits, adversarial AUC, morphology gap score, thresholds, or downstream result was read to set these constants.",
+                    f"- DIESEL diagnostic rows under R4c = {len(diesel_rows)}; rows still dominated by `mean_shift` = {diesel_mean_shift}/{len(diesel_rows)}.",
+                    f"- DIESEL rows dominated by `derivative_under` = {diesel_derivative_under}/{len(diesel_rows)}, `derivative_over` = {diesel_derivative_over}/{len(diesel_rows)}, and `variance_over` = {diesel_variance_over}/{len(diesel_rows)}; any repeated-seed dominance remains diagnostic follow-up evidence, not a pass.",
+                    f"- Non-target rows accidentally reported on R4c = {non_target_r4c}/{len(compared) - len(diesel_rows)}.",
+                    "- R4c is diagnostic-only; it is not a B2/B3/B4/B5 gate, not a promotion over R3d, and does not authorize any nirs4all integration.",
+                    "",
+                ]
+            )
+    if remediation_profile in R4B_REMEDIATION_PROFILES:
+        diesel_rows = [
+            row
+            for row in compared
+            if row.synthetic_preset == "fuel" or "diesel" in row.dataset.casefold()
+        ]
+        non_target_r4b = sum(
+            1
+            for row in compared
+            if row not in diesel_rows
+            and row.remediation_profile == "r4b_diesel_derivative_restore_v1"
+        )
+        if diesel_rows:
+            diesel_mean_shift = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            diesel_derivative_under = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_under"
+            )
+            diesel_derivative_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            diesel_variance_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            lines.extend(
+                [
+                    "## R4b DIESEL Provenance",
+                    "",
+                    "- R4b inherits R3d routing for every non-DIESEL row in this audit path (NOT R4a); only explicit DIESEL/petrochem fuel rows use the R4b derivative-restore readout.",
+                    "- The DIESEL spectra rule remains `micro_path_fuel_ch_overtone_contrast_readout`: R3d's blank-referenced micro-path continuum and detector offset are kept, the 1720 nm CH center is dropped, and the remaining CH overtones are kept narrow at slightly higher gain so the first-derivative structure is restored without inversion. Residual damping is reduced and narrowed in the 1100-1500 nm region, and a narrower lower-amplitude short-continuum hydrocarbon hump is kept at 975 nm inside the 750-1550 nm support.",
+                    "- Variability is carried by fixed hydrocarbon CH overtone priors, fixed narrow residual damping windows, a fixed support-restricted low-amplitude short-continuum hump, and bounded synthetic-only path/contrast draws; no row-specific real statistic is captured.",
+                    "- No real DIESEL spectra, marginal statistics, covariance/PCA structure, quantiles, labels, targets, splits, adversarial AUC, morphology gap score, thresholds, or downstream result was read to set these constants.",
+                    f"- DIESEL diagnostic rows under R4b = {len(diesel_rows)}; rows still dominated by `mean_shift` = {diesel_mean_shift}/{len(diesel_rows)}.",
+                    f"- DIESEL rows dominated by `derivative_under` = {diesel_derivative_under}/{len(diesel_rows)}, `derivative_over` = {diesel_derivative_over}/{len(diesel_rows)}, and `variance_over` = {diesel_variance_over}/{len(diesel_rows)}; any repeated-seed dominance remains diagnostic follow-up evidence, not a pass.",
+                    f"- Non-target rows accidentally reported on R4b = {non_target_r4b}/{len(compared) - len(diesel_rows)}.",
+                    "- R4b is single-seed diagnostic evidence flagged `needs-review`; it is not a B2/B3/B4/B5 gate, not a promotion over R3d, and does not claim scientific validation.",
+                    "",
+                ]
+            )
+    if remediation_profile in R4A_REMEDIATION_PROFILES:
+        diesel_rows = [
+            row
+            for row in compared
+            if row.synthetic_preset == "fuel" or "diesel" in row.dataset.casefold()
+        ]
+        non_target_r4a = sum(
+            1
+            for row in compared
+            if row not in diesel_rows and row.remediation_profile == "r4a_diesel_basis_v1"
+        )
+        if diesel_rows:
+            diesel_mean_shift = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            diesel_mean_curve_inversion = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "mean_curve_inversion"
+            )
+            diesel_derivative_under = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_under"
+            )
+            diesel_derivative_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            diesel_variance_over = sum(
+                1
+                for row in diesel_rows
+                if row.dominant_morphology_gap == "variance_over"
+            )
+            lines.extend(
+                [
+                    "## R4a DIESEL Provenance",
+                    "",
+                    "- R4a inherits R3d routing for every non-DIESEL row in this audit path (NOT R3e/R3f/R3g); only explicit DIESEL/petrochem fuel rows use the R4a basis readout.",
+                    "- The DIESEL spectra rule remains `micro_path_fuel_ch_overtone_contrast_readout`: R3d's blank-referenced micro-path continuum and detector offset are kept, the 1720 nm CH center is dropped, the remaining CH overtones are widened at lower gain, residual contrast is damped in the 1100-1500 nm region without inversion, and a short-continuum hydrocarbon hump is added at 975 nm inside the 750-1550 nm support.",
+                    "- Variability is carried by fixed hydrocarbon CH overtone priors, fixed residual damping windows, a fixed support-restricted short-continuum hump, and bounded synthetic-only path/contrast draws; no row-specific real statistic is captured.",
+                    "- No real DIESEL spectra, marginal statistics, covariance/PCA structure, quantiles, labels, targets, splits, adversarial AUC, morphology gap score, thresholds, or downstream result was read to set these constants.",
+                    f"- DIESEL diagnostic rows under R4a = {len(diesel_rows)}; rows still dominated by `mean_shift` = {diesel_mean_shift}/{len(diesel_rows)} and `mean_curve_inversion` = {diesel_mean_curve_inversion}/{len(diesel_rows)}.",
+                    f"- DIESEL rows dominated by `derivative_under` = {diesel_derivative_under}/{len(diesel_rows)}, `derivative_over` = {diesel_derivative_over}/{len(diesel_rows)}, and `variance_over` = {diesel_variance_over}/{len(diesel_rows)}; any repeated-seed dominance remains diagnostic follow-up evidence, not a pass.",
+                    f"- Non-target rows accidentally reported on R4a = {non_target_r4a}/{len(compared) - len(diesel_rows)}.",
+                    "- R4a is single-seed diagnostic evidence flagged `needs-review`; it is not a B2/B3/B4/B5 gate, not a promotion over R3d, and does not claim scientific validation.",
+                    "",
+                ]
+            )
+    if remediation_profile in R3A_REMEDIATION_PROFILES + R3B_REMEDIATION_PROFILES:
+        profile_label = (
+            "R3b" if remediation_profile in R3B_REMEDIATION_PROFILES else "R3a"
+        )
+        profile_id = (
+            "r3b_corn_matrix_v1"
+            if remediation_profile in R3B_REMEDIATION_PROFILES
+            else "r3a_corn_matrix_v1"
+        )
+        spectra_rule_label = (
+            "corn_powder_albedo_path_dispersion_smoothing_readout"
+            if remediation_profile in R3B_REMEDIATION_PROFILES
+            else "corn_powder_albedo_baseline_smoothing_readout"
+        )
+        readout_note = (
+            "centered against a fixed corn-meal diffuse-reflectance albedo with "
+            "larger particle path dispersion and coarser smoothing"
+            if remediation_profile in R3B_REMEDIATION_PROFILES
+            else "centered against a fixed corn-meal diffuse-reflectance albedo "
+            "baseline with coarse particle-size smoothing"
+        )
+        corn_rows = [
+            row
+            for row in compared
+            if "corn" in row.dataset.casefold()
+            or row.effective_matrix_route == "corn_grain_powder_matrix"
+        ]
+        non_target_r3a = sum(
+            1
+            for row in compared
+            if row not in corn_rows and row.remediation_profile == profile_id
+        )
+        if corn_rows:
+            corn_mean_shift = sum(
+                1
+                for row in corn_rows
+                if row.dominant_morphology_gap == "mean_shift"
+            )
+            corn_derivative_over = sum(
+                1
+                for row in corn_rows
+                if row.dominant_morphology_gap == "derivative_over"
+            )
+            corn_derivative_under = sum(
+                1
+                for row in corn_rows
+                if row.dominant_morphology_gap == "derivative_under"
+            )
+            corn_amplitude_under = sum(
+                1
+                for row in corn_rows
+                if row.dominant_morphology_gap == "amplitude_under"
+            )
+            corn_variance_under = sum(
+                1
+                for row in corn_rows
+                if row.dominant_morphology_gap == "variance_under"
+            )
+            lines.extend(
+                [
+                    f"## {profile_label} CORN Provenance",
+                    "",
+                    f"- {profile_label} inherits R2w routing for every non-CORN row in this audit path, preserving the established BEER, DIESEL, MANURE21, MILK, soil, and fruit routes.",
+                    f"- The CORN spectra rule is `{spectra_rule_label}`: generated grain absorbance is exposed as a centered residual {readout_note}.",
+                    "- Variability is carried by fixed starch/moisture band priors, weak scatter slope, and centered synthetic residual only; no row-specific real statistic is captured.",
+                    "- No real CORN spectra, marginal statistics, covariance/PCA structure, quantiles, labels, targets, splits, adversarial AUC, morphology gap score, thresholds, or downstream result was read to set these constants.",
+                    f"- CORN diagnostic rows under {profile_label} = {len(corn_rows)}; rows still dominated by `mean_shift` = {corn_mean_shift}/{len(corn_rows)}.",
+                    f"- CORN rows dominated by `derivative_over` = {corn_derivative_over}/{len(corn_rows)} and `derivative_under` = {corn_derivative_under}/{len(corn_rows)}; systematic repeated-seed derivative over/under-correction should be treated as `needs-review`.",
+                    f"- CORN rows dominated by `amplitude_under` = {corn_amplitude_under}/{len(corn_rows)} and `variance_under` = {corn_variance_under}/{len(corn_rows)}; residual under-transfer remains non-gate follow-up evidence.",
+                    f"- Non-target rows accidentally reported on {profile_label} = {non_target_r3a}/{len(compared) - len(corn_rows)}.",
+                    "- This is single-seed diagnostic evidence only; it is not a B2/B3/B4/B5 gate and does not claim scientific validation.",
+                    "",
+                ]
+            )
     lines.extend(
         [
             "## Summary",
@@ -2884,7 +4605,82 @@ def main() -> None:
             "readout. R2t keeps R2s routing and changes only MANURE21 dried/"
             "ground manure rows to a heterogeneous scatter/patch readout. "
             "R2u/R2v/R2w/R2x/R2y/R2z keep R2s routing and change only MANURE21 rows with "
-            "centered manure albedo/scatter/composition readouts. "
+            "centered manure albedo/scatter/composition readouts. R3a/R3b inherit "
+            "R2w routing and change only explicit CORN rows with fixed "
+            "grain-powder albedo/path-dispersion smoothing readouts. "
+            "R3c inherits R3b routing and changes only explicit DIESEL rows "
+            "with a lower-offset blank-referenced CH-overtone micro-path "
+            "readout. R3d inherits R3c routing and changes only explicit "
+            "DIESEL rows with a shorter continuum path and lower detector "
+            "offset for the same CH-overtone readout. R3e inherits R3d "
+            "routing and changes only explicit DIESEL rows with a minimal "
+            "continuum path, near-zero detector offset, and retained "
+            "residual CH contrast. R3f inherits R3e routing and changes only "
+            "explicit DIESEL rows with a partially restored path/residual contrast "
+            "readout over the lowered blank reference. R3g inherits R3f "
+            "routing and changes only explicit DIESEL rows with a fixed "
+            "mean-neutral hydrocarbon CH-band envelope. R3e/R3f/R3g are "
+            "diagnostic-only variants and are not promotions over R3d. "
+            "R4a inherits R3d (NOT R3e/R3f/R3g) and changes only explicit "
+            "DIESEL rows: drops the 1720 nm CH center, widens remaining CH "
+            "overtones at lower gain, damps the 1100-1500 nm residual without "
+            "inversion, and adds a short-continuum hydrocarbon hump centered "
+            "at 975 nm restricted to the 750-1550 nm DIESEL real basis "
+            "support. R4a is diagnostic-only and is not a promotion over R3d. "
+            "R4b inherits R3d (NOT R4a) and changes only explicit DIESEL "
+            "rows: keeps the R4a support-only CH centers, restores derivative "
+            "structure with narrower/higher-gain CH overtones, weaker/narrower "
+            "1100-1500 nm residual damping, and a lower-amplitude 975 nm hump. "
+            "R4b is diagnostic-only and is not a promotion over R3d. "
+            "R4c inherits R3d (NOT R4a/R4b) and changes only explicit DIESEL "
+            "rows: keeps the R4a/R4b support-only CH centers, uses narrower "
+            "higher-gain CH overtones than R4b, weaker/narrower 1100-1500 nm "
+            "residual damping, and a narrower lower-amplitude 975 nm hump. "
+            "R4c is diagnostic-only and is not a promotion over R3d. "
+            "R5a/R5b/R5c inherit R3d (NOT R4a/R4b/R4c) for every non-DIESEL "
+            "row and inherit the full R4c balanced-derivative pipeline on "
+            "explicit DIESEL rows; the only difference between the three R5 "
+            "profiles is the final spectral readout space: R5a keeps "
+            "absorbance (A -> A) and is byte-identical to R4c on the same "
+            "seed, R5b returns transmittance (A -> 10**-A) clipped to [0, 1], "
+            "and R5c returns blank-referenced intensity (A -> 1 - 10**-A) "
+            "clipped to [0, 1]. R5 profiles are diagnostic-only and are not "
+            "promotions over R3d. "
+            "R6a inherits R3d (NOT R4a/R4b/R4c/R5a/R5b/R5c) for every "
+            "non-DIESEL row, reuses the full R4c absorbance pipeline on "
+            "explicit DIESEL rows that carry the dedicated "
+            "_r6a_diesel_shape_route, and adds only a small fixed mean-neutral "
+            "hydrocarbon shape envelope that is identically zero outside the "
+            "750-1550 nm support and zero-mean on the support. R6a is "
+            "diagnostic-only and is not a promotion over R3d. "
+            "R7a inherits R3d (NOT R4a/R4b/R4c/R5a/R5b/R5c/R6a) for every "
+            "non-DIESEL row, reuses the R4a-like absorbance base on explicit "
+            "DIESEL rows that carry the dedicated _r7a_diesel_residual_route, "
+            "and adds a bounded support-centered residual transfer in "
+            "[0.08, 0.18] of the synthetic hydrocarbon residual on the "
+            "750-1550 nm support before a final non-negative absorbance clip; "
+            "the audit records the clip rule, clip fraction, and pre/post-clip "
+            "min/max. R7a is diagnostic-only and is not a promotion over R3d. "
+            "R8a inherits R3d (NOT R4a/R4b/R4c/R5a/R5b/R5c/R6a/R7a) for every "
+            "non-DIESEL row, reuses the R4a-like absorbance base on explicit "
+            "DIESEL rows that carry the dedicated _r8a_diesel_micro_path_route, "
+            "and applies a bounded mean-preserving multiplicative micro-path "
+            "modulation derived from the synthetic hydrocarbon residual "
+            "(masked, row-centered on the 750-1550 nm support, robustly "
+            "normalized by p95(|residual|) with a numerical epsilon, bounded "
+            "to [-1, 1]) at strength [0.10, 0.30] applied AFTER the standard "
+            "R4a non-negative absorbance clip; the support row mean of the "
+            "R4a base is exactly preserved by a multiplicative renormalization "
+            "and an audited guard clip is recorded as a no-op. R8a is "
+            "diagnostic-only and is not a promotion over R3d. "
+            "R8b inherits R3d (NOT R4a/R4b/R4c/R5a/R5b/R5c/R6a/R7a/R8a) for "
+            "every non-DIESEL row, reuses the R4c balanced-derivative "
+            "absorbance base on explicit DIESEL rows that carry the dedicated "
+            "_r8b_diesel_micro_path_route, and applies the same bounded "
+            "support-mean-preserving multiplicative modulation as R8a after "
+            "the base non-negative absorbance clip; explicit DIESEL audit rows "
+            "also carry a compliant _r3d_diesel_readout_route fallback marker. "
+            "R8b is diagnostic-only and is not a promotion over R3d. "
             "Each profile re-biases composition with a tight Dirichlet and "
             "applies a mechanistic spectra transform (optical-path scale and, "
             "for CORN/SOIL, instrumental Gaussian smoothing). Audit recorded per "
@@ -2957,6 +4753,26 @@ __all__ = [
     "R2X_REMEDIATION_PROFILES",
     "R2Y_REMEDIATION_PROFILES",
     "R2Z_REMEDIATION_PROFILES",
+    "R3A_REMEDIATION_PROFILES",
+    "R3B_REMEDIATION_PROFILES",
+    "R3C_REMEDIATION_PROFILES",
+    "R3D_REMEDIATION_PROFILES",
+    "R3E_REMEDIATION_PROFILES",
+    "R3F_REMEDIATION_PROFILES",
+    "R3G_REMEDIATION_PROFILES",
+    "R4A_REMEDIATION_PROFILES",
+    "R4B_REMEDIATION_PROFILES",
+    "R4C_REMEDIATION_PROFILES",
+    "R5A_REMEDIATION_PROFILES",
+    "R5B_REMEDIATION_PROFILES",
+    "R5C_REMEDIATION_PROFILES",
+    "R6A_REMEDIATION_PROFILES",
+    "R7A_REMEDIATION_PROFILES",
+    "R8A_REMEDIATION_PROFILES",
+    "R8B_REMEDIATION_PROFILES",
+    "R9B_REMEDIATION_PROFILES",
+    "R9E_REMEDIATION_PROFILES",
+    "R9D_REMEDIATION_PROFILES",
     "SECONDARY_FRUIT_SENTINEL_TOKENS",
     "SECONDARY_MILK_SENTINEL_TOKENS",
     "SECONDARY_SOIL_SENTINEL_TOKENS",

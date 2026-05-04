@@ -36,23 +36,22 @@ EXTENDED_SMOKE_DATASETS = SMOKE_DATASETS + (
     "DIESEL_bp50_246_b-a",
 )
 
-# 11-dataset diversity-balanced cohort, hand-picked by the user (2026-04-30)
-# from the TabPFN paper analysis. n_train ∈ [81, 2925], p ∈ [125, 2177],
-# spans 8 chemometric domains (manure, fruit, leaves, soil, wood, fuel,
-# leaves, berry, meat). Use this for fast hypothesis iteration before the
-# full 61-dataset publication run.
+# 10-dataset diversity-balanced cohort, hand-picked by the user (2026-04-30 v2)
+# from the TabPFN paper analysis. n_train ∈ [40, 3734], p ∈ [196, 2151], spans
+# 9 chemometric domains (manure, leaves, soil, ALPINE, beer, COLZA, grapevine,
+# IncombustibleMaterial, ECOSIS_LeafTraits). Use this for fast hypothesis
+# iteration before the full 61-dataset publication run.
 REPRESENTATIVE_DATASETS = (
-    "All_manure_P2O5_SPXY_strat_Manure_type",
-    "Fv_Fm_grp70_30",
-    "ta_groupSampleID_stratDateVar_balRows",
-    "WOOD_N_402_Olale",
-    "An_spxyG70_30_byCultivar_MicroNIR",
-    "All_manure_CaO_SPXY_strat_Manure_type",
-    "DIESEL_bp50_246_b-a",
-    "Malaria_Sporozoite_229_Maia",
+    "All_manure_MgO_SPXY_strat_Manure_type",
+    "An_spxyG70_30_byCultivar_NeoSpectra",
+    "TIC_spxy70",
+    "Chla+b_spxyG_species",
+    "ALPINE_P_291_KS",
+    "Beer_OriginalExtract_60_YbaseSplit",
+    "All_manure_Total_N_SPXY_strat_Manure_type",
     "Chla+b_spxyG_block2deg",
-    "DIESEL_bp50_246_hla-b",
-    "Beef_Marbling_RandomSplit",
+    "N_woOutlier",
+    "grapevine_chloride_556_KS",
 )
 
 

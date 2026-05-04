@@ -220,7 +220,7 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
     # Fit / predict
     # ------------------------------------------------------------------
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> "AOMMultiKernelRidge":
+    def fit(self, X: np.ndarray, y: np.ndarray) -> AOMMultiKernelRidge:
         X_arr, y_arr = self._validate_inputs(X, y)
         n, p = X_arr.shape
 

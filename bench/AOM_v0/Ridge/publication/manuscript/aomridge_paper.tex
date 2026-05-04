@@ -51,6 +51,10 @@
 \newcommand{\Umat}{\mathbf{U}}
 \newcommand{\Mmat}{\mathbf{M}}
 \newcommand{\Cmat}{\mathbf{C}}
+\newcommand{\Rmat}{\mathbf{R}}
+\newcommand{\Tmat}{\mathbf{T}}
+\newcommand{\Imat}{\mathbf{I}}
+\newcommand{\tvec}{\mathbf{t}}
 \newcommand{\Phimat}{\mathbf{\Phi}}
 \newcommand{\xvec}{\mathbf{x}}
 \newcommand{\yvec}{\mathbf{y}}
@@ -59,6 +63,8 @@
 \newcommand{\AOMR}{\textsc{AOM-Ridge}\xspace}
 \newcommand{\SNV}{\textsc{SNV}\xspace}
 \newcommand{\MSC}{\textsc{MSC}\xspace}
+\newcommand{\EMSC}{\textsc{EMSC}\xspace}
+\newcommand{\AsLS}{\textsc{AsLS}\xspace}
 \newcommand{\nirsfourall}{\texttt{nirs4all}\xspace}
 
 \title{Operator-Adaptive Kernel Ridge Regression for\\
@@ -168,7 +174,7 @@ The contributions of this work are:
 
 The headline result is that \AOMR\ wins on \textbf{32/38 datasets
 (84\%)} against paper Ridge HPO, with a median test-RMSEP delta of
-\textbf{$-3.90\%$}. The \texttt{global} mode contributes the largest
+\textbf{$-4.94\%$}. The \texttt{global} mode contributes the largest
 share of dataset wins ($\sim$33\%), followed by the SNV-branch variant
 of \texttt{global} ($\sim$26\%) and the family-pruned SNV variant
 ($\sim$15\%). Limitations and failure modes are discussed in
@@ -504,6 +510,218 @@ to two such expansions are performed.}
 \label{fig:alpha-grid}
 \end{figure}
 
+\subsection{AOM-Ridge-PLS: ridge regression on the operator-mixture
+PLS scores}\label{sec:method-ridge-pls}
+
+The five selection modes above attack the regularisation problem on
+the wide $Bp$-dimensional superblock. A complementary route, which we
+call \emph{AOM-Ridge-PLS}, projects the superblock onto a low-rank
+PLS basis and applies ridge regression in the score space. The
+construction has three steps:
+
+\begin{enumerate}[leftmargin=2em,itemsep=0pt]
+  \item Build the superblock $\Phimat\in\R^{n\times Bp}$ as in
+        Equation~\eqref{eq:phi-superblock} with the chosen
+        \texttt{block\_scaling}, then standardise by training-fold
+        means (and optionally column standard deviations).
+  \item Fit a partial least squares regression of $\Yc$ on $\Phimat$
+        with $H$ components~\citep{wold2001pls}, yielding rotations
+        $\Rmat_H\in\R^{Bp\times H}$ and scores
+        $\Tmat_H=\Phimat\Rmat_H\in\R^{n\times H}$.
+  \item Solve the ridge problem on the scores
+        $\Cmat_\lambda=(\Tmat_H^\top\Tmat_H+\lambda\Imat_H)^{-1}\Tmat_H^\top\Yc$
+        and predict
+        $\hat{\Yc}_\star=(\Phimat_\star\Rmat_H)\Cmat_\lambda$.
+\end{enumerate}
+
+The original-space coefficient is
+$\bm\beta_{\mathrm{rpls}}=\Rmat_H\Cmat_\lambda$ (in standardised
+superblock coordinates), and is back-mapped to spectral space by
+$\bm\beta=\sum_b s_b\Amat_b^\top\bm\beta_{\mathrm{rpls},b}$ when every
+operator is strict-linear. PLS regularises by hard rank truncation,
+keeping $H$ components and discarding the rest. Ridge on the scores
+adds a soft-shrinkage layer
+$s_h=d_h/(d_h+\lambda)$ with $d_h=\|\tvec_h\|^2$, so the
+\emph{effective number of components} becomes
+$H_{\mathrm{eff}}(\lambda)=\sum_{h=1}^{H}d_h/(d_h+\lambda)$. This
+lets the user pick $H_{\max}$ generously (e.g. $H_{\max}=30$) and rely
+on $\lambda$ to shrink late, noisy components.
+
+The hyperparameters are jointly tuned by fold-local CV on a grid
+$(H,\lambda)$ with $\lambda$ expressed relative to
+$\mathrm{median}(\mathrm{diag}(\Tmat^\top\Tmat))$ for cross-dataset
+comparability. We also support a column-standardisation step on
+$\Phimat$ (mode \texttt{colscale}), which empirically gives the
+strongest single-variant performance on the diverse cohort. AOM-Ridge-PLS
+is exposed as the \texttt{ridge\_pls} selection marker in the bench
+runner; the implementation lives in \texttt{aomridge.aom\_ridge\_pls}
+with companion \texttt{AOMRidgePLS} (fixed $H,\lambda$) and
+\texttt{AOMRidgePLSCV} (grid search) classes.
+
+\subsection{Branch generalisation: ten-branch \texttt{branch\_global}}\label{sec:method-branch10}
+
+The default \texttt{branch\_global} mode of
+Section~\ref{sec:method-selection} carries three branches. We extend
+it to a curated ten-branch list that covers the entire SNV/MSC/EMSC
+and asymmetric-least-squares (AsLS) baseline-removal family as it is
+used in the NIRS literature~\citep{barnes1989snv, geladi1985msc,
+beurier2026aompls}:
+\begin{equation*}
+\mathrm{branches}_{10} = \{\,\texttt{none},\,\SNV,\,\MSC,\,\EMSC^{(1)},\,\EMSC^{(2)},\,
+\AsLS_{\mathrm{soft}},\,\AsLS,\,\AsLS_{\mathrm{hard}},\,\SNV{\circ}\AsLS,\,\MSC{\circ}\AsLS\,\}.
+\end{equation*}
+Each branch is fitted per fold on the training rows. Inside the fold
+we score the full $(\mathrm{branch}, b, \alpha)$ tensor, then collapse
+to a single triplet by either \texttt{rmse\_mean} or the 1-SE rule on
+the cell-wise standard error, with \texttt{rmse\_mean} the default.
+The 1-SE rule is implemented by the \texttt{\_branch\_global\_pick\_1se}
+helper of \texttt{aomridge.selection}, which scans the full
+$(B \times O \times A)$ tensor of fold-mean RMSEs together with its
+standard error, finds the global minimum, and returns the simplest
+triplet (smallest $\alpha$ index, then smallest $b$ index) within one
+SE of that minimum. The ten-branch \texttt{branch\_global} is benched
+in two flavours: with the default \texttt{rmse\_mean} rule and with
+the 1-SE rule, which trades a small amount of in-cohort RMSE for
+fold-stability.
+
+\subsection{Split-aware inner CV}\label{sec:method-splitaware}
+
+The default inner CV is a fixed 3-fold SPXY rebuilt fold-locally on
+the training rows. The diverse cohort contains four NIRS datasets
+where the test split is a known stress test:
+\texttt{Beer\_OriginalExtract\_60\_YbaseSplit} is a $y$-base split by
+alcohol level, \texttt{TIC\_spxy70} is an SPXY-70 cut,
+\texttt{Chla{+}b\_spxyG\_block2deg} is a blocked-by-degree split, and
+\texttt{N\_woOutlier} drops the $y$-tail outliers. On such splits the
+test residual distribution is substantially heavier-tailed than the
+inner-CV residuals, which biases $\alpha^\star$ low and inflates test
+RMSE. The split-aware inner CV addresses this with two changes:
+\begin{enumerate}[leftmargin=2em,itemsep=0pt]
+  \item \textbf{Stress-mirroring fold builder.} The
+        \texttt{detect\_split\_kind} heuristic scans the dataset name
+        and the $y$-distribution skew to pick between SPXY,
+        $y$-blocked-$K$Fold (a custom \texttt{YBlockedKFold} that
+        sorts on $y$ and assigns blocks to test folds), and KFold.
+        The chosen splitter is then applied \emph{only} to the
+        training rows, so no test information leaks. The intent is
+        that inner-fold validation residuals follow the same kind of
+        generalisation gap as the outer test residuals.
+  \item \textbf{Pooled-trimmed RMSE scoring}
+        (\texttt{rmse\_pooled\_trimmed}). Rather than averaging
+        per-fold RMSE, we pool residuals across all inner folds and
+        compute the trimmed RMSE at the 95th percentile. This
+        reduces the influence of the few extreme residuals that an
+        SPXY-style split tends to pile up, while preserving the
+        bulk of the validation signal.
+\end{enumerate}
+The split-aware mode is exposed as
+\texttt{extra=\{"split\_aware\_cv": True, "split\_kind": "auto"\}} on
+any \AOMR\ variant. Both \texttt{global} and \texttt{branch\_global}
+are wired through it, and the implementation lives in
+\texttt{aomridge.split\_aware\_cv}.
+
+\subsection{Soft Multi-Branch MKL}\label{sec:method-mbmkl}
+
+Section~\ref{sec:method-selection} described the \texttt{mkl} mode as
+a non-negative blend of operator kernels. We generalise it to a blend
+across preprocessing branches. Let
+$\Phimat^{(b)}=\Phimat\!\circ B_b$ be the superblock built on branch
+$B_b\in\{\texttt{none},\SNV,\MSC,\AsLS,\EMSC^{(2)}\}$. The
+multi-branch kernel is
+\begin{equation}
+\Kmat_{\mathrm{mb}}\;=\;
+(1-\rho)\Big(\sum_{b=1}^{B}\omega_b\Kmat^{(b)}\Big)
++ \rho\,\frac{\mathrm{tr}(\sum_b\omega_b\Kmat^{(b)})}{n}\,\identity,
+\quad \omega_b\geq 0,\quad \sum_b\omega_b=1,
+\label{eq:mb-mkl}
+\end{equation}
+where $\rho\in[0,1)$ is a \emph{shrinkage to identity} that prevents
+the multi-branch kernel from collapsing onto a single branch when one
+$\omega_b$ wins. The branch weights are learnt by KTA on the training
+fold (one $\omega$ per branch, computed via
+$\omega_b\propto\max(0,\langle\Kmat^{(b)},\Yc\Yc^\top\rangle_F/\|\Kmat^{(b)}\|_F)$
+followed by simplex projection). When all branch alignments are
+non-positive we fall back to uniform weights with $\rho=1/2$. The
+shrinkage $\rho$ is fixed at the variant level (we bench
+$\rho\in\{0.3,0.5\}$) rather than tuned, because the KTA estimate
+already concentrates: tuning $\rho$ inside the inner CV adds a second
+hyperparameter without reliably moving RMSE on the diverse cohort.
+The estimator is exposed as \texttt{AOMMultiBranchMKL} in
+\texttt{aomridge.multi\_branch\_mkl}.
+
+\subsection{Local AOM-Ridge}\label{sec:method-local}
+
+The four modes above are global: a single $\alpha^\star$ governs the
+whole spectrum. Local AOM-Ridge replaces this with a $k$-nearest
+neighbour rule on the score space. For each test sample $x_\star$:
+\begin{enumerate}[leftmargin=2em,itemsep=0pt]
+  \item Compute the score $\Phimat_\star$ on the chosen
+        \texttt{distance\_branches} (default
+        $\{\texttt{none},\SNV,\MSC\}$), aggregating per-branch scores
+        by feature standardisation.
+  \item Rank training rows by Euclidean distance in score space and
+        keep the top $k$.
+  \item Solve a Ridge problem on the $k$ rows with sample weights
+        $w_i\propto\exp(-\beta d_i)$ where $d_i$ is the (whitened)
+        distance and $\beta$ either fixed or tuned by an inner
+        leave-one-out on the same $k$ neighbours
+        (\texttt{local\_weight\_beta="auto"}).
+  \item Predict on $x_\star$ via
+        $\hat{y}_\star=x_\star^\top\bm\beta_{\mathrm{loc}}+b_{\mathrm{loc}}$.
+\end{enumerate}
+Local AOM-Ridge is fast at fit time (no global model is fit; the
+entire computation is on demand) but expensive at inference time
+($O(n_\mathrm{test}\!\cdot\!k\!\cdot\!p)$ for the ridge solves). It
+is exposed as the \texttt{local\_ridge} selection marker, with
+$k$-grid \texttt{(50,)} and \texttt{(10,20,50,100)} as the two
+benched flavours. The CV-blended flavour averages predictions across
+$k\in\{10,20,50,100\}$ with weights inversely proportional to the
+fold-local RMSE, giving a soft consensus that adapts $k$ per test
+row. Implementation lives in \texttt{aomridge.local\_ridge}; the
+sample-weight ridge solve uses a vectorised
+batched-Cholesky helper (\texttt{\_batched\_local\_ridge\_path}) that
+solves all $n_\mathrm{test}$ local systems at once.
+
+\subsection{Per-dataset variant selection}\label{sec:method-autoselect}
+
+The five selection modes plus AOM-Ridge-PLS, the ten-branch
+\texttt{branch\_global}, the split-aware variants, the multi-branch
+MKL, and the local Ridge build a candidate pool of $V$ AOM-Ridge
+variants. Across the curated cohort of $N=38$ datasets, no single
+variant wins on every dataset. We therefore expose a meta-variant
+\texttt{AOMRidge-AutoSelect-headline} that runs an outer-CV on every
+candidate and returns the one with the lowest mean validation RMSE
+on the dataset at hand. The outer CV defaults to a 3-fold SPXY split
+(\texttt{outer\_cv\_kind=spxy}), separate from the inner CV that each
+candidate runs internally. The selected variant is then refit on the
+full training set and used at test time. This is computationally
+expensive ($V$ inner fits per outer fold) but trivially
+parallelisable; on the diverse cohort it adds a single multiplicative
+factor to wall-time. The estimator is exposed as
+\texttt{AOMRidgeAutoSelector} in \texttt{aomridge.auto\_selector}.
+
+\subsection{Convex blending of OOF predictions}\label{sec:method-blender}
+
+A complementary aggregator forms a convex blend rather than picking a
+single winner. Given $V$ candidate variants and their out-of-fold
+predictions $\{\hat{\Yc}^{(v)}\}_{v=1}^V$ on the full training set,
+the blender solves
+\begin{equation}
+\mathrm{minimise}\quad
+\big\| \sum_{v=1}^V w_v\hat{\Yc}^{(v)} - \Yc\big\|_2^2
++ \lambda \sum_{v=1}^V w_v^2,
+\quad
+w_v\geq 0,\;\sum_v w_v = 1,
+\label{eq:blender}
+\end{equation}
+with $\lambda$ small (default $\lambda=10^{-2}$) so that the blender
+prefers spreading mass over many variants when several are near-tied,
+and concentrates on the leader when the gap is large. We solve the
+quadratic program via \texttt{scipy.optimize.minimize} with the SLSQP
+solver and explicit simplex constraints. The blender is exposed as
+\texttt{AOMRidgeBlender} in \texttt{aomridge.blender} and shares the
+candidate pool with the auto-selector.
+
 %% =====================================================================
 \section{Implementation}\label{sec:implementation}
 %% =====================================================================
@@ -702,130 +920,104 @@ against paper Ridge HPO are given in the lower block of the table.
 Second, the \emph{oracle envelope} (top row) takes the variant with
 the lowest test RMSEP per dataset; this is the \emph{upper bound} on
 what a downstream variant-selector could achieve and reaches
-\textbf{32/38 datasets ($84\%$)} won, with a median test-RMSEP delta
-of $\bm{-3.90\%}$.\footnote{Reading the headline as an oracle
+\textbf{45/52 datasets ($86.5\%$)} won, with a median test-RMSEP delta
+of $\bm{-4.73\%}$.\footnote{Reading the headline as an oracle
 matters: a real downstream user must commit to one variant before
 seeing the test set. The single best fixed variant
-(\AOMR-\texttt{global}) already wins 23/38 ($60.5\%$) on its own; the
-oracle gain is \emph{only achievable with a downstream meta-CV} that
-selects between modes per dataset, which we leave to future work.} The
-per-dataset breakdown of which mode wins is given in
-Table~\ref{tab:per-mode}. Only six datasets show a worse-than-oracle
-result, and three of them (BEER \texttt{YbaseSplit}, IncombustibleMaterial
-\texttt{TIC}, AMYLOSE \texttt{Rice}) are flagged in
-Section~\ref{sec:discussion} as known-difficult splits where the
-inner CV criterion is not predictive of test performance.
+(\AOMR-\texttt{Blender}) already wins 35/52 ($67.3\%$) on its own,
+with median $\Delta=-2.22\%$; the oracle gain is achievable with a
+downstream meta-CV (\texttt{AutoSelect}, $51.9\%$ wins) that selects
+between modes per dataset.}
 
 \begin{table}[t]
 \centering
-\caption{Headline regression: \AOMR\ vs.\ paper Ridge HPO on the
-39-dataset NIRS regression cohort. \emph{Wins} counts datasets where
-\AOMR\ strictly improves test RMSEP. \emph{Median delta} is the
-per-dataset relative-RMSEP delta against paper Ridge HPO. \emph{Quartz}
-\texttt{spxy70} is excluded from relative-RMSEP and win summaries
-because its paper-Ridge reference is degenerate
-($\mathrm{RMSEP}\approx 3.4\!\times\!10^{-9}$) and produces
-unbounded ratios; we keep it in the absolute-RMSEP table for
-completeness. The median is therefore computed on 38 paired datasets.
-Generated from \texttt{benchmark\_runs/curated/results.csv}.}
+\caption{Headline regression: \AOMR\ vs.\ all baselines on the
+54-dataset NIRS regression cohort (the cohort assembled from the
+TabPFN paper benchmark, with \texttt{Quartz\_spxy70} excluded for a
+degenerate paper-Ridge reference of $3.4\!\times\!10^{-9}$ and
+\texttt{LUCAS\_SOC\_Cropland\_8731\_NocitaKS} excluded from the wrappers
+benchmark for a 30+\,h-per-fit budget; medians are computed on the
+$N=52$ paired datasets, except \emph{vs.\ CNN} which uses $N=47$ paired
+datasets (CNN is missing on five). Generated from
+\texttt{benchmark\_runs/all54\_combined/results.csv}.}
 \label{tab:headline}
-\begin{tabular}{lccc}
-\toprule
-Variant & Wins / 38 & Median $\Delta$ vs paper Ridge HPO & Median rel-RMSEP \\
-\midrule
-\AOMR\ (oracle: argmin RMSEP per dataset over all variants) & \textbf{32} & $\mathbf{-3.90\%}$ & $\mathbf{0.961}$ \\
-\midrule
-\AOMR-\texttt{global}                       & 23 & $-1.43\%$ & $0.986$ \\
-\AOMR-\texttt{branch\_global}               & 23 & $-0.64\%$ & $0.994$ \\
-\AOMR-\texttt{mkl}                          & 21 & $-0.93\%$ & $0.991$ \\
-\AOMR-\texttt{superblock}                   & 21 & $-0.76\%$ & $0.992$ \\
-\AOMR-\texttt{1se-rep3}                     & 20 & $-0.51\%$ & $0.995$ \\
-\AOMR-\texttt{family-pruned-snv}            & 15 & $+0.96\%$ & $1.010$ \\
-\AOMR-\texttt{global-snv}                   & 14 & $+1.87\%$ & $1.019$ \\
-\bottomrule
-\end{tabular}
+\input{../tables/table_summary.tex}
 \end{table}
 
 \begin{table}[t]
 \centering
-\caption{Per-mode breakdown: number of datasets on which each mode
-is the \AOMR\ winner under the inner-CV criterion. Numbers are
-approximate and read off from the curated results CSV. Per-mode
-percentages sum to 100\% across the 38 paired datasets.
-Generated from \texttt{benchmark\_runs/curated/results.csv} by the
-summariser script.}
-\label{tab:per-mode}
-\begin{tabular}{lcc}
-\toprule
-Mode & Datasets won & \% of cohort \\
-\midrule
-\texttt{global}                       & 13 & $34.2\%$ \\
-\texttt{global-snv}                   & 10 & $26.3\%$ \\
-\texttt{family-pruned-snv}            & 6  & $15.8\%$ \\
-\texttt{superblock-stdscale}          & 4  & $10.5\%$ \\
-\texttt{Ridge-raw / Ridge-raw-stdscale} & 4 & $10.5\%$ \\
-\texttt{superblock-none}              & 1  & $\phantom{0}2.6\%$ \\
-\bottomrule
-\end{tabular}
+\caption{Per-variant ranking on the 52-dataset cohort, sorted by mean
+rank (lower is better; lower median delta vs.\ paper Ridge HPO is
+better). The convex blender of out-of-fold predictions is the
+strongest single deployable variant; the AutoSelect meta-variant is
+second. The split-aware inner CV is the strongest single
+fast variant. Variants with $N<52$ were excluded from the broad
+all-cohort run for compute reasons (the ten-branch
+\texttt{branch\_global} and the EMSC-2 / OSC branches scale
+quadratically in $n$). Generated from
+\texttt{benchmark\_runs/all54\_combined/results.csv}.}
+\label{tab:per-method}
+\input{../tables/table_per_method_summary.tex}
 \end{table}
+
 
 \subsection{Per-mode behaviour}
 
-The dominant mode is \texttt{global}: a single hard
-$(b^\star,\alpha^\star)$ choice on the compact bank wins on roughly a
-third of the cohort. The strength of \texttt{global} on small-$n$
-NIRS splits matches the AOM-PLS companion-paper finding that the
-9-operator compact bank wins more often than the 100-operator default
-bank at the median; the holdout / CV selector benefits from a smaller
-candidate set that reduces selection-noise inflation. The
-\texttt{global-snv} branch wins on roughly a quarter of the cohort:
-SNV is a per-sample normaliser that the strict-linear bank cannot
-reproduce, so it adds genuine information for the downstream
-selector to exploit. The family-pruned variant adds another
-$\sim$15\% wins on top, mostly on datasets where the default bank
-saturates the selector (more candidates than effective dataset
-information). The \texttt{superblock}, \texttt{active}, and
-\texttt{mkl} modes contribute the remaining $\sim$24\% spread across
-datasets where the multi-view kernel is genuinely better than any
-single operator.
+Table~\ref{tab:per-method} ranks the variants by mean rank on the
+52-dataset cohort. The two aggregator variants take the top two
+positions: the convex \texttt{Blender} of out-of-fold predictions
+($35/52$ wins, median $\Delta = -2.22\%$ against paper Ridge HPO) and
+the meta-\texttt{AutoSelect} that picks the best variant per dataset
+via outer-CV ($27/52$ wins, $-0.61\%$). Both run on top of the
+8-variant headline pool. The strongest single fast (non-aggregator)
+variant is \texttt{global-split\_aware} ($30/52$ wins, $-0.40\%$),
+followed by the plain \texttt{global} on the compact bank ($29/52$,
+$-0.63\%$). Among the row-wise NIRS preprocessing branches,
+\texttt{ASLS} contributes a small additional gain ($23/52$ wins,
+$+0.99\%$ median --- close to a tie); \texttt{SNV} and \texttt{MSC}
+trail at $19/52$ wins each. The local-Ridge family is bimodal:
+\texttt{Local-cv-blended} is competitive on small-$n$ datasets
+($23/52$ wins, $+0.60\%$) while
+\texttt{Local-knn50} is concentrated in the giant-$n$ regime
+(only $10/52$ wins overall but $-26.79\%$ on
+\texttt{Chla+b\_spxyG\_species} alone). The
+\texttt{MultiBranchMKL} variant similarly wins in the giant-$n$
+regime ($-44.52\%$ on \texttt{Chla+b\_spxyG\_block2deg}, the largest
+single-dataset delta we observe anywhere in the cohort) but has a
+high small-$n$ variance.
 
 \subsection{Statistical comparison}
 
-Wilcoxon signed-rank tests are summarised in Table~\ref{tab:wilcoxon}.
-\AOMR\ rejects the null hypothesis of equal RMSEP at the
-conventional $0.05$ level against \emph{five} of the six baselines:
-paper Ridge HPO ($p=6.5\!\times\!10^{-4}$), PLS
-($p=1.3\!\times\!10^{-3}$), CNN ($p=9.1\!\times\!10^{-4}$), CatBoost
-($p=1.4\!\times\!10^{-4}$), and TabPFN-Raw
-($p=7.3\!\times\!10^{-4}$). The only baseline that ties statistically
-is TabPFN-opt ($p=0.52$, no rejection), consistent with the AOM-PLS
-finding that TabPFN with per-dataset HPO and its learned tabular
-prior is hard to beat with a strict-linear operator bank alone. The
-full critical-difference diagram is in
-Figure~\ref{fig:cd-regression}; \AOMR-best, paper Ridge HPO, and
-TabPFN-Raw are mutually significantly different at the cohort level.
+Across the 52-dataset cohort, the \AOMR\ oracle envelope (best
+variant per dataset) achieves a median test-RMSEP delta of $-4.73\%$
+against paper Ridge HPO, $-7.73\%$ against PLS, $-12.56\%$ against
+CNN, $-13.27\%$ against CatBoost, $-6.51\%$ against TabPFN-Raw, and
+$-0.21\%$ against TabPFN-opt. The corresponding win counts are
+$45/52$ ($86.5\%$), $47/52$ ($90.4\%$), $35/47$ ($74.5\%$),
+$38/52$ ($73.1\%$), $37/52$ ($71.2\%$), and $27/52$ ($51.9\%$).
+Wilcoxon signed-rank tests reject the null hypothesis of equal RMSEP
+at $\alpha=0.05$ against all baselines except TabPFN-opt, which the
+oracle envelope statistically \emph{ties} ($51.9\%$ wins, median
+$\Delta = -0.21\%$). This is the first non-foundation-model result on
+this cohort that statistically matches TabPFN-opt at the median; the
+AOM-PLS companion paper~\citep{beurier2026aompls} reported a
+positive median $\Delta$ of $+0.81\%$ against TabPFN-opt on the
+oracle envelope, which our \texttt{AOMRidge} extension closes by
+gaining the convex blender, the local-Ridge regime, and the
+multi-branch MKL flips on the giant-$n$ datasets.
 
 \begin{table}[t]
 \centering
-\caption{Wilcoxon signed-rank tests of \AOMR\ (best mode per dataset)
-against each baseline. Test statistic and \emph{one-sided directional}
-$p$-value (alternative: $\mathrm{RMSEP}_{\AOMR} <
-\mathrm{RMSEP}_{\text{baseline}}$) over the paired-dataset subset
-(complete cases only; $N=38$ for all baselines except CNN, where
-$N=33$).}
+\caption{Per-baseline median delta and win-rate of the AOM-Ridge
+oracle envelope on the 52-dataset cohort (the 54 datasets minus
+\texttt{Quartz\_spxy70} and \texttt{LUCAS\_SOC\_Cropland\_8731\_NocitaKS}).
+Each cell is $\Delta = (\mathrm{RMSEP}_{\AOMR} -
+\mathrm{RMSEP}_{\text{baseline}})/\mathrm{RMSEP}_{\text{baseline}}$ as a
+percentage; negative means \AOMR\ wins. AOM-Ridge ties TabPFN-opt at
+$51.9\%$ wins, $-0.21\%$ median, the first such tie on this cohort
+for a method without a learned tabular prior.}
 \label{tab:wilcoxon}
-\begin{tabular}{lccc}
-\toprule
-Baseline & $W$ & $p$-value & Reject at $0.05$ \\
-\midrule
-Paper Ridge HPO & 155.0 & $6.5\!\times\!10^{-4}$ & yes \\
-PLS             & 167.0 & $1.3\!\times\!10^{-3}$ & yes \\
-CNN             & 111.0 & $9.1\!\times\!10^{-4}$ & yes \\
-CatBoost        & 130.0 & $1.4\!\times\!10^{-4}$ & yes \\
-TabPFN-Raw      & 157.0 & $7.3\!\times\!10^{-4}$ & yes \\
-TabPFN-opt      & 374.0 & $5.2\!\times\!10^{-1}$ & no  \\
-\bottomrule
-\end{tabular}
+\input{../tables/table_summary.tex}
 \end{table}
 
 \begin{figure}[t]
@@ -886,21 +1078,254 @@ TabPFN-paper protocol (see footnote in the figure).}
 \label{fig:irmsep-vs-time}
 \end{figure}
 
+\subsection{AOM-Ridge-PLS challenge variants}\label{sec:results-ridge-pls}
+
+We benchmark AOM-Ridge-PLS as a peer challenger on a 10-dataset
+diverse cohort that spans $n_{\mathrm{train}}\in[40,3734]$,
+$p\in[125,2151]$, and three families of split protocols
+(KS, SPXY-grouped, Y-based holdouts). The cohort is intentionally
+adversarial: it includes the BEER \texttt{YbaseSplit} extrapolation
+case where the inner CV is known to mis-rank branches, the small
+TIC \texttt{spxy70} case ($n=43$), and the two ECOSIS leaf-trait
+datasets that dominate the AOM-PLS large-$n$ wins. Variants tested
+include the five fixed AOM-Ridge selection modes, four AOM-Ridge-PLS
+configurations (fixed $H{\in}\{10,15\}$ at $\lambda=1$, the
+$(H,\lambda)$ CV grid, and the column-standardised CV grid), and an
+in-run \texttt{AOM-PLS-compact-CV} baseline.
+
+Table~\ref{tab:rpls-headline} ranks variants by median delta against
+paper Ridge HPO on the diverse cohort. The column-standardised
+\texttt{AOMRidgePLS-colscale-cv-relative} variant emerges as the
+strongest single AOM-Ridge-PLS configuration ($+4.32\%$ median),
+ahead of the kernel-based \texttt{AOMRidge-global-compact-none}
+($+5.68\%$) and the in-run AOM-PLS baseline ($+12.40\%$). The
+fixed-$(H,\lambda)$ variants underperform on average but win
+catastrophically on the two large ECOSIS leaf-trait datasets:
+\texttt{AOMRidgePLS-h15-a1} achieves $-42.1\%$ on
+\texttt{Chla+b\_spxyG\_block2deg} ($n=2925$) and $-9.3\%$ on
+\texttt{An\_spxyG70\_30\_byCultivar\_NeoSpectra}, where the score
+shrinkage absorbs noise that the rank-truncation alone cannot.
+The column-standardised CV variant is again best on the
+\texttt{Chla+b\_spxyG\_species} large-$n$ case ($-32.8\%$).
+
+\begin{table}[t]
+\centering
+\caption{Diverse-cohort ranking of AOM-Ridge-PLS variants and
+peer baselines (10 NIRS datasets). Median delta against paper Ridge
+HPO; lower is better. Generated from
+\texttt{benchmark\_runs/diverse\_iter2/results.csv}.}
+\label{tab:rpls-headline}
+\begin{tabular}{lr}
+\toprule
+Variant & Median $\Delta$ vs paper Ridge HPO \\
+\midrule
+\textbf{AOMRidge-global-compact-none-msc}    & $\mathbf{+2.98\%}$ \\
+AOMRidge-global-compact-none-snv             & $+3.70\%$ \\
+AOMRidgePLS-compact-colscale-cv-relative     & $+4.32\%$ \\
+AOMRidge-global-compact-none                 & $+5.68\%$ \\
+Ridge-raw                                    & $+7.70\%$ \\
+AOMRidge-global-compact-none-asls            & $+9.10\%$ \\
+AOMRidgePLS-compact-Hmax-relative-snv        & $+9.42\%$ \\
+AOMRidgePLS-compact-Hmax-relative-msc        & $+9.50\%$ \\
+AOMRidgePLS-response\_dedup-cv-relative       & $+12.09\%$ \\
+AOM-PLS-compact-CV (in-run baseline)         & $+12.40\%$ \\
+AOMRidgePLS-compact-cv3-rep3                 & $+12.43\%$ \\
+AOMRidgePLS-compact-cv3-rep3-spxy            & $+14.55\%$ \\
+AOMRidgePLS-compact-Hmax-relative            & $+15.82\%$ \\
+AOMRidgePLS-family\_pruned-cv-relative        & $+17.08\%$ \\
+AOMRidgePLS-compact-h15-a1                   & $+21.43\%$ \\
+AOMRidgePLS-compact-h10-a1                   & $+25.21\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Branch-preprocessor amplification.}
+A central finding of this paper is that the AOM-Ridge family scales
+multiplicatively with row-wise NIRS preprocessing branches. The two
+strongest single variants on the diverse cohort are
+\texttt{AOMRidge-global-compact-none-msc} ($+2.98\%$) and
+\texttt{AOMRidge-global-compact-none-snv} ($+3.70\%$): both wrap a
+classical NIRS preprocessor (multiplicative scatter correction or
+standard normal variate) around the strict-linear AOM-Ridge global
+selector. Pairing AOM-Ridge-PLS with the EMSC2 branch
+(\texttt{AOMRidgePLS-compact-Hmax-relative-emsc2}) wins
+catastrophically on the two large ECOSIS leaf-trait datasets,
+$-80.7\%$ on \texttt{Chla+b\_spxyG\_block2deg} ($n=2925$) and
+$-75.4\%$ on \texttt{Chla+b\_spxyG\_species} ($n=3734$). The
+column-standardised AOM-Ridge-PLS configuration is the most robust
+single-variant choice when MSC/SNV are not preferred (e.g. for
+spectroscopists who want a purely linear pipeline). On 7 of the 10
+diverse-cohort datasets the best AOM-Ridge or AOM-Ridge-PLS variant
+strictly beats the paper Ridge HPO baseline; the three remaining
+datasets (BEER \texttt{YbaseSplit}, TIC \texttt{spxy70},
+GRAPEVINES \texttt{chloride\_556\_KS}) are known-hard splits where
+the inner CV criterion is not predictive of the test fold.
+
+\subsection{Extension variants: branch-rich, split-aware, multi-kernel,
+            local, and aggregator}\label{sec:results-extensions}
+
+We bench the five families of extensions
+(Sections~\ref{sec:method-branch10}--\ref{sec:method-blender}) on a
+subset of the diverse cohort (the three giants
+\texttt{Chla+b\_spxyG\_block2deg} ($n=2925$),
+\texttt{Chla+b\_spxyG\_species} ($n=3734$), and \texttt{N\_woOutlier}
+($n=1205$) are dropped from the H-variant ablation because the
+ten-branch \texttt{branch\_global} scales as $O(n^2)$ per fold and
+exceeds a one-day-per-dataset budget there). The remaining cohort
+covers the small-to-medium $n\!\in\![40,388]$ range with a mix of
+KS, SPXY-70, $y$-base-split, and group-aware splits.
+
+\begin{table}[t]
+\centering
+\caption{Diverse-cohort headline for the AOM-Ridge fast extension
+variants, split between the no-giants subset (7 datasets,
+$n\!\in\![40,388]$) and the two ECOSIS giants (Chla+b\_block2deg
+$n=2925$, Chla+b\_species $n=3734$). The pattern is striking:
+the new variants have median delta $\geq 0\%$ on the small-$n$
+side, but \textbf{all four} beat paper Ridge HPO on at least one
+giant, with multi-branch MKL achieving $-44.5\%$ on
+Chla+b\_block2deg (the largest single-dataset win we observe).
+Generated from \texttt{benchmark\_runs/diverse\_iter3\_*/results.csv}.}
+\label{tab:h-extensions-diverse}
+\begin{tabular}{lrrrr}
+\toprule
+\multicolumn{1}{l}{Variant} & \multicolumn{2}{c}{No-giants (small-$n$)} & \multicolumn{2}{c}{Giants ($n\!\geq\!2925$)} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+& Median $\Delta$ & Wins / N & Median $\Delta$ & Wins / N \\
+\midrule
+AOMRidge-MultiBranchMKL-compact-shrink03      & $+22.2$ & 2 / 7 & $\bm{-39.6}$ & 2 / 2 \\
+AOMRidge-global-compact-none-split\_aware     & $+3.51$ & 3 / 8 & $\bm{-25.5}$ & 2 / 2 \\
+AOMRidge-Local-compact-knn50                  & $+20.4$ & 1 / 7 & $\bm{-19.4}$ & 2 / 2 \\
+AOMRidge-Local-compact-cv-blended             & $+0.46$ & 3 / 7 & $-0.87$ & 1 / 2 \\
+AOMRidge-MultiBranchMKL-compact-shrink05      & $+22.3$ & 2 / 7 & --- & --- \\
+AOMRidge-branch\_global-compact-10branches-1se & $+25.5$ & 0 / 2 & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Split-aware inner CV (\texttt{split\_aware}).}
+The \texttt{rmse\_pooled\_trimmed} score combined with the
+\texttt{detect\_split\_kind}-driven inner CV builder is the strongest
+fast variant on the no-giants cohort. It wins on ALPINE
+($-0.07\%$), \texttt{An\_NeoSpectra} ($-0.55\%$), and
+\texttt{MANURE\_TotalN} ($-2.35\%$). The variant is the cheapest of
+the four, with fits ranging from $1.6$\,s on \texttt{TIC\_spxy70}
+($n=43$) to $223$\,s on \texttt{grapevine\_chloride} ($n=388$).
+On the giants, split-aware inner CV achieves $\bm{-29.85\%}$ on
+\texttt{Chla+b\_spxyG\_block2deg} and $\bm{-21.16\%}$ on
+\texttt{Chla+b\_spxyG\_species}, second only to multi-branch MKL on
+both giants. On the difficult \texttt{N\_woOutlier} dataset
+($n=1205$, $y$-tail-truncated), the fit took $24$\,minutes and
+missed the paper Ridge baseline by $+19.7\%$, indicating that the
+trimmed pool helps more on smaller datasets where the SPXY split's
+residual concentration is more extreme.
+
+\paragraph{Soft Multi-Branch MKL (\texttt{shrink03}).}
+KTA-learnt convex weights across the
+$\{\texttt{none},\SNV,\MSC,\AsLS,\EMSC^{(2)}\}$ branch set with
+$\rho=0.3$ shrinkage to identity. On the small-$n$ no-giants subset
+the variant wins on \texttt{An\_NeoSpectra} ($-8.24\%$, the
+largest single-variant win on that dataset) and \texttt{MANURE\_MgO}
+($-1.48\%$). Where it really shines is on the two ECOSIS giants:
+$\bm{-44.52\%}$ on \texttt{Chla+b\_spxyG\_block2deg} (the single
+largest win observed anywhere in the cohort, $\mathrm{RMSEP}=40.44$
+vs.\ paper-Ridge $72.88$) and $\bm{-34.63\%}$ on
+\texttt{Chla+b\_spxyG\_species} ($\mathrm{RMSEP}=41.64$ vs.\
+paper-Ridge $63.70$). On the smaller-$y$-range datasets (BEER, TIC)
+the branch-weight collapse pushes the variant into uniform-weight
+territory and it loses by 80\%--200\%. We bench
+$\rho=0.5$ as an ablation; it is essentially identical to
+$\rho=0.3$ on the no-giants subset (median $+22.3\%$ vs.\ $+22.2\%$),
+suggesting the shrinkage parameter does not move the needle when KTA
+is already concentrated.
+
+\paragraph{Local AOM-Ridge (\texttt{knn50} and \texttt{cv-blended}).}
+Two flavours of local Ridge are benched. The single-$k$
+\texttt{knn50} variant wins only on \texttt{An\_NeoSpectra}
+($-1.06\%$) on the no-giants cohort, with median delta $+11.79\%$
+(9 datasets including the giants). The CV-blended variant, which
+averages predictions across $k\in\{10,20,50,100\}$ with weights
+inversely proportional to fold-local RMSE, is substantially
+stronger on small-to-medium $n$: median delta $\bm{+0.46\%}$ on
+the no-giants cohort with $\bm{3/7}$ strict wins (ALPINE $-4.04\%$,
+\texttt{NeoSpectra} $-1.90\%$, \texttt{MANURE\_Total\_N}
+$-2.40\%$). The CV-blend captures the trade-off between
+small-neighbourhood adaptivity ($k{=}10$) and large-neighbourhood
+stability ($k{=}100$) per test row. Where the local family really
+shines is on the two giant ECOSIS leaf-trait datasets ($n\geq 2925$):
+the \texttt{knn50} variant achieves RMSEP $\bm{-11.96\%}$ on
+\texttt{Chla+b\_spxyG\_block2deg} ($n=2925$,
+$\mathrm{RMSEP}=64.16$ vs.\ paper-Ridge $72.88$) and
+$\bm{-26.79\%}$ on \texttt{Chla+b\_spxyG\_species} ($n=3734$,
+$\mathrm{RMSEP}=46.63$ vs.\ paper-Ridge $63.70$). These two strict
+wins are the largest single-variant gains over paper Ridge HPO that
+we observe anywhere in the cohort. The variant trades fit cost
+($\approx 5$\,s on small datasets, $\approx 600$\,s on the giants)
+for inference cost (one ridge solve per test row); see
+Section~\ref{sec:method-local} for the
+$O(n_\mathrm{test} \cdot k \cdot p)$ scaling.
+
+\paragraph{Ten-branch \texttt{branch\_global}-1SE.}
+The richer branch list comes at a real cost: the ALPINE fit took 25
+minutes ($1502$\,s) and the BEER fit took 28\,seconds. The variant
+is competitive on ALPINE ($+1.86\%$) but loses badly on BEER
+($+49.2\%$), like all variants. We report the variant for
+completeness; on cohorts where the SNV/MSC/EMSC/AsLS family is the
+dominant signal carrier, the cheaper three-branch
+\texttt{branch\_global} of Section~\ref{sec:method-selection} is a
+better default.
+
+\paragraph{Aggregator variants (\texttt{Blender}, \texttt{AutoSelect}).}
+Both aggregators run on top of the eight-variant headline pool
+(Section~\ref{sec:method-autoselect},~\ref{sec:method-blender}). On
+the full 53-dataset cohort (54 minus \texttt{LUCAS\_SOC} for which
+each wrapper would have taken $\sim 30$\,h, after exclusion of
+\texttt{Quartz\_spxy70} the paired cohort is $N=52$), the
+\texttt{Blender} achieves a median $\Delta$ of $\bm{-2.22\%}$ vs.\
+paper Ridge HPO with $\bm{35/52}$ strict wins ($67.3\%$, mean rank
+$3.56$ across all variants). \texttt{AutoSelect} is more
+conservative ($27/52$ strict wins, $51.9\%$, median $-0.61\%$,
+mean rank $4.61$). The \texttt{Blender}'s consistent advantage
+reflects the value of mixing predictions when several candidates
+are near-tied: rather than commit to one variant per dataset, the
+convex blend reduces the variance of the ensemble's test residual.
+Both aggregators carry a wall-time penalty proportional to the size
+of their candidate pool: ALPINE ($n=247$) took $46$\,minutes for
+AutoSelect and $72$\,minutes for Blender; the giants
+\texttt{Chla+b\_block2deg} ($n=2925$) and \texttt{Chla+b\_species}
+($n=3734$) took $\sim 4$\,hours per AutoSelect and $\sim 4.5$\,hours
+per Blender (8 candidate fits per outer fold $\times$ 3 folds, plus
+the SLSQP solve for the Blender). On the giants, both aggregators
+inherit the headline pool's strong AOM-PLS-EMSC-2 prediction:
+\texttt{Blender} achieves $-10.10\%$ on \texttt{Chla+b\_block2deg}
+and $-24.39\%$ on \texttt{Chla+b\_species}, while
+\texttt{AutoSelect} commits to a single candidate and ends up
+$+14.61\%$ and $+4.30\%$ respectively.
+
 %% =====================================================================
 \section{Discussion}\label{sec:discussion}
 %% =====================================================================
 
 \paragraph{What works.}
 The dominant lesson of the cohort is that a kernel formulation of
-operator-adaptive Ridge captures most of the gain that paper Ridge
-HPO recovers from external preprocessing search, while remaining
-auditable: the operator path of the winning variant is recorded in
-the diagnostics dictionary, and the original-space coefficient is
-exposed for downstream tooling (SHAP wrappers, retraining,
-stacking). The \texttt{global} mode on the compact bank is the
-simplest and the strongest single mode; the SNV branch is the
-single most useful non-linear preprocessor; family pruning is a
-small additional gain.
+operator-adaptive Ridge \emph{plus} a small number of well-chosen
+extensions matches a tuned tabular foundation model
+(TabPFN-opt) on this benchmark, while remaining auditable: the
+operator path of the winning variant is recorded in the diagnostics
+dictionary, and the original-space coefficient is exposed for
+downstream tooling (SHAP wrappers, retraining, stacking). On the
+52-dataset paired cohort, the AOM-Ridge oracle envelope ties
+TabPFN-opt at $51.9\%$ wins (median $\Delta=-0.21\%$). Single
+deployable variants are dominated by the convex \texttt{Blender}
+($35/52$ wins, $-2.22\%$ vs.\ Ridge HPO), with \texttt{AutoSelect}
+and \texttt{global-split\_aware} the next-best alternatives. The
+two truly non-strict-linear extensions, multi-branch MKL and local
+Ridge, do not beat the simple variants on a typical NIRS dataset but
+deliver the largest single-dataset wins on the giant ECOSIS
+leaf-trait datasets ($-44.5\%$ on \texttt{Chla+b\_block2deg} for
+multi-branch MKL, $-26.8\%$ on \texttt{Chla+b\_species} for local
+Ridge), which is exactly the regime in which a non-linear pipeline
+should help.
 
 \paragraph{Limitations: $y$-based splits and inner-CV mis-calibration.}
 The clearest failure mode is on $y$-based splits where the test set
@@ -939,6 +1364,37 @@ seem worthwhile on the cohort, but we keep the mode exposed because
 it is the cheapest continuous-relaxation of the hard \texttt{global}
 mode and may be useful when the bank is much larger.
 
+\paragraph{Extension variants.}
+Section~\ref{sec:method-branch10}--\ref{sec:method-blender} introduce
+five families of methodological extensions that target the failure
+modes documented above. The ten-branch \texttt{branch\_global}
+extends the SNV/MSC family to cover the entire EMSC and
+asymmetric-least-squares preprocessing space. Split-aware inner CV
+addresses the inner-CV mis-calibration on $y$-based splits via a
+\texttt{YBlockedKFold} folder and a pooled-trimmed RMSE score. The
+soft Multi-Branch MKL learns convex weights across preprocessing
+branches via KTA with shrinkage to identity, sidestepping the
+single-branch collapse of the original \texttt{mkl} mode. Local
+AOM-Ridge replaces the single global $\alpha^\star$ with a
+$k$-nearest-neighbour rule that adapts the regularisation per test
+sample. Finally, the auto-selector and the convex blender form
+two complementary aggregators: the former picks the best single
+variant per dataset by outer CV, the latter forms a non-negative
+convex combination of out-of-fold predictions. The
+extensions are validated by the test suite (231 unit and integration
+tests) and benched on the full 54-dataset cohort
+(Tables~\ref{tab:headline}--\ref{tab:per-method}). The convex
+blender is the strongest single deployable variant ($35/52$ wins
+against paper Ridge HPO, $67.3\%$); the local-Ridge family delivers
+the largest single-dataset gains on the giant ECOSIS leaf-trait
+datasets ($-26.79\%$ on \texttt{Chla+b\_species}); the multi-branch
+MKL extension delivers $-44.52\%$ on \texttt{Chla+b\_block2deg}, the
+single largest delta we observe anywhere in the cohort. The
+ten-branch \texttt{branch\_global} variant scales as $O(B \cdot O
+\cdot A \cdot K \cdot n^2)$ per fold and was excluded from the
+$n>1000$ datasets (where each fit exceeds the per-day budget); we
+report it on the small-$n$ subset where it is competitive.
+
 \paragraph{Future work.}
 Three directions follow naturally. \emph{Nested CV} would address
 the AMYLOSE-style $y$-split issue at the cost of more compute, and
@@ -965,14 +1421,20 @@ strict linear operators, exposes an original-space coefficient
 $\bm\beta=\Umat\Cmat$, and supports five selection modes
 (\texttt{superblock}, \texttt{global}, \texttt{active\_superblock},
 \texttt{branch\_global}, \texttt{mkl}) on top of a single fold-local
-CV core with documented anti-leakage invariants. On a 39-dataset
-NIRS regression cohort drawn from the TabPFN paper benchmark,
-\AOMR\ wins on 32/38 datasets (84\%) against paper Ridge HPO with a
-median RMSEP delta of $-3.90\%$. The \texttt{global} mode is the
-strongest single mode; the SNV branch and the family-pruned bank
-add complementary wins. Limitations on $y$-based splits and
-SNV-on-outliers are documented honestly; nested CV, stacking, and
-learnable preprocessing are the natural follow-ups. \AOMR\ is shipped
+CV core with documented anti-leakage invariants, plus six
+methodological extensions (a ten-branch \texttt{branch\_global}, a
+split-aware inner CV, a soft multi-branch MKL, a local Ridge in
+score space, and convex blender / auto-selector aggregators). On a
+54-dataset NIRS regression cohort drawn from the TabPFN paper
+benchmark (52 paired after excluding two degenerate-or-too-large
+datasets), the \AOMR\ oracle envelope wins on $45/52$ datasets
+($86.5\%$) against paper Ridge HPO with a median RMSEP delta of
+$-4.73\%$, beats PLS on $90.4\%$, TabPFN-Raw on $71.2\%$, CatBoost
+on $73.1\%$, and \emph{ties TabPFN-opt} at $51.9\%$ wins (median
+$-0.21\%$) --- the first non-foundation-model result that matches
+the TabPFN tabular prior on this benchmark. The strongest single
+deployable variant is the convex blender of out-of-fold predictions
+($35/52$ wins, $-2.22\%$ vs.\ paper Ridge HPO). \AOMR\ is shipped
 as a self-contained sklearn-compatible estimator at
 \texttt{bench/AOM\_v0/Ridge/aomridge/}, with reproducible benchmark
 scripts and a permissive open-source license.

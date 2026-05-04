@@ -2,8 +2,56 @@
 \toprule
 dataset_group & dataset & variant & rmsep & rel_rmsep_vs_pls & rel_rmsep_vs_ridge & rel_rmsep_vs_tabpfn_opt \\
 \midrule
-ALPINE & ALPINE_P_291_KS & mkR-softmax_cv & 0.059 & 0.950 & 1.003 & 1.363 \\
+ALPINE & ALPINE_P_291_KS & mkR-softmax_cv & 0.059 & 0.951 & 1.004 & 1.364 \\
 AMYLOSE & Rice_Amylose_313_YbasedSplit & MKM-reml-asls & 1.948 & 1.022 & 1.035 & 1.193 \\
+BEEFMARBLING & Beef_Marbling_RandomSplit & MKM-reml-msc & 70.423 & 0.946 & 0.960 & 1.142 \\
 BEER & Beer_OriginalExtract_60_KS & mkR-softmax_cv-snv & 0.144 & 0.382 & 0.386 & 1.113 \\
+BEER & Beer_OriginalExtract_60_YbaseSplit & MKM-reml-asls & 0.251 & 0.981 & 1.315 & 1.654 \\
+BERRY & brix_groupSampleID_stratDateVar_balRows & MKM-reml & 3.572 & 0.983 & 1.022 & 1.252 \\
+BERRY & ph_groupSampleID_stratDateVar_balRows & MKM-reml-asls & 0.310 & 0.981 & 0.990 & 1.342 \\
+BERRY & ta_groupSampleID_stratDateVar_balRows & mkR-softmax_cv & 1.890 & 1.003 & 1.049 & 1.241 \\
+BISCUIT & Biscuit_Fat_40_RandomSplit & MKM-reml & 0.247 & 0.199 & 0.512 & 0.550 \\
+BISCUIT & Biscuit_Sucrose_40_RandomSplit & mkR-softmax_cv & 0.968 & 0.606 & 0.845 & 1.012 \\
+COLZA & C_woOutlier & mkR-softmax_cv-snv & 1.723 & 1.045 & 0.766 & 2.171 \\
+COLZA & N_wOutlier & MKM-reml-msc & 0.241 & 0.881 & 0.900 & 1.374 \\
+COLZA & N_woOutlier & mkR-softmax_cv-snv & 0.224 & 0.941 & 0.990 & 1.262 \\
+CORN & Corn_Oil_80_ZhengChenPelegYbaseSplit & MKM-reml-asls & 0.018 & 0.769 & 0.424 & 0.730 \\
+CORN & Corn_Starch_80_ZhengChenPelegYbaseSplit & MKM-reml & 0.106 & 1.261 & 0.540 & 1.662 \\
+DIESEL & DIESEL_bp50_246_b-a & MKM-reml-msc & 2.791 & 0.849 & 0.983 & 0.645 \\
+DIESEL & DIESEL_bp50_246_hla-b & MKM-reml & 2.600 & 0.879 & 0.956 & 0.619 \\
+DIESEL & DIESEL_bp50_246_hlb-a & mkR-softmax_cv-snv & 2.658 & 0.796 & 0.953 & 0.903 \\
+DarkResp & Rd25_CBtestSite & MKM-reml & 0.227 & 0.913 & 0.959 & 0.820 \\
+DarkResp & Rd25_GTtestSite & mkR-softmax_cv & 0.198 & 0.758 & 1.006 & 0.698 \\
+DarkResp & Rd25_XSBNtestSite & MKM-reml-asls & 0.241 & 0.763 & 0.916 & 0.943 \\
+DarkResp & Rd25_spxy70 & mkR-softmax_cv & 0.173 & 0.963 & 0.995 & 1.039 \\
+ECOSIS_LeafTraits & Ccar_spxyG_block2deg & Ridge-raw & 45.507 & 0.708 & 0.683 & 1.497 \\
+FUSARIUM & Fv_Fm_grp70_30 & Ridge-raw & 0.030 & 0.956 & 1.063 & 1.181 \\
+GRAPEVINES & grapevine_chloride_556_KS & mkR-softmax_cv-snv & 946.489 & 1.034 & 1.034 & 1.227 \\
+GRAPEVINE_LeafTraits & An_spxyG70_30_byCultivar_ASD & Ridge-raw & 3.441 & 0.951 & 0.830 & 1.006 \\
+GRAPEVINE_LeafTraits & An_spxyG70_30_byCultivar_MicroNIR & MKM-reml-msc & 3.552 & 0.952 & 0.974 & 0.951 \\
+GRAPEVINE_LeafTraits & An_spxyG70_30_byCultivar_MicroNIR_NeoSpectra & mkR-softmax_cv-snv & 3.761 & 0.895 & 0.911 & 1.038 \\
+GRAPEVINE_LeafTraits & An_spxyG70_30_byCultivar_NeoSpectra & Ridge-raw & 4.376 & 0.888 & 0.911 & 0.976 \\
+GRAPEVINE_LeafTraits & LMA_spxyG70_30_byCultivar_ASD & MKM-reml & 0.300 & 0.961 & 0.987 & 0.991 \\
+GRAPEVINE_LeafTraits & WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra & mkR-softmax_cv & 1.375 & 0.742 & 0.862 & 0.927 \\
+IncombustibleMaterial & TIC_spxy70 & mkR-softmax_cv-snv & 3.687 & 1.323 & 1.471 & 1.245 \\
+LUCAS & LUCAS_pH_Organic_1763_LiuRandomOrganic & mkR-softmax_cv-snv & 0.327 & 0.995 & 0.987 & 1.304 \\
+MANURE21 & All_manure_CaO_SPXY_strat_Manure_type & MKM-reml-msc & 7.058 & 0.937 & 1.023 & 1.255 \\
+MANURE21 & All_manure_K2O_SPXY_strat_Manure_type & MKM-reml-asls & 2.191 & 0.928 & 0.935 & 0.824 \\
+MANURE21 & All_manure_MgO_SPXY_strat_Manure_type & mkR-softmax_cv-snv & 0.742 & 0.948 & 0.960 & 0.989 \\
+MANURE21 & All_manure_P2O5_SPXY_strat_Manure_type & MKM-reml-asls & 2.377 & 1.034 & 0.933 & 1.036 \\
+MANURE21 & All_manure_Total_N_SPXY_strat_Manure_type & MKM-reml-asls & 1.526 & 0.868 & 0.894 & 0.957 \\
+MILK & Milk_Fat_1224_KS & mkR-softmax_cv-snv & 0.080 & 0.946 & 0.930 & 0.996 \\
+MILK & Milk_Lactose_1224_KS & mkR-softmax_cv & 0.053 & 0.959 & 0.980 & 1.115 \\
+MILK & Milk_Urea_1224_KS & MKM-reml & 4.079 & 0.980 & 0.973 & 1.038 \\
+PHOSPHORUS & LP_spxyG & Ridge-raw & 0.147 & 0.807 & 0.856 & 0.802 \\
+PHOSPHORUS & MP_spxyG & Ridge-raw & 0.019 & 0.911 & 0.917 & 0.906 \\
+PHOSPHORUS & NP_spxyG & mkR-softmax_cv & 0.103 & 1.005 & 0.868 & 0.890 \\
+PHOSPHORUS & Pi_spxyG & Ridge-raw & 0.144 & 0.745 & 0.807 & 0.799 \\
+PHOSPHORUS & V25_spxyG & Ridge-raw & 0.240 & 0.787 & 0.784 & 0.819 \\
+PLUMS & Firmness_spxy70 & Ridge-raw & 0.275 & 0.592 & 1.068 & 1.070 \\
+QUARTZ & Quartz_spxy70 & Ridge-raw & 0.000 & 0.985 & 0.985 & 0.000 \\
+TABLET & Escitalopramt_310_Zhao & mkR-softmax_cv-snv & 0.366 & 1.085 & 0.967 & 1.116 \\
+WOOD_density & WOOD_Density_402_Olale & MKM-reml-asls & 0.129 & 1.005 & 1.009 & 1.060 \\
+WOOD_density & WOOD_N_402_Olale & mkR-softmax_cv & 0.047 & 0.923 & 0.953 & 0.991 \\
 \bottomrule
 \end{tabular}

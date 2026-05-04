@@ -97,6 +97,21 @@ def _whittaker_smoother_matrix(p: int, lam: float = 10.0, order: int = 2) -> np.
     return A.astype(np.float32)
 
 
+def _low_rank_factor(matrix: np.ndarray, rank: int) -> tuple[np.ndarray, np.ndarray]:
+    """Truncated SVD factorisation: A ≈ U @ V^T with U: (p, k), V^T: (k, p).
+
+    Used by `LowRankMatrixOperator` (V2H — Codex round 7 Q2 follow-up): keeps
+    the flexibility of a learnable (p × p) matrix while reducing parameter
+    count from O(p²) to O(p · k). Initialised from the truncated-SVD of the
+    closed-form AOM operator (Detrend / Whittaker), so the prior is preserved.
+    """
+    U, S, Vt = np.linalg.svd(matrix, full_matrices=False)
+    k = min(rank, S.shape[0])
+    U_k = (U[:, :k] * S[:k]).astype(np.float32)        # (p, k) — absorbs the singular values
+    V_k = Vt[:k].astype(np.float32)                     # (k, p)
+    return U_k, V_k
+
+
 # ---------------------------------------------------------------------------
 # RMS normalisation per branch — mirrors AOM-Ridge `compute_block_scales_from_xt`.
 # ---------------------------------------------------------------------------
@@ -111,22 +126,50 @@ class RMSBranchNorm(nn.Module):
     mean RMS over the training set; we estimate this on-the-fly during the first
     forward pass in `train()` mode and freeze it after `freeze()` is called or on
     transition to `eval()` mode if `freeze_on_eval=True`.
+
+    When ``learnable=True`` (V2L), the inverse-RMS scale is stored as a
+    `nn.Parameter` initialised from the first-batch estimate and trained by
+    gradient — this lets the network refine per-branch weighting through
+    training instead of locking it at one snapshot.
     """
 
-    def __init__(self, freeze_on_eval: bool = True, eps: float = 1e-8):
+    def __init__(self, freeze_on_eval: bool = True, eps: float = 1e-8,
+                 learnable: bool = False, init_mode: str = "inverse_rms"):
+        """``init_mode`` (Codex round 9 diagnostic):
+        * ``"inverse_rms"`` — scale starts at `1 / RMS(branch)` from first batch (V2L default).
+        * ``"unit"``        — scale starts at 1.0 (no data-dependent init); ablation control.
+        """
         super().__init__()
-        self.register_buffer("rms", torch.tensor(1.0))
+        if learnable:
+            self.scale = nn.Parameter(torch.tensor(1.0))
+        else:
+            self.register_buffer("scale", torch.tensor(1.0))
         self.register_buffer("fitted", torch.tensor(0))
         self.freeze_on_eval = freeze_on_eval
         self.eps = eps
+        self.learnable = learnable
+        if init_mode not in ("inverse_rms", "unit"):
+            raise ValueError(f"unknown init_mode {init_mode!r}; expected inverse_rms | unit")
+        self.init_mode = init_mode
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.training and self.fitted.item() == 0:
             with torch.no_grad():
-                rms = torch.sqrt((x * x).mean()).clamp(min=self.eps)
-                self.rms.copy_(rms)
+                if self.init_mode == "inverse_rms":
+                    rms = torch.sqrt((x * x).mean()).clamp(min=self.eps)
+                    target = 1.0 / rms
+                else:
+                    target = torch.tensor(1.0, device=x.device)
+                if isinstance(self.scale, nn.Parameter):
+                    self.scale.data.copy_(target)
+                else:
+                    self.scale.copy_(target)
                 self.fitted.fill_(1)
-        return x / self.rms
+        return x * self.scale
+
+    @property
+    def rms(self) -> torch.Tensor:  # back-compat with pre-V2L tests
+        return 1.0 / self.scale.detach()
 
 
 def _detrend_matrix(p: int, degree: int = 1) -> np.ndarray:
@@ -240,6 +283,75 @@ class FrozenMatrixOperator(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# Low-rank matrix operator — V2H (Codex round 7 Q2 follow-up)
+# ---------------------------------------------------------------------------
+
+
+class LowRankMatrixOperator(nn.Module):
+    """Apply a low-rank approximation `A ≈ U V^T` of the (p × p) operator matrix.
+
+    Initialised from the truncated-SVD (Eckart-Young best rank-k approximation)
+    of the AOM matrix (Detrend, Whittaker). At rank `k = p` the approximation
+    is exact; at smaller ranks it is a **valid chemometric prior**, not an
+    exact replication of the closed-form operator (Codex round 8 F1):
+
+    * **Detrend(degree=1)**: full matrix `A = I − P_B` has rank `p − 2`. At
+      `k < p − 2` the trend subspace is still annihilated (its near-zero
+      singular values survive truncation), but `p − 2 − k` signal-orthogonal
+      directions are lost. Detrending fidelity degrades gracefully.
+    * **Whittaker** `(I + λ D^T D)^{-1}`: full matrix is rank `p`. Truncation
+      to rank `k` converts the smooth-shrinkage prior into hard removal of
+      the `p − k` low-eigenvalue modes — a stronger smoothing than the
+      closed-form operator at high-frequency modes.
+
+    Trainable parameters: `U ∈ R^{p × k}`, `V ∈ R^{k × p}` — total `2 · p · k`
+    instead of `p²`. With `p=2151, k=16`, this is `68,832` instead of
+    `4,626,801` (98.5 % reduction). Empirically (round 8) the rank constraint
+    acts as implicit regularisation that improves cohort-median rmsep over
+    full-rank trainable matrices.
+    """
+
+    def __init__(self, matrix_init: np.ndarray, rank: int = 16, name: str = "lowrank",
+                 trainable: bool = True, reg_lambda: float = 0.0):
+        super().__init__()
+        if matrix_init.ndim != 2 or matrix_init.shape[0] != matrix_init.shape[1]:
+            raise ValueError(f"matrix must be square; got {matrix_init.shape}")
+        U_init, V_init = _low_rank_factor(matrix_init, rank=rank)
+        if trainable:
+            self.U = nn.Parameter(torch.as_tensor(U_init))
+            self.V = nn.Parameter(torch.as_tensor(V_init))
+        else:
+            self.register_buffer("U", torch.as_tensor(U_init))
+            self.register_buffer("V", torch.as_tensor(V_init))
+        self.register_buffer("U_init", torch.as_tensor(U_init))
+        self.register_buffer("V_init", torch.as_tensor(V_init))
+        self.p = matrix_init.shape[0]
+        self.rank = U_init.shape[1]
+        self.name = name
+        self.reg_lambda = float(reg_lambda)
+        self.trainable = bool(trainable)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.dim() != 3:
+            raise ValueError(f"LowRankMatrixOperator expects (N, C, L); got {tuple(x.shape)}")
+        n, c, L = x.shape
+        if L != self.p:
+            raise ValueError(f"LowRankMatrixOperator(p={self.p}) called with L={L}")
+        # X_b = X @ A^T = X @ (U V^T)^T = (X @ V^T) @ U^T
+        x2 = x.reshape(n * c, L)
+        x_proj = x2 @ self.V.transpose(0, 1)            # (N*C, k)
+        out = x_proj @ self.U.transpose(0, 1)           # (N*C, p)
+        return out.reshape(n, c, L)
+
+    def regularisation_loss(self) -> torch.Tensor:
+        if not self.trainable or self.reg_lambda <= 0:
+            return torch.tensor(0.0, device=self.U.device)
+        return self.reg_lambda * (
+            ((self.U - self.U_init) ** 2).sum() + ((self.V - self.V_init) ** 2).sum()
+        )
+
+
+# ---------------------------------------------------------------------------
 # Stateful operators: SNV / MSC
 # ---------------------------------------------------------------------------
 
@@ -324,12 +436,19 @@ class MSCOperator(nn.Module):
 # ---------------------------------------------------------------------------
 
 
-def aom_compact_branches_torch(p: int, trainable: bool = False, reg_lambda: float = 0.0) -> list[nn.Module]:
+def aom_compact_branches_torch(
+    p: int,
+    trainable: bool = False,
+    reg_lambda: float = 0.0,
+    matrix_trainable: bool | None = None,
+) -> list[nn.Module]:
     """Mirror of `aompls.banks.compact_bank()` as PyTorch layers.
 
     Identity + 5 SG variants + 2 Detrend + 1 FD = 9 operators. Detrend is a
     (p × p) matrix; everything else is a 1-D convolution.
     """
+    if matrix_trainable is None:
+        matrix_trainable = trainable
     layers: list[nn.Module] = [
         FrozenConvOperator(_identity_kernel(), name="identity", trainable=False, reg_lambda=reg_lambda),
         FrozenConvOperator(_sg_kernel(11, 2, 0), name="sg_smooth_w11p2",  trainable=trainable, reg_lambda=reg_lambda),
@@ -337,8 +456,8 @@ def aom_compact_branches_torch(p: int, trainable: bool = False, reg_lambda: floa
         FrozenConvOperator(_sg_kernel(11, 2, 1), name="sg_d1_w11p2",      trainable=trainable, reg_lambda=reg_lambda),
         FrozenConvOperator(_sg_kernel(21, 3, 1), name="sg_d1_w21p3",      trainable=trainable, reg_lambda=reg_lambda),
         FrozenConvOperator(_sg_kernel(11, 2, 2), name="sg_d2_w11p2",      trainable=trainable, reg_lambda=reg_lambda),
-        FrozenMatrixOperator(_detrend_matrix(p, 1), name="detrend_d1",    trainable=trainable, reg_lambda=reg_lambda),
-        FrozenMatrixOperator(_detrend_matrix(p, 2), name="detrend_d2",    trainable=trainable, reg_lambda=reg_lambda),
+        FrozenMatrixOperator(_detrend_matrix(p, 1), name="detrend_d1",    trainable=matrix_trainable, reg_lambda=reg_lambda),
+        FrozenMatrixOperator(_detrend_matrix(p, 2), name="detrend_d2",    trainable=matrix_trainable, reg_lambda=reg_lambda),
         FrozenConvOperator(_finite_difference_kernel(1), name="fd_o1",    trainable=trainable, reg_lambda=reg_lambda),
     ]
     return layers
@@ -347,6 +466,7 @@ def aom_compact_branches_torch(p: int, trainable: bool = False, reg_lambda: floa
 def aom_extended_strict_linear_branches_torch(
     p: int, trainable: bool = False, reg_lambda: float = 0.0,
     whittaker_lambda: float = 10.0,
+    matrix_trainable: bool | None = None,
 ) -> list[nn.Module]:
     """Strict-linear AOM-style bank, extended with Norris-Williams + Whittaker.
 
@@ -355,11 +475,15 @@ def aom_extended_strict_linear_branches_torch(
     derivative and Whittaker smoother (order 2) to the compact bank for a total
     of 11 branches.
     """
-    layers = aom_compact_branches_torch(p, trainable=trainable, reg_lambda=reg_lambda)
+    if matrix_trainable is None:
+        matrix_trainable = trainable
+    layers = aom_compact_branches_torch(
+        p, trainable=trainable, reg_lambda=reg_lambda, matrix_trainable=matrix_trainable
+    )
     layers.append(FrozenConvOperator(_norris_williams_kernel(gap=5, smoothing=5, order=1),
                                      name="nw_g5_s5", trainable=trainable, reg_lambda=reg_lambda))
     layers.append(FrozenMatrixOperator(_whittaker_smoother_matrix(p, lam=whittaker_lambda, order=2),
-                                       name="whittaker_l10", trainable=trainable, reg_lambda=reg_lambda))
+                                       name="whittaker_l10", trainable=matrix_trainable, reg_lambda=reg_lambda))
     return layers
 
 
@@ -378,11 +502,50 @@ def cnn_only_extra_branches_torch(p: int, trainable: bool = False, reg_lambda: f
     ]
 
 
-def full_branches_torch(p: int, trainable: bool = False, reg_lambda: float = 0.0) -> list[nn.Module]:
+def full_branches_torch(
+    p: int,
+    trainable: bool = False,
+    reg_lambda: float = 0.0,
+    matrix_trainable: bool | None = None,
+) -> list[nn.Module]:
     """Strict-linear AOM-extended + CNN-only extras (Gaussian, SNV, MSC) = ~14 branches."""
-    return aom_extended_strict_linear_branches_torch(p, trainable=trainable, reg_lambda=reg_lambda) \
+    return aom_extended_strict_linear_branches_torch(
+        p, trainable=trainable, reg_lambda=reg_lambda, matrix_trainable=matrix_trainable
+    ) \
         + cnn_only_extra_branches_torch(p, trainable=trainable, reg_lambda=reg_lambda)
 
 
 # Back-compat alias — old name kept until phase 6 publication run is locked in.
 extended_branches_torch = full_branches_torch
+
+
+def aom_extended_lowrank_branches_torch(
+    p: int,
+    trainable: bool = True,
+    reg_lambda: float = 0.0,
+    whittaker_lambda: float = 10.0,
+    rank: int = 16,
+) -> list[nn.Module]:
+    """V2H bank: same 11 strict-linear AOM ops as `aom_extended_strict_linear_branches_torch`,
+    but Detrend/Whittaker are stored as **low-rank** A ≈ U V^T (rank=`rank`).
+
+    Convolutional ops are trainable (default). Low-rank matrix ops are also
+    trainable; their parameter count is `2 · p · rank` instead of `p²`. With
+    `p=2151, rank=16` this is 68 832 instead of 4 626 801 (98.5 % reduction).
+    """
+    layers: list[nn.Module] = [
+        FrozenConvOperator(_identity_kernel(), name="identity", trainable=False, reg_lambda=reg_lambda),
+        FrozenConvOperator(_sg_kernel(11, 2, 0), name="sg_smooth_w11p2",  trainable=trainable, reg_lambda=reg_lambda),
+        FrozenConvOperator(_sg_kernel(21, 3, 0), name="sg_smooth_w21p3",  trainable=trainable, reg_lambda=reg_lambda),
+        FrozenConvOperator(_sg_kernel(11, 2, 1), name="sg_d1_w11p2",      trainable=trainable, reg_lambda=reg_lambda),
+        FrozenConvOperator(_sg_kernel(21, 3, 1), name="sg_d1_w21p3",      trainable=trainable, reg_lambda=reg_lambda),
+        FrozenConvOperator(_sg_kernel(11, 2, 2), name="sg_d2_w11p2",      trainable=trainable, reg_lambda=reg_lambda),
+        LowRankMatrixOperator(_detrend_matrix(p, 1), rank=rank, name="detrend_d1_lr", trainable=trainable, reg_lambda=reg_lambda),
+        LowRankMatrixOperator(_detrend_matrix(p, 2), rank=rank, name="detrend_d2_lr", trainable=trainable, reg_lambda=reg_lambda),
+        FrozenConvOperator(_finite_difference_kernel(1), name="fd_o1",    trainable=trainable, reg_lambda=reg_lambda),
+        FrozenConvOperator(_norris_williams_kernel(gap=5, smoothing=5, order=1),
+                           name="nw_g5_s5", trainable=trainable, reg_lambda=reg_lambda),
+        LowRankMatrixOperator(_whittaker_smoother_matrix(p, lam=whittaker_lambda, order=2),
+                              rank=rank, name="whittaker_l10_lr", trainable=trainable, reg_lambda=reg_lambda),
+    ]
+    return layers

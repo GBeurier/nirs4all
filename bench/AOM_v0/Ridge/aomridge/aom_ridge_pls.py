@@ -39,6 +39,7 @@ from aompls.operators import (
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import KFold
+from sklearn.utils.validation import check_is_fitted
 
 from .kernels import (
     as_2d_y,
@@ -46,6 +47,7 @@ from .kernels import (
     fit_operator_bank,
     resolve_operator_bank,
 )
+from .selection import select_alpha_with_rule
 
 OperatorBankSpec = str | Sequence[LinearSpectralOperator]
 
@@ -67,10 +69,11 @@ def _is_linear_operator(op: LinearSpectralOperator) -> bool:
     """Return True iff ``op`` is a strict-linear primitive with a fixed matrix.
 
     ``ComposedOperator`` qualifies only if every stage is itself a fixed linear
-    primitive (recursive check).
+    primitive (recursive check). The composed primitive exposes its stages via
+    ``op.operators``.
     """
     if isinstance(op, ComposedOperator):
-        return all(_is_linear_operator(stage) for stage in op.stages)
+        return all(_is_linear_operator(stage) for stage in op.operators)
     return isinstance(op, _LINEAR_OPERATOR_TYPES)
 
 
@@ -123,6 +126,29 @@ def _build_superblock(
     return Z, scales, slices
 
 
+def _per_component_lambda(
+    alpha_eff: float, H: int, mode: str
+) -> np.ndarray:
+    """Return the per-component diagonal ``lambda_h`` vector.
+
+    ``mode`` is one of ``"uniform"``, ``"exponent_0.5"``, ``"exponent_1.0"``.
+    Components are 1-indexed: ``lambda_h = alpha_eff * h ** rho``.
+    """
+    if mode == "uniform":
+        return np.full(H, float(alpha_eff), dtype=float)
+    if mode == "exponent_0.5":
+        rho = 0.5
+    elif mode == "exponent_1.0":
+        rho = 1.0
+    else:
+        raise ValueError(
+            "per_component_penalty must be 'uniform', 'exponent_0.5', or "
+            "'exponent_1.0'"
+        )
+    h_idx = np.arange(1, H + 1, dtype=float)
+    return float(alpha_eff) * (h_idx ** rho)
+
+
 # ----------------------------------------------------------------------
 # Estimator
 # ----------------------------------------------------------------------
@@ -160,6 +186,11 @@ class AOMRidgePLS(BaseEstimator, RegressorMixin):
         If True, center the target (default).
     scale_y : bool
         If True, divide the centered target by its std.
+    per_component_penalty : str
+        How the per-component penalty ``lambda_h`` is built from ``ridge_alpha``.
+        ``"uniform"`` (default) uses a constant ``lambda_h = alpha_eff``;
+        ``"exponent_0.5"`` and ``"exponent_1.0"`` use ``lambda_h = alpha_eff * h**rho``
+        with ``rho`` 0.5 and 1.0 respectively (Variant 3 from the spec).
     cv : int or splitter
         Reserved for the ``AOMRidgePLSCV`` wrapper. Ignored by ``AOMRidgePLS``
         itself but kept on the constructor so user-supplied dictionaries can
@@ -184,16 +215,24 @@ class AOMRidgePLS(BaseEstimator, RegressorMixin):
     score_diag_ : ndarray of shape (H,)
         Diagonal of ``T^T T`` (one value per latent component).
     shrinkage_factors_ : ndarray of shape (H,)
-        Per-component shrinkage ``d_h / (d_h + alpha)``.
+        Per-component shrinkage ``d_h / (d_h + lambda_h)``.
     effective_components_ : float
         Sum of the shrinkage factors (continuous analogue of ``H``).
     block_importance_ : ndarray of shape (B,)
         Aggregated rotation L2 norm per block, weighted by per-component
         shrinkage. Higher = more contribution to predictions.
+    block_component_importance_ : ndarray of shape (B, H)
+        Per-component normalised rotation importance ``||R_{b,h}||^2 /
+        sum_j ||R_{j,h}||^2``.
+    block_component_importance_ridge_ : ndarray of shape (B, H)
+        Per-component normalised rotation importance weighted by the
+        component shrinkage factor.
     block_scales_ : ndarray of shape (B,)
         Per-block scaling ``s_b`` learned on the training fold.
     block_slices_ : list of slice
         Column slice in the standardised superblock for each operator.
+    n_features_in_ : int
+        Number of input features seen at fit time (``X.shape[1]``).
     """
 
     def __init__(
@@ -206,6 +245,7 @@ class AOMRidgePLS(BaseEstimator, RegressorMixin):
         column_scaling: bool = False,
         center_y: bool = True,
         scale_y: bool = False,
+        per_component_penalty: str = "uniform",
         cv: int | object = 5,
         random_state: int = 0,
         max_iter: int = 500,
@@ -219,6 +259,7 @@ class AOMRidgePLS(BaseEstimator, RegressorMixin):
         self.column_scaling = column_scaling
         self.center_y = center_y
         self.scale_y = scale_y
+        self.per_component_penalty = per_component_penalty
         self.cv = cv
         self.random_state = random_state
         self.max_iter = max_iter
@@ -240,6 +281,13 @@ class AOMRidgePLS(BaseEstimator, RegressorMixin):
             )
         if self.block_scaling not in ("frobenius", "none"):
             raise ValueError("block_scaling must be 'frobenius' or 'none'")
+        if self.per_component_penalty not in (
+            "uniform", "exponent_0.5", "exponent_1.0",
+        ):
+            raise ValueError(
+                "per_component_penalty must be 'uniform', 'exponent_0.5', or "
+                "'exponent_1.0'"
+            )
 
     # ------------------------------------------------------------------
     # Fit
@@ -313,21 +361,35 @@ class AOMRidgePLS(BaseEstimator, RegressorMixin):
 
         # Closed-form ridge on the PLS scores.
         H = T.shape[1]
-        G = T.T @ T + alpha_eff * np.eye(H)
+        lambda_h = _per_component_lambda(
+            alpha_eff, H, mode=self.per_component_penalty
+        )
+        G = T.T @ T + np.diag(lambda_h)
         rhs = T.T @ Ys
         C = np.linalg.solve(G, rhs)                              # (H, q)
 
         coef_z = R @ C                                            # (B*p, q)
 
         # Diagnostics.
-        shrink = d / (d + alpha_eff) if alpha_eff > 0.0 else np.ones_like(d)
-        # Per-block rotation importance, optionally weighted by shrinkage.
-        # I_b = sum_h shrink_h * ||R[slice_b, h]||^2
-        block_importance = np.zeros(len(block_slices), dtype=float)
+        # Per-component shrinkage uses the per-component lambda_h.
+        with np.errstate(divide="ignore", invalid="ignore"):
+            denom = d + lambda_h
+            shrink = np.where(denom > 0.0, d / denom, 1.0)
+        # Per-block raw rotation L2 norms ``||R_{b,h}||^2``.
+        raw_block_h = np.zeros((len(block_slices), H), dtype=float)
         for b, sl in enumerate(block_slices):
             R_b = R[sl, :]
-            comp_norms = np.einsum("ij,ij->j", R_b, R_b)
-            block_importance[b] = float(np.dot(shrink, comp_norms))
+            raw_block_h[b] = np.einsum("ij,ij->j", R_b, R_b)
+        # Normalised per-component block importance: I_{b,h} = ||R_{b,h}||^2 /
+        # sum_j ||R_{j,h}||^2 (so each column of block_component_importance_ sums to 1).
+        col_sums = raw_block_h.sum(axis=0)
+        col_sums = np.where(col_sums > 1e-30, col_sums, 1.0)
+        block_component_importance = raw_block_h / col_sums[None, :]
+        block_component_importance_ridge = block_component_importance * shrink[None, :]
+        # Aggregated per-block importance: shrinkage-weighted sum of the raw
+        # rotation norms (kept for backward compatibility with diagnostics
+        # reporting; matches the original semantics).
+        block_importance = raw_block_h @ shrink
 
         # Linear back-projection ``beta = sum_b s_b A_b^T C_b`` (column-rescaled
         # if column_scaling is enabled). Available only when every operator has
@@ -359,11 +421,15 @@ class AOMRidgePLS(BaseEstimator, RegressorMixin):
         self.coef_in_original_space_ = coef_in_original
         self.score_diag_ = d
         self.alpha_effective_ = alpha_eff
+        self.alpha_per_component_ = lambda_h
         self.shrinkage_factors_ = shrink
         self.effective_components_ = float(np.sum(shrink))
         self.block_importance_ = block_importance
+        self.block_component_importance_ = block_component_importance
+        self.block_component_importance_ridge_ = block_component_importance_ridge
         self.C_ = C
         self.n_components_ = int(H)
+        self.n_features_in_ = int(p)
         self._operator_names_ = [op.name for op in ops]
         self._fit_time_s = float(time.perf_counter() - t0)
         self._predict_time_s: float | None = None
@@ -383,8 +449,7 @@ class AOMRidgePLS(BaseEstimator, RegressorMixin):
         return (Z - self.z_mean_) / self.z_scale_
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        if not hasattr(self, "coef_z_"):
-            raise RuntimeError("predict called before fit")
+        check_is_fitted(self)
         X = np.asarray(X, dtype=float)
         if X.ndim != 2:
             raise ValueError("X must be 2D")
@@ -418,6 +483,7 @@ class AOMRidgePLS(BaseEstimator, RegressorMixin):
             "n_components": int(self.n_components_),
             "ridge_alpha": float(self.alpha_effective_),
             "ridge_alpha_mode": self.ridge_alpha_mode,
+            "per_component_penalty": self.per_component_penalty,
             "block_scaling": self.block_scaling,
             "operator_bank": (
                 self.operator_bank if isinstance(self.operator_bank, str) else "custom"
@@ -426,8 +492,13 @@ class AOMRidgePLS(BaseEstimator, RegressorMixin):
             "block_scales": [float(s) for s in self.block_scales_],
             "score_diag": [float(x) for x in self.score_diag_],
             "shrinkage_factors": [float(x) for x in self.shrinkage_factors_],
+            "alpha_per_component": [float(x) for x in self.alpha_per_component_],
             "effective_components": float(self.effective_components_),
             "block_importance": [float(x) for x in self.block_importance_],
+            "block_component_importance": [
+                [float(v) for v in row]
+                for row in self.block_component_importance_
+            ],
             "fit_time_s": float(self._fit_time_s),
             "predict_time_s": (
                 None if self._predict_time_s is None else float(self._predict_time_s)
@@ -455,29 +526,125 @@ def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(np.sqrt(np.mean(diff * diff)))
 
 
+def _sse_and_count(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[float, int]:
+    diff = np.asarray(y_true).ravel() - np.asarray(y_pred).ravel()
+    return float(np.sum(diff * diff)), int(diff.size)
+
+
+def _build_superblock_path(
+    X_tr: np.ndarray,
+    Y_tr2: np.ndarray,
+    operator_bank_spec: OperatorBankSpec,
+    h_value: int,
+    *,
+    block_scaling: str,
+    column_scaling: bool,
+    center_y: bool,
+    scale_y: bool,
+    max_iter: int,
+    tol: float,
+) -> dict:
+    """Fit operators / superblock / PLS *once* for one fold and one ``H``.
+
+    Returns a state dict with ``T``, ``R``, ``Yc_std``, ``y_mean``, ``y_scale``,
+    ``operators``, ``block_scales``, ``block_slices``, ``z_mean``, ``z_scale``,
+    ``score_diag`` and ``H_eff``.
+    """
+    n, p = X_tr.shape
+    ops_template = resolve_operator_bank(operator_bank_spec, p=p)
+    ops = clone_operator_bank(ops_template, p=p)
+    fit_operator_bank(ops, X_tr)
+    Z, block_scales, block_slices = _build_superblock(
+        X_tr, ops, block_scaling=block_scaling
+    )
+    z_mean = Z.mean(axis=0)
+    Zc = Z - z_mean
+    if column_scaling:
+        z_scale = Zc.std(axis=0, ddof=0)
+        z_scale = np.where(z_scale > 1e-12, z_scale, 1.0)
+    else:
+        z_scale = np.ones(Z.shape[1], dtype=float)
+    Zs = Zc / z_scale
+    if center_y:
+        y_mean = Y_tr2.mean(axis=0)
+    else:
+        y_mean = np.zeros(Y_tr2.shape[1], dtype=float)
+    Yc = Y_tr2 - y_mean
+    if scale_y:
+        y_scale = Yc.std(axis=0, ddof=0)
+        y_scale = np.where(y_scale > 1e-12, y_scale, 1.0)
+    else:
+        y_scale = np.ones(Y_tr2.shape[1], dtype=float)
+    Ys = Yc / y_scale
+    h_eff = max(1, min(int(h_value), Zs.shape[1], n - 1))
+    pls = PLSRegression(
+        n_components=h_eff, scale=False, max_iter=int(max_iter), tol=float(tol),
+    )
+    pls.fit(Zs, Ys)
+    R = np.asarray(pls.x_rotations_, dtype=float)
+    T = Zs @ R
+    score_diag = np.einsum("ij,ij->j", T, T)
+    score_diag = np.maximum(score_diag, 0.0)
+    return {
+        "operators": ops,
+        "block_scales": block_scales,
+        "block_slices": block_slices,
+        "z_mean": z_mean,
+        "z_scale": z_scale,
+        "y_mean": y_mean,
+        "y_scale": y_scale,
+        "T": T,
+        "Ys": Ys,
+        "R": R,
+        "score_diag": score_diag,
+        "H_eff": int(h_eff),
+    }
+
+
+def _superblock_test_from_state(state: dict, X_va: np.ndarray) -> np.ndarray:
+    """Build the standardised test superblock using a state dict from ``_build_superblock_path``."""
+    scaled_blocks: list[np.ndarray] = []
+    for op, s in zip(state["operators"], state["block_scales"], strict=True):
+        Zb = np.asarray(op.transform(X_va), dtype=float)
+        scaled_blocks.append(float(s) * Zb)
+    Z_te = np.concatenate(scaled_blocks, axis=1)
+    return (Z_te - state["z_mean"]) / state["z_scale"]
+
+
 class AOMRidgePLSCV(BaseEstimator, RegressorMixin):
     """K-fold CV wrapper that selects ``(n_components, ridge_alpha)`` for AOMRidgePLS.
 
     The wrapper performs a fold-local grid search over the cartesian product of
     ``n_components_grid`` and ``ridge_alpha_grid``. Each fold refits the full
-    chain (operator bank -> superblock scaling -> PLS -> ridge), so no leakage
-    can flow between folds. The best ``(H, alpha)`` pair (lowest mean RMSE) is
-    used to refit on the full training set.
+    chain (operator bank -> superblock scaling -> PLS -> ridge) once per
+    ``H``, then solves the closed-form ridge for every alpha in the grid - so
+    no leakage can flow between folds while the alpha sweep adds negligible
+    cost. The best ``(H, alpha)`` pair is then refit on the full training set.
+
+    Selection follows ``selection_rule`` (``"min"`` for argmin of the summary,
+    ``"1se"`` for the most-regularised alpha within one SE of the minimum).
 
     Parameters
     ----------
     operator_bank : str or sequence
     n_components_grid : sequence of int
-        Candidate values for ``n_components``. Default ``(2, 3, 5, 7, 10, 15, 20)``.
+        Candidate values for ``n_components``. Default
+        ``(2, 3, 4, 5, 7, 10, 15, 20, 30)``.
     ridge_alpha_grid : sequence of float
-        Candidate values for ``ridge_alpha``. Default
-        ``np.logspace(-4, 4, 9)``.
+        Candidate values for ``ridge_alpha``. Default ``np.logspace(-4, 4, 9)``.
     ridge_alpha_mode : str
-        Forwarded to the inner estimator.
-    block_scaling, column_scaling, center_y, scale_y, max_iter, tol :
-        Forwarded to the inner estimator.
+        Forwarded to the inner estimator: ``"absolute"`` or
+        ``"relative_to_score_variance"``.
+    block_scaling, column_scaling, center_y, scale_y, per_component_penalty,
+    max_iter, tol : forwarded to the inner estimator.
     cv : int or splitter
-        K-fold CV strategy. Integer ``k`` -> shuffled ``KFold(k)``.
+        K-fold CV strategy. Integer ``k`` -> shuffled ``KFold(k)``. Any object
+        exposing ``split(X, y)`` is accepted (e.g. ``RepeatedSPXYFold``).
+    selection_rule : str
+        ``"min"`` (default) or ``"1se"``.
+    scoring : str
+        ``"rmse_mean"`` (mean of fold RMSEs, default) or ``"mse_pooled"``
+        (pooled RMSE across folds).
     random_state : int
 
     Attributes
@@ -485,10 +652,10 @@ class AOMRidgePLSCV(BaseEstimator, RegressorMixin):
     best_n_components_ : int
     best_ridge_alpha_ : float
     best_score_ : float
-        Mean CV RMSE at the chosen ``(H, alpha)``.
     cv_results_ : dict
-        Contains ``"n_components"``, ``"ridge_alpha"``, and ``"mean_rmse"``
-        arrays describing the full grid.
+        Contains ``"n_components"``, ``"ridge_alpha"``, ``"mean_rmse"``
+        (summary 2D table), ``"per_fold_rmse"`` (3D ``(n_folds, n_h, n_a)``),
+        and ``"actual_n_components"`` (1D, per ``H`` value).
     estimator_ : AOMRidgePLS
         The refit estimator on the full training data.
     """
@@ -496,14 +663,17 @@ class AOMRidgePLSCV(BaseEstimator, RegressorMixin):
     def __init__(
         self,
         operator_bank: OperatorBankSpec = "compact",
-        n_components_grid: Sequence[int] = (2, 3, 5, 7, 10, 15, 20),
+        n_components_grid: Sequence[int] = (2, 3, 4, 5, 7, 10, 15, 20, 30),
         ridge_alpha_grid: Sequence[float] | None = None,
         ridge_alpha_mode: str = "absolute",
         block_scaling: str = "frobenius",
         column_scaling: bool = False,
         center_y: bool = True,
         scale_y: bool = False,
+        per_component_penalty: str = "uniform",
         cv: int | object = 5,
+        selection_rule: str = "min",
+        scoring: str = "rmse_mean",
         random_state: int = 0,
         max_iter: int = 500,
         tol: float = 1e-6,
@@ -516,7 +686,10 @@ class AOMRidgePLSCV(BaseEstimator, RegressorMixin):
         self.column_scaling = column_scaling
         self.center_y = center_y
         self.scale_y = scale_y
+        self.per_component_penalty = per_component_penalty
         self.cv = cv
+        self.selection_rule = selection_rule
+        self.scoring = scoring
         self.random_state = random_state
         self.max_iter = max_iter
         self.tol = tol
@@ -543,6 +716,7 @@ class AOMRidgePLSCV(BaseEstimator, RegressorMixin):
             column_scaling=self.column_scaling,
             center_y=self.center_y,
             scale_y=self.scale_y,
+            per_component_penalty=self.per_component_penalty,
             cv=self.cv,
             random_state=self.random_state,
             max_iter=self.max_iter,
@@ -551,46 +725,147 @@ class AOMRidgePLSCV(BaseEstimator, RegressorMixin):
 
     # --- fit / predict ---
 
+    def _filter_n_components_grid(self, folds: list, n_rows: int) -> list[int]:
+        """Drop ``H`` values that exceed the smallest fold-train size.
+
+        For an ``H`` to be evaluable in CV, every fold must have at least
+        ``H + 1`` train rows (PLS internally uses ``n - 1`` deflation steps).
+        We require ``H <= min_fold_train_size - 1`` and ``H >= 1``.
+        """
+        min_train = min(int(len(tr)) for tr, _ in folds)
+        cap = max(1, min_train - 1)
+        kept: list[int] = []
+        for h in self.n_components_grid:
+            h_int = int(h)
+            if 1 <= h_int <= cap:
+                kept.append(h_int)
+        if not kept:
+            raise ValueError(
+                f"all candidate n_components values exceed the smallest fold "
+                f"train size minus 1 (cap={cap}); supply smaller H values"
+            )
+        # Preserve order, drop duplicates.
+        seen: set[int] = set()
+        ordered: list[int] = []
+        for h in kept:
+            if h not in seen:
+                seen.add(h)
+                ordered.append(h)
+        return ordered
+
     def fit(self, X: np.ndarray, y: np.ndarray) -> AOMRidgePLSCV:
         X = np.asarray(X, dtype=float)
         Y2, was_1d = as_2d_y(y)
-        n_grid = list(self.n_components_grid)
-        if not n_grid:
+        if not list(self.n_components_grid):
             raise ValueError("n_components_grid must be non-empty")
         a_grid = self._resolved_alpha_grid()
         cv_obj = _resolve_cv(self.cv, random_state=self.random_state)
+        folds = list(cv_obj.split(X, Y2))
+        if not folds:
+            raise ValueError("cv produced no folds")
+        n_grid = self._filter_n_components_grid(folds, X.shape[0])
 
-        mean_rmse = np.full((len(n_grid), len(a_grid)), np.inf, dtype=float)
-        for i_h, h in enumerate(n_grid):
-            for j_a, alpha in enumerate(a_grid):
-                fold_scores: list[float] = []
-                for tr, va in cv_obj.split(X, Y2):
-                    inner = self._make_inner(h, alpha)
-                    inner.fit(X[tr], Y2[tr] if Y2.ndim == 2 else Y2[tr])
-                    pred = inner.predict(X[va])
-                    fold_scores.append(_rmse(Y2[va].ravel() if was_1d else Y2[va], pred))
-                mean_rmse[i_h, j_a] = float(np.mean(fold_scores))
+        n_folds = len(folds)
+        n_h = len(n_grid)
+        n_a = len(a_grid)
+        rmse_per_fold = np.zeros((n_folds, n_h, n_a), dtype=float)
+        sse_per_fold = np.zeros((n_folds, n_h, n_a), dtype=float)
+        count_per_fold = np.zeros((n_folds, n_h, n_a), dtype=float)
+        actual_h = np.zeros((n_folds, n_h), dtype=int)
 
-        best_i, best_j = np.unravel_index(int(np.argmin(mean_rmse)), mean_rmse.shape)
-        best_h = int(n_grid[best_i])
-        best_alpha = float(a_grid[best_j])
+        for fi, (tr_idx, va_idx) in enumerate(folds):
+            X_tr, Y_tr = X[tr_idx], Y2[tr_idx]
+            X_va, Y_va = X[va_idx], Y2[va_idx]
+            for hi, h in enumerate(n_grid):
+                state = _build_superblock_path(
+                    X_tr, Y_tr, self.operator_bank, h,
+                    block_scaling=self.block_scaling,
+                    column_scaling=self.column_scaling,
+                    center_y=self.center_y,
+                    scale_y=self.scale_y,
+                    max_iter=self.max_iter,
+                    tol=self.tol,
+                )
+                actual_h[fi, hi] = state["H_eff"]
+                T_tr = state["T"]
+                Ys_tr = state["Ys"]
+                d = state["score_diag"]
+                # Compute T_te once per (fold, H).
+                Zs_te = _superblock_test_from_state(state, X_va)
+                T_te = Zs_te @ state["R"]
+                rhs = T_tr.T @ Ys_tr
+                # Resolve alpha base for relative mode (same base for all alphas
+                # in the grid: it depends only on diag(T^T T) for this state).
+                if self.ridge_alpha_mode == "relative_to_score_variance":
+                    base = float(np.median(d)) if d.size else 0.0
+                else:
+                    base = 1.0
+                for ai, alpha in enumerate(a_grid):
+                    alpha_eff = float(alpha) * base if (
+                        self.ridge_alpha_mode == "relative_to_score_variance"
+                    ) else float(alpha)
+                    H_eff = state["H_eff"]
+                    lambda_h = _per_component_lambda(
+                        alpha_eff, H_eff, mode=self.per_component_penalty,
+                    )
+                    G = T_tr.T @ T_tr + np.diag(lambda_h)
+                    C = np.linalg.solve(G, rhs)
+                    Yhat_std = T_te @ C
+                    Yhat = Yhat_std * state["y_scale"] + state["y_mean"]
+                    if was_1d:
+                        Y_va_eval = Y_va.ravel()
+                        Yhat_eval = Yhat.ravel()
+                    else:
+                        Y_va_eval = Y_va
+                        Yhat_eval = Yhat
+                    rmse_per_fold[fi, hi, ai] = _rmse(Y_va_eval, Yhat_eval)
+                    sse, n_count = _sse_and_count(Y_va_eval, Yhat_eval)
+                    sse_per_fold[fi, hi, ai] = sse
+                    count_per_fold[fi, hi, ai] = n_count
+
+        # Build summary score per (H, alpha).
+        if self.scoring == "rmse_mean":
+            summary = rmse_per_fold.mean(axis=0)
+        elif self.scoring == "mse_pooled":
+            total_sse = sse_per_fold.sum(axis=0)
+            total_n = count_per_fold.sum(axis=0)
+            total_n = np.where(total_n > 0, total_n, 1)
+            summary = np.sqrt(total_sse / total_n)
+        else:
+            raise ValueError("scoring must be 'rmse_mean' or 'mse_pooled'")
+
+        # Pick the (H, alpha) cell. With selection_rule="1se", the H is chosen
+        # by argmin of the row-min of the summary, then 1-SE is applied inside
+        # that H's alpha-row.
+        row_min = summary.min(axis=1)
+        best_h_idx = int(np.argmin(row_min))
+        per_fold_row = rmse_per_fold[:, best_h_idx, :]
+        ai = select_alpha_with_rule(
+            per_fold_row, np.asarray(a_grid, dtype=float),
+            rule=self.selection_rule, summary=summary[best_h_idx],
+        )
+        best_h = int(n_grid[best_h_idx])
+        best_alpha = float(a_grid[ai])
+
         self.cv_results_ = {
             "n_components": np.asarray(n_grid, dtype=int),
             "ridge_alpha": a_grid,
-            "mean_rmse": mean_rmse,
+            "mean_rmse": summary,
+            "per_fold_rmse": rmse_per_fold,
+            "actual_n_components": actual_h,
         }
         self.best_n_components_ = best_h
         self.best_ridge_alpha_ = best_alpha
-        self.best_score_ = float(mean_rmse[best_i, best_j])
+        self.best_score_ = float(summary[best_h_idx, ai])
 
         self.estimator_ = self._make_inner(best_h, best_alpha)
         # Restore the original 1D shape on the inner refit.
         self.estimator_.fit(X, Y2.ravel() if was_1d else Y2)
+        self.n_features_in_ = int(X.shape[1])
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        if not hasattr(self, "estimator_"):
-            raise RuntimeError("predict called before fit")
+        check_is_fitted(self)
         return self.estimator_.predict(X)
 
     def score(self, X: np.ndarray, y: np.ndarray) -> float:
@@ -598,9 +873,13 @@ class AOMRidgePLSCV(BaseEstimator, RegressorMixin):
 
     def get_diagnostics(self) -> dict:
         diag = dict(self.estimator_.get_diagnostics())
+        # Expose the user-supplied alpha factor (pre-scaling) and the effective
+        # alpha actually used by the refit estimator.
         diag.update({
             "best_n_components": int(self.best_n_components_),
             "best_ridge_alpha": float(self.best_ridge_alpha_),
             "best_score": float(self.best_score_),
+            "selection_rule": self.selection_rule,
+            "scoring": self.scoring,
         })
         return diag

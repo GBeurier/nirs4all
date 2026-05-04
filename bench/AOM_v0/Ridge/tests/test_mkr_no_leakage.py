@@ -11,7 +11,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from aompls.operators import IdentityOperator, LinearSpectralOperator
-
 from aomridge.mkr_estimator import AOMMultiKernelRidge
 
 

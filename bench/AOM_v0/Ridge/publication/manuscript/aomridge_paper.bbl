@@ -1,4 +1,4 @@
-\begin{thebibliography}{23}
+\begin{thebibliography}{26}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -10,6 +10,13 @@ Francis~R. Bach.
 \newblock Consistency of the group lasso and multiple kernel learning.
 \newblock \emph{Journal of Machine Learning Research}, 9:\penalty0 1179--1225,
   2008.
+
+\bibitem[Barnes et~al.(1989)Barnes, Dhanoa, and Lister]{barnes1989snv}
+R.~J. Barnes, M.~S. Dhanoa, and Susan~J. Lister.
+\newblock Standard normal variate transformation and de-trending of
+  near-infrared diffuse reflectance spectra.
+\newblock \emph{Applied Spectroscopy}, 43\penalty0 (5):\penalty0 772--777,
+  1989.
 
 \bibitem[Benavoli et~al.(2017)Benavoli, Corani, Dem{\v{s}}ar, and
   Zaffalon]{benavoli2017time}
@@ -57,6 +64,13 @@ Roberto K.~H. Galv{\~a}o, Mario C.~U. Araujo, Gledson~E. Jose, Marcio J.~C.
 \newblock A method for calibration and validation subset partitioning.
 \newblock \emph{Talanta}, 67\penalty0 (4):\penalty0 736--740, 2005.
 \newblock \doi{10.1016/j.talanta.2005.03.025}.
+
+\bibitem[Geladi et~al.(1985)Geladi, MacDougall, and Martens]{geladi1985msc}
+Paul Geladi, Donald MacDougall, and Harald Martens.
+\newblock Linearization and scatter-correction for near-infrared reflectance
+  spectra of meat.
+\newblock \emph{Applied Spectroscopy}, 39\penalty0 (3):\penalty0 491--500,
+  1985.
 
 \bibitem[G{\"o}nen and Alpayd{\i}n(2011)]{gonen2011multiple}
 Mehmet G{\"o}nen and Ethem Alpayd{\i}n.
@@ -168,5 +182,12 @@ Phil~C. Williams and Karl~H. Norris.
 \newblock Implementation of near-infrared technology.
 \newblock \emph{Near-Infrared Technology in the Agricultural and Food
   Industries}, pages 145--169, 2007.
+
+\bibitem[Wold et~al.(2001)Wold, Sj{\"o}str{\"o}m, and Eriksson]{wold2001pls}
+Svante Wold, Michael Sj{\"o}str{\"o}m, and Lennart Eriksson.
+\newblock Pls-regression: a basic tool of chemometrics.
+\newblock \emph{Chemometrics and Intelligent Laboratory Systems}, 58\penalty0
+  (2):\penalty0 109--130, 2001.
+\newblock \doi{10.1016/S0169-7439(01)00155-1}.
 
 \end{thebibliography}

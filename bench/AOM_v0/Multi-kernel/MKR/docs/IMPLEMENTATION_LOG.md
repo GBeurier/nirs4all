@@ -111,3 +111,56 @@ Tests:
 .venv/bin/pytest bench/AOM_v0/Multi-kernel/MKR/tests -q
 # 48 passed
 ```
+
+## 2026-04-30: Phase 7a — curated 10-dataset benchmark (Codex round 4)
+
+Variant set restricted (per smoke + Codex round 3) to 7 variants and
+run on a 10-dataset diverse cohort (`curated10_cohort.csv`):
+
+- Ridge-raw, mkR-softmax_cv, mkR-softmax_cv-snv, mkR-softmax_cv-msc,
+  MKM-reml, MKM-reml-asls, MKM-reml-msc.
+
+70 / 70 fits OK (results in `benchmark_runs/curated10/`). Per-variant
+medians:
+
+| Variant | Wins / 9 | Median rel-PLS | Median rel-TabPFN-opt | Median fit-time |
+|---------|---------:|---------------:|----------------------:|-----------------:|
+| **MKM-reml-msc** | **7/9** | **0.952** | 1.142 | 26 s |
+| MKM-reml-asls | 6/9 | 0.964 | 1.096 | 26 s |
+| MKM-reml | 6/9 | 0.985 | 1.100 | 31 s |
+| mkR-softmax_cv | 5/9 | 0.976 | 1.080 | 28 s |
+| mkR-softmax_cv-snv | 5/9 | 0.977 | 1.164 | 24 s |
+| mkR-softmax_cv-msc | 5/9 | 0.977 | 1.162 | 44 s |
+| Ridge-raw | 1/9 | 1.263 | 1.475 | 0.05 s |
+
+Wilcoxon p > 0.5 between any two multi-kernel variants — full 54 cohort
+needed.
+
+**Codex round 4 review** (`/tmp/codex_curated10_review.md`,
+saved to `docs/CODEX_BACKLOG_2026-04-30_curated10.md`) findings applied:
+
+- P1 (correction): STATUS reported `8/9` wins vs PLS; actual is `7/9`
+  (BERRY rel=1.01 and MANURE_P2O5 rel=1.03 are losses). Fixed in
+  STATUS.md.
+- P1: keep `mkR-softmax_cv` as conservative default; promote
+  `MKM-reml-msc` and `MKM-reml-asls` as challengers (Codex flagged that
+  MKM-reml-msc fails on BERRY at rel-PLS 1.52, while mkR is best
+  there).
+- P1 / P2: drop `mkR-softmax_cv-msc` (failed BERRY at rel 2.60),
+  `mkR-softmax_cv-asls` (only helped BEER), `BLUP-reml-asls`
+  (predictions duplicate MKM).
+- P1: full-54 wall time estimated at 150-220 hours. Adopted **staged**
+  Phase 7b: Stage A on n≤1500 (51 datasets, 6 variants), Stage B on
+  n>1500 (3 datasets, 4 fast variants).
+
+## 2026-04-30: Phase 7b Stage A launched
+
+Variants: Ridge-raw, mkR-softmax_cv, mkR-softmax_cv-snv (BEER sentinel),
+MKM-reml, MKM-reml-asls, MKM-reml-msc.
+
+Cohort: `all54_stageA_cohort.csv` (51 datasets, `n_train ≤ 1500`).
+
+Runner: `run_multikernel_full.py --n-jobs 4` with lock-protected
+incremental writes.
+
+Workspace: `benchmark_runs/all54_stageA/`.

@@ -208,9 +208,10 @@ class AOMRidgeRegressor(BaseEstimator, RegressorMixin):
             raise ValueError("active_score_method must be 'norm', 'kta', or 'blend'")
         if self.selection_rule not in ("min", "1se"):
             raise ValueError("selection_rule must be 'min' or '1se'")
-        if self.scoring not in ("rmse", "rmse_mean", "mse_pooled"):
+        if self.scoring not in ("rmse", "rmse_mean", "mse_pooled", "rmse_pooled_trimmed"):
             raise ValueError(
-                "scoring must be 'rmse_mean' or 'mse_pooled' (alias 'rmse')"
+                "scoring must be 'rmse_mean', 'mse_pooled', or 'rmse_pooled_trimmed'"
+                " (alias 'rmse' maps to 'rmse_mean')"
             )
 
     def _resolved_scoring(self) -> str:

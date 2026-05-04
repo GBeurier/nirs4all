@@ -221,7 +221,7 @@ class AOMKernelizer:
     # Fit / transform
     # ------------------------------------------------------------------
 
-    def fit(self, X: np.ndarray, y: np.ndarray | None = None) -> "AOMKernelizer":
+    def fit(self, X: np.ndarray, y: np.ndarray | None = None) -> AOMKernelizer:
         """Fit operators to ``X`` and store training kernel statistics.
 
         ``y`` is unused (kept for sklearn API compatibility).
