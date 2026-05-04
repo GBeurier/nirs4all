@@ -24,7 +24,7 @@ import time
 from typing import List, Optional
 
 import numpy as np
-from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.base import BaseEstimator, RegressorMixin, clone  # noqa: F401
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -334,6 +334,10 @@ class AOMMoEMultiK(BaseEstimator, RegressorMixin):
     Hedges against K-parameter dataset dependence. Equal-weights average
     of K_list MoE instances. Cheap if K_list is small (3-5 values) since
     each MoE is independent.
+
+    With ``per_expert_components="auto"``, the per-expert PLS depth scales
+    with the training-set size: 10 for n<200, 15 for n<1000, 25 otherwise.
+    Bigger datasets benefit from more latent variables.
     """
 
     _estimator_type = "regressor"
@@ -341,20 +345,31 @@ class AOMMoEMultiK(BaseEstimator, RegressorMixin):
     def __init__(
         self,
         K_list: tuple = (3, 5, 7),
-        per_expert_components: int = 10,
+        per_expert_components=10,
         random_state: int = 0,
     ) -> None:
         self.K_list = K_list
         self.per_expert_components = per_expert_components
         self.random_state = random_state
 
+    def _resolve_components(self, n: int) -> int:
+        if self.per_expert_components == "auto":
+            if n < 200:
+                return 10
+            if n < 1000:
+                return 15
+            return 25
+        return int(self.per_expert_components)
+
     def fit(self, X: np.ndarray, y: np.ndarray) -> "AOMMoEMultiK":
         start = time.perf_counter()
+        n = X.shape[0]
+        comp = self._resolve_components(n)
         self._models = []
         for k in self.K_list:
             mdl = AOMMoERegressor(
                 expert_layout="per_view", routing="soft", K=int(k),
-                per_expert_components=self.per_expert_components,
+                per_expert_components=comp,
                 random_state=self.random_state,
             )
             mdl.fit(X, y)
@@ -366,4 +381,41 @@ class AOMMoEMultiK(BaseEstimator, RegressorMixin):
         if not hasattr(self, "_models"):
             raise RuntimeError("Estimator not fitted")
         preds = np.column_stack([m.predict(X) for m in self._models])
+        return preds.mean(axis=1)
+
+
+class MultiVariantMeanEnsemble(BaseEstimator, RegressorMixin):
+    """Mean of test predictions across heterogeneous base estimators.
+
+    Each base is fit on the full training data; their test-time predictions
+    are averaged with equal weights. Cheap, robust, and benefits from
+    uncorrelated errors when bases use different mechanisms.
+
+    Parameters
+    ----------
+    bases : list of (name, estimator) tuples
+        Base sklearn estimators. Each is `clone`d on `fit`.
+    """
+
+    _estimator_type = "regressor"
+
+    def __init__(self, bases=None) -> None:
+        self.bases = bases
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> "MultiVariantMeanEnsemble":
+        if not self.bases:
+            raise ValueError("bases must be a non-empty list")
+        start = time.perf_counter()
+        self._fitted = []
+        for name, est in self.bases:
+            e = clone(est)
+            e.fit(X, y)
+            self._fitted.append((name, e))
+        self.fit_time_s_ = float(time.perf_counter() - start)
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        if not hasattr(self, "_fitted"):
+            raise RuntimeError("Estimator not fitted")
+        preds = np.column_stack([np.asarray(e.predict(X)).ravel() for _n, e in self._fitted])
         return preds.mean(axis=1)

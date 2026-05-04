@@ -514,7 +514,91 @@ estimator for cohorts where K is unknown.
 3. Stack-ridge meta on top of {multiK-3-5-7, moe-preproc-soft, AOM-Ridge}
    when AOM-Ridge can be afforded (~2 min/dataset on n<6000).
 
-## 14. Next steps
+## 14. Phase 10: wider K + multi-view mean ensemble
+
+User asked to push further. Two directions tested in protocol smoke-4 →
+smoke-10 → full-57.
+
+### Smoke-4 highlights
+
+- `multiK-wide-2-10` beats TabPFN on Beer (0.138 < 0.152) — even better
+  than `multiK-3-5-7` (0.141).
+- `mean-ensemble-4` beats TabPFN on **3/4 smoke datasets** (Chla+b, grapevine,
+  All_manure) — but loses on Beer because moe-preproc-soft and lazy-V2-AOM
+  drag down the average there.
+
+### Smoke-10 by median rel-RMSEP
+
+| Variant | Wins vs TabPFN | Median |
+|---------|---------------:|-------:|
+| **mean-ensemble-3** | 3/10 | **0.840** ← new median champion |
+| moe-view-multiK-3-5 (Phase 9) | 5/10 | 0.870 |
+| ridge-stack-multiview | 2/10 | 0.873 |
+| mean-ensemble-4 | 3/10 | 0.878 |
+
+### Full-57 final
+
+| Variant | Wins(PLS) | Wins(AOM) | Wins(TabPFN) | Median rel-RMSEP |
+|---------|----------:|----------:|-------------:|-----------------:|
+| **mean-ensemble-4-fixed** | **49/61** | **46/61** | 13/61 | **0.883** |
+| **mean-ensemble-3-fixed** | **49/61** | 43/61 | 14/61 | 0.887 |
+| **moe-view-multiK-wide-2-10** | 47/61 | 35/61 | **16/61** | 0.918 |
+| moe-preproc-soft-pls-compact (Phase 5) | 47/61 | 32/61 | 12/61 | 0.929 |
+| moe-view-multiK-3-5-7 (Phase 9) | 39/61 | 28/61 | 16/61 | 0.934 |
+
+### Phase 10 conclusions
+
+Three new winners:
+
+1. **Best median: `mean-ensemble-4-fixed` at 0.883** — improves over the
+   previous best (0.929) by 4.6%. Combines `multiK-3-5-7`,
+   `moe-preproc-soft`, `lazy-V2-AOM-combined`, and `AOM-PLS-compact`
+   via simple equal-weight averaging of test predictions.
+
+2. **Best wins vs PLS / AOM-PLS: `mean-ensemble-4-fixed`** — 49/61 (80%)
+   vs PLS-std and 46/61 (75%) vs AOM-PLS, the highest aggregate win counts
+   on the cohort.
+
+3. **Best TabPFN-opt-beating: `moe-view-multiK-wide-2-10`** — ties Phase 9
+   `multiK-3-5-7` at 16/61 wins vs TabPFN-opt, but with much stronger
+   PLS/AOM win counts (47/35 vs 39/28). The wider K-sweep (K=2,3,4,5,7,10)
+   with adaptive components scales smarter to dataset size.
+
+### Why mean-ensemble works
+
+Mean-of-test-predictions exploits **uncorrelated errors** across the bases.
+Each base attacks the regression with a different mechanism:
+- `multiK-3-5-7` — block-aware PLS averaged over K
+- `moe-preproc-soft` — preprocessing-as-experts MoE
+- `lazy-V2-AOM` — operator-mixture in original feature space
+- `AOM-PLS-compact` — global per-LV operator selection
+
+When their residuals are decorrelated (common), the average has smaller
+variance than any single base — a textbook ensemble win, but rare in
+practice without explicit decorrelation. We get it here because the
+bases use distinct view/operator strategies.
+
+## 15. Final headline (after Phase 10)
+
+| Best by | Variant | Score |
+|---------|---------|-------|
+| **Median rel-RMSEP** | **mean-ensemble-4-fixed** | **0.883** |
+| **Wins vs PLS-std** | mean-ensemble-4-fixed (or 3-fixed) | 49/61 (80%) |
+| **Wins vs AOM-PLS** | mean-ensemble-4-fixed | 46/61 (75%) |
+| **Wins vs TabPFN-opt** | moe-view-multiK-wide-2-10 | 16/61 (26%) |
+| Niche big-win specialist | lazy-V1-POP-blocks3 | up to −65% on Chla+b family |
+
+### Recommended workflow (Phase 10)
+
+1. **Default**: `mean-ensemble-4-fixed`. 80% of datasets see RMSEP
+   improvement vs PLS-std, 75% vs AOM-PLS, 4.6% median rel-RMSEP
+   improvement. Best general-purpose multi-view model.
+2. **TabPFN-competitive**: `moe-view-multiK-wide-2-10`. 16/61 wins vs
+   TabPFN-opt and a strong all-around win count (47/35).
+3. **Block-structured datasets**: `lazy-V1-POP-blocks3` keeps its niche
+   for Chla+b-family datasets where signal lives in one detector segment.
+
+## 16. Next steps
 
 1. **Full-57** — running with top variants (moe-view-soft, moe-preproc-soft,
    lazy-V2-AOM-combined, lazy-V1-POP, plus references). Block-sparse-V1 is
