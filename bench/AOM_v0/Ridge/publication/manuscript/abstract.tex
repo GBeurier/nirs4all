@@ -22,21 +22,31 @@ exposes five selection modes --- \texttt{superblock} (one Ridge over the
 full bank), \texttt{global} (hard $(b^\star,\alpha^\star)$ selection by
 fold-local CV), \texttt{active\_superblock} (top-$m$ + diversity
 pruning), \texttt{branch\_global} (fold-local CV over (branch, op,
-$\alpha$) with non-strict-linear branches in
-\{\texttt{none}, \SNV, \MSC\}), and \texttt{mkl} (kernel-target-alignment
-weighted block sum) --- all of which run on top of a single fold-local
-CV core that rebuilds means, operator clones, scales, and kernels
-inside every fold. Anti-leakage is verified by spy operators that fail
-when any fold-local invariant is broken. On a 39-dataset NIRS regression
-cohort assembled from the TabPFN paper benchmark, \AOMR\ wins on
-\textbf{32/38 datasets (84\%)} against the published Ridge HPO baseline,
-with a median test-RMSEP delta of \textbf{$-3.64\%$}; the strongest
-single mode (\texttt{global}) wins on $\sim$33\% of datasets, with
-SNV-branch and family-pruned variants contributing the remainder.
-The estimator returns an original-space coefficient
-$\bm\beta\in\R^{p\times q}$, is sklearn-compatible, and is shipped as a
-self-contained package (\texttt{aomridge}) under
-\texttt{bench/AOM\_v0/Ridge/}.
+$\alpha$) with non-strict-linear branches), and \texttt{mkl}
+(kernel-target-alignment weighted block sum) --- all of which run on
+top of a single fold-local CV core that rebuilds means, operator
+clones, scales, and kernels inside every fold. We further introduce
+six methodological extensions (a ten-branch \texttt{branch\_global}
+covering the full SNV/MSC/EMSC/AsLS family, a split-aware inner CV for
+$y$-based stress splits, a soft multi-branch MKL, a local Ridge in
+score space, and convex blender / auto-selector aggregators) and
+companion \emph{AOM-Ridge-PLS} that ridge-regresses on PLS rotations of
+the operator-mixture superblock. Anti-leakage is verified by spy
+operators that fail when any fold-local invariant is broken. On a
+54-dataset NIRS regression cohort assembled from the TabPFN paper
+benchmark, the \AOMR\ oracle envelope wins on \textbf{45/52 datasets
+(86.5\%)} against the published Ridge HPO baseline (median test-RMSEP
+delta $\bm{-4.73\%}$), beats PLS on $90.4\%$, TabPFN-Raw on $71.2\%$,
+CatBoost on $73.1\%$, and \emph{ties} TabPFN-opt at $51.9\%$ wins
+(median $-0.21\%$) --- the first non-foundation-model result that
+statistically matches TabPFN-opt on this benchmark. The strongest
+single deployable variant is the convex \texttt{Blender} of
+out-of-fold predictions ($35/52$ wins, median $-2.22\%$ vs.\ Ridge
+HPO), followed by the meta-\texttt{AutoSelect} ($27/52$, $-0.61\%$)
+and the split-aware inner CV ($30/52$, $-0.40\%$). The estimator
+returns an original-space coefficient $\bm\beta\in\R^{p\times q}$, is
+sklearn-compatible, and is shipped as a self-contained package
+(\texttt{aomridge}) under \texttt{bench/AOM\_v0/Ridge/}.
 \end{abstract}
 
 \medskip

@@ -96,7 +96,68 @@ def _build_base_estimator(name: str, seed: int, cfg: StackingConfig):
         return _SklearnEstimatorAdapter(SearchedRidge(seed=seed))
     if name == "searched_pls":
         return _SklearnEstimatorAdapter(SearchedPLS(seed=seed))
+    if name == "v2h":
+        return _NiconV2HAdapter(seed=seed, cfg=cfg)
     raise ValueError(f"unknown base learner: {name!r}")
+
+
+class _NiconV2HAdapter:
+    """V2H-lowrank-r32 (round 8 production CNN) wrapped as a fit/predict estimator
+    for use as a base learner in OOF stacking.
+    """
+
+    def __init__(self, seed: int, cfg: StackingConfig, lowrank_rank: int = 32):
+        self.seed = seed
+        self.cfg = cfg
+        self.lowrank_rank = lowrank_rank
+        self._x_proc: StandardXProcessor | None = None
+        self._y_proc: StandardYProcessor | None = None
+        self._model = None
+        self._device = None
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> "_NiconV2HAdapter":
+        from ..augmentation import AugmentationPlan, BjerrumConfig, CMixupConfig
+        from .v2_aom_cnn import build_nicon_v2a
+
+        set_global_seed(self.seed)
+        device = pick_device("auto")
+        self._device = device
+        x_proc = StandardXProcessor().fit(X)
+        y_proc = StandardYProcessor().fit(y)
+        Xs = x_proc.transform(X)
+        ys = y_proc.transform(y)
+        n_features = Xs.shape[1]
+        params = {
+            "bank": "extended_lowrank", "trainable_ops": True,
+            "operator_reg_lambda": 0.0, "branch_se": True,
+            "lowrank_rank": self.lowrank_rank,
+        }
+        model = build_nicon_v2a((1, n_features), params=params).to(device)
+        if hasattr(model, "fit_branches"):
+            import torch
+            x_t = torch.from_numpy(Xs.reshape(-1, 1, n_features)).float().to(device)
+            model.fit_branches(x_t)
+        config = TrainConfig(
+            seed=self.seed, device=device.type,
+            batch_size=min(32, max(8, Xs.shape[0] // 8)),
+            epochs=self.cfg.cnn_train_epochs, patience=self.cfg.cnn_train_patience,
+        )
+        if self.cfg.cnn_use_bjerrum:
+            plan = AugmentationPlan(bjerrum=BjerrumConfig(enabled=True), cmixup=CMixupConfig(enabled=False))
+            bjer, _, _ = plan.build(Xs, ys, seq_len=n_features, device=device)
+            config.augmenter = bjer
+        model, _ = train_torch_regressor(model, Xs, ys, config)
+        self._x_proc = x_proc
+        self._y_proc = y_proc
+        self._model = model
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        if self._model is None or self._x_proc is None or self._y_proc is None:
+            raise RuntimeError("V2H adapter not fitted")
+        Xs = self._x_proc.transform(X)
+        pred_scaled = predict_torch_regressor(self._model, Xs, device=self._device)
+        return self._y_proc.inverse_transform(pred_scaled)
 
 
 class _AOMRidgeAdapter:

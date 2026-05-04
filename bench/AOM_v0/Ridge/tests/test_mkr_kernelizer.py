@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from aomridge.kernelizer import (
     AOMKernelizer,
     kernel_alignment_matrix,
@@ -16,7 +15,7 @@ def _smooth_X(n: int, p: int, seed: int = 0) -> np.ndarray:
     grid = np.arange(p, dtype=float)
     X = np.zeros((n, p), dtype=float)
     for i in range(n):
-        for k in range(3):
+        for _k in range(3):
             c = rng.uniform(0.1 * p, 0.9 * p)
             w = rng.uniform(0.05 * p, 0.15 * p)
             a = rng.normal()

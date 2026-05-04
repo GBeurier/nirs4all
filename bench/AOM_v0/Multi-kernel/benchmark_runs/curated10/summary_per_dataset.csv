@@ -1,0 +1,11 @@
+dataset_group,dataset,variant,rmsep,rel_rmsep_vs_pls,rel_rmsep_vs_ridge,rel_rmsep_vs_tabpfn_opt,fit_time_s
+BEEFMARBLING,Beef_Marbling_RandomSplit,MKM-reml-msc,70.423,0.9462,0.96,1.1421,162.1741
+BERRY,ta_groupSampleID_stratDateVar_balRows,mkR-softmax_cv,1.8953,1.0058,1.0522,1.2442,462.9846
+DIESEL,DIESEL_bp50_246_b-a,MKM-reml-msc,2.7909,0.8488,0.9833,0.6449,24.1507
+DIESEL,DIESEL_bp50_246_hla-b,MKM-reml,2.6005,0.8786,0.9561,0.6185,19.4215
+FUSARIUM,Fv_Fm_grp70_30,Ridge-raw,0.0302,0.9557,1.0634,1.1805,0.5152
+GRAPEVINE_LeafTraits,An_spxyG70_30_byCultivar_MicroNIR,MKM-reml-msc,3.5519,0.9518,0.9739,0.951,11.4482
+MALARIA,Malaria_Sporozoite_229_Maia,MKM-reml,33995.2072,,,,2.3757
+MANURE21,All_manure_CaO_SPXY_strat_Manure_type,MKM-reml-msc,7.0575,0.9374,1.0231,1.2554,27.7237
+MANURE21,All_manure_P2O5_SPXY_strat_Manure_type,MKM-reml-asls,2.3776,1.0336,0.9335,1.0359,24.8534
+WOOD_density,WOOD_N_402_Olale,mkR-softmax_cv,0.0468,0.9232,0.9531,0.9903,22.1247

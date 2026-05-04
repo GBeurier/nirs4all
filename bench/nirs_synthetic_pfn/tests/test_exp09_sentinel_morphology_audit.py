@@ -5833,6 +5833,2172 @@ def test_render_markdown_emits_r2z_manure_non_gate_note(tmp_path: Path) -> None:
     assert "not a B2/B3/B4/B5 gate" in md
 
 
+def test_exp09_exposes_r3a_profile_and_changes_only_corn_vs_r2w() -> None:
+    exp09 = _load_exp09_module()
+    assert "r3a_corn_matrix_v1" in exp09.R3A_REMEDIATION_PROFILES
+    assert "r3a_corn_matrix_v1" in exp09.ALL_REMEDIATION_PROFILES
+    assert "R3A_REMEDIATION_PROFILES" in exp09.__all__
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("CORN_Corn_Oil_80_ZhengChenPelegYbaseSplit"),
+            "r3a_corn_matrix_v1",
+        )
+        == "r3a_corn_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("DIESEL_bp50_246_b-a"),
+            "r3a_corn_matrix_v1",
+        )
+        == "r2s_sentinel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("BEER_OriginalExtract_60_KS"),
+            "r3a_corn_matrix_v1",
+        )
+        == "r2o_sentinel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+            "r3a_corn_matrix_v1",
+        )
+        == "r2w_sentinel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("PHOSPHORUS_SOIL"),
+            "r3a_corn_matrix_v1",
+        )
+        == "r2p_sentinel_matrix_v1"
+    )
+
+
+def test_r3a_token_overrides_are_corn_only_and_non_oracle() -> None:
+    exp09 = _load_exp09_module()
+    corn = exp09._r3a_token_source_overrides(
+        _make_dataset("CORN_Corn_Starch_80_ZhengChenPelegYbaseSplit")
+    )
+    route = corn["_r3a_corn_readout_route"]
+    assert corn["matrix_type"] == "powder"
+    assert corn["measurement_mode"] == "reflectance"
+    assert corn["components"] == ["starch", "protein", "moisture", "lipid", "cellulose"]
+    assert route == {
+        "enabled": True,
+        "route_marker": "corn",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert "_r3a_corn_readout_route" not in exp09._r3a_token_source_overrides(
+        _make_dataset("BEER_OriginalExtract_60_KS")
+    )
+    assert "_r3a_corn_readout_route" not in exp09._r3a_token_source_overrides(
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type")
+    )
+
+
+def test_r3a_corn_build_records_powder_albedo_provenance() -> None:
+    exp09 = _load_exp09_module()
+    corn = _make_dataset("CORN_Corn_Oil_80_ZhengChenPelegYbaseSplit")
+    run = exp09._build_baseline_synthetic_run(
+        dataset=corn,
+        preset=exp09.select_synthetic_preset_for_dataset(corn),
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3a_corn_matrix_v1",
+    )
+
+    audit = run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r3a_corn_matrix_v1"
+    assert audit["scope"] == "bench_only_r3a_corn_matrix_remediation"
+    assert audit["real_stat_capture"] is False
+    assert audit["thresholds_modified"] is False
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == "corn_powder_albedo_baseline_smoothing_readout"
+    assert params["composition_source"] == "textbook_corn_grain_powder_composition"
+    assert params["spectra_source"] == (
+        "fixed_corn_meal_diffuse_reflectance_albedo_plus_particle_smoothing"
+    )
+    assert params["provenance_source"] == "exp09_dataset_token_corn_route"
+    assert params["corn_readout_route_marker"] == "corn"
+    assert params["corn_readout_route_real_stat_capture"] is False
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r3a_corn_matrix_v1",
+        metadata=run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "corn_grain_powder_matrix"
+    assert fields["r2c_remediation_real_stat_source"] == "none"
+
+
+def test_render_markdown_emits_r3a_corn_non_gate_note(tmp_path: Path) -> None:
+    exp09 = _load_exp09_module()
+    row = exp09.MorphologyRow(
+        status="compared",
+        source="AOM_regression",
+        task="regression",
+        dataset="CORN/Corn_Oil_80_ZhengChenPelegYbaseSplit",
+        synthetic_preset="grain",
+        comparison_space=exp09.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=10,
+        wavelength_min=1100.0,
+        wavelength_max=2500.0,
+        real_global_mean=0.39,
+        synthetic_global_mean=0.38,
+        global_mean_delta=-0.01,
+        real_global_std=0.08,
+        synthetic_global_std=0.07,
+        global_std_ratio=0.875,
+        log10_global_std_ratio=-0.058,
+        real_amplitude_p50=0.2,
+        synthetic_amplitude_p50=0.18,
+        amplitude_p50_ratio=0.9,
+        log10_amplitude_p50_ratio=-0.0458,
+        real_derivative_std_p50=0.01,
+        synthetic_derivative_std_p50=0.012,
+        derivative_std_p50_ratio=1.2,
+        log10_derivative_std_p50_ratio=0.0792,
+        mean_curve_corr=0.9,
+        inverted_mean_curve_corr=-0.9,
+        morphology_gap_score=0.61,
+        dominant_morphology_gap="amplitude_under",
+        audit_oracle=False,
+        audit_label_inputs_used=False,
+        audit_target_inputs_used=False,
+        audit_split_inputs_used=False,
+        audit_source_oracle_used=False,
+        audit_learned=False,
+        audit_real_stat_capture=False,
+        audit_thresholds_modified=False,
+        audit_metrics_modified=False,
+        audit_imputed=False,
+        audit_replays_real_rows=False,
+        audit_scope="bench_only_r3a_sentinel_morphology_audit",
+        **_remediation_kwargs(
+            profile="r3a_corn_matrix_v1",
+            effective_matrix_route="corn_grain_powder_matrix",
+            enabled=True,
+            domain_key="agriculture_grain",
+            concentrations_applied=True,
+            spectra_applied=True,
+            spectra_rule="corn_powder_albedo_baseline_smoothing_readout",
+            composition_source="textbook_corn_grain_powder_composition",
+            spectra_source=(
+                "fixed_corn_meal_diffuse_reflectance_albedo_plus_particle_smoothing"
+            ),
+            provenance_source="exp09_dataset_token_corn_route",
+            constant_status="fixed_mechanistic_prior",
+            readout_space="corn_powder_raw_apparent_absorbance",
+            calibration_source="none",
+            real_stat_source="none",
+            threshold_source="none",
+        ),
+        blocked_reason="",
+    )
+    result = {
+        "status": "completed",
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "rows": [row],
+        "remediation_profile": "r3a_corn_matrix_v1",
+    }
+
+    md = exp09.render_markdown(
+        result=result,
+        report_path=tmp_path / "r3a.md",
+        csv_path=tmp_path / "r3a.csv",
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seed=1234,
+        sentinel_tokens=list(exp09.DEFAULT_SENTINEL_TOKENS),
+        remediation_profile="r3a_corn_matrix_v1",
+    )
+
+    assert "## R3a CORN Provenance" in md
+    assert "`corn_powder_albedo_baseline_smoothing_readout`" in md
+    assert "preserving the established BEER, DIESEL, MANURE21, MILK, soil, and fruit routes" in md
+    assert "No real CORN spectra, marginal statistics, covariance/PCA structure" in md
+    assert "CORN rows dominated by `amplitude_under` = 1/1" in md
+    assert "Non-target rows accidentally reported on R3a = 0/0" in md
+    assert "not a B2/B3/B4/B5 gate" in md
+
+
+def test_exp09_exposes_r3b_profile_and_changes_only_corn_vs_r2w() -> None:
+    exp09 = _load_exp09_module()
+    assert "r3b_corn_matrix_v1" in exp09.R3B_REMEDIATION_PROFILES
+    assert "r3b_corn_matrix_v1" in exp09.ALL_REMEDIATION_PROFILES
+    assert "R3B_REMEDIATION_PROFILES" in exp09.__all__
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("CORN_Corn_Oil_80_ZhengChenPelegYbaseSplit"),
+            "r3b_corn_matrix_v1",
+        )
+        == "r3b_corn_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("DIESEL_bp50_246_b-a"),
+            "r3b_corn_matrix_v1",
+        )
+        == "r2s_sentinel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("BEER_OriginalExtract_60_KS"),
+            "r3b_corn_matrix_v1",
+        )
+        == "r2o_sentinel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+            "r3b_corn_matrix_v1",
+        )
+        == "r2w_sentinel_matrix_v1"
+    )
+
+
+def test_r3b_token_overrides_are_corn_only_and_non_oracle() -> None:
+    exp09 = _load_exp09_module()
+    corn = exp09._r3b_token_source_overrides(
+        _make_dataset("CORN_Corn_Starch_80_ZhengChenPelegYbaseSplit")
+    )
+    route = corn["_r3b_corn_readout_route"]
+    assert corn["matrix_type"] == "powder"
+    assert corn["measurement_mode"] == "reflectance"
+    assert route == {
+        "enabled": True,
+        "route_marker": "corn",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert "_r3b_corn_readout_route" not in exp09._r3b_token_source_overrides(
+        _make_dataset("BEER_OriginalExtract_60_KS")
+    )
+    assert "_r3b_corn_readout_route" not in exp09._r3b_token_source_overrides(
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type")
+    )
+
+
+def test_r3b_corn_build_records_path_dispersion_provenance() -> None:
+    exp09 = _load_exp09_module()
+    corn = _make_dataset("CORN_Corn_Oil_80_ZhengChenPelegYbaseSplit")
+    run = exp09._build_baseline_synthetic_run(
+        dataset=corn,
+        preset=exp09.select_synthetic_preset_for_dataset(corn),
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3b_corn_matrix_v1",
+    )
+
+    audit = run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r3b_corn_matrix_v1"
+    assert audit["scope"] == "bench_only_r3b_corn_matrix_remediation"
+    assert audit["real_stat_capture"] is False
+    assert audit["thresholds_modified"] is False
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == (
+        "corn_powder_albedo_path_dispersion_smoothing_readout"
+    )
+    assert params["spectra_source"] == (
+        "fixed_corn_meal_albedo_plus_coarse_particle_path_dispersion_smoothing"
+    )
+    assert params["path_factor_range"] == [0.9, 1.35]
+    assert params["provenance_source"] == "exp09_dataset_token_corn_route"
+    assert params["corn_readout_route_marker"] == "corn"
+    assert params["corn_readout_route_real_stat_capture"] is False
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r3b_corn_matrix_v1",
+        metadata=run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "corn_grain_powder_matrix"
+    assert fields["r2c_remediation_real_stat_source"] == "none"
+
+
+def test_render_markdown_emits_r3b_corn_non_gate_note(tmp_path: Path) -> None:
+    exp09 = _load_exp09_module()
+    row = exp09.MorphologyRow(
+        status="compared",
+        source="AOM_regression",
+        task="regression",
+        dataset="CORN/Corn_Oil_80_ZhengChenPelegYbaseSplit",
+        synthetic_preset="grain",
+        comparison_space=exp09.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=10,
+        wavelength_min=1100.0,
+        wavelength_max=2500.0,
+        real_global_mean=0.39,
+        synthetic_global_mean=0.38,
+        global_mean_delta=-0.01,
+        real_global_std=0.08,
+        synthetic_global_std=0.07,
+        global_std_ratio=0.875,
+        log10_global_std_ratio=-0.058,
+        real_amplitude_p50=0.2,
+        synthetic_amplitude_p50=0.18,
+        amplitude_p50_ratio=0.9,
+        log10_amplitude_p50_ratio=-0.0458,
+        real_derivative_std_p50=0.01,
+        synthetic_derivative_std_p50=0.012,
+        derivative_std_p50_ratio=1.2,
+        log10_derivative_std_p50_ratio=0.0792,
+        mean_curve_corr=0.9,
+        inverted_mean_curve_corr=-0.9,
+        morphology_gap_score=0.61,
+        dominant_morphology_gap="variance_under",
+        audit_oracle=False,
+        audit_label_inputs_used=False,
+        audit_target_inputs_used=False,
+        audit_split_inputs_used=False,
+        audit_source_oracle_used=False,
+        audit_learned=False,
+        audit_real_stat_capture=False,
+        audit_thresholds_modified=False,
+        audit_metrics_modified=False,
+        audit_imputed=False,
+        audit_replays_real_rows=False,
+        audit_scope="bench_only_r3b_sentinel_morphology_audit",
+        **_remediation_kwargs(
+            profile="r3b_corn_matrix_v1",
+            effective_matrix_route="corn_grain_powder_matrix",
+            enabled=True,
+            domain_key="agriculture_grain",
+            concentrations_applied=True,
+            spectra_applied=True,
+            spectra_rule="corn_powder_albedo_path_dispersion_smoothing_readout",
+            composition_source="textbook_corn_grain_powder_composition",
+            spectra_source=(
+                "fixed_corn_meal_albedo_plus_coarse_particle_path_dispersion_smoothing"
+            ),
+            provenance_source="exp09_dataset_token_corn_route",
+            constant_status="fixed_mechanistic_prior",
+            readout_space="corn_powder_raw_apparent_absorbance",
+            calibration_source="none",
+            real_stat_source="none",
+            threshold_source="none",
+        ),
+        blocked_reason="",
+    )
+    result = {
+        "status": "completed",
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "rows": [row],
+        "remediation_profile": "r3b_corn_matrix_v1",
+    }
+
+    md = exp09.render_markdown(
+        result=result,
+        report_path=tmp_path / "r3b.md",
+        csv_path=tmp_path / "r3b.csv",
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seed=1234,
+        sentinel_tokens=list(exp09.DEFAULT_SENTINEL_TOKENS),
+        remediation_profile="r3b_corn_matrix_v1",
+    )
+
+    assert "## R3b CORN Provenance" in md
+    assert "`corn_powder_albedo_path_dispersion_smoothing_readout`" in md
+    assert "larger particle path dispersion and coarser smoothing" in md
+    assert "No real CORN spectra, marginal statistics, covariance/PCA structure" in md
+    assert "CORN rows dominated by `derivative_over` = 0/1 and `derivative_under` = 0/1" in md
+    assert "Non-target rows accidentally reported on R3b = 0/0" in md
+    assert "not a B2/B3/B4/B5 gate" in md
+
+
+def test_r3b_repeated_seed_summary_csv_matches_report_contract() -> None:
+    report_dir = Path(__file__).resolve().parents[1] / "reports"
+    csv_path = report_dir / "r3b_repeated_seed_sentinel_morphology_audit.csv"
+    md_path = report_dir / "r3b_repeated_seed_sentinel_morphology_audit.md"
+    rows = list(DictReader(csv_path.open(newline="", encoding="utf-8")))
+
+    assert len(rows) == 90
+    corn_rows = [
+        row for row in rows if row["token_group"] == "CORN" and row["status"] == "compared"
+    ]
+    non_corn_rows = [row for row in rows if row["token_group"] != "CORN"]
+    blocked_rows = [row for row in rows if row["status"] == "blocked"]
+    assert len(corn_rows) == 6
+
+    expected_stats = {
+        "r3b": (0.6656, 0.5840, 0.7168),
+        "r3a": (1.8025, 1.7187, 1.8721),
+        "r2w": (2.1702, 2.1198, 2.2665),
+    }
+    for profile, expected in expected_stats.items():
+        values = np.asarray(
+            [float(row[f"{profile}_morphology_gap_score"]) for row in corn_rows],
+            dtype=float,
+        )
+        actual = (
+            round(float(values.mean()), 4),
+            round(float(values.min()), 4),
+            round(float(values.max()), 4),
+        )
+        assert actual == expected
+
+    amplitudes = np.asarray(
+        [float(row["r3b_log10_amp_p50_ratio"]) for row in corn_rows],
+        dtype=float,
+    )
+    derivatives = np.asarray(
+        [float(row["r3b_log10_deriv_std_p50_ratio"]) for row in corn_rows],
+        dtype=float,
+    )
+    assert (
+        round(float(amplitudes.mean()), 4),
+        round(float(amplitudes.min()), 4),
+        round(float(amplitudes.max()), 4),
+    ) == (-0.0623, -0.0818, -0.0379)
+    assert (
+        round(float(derivatives.mean()), 4),
+        round(float(derivatives.min()), 4),
+        round(float(derivatives.max()), 4),
+    ) == (0.0040, -0.0167, 0.0222)
+
+    assert {row["r3b_dominant_morphology_gap"] for row in corn_rows} == {
+        "amplitude_under",
+        "variance_under",
+    }
+    assert sum(row["r3b_dominant_morphology_gap"] == "variance_under" for row in corn_rows) == 4
+    assert sum(row["r3b_dominant_morphology_gap"] == "amplitude_under" for row in corn_rows) == 2
+    assert all(row["provenance_ok"] == "True" for row in rows)
+    assert all(row["corn_route_marker_present"] == "True" for row in corn_rows)
+    assert all(row["non_target_not_r3b_profile"] == "True" for row in rows)
+    assert all(
+        row["r3b_remediation_profile"] != "r3b_corn_matrix_v1"
+        for row in non_corn_rows
+    )
+    assert all(
+        row["non_target_route_preserved_vs_r2w"] == "True" for row in non_corn_rows
+    )
+    assert all(
+        row["non_target_metrics_preserved_vs_r2w"] == "True" for row in non_corn_rows
+    )
+    assert len(blocked_rows) == 6
+
+    md = md_path.read_text(encoding="utf-8")
+    assert "Status: `done`" in md
+    assert "no CORN row is dominated by `derivative_over` or `derivative_under`" in md
+
+
+def test_exp09_exposes_r3c_profile_and_changes_only_diesel_vs_r3b() -> None:
+    exp09 = _load_exp09_module()
+    assert "r3c_diesel_matrix_v1" in exp09.R3C_REMEDIATION_PROFILES
+    assert "r3c_diesel_matrix_v1" in exp09.ALL_REMEDIATION_PROFILES
+    assert "R3C_REMEDIATION_PROFILES" in exp09.__all__
+
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("DIESEL_bp50_246_b-a"),
+            "r3c_diesel_matrix_v1",
+        )
+        == "r3c_diesel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("CORN_m5"),
+            "r3c_diesel_matrix_v1",
+        )
+        == "r3b_corn_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+            "r3c_diesel_matrix_v1",
+        )
+        == "r2w_sentinel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_real_like_fruitpuree_dataset(),
+            "r3c_diesel_matrix_v1",
+        )
+        == "r2r_sentinel_matrix_v1"
+    )
+
+
+def test_r3c_token_overrides_are_diesel_only_and_non_oracle() -> None:
+    exp09 = _load_exp09_module()
+    diesel = exp09._r3c_token_source_overrides(
+        _make_dataset("DIESEL_bp50_246_b-a")
+    )
+    route = diesel["_r3c_diesel_readout_route"]
+    assert diesel["matrix_type"] == "liquid"
+    assert diesel["measurement_mode"] == "transmittance"
+    assert route == {
+        "enabled": True,
+        "route_marker": "diesel",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert "_r3c_diesel_readout_route" not in exp09._r3c_token_source_overrides(
+        _make_dataset("CORN_m5")
+    )
+    assert "_r3c_diesel_readout_route" not in exp09._r3c_token_source_overrides(
+        _make_dataset("BEER_OriginalExtract_60_KS")
+    )
+
+
+def test_r3c_diesel_build_records_non_oracle_source_fields_none() -> None:
+    exp09 = _load_exp09_module()
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    preset = exp09.select_synthetic_preset_for_dataset(diesel)
+    r2s_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r2s_sentinel_matrix_v1",
+    )
+    r3c_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3c_diesel_matrix_v1",
+    )
+
+    audit = r3c_run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r3c_diesel_matrix_v1"
+    assert audit["scope"] == "bench_only_r3c_diesel_matrix_remediation"
+    assert audit["domain_key"] == "petrochem_fuels"
+    assert audit["real_stat_capture"] is False
+    assert audit["thresholds_modified"] is False
+    assert audit["metrics_modified"] is False
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == "micro_path_fuel_ch_overtone_contrast_readout"
+    assert params["path_factor_range"] == [0.024, 0.036]
+    assert params["feature_contrast_range"] == [0.22, 0.31]
+    assert params["ch_overtone_gain_range"] == [0.11, 0.18]
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert params["provenance_source"] == "exp09_dataset_token_diesel_route"
+    assert params["diesel_readout_route_source"] == "exp09_dataset_token"
+    assert params["diesel_readout_route_marker"] == "diesel"
+    assert params["diesel_readout_route_non_oracle"] is True
+    assert params["diesel_readout_route_real_stat_capture"] is False
+    assert params["diesel_readout_route_thresholds_modified"] is False
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r3c_diesel_matrix_v1",
+        metadata=r3c_run.metadata,
+    )
+    assert fields["r2c_remediation_calibration_source"] == "none"
+    assert fields["r2c_remediation_real_stat_source"] == "none"
+    assert fields["r2c_remediation_threshold_source"] == "none"
+    assert not np.allclose(r3c_run.X, r2s_run.X)
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    (
+        _make_dataset("CORN_m5"),
+        _make_dataset("BERRY"),
+        _make_real_like_fruitpuree_dataset(),
+        _make_dataset("LUCAS_pH_Organic_1763_LiuRandomOrganic"),
+        _make_dataset("LUCAS_SOC_Cropland_8731_NocitaKS"),
+        _make_dataset("PHOSPHORUS_SOIL"),
+        _make_dataset("BEER_OriginalExtract_60_KS"),
+        _make_dataset("MILK_Fat_1224_KS"),
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+    ),
+)
+def test_r3c_non_diesel_draws_are_identical_to_r3b(dataset: Any) -> None:
+    exp09 = _load_exp09_module()
+    preset = exp09.select_synthetic_preset_for_dataset(dataset)
+    r3b_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3b_corn_matrix_v1",
+    )
+    r3c_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3c_diesel_matrix_v1",
+    )
+
+    assert (
+        r3c_run.metadata["r2c_mechanistic_remediation"]
+        == r3b_run.metadata["r2c_mechanistic_remediation"]
+    )
+    np.testing.assert_allclose(r3c_run.X, r3b_run.X)
+    np.testing.assert_allclose(r3c_run.y, r3b_run.y)
+
+
+def test_r3c_repeated_seed_summary_csv_matches_report_contract() -> None:
+    report_dir = Path(__file__).resolve().parents[1] / "reports"
+    csv_path = report_dir / "r3c_repeated_seed_sentinel_morphology_audit.csv"
+    md_path = report_dir / "r3c_repeated_seed_sentinel_morphology_audit.md"
+    rows = list(DictReader(csv_path.open(newline="", encoding="utf-8")))
+
+    assert len(rows) == 90
+    diesel_rows = [
+        row for row in rows if row["token_group"] == "DIESEL" and row["status"] == "compared"
+    ]
+    non_diesel_rows = [row for row in rows if row["token_group"] != "DIESEL"]
+    assert len(diesel_rows) == 9
+    gaps = np.asarray([float(row["r3c_morphology_gap_score"]) for row in diesel_rows])
+    assert (
+        round(float(gaps.mean()), 4),
+        round(float(gaps.min()), 4),
+        round(float(gaps.max()), 4),
+    ) == (1.7372, 1.6876, 1.7738)
+    assert {row["r3c_dominant_morphology_gap"] for row in diesel_rows} == {
+        "mean_shift"
+    }
+    assert all(row["r3c_provenance_ok"] == "True" for row in diesel_rows)
+    assert all(row["r3c_route_marker_present"] == "True" for row in diesel_rows)
+    assert all(row["r3c_calibration_source"] == "none" for row in diesel_rows)
+    assert all(row["r3c_real_stat_source"] == "none" for row in diesel_rows)
+    assert all(row["r3c_threshold_source"] == "none" for row in diesel_rows)
+    assert all(row["non_target_not_r3c_profile"] == "True" for row in rows)
+    assert all(
+        row["non_diesel_preserved_vs_r3b"] == "True" for row in non_diesel_rows
+    )
+
+    md = md_path.read_text(encoding="utf-8")
+    assert "Status: `done`" in md
+    assert "DIESEL `derivative_under` count under R3c: `0/9`" in md
+
+
+def test_r3d_repeated_seed_summary_csv_matches_report_contract() -> None:
+    report_dir = Path(__file__).resolve().parents[1] / "reports"
+    csv_path = report_dir / "r3d_repeated_seed_sentinel_morphology_audit.csv"
+    md_path = report_dir / "r3d_repeated_seed_sentinel_morphology_audit.md"
+    rows = list(DictReader(csv_path.open(newline="", encoding="utf-8")))
+
+    assert len(rows) == 90
+    diesel_rows = [
+        row for row in rows if row["token_group"] == "DIESEL" and row["status"] == "compared"
+    ]
+    non_diesel_rows = [row for row in rows if row["token_group"] != "DIESEL"]
+    assert len(diesel_rows) == 9
+    gaps = np.asarray([float(row["r3d_morphology_gap_score"]) for row in diesel_rows])
+    assert (
+        round(float(gaps.mean()), 4),
+        round(float(gaps.min()), 4),
+        round(float(gaps.max()), 4),
+    ) == (1.5623, 1.5254, 1.6140)
+    assert {row["r3d_dominant_morphology_gap"] for row in diesel_rows} == {
+        "mean_shift"
+    }
+    assert all(row["r3d_provenance_ok"] == "True" for row in diesel_rows)
+    assert all(row["r3d_route_marker_present"] == "True" for row in diesel_rows)
+    assert all(row["r3d_route_is_explicit"] == "True" for row in diesel_rows)
+    assert all(row["r3d_calibration_source"] == "none" for row in diesel_rows)
+    assert all(row["r3d_real_stat_source"] == "none" for row in diesel_rows)
+    assert all(row["r3d_threshold_source"] == "none" for row in diesel_rows)
+    assert all(row["non_target_not_r3d_profile"] == "True" for row in rows)
+    assert all(
+        row["non_diesel_preserved_vs_r3c"] == "True" for row in non_diesel_rows
+    )
+    assert all(
+        row["r3d_remediation_profile"] != "r3d_diesel_matrix_v1"
+        for row in non_diesel_rows
+    )
+    assert all(row["r3d_route_marker_present"] == "False" for row in non_diesel_rows)
+    assert all(row["r3d_route_is_explicit"] == "False" for row in non_diesel_rows)
+
+    md = md_path.read_text(encoding="utf-8")
+    assert "Status: `done`" in md
+    assert "labels, targets," in md
+    assert "downstream feedback, ML, or DL" in md
+    assert "DIESEL `derivative_under` count under R3d: `0/9`" in md
+    assert "R3d route-marker count is `9/90`" in md
+
+
+def test_exp09_exposes_r3d_profile_and_changes_only_diesel_vs_r3c() -> None:
+    exp09 = _load_exp09_module()
+    assert "r3d_diesel_matrix_v1" in exp09.R3D_REMEDIATION_PROFILES
+    assert "r3d_diesel_matrix_v1" in exp09.ALL_REMEDIATION_PROFILES
+    assert "R3D_REMEDIATION_PROFILES" in exp09.__all__
+
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("DIESEL_bp50_246_b-a"),
+            "r3d_diesel_matrix_v1",
+        )
+        == "r3d_diesel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("CORN_m5"),
+            "r3d_diesel_matrix_v1",
+        )
+        == "r3b_corn_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+            "r3d_diesel_matrix_v1",
+        )
+        == "r2w_sentinel_matrix_v1"
+    )
+
+
+def test_r3d_token_overrides_are_diesel_only_and_non_oracle() -> None:
+    exp09 = _load_exp09_module()
+    diesel = exp09._r3d_token_source_overrides(
+        _make_dataset("DIESEL_bp50_246_b-a")
+    )
+    route = diesel["_r3d_diesel_readout_route"]
+    assert diesel["matrix_type"] == "liquid"
+    assert diesel["measurement_mode"] == "transmittance"
+    assert route == {
+        "enabled": True,
+        "route_marker": "diesel",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert "_r3d_diesel_readout_route" not in exp09._r3d_token_source_overrides(
+        _make_dataset("CORN_m5")
+    )
+    assert "_r3d_diesel_readout_route" not in exp09._r3d_token_source_overrides(
+        _make_dataset("BEER_OriginalExtract_60_KS")
+    )
+
+
+def test_r3d_diesel_build_records_lower_offset_non_oracle_source_fields_none() -> None:
+    exp09 = _load_exp09_module()
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    preset = exp09.select_synthetic_preset_for_dataset(diesel)
+    r3c_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3c_diesel_matrix_v1",
+    )
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+
+    audit = r3d_run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r3d_diesel_matrix_v1"
+    assert audit["scope"] == "bench_only_r3d_diesel_matrix_remediation"
+    assert audit["domain_key"] == "petrochem_fuels"
+    assert audit["real_stat_capture"] is False
+    assert audit["thresholds_modified"] is False
+    assert audit["metrics_modified"] is False
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == "micro_path_fuel_ch_overtone_contrast_readout"
+    assert params["path_factor_range"] == [0.01, 0.018]
+    assert params["additive_baseline_range"] == [5e-05, 0.00035]
+    assert params["feature_contrast_range"] == [0.22, 0.31]
+    assert params["ch_overtone_gain_range"] == [0.11, 0.18]
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert params["provenance_source"] == "exp09_dataset_token_diesel_route"
+    assert params["diesel_readout_route_source"] == "exp09_dataset_token"
+    assert params["diesel_readout_route_marker"] == "diesel"
+    assert params["diesel_readout_route_non_oracle"] is True
+    assert params["diesel_readout_route_real_stat_capture"] is False
+    assert params["diesel_readout_route_thresholds_modified"] is False
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r3d_diesel_matrix_v1",
+        metadata=r3d_run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "diesel_fuel_matrix"
+    assert fields["r2c_remediation_calibration_source"] == "none"
+    assert fields["r2c_remediation_real_stat_source"] == "none"
+    assert fields["r2c_remediation_threshold_source"] == "none"
+    assert float(r3d_run.X.mean()) < float(r3c_run.X.mean())
+    assert not np.allclose(r3d_run.X, r3c_run.X)
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    (
+        _make_dataset("CORN_m5"),
+        _make_dataset("BERRY"),
+        _make_real_like_fruitpuree_dataset(),
+        _make_dataset("LUCAS_pH_Organic_1763_LiuRandomOrganic"),
+        _make_dataset("LUCAS_SOC_Cropland_8731_NocitaKS"),
+        _make_dataset("PHOSPHORUS_SOIL"),
+        _make_dataset("BEER_OriginalExtract_60_KS"),
+        _make_dataset("MILK_Fat_1224_KS"),
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+    ),
+)
+def test_r3d_non_diesel_draws_are_identical_to_r3c(dataset: Any) -> None:
+    exp09 = _load_exp09_module()
+    preset = exp09.select_synthetic_preset_for_dataset(dataset)
+    r3c_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3c_diesel_matrix_v1",
+    )
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+
+    assert (
+        r3d_run.metadata["r2c_mechanistic_remediation"]
+        == r3c_run.metadata["r2c_mechanistic_remediation"]
+    )
+    np.testing.assert_allclose(r3d_run.X, r3c_run.X)
+    np.testing.assert_allclose(r3d_run.y, r3c_run.y)
+
+
+def test_exp09_exposes_r3e_profile_and_changes_only_diesel_vs_r3d() -> None:
+    exp09 = _load_exp09_module()
+    assert "r3e_diesel_matrix_v1" in exp09.R3E_REMEDIATION_PROFILES
+    assert "r3e_diesel_matrix_v1" in exp09.ALL_REMEDIATION_PROFILES
+    assert "R3E_REMEDIATION_PROFILES" in exp09.__all__
+
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("DIESEL_bp50_246_b-a"),
+            "r3e_diesel_matrix_v1",
+        )
+        == "r3e_diesel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("CORN_m5"),
+            "r3e_diesel_matrix_v1",
+        )
+        == "r3b_corn_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+            "r3e_diesel_matrix_v1",
+        )
+        == "r2w_sentinel_matrix_v1"
+    )
+
+
+def test_r3e_token_overrides_are_diesel_only_and_non_oracle() -> None:
+    exp09 = _load_exp09_module()
+    diesel = exp09._r3e_token_source_overrides(
+        _make_dataset("DIESEL_bp50_246_b-a")
+    )
+    route = diesel["_r3e_diesel_readout_route"]
+    assert diesel["matrix_type"] == "liquid"
+    assert diesel["measurement_mode"] == "transmittance"
+    assert route == {
+        "enabled": True,
+        "route_marker": "diesel",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert "_r3e_diesel_readout_route" not in exp09._r3e_token_source_overrides(
+        _make_dataset("CORN_m5")
+    )
+    assert "_r3e_diesel_readout_route" not in exp09._r3e_token_source_overrides(
+        _make_dataset("BEER_OriginalExtract_60_KS")
+    )
+
+
+def test_r3e_diesel_build_records_near_zero_offset_non_oracle_source_fields_none() -> None:
+    exp09 = _load_exp09_module()
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    preset = exp09.select_synthetic_preset_for_dataset(diesel)
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r3e_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3e_diesel_matrix_v1",
+    )
+
+    audit = r3e_run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r3e_diesel_matrix_v1"
+    assert audit["scope"] == "bench_only_r3e_diesel_matrix_remediation"
+    assert audit["domain_key"] == "petrochem_fuels"
+    assert audit["real_stat_capture"] is False
+    assert audit["thresholds_modified"] is False
+    assert audit["metrics_modified"] is False
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == "micro_path_fuel_ch_overtone_contrast_readout"
+    assert params["path_factor_range"] == [0.004, 0.009]
+    assert params["additive_baseline_range"] == [0.0, 0.0001]
+    assert params["feature_contrast_range"] == [0.20, 0.28]
+    assert params["ch_overtone_gain_range"] == [0.11, 0.18]
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert params["provenance_source"] == "exp09_dataset_token_diesel_route"
+    assert params["diesel_readout_route_source"] == "exp09_dataset_token"
+    assert params["diesel_readout_route_marker"] == "diesel"
+    assert params["diesel_readout_route_non_oracle"] is True
+    assert params["diesel_readout_route_real_stat_capture"] is False
+    assert params["diesel_readout_route_thresholds_modified"] is False
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r3e_diesel_matrix_v1",
+        metadata=r3e_run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "diesel_fuel_matrix"
+    assert fields["r2c_remediation_calibration_source"] == "none"
+    assert fields["r2c_remediation_real_stat_source"] == "none"
+    assert fields["r2c_remediation_threshold_source"] == "none"
+    assert float(r3e_run.X.mean()) < float(r3d_run.X.mean())
+    assert not np.allclose(r3e_run.X, r3d_run.X)
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    (
+        _make_dataset("CORN_m5"),
+        _make_dataset("BERRY"),
+        _make_real_like_fruitpuree_dataset(),
+        _make_dataset("LUCAS_pH_Organic_1763_LiuRandomOrganic"),
+        _make_dataset("LUCAS_SOC_Cropland_8731_NocitaKS"),
+        _make_dataset("PHOSPHORUS_SOIL"),
+        _make_dataset("BEER_OriginalExtract_60_KS"),
+        _make_dataset("MILK_Fat_1224_KS"),
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+    ),
+)
+def test_r3e_non_diesel_draws_are_identical_to_r3d(dataset: Any) -> None:
+    exp09 = _load_exp09_module()
+    preset = exp09.select_synthetic_preset_for_dataset(dataset)
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r3e_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3e_diesel_matrix_v1",
+    )
+
+    assert (
+        r3e_run.metadata["r2c_mechanistic_remediation"]
+        == r3d_run.metadata["r2c_mechanistic_remediation"]
+    )
+    np.testing.assert_allclose(r3e_run.X, r3d_run.X)
+    np.testing.assert_allclose(r3e_run.y, r3d_run.y)
+
+
+def test_exp09_exposes_r3f_profile_and_changes_only_diesel_vs_r3e() -> None:
+    exp09 = _load_exp09_module()
+    assert "r3f_diesel_matrix_v1" in exp09.R3F_REMEDIATION_PROFILES
+    assert "r3f_diesel_matrix_v1" in exp09.ALL_REMEDIATION_PROFILES
+    assert "R3F_REMEDIATION_PROFILES" in exp09.__all__
+
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("DIESEL_bp50_246_b-a"),
+            "r3f_diesel_matrix_v1",
+        )
+        == "r3f_diesel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("CORN_m5"),
+            "r3f_diesel_matrix_v1",
+        )
+        == "r3b_corn_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+            "r3f_diesel_matrix_v1",
+        )
+        == "r2w_sentinel_matrix_v1"
+    )
+
+
+def test_r3f_token_overrides_are_diesel_only_and_non_oracle() -> None:
+    exp09 = _load_exp09_module()
+    diesel = exp09._r3f_token_source_overrides(
+        _make_dataset("DIESEL_bp50_246_b-a")
+    )
+    route = diesel["_r3f_diesel_readout_route"]
+    assert diesel["matrix_type"] == "liquid"
+    assert diesel["measurement_mode"] == "transmittance"
+    assert route == {
+        "enabled": True,
+        "route_marker": "diesel",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert "_r3f_diesel_readout_route" not in exp09._r3f_token_source_overrides(
+        _make_dataset("CORN_m5")
+    )
+    assert "_r3f_diesel_readout_route" not in exp09._r3f_token_source_overrides(
+        _make_dataset("BEER_OriginalExtract_60_KS")
+    )
+
+
+def test_r3f_diesel_build_records_restored_ch_contrast_source_fields_none() -> None:
+    exp09 = _load_exp09_module()
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    preset = exp09.select_synthetic_preset_for_dataset(diesel)
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r3f_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3f_diesel_matrix_v1",
+    )
+
+    audit = r3f_run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r3f_diesel_matrix_v1"
+    assert audit["scope"] == "bench_only_r3f_diesel_matrix_remediation"
+    assert audit["domain_key"] == "petrochem_fuels"
+    assert audit["real_stat_capture"] is False
+    assert audit["thresholds_modified"] is False
+    assert audit["metrics_modified"] is False
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == "micro_path_fuel_ch_overtone_contrast_readout"
+    assert params["path_factor_range"] == [0.009, 0.016]
+    assert params["additive_baseline_range"] == [0.0, 0.00012]
+    assert params["feature_contrast_range"] == [0.22, 0.31]
+    assert params["ch_overtone_gain_range"] == [0.11, 0.18]
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert params["provenance_source"] == "exp09_dataset_token_diesel_route"
+    assert params["diesel_readout_route_source"] == "exp09_dataset_token"
+    assert params["diesel_readout_route_marker"] == "diesel"
+    assert params["diesel_readout_route_non_oracle"] is True
+    assert params["diesel_readout_route_real_stat_capture"] is False
+    assert params["diesel_readout_route_thresholds_modified"] is False
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r3f_diesel_matrix_v1",
+        metadata=r3f_run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "diesel_fuel_matrix"
+    assert fields["r2c_remediation_calibration_source"] == "none"
+    assert fields["r2c_remediation_real_stat_source"] == "none"
+    assert fields["r2c_remediation_threshold_source"] == "none"
+    assert float(np.diff(r3f_run.X, axis=1).std()) > 0.0
+    assert not np.allclose(r3f_run.X, r3d_run.X)
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    (
+        _make_dataset("CORN_m5"),
+        _make_dataset("BERRY"),
+        _make_real_like_fruitpuree_dataset(),
+        _make_dataset("LUCAS_pH_Organic_1763_LiuRandomOrganic"),
+        _make_dataset("LUCAS_SOC_Cropland_8731_NocitaKS"),
+        _make_dataset("PHOSPHORUS_SOIL"),
+        _make_dataset("BEER_OriginalExtract_60_KS"),
+        _make_dataset("MILK_Fat_1224_KS"),
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+    ),
+)
+def test_r3f_non_diesel_draws_are_identical_to_r3e(dataset: Any) -> None:
+    exp09 = _load_exp09_module()
+    preset = exp09.select_synthetic_preset_for_dataset(dataset)
+    r3e_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3e_diesel_matrix_v1",
+    )
+    r3f_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3f_diesel_matrix_v1",
+    )
+
+    assert (
+        r3f_run.metadata["r2c_mechanistic_remediation"]
+        == r3e_run.metadata["r2c_mechanistic_remediation"]
+    )
+    np.testing.assert_allclose(r3f_run.X, r3e_run.X)
+    np.testing.assert_allclose(r3f_run.y, r3e_run.y)
+
+
+def test_exp09_exposes_r3g_profile_and_changes_only_diesel_vs_r3f() -> None:
+    exp09 = _load_exp09_module()
+    assert "r3g_diesel_matrix_v1" in exp09.R3G_REMEDIATION_PROFILES
+    assert "r3g_diesel_matrix_v1" in exp09.ALL_REMEDIATION_PROFILES
+    assert "R3G_REMEDIATION_PROFILES" in exp09.__all__
+
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("DIESEL_bp50_246_b-a"),
+            "r3g_diesel_matrix_v1",
+        )
+        == "r3g_diesel_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("CORN_m5"),
+            "r3g_diesel_matrix_v1",
+        )
+        == "r3b_corn_matrix_v1"
+    )
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+            "r3g_diesel_matrix_v1",
+        )
+        == "r2w_sentinel_matrix_v1"
+    )
+
+
+def test_r3g_token_overrides_are_diesel_only_and_non_oracle() -> None:
+    exp09 = _load_exp09_module()
+    diesel = exp09._r3g_token_source_overrides(
+        _make_dataset("DIESEL_bp50_246_b-a")
+    )
+    route = diesel["_r3g_diesel_readout_route"]
+    assert diesel["matrix_type"] == "liquid"
+    assert diesel["measurement_mode"] == "transmittance"
+    assert route == {
+        "enabled": True,
+        "route_marker": "diesel",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert "_r3g_diesel_readout_route" not in exp09._r3g_token_source_overrides(
+        _make_dataset("CORN_m5")
+    )
+    assert "_r3g_diesel_readout_route" not in exp09._r3g_token_source_overrides(
+        _make_dataset("BEER_OriginalExtract_60_KS")
+    )
+
+
+def test_r3g_diesel_build_records_fixed_envelope_source_fields_none() -> None:
+    exp09 = _load_exp09_module()
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    preset = exp09.select_synthetic_preset_for_dataset(diesel)
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r3g_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3g_diesel_matrix_v1",
+    )
+
+    audit = r3g_run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r3g_diesel_matrix_v1"
+    assert audit["scope"] == "bench_only_r3g_diesel_matrix_remediation"
+    assert audit["domain_key"] == "petrochem_fuels"
+    assert audit["real_stat_capture"] is False
+    assert audit["thresholds_modified"] is False
+    assert audit["metrics_modified"] is False
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == "micro_path_fuel_ch_overtone_contrast_readout"
+    assert params["path_factor_range"] == [0.003, 0.007]
+    assert params["feature_contrast_range"] == [0.22, 0.31]
+    assert params["fixed_envelope_absorbance_range"] == [0.0005, 0.001]
+    assert params["fixed_envelope_centers_nm"] == [1150.0, 1210.0, 1390.0, 1460.0]
+    assert params["fixed_envelope_centered"] is True
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert params["provenance_source"] == "exp09_dataset_token_diesel_route"
+    assert params["diesel_readout_route_source"] == "exp09_dataset_token"
+    assert params["diesel_readout_route_marker"] == "diesel"
+    assert params["diesel_readout_route_non_oracle"] is True
+    assert params["diesel_readout_route_real_stat_capture"] is False
+    assert params["diesel_readout_route_thresholds_modified"] is False
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r3g_diesel_matrix_v1",
+        metadata=r3g_run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "diesel_fuel_matrix"
+    assert fields["r2c_remediation_calibration_source"] == "none"
+    assert fields["r2c_remediation_real_stat_source"] == "none"
+    assert fields["r2c_remediation_threshold_source"] == "none"
+    assert float(r3g_run.X.mean()) < float(r3d_run.X.mean())
+    assert not np.allclose(r3g_run.X, r3d_run.X)
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    (
+        _make_dataset("CORN_m5"),
+        _make_dataset("BERRY"),
+        _make_real_like_fruitpuree_dataset(),
+        _make_dataset("LUCAS_pH_Organic_1763_LiuRandomOrganic"),
+        _make_dataset("LUCAS_SOC_Cropland_8731_NocitaKS"),
+        _make_dataset("PHOSPHORUS_SOIL"),
+        _make_dataset("BEER_OriginalExtract_60_KS"),
+        _make_dataset("MILK_Fat_1224_KS"),
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+    ),
+)
+def test_r3g_non_diesel_draws_are_identical_to_r3f(dataset: Any) -> None:
+    exp09 = _load_exp09_module()
+    preset = exp09.select_synthetic_preset_for_dataset(dataset)
+    r3f_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3f_diesel_matrix_v1",
+    )
+    r3g_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3g_diesel_matrix_v1",
+    )
+
+    assert (
+        r3g_run.metadata["r2c_mechanistic_remediation"]
+        == r3f_run.metadata["r2c_mechanistic_remediation"]
+    )
+    np.testing.assert_allclose(r3g_run.X, r3f_run.X)
+    np.testing.assert_allclose(r3g_run.y, r3f_run.y)
+
+
+def test_exp09_exposes_r4a_profile_and_falls_back_to_r3d_off_diesel() -> None:
+    exp09 = _load_exp09_module()
+    assert "r4a_diesel_basis_v1" in exp09.R4A_REMEDIATION_PROFILES
+    assert "r4a_diesel_basis_v1" in exp09.ALL_REMEDIATION_PROFILES
+    assert "R4A_REMEDIATION_PROFILES" in exp09.__all__
+
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("DIESEL_bp50_246_b-a"),
+            "r4a_diesel_basis_v1",
+        )
+        == "r4a_diesel_basis_v1"
+    )
+    # Non-DIESEL falls back exactly on the R3d effective profile chain.
+    assert exp09._effective_remediation_profile_for_dataset(
+        _make_dataset("CORN_m5"),
+        "r4a_diesel_basis_v1",
+    ) == exp09._effective_remediation_profile_for_dataset(
+        _make_dataset("CORN_m5"),
+        "r3d_diesel_matrix_v1",
+    )
+    assert exp09._effective_remediation_profile_for_dataset(
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+        "r4a_diesel_basis_v1",
+    ) == exp09._effective_remediation_profile_for_dataset(
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+        "r3d_diesel_matrix_v1",
+    )
+
+
+def test_r4a_token_overrides_are_diesel_only_and_non_oracle() -> None:
+    exp09 = _load_exp09_module()
+    diesel = exp09._r4a_token_source_overrides(
+        _make_dataset("DIESEL_bp50_246_b-a")
+    )
+    route = diesel["_r4a_diesel_readout_route"]
+    assert diesel["matrix_type"] == "liquid"
+    assert diesel["measurement_mode"] == "transmittance"
+    assert route == {
+        "enabled": True,
+        "route_marker": "diesel",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert "_r4a_diesel_readout_route" not in exp09._r4a_token_source_overrides(
+        _make_dataset("CORN_m5")
+    )
+    assert "_r4a_diesel_readout_route" not in exp09._r4a_token_source_overrides(
+        _make_dataset("BEER_OriginalExtract_60_KS")
+    )
+
+
+def test_r4a_diesel_build_records_basis_aware_metadata_source_fields_none() -> None:
+    exp09 = _load_exp09_module()
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    preset = exp09.select_synthetic_preset_for_dataset(diesel)
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=123,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r4a_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=123,
+        remediation_profile="r4a_diesel_basis_v1",
+    )
+
+    audit = r4a_run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r4a_diesel_basis_v1"
+    assert audit["scope"] == "bench_only_r4a_diesel_basis_remediation"
+    assert audit["domain_key"] == "petrochem_fuels"
+    assert audit["real_stat_capture"] is False
+    assert audit["thresholds_modified"] is False
+    assert audit["metrics_modified"] is False
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == "micro_path_fuel_ch_overtone_contrast_readout"
+    assert params["path_factor_range"] == [0.01, 0.018]
+    assert params["additive_baseline_range"] == [5e-05, 0.00035]
+    assert params["ch_overtone_centers_nm"] == [1150.0, 1210.0, 1390.0, 1460.0]
+    assert 1720.0 not in params["ch_overtone_centers_nm"]
+    assert params["ch_overtone_width_nm"] == 46.0
+    assert params["ch_overtone_gain_range"] == [0.055, 0.105]
+    assert params["damping_windows_nm"] == [
+        [1180.0, 70.0, 1.0],
+        [1425.0, 85.0, 1.0],
+    ]
+    assert params["damping_strength_range"] == [0.30, 0.50]
+    assert params["continuum_hump_center_nm"] == 975.0
+    assert params["continuum_hump_width_nm"] == 90.0
+    assert params["continuum_hump_amplitude_range"] == [0.00025, 0.00065]
+    assert params["continuum_hump_support_nm"] == [750.0, 1550.0]
+    assert "fixed_envelope_centers_nm" not in params
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert params["provenance_source"] == "exp09_dataset_token_diesel_route"
+    assert params["diesel_readout_route_source"] == "exp09_dataset_token"
+    assert params["diesel_readout_route_marker"] == "diesel"
+    assert params["diesel_readout_route_non_oracle"] is True
+    assert params["diesel_readout_route_real_stat_capture"] is False
+    assert params["diesel_readout_route_thresholds_modified"] is False
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r4a_diesel_basis_v1",
+        metadata=r4a_run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "diesel_fuel_matrix"
+    assert fields["r2c_remediation_calibration_source"] == "none"
+    assert fields["r2c_remediation_real_stat_source"] == "none"
+    assert fields["r2c_remediation_threshold_source"] == "none"
+    assert not np.allclose(r4a_run.X, r3d_run.X)
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    (
+        _make_dataset("CORN_m5"),
+        _make_dataset("BERRY"),
+        _make_real_like_fruitpuree_dataset(),
+        _make_dataset("LUCAS_pH_Organic_1763_LiuRandomOrganic"),
+        _make_dataset("LUCAS_SOC_Cropland_8731_NocitaKS"),
+        _make_dataset("PHOSPHORUS_SOIL"),
+        _make_dataset("BEER_OriginalExtract_60_KS"),
+        _make_dataset("MILK_Fat_1224_KS"),
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+    ),
+)
+def test_r4a_non_diesel_draws_are_identical_to_r3d(dataset: Any) -> None:
+    exp09 = _load_exp09_module()
+    preset = exp09.select_synthetic_preset_for_dataset(dataset)
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r4a_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r4a_diesel_basis_v1",
+    )
+
+    assert (
+        r4a_run.metadata["r2c_mechanistic_remediation"]
+        == r3d_run.metadata["r2c_mechanistic_remediation"]
+    )
+    np.testing.assert_array_equal(r4a_run.X, r3d_run.X)
+    np.testing.assert_array_equal(r4a_run.y, r3d_run.y)
+
+
+def test_render_markdown_emits_r4a_diesel_needs_review_non_gate_note(
+    tmp_path: Path,
+) -> None:
+    exp09 = _load_exp09_module()
+    audit_kwargs = _audit_kwargs()
+    audit_kwargs["audit_scope"] = "bench_only_r4a_sentinel_morphology_audit"
+    row = exp09.MorphologyRow(
+        status="compared",
+        source="AOM_regression",
+        task="regression",
+        dataset="DIESEL/DIESEL_bp50_246_b-a",
+        synthetic_preset="fuel",
+        comparison_space=exp09.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=10,
+        wavelength_min=900.0,
+        wavelength_max=1550.0,
+        real_global_mean=0.003,
+        synthetic_global_mean=0.007,
+        global_mean_delta=0.004,
+        real_global_std=0.014,
+        synthetic_global_std=0.016,
+        global_std_ratio=1.14,
+        log10_global_std_ratio=0.0569,
+        real_amplitude_p50=0.02,
+        synthetic_amplitude_p50=0.021,
+        amplitude_p50_ratio=1.05,
+        log10_amplitude_p50_ratio=0.0212,
+        real_derivative_std_p50=0.004,
+        synthetic_derivative_std_p50=0.0038,
+        derivative_std_p50_ratio=0.95,
+        log10_derivative_std_p50_ratio=-0.0223,
+        mean_curve_corr=0.08,
+        inverted_mean_curve_corr=-0.08,
+        morphology_gap_score=1.45,
+        dominant_morphology_gap="mean_shift",
+        **audit_kwargs,
+        **_remediation_kwargs(
+            profile="r4a_diesel_basis_v1",
+            effective_matrix_route="diesel_fuel_matrix",
+            enabled=True,
+            domain_key="petrochem_fuels",
+            concentrations_applied=True,
+            spectra_applied=True,
+            spectra_rule="micro_path_fuel_ch_overtone_contrast_readout",
+            composition_source="textbook_diesel_composition",
+            spectra_source=(
+                "r4a_diesel_basis_v1_short_continuum_with_damped_residual_and_short_continuum_hydrocarbon_hump"
+            ),
+            provenance_source="exp09_dataset_token_diesel_route",
+            constant_status="fixed_mechanistic_prior",
+            readout_space="blank_referenced_micro_path_ch_overtone_raw_absorbance",
+            calibration_source="none",
+            real_stat_source="none",
+            threshold_source="none",
+        ),
+        blocked_reason="",
+    )
+    result = {
+        "status": "done",
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "rows": [row],
+        "remediation_profile": "r4a_diesel_basis_v1",
+    }
+
+    md = exp09.render_markdown(
+        result=result,
+        report_path=tmp_path / "r4a.md",
+        csv_path=tmp_path / "r4a.csv",
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seed=1234,
+        sentinel_tokens=list(exp09.DEFAULT_SENTINEL_TOKENS),
+        remediation_profile="r4a_diesel_basis_v1",
+    )
+
+    assert "## R4a DIESEL Provenance" in md
+    assert "inherits R3d routing for every non-DIESEL row" in md
+    assert "(NOT R3e/R3f/R3g)" in md
+    assert "975 nm inside the 750-1550 nm support" in md
+    assert "No real DIESEL spectra, marginal statistics, covariance/PCA" in md
+    assert "flagged `needs-review`" in md
+    assert "not a B2/B3/B4/B5 gate" in md
+    assert "not a promotion over R3d" in md
+
+
+def test_exp09_exposes_r4b_profile_and_falls_back_to_r3d_off_diesel() -> None:
+    exp09 = _load_exp09_module()
+    assert "r4b_diesel_derivative_restore_v1" in exp09.R4B_REMEDIATION_PROFILES
+    assert "r4b_diesel_derivative_restore_v1" in exp09.ALL_REMEDIATION_PROFILES
+    assert "R4B_REMEDIATION_PROFILES" in exp09.__all__
+
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("DIESEL_bp50_246_b-a"),
+            "r4b_diesel_derivative_restore_v1",
+        )
+        == "r4b_diesel_derivative_restore_v1"
+    )
+    # Non-DIESEL falls back exactly on the R3d effective profile chain.
+    assert exp09._effective_remediation_profile_for_dataset(
+        _make_dataset("CORN_m5"),
+        "r4b_diesel_derivative_restore_v1",
+    ) == exp09._effective_remediation_profile_for_dataset(
+        _make_dataset("CORN_m5"),
+        "r3d_diesel_matrix_v1",
+    )
+    assert exp09._effective_remediation_profile_for_dataset(
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+        "r4b_diesel_derivative_restore_v1",
+    ) == exp09._effective_remediation_profile_for_dataset(
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+        "r3d_diesel_matrix_v1",
+    )
+
+
+def test_r4b_token_overrides_are_diesel_only_and_non_oracle() -> None:
+    exp09 = _load_exp09_module()
+    diesel = exp09._r4b_token_source_overrides(
+        _make_dataset("DIESEL_bp50_246_b-a")
+    )
+    route = diesel["_r4b_diesel_readout_route"]
+    assert diesel["matrix_type"] == "liquid"
+    assert diesel["measurement_mode"] == "transmittance"
+    assert route == {
+        "enabled": True,
+        "route_marker": "diesel",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert "_r4b_diesel_readout_route" not in exp09._r4b_token_source_overrides(
+        _make_dataset("CORN_m5")
+    )
+    assert "_r4b_diesel_readout_route" not in exp09._r4b_token_source_overrides(
+        _make_dataset("BEER_OriginalExtract_60_KS")
+    )
+
+
+def test_r4b_diesel_build_records_derivative_restore_metadata_source_fields_none() -> None:
+    exp09 = _load_exp09_module()
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    preset = exp09.select_synthetic_preset_for_dataset(diesel)
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=123,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r4a_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=123,
+        remediation_profile="r4a_diesel_basis_v1",
+    )
+    r4b_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=123,
+        remediation_profile="r4b_diesel_derivative_restore_v1",
+    )
+
+    audit = r4b_run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r4b_diesel_derivative_restore_v1"
+    assert (
+        audit["scope"] == "bench_only_r4b_diesel_derivative_restore_remediation"
+    )
+    assert audit["domain_key"] == "petrochem_fuels"
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == "micro_path_fuel_ch_overtone_contrast_readout"
+    assert params["path_factor_range"] == [0.01, 0.018]
+    assert params["additive_baseline_range"] == [5e-05, 0.00035]
+    assert params["ch_overtone_centers_nm"] == [1150.0, 1210.0, 1390.0, 1460.0]
+    assert 1720.0 not in params["ch_overtone_centers_nm"]
+    assert params["ch_overtone_width_nm"] == 38.0
+    assert params["ch_overtone_gain_range"] == [0.085, 0.145]
+    assert params["damping_windows_nm"] == [
+        [1180.0, 52.0, 0.75],
+        [1425.0, 62.0, 0.85],
+    ]
+    assert params["damping_strength_range"] == [0.10, 0.22]
+    assert params["continuum_hump_center_nm"] == 975.0
+    assert params["continuum_hump_width_nm"] == 75.0
+    assert params["continuum_hump_amplitude_range"] == [0.00010, 0.00035]
+    assert params["continuum_hump_support_nm"] == [750.0, 1550.0]
+    assert "fixed_envelope_centers_nm" not in params
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert params["provenance_source"] == "exp09_dataset_token_diesel_route"
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r4b_diesel_derivative_restore_v1",
+        metadata=r4b_run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "diesel_fuel_matrix"
+    assert fields["r2c_remediation_calibration_source"] == "none"
+    assert fields["r2c_remediation_real_stat_source"] == "none"
+    assert fields["r2c_remediation_threshold_source"] == "none"
+
+    # R4b differs from both R3d and R4a, and restores derivative structure.
+    assert not np.allclose(r4b_run.X, r3d_run.X)
+    assert not np.allclose(r4b_run.X, r4a_run.X)
+    r4b_deriv_std = float(np.diff(r4b_run.X, axis=1).std())
+    r4a_deriv_std = float(np.diff(r4a_run.X, axis=1).std())
+    assert r4b_deriv_std > r4a_deriv_std
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    (
+        _make_dataset("CORN_m5"),
+        _make_dataset("BEER_OriginalExtract_60_KS"),
+        _make_dataset("MILK_Fat_1224_KS"),
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+    ),
+)
+def test_r4b_non_diesel_draws_are_identical_to_r3d(dataset: Any) -> None:
+    exp09 = _load_exp09_module()
+    preset = exp09.select_synthetic_preset_for_dataset(dataset)
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r4b_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r4b_diesel_derivative_restore_v1",
+    )
+
+    assert (
+        r4b_run.metadata["r2c_mechanistic_remediation"]
+        == r3d_run.metadata["r2c_mechanistic_remediation"]
+    )
+    np.testing.assert_array_equal(r4b_run.X, r3d_run.X)
+    np.testing.assert_array_equal(r4b_run.y, r3d_run.y)
+
+
+def test_render_markdown_emits_r4b_diesel_needs_review_non_gate_note(
+    tmp_path: Path,
+) -> None:
+    exp09 = _load_exp09_module()
+    audit_kwargs = _audit_kwargs()
+    audit_kwargs["audit_scope"] = "bench_only_r4b_sentinel_morphology_audit"
+    row = exp09.MorphologyRow(
+        status="compared",
+        source="AOM_regression",
+        task="regression",
+        dataset="DIESEL/DIESEL_bp50_246_b-a",
+        synthetic_preset="fuel",
+        comparison_space=exp09.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=10,
+        wavelength_min=900.0,
+        wavelength_max=1550.0,
+        real_global_mean=0.003,
+        synthetic_global_mean=0.005,
+        global_mean_delta=0.002,
+        real_global_std=0.014,
+        synthetic_global_std=0.015,
+        global_std_ratio=1.07,
+        log10_global_std_ratio=0.0294,
+        real_amplitude_p50=0.02,
+        synthetic_amplitude_p50=0.020,
+        amplitude_p50_ratio=1.0,
+        log10_amplitude_p50_ratio=0.0,
+        real_derivative_std_p50=0.004,
+        synthetic_derivative_std_p50=0.004,
+        derivative_std_p50_ratio=1.0,
+        log10_derivative_std_p50_ratio=0.0,
+        mean_curve_corr=0.10,
+        inverted_mean_curve_corr=-0.10,
+        morphology_gap_score=1.20,
+        dominant_morphology_gap="mean_shift",
+        **audit_kwargs,
+        **_remediation_kwargs(
+            profile="r4b_diesel_derivative_restore_v1",
+            effective_matrix_route="diesel_fuel_matrix",
+            enabled=True,
+            domain_key="petrochem_fuels",
+            concentrations_applied=True,
+            spectra_applied=True,
+            spectra_rule="micro_path_fuel_ch_overtone_contrast_readout",
+            composition_source="textbook_diesel_composition",
+            spectra_source=(
+                "r4b_diesel_derivative_restore_v1_short_continuum_with_narrow_residual_damping_and_low_amplitude_hydrocarbon_hump"
+            ),
+            provenance_source="exp09_dataset_token_diesel_route",
+            constant_status="fixed_mechanistic_prior",
+            readout_space="blank_referenced_micro_path_ch_overtone_raw_absorbance",
+            calibration_source="none",
+            real_stat_source="none",
+            threshold_source="none",
+        ),
+        blocked_reason="",
+    )
+    result = {
+        "status": "done",
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "rows": [row],
+        "remediation_profile": "r4b_diesel_derivative_restore_v1",
+    }
+
+    md = exp09.render_markdown(
+        result=result,
+        report_path=tmp_path / "r4b.md",
+        csv_path=tmp_path / "r4b.csv",
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seed=1234,
+        sentinel_tokens=list(exp09.DEFAULT_SENTINEL_TOKENS),
+        remediation_profile="r4b_diesel_derivative_restore_v1",
+    )
+
+    assert "## R4b DIESEL Provenance" in md
+    assert "inherits R3d routing for every non-DIESEL row" in md
+    assert "(NOT R4a)" in md
+    assert "975 nm inside the 750-1550 nm support" in md
+    assert "No real DIESEL spectra, marginal statistics, covariance/PCA" in md
+    assert "flagged `needs-review`" in md
+    assert "not a B2/B3/B4/B5 gate" in md
+    assert "not a promotion over R3d" in md
+
+
+def test_exp09_exposes_r4c_profile_and_falls_back_to_r3d_off_diesel() -> None:
+    exp09 = _load_exp09_module()
+    assert "r4c_diesel_balanced_derivative_v1" in exp09.R4C_REMEDIATION_PROFILES
+    assert "r4c_diesel_balanced_derivative_v1" in exp09.ALL_REMEDIATION_PROFILES
+    assert "R4C_REMEDIATION_PROFILES" in exp09.__all__
+    source = _exp09_source_path().read_text(encoding="utf-8")
+    assert "R4c inherits R3d (NOT R4a/R4b) and changes only explicit DIESEL" in source
+
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            _make_dataset("DIESEL_bp50_246_b-a"),
+            "r4c_diesel_balanced_derivative_v1",
+        )
+        == "r4c_diesel_balanced_derivative_v1"
+    )
+    # Non-DIESEL falls back exactly on the R3d effective profile chain.
+    assert exp09._effective_remediation_profile_for_dataset(
+        _make_dataset("CORN_m5"),
+        "r4c_diesel_balanced_derivative_v1",
+    ) == exp09._effective_remediation_profile_for_dataset(
+        _make_dataset("CORN_m5"),
+        "r3d_diesel_matrix_v1",
+    )
+    assert exp09._effective_remediation_profile_for_dataset(
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+        "r4c_diesel_balanced_derivative_v1",
+    ) == exp09._effective_remediation_profile_for_dataset(
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+        "r3d_diesel_matrix_v1",
+    )
+
+
+def test_r4c_token_overrides_are_diesel_only_and_non_oracle() -> None:
+    exp09 = _load_exp09_module()
+    diesel = exp09._r4c_token_source_overrides(
+        _make_dataset("DIESEL_bp50_246_b-a")
+    )
+    route = diesel["_r4c_diesel_readout_route"]
+    assert diesel["matrix_type"] == "liquid"
+    assert diesel["measurement_mode"] == "transmittance"
+    assert route == {
+        "enabled": True,
+        "route_marker": "diesel",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert "_r4c_diesel_readout_route" not in exp09._r4c_token_source_overrides(
+        _make_dataset("CORN_m5")
+    )
+    assert "_r4c_diesel_readout_route" not in exp09._r4c_token_source_overrides(
+        _make_dataset("BEER_OriginalExtract_60_KS")
+    )
+
+
+def test_r4c_diesel_build_records_balanced_derivative_metadata_source_fields_none() -> None:
+    exp09 = _load_exp09_module()
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    preset = exp09.select_synthetic_preset_for_dataset(diesel)
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=123,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r4b_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=123,
+        remediation_profile="r4b_diesel_derivative_restore_v1",
+    )
+    r4c_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=123,
+        remediation_profile="r4c_diesel_balanced_derivative_v1",
+    )
+
+    audit = r4c_run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r4c_diesel_balanced_derivative_v1"
+    assert (
+        audit["scope"]
+        == "bench_only_r4c_diesel_balanced_derivative_remediation"
+    )
+    assert audit["domain_key"] == "petrochem_fuels"
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == "micro_path_fuel_ch_overtone_contrast_readout"
+    assert params["path_factor_range"] == [0.01, 0.018]
+    assert params["additive_baseline_range"] == [5e-05, 0.00035]
+    assert params["ch_overtone_centers_nm"] == [1150.0, 1210.0, 1390.0, 1460.0]
+    assert 1720.0 not in params["ch_overtone_centers_nm"]
+    assert params["ch_overtone_width_nm"] == 36.0
+    assert params["ch_overtone_gain_range"] == [0.092, 0.155]
+    assert params["damping_windows_nm"] == [
+        [1180.0, 46.0, 0.60],
+        [1425.0, 54.0, 0.70],
+    ]
+    assert params["damping_strength_range"] == [0.05, 0.15]
+    assert params["continuum_hump_center_nm"] == 975.0
+    assert params["continuum_hump_width_nm"] == 72.0
+    assert params["continuum_hump_amplitude_range"] == [0.00010, 0.00032]
+    assert params["continuum_hump_support_nm"] == [750.0, 1550.0]
+    assert "fixed_envelope_centers_nm" not in params
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert params["provenance_source"] == "exp09_dataset_token_diesel_route"
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r4c_diesel_balanced_derivative_v1",
+        metadata=r4c_run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "diesel_fuel_matrix"
+    assert fields["r2c_remediation_calibration_source"] == "none"
+    assert fields["r2c_remediation_real_stat_source"] == "none"
+    assert fields["r2c_remediation_threshold_source"] == "none"
+
+    # R4c differs from both R3d and R4b on-target.
+    assert not np.allclose(r4c_run.X, r3d_run.X)
+    assert not np.allclose(r4c_run.X, r4b_run.X)
+    # Derivative std is pushed closer to R3d than R4b.
+    r4c_deriv_std = float(np.diff(r4c_run.X, axis=1).std())
+    r4b_deriv_std = float(np.diff(r4b_run.X, axis=1).std())
+    assert r4c_deriv_std > r4b_deriv_std
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    (
+        _make_dataset("CORN_m5"),
+        _make_dataset("BEER_OriginalExtract_60_KS"),
+        _make_dataset("MILK_Fat_1224_KS"),
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+    ),
+)
+def test_r4c_non_diesel_draws_are_identical_to_r3d(dataset: Any) -> None:
+    exp09 = _load_exp09_module()
+    preset = exp09.select_synthetic_preset_for_dataset(dataset)
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r4c_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=123,
+        remediation_profile="r4c_diesel_balanced_derivative_v1",
+    )
+
+    assert (
+        r4c_run.metadata["r2c_mechanistic_remediation"]
+        == r3d_run.metadata["r2c_mechanistic_remediation"]
+    )
+    np.testing.assert_array_equal(r4c_run.X, r3d_run.X)
+    np.testing.assert_array_equal(r4c_run.y, r3d_run.y)
+
+
+def test_render_markdown_emits_r4c_diesel_diagnostic_only_non_gate_note(
+    tmp_path: Path,
+) -> None:
+    exp09 = _load_exp09_module()
+    audit_kwargs = _audit_kwargs()
+    audit_kwargs["audit_scope"] = "bench_only_r4c_sentinel_morphology_audit"
+    row = exp09.MorphologyRow(
+        status="compared",
+        source="AOM_regression",
+        task="regression",
+        dataset="DIESEL/DIESEL_bp50_246_b-a",
+        synthetic_preset="fuel",
+        comparison_space=exp09.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=10,
+        wavelength_min=900.0,
+        wavelength_max=1550.0,
+        real_global_mean=0.003,
+        synthetic_global_mean=0.005,
+        global_mean_delta=0.002,
+        real_global_std=0.014,
+        synthetic_global_std=0.015,
+        global_std_ratio=1.07,
+        log10_global_std_ratio=0.0294,
+        real_amplitude_p50=0.02,
+        synthetic_amplitude_p50=0.020,
+        amplitude_p50_ratio=1.0,
+        log10_amplitude_p50_ratio=0.0,
+        real_derivative_std_p50=0.004,
+        synthetic_derivative_std_p50=0.004,
+        derivative_std_p50_ratio=1.0,
+        log10_derivative_std_p50_ratio=0.0,
+        mean_curve_corr=0.10,
+        inverted_mean_curve_corr=-0.10,
+        morphology_gap_score=1.20,
+        dominant_morphology_gap="mean_shift",
+        **audit_kwargs,
+        **_remediation_kwargs(
+            profile="r4c_diesel_balanced_derivative_v1",
+            effective_matrix_route="diesel_fuel_matrix",
+            enabled=True,
+            domain_key="petrochem_fuels",
+            concentrations_applied=True,
+            spectra_applied=True,
+            spectra_rule="micro_path_fuel_ch_overtone_contrast_readout",
+            composition_source="textbook_diesel_composition",
+            spectra_source=(
+                "r4c_diesel_balanced_derivative_v1_short_continuum_with_narrow_residual_damping_and_low_amplitude_hydrocarbon_hump"
+            ),
+            provenance_source="exp09_dataset_token_diesel_route",
+            constant_status="fixed_mechanistic_prior",
+            readout_space="blank_referenced_micro_path_ch_overtone_raw_absorbance",
+            calibration_source="none",
+            real_stat_source="none",
+            threshold_source="none",
+        ),
+        blocked_reason="",
+    )
+    result = {
+        "status": "done",
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "rows": [row],
+        "remediation_profile": "r4c_diesel_balanced_derivative_v1",
+    }
+
+    md = exp09.render_markdown(
+        result=result,
+        report_path=tmp_path / "r4c.md",
+        csv_path=tmp_path / "r4c.csv",
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seed=1234,
+        sentinel_tokens=list(exp09.DEFAULT_SENTINEL_TOKENS),
+        remediation_profile="r4c_diesel_balanced_derivative_v1",
+    )
+
+    assert "## R4c DIESEL Provenance" in md
+    assert "inherits R3d routing for every non-DIESEL row" in md
+    assert "(NOT R4a/R4b)" in md
+    assert "975 nm inside the 750-1550 nm support" in md
+    assert "No real DIESEL spectra, marginal statistics, covariance/PCA" in md
+    assert "diagnostic-only" in md
+    assert "not a B2/B3/B4/B5 gate" in md
+    assert "not a promotion over R3d" in md
+    assert "not authorize any nirs4all integration" in md
+
+
+def test_r7a_audit_report_records_no_go_clip_blocker() -> None:
+    report_path = (
+        Path(__file__).resolve().parents[1]
+        / "reports/r7a_diesel_support_centered_residual_transfer_audit.md"
+    )
+    if not report_path.exists():
+        pytest.skip("bench reports are local/ignored artifacts")
+    md = report_path.read_text(encoding="utf-8")
+
+    assert "**Status:** NO-GO (diagnostic-only)." in md
+    assert "does not authorize any nirs4all integration" in md
+    assert "not promoted over R3d" in md
+    assert "final clip fraction <= 1%" in md
+    assert "mean = 69.95%, max = 70.68%" in md
+    assert "NO-GO (blocker)" in md
+    assert "Per the operator directive, the constants were not retuned" in md
+    assert "Non-DIESEL rows fall back byte-identical to R3d" in md
+    assert "non-compliant DIESEL routes also fall back byte-identical to R3d" in md
+    assert "calibration_source = none" in md
+    assert "real_stat_source = none" in md
+    assert "threshold_source = none" in md
+
+
+def test_render_markdown_emits_r3d_diesel_non_gate_note(tmp_path: Path) -> None:
+    exp09 = _load_exp09_module()
+    row = exp09.MorphologyRow(
+        status="compared",
+        source="AOM_regression",
+        task="regression",
+        dataset="DIESEL/DIESEL_bp50_246_b-a",
+        synthetic_preset="fuel",
+        comparison_space=exp09.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=10,
+        wavelength_min=900.0,
+        wavelength_max=1700.0,
+        real_global_mean=0.003,
+        synthetic_global_mean=0.008,
+        global_mean_delta=0.005,
+        real_global_std=0.014,
+        synthetic_global_std=0.018,
+        global_std_ratio=1.28,
+        log10_global_std_ratio=0.1072,
+        real_amplitude_p50=0.02,
+        synthetic_amplitude_p50=0.024,
+        amplitude_p50_ratio=1.2,
+        log10_amplitude_p50_ratio=0.0792,
+        real_derivative_std_p50=0.004,
+        synthetic_derivative_std_p50=0.0037,
+        derivative_std_p50_ratio=0.925,
+        log10_derivative_std_p50_ratio=-0.0339,
+        mean_curve_corr=0.07,
+        inverted_mean_curve_corr=-0.07,
+        morphology_gap_score=1.56,
+        dominant_morphology_gap="mean_shift",
+        audit_oracle=False,
+        audit_label_inputs_used=False,
+        audit_target_inputs_used=False,
+        audit_split_inputs_used=False,
+        audit_source_oracle_used=False,
+        audit_learned=False,
+        audit_real_stat_capture=False,
+        audit_thresholds_modified=False,
+        audit_metrics_modified=False,
+        audit_imputed=False,
+        audit_replays_real_rows=False,
+        audit_scope="bench_only_r3d_sentinel_morphology_audit",
+        **_remediation_kwargs(
+            profile="r3d_diesel_matrix_v1",
+            effective_matrix_route="diesel_fuel_matrix",
+            enabled=True,
+            domain_key="petrochem_fuels",
+            concentrations_applied=True,
+            spectra_applied=True,
+            spectra_rule="micro_path_fuel_ch_overtone_contrast_readout",
+            composition_source="textbook_diesel_composition",
+            spectra_source=(
+                "beer_lambert_ultra_short_blank_referenced_micro_path_with_low_detector_offset_and_fixed_ch_overtone_contrast"
+            ),
+            provenance_source="exp09_dataset_token_diesel_route",
+            constant_status="fixed_mechanistic_prior",
+            readout_space="blank_referenced_micro_path_ch_overtone_raw_absorbance",
+            calibration_source="none",
+            real_stat_source="none",
+            threshold_source="none",
+        ),
+        blocked_reason="",
+    )
+    result = {
+        "status": "completed",
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "rows": [row],
+        "remediation_profile": "r3d_diesel_matrix_v1",
+    }
+
+    md = exp09.render_markdown(
+        result=result,
+        report_path=tmp_path / "r3d.md",
+        csv_path=tmp_path / "r3d.csv",
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seed=1234,
+        sentinel_tokens=list(exp09.DEFAULT_SENTINEL_TOKENS),
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+
+    assert "## R3d DIESEL Provenance" in md
+    assert "shorter fixed continuum path and lower detector offset" in md
+    assert "No real DIESEL spectra, marginal statistics, covariance/PCA structure" in md
+    assert "DIESEL rows dominated by `derivative_under` = 0/1" in md
+    assert "Non-target rows accidentally reported on R3d = 0/0" in md
+    assert "not a B2/B3/B4/B5 gate" in md
+
+
 def test_render_markdown_emits_r2u_manure_centered_scatter_non_gate_note(
     tmp_path: Path,
 ) -> None:
@@ -6268,3 +8434,1705 @@ def test_render_markdown_emits_r2q_lucas_ph_organic_non_gate_note(
     assert "PHOSPHORUS rows preserved on R2p = 1/1" in md
     assert "Non-target rows accidentally reported on R2q = 0/2" in md
     assert "not a B2/B3/B4/B5 gate" in md
+
+
+# ---------------------------------------------------------------------------
+# R5 DIESEL readout-space remediation profile tests.
+# R5a/R5b/R5c inherit R3d for non-DIESEL rows and only swap the readout space
+# applied on top of the full R4c absorbance pipeline for explicit DIESEL rows.
+# ---------------------------------------------------------------------------
+
+
+_R5_EXP09_CASES: tuple[tuple[str, str, str, str, str], ...] = (
+    (
+        "r5a_diesel_absorbance_readout_v1",
+        "_r5a_token_source_overrides",
+        "_r5a_diesel_readout_route",
+        "absorbance",
+        "R5a",
+    ),
+    (
+        "r5b_diesel_transmittance_readout_v1",
+        "_r5b_token_source_overrides",
+        "_r5b_diesel_readout_route",
+        "transmittance",
+        "R5b",
+    ),
+    (
+        "r5c_diesel_blank_referenced_intensity_v1",
+        "_r5c_token_source_overrides",
+        "_r5c_diesel_readout_route",
+        "blank_referenced_intensity",
+        "R5c",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "profile_id,override_fn,route_key,transform,label",
+    _R5_EXP09_CASES,
+)
+def test_r5_token_overrides_are_diesel_only_and_non_oracle(
+    profile_id: str,
+    override_fn: str,
+    route_key: str,
+    transform: str,
+    label: str,
+) -> None:
+    del profile_id, transform, label
+    exp09 = _load_exp09_module()
+    fn = getattr(exp09, override_fn)
+    diesel = fn(_make_dataset("DIESEL_bp50_246_b-a"))
+    route = diesel[route_key]
+    assert diesel["matrix_type"] == "liquid"
+    assert diesel["measurement_mode"] == "transmittance"
+    assert route == {
+        "enabled": True,
+        "route_marker": "diesel",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert route_key not in fn(_make_dataset("CORN_m5"))
+    assert route_key not in fn(_make_dataset("BEER_OriginalExtract_60_KS"))
+    assert route_key not in fn(
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type")
+    )
+
+
+def test_exp09_exposes_r5_profiles_and_falls_back_to_r3d_off_diesel() -> None:
+    exp09 = _load_exp09_module()
+    for profile_id in (
+        "r5a_diesel_absorbance_readout_v1",
+        "r5b_diesel_transmittance_readout_v1",
+        "r5c_diesel_blank_referenced_intensity_v1",
+    ):
+        assert profile_id in exp09.ALL_REMEDIATION_PROFILES
+    assert exp09.R5A_REMEDIATION_PROFILES == (
+        "r5a_diesel_absorbance_readout_v1",
+    )
+    assert exp09.R5B_REMEDIATION_PROFILES == (
+        "r5b_diesel_transmittance_readout_v1",
+    )
+    assert exp09.R5C_REMEDIATION_PROFILES == (
+        "r5c_diesel_blank_referenced_intensity_v1",
+    )
+    for profile_const in (
+        "R5A_REMEDIATION_PROFILES",
+        "R5B_REMEDIATION_PROFILES",
+        "R5C_REMEDIATION_PROFILES",
+    ):
+        assert profile_const in exp09.__all__
+
+    source = _exp09_source_path().read_text(encoding="utf-8")
+    assert "R5a/R5b/R5c inherit R3d (NOT R4a/R4b/R4c)" in source
+
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    corn = _make_dataset("CORN_m5")
+    manure = _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type")
+    for profile_id in (
+        "r5a_diesel_absorbance_readout_v1",
+        "r5b_diesel_transmittance_readout_v1",
+        "r5c_diesel_blank_referenced_intensity_v1",
+    ):
+        # On explicit DIESEL the requested R5 profile is preserved.
+        assert (
+            exp09._effective_remediation_profile_for_dataset(diesel, profile_id)
+            == profile_id
+        )
+        # Off DIESEL the effective profile chain matches R3d, never R4c.
+        for non_diesel_dataset in (corn, manure):
+            r5_effective = exp09._effective_remediation_profile_for_dataset(
+                non_diesel_dataset, profile_id
+            )
+            r3d_effective = exp09._effective_remediation_profile_for_dataset(
+                non_diesel_dataset, "r3d_diesel_matrix_v1"
+            )
+            r4c_effective = exp09._effective_remediation_profile_for_dataset(
+                non_diesel_dataset, "r4c_diesel_balanced_derivative_v1"
+            )
+            assert r5_effective == r3d_effective
+            assert r5_effective == r4c_effective  # both fall back to R3d chain
+
+
+def test_r5_diesel_build_records_readout_space_metadata_source_fields_none() -> None:
+    exp09 = _load_exp09_module()
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    preset = exp09.select_synthetic_preset_for_dataset(diesel)
+    r4c_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r4c_diesel_balanced_derivative_v1",
+    )
+    r5a_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r5a_diesel_absorbance_readout_v1",
+    )
+    r5b_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r5b_diesel_transmittance_readout_v1",
+    )
+    r5c_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r5c_diesel_blank_referenced_intensity_v1",
+    )
+
+    # R5a is byte-identical to R4c on the same DIESEL row and seed.
+    np.testing.assert_array_equal(r5a_run.X, r4c_run.X)
+    np.testing.assert_array_equal(r5a_run.y, r4c_run.y)
+
+    # R5b/R5c stay in [0, 1] and are complementary on the absorbance pipeline.
+    assert float(r5b_run.X.min()) >= 0.0
+    assert float(r5b_run.X.max()) <= 1.0
+    assert float(r5c_run.X.min()) >= 0.0
+    assert float(r5c_run.X.max()) <= 1.0
+    np.testing.assert_allclose(
+        r5b_run.X,
+        np.clip(np.power(10.0, -r5a_run.X), 0.0, 1.0),
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        r5c_run.X,
+        np.clip(1.0 - np.power(10.0, -r5a_run.X), 0.0, 1.0),
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(r5b_run.X + r5c_run.X, 1.0, atol=1e-12)
+    assert not np.allclose(r5b_run.X, r4c_run.X)
+    assert not np.allclose(r5c_run.X, r4c_run.X)
+    np.testing.assert_array_equal(r5b_run.y, r5a_run.y)
+    np.testing.assert_array_equal(r5c_run.y, r5a_run.y)
+
+    expected_metadata = {
+        "r5a_diesel_absorbance_readout_v1": (
+            r5a_run,
+            "absorbance",
+            "uncalibrated_raw_absorbance",
+            "bench_only_r5a_diesel_absorbance_readout_remediation",
+        ),
+        "r5b_diesel_transmittance_readout_v1": (
+            r5b_run,
+            "transmittance",
+            "uncalibrated_raw_transmittance",
+            "bench_only_r5b_diesel_transmittance_readout_remediation",
+        ),
+        "r5c_diesel_blank_referenced_intensity_v1": (
+            r5c_run,
+            "blank_referenced_intensity",
+            "uncalibrated_raw_blank_referenced_intensity",
+            "bench_only_r5c_diesel_blank_referenced_intensity_remediation",
+        ),
+    }
+    for profile_id, (run, transform, readout_space, scope) in expected_metadata.items():
+        audit = run.metadata["r2c_mechanistic_remediation"]
+        assert audit["profile"] == profile_id
+        assert audit["scope"] == scope
+        assert audit["domain_key"] == "petrochem_fuels"
+        params = audit["transform_params"]
+        assert params["spectra_rule"] == "micro_path_fuel_ch_overtone_contrast_readout"
+        assert params["readout_space"] == readout_space
+        assert params["readout_space_transform"] == transform
+        assert params["readout_space_transform_clip"] == [0.0, 1.0]
+        # Inherited R4c absorbance pipeline parameters.
+        assert params["path_factor_range"] == [0.01, 0.018]
+        assert params["additive_baseline_range"] == [5e-05, 0.00035]
+        assert params["ch_overtone_centers_nm"] == [1150.0, 1210.0, 1390.0, 1460.0]
+        assert 1720.0 not in params["ch_overtone_centers_nm"]
+        assert params["ch_overtone_width_nm"] == 36.0
+        assert params["ch_overtone_gain_range"] == [0.092, 0.155]
+        assert params["damping_windows_nm"] == [
+            [1180.0, 46.0, 0.60],
+            [1425.0, 54.0, 0.70],
+        ]
+        assert params["damping_strength_range"] == [0.05, 0.15]
+        assert params["continuum_hump_center_nm"] == 975.0
+        assert params["continuum_hump_width_nm"] == 72.0
+        assert params["continuum_hump_amplitude_range"] == [0.00010, 0.00032]
+        assert params["continuum_hump_support_nm"] == [750.0, 1550.0]
+        assert "fixed_envelope_centers_nm" not in params
+        assert params["calibration_source"] == "none"
+        assert params["real_stat_source"] == "none"
+        assert params["threshold_source"] == "none"
+        assert params["provenance_source"] == "exp09_dataset_token_diesel_route"
+        assert params["diesel_readout_route_marker"] == "diesel"
+        assert params["diesel_readout_route_real_stat_capture"] is False
+        assert params["diesel_readout_route_thresholds_modified"] is False
+
+        fields = exp09._remediation_fields_from_metadata(
+            remediation_profile=profile_id,
+            metadata=run.metadata,
+        )
+        assert fields["effective_matrix_route"] == "diesel_fuel_matrix"
+        assert fields["r2c_remediation_calibration_source"] == "none"
+        assert fields["r2c_remediation_real_stat_source"] == "none"
+        assert fields["r2c_remediation_threshold_source"] == "none"
+        assert fields["r2c_remediation_provenance_source"] == (
+            "exp09_dataset_token_diesel_route"
+        )
+
+
+@pytest.mark.parametrize(
+    "profile_id",
+    (
+        "r5a_diesel_absorbance_readout_v1",
+        "r5b_diesel_transmittance_readout_v1",
+        "r5c_diesel_blank_referenced_intensity_v1",
+    ),
+)
+@pytest.mark.parametrize(
+    "dataset",
+    (
+        _make_dataset("CORN_m5"),
+        _make_dataset("BEER_OriginalExtract_60_KS"),
+        _make_dataset("MILK_Fat_1224_KS"),
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+    ),
+)
+def test_r5_non_diesel_draws_are_identical_to_r3d(
+    profile_id: str, dataset: Any
+) -> None:
+    exp09 = _load_exp09_module()
+    preset = exp09.select_synthetic_preset_for_dataset(dataset)
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=20260430,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r5_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=20260430,
+        remediation_profile=profile_id,
+    )
+    assert (
+        r5_run.metadata["r2c_mechanistic_remediation"]
+        == r3d_run.metadata["r2c_mechanistic_remediation"]
+    )
+    np.testing.assert_array_equal(r5_run.X, r3d_run.X)
+    np.testing.assert_array_equal(r5_run.y, r3d_run.y)
+
+
+@pytest.mark.parametrize(
+    "profile_id,_override_fn,_route_key,_transform,label",
+    _R5_EXP09_CASES,
+)
+def test_render_markdown_emits_r5_diesel_diagnostic_only_non_gate_note(
+    profile_id: str,
+    _override_fn: str,
+    _route_key: str,
+    _transform: str,
+    label: str,
+    tmp_path: Path,
+) -> None:
+    exp09 = _load_exp09_module()
+    audit_kwargs = _audit_kwargs()
+    audit_kwargs["audit_scope"] = (
+        f"bench_only_{label.lower()}_sentinel_morphology_audit"
+    )
+    row = exp09.MorphologyRow(
+        status="compared",
+        source="AOM_regression",
+        task="regression",
+        dataset="DIESEL/DIESEL_bp50_246_b-a",
+        synthetic_preset="fuel",
+        comparison_space=exp09.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=10,
+        wavelength_min=900.0,
+        wavelength_max=1550.0,
+        real_global_mean=0.003,
+        synthetic_global_mean=0.005,
+        global_mean_delta=0.002,
+        real_global_std=0.014,
+        synthetic_global_std=0.015,
+        global_std_ratio=1.07,
+        log10_global_std_ratio=0.0294,
+        real_amplitude_p50=0.02,
+        synthetic_amplitude_p50=0.020,
+        amplitude_p50_ratio=1.0,
+        log10_amplitude_p50_ratio=0.0,
+        real_derivative_std_p50=0.004,
+        synthetic_derivative_std_p50=0.004,
+        derivative_std_p50_ratio=1.0,
+        log10_derivative_std_p50_ratio=0.0,
+        mean_curve_corr=0.10,
+        inverted_mean_curve_corr=-0.10,
+        morphology_gap_score=1.20,
+        dominant_morphology_gap="mean_shift",
+        **audit_kwargs,
+        **_remediation_kwargs(
+            profile=profile_id,
+            effective_matrix_route="diesel_fuel_matrix",
+            enabled=True,
+            domain_key="petrochem_fuels",
+            concentrations_applied=True,
+            spectra_applied=True,
+            spectra_rule="micro_path_fuel_ch_overtone_contrast_readout",
+            composition_source="textbook_diesel_composition",
+            spectra_source=(
+                f"{profile_id}_inherits_r4c_balanced_derivative"
+            ),
+            provenance_source="exp09_dataset_token_diesel_route",
+            constant_status="fixed_mechanistic_prior",
+            readout_space=f"uncalibrated_raw_{label.lower()[1:]}_readout",
+            calibration_source="none",
+            real_stat_source="none",
+            threshold_source="none",
+        ),
+        blocked_reason="",
+    )
+    result = {
+        "status": "done",
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "rows": [row],
+        "remediation_profile": profile_id,
+    }
+
+    md = exp09.render_markdown(
+        result=result,
+        report_path=tmp_path / f"{label.lower()}.md",
+        csv_path=tmp_path / f"{label.lower()}.csv",
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seed=20260430,
+        sentinel_tokens=list(exp09.DEFAULT_SENTINEL_TOKENS),
+        remediation_profile=profile_id,
+    )
+
+    assert f"## {label} DIESEL Provenance" in md
+    assert "inherits R3d routing for every non-DIESEL row" in md
+    assert "(NOT R4a/R4b/R4c)" in md
+    assert "the full R4c balanced-derivative pipeline" in md
+    assert "975 nm short-continuum hump on the 750-1550 nm support" in md
+    assert "No real DIESEL spectra, marginal statistics, covariance/PCA" in md
+    assert "diagnostic-only" in md
+    assert "not a B2/B3/B4/B5 gate" in md
+    assert "not a promotion over R3d" in md
+    assert "not authorize any nirs4all integration" in md
+
+
+# ---------------------------------------------------------------------------
+# R6a DIESEL centered hydrocarbon shape remediation profile tests.
+# R6a inherits R3d for non-DIESEL rows. On explicit DIESEL rows that carry
+# the dedicated _r6a_diesel_shape_route, R6a applies the full R4c absorbance
+# pipeline and adds only a small mean-neutral hydrocarbon shape envelope on
+# the 750-1550 nm support.
+# ---------------------------------------------------------------------------
+
+
+def test_r6a_token_overrides_are_diesel_only_and_non_oracle() -> None:
+    exp09 = _load_exp09_module()
+    diesel = exp09._r6a_token_source_overrides(
+        _make_dataset("DIESEL_bp50_246_b-a")
+    )
+    route = diesel["_r6a_diesel_shape_route"]
+    assert diesel["matrix_type"] == "liquid"
+    assert diesel["measurement_mode"] == "transmittance"
+    assert route == {
+        "enabled": True,
+        "route_marker": "diesel",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert "_r6a_diesel_shape_route" not in exp09._r6a_token_source_overrides(
+        _make_dataset("CORN_m5")
+    )
+    assert "_r6a_diesel_shape_route" not in exp09._r6a_token_source_overrides(
+        _make_dataset("BEER_OriginalExtract_60_KS")
+    )
+    assert "_r6a_diesel_shape_route" not in exp09._r6a_token_source_overrides(
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type")
+    )
+
+
+def test_exp09_exposes_r6a_profile_and_falls_back_to_r3d_off_diesel() -> None:
+    exp09 = _load_exp09_module()
+    assert "r6a_diesel_centered_hydrocarbon_shape_v1" in exp09.R6A_REMEDIATION_PROFILES
+    assert "r6a_diesel_centered_hydrocarbon_shape_v1" in exp09.ALL_REMEDIATION_PROFILES
+    assert "R6A_REMEDIATION_PROFILES" in exp09.__all__
+    source = _exp09_source_path().read_text(encoding="utf-8")
+    assert (
+        "R6a inherits R3d (NOT R4a/R4b/R4c/R5a/R5b/R5c)" in source
+    )
+
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    corn = _make_dataset("CORN_m5")
+    manure = _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type")
+    # Explicit DIESEL preserves the requested R6a profile.
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            diesel,
+            "r6a_diesel_centered_hydrocarbon_shape_v1",
+        )
+        == "r6a_diesel_centered_hydrocarbon_shape_v1"
+    )
+    # Off-DIESEL falls back exactly on the R3d effective profile chain.
+    for non_diesel_dataset in (corn, manure):
+        r6a_effective = exp09._effective_remediation_profile_for_dataset(
+            non_diesel_dataset,
+            "r6a_diesel_centered_hydrocarbon_shape_v1",
+        )
+        r3d_effective = exp09._effective_remediation_profile_for_dataset(
+            non_diesel_dataset,
+            "r3d_diesel_matrix_v1",
+        )
+        r4c_effective = exp09._effective_remediation_profile_for_dataset(
+            non_diesel_dataset,
+            "r4c_diesel_balanced_derivative_v1",
+        )
+        assert r6a_effective == r3d_effective
+        assert r6a_effective == r4c_effective
+
+
+def test_r6a_diesel_build_records_shape_envelope_metadata_source_fields_none() -> None:
+    exp09 = _load_exp09_module()
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    preset = exp09.select_synthetic_preset_for_dataset(diesel)
+    r4c_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r4c_diesel_balanced_derivative_v1",
+    )
+    r5a_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r5a_diesel_absorbance_readout_v1",
+    )
+    r6a_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r6a_diesel_centered_hydrocarbon_shape_v1",
+    )
+
+    # y is identical to R4c/R5a because R6a uses the R4c seed source.
+    np.testing.assert_array_equal(r6a_run.y, r4c_run.y)
+    np.testing.assert_array_equal(r6a_run.y, r5a_run.y)
+    # X differs only by the small zero-mean hydrocarbon shape envelope on the
+    # 750-1550 nm support. Outside the support the addition is identically 0.
+    delta = r6a_run.X - r4c_run.X
+    assert not np.allclose(r6a_run.X, r4c_run.X)
+    assert float(np.abs(delta).max()) <= 0.00050 + 1e-12
+    wl = r6a_run.wavelengths
+    support_mask = (wl >= 750.0) & (wl <= 1550.0)
+    if (~support_mask).any():
+        assert float(np.abs(delta[:, ~support_mask]).max()) == 0.0
+    assert support_mask.any()
+    np.testing.assert_allclose(
+        delta[:, support_mask].mean(axis=1), 0.0, atol=1e-12
+    )
+
+    audit = r6a_run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r6a_diesel_centered_hydrocarbon_shape_v1"
+    assert (
+        audit["scope"]
+        == "bench_only_r6a_diesel_centered_hydrocarbon_shape_remediation"
+    )
+    assert audit["domain_key"] == "petrochem_fuels"
+    params = audit["transform_params"]
+    # Inherited R4c absorbance pipeline parameters.
+    assert params["spectra_rule"] == "micro_path_fuel_ch_overtone_contrast_readout"
+    assert params["path_factor_range"] == [0.01, 0.018]
+    assert params["additive_baseline_range"] == [5e-05, 0.00035]
+    assert params["ch_overtone_centers_nm"] == [1150.0, 1210.0, 1390.0, 1460.0]
+    assert 1720.0 not in params["ch_overtone_centers_nm"]
+    assert params["ch_overtone_width_nm"] == 36.0
+    assert params["ch_overtone_gain_range"] == [0.092, 0.155]
+    assert params["damping_windows_nm"] == [
+        [1180.0, 46.0, 0.60],
+        [1425.0, 54.0, 0.70],
+    ]
+    assert params["damping_strength_range"] == [0.05, 0.15]
+    assert params["continuum_hump_center_nm"] == 975.0
+    assert params["continuum_hump_width_nm"] == 72.0
+    assert params["continuum_hump_amplitude_range"] == [0.00010, 0.00032]
+    assert params["continuum_hump_support_nm"] == [750.0, 1550.0]
+    # R6a shape envelope metadata.
+    assert params["shape_envelope_centers_nm"] == [1150.0, 1210.0, 1390.0, 1460.0]
+    assert params["shape_envelope_widths_nm"] == [30.0, 34.0, 42.0, 46.0]
+    assert params["shape_envelope_weights"] == [0.65, 1.00, 0.55, 0.72]
+    assert params["shape_envelope_support_nm"] == [750.0, 1550.0]
+    assert params["shape_envelope_absorbance_range"] == [0.00020, 0.00050]
+    assert params["shape_envelope_zero_mean_on_support"] is True
+    assert params["shape_envelope_application_stage"] == "after_r4c_output_clip"
+    assert (
+        params["output_clip_absorbance_applies_to"]
+        == "r4c_pipeline_before_shape_envelope"
+    )
+    assert params["shape_envelope_final_output_clip_absorbance"] is None
+    assert params["shape_envelope_final_min_absorbance"] == pytest.approx(
+        float(r6a_run.X.min())
+    )
+    assert params["shape_envelope_final_max_absorbance"] == pytest.approx(
+        float(r6a_run.X.max())
+    )
+    assert "readout_space_transform" not in params
+    assert "fixed_envelope_centers_nm" not in params
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert (
+        params["provenance_source"] == "exp09_dataset_token_diesel_shape_route"
+    )
+    assert params["diesel_shape_route_marker"] == "diesel"
+    assert params["diesel_shape_route_real_stat_capture"] is False
+    assert params["diesel_shape_route_thresholds_modified"] is False
+    assert "diesel_readout_route_marker" not in params
+
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r6a_diesel_centered_hydrocarbon_shape_v1",
+        metadata=r6a_run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "diesel_fuel_matrix"
+    assert fields["r2c_remediation_calibration_source"] == "none"
+    assert fields["r2c_remediation_real_stat_source"] == "none"
+    assert fields["r2c_remediation_threshold_source"] == "none"
+    assert fields["r2c_remediation_provenance_source"] == (
+        "exp09_dataset_token_diesel_shape_route"
+    )
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    (
+        _make_dataset("CORN_m5"),
+        _make_dataset("BEER_OriginalExtract_60_KS"),
+        _make_dataset("MILK_Fat_1224_KS"),
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+    ),
+)
+def test_r6a_non_diesel_draws_are_identical_to_r3d(dataset: Any) -> None:
+    exp09 = _load_exp09_module()
+    preset = exp09.select_synthetic_preset_for_dataset(dataset)
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=20260430,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r6a_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=20260430,
+        remediation_profile="r6a_diesel_centered_hydrocarbon_shape_v1",
+    )
+    assert (
+        r6a_run.metadata["r2c_mechanistic_remediation"]
+        == r3d_run.metadata["r2c_mechanistic_remediation"]
+    )
+    np.testing.assert_array_equal(r6a_run.X, r3d_run.X)
+    np.testing.assert_array_equal(r6a_run.y, r3d_run.y)
+
+
+def test_render_markdown_emits_r6a_diesel_diagnostic_only_non_gate_note(
+    tmp_path: Path,
+) -> None:
+    exp09 = _load_exp09_module()
+    audit_kwargs = _audit_kwargs()
+    audit_kwargs["audit_scope"] = (
+        "bench_only_r6a_sentinel_morphology_audit"
+    )
+    row = exp09.MorphologyRow(
+        status="compared",
+        source="AOM_regression",
+        task="regression",
+        dataset="DIESEL/DIESEL_bp50_246_b-a",
+        synthetic_preset="fuel",
+        comparison_space=exp09.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=10,
+        wavelength_min=900.0,
+        wavelength_max=1550.0,
+        real_global_mean=0.003,
+        synthetic_global_mean=0.005,
+        global_mean_delta=0.002,
+        real_global_std=0.014,
+        synthetic_global_std=0.015,
+        global_std_ratio=1.07,
+        log10_global_std_ratio=0.0294,
+        real_amplitude_p50=0.02,
+        synthetic_amplitude_p50=0.020,
+        amplitude_p50_ratio=1.0,
+        log10_amplitude_p50_ratio=0.0,
+        real_derivative_std_p50=0.004,
+        synthetic_derivative_std_p50=0.004,
+        derivative_std_p50_ratio=1.0,
+        log10_derivative_std_p50_ratio=0.0,
+        mean_curve_corr=0.10,
+        inverted_mean_curve_corr=-0.10,
+        morphology_gap_score=1.20,
+        dominant_morphology_gap="mean_shift",
+        **audit_kwargs,
+        **_remediation_kwargs(
+            profile="r6a_diesel_centered_hydrocarbon_shape_v1",
+            effective_matrix_route="diesel_fuel_matrix",
+            enabled=True,
+            domain_key="petrochem_fuels",
+            concentrations_applied=True,
+            spectra_applied=True,
+            spectra_rule="micro_path_fuel_ch_overtone_contrast_readout",
+            composition_source="textbook_diesel_composition",
+            spectra_source=(
+                "r6a_diesel_centered_hydrocarbon_shape_v1_inherits_r4c_balanced_derivative_with_zero_mean_support_envelope"
+            ),
+            provenance_source="exp09_dataset_token_diesel_shape_route",
+            constant_status="fixed_mechanistic_prior",
+            readout_space="blank_referenced_micro_path_ch_overtone_raw_absorbance",
+            calibration_source="none",
+            real_stat_source="none",
+            threshold_source="none",
+        ),
+        blocked_reason="",
+    )
+    result = {
+        "status": "done",
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "rows": [row],
+        "remediation_profile": "r6a_diesel_centered_hydrocarbon_shape_v1",
+    }
+
+    md = exp09.render_markdown(
+        result=result,
+        report_path=tmp_path / "r6a.md",
+        csv_path=tmp_path / "r6a.csv",
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seed=20260430,
+        sentinel_tokens=list(exp09.DEFAULT_SENTINEL_TOKENS),
+        remediation_profile="r6a_diesel_centered_hydrocarbon_shape_v1",
+    )
+
+    assert "## R6a DIESEL Provenance" in md
+    assert "inherits R3d routing for every non-DIESEL row" in md
+    assert "(NOT R4a/R4b/R4c/R5a/R5b/R5c)" in md
+    assert "the full R4c balanced-derivative pipeline" in md
+    assert "shape envelope" in md
+    assert "750-1550 nm support" in md
+    assert "zero-mean on the support" in md
+    assert "applies before the R6a shape envelope" in md
+    assert "final min/max absorbance separately" in md
+    assert "_r6a_diesel_shape_route" in md
+    assert "diagnostic-only" in md
+    assert "not a B2/B3/B4/B5 gate" in md
+    assert "not a promotion over R3d" in md
+    assert "not authorize any nirs4all integration" in md
+
+
+# ---------------------------------------------------------------------------
+# R7a DIESEL support-centered residual transfer remediation profile tests.
+# R7a inherits R3d for non-DIESEL rows. On explicit DIESEL rows that carry
+# the dedicated _r7a_diesel_residual_route, R7a applies the R4a-like
+# absorbance base and adds a bounded support-centered residual transfer step
+# before the final non-negative absorbance clip.
+# ---------------------------------------------------------------------------
+
+
+def test_r7a_token_overrides_are_diesel_only_and_non_oracle() -> None:
+    exp09 = _load_exp09_module()
+    diesel = exp09._r7a_token_source_overrides(
+        _make_dataset("DIESEL_bp50_246_b-a")
+    )
+    route = diesel["_r7a_diesel_residual_route"]
+    assert diesel["matrix_type"] == "liquid"
+    assert diesel["measurement_mode"] == "transmittance"
+    assert route == {
+        "enabled": True,
+        "route_marker": "diesel",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert "_r7a_diesel_residual_route" not in exp09._r7a_token_source_overrides(
+        _make_dataset("CORN_m5")
+    )
+    assert "_r7a_diesel_residual_route" not in exp09._r7a_token_source_overrides(
+        _make_dataset("BEER_OriginalExtract_60_KS")
+    )
+    assert "_r7a_diesel_residual_route" not in exp09._r7a_token_source_overrides(
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type")
+    )
+
+
+def test_exp09_exposes_r7a_profile_and_falls_back_to_r3d_off_diesel() -> None:
+    exp09 = _load_exp09_module()
+    assert (
+        "r7a_diesel_support_centered_residual_transfer_v1"
+        in exp09.R7A_REMEDIATION_PROFILES
+    )
+    assert (
+        "r7a_diesel_support_centered_residual_transfer_v1"
+        in exp09.ALL_REMEDIATION_PROFILES
+    )
+    assert "R7A_REMEDIATION_PROFILES" in exp09.__all__
+    source = _exp09_source_path().read_text(encoding="utf-8")
+    assert "R7a inherits R3d (NOT R4a/R4b/R4c/R5a/R5b/R5c/R6a)" in source
+
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    corn = _make_dataset("CORN_m5")
+    manure = _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type")
+    # Explicit DIESEL preserves the requested R7a profile.
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            diesel,
+            "r7a_diesel_support_centered_residual_transfer_v1",
+        )
+        == "r7a_diesel_support_centered_residual_transfer_v1"
+    )
+    # Off-DIESEL falls back exactly on the R3d effective profile chain.
+    for non_diesel_dataset in (corn, manure):
+        r7a_effective = exp09._effective_remediation_profile_for_dataset(
+            non_diesel_dataset,
+            "r7a_diesel_support_centered_residual_transfer_v1",
+        )
+        r3d_effective = exp09._effective_remediation_profile_for_dataset(
+            non_diesel_dataset,
+            "r3d_diesel_matrix_v1",
+        )
+        r6a_effective = exp09._effective_remediation_profile_for_dataset(
+            non_diesel_dataset,
+            "r6a_diesel_centered_hydrocarbon_shape_v1",
+        )
+        assert r7a_effective == r3d_effective
+        assert r7a_effective == r6a_effective
+
+
+def test_r7a_diesel_build_records_residual_transfer_metadata_source_fields_none() -> None:
+    exp09 = _load_exp09_module()
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    preset = exp09.select_synthetic_preset_for_dataset(diesel)
+    r4a_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r4a_diesel_basis_v1",
+    )
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r7a_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r7a_diesel_support_centered_residual_transfer_v1",
+    )
+
+    # X differs from both R3d and R4a on explicit DIESEL routing.
+    assert not np.allclose(r7a_run.X, r3d_run.X)
+    assert not np.allclose(r7a_run.X, r4a_run.X)
+    # X stays finite and non-negative after the final clip.
+    assert np.isfinite(r7a_run.X).all()
+    assert float(r7a_run.X.min()) >= 0.0
+
+    # y is deterministic given the R7a seed source and stable on rerun.
+    rerun = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r7a_diesel_support_centered_residual_transfer_v1",
+    )
+    np.testing.assert_array_equal(r7a_run.y, rerun.y)
+    np.testing.assert_array_equal(r7a_run.X, rerun.X)
+
+    audit = r7a_run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == "r7a_diesel_support_centered_residual_transfer_v1"
+    assert (
+        audit["scope"]
+        == "bench_only_r7a_diesel_support_centered_residual_transfer_remediation"
+    )
+    assert audit["domain_key"] == "petrochem_fuels"
+    params = audit["transform_params"]
+    # Inherited R4a-like absorbance base parameters.
+    assert params["spectra_rule"] == "micro_path_fuel_ch_overtone_contrast_readout"
+    assert params["path_factor_range"] == [0.01, 0.018]
+    assert params["additive_baseline_range"] == [5e-05, 0.00035]
+    assert params["ch_overtone_centers_nm"] == [1150.0, 1210.0, 1390.0, 1460.0]
+    assert 1720.0 not in params["ch_overtone_centers_nm"]
+    assert params["ch_overtone_width_nm"] == 46.0
+    assert params["ch_overtone_gain_range"] == [0.055, 0.105]
+    assert params["damping_windows_nm"] == [
+        [1180.0, 70.0, 1.0],
+        [1425.0, 85.0, 1.0],
+    ]
+    assert params["damping_strength_range"] == [0.30, 0.50]
+    assert params["continuum_hump_center_nm"] == 975.0
+    assert params["continuum_hump_width_nm"] == 90.0
+    assert params["continuum_hump_amplitude_range"] == [0.00025, 0.00065]
+    assert params["continuum_hump_support_nm"] == [750.0, 1550.0]
+    # R7a residual transfer metadata.
+    assert params["support_centered_residual_transfer_range"] == [0.08, 0.18]
+    assert params["support_centered_residual_transfer_support_nm"] == [
+        750.0,
+        1550.0,
+    ]
+    assert params["support_centered_residual_transfer_source"] == (
+        "fixed_synthetic_hydrocarbon_residual_transfer_prior"
+    )
+    assert params["support_centered_residual_transfer_centering"] == (
+        "row_center_on_support_zero_outside"
+    )
+    assert params["support_centered_residual_transfer_application_stage"] == (
+        "before_final_clip_after_r4a_base"
+    )
+    assert 0.08 <= params["support_centered_residual_transfer_min"] <= 0.18
+    assert 0.08 <= params["support_centered_residual_transfer_max"] <= 0.18
+    # Final clip metadata.
+    assert params["final_clip_rule"] == "nonnegative_lower_bound_no_upper_bound"
+    assert params["output_clip_absorbance"] == [0.0, None]
+    assert params["final_min_absorbance_after_clip"] >= 0.0 - 1e-12
+    assert params["final_min_absorbance_after_clip"] == pytest.approx(
+        float(r7a_run.X.min())
+    )
+    assert params["final_max_absorbance_after_clip"] == pytest.approx(
+        float(r7a_run.X.max())
+    )
+    assert params["final_max_absorbance_before_clip"] == pytest.approx(
+        params["final_max_absorbance_after_clip"]
+    )
+    assert params["final_min_absorbance_before_clip"] <= params[
+        "final_min_absorbance_after_clip"
+    ]
+    assert 0.0 <= params["final_clip_fraction"] <= 1.0
+    # R7a is not a readout-space transform and not a shape envelope.
+    assert "readout_space_transform" not in params
+    assert "shape_envelope_absorbance_range" not in params
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert (
+        params["provenance_source"]
+        == "exp09_dataset_token_diesel_residual_transfer_route"
+    )
+    assert params["diesel_residual_transfer_route_marker"] == "diesel"
+    assert params["diesel_residual_transfer_route_real_stat_capture"] is False
+    assert params["diesel_residual_transfer_route_thresholds_modified"] is False
+    assert "diesel_readout_route_marker" not in params
+    assert "diesel_shape_route_marker" not in params
+
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r7a_diesel_support_centered_residual_transfer_v1",
+        metadata=r7a_run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "diesel_fuel_matrix"
+    assert fields["r2c_remediation_calibration_source"] == "none"
+    assert fields["r2c_remediation_real_stat_source"] == "none"
+    assert fields["r2c_remediation_threshold_source"] == "none"
+    assert fields["r2c_remediation_provenance_source"] == (
+        "exp09_dataset_token_diesel_residual_transfer_route"
+    )
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    (
+        _make_dataset("CORN_m5"),
+        _make_dataset("BEER_OriginalExtract_60_KS"),
+        _make_dataset("MILK_Fat_1224_KS"),
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+    ),
+)
+def test_r7a_non_diesel_draws_are_identical_to_r3d(dataset: Any) -> None:
+    exp09 = _load_exp09_module()
+    preset = exp09.select_synthetic_preset_for_dataset(dataset)
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=20260430,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r7a_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=20260430,
+        remediation_profile="r7a_diesel_support_centered_residual_transfer_v1",
+    )
+    assert (
+        r7a_run.metadata["r2c_mechanistic_remediation"]
+        == r3d_run.metadata["r2c_mechanistic_remediation"]
+    )
+    np.testing.assert_array_equal(r7a_run.X, r3d_run.X)
+    np.testing.assert_array_equal(r7a_run.y, r3d_run.y)
+
+
+def test_render_markdown_emits_r7a_diesel_diagnostic_only_non_gate_note(
+    tmp_path: Path,
+) -> None:
+    exp09 = _load_exp09_module()
+    audit_kwargs = _audit_kwargs()
+    audit_kwargs["audit_scope"] = (
+        "bench_only_r7a_sentinel_morphology_audit"
+    )
+    row = exp09.MorphologyRow(
+        status="compared",
+        source="AOM_regression",
+        task="regression",
+        dataset="DIESEL/DIESEL_bp50_246_b-a",
+        synthetic_preset="fuel",
+        comparison_space=exp09.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=10,
+        wavelength_min=900.0,
+        wavelength_max=1550.0,
+        real_global_mean=0.003,
+        synthetic_global_mean=0.005,
+        global_mean_delta=0.002,
+        real_global_std=0.014,
+        synthetic_global_std=0.015,
+        global_std_ratio=1.07,
+        log10_global_std_ratio=0.0294,
+        real_amplitude_p50=0.02,
+        synthetic_amplitude_p50=0.020,
+        amplitude_p50_ratio=1.0,
+        log10_amplitude_p50_ratio=0.0,
+        real_derivative_std_p50=0.004,
+        synthetic_derivative_std_p50=0.004,
+        derivative_std_p50_ratio=1.0,
+        log10_derivative_std_p50_ratio=0.0,
+        mean_curve_corr=0.10,
+        inverted_mean_curve_corr=-0.10,
+        morphology_gap_score=1.20,
+        dominant_morphology_gap="mean_shift",
+        **audit_kwargs,
+        **_remediation_kwargs(
+            profile="r7a_diesel_support_centered_residual_transfer_v1",
+            effective_matrix_route="diesel_fuel_matrix",
+            enabled=True,
+            domain_key="petrochem_fuels",
+            concentrations_applied=True,
+            spectra_applied=True,
+            spectra_rule="micro_path_fuel_ch_overtone_contrast_readout",
+            composition_source="textbook_diesel_composition",
+            spectra_source=(
+                "r7a_diesel_support_centered_residual_transfer_v1_inherits_r4a_basis_with_support_centered_residual_transfer_before_final_clip"
+            ),
+            provenance_source="exp09_dataset_token_diesel_residual_transfer_route",
+            constant_status="fixed_mechanistic_prior",
+            readout_space="blank_referenced_micro_path_ch_overtone_raw_absorbance",
+            calibration_source="none",
+            real_stat_source="none",
+            threshold_source="none",
+        ),
+        blocked_reason="",
+    )
+    result = {
+        "status": "done",
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "rows": [row],
+        "remediation_profile": "r7a_diesel_support_centered_residual_transfer_v1",
+    }
+
+    md = exp09.render_markdown(
+        result=result,
+        report_path=tmp_path / "r7a.md",
+        csv_path=tmp_path / "r7a.csv",
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seed=20260430,
+        sentinel_tokens=list(exp09.DEFAULT_SENTINEL_TOKENS),
+        remediation_profile="r7a_diesel_support_centered_residual_transfer_v1",
+    )
+
+    assert "## R7a DIESEL Provenance" in md
+    assert "inherits R3d routing for every non-DIESEL row" in md
+    assert "(NOT R4a/R4b/R4c/R5a/R5b/R5c/R6a)" in md
+    assert "the R4a-like absorbance base" in md
+    assert "support-centered residual transfer" in md
+    assert "750-1550 nm" in md
+    assert "row-centered on the support" in md
+    assert "final non-negative absorbance clip" in md
+    assert "clip fraction" in md
+    assert "_r7a_diesel_residual_route" in md
+    assert "diagnostic-only" in md
+    assert "not a B2/B3/B4/B5 gate" in md
+    assert "not a promotion over R3d" in md
+    assert "not authorize any nirs4all integration" in md
+
+
+# ---------------------------------------------------------------------------
+# R8a DIESEL mean-preserving micro-path modulation remediation profile tests.
+# R8a inherits R3d for non-DIESEL rows. On explicit DIESEL rows that carry
+# the dedicated _r8a_diesel_micro_path_route, R8a applies the R4a-like
+# absorbance base and applies a bounded mean-preserving multiplicative
+# modulation on the support after the standard R4a non-negative final clip.
+# ---------------------------------------------------------------------------
+
+
+def test_r8a_token_overrides_are_diesel_only_and_non_oracle() -> None:
+    exp09 = _load_exp09_module()
+    diesel = exp09._r8a_token_source_overrides(
+        _make_dataset("DIESEL_bp50_246_b-a")
+    )
+    route = diesel["_r8a_diesel_micro_path_route"]
+    fallback_route = diesel["_r3d_diesel_readout_route"]
+    assert diesel["matrix_type"] == "liquid"
+    assert diesel["measurement_mode"] == "transmittance"
+    assert route == {
+        "enabled": True,
+        "route_marker": "diesel",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert fallback_route == {
+        "enabled": True,
+        "route_marker": "diesel",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert "_r8a_diesel_micro_path_route" not in exp09._r8a_token_source_overrides(
+        _make_dataset("CORN_m5")
+    )
+    assert "_r8a_diesel_micro_path_route" not in exp09._r8a_token_source_overrides(
+        _make_dataset("BEER_OriginalExtract_60_KS")
+    )
+    assert "_r8a_diesel_micro_path_route" not in exp09._r8a_token_source_overrides(
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type")
+    )
+
+
+def test_exp09_exposes_r8a_profile_and_falls_back_to_r3d_off_diesel() -> None:
+    exp09 = _load_exp09_module()
+    assert (
+        "r8a_diesel_mean_preserving_micro_path_modulation_v1"
+        in exp09.R8A_REMEDIATION_PROFILES
+    )
+    assert (
+        "r8a_diesel_mean_preserving_micro_path_modulation_v1"
+        in exp09.ALL_REMEDIATION_PROFILES
+    )
+    assert "R8A_REMEDIATION_PROFILES" in exp09.__all__
+    source = _exp09_source_path().read_text(encoding="utf-8")
+    assert (
+        "R8a inherits R3d (NOT R4a/R4b/R4c/R5a/R5b/R5c/R6a/R7a)"
+        in source
+    )
+
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    corn = _make_dataset("CORN_m5")
+    manure = _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type")
+    # Explicit DIESEL preserves the requested R8a profile.
+    assert (
+        exp09._effective_remediation_profile_for_dataset(
+            diesel,
+            "r8a_diesel_mean_preserving_micro_path_modulation_v1",
+        )
+        == "r8a_diesel_mean_preserving_micro_path_modulation_v1"
+    )
+    # Off-DIESEL falls back exactly on the R3d effective profile chain.
+    for non_diesel_dataset in (corn, manure):
+        r8a_effective = exp09._effective_remediation_profile_for_dataset(
+            non_diesel_dataset,
+            "r8a_diesel_mean_preserving_micro_path_modulation_v1",
+        )
+        r3d_effective = exp09._effective_remediation_profile_for_dataset(
+            non_diesel_dataset,
+            "r3d_diesel_matrix_v1",
+        )
+        r7a_effective = exp09._effective_remediation_profile_for_dataset(
+            non_diesel_dataset,
+            "r7a_diesel_support_centered_residual_transfer_v1",
+        )
+        assert r8a_effective == r3d_effective
+        assert r8a_effective == r7a_effective
+
+
+def test_r8a_diesel_build_records_micro_path_modulation_metadata_source_fields_none() -> None:
+    exp09 = _load_exp09_module()
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    preset = exp09.select_synthetic_preset_for_dataset(diesel)
+    r4a_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r4a_diesel_basis_v1",
+    )
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r7a_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r7a_diesel_support_centered_residual_transfer_v1",
+    )
+    r8a_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r8a_diesel_mean_preserving_micro_path_modulation_v1",
+    )
+
+    # X differs from R3d, R4a, and R7a on explicit DIESEL routing.
+    assert not np.allclose(r8a_run.X, r3d_run.X)
+    assert not np.allclose(r8a_run.X, r4a_run.X)
+    assert not np.allclose(r8a_run.X, r7a_run.X)
+    # X stays finite and non-negative after the modulation + guard clip.
+    assert np.isfinite(r8a_run.X).all()
+    assert float(r8a_run.X.min()) >= 0.0
+
+    # y is deterministic given the R8a seed source and stable on rerun.
+    rerun = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r8a_diesel_mean_preserving_micro_path_modulation_v1",
+    )
+    np.testing.assert_array_equal(r8a_run.y, rerun.y)
+    np.testing.assert_array_equal(r8a_run.X, rerun.X)
+
+    audit = r8a_run.metadata["r2c_mechanistic_remediation"]
+    assert (
+        audit["profile"]
+        == "r8a_diesel_mean_preserving_micro_path_modulation_v1"
+    )
+    assert (
+        audit["scope"]
+        == "bench_only_r8a_diesel_mean_preserving_micro_path_modulation"
+    )
+    assert audit["domain_key"] == "petrochem_fuels"
+    params = audit["transform_params"]
+    # Inherited R4a-like absorbance base parameters.
+    assert params["spectra_rule"] == "micro_path_fuel_ch_overtone_contrast_readout"
+    assert params["path_factor_range"] == [0.01, 0.018]
+    assert params["additive_baseline_range"] == [5e-05, 0.00035]
+    assert params["ch_overtone_centers_nm"] == [1150.0, 1210.0, 1390.0, 1460.0]
+    assert 1720.0 not in params["ch_overtone_centers_nm"]
+    assert params["ch_overtone_width_nm"] == 46.0
+    assert params["ch_overtone_gain_range"] == [0.055, 0.105]
+    assert params["damping_windows_nm"] == [
+        [1180.0, 70.0, 1.0],
+        [1425.0, 85.0, 1.0],
+    ]
+    assert params["damping_strength_range"] == [0.30, 0.50]
+    assert params["continuum_hump_center_nm"] == 975.0
+    assert params["continuum_hump_width_nm"] == 90.0
+    assert params["continuum_hump_amplitude_range"] == [0.00025, 0.00065]
+    assert params["continuum_hump_support_nm"] == [750.0, 1550.0]
+    # R8a modulation metadata.
+    assert params["support_centered_micro_path_modulation_strength_range"] == [
+        0.10,
+        0.30,
+    ]
+    assert params["support_centered_micro_path_modulation_support_nm"] == [
+        750.0,
+        1550.0,
+    ]
+    assert (
+        params["support_centered_micro_path_modulation_normalization"]
+        == "p95_abs"
+    )
+    assert (
+        params["support_centered_micro_path_modulation_shape_clip"]
+        == [-1.0, 1.0]
+    )
+    assert (
+        params["support_centered_micro_path_modulation_centering"]
+        == "row_center_on_support_zero_outside"
+    )
+    assert (
+        params["support_centered_micro_path_modulation_application_stage"]
+        == "after_base_nonnegative_clip"
+    )
+    assert (
+        params["support_centered_micro_path_modulation_normalization_source"]
+        == "synthetic_internal_residual_only"
+    )
+    # Mean preservation: support row mean delta is essentially zero.
+    assert (
+        params[
+            "support_centered_micro_path_modulation_support_mean_abs_delta_max"
+        ]
+        <= 1.0e-9
+    )
+    # Guard clip is expected to be a no-op on a non-negative base under
+    # positive modulation.
+    assert (
+        params[
+            "support_centered_micro_path_modulation_guard_clip_fraction"
+        ]
+        == pytest.approx(0.0)
+    )
+    assert (
+        params[
+            "support_centered_micro_path_modulation_min_after_guard_clip"
+        ]
+        >= 0.0
+    )
+    assert (
+        params[
+            "support_centered_micro_path_modulation_max_after_guard_clip"
+        ]
+        == pytest.approx(float(r8a_run.X.max()))
+    )
+    # R8a is not a readout-space transform, not a shape envelope, and not the
+    # raw R7a residual transfer addition.
+    assert "readout_space_transform" not in params
+    assert "shape_envelope_absorbance_range" not in params
+    assert "support_centered_residual_transfer_range" not in params
+    assert "support_centered_residual_transfer_application_stage" not in params
+    assert "diesel_residual_transfer_route_marker" not in params
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert (
+        params["provenance_source"]
+        == "exp09_dataset_token_diesel_micro_path_modulation_route"
+    )
+    assert (
+        params["diesel_micro_path_modulation_route_marker"] == "diesel"
+    )
+    assert (
+        params["diesel_micro_path_modulation_route_real_stat_capture"]
+        is False
+    )
+    assert (
+        params["diesel_micro_path_modulation_route_thresholds_modified"]
+        is False
+    )
+    assert "diesel_readout_route_marker" not in params
+    assert "diesel_shape_route_marker" not in params
+
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile="r8a_diesel_mean_preserving_micro_path_modulation_v1",
+        metadata=r8a_run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "diesel_fuel_matrix"
+    assert fields["r2c_remediation_calibration_source"] == "none"
+    assert fields["r2c_remediation_real_stat_source"] == "none"
+    assert fields["r2c_remediation_threshold_source"] == "none"
+    assert fields["r2c_remediation_provenance_source"] == (
+        "exp09_dataset_token_diesel_micro_path_modulation_route"
+    )
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    (
+        _make_dataset("CORN_m5"),
+        _make_dataset("BEER_OriginalExtract_60_KS"),
+        _make_dataset("MILK_Fat_1224_KS"),
+        _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type"),
+    ),
+)
+def test_r8a_non_diesel_draws_are_identical_to_r3d(dataset: Any) -> None:
+    exp09 = _load_exp09_module()
+    preset = exp09.select_synthetic_preset_for_dataset(dataset)
+    r3d_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=20260430,
+        remediation_profile="r3d_diesel_matrix_v1",
+    )
+    r8a_run = exp09._build_baseline_synthetic_run(
+        dataset=dataset,
+        preset=preset,
+        n_samples=8,
+        seed=20260430,
+        remediation_profile="r8a_diesel_mean_preserving_micro_path_modulation_v1",
+    )
+    assert (
+        r8a_run.metadata["r2c_mechanistic_remediation"]
+        == r3d_run.metadata["r2c_mechanistic_remediation"]
+    )
+    np.testing.assert_array_equal(r8a_run.X, r3d_run.X)
+    np.testing.assert_array_equal(r8a_run.y, r3d_run.y)
+
+
+def test_render_markdown_emits_r8a_diesel_diagnostic_only_non_gate_note(
+    tmp_path: Path,
+) -> None:
+    exp09 = _load_exp09_module()
+    audit_kwargs = _audit_kwargs()
+    audit_kwargs["audit_scope"] = (
+        "bench_only_r8a_sentinel_morphology_audit"
+    )
+    row = exp09.MorphologyRow(
+        status="compared",
+        source="AOM_regression",
+        task="regression",
+        dataset="DIESEL/DIESEL_bp50_246_b-a",
+        synthetic_preset="fuel",
+        comparison_space=exp09.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=10,
+        wavelength_min=900.0,
+        wavelength_max=1550.0,
+        real_global_mean=0.003,
+        synthetic_global_mean=0.005,
+        global_mean_delta=0.002,
+        real_global_std=0.014,
+        synthetic_global_std=0.015,
+        global_std_ratio=1.07,
+        log10_global_std_ratio=0.0294,
+        real_amplitude_p50=0.02,
+        synthetic_amplitude_p50=0.020,
+        amplitude_p50_ratio=1.0,
+        log10_amplitude_p50_ratio=0.0,
+        real_derivative_std_p50=0.004,
+        synthetic_derivative_std_p50=0.004,
+        derivative_std_p50_ratio=1.0,
+        log10_derivative_std_p50_ratio=0.0,
+        mean_curve_corr=0.10,
+        inverted_mean_curve_corr=-0.10,
+        morphology_gap_score=1.20,
+        dominant_morphology_gap="mean_shift",
+        **audit_kwargs,
+        **_remediation_kwargs(
+            profile="r8a_diesel_mean_preserving_micro_path_modulation_v1",
+            effective_matrix_route="diesel_fuel_matrix",
+            enabled=True,
+            domain_key="petrochem_fuels",
+            concentrations_applied=True,
+            spectra_applied=True,
+            spectra_rule="micro_path_fuel_ch_overtone_contrast_readout",
+            composition_source="textbook_diesel_composition",
+            spectra_source=(
+                "r8a_diesel_mean_preserving_micro_path_modulation_v1_inherits_r4a_basis_with_mean_preserving_multiplicative_modulation_after_final_clip"
+            ),
+            provenance_source=(
+                "exp09_dataset_token_diesel_micro_path_modulation_route"
+            ),
+            constant_status="fixed_mechanistic_prior",
+            readout_space="blank_referenced_micro_path_ch_overtone_raw_absorbance",
+            calibration_source="none",
+            real_stat_source="none",
+            threshold_source="none",
+        ),
+        blocked_reason="",
+    )
+    result = {
+        "status": "done",
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "rows": [row],
+        "remediation_profile": "r8a_diesel_mean_preserving_micro_path_modulation_v1",
+    }
+
+    md = exp09.render_markdown(
+        result=result,
+        report_path=tmp_path / "r8a.md",
+        csv_path=tmp_path / "r8a.csv",
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seed=20260430,
+        sentinel_tokens=list(exp09.DEFAULT_SENTINEL_TOKENS),
+        remediation_profile="r8a_diesel_mean_preserving_micro_path_modulation_v1",
+    )
+
+    assert "## R8a DIESEL Provenance" in md
+    assert "inherits R3d routing for every non-DIESEL row" in md
+    assert "(NOT R4a/R4b/R4c/R5a/R5b/R5c/R6a/" in md
+    assert "R7a)" in md
+    assert "the R4a-like absorbance base" in md
+    assert "mean-preserving multiplicative modulation" in md
+    assert "750-1550 nm" in md
+    assert "row-centers" in md
+    assert "after the standard R4a non-negative absorbance clip" in md
+    assert "exp(strength * shape)" in md
+    assert "exactly preserved" in md
+    assert "guard clip" in md
+    assert "_r8a_diesel_micro_path_route" in md
+    assert "diagnostic-only" in md
+    assert "not a B2/B3/B4/B5 gate" in md
+    assert "not a promotion over R3d" in md
+    assert "not authorize any nirs4all integration" in md
+
+
+# ---------------------------------------------------------------------------
+# R8b DIESEL R4c-base mean-preserving micro-path modulation tests.
+# ---------------------------------------------------------------------------
+
+
+def test_r8b_token_overrides_are_diesel_only_and_non_oracle() -> None:
+    exp09 = _load_exp09_module()
+    diesel = exp09._r8b_token_source_overrides(_make_dataset("DIESEL_bp50_246_b-a"))
+    route = diesel["_r8b_diesel_micro_path_route"]
+    fallback_route = diesel["_r3d_diesel_readout_route"]
+    assert diesel["matrix_type"] == "liquid"
+    assert diesel["measurement_mode"] == "transmittance"
+    expected_route = {
+        "enabled": True,
+        "route_marker": "diesel",
+        "source": "exp09_dataset_token",
+        "non_oracle": True,
+        "no_target_or_label": True,
+        "real_stat_capture": False,
+        "thresholds_modified": False,
+    }
+    assert route == expected_route
+    assert fallback_route == expected_route
+    assert "_r8b_diesel_micro_path_route" not in exp09._r8b_token_source_overrides(
+        _make_dataset("CORN_m5")
+    )
+    assert "_r8b_diesel_micro_path_route" not in exp09._r8b_token_source_overrides(
+        _make_dataset("BEER_OriginalExtract_60_KS")
+    )
+
+
+def test_exp09_exposes_r8b_profile_and_falls_back_to_r3d_off_diesel() -> None:
+    exp09 = _load_exp09_module()
+    profile = "r8b_diesel_r4c_base_mean_preserving_micro_path_modulation_v1"
+    assert profile in exp09.R8B_REMEDIATION_PROFILES
+    assert profile in exp09.ALL_REMEDIATION_PROFILES
+    assert "R8B_REMEDIATION_PROFILES" in exp09.__all__
+    source = _exp09_source_path().read_text(encoding="utf-8")
+    assert "R8b inherits R3d (NOT R4a/R4b/R4c/R5a/R5b/R5c/R6a/R7a/R8a)" in source
+    assert "_r8b_diesel_micro_path_route" in source
+
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    corn = _make_dataset("CORN_m5")
+    manure = _make_dataset("MANURE21_All_manure_K2O_SPXY_strat_Manure_type")
+    assert exp09._effective_remediation_profile_for_dataset(diesel, profile) == profile
+    for non_diesel_dataset in (corn, manure):
+        assert exp09._effective_remediation_profile_for_dataset(
+            non_diesel_dataset,
+            profile,
+        ) == exp09._effective_remediation_profile_for_dataset(
+            non_diesel_dataset,
+            "r3d_diesel_matrix_v1",
+        )
+
+
+def test_r8b_diesel_build_records_r4c_base_modulation_provenance() -> None:
+    exp09 = _load_exp09_module()
+    profile = "r8b_diesel_r4c_base_mean_preserving_micro_path_modulation_v1"
+    diesel = _make_dataset("DIESEL_bp50_246_b-a")
+    preset = exp09.select_synthetic_preset_for_dataset(diesel)
+    r4c_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r4c_diesel_balanced_derivative_v1",
+    )
+    r8a_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile="r8a_diesel_mean_preserving_micro_path_modulation_v1",
+    )
+    r8b_run = exp09._build_baseline_synthetic_run(
+        dataset=diesel,
+        preset=preset,
+        n_samples=16,
+        seed=20260430,
+        remediation_profile=profile,
+    )
+
+    assert not np.allclose(r8b_run.X, r4c_run.X)
+    assert not np.allclose(r8b_run.X, r8a_run.X)
+    assert np.isfinite(r8b_run.X).all()
+    assert float(r8b_run.X.min()) >= 0.0
+
+    audit = r8b_run.metadata["r2c_mechanistic_remediation"]
+    assert audit["profile"] == profile
+    assert (
+        audit["scope"]
+        == "bench_only_r8b_diesel_r4c_base_mean_preserving_micro_path_modulation"
+    )
+    assert audit["real_stat_capture"] is False
+    assert audit["thresholds_modified"] is False
+    params = audit["transform_params"]
+    assert params["spectra_rule"] == "micro_path_fuel_ch_overtone_contrast_readout"
+    assert params["ch_overtone_width_nm"] == 36.0
+    assert params["ch_overtone_gain_range"] == [0.092, 0.155]
+    assert params["damping_strength_range"] == [0.05, 0.15]
+    assert params["continuum_hump_width_nm"] == 72.0
+    assert params["support_centered_micro_path_modulation_strength_range"] == [
+        0.10,
+        0.30,
+    ]
+    assert (
+        params["support_centered_micro_path_modulation_support_mean_abs_delta_max"]
+        <= 1.0e-9
+    )
+    assert (
+        params["support_centered_micro_path_modulation_guard_clip_fraction"]
+        == pytest.approx(0.0)
+    )
+    assert params["calibration_source"] == "none"
+    assert params["real_stat_source"] == "none"
+    assert params["threshold_source"] == "none"
+    assert (
+        params["provenance_source"]
+        == "exp09_dataset_token_diesel_r8b_micro_path_modulation_route"
+    )
+    assert params["diesel_micro_path_modulation_route_marker"] == "diesel"
+    assert params["diesel_micro_path_modulation_route_real_stat_capture"] is False
+    assert params["diesel_micro_path_modulation_route_thresholds_modified"] is False
+
+    fields = exp09._remediation_fields_from_metadata(
+        remediation_profile=profile,
+        metadata=r8b_run.metadata,
+    )
+    assert fields["effective_matrix_route"] == "diesel_fuel_matrix"
+    assert fields["r2c_remediation_calibration_source"] == "none"
+    assert fields["r2c_remediation_real_stat_source"] == "none"
+    assert fields["r2c_remediation_threshold_source"] == "none"
+    assert fields["r2c_remediation_provenance_source"] == (
+        "exp09_dataset_token_diesel_r8b_micro_path_modulation_route"
+    )
+
+
+def test_render_markdown_emits_r8b_diesel_diagnostic_only_provenance(
+    tmp_path: Path,
+) -> None:
+    exp09 = _load_exp09_module()
+    profile = "r8b_diesel_r4c_base_mean_preserving_micro_path_modulation_v1"
+    audit_kwargs = _audit_kwargs()
+    audit_kwargs["audit_scope"] = "bench_only_r8b_sentinel_morphology_audit"
+    row = exp09.MorphologyRow(
+        status="compared",
+        source="AOM_regression",
+        task="regression",
+        dataset="DIESEL/DIESEL_bp50_246_b-a",
+        synthetic_preset="fuel",
+        comparison_space=exp09.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=10,
+        wavelength_min=900.0,
+        wavelength_max=1550.0,
+        real_global_mean=0.003,
+        synthetic_global_mean=0.005,
+        global_mean_delta=0.002,
+        real_global_std=0.014,
+        synthetic_global_std=0.015,
+        global_std_ratio=1.07,
+        log10_global_std_ratio=0.0294,
+        real_amplitude_p50=0.02,
+        synthetic_amplitude_p50=0.020,
+        amplitude_p50_ratio=1.0,
+        log10_amplitude_p50_ratio=0.0,
+        real_derivative_std_p50=0.004,
+        synthetic_derivative_std_p50=0.004,
+        derivative_std_p50_ratio=1.0,
+        log10_derivative_std_p50_ratio=0.0,
+        mean_curve_corr=0.10,
+        inverted_mean_curve_corr=-0.10,
+        morphology_gap_score=1.20,
+        dominant_morphology_gap="mean_shift",
+        **audit_kwargs,
+        **_remediation_kwargs(
+            profile=profile,
+            effective_matrix_route="diesel_fuel_matrix",
+            enabled=True,
+            domain_key="petrochem_fuels",
+            concentrations_applied=True,
+            spectra_applied=True,
+            spectra_rule="micro_path_fuel_ch_overtone_contrast_readout",
+            composition_source="textbook_diesel_composition",
+            spectra_source=(
+                "r8b_diesel_r4c_base_mean_preserving_micro_path_modulation_v1_inherits_r4c_balanced_derivative_with_mean_preserving_multiplicative_modulation_after_final_clip"
+            ),
+            provenance_source=(
+                "exp09_dataset_token_diesel_r8b_micro_path_modulation_route"
+            ),
+            constant_status="fixed_mechanistic_prior",
+            readout_space="blank_referenced_micro_path_ch_overtone_raw_absorbance",
+            calibration_source="none",
+            real_stat_source="none",
+            threshold_source="none",
+        ),
+        blocked_reason="",
+    )
+    result = {
+        "status": "done",
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "rows": [row],
+        "remediation_profile": profile,
+    }
+
+    md = exp09.render_markdown(
+        result=result,
+        report_path=tmp_path / "r8b.md",
+        csv_path=tmp_path / "r8b.csv",
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seed=20260430,
+        sentinel_tokens=list(exp09.DEFAULT_SENTINEL_TOKENS),
+        remediation_profile=profile,
+    )
+
+    assert "## R8b DIESEL Provenance" in md
+    assert "inherits R3d routing for every non-DIESEL row" in md
+    assert "(NOT R4a/R4b/R4c/R5a/R5b/R5c/R6a/" in md
+    assert "R7a/R8a)" in md
+    assert "full R4c balanced-derivative absorbance base" in md
+    assert "bounded mean-preserving multiplicative modulation as R8a" in md
+    assert "support row mean of the R4c base is then exactly preserved" in md
+    assert "guard clip" in md
+    assert "_r8b_diesel_micro_path_route" in md
+    assert "_r3d_diesel_readout_route" in md
+    assert "diagnostic-only" in md
+    assert "not a B2/B3/B4/B5 gate" in md
+    assert "not a promotion over R3d" in md
+    assert "not authorize any nirs4all integration" in md

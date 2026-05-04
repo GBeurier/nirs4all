@@ -56,6 +56,27 @@ def test_v2a_trainable_ops_have_grad():
     assert found, "no trainable operator had a finite gradient"
 
 
+def test_v2g_matrix_ops_frozen_when_conv_ops_trainable():
+    model = NiconV2A(
+        (1, 700),
+        bank="extended",
+        trainable_ops=True,
+        matrix_trainable_ops=False,
+        operator_reg_lambda=0.0,
+        branch_se=True,
+    )
+    trainable_matrix = []
+    trainable_conv = []
+    for branch in model.branches:
+        if branch.__class__.__name__ == "FrozenMatrixOperator":
+            trainable_matrix.append(getattr(branch, "trainable", None))
+            assert len(list(branch.named_parameters(recurse=False))) == 0
+        if branch.__class__.__name__ == "FrozenConvOperator" and branch.name != "identity":
+            trainable_conv.append(getattr(branch, "trainable", None))
+    assert trainable_matrix == [False, False, False]
+    assert all(trainable_conv)
+
+
 def test_v2a_frozen_ops_have_no_grad():
     model = NiconV2A((1, 700), bank="compact", trainable_ops=False)
     for branch in model.branches:

@@ -1,101 +1,190 @@
 {
+  "protocol_version": "class_balanced_paper_aware",
   "seed": 1234,
   "n_core_datasets": 57,
-  "n_models_core": 128,
-  "selected_size": 11,
+  "selected_size": 10,
   "selected_datasets": [
-    "All_manure_P2O5_SPXY_strat_Manure_type",
-    "Fv_Fm_grp70_30",
-    "ta_groupSampleID_stratDateVar_balRows",
-    "WOOD_N_402_Olale",
-    "An_spxyG70_30_byCultivar_MicroNIR",
-    "All_manure_CaO_SPXY_strat_Manure_type",
-    "DIESEL_bp50_246_b-a",
-    "Malaria_Sporozoite_229_Maia",
+    "All_manure_MgO_SPXY_strat_Manure_type",
+    "An_spxyG70_30_byCultivar_NeoSpectra",
+    "TIC_spxy70",
+    "Chla+b_spxyG_species",
+    "ALPINE_P_291_KS",
+    "Beer_OriginalExtract_60_YbaseSplit",
+    "All_manure_Total_N_SPXY_strat_Manure_type",
     "Chla+b_spxyG_block2deg",
-    "DIESEL_bp50_246_hla-b",
-    "Beef_Marbling_RandomSplit"
+    "N_woOutlier",
+    "grapevine_chloride_556_KS"
   ],
   "metrics_full_vs_subset": {
-    "spearman": 0.9952459367080697,
-    "kendall": 0.9502865418739734,
-    "pairwise_agreement": 0.9710875984251969,
-    "rank_mae": 2.453125,
-    "agg_mae": 0.05228679348520518,
-    "composite": 0.9718962770987187
-  },
-  "bootstrap": {
-    "spearman_mean": 0.9942121630163818,
-    "spearman_p05": 0.9906750710347787,
-    "spearman_p95": 0.9964757260987919,
-    "kendall_mean": 0.9503260074725705,
-    "kendall_p05": 0.9358592960792168,
-    "pairwise_mean": 0.971402969160105,
-    "pairwise_p05": 0.9636995570866143,
-    "pairwise_p95": 0.9778543307086615,
-    "n_boot": 300,
-    "size": 11
+    "spearman": 1.0,
+    "kendall": 1.0,
+    "pairwise_agreement": 1.0,
+    "rank_mae": 0.0,
+    "agg_mae": 0.07129754033008866,
+    "selected_coverage_ratio": 0.9875,
+    "min_class_selected_count": 9,
+    "composite": 0.7838654919339823
   },
   "thresholds": {
-    "spearman": 0.98,
+    "min_subset_size": 10,
+    "spearman": 0.99,
     "kendall": 0.95,
     "pairwise_agreement": 0.97,
-    "boot_spearman_p05": 0.95,
-    "boot_pairwise_p05": 0.95
+    "agg_mae": 0.08,
+    "selected_coverage_ratio": 0.98,
+    "min_class_selected_count": 3
   },
-  "selection_reason": "Tous les seuils sont satisfaits.",
+  "model_classes_included": [
+    {
+      "model_class": "AOM_PLS_Best",
+      "source_model": "nicon_v2 long_per_dataset::AOM-PLS-best",
+      "n_core_scores": 57,
+      "coverage_ratio": 1.0,
+      "included_in_balanced_analysis": true,
+      "reason": "included_main_equal_class_weight"
+    },
+    {
+      "model_class": "AOM_PLS_Standard",
+      "source_model": "nicon_v2 long_per_dataset::AOM-PLS PLS-standard",
+      "n_core_scores": 57,
+      "coverage_ratio": 1.0,
+      "included_in_balanced_analysis": true,
+      "reason": "included_main_equal_class_weight"
+    },
+    {
+      "model_class": "Paper_CNN",
+      "source_model": "TabPFN paper master_pivot",
+      "n_core_scores": 51,
+      "coverage_ratio": 0.8947368421052632,
+      "included_in_balanced_analysis": true,
+      "reason": "included_main_equal_class_weight"
+    },
+    {
+      "model_class": "Paper_CatBoost",
+      "source_model": "TabPFN paper master_pivot",
+      "n_core_scores": 56,
+      "coverage_ratio": 0.9824561403508771,
+      "included_in_balanced_analysis": true,
+      "reason": "included_main_equal_class_weight"
+    },
+    {
+      "model_class": "Paper_PLS",
+      "source_model": "TabPFN paper master_pivot",
+      "n_core_scores": 54,
+      "coverage_ratio": 0.9473684210526315,
+      "included_in_balanced_analysis": true,
+      "reason": "included_main_equal_class_weight"
+    },
+    {
+      "model_class": "Paper_Ridge",
+      "source_model": "TabPFN paper master_pivot",
+      "n_core_scores": 54,
+      "coverage_ratio": 0.9473684210526315,
+      "included_in_balanced_analysis": true,
+      "reason": "included_main_equal_class_weight"
+    },
+    {
+      "model_class": "Paper_TabPFN_Opt",
+      "source_model": "TabPFN paper master_pivot",
+      "n_core_scores": 57,
+      "coverage_ratio": 1.0,
+      "included_in_balanced_analysis": true,
+      "reason": "included_main_equal_class_weight"
+    },
+    {
+      "model_class": "Paper_TabPFN_Raw",
+      "source_model": "TabPFN paper master_pivot",
+      "n_core_scores": 57,
+      "coverage_ratio": 1.0,
+      "included_in_balanced_analysis": true,
+      "reason": "included_main_equal_class_weight"
+    }
+  ],
+  "model_classes_excluded_from_main": [
+    {
+      "model_class": "AOM_Ridge_Best",
+      "source_model": "nicon_v2 long_per_dataset::AOM-Ridge-best",
+      "n_core_scores": 39,
+      "coverage_ratio": 0.6842105263157895,
+      "included_in_balanced_analysis": false,
+      "reason": "excluded_from_main_low_core_coverage"
+    },
+    {
+      "model_class": "Nicon_CNN_V1c",
+      "source_model": "nicon_v2 long_per_dataset::nicon_v2 V1c-concat-bjerrum (CNN-only)",
+      "n_core_scores": 39,
+      "coverage_ratio": 0.6842105263157895,
+      "included_in_balanced_analysis": false,
+      "reason": "excluded_from_main_low_core_coverage"
+    },
+    {
+      "model_class": "Nicon_Internal_PLS",
+      "source_model": "nicon_v2 long_per_dataset::nicon_v2 internal PLS",
+      "n_core_scores": 38,
+      "coverage_ratio": 0.6666666666666666,
+      "included_in_balanced_analysis": false,
+      "reason": "excluded_from_main_low_core_coverage"
+    },
+    {
+      "model_class": "Nicon_Internal_Ridge",
+      "source_model": "nicon_v2 long_per_dataset::nicon_v2 internal Ridge",
+      "n_core_scores": 39,
+      "coverage_ratio": 0.6842105263157895,
+      "included_in_balanced_analysis": false,
+      "reason": "excluded_from_main_low_core_coverage"
+    },
+    {
+      "model_class": "Nicon_Stack_Ridge_PLS_V1c",
+      "source_model": "nicon_v2 long_per_dataset::nicon_v2 Stack-Ridge-PLS-V1c",
+      "n_core_scores": 38,
+      "coverage_ratio": 0.6666666666666666,
+      "included_in_balanced_analysis": false,
+      "reason": "excluded_from_main_low_core_coverage"
+    }
+  ],
+  "leave_one_class_out": {
+    "loco_spearman_min": 1.0,
+    "loco_kendall_min": 1.0,
+    "loco_pairwise_min": 1.0,
+    "loco_agg_mae_max": 0.08130829580426181
+  },
   "conservative_alternative": {
-    "size": 26,
+    "size": 19,
     "datasets": [
-      "All_manure_P2O5_SPXY_strat_Manure_type",
-      "Fv_Fm_grp70_30",
-      "ta_groupSampleID_stratDateVar_balRows",
-      "WOOD_N_402_Olale",
-      "An_spxyG70_30_byCultivar_MicroNIR",
-      "All_manure_CaO_SPXY_strat_Manure_type",
-      "DIESEL_bp50_246_b-a",
-      "Malaria_Sporozoite_229_Maia",
-      "Chla+b_spxyG_block2deg",
-      "DIESEL_bp50_246_hla-b",
-      "Beef_Marbling_RandomSplit",
-      "All_manure_Total_N_SPXY_strat_Manure_type",
-      "WOOD_Density_402_Olale",
-      "Milk_Urea_1224_KS",
-      "grapevine_chloride_556_KS",
-      "WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
-      "Corn_Starch_80_ZhengChenPelegYbaseSplit",
-      "An_spxyG70_30_byCultivar_ASD",
-      "ph_groupSampleID_stratDateVar_balRows",
+      "All_manure_MgO_SPXY_strat_Manure_type",
+      "An_spxyG70_30_byCultivar_NeoSpectra",
+      "TIC_spxy70",
+      "Chla+b_spxyG_species",
       "ALPINE_P_291_KS",
-      "LP_spxyG",
-      "Rd25_spxy70",
-      "Milk_Lactose_1224_KS",
-      "brix_groupSampleID_stratDateVar_balRows",
-      "LUCAS_SOC_Cropland_8731_NocitaKS",
-      "Ccar_spxyG_block2deg"
+      "Beer_OriginalExtract_60_YbaseSplit",
+      "All_manure_Total_N_SPXY_strat_Manure_type",
+      "Chla+b_spxyG_block2deg",
+      "N_woOutlier",
+      "grapevine_chloride_556_KS",
+      "Malaria_Sporozoite_229_Maia",
+      "Pi_spxyG",
+      "LUCAS_pH_Organic_1763_LiuRandomOrganic",
+      "Rd25_GTtestSite",
+      "ph_groupSampleID_stratDateVar_balRows",
+      "Rd25_CBtestSite",
+      "An_spxyG70_30_byCultivar_ASD",
+      "LMA_spxyG70_30_byCultivar_ASD",
+      "Rd25_spxy70"
     ],
     "metrics_full_vs_subset": {
-      "spearman": 0.9969913346518636,
-      "kendall": 0.9623607128973949,
-      "pairwise_agreement": 0.9788385826771654,
-      "rank_mae": 1.9375,
-      "agg_mae": 0.04133001916303511,
-      "composite": 0.9790898215749618
+      "spearman": 1.0,
+      "kendall": 1.0,
+      "pairwise_agreement": 1.0,
+      "rank_mae": 0.0,
+      "agg_mae": 0.021812780679038437,
+      "selected_coverage_ratio": 0.9802631578947368,
+      "min_class_selected_count": 18,
+      "composite": 0.7926769175484029
     },
-    "bootstrap": {
-      "spearman_mean": 0.9962371272352577,
-      "spearman_p05": 0.9945111626837833,
-      "spearman_p95": 0.9979229921719805,
-      "kendall_mean": 0.9627816413482462,
-      "kendall_p05": 0.9518250265794066,
-      "pairwise_mean": 0.9792084973753282,
-      "pairwise_p05": 0.9737881397637795,
-      "pairwise_p95": 0.9847502460629921,
-      "n_boot": 300,
-      "size": 26
-    },
-    "extra_threshold": {
-      "boot_kendall_p05": 0.95
+    "extra_thresholds": {
+      "agg_mae": 0.05,
+      "selected_coverage_ratio": 0.97
     }
-  }
+  },
+  "method_note": "Main selection uses one equal-weight row per model class. AOM variants are not individual voting rows; they are represented by AOM_PLS_Standard and AOM_PLS_Best only."
 }

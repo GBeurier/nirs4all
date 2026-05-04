@@ -71,6 +71,30 @@ def _sum_squared_error(Y_true: np.ndarray, Y_pred: np.ndarray) -> tuple[float, i
     return float(np.sum(diff * diff)), int(diff.size)
 
 
+def _trimmed_rmse_from_residuals(residuals: np.ndarray, trim: float = 0.05) -> float:
+    """Pooled robust RMSE: drop ``trim`` fraction by magnitude before RMSE.
+
+    Used when individual folds host extreme outliers (small-n holdouts such as
+    TIC) that distort per-fold-mean RMSE. The two-sided trim symmetrically
+    removes the largest-magnitude residuals before computing RMSE.
+    """
+    if not (0.0 <= trim < 0.5):
+        raise ValueError("trim must be in [0, 0.5)")
+    arr = np.asarray(residuals, dtype=float).ravel()
+    n = arr.shape[0]
+    if n == 0:
+        raise ValueError("cannot compute RMSE on empty residuals")
+    mag = np.abs(arr)
+    order = np.argsort(mag)
+    cut = int(np.floor(trim * n))
+    if cut > 0:
+        keep = order[: n - cut]
+    else:
+        keep = order
+    kept = arr[keep]
+    return float(np.sqrt(np.mean(kept * kept)))
+
+
 def _summarise_alpha_scores(
     rmse_per_fold: np.ndarray, sse_per_fold: np.ndarray, count_per_fold: np.ndarray,
     scoring: str,
@@ -211,6 +235,7 @@ def cv_score_alphas(
     scale_power: float = 1.0,
     x_scale: str = "center",
     scoring: str = "rmse_mean",
+    trim: float = 0.05,
     return_per_fold: bool = False,
 ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """Compute mean validation RMSE per alpha for one operator subset.
@@ -222,9 +247,17 @@ def cv_score_alphas(
     ``operators_template`` is the list of operator instances to use as the
     *superblock* for every fold. Folds clone and fit them locally.
 
-    ``scoring`` is ``"rmse_mean"`` (mean of fold RMSEs, default) or
-    ``"mse_pooled"`` (pooled RMSE across folds).
+    ``scoring`` is ``"rmse"``/``"rmse_mean"`` (mean of fold RMSEs, default),
+    ``"mse_pooled"`` (pooled RMSE across folds) or ``"rmse_pooled_trimmed"``
+    (pool residuals across folds, drop ``trim`` fraction by magnitude before
+    RMSE — robust against fold-level outliers in small-n holdouts).
     """
+    if scoring == "rmse":
+        scoring = "rmse_mean"
+    if scoring not in ("rmse_mean", "mse_pooled", "rmse_pooled_trimmed"):
+        raise ValueError(
+            "scoring must be 'rmse_mean', 'mse_pooled', or 'rmse_pooled_trimmed'"
+        )
     folds = list(cv.split(X, Y))
     if not folds:
         raise ValueError("cv produced no folds")
@@ -233,6 +266,9 @@ def cv_score_alphas(
     rmse_per_fold = np.zeros((n_folds, n_alphas), dtype=float)
     sse_per_fold = np.zeros((n_folds, n_alphas), dtype=float)
     count_per_fold = np.zeros((n_folds, n_alphas), dtype=float)
+    pool_residuals: list[list[np.ndarray]] | None = (
+        [[] for _ in range(n_alphas)] if scoring == "rmse_pooled_trimmed" else None
+    )
     for fold_idx, (train_idx, valid_idx) in enumerate(folds):
         X_tr, X_va = X[train_idx], X[valid_idx]
         Y_tr, Y_va = Y[train_idx], Y[valid_idx]
@@ -247,9 +283,18 @@ def cv_score_alphas(
             sse, count = _sum_squared_error(Y_va, Y_pred)
             sse_per_fold[fold_idx, i] = sse
             count_per_fold[fold_idx, i] = count
-    summary = _summarise_alpha_scores(
-        rmse_per_fold, sse_per_fold, count_per_fold, scoring,
-    )
+            if pool_residuals is not None:
+                pool_residuals[i].append(np.asarray(Y_va - Y_pred).ravel())
+    if scoring == "rmse_pooled_trimmed":
+        assert pool_residuals is not None
+        summary = np.empty((n_alphas,), dtype=float)
+        for i in range(n_alphas):
+            resid = np.concatenate(pool_residuals[i])
+            summary[i] = _trimmed_rmse_from_residuals(resid, trim=trim)
+    else:
+        summary = _summarise_alpha_scores(
+            rmse_per_fold, sse_per_fold, count_per_fold, scoring,
+        )
     if return_per_fold:
         return summary, rmse_per_fold
     return summary
@@ -892,6 +937,48 @@ def cv_score_branch_global(
     if return_per_fold:
         return rmse_table, grids_used, rmse_per_fold
     return rmse_table, grids_used
+
+
+def _branch_global_pick_1se(
+    rmse_table: np.ndarray,
+    rmse_se: np.ndarray,
+    alphas: np.ndarray,
+) -> tuple[int, int, int]:
+    """Return ``(bi, oi, ai)`` chosen by the 1-SE rule on the full triple table.
+
+    The 1-SE rule keeps every triple whose mean CV RMSE is within one standard
+    error of the global minimum, and then prefers the simplest (most-regularised)
+    triple — i.e. the largest alpha. Ties on alpha are broken by smallest mean
+    RMSE (and then by smallest ``(bi, oi)`` for determinism).
+    """
+    flat_min = int(np.argmin(rmse_table))
+    bi_min, oi_min, ai_min = (
+        int(i) for i in np.unravel_index(flat_min, rmse_table.shape)
+    )
+    threshold = float(
+        rmse_table[bi_min, oi_min, ai_min] + rmse_se[bi_min, oi_min, ai_min]
+    )
+    candidates = np.argwhere(rmse_table <= threshold)
+    if candidates.size == 0:
+        return bi_min, oi_min, ai_min
+    best: tuple[int, int, int] | None = None
+    best_alpha = -np.inf
+    best_rmse = np.inf
+    for bi, oi, ai in candidates:
+        a = float(alphas[ai])
+        r = float(rmse_table[bi, oi, ai])
+        if (a > best_alpha) or (
+            a == best_alpha and (
+                r < best_rmse or (r == best_rmse and best is not None
+                                  and (bi, oi) < (best[0], best[1]))
+            )
+        ):
+            best = (int(bi), int(oi), int(ai))
+            best_alpha = a
+            best_rmse = r
+    if best is None:                    # pragma: no cover
+        return bi_min, oi_min, ai_min
+    return best
 
 
 def select_branch_global(

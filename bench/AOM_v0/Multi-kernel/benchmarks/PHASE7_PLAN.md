@@ -26,35 +26,48 @@ Two cohorts:
    restricted to 54 datasets with `status == "ok"` (3 dropped for size
    / NaNs). Run AT THE END once iteration is converged.
 
-## Variants
+## Variants (Codex round 4 validated, 6 ship variants)
 
-Selected from the smoke3_branches results, 8 variants:
+After curated10 results + Codex review (`/tmp/codex_curated10_review.md`),
+the variant set was tightened from 8 to 6. The dropped variants
+(`mkR-softmax_cv-msc`, `mkR-softmax_cv-asls`, `BLUP-reml-asls`) failed
+to add value on diverse cohorts:
+
+- `mkR-softmax_cv-msc`: catastrophic on BERRY (rel-PLS 2.60).
+- `mkR-softmax_cv-asls`: only helped BEER (smoke), no broad signal.
+- `BLUP-reml-asls`: same predictions as MKM-reml-asls (BLUP wraps MKM).
+
+**Phase 7b ship variants**:
 
 | family | strategy | branch | rationale |
 |--------|----------|--------|-----------|
-| Ridge | raw | none | sklearn baseline (no AOM, no kernel) |
-| mkR | softmax_cv | none | smoke median winner (rel-PLS 0.95) |
-| mkR | softmax_cv | snv | strongest on BEER (rel-PLS 0.38) |
-| mkR | softmax_cv | msc | second-strongest on BEER, slightly different to SNV |
-| mkR | softmax_cv | asls | asymmetric baseline correction |
-| MKM | reml | none | likelihood-based reference, beats PLS on BEER |
-| MKM | reml | asls | smoke best on AMYLOSE (rel-PLS 1.02) |
-| BLUP | reml | asls | per-block decomposition + best-on-AMYLOSE |
+| Ridge | raw | none | sklearn baseline |
+| mkR | softmax_cv | none | conservative default; wins BERRY where MKM-msc fails |
+| mkR | softmax_cv | snv | optional BEER/scatter sentinel |
+| MKM | reml | none | likelihood reference |
+| MKM | reml | asls | curated10 best on MANURE_P2O5 |
+| MKM | reml | msc | **curated10 median leader** (rel-PLS 0.95, 7/9 wins) |
 
-## Cohort split (chunks of 12 for staged validation)
+## Staged execution (Codex-recommended for compute control)
 
-We run in three staged chunks so that we can monitor cost / accuracy
-trade-offs and pivot if needed:
+Codex round 4 estimated full-54 with 6 variants at **~150-220 wall hours**
+even at n_jobs=4 because the largest datasets (n in {2925, 3734, 6111})
+dominate cubic Cholesky cost. The runner stages the cohort by size:
 
-1. **Chunk A — extended12** (datasets 1-12 of cohort): smoke at
-   moderate scale, with `n_jobs=4`. Expected wall time ~30-60 min.
-2. **Chunk B — datasets 13-30**: parallel run with `n_jobs=4`.
-3. **Chunk C — datasets 31-54**: parallel run with `n_jobs=4`.
-
-Total: ~5-10 hours wall time; ~25-50 hours of CPU time.
+1. **Stage A — `all54_stageA_cohort.csv`** (51 datasets with
+   `n_train ≤ 1500`): all 6 ship variants at `n_jobs=4`. Expected wall
+   time ~3-10 h depending on CPU contention.
+2. **Stage B — `all54_stageB_cohort.csv`** (3 datasets with
+   `n_train > 1500`, including ECOSIS Chla+b at n=2925): only the
+   4 fastest variants (Ridge, mkR-softmax_cv, MKM-reml, MKM-reml-asls)
+   at `n_jobs=2`. Optionally with timeout caps.
 
 The runner appends to a single `results.csv` per workspace and skips
-already-completed `(dataset, variant)` pairs on resume.
+already-completed `(dataset, variant)` pairs on resume. Cohort splits
+saved at:
+
+- `benchmark_runs/all54_stageA_cohort.csv`
+- `benchmark_runs/all54_stageB_cohort.csv`
 
 ## Stop conditions
 

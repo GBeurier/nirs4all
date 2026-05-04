@@ -153,3 +153,5 @@ predict/
 
 bench/AOM/workspace/
 coverage.xml
+bench/nirs_synthetic_pfn/reports/
+bench/nicon_v2/benchmark_runs/

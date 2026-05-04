@@ -1,0 +1,7 @@
+family_base,branch,n_paired,median_log_ratio,pvalue
+mkR-softmax_cv,snv,10,0.004808988583049645,0.947265625
+mkR-softmax_cv,msc,10,0.011195559727017645,0.9814453125
+mkR-softmax_cv,asls,0,,
+MKM-reml,snv,0,,
+MKM-reml,msc,10,-0.0001573452915773271,0.4609375
+MKM-reml,asls,10,-0.002987654203627633,0.1611328125

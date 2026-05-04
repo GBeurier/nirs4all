@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from aomridge.mkr_estimator import AOMMultiKernelRidge
 from sklearn.base import clone
 from sklearn.utils.estimator_checks import check_is_fitted
-
-from aomridge.mkr_estimator import AOMMultiKernelRidge
 
 
 def _smooth_X_y(n: int, p: int, seed: int = 0):
@@ -15,7 +14,7 @@ def _smooth_X_y(n: int, p: int, seed: int = 0):
     grid = np.arange(p, dtype=float)
     X = np.zeros((n, p), dtype=float)
     for i in range(n):
-        for k in range(3):
+        for _k in range(3):
             c = rng.uniform(0.1 * p, 0.9 * p)
             w = rng.uniform(0.05 * p, 0.15 * p)
             a = rng.normal()

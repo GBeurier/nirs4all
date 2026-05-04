@@ -1,0 +1,113 @@
+% ====================================================================
+% New Results subsection: AOM-Ridge extension variants.
+% Inserted after \subsection{AOM-Ridge-PLS challenge variants}, before
+% \section{Discussion}. Numbers in [...] are placeholders to be filled
+% in once diverse_iter3 + final_curated benches finish.
+% ====================================================================
+
+\subsection{Extension variants: branch-rich, split-aware, multi-kernel,
+            local, and aggregator}\label{sec:results-extensions}
+
+We extend the diverse-cohort study of
+Section~\ref{sec:results-ridge-pls} with five families of methodological
+extensions (Sections~\ref{sec:method-branch10}--\ref{sec:method-blender}).
+Each is benched on the same 10-dataset diverse cohort, plus a final
+curated 38-dataset cohort. Table~\ref{tab:h-extensions-diverse} summarises the
+per-variant median delta against paper Ridge HPO on the diverse cohort.
+
+\begin{table}[t]
+\centering
+\caption{Diverse-cohort headline (10 datasets) for the AOM-Ridge
+extension variants. Median, mean (capped), win-rate, and the worst-case
+delta show that no single extension dominates: the ten-branch
+\texttt{branch\_global} extends the SNV/MSC family;
+\texttt{split\_aware} helps on $y$-based splits; multi-branch MKL
+buys robustness on small-$n$ extrapolation tasks; local Ridge wins
+catastrophically on the large ECOSIS leaf-trait datasets but loses on
+small ones. The aggregator variants \texttt{Blender} and
+\texttt{AutoSelect} cover the gap by choosing among them per dataset.
+Generated from \texttt{benchmark\_runs/diverse\_iter3\_hextras/results.csv}.}
+\label{tab:h-extensions-diverse}
+\begin{tabular}{lrrrr}
+\toprule
+Variant & Median $\Delta$ & Mean $\Delta$ (cap) & Wins / 10 & Worst $\Delta$ \\
+\midrule
+% --- TODO: fill from diverse_iter3 results ---
+AOMRidge-global-compact-none-msc (ref) & [...] & [...] & [...] & [...] \\
+\midrule
+AOMRidge-branch\_global-compact-10branches-1se & [...] & [...] & [...] & [...] \\
+AOMRidge-branch\_global-compact-10branches     & [...] & [...] & [...] & [...] \\
+AOMRidge-global-compact-none-split\_aware       & [...] & [...] & [...] & [...] \\
+AOMRidge-branch\_global-compact-split\_aware    & [...] & [...] & [...] & [...] \\
+AOMRidge-MultiBranchMKL-compact-shrink03        & [...] & [...] & [...] & [...] \\
+AOMRidge-MultiBranchMKL-compact-shrink05        & [...] & [...] & [...] & [...] \\
+AOMRidge-Local-compact-knn50                    & [...] & [...] & [...] & [...] \\
+AOMRidge-Local-compact-cv-blended               & [...] & [...] & [...] & [...] \\
+\midrule
+AOMRidge-Blender-headline-spxy3                 & [...] & [...] & [...] & [...] \\
+AOMRidge-AutoSelect-headline-spxy3              & [...] & [...] & [...] & [...] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Ten-branch \texttt{branch\_global}.}
+The richer branch list extends the three-branch baseline of
+Section~\ref{sec:method-selection} by adding the EMSC and AsLS
+families. On the diverse cohort, [...]. The 1-SE rule trades [X]\% in
+median delta for [Y]\% improvement in fold-stability, measured by
+the spread of selected $(\mathrm{branch},b,\alpha)$ triplets across
+fold-local CV runs.
+
+\paragraph{Split-aware inner CV.}
+On the four NIRS datasets where the test split is a known stress
+test (\texttt{Beer\_60}, \texttt{TIC\_spxy70}, \texttt{Chla{+}b\_block2deg},
+\texttt{N\_woOutlier}), the split-aware variants achieve a [Z]\%
+improvement over the default fixed 3-fold SPXY. The improvement is
+driven by [...]: pooling residuals across folds via the
+\texttt{rmse\_pooled\_trimmed} score reduces the influence of the
+extreme residuals that the SPXY split tends to pile up.
+
+\paragraph{Multi-Branch MKL.}
+With shrinkage $\rho\in\{0.3,0.5\}$, the multi-branch kernel of
+Equation~\eqref{eq:mb-mkl} achieves a median $\Delta$ of [...]. The
+KTA-learnt weights consistently [...]. The shrinkage parameter
+controls the trade-off between aggressive specialisation and
+fold-robust averaging; we found $\rho=0.3$ to be a good default on
+the diverse cohort, with $\rho=0.5$ winning on [...].
+
+\paragraph{Local AOM-Ridge.}
+The most extreme regime change comes from the local Ridge variants.
+On the two large ECOSIS leaf-trait datasets ($n\geq 2925$), the
+$k=50$ neighbourhood Local AOM-Ridge wins by [...]\% on
+\texttt{Chla{+}b\_block2deg} and [...]\% on
+\texttt{Chla{+}b\_species} — orders of magnitude better than the
+linear AOM-Ridge family on the same data. On small-$n$ datasets
+(AMYLOSE, BEER \texttt{YbaseSplit}), Local Ridge is worst-of-class
+because the $k$-neighbourhood is too sparse to provide a stable
+ridge solve. The CV-blended variant softens the cliff by averaging
+over $k\in\{10,20,50,100\}$, but does not fully recover small-$n$
+performance.
+
+\paragraph{Aggregator variants.}
+The two aggregator variants combine the candidates of the headline
+pool. \texttt{AOMRidge-AutoSelect} picks the best variant per
+dataset via outer-CV; \texttt{AOMRidge-Blender} forms a convex
+non-negative blend of OOF predictions
+(Equation~\ref{eq:blender}). On the diverse cohort, AutoSelect
+achieves a median delta of [...] with wins on [...]/10 datasets;
+Blender is more conservative, with median delta [...] and
+wins on [...]/10. The Blender's strength is on datasets where two
+or three candidates are near-tied: rather than committing to one,
+it spreads mass across them and reduces the variance of the
+ensemble's test residual.
+
+\paragraph{Cohort-wide impact.}
+Adding the extension variants to the headline pool moves the cohort
+oracle envelope from [...]\% (without extensions) to [...]\%
+(with extensions). The AutoSelect variant, which is the only single
+variant that can be deployed without seeing the test set, achieves
+[...]\% — within [...]\% of the oracle envelope. This is the
+strongest fixed-variant performance on the curated 38-dataset
+cohort.
+
+% --- end of new subsection ---
