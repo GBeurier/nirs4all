@@ -34,19 +34,23 @@ companion \emph{AOM-Ridge-PLS} that ridge-regresses on PLS rotations of
 the operator-mixture superblock. Anti-leakage is verified by spy
 operators that fail when any fold-local invariant is broken. On a
 54-dataset NIRS regression cohort assembled from the TabPFN paper
-benchmark, the \AOMR\ oracle envelope wins on \textbf{45/52 datasets
-(86.5\%)} against the published Ridge HPO baseline (median test-RMSEP
-delta $\bm{-4.73\%}$), beats PLS on $90.4\%$, TabPFN-Raw on $71.2\%$,
-CatBoost on $73.1\%$, and \emph{ties} TabPFN-opt at $51.9\%$ wins
-(median $-0.21\%$) --- the first non-foundation-model result that
-statistically matches TabPFN-opt on this benchmark. The strongest
-single deployable variant is the convex \texttt{Blender} of
-out-of-fold predictions ($35/52$ wins, median $-2.22\%$ vs.\ Ridge
-HPO), followed by the meta-\texttt{AutoSelect} ($27/52$, $-0.61\%$)
-and the split-aware inner CV ($30/52$, $-0.40\%$). The estimator
-returns an original-space coefficient $\bm\beta\in\R^{p\times q}$, is
-sklearn-compatible, and is shipped as a self-contained package
-(\texttt{aomridge}) under \texttt{bench/AOM\_v0/Ridge/}.
+benchmark, the strongest single deployable variant
+(\texttt{Blender}, a convex non-negative blend of out-of-fold
+predictions over an 8-candidate pool) wins on $\bm{35/52}$
+datasets ($67.3\%$) against the published Ridge HPO baseline with
+median test-RMSEP delta of $\bm{-2.22\%}$, beats PLS on $79\%$ and
+TabPFN-Raw on $57\%$, but loses to TabPFN-opt at $38\%$ wins
+(median $+4.72\%$). Beyond a single deployable variant, the
+\emph{oracle envelope} (best of $V=29$ benched variants per
+dataset, an upper bound that requires test-set knowledge and is
+not directly deployable) wins on $\bm{45/52}$ datasets ($86.5\%$)
+against Ridge HPO (median $-4.73\%$) and \emph{ties} TabPFN-opt at
+$51.9\%$ wins (median $-0.21\%$); the $\sim 2.5$\,pp oracle
+--blender gap is the headroom left for a smarter meta-selector.
+The estimator returns an original-space coefficient
+$\bm\beta\in\R^{p\times q}$, is sklearn-compatible, and is shipped as a
+self-contained package (\texttt{aomridge}) under
+\texttt{bench/AOM\_v0/Ridge/}.
 \end{abstract}
 
 \medskip

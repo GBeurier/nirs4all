@@ -260,14 +260,14 @@ class AOMRidgeBlender(BaseEstimator, RegressorMixin):
                         f"candidate {i} must be a dict spec or a callable factory; "
                         f"got {type(c).__name__}"
                     )
-        # Recursion guard: drop any auto_select / blender entries.
+        # Recursion guard: drop any auto_select / blender / residual_tabpfn entries.
         out = [
             spec for spec in base
-            if spec.get("selection") not in ("auto_select", "blender")
+            if spec.get("selection") not in ("auto_select", "blender", "residual_tabpfn")
         ]
         if not out:
             raise ValueError(
-                "candidates must be non-empty after dropping auto_select/blender entries"
+                "candidates must be non-empty after dropping aggregator entries"
             )
         return out
 

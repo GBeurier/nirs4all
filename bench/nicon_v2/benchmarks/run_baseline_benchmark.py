@@ -536,6 +536,155 @@ PHASE_V2_R15_LUCAS: tuple[Variant, ...] = (
 )
 
 
+# Round 17 — exhaustive NN ecosystem sweep (user direction, post-publication).
+# Priority 1: B (heteroscedastic Student-t head), C (PLS-residual hybrid),
+# H (KAN trunk), I (Conformer trunk). Priority 2: D, F, J, N.
+PHASE_V2_R17_PRIORITY1: tuple[Variant, ...] = (
+    Variant("Ridge-baseline", family="ridge"),
+    Variant("V2L-learnableRMS", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True}),
+    # B — heteroscedastic Student-t head
+    Variant("V2L-StudentT", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "head_out_dim": 2, "loss_type": "studentt", "studentt_df": 5.0}),
+    Variant("V2L-Huber", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "loss_type": "huber", "huber_delta": 1.0}),
+    # C — PLS-residual hybrid: CNN learns residuals over AOM-PLS / AOM-Ridge-PLS
+    Variant("V2L-Residual-AOMPLS", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "pls_residual_teacher": "aompls_extended"}),
+    Variant("V2L-Residual-AOMRidgePLS", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "pls_residual_teacher": "aomridgepls"}),
+    # H — KAN trunk
+    Variant("V2L-KAN", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "trunk_type": "kan", "transformer_d_model": 64, "transformer_layers": 2}),
+    # I — Conformer trunk
+    Variant("V2L-Conformer", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "trunk_type": "conformer", "transformer_d_model": 64, "transformer_heads": 4,
+                   "transformer_layers": 2}),
+    # C-boost variants — CNN gets AOM_pred as boost signal at the head; predicts y_true (no residual)
+    Variant("V2L-Boost-AOMPLS", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "boost_signal_dim": 1, "pls_boost_teacher": "aompls_extended"}),
+    Variant("V2L-Boost-AOMRidgePLS", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "boost_signal_dim": 1, "pls_boost_teacher": "aomridgepls"}),
+)
+
+
+# Round 20 — final publication variant set with OOF residuals.
+# After Codex round-13 review found in-sample-validation contamination,
+# OOF residuals are now the default (`pls_residual_oof=True`). This is the
+# clean variant set to ship.
+PHASE_V2_R20_FINAL: tuple[Variant, ...] = (
+    Variant("Ridge-baseline", family="ridge"),
+    Variant("PLS-baseline", family="pls"),
+    Variant("V2L-learnableRMS", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True}),
+    Variant("V2L-Residual-AOMPLS", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "pls_residual_teacher": "aompls_extended", "pls_residual_oof": True, "pls_oof_n_folds": 5}),
+    Variant("V2L-Boost-AOMPLS", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "boost_signal_dim": 1, "pls_boost_teacher": "aompls_extended",
+                   "pls_boost_oof": True, "pls_oof_n_folds": 5}),
+)
+
+
+# Round 19 — leakage diagnostic and OOF residual fix (Codex round-13 finding).
+# Compares the round-17/18 implementation (in-sample residuals; default
+# `pls_residual_oof=False` here for the diagnostic) vs OOF residuals
+# (`pls_residual_oof=True`, the new default in `_run_torch_cnn`).
+PHASE_V2_R19_OOF_DIAGNOSTIC: tuple[Variant, ...] = (
+    Variant("Ridge-baseline", family="ridge"),
+    Variant("V2L-learnableRMS", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True}),
+    # R17/R18 reference (leaky teacher fit; explicit OOF off for fair compare):
+    Variant("V2L-Residual-AOMPLS-leaky", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "pls_residual_teacher": "aompls_extended", "pls_residual_oof": False}),
+    # R19 OOF fix (default):
+    Variant("V2L-Residual-AOMPLS-OOF", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "pls_residual_teacher": "aompls_extended", "pls_residual_oof": True, "pls_oof_n_folds": 5}),
+    # Same comparison for boost mode:
+    Variant("V2L-Boost-AOMPLS-leaky", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "boost_signal_dim": 1, "pls_boost_teacher": "aompls_extended", "pls_boost_oof": False}),
+    Variant("V2L-Boost-AOMPLS-OOF", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "boost_signal_dim": 1, "pls_boost_teacher": "aompls_extended", "pls_boost_oof": True, "pls_oof_n_folds": 5}),
+)
+
+
+# Round 18 — multi-seed validation of round-17's V2L-Residual-AOMPLS signal.
+# Slimmed to 4 variants for tractability; 5 seeds × 4 × 10 = 200 paired obs.
+PHASE_V2_R18_RESIDUAL_MULTISEED: tuple[Variant, ...] = (
+    Variant("Ridge-baseline", family="ridge"),
+    Variant("V2L-learnableRMS", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True}),
+    Variant("V2L-Residual-AOMPLS", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "pls_residual_teacher": "aompls_extended"}),
+    Variant("V2L-Boost-AOMPLS", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "boost_signal_dim": 1, "pls_boost_teacher": "aompls_extended"}),
+)
+
+
+# Round 17 priority-2 — D (MoE head) and F (auxiliary PLS-scores multi-task).
+PHASE_V2_R17_PRIORITY2: tuple[Variant, ...] = (
+    Variant("Ridge-baseline", family="ridge"),
+    Variant("V2L-learnableRMS", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True}),
+    # D — Mixture-of-Experts head (K=2)
+    Variant("V2L-MoE-K2", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "head_type": "moe", "moe_num_experts": 2}),
+    Variant("V2L-MoE-K4", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "head_type": "moe", "moe_num_experts": 4}),
+    # F — auxiliary multi-task with PLS scores
+    Variant("V2L-AuxY-PLS5", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "aux_head_dim": 5, "aux_target_kind": "pls_scores",
+                   "aux_n_components": 5, "aux_lambda": 0.3}),
+    Variant("V2L-AuxY-PLS10", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "aux_head_dim": 10, "aux_target_kind": "pls_scores",
+                   "aux_n_components": 10, "aux_lambda": 0.3}),
+)
+
+
 # Publication — V2L production CNN + key ablations on the curated cohort.
 # After 16 rounds of architecture/training experiments, V2L-learnableRMS is
 # the production CNN (multi-seed validated, ties or beats every other CNN
@@ -826,6 +975,66 @@ def _fit_distill_teacher_predictions(
                      f"'pls' | 'aompls_compact' | 'aompls_extended' | 'popplsr_extended'")
 
 
+def _build_pls_residual_teacher_oof(
+    name: str, X_train: np.ndarray, y_train: np.ndarray, seed: int, n_folds: int = 5,
+) -> tuple[object, np.ndarray]:
+    """R19 — out-of-fold teacher predictions for clean residual / boost training.
+
+    Codex round-13 review found that the teacher was previously fit on the
+    full outer ``(X_train, y_train)``, so the residual `r = y - z(X)` for
+    every train row was in-sample for the teacher. The CNN's val loss was
+    therefore computed against artificially small residuals, contaminating
+    early stopping (no test-set leakage, but val curve quality compromised).
+
+    This OOF variant fits the teacher in a 5-fold CV: each row's `z[i]` is
+    predicted by a teacher fit on the OTHER 4 folds. Plus a final teacher
+    fit on all of `X_train` for test-time predictions.
+
+    Returns ``(final_teacher, z_train_oof)`` where ``final_teacher.predict``
+    can be called on `X_test` to obtain test-time AOM predictions, and
+    ``z_train_oof`` is a (n,) array of out-of-fold predictions for the
+    training set (used to compute `r = y_train - z_train_oof`).
+    """
+    from sklearn.model_selection import KFold
+    n = X_train.shape[0]
+    z_oof = np.zeros(n, dtype=float)
+    kf = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
+    for tr_idx, va_idx in kf.split(np.arange(n)):
+        teacher_k = _build_pls_residual_teacher(name, X_train[tr_idx], y_train[tr_idx], seed)
+        z_oof[va_idx] = np.asarray(teacher_k.predict(X_train[va_idx]), dtype=float).ravel()
+    final_teacher = _build_pls_residual_teacher(name, X_train, y_train, seed)
+    return final_teacher, z_oof
+
+
+def _build_pls_residual_teacher(name: str, X_train: np.ndarray, y_train: np.ndarray, seed: int):
+    """R17 C — return a fitted teacher object exposing ``.predict(X) -> np.ndarray``.
+
+    Teachers:
+    * ``"aompls_extended"`` — AOM-PLS extended bank, max_components=20, cv=5.
+    * ``"aomridgepls"`` — AOM-Ridge-PLS with the production CV wrapper.
+    * ``"pls"`` — sklearn PLSRegression with auto component selection.
+    """
+    if name == "aompls_extended":
+        from aompls.estimators import AOMPLSRegressor  # type: ignore
+        teacher = AOMPLSRegressor(
+            n_components="auto", max_components=20, engine="simpls_covariance",
+            operator_bank="extended", criterion="cv", cv=5, random_state=seed,
+        )
+        teacher.fit(X_train, y_train)
+        return teacher
+    if name == "aomridgepls":
+        from aomridge.aom_ridge_pls import AOMRidgePLSCV  # type: ignore
+        teacher = AOMRidgePLSCV(random_state=seed)
+        teacher.fit(X_train, y_train)
+        return teacher
+    if name == "pls":
+        from sklearn.cross_decomposition import PLSRegression
+        teacher = PLSRegression(n_components=min(15, X_train.shape[0] - 1, X_train.shape[1]))
+        teacher.fit(X_train, y_train)
+        return teacher
+    raise ValueError(f"unknown pls_residual_teacher {name!r}; expected aompls_extended | aomridgepls | pls")
+
+
 def _predict_with_tta(
     model: torch.nn.Module,
     X_test_s: np.ndarray,
@@ -912,6 +1121,17 @@ def _run_torch_cnn(
         "tta_k", "tta_bjerrum",
         "use_swa", "swa_start_frac", "swa_lr",
         "epochs",
+        # R17 — training-side knobs propagated via TrainConfig (not builder).
+        "loss_type", "studentt_df", "huber_delta",
+        # R17 C — PLS-residual hybrid (handled by a wrapper, not the builder).
+        "pls_residual_teacher",
+        # R17 F — auxiliary multi-task target (handled by the runner, builder
+        # only needs `aux_head_dim`).
+        "aux_target_kind", "aux_n_components", "aux_lambda",
+        # R17 C-boost — boost teacher (handled by runner, builder needs `boost_signal_dim`).
+        "pls_boost_teacher",
+        # R19 — OOF teacher prediction toggle (Codex round-13 fix).
+        "pls_residual_oof", "pls_boost_oof", "pls_oof_n_folds",
     }
     builder_params = {k: v for k, v in (extra_options or {}).items()
                       if not k.startswith("_") and k not in _NON_BUILDER_KEYS}
@@ -929,6 +1149,13 @@ def _run_torch_cnn(
             config.swa_start_frac = float(extra_options.get("swa_start_frac", 0.75))
             if "swa_lr" in extra_options:
                 config.swa_lr = float(extra_options["swa_lr"])
+        # R17 B — loss-type override.
+        if "loss_type" in extra_options:
+            config.loss_type = str(extra_options["loss_type"])
+        if "studentt_df" in extra_options:
+            config.studentt_df = float(extra_options["studentt_df"])
+        if "huber_delta" in extra_options:
+            config.huber_delta = float(extra_options["huber_delta"])
 
     # Phase 1b: optional augmentation hooks (Bjerrum / C-Mixup).
     if extra_options:
@@ -952,18 +1179,103 @@ def _run_torch_cnn(
         config.teacher_predictions = y_proc.transform(teacher_pred_raw)
         config.distill_lambda = distill_lambda
 
+    # R17 F — auxiliary multi-task target (e.g. PLS projection coefficients).
+    aux_kind = str((extra_options or {}).get("aux_target_kind", "")).strip()
+    aux_n_components = int((extra_options or {}).get("aux_n_components", 5))
+    aux_lambda_val = float((extra_options or {}).get("aux_lambda", 0.0))
+    if aux_lambda_val > 0.0 and aux_kind:
+        if aux_kind == "pls_scores":
+            from sklearn.cross_decomposition import PLSRegression
+            n_comp = min(aux_n_components, X_train.shape[0] - 1, X_train.shape[1])
+            pls_aux = PLSRegression(n_components=n_comp)
+            pls_aux.fit(X_train, y_train)
+            # Scores: T_train = (X − x_mean) @ x_rotations_.  sklearn exposes the
+            # mean as ``_x_mean`` (private attribute, stable across versions).
+            x_mean = getattr(pls_aux, "_x_mean", None)
+            if x_mean is None:
+                x_mean = X_train.mean(axis=0)
+            X_centered = np.asarray(X_train, dtype=float) - np.asarray(x_mean, dtype=float)
+            scores_train = (X_centered @ pls_aux.x_rotations_).astype(np.float32)
+            # Standardise per-component for stable optimisation.
+            mu = scores_train.mean(axis=0); std = scores_train.std(axis=0) + 1e-12
+            scores_train = (scores_train - mu) / std
+            config.aux_targets = scores_train
+            config.aux_lambda = aux_lambda_val
+        else:
+            raise ValueError(f"unknown aux_target_kind {aux_kind!r}; expected pls_scores")
+
+    # R17 C — PLS-residual hybrid: fit a PLS/AOM-PLS teacher, train CNN on residuals,
+    # add teacher prediction back at predict time.
+    # R19 — OOF mode (default ON, Codex round-13 fix): teacher predictions on
+    # X_train are computed via 5-fold CV so each row's residual is OUT of the
+    # teacher's training set. Test predictions use a final teacher fit on all
+    # of X_train. Disable via `pls_residual_oof: False` for the leakage diagnostic.
+    pls_residual_teacher_name = (extra_options or {}).get("pls_residual_teacher")
+    pls_residual_teacher = None
+    pls_residual_fit_time = 0.0
+    use_oof_residual = bool((extra_options or {}).get("pls_residual_oof", True))
+    use_oof_boost = bool((extra_options or {}).get("pls_boost_oof", True))
+    oof_n_folds = int((extra_options or {}).get("pls_oof_n_folds", 5))
+    if pls_residual_teacher_name:
+        t_t = time.time()
+        if use_oof_residual:
+            pls_residual_teacher, z_train_raw = _build_pls_residual_teacher_oof(
+                str(pls_residual_teacher_name), X_train, y_train, seed, n_folds=oof_n_folds,
+            )
+        else:
+            pls_residual_teacher = _build_pls_residual_teacher(
+                str(pls_residual_teacher_name), X_train, y_train, seed,
+            )
+            z_train_raw = np.asarray(pls_residual_teacher.predict(X_train), dtype=float).ravel()
+        pls_residual_fit_time = time.time() - t_t
+        residual_train = np.asarray(y_train, dtype=float).ravel() - z_train_raw
+        y_proc = StandardYProcessor().fit(residual_train)
+        y_train_s = y_proc.transform(residual_train)
+
+    # R17 C-boost — feature-stacking PLS-residual: pass AOM_pred as boost signal to
+    # the head; train CNN to predict y_true given (X, AOM_pred). No residual subtraction.
+    pls_boost_teacher_name = (extra_options or {}).get("pls_boost_teacher")
+    pls_boost_teacher = None
+    pls_boost_fit_time = 0.0
+    boost_test_signal = None
+    if pls_boost_teacher_name:
+        t_t = time.time()
+        if use_oof_boost:
+            pls_boost_teacher, z_train_raw = _build_pls_residual_teacher_oof(
+                str(pls_boost_teacher_name), X_train, y_train, seed, n_folds=oof_n_folds,
+            )
+        else:
+            pls_boost_teacher = _build_pls_residual_teacher(
+                str(pls_boost_teacher_name), X_train, y_train, seed,
+            )
+            z_train_raw = np.asarray(pls_boost_teacher.predict(X_train), dtype=float).ravel()
+        z_test_raw = np.asarray(pls_boost_teacher.predict(X_test), dtype=float).ravel()
+        pls_boost_fit_time = time.time() - t_t
+        # Standardise boost signal using y_proc so it lives on the same scale as
+        # the targets the network sees during training.
+        config.boost_signals = y_proc.transform(z_train_raw).astype(np.float32)
+        boost_test_signal = y_proc.transform(z_test_raw).astype(np.float32)
+
     t0 = time.time()
     model, info = train_torch_regressor(model, X_train_s, y_train_s, config)
-    fit_time = time.time() - t0 + distill_teacher_fit_time
+    fit_time = time.time() - t0 + distill_teacher_fit_time + pls_residual_fit_time + pls_boost_fit_time
     t0 = time.time()
     # V7 — test-time Bjerrum augmentation: K forward passes over augmented copies.
     tta_k = int((extra_options or {}).get("tta_k", 1))
     if tta_k > 1 and bool((extra_options or {}).get("tta_bjerrum", True)):
+        if boost_test_signal is not None:
+            raise NotImplementedError("TTA + boost_signal combination not implemented")
         pred_scaled = _predict_with_tta(model, X_test_s, device, tta_k=tta_k, seed=seed)
     else:
-        pred_scaled = predict_torch_regressor(model, X_test_s, device=device)
+        pred_scaled = predict_torch_regressor(
+            model, X_test_s, device=device, boost_signals=boost_test_signal,
+        )
     pred_time = time.time() - t0
     pred = y_proc.inverse_transform(pred_scaled)
+    # R17 C — add the teacher's test-time prediction back to obtain the final ŷ.
+    if pls_residual_teacher is not None:
+        z_test_raw = np.asarray(pls_residual_teacher.predict(X_test), dtype=float).ravel()
+        pred = pred + z_test_raw
 
     hp = {
         "model": family,
@@ -1088,7 +1400,10 @@ def main() -> int:
                         choices=["smoke", "phase1a", "phase1b", "phase1c", "stack", "stack_aom", "searched",
                                  "v2a", "v2_r6", "v2_r7", "v2_r8", "v2_r9", "v2_r10", "v2_r11", "v2_r12",
                                  "v2_r13", "v2_r14_multiseed", "v2_r15_lucas",
-                                 "v2_r16_lucas_multiseed", "publication"])
+                                 "v2_r16_lucas_multiseed", "publication",
+                                 "v2_r17_priority1", "v2_r17_priority2",
+                                 "v2_r18_residual_multiseed",
+                                 "v2_r19_oof_diagnostic", "v2_r20_final"])
     parser.add_argument("--seeds", nargs="*", type=int, default=None, help="run multiple seeds (overrides --seed)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--only", nargs="*", default=None, help="restrict to dataset names")
@@ -1142,6 +1457,16 @@ def main() -> int:
         variants = list(PHASE_V2_R16_LUCAS_MULTISEED)
     elif args.variants == "publication":
         variants = list(PHASE_PUBLICATION)
+    elif args.variants == "v2_r17_priority1":
+        variants = list(PHASE_V2_R17_PRIORITY1)
+    elif args.variants == "v2_r17_priority2":
+        variants = list(PHASE_V2_R17_PRIORITY2)
+    elif args.variants == "v2_r18_residual_multiseed":
+        variants = list(PHASE_V2_R18_RESIDUAL_MULTISEED)
+    elif args.variants == "v2_r19_oof_diagnostic":
+        variants = list(PHASE_V2_R19_OOF_DIAGNOSTIC)
+    elif args.variants == "v2_r20_final":
+        variants = list(PHASE_V2_R20_FINAL)
     else:
         raise ValueError(f"unknown variants set: {args.variants!r}")
     if args.skip_cnn:

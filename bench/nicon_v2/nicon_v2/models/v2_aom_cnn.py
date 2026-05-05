@@ -219,6 +219,32 @@ class _WavelengthAttentionHead(nn.Module):
         return self.fc(self.dropout(pooled))
 
 
+class _MoEHead(nn.Module):
+    """R17 D — Mixture-of-Experts regression head.
+
+    K linear experts + a softmax gate over the GAP feature vector.
+    Final prediction = Σₖ gᵢ · headₖ(z), with optional ``out_dim=2`` for the
+    heteroscedastic head (μ, log σ²) — orthogonal to MoE.
+    """
+
+    def __init__(self, in_features: int, out_dim: int = 1, num_experts: int = 2,
+                 p_drop: float = 0.3):
+        super().__init__()
+        self.experts = nn.ModuleList([nn.Linear(in_features, out_dim) for _ in range(num_experts)])
+        self.gate = nn.Linear(in_features, num_experts)
+        self.dropout = nn.Dropout(p=p_drop)
+        self.num_experts = num_experts
+        self.out_dim = out_dim
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (N, in_features)
+        z = self.dropout(x)
+        weights = torch.softmax(self.gate(z), dim=-1)                  # (N, K)
+        outputs = torch.stack([e(z) for e in self.experts], dim=1)     # (N, K, out_dim)
+        weighted = (weights.unsqueeze(-1) * outputs).sum(dim=1)        # (N, out_dim)
+        return weighted
+
+
 class _AOMTransformerTrunk(nn.Module):
     """V3 — Transformer encoder over wavelength tokens, after one CNN block.
 
@@ -249,6 +275,204 @@ class _AOMTransformerTrunk(nn.Module):
         x_seq = x.transpose(1, 2)              # (N, L, d_model)
         x_seq = self.encoder(x_seq)
         return x_seq.transpose(1, 2)           # (N, d_model, L)
+
+
+class _ConformerBlock(nn.Module):
+    """R17 I — Conformer block (Gulati 2020) for 1-D spectra.
+
+    Sequence of:
+      1. Macaron FFN (×0.5 residual)
+      2. Multi-head self-attention (with sinusoidal-ish learnable position via
+         rotary or simple LayerNorm — we use plain MHA over LayerNorm for
+         simplicity given small `n_train` on this cohort)
+      3. Conv module: pointwise conv → GLU → depthwise conv → BN → GELU →
+         pointwise conv
+      4. Macaron FFN (×0.5 residual)
+      5. LayerNorm
+    """
+
+    def __init__(self, channels: int, kernel_size: int, num_heads: int = 4,
+                 ffn_factor: int = 2, p_drop: float = 0.2):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(channels)
+        self.ffn1 = nn.Sequential(
+            nn.Linear(channels, channels * ffn_factor),
+            nn.GELU(),
+            nn.Dropout(p_drop),
+            nn.Linear(channels * ffn_factor, channels),
+            nn.Dropout(p_drop),
+        )
+        self.norm_attn = nn.LayerNorm(channels)
+        self.attn = nn.MultiheadAttention(embed_dim=channels, num_heads=num_heads,
+                                          dropout=p_drop, batch_first=True)
+        self.norm_conv = nn.LayerNorm(channels)
+        # Conv module — operates on (N, C, L); we transpose to feed it.
+        self.conv_pw1 = nn.Conv1d(channels, channels * 2, kernel_size=1)
+        self.conv_dw = nn.Conv1d(channels, channels, kernel_size=kernel_size,
+                                 padding=kernel_size // 2, groups=channels)
+        self.conv_bn = nn.BatchNorm1d(channels)
+        self.conv_act = nn.GELU()
+        self.conv_pw2 = nn.Conv1d(channels, channels, kernel_size=1)
+        self.conv_drop = nn.Dropout1d(p_drop)
+        self.norm2 = nn.LayerNorm(channels)
+        self.ffn2 = nn.Sequential(
+            nn.Linear(channels, channels * ffn_factor),
+            nn.GELU(),
+            nn.Dropout(p_drop),
+            nn.Linear(channels * ffn_factor, channels),
+            nn.Dropout(p_drop),
+        )
+        self.norm_out = nn.LayerNorm(channels)
+        self.out_channels = channels
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (N, C, L) → transpose to (N, L, C) for the LayerNorm + FFN parts.
+        x_seq = x.transpose(1, 2)                          # (N, L, C)
+        # Macaron FFN ×0.5
+        x_seq = x_seq + 0.5 * self.ffn1(self.norm1(x_seq))
+        # Self-attention over wavelengths
+        x_norm = self.norm_attn(x_seq)
+        attn_out, _ = self.attn(x_norm, x_norm, x_norm)
+        x_seq = x_seq + attn_out
+        # Conv module (back to (N, C, L))
+        x_conv_in = self.norm_conv(x_seq).transpose(1, 2)  # (N, C, L)
+        h = self.conv_pw1(x_conv_in)                       # (N, 2C, L)
+        h_a, h_b = h.chunk(2, dim=1)
+        h = h_a * torch.sigmoid(h_b)                       # GLU
+        h = self.conv_dw(h)
+        h = self.conv_bn(h)
+        h = self.conv_act(h)
+        h = self.conv_pw2(h)
+        h = self.conv_drop(h)
+        x_seq = x_seq + h.transpose(1, 2)
+        # Macaron FFN ×0.5
+        x_seq = x_seq + 0.5 * self.ffn2(self.norm2(x_seq))
+        x_seq = self.norm_out(x_seq)
+        return x_seq.transpose(1, 2)                       # (N, C, L)
+
+
+class _ConformerTrunk(nn.Module):
+    """R17 I — full Conformer trunk: 1×1 projection + N Conformer blocks."""
+
+    def __init__(self, in_channels: int, d_model: int = 64, num_blocks: int = 2,
+                 num_heads: int = 4, kernel_size: int = 5, p_drop: float = 0.2):
+        super().__init__()
+        self.proj = nn.Conv1d(in_channels, d_model, kernel_size=1, bias=False)
+        self.blocks = nn.ModuleList([
+            _ConformerBlock(d_model, kernel_size=kernel_size, num_heads=num_heads,
+                            p_drop=p_drop)
+            for _ in range(num_blocks)
+        ])
+        self.out_channels = d_model
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.proj(x)
+        for blk in self.blocks:
+            x = blk(x)
+        return x
+
+
+class _KANLayer1D(nn.Module):
+    """R17 H — minimal Kolmogorov-Arnold layer for 1-D channel projection.
+
+    Each input channel is passed through a learnable B-spline-like univariate
+    function (RBF basis), then summed across input channels to produce each
+    output channel. A small linear residual `W·x + b` is added (Liu et al. 2024
+    standard recipe).
+
+    Implementation notes:
+    * Grid centres are cached as a non-learnable buffer (avoids
+      ``torch.linspace`` allocation per forward).
+    * The basis × spline_weight contraction is done by reshaping the basis to
+      ``(N, in_channels * n_basis)`` and the spline weight to
+      ``(in_channels * n_basis, out_channels)``, which uses a single fused
+      matmul instead of an einsum.
+    """
+
+    def __init__(self, in_channels: int, out_channels: int, num_grid: int = 4,
+                 spline_order: int = 3, scale_base: float = 1.0,
+                 scale_spline: float = 1.0):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.num_grid = num_grid
+        self.spline_order = spline_order
+        n_basis = num_grid + spline_order
+        self.n_basis = n_basis
+        # Cached RBF centres on [-1, 1].
+        centres = torch.linspace(-1.0, 1.0, n_basis)
+        self.register_buffer("centres", centres)
+        self.sigma = 2.0 / max(1, n_basis - 1)
+        # Spline weight stored as a fused 2-D matrix: (in*n_basis, out).
+        self.spline_weight = nn.Parameter(
+            torch.randn(in_channels * n_basis, out_channels) * scale_spline / math.sqrt(in_channels * n_basis)
+        )
+        self.base_weight = nn.Parameter(
+            torch.randn(in_channels, out_channels) * scale_base / math.sqrt(in_channels)
+        )
+        self.bias = nn.Parameter(torch.zeros(out_channels))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (..., in_channels). Flatten leading dims for matmul.
+        prefix = x.shape[:-1]
+        flat = x.reshape(-1, self.in_channels)                            # (M, in)
+        # Linear residual term.
+        out_lin = flat @ self.base_weight                                 # (M, out)
+        # Compute basis (M, in, n_basis) via Gaussian RBF.
+        diff = flat.unsqueeze(-1) - self.centres                          # (M, in, n_basis)
+        basis = torch.exp(-(diff / self.sigma) ** 2)
+        # Reshape and fused matmul.
+        basis_flat = basis.reshape(-1, self.in_channels * self.n_basis)   # (M, in*n_basis)
+        out_spline = basis_flat @ self.spline_weight                      # (M, out)
+        out = (out_lin + out_spline + self.bias).reshape(*prefix, self.out_channels)
+        return out
+
+
+class _KANTrunk(nn.Module):
+    """R17 H — KAN trunk: per-wavelength KAN layers with internal pooling.
+
+    Takes (N, in_channels, L), projects to d_model via a 1×1 conv, then
+    alternates KAN-MLP (per-position, channel-wise non-linearity) and a
+    depthwise conv with stride-2 pooling. The internal pool keeps compute
+    tractable on long-spectrum datasets (L=2151 → ~270 after 3 pools).
+    """
+
+    def __init__(self, in_channels: int, d_model: int = 64, num_blocks: int = 2,
+                 kernel_size: int = 5, p_drop: float = 0.2,
+                 kan_grid: int = 4, kan_order: int = 3,
+                 internal_pool: bool = True):
+        super().__init__()
+        self.proj = nn.Conv1d(in_channels, d_model, kernel_size=1, bias=False)
+        self.blocks = nn.ModuleList()
+        for _ in range(num_blocks):
+            self.blocks.append(nn.ModuleDict({
+                "kan": _KANLayer1D(d_model, d_model, num_grid=kan_grid, spline_order=kan_order),
+                "dw_conv": nn.Conv1d(d_model, d_model, kernel_size=kernel_size,
+                                     padding=kernel_size // 2, groups=d_model, bias=False),
+                "norm": nn.GroupNorm(1, d_model),
+                "drop": nn.Dropout1d(p_drop),
+            }))
+        self.internal_pool = bool(internal_pool)
+        self.pool = nn.MaxPool1d(kernel_size=2, stride=2) if internal_pool else nn.Identity()
+        self.out_channels = d_model
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (N, C, L)
+        x = self.proj(x)
+        for i, blk in enumerate(self.blocks):
+            res = x
+            # KAN over channels at each wavelength position.
+            x_seq = x.transpose(1, 2)                       # (N, L, C)
+            x_seq = blk["kan"](x_seq)
+            x = x_seq.transpose(1, 2)                       # (N, C, L)
+            # Depthwise conv for wavelength-axis context.
+            x = blk["dw_conv"](x)
+            x = blk["norm"](x)
+            x = blk["drop"](x)
+            x = x + res
+            if self.internal_pool and i < len(self.blocks) - 1 and x.shape[-1] >= 4:
+                x = self.pool(x)
+        return x
 
 
 class _DilatedResConvBlock(nn.Module):
@@ -333,14 +557,18 @@ class NiconV2A(nn.Module):
         rms_init_mode: str = "inverse_rms",              # V2L diagnostic — "inverse_rms" | "unit"
         multi_kernel_stem: bool = False,                 # V2O — first block = parallel-kernel
         multi_kernel_kernels: tuple[int, ...] = (3, 5, 7, 9),
-        head_type: str = "gap_linear",                   # "gap_linear" | "attn"  (V2P)
+        head_type: str = "gap_linear",                   # "gap_linear" | "attn" (V2P) | "moe" (R17 D)
         attn_heads: int = 4,
+        moe_num_experts: int = 2,                        # R17 D — only used when head_type=='moe'
+        aux_head_dim: int | None = None,                 # R17 F — aux output dim (None = no aux head)
+        boost_signal_dim: int = 0,                       # R17 C-boost — extra signal concat to head input
         tied_global_rms: bool = False,                   # V2L diagnostic — single shared scale across branches
         trunk_type: str = "conv",                        # "conv" | "hybrid_transformer" (V3)
         transformer_d_model: int = 64,
         transformer_heads: int = 4,
         transformer_layers: int = 2,
         transformer_ff: int = 128,
+        head_out_dim: int = 1,                           # R17 B — set 2 for heteroscedastic (μ, log σ²)
     ) -> None:
         super().__init__()
         in_ch, seq_len = input_shape
@@ -405,6 +633,29 @@ class NiconV2A(nn.Module):
                                                dim_ff=transformer_ff,
                                                p_drop=spatial_dropout))
             prev = transformer_d_model
+        elif trunk_type == "conformer":
+            # R17 I — Conformer trunk: 1 conv reduction block + N Conformer blocks.
+            ch0, k0 = trunk_channels[0], trunk_kernels[0]
+            blocks.append(_ResConvBlock(prev, ch0, kernel_size=k0, p_drop=spatial_dropout,
+                                        se_reduction=se_reduction))
+            blocks.append(_ConformerTrunk(in_channels=ch0,
+                                          d_model=transformer_d_model,
+                                          num_blocks=transformer_layers,
+                                          num_heads=transformer_heads,
+                                          kernel_size=k0,
+                                          p_drop=spatial_dropout))
+            prev = transformer_d_model
+        elif trunk_type == "kan":
+            # R17 H — KAN trunk: 1 conv reduction block + N KAN blocks.
+            ch0, k0 = trunk_channels[0], trunk_kernels[0]
+            blocks.append(_ResConvBlock(prev, ch0, kernel_size=k0, p_drop=spatial_dropout,
+                                        se_reduction=se_reduction))
+            blocks.append(_KANTrunk(in_channels=ch0,
+                                    d_model=transformer_d_model,
+                                    num_blocks=transformer_layers,
+                                    kernel_size=k0,
+                                    p_drop=spatial_dropout))
+            prev = transformer_d_model
         else:
             for i, (ch, k) in enumerate(zip(trunk_channels, trunk_kernels)):
                 if i == 0 and multi_kernel_stem:
@@ -427,13 +678,16 @@ class NiconV2A(nn.Module):
         self.blocks = nn.ModuleList(blocks)
         self.pool = nn.MaxPool1d(kernel_size=2, stride=2)
         # Head input channels: `prev` (last trunk output) handles both conv and transformer trunks.
-        head_in = prev
+        # R17 C-boost — when boost_signal_dim > 0, the head's Linear input is augmented
+        # by `boost_signal_dim` extra features (passed via `forward(..., boost_signal=...)`).
+        head_in = prev + max(0, int(boost_signal_dim))
+        self.boost_signal_dim = int(boost_signal_dim)
         # Head: GAP+Linear (default) or wavelength-attention (V2P).
         if head_type == "gap_linear":
             self.gap = nn.AdaptiveAvgPool1d(1)
             self.flatten = nn.Flatten()
             self.dropout = nn.Dropout(p=head_dropout)
-            self.head: nn.Module = nn.Linear(head_in, 1)
+            self.head: nn.Module = nn.Linear(head_in, head_out_dim)
             self._attn_head = False
         elif head_type == "attn":
             self.gap = nn.Identity()
@@ -442,8 +696,26 @@ class NiconV2A(nn.Module):
             self.head = _WavelengthAttentionHead(head_in, num_heads=attn_heads,
                                                   p_drop=head_dropout)
             self._attn_head = True
+        elif head_type == "moe":
+            # R17 D — Mixture-of-Experts head: GAP + softmax-gated K linear experts.
+            self.gap = nn.AdaptiveAvgPool1d(1)
+            self.flatten = nn.Flatten()
+            self.dropout = nn.Identity()
+            self.head = _MoEHead(head_in, out_dim=head_out_dim,
+                                  num_experts=moe_num_experts, p_drop=head_dropout)
+            self._attn_head = False
         else:
-            raise ValueError(f"unknown head_type {head_type!r}; expected gap_linear | attn")
+            raise ValueError(f"unknown head_type {head_type!r}; expected gap_linear | attn | moe")
+
+        # R17 F — auxiliary multi-task head sharing the GAP feature.
+        # When `aux_head_dim` is set, the model exposes ``last_aux_pred`` after
+        # ``forward``; the training loop reads it to compute a multi-task MSE.
+        self._aux_head_dim = int(aux_head_dim) if aux_head_dim else 0
+        if self._aux_head_dim > 0:
+            self.aux_head: nn.Module | None = nn.Linear(head_in, self._aux_head_dim)
+        else:
+            self.aux_head = None
+        self.last_aux_pred: torch.Tensor | None = None
 
         # Pre-fit MSC if present in branches.
         for branch in self.branches:
@@ -490,7 +762,7 @@ class NiconV2A(nn.Module):
             return next(self.parameters()).new_tensor(0.0)
         return total
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, boost_signal: torch.Tensor | None = None) -> torch.Tensor:
         if x.dim() != 3:
             raise ValueError(f"NiconV2A expects (N, 1, L); got {tuple(x.shape)}")
         # Apply each branch + per-branch RMS norm; concat along channel.
@@ -509,10 +781,31 @@ class NiconV2A(nn.Module):
                 x = self.pool(x)
         # Head — GAP+Linear (default) or wavelength-attention (V2P).
         if self._attn_head:
+            self.last_aux_pred = None
             return self.head(x)                          # _WavelengthAttentionHead handles full pipe
         x = self.gap(x)
         x = self.flatten(x)
-        x = self.dropout(x)
+        x_pooled = x  # GAP feature (used for aux head if present)
+        # R17 C-boost — concat boost signal to GAP features.
+        if self.boost_signal_dim > 0:
+            if boost_signal is None:
+                # Fallback to zeros so the model still runs (used during eval if
+                # caller forgets to pass the signal — should not happen in
+                # production code).
+                boost_signal = x_pooled.new_zeros((x_pooled.shape[0], self.boost_signal_dim))
+            if boost_signal.dim() == 1:
+                boost_signal = boost_signal.unsqueeze(-1)
+            if boost_signal.shape[-1] != self.boost_signal_dim:
+                raise ValueError(
+                    f"boost_signal last-dim {boost_signal.shape[-1]} ≠ boost_signal_dim {self.boost_signal_dim}"
+                )
+            x_pooled = torch.cat([x_pooled, boost_signal.to(x_pooled.dtype)], dim=-1)
+        x = self.dropout(x_pooled)
+        # R17 F — auxiliary head shares the GAP features (no dropout for aux).
+        if self.aux_head is not None:
+            self.last_aux_pred = self.aux_head(x_pooled)
+        else:
+            self.last_aux_pred = None
         return self.head(x)
 
 
@@ -585,11 +878,15 @@ def build_nicon_v2a(input_shape: tuple[int, int], params: dict | None = None) ->
         multi_kernel_kernels=tuple(p.get("multi_kernel_kernels", (3, 5, 7, 9))),
         head_type=str(p.get("head_type", "gap_linear")),
         attn_heads=int(p.get("attn_heads", 4)),
+        moe_num_experts=int(p.get("moe_num_experts", 2)),
+        aux_head_dim=p.get("aux_head_dim", None),
+        boost_signal_dim=int(p.get("boost_signal_dim", 0)),
         trunk_type=str(p.get("trunk_type", "conv")),
         transformer_d_model=int(p.get("transformer_d_model", 64)),
         transformer_heads=int(p.get("transformer_heads", 4)),
         transformer_layers=int(p.get("transformer_layers", 2)),
         transformer_ff=int(p.get("transformer_ff", 128)),
+        head_out_dim=int(p.get("head_out_dim", 1)),
     )
     pretrained_path = p.get("pretrained_path")
     if pretrained_path:

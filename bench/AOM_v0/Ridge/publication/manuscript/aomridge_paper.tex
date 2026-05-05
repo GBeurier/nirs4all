@@ -910,24 +910,56 @@ and the result CSVs are reproducible from a single command (see
 \section{Results}\label{sec:results}
 %% =====================================================================
 
-\subsection{Headline regression table}
+\subsection{Headline regression table}\label{sec:headline}
 
-The headline is summarised in Table~\ref{tab:headline}. We report two
-levels of aggregation. First, for \emph{each fixed variant} (which
-runs its own fold-local inner CV to pick $\alpha$ and, where
-applicable, the operator), the per-variant win count and median delta
-against paper Ridge HPO are given in the lower block of the table.
-Second, the \emph{oracle envelope} (top row) takes the variant with
-the lowest test RMSEP per dataset; this is the \emph{upper bound} on
-what a downstream variant-selector could achieve and reaches
-\textbf{45/52 datasets ($86.5\%$)} won, with a median test-RMSEP delta
-of $\bm{-4.73\%}$.\footnote{Reading the headline as an oracle
-matters: a real downstream user must commit to one variant before
-seeing the test set. The single best fixed variant
-(\AOMR-\texttt{Blender}) already wins 35/52 ($67.3\%$) on its own,
-with median $\Delta=-2.22\%$; the oracle gain is achievable with a
-downstream meta-CV (\texttt{AutoSelect}, $51.9\%$ wins) that selects
-between modes per dataset.}
+We report results at two distinct levels of aggregation, and it is
+important to keep them separate when reading the rest of the paper.
+
+\begin{description}[leftmargin=2em,style=nextline]
+  \item[\emph{Practical, deployable variant.}] A single AOM-Ridge
+        configuration that a user commits to \emph{before seeing the
+        test set}. The strongest single deployable variant is
+        \textbf{\texttt{Blender}}, which forms a convex non-negative
+        blend of the out-of-fold predictions of the eight headline
+        candidates (Section~\ref{sec:method-blender}). This is the
+        single number a practitioner would report.
+  \item[\emph{Oracle envelope.}] For each dataset, the variant with
+        the lowest \emph{test} RMSEP across all $V=29$ benched
+        AOM-Ridge variants. The oracle is computed
+        \emph{retrospectively}, i.e.\ it knows the test outcome,
+        which makes it an \emph{upper bound} that no real downstream
+        user can reach without test-set leakage. We report it for
+        two reasons: (i) it characterises the \emph{coverage} of the
+        candidate pool (how much room remains for a better
+        meta-selector), and (ii) the gap between the oracle and the
+        deployable Blender quantifies how close the SLSQP-blend is
+        to the best possible aggregator.
+\end{description}
+
+The two levels are summarised in Table~\ref{tab:headline}. The
+deployable \texttt{Blender} wins on $35/52$ datasets ($67.3\%$)
+against paper Ridge HPO with a median $\Delta = -2.22\%$. The
+oracle envelope wins on $45/52$ datasets ($86.5\%$) with median
+$\Delta = -4.73\%$. The oracle--blender gap is therefore
+$\sim 2.5$ percentage points of median delta and $19$ percentage
+points of win-rate, which we interpret as the residual headroom for
+a smarter meta-selector beyond the convex blend (we revisit this in
+Section~\ref{sec:discussion}). Crucially, the deployable
+\texttt{AutoSelect} variant, which picks one of the candidates by
+outer-CV (no test leakage), wins on $27/52$ datasets ($51.9\%$,
+median $-0.61\%$) --- weaker than the convex blend, because
+committing to a single candidate per dataset has higher test-fold
+variance than mixing.
+
+For comparisons against the TabPFN-paper baselines (Ridge, PLS,
+TabPFN-Raw, TabPFN-opt, CatBoost, CNN), Table~\ref{tab:headline}
+reports the oracle envelope --- the upper bound that an ideal
+meta-selector could achieve on this cohort --- to put AOM-Ridge on
+the same footing as oracle-style ``best per dataset'' aggregations
+in prior work. Table~\ref{tab:per-method} then reports each
+deployable variant individually so that readers who care about
+single-deployment performance can pick the variant that suits their
+compute budget.
 
 \begin{table}[t]
 \centering
@@ -988,23 +1020,42 @@ high small-$n$ variance.
 
 \subsection{Statistical comparison}
 
-Across the 52-dataset cohort, the \AOMR\ oracle envelope (best
-variant per dataset) achieves a median test-RMSEP delta of $-4.73\%$
-against paper Ridge HPO, $-7.73\%$ against PLS, $-12.56\%$ against
-CNN, $-13.27\%$ against CatBoost, $-6.51\%$ against TabPFN-Raw, and
-$-0.21\%$ against TabPFN-opt. The corresponding win counts are
+We report two parallel statistical analyses, one for the
+\emph{deployable} \texttt{Blender} variant and one for the
+\emph{oracle envelope}; the distinction is the same as in
+Section~\ref{sec:headline}, where we explain that the oracle is an
+upper bound that requires test-set knowledge.
+
+\paragraph{Deployable \texttt{Blender}.}
+Median test-RMSEP delta of \texttt{Blender} on the 52-dataset
+cohort: $-2.22\%$ vs.\ Ridge HPO ($35/52$ wins, $67.3\%$),
+$-4.33\%$ vs.\ PLS ($42/52$, $79\%$), $-3.95\%$ vs.\ TabPFN-Raw
+($30/52$, $57\%$), $+4.72\%$ vs.\ TabPFN-opt ($20/52$, $38\%$, a
+loss), and $-7.01\%$ vs.\ CatBoost ($34/52$, $64\%$). The Blender
+beats every TabPFN-paper baseline except TabPFN-opt at the median.
+
+\paragraph{Oracle envelope (upper bound).}
+The oracle envelope, best of $V=29$ benched AOM-Ridge variants per
+dataset (\emph{retrospective} selection that requires test-set
+knowledge and is therefore not directly deployable), achieves a
+median test-RMSEP delta of $-4.73\%$ against paper Ridge HPO,
+$-7.73\%$ against PLS, $-12.56\%$ against CNN, $-13.27\%$ against
+CatBoost, $-6.51\%$ against TabPFN-Raw, and $-0.21\%$ against
+TabPFN-opt. The corresponding win counts are
 $45/52$ ($86.5\%$), $47/52$ ($90.4\%$), $35/47$ ($74.5\%$),
 $38/52$ ($73.1\%$), $37/52$ ($71.2\%$), and $27/52$ ($51.9\%$).
 Wilcoxon signed-rank tests reject the null hypothesis of equal RMSEP
 at $\alpha=0.05$ against all baselines except TabPFN-opt, which the
 oracle envelope statistically \emph{ties} ($51.9\%$ wins, median
-$\Delta = -0.21\%$). This is the first non-foundation-model result on
-this cohort that statistically matches TabPFN-opt at the median; the
-AOM-PLS companion paper~\citep{beurier2026aompls} reported a
-positive median $\Delta$ of $+0.81\%$ against TabPFN-opt on the
-oracle envelope, which our \texttt{AOMRidge} extension closes by
+$\Delta = -0.21\%$). The oracle envelope is informative as an
+\emph{upper bound on what a perfect meta-selector could extract from
+this candidate pool}; the AOM-PLS companion paper~\citep{beurier2026aompls}
+reported a positive median $\Delta$ of $+0.81\%$ against TabPFN-opt
+on its own oracle envelope, which the AOM-Ridge extensions close by
 gaining the convex blender, the local-Ridge regime, and the
-multi-branch MKL flips on the giant-$n$ datasets.
+multi-branch MKL flips on the giant-$n$ datasets. Closing the gap
+between the deployable Blender and the oracle is part of future work
+(Section~\ref{sec:discussion} ``Future work'').
 
 \begin{table}[t]
 \centering
@@ -1076,6 +1127,62 @@ axis at training times two orders of magnitude below TabPFN-opt.
 Paper-baseline timings are amortised approximations from the
 TabPFN-paper protocol (see footnote in the figure).}
 \label{fig:irmsep-vs-time}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\linewidth]{fig_aomridge_vs_baselines_grid}
+\caption{Median test-RMSEP delta (left, in \%) and win-rate (right,
+in \%) of every AOM-Ridge top variant against each TabPFN-paper
+baseline, on the 52-dataset cohort. Greener cells in the left panel
+mean AOM-Ridge wins by a larger margin; greener cells in the right
+panel mean AOM-Ridge wins on more datasets. The \texttt{Oracle}
+envelope (top row) is the per-dataset best AOM-Ridge variant; it
+\emph{ties} TabPFN-opt at $51.9\%$ wins (median $\Delta=-0.21\%$)
+and beats every other baseline both at the median and the win-rate.
+The \texttt{Blender} variant is the strongest single deployable
+choice, with $66\%$ win-rate against paper Ridge HPO.}
+\label{fig:vs-baselines-grid}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\linewidth]{fig_per_dataset_blender_vs_baselines}
+\caption{Per-dataset signed delta of \texttt{AOMRidge-Blender-headline}
+against each TabPFN-paper baseline (deltas capped at $\pm 50\%$ for
+readability). Negative bars are Blender wins. Blender wins on the
+left side of each baseline group on most datasets, with the
+characteristic exceptions on the $y$-based extrapolation splits
+(BEER \texttt{YbaseSplit}, TIC \texttt{spxy70}) where the inner CV
+is known to mis-rank.}
+\label{fig:blender-per-dataset}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.65\linewidth]{fig_radar_oracle_vs_baselines}
+\caption{Radar / spider chart of win-rate of the AOM-Ridge oracle
+envelope (red) and the deployable Blender variant (blue) against
+each TabPFN-paper baseline. The dashed inner ring at $50\%$ marks
+the tie line. Oracle dominates Ridge / PLS / TabPFN-Raw / CatBoost
+($> 70\%$ win-rate) and ties TabPFN-opt; Blender stays above the
+tie line for every baseline except TabPFN-opt.}
+\label{fig:radar-oracle}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.85\linewidth]{fig_aom_winner_distribution}
+\caption{For each dataset, which AOM-Ridge variant achieves the lowest
+test RMSEP. The Blender wins on the largest number of datasets
+($\sim 27\%$ of the cohort), followed by the global selection mode
+and the local-Ridge family. The split-aware inner CV variant
+contributes a meaningful slice. The MultiBranchMKL and Local-knn50
+variants concentrate their wins on the giant ECOSIS datasets only.
+This distribution explains why a single deployable variant cannot
+match the oracle envelope without an outer-CV meta-selector
+(\texttt{AutoSelect}) or an OOF blender (\texttt{Blender}).}
+\label{fig:winner-distribution}
 \end{figure}
 
 \subsection{AOM-Ridge-PLS challenge variants}\label{sec:results-ridge-pls}
@@ -1309,23 +1416,27 @@ $+14.61\%$ and $+4.30\%$ respectively.
 \paragraph{What works.}
 The dominant lesson of the cohort is that a kernel formulation of
 operator-adaptive Ridge \emph{plus} a small number of well-chosen
-extensions matches a tuned tabular foundation model
-(TabPFN-opt) on this benchmark, while remaining auditable: the
-operator path of the winning variant is recorded in the diagnostics
-dictionary, and the original-space coefficient is exposed for
-downstream tooling (SHAP wrappers, retraining, stacking). On the
-52-dataset paired cohort, the AOM-Ridge oracle envelope ties
-TabPFN-opt at $51.9\%$ wins (median $\Delta=-0.21\%$). Single
-deployable variants are dominated by the convex \texttt{Blender}
-($35/52$ wins, $-2.22\%$ vs.\ Ridge HPO), with \texttt{AutoSelect}
-and \texttt{global-split\_aware} the next-best alternatives. The
-two truly non-strict-linear extensions, multi-branch MKL and local
-Ridge, do not beat the simple variants on a typical NIRS dataset but
-deliver the largest single-dataset wins on the giant ECOSIS
-leaf-trait datasets ($-44.5\%$ on \texttt{Chla+b\_block2deg} for
-multi-branch MKL, $-26.8\%$ on \texttt{Chla+b\_species} for local
-Ridge), which is exactly the regime in which a non-linear pipeline
-should help.
+extensions delivers a competitive single-deployable model on NIRS
+calibration, while remaining auditable: the operator path of the
+winning variant is recorded in the diagnostics dictionary, and the
+original-space coefficient is exposed for downstream tooling (SHAP
+wrappers, retraining, stacking). On the 52-dataset paired cohort,
+the practically deployable \texttt{Blender} wins on $35/52$ datasets
+($67.3\%$) against paper Ridge HPO with median $\Delta = -2.22\%$,
+and beats every TabPFN-paper baseline at the median except
+TabPFN-opt; \texttt{AutoSelect} and \texttt{global-split\_aware}
+are the next-best deployable alternatives. The
+\emph{oracle envelope} (best of $V=29$ variants per dataset, an
+upper bound that requires test-set knowledge) ties TabPFN-opt at
+$51.9\%$ wins (median $\Delta=-0.21\%$); the $\sim 2.5$\,pp gap
+between the oracle and the deployable Blender is the headroom for a
+better meta-selector than the convex blend. The two truly
+non-strict-linear extensions, multi-branch MKL and local Ridge, do
+not beat the simple variants on a typical NIRS dataset but deliver
+the largest single-dataset wins on the giant ECOSIS leaf-trait
+datasets ($-44.5\%$ on \texttt{Chla+b\_block2deg} for multi-branch
+MKL, $-26.8\%$ on \texttt{Chla+b\_species} for local Ridge), which is
+exactly the regime in which a non-linear pipeline should help.
 
 \paragraph{Limitations: $y$-based splits and inner-CV mis-calibration.}
 The clearest failure mode is on $y$-based splits where the test set
@@ -1396,13 +1507,23 @@ $n>1000$ datasets (where each fit exceeds the per-day budget); we
 report it on the small-$n$ subset where it is competitive.
 
 \paragraph{Future work.}
-Three directions follow naturally. \emph{Nested CV} would address
-the AMYLOSE-style $y$-split issue at the cost of more compute, and
-is straightforward to implement on top of the current fold-local
-core. \emph{Stacking} \AOMR\ predictions with paper Ridge HPO
-predictions and with TabPFN-Raw would likely close the gap to
-TabPFN-opt without per-dataset HPO. \emph{Learnable preprocessing}
-in the spirit of FCK-PLS~\citep[the FCK-PLS prior work cited
+Four directions follow naturally. \emph{Closing the oracle--blender
+gap}: the oracle envelope wins on $86.5\%$ of datasets while the
+deployable Blender wins on $67.3\%$; the residual $\sim 19$\,pp
+win-rate gap is the headroom for a smarter meta-selector. The
+SLSQP convex blend with $\ell_2$ regulariser is one of the simplest
+convex aggregators; richer choices include sparse blends with an
+$\ell_1$ regulariser, dataset-feature-conditioned blend weights
+(making the blend itself a function of dataset metadata such as
+$n$, $p$, $y$-skew), or an explicit decision-tree over
+dataset-summary statistics that selects between candidate variants.
+\emph{Nested CV} would address the AMYLOSE-style $y$-split issue at
+the cost of more compute, and is straightforward to implement on top
+of the current fold-local core. \emph{Stacking} \AOMR\ predictions
+with paper Ridge HPO predictions and with TabPFN-Raw would likely
+close the residual gap to TabPFN-opt without per-dataset HPO.
+\emph{Learnable preprocessing} in the spirit of
+FCK-PLS~\citep[the FCK-PLS prior work cited
 in][]{beurier2026aompls} would lift the strict-linear constraint and
 let the operator bank itself adapt to the dataset; this is the
 research direction that would close the residual gap between
@@ -1427,14 +1548,18 @@ split-aware inner CV, a soft multi-branch MKL, a local Ridge in
 score space, and convex blender / auto-selector aggregators). On a
 54-dataset NIRS regression cohort drawn from the TabPFN paper
 benchmark (52 paired after excluding two degenerate-or-too-large
-datasets), the \AOMR\ oracle envelope wins on $45/52$ datasets
-($86.5\%$) against paper Ridge HPO with a median RMSEP delta of
-$-4.73\%$, beats PLS on $90.4\%$, TabPFN-Raw on $71.2\%$, CatBoost
-on $73.1\%$, and \emph{ties TabPFN-opt} at $51.9\%$ wins (median
-$-0.21\%$) --- the first non-foundation-model result that matches
-the TabPFN tabular prior on this benchmark. The strongest single
-deployable variant is the convex blender of out-of-fold predictions
-($35/52$ wins, $-2.22\%$ vs.\ paper Ridge HPO). \AOMR\ is shipped
+datasets), the strongest single \emph{deployable} variant --- the
+convex \texttt{Blender} of out-of-fold predictions over the
+eight-candidate headline pool --- wins on $35/52$ datasets ($67.3\%$)
+against paper Ridge HPO with median delta $-2.22\%$, beats PLS,
+TabPFN-Raw, CatBoost, and CNN at the median, but loses to TabPFN-opt
+($38\%$ wins, $+4.72\%$). The \emph{oracle envelope} over $V=29$
+benched variants (an upper bound that requires test-set knowledge,
+i.e.\ not deployable as-is) wins on $45/52$ datasets ($86.5\%$)
+against Ridge HPO with median $-4.73\%$ and \emph{ties} TabPFN-opt at
+$51.9\%$ wins (median $-0.21\%$). The $\sim 2.5$\,pp gap between the
+two is the residual headroom for a meta-selector smarter than the
+convex blend. \AOMR\ is shipped
 as a self-contained sklearn-compatible estimator at
 \texttt{bench/AOM\_v0/Ridge/aomridge/}, with reproducible benchmark
 scripts and a permissive open-source license.
