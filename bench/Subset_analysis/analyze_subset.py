@@ -503,10 +503,12 @@ def write_reports(selected: dict, conservative: dict | None, mapping: pd.DataFra
         "- `selected_subset.json` : recommandation principale class-balanced.",
         "- `REPORT.md` : rapport de protocole.",
         "- `SYNTHESE_TECHNIQUE.md` : synthese technique avec figures.",
-        "- `make_visualizations.py` : genere les figures dans `figures/`.\n",
+        "- `make_visualizations.py` : genere les figures dans `figures/`.",
+        "- `subset_transfer_analysis.py` : teste le transfert selection-sur-subset -> resultats globaux depuis `benchmark_master_results.csv`.",
+        "- `SUBSET_TRANSFER_REPORT.md` / `subset_transfer_summary.csv` : diagnostic direct sur les subsets courants, baselines aleatoires, representativite et garde-fous.\n",
         "Les anciens artefacts variant-heavy sont regroupes dans `legacy_variant_heavy/` ; ils ne doivent plus etre utilises comme recommandation principale.\n",
         "## Execution\n",
-        "```\npython3 bench/Subset_analysis/analyze_subset.py\npython3 bench/Subset_analysis/make_visualizations.py\n```\n",
+        "```\npython3 bench/Subset_analysis/analyze_subset.py\npython3 bench/Subset_analysis/make_visualizations.py\npython3 bench/Subset_analysis/subset_transfer_analysis.py\n```\n",
     ]
     (OUT / "README.md").write_text("\n".join(readme), encoding="utf-8")
 

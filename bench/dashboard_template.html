@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NIRS4All Benchmark — Master Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;0,6..72,700;1,6..72,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>
+  :root {
+    --paper:        #F2EEE5;
+    --paper-tint:   #ECE6D9;
+    --surface:      #FAF8F2;
+    --ink:          #161513;
+    --ink-strong:   #0A0907;
+    --ink-muted:    #5C564D;
+    --ink-faint:    #8A8378;
+    --rule:         #D4CCC0;
+    --rule-strong:  #B7AE9E;
+    --accent-good:  #1F4E3D;   /* better than PLS */
+    --accent-bad:   #A8421A;   /* worse than PLS */
+    --accent-pls:   #3A3936;
+    --halo-good:    rgba(31,78,61,0.10);
+    --halo-bad:     rgba(168,66,26,0.10);
+    --shadow:       0 1px 0 var(--rule), 0 12px 28px -22px rgba(20,16,8,0.35);
+    --serif:        'Newsreader', 'Source Serif 4', Georgia, serif;
+    --sans:         'IBM Plex Sans', system-ui, sans-serif;
+    --mono:         'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body {
+    background: var(--paper);
+    background-image:
+      radial-gradient(circle at 12% 8%,  rgba(168,66,26,0.04) 0, transparent 38%),
+      radial-gradient(circle at 88% 92%, rgba(31,78,61,0.05)  0, transparent 42%);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    font-feature-settings: "ss01", "cv11", "tnum";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* subtle paper grain */
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    opacity: 0.35; mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.09  0 0 0 0 0.08  0 0 0 0 0.07  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  main { position: relative; z-index: 1; max-width: 1280px; margin: 0 auto; padding: 56px 56px 120px; }
+
+  /* ─── Header ─────────────────────────────── */
+  .masthead { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--ink); }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-muted); display: flex; gap: 12px; align-items: center;
+  }
+  .eyebrow::before { content: ""; width: 28px; height: 1px; background: var(--ink-muted); }
+  h1.title {
+    font-family: var(--serif); font-weight: 400; font-style: italic;
+    font-size: clamp(48px, 7vw, 84px); line-height: 0.92; letter-spacing: -0.02em;
+    margin: 8px 0 0; color: var(--ink-strong);
+    font-variation-settings: "opsz" 72;
+  }
+  h1 .sub { font-style: normal; font-weight: 300; color: var(--ink-muted); }
+  .masthead .meta {
+    text-align: right; font-family: var(--mono); font-size: 11px; color: var(--ink-muted);
+    line-height: 1.7; letter-spacing: 0.04em;
+  }
+  .masthead .meta b { color: var(--ink); font-weight: 500; }
+
+  /* ─── Dek paragraph ────────────────────── */
+  .dek {
+    font-family: var(--serif); font-size: 21px; line-height: 1.55; max-width: 70ch;
+    margin: 32px 0 40px; color: var(--ink); font-weight: 300;
+  }
+  .dek em { color: var(--accent-good); font-style: italic; font-weight: 400; }
+
+  /* ─── KPI strip ───────────────────────── */
+  .kpis {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 0;
+    border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+    margin: 0 0 64px;
+  }
+  .kpi {
+    padding: 18px 16px 18px 0;
+    border-right: 1px dotted var(--rule);
+  }
+  .kpi:last-child { border-right: none; }
+  .kpi .label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-faint); }
+  .kpi .value { font-family: var(--serif); font-size: 36px; line-height: 1.05; color: var(--ink-strong); margin-top: 4px; font-variation-settings: "opsz" 24; }
+  .kpi .hint  { font-family: var(--sans); font-size: 12px; color: var(--ink-muted); margin-top: 2px; }
+
+  /* ─── Filter bar ────────────────────── */
+  .filters {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--paper);
+    backdrop-filter: blur(2px);
+    margin: 0 -56px 48px; padding: 14px 56px;
+    border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink);
+    display: flex; gap: 32px; align-items: center; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .filters .label { color: var(--ink-muted); }
+  .filters select, .filters input[type=number] {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
+    background: transparent; border: none; border-bottom: 1px solid var(--ink);
+    color: var(--ink); padding: 4px 6px 4px 0; min-width: 80px;
+    cursor: pointer; text-transform: uppercase;
+  }
+  .filters select:focus, .filters input:focus { outline: none; border-bottom-color: var(--accent-good); }
+  .toggle { display: inline-flex; gap: 0; border: 1px solid var(--ink); border-radius: 0; overflow: hidden; }
+  .toggle button {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    background: transparent; color: var(--ink); border: none; padding: 6px 12px; cursor: pointer;
+    border-right: 1px solid var(--ink);
+  }
+  .toggle button:last-child { border-right: none; }
+  .toggle button.active { background: var(--ink); color: var(--paper); }
+
+  /* ─── Section ─────────────────────── */
+  section.fig {
+    margin: 0 0 96px; display: grid;
+    grid-template-columns: 240px 1fr; gap: 48px;
+  }
+  section.fig .legend-col { font-family: var(--sans); }
+  section.fig .figure-id {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-faint); margin-bottom: 8px;
+  }
+  section.fig h2 {
+    font-family: var(--serif); font-weight: 500; font-size: 30px; line-height: 1.1;
+    color: var(--ink-strong); margin: 0 0 16px; letter-spacing: -0.01em;
+    font-variation-settings: "opsz" 36;
+  }
+  section.fig .why { font-size: 14px; line-height: 1.55; color: var(--ink-muted); margin-bottom: 18px; }
+  section.fig .read {
+    font-family: var(--mono); font-size: 11px; line-height: 1.6; color: var(--ink-muted);
+    border-top: 1px dotted var(--rule-strong); padding-top: 14px; margin-top: 18px;
+    text-transform: none; letter-spacing: 0;
+  }
+  section.fig .read .label {
+    display: block; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-faint); margin-bottom: 4px;
+  }
+  section.fig .chart-col { background: var(--surface); padding: 28px 28px 12px; border: 1px solid var(--rule); border-radius: 2px; box-shadow: var(--shadow); }
+  section.fig .chart {
+    width: 100%;
+  }
+  /* Plotly tooltip override */
+  .hovertext text { font-family: var(--mono) !important; }
+
+  /* ─── Two-column flow for some sections ─── */
+  section.fig.full { grid-template-columns: 1fr; }
+  section.fig.full .legend-col {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 32px; align-items: end;
+    border-bottom: 1px solid var(--rule); padding-bottom: 18px; margin-bottom: 24px;
+  }
+  section.fig.full h2 { font-size: 36px; }
+
+  /* ─── Footer / methodology ─── */
+  footer {
+    margin-top: 96px; padding-top: 32px; border-top: 1px solid var(--ink);
+    display: grid; grid-template-columns: 1fr 1fr; gap: 64px;
+  }
+  footer h3 {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 500; margin: 0 0 12px;
+  }
+  footer p { font-size: 13px; line-height: 1.65; color: var(--ink-muted); margin: 0 0 12px; }
+  footer code { font-family: var(--mono); font-size: 12px; background: var(--paper-tint); padding: 1px 5px; border-radius: 2px; color: var(--ink); }
+
+  /* ─── Number formatting ─── */
+  .num { font-family: var(--mono); font-feature-settings: "tnum" 1; }
+  .pos { color: var(--accent-good); }
+  .neg { color: var(--accent-bad); }
+
+  /* ─── Stagger fade-in on load ─── */
+  .fade-in { opacity: 0; transform: translateY(8px); transition: opacity 700ms cubic-bezier(.2,.7,.3,1), transform 700ms cubic-bezier(.2,.7,.3,1); }
+  .fade-in.show { opacity: 1; transform: none; }
+
+  /* ─── Class swatch ─── */
+  .swatch { display: inline-block; width: 10px; height: 10px; vertical-align: middle; margin-right: 6px; border-radius: 50%; }
+
+  /* ─── Class legend grid ─── */
+  .class-legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px 18px; font-size: 11px; font-family: var(--mono); color: var(--ink-muted); margin-top: 8px; }
+  .class-legend .item { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; transition: opacity 200ms; }
+  .class-legend .item.dim { opacity: 0.3; }
+  .class-legend .item .name { letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; }
+
+  @media (max-width: 900px) {
+    main { padding: 32px 20px 80px; }
+    .filters { margin: 0 -20px 32px; padding: 12px 20px; }
+    section.fig { grid-template-columns: 1fr; gap: 16px; }
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .kpi { border-right: none; border-bottom: 1px dotted var(--rule); }
+    section.fig.full .legend-col { grid-template-columns: 1fr; }
+    footer { grid-template-columns: 1fr; gap: 24px; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+  <!-- ───────── MASTHEAD ───────── -->
+  <header class="masthead fade-in">
+    <div>
+      <div class="eyebrow">NIRS4All · Benchmark Synthesis · v0.8.x</div>
+      <h1 class="title">A field map<br><span class="sub">of NIRS predictors</span></h1>
+    </div>
+    <div class="meta">
+      <span class="label">SOURCE</span> <b>benchmark_master_results.csv</b><br>
+      <span class="label">GENERATED</span> <b id="meta-date">—</b><br>
+      <span class="label">FAMILIES</span> <b id="meta-families">—</b>
+    </div>
+  </header>
+
+  <p class="dek fade-in" style="transition-delay:80ms;">
+    Eight source families, eighty-four datasets, four hundred-plus model variants, twenty-thousand recorded
+    runs. This dashboard projects the master CSV onto the six diagnostic plots recommended in
+    <em>benchmark_synthesis.md</em> — answering, in order: where is the headroom, who is reliable,
+    who survives the strict cross-protocol bar, where do specialists live, and what does each second of compute buy.
+  </p>
+
+  <!-- ───────── KPI STRIP ───────── -->
+  <div class="kpis fade-in" style="transition-delay:160ms;">
+    <div class="kpi"><div class="label">Rows</div><div class="value num" id="kpi-rows">—</div><div class="hint">total observations + oracles</div></div>
+    <div class="kpi"><div class="label">Datasets</div><div class="value num" id="kpi-datasets">—</div><div class="hint">regression, RMSEP scored</div></div>
+    <div class="kpi"><div class="label">Model variants</div><div class="value num" id="kpi-models">—</div><div class="hint">unique <code>model_name</code></div></div>
+    <div class="kpi"><div class="label">Model classes</div><div class="value num" id="kpi-classes">—</div><div class="hint">strategy families</div></div>
+    <div class="kpi"><div class="label">Reference rows</div><div class="value num" id="kpi-ref">—</div><div class="hint">paper baselines</div></div>
+    <div class="kpi"><div class="label">Oracle rows</div><div class="value num" id="kpi-oracle">—</div><div class="hint">per class &amp; global</div></div>
+  </div>
+
+  <!-- ───────── FILTERS ───────── -->
+  <div class="filters fade-in" style="transition-delay:240ms;">
+    <span class="label">Min datasets</span>
+    <input type="number" id="f-min-ds" min="3" max="60" value="10" step="1">
+    <span class="label">Top N</span>
+    <select id="f-top-n">
+      <option>15</option><option selected>25</option><option>40</option><option>80</option>
+    </select>
+    <span class="label">Comparison</span>
+    <div class="toggle" id="f-basis">
+      <button data-v="protocol" class="active">Protocol-local</button>
+      <button data-v="global">Strict global</button>
+    </div>
+    <span class="label">Model class</span>
+    <select id="f-class"><option value="">all classes</option></select>
+  </div>
+
+  <!-- ───────── FIGURE 1 — ORACLE BY CLASS ───────── -->
+  <section class="fig fade-in" id="sec-oracle" style="transition-delay:320ms;">
+    <div class="legend-col">
+      <div class="figure-id">Figure 1</div>
+      <h2>Where is the headroom?</h2>
+      <p class="why">Within each model family, an oracle picks the best variant for every dataset. The remaining
+        gap to PLS measures how much <em>signal</em> that family contains across the search space — independent of how
+        you would actually deploy it. TabPFN, AOM-PLS and AOM-Ridge dominate the ceiling.</p>
+      <div class="read"><span class="label">Reading</span>
+        Bars left of the dotted line beat the best PLS observed for the dataset; right means worse.
+        IQR shows variability across datasets.
+      </div>
+    </div>
+    <div class="chart-col"><div id="plot-oracle" class="chart" style="height:520px;"></div></div>
+  </section>
+
+  <!-- ───────── FIGURE 2 — PROTOCOL-LOCAL LEADERBOARD ───────── -->
+  <section class="fig fade-in" id="sec-leader" style="transition-delay:80ms;">
+    <div class="legend-col">
+      <div class="figure-id">Figure 2 · Forest plot</div>
+      <h2>Which models are reliable?</h2>
+      <p class="why">Best per (model, dataset), then median + IQR across datasets. Each model is judged
+        against the PLS that <em>shipped in its own source run</em> — fair within-protocol view that surfaces fast linear
+        baselines like AOM-PLS without penalising them for not having tuned PLS counterparts.</p>
+      <div class="read"><span class="label">Toggle</span>
+        Switch <b>Comparison</b> at the top to swap the denominator: protocol-local PLS (this view) or
+        the strict best-PLS-ever-observed denominator (Figure 3).
+      </div>
+    </div>
+    <div class="chart-col"><div id="plot-leader" class="chart" style="height:780px;"></div></div>
+  </section>
+
+  <!-- ───────── FIGURE 3 — HEATMAP ───────── -->
+  <section class="fig full fade-in" id="sec-heatmap">
+    <div class="legend-col">
+      <div>
+        <div class="figure-id">Figure 3</div>
+        <h2>Specialists, generalists, and brittle wins</h2>
+      </div>
+      <p class="why">Top fifteen models (rows, by overall median) versus every dataset (columns, ordered
+        from hardest-on-average to easiest). Cell colour is <em>log₂(model RMSEP / source-run PLS)</em>; deep green is a strong
+        win, terracotta is a loss. Streaks of green on the same column reveal datasets where every method beats PLS;
+        isolated dark cells expose specialists.</p>
+      <div></div>
+    </div>
+    <div class="chart-col" style="background: var(--surface);">
+      <div id="plot-heatmap" class="chart" style="height:560px;"></div>
+    </div>
+  </section>
+
+  <!-- ───────── FIGURE 4 — WINS VS PLS ───────── -->
+  <section class="fig fade-in" id="sec-wins">
+    <div class="legend-col">
+      <div class="figure-id">Figure 4 · Win census</div>
+      <h2>How often, not just how much.</h2>
+      <p class="why">For each top model, how many of its evaluated datasets undercut the corresponding PLS? Median
+        ratio answers <em>by how much</em>; this chart answers <em>how often</em>. Models with high win rate but only modest
+        median lift are the candidates worth defaulting to.</p>
+      <div class="read"><span class="label">Reading</span>
+        Green segment is wins (rel &lt; 1.0), terracotta is losses. Numbers on the right are
+        <span class="num">wins / n</span>.
+      </div>
+    </div>
+    <div class="chart-col"><div id="plot-wins" class="chart" style="height:640px;"></div></div>
+  </section>
+
+  <!-- ───────── FIGURE 5 — RUNTIME PARETO ───────── -->
+  <section class="fig fade-in" id="sec-pareto">
+    <div class="legend-col">
+      <div class="figure-id">Figure 5 · Pareto view</div>
+      <h2>Accuracy at what cost?</h2>
+      <p class="why">Median fit time (log seconds) versus median relative RMSEP. Lower-left is the frontier;
+        bubble size is the dataset count. Linear models cluster bottom-left at sub-second budgets; TabPFN sits
+        higher on the time axis but matches accuracy. Filled markers along the bottom envelope are non-dominated.</p>
+      <div class="read"><span class="label">Use</span>
+        When deciding between candidates of similar accuracy, prefer the one further left.
+      </div>
+    </div>
+    <div class="chart-col">
+      <div id="plot-pareto" class="chart" style="height:600px;"></div>
+      <div class="class-legend" id="class-legend"></div>
+    </div>
+  </section>
+
+  <!-- ───────── FOOTER ───────── -->
+  <footer>
+    <div>
+      <h3>Methodology</h3>
+      <p>Source rows are <code>record_type ∈ {observed, reference_paper}</code>, regression task, RMSEP-scored, status OK.
+      For each model we keep the best row per dataset, then aggregate across datasets. Two normalisations:
+      <code>score_ratio_vs_source_run_pls</code> (protocol-local) and <code>score_ratio_vs_dataset_pls</code>
+      (strict cross-protocol).</p>
+      <p>Ratios &lt; 1 outperform PLS. The heatmap clips <code>log₂</code> to ±1 for legibility. Pareto excludes models
+      with fewer than eight datasets or no recorded fit time.</p>
+    </div>
+    <div>
+      <h3>Sources</h3>
+      <p>Master CSV: <code>bench/benchmark_master_results.csv</code>. Synthesis &amp; waypoints:
+      <code>bench/benchmark_synthesis.md</code>. Static fallbacks generated by
+      <code>bench/plot_benchmark_master.py</code>. Build script: <code>bench/build_dashboard.py</code>.</p>
+      <p>This page is fully self-contained: data is embedded as JSON in the document, so it travels with a
+      single file and renders offline.</p>
+    </div>
+  </footer>
+
+</main>
+
+<script id="payload" type="application/json">__DASHBOARD_DATA__</script>
+<script>
+(function() {
+  const DATA = JSON.parse(document.getElementById("payload").textContent);
+  window.DATA = DATA; // for debugging
+
+  // ── Palette: muted, editorial. One colour per model class. ──
+  const CLASS_COLORS = {
+    "TabPFN":             "#2E4B6F",
+    "AOM-PLS":            "#1F4E3D",
+    "AOM-Ridge":          "#4F6F4A",
+    "Ridge":              "#386B68",
+    "Meta-selector/MoE":  "#B98A3D",
+    "Multi-kernel ridge": "#A66C3A",
+    "Hybrid CNN+AOM":     "#8E5A60",
+    "PLS":                "#3A3936",
+    "Hybrid CNN+linear":  "#A8421A",
+    "FCK-PLS":            "#C8932F",
+    "NICON/CNN":          "#6F6080",
+    "Other":              "#8A8378",
+    "CatBoost":           "#7C3D1F",
+    "POP-PLS":            "#6E724F"
+  };
+  const FALLBACK_COLOR = "#6B6259";
+  const colorOf = c => CLASS_COLORS[c] || FALLBACK_COLOR;
+
+  const FONT_FAMILY = "'IBM Plex Sans', system-ui, sans-serif";
+  const MONO_FAMILY = "'JetBrains Mono', ui-monospace, monospace";
+  const PAPER       = "transparent";
+  const INK         = "#161513";
+  const INK_MUTED   = "#5C564D";
+  const RULE        = "#D4CCC0";
+  const ACCENT_GOOD = "#1F4E3D";
+  const ACCENT_BAD  = "#A8421A";
+
+  const BASE_LAYOUT = {
+    font: { family: FONT_FAMILY, color: INK, size: 12 },
+    paper_bgcolor: PAPER,
+    plot_bgcolor: PAPER,
+    margin: { t: 30, r: 20, b: 60, l: 60 },
+    hoverlabel: {
+      bgcolor: "#FAF8F2",
+      bordercolor: INK,
+      font: { family: MONO_FAMILY, color: INK, size: 11 }
+    },
+    xaxis: {
+      gridcolor: RULE, gridwidth: 1, griddash: "dot",
+      zerolinecolor: INK, zerolinewidth: 1, linecolor: INK, linewidth: 1,
+      tickfont: { family: MONO_FAMILY, size: 11, color: INK_MUTED },
+      title: { font: { family: FONT_FAMILY, size: 12, color: INK_MUTED } }
+    },
+    yaxis: {
+      gridcolor: RULE, gridwidth: 1, griddash: "dot",
+      zerolinecolor: INK, zerolinewidth: 1, linecolor: INK, linewidth: 1,
+      tickfont: { family: MONO_FAMILY, size: 11, color: INK_MUTED },
+      title: { font: { family: FONT_FAMILY, size: 12, color: INK_MUTED } }
+    }
+  };
+  const PLOTLY_CONFIG = {
+    displaylogo: false,
+    modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d", "toggleSpikelines"],
+    responsive: true
+  };
+
+  const cloneLayout = (extra = {}) => {
+    const base = JSON.parse(JSON.stringify(BASE_LAYOUT));
+    return Object.assign(base, extra);
+  };
+
+  const fmt = (x, d=3) => (x === null || x === undefined || isNaN(x)) ? "—" : (+x).toFixed(d);
+  const truncate = (s, n) => (s && s.length > n) ? s.slice(0, n-1) + "…" : s;
+
+  // ── Populate metadata strip ──
+  document.getElementById("meta-date").textContent = DATA.meta.generated_at;
+  document.getElementById("meta-families").textContent = DATA.meta.source_families.length + " families";
+  document.getElementById("kpi-rows").textContent     = DATA.meta.n_rows.toLocaleString();
+  document.getElementById("kpi-datasets").textContent = DATA.meta.n_datasets;
+  document.getElementById("kpi-models").textContent   = DATA.meta.n_models;
+  document.getElementById("kpi-classes").textContent  = DATA.meta.n_model_classes;
+  document.getElementById("kpi-ref").textContent      = DATA.meta.n_reference;
+  document.getElementById("kpi-oracle").textContent   = DATA.meta.n_oracle_class + DATA.meta.n_oracle_global;
+
+  // ── Class filter dropdown ──
+  const classes = Array.from(new Set([
+    ...DATA.oracle_by_class.map(r => r.model_class),
+    ...DATA.leaderboard_protocol.map(r => r.model_class),
+    ...DATA.leaderboard_global.map(r => r.model_class),
+    ...DATA.pareto.map(r => r.model_class)
+  ])).sort();
+  const classSel = document.getElementById("f-class");
+  classes.forEach(c => {
+    const o = document.createElement("option"); o.value = c; o.textContent = c.toLowerCase();
+    classSel.appendChild(o);
+  });
+
+  // ── Figure 1 — Oracle by Model Class ──
+  function plotOracle() {
+    const data = DATA.oracle_by_class.slice().sort((a,b) => a.median_rel - b.median_rel);
+    const y = data.map(r => r.model_class);
+    const x = data.map(r => r.median_rel);
+    const colors = data.map(r => r.median_rel <= 1.0 ? ACCENT_GOOD : ACCENT_BAD);
+    const errMinus = data.map(r => r.median_rel - r.q25);
+    const errPlus  = data.map(r => r.q75 - r.median_rel);
+    const text  = data.map(r => `<b>${r.model_class}</b><br>` +
+      `median <b>${fmt(r.median_rel)}</b> · IQR ${fmt(r.q25)}–${fmt(r.q75)}<br>` +
+      `${r.wins}/${r.n_datasets} datasets beat PLS`);
+
+    const trace = {
+      type: "bar", orientation: "h",
+      x: x, y: y, marker: { color: colors, opacity: 0.92, line: { color: INK, width: 0.5 } },
+      error_x: { type: "data", symmetric: false, array: errPlus, arrayminus: errMinus, color: INK, thickness: 1, width: 4 },
+      hovertext: text, hoverinfo: "text"
+    };
+    const annot = data.map(r => ({
+      x: r.q75 + 0.012, y: r.model_class, xref: "x", yref: "y",
+      text: `<span style="font-family:${MONO_FAMILY};font-size:10px">${r.wins}/${r.n_datasets}</span>`,
+      showarrow: false, xanchor: "left",
+      font: { color: INK_MUTED, size: 10, family: MONO_FAMILY }
+    }));
+    const layout = cloneLayout({
+      height: 520,
+      margin: { t: 10, r: 60, b: 50, l: 170 },
+      xaxis: Object.assign({}, BASE_LAYOUT.xaxis, {
+        title: "Median RMSEP / best-PLS-on-dataset",
+        range: [0.82, 1.55]
+      }),
+      yaxis: Object.assign({}, BASE_LAYOUT.yaxis, {
+        autorange: "reversed", tickfont: { family: FONT_FAMILY, size: 13, color: INK }
+      }),
+      shapes: [{
+        type: "line", x0: 1, x1: 1, y0: -0.5, y1: data.length - 0.5, yref: "y", xref: "x",
+        line: { color: INK, width: 1, dash: "dot" }
+      }],
+      annotations: annot.concat([{
+        x: 1.0, y: 1.06, xref: "x", yref: "paper",
+        text: "PLS reference", showarrow: false, font: { family: MONO_FAMILY, size: 9, color: INK_MUTED },
+        xanchor: "center"
+      }])
+    });
+    Plotly.newPlot("plot-oracle", [trace], layout, PLOTLY_CONFIG);
+  }
+
+  // ── Figures 2/3 — Forest plot leaderboard ──
+  function plotLeaderboard() {
+    const basis = currentBasis(); // protocol | global
+    const minDs = +document.getElementById("f-min-ds").value;
+    const topN  = +document.getElementById("f-top-n").value;
+    const cls   = classSel.value;
+
+    const src = basis === "protocol" ? DATA.leaderboard_protocol : DATA.leaderboard_global;
+    let data = src.filter(r => r.n_datasets >= minDs);
+    if (cls) data = data.filter(r => r.model_class === cls);
+    data = data.slice().sort((a,b) => a.median - b.median).slice(0, topN);
+    data.reverse(); // bottom of plot = best
+
+    const y = data.map((r,i) => `${truncate(r.model_name, 38)}`);
+    const x = data.map(r => r.median);
+    const colors = data.map(r => colorOf(r.model_class));
+    const errMinus = data.map(r => r.median - r.q25);
+    const errPlus  = data.map(r => r.q75 - r.median);
+    const text = data.map(r => `<b>${r.model_name}</b><br>` +
+      `<span style="color:${colorOf(r.model_class)}">■</span> ${r.model_class}<br>` +
+      `median <b>${fmt(r.median)}</b> · IQR ${fmt(r.q25)}–${fmt(r.q75)}<br>` +
+      `n=${r.n_datasets} · wins ${r.wins}/${r.n_datasets} (${(r.win_rate*100).toFixed(0)}%)`);
+
+    const trace = {
+      type: "scatter", mode: "markers",
+      x: x, y: y, marker: { color: colors, size: 9, line: { color: INK, width: 0.6 } },
+      error_x: { type: "data", symmetric: false, array: errPlus, arrayminus: errMinus, color: INK_MUTED, thickness: 1, width: 4 },
+      hovertext: text, hoverinfo: "text"
+    };
+    const annotations = data.map(r => ({
+      x: 1.61, y: r.model_name === undefined ? "" : `${truncate(r.model_name, 38)}`,
+      xref: "x", yref: "y",
+      text: `<span style="color:${colorOf(r.model_class)}">■</span>` +
+            ` <span style="font-family:${MONO_FAMILY};font-size:10px;color:${INK_MUTED}">${r.n_datasets}d · ${r.wins}w</span>`,
+      showarrow: false, xanchor: "left", font: { size: 10 }
+    }));
+    const xMin = Math.min(0.78, ...data.map(r => r.q25)) - 0.02;
+    const xMax = 1.65;
+
+    const layout = cloneLayout({
+      height: Math.max(380, data.length * 26 + 80),
+      margin: { t: 14, r: 110, b: 50, l: 280 },
+      xaxis: Object.assign({}, BASE_LAYOUT.xaxis, {
+        title: basis === "protocol" ? "RMSEP / source-run PLS" : "RMSEP / best-PLS-on-dataset",
+        range: [xMin, xMax]
+      }),
+      yaxis: Object.assign({}, BASE_LAYOUT.yaxis, {
+        tickfont: { family: MONO_FAMILY, size: 11, color: INK }
+      }),
+      shapes: [{
+        type: "line", x0: 1, x1: 1, y0: -0.5, y1: data.length - 0.5, yref: "y", xref: "x",
+        line: { color: INK, width: 1, dash: "dot" }
+      }],
+      annotations: annotations
+    });
+    Plotly.react("plot-leader", [trace], layout, PLOTLY_CONFIG);
+  }
+
+  // ── Figure 3 — Heatmap ──
+  function plotHeatmap() {
+    const hm = DATA.heatmap;
+    // Custom diverging colorscale: terracotta (worse) → cream → forest green (better, lower)
+    // Plotly z is log2(ratio): negative = green/better, positive = red/worse.
+    const colorscale = [
+      [0.00, "#1F4E3D"],   // -1.0  ≈ ratio 0.5
+      [0.20, "#5B7E5C"],
+      [0.40, "#A6B89A"],
+      [0.50, "#EFE9DA"],   // 0.0  = parity
+      [0.60, "#E0BCA0"],
+      [0.80, "#C58557"],
+      [1.00, "#A8421A"]    // +1.0 ≈ ratio 2.0
+    ];
+
+    const customdata = hm.ratios.map((row, i) =>
+      row.map(v => [hm.models[i], hm.model_classes[i], v])
+    );
+
+    const trace = {
+      type: "heatmap",
+      z: hm.z_log2,
+      x: hm.datasets,
+      y: hm.models.map(m => truncate(m, 38)),
+      colorscale: colorscale,
+      zmin: -1.0, zmax: 1.0, zmid: 0,
+      customdata: customdata,
+      hovertemplate:
+        "<b>%{customdata[0]}</b><br>" +
+        "<span style='color:" + INK_MUTED + "'>%{customdata[1]}</span><br>" +
+        "dataset: %{x}<br>" +
+        "RMSEP / source-PLS = <b>%{customdata[2]:.3f}</b>" +
+        "<extra></extra>",
+      colorbar: {
+        title: { text: "log₂(model / PLS)", font: { family: FONT_FAMILY, size: 11, color: INK_MUTED } },
+        tickfont: { family: MONO_FAMILY, size: 10, color: INK_MUTED },
+        thickness: 10, len: 0.7, outlinewidth: 0,
+        tickvals: [-1, -0.5, 0, 0.5, 1],
+        ticktext: ["½×", "0.7×", "1.0", "1.4×", "2×"]
+      },
+      xgap: 1, ygap: 1
+    };
+
+    const layout = cloneLayout({
+      height: 560,
+      margin: { t: 14, r: 30, b: 130, l: 280 },
+      xaxis: Object.assign({}, BASE_LAYOUT.xaxis, {
+        title: "Datasets · ordered by overall difficulty (left = harder)",
+        tickfont: { family: MONO_FAMILY, size: 8, color: INK_MUTED },
+        tickangle: -65, ticks: ""
+      }),
+      yaxis: Object.assign({}, BASE_LAYOUT.yaxis, {
+        autorange: "reversed",
+        tickfont: { family: MONO_FAMILY, size: 11, color: INK }, ticks: ""
+      })
+    });
+    Plotly.newPlot("plot-heatmap", [trace], layout, PLOTLY_CONFIG);
+  }
+
+  // ── Figure 4 — Wins ──
+  function plotWins() {
+    const basis = currentBasis();
+    const minDs = +document.getElementById("f-min-ds").value;
+    const topN  = +document.getElementById("f-top-n").value;
+    const cls   = classSel.value;
+
+    const src = basis === "protocol" ? DATA.leaderboard_protocol : DATA.leaderboard_global;
+    let data = src.filter(r => r.n_datasets >= minDs);
+    if (cls) data = data.filter(r => r.model_class === cls);
+    // Sort by win rate desc then by win count desc
+    data = data.slice().sort((a,b) => (b.win_rate - a.win_rate) || (b.wins - a.wins)).slice(0, topN);
+    data.reverse();
+
+    const y = data.map(r => truncate(r.model_name, 38));
+    const wins   = data.map(r => r.wins);
+    const losses = data.map(r => -(r.n_datasets - r.wins));
+    const winText = data.map(r => `<b>${r.model_name}</b><br>` +
+      `<span style="color:${colorOf(r.model_class)}">■</span> ${r.model_class}<br>` +
+      `wins: <b>${r.wins}</b> · losses: ${r.n_datasets - r.wins}<br>` +
+      `win rate <b>${(r.win_rate*100).toFixed(0)}%</b> · median ${fmt(r.median)}`);
+
+    const winTrace = {
+      type: "bar", orientation: "h", x: wins, y: y,
+      marker: { color: ACCENT_GOOD, opacity: 0.88, line: { color: INK, width: 0.4 } },
+      hovertext: winText, hoverinfo: "text", name: "wins"
+    };
+    const lossTrace = {
+      type: "bar", orientation: "h", x: losses, y: y,
+      marker: { color: ACCENT_BAD, opacity: 0.65, line: { color: INK, width: 0.4 } },
+      hovertext: winText, hoverinfo: "text", name: "losses"
+    };
+    const annotations = data.map(r => ({
+      x: r.wins + 1.5, y: truncate(r.model_name, 38),
+      xref: "x", yref: "y",
+      text: `<span style="font-family:${MONO_FAMILY};font-size:10px;color:${INK_MUTED}">${r.wins}/${r.n_datasets}</span>`,
+      showarrow: false, xanchor: "left"
+    }));
+
+    const layout = cloneLayout({
+      height: Math.max(380, data.length * 26 + 80),
+      barmode: "relative",
+      margin: { t: 14, r: 80, b: 50, l: 280 },
+      xaxis: Object.assign({}, BASE_LAYOUT.xaxis, {
+        title: "Datasets — losses (left) / wins vs PLS (right)",
+        zerolinecolor: INK, zerolinewidth: 1.2
+      }),
+      yaxis: Object.assign({}, BASE_LAYOUT.yaxis, {
+        tickfont: { family: MONO_FAMILY, size: 11, color: INK }
+      }),
+      annotations: annotations,
+      showlegend: false
+    });
+    Plotly.react("plot-wins", [lossTrace, winTrace], layout, PLOTLY_CONFIG);
+  }
+
+  // ── Figure 5 — Pareto ──
+  function plotPareto() {
+    const minDs = +document.getElementById("f-min-ds").value;
+    const cls   = classSel.value;
+    let data = DATA.pareto.filter(r => r.n_datasets >= minDs);
+    if (cls) data = data.filter(r => r.model_class === cls);
+
+    // Compute Pareto frontier (lower-left): sort by median_fit_time asc, keep points with
+    // strictly improving median_rel.
+    const byTime = data.slice().sort((a,b) => a.median_fit_time - b.median_fit_time);
+    const frontier = []; let bestRel = Infinity;
+    byTime.forEach(p => {
+      if (p.median_rel < bestRel) { frontier.push(p); bestRel = p.median_rel; }
+    });
+    const frontierSet = new Set(frontier.map(p => p.model_name));
+
+    const groups = {};
+    data.forEach(r => {
+      (groups[r.model_class] = groups[r.model_class] || []).push(r);
+    });
+
+    const traces = Object.entries(groups).map(([cls, pts]) => ({
+      type: "scatter", mode: "markers", name: cls,
+      x: pts.map(p => p.median_fit_time),
+      y: pts.map(p => p.median_rel),
+      marker: {
+        color: colorOf(cls),
+        size: pts.map(p => Math.max(8, Math.min(28, Math.sqrt(p.n_datasets) * 4))),
+        opacity: 0.78,
+        line: { color: pts.map(p => frontierSet.has(p.model_name) ? INK : "rgba(0,0,0,0)"), width: pts.map(p => frontierSet.has(p.model_name) ? 1.3 : 0) }
+      },
+      hovertext: pts.map(p => `<b>${p.model_name}</b><br>` +
+        `<span style="color:${colorOf(p.model_class)}">■</span> ${p.model_class}<br>` +
+        `median rel <b>${fmt(p.median_rel)}</b> · n=${p.n_datasets}<br>` +
+        `median fit <b>${fmt(p.median_fit_time, 2)}s</b>${frontierSet.has(p.model_name) ? "<br><i>on Pareto frontier</i>" : ""}`),
+      hoverinfo: "text"
+    }));
+
+    // frontier line
+    const fSorted = frontier.slice().sort((a,b) => a.median_fit_time - b.median_fit_time);
+    traces.unshift({
+      type: "scatter", mode: "lines",
+      x: fSorted.map(p => p.median_fit_time),
+      y: fSorted.map(p => p.median_rel),
+      line: { color: INK, width: 1, dash: "dot" },
+      hoverinfo: "skip", showlegend: false,
+      name: "Pareto frontier"
+    });
+
+    const layout = cloneLayout({
+      height: 560,
+      margin: { t: 14, r: 24, b: 60, l: 70 },
+      xaxis: Object.assign({}, BASE_LAYOUT.xaxis, {
+        title: "Median fit time per dataset (seconds, log)", type: "log"
+      }),
+      yaxis: Object.assign({}, BASE_LAYOUT.yaxis, {
+        title: "Median RMSEP / source-run PLS"
+      }),
+      shapes: [{
+        type: "line", xref: "paper", yref: "y", x0: 0, x1: 1, y0: 1, y1: 1,
+        line: { color: INK, width: 1, dash: "dot" }
+      }],
+      annotations: [{
+        xref: "paper", yref: "y", x: 0.99, y: 1.005,
+        text: "PLS parity", showarrow: false, xanchor: "right",
+        font: { family: MONO_FAMILY, size: 10, color: INK_MUTED }
+      }],
+      showlegend: false
+    });
+    Plotly.newPlot("plot-pareto", traces, layout, PLOTLY_CONFIG);
+
+    // Custom HTML legend
+    const legend = document.getElementById("class-legend");
+    legend.innerHTML = "";
+    Object.keys(groups).sort().forEach(cls => {
+      const item = document.createElement("div");
+      item.className = "item";
+      item.innerHTML = `<span class="swatch" style="background:${colorOf(cls)}"></span><span class="name">${cls}</span>`;
+      legend.appendChild(item);
+    });
+  }
+
+  // ── Filter helpers ──
+  function currentBasis() {
+    return document.querySelector("#f-basis button.active").dataset.v;
+  }
+  document.querySelectorAll("#f-basis button").forEach(b => b.addEventListener("click", () => {
+    document.querySelectorAll("#f-basis button").forEach(x => x.classList.remove("active"));
+    b.classList.add("active");
+    rerender();
+  }));
+  ["f-min-ds", "f-top-n", "f-class"].forEach(id =>
+    document.getElementById(id).addEventListener("change", rerender)
+  );
+  function rerender() {
+    plotLeaderboard();
+    plotWins();
+    plotPareto();
+  }
+
+  // ── First paint ──
+  function firstPaint() {
+    plotOracle();
+    plotLeaderboard();
+    plotHeatmap();
+    plotWins();
+    plotPareto();
+  }
+  firstPaint();
+
+  // ── Stagger fade-in ──
+  document.querySelectorAll(".fade-in").forEach((el, i) => {
+    setTimeout(() => el.classList.add("show"), 60 + i * 80);
+  });
+})();
+</script>
+</body>
+</html>

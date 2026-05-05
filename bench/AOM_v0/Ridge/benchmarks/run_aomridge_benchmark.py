@@ -26,6 +26,7 @@ import csv
 import json
 import sys
 import time
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -469,6 +470,34 @@ HEADLINE_VARIANTS.append(
             }),
 )
 
+# V5a variant — Blender with TabPFN-2.5 added as a 9th candidate.
+# Tests whether TabPFN-2.5 contributes complementary signal on top of the
+# 8-candidate AOM-Ridge pool. The Blender's SLSQP solver assigns a non-zero
+# weight to TabPFN if and only if TabPFN improves OOF RMSE.
+HEADLINE_VARIANTS.append(
+    Variant("AOMRidge-Blender-v5a-tabpfn", selection="blender",
+            block_scaling="none",
+            extra={
+                "candidates": "headline_with_tabpfn",
+                "outer_cv_kind": "spxy",
+                "outer_cv_splits": 3,
+                "regularizer": 0.01,
+            }),
+)
+
+# V5b variant — pure residual stacking. AOMRidge-Blender as the linear
+# base + TabPFN-2.5 fitted on standardised OOF residuals + bounded scalar
+# alpha tuned on OOF with a 1% min-improvement circuit-breaker.
+HEADLINE_VARIANTS.append(
+    Variant("AOMRidge-V5b-Blender+TabPFN-residual", selection="residual_tabpfn",
+            block_scaling="none",
+            extra={
+                "outer_cv_kind": "spxy",
+                "outer_cv_splits": 3,
+                "min_improvement": 0.01,
+            }),
+)
+
 
 _H_EXTRAS_LABELS = {
     "Ridge-raw",
@@ -501,6 +530,20 @@ _H_FASTEST_LABELS = {
     "AOMRidge-global-compact-none-split_aware",
     "AOMRidge-MultiBranchMKL-compact-shrink03",
     "AOMRidge-Local-compact-knn50",
+}
+
+# V5a only — Blender + TabPFN-2.5 as 9th candidate.
+_V5A_LABELS = {
+    "Ridge-raw",
+    "AOMRidge-Blender-headline-spxy3",
+    "AOMRidge-Blender-v5a-tabpfn",
+}
+
+# V5b — residual stacking AOMRidge-Blender + TabPFN-2.5 on residuals.
+_V5B_LABELS = {
+    "Ridge-raw",
+    "AOMRidge-Blender-headline-spxy3",
+    "AOMRidge-V5b-Blender+TabPFN-residual",
 }
 
 # Local-only — for big datasets where Local AOM-Ridge is the only fast option.
@@ -557,6 +600,10 @@ def _resolve_variants(name: str) -> list[Variant]:
         return [v for v in LEAN_VARIANTS if v.label in _H_ABLATIONS_LABELS]
     if name == "top5_fast":
         return [v for v in LEAN_VARIANTS if v.label in _TOP5_FAST_LABELS]
+    if name == "v5a":
+        return [v for v in HEADLINE_VARIANTS if v.label in _V5A_LABELS]
+    if name == "v5b":
+        return [v for v in HEADLINE_VARIANTS if v.label in _V5B_LABELS]
     raise ValueError(f"unknown variants set: {name!r}")
 
 
@@ -720,13 +767,19 @@ def _run_variant(
             cand_specs = [
                 _variant_to_spec(v) for v in HEADLINE_VARIANTS
                 if v.label != variant.label
-                and v.selection not in ("auto_select", "blender")
+                and v.selection not in ("auto_select", "blender", "residual_tabpfn")
             ]
+        elif cand_key == "headline_with_tabpfn":
+            from aomridge.auto_selector import (
+                _default_headline_with_tabpfn_candidates as _v5a_pool,
+            )
+            cand_specs = list(_v5a_pool())
         elif isinstance(cand_key, list):
             cand_specs = list(cand_key)
         else:
             raise ValueError(
-                f"unknown candidates key {cand_key!r}; expected 'headline' or list"
+                f"unknown candidates key {cand_key!r}; expected "
+                f"'headline', 'headline_with_tabpfn', or a list"
             )
         est = _Selector(
             candidates=cand_specs,
@@ -770,6 +823,60 @@ def _run_variant(
             "selected_operator_names": json.dumps(
                 [est.selected_variant_label_]
             ),
+            "rmsep": rmse(yte, yhat),
+            "mae": mae(yte, yhat),
+            "r2": r2(yte, yhat),
+            "fit_time_s": float(fit_time),
+            "predict_time_s": float(predict_time),
+            "best_n_components": "",
+            "effective_components": "",
+            "alpha_effective": "",
+            "alpha_factor": "",
+            "ridgepls_diagnostics": json.dumps(diag_blob),
+        }
+    if variant.selection == "residual_tabpfn":
+        from aomridge.residual_tabpfn import AOMRidgeResidualTabPFN
+
+        extra = dict(variant.extra)
+        outer_kind = str(extra.pop("outer_cv_kind", "spxy"))
+        outer_splits = int(extra.pop("outer_cv_splits", 3))
+        min_improvement = float(extra.pop("min_improvement", 0.01))
+        est = AOMRidgeResidualTabPFN(
+            outer_cv=outer_splits,
+            outer_cv_kind=outer_kind,
+            min_improvement=min_improvement,
+            random_state=seed,
+            **extra,
+        )
+        t0 = time.perf_counter()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            est.fit(Xtr, ytr)
+        fit_time = time.perf_counter() - t0
+        t1 = time.perf_counter()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            yhat = est.predict(Xte)
+        predict_time = time.perf_counter() - t1
+        diag_blob = {
+            "alpha": float(est.alpha_),
+            "sigma_r": float(est.sigma_r_),
+            "oof_improvement": float(est.oof_improvement_),
+            "diagnostics": est.diagnostics_,
+        }
+        return {
+            "selection": variant.selection,
+            "operator_bank": variant.operator_bank,
+            "alpha": float(est.alpha_),
+            "alpha_index": None,
+            "alpha_at_boundary": None,
+            "grid_expansions": 0,
+            "cv_min_score": None,
+            "block_scaling": variant.block_scaling,
+            "scale_power": 1.0,
+            "x_scale": "center",
+            "active_operator_names": "",
+            "selected_operator_names": "",
             "rmsep": rmse(yte, yhat),
             "mae": mae(yte, yhat),
             "r2": r2(yte, yhat),
@@ -1212,7 +1319,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--variants", default="smoke",
         choices=["smoke", "lean", "headline", "full", "h_extras", "h_fast", "h_fastest",
-                 "local_only", "giants_extras", "h_ablations", "top5_fast"],
+                 "local_only", "giants_extras", "h_ablations", "top5_fast", "v5a", "v5b"],
         help="variant set",
     )
     parser.add_argument("--cv", type=int, default=3, help="CV split count")

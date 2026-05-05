@@ -312,6 +312,38 @@ def _default_headline_candidates() -> list[VariantSpec]:
     ]
 
 
+def _default_headline_with_tabpfn_candidates() -> list[VariantSpec]:
+    """V5a candidate pool: 8 HEADLINE candidates + TabPFN-2.5-real.
+
+    The TabPFN candidate sees the raw spectrum (uniform-stride downsampled
+    when ``p > 2000`` to fit TabPFN-2.5's intended-use ceiling). It is added
+    as a 9th candidate to test whether TabPFN-2.5 contributes complementary
+    signal on top of the existing AOM-Ridge pool. The Blender's SLSQP convex
+    blend either earns the TabPFN candidate a non-trivial weight or does not.
+    """
+    base = _default_headline_candidates()
+
+    def _factory():
+        from .tabpfn_candidate import TabPFNCandidate
+
+        return TabPFNCandidate(
+            n_estimators=4,
+            max_features=2000,
+            max_samples=9500,
+            standardise_y=True,
+            device="auto",
+            random_state=0,
+        )
+
+    base.append(
+        {
+            "label": "TabPFN-v25-raw",
+            "factory": _factory,
+        }
+    )
+    return base
+
+
 # ----------------------------------------------------------------------
 # Outer-CV scoring helpers (top-level so joblib can pickle them)
 # ----------------------------------------------------------------------

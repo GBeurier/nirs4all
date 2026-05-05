@@ -1,0 +1,904 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: NIRS4All · Benchmark Synthesis · v0.8.x
+        - heading "A field map of NIRS predictors" [level=1] [ref=e6]:
+          - text: A field map
+          - text: of NIRS predictors
+      - generic [ref=e7]:
+        - text: SOURCE benchmark_master_results.csv
+        - text: GENERATED 2026-05-04 16:35 UTC
+        - text: FAMILIES 8 families
+    - paragraph [ref=e8]:
+      - text: Eight source families, eighty-four datasets, four hundred-plus model variants, twenty-thousand recorded runs. This dashboard projects the master CSV onto the six diagnostic plots recommended in
+      - emphasis [ref=e9]: benchmark_synthesis.md
+      - text: "— answering, in order: where is the headroom, who is reliable, who survives the strict cross-protocol bar, where do specialists live, and what does each second of compute buy."
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - generic [ref=e12]: Rows
+        - generic [ref=e13]: 21,505
+        - generic [ref=e14]: total observations + oracles
+      - generic [ref=e15]:
+        - generic [ref=e16]: Datasets
+        - generic [ref=e17]: "72"
+        - generic [ref=e18]: regression, RMSEP scored
+      - generic [ref=e19]:
+        - generic [ref=e20]: Model variants
+        - generic [ref=e21]: "415"
+        - generic [ref=e22]:
+          - text: unique
+          - code [ref=e23]: model_name
+      - generic [ref=e24]:
+        - generic [ref=e25]: Model classes
+        - generic [ref=e26]: "14"
+        - generic [ref=e27]: strategy families
+      - generic [ref=e28]:
+        - generic [ref=e29]: Reference rows
+        - generic [ref=e30]: "335"
+        - generic [ref=e31]: paper baselines
+      - generic [ref=e32]:
+        - generic [ref=e33]: Oracle rows
+        - generic [ref=e34]: "775"
+        - generic [ref=e35]: per class & global
+    - generic [ref=e36]:
+      - generic [ref=e37]: Min datasets
+      - spinbutton [ref=e38] [cursor=pointer]: "10"
+      - generic [ref=e39]: Top N
+      - combobox [ref=e40] [cursor=pointer]:
+        - option "15"
+        - option "25" [selected]
+        - option "40"
+        - option "80"
+      - generic [ref=e41]: Comparison
+      - generic [ref=e42]:
+        - button "Protocol-local" [ref=e43] [cursor=pointer]
+        - button "Strict global" [ref=e44] [cursor=pointer]
+      - generic [ref=e45]: Model class
+      - combobox [ref=e46] [cursor=pointer]:
+        - option "all classes" [selected]
+        - option "aom-pls"
+        - option "aom-ridge"
+        - option "catboost"
+        - option "fck-pls"
+        - option "hybrid cnn+aom"
+        - option "hybrid cnn+linear"
+        - option "meta-selector/moe"
+        - option "multi-kernel ridge"
+        - option "nicon/cnn"
+        - option "other"
+        - option "pls"
+        - option "pop-pls"
+        - option "ridge"
+        - option "tabpfn"
+    - generic [ref=e47]:
+      - generic [ref=e48]:
+        - generic [ref=e49]: Figure 1
+        - heading "Where is the headroom?" [level=2] [ref=e50]
+        - paragraph [ref=e51]:
+          - text: Within each model family, an oracle picks the best variant for every dataset. The remaining gap to PLS measures how much
+          - emphasis [ref=e52]: signal
+          - text: that family contains across the search space — independent of how you would actually deploy it. TabPFN, AOM-PLS and AOM-Ridge dominate the ceiling.
+        - generic [ref=e53]:
+          - generic [ref=e54]: Reading
+          - text: Bars left of the dotted line beat the best PLS observed for the dataset; right means worse. IQR shows variability across datasets.
+      - generic [ref=e58]:
+        - img:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic: "0.9"
+                - generic:
+                  - generic: "1"
+                - generic:
+                  - generic: "1.1"
+                - generic:
+                  - generic: "1.2"
+                - generic:
+                  - generic: "1.3"
+                - generic:
+                  - generic: "1.4"
+                - generic:
+                  - generic: "1.5"
+              - generic:
+                - generic:
+                  - generic: POP-PLS
+                - generic:
+                  - generic: CatBoost
+                - generic:
+                  - generic: Other
+                - generic:
+                  - generic: NICON/CNN
+                - generic:
+                  - generic: FCK-PLS
+                - generic:
+                  - generic: Hybrid CNN+linear
+                - generic:
+                  - generic: PLS
+                - generic:
+                  - generic: Hybrid CNN+AOM
+                - generic:
+                  - generic: Multi-kernel ridge
+                - generic:
+                  - generic: Meta-selector/MoE
+                - generic:
+                  - generic: Ridge
+                - generic:
+                  - generic: AOM-Ridge
+                - generic:
+                  - generic: AOM-PLS
+                - generic:
+                  - generic: TabPFN
+        - img:
+          - generic:
+            - generic:
+              - generic: Median RMSEP / best-PLS-on-dataset
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 45/59
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 49/59
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 45/53
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 42/55
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 39/59
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 34/53
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 7/12
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 0/67
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 25/51
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 4/8
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 26/56
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 4/10
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 23/57
+            - generic:
+              - generic:
+                - generic:
+                  - generic: PLS reference
+        - generic [ref=e72]:
+          - img [ref=e75] [cursor=pointer]
+          - generic [ref=e77]:
+            - img [ref=e79] [cursor=pointer]
+            - img [ref=e82] [cursor=pointer]
+          - generic [ref=e84]:
+            - img [ref=e86] [cursor=pointer]
+            - img [ref=e89] [cursor=pointer]
+            - img [ref=e92] [cursor=pointer]
+        - img
+    - generic [ref=e94]:
+      - generic [ref=e95]:
+        - generic [ref=e96]: Figure 2 · Forest plot
+        - heading "Which models are reliable?" [level=2] [ref=e97]
+        - paragraph [ref=e98]:
+          - text: Best per (model, dataset), then median + IQR across datasets. Each model is judged against the PLS that
+          - emphasis [ref=e99]: shipped in its own source run
+          - text: — fair within-protocol view that surfaces fast linear baselines like AOM-PLS without penalising them for not having tuned PLS counterparts.
+        - generic [ref=e100]:
+          - generic [ref=e101]: Toggle
+          - text: "Switch Comparison at the top to swap the denominator: protocol-local PLS (this view) or the strict best-PLS-ever-observed denominator (Figure 3)."
+      - generic [ref=e105]:
+        - img:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic: "0.8"
+                - generic:
+                  - generic: "1"
+                - generic:
+                  - generic: "1.2"
+                - generic:
+                  - generic: "1.4"
+                - generic:
+                  - generic: "1.6"
+              - generic:
+                - generic:
+                  - generic: moe-view-soft-K5
+                - generic:
+                  - generic: lazy-V2-AOM-combined-compact-holdout
+                - generic:
+                  - generic: moe-preproc-soft-family-pruned
+                - generic:
+                  - generic: asls-moe-view-soft-K3
+                - generic:
+                  - generic: moe-view-multiK-3-5-7
+                - generic:
+                  - generic: asls-moe-preproc-soft-compact
+                - generic:
+                  - generic: moe-preproc-soft-response-dedup
+                - generic:
+                  - generic: moe-view-soft-pls
+                - generic:
+                  - generic: moe-view-multiK-3-5-7-auto
+                - generic:
+                  - generic: bestof-multiview-asls
+                - generic:
+                  - generic: AOM-PLS-compact-numpy
+                - generic:
+                  - generic: moe-view-multiK-wide-2-10
+                - generic:
+                  - generic: mean-ensemble-4
+                - generic:
+                  - generic: moe-preproc-soft-pls-compact
+                - generic:
+                  - generic: nnls-stack-calibrated
+                - generic:
+                  - generic: mean-ensemble-3
+                - generic:
+                  - generic: nnls-stack-atoms
+                - generic:
+                  - generic: tabpfn_opt
+                - generic:
+                  - generic: TabPFN-opt
+                - generic:
+                  - generic: nnls-stack-multiview
+                - generic:
+                  - generic: adaptive-super-learner
+                - generic:
+                  - generic: trimmed-mean-4
+                - generic:
+                  - generic: mean-ensemble-3-fixed
+                - generic:
+                  - generic: mean-ensemble-4-fixed
+                - generic:
+                  - generic: ridge-stack-multiview
+        - img:
+          - generic:
+            - generic:
+              - generic: RMSEP / source-run PLS
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 59d · 37w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 59d · 41w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 10d · 8w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 10d · 6w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 59d · 39w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 10d · 7w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 10d · 8w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 59d · 42w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 10d · 7w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 10d · 6w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 59d · 48w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 59d · 47w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 10d · 8w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 59d · 50w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 38d · 35w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 10d · 8w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 38d · 35w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 54d · 41w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 54d · 41w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 14d · 11w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 38d · 35w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 39d · 33w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 59d · 49w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 59d · 49w
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ■ 14d · 12w
+        - generic [ref=e119]:
+          - img [ref=e122] [cursor=pointer]
+          - generic [ref=e124]:
+            - img [ref=e126] [cursor=pointer]
+            - img [ref=e129] [cursor=pointer]
+          - generic [ref=e131]:
+            - img [ref=e133] [cursor=pointer]
+            - img [ref=e136] [cursor=pointer]
+            - img [ref=e139] [cursor=pointer]
+        - img
+    - generic [ref=e141]:
+      - generic [ref=e142]:
+        - generic [ref=e143]:
+          - generic [ref=e144]: Figure 3
+          - heading "Specialists, generalists, and brittle wins" [level=2] [ref=e145]
+        - paragraph [ref=e146]:
+          - text: Top fifteen models (rows, by overall median) versus every dataset (columns, ordered from hardest-on-average to easiest). Cell colour is
+          - emphasis [ref=e147]: log₂(model RMSEP / source-run PLS)
+          - text: ; deep green is a strong win, terracotta is a loss. Streaks of green on the same column reveal datasets where every method beats PLS; isolated dark cells expose specialists.
+      - generic [ref=e151]:
+        - img:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic: Quartz_spxy70
+                - generic:
+                  - generic: Biscuit_Fat_40_RandomSplit
+                - generic:
+                  - generic: Beer_OriginalExtract_60_KS
+                - generic:
+                  - generic: ldmc
+                - generic:
+                  - generic: synthetic_nirs
+                - generic:
+                  - generic: Rice_Amylose_313_YbasedSplit
+                - generic:
+                  - generic: Beer_OriginalExtract_60_YbaseSplit
+                - generic:
+                  - generic: Corn_Oil_80_ZhengChenPelegYbaseSplit
+                - generic:
+                  - generic: Firmness_spxy70
+                - generic:
+                  - generic: Corn_Starch_80_ZhengChenPelegYbaseSplit
+                - generic:
+                  - generic: Milk_Fat_1224_KS
+                - generic:
+                  - generic: brix_groupSampleID_stratDateVar_balRows
+                - generic:
+                  - generic: Biscuit_Sucrose_40_RandomSplit
+                - generic:
+                  - generic: All_manure_CaO_SPXY_strat_Manure_type
+                - generic:
+                  - generic: Rd25_GTtestSite
+                - generic:
+                  - generic: LUCAS_SOC_all_26650_NocitaKS
+                - generic:
+                  - generic: Brix_spxy70
+                - generic:
+                  - generic: Milk_Lactose_1224_KS
+                - generic:
+                  - generic: ph_groupSampleID_stratDateVar_balRows
+                - generic:
+                  - generic: Rd25_XSBNtestSite
+                - generic:
+                  - generic: Chla+b_spxyG_block2deg
+                - generic:
+                  - generic: ALPINE_P_291_KS
+                - generic:
+                  - generic: grapevine_chloride_556_KS
+                - generic:
+                  - generic: An_spxyG70_30_byCultivar_NeoSpectra
+                - generic:
+                  - generic: Malaria_Oocist_333_Maia
+                - generic:
+                  - generic: LUCAS_pH_Organic_1763_LiuRandomOrganic
+                - generic:
+                  - generic: regression
+                - generic:
+                  - generic: Escitalopramt_310_Zhao
+                - generic:
+                  - generic: An_spxyG70_30_byCultivar_MicroNIR
+                - generic:
+                  - generic: 1700_brix_stratgroupedkfold
+                - generic:
+                  - generic: LUCAS_SOC_Cropland_8731_NocitaKS
+                - generic:
+                  - generic: ta_groupSampleID_stratDateVar_balRows
+                - generic:
+                  - generic: All_manure_Total_N_SPXY_strat_Manure_type
+                - generic:
+                  - generic: DIESEL_bp50_246_b-a
+                - generic:
+                  - generic: Milk_Urea_1224_KS
+                - generic:
+                  - generic: N_wOutlier
+                - generic:
+                  - generic: DIESEL_bp50_246_hlb-a
+                - generic:
+                  - generic: Ccar_spxyG_block2deg
+                - generic:
+                  - generic: All_manure_MgO_SPXY_strat_Manure_type
+                - generic:
+                  - generic: All_manure_K2O_SPXY_strat_Manure_type
+                - generic:
+                  - generic: N_woOutlier
+                - generic:
+                  - generic: All_manure_P2O5_SPXY_strat_Manure_type
+                - generic:
+                  - generic: WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra
+                - generic:
+                  - generic: An_spxyG70_30_byCultivar_MicroNIR_NeoSpectra
+                - generic:
+                  - generic: TIC_spxy70
+                - generic:
+                  - generic: Fv_Fm_grp70_30
+                - generic:
+                  - generic: Beef_Marbling_RandomSplit
+                - generic:
+                  - generic: LMA_spxyG70_30_byCultivar_ASD
+                - generic:
+                  - generic: LMA_spxyG_block2deg
+                - generic:
+                  - generic: An_spxyG70_30_byCultivar_ASD
+                - generic:
+                  - generic: WOOD_N_402_Olale
+                - generic:
+                  - generic: Rd25_CBtestSite
+                - generic:
+                  - generic: LP_spxyG
+                - generic:
+                  - generic: Rd25_spxy70
+                - generic:
+                  - generic: Malaria_Sporozoite_229_Maia
+                - generic:
+                  - generic: WOOD_Density_402_Olale
+                - generic:
+                  - generic: V25_spxyG
+                - generic:
+                  - generic: MP_spxyG
+                - generic:
+                  - generic: Pi_spxyG
+                - generic:
+                  - generic: dataset
+                - generic:
+                  - generic: DIESEL_bp50_246_hla-b
+                - generic:
+                  - generic: C_woOutlier
+                - generic:
+                  - generic: Chla+b_spxyG_species
+                - generic:
+                  - generic: NP_spxyG
+              - generic:
+                - generic:
+                  - generic: moe-view-multiK-wide-2-10
+                - generic:
+                  - generic: mean-ensemble-4
+                - generic:
+                  - generic: moe-preproc-soft-pls-compact
+                - generic:
+                  - generic: nnls-stack-calibrated
+                - generic:
+                  - generic: mean-ensemble-3
+                - generic:
+                  - generic: nnls-stack-atoms
+                - generic:
+                  - generic: tabpfn_opt
+                - generic:
+                  - generic: TabPFN-opt
+                - generic:
+                  - generic: nnls-stack-multiview
+                - generic:
+                  - generic: adaptive-super-learner
+                - generic:
+                  - generic: trimmed-mean-4
+                - generic:
+                  - generic: mean-ensemble-3-fixed
+                - generic:
+                  - generic: mean-ensemble-4-fixed
+                - generic:
+                  - generic: ridge-stack-multiview
+                - generic:
+                  - generic: PLS-Tuned
+        - img:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic: ½×
+                - generic:
+                  - generic: 0.7×
+                - generic:
+                  - generic: "1.0"
+                - generic:
+                  - generic: 1.4×
+                - generic:
+                  - generic: 2×
+              - generic:
+                - generic:
+                  - generic: log₂(model / PLS)
+            - generic:
+              - generic: Datasets · ordered by overall difficulty (left = harder)
+        - generic [ref=e165]:
+          - img [ref=e168] [cursor=pointer]
+          - generic [ref=e170]:
+            - img [ref=e172] [cursor=pointer]
+            - img [ref=e175] [cursor=pointer]
+          - generic [ref=e177]:
+            - img [ref=e179] [cursor=pointer]
+            - img [ref=e182] [cursor=pointer]
+            - img [ref=e185] [cursor=pointer]
+        - img
+    - generic [ref=e187]:
+      - generic [ref=e188]:
+        - generic [ref=e189]: Figure 4 · Win census
+        - heading "How often, not just how much." [level=2] [ref=e190]
+        - paragraph [ref=e191]:
+          - text: For each top model, how many of its evaluated datasets undercut the corresponding PLS? Median ratio answers
+          - emphasis [ref=e192]: by how much
+          - text: ; this chart answers
+          - emphasis [ref=e193]: how often
+          - text: . Models with high win rate but only modest median lift are the candidates worth defaulting to.
+        - generic [ref=e194]:
+          - generic [ref=e195]: Reading
+          - text: Green segment is wins (rel < 1.0), terracotta is losses. Numbers on the right are wins / n.
+      - generic [ref=e199]:
+        - img:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic: −20
+                - generic:
+                  - generic: "0"
+                - generic:
+                  - generic: "20"
+                - generic:
+                  - generic: "40"
+              - generic:
+                - generic:
+                  - generic: moe-view-soft-pls
+                - generic:
+                  - generic: Stack-Ridge-PLS
+                - generic:
+                  - generic: ASLS-AOM-compact-cv5-numpy
+                - generic:
+                  - generic: Stack-Ridge-PLS-V1c
+                - generic:
+                  - generic: ridge_ref
+                - generic:
+                  - generic: Ridge
+                - generic:
+                  - generic: tabpfn_opt
+                - generic:
+                  - generic: TabPFN-opt
+                - generic:
+                  - generic: Stack-Ridge-PLS-V1aHead
+                - generic:
+                  - generic: nnls-stack-multiview
+                - generic:
+                  - generic: moe-view-multiK-wide-2-10
+                - generic:
+                  - generic: moe-preproc-soft-family-pruned
+                - generic:
+                  - generic: moe-preproc-soft-response-dedup
+                - generic:
+                  - generic: mean-ensemble-4
+                - generic:
+                  - generic: mean-ensemble-3
+                - generic:
+                  - generic: Ridge-baseline
+                - generic:
+                  - generic: AOM-PLS-compact-numpy
+                - generic:
+                  - generic: mean-ensemble-3-fixed
+                - generic:
+                  - generic: mean-ensemble-4-fixed
+                - generic:
+                  - generic: trimmed-mean-4
+                - generic:
+                  - generic: moe-preproc-soft-pls-compact
+                - generic:
+                  - generic: ridge-stack-multiview
+                - generic:
+                  - generic: nnls-stack-calibrated
+                - generic:
+                  - generic: nnls-stack-atoms
+                - generic:
+                  - generic: adaptive-super-learner
+        - img:
+          - generic:
+            - generic:
+              - generic: Datasets — losses (left) / wins vs PLS (right)
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 42/59
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 28/39
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 42/57
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 29/39
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 41/54
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 41/54
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 41/54
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 41/54
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 29/38
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 11/14
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 47/59
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 8/10
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 8/10
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 8/10
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 8/10
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 39/48
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 48/59
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 49/59
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 49/59
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 33/39
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 50/59
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 12/14
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 35/38
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 35/38
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 35/38
+        - generic [ref=e213]:
+          - img [ref=e216] [cursor=pointer]
+          - generic [ref=e218]:
+            - img [ref=e220] [cursor=pointer]
+            - img [ref=e223] [cursor=pointer]
+          - generic [ref=e225]:
+            - img [ref=e227] [cursor=pointer]
+            - img [ref=e230] [cursor=pointer]
+            - img [ref=e233] [cursor=pointer]
+        - img
+    - generic [ref=e235]:
+      - generic [ref=e236]:
+        - generic [ref=e237]: Figure 5 · Pareto view
+        - heading "Accuracy at what cost?" [level=2] [ref=e238]
+        - paragraph [ref=e239]: Median fit time (log seconds) versus median relative RMSEP. Lower-left is the frontier; bubble size is the dataset count. Linear models cluster bottom-left at sub-second budgets; TabPFN sits higher on the time axis but matches accuracy. Filled markers along the bottom envelope are non-dominated.
+        - generic [ref=e240]:
+          - generic [ref=e241]: Use
+          - text: When deciding between candidates of similar accuracy, prefer the one further left.
+      - generic [ref=e242]:
+        - generic [ref=e245]:
+          - img:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: "2"
+                  - generic:
+                    - generic: "5"
+                  - generic:
+                    - generic: "0.1"
+                  - generic:
+                    - generic: "2"
+                  - generic:
+                    - generic: "5"
+                  - generic:
+                    - generic: "1"
+                  - generic:
+                    - generic: "2"
+                  - generic:
+                    - generic: "5"
+                  - generic:
+                    - generic: "10"
+                  - generic:
+                    - generic: "2"
+                  - generic:
+                    - generic: "5"
+                  - generic:
+                    - generic: "100"
+                  - generic:
+                    - generic: "2"
+                  - generic:
+                    - generic: "5"
+                - generic:
+                  - generic:
+                    - generic: "1"
+                  - generic:
+                    - generic: "1.5"
+                  - generic:
+                    - generic: "2"
+                  - generic:
+                    - generic: "2.5"
+                  - generic:
+                    - generic: "3"
+                  - generic:
+                    - generic: "3.5"
+                  - generic:
+                    - generic: "4"
+                  - generic:
+                    - generic: "4.5"
+          - img:
+            - generic:
+              - generic:
+                - generic: Median fit time per dataset (seconds, log)
+              - generic:
+                - generic: Median RMSEP / source-run PLS
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: PLS parity
+          - generic [ref=e259]:
+            - img [ref=e262] [cursor=pointer]
+            - generic [ref=e264]:
+              - img [ref=e266] [cursor=pointer]
+              - img [ref=e269] [cursor=pointer]
+            - generic [ref=e271]:
+              - img [ref=e273] [cursor=pointer]
+              - img [ref=e276] [cursor=pointer]
+              - img [ref=e279] [cursor=pointer]
+          - img
+        - generic [ref=e281]:
+          - generic [ref=e284] [cursor=pointer]: AOM-PLS
+          - generic [ref=e287] [cursor=pointer]: AOM-Ridge
+          - generic [ref=e290] [cursor=pointer]: Hybrid CNN+linear
+          - generic [ref=e293] [cursor=pointer]: Meta-selector/MoE
+          - generic [ref=e296] [cursor=pointer]: NICON/CNN
+          - generic [ref=e299] [cursor=pointer]: Other
+          - generic [ref=e302] [cursor=pointer]: PLS
+          - generic [ref=e305] [cursor=pointer]: POP-PLS
+          - generic [ref=e308] [cursor=pointer]: Ridge
+    - generic [ref=e309]:
+      - generic [ref=e310]:
+        - heading "Methodology" [level=3] [ref=e311]
+        - paragraph [ref=e312]:
+          - text: Source rows are
+          - code [ref=e313]: "record_type ∈ {observed, reference_paper}"
+          - text: ", regression task, RMSEP-scored, status OK. For each model we keep the best row per dataset, then aggregate across datasets. Two normalisations:"
+          - code [ref=e314]: score_ratio_vs_source_run_pls
+          - text: (protocol-local) and
+          - code [ref=e315]: score_ratio_vs_dataset_pls
+          - text: (strict cross-protocol).
+        - paragraph [ref=e316]:
+          - text: Ratios < 1 outperform PLS. The heatmap clips
+          - code [ref=e317]: log₂
+          - text: to ±1 for legibility. Pareto excludes models with fewer than eight datasets or no recorded fit time.
+      - generic [ref=e318]:
+        - heading "Sources" [level=3] [ref=e319]
+        - paragraph [ref=e320]:
+          - text: "Master CSV:"
+          - code [ref=e321]: bench/benchmark_master_results.csv
+          - text: ". Synthesis & waypoints:"
+          - code [ref=e322]: bench/benchmark_synthesis.md
+          - text: . Static fallbacks generated by
+          - code [ref=e323]: bench/plot_benchmark_master.py
+          - text: ". Build script:"
+          - code [ref=e324]: bench/build_dashboard.py
+          - text: .
+        - paragraph [ref=e325]: "This page is fully self-contained: data is embedded as JSON in the document, so it travels with a single file and renders offline."
+  - img [ref=e326]
