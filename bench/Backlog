@@ -1,0 +1,398 @@
+# Benchmark Backlog (v2 — 2026-05-05)
+
+**Source** : `bench/PLAN_REPRISE_2026-05.md` + Open Questions answered by user (2026-05-05).
+**Status** : actionable. Three voies (A/B/C) sequenced after Phase 0 (A1 = master CSV freeze).
+
+---
+
+## 0. Scope (decisions taken from PLAN_REPRISE OQs)
+
+### In scope (this Backlog)
+
+- **Voie A** — Classical Production Pack: AOM-PLS unified + AOM-Ridge + Multi-view Adaptive Super Learner (separate package, merge into AOM later — OQ6).
+- **Voie B** — Residual Hybrid Pack: V2L-Residual-AOMPLS + FCK dedicated investigation (OQ5).
+- **Voie C** — MLOps Spine: master CSV lock, scenario exporter, model registry, validation harness.
+- **Cohorts** : full-57 primary; iteration on `fast12_transfer_core` and `audit20_transfer_core` (OQ2).
+- **Papers** : P1 (AOM-PLS unification) and P2 (Multi-view ASL) **separate** (OQ1). P3 (residual NN) gated.
+- **TabPFN** : included in `strong_practical`, `best_current`, `exhaustive_research` with explicit preprocessing-selection rationale (OQ7).
+- **AOMRidge headline-spxy3** : nested audit required before any production tagging (OQ4).
+- **Partial runs policy** : complete elite partial runs (e.g. ASL Phase-11 35/61); discard non-priority partials (OQ13).
+- **RandomForest with model-leaves** : design + smoke tests planned (OQ10).
+
+### Out of scope (frozen / archived)
+
+- `bench/nirs_synthetic_pfn/`, `bench/synthetic/` — synthetic priors and PFN feasibility. Premature; revisit later (OQ9).
+- `bench/ViTnirs/` — depends on synthetic gate; not in this Backlog (OQ9 cascade).
+- `bench/AOM_v0/Blup/` — set aside (OQ14).
+- `nirs4all_webapp/` scenario consumption — yes eventually, library context for now (OQ8).
+- Pure CNN architecture search (NICON-baseline, V2L-learnableRMS standalone) — direction closed by evidence.
+- OSC/EMSC as defaults — toxic without HPO; available in `exhaustive_research` registry only.
+- Root `Roadmap.md` (library features) — separate document, not this Backlog (OQ12).
+
+---
+
+## 1. Phase 0 — Sequencing and Multi-Agent Protocol
+
+### 1.1 A1 first (blocking, week 1, single agent)
+
+Execute A1 (master CSV freeze + protocol_maturity column) sequentially. **Voies B and C cannot start before A1 completes** because:
+
+- B1 depends on `r20_curated_oof` audit-tagged in master.
+- C1 depends on master CSV reconstructability.
+- Scenario exporter (A2) reads `protocol_maturity`.
+
+### 1.2 After A1 — three autonomous agents in parallel
+
+User runs **3 separate Claude/Codex agents with isolated context windows** (OQ3). Each agent owns one voie. Synchronization rules:
+
+| Sync mechanism | Path | Owner |
+|---|---|---|
+| Master CSV (read-only after A1) | `bench/benchmark_master_results.csv` | C |
+| Scenario manifests (registry-controlled) | `bench/scenarios/model_registry.yaml` | C (writes) ; A,B (read + propose PR-style diffs) |
+| Per-voie results | `bench/scenarios/runs/<preset>/results.csv` | A,B (write own rows) |
+| Per-voie status | `bench/<voie>/STATUS.md` | A,B,C each owns one |
+| Cross-voie blockers | `bench/SYNC.md` (single file, append-only log) | All |
+| Codex review log | `bench/<voie>/docs/CODEX_REVIEWS.md` | All |
+
+**Rules** :
+
+1. Only Voie C writes to `model_registry.yaml`. A and B propose changes via `bench/SYNC.md` entries; C arbitrates.
+2. No agent edits another voie's directory. Cross-voie data flows through master CSV + registry only.
+3. Each agent ends every session with a `STATUS.md` update + a `SYNC.md` entry if it produced or consumed something cross-voie.
+4. Compute coordination: agents declare GPU usage in `SYNC.md` before launching long jobs (4090 local — see §1.3).
+
+### 1.3 Compute coordination (OQ11)
+
+- Local : RTX 4090 (single GPU).
+- Available on demand : LAN GPUs via SSH — agent **must ask user before planning a job that requires LAN GPUs**.
+- Default scheduling : Voie B (NN training) gets 4090 priority weeknights/weekends. Voie A (CPU-bound mostly) and Voie C run anytime.
+
+---
+
+## 2. Voie A — Classical Production Pack
+
+### 2.1 A1 — Master CSV freeze + protocol maturity (week 1, blocking)
+
+**Tasks** :
+
+1. Freeze `bench/benchmark_master_results.csv` (snapshot + sha256 in `bench/MASTER_CSV_HASH.txt`).
+2. Re-run `bench/build_benchmark_synthesis.py` from sources; reconcile row-count discrepancies (21 769 vs 21 505 vs 20 964 in current docs).
+3. Add column `protocol_maturity ∈ {locked, exploratory, legacy, oracle, local_not_master, synthetic}`.
+4. Audit `r20_curated_oof` (39 rows V2L-Residual-AOMPLS, already ingested 2026-05-05): verify OOF cleanness, tag `locked` if pass.
+5. Audit `AOMRidge-Blender-headline-spxy3` nesting (OQ4): if non-nested, tag `exploratory` + open re-run task.
+6. Audit `AdaptiveSuperLearner` Phase-11 (35/61 datasets, killed at 1h30): tag `exploratory`; queue completion run (see A4).
+
+**Acceptance** :
+
+- `build_benchmark_synthesis.py` reproduces master CSV diff = 0 lines.
+- `protocol_maturity` populated for all rows; coverage report committed.
+- Hash logged in `bench/MASTER_CSV_HASH.txt` with date + author.
+
+### 2.2 A2 — Scenario exporter and model registry (week 2)
+
+**Files to create** :
+
+- `bench/export_benchmark_scenarios.py`
+- `bench/scenarios/model_registry.yaml`
+- `bench/scenarios/{fast_reliable,strong_practical,best_current,exhaustive_research}.json`
+- `bench/scenarios/README.md`
+
+**Inputs to exporter** :
+
+- Frozen master CSV.
+- `bench/scenarios/model_registry.yaml`.
+- Sidecar evidence files explicitly tagged `local_not_master` until ingested.
+
+**Selection logic** :
+
+1. Filter to OK regression rows with sufficient dataset coverage.
+2. Compute per-model evidence: dataset coverage, median/IQR for `score_ratio_vs_dataset_pls`, median/IQR for `score_ratio_vs_source_run_pls`, win rate vs PLS, q75 and worst-case ratio, median fit/predict time, source families/runs, `protocol_maturity`.
+3. Penalize: low coverage, high q75/worst-case losses, non-nested selector/stacking risk, source-run-only evidence without global support, missing runnable registry entry.
+4. Build presets by budget (see §6).
+5. Emit scenario manifests with exact configs, runtime tier, expected score statistics.
+
+**Registry entry shape** (`model_registry.yaml`) :
+
+```yaml
+- canonical_name: ASLS-AOM-compact-cv5-numpy
+  aliases: [asls-aom-compact-cv5, ASLS_AOM_compact_cv5]
+  model_class: AOMPLSRegressor
+  module: nirs4all.operators.models.aompls
+  config_template: bench/scenarios/configs/asls_aom_compact_cv5.yaml
+  task_types: [regression]
+  input_constraints: {min_n: 30, min_features: 20}
+  supports_predefined_test_split: true
+  inner_cv_nested: true
+  runtime_tier: fast
+  maturity: locked
+```
+
+### 2.3 A3 — Validation matrix on subsets first, then full-57 (weeks 3-4)
+
+For each preset:
+
+- Iterate first on `fast12_transfer_core` (smoke gate, < 10 min).
+- Promote to `audit20_transfer_core` (audit gate, < 1h, Spearman vs full-57 ≥ 0.95).
+- Final validation on `cohort_regression.csv` full-57.
+
+**Outputs** :
+
+- `bench/scenarios/runs/<preset>/results.csv`
+- `bench/scenarios/runs/<preset>/summary.md`
+- per-dataset winner table, runtime distribution, failure/fallback table.
+- paired Wilcoxon vs PLS, Ridge, AOM-Ridge, TabPFN-raw, TabPFN-opt, paper CNN.
+
+**Acceptance** :
+
+- `fast_reliable` : no catastrophic median loss; q75 close to PLS/Ridge/AOM-Ridge.
+- `strong_practical` : clear median improvement over `fast_reliable`.
+- `best_current` : best median among locked presets without non-nested leakage.
+- `exhaustive_research` : exploratory rows allowed but flagged `protocol_maturity != locked`.
+
+### 2.4 A4 — Complete elite partial runs (OQ13)
+
+Mandatory completions (do not run new partials before completing these):
+
+| Run | Status | Action |
+|---|---|---|
+| `AdaptiveSuperLearner` Phase-11 ASL full-57 | 35/61 datasets done, killed at 1h30 | Re-launch with timeout > 4h, document exclusion rules, log per-dataset wall-clock. |
+| `AOM-Ridge` full-57 | OOM on LMA dataset | Re-launch with memory cap diagnosis or downsampled variant tagged `exploratory`. |
+| `r21_curated_oof_multiseed` | scheduled, not yet launched | Belongs to Voie B (§3.1). |
+
+Discard policy: any partial run not in this table is dropped from oracle aggregation; lines remain in master CSV but `protocol_maturity=exploratory` and excluded from scenario exports.
+
+### 2.5 A5 — AOMRidge headline-spxy3 nested audit (OQ4)
+
+- Open `bench/AOM_v0/Ridge/` selector code; trace whether holdout selection happens OOF or globally.
+- If non-nested: rerun `AOMRidge-Blender-headline-spxy3` and `AOMRidge-AutoSelect-headline-spxy3` with strict OOF nesting on full-57.
+- Update `protocol_maturity` accordingly.
+- Required before either model can enter `strong_practical` or `best_current`.
+
+### 2.6 A6 — Multi-view package (OQ6)
+
+- Keep `bench/AOM_v0/multiview/` as separate package; do not merge into `AOMPLSRegressor` short-term.
+- Plan target: `nirs4all.operators.models.aom_ensemble.AdaptiveSuperLearner` post-P2 publication.
+- Document explicit merge milestone in `bench/AOM_v0/multiview/docs/MERGE_PLAN.md` (deferred to post-P2).
+
+### 2.7 Voie A papers
+
+| Paper | Scope | Lead artefact | Target |
+|---|---|---|---|
+| **P1** | AOM-PLS unification (`selection={global,per_component}`, criterion, operator banks) | `bench/AOM/ROADMAP.md` M0–M8 | Chemometrics and Intelligent Laboratory Systems |
+| **P2** | Multi-view Adaptive Super Learner (NNLS simplex on 4 atoms) | `bench/AOM_v0/multiview/` Phase 11 | Chemometrics journal or ICML ML4PS workshop |
+
+---
+
+## 3. Voie B — Residual Hybrid Pack
+
+### 3.1 B1 — V2L-Residual-AOMPLS multiseed validation (weeks 2-3)
+
+- **Pre-condition** : A1 done (`r20_curated_oof` audited in master).
+- Launch `r21_curated_oof_multiseed` : 39 datasets × 5 seeds × V2L-Residual-AOMPLS (teacher = `ASLS-AOM-compact-cv5` or `AOMRidge-AutoSelect`).
+- Mechanisms required:
+  - Shrinkage CV with `0` allowed (fallback to teacher prediction).
+  - Residual-CV gain diagnostic; refuse NN train if OOF residual var/mean < threshold.
+  - Catastrophic-loss prevention.
+- Statistical evaluation: paired Wilcoxon vs Ridge, AOM-Ridge-best, TabPFN-raw, TabPFN-opt, paper CNN.
+
+### 3.2 B2 — FCK dedicated investigation plan (OQ5)
+
+User wants more intensive testing of FCK alone and combined with AOM before concluding. Delivered via two milestones:
+
+**B2.1 — FCKStaticTransformer implementation + smoke (week 3)**
+- Implement `FCKStaticTransformer` (small fixed fractional-filter bank): α ∈ {0.5, 1.0, 1.5, 2.0}, scales {1, 2}, kernel size {15, 31}.
+- Smoke on `fast12_transfer_core` :
+  - `FCKStatic + PLSRegression`
+  - `FCKStatic + Ridge`
+  - `FCKStatic + AOMPLSRegressor`
+  - `ASLS + FCKStatic + PLS`
+  - `concat_transform: [SNV(), FCKStatic()]` + AOMPLS
+
+**B2.2 — FCK extended evaluation (weeks 4-6)**
+- Promote successful smoke configs to `audit20_transfer_core`, then full-57.
+- Test FCK as residual transformer: `FCKResidualRegressor` (teacher = `ASLS-AOM-compact-cv5`, FCK fit on OOF residuals, shrinkage CV, fallback zero).
+- Document GO/NO-GO decision in `bench/fck_pls/docs/FCK_EVALUATION.md` with paired tests vs PLS, Ridge, AOM-PLS, AOM-Ridge.
+- Learned-kernel V2 only if static FCK passes.
+
+### 3.3 B3 — Stop gate evaluation (week 6)
+
+Stop gates :
+
+- **Primary** (production-readiness) : Wilcoxon `nicon_v2-best vs aom_ridge_curated_best` ≤ −2 % p<0.05 on 39 datasets, ≥ 50 % wins. Currently FAILED on full curated single-seed; reassess after r21 multiseed.
+- **Secondary** (scientific) : `nicon_v2-best` beats paper Nicon by −5 % on ≥ 75 % cohort. Already CONFIRMED (−9.7 % on 34/39).
+
+If primary still FAILED at week 6:
+- P3 paper becomes "negative result + memo" — not a submission.
+- V2L-Residual remains in `exhaustive_research` only.
+- Voie B compute pivots to FCK extended evaluation.
+
+### 3.4 Voie B paper
+
+**P3** — Residual NN over chemometric teachers. Conditional on B3 primary stop-gate passing. FCK in appendix only if B2.2 GO.
+
+---
+
+## 4. Voie C — MLOps Spine
+
+### 4.1 C1 — Master CSV reconstructability + leaderboard lock (week 1, parallel to A1)
+
+- Establish `bench/build_benchmark_synthesis.py` as sole producer of `bench/benchmark_synthesis.md`.
+- Enforce schema: every line must have (`source_run_pls` OR `dataset_pls`) ratio + `protocol_maturity` + `seed` + `wall_clock_s` + `cohort`.
+- CI test: reconstruction from sources → diff = 0.
+- Decide leaderboard primary view (Codex F17 + OQ): `source_run_pls` protocol-local primary, `dataset_pls` strict global secondary.
+
+### 4.2 C2 — Registry coverage + linting (week 2)
+
+- `bench/scenarios/model_registry.yaml` exhaustive (owned by C, see §1.2).
+- Lint: any locked master row without registry entry → flag `not_runnable_in_production`.
+- Per-entry dummy fit/predict smoke test (no real cohort needed) to verify the entry executes.
+
+### 4.3 C3 — Validation harness (weeks 3-4)
+
+Promote `bench/AOM/roadmap_runs/harness/run_benchmark.py` (planned in AOM ROADMAP M0.2) to `bench/harness/run_benchmark.py`.
+
+API:
+```bash
+bench/harness/run_benchmark.py \
+    --cohort {fast12,audit20,curated39,full57} \
+    --pipeline configs/<preset>.yaml \
+    --workspace runs/ \
+    --seeds 0,1,2,3,4 \
+    --n-jobs -1
+```
+
+Required features :
+
+- Resumable (skip already-completed `(dataset, seed, model, selection)` tuples).
+- Unified CSV schema (cf. AOM ROADMAP §"Cross-cutting conventions").
+- Stats helpers : Nadeau-Bengio, Friedman-Nemenyi, bootstrap CI.
+- External smoke gate hook (Backlog historical §5.6) — placeholder for future external dataset.
+
+### 4.4 C4 — RandomForest with fast-model leaves (OQ10)
+
+User wants to test RF where leaves contain fast models (PLS / Ridge / AOMPLS). Plan:
+
+- Spec doc : `bench/AOM_v0/rf_model_leaves/SPEC.md` (mechanism, leaf model selection, prediction aggregation, OOF protocol).
+- Prototype : `RFModelLeavesRegressor` with one leaf-model-class config + tree depth/leaf size hyperparams.
+- Smoke on `fast12_transfer_core`.
+- Decision gate: enters `exhaustive_research` if it does not catastrophically lose to AOM-Ridge; promotes only if it provides meta-feature insight that improves selection.
+- Owner : Voie C (selector/diagnostic role per §10 of original Backlog).
+
+### 4.5 C5 — Quality dashboard (week 4+)
+
+- `bench/build_dashboard.py` generates HTML summary of all preset runs from `bench/scenarios/runs/`.
+- Includes leaderboards (both views), per-dataset winner heatmap, runtime CDFs, paired stat tests.
+- Auto-rebuilt on master CSV update.
+
+### 4.6 Voie C papers
+
+**No short-term paper** for Voie C. C is the plumbing that makes A and B publishable. Optional P4 (synthetic priors / ICL feasibility) is **deferred** with synthetic work itself (OQ9 — out of scope).
+
+---
+
+## 5. Scenario Product (the 4 presets)
+
+Final preset specifications, post-OQ7 (TabPFN included with explicit preprocessing rationale).
+
+### 5.1 `fast_reliable` (seconds to a few minutes)
+
+| Candidate | Order | Notes |
+|---|---:|---|
+| PLS tuned | 1 | Interpretation anchor |
+| Ridge tuned | 2 | Often competitive |
+| ASLS-AOM-compact-cv5-numpy | 3 | Compact bank |
+| AOM-Ridge compact/global | 4 | Only if runtime tier `fast` confirmed on full-57 |
+
+No TabPFN. No multiview. No NN.
+
+### 5.2 `strong_practical` (minutes to <1h)
+
+Adds to `fast_reliable`:
+
+- AOMRidge-AutoSelect-headline-spxy3 (after A5 nested audit passes)
+- AOMRidge-Blender-headline-spxy3 (after A5 nested audit passes)
+- TabPFN-raw with gate `n ≤ 5000, p ≤ 1000`; fallback to AOM-Ridge otherwise (OQ7)
+- TabPFN-opt under same gate (OQ7)
+- One nested mean/trimmed ensemble if `merge: predictions` OOF export validated
+
+### 5.3 `best_current` (1-3h)
+
+Adds to `strong_practical`:
+
+- TabPFN-HPO-preprocessing with explicit preprocessing-selection budget (OQ7) — document the rationale: which preprocessings are tried, how the inner CV selects, fallback when budget exceeded.
+- Top ASLS-AOM variants (compact-repcv3-numpy, etc.).
+- Top AOM-Ridge variants.
+- `V2L-Residual-AOMPLS` with shrinkage and zero-fallback **only if B3 primary stop-gate passes**.
+- `FCKStaticResidual` **only if B2.2 GO**.
+- AdaptiveSuperLearner Phase-11 **only after A4 completion run finishes** with `protocol_maturity=locked`.
+
+### 5.4 `exhaustive_research` (multi-hour to overnight)
+
+- Multiseed/repeated-CV versions of top candidates.
+- Wider preprocessing HPO for TabPFN and AOM.
+- FCK learned kernels (post-static-validation only).
+- Residual NN multiseed with full hyperparameter sweep.
+- RFModelLeavesRegressor (C4) as selector/diagnostic, not first-line champion.
+- All `protocol_maturity=exploratory` rows allowed but explicitly flagged.
+
+---
+
+## 6. Validation Matrix For The Presets
+
+Locked validation per preset on the TabPFN/AOM regression cohort.
+
+Constraints:
+
+- Same dataset list, same train/test splits, same score columns as `benchmark_master_results.csv`.
+- No use of test performance for model selection.
+- OOF predictions for every selector/stacker.
+- Paired deltas vs PLS, Ridge, AOM-Ridge, TabPFN-raw, TabPFN-opt, paper CNN.
+
+Cohort iteration order (OQ2): `fast12_transfer_core` → `audit20_transfer_core` → full-57.
+
+Outputs per preset:
+
+- `bench/scenarios/runs/<preset>/results.csv`
+- `bench/scenarios/runs/<preset>/summary.md`
+- Per-dataset winner table, runtime distribution, failure/fallback table.
+
+---
+
+## 7. Continue Investigating Current Models
+
+Priority items remaining (post-A1):
+
+1. r20_curated_oof : audit + tag `locked` (already ingested 2026-05-05 — see §2.1 task 4).
+2. Quantify reliability per candidate, not just median:
+   - q75 and q90 losses;
+   - worst-case clipped ratios;
+   - number of catastrophic failures;
+   - runtime variance per dataset regime;
+   - dataset regimes where each model wins (linear / nonlinear_strong / tie).
+3. Identify minimal candidate set capturing most oracle wins (target: 5-7 atoms).
+4. Build nested selector/ensemble only after minimal set is stable.
+5. Re-run top presets on a small external smoke cohort (placeholder hook in C3) to detect overfitting to the master table.
+
+---
+
+## 8. DevOps Discipline (transverse rules)
+
+1. **One leaderboard, two views per voie**: `source_run_pls` (primary) + `dataset_pls` (secondary). Always report median, q75, q90, win-rate, runtime together.
+2. **Nested validation mandatory** for any selector/stacker entering `strong_practical` or `best_current`. Codex review required.
+3. **Paired stat tests at every level**: Wilcoxon on fast12, Wilcoxon + bootstrap CI on audit20, Friedman + Nemenyi + Nadeau-Bengio on full-57.
+4. **Registry first**: no new model in master CSV without `model_registry.yaml` entry.
+5. **Codex review at gates**: per voie, on plan/scaffolding, core implementation, tests/harness, manuscript. Logs in `bench/<voie>/docs/CODEX_REVIEWS.md`.
+6. **No dead code**: archive legacy under `_archive/` with README. Strict `ruff` + `mypy`.
+
+---
+
+## 9. References
+
+- `bench/PLAN_REPRISE_2026-05.md` — strategic plan, OQ answers in §10.
+- `bench/benchmark_master_results.csv` — single source of truth (frozen post-A1).
+- `bench/benchmark_synthesis.md` — auto-generated leaderboard summary.
+- `bench/Subset_analysis/RETHOUGHT_SUBSETS.md` — `fast12_transfer_core`, `audit20_transfer_core` definitions.
+- `bench/AOM/ROADMAP.md` — Voie A AOM-PLS unification M0-M8.
+- `bench/AOM_v0/multiview/docs/SUMMARY.md` — Voie A multi-view ASL Phase 11.
+- `bench/nicon_v2/docs/STATUS.md` — Voie B current status.
+- Root `Roadmap.md` — library features (separate scope, OQ12).
