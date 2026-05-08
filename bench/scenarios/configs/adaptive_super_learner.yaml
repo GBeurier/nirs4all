@@ -1,0 +1,42 @@
+# bench/scenarios/configs/adaptive_super_learner.yaml
+#
+# Owner: Agent C / MLOps Spine. Bound to registry entry
+# `AdaptiveSuperLearner-recipe-nnls`. Status: SKELETON, sub-decision
+# under D-C-010. DECISION_PENDING_CODEX_REVIEW.
+#
+# Phase-11 Adaptive Super Learner with the FULL atom set (no big-n guard).
+# For n_train > 3000 use the bigN-guarded variant. Module path resolves
+# via the package skeleton Agent A added at bench/AOM_v0/multiview/__init__.py.
+
+canonical_name: AdaptiveSuperLearner-recipe-nnls
+schema_version: 0.1.0
+codex_review_status: DECISION_PENDING_CODEX_REVIEW
+
+model:
+  pipeline:
+    - model:
+        class: bench.AOM_v0.multiview.multiview.super_learner.AdaptiveSuperLearner
+        params:
+          random_state: 0
+
+hyperparameter_search:
+  protocol: model_native
+  n_splits: null
+  param_grid: null
+
+dispatch:
+  n_jobs: 1
+  verbose: 0
+  timeout_s: 7200
+  pythonpath_prepend:
+    - bench/AOM_v0/multiview
+    - bench/AOM_v0
+
+evidence_anchors:
+  primary_score: rmsep
+  primary_score_lower_is_better: true
+  reference_models:
+    - PLS-tuned-cv5
+    - AOMMultiView-MeanEnsemble4-fixed
+    - AdaptiveSuperLearner-recipe-nnls
+    - AdaptiveSuperLearner-bigN-guarded

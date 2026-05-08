@@ -1,0 +1,46 @@
+# bench/scenarios/configs/concat_snv_fck_aompls_static.yaml
+#
+# Owner: Agent C / MLOps Spine. Bound to registry entry `Concat-SNV-FCK-AOMPLS-static`.
+# Status: SKELETON, sub-decision under D-C-010. DECISION_PENDING_CODEX_REVIEW.
+#
+# Pipeline = FeatureUnion([SNV, FCKStaticTransformer]) → AOMPLSRegressor.
+# Codex round 3 §4 placed this in `exhaustive_research` only: AOM-Ridge
+# deltas are worse than plain FCK-AOMPLS (+13.8 % median, +98.5 % q90,
+# +159.5 % worst, 1 / 15 wins) but absolute median rmsep beats PLS-baseline
+# by +15.92 %, the largest cohort improvement among the FCK pipelines.
+
+canonical_name: Concat-SNV-FCK-AOMPLS-static
+schema_version: 0.1.0
+codex_review_status: DECISION_PENDING_CODEX_REVIEW
+
+model:
+  pipeline:
+    - class: sklearn.pipeline.FeatureUnion
+      params:
+        transformer_list:
+          - {name: snv, class: nirs4all.operators.transforms.scalers.StandardNormalVariate, params: {}}
+          - {name: fck, class: nirs4all.operators.transforms.fck_static.FCKStaticTransformer, params: {}}
+    - model:
+        class: nirs4all.operators.models.sklearn.aom_pls.AOMPLSRegressor
+        params:
+          n_components: 15
+          gate: hard
+          random_state: 0
+
+hyperparameter_search:
+  protocol: model_native
+  n_splits: null
+  param_grid: null
+
+dispatch:
+  n_jobs: 1
+  verbose: 0
+  timeout_s: 2400
+
+evidence_anchors:
+  primary_score: rmsep
+  primary_score_lower_is_better: true
+  reference_models:
+    - PLS-tuned-cv5
+    - FCK-AOMPLS-static
+    - Concat-SNV-FCK-AOMPLS-static

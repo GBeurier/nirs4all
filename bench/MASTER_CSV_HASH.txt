@@ -1,0 +1,90 @@
+# Frozen master CSV snapshot
+# Owner: Agent C-bootstrap (P0)
+# Plan: bench/PLAN_REPRISE_2026-05.md section 5
+# Builder: bench/build_benchmark_synthesis.py (single edit point for the master)
+
+date            2026-05-05
+command         python3 bench/build_benchmark_synthesis.py
+file            bench/benchmark_master_results.csv
+size_bytes      17285004
+line_count      21770
+header_lines    1
+data_rows       21769
+sha256          b27ea6f52b45e2568fb0c6912f535565f678d8b3e4f28af70dc2b86ae201ab5d
+
+# Pre-freeze hash (before protocol_maturity column was added):
+pre_freeze_sha256  3f1d596b835346f7a66fada968d8193a037dfd5fb8ebdbdd67ea7fc1e839390b
+pre_freeze_size    17124448
+
+# Protocol maturity distribution:
+locked              19392
+exploratory          1513
+legacy                  0   # reserved; not auto-populated in this freeze
+oracle                805
+local_not_master       59
+total               21769
+
+# Idempotency check: running the builder twice in succession produces a
+# byte-identical master. Confirmed on 2026-05-05.
+
+# Audit trail (Agent C; appended without re-running the builder):
+verified  2026-05-05 17:55 CEST  sha256=b27ea6f52b45e2568fb0c6912f535565f678d8b3e4f28af70dc2b86ae201ab5d  unchanged_since=2026-05-05 14:14 CEST  reason="active-wait cycle, no master mutation"
+
+# Re-build (Agent C; D-B-012 ingest + A's D-A-001 partial):
+rebuilt   2026-05-06 22:30 CEST  sha256=056e395b34897860a1b508aa3b52b919b2fe9bda4d46b40e3f6bb2323dc98e97
+size_bytes      18079232
+line_count      22658
+data_rows       22657
+trigger         "D-B-012 LOCKED (Codex round 4 APPROVE) — ingest 195 r21 rows + ~693 da001_partial rows"
+delta_locked      0   # 19392 unchanged
+delta_exploratory +888  # 1513 → 2401 (all 888 new rows tagged exploratory: 195 r21 + ~693 da001_partial)
+maturity_after  locked=19392  exploratory=2401  oracle=805  local_not_master=59  total=22657
+
+# Re-build (Agent C; A's D-A-001 fast12 complete + audit20 in flight):
+rebuilt   2026-05-07 06:30 CEST  sha256=b27f4e412a7141e3c864e6e2cadfe2b97244df9da6ddf13e1550ab4eadd1fd89
+data_rows       23071
+trigger         "A's D-A-001 fast12 COMPLETE (936 rows) + da001_audit20 launched (151 rows so far, growing). Both whitelisted as exploratory."
+delta_locked      0   # 19392 unchanged from P0
+delta_exploratory +1302  # 1513 → 2815 (195 r21 + 935 da001_partial + 172 da001_audit20 mid-flight)
+maturity_after  locked=19392  exploratory=2815  oracle=805  local_not_master=59  total=23071
+
+# Re-build (Agent C; A's audit20 progressed to 91%):
+rebuilt   2026-05-08 04:30 CEST  sha256=6a6b254ffeb715d6375b4057c0a53e216ca30b8a1a38d4421a42055ab90cffd3
+data_rows       23394
+trigger         "A's audit20 progressed +323 rows (151→474). Master refreshed; locked unchanged from P0."
+delta_locked      0   # 19392 still unchanged from P0
+delta_exploratory +323  # 2815 → 3138 (audit20 mid-flight rows, all exploratory)
+maturity_after  locked=19392  exploratory=3138  oracle=805  local_not_master=59  total=23394
+
+# Re-build (Agent C; D-B-015 LOCKED rename + audit20 mid-flight refresh):
+rebuilt   2026-05-08 14:30 CEST  sha256=2b05de74bcf1baf971212442d701235f8e37ff06ef18370e8b90d0539510ec8f
+data_rows       23404
+trigger         "D-B-015 LOCKED (Codex round 6 APPROVE) — renamed AOMPLS-compact-with-fck-audit20 to -full57 per Codex. A's audit20 +10 rows."
+delta_locked      0   # 19392 still unchanged from P0
+delta_exploratory +10  # 3138 → 3148
+maturity_after  locked=19392  exploratory=3148  oracle=805  local_not_master=59  total=23404
+
+# Re-build (Agent C; D-A-002-stub LOCKED ingest + D-A-003 partial + audit20 final):
+rebuilt   2026-05-07 19:30 CEST  sha256=69925ad7ced18fe5b8fcfb27671d937e39ad63092e05b5be12f1cc1f60b903cf
+size_bytes      18492042
+data_rows       23457
+trigger         "D-A-002-stub COMPLETE (Codex round 10 hybrid two-run, A 19:10 SYNC) — 12 fits ingested. D-A-003 in flight (3 fits at this writing). audit20 final at 540 rows."
+delta_locked      0   # 19392 still unchanged from P0
+delta_exploratory +51  # 3148 → 3199 (12 D-A-002-stub + 3 D-A-003 + audit20 mid-flight progressed +66 since last refresh ; net +51 after dedup)
+delta_oracle    +2   # 807 (D-A-003 Local-knn50 set new model_class oracles on 2 LUCAS datasets at seed 0)
+maturity_after  locked=19392  exploratory=3199  oracle=807  local_not_master=59  total=23457
+codex_tags      "All 12 D-A-002-stub rows carry the Codex round-10 audit-trail tag in `notes`: D-A-002-stub; Ridge/PLS stub atoms only; not canonical Phase-11 evidence; bit-identical across seeds (deterministic atoms); extras.atom_guard=true; extras.atom_set=stub_ridge_pls; extras.canonical_phase11_atoms=false. The original harness `dispatch: provisional production fit/predict (D-C-006).` notes are appended after the prescribed tag (preserved for dispatch audit)."
+forbidden_use   "D-A-002-stub rows must not be pooled with canonical/unmodified ASL evidence in any synthesis (per Codex R10 verdict)."
+
+# Re-build (Agent C; D-A-003 LOCKED→CLOSED ingest):
+rebuilt   2026-05-08 05:55 CEST  sha256=184e2912a476a65724f79df63c1b9a2dbf04942cf9d59552b330ec87af38c9f4
+size_bytes      18498765
+data_rows       23467
+trigger         "D-A-003 COMPLETE (12/12 OK) + Codex round-11 verdict CLOSED for scoped completion (A 05:30/05:45/05:50 SYNC). LMA s2 final 7772s. Closes A's 'D-A-003 stats pending C ingest' from 05:50 mission queue snapshot."
+delta_locked      0   # 19392 still unchanged from P0
+delta_exploratory +9   # 3199 → 3208 (9 new D-A-003 observed: LMA s0/s1/s2 + Chla+b s1/s2 + LUCAS_Cropland s1/s2 + LUCAS_all s1/s2 ; the 3 seed-0 fits Chla+b/LUCAS_Cropland/LUCAS_all were already in 19:30 build)
+delta_oracle    +1   # 807 → 808 (LMA_spxyG_block2deg new model_class oracle for Local-knn50 at rmsep=23.1145; the 2 LUCAS oracles already set in 19:30 build)
+maturity_after  locked=19392  exploratory=3208  oracle=808  local_not_master=59  total=23467
+codex_status    "D-A-003 LOCKED→CLOSED for scoped completion objective per Codex round-11 (3/4 sign test, median ratio 0.8969 = -10.31 % vs D-A-002-stub on shared big-n cohort). Caveat: comparator is D-A-002-stub Ridge/PLS atoms, NOT canonical Phase-11 ASL — broad production-dominance claim still requires D-A-002-canonical (A's Task #25, pending)."
+known_regression "Chla+b_spxyG_species: D-A-003 (Local-knn50) rmsep=58.8526 vs D-A-002-stub 37.4839 (+57.01 %). Filed as known-regression footnote analogous to D-A-001 §12.6 Quartz/Biscuit handling. Hypothesis: k=50 too coarse for small-big-n datasets just above the n_train>3000 cutoff (Chla+b n_train≈2500 in spxy3 outer fold). Does NOT block closure but blocks unqualified 'safe for all n_train > 3000' performance language."
+seed_invariance "All 12 D-A-003 rows are bit-identical across seeds 0/1/2 per dataset, same structural property as D-A-002-stub (kNN with predefined train/test splits + deterministic distance-based selection)."

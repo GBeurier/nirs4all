@@ -1,0 +1,510 @@
+{
+  "by_status": {
+    "ok": 414,
+    "failed": 450,
+    "skipped": 72
+  },
+  "leaderboard": [
+    {
+      "canonical_name": "AOMRidge-global-compact-none",
+      "model_class": "AOMRidgeRegressor",
+      "n_datasets": 12,
+      "median_rmsep": 1.0892338457650332,
+      "min_rmsep": 0.022623525930066307,
+      "max_rmsep": 61.476483389784974,
+      "median_fit_time_s": 37.97083205002127,
+      "max_fit_time_s": 673.5585528259398
+    },
+    {
+      "canonical_name": "AOMRidge-global-compact-snv",
+      "model_class": "AOMRidgeRegressor",
+      "n_datasets": 12,
+      "median_rmsep": 1.0892338457650332,
+      "min_rmsep": 0.022623525930066307,
+      "max_rmsep": 61.476483389784974,
+      "median_fit_time_s": 37.9987117050332,
+      "max_fit_time_s": 488.8298689040821
+    },
+    {
+      "canonical_name": "PLS-tuned-cv5",
+      "model_class": "PLSRegression",
+      "n_datasets": 12,
+      "median_rmsep": 1.1714523267678978,
+      "min_rmsep": 0.02120338956941468,
+      "max_rmsep": 74.77510989942272,
+      "median_fit_time_s": 0.2499444680288434,
+      "max_fit_time_s": 26.000758923008107
+    },
+    {
+      "canonical_name": "Ridge-tuned-cv5",
+      "model_class": "Ridge",
+      "n_datasets": 12,
+      "median_rmsep": 1.2664097626726303,
+      "min_rmsep": 0.021484065273969562,
+      "max_rmsep": 62.16793639021786,
+      "median_fit_time_s": 0.27466206793906167,
+      "max_fit_time_s": 35.54371221002657
+    },
+    {
+      "canonical_name": "AOMRidge-Blender-headline-spxy3",
+      "model_class": "AOMRidgeBlender",
+      "n_datasets": 12,
+      "median_rmsep": 1.3264147990558601,
+      "min_rmsep": 0.019310472112192684,
+      "max_rmsep": 51.53391267424203,
+      "median_fit_time_s": 583.2604415355017,
+      "max_fit_time_s": 10323.309573367005
+    },
+    {
+      "canonical_name": "AOMRidge-Local-compact-knn50",
+      "model_class": "AOMLocalRidge",
+      "n_datasets": 12,
+      "median_rmsep": 1.341688859277515,
+      "min_rmsep": 0.020802315080923242,
+      "max_rmsep": 71.9813174977257,
+      "median_fit_time_s": 3.71149818203412,
+      "max_fit_time_s": 92.682890809956
+    },
+    {
+      "canonical_name": "AOMRidge-AutoSelect-headline-spxy3",
+      "model_class": "AOMRidgeAutoSelector",
+      "n_datasets": 12,
+      "median_rmsep": 1.3746394359123193,
+      "min_rmsep": 0.01742729669684658,
+      "max_rmsep": 73.92449009162118,
+      "median_fit_time_s": 65.26244057453005,
+      "max_fit_time_s": 2621.9270643690834
+    },
+    {
+      "canonical_name": "TabPFN-opt",
+      "model_class": "TabPFNRegressor",
+      "n_datasets": 9,
+      "median_rmsep": 1.494396426915612,
+      "min_rmsep": 0.11787604372746593,
+      "max_rmsep": 38.15060973324092,
+      "median_fit_time_s": 2.0209712609648705,
+      "max_fit_time_s": 45.5608212860534
+    },
+    {
+      "canonical_name": "TabPFN-Raw",
+      "model_class": "TabPFNRegressor",
+      "n_datasets": 9,
+      "median_rmsep": 1.5208779366679595,
+      "min_rmsep": 0.12076096176973825,
+      "max_rmsep": 31.118509222007,
+      "median_fit_time_s": 1.7360030990093946,
+      "max_fit_time_s": 22.08616768498905
+    },
+    {
+      "canonical_name": "AOM-PLS-compact-numpy",
+      "model_class": "AOMPLSRegressor",
+      "n_datasets": 12,
+      "median_rmsep": 2.0313798368226537,
+      "min_rmsep": 0.01931046299790349,
+      "max_rmsep": 81.25415965345289,
+      "median_fit_time_s": 1.5693412839900702,
+      "max_fit_time_s": 104.70918850996532
+    },
+    {
+      "canonical_name": "ASLS-AOM-compact-cv5-numpy",
+      "model_class": "AOMPLSRegressor",
+      "n_datasets": 12,
+      "median_rmsep": 2.0313798368226537,
+      "min_rmsep": 0.01931046299790349,
+      "max_rmsep": 81.25415965345289,
+      "median_fit_time_s": 1.0420919894822873,
+      "max_fit_time_s": 102.68089365994092
+    },
+    {
+      "canonical_name": "AOMRidge-MultiBranchMKL-compact-shrink03",
+      "model_class": "AOMMultiBranchMKL",
+      "n_datasets": 12,
+      "median_rmsep": 2.646669680717971,
+      "min_rmsep": 0.04094994976449775,
+      "max_rmsep": 46.41336783930346,
+      "median_fit_time_s": 55.191022632003296,
+      "max_fit_time_s": 1880.1355855159927
+    }
+  ],
+  "heatmap": {
+    "canonicals": [
+      "AOMRidge-global-compact-none",
+      "AOMRidge-global-compact-snv",
+      "PLS-tuned-cv5",
+      "Ridge-tuned-cv5",
+      "AOMRidge-Blender-headline-spxy3",
+      "AOMRidge-Local-compact-knn50",
+      "AOMRidge-AutoSelect-headline-spxy3",
+      "TabPFN-opt",
+      "TabPFN-Raw",
+      "AOM-PLS-compact-numpy",
+      "ASLS-AOM-compact-cv5-numpy",
+      "AOMRidge-MultiBranchMKL-compact-shrink03"
+    ],
+    "datasets": [
+      "All_manure_K2O_SPXY_strat_Manure_type",
+      "Beer_OriginalExtract_60_KS",
+      "Biscuit_Sucrose_40_RandomSplit",
+      "Ccar_spxyG_block2deg",
+      "Corn_Oil_80_ZhengChenPelegYbaseSplit",
+      "DIESEL_bp50_246_hlb-a",
+      "LUCAS_pH_Organic_1763_LiuRandomOrganic",
+      "MP_spxyG",
+      "N_woOutlier",
+      "TIC_spxy70",
+      "WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+      "brix_groupSampleID_stratDateVar_balRows"
+    ],
+    "rmsep": [
+      [
+        2.7697645735036738,
+        0.5128446653439307,
+        0.8638923025679375,
+        61.476483389784974,
+        0.03433192240857115,
+        2.9076605489905454,
+        0.36810258603166596,
+        0.022623525930066307,
+        0.27934965316672394,
+        4.362888539612424,
+        1.314575388962129,
+        3.600276436660117
+      ],
+      [
+        2.7697645735036738,
+        0.5128446653439307,
+        0.8638923025679375,
+        61.476483389784974,
+        0.03433192240857115,
+        2.9076605489905454,
+        0.36810258603166596,
+        0.022623525930066307,
+        0.27934965316672394,
+        4.362888539612424,
+        1.314575388962129,
+        3.600276436660117
+      ],
+      [
+        2.730354318169022,
+        0.5043338505016376,
+        0.8836003481445809,
+        64.38795616410968,
+        0.03829470217599776,
+        3.5467016188834295,
+        0.45165352129025016,
+        0.02120338956941468,
+        0.31057610362690635,
+        3.4715350341611133,
+        1.3895729529270475,
+        4.437217638023488
+      ],
+      [
+        2.6178361136942723,
+        0.5043346218877496,
+        1.0901549714386156,
+        62.16793639021786,
+        0.04411800719541632,
+        3.509802770193015,
+        0.35669888203637357,
+        0.021484065273969562,
+        0.27591582939447173,
+        3.670528350736551,
+        1.4426645539066452,
+        3.581127476974162
+      ],
+      [
+        2.2714232390794913,
+        0.2027809100082079,
+        1.2066618291307671,
+        51.53391267424203,
+        0.019310472112192684,
+        2.7981089218626045,
+        0.32332542524262237,
+        0.021517177479476034,
+        0.22429123651095642,
+        3.395622653032304,
+        1.4461677689809531,
+        3.7605813346388732
+      ],
+      [
+        2.4259372159464028,
+        0.4840239865144717,
+        1.1646084712977358,
+        71.9813174977257,
+        0.0645327364839349,
+        2.7681651044165045,
+        0.3381965289524043,
+        0.020802315080923242,
+        0.23007915059019127,
+        4.684778551202731,
+        1.5187692472572938,
+        3.9372912139881557
+      ],
+      [
+        2.31571936477711,
+        0.1556659463301196,
+        1.2668445424446675,
+        73.92449009162118,
+        0.01742729669684658,
+        2.865864095179968,
+        0.323381049016975,
+        0.020553077329581455,
+        0.22385529325371586,
+        3.325842911027153,
+        1.4824343293799709,
+        3.5910350989162922
+      ],
+      [
+        2.6502736644191836,
+        0.20453256195953015,
+        1.3414194635223802,
+        38.15060973324092,
+        0.11787604372746593,
+        3.5902852284807945,
+        null,
+        null,
+        0.20827290134514276,
+        3.277675709601517,
+        1.494396426915612,
+        null
+      ],
+      [
+        2.6368612069837867,
+        0.2002051548856026,
+        1.43194613547806,
+        31.118509222007,
+        0.12076096176973825,
+        3.672451439975322,
+        null,
+        null,
+        0.21104030772557789,
+        3.2642862958864627,
+        1.5208779366679595,
+        null
+      ],
+      [
+        2.5068585941707413,
+        0.20418322456986804,
+        4.346934040836885,
+        81.25415965345289,
+        0.022176752467497583,
+        3.7028092269061985,
+        0.45789145478871196,
+        0.01931046299790349,
+        0.3393929425576843,
+        3.0921315473314235,
+        1.5559010794745658,
+        4.162902650599791
+      ],
+      [
+        2.5068585941707413,
+        0.20418322456986804,
+        4.346934040836885,
+        81.25415965345289,
+        0.022176752467497583,
+        3.7028092269061985,
+        0.45789145478871196,
+        0.01931046299790349,
+        0.3393929425576843,
+        3.0921315473314235,
+        1.5559010794745658,
+        4.162902650599791
+      ],
+      [
+        2.609688254810468,
+        10.131862572711752,
+        2.6836511066254736,
+        46.41336783930346,
+        0.17385833613707485,
+        6.751886473278783,
+        0.36606251255099703,
+        0.04094994976449775,
+        0.2501956219124591,
+        4.5153684936184995,
+        1.7697518748775731,
+        8.95167563237705
+      ]
+    ]
+  },
+  "failures": {
+    "total": 450,
+    "by_class": {
+      "dispatch_missing_config_template": 360,
+      "fit_error": 54,
+      "build_error": 36
+    },
+    "samples": [
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "DIESEL_bp50_246_hlb-a",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "Corn_Oil_80_ZhengChenPelegYbaseSplit",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "MP_spxyG",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "TIC_spxy70",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "brix_groupSampleID_stratDateVar_balRows",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "All_manure_K2O_SPXY_strat_Manure_type",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "Biscuit_Sucrose_40_RandomSplit",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "Ccar_spxyG_block2deg",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "LUCAS_pH_Organic_1763_LiuRandomOrganic",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "N_woOutlier",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "Beer_OriginalExtract_60_KS",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "DIESEL_bp50_246_hlb-a",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "Corn_Oil_80_ZhengChenPelegYbaseSplit",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "MP_spxyG",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "TIC_spxy70",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "brix_groupSampleID_stratDateVar_balRows",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "All_manure_K2O_SPXY_strat_Manure_type",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "Biscuit_Sucrose_40_RandomSplit",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "Ccar_spxyG_block2deg",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "LUCAS_pH_Organic_1763_LiuRandomOrganic",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "N_woOutlier",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "Beer_OriginalExtract_60_KS",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "DIESEL_bp50_246_hlb-a",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "Corn_Oil_80_ZhengChenPelegYbaseSplit",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "MP_spxyG",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "TIC_spxy70",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      },
+      {
+        "canonical_name": "AOM-default-nipals-adjoint-numpy",
+        "dataset": "brix_groupSampleID_stratDateVar_balRows",
+        "error_message": "dispatch_missing_config_template: bench/scenarios/configs/aom_default_numpy.yaml"
+      }
+    ]
+  },
+  "n_datasets": 12,
+  "n_candidates": 12,
+  "meta": {
+    "generated_at": "2026-05-06 23:49 UTC",
+    "workspace": "bench/AOM_v0/Ridge/benchmark_runs/da001_partial_fast12_seeds012",
+    "n_rows": 936,
+    "presets": [
+      "exhaustive_research"
+    ],
+    "cohorts": [
+      "fast12_transfer_core"
+    ],
+    "seeds": [
+      "0",
+      "1",
+      "2"
+    ],
+    "hosts": [
+      "U108-N257"
+    ]
+  }
+}

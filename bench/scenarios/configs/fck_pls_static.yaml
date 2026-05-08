@@ -1,0 +1,47 @@
+# bench/scenarios/configs/fck_pls_static.yaml
+#
+# Owner: Agent C / MLOps Spine. Bound to registry entry `FCK-PLS-static`.
+# Status: SKELETON, sub-decision under D-C-010. DECISION_PENDING_CODEX_REVIEW.
+#
+# Pipeline = FCKStaticTransformer → PLSRegression with GridSearchCV over
+# n_components. exhaustive_research only (D-B-011 closed). Audit20 evidence:
+# median +19.4 % vs aom_ridge_curated_best, Quartz outlier +11072.7 %.
+# Kept because absolute median rmsep is 0.4741 vs PLS-baseline 0.4997.
+
+canonical_name: FCK-PLS-static
+schema_version: 0.1.0
+codex_review_status: DECISION_PENDING_CODEX_REVIEW
+
+model:
+  pipeline:
+    - {class: nirs4all.operators.transforms.fck_static.FCKStaticTransformer, params: {}}
+    - {class: sklearn.preprocessing.StandardScaler, params: {}}
+    - model:
+        class: sklearn.cross_decomposition.PLSRegression
+        params:
+          n_components: 10
+          scale: false
+          max_iter: 500
+
+hyperparameter_search:
+  protocol: kfold
+  n_splits: 5
+  shuffle: true
+  random_state_offset: 0
+  param_grid:
+    n_components: [5, 10, 15, 20]
+  scoring: neg_root_mean_squared_error
+  refit: true
+
+dispatch:
+  n_jobs: 1
+  verbose: 0
+  timeout_s: 900
+
+evidence_anchors:
+  primary_score: rmsep
+  primary_score_lower_is_better: true
+  reference_models:
+    - PLS-tuned-cv5
+    - FCK-AOMPLS-static
+    - FCK-PLS-static

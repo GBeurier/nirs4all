@@ -99,7 +99,68 @@ FIELDNAMES = [
     "oracle_winner_record_id",
     "config_json",
     "notes",
+    "protocol_maturity",
 ]
+
+
+# Allowed protocol_maturity values:
+#   locked           - production-eligible source row with stable protocol
+#   exploratory      - partial coverage / smoke / diagnostic / pending audit
+#   legacy           - explicitly superseded run (reserved for owner-driven downgrades via SYNC.md)
+#   oracle           - derived oracle rows (oracle_by_model_class, oracle_global_dataset)
+#   local_not_master - source_oracle rows already present in source tables (kept for audit)
+#
+# Tagging rules below are PROVISIONAL pending Codex review (see bench/SYNC.md
+# entry "P0 master freeze, 2026-05-05"). Owner agents A/B may propose specific
+# row downgrades or upgrades via SYNC.md; the builder is the single edit point.
+
+EXPLORATORY_PHASE11_ATOMS = frozenset({
+    "adaptive-super-learner",
+    "nnls-stack-atoms",
+    "nnls-stack-calibrated",
+    "trimmed-mean-4",
+})
+
+EXPLORATORY_RUN_NAMES = frozenset({
+    # Multiview smoke files (Phase 1-3 cohorts, not full-57)
+    "smoke10.csv",
+    "smoke4_baseline.csv",
+    "smoke_classification.csv",
+    # nicon_v2 single-dataset diagnostics + partial multiseed
+    "stack_aom_beer",
+    "r19_oof_diagnostic_beer",
+    "r20_curated_oof_multiseed",
+    "r21_curated_oof_multiseed",   # D-B-012 LOCKED 2026-05-06: science/production gate failed; exploratory only.
+    "da001_partial_fast12_seeds012",  # A's D-A-001 fast12 partial (Codex round 5 CONFIRM: coverage, not promotion)
+    "da001_audit20_seeds012",       # A's D-A-001 audit20 launch 2026-05-07 05:30 CEST (Codex round 7 LOCKED_SCOPED)
+    "da002_stub_atoms_seeds012",    # A's D-A-002-stub (Codex round 10 hybrid two-run): runnable-guard evidence with Ridge/PLS stub atoms; NOT canonical Phase-11 evidence.
+    "da003_local_knn50_bigN_seeds012",  # A's D-A-003 Local-knn50 on 4 big-n datasets (Codex round 9 GO).
+    # AOM_v0 explicit smoke runs
+    "smoke_old_11ds",
+    # AOM_v0_Ridge known smokes
+    "v5a_smoke_alpine",
+    "v5b_smoke_alpine",
+})
+
+_SMOKE_PREFIX_RE = re.compile(r"^smoke", re.IGNORECASE)
+_SMOKE_SUFFIX_RE = re.compile(r"_smoke$", re.IGNORECASE)
+_PHASE1_SMOKE_RE = re.compile(r"^phase1[a-z]_smoke$", re.IGNORECASE)
+
+
+# Codex-prescribed audit-trail notes per source_run. Applied at ingest time
+# so master-CSV consumers can grep these tags. Original harness notes are
+# appended after the prescribed tag so dispatch info is preserved.
+SOURCE_RUN_NOTES_OVERRIDES: dict[str, str] = {
+    # Codex round-10 hybrid two-run (2026-05-07 19:00 CEST): D-A-002-stub
+    # is runnable-guard evidence with Ridge/PLS stub atoms; not canonical
+    # Phase-11 evidence; bit-identical across seeds (atoms are deterministic).
+    "da002_stub_atoms_seeds012": (
+        "D-A-002-stub; Ridge/PLS stub atoms only; not canonical Phase-11 evidence; "
+        "bit-identical across seeds (deterministic atoms); "
+        "extras.atom_guard=true; extras.atom_set=stub_ridge_pls; "
+        "extras.canonical_phase11_atoms=false."
+    ),
+}
 
 
 def clean_text(value: Any) -> str:
@@ -1002,6 +1063,12 @@ def write_md(records: list[dict[str, Any]]) -> None:
     eligible_rows = [row for row in observed if eligible(row)]
     source_counts = Counter(row.get("source_family", "") for row in observed)
     dataset_count = len({row.get("dataset") for row in eligible_rows if row.get("dataset")})
+    pair_count = len({
+        (row.get("dataset"), row.get("task") or "regression")
+        for row in eligible_rows
+        if row.get("dataset")
+    })
+    maturity_counts = maturity_summary(records)
     class_summary = class_oracle_summary(records)
     top25 = variant_leaderboard(records)[:25]
     subset_rows = subset_transfer_rows()
@@ -1033,9 +1100,34 @@ def write_md(records: list[dict[str, Any]]) -> None:
     lines.append("")
     lines.append(
         f"The merged CSV stores {len(observed)} observed/reference rows from {len(source_counts)} source families, "
-        f"covering {dataset_count} eligible dataset/task pairs. It also adds derived oracle rows per dataset/model class "
+        f"covering {dataset_count} distinct eligible datasets across {pair_count} (dataset, task) pairs. "
+        "It also adds derived oracle rows per dataset/model class "
         "and per dataset globally, so strategy-level visualizations can ask: if this class were allowed to pick its best "
         "executed variant per dataset, how far would it get?"
+    )
+    lines.append("")
+    lines.append("### Protocol maturity distribution")
+    lines.append("")
+    lines.append(
+        "Each row carries a `protocol_maturity` tag introduced in the 2026-05-05 master freeze. "
+        "Use it as a coarse filter for production-eligible vs exploratory evidence:"
+    )
+    lines.append("")
+    lines.append("| Tag | Rows | Meaning |")
+    lines.append("|---|---:|---|")
+    maturity_rows = [
+        ("locked", "Stable production-eligible source row (default for clean source runs)."),
+        ("exploratory", "Partial coverage / smoke / diagnostic / pending nested audit (e.g. AOMRidge-headline-spxy3, multiview Phase-11 atoms, smoke runs)."),
+        ("legacy", "Explicitly superseded run (reserved for owner-driven downgrades via bench/SYNC.md; not auto-applied in this freeze)."),
+        ("oracle", "Derived oracle rows (`oracle_by_model_class`, `oracle_global_dataset`)."),
+        ("local_not_master", "`source_oracle` rows already present in source tables; kept for audit, excluded from derived oracle calculations."),
+    ]
+    for tag, meaning in maturity_rows:
+        lines.append(f"| {tag} | {maturity_counts.get(tag, 0)} | {meaning} |")
+    lines.append("")
+    lines.append(
+        "The tagging rules implemented in `bench/build_benchmark_synthesis.py::assign_maturity` are PROVISIONAL; see the "
+        "P0 freeze entry in `bench/SYNC.md` for the Codex-review status and the explicit rule list."
     )
     lines.append("")
     lines.append("### Oracle by model class")
@@ -1189,20 +1281,85 @@ def write_md(records: list[dict[str, Any]]) -> None:
     lines.append("- `record_type=oracle_global_dataset` is the best eligible row across all classes for that dataset/task/metric.")
     lines.append("- `score_ratio_vs_source_run_pls` is the protocol-local reliability normalization; lower than 1 means better than PLS in the same source/run.")
     lines.append("- `score_ratio_vs_dataset_pls` is the strict cross-protocol normalization; lower than 1 means better than the best observed PLS row for that dataset.")
+    lines.append("- `protocol_maturity` tags each row with one of `locked`, `exploratory`, `legacy`, `oracle`, `local_not_master`. Filter `protocol_maturity == 'locked'` for production-eligible source rows.")
     lines.append("")
 
     OUT_MD.write_text("\n".join(lines), encoding="utf-8")
 
 
+def assign_maturity(record: dict[str, Any]) -> str:
+    """Assign protocol_maturity tag to a master-CSV record.
+
+    Allowed values: locked, exploratory, legacy, oracle, local_not_master.
+
+    PROVISIONAL: tagging rules are pending Codex review per bench/SYNC.md.
+    Owner agents A/B may propose downgrades/upgrades via SYNC.md; this
+    function is the single edit point.
+    """
+    rt = clean_text(record.get("record_type"))
+    if rt in {"oracle_by_model_class", "oracle_global_dataset"}:
+        return "oracle"
+    if rt == "source_oracle":
+        return "local_not_master"
+
+    source_run = clean_text(record.get("source_run"))
+    source_path_low = clean_text(record.get("source_path")).lower()
+    model_name = clean_text(record.get("model_name"))
+    variant = clean_text(record.get("variant"))
+
+    label_low = f"{model_name} {variant}".lower()
+
+    # AOMRidge-Blender / AutoSelect headline-spxy3: pending A2 nested audit (see plan section 6).
+    if ("headline-spxy3" in label_low or "headline_spxy3" in label_low) and (
+        "aomridge" in label_low or "aom-ridge" in label_low
+    ):
+        return "exploratory"
+
+    # Phase-11 partial atoms in multiview/full57.csv (38-39/61 datasets; awaiting completion per plan section 6 A3).
+    if (
+        "multiview" in source_path_low
+        and source_run == "full57.csv"
+        and model_name in EXPLORATORY_PHASE11_ATOMS
+    ):
+        return "exploratory"
+
+    # Smoke / single-dataset diagnostic / partial multiseed source_runs.
+    if source_run in EXPLORATORY_RUN_NAMES:
+        return "exploratory"
+    if _SMOKE_PREFIX_RE.match(source_run):
+        return "exploratory"
+    if _SMOKE_SUFFIX_RE.search(source_run):
+        return "exploratory"
+    if _PHASE1_SMOKE_RE.match(source_run):
+        return "exploratory"
+
+    return "locked"
+
+
+def maturity_summary(records: list[dict[str, Any]]) -> Counter:
+    return Counter(record.get("protocol_maturity", "") for record in records)
+
+
 def main() -> None:
     records = collect_records()
     records = enrich_with_oracles(records)
+    for record in records:
+        record["protocol_maturity"] = assign_maturity(record)
+        prescribed = SOURCE_RUN_NOTES_OVERRIDES.get(clean_text(record.get("source_run")))
+        if prescribed:
+            existing = clean_text(record.get("notes"))
+            record["notes"] = f"{prescribed} {existing}".strip()
     write_csv(records)
     write_md(records)
     source_rows = sum(1 for row in records if row.get("record_type") in {"observed", "reference_paper", "source_oracle"})
     oracle_rows = sum(1 for row in records if row.get("record_type", "").startswith("oracle_"))
     print(f"Wrote {OUT_CSV} with {len(records)} rows ({source_rows} source rows, {oracle_rows} derived oracle rows)")
     print(f"Wrote {OUT_MD}")
+    summary = maturity_summary(records)
+    print("protocol_maturity distribution:")
+    for tag in ("locked", "exploratory", "legacy", "oracle", "local_not_master", ""):
+        if summary.get(tag):
+            print(f"  {tag or '<empty>'}: {summary[tag]}")
 
 
 if __name__ == "__main__":

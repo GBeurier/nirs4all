@@ -1,0 +1,43 @@
+# bench/scenarios/configs/tabpfn_opt.yaml
+#
+# Owner: Agent C / MLOps Spine. Bound to registry entry `TabPFN-opt`.
+# Status: SKELETON, sub-decision under D-C-010. DECISION_PENDING_CODEX_REVIEW.
+#
+# TabPFN with light preprocessing optimisation: standard scaling + a wider
+# ensemble. No HPO over preprocessing — see tabpfn_hpo_preprocessing.yaml
+# for the full search variant.
+
+canonical_name: TabPFN-opt
+schema_version: 0.1.0
+codex_review_status: DECISION_PENDING_CODEX_REVIEW
+
+model:
+  pipeline:
+    - {class: sklearn.preprocessing.StandardScaler, params: {}}
+    - model:
+        class: tabpfn.TabPFNRegressor
+        params:
+          n_estimators: 8         # wider ensemble than -Raw for more stable inference
+          softmax_temperature: 0.7
+          random_state: 0
+          device: cuda            # user directive 2026-05-05 19:40 CEST: NNs must run on GPU; RTX 4090 host
+          ignore_pretraining_limits: false
+
+hyperparameter_search:
+  protocol: model_native
+  n_splits: null
+  param_grid: null
+
+dispatch:
+  n_jobs: 1
+  verbose: 0
+  timeout_s: 3600        # slow tier; doubled n_estimators roughly doubles fit time
+
+evidence_anchors:
+  primary_score: rmsep
+  primary_score_lower_is_better: true
+  reference_models:
+    - PLS-tuned-cv5
+    - Ridge-tuned-cv5
+    - TabPFN-Raw
+    - TabPFN-opt

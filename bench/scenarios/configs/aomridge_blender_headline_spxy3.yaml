@@ -1,0 +1,51 @@
+# bench/scenarios/configs/aomridge_blender_headline_spxy3.yaml
+#
+# Owner: Agent C / MLOps Spine. Bound to registry entry `AOMRidge-Blender-headline-spxy3`.
+# Status: SKELETON, sub-decision under D-C-010. DECISION_PENDING_CODEX_REVIEW.
+#
+# AOMRidge-Blender candidate stack with outer SPXYFold(3). The default
+# `candidates: null` lets the AOMRidgeBlender resolve its candidate-spec
+# list internally; future revisions may surface a registry-backed list.
+# Master CSV currently tags this `protocol_maturity=exploratory` because
+# A2's nested audit (D-A-001) requires a multi-seed rerun on
+# fast12_transfer_core then audit20_transfer_core before promotion.
+
+canonical_name: AOMRidge-Blender-headline-spxy3
+schema_version: 0.1.0
+codex_review_status: DECISION_PENDING_CODEX_REVIEW
+
+model:
+  pipeline:
+    - model:
+        class: aomridge.blender.AOMRidgeBlender
+        params:
+          candidates: null
+          outer_cv: 3
+          outer_cv_kind: spxy
+          outer_cv_repeats: 1
+          regularizer: 0.01
+          scoring: mse
+          n_jobs: 1
+          random_state: 0
+
+hyperparameter_search:
+  protocol: model_native
+  n_splits: null
+  param_grid: null
+
+dispatch:
+  n_jobs: 1
+  verbose: 0
+  timeout_s: 3600
+  pythonpath_prepend:
+    - bench/AOM_v0/Ridge
+    - bench/AOM_v0
+
+evidence_anchors:
+  primary_score: rmsep
+  primary_score_lower_is_better: true
+  reference_models:
+    - PLS-tuned-cv5
+    - Ridge-tuned-cv5
+    - AOMRidge-global-compact-none
+    - AOMRidge-Blender-headline-spxy3
