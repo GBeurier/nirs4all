@@ -1,0 +1,38 @@
+# bench/scenarios/configs/aomridge_mbmkl_compact.yaml
+#
+# Owner: Agent C / MLOps Spine. Bound to registry entry
+# `AOMRidge-MultiBranchMKL-compact-shrink03`.
+# Status: SKELETON, sub-decision under D-C-010. DECISION_PENDING_CODEX_REVIEW.
+
+canonical_name: AOMRidge-MultiBranchMKL-compact-shrink03
+schema_version: 0.1.0
+codex_review_status: DECISION_PENDING_CODEX_REVIEW
+
+model:
+  pipeline:
+    - model:
+        class: aomridge.multi_branch_mkl.AOMMultiBranchMKL
+        params:
+          random_state: 0
+
+hyperparameter_search:
+  protocol: model_native
+  n_splits: null
+  param_grid: null
+
+dispatch:
+  n_jobs: 1
+  verbose: 0
+  timeout_s: 1800
+  pythonpath_prepend:
+    - bench/AOM_v0/Ridge
+    - bench/AOM_v0
+
+evidence_anchors:
+  primary_score: rmsep
+  primary_score_lower_is_better: true
+  reference_models:
+    - PLS-tuned-cv5
+    - Ridge-tuned-cv5
+    - AOMRidge-global-compact-none
+    - AOMRidge-MultiBranchMKL-compact-shrink03

@@ -1,0 +1,74 @@
+# bench/scenarios/configs/adaptive_super_learner_bigN_guarded.yaml
+#
+# Owner: Agent C / MLOps Spine. Bound to registry entry
+# `AdaptiveSuperLearner-bigN-guarded` (D-A-002 LOCKED in
+# bench/AOM_v0/multiview/docs/PHASE11_PARTIAL_RUN.md §3.1).
+# Status: SKELETON, sub-decision under D-C-010. DECISION_PENDING_CODEX_REVIEW.
+#
+# Phase-11 Adaptive Super Learner with the big-n atom-set guard active.
+#
+# Module path updated 2026-05-07 06:00 CEST per Agent A's 04:30 SYNC.
+# Param signature reconciled 2026-05-07 18:30 CEST per A's 17:55 smoke
+# bug report (AdaptiveSuperLearner has no `atom_guard` flag; `atoms`
+# expects a sequence of (name, estimator) tuples; `min_margin`, not
+# `recipe_min_margin`). The "bigN guard" semantics are encoded by
+# `huge_threshold` + a smaller `light_atoms` set (per docstring §252).
+#
+# This config provides a MINIMAL, RUNNABLE atom/light_atom set built
+# from sklearn primitives so the dispatcher contract holds. Agent A
+# (multiview owner) can replace the atoms with the canonical
+# {multiK-3-5-7, moe-preproc-soft, lazy-V2-AOM, AOM-PLS-compact} family
+# once those estimators are surfaced as importable Python classes; this
+# yaml is only the shape the harness expects.
+
+canonical_name: AdaptiveSuperLearner-bigN-guarded
+schema_version: 0.1.0
+codex_review_status: DECISION_PENDING_CODEX_REVIEW
+
+model:
+  pipeline:
+    - model:
+        class: bench.AOM_v0.multiview.multiview.super_learner.AdaptiveSuperLearner
+        params:
+          # `atoms` and `light_atoms` are sequence of (name, estimator) tuples.
+          # The harness's _materialize_value helper turns the {name, class, params}
+          # dicts below into proper tuples before the AdaptiveSuperLearner is
+          # instantiated.
+          atoms:
+            - {name: ridge_a1, class: sklearn.linear_model.Ridge, params: {alpha: 1.0, random_state: 0}}
+            - {name: pls_a8,   class: sklearn.cross_decomposition.PLSRegression, params: {n_components: 8}}
+            - {name: pls_a12,  class: sklearn.cross_decomposition.PLSRegression, params: {n_components: 12}}
+            - {name: pls_a16,  class: sklearn.cross_decomposition.PLSRegression, params: {n_components: 16}}
+          # bigN guard: when n_train >= huge_threshold, AdaptiveSuperLearner
+          # uses the lighter `light_atoms` set instead of `atoms`. Per the
+          # docstring at super_learner.py:260.
+          light_atoms:
+            - {name: ridge_light, class: sklearn.linear_model.Ridge, params: {alpha: 1.0, random_state: 0}}
+            - {name: pls_light,   class: sklearn.cross_decomposition.PLSRegression, params: {n_components: 8}}
+          huge_threshold: 3000
+          n_oof_folds: 5
+          min_margin: 0.005
+          calibrate: true
+          random_state: 0
+
+hyperparameter_search:
+  protocol: model_native
+  n_splits: null
+  param_grid: null
+
+dispatch:
+  n_jobs: 1
+  verbose: 0
+  timeout_s: 7200          # bigN-guarded run: per-atom budgets enforced internally
+  pythonpath_prepend:
+    - bench/AOM_v0/multiview
+    - bench/AOM_v0
+
+evidence_anchors:
+  primary_score: rmsep
+  primary_score_lower_is_better: true
+  reference_models:
+    - PLS-tuned-cv5
+    - AOMMultiView-MeanEnsemble4-fixed
+    - AdaptiveSuperLearner-recipe-nnls
+    - AdaptiveSuperLearner-bigN-guarded

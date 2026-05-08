@@ -1,0 +1,51 @@
+# bench/scenarios/configs/aomridge_local_compact_knn50.yaml
+#
+# Owner: Agent C / MLOps Spine. Companion config bound to registry entry
+# `AOMRidge-Local-compact-knn50` (canonical_name).
+#
+# Status: SKELETON, sub-decision under D-C-010. DECISION_PENDING_CODEX_REVIEW.
+#
+# Exercises the schema for an aomridge.* short-form import path. The dispatcher
+# will need `bench/AOM_v0/Ridge/` and `bench/AOM_v0/` on PYTHONPATH at startup
+# (the convention adopted in D-C-007 / D-A-007).
+
+canonical_name: AOMRidge-Local-compact-knn50
+schema_version: 0.1.0
+codex_review_status: DECISION_PENDING_CODEX_REVIEW
+
+model:
+  pipeline:
+    - model:
+        class: aomridge.local_ridge.AOMLocalRidge
+        params:
+          operator_bank: compact
+          k_grid: [50]            # canonical knn50 variant — single k for parity with master CSV label
+          distance_branches: ['none', 'snv', 'msc']
+          alpha_grid_size: 15
+          cv: 3
+          local_weight_beta: auto
+          block_scaling: none
+          center: true
+          random_state: 0
+
+hyperparameter_search:
+  protocol: model_native           # AOMLocalRidge runs its own inner CV per knn50 batch
+  n_splits: null
+  param_grid: null
+
+dispatch:
+  n_jobs: 1
+  verbose: 0
+  timeout_s: 1800                  # medium tier (~30 s .. 2 min/dataset on 4090 host)
+  pythonpath_prepend:
+    - bench/AOM_v0/Ridge           # provides aomridge.*
+    - bench/AOM_v0                 # provides aompls.* (aomridge runtime dependency)
+
+evidence_anchors:
+  primary_score: rmsep
+  primary_score_lower_is_better: true
+  reference_models:
+    - PLS-tuned-cv5
+    - Ridge-tuned-cv5
+    - AOMRidge-Local-compact-knn50  # self-reference
+    - ASLS-AOM-compact-cv5-numpy

@@ -1,0 +1,54 @@
+# bench/scenarios/configs/tabpfn_hpo_preprocessing.yaml
+#
+# Owner: Agent C / MLOps Spine. Bound to registry entry `TabPFN-HPO-preprocessing`.
+# Status: SKELETON, sub-decision under D-C-010. DECISION_PENDING_CODEX_REVIEW.
+#
+# TabPFN with grid search over a small set of standardisation strategies +
+# a 2-element n_estimators sweep. Mirrors the paper-baseline pattern that
+# dominates `bench/tabpfn_paper/`. Full preprocessing-HPO with spectral
+# corrections (SNV / MSC / SG) is out of scope for this skeleton — that
+# would require a dedicated YAML representation of the preprocessing
+# search space which is queued under D-C-006e (input-constraint + preproc
+# search contract, not yet on the decision board).
+
+canonical_name: TabPFN-HPO-preprocessing
+schema_version: 0.1.0
+codex_review_status: DECISION_PENDING_CODEX_REVIEW
+
+model:
+  pipeline:
+    - {class: sklearn.preprocessing.StandardScaler, params: {}}
+    - model:
+        class: tabpfn.TabPFNRegressor
+        params:
+          n_estimators: 8
+          softmax_temperature: 0.7
+          random_state: 0
+          device: cuda            # user directive 2026-05-05 19:40 CEST: NNs must run on GPU; RTX 4090 host
+          ignore_pretraining_limits: false
+
+hyperparameter_search:
+  protocol: kfold
+  n_splits: 3              # outer CV grid (preprocessing search proxy)
+  shuffle: true
+  random_state_offset: 0
+  param_grid:
+    model__n_estimators: [4, 8]
+    model__softmax_temperature: [0.7, 0.9]
+  scoring: neg_root_mean_squared_error
+  refit: true
+
+dispatch:
+  n_jobs: 1
+  verbose: 0
+  timeout_s: 7200        # very_slow tier; 4 grid combos × 3 folds × 1 fit ≈ 12 fits
+
+evidence_anchors:
+  primary_score: rmsep
+  primary_score_lower_is_better: true
+  reference_models:
+    - PLS-tuned-cv5
+    - Ridge-tuned-cv5
+    - TabPFN-Raw
+    - TabPFN-opt
+    - TabPFN-HPO-preprocessing

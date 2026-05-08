@@ -1,0 +1,59 @@
+# bench/scenarios/configs/asls_aom_compact_cv5.yaml
+#
+# Owner: Agent C / MLOps Spine. Companion config bound to registry entry
+# `ASLS-AOM-compact-cv5-numpy` (canonical_name).
+#
+# Status: SKELETON, sub-decision under D-C-010. DECISION_PENDING_CODEX_REVIEW.
+#
+# This template exercises the schema's nirs4all-native model section: the
+# inner step is a single `model:` keyword pointing at AOMPLSRegressor with
+# selection="asls" and a compact operator bank. nirs4all's PipelineRunner
+# handles the inner CV — `hyperparameter_search` is set to `protocol: model_native`
+# to flag the dispatcher that the inner CV is internal to the model and the
+# harness must NOT wrap a second GridSearchCV around it.
+
+canonical_name: ASLS-AOM-compact-cv5-numpy
+schema_version: 0.1.0
+codex_review_status: DECISION_PENDING_CODEX_REVIEW
+
+model:
+  pipeline:
+    # ASLSBaseline (asymmetric least-squares baseline correction) → AOMPLSRegressor.
+    # D-C-012 fix 2026-05-05 21:15 CEST: was nirs4all AOMPLSRegressor with
+    # invalid `selection: asls` (only `validation` implemented). The "ASLS"
+    # token in the canonical name refers to ASLSBaseline preprocessing per
+    # `bench/AOM_v0/aompls/preprocessing.py:198`.
+    - {class: aompls.preprocessing.ASLSBaseline, params: {lam: 1.0e6, p: 0.01}}
+    - model:
+        class: aompls.estimators.AOMPLSRegressor
+        params:
+          operator_bank: compact
+          engine: simpls_covariance
+          selection: global
+          criterion: cv
+          n_components: auto
+          max_components: 25
+          cv: 5                  # canonical "cv5" suffix: 5-fold inner CV
+          backend: numpy
+          random_state: 0
+
+hyperparameter_search:
+  protocol: model_native           # AOM-PLS handles its own inner CV; harness MUST NOT wrap it
+  n_splits: null                   # explicit: no harness-side outer search
+  param_grid: null
+
+dispatch:
+  n_jobs: 1
+  verbose: 0
+  timeout_s: 900                   # AOM-PLS-compact + 5-fold inner CV (~5x base fit cost)
+  pythonpath_prepend:
+    - bench/AOM_v0/Ridge
+    - bench/AOM_v0
+
+evidence_anchors:
+  primary_score: rmsep
+  primary_score_lower_is_better: true
+  reference_models:
+    - PLS-tuned-cv5
+    - Ridge-tuned-cv5
+    - ASLS-AOM-compact-cv5-numpy   # self-reference

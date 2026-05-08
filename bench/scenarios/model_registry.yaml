@@ -1,0 +1,746 @@
+# bench/scenarios/model_registry.yaml
+#
+# Owner: Agent C / MLOps Spine. Single edit point for the registry.
+# Status: SKELETON proposal — DECISION_PENDING_CODEX_REVIEW.
+# See bench/SYNC.md entry "2026-05-05 — Agent C-bootstrap — C1/C2/C3 skeletons".
+#
+# Each entry describes one canonical model usable inside scenario presets.
+# It is the only object the harness and exporter need to identify a model.
+# The registry never duplicates training code; the `module` and
+# `config_template` fields point at real Python and YAML.
+#
+# Schema (fields)
+# ---------------
+# canonical_name:        stable identifier; never change after publication.
+# aliases:               list of label strings observed in the master CSV
+#                        (`model_name`, `variant`, normalised forms).
+# model_class:           Python class name actually instantiated.
+# module:                Python import path of `model_class`.
+# config_template:       relative path of the YAML config consumed by the
+#                        harness when this model is dispatched. Path may
+#                        not exist yet for SKELETON entries; the harness
+#                        treats it as a placeholder until populated.
+# task_types:            subset of {regression, classification}.
+# input_constraints:     dict of gate values used by the exporter to
+#                        decide whether a model can run on a dataset.
+#                        Allowed keys: min_n, max_n, min_features,
+#                        max_features. Any key may be omitted.
+# supports_predefined_test_split: bool. If false, only k-fold cohorts are
+#                        allowed to dispatch this model.
+# inner_cv_nested:       bool. If false, harness MUST emit a warning and
+#                        the exporter excludes the entry from
+#                        `strong_practical` / `best_current`.
+# runtime_tier:          one of {fast, medium, slow, very_slow}.
+#                          fast        seconds .. ~1 min per (dataset, seed)
+#                          medium      few minutes
+#                          slow        ~30 min .. ~2 h
+#                          very_slow   multi-hour / overnight
+# maturity:              one of {locked, exploratory, legacy, oracle,
+#                        local_not_master}. MUST match the dominant tag of
+#                        the model's rows in `bench/benchmark_master_results.csv`.
+# notes:                 short free-text comment with caveats / coverage /
+#                        gates / Codex IDs.
+# not_runnable_in_production: optional bool, default false. When true, the
+#                        entry exists only to surface paper-baseline /
+#                        archival evidence in scenario manifests; the
+#                        harness MUST refuse to dispatch it (the exporter
+#                        also flags such candidates so consumers can skip
+#                        them in run-time loops). Used for paper-only
+#                        reference rows (CNN, CatBoost) that have RMSEP
+#                        evidence in `paper_master_pivot` but no
+#                        runnable Python implementation in the repo.
+#
+# DECISION_PENDING_CODEX_REVIEW (D-C-004)
+#   Codex must validate:
+#     a) the schema above (field names, types, allowed values),
+#     b) the runtime_tier ladder cutoffs,
+#     c) which entries belong in `strong_practical` vs `best_current`
+#        before nested-audit verdicts (D-A-001 / D-A-002).
+
+schema_version: 0.1.0
+generated_on: 2026-05-05
+generated_by: bench/scenarios/model_registry.yaml (manually curated SKELETON)
+codex_review_status: DECISION_PENDING_CODEX_REVIEW
+
+# ---------------------------------------------------------------------------
+# A. SENTINELS — anchors for every preset.
+# ---------------------------------------------------------------------------
+
+models:
+
+  - canonical_name: PLS-tuned-cv5
+    aliases:
+      - PLS-Tuned
+      - PLS-standard
+      - PLS-standard-numpy
+      - PLS-baseline
+      - PLS-Baseline
+      - PLSRegression
+    model_class: PLSRegression
+    module: sklearn.cross_decomposition
+    config_template: bench/scenarios/configs/pls_tuned_cv5.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 10}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: fast
+    maturity: locked
+    notes: |
+      Anchor: every preset includes a tuned PLS as denominator for
+      `score_ratio_vs_source_run_pls`. n_components selected by 5-fold CV.
+
+  - canonical_name: Ridge-tuned-cv5
+    aliases:
+      - Ridge
+      - Ridge-baseline
+      - Ridge-raw
+      - Ridge-raw-stdscale
+      - ridge-cv5
+    model_class: Ridge
+    module: sklearn.linear_model
+    config_template: bench/scenarios/configs/ridge_tuned_cv5.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 10}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: fast
+    maturity: locked
+
+# ---------------------------------------------------------------------------
+# B. AOM-PLS family — A1 P1 priority. Owner: Agent A.
+# ---------------------------------------------------------------------------
+
+  - canonical_name: ASLS-AOM-compact-cv5-numpy
+    aliases:
+      - ASLS-AOM-compact-cv5
+      - ASLS_AOM_compact_cv5
+      - asls-aom-compact-cv5
+      - ASLS-AOM-compact-cv5-numpy
+    model_class: AOMPLSRegressor
+    module: aompls.estimators
+    config_template: bench/scenarios/configs/asls_aom_compact_cv5.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30, min_features: 20}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: fast
+    maturity: locked
+    notes: |
+      AOM_v0 champion: median 0.960 rel-RMSEP, ~42/57 wins vs PLS-std.
+      HPO does not improve median (cf. AOM_v0/Summary §6).
+
+  - canonical_name: AOM-PLS-compact-numpy
+    aliases:
+      - AOM-PLS-compact-numpy
+      - AOM-compact-simpls-covariance-numpy
+      - AOM-compact-cv3-numpy
+      - AOM-compact-press-numpy
+      - nirs4all-AOM-PLS-default
+    model_class: AOMPLSRegressor
+    module: aompls.estimators
+    config_template: bench/scenarios/configs/aom_pls_compact_numpy.yaml
+    task_types: [regression, classification]
+    input_constraints: {min_n: 20}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: fast
+    maturity: locked
+
+  - canonical_name: AOM-default-nipals-adjoint-numpy
+    aliases:
+      - AOM-default-nipals-adjoint-numpy
+      - AOM-default-simpls-covariance-numpy
+    model_class: AOMPLSRegressor
+    module: aompls.estimators
+    config_template: bench/scenarios/configs/aom_default_numpy.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: fast
+    maturity: locked
+
+  - canonical_name: POP-PLS-compact-numpy
+    aliases:
+      - POP-PLS-compact
+      - nirs4all-POP-PLS-default
+      - POP-simpls-covariance-numpy
+      - POP-nipals-adjoint-numpy
+    model_class: POPPLSRegressor
+    module: nirs4all.operators.models.sklearn.pop_pls
+    config_template: bench/scenarios/configs/pop_pls_compact_numpy.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: fast
+    maturity: locked
+    notes: "Slated for unification with AOM-PLS per AOM/ROADMAP M1."
+
+# ---------------------------------------------------------------------------
+# C. AOM-Ridge family — strong_practical / best_current candidates.
+# ---------------------------------------------------------------------------
+
+  - canonical_name: AOMRidge-global-compact-none
+    aliases:
+      - AOMRidge-global-compact-none
+      - aom-ridge-global-compact
+      - AOMRidge-compact
+    model_class: AOMRidgeRegressor
+    module: aomridge.estimators
+    config_template: bench/scenarios/configs/aomridge_global_compact_none.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30, max_n: 3000}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: medium
+    maturity: locked
+    notes: |
+      Kernel ridge (n×n) — OOM risk when n_train > 3000. For larger
+      cohorts use AOMRidge-Local-compact-knn50.
+
+  - canonical_name: AOMRidge-global-compact-snv
+    aliases:
+      - AOMRidge-global-compact-none-snv
+    model_class: AOMRidgeRegressor
+    module: aomridge.estimators
+    config_template: bench/scenarios/configs/aomridge_global_compact_snv.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30, max_n: 3000}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: medium
+    maturity: locked
+
+  - canonical_name: AOMRidge-Local-compact-knn50
+    aliases:
+      - AOMRidge-Local-compact-knn50
+      - AOMRidge-Local-compact-cv-blended
+    model_class: AOMLocalRidge
+    module: aomridge.local_ridge
+    config_template: bench/scenarios/configs/aomridge_local_compact_knn50.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 50}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: medium
+    maturity: locked
+    notes: "k-NN local kernel; safe for n_train > 3000."
+
+  - canonical_name: AOMRidge-MultiBranchMKL-compact-shrink03
+    aliases:
+      - AOMRidge-MultiBranchMKL-compact-shrink03
+    model_class: AOMMultiBranchMKL
+    module: aomridge.multi_branch_mkl
+    config_template: bench/scenarios/configs/aomridge_mbmkl_compact.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 50, max_n: 3000}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: slow
+    maturity: locked
+
+  - canonical_name: AOMRidge-Blender-headline-spxy3
+    aliases:
+      - AOMRidge-Blender-headline-spxy3
+    model_class: AOMRidgeBlender
+    module: aomridge.blender
+    config_template: bench/scenarios/configs/aomridge_blender_headline_spxy3.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30, max_n: 3000}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: slow
+    maturity: exploratory
+    notes: |
+      Pending A2 nested audit (D-A-001) and ≥3-seed multi-seed rerun
+      before promotion to `strong_practical`. 128 source rows, 53
+      datasets, single seed=0 in master.
+
+  - canonical_name: AOMRidge-AutoSelect-headline-spxy3
+    aliases:
+      - AOMRidge-AutoSelect-headline-spxy3
+    model_class: AOMRidgeAutoSelector
+    module: aomridge.auto_selector
+    config_template: bench/scenarios/configs/aomridge_autoselect_headline_spxy3.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30, max_n: 3000}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: slow
+    maturity: exploratory
+    notes: |
+      Same audit gate as AOMRidge-Blender. 117 source rows, 53 datasets.
+
+# ---------------------------------------------------------------------------
+# D. Multi-kernel ridge family — observed but secondary.
+# ---------------------------------------------------------------------------
+
+  - canonical_name: MKM-reml-default
+    aliases:
+      - MKM-reml
+      - MKM-reml-asls
+      - MKM-reml-msc
+    model_class: MKMRegressor
+    module: bench.AOM_v0.Multi-kernel.estimators
+    config_template: bench/scenarios/configs/mkm_reml_default.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30, max_n: 3000}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: medium
+    maturity: locked
+    notes: |
+      `module` path uses a hyphen; harness must quote-and-escape it.
+      Locked but ranked below AOM-Ridge for `strong_practical`.
+
+  - canonical_name: mkR-softmax-cv-default
+    aliases:
+      - mkR-softmax_cv
+      - mkR-softmax_cv-snv
+    model_class: SoftmaxCVMultiKernelRidge
+    module: bench.AOM_v0.Multi-kernel.estimators
+    config_template: bench/scenarios/configs/mkr_softmax_cv_default.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30, max_n: 3000}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: medium
+    maturity: locked
+
+# ---------------------------------------------------------------------------
+# E. TabPFN family — strong_practical / best_current / exhaustive only.
+# ---------------------------------------------------------------------------
+
+  - canonical_name: TabPFN-Raw
+    aliases:
+      - TabPFN-Raw
+      - TabPFN-raw
+      - tabpfn-raw
+    model_class: TabPFNRegressor
+    module: tabpfn
+    config_template: bench/scenarios/configs/tabpfn_raw.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 10, max_n: 5000, max_features: 1000}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: medium
+    maturity: locked
+    notes: |
+      Hard gate from plan §9.2: n_train <= 5000, n_features <= 1000.
+
+  - canonical_name: TabPFN-opt
+    aliases:
+      - TabPFN-opt
+      - tabpfn-opt
+    model_class: TabPFNRegressor
+    module: tabpfn
+    config_template: bench/scenarios/configs/tabpfn_opt.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 10, max_n: 5000, max_features: 1000}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: slow
+    maturity: locked
+
+  - canonical_name: TabPFN-HPO-preprocessing
+    aliases:
+      - TabPFN-HPO-preprocessing
+      - tabpfn-hpo-preprocessing
+    model_class: TabPFNRegressor
+    module: tabpfn
+    config_template: bench/scenarios/configs/tabpfn_hpo_preprocessing.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 10, max_n: 5000, max_features: 1000}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: very_slow
+    maturity: locked
+    notes: |
+      Strongest paper baseline (`tabpfn_paper/table_results_tabpfn_final_light.csv`).
+      Requires explicit preprocessing budget + rationale per plan §9.3.
+
+# ---------------------------------------------------------------------------
+# F. Multiview / MoE / ensembles — `best_current` candidates after gates.
+# ---------------------------------------------------------------------------
+
+  - canonical_name: moe-preproc-soft-pls-compact
+    aliases:
+      - moe-preproc-soft-pls-compact
+    model_class: MoEPreprocSoftPLS
+    module: bench.AOM_v0.multiview.estimators
+    config_template: bench/scenarios/configs/moe_preproc_soft_pls_compact.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: medium
+    maturity: locked
+    notes: "47/61 vs PLS-std (multiview/docs/SUMMARY §6)."
+
+  - canonical_name: AOMMultiView-MeanEnsemble4-fixed
+    aliases:
+      - mean-ensemble-4-fixed
+    model_class: AOMMeanEnsemble
+    module: bench.AOM_v0.multiview.estimators
+    config_template: bench/scenarios/configs/mean_ensemble_4.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: false
+    runtime_tier: medium
+    maturity: locked
+    notes: |
+      Equal-weight average of 4 bases. inner_cv_nested=false because the
+      ensemble does not fit a meta on Y; exporter must keep it out of
+      `strong_practical` per the gating rule.
+
+  - canonical_name: AdaptiveSuperLearner-recipe-nnls
+    aliases:
+      - adaptive-super-learner
+      - AdaptiveSuperLearner
+    model_class: AdaptiveSuperLearner
+    module: bench.AOM_v0.multiview.multiview.super_learner
+    config_template: bench/scenarios/configs/adaptive_super_learner.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30, max_n: 3000}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: very_slow
+    maturity: exploratory
+    notes: |
+      Phase-11 partial 38/61, full atom set. Use only for n_train <= 3000.
+      For n_train > 3000 see `AdaptiveSuperLearner-bigN-guarded` (D-A-002).
+      Promotion blocked until completion run lands and rule in
+      build_benchmark_synthesis.assign_maturity is updated.
+
+  - canonical_name: AdaptiveSuperLearner-bigN-guarded
+    aliases:
+      - adaptive-super-learner-bigN-guarded
+    model_class: AdaptiveSuperLearner
+    module: bench.AOM_v0.multiview.multiview.super_learner
+    config_template: bench/scenarios/configs/adaptive_super_learner_bigN_guarded.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 3001}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: slow
+    maturity: exploratory
+    notes: |
+      Phase-11 ASL with atom-set guard active. Drops AOM-PLS-compact and
+      lazy-V2-AOM from the NNLS atom pool; keeps {multiK-3-5-7,
+      moe-preproc-soft}. Use only for n_train > 3000 datasets. Result
+      rows are tagged `extras.atom_guard=true` so the synthesis can keep
+      them out of the apples-to-apples comparison with the unguarded
+      ASL. Source: D-A-002 LOCKED in
+      `bench/AOM_v0/multiview/docs/PHASE11_PARTIAL_RUN.md` §3.1.
+
+# ---------------------------------------------------------------------------
+# G. Hybrid stacking / residual NN — Agent B owner; gated.
+# ---------------------------------------------------------------------------
+
+  - canonical_name: Stack-Ridge-PLS-V1c
+    aliases:
+      - Stack-Ridge-PLS
+      - Stack-Ridge-PLS-V1c
+      - Stack-Ridge-PLS-V1aHead
+    model_class: StackRidgePLS
+    module: bench.nicon_v2.stack
+    config_template: bench/scenarios/configs/stack_ridge_pls_v1c.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: slow
+    maturity: locked
+    notes: "Hybrid CNN+linear stack. Pending B's residual gate."
+
+  - canonical_name: V2L-Residual-AOMPLS
+    aliases:
+      - V2L-Residual-AOMPLS
+    model_class: V2LResidualAOMPLS
+    module: bench.nicon_v2.residual
+    config_template: bench/scenarios/configs/v2l_residual_aompls.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: very_slow
+    maturity: locked
+    notes: |
+      r20_curated_oof: 39/39, single seed. r21 multiseed gating per
+      Agent B's D-B-002. Locked here pending B1 OOF cleanness audit.
+
+  - canonical_name: V2L-Boost-AOMPLS
+    aliases:
+      - V2L-Boost-AOMPLS
+    model_class: V2LBoostAOMPLS
+    module: bench.nicon_v2.residual
+    config_template: bench/scenarios/configs/v2l_boost_aompls.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: very_slow
+    maturity: locked
+
+# ---------------------------------------------------------------------------
+# G2. FCK family (static bank). exhaustive_research only — D-B-011 LOCKED
+#     (Codex round 3 NO-GO for promotion). Module class is the final
+#     estimator (AOMPLSRegressor / PLSRegression); the FCK preprocessing
+#     lives in the config_template's pipeline.
+# ---------------------------------------------------------------------------
+
+  - canonical_name: FCK-AOMPLS-static
+    aliases:
+      - FCK-AOMPLS
+      - fck-aompls
+    model_class: AOMPLSRegressor
+    module: nirs4all.operators.models.sklearn.aom_pls
+    config_template: bench/scenarios/configs/fck_aompls_static.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: medium
+    maturity: exploratory
+    notes: |
+      D-B-011 NO-GO for promotion (Codex round 3 APPROVE 2026-05-05).
+      Median +12.6 % vs aom_ridge_curated_best on audit20; q90 +57.1 %;
+      worst +102.7 %. Beats paper CNN by median −5.5 % (9/17 wins) and
+      ties paper CatBoost (10/20 wins). exhaustive_research only.
+
+  - canonical_name: FCK-PLS-static
+    aliases:
+      - FCK-PLS
+      - fck-pls
+    model_class: PLSRegression
+    module: sklearn.cross_decomposition
+    config_template: bench/scenarios/configs/fck_pls_static.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 20}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: medium
+    maturity: exploratory
+    notes: |
+      D-B-011 NO-GO. Median +19.4 % vs aom_ridge_curated_best on audit20.
+      Quartz_spxy70 outlier at +11072.7 % flagged in Codex round 3 §5.
+      exhaustive_research only.
+
+  - canonical_name: Concat-SNV-FCK-AOMPLS-static
+    aliases:
+      - Concat-SNV-FCK-AOMPLS
+      - concat-snv-fck-aompls
+    model_class: AOMPLSRegressor
+    module: nirs4all.operators.models.sklearn.aom_pls
+    config_template: bench/scenarios/configs/concat_snv_fck_aompls_static.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: slow
+    maturity: exploratory
+    notes: |
+      D-B-011 NO-GO. AOM-Ridge deltas worse than FCK-AOMPLS-static
+      (+13.8 % median, +98.5 % q90, +159.5 % worst, 1/15 wins) but
+      absolute median rmsep beats PLS-baseline by +15.92 %, the largest
+      cohort improvement among FCK pipelines. exhaustive_research only.
+
+  - canonical_name: AOMPLS-compact-with-fck-full57
+    aliases:
+      - aompls_compact_with_fck
+      - AOMPLS-compact-with-fck
+      - AOMPLS-compact-with-fck-audit20  # superseded by full57 lock; keep as alias
+    model_class: AOMPLSRegressor
+    module: aompls.estimators
+    config_template: bench/scenarios/configs/aompls_compact_with_fck_full57.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: medium
+    maturity: exploratory
+    notes: |
+      D-B-015 LOCKED 2026-05-07 (Codex round 6 APPROVE; supersedes
+      D-B-014 audit20 lock). FCK kernels integrated into AOM-PLS bank:
+      9 compact ops + 8 FCK ops = 17 total. FCK selected on 17/57
+      datasets (29.8 %) in full-57. Strict §3.3 gate FAILS: median
+      +8.7 % vs aom_ridge_curated_best (gate ≤ +5 %), q90 +35.8 %
+      (gate ≤ +25 %), worst +136.6 % (gate ≤ +75 %). Paper-CNN scoped
+      claim: median −5.5 %, 28/48 wins (58 %, below 75 % science gate).
+      exhaustive_research only; do NOT promote.
+      Evidence:
+        bench/fck_pls/runs/aom_with_fck_fast12/results.csv (n=12)
+        bench/fck_pls/runs/aom_with_fck_audit20/results.csv (n=20)
+        bench/fck_pls/runs/aom_with_fck_full57/results.csv (n=57)
+
+  - canonical_name: ASLS-FCK-PLS-static
+    aliases:
+      - ASLS-FCK-PLS
+      - asls-fck-pls
+    model_class: PLSRegression
+    module: sklearn.cross_decomposition
+    config_template: bench/scenarios/configs/asls_fck_pls_static.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: medium
+    maturity: exploratory
+    notes: |
+      D-B-011 NO-GO. fast12-only evidence; audit20 / full-57 not run
+      (Codex round 3 §4 caveat). SNV step is a placeholder pending B's
+      ASLS preprocessor. exhaustive_research only.
+
+# ---------------------------------------------------------------------------
+# H. Reference / paper-only entries — informational.
+# ---------------------------------------------------------------------------
+
+  - canonical_name: paper-CNN-reference
+    aliases:
+      - CNN
+    model_class: PaperCNNReference
+    module: bench.tabpfn_paper.reference
+    config_template: bench/scenarios/configs/paper_cnn_reference.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: false
+    runtime_tier: very_slow
+    maturity: locked
+    not_runnable_in_production: true
+    notes: |
+      Paper reference column from master_pivot.csv. Not runnable in this
+      registry; kept for leaderboard inclusion. Harness must refuse to
+      dispatch.
+
+  - canonical_name: paper-CatBoost-reference
+    aliases:
+      - Catboost
+    model_class: PaperCatBoostReference
+    module: bench.tabpfn_paper.reference
+    config_template: bench/scenarios/configs/paper_catboost_reference.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: false
+    runtime_tier: medium
+    maturity: locked
+    not_runnable_in_production: true
+    notes: "Paper reference; not runnable in this registry. Harness must refuse to dispatch."
+
+# ---------------------------------------------------------------------------
+# Cohort definitions consumed by the exporter / harness
+# ---------------------------------------------------------------------------
+
+cohorts:
+  - name: fast12_transfer_core
+    purpose: smoke gate
+    source: bench/Subset_analysis/RETHOUGHT_SUBSETS.md
+    n_datasets: 12
+
+  - name: audit20_transfer_core
+    purpose: audit gate
+    source: bench/Subset_analysis/RETHOUGHT_SUBSETS.md
+    n_datasets: 20
+
+  - name: full57
+    purpose: production claim
+    source: bench/AOM_v0/multiview/results/full57.csv (61-dataset variant)
+    n_datasets: 57
+
+# ---------------------------------------------------------------------------
+# Preset membership (reference; the authoritative manifest is the JSON
+# emitted by bench/export_benchmark_scenarios.py).
+# ---------------------------------------------------------------------------
+
+presets:
+  fast_reliable:
+    description: "Seconds to a few minutes; no TabPFN, no multiview, no NN."
+    members:
+      - PLS-tuned-cv5
+      - Ridge-tuned-cv5
+      - ASLS-AOM-compact-cv5-numpy
+      - AOM-PLS-compact-numpy
+      - AOMRidge-global-compact-none
+      - AOMRidge-global-compact-snv
+    runtime_tier_max: fast
+    maturity_min: locked
+
+  strong_practical:
+    description: "Minutes to <1h; TabPFN gated by (n<=5000, p<=1000)."
+    members:
+      - PLS-tuned-cv5
+      - Ridge-tuned-cv5
+      - ASLS-AOM-compact-cv5-numpy
+      - AOM-PLS-compact-numpy
+      - AOMRidge-global-compact-none
+      - AOMRidge-global-compact-snv
+      - AOMRidge-Local-compact-knn50
+      - TabPFN-Raw
+      - TabPFN-opt
+      # AOMRidge-Blender-headline-spxy3 / AutoSelect-headline-spxy3 enter
+      # only after D-A-001 nested-audit verdict + multi-seed.
+    runtime_tier_max: slow
+    maturity_min: locked
+
+  best_current:
+    description: "1-3h; multi-strategy mix with explicit gates."
+    members:
+      - PLS-tuned-cv5
+      - Ridge-tuned-cv5
+      - ASLS-AOM-compact-cv5-numpy
+      - AOM-PLS-compact-numpy
+      - AOMRidge-global-compact-none
+      - AOMRidge-global-compact-snv
+      - AOMRidge-Local-compact-knn50
+      - AOMRidge-MultiBranchMKL-compact-shrink03
+      - MKM-reml-default
+      - mkR-softmax-cv-default
+      - moe-preproc-soft-pls-compact
+      - AOMMultiView-MeanEnsemble4-fixed
+      - TabPFN-Raw
+      - TabPFN-opt
+      - TabPFN-HPO-preprocessing
+      # AdaptiveSuperLearner-recipe-nnls and V2L-Residual-AOMPLS enter
+      # only after their respective gates land.
+    runtime_tier_max: very_slow
+    maturity_min: locked
+
+  exhaustive_research:
+    description: "Multi-hour overnight; explicit `exploratory` rows allowed."
+    members:
+      - PLS-tuned-cv5
+      - Ridge-tuned-cv5
+      - ASLS-AOM-compact-cv5-numpy
+      - AOM-PLS-compact-numpy
+      - AOM-default-nipals-adjoint-numpy
+      - POP-PLS-compact-numpy
+      - AOMRidge-global-compact-none
+      - AOMRidge-global-compact-snv
+      - AOMRidge-Local-compact-knn50
+      - AOMRidge-MultiBranchMKL-compact-shrink03
+      - AOMRidge-Blender-headline-spxy3
+      - AOMRidge-AutoSelect-headline-spxy3
+      - MKM-reml-default
+      - mkR-softmax-cv-default
+      - moe-preproc-soft-pls-compact
+      - AOMMultiView-MeanEnsemble4-fixed
+      - AdaptiveSuperLearner-recipe-nnls
+      - AdaptiveSuperLearner-bigN-guarded
+      - TabPFN-Raw
+      - TabPFN-opt
+      - TabPFN-HPO-preprocessing
+      - Stack-Ridge-PLS-V1c
+      - V2L-Residual-AOMPLS
+      - V2L-Boost-AOMPLS
+      - FCK-AOMPLS-static
+      - FCK-PLS-static
+      - Concat-SNV-FCK-AOMPLS-static
+      - ASLS-FCK-PLS-static
+      - AOMPLS-compact-with-fck-full57
+      - paper-CNN-reference
+      - paper-CatBoost-reference
+    runtime_tier_max: very_slow
+    maturity_min: exploratory

@@ -1,0 +1,45 @@
+# bench/scenarios/configs/fck_aompls_static.yaml
+#
+# Owner: Agent C / MLOps Spine. Bound to registry entry `FCK-AOMPLS-static`.
+# Status: SKELETON, sub-decision under D-C-010. DECISION_PENDING_CODEX_REVIEW.
+#
+# Pipeline = FCKStaticTransformer (16-filter bank, classical land — no torch
+# dependency) → AOMPLSRegressor. Provenance: D-B-011 NO-GO verdict approved
+# by Codex round 3 (2026-05-05). FCK-AOMPLS is `exhaustive_research` only;
+# audit20 evidence shows median +12.6 % vs aom_ridge_curated_best, q90 +57.1 %,
+# worst +102.7 % (all over the §3.3 strict thresholds), but the pipeline beats
+# paper CNN by median −5.5 % and ties paper CatBoost / TabPFN-raw on the same
+# cohort, so it is kept for ensemble diversity.
+
+canonical_name: FCK-AOMPLS-static
+schema_version: 0.1.0
+codex_review_status: DECISION_PENDING_CODEX_REVIEW
+
+model:
+  pipeline:
+    - {class: nirs4all.operators.transforms.fck_static.FCKStaticTransformer, params: {}}
+    - model:
+        class: nirs4all.operators.models.sklearn.aom_pls.AOMPLSRegressor
+        params:
+          n_components: 15
+          gate: hard
+          random_state: 0
+
+hyperparameter_search:
+  protocol: model_native
+  n_splits: null
+  param_grid: null
+
+dispatch:
+  n_jobs: 1
+  verbose: 0
+  timeout_s: 1800
+
+evidence_anchors:
+  primary_score: rmsep
+  primary_score_lower_is_better: true
+  reference_models:
+    - PLS-tuned-cv5
+    - Ridge-tuned-cv5
+    - AOMRidge-global-compact-none
+    - FCK-AOMPLS-static
