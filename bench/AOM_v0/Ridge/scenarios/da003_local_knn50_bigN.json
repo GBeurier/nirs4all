@@ -1,0 +1,29 @@
+{
+  "schema_version": "0.1.0",
+  "preset": "d_a_003_local_knn50_bigN",
+  "description": "Derived manifest for D-A-003 AOMRidge-Local-knn50 completion run on the registry-strict big-n cohort (n_train > 3000). Cohort = 4 datasets (Chla+b_spxyG_species n=3734, LUCAS_SOC_Cropland_8731 n=6111, LUCAS_SOC_all_26650 n=13325, LMA_spxyG_block2deg n=39225). Target-only manifest per Codex round-9 verdict (SYNC 2026-05-07 17:50). GO immediately. Seeds 0/1/2.",
+  "generated_on": "2026-05-07T17:55:00+02:00",
+  "generated_by": "agent-A (D-A-003 launch, post Codex round-9 ratification)",
+  "registry_source": "bench/scenarios/model_registry.yaml",
+  "runtime_tier_max": "medium",
+  "maturity_min": "locked",
+  "cohort_size_assumed": 4,
+  "missing_registry_entries": [],
+  "candidates": [
+    {
+      "canonical_name": "AOMRidge-Local-compact-knn50",
+      "aliases": ["AOMRidge-Local-compact-knn50", "AOMRidge-Local-compact-cv-blended"],
+      "model_class": "AOMLocalRidge",
+      "module": "aomridge.local_ridge",
+      "config_template": "bench/scenarios/configs/aomridge_local_compact_knn50.yaml",
+      "task_types": ["regression"],
+      "input_constraints": {"min_n": 50},
+      "supports_predefined_test_split": true,
+      "inner_cv_nested": true,
+      "runtime_tier": "medium",
+      "maturity": "locked",
+      "not_runnable_in_production": false,
+      "notes": "k-NN local kernel; completion run on big-n datasets (n_train > 3000)."
+    }
+  ]
+}

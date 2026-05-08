@@ -733,6 +733,16 @@ def _run_variant(
         cv_obj = make_inner_cv(
             detected_split_kind, n_splits=cv_splits, random_state=seed,
         )
+    # D-A-008 guard: selector variants (auto_select, blender, residual_tabpfn)
+    # run their own outer-CV inside fit; declaring variant-level branch_preproc
+    # would prefit the preprocessor on full Xtr and leak across selector folds.
+    # See HEADLINE_SPXY3_NESTED_AUDIT.md §10.
+    from aomridge.guards import check_no_selector_branch_leak
+    check_no_selector_branch_leak(
+        label=variant.label,
+        selection=variant.selection,
+        branch_preproc=variant.branch_preproc,
+    )
     # Optional row-wise NIRS preproc (SNV / MSC / OSC / ASLS / EMSC) applied
     # outside the estimator. Stateless preprocs (SNV) are fully fold-safe;
     # stateful ones (MSC reference, OSC fit) are computed on the full train
