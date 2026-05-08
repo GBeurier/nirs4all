@@ -1,0 +1,17 @@
+{
+  "per_model_vs_pls_wilcoxon": {
+    "AdaptiveSuperLearner-bigN-guarded": {
+      "wilcoxon": {
+        "error": "insufficient_pairs",
+        "n_pairs": 0
+      },
+      "bootstrap_ci": {
+        "error": "empty"
+      }
+    }
+  },
+  "friedman": {
+    "error": "insufficient_datasets",
+    "n_datasets": 4
+  }
+}
