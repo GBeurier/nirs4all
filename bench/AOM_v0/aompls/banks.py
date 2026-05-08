@@ -226,6 +226,36 @@ def response_dedup_default(
     )
 
 
+def fck_compact_bank(p: Optional[int] = None) -> List[LinearSpectralOperator]:
+    """Compact FCK-only operator pool.
+
+    Eight FCK kernels covering ``alpha in {0.5, 1.0, 1.5, 2.0}`` ×
+    ``scale in {1, 2}`` at a single ``kernel_size = 31`` and
+    ``sigma = 3.0``. Designed to be added on top of the standard
+    ``compact_bank`` to give AOM-PLS a fractional-derivative vocabulary
+    without exploding the bank size.
+    """
+    from .operators import FCKOperator
+
+    return [
+        FCKOperator(alpha=alpha, scale=scale, kernel_size=31, sigma=3.0, p=p)
+        for alpha in (0.5, 1.0, 1.5, 2.0)
+        for scale in (1.0, 2.0)
+    ]
+
+
+def compact_with_fck_bank(p: Optional[int] = None) -> List[LinearSpectralOperator]:
+    """``compact_bank`` augmented with the eight FCK kernels.
+
+    9 compact entries + 8 FCK = 17 operators. AOM-PLS's per-component
+    selector picks dynamically between SG smoothers / SG derivatives /
+    detrend projections / finite-difference / FCK fractional derivatives.
+    Use this bank to test whether FCK pulls weight as a complement to
+    the classical AOM operators.
+    """
+    return compact_bank(p) + fck_compact_bank(p)
+
+
 def bank_by_name(name: str, p: Optional[int] = None) -> List[LinearSpectralOperator]:
     """Resolve a bank preset by name."""
     name = name.lower()
@@ -245,6 +275,10 @@ def bank_by_name(name: str, p: Optional[int] = None) -> List[LinearSpectralOpera
         return family_pruned_default(p=p, max_per_family=2)
     if name == "response_dedup":
         return response_dedup_default(p=p, cosine_threshold=0.995)
+    if name == "compact_with_fck":
+        return compact_with_fck_bank(p)
+    if name == "fck_compact":
+        return fck_compact_bank(p)
     raise ValueError(f"unknown bank preset: {name!r}")
 
 

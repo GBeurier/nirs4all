@@ -121,6 +121,9 @@ RESULT_COLUMNS = [
     "cuda_version",
     "git_sha",
     "host",
+    # R21 — shrinkage CV diagnostics. NaN / empty for variants without shrinkage.
+    "shrinkage_s_star",
+    "catastrophic",
 ]
 
 
@@ -604,6 +607,24 @@ PHASE_V2_R20_FINAL: tuple[Variant, ...] = (
                    "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
                    "boost_signal_dim": 1, "pls_boost_teacher": "aompls_extended",
                    "pls_boost_oof": True, "pls_oof_n_folds": 5}),
+)
+
+
+# Round 21 — multiseed validation of V2L-Residual-AOMPLS with shrinkage CV.
+# Adds inner-CV shrinkage selection (s ∈ {0, 0.25, 0.5, 0.75, 1.0}) on the
+# val partition, with s=0 acting as a do-no-harm teacher-only fallback. The
+# `catastrophic` flag is set when final test rmse exceeds the teacher-only
+# rmse by more than `shrinkage_catastrophic_threshold` (default +50 %).
+# 39 datasets × 5 seeds × 1 variant. Baselines reused from r20.
+PHASE_V2_R21_MULTISEED: tuple[Variant, ...] = (
+    Variant("V2L-Residual-AOMPLS-shrinkage", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "pls_residual_teacher": "aompls_extended",
+                   "pls_residual_oof": True, "pls_oof_n_folds": 5,
+                   "shrinkage_cv": True,
+                   "shrinkage_grid": (0.0, 0.25, 0.5, 0.75, 1.0),
+                   "shrinkage_catastrophic_threshold": 0.5}),
 )
 
 
@@ -1132,6 +1153,8 @@ def _run_torch_cnn(
         "pls_boost_teacher",
         # R19 — OOF teacher prediction toggle (Codex round-13 fix).
         "pls_residual_oof", "pls_boost_oof", "pls_oof_n_folds",
+        # R21 — shrinkage CV for V2L-Residual-AOMPLS (do-no-harm gate).
+        "shrinkage_cv", "shrinkage_grid", "shrinkage_catastrophic_threshold",
     }
     builder_params = {k: v for k, v in (extra_options or {}).items()
                       if not k.startswith("_") and k not in _NON_BUILDER_KEYS}
@@ -1273,9 +1296,60 @@ def _run_torch_cnn(
     pred_time = time.time() - t0
     pred = y_proc.inverse_transform(pred_scaled)
     # R17 C — add the teacher's test-time prediction back to obtain the final ŷ.
+    # R21 — optional shrinkage CV: replace the implicit s=1 add-back with
+    # `pred = z_test + s* * nn_residual_test`, where ``s*`` is selected by
+    # held-out RMSE on the same val partition used for early-stopping
+    # (re-derived deterministically from the seed). ``s = 0`` is always in
+    # the grid as a teacher-only fallback.
+    s_star: float | None = None
+    inner_cv_rmse_per_s: dict[str, float] | None = None
+    catastrophic_flag: bool = False
+    teacher_test_rmse_for_diag: float | None = None
     if pls_residual_teacher is not None:
         z_test_raw = np.asarray(pls_residual_teacher.predict(X_test), dtype=float).ravel()
-        pred = pred + z_test_raw
+        shrinkage_enabled = bool((extra_options or {}).get("shrinkage_cv", False))
+        if shrinkage_enabled:
+            grid_raw = (extra_options or {}).get(
+                "shrinkage_grid", (0.0, 0.25, 0.5, 0.75, 1.0)
+            )
+            grid = tuple(float(s) for s in grid_raw)
+            n_train_local = X_train_s.shape[0]
+            rng_split = np.random.default_rng(seed)
+            shuffled = rng_split.permutation(n_train_local)
+            n_val_local = max(1, int(round(config.val_fraction * n_train_local)))
+            val_idx_local = shuffled[:n_val_local]
+            # CNN inference on the held-out val partition (residual-scale).
+            X_val_s = X_train_s[val_idx_local]
+            nn_val_scaled = predict_torch_regressor(model, X_val_s, device=device)
+            nn_val_residual = y_proc.inverse_transform(nn_val_scaled)
+            y_val_orig = np.asarray(y_train, dtype=float).ravel()[val_idx_local]
+            z_val = np.asarray(z_train_raw, dtype=float).ravel()[val_idx_local]
+            inner_cv_rmse_per_s = {}
+            for s in grid:
+                rmse_s = float(
+                    np.sqrt(np.mean((y_val_orig - (z_val + s * nn_val_residual)) ** 2))
+                )
+                inner_cv_rmse_per_s[f"{s:.2f}"] = rmse_s
+            s_star = float(min(grid, key=lambda s: inner_cv_rmse_per_s[f"{s:.2f}"]))
+            pred = z_test_raw + s_star * pred
+            # Catastrophic-loss diagnostic: compare final test RMSE to the
+            # teacher-only test RMSE. Threshold defaults to +50 % per
+            # B_PLAN_2026-05.md §2.1, overridable via ``shrinkage_catastrophic_threshold``.
+            cat_thresh = float(
+                (extra_options or {}).get("shrinkage_catastrophic_threshold", 0.5)
+            )
+            teacher_test_rmse_for_diag = float(
+                np.sqrt(np.mean((np.asarray(y_test, dtype=float).ravel() - z_test_raw) ** 2))
+            )
+            final_rmse = float(
+                np.sqrt(np.mean((np.asarray(y_test, dtype=float).ravel() - pred) ** 2))
+            )
+            if teacher_test_rmse_for_diag > 0:
+                catastrophic_flag = bool(
+                    (final_rmse / teacher_test_rmse_for_diag - 1.0) > cat_thresh
+                )
+        else:
+            pred = pred + z_test_raw
 
     hp = {
         "model": family,
@@ -1288,11 +1362,18 @@ def _run_torch_cnn(
         "best_epoch": info["best_epoch"],
         "best_val_loss_scaled": info["best_val_loss"],
     }
+    if s_star is not None:
+        hp["shrinkage_s_star"] = s_star
+        hp["shrinkage_inner_cv_rmse_per_s"] = inner_cv_rmse_per_s
+        hp["shrinkage_teacher_test_rmse"] = teacher_test_rmse_for_diag
     row = _result_row(
         spec, pred, y_test, fit_time, pred_time, hp,
         total_params=count_parameters(model),
         peak_vram_mb=cuda_peak_mb(),
     )
+    if s_star is not None:
+        row["catastrophic"] = bool(catastrophic_flag)
+        row["shrinkage_s_star"] = float(s_star)
     row["_pred"] = np.asarray(pred, dtype=float).ravel()
     row["_y_test"] = np.asarray(y_test, dtype=float).ravel()
     return row
@@ -1403,7 +1484,8 @@ def main() -> int:
                                  "v2_r16_lucas_multiseed", "publication",
                                  "v2_r17_priority1", "v2_r17_priority2",
                                  "v2_r18_residual_multiseed",
-                                 "v2_r19_oof_diagnostic", "v2_r20_final"])
+                                 "v2_r19_oof_diagnostic", "v2_r20_final",
+                                 "v2_r21_multiseed"])
     parser.add_argument("--seeds", nargs="*", type=int, default=None, help="run multiple seeds (overrides --seed)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--only", nargs="*", default=None, help="restrict to dataset names")
@@ -1467,6 +1549,8 @@ def main() -> int:
         variants = list(PHASE_V2_R19_OOF_DIAGNOSTIC)
     elif args.variants == "v2_r20_final":
         variants = list(PHASE_V2_R20_FINAL)
+    elif args.variants == "v2_r21_multiseed":
+        variants = list(PHASE_V2_R21_MULTISEED)
     else:
         raise ValueError(f"unknown variants set: {args.variants!r}")
     if args.skip_cnn:
@@ -1480,6 +1564,7 @@ def main() -> int:
 
     try:
       for current_seed in seeds:
+        t_start = time.time()  # initialise even if all rows skip (resume case)
         for spec in specs:
             for variant in variants:
                 key = (spec.dataset, variant.label, current_seed)

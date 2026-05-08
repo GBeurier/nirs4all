@@ -36,6 +36,7 @@ from ..augmentation.synthesis import (
     InstrumentalBroadeningAugmenter,
     PathLengthAugmenter,
 )
+from .fck_static import FCKStaticTransformer
 from .feature_selection import CARS, MCUVE, FlexiblePCA, FlexibleSVD
 from .features import CropTransformer, FlattenPreprocessing, ResampleTransformer
 from .nirs import (
@@ -241,6 +242,9 @@ __all__ = [
 
     # Wavelength resampling
     "Resampler",
+
+    # Fractional convolutional kernels (static bank)
+    "FCKStaticTransformer",
 
     # Feature selection
     "CARS",
