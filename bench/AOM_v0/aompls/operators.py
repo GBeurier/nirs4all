@@ -298,6 +298,79 @@ class FiniteDifferenceOperator(LinearSpectralOperator):
     def _apply_cov_impl(self, S: np.ndarray) -> np.ndarray:
         return _xcorr_zero_pad(S.T, self._kernel).T
 
+
+def _fck_kernel(alpha: float, scale: float, kernel_size: int, sigma: float) -> np.ndarray:
+    """Build a single normalised fractional-derivative kernel.
+
+    Mirrors :func:`nirs4all.operators.transforms.fck_static._build_kernel`
+    with one boundary-mode change: this kernel feeds into the AOM
+    zero-padded ``_xcorr_zero_pad``, so the operator stays strictly linear
+    (compatible with the AOM-PLS covariance engine). The alpha=0 branch
+    returns a pure Gaussian smoother; alpha>0 returns the zero-mean
+    fractional-derivative kernel.
+    """
+    if kernel_size % 2 == 0:
+        raise ValueError(f"kernel_size must be odd, got {kernel_size}")
+    if scale <= 0:
+        raise ValueError(f"scale must be > 0, got {scale}")
+    if sigma <= 0:
+        raise ValueError(f"sigma must be > 0, got {sigma}")
+    half = kernel_size // 2
+    idx = np.arange(-half, half + 1, dtype=np.float64) * float(scale)
+    gauss = np.exp(-0.5 * (idx / float(sigma)) ** 2)
+    if alpha < 0.1:
+        kernel = gauss
+    else:
+        eps = 1e-8
+        frac = np.sign(idx) * np.power(np.abs(idx) + eps, float(alpha))
+        kernel = gauss * frac
+        kernel = kernel - kernel.mean()
+    norm = float(np.sum(np.abs(kernel)) + 1e-8)
+    return np.asarray(kernel / norm, dtype=np.float64)
+
+
+class FCKOperator(LinearSpectralOperator):
+    """Single fractional convolutional kernel as an AOM operator.
+
+    A `FCKOperator` is the AOM-bank-compatible counterpart of one filter
+    from the `FCKStaticTransformer` static bank. It applies the same
+    (alpha, scale, kernel_size, sigma) kernel via cross-correlation with
+    zero-padded boundaries (matching SG / FD), preserving strict linearity
+    for the covariance SIMPLS / adjoint NIPALS fast paths.
+
+    Use ``compact_with_fck`` (or ``compact_fck_only``) in
+    :func:`bank_by_name` to materialise a bank that combines AOM's
+    compact entries with a small FCK pool.
+    """
+
+    def __init__(
+        self,
+        alpha: float,
+        scale: float = 1.0,
+        kernel_size: int = 31,
+        sigma: float = 3.0,
+        p: Optional[int] = None,
+    ) -> None:
+        tag = f"fck_a{alpha:.2f}_s{scale:.2f}_k{kernel_size}"
+        super().__init__(name=tag, p=p)
+        self.alpha = float(alpha)
+        self.scale = float(scale)
+        self.kernel_size = int(kernel_size)
+        self.sigma = float(sigma)
+        self._kernel = _fck_kernel(self.alpha, self.scale, self.kernel_size, self.sigma)
+
+    def _transform_impl(self, X: np.ndarray) -> np.ndarray:
+        return _xcorr_zero_pad(X, self._kernel)
+
+    def _apply_cov_impl(self, S: np.ndarray) -> np.ndarray:
+        return _xcorr_zero_pad(S.T, self._kernel).T
+
+    def _adjoint_vec_impl(self, v: np.ndarray) -> np.ndarray:
+        return _xcorr_zero_pad(v, self._kernel[::-1])
+
+    def _matrix_impl(self, p: int) -> np.ndarray:
+        return self._apply_cov_impl(np.eye(p))
+
     def _adjoint_vec_impl(self, v: np.ndarray) -> np.ndarray:
         return _xcorr_zero_pad(v, self._kernel[::-1])
 
