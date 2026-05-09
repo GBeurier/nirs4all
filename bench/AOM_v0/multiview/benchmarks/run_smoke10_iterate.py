@@ -32,21 +32,21 @@ if str(_MULTIVIEW_ROOT) not in sys.path:
     sys.path.insert(0, str(_MULTIVIEW_ROOT))
 
 from aompls.estimators import AOMPLSRegressor, POPPLSRegressor  # noqa: E402
+from benchmarks.run_smoke4 import (  # noqa: E402
+    COLUMNS,
+    _append,
+    _existing_keys,
+    _load_csv_array,
+    _load_csv_target,
+)
+from benchmarks.run_smoke10 import SMOKE10_DATASETS  # noqa: E402
 
 from multiview.asls_wrapper import ASLSPreprocWrapper  # noqa: E402
+from multiview.atoms import LazyV2AOM  # noqa: E402
 from multiview.estimators_mbpls import BlockSparseAOMMBPLSRegressor  # noqa: E402
 from multiview.moe import AOMMoERegressor  # noqa: E402
 from multiview.stacking_select import BestOfStackedRegressor  # noqa: E402
 from multiview.views import ViewBuilder  # noqa: E402
-
-from benchmarks.run_smoke10 import SMOKE10_DATASETS  # noqa: E402
-from benchmarks.run_smoke4 import (  # noqa: E402
-    _load_csv_array,
-    _load_csv_target,
-    _existing_keys,
-    _append,
-    COLUMNS,
-)
 
 
 def _make_moe_preproc(bank_name: str, seed: int, n_components: int) -> AOMMoERegressor:
@@ -106,17 +106,6 @@ def _build_lazy_v1_pop(seed, max_components, p):
     )
 
 
-def _build_lazy_v2_aom(seed, max_components, p):
-    bank = ViewBuilder.combined(
-        bank_name="compact", K=3, strategy="equal_width", include_global=True,
-    ).build(p=p)
-    return AOMPLSRegressor(
-        n_components="auto", max_components=max_components,
-        engine="simpls_covariance", selection="global",
-        criterion="holdout", operator_bank=bank, random_state=seed,
-    )
-
-
 def _make_bestof_estimator(seed, max_components, p, with_asls=False):
     bases = [
         ("aom_pls", AOMPLSRegressor(
@@ -127,7 +116,7 @@ def _make_bestof_estimator(seed, max_components, p, with_asls=False):
         ("moe_preproc_soft", _make_moe_preproc("compact", seed, max_components)),
         ("moe_view_soft", _make_moe_view(3, seed, max_components)),
         ("lazy_v1_pop", _build_lazy_v1_pop(seed, max_components, p)),
-        ("lazy_v2_aom", _build_lazy_v2_aom(seed, max_components, p)),
+        ("lazy_v2_aom", LazyV2AOM(max_components=max_components, random_state=seed)),
     ]
     if with_asls:
         bases = [(f"asls_{n}", ASLSPreprocWrapper(estimator=e)) for n, e in bases]
