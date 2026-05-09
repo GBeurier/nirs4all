@@ -785,8 +785,10 @@ presets:
       - AOMRidge-global-compact-none
       - AOMRidge-global-compact-snv
       - AOMRidge-Local-compact-knn50
-      - TabPFN-Raw
-      - TabPFN-opt
+      # TabPFN family (Raw, opt) deferred from Phase 1 production runs per user
+      # 2026-05-09 18:50 CEST: user will import tabpfn_paper data separately.
+      # TabPFN-Raw + TabPFN-opt re-enter strong_practical when tabpfn_paper
+      # ingest lands in master CSV.
       # AOMRidge-Blender-headline-spxy3 / AutoSelect-headline-spxy3 enter
       # only after D-A-001 nested-audit verdict + multi-seed.
     runtime_tier_max: slow
@@ -803,13 +805,21 @@ presets:
       - AOMRidge-global-compact-snv
       - AOMRidge-Local-compact-knn50
       - AOMRidge-MultiBranchMKL-compact-shrink03
-      - MKM-reml-default
-      - mkR-softmax-cv-default
-      - moe-preproc-soft-pls-compact
-      - AOMMultiView-MeanEnsemble4-fixed
-      - TabPFN-Raw
-      - TabPFN-opt
-      - TabPFN-HPO-preprocessing
+      # TabPFN family (Raw, opt, HPO-preprocessing) deferred from Phase 1
+      # production runs per user 2026-05-09 18:50 CEST: user will import
+      # tabpfn_paper data separately. Re-enter best_current when that ingest
+      # lands in master CSV.
+      # Removed 2026-05-09 18:30 CEST per user authorisation: 4 IMPORT_ERROR
+      # entries dropped from best_current and demoted to exhaustive_research
+      # only — class modules not surfaced (Multi-kernel was never package-ified
+      # by B; AOMMultiView ensemble + MoEPreprocSoftPLS were not part of A's
+      # Task #25 atom surfacing). Legacy benchmark data exists in master CSV
+      # under variant=*-* labels (~60-70 % coverage) but is not harness-runnable.
+      # Re-add when modules land:
+      #   - MKM-reml-default                  (B's Multi-kernel module)
+      #   - mkR-softmax-cv-default            (B's Multi-kernel module)
+      #   - moe-preproc-soft-pls-compact      (A's multiview ensemble)
+      #   - AOMMultiView-MeanEnsemble4-fixed  (A's multiview ensemble)
       # AdaptiveSuperLearner-recipe-nnls and V2L-Residual-AOMPLS enter
       # only after their respective gates land.
     runtime_tier_max: very_slow

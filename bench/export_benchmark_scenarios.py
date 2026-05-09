@@ -468,7 +468,7 @@ def _evidence_dict(evidence: ModelEvidence | None) -> dict[str, Any]:
         "n_rows_locked": evidence.n_rows_locked,
         "n_rows_total": evidence.n_rows_total,
         "n_datasets": evidence.n_datasets,
-        "coverage_fraction": round(evidence.coverage_fraction, 4),
+        "coverage_fraction_raw": round(evidence.coverage_fraction, 4),  # D-C-005a: renamed for clarity (raw, not clamped); add coverage_fraction_clamped if/when needed
         "median_rel_source_pls": _round(evidence.median_rel_source_pls),
         "q75_rel_source_pls": _round(evidence.q75_rel_source_pls),
         "q90_rel_source_pls": _round(evidence.q90_rel_source_pls),
