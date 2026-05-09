@@ -29,18 +29,26 @@ if str(_AOM_ROOT) not in sys.path:
 if str(_MULTIVIEW_ROOT) not in sys.path:
     sys.path.insert(0, str(_MULTIVIEW_ROOT))
 
-from aompls.estimators import AOMPLSRegressor  # noqa: E402
-
-from multiview.moe import AOMMoERegressor  # noqa: E402
-from multiview.moe_advanced import AOMMoEMultiK, MultiVariantMeanEnsemble  # noqa: E402
-from multiview.super_learner import (  # noqa: E402
-    AdaptiveSuperLearner, NNLSSimplexStacker, TrimmedMeanEnsemble,
-)
-from multiview.views import ViewBuilder  # noqa: E402
-
 from run_smoke4 import (  # noqa: E402
-    SMOKE4_DATASETS, _load_csv_array, _load_csv_target,
-    _existing_keys, _append, COLUMNS,
+    COLUMNS,
+    SMOKE4_DATASETS,
+    _append,
+    _existing_keys,
+    _load_csv_array,
+    _load_csv_target,
+)
+
+from multiview.atoms import (  # noqa: E402
+    AOMMoEMultiK,
+    AOMMoERegressor,
+    AOMPLSRegressor,
+    LazyV2AOM,
+)
+from multiview.moe_advanced import MultiVariantMeanEnsemble  # noqa: E402
+from multiview.super_learner import (  # noqa: E402
+    AdaptiveSuperLearner,
+    NNLSSimplexStacker,
+    TrimmedMeanEnsemble,
 )
 
 
@@ -54,18 +62,7 @@ def _metrics(t0, yte, pred):
     }
 
 
-def _build_lazy_v2_aom(seed, max_components, p):
-    bank = ViewBuilder.combined(
-        bank_name="compact", K=3, strategy="equal_width", include_global=True,
-    ).build(p=p)
-    return AOMPLSRegressor(
-        n_components="auto", max_components=max_components,
-        engine="simpls_covariance", selection="global",
-        criterion="holdout", operator_bank=bank, random_state=seed,
-    )
-
-
-def _atom_bases(seed, max_components, p):
+def _atom_bases(seed, max_components):
     """The 4 atom bases per Codex review."""
     return [
         ("multiK-3-5-7", AOMMoEMultiK(
@@ -76,7 +73,7 @@ def _atom_bases(seed, max_components, p):
             bank_name="compact", per_expert_components=min(10, max_components),
             random_state=seed,
         )),
-        ("lazy-V2-AOM", _build_lazy_v2_aom(seed, max_components, p)),
+        ("lazy-V2-AOM", LazyV2AOM(max_components=max_components, random_state=seed)),
         ("aom-pls-compact", AOMPLSRegressor(
             n_components="auto", max_components=max_components,
             engine="simpls_covariance", selection="global",
@@ -86,8 +83,7 @@ def _atom_bases(seed, max_components, p):
 
 
 def _runner_trimmed_mean_4(Xtr, ytr, Xte, yte, seed, max_components):
-    p = Xtr.shape[1]
-    bases = _atom_bases(seed, max_components, p)
+    bases = _atom_bases(seed, max_components)
     t0 = time.perf_counter()
     est = TrimmedMeanEnsemble(bases=bases, n_drop=1)
     est.fit(Xtr, ytr)
@@ -95,8 +91,7 @@ def _runner_trimmed_mean_4(Xtr, ytr, Xte, yte, seed, max_components):
 
 
 def _runner_nnls_stack_atoms(Xtr, ytr, Xte, yte, seed, max_components):
-    p = Xtr.shape[1]
-    bases = _atom_bases(seed, max_components, p)
+    bases = _atom_bases(seed, max_components)
     t0 = time.perf_counter()
     est = NNLSSimplexStacker(
         bases=bases, n_oof_folds=3, calibrate=False,
@@ -107,8 +102,7 @@ def _runner_nnls_stack_atoms(Xtr, ytr, Xte, yte, seed, max_components):
 
 
 def _runner_nnls_stack_calibrated(Xtr, ytr, Xte, yte, seed, max_components):
-    p = Xtr.shape[1]
-    bases = _atom_bases(seed, max_components, p)
+    bases = _atom_bases(seed, max_components)
     t0 = time.perf_counter()
     est = NNLSSimplexStacker(
         bases=bases, n_oof_folds=3, calibrate=True,
@@ -119,8 +113,7 @@ def _runner_nnls_stack_calibrated(Xtr, ytr, Xte, yte, seed, max_components):
 
 
 def _runner_adaptive(Xtr, ytr, Xte, yte, seed, max_components):
-    p = Xtr.shape[1]
-    atoms = _atom_bases(seed, max_components, p)
+    atoms = _atom_bases(seed, max_components)
     recipes = [
         ("multiK-3-5-7", AOMMoEMultiK(
             K_list=(3, 5, 7), per_expert_components=10, random_state=seed,

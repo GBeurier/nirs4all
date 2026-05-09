@@ -1,0 +1,55 @@
+# bench/AOM_v0/Ridge/scenarios/configs/aomridge_local_compact_kgrid_sweep.yaml
+#
+# Owner: Agent A. Companion config for D-A-009 (k-tuning sweep, Codex round 12 LOCK).
+#
+# Status: DECISION_LOCKED (Codex round 12, 2026-05-08 17:10 CEST).
+#
+# Differs from `bench/scenarios/configs/aomridge_local_compact_knn50.yaml`
+# only in `k_grid`: this file expands the canonical knn50 single-k baseline
+# to a 5-value sweep [10, 25, 50, 100, 200] per Codex Q2 verdict, with
+# AOMLocalRidge selecting the best k internally per fit. All other knobs
+# (operator_bank, distance_branches, alpha_grid_size, cv, local_weight_beta,
+# block_scaling, center, random_state) are kept identical to the D-A-003
+# baseline so the only varying lever is k_grid (per Codex Q5: "yaml only
+# fixed locality knob k_grid=[50]").
+
+canonical_name: AOMRidge-Local-compact-knn50
+schema_version: 0.1.0
+codex_review_status: DECISION_LOCKED
+
+model:
+  pipeline:
+    - model:
+        class: aomridge.local_ridge.AOMLocalRidge
+        params:
+          operator_bank: compact
+          k_grid: [10, 25, 50, 100, 200]   # D-A-009 k-tuning sweep — internal best-k selection per fit
+          distance_branches: ['none', 'snv', 'msc']
+          alpha_grid_size: 15
+          cv: 3
+          local_weight_beta: auto
+          block_scaling: none
+          center: true
+          random_state: 0
+
+hyperparameter_search:
+  protocol: model_native           # AOMLocalRidge runs its own inner CV per knn batch
+  n_splits: null
+  param_grid: null
+
+dispatch:
+  n_jobs: 1
+  verbose: 0
+  timeout_s: 7200                  # widened from 1800s — 5x internal k_grid loop pushes per-fit wall up
+  pythonpath_prepend:
+    - bench/AOM_v0/Ridge           # provides aomridge.*
+    - bench/AOM_v0                 # provides aompls.* (aomridge runtime dependency)
+
+evidence_anchors:
+  primary_score: rmsep
+  primary_score_lower_is_better: true
+  reference_models:
+    - PLS-tuned-cv5
+    - Ridge-tuned-cv5
+    - AOMRidge-Local-compact-knn50  # self-reference, k=50 D-A-003 baseline
+    - ASLS-AOM-compact-cv5-numpy

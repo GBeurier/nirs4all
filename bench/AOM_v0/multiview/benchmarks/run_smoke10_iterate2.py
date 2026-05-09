@@ -32,19 +32,19 @@ if str(_MULTIVIEW_ROOT) not in sys.path:
     sys.path.insert(0, str(_MULTIVIEW_ROOT))
 
 from aompls.estimators import AOMPLSRegressor, POPPLSRegressor  # noqa: E402
+from benchmarks.run_smoke4 import (  # noqa: E402
+    COLUMNS,
+    _append,
+    _existing_keys,
+    _load_csv_array,
+    _load_csv_target,
+)
+from benchmarks.run_smoke10 import SMOKE10_DATASETS  # noqa: E402
 
+from multiview.atoms import LazyV2AOM  # noqa: E402
 from multiview.moe import AOMMoERegressor  # noqa: E402
 from multiview.stacking import StackingHybrid  # noqa: E402
 from multiview.views import ViewBuilder  # noqa: E402
-
-from benchmarks.run_smoke10 import SMOKE10_DATASETS  # noqa: E402
-from benchmarks.run_smoke4 import (  # noqa: E402
-    _load_csv_array,
-    _load_csv_target,
-    _existing_keys,
-    _append,
-    COLUMNS,
-)
 
 
 def _make_moe_view(K: int, components: int, seed: int) -> AOMMoERegressor:
@@ -72,17 +72,6 @@ def _build_lazy_v1_pop(seed, max_components, p):
     )
 
 
-def _build_lazy_v2_aom(seed, max_components, p):
-    bank = ViewBuilder.combined(
-        bank_name="compact", K=3, strategy="equal_width", include_global=True,
-    ).build(p=p)
-    return AOMPLSRegressor(
-        n_components="auto", max_components=max_components,
-        engine="simpls_covariance", selection="global",
-        criterion="holdout", operator_bank=bank, random_state=seed,
-    )
-
-
 def _runner_moe_view_K4(Xtr, ytr, Xte, yte, seed, max_components):
     return _run_simple(_make_moe_view(4, min(10, max_components), seed),
                        Xtr, ytr, Xte, yte, max_components)
@@ -102,7 +91,6 @@ def _runner_moe_view_K3_c20(Xtr, ytr, Xte, yte, seed, max_components):
 
 
 def _runner_ridge_stack(Xtr, ytr, Xte, yte, seed, max_components):
-    p = Xtr.shape[1]
     bases = [
         ("aom_pls", AOMPLSRegressor(
             n_components="auto", max_components=max_components,
@@ -111,7 +99,7 @@ def _runner_ridge_stack(Xtr, ytr, Xte, yte, seed, max_components):
         )),
         ("moe_preproc", _make_moe_preproc("compact", min(10, max_components), seed)),
         ("moe_view", _make_moe_view(3, min(10, max_components), seed)),
-        ("lazy_v2_aom", _build_lazy_v2_aom(seed, max_components, p)),
+        ("lazy_v2_aom", LazyV2AOM(max_components=max_components, random_state=seed)),
     ]
     est = StackingHybrid(
         base_estimators=bases, n_oof_folds=3, meta_alpha=1.0,
@@ -124,7 +112,6 @@ def _runner_ridge_stack(Xtr, ytr, Xte, yte, seed, max_components):
 
 
 def _runner_nnls_stack(Xtr, ytr, Xte, yte, seed, max_components):
-    p = Xtr.shape[1]
     bases = [
         ("aom_pls", AOMPLSRegressor(
             n_components="auto", max_components=max_components,
@@ -133,7 +120,7 @@ def _runner_nnls_stack(Xtr, ytr, Xte, yte, seed, max_components):
         )),
         ("moe_preproc", _make_moe_preproc("compact", min(10, max_components), seed)),
         ("moe_view", _make_moe_view(3, min(10, max_components), seed)),
-        ("lazy_v2_aom", _build_lazy_v2_aom(seed, max_components, p)),
+        ("lazy_v2_aom", LazyV2AOM(max_components=max_components, random_state=seed)),
     ]
     est = StackingHybrid(
         base_estimators=bases, n_oof_folds=3, meta_alpha=1.0,
