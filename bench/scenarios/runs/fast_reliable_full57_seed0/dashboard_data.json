@@ -1,10 +1,30 @@
 {
   "by_status": {
-    "ok": 252,
-    "failed": 22,
-    "failed_terminal": 2
+    "ok": 322,
+    "failed": 16,
+    "failed_terminal": 4
   },
   "leaderboard": [
+    {
+      "canonical_name": "AOMRidge-global-compact-none",
+      "model_class": "AOMRidgeRegressor",
+      "n_datasets": 52,
+      "median_rmsep": 1.095593523415352,
+      "min_rmsep": 0.022623525930066307,
+      "max_rmsep": 33849.27758311631,
+      "median_fit_time_s": 13.321131661476102,
+      "max_fit_time_s": 1134.1813476439565
+    },
+    {
+      "canonical_name": "AOMRidge-global-compact-snv",
+      "model_class": "AOMRidgeRegressor",
+      "n_datasets": 52,
+      "median_rmsep": 1.095593523415352,
+      "min_rmsep": 0.022623525930066307,
+      "max_rmsep": 33849.27758311631,
+      "median_fit_time_s": 13.28909477754496,
+      "max_fit_time_s": 1141.3816833950114
+    },
     {
       "canonical_name": "ASLS-AOM-compact-cv5-numpy",
       "model_class": "AOMPLSRegressor",
@@ -12,8 +32,8 @@
       "median_rmsep": 1.4360343878210795,
       "min_rmsep": 0.01894493902493735,
       "max_rmsep": 34084.862111630864,
-      "median_fit_time_s": 1.4757721975329332,
-      "max_fit_time_s": 125.7154500130564
+      "median_fit_time_s": 3.1059150245273486,
+      "max_fit_time_s": 133.50498229905497
     },
     {
       "canonical_name": "Ridge-tuned-cv5",
@@ -22,18 +42,8 @@
       "median_rmsep": 1.578113374008067,
       "min_rmsep": 0.021492594995404953,
       "max_rmsep": 33837.67977223088,
-      "median_fit_time_s": 0.19714141200529411,
-      "max_fit_time_s": 72.15933242801111
-    },
-    {
-      "canonical_name": "AOMRidge-global-compact-none",
-      "model_class": "AOMRidgeRegressor",
-      "n_datasets": 34,
-      "median_rmsep": 1.620234341452126,
-      "min_rmsep": 0.032053787617523116,
-      "max_rmsep": 1028.8405873558593,
-      "median_fit_time_s": 14.063249458966311,
-      "max_fit_time_s": 341.68573311704677
+      "median_fit_time_s": 1.002521179500036,
+      "max_fit_time_s": 74.87562775600236
     },
     {
       "canonical_name": "AOM-PLS-compact-numpy",
@@ -42,8 +52,8 @@
       "median_rmsep": 1.644148572897734,
       "min_rmsep": 0.023820074997146945,
       "max_rmsep": 33811.329675840665,
-      "median_fit_time_s": 0.8114452089648694,
-      "max_fit_time_s": 66.1758170319954
+      "median_fit_time_s": 2.273796229506843,
+      "max_fit_time_s": 69.33675127301831
     },
     {
       "canonical_name": "PLS-tuned-cv5",
@@ -52,15 +62,16 @@
       "median_rmsep": 1.6541270577409803,
       "min_rmsep": 0.02120338956941468,
       "max_rmsep": 33653.69417443339,
-      "median_fit_time_s": 0.314637991017662,
-      "max_fit_time_s": 114.18838599999435
+      "median_fit_time_s": 1.0527969709946774,
+      "max_fit_time_s": 119.8533343950985
     }
   ],
   "heatmap": {
     "canonicals": [
+      "AOMRidge-global-compact-none",
+      "AOMRidge-global-compact-snv",
       "ASLS-AOM-compact-cv5-numpy",
       "Ridge-tuned-cv5",
-      "AOMRidge-global-compact-none",
       "AOM-PLS-compact-numpy",
       "PLS-tuned-cv5"
     ],
@@ -124,6 +135,124 @@
       "ta_groupSampleID_stratDateVar_balRows"
     ],
     "rmsep": [
+      [
+        0.06848993197044527,
+        7.916910547896318,
+        2.7697645735036738,
+        0.8766116578685749,
+        2.5725812998437303,
+        1.7359744190226625,
+        3.6525825706359347,
+        3.5055507996418447,
+        3.7676602055426414,
+        4.744150141641229,
+        72.36303684807957,
+        0.5128446653439307,
+        0.4314911351590606,
+        0.2765968265019715,
+        0.8638923025679375,
+        null,
+        2.2098010790069464,
+        61.476483389784974,
+        90.58330874402404,
+        72.01787509980218,
+        0.03433192240857115,
+        0.13232431706090889,
+        2.9008697083224084,
+        2.602945863934151,
+        2.9076605489905454,
+        null,
+        0.30511326887892,
+        0.032053787617523116,
+        0.30055572209975373,
+        null,
+        0.16444890485657138,
+        4.5435437516310495,
+        null,
+        0.36810258603166596,
+        0.022623525930066307,
+        7761.887365055965,
+        33849.27758311631,
+        0.09816579668097605,
+        0.05425195519811472,
+        4.207778074177371,
+        0.10617333666116147,
+        0.3541794620370173,
+        0.27934965316672394,
+        0.17812865884346604,
+        0.2699915429339117,
+        0.25574863007774173,
+        0.27160820442616973,
+        0.16877474812473414,
+        2.9823563433194877,
+        4.362888539612424,
+        null,
+        0.27601361404305796,
+        1.314575388962129,
+        3.600276436660117,
+        1028.8405873558593,
+        0.33332446218386574,
+        1.9258932939421234
+      ],
+      [
+        0.06848993197044527,
+        7.916910547896318,
+        2.7697645735036738,
+        0.8766116578685749,
+        2.5725812998437303,
+        1.7359744190226625,
+        3.6525825706359347,
+        3.5055507996418447,
+        3.7676602055426414,
+        4.744150141641229,
+        72.36303684807957,
+        0.5128446653439307,
+        0.4314911351590606,
+        0.2765968265019715,
+        0.8638923025679375,
+        null,
+        2.2098010790069464,
+        61.476483389784974,
+        90.58330874402404,
+        72.01787509980218,
+        0.03433192240857115,
+        0.13232431706090889,
+        2.9008697083224084,
+        2.602945863934151,
+        2.9076605489905454,
+        null,
+        0.30511326887892,
+        0.032053787617523116,
+        0.30055572209975373,
+        null,
+        0.16444890485657138,
+        4.5435437516310495,
+        null,
+        0.36810258603166596,
+        0.022623525930066307,
+        7761.887365055965,
+        33849.27758311631,
+        0.09816579668097605,
+        0.05425195519811472,
+        4.207778074177371,
+        0.10617333666116147,
+        0.3541794620370173,
+        0.27934965316672394,
+        0.17812865884346604,
+        0.2699915429339117,
+        0.25574863007774173,
+        0.27160820442616973,
+        0.16877474812473414,
+        2.9823563433194877,
+        4.362888539612424,
+        null,
+        0.27601361404305796,
+        1.314575388962129,
+        3.600276436660117,
+        1028.8405873558593,
+        0.33332446218386574,
+        1.9258932939421234
+      ],
       [
         0.06183874037098386,
         7.235524415543667,
@@ -241,65 +370,6 @@
         1073.6813403188123,
         0.3345797209421238,
         1.8917527186075511
-      ],
-      [
-        0.06848993197044527,
-        null,
-        null,
-        null,
-        null,
-        null,
-        3.6525825706359347,
-        3.5055507996418447,
-        3.7676602055426414,
-        4.744150141641229,
-        72.36303684807957,
-        0.5128446653439307,
-        0.4314911351590606,
-        0.2765968265019715,
-        0.8638923025679375,
-        null,
-        2.2098010790069464,
-        61.476483389784974,
-        90.58330874402404,
-        72.01787509980218,
-        0.03433192240857115,
-        0.13232431706090889,
-        2.9008697083224084,
-        2.602945863934151,
-        2.9076605489905454,
-        null,
-        null,
-        0.032053787617523116,
-        0.30055572209975373,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        0.3541794620370173,
-        0.27934965316672394,
-        null,
-        0.2699915429339117,
-        0.25574863007774173,
-        0.27160820442616973,
-        0.16877474812473414,
-        2.9823563433194877,
-        4.362888539612424,
-        null,
-        null,
-        1.314575388962129,
-        3.600276436660117,
-        1028.8405873558593,
-        0.33332446218386574,
-        1.9258932939421234
       ],
       [
         0.06443490344907671,
@@ -422,10 +492,10 @@
     ]
   },
   "failures": {
-    "total": 22,
+    "total": 16,
     "by_class": {
-      "fit_error": 14,
-      "dataset_load_error": 8
+      "fit_error": 10,
+      "dataset_load_error": 6
     },
     "samples": [
       {
@@ -479,56 +549,6 @@
         "error_message": "dataset_load_error: EmptyDataError: No columns to parse from file"
       },
       {
-        "canonical_name": "AOM-PLS-compact-numpy",
-        "dataset": "Brix_spxy70",
-        "error_message": "dataset_load_error: EmptyDataError: No columns to parse from file"
-      },
-      {
-        "canonical_name": "Ridge-tuned-cv5",
-        "dataset": "FinalScore_grp70_30_scoreQ",
-        "error_message": "fit_error: ValueError: \nAll the 35 fits failed.\nIt is very likely that your model is misconfigured.\nYou can try to debug the error by setting error_score='raise'.\n\nBelow are more details about the failures:\n--------------------------------------------------------------------------------\n35 fits failed with the following error:\nTraceback (most recent call last):\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/model_selection/_validation.py\", line 859, in _fit_and_score\n    estimator.fit(X_train, y_train, **fit_params)\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/base.py\", line 1365, in wrapper\n    return fit_method(estimator, *args, **kwargs)\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/pipeline.py\", line 663, in fit\n    self._final_estimator.fit(Xt, y, **last_step_params[\"fit\"])\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/base.py\", line 1365, in wrapper\n    return fit_method(estimator, *args, **kwargs)\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/linear_model/_ridge.py\", line 1238, in fit\n    X, y = validate_data(\n           ~~~~~~~~~~~~~^\n        self,\n        ^^^^^\n    ...<6 lines>...\n        y_numeric=True,\n        ^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 2971, in validate_data\n    X, y = check_X_y(X, y, **check_params)\n           ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 1368, in check_X_y\n    X = check_array(\n        X,\n    ...<12 lines>...\n        input_name=\"X\",\n    )\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 1105, in check_array\n    _assert_all_finite(\n    ~~~~~~~~~~~~~~~~~~^\n        array,\n        ^^^^^^\n    ...<2 lines>...\n        allow_nan=ensure_all_finite == \"allow-nan\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 120, in _assert_all_finite\n    _assert_all_finite_element_wise(\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^\n        X,\n        ^^\n    ...<4 lines>...\n        input_name=input_name,\n        ^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 169, in _assert_all_finite_element_wise\n    raise ValueError(msg_err)\nValueError: Input X contains NaN.\nRidge does not accept missing values encoded as NaN natively. For supervised learning, you might want to consider sklearn.ensemble.HistGradientBoostingClassifier and Regressor which accept missing values encoded as NaNs natively. Alternatively, it is possible to preprocess the data, for instance by using an imputer transformer in a pipeline or drop samples with missing values. See https://scikit-learn.org/stable/modules/impute.html You can find a list of all estimators that handle NaN values at the following page: https://scikit-learn.org/stable/modules/impute.html#estimators-that-handle-nan-values\n"
-      },
-      {
-        "canonical_name": "Ridge-tuned-cv5",
-        "dataset": "Tleaf_grp70_30",
-        "error_message": "fit_error: ValueError: \nAll the 35 fits failed.\nIt is very likely that your model is misconfigured.\nYou can try to debug the error by setting error_score='raise'.\n\nBelow are more details about the failures:\n--------------------------------------------------------------------------------\n35 fits failed with the following error:\nTraceback (most recent call last):\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/model_selection/_validation.py\", line 859, in _fit_and_score\n    estimator.fit(X_train, y_train, **fit_params)\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/base.py\", line 1365, in wrapper\n    return fit_method(estimator, *args, **kwargs)\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/pipeline.py\", line 663, in fit\n    self._final_estimator.fit(Xt, y, **last_step_params[\"fit\"])\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/base.py\", line 1365, in wrapper\n    return fit_method(estimator, *args, **kwargs)\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/linear_model/_ridge.py\", line 1238, in fit\n    X, y = validate_data(\n           ~~~~~~~~~~~~~^\n        self,\n        ^^^^^\n    ...<6 lines>...\n        y_numeric=True,\n        ^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 2971, in validate_data\n    X, y = check_X_y(X, y, **check_params)\n           ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 1368, in check_X_y\n    X = check_array(\n        X,\n    ...<12 lines>...\n        input_name=\"X\",\n    )\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 1105, in check_array\n    _assert_all_finite(\n    ~~~~~~~~~~~~~~~~~~^\n        array,\n        ^^^^^^\n    ...<2 lines>...\n        allow_nan=ensure_all_finite == \"allow-nan\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 120, in _assert_all_finite\n    _assert_all_finite_element_wise(\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^\n        X,\n        ^^\n    ...<4 lines>...\n        input_name=input_name,\n        ^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 169, in _assert_all_finite_element_wise\n    raise ValueError(msg_err)\nValueError: Input X contains NaN.\nRidge does not accept missing values encoded as NaN natively. For supervised learning, you might want to consider sklearn.ensemble.HistGradientBoostingClassifier and Regressor which accept missing values encoded as NaNs natively. Alternatively, it is possible to preprocess the data, for instance by using an imputer transformer in a pipeline or drop samples with missing values. See https://scikit-learn.org/stable/modules/impute.html You can find a list of all estimators that handle NaN values at the following page: https://scikit-learn.org/stable/modules/impute.html#estimators-that-handle-nan-values\n"
-      },
-      {
-        "canonical_name": "Ridge-tuned-cv5",
-        "dataset": "Brix_spxy70",
-        "error_message": "dataset_load_error: EmptyDataError: No columns to parse from file"
-      },
-      {
-        "canonical_name": "ASLS-AOM-compact-cv5-numpy",
-        "dataset": "FinalScore_grp70_30_scoreQ",
-        "error_message": "fit_error: ValueError: array must not contain infs or NaNs"
-      },
-      {
-        "canonical_name": "ASLS-AOM-compact-cv5-numpy",
-        "dataset": "Tleaf_grp70_30",
-        "error_message": "fit_error: ValueError: array must not contain infs or NaNs"
-      },
-      {
-        "canonical_name": "ASLS-AOM-compact-cv5-numpy",
-        "dataset": "Brix_spxy70",
-        "error_message": "dataset_load_error: EmptyDataError: No columns to parse from file"
-      },
-      {
-        "canonical_name": "PLS-tuned-cv5",
-        "dataset": "FinalScore_grp70_30_scoreQ",
-        "error_message": "fit_error: ValueError: \nAll the 35 fits failed.\nIt is very likely that your model is misconfigured.\nYou can try to debug the error by setting error_score='raise'.\n\nBelow are more details about the failures:\n--------------------------------------------------------------------------------\n35 fits failed with the following error:\nTraceback (most recent call last):\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/model_selection/_validation.py\", line 859, in _fit_and_score\n    estimator.fit(X_train, y_train, **fit_params)\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/base.py\", line 1365, in wrapper\n    return fit_method(estimator, *args, **kwargs)\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/pipeline.py\", line 663, in fit\n    self._final_estimator.fit(Xt, y, **last_step_params[\"fit\"])\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/cross_decomposition/_pls.py\", line 653, in fit\n    super().fit(X, y)\n    ~~~~~~~~~~~^^^^^^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/base.py\", line 1365, in wrapper\n    return fit_method(estimator, *args, **kwargs)\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/cross_decomposition/_pls.py\", line 225, in fit\n    X = validate_data(\n        self,\n    ...<4 lines>...\n        ensure_min_samples=2,\n    )\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 2954, in validate_data\n    out = check_array(X, input_name=\"X\", **check_params)\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 1105, in check_array\n    _assert_all_finite(\n    ~~~~~~~~~~~~~~~~~~^\n        array,\n        ^^^^^^\n    ...<2 lines>...\n        allow_nan=ensure_all_finite == \"allow-nan\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 120, in _assert_all_finite\n    _assert_all_finite_element_wise(\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^\n        X,\n        ^^\n    ...<4 lines>...\n        input_name=input_name,\n        ^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 169, in _assert_all_finite_element_wise\n    raise ValueError(msg_err)\nValueError: Input X contains NaN.\nPLSRegression does not accept missing values encoded as NaN natively. For supervised learning, you might want to consider sklearn.ensemble.HistGradientBoostingClassifier and Regressor which accept missing values encoded as NaNs natively. Alternatively, it is possible to preprocess the data, for instance by using an imputer transformer in a pipeline or drop samples with missing values. See https://scikit-learn.org/stable/modules/impute.html You can find a list of all estimators that handle NaN values at the following page: https://scikit-learn.org/stable/modules/impute.html#estimators-that-handle-nan-values\n"
-      },
-      {
-        "canonical_name": "PLS-tuned-cv5",
-        "dataset": "Tleaf_grp70_30",
-        "error_message": "fit_error: ValueError: \nAll the 35 fits failed.\nIt is very likely that your model is misconfigured.\nYou can try to debug the error by setting error_score='raise'.\n\nBelow are more details about the failures:\n--------------------------------------------------------------------------------\n35 fits failed with the following error:\nTraceback (most recent call last):\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/model_selection/_validation.py\", line 859, in _fit_and_score\n    estimator.fit(X_train, y_train, **fit_params)\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/base.py\", line 1365, in wrapper\n    return fit_method(estimator, *args, **kwargs)\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/pipeline.py\", line 663, in fit\n    self._final_estimator.fit(Xt, y, **last_step_params[\"fit\"])\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/cross_decomposition/_pls.py\", line 653, in fit\n    super().fit(X, y)\n    ~~~~~~~~~~~^^^^^^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/base.py\", line 1365, in wrapper\n    return fit_method(estimator, *args, **kwargs)\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/cross_decomposition/_pls.py\", line 225, in fit\n    X = validate_data(\n        self,\n    ...<4 lines>...\n        ensure_min_samples=2,\n    )\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 2954, in validate_data\n    out = check_array(X, input_name=\"X\", **check_params)\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 1105, in check_array\n    _assert_all_finite(\n    ~~~~~~~~~~~~~~~~~~^\n        array,\n        ^^^^^^\n    ...<2 lines>...\n        allow_nan=ensure_all_finite == \"allow-nan\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 120, in _assert_all_finite\n    _assert_all_finite_element_wise(\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^\n        X,\n        ^^\n    ...<4 lines>...\n        input_name=input_name,\n        ^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/home/delete/nirs4all/nirs4all/.venv/lib/python3.13/site-packages/sklearn/utils/validation.py\", line 169, in _assert_all_finite_element_wise\n    raise ValueError(msg_err)\nValueError: Input X contains NaN.\nPLSRegression does not accept missing values encoded as NaN natively. For supervised learning, you might want to consider sklearn.ensemble.HistGradientBoostingClassifier and Regressor which accept missing values encoded as NaNs natively. Alternatively, it is possible to preprocess the data, for instance by using an imputer transformer in a pipeline or drop samples with missing values. See https://scikit-learn.org/stable/modules/impute.html You can find a list of all estimators that handle NaN values at the following page: https://scikit-learn.org/stable/modules/impute.html#estimators-that-handle-nan-values\n"
-      },
-      {
-        "canonical_name": "PLS-tuned-cv5",
-        "dataset": "Brix_spxy70",
-        "error_message": "dataset_load_error: EmptyDataError: No columns to parse from file"
-      },
-      {
         "canonical_name": "AOMRidge-global-compact-none",
         "dataset": "FinalScore_grp70_30_scoreQ",
         "error_message": "fit_error: FloatingPointError: non-finite RMSE encountered during CV"
@@ -537,15 +557,35 @@
         "canonical_name": "AOMRidge-global-compact-none",
         "dataset": "Tleaf_grp70_30",
         "error_message": "fit_error: FloatingPointError: non-finite RMSE encountered during CV"
+      },
+      {
+        "canonical_name": "AOMRidge-global-compact-none",
+        "dataset": "Brix_spxy70",
+        "error_message": "dataset_load_error: EmptyDataError: No columns to parse from file"
+      },
+      {
+        "canonical_name": "AOMRidge-global-compact-snv",
+        "dataset": "FinalScore_grp70_30_scoreQ",
+        "error_message": "fit_error: FloatingPointError: non-finite RMSE encountered during CV"
+      },
+      {
+        "canonical_name": "AOMRidge-global-compact-snv",
+        "dataset": "Tleaf_grp70_30",
+        "error_message": "fit_error: FloatingPointError: non-finite RMSE encountered during CV"
+      },
+      {
+        "canonical_name": "AOMRidge-global-compact-snv",
+        "dataset": "Brix_spxy70",
+        "error_message": "dataset_load_error: EmptyDataError: No columns to parse from file"
       }
     ]
   },
   "n_datasets": 57,
-  "n_candidates": 5,
+  "n_candidates": 6,
   "meta": {
-    "generated_at": "2026-05-09 12:27 UTC",
+    "generated_at": "2026-05-09 17:01 UTC",
     "workspace": "bench/scenarios/runs/fast_reliable_full57_seed0",
-    "n_rows": 276,
+    "n_rows": 342,
     "presets": [
       "fast_reliable"
     ],

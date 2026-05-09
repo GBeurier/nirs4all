@@ -153,6 +153,16 @@ EXPLORATORY_RUN_NAMES = frozenset({
     # output: bench/AOM_v0/Ridge/benchmark_runs/da009_local_knn_sweep_seed0/ per A's plan §6.
     # 4 datasets × 1 seed = 4 fits; per-fit wall ~5x D-A-003 (internal k_grid sweep over 5 values).
     "da009_local_knn_sweep_seed0",
+    # A's D-A-002 canonical (Codex round 10b CONDITIONAL → effectively LOCKED post-D-C-018) —
+    # canonical Phase-11 atoms (LazyV2AOM + AOMMoEMultiK + AOMMoERegressor + AOMPLSRegressor).
+    # 4 big-n datasets × 3 seeds = 12 fits ; seed propagation verified live (Chla+b 51.4/47.8/46.8
+    # shows real seed-variance, unlike stub atoms which were bit-identical).
+    "da002_canonical_atoms_seeds012",
+    # C's Phase 2 fast_reliable production run (full57 × 1 seed, 6 candidates × 57 = 342 fits).
+    # Completed 2026-05-09 19:00 CEST after D-C-019 subprocess timeout fix landed.
+    # Workspace at bench/scenarios/runs/fast_reliable_full57_seed0/. The v1+v2 partial
+    # diagnostic workspaces are archived under bench/scenarios/archive/ (out of rglob).
+    "fast_reliable_full57_seed0",
     # AOM_v0 explicit smoke runs
     "smoke_old_11ds",
     # AOM_v0_Ridge known smokes
@@ -177,6 +187,62 @@ SOURCE_RUN_NOTES_OVERRIDES: dict[str, str] = {
         "bit-identical across seeds (deterministic atoms); "
         "extras.atom_guard=true; extras.atom_set=stub_ridge_pls; "
         "extras.canonical_phase11_atoms=false."
+    ),
+    # Codex round 13 (2026-05-09): D-A-009 LOCKED-PARTIAL — 3/4 cohort.
+    # LMA_spxyG_block2deg fit OOM-killed (silent harness loss; D-C-018 prong
+    # B will fix retroactively). All 3 ingested rows carry the partial-cohort
+    # tag so downstream synthesis treats this as a 3/4 closure, not a clean 4/4.
+    "da009_local_knn_sweep_seed0": (
+        "D-A-009 LOCKED-PARTIAL via Codex round 13: 3/4 cohort, LMA OOM-killed "
+        "(silent harness loss, awaits D-C-018 dispatcher hardening + memory-safe re-run); "
+        "extras.partial_cohort=lma_oom; "
+        "extras.canonical_4ds_closure=false."
+    ),
+    # Codex round 10b (2026-05-09 18:00 CEST): D-A-002 canonical Phase-11
+    # atoms LOCKED post-D-C-018 (CONDITIONAL on seed propagation, verified
+    # live via seed-variance in Chla+b 51.44/47.83/46.77). 4 canonical atoms:
+    # LazyV2AOM, AOMMoEMultiK, AOMMoERegressor, AOMPLSRegressor.
+    "da002_canonical_atoms_seeds012": (
+        "D-A-002 canonical via Codex round 10b: AdaptiveSuperLearner-bigN-guarded "
+        "with canonical Phase-11 atoms (multiK-3-5-7 + moe-preproc-soft + "
+        "lazy-V2-AOM + aom-pls-compact). Seed propagation verified live (Chla+b "
+        "shows seed-variance vs stub bit-identical baseline). "
+        "extras.atom_set=canonical_phase11; extras.canonical_phase11_atoms=true; "
+        "extras.dispatcher_hardened=d_c_018_r14."
+    ),
+    # Phase 2 fast_reliable production run (Codex round 14 D-C-018 + round 15
+    # D-C-019 subprocess timeout). 6 candidates × 57 datasets × 1 seed = 342
+    # fits planned ; 322 OK, 16 failed (data-loading errors on corrupted CSVs),
+    # 4 failed_terminal (timeouts on AOMRidge-global × LMA + LUCAS_SOC_all,
+    # both -none and -snv variants).
+    "fast_reliable_full57_seed0": (
+        "Phase-2 fast_reliable full-57 production run (preset benchmark); "
+        "extras.preset=fast_reliable; extras.cohort=full57; extras.seed=0; "
+        "extras.dispatcher=d_c_018_d_c_019_subprocess_timeout."
+    ),
+}
+
+
+# Per-row note overrides keyed by (source_run, dataset). Applied AFTER
+# SOURCE_RUN_NOTES_OVERRIDES so the row-level tag is appended to the
+# source-run-wide tag. Used for Codex-prescribed structural-regression
+# flags scoped to a specific (method-line, dataset) pair.
+ROW_NOTE_OVERRIDES: dict[tuple[str, str], str] = {
+    # Codex round 13 (2026-05-09) D-A-010: Chla+b_spxyG_species is a
+    # fundamental regression for the AOMRidge-Local-compact k-tuning method
+    # line. D-A-009's k_grid sweep made it WORSE (+3.04 % vs D-A-003 k=50),
+    # confirming Chla+b is NOT a tunable-k issue. Synthesis treats this row
+    # as a structural regression class for AOMRidge-Local family, not a
+    # global "do-not-use-on-Chla+b" rule.
+    ("da003_local_knn50_bigN_seeds012", "Chla+b_spxyG_species"): (
+        "extras.fundamental_regression=true; "
+        "D-A-010 LOCKED via Codex round 13: AOMRidge-Local-compact k-tuning "
+        "line structural regression on this dataset (NOT a tunable-k knob)."
+    ),
+    ("da009_local_knn_sweep_seed0", "Chla+b_spxyG_species"): (
+        "extras.fundamental_regression=true; "
+        "D-A-010 LOCKED via Codex round 13: AOMRidge-Local-compact k-tuning "
+        "line structural regression on this dataset (NOT a tunable-k knob)."
     ),
 }
 
@@ -448,6 +514,11 @@ def collect_result_paths() -> list[Path]:
     paths.update((BENCH / "AOM_v0" / "benchmark_runs").rglob("results*.csv"))
     paths.update((BENCH / "AOM_v0" / "Ridge" / "benchmark_runs").rglob("results*.csv"))
     paths.update((BENCH / "AOM_v0" / "Multi-kernel" / "benchmark_runs").rglob("results*.csv"))
+    # 2026-05-09: auto-ingest C-side production preset runs (Phase 2 fast_reliable
+    # + future Phase 3 strong_practical + Phase 4 best_current). Schema matches
+    # harness output ; B's bench/fck_pls/runs/ stays excluded per D-C-016 LOCK
+    # (different schema).
+    paths.update((BENCH / "scenarios" / "runs").rglob("results*.csv"))
     for name in ["full57.csv", "smoke10.csv", "smoke4_baseline.csv", "smoke_classification.csv"]:
         path = BENCH / "AOM_v0" / "multiview" / "results" / name
         if path.exists():
@@ -1363,10 +1434,14 @@ def main() -> None:
     records = enrich_with_oracles(records)
     for record in records:
         record["protocol_maturity"] = assign_maturity(record)
-        prescribed = SOURCE_RUN_NOTES_OVERRIDES.get(clean_text(record.get("source_run")))
-        if prescribed:
+        source_run = clean_text(record.get("source_run"))
+        dataset = clean_text(record.get("dataset"))
+        prescribed = SOURCE_RUN_NOTES_OVERRIDES.get(source_run)
+        row_override = ROW_NOTE_OVERRIDES.get((source_run, dataset))
+        prefix_parts = [p for p in (prescribed, row_override) if p]
+        if prefix_parts:
             existing = clean_text(record.get("notes"))
-            record["notes"] = f"{prescribed} {existing}".strip()
+            record["notes"] = " ".join([*prefix_parts, existing]).strip()
     write_csv(records)
     write_md(records)
     source_rows = sum(1 for row in records if row.get("record_type") in {"observed", "reference_paper", "source_oracle"})

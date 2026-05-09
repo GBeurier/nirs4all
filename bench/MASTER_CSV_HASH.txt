@@ -126,3 +126,25 @@ maturity_after  locked=19392  exploratory=3406  oracle=808  local_not_master=59 
 db018_r22_findings "Per Codex R9: median Δ% vs aom_ridge_curated_best = +7.48% (29/195 wins, 14.9%) IDENTICAL to r21 ; q90 +53.72%, paper-CNN -10.05% (121/170 wins, 71.2%) IDENTICAL to r21. Production gate FAIL, science gate FAIL on wins (71.2% < 75%), do-no-harm passes (catastrophic 2/195 = 1.0%). Stability gain: s* IQR > 0.3 falls 17/39 (44%) → 9/39 (23%) — Option A halves instability without changing cohort verdict. R21 negative-result memo unchanged."
 codex_r9_status "D-B-018 LOCKED via Codex round 9 APPROVE 2026-05-09. Conditions: (i) labeled exploratory diagnostic, NOT production rescue or submission claim ; (ii) R21_NEGATIVE_RESULT.md substantively unchanged with r22 cross-reference addendum only ; (iii) no further GPU spend on the 9 remaining unstable datasets without a new D-B request ; (iv) 32h actual wall vs 15-24h optimistic estimate — future hybrid GPU runs should budget 1.3-1.5x nominal fit-time."
 b_queue_status "Empty post-D-B-018 lock. B explicitly went to standby per R9 verdict §(e). All 16 B decisions LOCKED+CLOSED. C will pick up any future D-B-XXX requests when filed."
+
+# Re-build (Agent C; D-A-002 canonical 12/12 + R10b CONDITIONAL satisfied):
+rebuilt   2026-05-09 19:23 CEST  sha256=dab6f2c23de4c9032d6b8e94d4116885ca7ba7decdd4b6ec62ffe728994cf2f7
+data_rows       23677
+trigger         "D-A-002 canonical (Codex R10b CONDITIONAL → effective LOCKED post-D-C-018) bg run COMPLETE 12/12 OK in ~66 min wall. Light_atoms guard on n=39225 LMA fit in 2 min — much faster than feared. Seed propagation verified live (Chla+b 51.44/47.83/46.77 across seeds 0/1/2 — real seed-variance, validating D-C-018 Prong D)."
+delta_locked      0   # 19392 still unchanged from P0
+delta_exploratory +12  # 3406 → 3418 (12 D-A-002 canonical observed rows)
+delta_oracle    0    # 808 unchanged (canonical atoms didn't beat existing model_class oracles on these 4 datasets)
+maturity_after  locked=19392  exploratory=3418  oracle=808  local_not_master=59  total=23677
+da002_canonical_findings "Per-dataset rmsep (12 fits): Chla+b 51.44/47.83/46.77 (seed-variance ~10 % range), LUCAS_Cropland 4.83/4.83/4.84 (det. on this dataset), LUCAS_SOC_all 16.70/16.64/16.66, LMA 23.61/23.62/23.62. Comparison vs D-A-002-stub (Ridge+PLS atoms): Chla+b stub 37.48 → canonical 48-51 (WORSE on the structural-regression dataset, consistent with D-A-010 fundamental_regression filing); LUCAS_Cropland stub 5.60 → canonical 4.84 (-14 %); LUCAS_SOC_all stub 21.14 → canonical 16.67 (-21 %); LMA stub 24.83 → canonical 23.62 (-5 %). Canonical atoms BEAT stub on 3/4 datasets ; stub WINS on Chla+b (Chla+b is structurally hostile across atom families)."
+codex_r10b_status "CONDITIONAL satisfied: seed propagation verified live (real variance in Chla+b across seeds, no longer bit-identical). D-A-002 canonical now LOCKED+CLOSED+ingested. Forbidden language clause unchanged from R10: stub rows must NOT be pooled with canonical rows in synthesis. The canonical rows now provide the production-grade Phase-11 ASL evidence Codex R10 prescribed."
+
+# Re-build (Agent C; Phase 2 fast_reliable production ingest):
+rebuilt   2026-05-09 22:00 CEST  sha256=903e68a3c1c126e66cd4fcdbf3b76bd137adb64fc8fbe3725a322bce51b876f2
+data_rows       24023
+trigger         "Phase 2 fast_reliable full-57 production run COMPLETE (D-C-019 subprocess timeout LOCKED via Codex R15). bench/scenarios/runs/fast_reliable_full57_seed0/ : 322 OK / 16 failed (data load / format issues) / 4 failed_terminal (timeouts cleanly killed by D-C-019 ProcessPool.terminate). bench/scenarios/runs/ added to collect_result_paths() ; v1_partial archived to bench/scenarios/archive/ to avoid double-counting."
+delta_locked      0   # 19392 still unchanged from P0
+delta_exploratory +342  # 3418 → 3760 (342 Phase 2 v3 observed rows)
+delta_oracle    +5    # 808 → 813 (5 new model_class oracle wins from Phase 2 v3 ; 19 oracle rows total for this source_run including some that replaced prior oracles in place)
+maturity_after  locked=19392  exploratory=3760  oracle=813  local_not_master=59  total=24023
+phase2_leaderboard "Median rmsep across 52-54 datasets: AOMRidge-global-compact-none=1.0956 ; AOMRidge-global-compact-snv=1.0956 ; ASLS-AOM-compact-cv5-numpy=1.4360 ; Ridge-tuned-cv5=1.5781 ; AOM-PLS-compact-numpy=1.6441 ; PLS-tuned-cv5=1.6541. AOMRidge-global wins by -23.7 % vs ASLS-AOM. SNV preprocessing did not affect median outcome (same 1.0956 as none variant)."
+phase2_dispatcher "D-C-019 subprocess timeout (Codex R15 LOCK) validated 4× live: 2 × LMA_spxyG_block2deg + 2 × LUCAS_SOC_all_26650 timed out at exactly 1200s budget on AOMRidge-global × {none, snv}. Each timeout cleanly freed 27-46 GB worker RAM via pool.terminate(). Phase 2 ran end-to-end without manual intervention or memory pressure cascades."
