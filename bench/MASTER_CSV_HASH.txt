@@ -88,3 +88,41 @@ maturity_after  locked=19392  exploratory=3208  oracle=808  local_not_master=59 
 codex_status    "D-A-003 LOCKED→CLOSED for scoped completion objective per Codex round-11 (3/4 sign test, median ratio 0.8969 = -10.31 % vs D-A-002-stub on shared big-n cohort). Caveat: comparator is D-A-002-stub Ridge/PLS atoms, NOT canonical Phase-11 ASL — broad production-dominance claim still requires D-A-002-canonical (A's Task #25, pending)."
 known_regression "Chla+b_spxyG_species: D-A-003 (Local-knn50) rmsep=58.8526 vs D-A-002-stub 37.4839 (+57.01 %). Filed as known-regression footnote analogous to D-A-001 §12.6 Quartz/Biscuit handling. Hypothesis: k=50 too coarse for small-big-n datasets just above the n_train>3000 cutoff (Chla+b n_train≈2500 in spxy3 outer fold). Does NOT block closure but blocks unqualified 'safe for all n_train > 3000' performance language."
 seed_invariance "All 12 D-A-003 rows are bit-identical across seeds 0/1/2 per dataset, same structural property as D-A-002-stub (kNN with predefined train/test splits + deterministic distance-based selection)."
+
+# Re-build (Agent C; D-A-009 partial — first 2 fits ingested):
+rebuilt   2026-05-08 18:50 CEST  sha256=b90f3adb0c0dff96db679c3e787b9deab6fae7602f10e6093d4e009eaf3d5fbd
+size_bytes      18502845
+data_rows       23471
+trigger         "D-A-009 (Local-knn50 k-tuning sweep, Codex R12 LOCK 17:10) bg run started; first 2 of 4 fits done. Chla+b_spxyG_species s0 + LUCAS_SOC_Cropland_8731 s0 in master."
+delta_locked      0   # 19392 still unchanged from P0
+delta_exploratory +4   # 3208 → 3212 (2 D-A-009 observed: Chla+b + LUCAS_Cropland; +2 from concurrent A nicon_v2 rebuild captures or oracle re-ranking)
+delta_oracle    +0   # 808 unchanged at master level (LUCAS_Cropland oracle already existed at 4.83 from D-A-003 ; D-A-009 4.74 *replaces* the prior oracle for AOMLocalRidge model_class — not a new oracle row, just an update)
+maturity_after  locked=19392  exploratory=3212  oracle=808  local_not_master=59  total=23471
+da009_partial_findings "Chla+b_spxyG_species s0 rmsep=60.6636 (k_grid sweep) vs D-A-003 k=50 baseline 58.8526 → WORSE by +3.04 % even with the sweep (cross-k retention insensitivity confirmed; A flagged this in 17:30 SYNC). LUCAS_SOC_Cropland_8731 s0 rmsep=4.7389 vs D-A-003 4.8304 → BETTER by -1.89 % (k_grid found a smaller-k optimum for this dataset). LMA + LUCAS_SOC_all still in flight; A's plan §6 estimates ~3 days total wall."
+codex_status    "D-A-009 LOCKED via Codex round 12 (2026-05-08 17:10 CEST) ; bg run authorized for completion. C ingest is intentionally provisional — final ingest will follow on D-A-009 4/4 OK signal from A's bg job b4dchf8ea."
+
+# B's runner output convention (no master ingest path):
+b_runner_convention "B's runner output at bench/fck_pls/runs/aom_with_fck_{fast12,audit20,full57}/results.csv uses a different schema (`pipeline` field instead of `canonical_name`/`variant`). Established convention since D-B-014/015 LOCKED ingests: B's results stay as registry-documented evidence anchors, NOT ingested into master CSV. The master CSV builder's add_generic_record does not pick up these files (collect_result_paths excludes bench/fck_pls/runs/). D-B-016 (FCKResidual-AOMPLS) audit20 + full57-partial + D-B-017 (AOMRidgePLS-compact ± FCK) audit20 results posted in B's 2026-05-08 SYNC entry are analyzed via B's own SYNC summary tables, not master CSV rows. C maintains registry slots (FCKResidual-AOMPLS-teacher, etc.) referencing the evidence anchors, but does not mirror the rows."
+
+# Re-build (Agent C; D-A-009 3/4 + D-B-018 partial ingest):
+rebuilt   2026-05-08 19:55 CEST  sha256=bde8903ef0e933d562300458c97bb325e3f728c22500b8bd4e1d48f8c83d0632
+data_rows       23479
+trigger         "D-A-009 LUCAS_SOC_all_26650 fit 3 OK (rmsep=14.1120, fit_time=3289s) + B's D-B-018 r22 cycle 1 captured 9 partial rows (the standard bench/nicon_v2/benchmark_runs/ path is in collect_result_paths, so r22 rows ingest automatically — no manual SYNC ack needed)."
+delta_locked      0   # 19392 still unchanged from P0
+delta_exploratory +8   # 3212 → 3220 (1 D-A-009 LUCAS_SOC_all + 9 D-B-018 r22 partial - 2 reabsorbed = +8)
+delta_oracle    0    # 808 unchanged (D-A-009 LUCAS_SOC_all 14.11 *replaces* D-A-003 LUCAS_SOC_all 15.28 oracle in place for AOMLocalRidge model_class)
+maturity_after  locked=19392  exploratory=3220  oracle=808  local_not_master=59  total=23479
+da009_3of4_findings "3/4 D-A-009 fits ingested. Comparison vs D-A-003 k=50 baseline: Chla+b 60.66 vs 58.85 = +3.04 % WORSE (cross-k retention confirmed); LUCAS_Cropland 4.74 vs 4.83 = -1.89 % better; LUCAS_SOC_all 14.11 vs 15.28 = **-7.65 % BETTER** (k_grid sweep finds smaller-k optimum on largest available dataset). LMA s0 still in flight ; D-A-003 baseline 137 min × 9× extrapolation = ~21 h, will overrun YAML 7200 s timeout — A flags R13 query when it surfaces."
+db018_r22_partial "B's D-B-018 r22 hybrid Option-A shrinkage cycle 1 produced 9 observed rows (Alpine_P + Rice_Amylose + 2 Beer_OriginalExtract + 2 Biscuit + 2 Corn variants). All tagged exploratory via my EXPLORATORY_RUN_NAMES whitelist for r22_curated_hybrid_multiseed. Standard bench/nicon_v2/ path → no manual ingest needed. Resumable bg run — additional cycles will accumulate over the next 1-3 days."
+
+# Re-build (Agent C; D-B-018 r22 hybrid COMPLETE 195/195 + Codex R9 LOCK):
+rebuilt   2026-05-09 09:05 CEST  sha256=5da5633ce80238c81728d66b5abaa3281a35ceb305d82af8b3c0b12661727c6c
+data_rows       23665
+trigger         "D-B-018 (r22 hybrid Option-A shrinkage on V2L-Residual-AOMPLS) reached 195/195 OK overnight. Codex round 9 APPROVE LOCKED the decision as exploratory diagnostic completion of Codex round-2 instability condition. B queue empty post-this-lock."
+delta_locked      0   # 19392 still unchanged from P0
+delta_exploratory +169  # 3237 → 3406 (the +169 r22 rows that accumulated since 02:35 — cycles 1-3 ran ~7-12h each on the GPU, multi-cycle resumable. 195/195 OK across 5 seeds × 39 datasets.)
+delta_oracle    0    # 808 unchanged at master level (4 r22 oracle_by_model_class rows produced but they replaced 4 prior oracle rows in place — V2L-Residual-AOMPLS class oracles for 4 datasets where r22 winning rmsep < r21/D-A oracle baseline)
+maturity_after  locked=19392  exploratory=3406  oracle=808  local_not_master=59  total=23665
+db018_r22_findings "Per Codex R9: median Δ% vs aom_ridge_curated_best = +7.48% (29/195 wins, 14.9%) IDENTICAL to r21 ; q90 +53.72%, paper-CNN -10.05% (121/170 wins, 71.2%) IDENTICAL to r21. Production gate FAIL, science gate FAIL on wins (71.2% < 75%), do-no-harm passes (catastrophic 2/195 = 1.0%). Stability gain: s* IQR > 0.3 falls 17/39 (44%) → 9/39 (23%) — Option A halves instability without changing cohort verdict. R21 negative-result memo unchanged."
+codex_r9_status "D-B-018 LOCKED via Codex round 9 APPROVE 2026-05-09. Conditions: (i) labeled exploratory diagnostic, NOT production rescue or submission claim ; (ii) R21_NEGATIVE_RESULT.md substantively unchanged with r22 cross-reference addendum only ; (iii) no further GPU spend on the 9 remaining unstable datasets without a new D-B request ; (iv) 32h actual wall vs 15-24h optimistic estimate — future hybrid GPU runs should budget 1.3-1.5x nominal fit-time."
+b_queue_status "Empty post-D-B-018 lock. B explicitly went to standby per R9 verdict §(e). All 16 B decisions LOCKED+CLOSED. C will pick up any future D-B-XXX requests when filed."

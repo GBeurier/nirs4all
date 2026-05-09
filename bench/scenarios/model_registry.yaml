@@ -227,6 +227,32 @@ models:
     maturity: locked
     notes: "k-NN local kernel; safe for n_train > 3000."
 
+  - canonical_name: AOMRidge-Local-compact-knn-sweep
+    aliases:
+      - AOMRidge-Local-compact-knn-sweep
+    model_class: AOMLocalRidge
+    module: aomridge.local_ridge
+    config_template: bench/scenarios/configs/aomridge_local_compact_knn_sweep.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 50}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: medium
+    maturity: exploratory
+    notes: |
+      D-A-009 k-tuning sweep variant (Codex round 12 LOCK 2026-05-08 17:10 CEST).
+      Same AOMLocalRidge class as `AOMRidge-Local-compact-knn50` (the D-A-003
+      k=50-only baseline) but with internal `k_grid: [10, 25, 50, 100, 200]`
+      sweep selecting best k per fit. Single-seed protocol (D-A-003 demonstrated
+      bit-identical RMSEPs across seeds 0/1/2 for this deterministic atom).
+      Diagnostic for the Chla+b_spxyG_species small-big-n boundary regression
+      (n_train=3734, R²=-13.45 at k=50). Cohort: same 4 big-n datasets as D-A-003.
+      A's manifest at bench/AOM_v0/Ridge/scenarios/da009_local_knn_sweep.json
+      reuses the `AOMRidge-Local-compact-knn50` canonical_name with the
+      kgrid-sweep YAML for registry-validation parity (workaround documented in
+      A's manifest description). This registry entry is the formal Codex-R12-§3
+      preset path for any future generic k-sweep runs.
+
   - canonical_name: AOMRidge-MultiBranchMKL-compact-shrink03
     aliases:
       - AOMRidge-MultiBranchMKL-compact-shrink03
@@ -458,6 +484,7 @@ models:
   - canonical_name: V2L-Residual-AOMPLS
     aliases:
       - V2L-Residual-AOMPLS
+      - V2L-Residual-AOMPLS-shrinkage-r21   # D-B-012 LOCKED variant tag (Codex round 4)
     model_class: V2LResidualAOMPLS
     module: bench.nicon_v2.residual
     config_template: bench/scenarios/configs/v2l_residual_aompls.yaml
@@ -465,11 +492,21 @@ models:
     input_constraints: {min_n: 30}
     supports_predefined_test_split: true
     inner_cv_nested: true
-    runtime_tier: very_slow
-    maturity: locked
+    runtime_tier: very_slow            # gpu_long per B's D-B-012 LOCKED ack
+    maturity: exploratory               # downgraded from locked per Codex round 4 verdict (D-B-012)
     notes: |
-      r20_curated_oof: 39/39, single seed. r21 multiseed gating per
-      Agent B's D-B-002. Locked here pending B1 OOF cleanness audit.
+      D-B-012 LOCKED NO-GO via Codex round 4 APPROVE (2026-05-06).
+      r21 multiseed (n=195, 5 seeds × 39 datasets) full results in
+      bench/nicon_v2/benchmark_runs/r21_curated_oof_multiseed/.
+      Production gate failed: median +7.5 % vs aom_ridge_curated_best,
+      14.9 % wins. Paper-CNN descriptive: median -9.8 %, 71 % wins.
+      Tail-variance instability (s* IQR > 0.3 on 17/39 datasets)
+      motivated D-B-018 r22 hybrid Option-A shrinkage diagnostic
+      (in flight 2026-05-09).
+      gpu_long ; exhaustive_research only ; do NOT promote.
+      Evidence: bench/nicon_v2/benchmark_runs/r21_curated_oof_multiseed/results.csv (n=195)
+      Linear analogue (FCK-static residual instead of V2L-CNN residual):
+      see FCKResidual-AOMPLS-teacher (D-B-016 LOCKED, weaker than V2L).
 
   - canonical_name: V2L-Boost-AOMPLS
     aliases:
@@ -592,6 +629,76 @@ models:
       D-B-011 NO-GO. fast12-only evidence; audit20 / full-57 not run
       (Codex round 3 §4 caveat). SNV step is a placeholder pending B's
       ASLS preprocessor. exhaustive_research only.
+
+# ---------------------------------------------------------------------------
+# G3. FCK residual stacks. Pre-positioned for B's D-B-016 launch (relayed by
+#     user 2026-05-08 16:25 CEST). FCKResidualRegressor wraps a "do-no-harm"
+#     teacher with an FCK + ridge residual head + shrinkage CV; analogous to
+#     V2L-Residual-AOMPLS but linear (CPU-cheap). DECISION_PENDING_CODEX_REVIEW
+#     (Codex round 12 expected once B opens D-B-016 with cohort/teacher/seeds).
+# ---------------------------------------------------------------------------
+
+  - canonical_name: AOMRidgePLSCV-compact-with-fck
+    aliases:
+      - AOMRidgePLSCV-compact-with-fck
+      - aomridge-pls-cv-compact-with-fck
+    model_class: AOMRidgePLSCV
+    module: aomridge.aom_ridge_pls
+    config_template: bench/scenarios/configs/aomridge_pls_cv_compact_with_fck.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: true
+    runtime_tier: medium
+    maturity: exploratory
+    notes: |
+      D-B-017b LOCKED via Codex round 8 APPROVE (2026-05-08). CV-tuned
+      AOM-Ridge with the 17-op `compact_with_fck` bank (9 compact + 8 FCK).
+      The fair comparison Codex round-7 demanded; supersedes D-B-017's
+      default-hyperparam audit. Strict +5 % gate FAILS at median +13.4 %
+      vs aom_ridge_curated_best (n=39); q90 +45.9 % (-10.7 pp better than
+      compact-only); worst +3173 % (-4278 pp better, but Quartz_spxy70
+      reference rmsep ≈ 3e-9 dominates the worst ratio so q90 is the
+      cleaner anchor); 4/39 wins (+1 over compact-only).
+      vs paper CNN: median -2.8 %, 26/48 wins (54.2 %) — beats paper CNN.
+      vs paper Ridge/PLS/CatBoost/TabPFN-raw: tied/slightly behind
+      (+5.9/+4.8/+3.9/+4.1 % median).
+      Stability trade-off (HYPOTHESIS, not proven by aggregate numbers):
+      the 8 added FCK blocks make Ridge more conservative ; sacrifices
+      small median for substantially more robust tails.
+      exhaustive_research only ; do NOT promote, recommend, prefer, or
+      describe as better than aom_ridge_curated_best.
+      Evidence:
+        bench/fck_pls/runs/aom_with_fck_full57/results.csv
+        (399 data rows; 114 AOMRidgePLSCV-* rows; 57 compact + 57 compact-with-fck)
+
+  - canonical_name: FCKResidual-AOMPLS-teacher
+    aliases:
+      - FCKResidual-AOMPLS
+      - fck-residual-aompls
+    model_class: FCKResidualRegressor
+    module: bench.fck_pls.fck_residual
+    config_template: bench/scenarios/configs/fck_residual_aompls_static.yaml
+    task_types: [regression]
+    input_constraints: {min_n: 30}
+    supports_predefined_test_split: true
+    inner_cv_nested: false  # shrinkage CV is internal to the class, not an outer wrapper
+    runtime_tier: medium
+    maturity: exploratory
+    notes: |
+      D-B-016 LOCKED NO-GO via Codex round 7 APPROVE (2026-05-08 ~20:00 CEST).
+      Full-57 results: median +11.0 % vs aom_ridge_curated_best (FAILS strict
+      gate by 6.0 pp), q90 +32.2 %, worst +131.4 %, 3/39 wins. Paper-CNN
+      descriptive: median −3.2 %, 28/48 wins (58.3 %) — weaker than r21
+      V2L-Residual-AOMPLS's −9.8 %, 71 % wins. The "linear pendant" of r21
+      V2L-Residual gives a consistent but weaker NO-GO; FCK-static feature
+      extractor + Ridge head captures less of V2L-CNN's non-linear edge.
+      Closes the FCK × AOM matrix (preprocessing, in-bank, residual all NO-GO
+      vs strict AOM-Ridge gate, all paper-CNN-tied).
+      exhaustive_research only ; do NOT promote.
+      Evidence:
+        bench/fck_pls/runs/aom_with_fck_audit20/results.csv (n=20, FCKResidual-AOMPLS)
+        bench/fck_pls/runs/aom_with_fck_full57/results.csv (n=57, FCKResidual-AOMPLS)
 
 # ---------------------------------------------------------------------------
 # H. Reference / paper-only entries — informational.
@@ -740,6 +847,9 @@ presets:
       - Concat-SNV-FCK-AOMPLS-static
       - ASLS-FCK-PLS-static
       - AOMPLS-compact-with-fck-full57
+      - AOMRidgePLSCV-compact-with-fck
+      - FCKResidual-AOMPLS-teacher
+      - AOMRidge-Local-compact-knn-sweep
       - paper-CNN-reference
       - paper-CatBoost-reference
     runtime_tier_max: very_slow
