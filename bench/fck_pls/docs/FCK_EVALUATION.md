@@ -239,3 +239,81 @@ new D-B-XXX request in `bench/SYNC.md`.
    - **EXCLUDE FCK-Ridge** (fast12 catastrophic outliers).
 3. FCKResidualRegressor stays staged. Run on a cohort only after r21
    multiseed validates the shrinkage-CV protocol.
+
+---
+
+## Addendum (2026-05-08): D-B-016 + D-B-017b results
+
+Three follow-up decisions extended the FCK × AOM matrix:
+
+### D-B-016 — FCKResidualRegressor on full-57
+
+A linear residual head (`FCKStatic + Ridge`) on top of an AOMPLS-compact
+teacher was tested as the analogue of r21's V2L-Residual-AOMPLS-shrinkage.
+Results on full-57 (n = 39 with aom_ridge reference):
+
+| Pipeline | median Δ% vs aom_ridge | median Δ% vs paper CNN | wins vs CNN |
+|---|---:|---:|---:|
+| FCKResidual-AOMPLS | +11.0 % | **−3.2 %** | 28 / 48 (58 %) |
+| r21 V2L-Residual (CNN head) | +7.5 % | −9.8 % | 121 / 170 (71 %) |
+
+Verdict (Codex round-7 LOCKED): NO-GO; FCKResidual is **strictly
+weaker** than V2L-Residual at every cohort tier (6-7 pp). The linear
+residual captures less of the non-linear residual signal than the
+V2L-CNN head. Registry stays at `exhaustive_research`.
+
+### D-B-017 / D-B-017b — FCK kernels in the AOM-Ridge bank
+
+D-B-017 was opened with the default-hyperparam `AOMRidgePLS` and gave
+catastrophic results (median +28 % / +25 % vs aom_ridge_curated_best).
+Codex round-7 ruled the comparison unfair (default `ridge_alpha=1.0` vs
+the curated reference's tuned alpha) and opened D-B-017b for the
+CV-tuned re-run.
+
+D-B-017b results on full-57 (n = 39 with aom_ridge reference):
+
+| Bank | median Δ% | q90 Δ% | worst Δ% | wins / 39 |
+|---|---:|---:|---:|---:|
+| AOMRidgePLSCV-compact | +11.4 % | +56.6 % | +7 451 % * | 3 / 39 |
+| **AOMRidgePLSCV-compact-with-fck** | **+13.4 %** | **+45.9 %** | **+3 173 %** * | **4 / 39** |
+| Δ from FCK | +2.0 pp **worse** | **−10.7 pp better** | **−4 278 pp better** | +1 win |
+
+\* Worst-case dominated by `Quartz_spxy70` numerical artifact (reference
+~3 e-9 RMSEP explodes the ratio). Real signal is q90.
+
+Verdict (Codex round-8 LOCKED): **stability trade-off** — FCK in the
+AOM-Ridge bank trades a small median regression for substantially
+better tail behaviour. Mechanistic explanation: AOM-Ridge applies all
+operators in parallel as superblocks, so adding 8 FCK blocks makes the
+Ridge penalty more conservative — reducing tail risk at the cost of
+median fit. Registered as `AOMRidgePLSCV-compact-with-fck` for
+`exhaustive_research` only.
+
+### Final FCK × AOM 2 × 2 (full-57, fair comparison)
+
+| | AOM-PLS (default) | AOM-Ridge (CV-tuned) |
+|---|---:|---:|
+| compact (9 ops) | median Δ% +9.8 % | +11.4 % |
+| compact-with-fck (17 ops) | +8.7 % | +13.4 % |
+| FCK Δ on median | **−1.1 pp better** | +2.0 pp worse |
+| FCK Δ on q90 | +4.7 pp worse | **−10.7 pp better** |
+
+**FCK behaves differently in AOM-PLS vs AOM-Ridge**:
+- In AOM-PLS (per-component selector picks one operator per H-th
+  component), FCK is selected on 30 % of datasets and produces a small
+  median improvement.
+- In AOM-Ridge (all ops applied as parallel superblocks), FCK is
+  always-present and the Ridge penalty must reabsorb the additional
+  blocks — this regularises the tails but slightly hurts median fit.
+
+### Updated registry roster (all `exhaustive_research`)
+
+| Card | Strength |
+|---|---|
+| AOMPLS-compact-with-fck-full57 (D-B-014/015) | median signal, no-cost augmentation |
+| **AOMRidgePLSCV-compact-with-fck (D-B-017b)** | **stability trade-off (q90 / worst)** |
+| FCKResidualRegressor (D-B-016) | weaker than V2L-Residual; redundant for any production use |
+| FCK-AOMPLS / Concat-SNV-FCK-AOMPLS / FCK-PLS / ASLS-FCK-PLS (D-B-009) | preprocessing-style FCK (audit20 evidence) |
+
+**Excluded**: FCK-Ridge (D-B-010, fast12 catastrophic) and the
+default-hyperparam AOMRidgePLS (superseded by D-B-017b).

@@ -628,6 +628,47 @@ PHASE_V2_R21_MULTISEED: tuple[Variant, ...] = (
 )
 
 
+# Round 22 — hybrid Option A / Option B shrinkage (Codex round-4 condition
+# on D-B-013). The 17 datasets where r21 produced a per-dataset s* IQR > 0.3
+# get true 5-fold inner-CV shrinkage selection (Option A); the 22 stable
+# datasets keep the held-out single-split selector (Option B, same as r21).
+# Cost: ~5x CNN training on the unstable subset, +1x on stable. Codex
+# round-4 confirmed: exploratory diagnostic, not submission-grade.
+R22_HYBRID_UNSTABLE: tuple[str, ...] = (
+    "All_manure_K2O_SPXY_strat_Manure_type",
+    "All_manure_P2O5_SPXY_strat_Manure_type",
+    "All_manure_Total_N_SPXY_strat_Manure_type",
+    "An_spxyG70_30_byCultivar_ASD",
+    "An_spxyG70_30_byCultivar_MicroNIR",
+    "An_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+    "Biscuit_Sucrose_40_RandomSplit",
+    "DIESEL_bp50_246_hla-b",
+    "DIESEL_bp50_246_hlb-a",
+    "Fv_Fm_grp70_30",
+    "LP_spxyG",
+    "Quartz_spxy70",
+    "Rd25_CBtestSite",
+    "Rice_Amylose_313_YbasedSplit",
+    "TIC_spxy70",
+    "V25_spxyG",
+    "WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+)
+
+PHASE_V2_R22_HYBRID: tuple[Variant, ...] = (
+    Variant("V2L-Residual-AOMPLS-shrinkage-hybrid", family="nicon_v2a",
+            extra={"bank": "extended_lowrank", "trainable_ops": True, "operator_reg_lambda": 0.0, "bjerrum": True,
+                   "branch_se": True, "lowrank_rank": 32, "learnable_rms": True,
+                   "pls_residual_teacher": "aompls_extended",
+                   "pls_residual_oof": True, "pls_oof_n_folds": 5,
+                   "shrinkage_cv": True,
+                   "shrinkage_grid": (0.0, 0.25, 0.5, 0.75, 1.0),
+                   "shrinkage_catastrophic_threshold": 0.5,
+                   "shrinkage_cv_mode": "hybrid",
+                   "shrinkage_inner_n_folds": 5,
+                   "shrinkage_hybrid_unstable_datasets": R22_HYBRID_UNSTABLE}),
+)
+
+
 # Round 19 — leakage diagnostic and OOF residual fix (Codex round-13 finding).
 # Compares the round-17/18 implementation (in-sample residuals; default
 # `pls_residual_oof=False` here for the diagnostic) vs OOF residuals
@@ -1155,6 +1196,8 @@ def _run_torch_cnn(
         "pls_residual_oof", "pls_boost_oof", "pls_oof_n_folds",
         # R21 — shrinkage CV for V2L-Residual-AOMPLS (do-no-harm gate).
         "shrinkage_cv", "shrinkage_grid", "shrinkage_catastrophic_threshold",
+        # R22 — Option A 5-fold inner CV shrinkage (Codex round-4 approval).
+        "shrinkage_cv_mode", "shrinkage_inner_n_folds", "shrinkage_hybrid_unstable_datasets",
     }
     builder_params = {k: v for k, v in (extra_options or {}).items()
                       if not k.startswith("_") and k not in _NON_BUILDER_KEYS}
@@ -1313,23 +1356,86 @@ def _run_torch_cnn(
                 "shrinkage_grid", (0.0, 0.25, 0.5, 0.75, 1.0)
             )
             grid = tuple(float(s) for s in grid_raw)
-            n_train_local = X_train_s.shape[0]
-            rng_split = np.random.default_rng(seed)
-            shuffled = rng_split.permutation(n_train_local)
-            n_val_local = max(1, int(round(config.val_fraction * n_train_local)))
-            val_idx_local = shuffled[:n_val_local]
-            # CNN inference on the held-out val partition (residual-scale).
-            X_val_s = X_train_s[val_idx_local]
-            nn_val_scaled = predict_torch_regressor(model, X_val_s, device=device)
-            nn_val_residual = y_proc.inverse_transform(nn_val_scaled)
-            y_val_orig = np.asarray(y_train, dtype=float).ravel()[val_idx_local]
-            z_val = np.asarray(z_train_raw, dtype=float).ravel()[val_idx_local]
+            shrinkage_mode = str((extra_options or {}).get(
+                "shrinkage_cv_mode", "held_out"
+            )).lower()
+            # R22 hybrid: only use cv5 on listed unstable datasets; held-out otherwise.
+            if shrinkage_mode == "hybrid":
+                unstable = set((extra_options or {}).get("shrinkage_hybrid_unstable_datasets", ()))
+                shrinkage_mode = "cv5" if spec.dataset in unstable else "held_out"
             inner_cv_rmse_per_s = {}
-            for s in grid:
-                rmse_s = float(
-                    np.sqrt(np.mean((y_val_orig - (z_val + s * nn_val_residual)) ** 2))
-                )
-                inner_cv_rmse_per_s[f"{s:.2f}"] = rmse_s
+            if shrinkage_mode == "cv5":
+                # R22 — Option A: 5-fold inner CV gives OOF NN residual predictions
+                # on the entire training set, then s* is chosen on full-train OOF.
+                # Cost: 5x CNN training in addition to the existing final fit.
+                from sklearn.model_selection import KFold
+                n_inner = int((extra_options or {}).get("shrinkage_inner_n_folds", 5))
+                n_train_local = X_train_s.shape[0]
+                kf_inner = KFold(n_splits=n_inner, shuffle=True, random_state=seed)
+                nn_oof_full = np.zeros(n_train_local, dtype=float)
+                for fold_k, (tr_inner, va_inner) in enumerate(kf_inner.split(np.arange(n_train_local))):
+                    # Inner-fold teacher (no OOF inside the inner fold; cheap).
+                    teacher_k_inner = _build_pls_residual_teacher(
+                        str(pls_residual_teacher_name),
+                        X_train[tr_inner],
+                        y_train[tr_inner],
+                        seed + fold_k,
+                    )
+                    z_inner_train = np.asarray(
+                        teacher_k_inner.predict(X_train[tr_inner]), dtype=float
+                    ).ravel()
+                    residual_inner = (
+                        np.asarray(y_train, dtype=float).ravel()[tr_inner]
+                        - z_inner_train
+                    )
+                    y_proc_inner = StandardYProcessor().fit(residual_inner)
+                    residual_inner_s = y_proc_inner.transform(residual_inner)
+                    model_inner = builder((1, n_features), params=builder_params).to(device)
+                    if family == "nicon_v2a" and hasattr(model_inner, "fit_branches"):
+                        model_inner.fit_branches(
+                            torch.from_numpy(
+                                X_train_s[tr_inner].reshape(-1, 1, n_features)
+                            ).float().to(device)
+                        )
+                    config_inner = TrainConfig(
+                        seed=seed + fold_k * 1000,
+                        device=device.type,
+                        batch_size=min(32, max(8, len(tr_inner) // 8)),
+                        epochs=config.epochs,
+                        patience=config.patience,
+                    )
+                    model_inner, _ = train_torch_regressor(
+                        model_inner, X_train_s[tr_inner], residual_inner_s, config_inner,
+                    )
+                    nn_va_scaled = predict_torch_regressor(
+                        model_inner, X_train_s[va_inner], device=device,
+                    )
+                    nn_oof_full[va_inner] = y_proc_inner.inverse_transform(nn_va_scaled)
+                y_train_orig = np.asarray(y_train, dtype=float).ravel()
+                z_train_oof = np.asarray(z_train_raw, dtype=float).ravel()
+                for s in grid:
+                    rmse_s = float(
+                        np.sqrt(np.mean((y_train_orig - (z_train_oof + s * nn_oof_full)) ** 2))
+                    )
+                    inner_cv_rmse_per_s[f"{s:.2f}"] = rmse_s
+            else:
+                # Default (held-out): pick s* on the same val partition used for
+                # early stopping, deterministic from (seed, val_fraction).
+                n_train_local = X_train_s.shape[0]
+                rng_split = np.random.default_rng(seed)
+                shuffled = rng_split.permutation(n_train_local)
+                n_val_local = max(1, int(round(config.val_fraction * n_train_local)))
+                val_idx_local = shuffled[:n_val_local]
+                X_val_s = X_train_s[val_idx_local]
+                nn_val_scaled = predict_torch_regressor(model, X_val_s, device=device)
+                nn_val_residual = y_proc.inverse_transform(nn_val_scaled)
+                y_val_orig = np.asarray(y_train, dtype=float).ravel()[val_idx_local]
+                z_val = np.asarray(z_train_raw, dtype=float).ravel()[val_idx_local]
+                for s in grid:
+                    rmse_s = float(
+                        np.sqrt(np.mean((y_val_orig - (z_val + s * nn_val_residual)) ** 2))
+                    )
+                    inner_cv_rmse_per_s[f"{s:.2f}"] = rmse_s
             s_star = float(min(grid, key=lambda s: inner_cv_rmse_per_s[f"{s:.2f}"]))
             pred = z_test_raw + s_star * pred
             # Catastrophic-loss diagnostic: compare final test RMSE to the
@@ -1485,7 +1591,8 @@ def main() -> int:
                                  "v2_r17_priority1", "v2_r17_priority2",
                                  "v2_r18_residual_multiseed",
                                  "v2_r19_oof_diagnostic", "v2_r20_final",
-                                 "v2_r21_multiseed"])
+                                 "v2_r21_multiseed",
+                                 "v2_r22_hybrid"])
     parser.add_argument("--seeds", nargs="*", type=int, default=None, help="run multiple seeds (overrides --seed)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--only", nargs="*", default=None, help="restrict to dataset names")
@@ -1551,6 +1658,8 @@ def main() -> int:
         variants = list(PHASE_V2_R20_FINAL)
     elif args.variants == "v2_r21_multiseed":
         variants = list(PHASE_V2_R21_MULTISEED)
+    elif args.variants == "v2_r22_hybrid":
+        variants = list(PHASE_V2_R22_HYBRID)
     else:
         raise ValueError(f"unknown variants set: {args.variants!r}")
     if args.skip_cnn:
