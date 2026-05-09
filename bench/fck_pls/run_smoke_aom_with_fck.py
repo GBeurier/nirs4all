@@ -57,6 +57,20 @@ from nicon_v2.datasets import (  # noqa: E402
 
 from nirs4all.operators.transforms import FCKStaticTransformer  # noqa: E402
 
+# Lazy import for the FCK residual head (D-B-016).
+_HERE_FCK = Path(__file__).resolve().parent
+if str(_HERE_FCK) not in sys.path:
+    sys.path.insert(0, str(_HERE_FCK))
+from fck_residual import FCKResidualRegressor  # noqa: E402
+
+# AOM-Ridge wrapper (D-B-017). Available because bench/AOM_v0/Ridge is on
+# sys.path already (REPO_ROOT/bench/AOM_v0 above also resolves the Ridge
+# subpackage via aomridge namespace).
+_RIDGE_PATH = REPO_ROOT / "bench" / "AOM_v0" / "Ridge"
+if str(_RIDGE_PATH) not in sys.path:
+    sys.path.insert(0, str(_RIDGE_PATH))
+from aomridge.aom_ridge_pls import AOMRidgePLS, AOMRidgePLSCV  # noqa: E402
+
 
 def _load_cohort_names(cohort: str) -> list[str]:
     payload = json.loads(SUBSETS_JSON.read_text())
@@ -109,6 +123,51 @@ def _build_pipelines() -> dict[str, object]:
             criterion="cv", cv=5, operator_bank="compact",
         )),
     ])
+    # D-B-016 — FCKResidualRegressor with AOMPLS-compact teacher and Ridge head.
+    from sklearn.linear_model import Ridge
+    pipes["FCKResidual-AOMPLS"] = FCKResidualRegressor(
+        teacher=AOMV0Regressor(
+            n_components="auto", max_components=15,
+            engine="simpls_covariance", selection="global",
+            criterion="cv", cv=5, operator_bank="compact",
+        ),
+        fck=FCKStaticTransformer(),
+        residual_head=Ridge(alpha=1.0),
+        shrinkage_grid=(0.0, 0.25, 0.5, 0.75, 1.0),
+        oof_n_folds=5,
+        val_fraction=0.2,
+        random_state=0,
+        catastrophic_threshold=0.5,
+    )
+    # D-B-017 — AOM-Ridge with FCK in the bank (mirror of D-B-014 on the
+    # AOM-Ridge package). AOMRidgePLS already accepts the `compact_with_fck`
+    # bank registered in `aompls.banks.bank_by_name`, so no new bank code
+    # is needed; we just instantiate the standard estimator with the
+    # FCK-augmented bank.
+    pipes["AOMRidgePLS-compact"] = AOMRidgePLS(
+        operator_bank="compact",
+        n_components=10,
+        ridge_alpha=1.0,
+        cv=5,
+    )
+    pipes["AOMRidgePLS-compact-with-fck"] = AOMRidgePLS(
+        operator_bank="compact_with_fck",
+        n_components=10,
+        ridge_alpha=1.0,
+        cv=5,
+    )
+    # D-B-017b — CV-tuned AOMRidgePLSCV. The default-hyperparam AOMRidgePLS
+    # comparison vs `aom_ridge_curated_best` was unfair (the curated best
+    # uses tuned alpha). AOMRidgePLSCV does its own grid search over
+    # n_components × ridge_alpha so the comparison is on equal footing.
+    pipes["AOMRidgePLSCV-compact"] = AOMRidgePLSCV(
+        operator_bank="compact",
+        cv=5,
+    )
+    pipes["AOMRidgePLSCV-compact-with-fck"] = AOMRidgePLSCV(
+        operator_bank="compact_with_fck",
+        cv=5,
+    )
     return pipes
 
 

@@ -202,3 +202,69 @@ with `protocol_maturity = exploratory` and the above registry entry.
 3. Switch focus to FCKResidualRegressor cohort run (the only remaining
    active item on B's queue).
 4. r22 hybrid stays deferred until a paper window opens.
+
+---
+
+## Addendum (2026-05-08): linear residual analogue, AOM-Ridge bank, hybrid r22
+
+Three follow-up decisions extended the residual / AOM × FCK matrix:
+
+### D-B-016 — FCKResidualRegressor (linear residual analogue)
+
+A linear residual (`FCKStatic + Ridge`) on top of an AOMPLS-compact
+teacher is the linear pendant of r21's `V2L-Residual-AOMPLS-shrinkage`
+(which uses a V2L-CNN residual head). Result on full-57:
+
+| Variant | median Δ% vs aom_ridge | median Δ% vs paper CNN | wins vs CNN |
+|---|---:|---:|---:|
+| r21 V2L-Residual (CNN head) | +7.5 % | **−9.8 %** | 121 / 170 (71 %) |
+| D-B-016 FCKResidual (linear head) | +11.0 % | −3.2 % | 28 / 48 (58 %) |
+
+The linear FCK head captures **less of the non-linear residual** than
+the V2L-CNN head — confirming the r21 negative result is partly driven
+by the residual signal being genuinely non-linear, not just a function
+of the chosen feature representation. Codex round-7 LOCKED D-B-016
+NO-GO.
+
+### D-B-017b — FCK kernels in the AOM-Ridge bank (CV-tuned)
+
+Same architectural pattern as r21 but on the linear AOM-Ridge family:
+adding FCK kernels to the operator bank produces a **stability trade-off**
+(q90 / worst much better, median +2 pp worse). Mechanistically
+analogous to r21's shrinkage CV behaviour:
+
+- r21 V2L-Residual: shrinkage `s*` deterministic per (dataset, seed),
+  but `s*` IQR > 0.3 on 17 / 39 datasets → tail variance is the
+  problem, not median.
+- D-B-017b AOMRidge-with-fck: extra FCK blocks regularise the Ridge
+  penalty more conservatively → tail variance reduced, median
+  slightly worse.
+
+Both confirm the pattern: **the residual / non-linear signal in NIRS is
+on the tails of the cohort distribution, not on the cohort median**.
+
+Codex round-8 LOCKED D-B-017b for `exhaustive_research`.
+
+### r22 hybrid (D-B-018, in flight)
+
+The Codex round-2 condition on D-B-002c-revised (s* IQR > 0.3 → reopen
+Option A for r22+) is currently being acted on. r22 cycle 1 ran 16/195
+fits before timeout (Rd25 family was expensive). Multi-cycle resume in
+progress. Final r22 verdict will land in a separate addendum.
+
+### Cross-reference to FCK programme
+
+The full FCK × {AOM-PLS, AOM-Ridge, residual NN} matrix (locked decisions
+D-B-001..D-B-017b) gives a coherent family verdict: **NIRS residual /
+non-linear signal is real on a minority of small-n datasets, behind
+AOM-Ridge on cohort median.** No single FCK variant beats AOM-Ridge for
+production; all variants beat paper CNN by 3-10 pp median. See
+`bench/fck_pls/docs/FCK_EVALUATION.md` for the full FCK × AOM matrix.
+
+### Addendum (2026-05-09): r22 hybrid closure
+
+r22 hybrid investigation closed positively — see `bench/SYNC.md` Codex
+round-9. The hybrid Option A/B run reduced `s*` IQR instability from
+17 / 39 to 9 / 39 datasets while leaving the cohort rmsep verdict
+unchanged. This is a cross-reference only: the locked r21 negative-result
+memo remains substantively unchanged.

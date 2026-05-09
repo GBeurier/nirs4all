@@ -298,6 +298,12 @@ class FiniteDifferenceOperator(LinearSpectralOperator):
     def _apply_cov_impl(self, S: np.ndarray) -> np.ndarray:
         return _xcorr_zero_pad(S.T, self._kernel).T
 
+    def _adjoint_vec_impl(self, v: np.ndarray) -> np.ndarray:
+        return _xcorr_zero_pad(v, self._kernel[::-1])
+
+    def _matrix_impl(self, p: int) -> np.ndarray:
+        return self._apply_cov_impl(np.eye(p))
+
 
 def _fck_kernel(alpha: float, scale: float, kernel_size: int, sigma: float) -> np.ndarray:
     """Build a single normalised fractional-derivative kernel.
