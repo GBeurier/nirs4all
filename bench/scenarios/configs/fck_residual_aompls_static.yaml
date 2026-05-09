@@ -1,0 +1,77 @@
+# bench/scenarios/configs/fck_residual_aompls_static.yaml
+#
+# Owner: Agent C / MLOps Spine. Bound to registry entry
+# `FCKResidual-AOMPLS-teacher` (D-B-016 staged for B's launch).
+# Status: PRE-SCAFFOLD, posted ahead of B's formal SYNC entry. If B
+# selects a different teacher (PLS-tuned vs AOMPLS-compact) or a
+# different shrinkage grid, this config is replaced/duplicated in 1
+# cycle on B's signal.
+#
+# `FCKResidualRegressor` (B's territory, bench/fck_pls/fck_residual.py)
+# composes a "do-no-harm" teacher with an FCK + ridge residual head.
+# Shrinkage_grid scans `s in {0, 0.25, 0.5, 0.75, 1.0}` on a 20% held-out
+# calibration partition; `s=0` falls back to teacher-only (true do-no-harm).
+# `catastrophic_threshold=0.5` downgrades to teacher-only when calibration
+# RMSE exceeds 0.5× teacher_only_rmse — this mirrors the V2L-Residual-AOMPLS
+# r21 NO-GO design (do-no-harm validation pass per B's SYNC line 5067 +
+# Codex round-4 staging).
+#
+# Teacher choice rationale: AOMPLS-compact mirrors the V2L-Residual-AOMPLS
+# r21 setup faithfully (residual on AOMPLS teacher, only difference is
+# FCK-static head vs V2L-CNN head). PLS-tuned teacher would test "FCK as
+# low-budget residual on a linear baseline" which is a different question.
+
+canonical_name: FCKResidual-AOMPLS-teacher
+schema_version: 0.1.0
+codex_review_status: DECISION_LOCKED  # Codex round 7 APPROVE 2026-05-08, NO-GO lock
+
+model:
+  pipeline:
+    - model:
+        class: bench.fck_pls.fck_residual.FCKResidualRegressor
+        params:
+          # Teacher = AOMPLS-compact (matches r21 V2L-Residual-AOMPLS analogy).
+          # Materialised by the harness's recursive _materialize_value via the
+          # {class, params} convention.
+          teacher:
+            class: aompls.estimators.AOMPLSRegressor
+            params:
+              operator_bank: compact
+              n_components: auto
+              max_components: 15
+              selection: global
+              criterion: cv
+              cv: 5
+              backend: numpy
+              random_state: 0
+          # fck and residual_head left to class defaults:
+          # fck = FCKStaticTransformer (standard 16-filter bank)
+          # residual_head = Ridge(alpha=1.0)
+          shrinkage_grid: [0.0, 0.25, 0.5, 0.75, 1.0]
+          oof_n_folds: 5
+          val_fraction: 0.2
+          catastrophic_threshold: 0.5
+          random_state: 0
+
+hyperparameter_search:
+  protocol: model_native
+  n_splits: null
+  param_grid: null
+
+dispatch:
+  n_jobs: 1
+  verbose: 0
+  timeout_s: 1800
+  pythonpath_prepend:
+    - bench/fck_pls
+    - bench/AOM_v0
+
+evidence_anchors:
+  primary_score: rmsep
+  primary_score_lower_is_better: true
+  reference_models:
+    - PLS-tuned-cv5
+    - AOM-PLS-compact-numpy
+    - AOMPLS-compact-with-fck-full57
+    - V2L-Residual-AOMPLS
+    - FCKResidual-AOMPLS-teacher

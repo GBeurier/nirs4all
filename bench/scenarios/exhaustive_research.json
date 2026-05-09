@@ -2,7 +2,7 @@
   "schema_version": "0.1.0",
   "preset": "exhaustive_research",
   "description": "Multi-hour overnight; explicit `exploratory` rows allowed.",
-  "generated_on": "2026-05-07",
+  "generated_on": "2026-05-08",
   "generated_by": "/home/delete/nirs4all/nirs4all/bench/export_benchmark_scenarios.py",
   "registry_source": "bench/scenarios/model_registry.yaml",
   "master_csv_source": "bench/benchmark_master_results.csv",
@@ -1294,30 +1294,32 @@
       "evidence": {
         "present_in_master": true,
         "n_rows_locked": 0,
-        "n_rows_total": 50,
-        "n_datasets": 38,
-        "coverage_fraction": 0.6667,
+        "n_rows_total": 62,
+        "n_datasets": 39,
+        "coverage_fraction": 0.6842,
         "median_rel_source_pls": 0.8896,
         "q75_rel_source_pls": 0.9594,
         "q90_rel_source_pls": 0.9882,
-        "median_rel_dataset_pls": 0.9898,
-        "q75_rel_dataset_pls": 1.1114,
-        "q90_rel_dataset_pls": 1.226,
+        "median_rel_dataset_pls": 0.9892,
+        "q75_rel_dataset_pls": 1.0933,
+        "q90_rel_dataset_pls": 1.199,
         "worst_clipped_ratio": 1.2881,
         "wins_vs_source_pls": 35,
-        "wins_vs_dataset_pls": 22,
-        "median_fit_time_s": 6.525,
-        "q90_fit_time_s": 62.104,
+        "wins_vs_dataset_pls": 23,
+        "median_fit_time_s": 12.347,
+        "q90_fit_time_s": 63.778,
         "source_families": [
+          "AOM_v0_Ridge",
           "AOM_v0_multiview"
         ],
         "source_runs": [
+          "da002_stub_atoms_seeds012",
           "full57.csv",
           "smoke10.csv",
           "smoke4_baseline.csv"
         ],
         "maturities_observed": [
-          "exploratory:50"
+          "exploratory:62"
         ]
       },
       "penalties": [
@@ -1327,7 +1329,8 @@
     {
       "canonical_name": "V2L-Residual-AOMPLS",
       "aliases": [
-        "V2L-Residual-AOMPLS"
+        "V2L-Residual-AOMPLS",
+        "V2L-Residual-AOMPLS-shrinkage-r21"
       ],
       "model_class": "V2LResidualAOMPLS",
       "module": "bench.nicon_v2.residual",
@@ -1341,9 +1344,9 @@
       "supports_predefined_test_split": true,
       "inner_cv_nested": true,
       "runtime_tier": "very_slow",
-      "maturity": "locked",
+      "maturity": "exploratory",
       "not_runnable_in_production": false,
-      "notes": "r20_curated_oof: 39/39, single seed. r21 multiseed gating per\nAgent B's D-B-002. Locked here pending B1 OOF cleanness audit.",
+      "notes": "D-B-012 LOCKED NO-GO via Codex round 4 APPROVE (2026-05-06).\nr21 multiseed (n=195, 5 seeds × 39 datasets) full results in\nbench/nicon_v2/benchmark_runs/r21_curated_oof_multiseed/.\nProduction gate failed: median +7.5 % vs aom_ridge_curated_best,\n14.9 % wins. Paper-CNN descriptive: median -9.8 %, 71 % wins.\nTail-variance instability (s* IQR > 0.3 on 17/39 datasets)\nmotivated D-B-018 r22 hybrid Option-A shrinkage diagnostic\n(in flight 2026-05-09).\ngpu_long ; exhaustive_research only ; do NOT promote.\nEvidence: bench/nicon_v2/benchmark_runs/r21_curated_oof_multiseed/results.csv (n=195)\nLinear analogue (FCK-static residual instead of V2L-CNN residual):\nsee FCKResidual-AOMPLS-teacher (D-B-016 LOCKED, weaker than V2L).",
       "evidence": {
         "present_in_master": true,
         "n_rows_locked": 139,
@@ -1646,6 +1649,89 @@
       ]
     },
     {
+      "canonical_name": "AOMRidgePLSCV-compact-with-fck",
+      "aliases": [
+        "AOMRidgePLSCV-compact-with-fck",
+        "aomridge-pls-cv-compact-with-fck"
+      ],
+      "model_class": "AOMRidgePLSCV",
+      "module": "aomridge.aom_ridge_pls",
+      "config_template": "bench/scenarios/configs/aomridge_pls_cv_compact_with_fck.yaml",
+      "task_types": [
+        "regression"
+      ],
+      "input_constraints": {
+        "min_n": 30
+      },
+      "supports_predefined_test_split": true,
+      "inner_cv_nested": true,
+      "runtime_tier": "medium",
+      "maturity": "exploratory",
+      "not_runnable_in_production": false,
+      "notes": "D-B-017b LOCKED via Codex round 8 APPROVE (2026-05-08). CV-tuned\nAOM-Ridge with the 17-op `compact_with_fck` bank (9 compact + 8 FCK).\nThe fair comparison Codex round-7 demanded; supersedes D-B-017's\ndefault-hyperparam audit. Strict +5 % gate FAILS at median +13.4 %\nvs aom_ridge_curated_best (n=39); q90 +45.9 % (-10.7 pp better than\ncompact-only); worst +3173 % (-4278 pp better, but Quartz_spxy70\nreference rmsep ≈ 3e-9 dominates the worst ratio so q90 is the\ncleaner anchor); 4/39 wins (+1 over compact-only).\nvs paper CNN: median -2.8 %, 26/48 wins (54.2 %) — beats paper CNN.\nvs paper Ridge/PLS/CatBoost/TabPFN-raw: tied/slightly behind\n(+5.9/+4.8/+3.9/+4.1 % median).\nStability trade-off (HYPOTHESIS, not proven by aggregate numbers):\nthe 8 added FCK blocks make Ridge more conservative ; sacrifices\nsmall median for substantially more robust tails.\nexhaustive_research only ; do NOT promote, recommend, prefer, or\ndescribe as better than aom_ridge_curated_best.\nEvidence:\n  bench/fck_pls/runs/aom_with_fck_full57/results.csv\n  (399 data rows; 114 AOMRidgePLSCV-* rows; 57 compact + 57 compact-with-fck)",
+      "evidence": {
+        "present_in_master": false
+      },
+      "penalties": [
+        "no_locked_evidence_in_master"
+      ]
+    },
+    {
+      "canonical_name": "FCKResidual-AOMPLS-teacher",
+      "aliases": [
+        "FCKResidual-AOMPLS",
+        "fck-residual-aompls"
+      ],
+      "model_class": "FCKResidualRegressor",
+      "module": "bench.fck_pls.fck_residual",
+      "config_template": "bench/scenarios/configs/fck_residual_aompls_static.yaml",
+      "task_types": [
+        "regression"
+      ],
+      "input_constraints": {
+        "min_n": 30
+      },
+      "supports_predefined_test_split": true,
+      "inner_cv_nested": false,
+      "runtime_tier": "medium",
+      "maturity": "exploratory",
+      "not_runnable_in_production": false,
+      "notes": "D-B-016 LOCKED NO-GO via Codex round 7 APPROVE (2026-05-08 ~20:00 CEST).\nFull-57 results: median +11.0 % vs aom_ridge_curated_best (FAILS strict\ngate by 6.0 pp), q90 +32.2 %, worst +131.4 %, 3/39 wins. Paper-CNN\ndescriptive: median −3.2 %, 28/48 wins (58.3 %) — weaker than r21\nV2L-Residual-AOMPLS's −9.8 %, 71 % wins. The \"linear pendant\" of r21\nV2L-Residual gives a consistent but weaker NO-GO; FCK-static feature\nextractor + Ridge head captures less of V2L-CNN's non-linear edge.\nCloses the FCK × AOM matrix (preprocessing, in-bank, residual all NO-GO\nvs strict AOM-Ridge gate, all paper-CNN-tied).\nexhaustive_research only ; do NOT promote.\nEvidence:\n  bench/fck_pls/runs/aom_with_fck_audit20/results.csv (n=20, FCKResidual-AOMPLS)\n  bench/fck_pls/runs/aom_with_fck_full57/results.csv (n=57, FCKResidual-AOMPLS)",
+      "evidence": {
+        "present_in_master": false
+      },
+      "penalties": [
+        "no_locked_evidence_in_master"
+      ]
+    },
+    {
+      "canonical_name": "AOMRidge-Local-compact-knn-sweep",
+      "aliases": [
+        "AOMRidge-Local-compact-knn-sweep"
+      ],
+      "model_class": "AOMLocalRidge",
+      "module": "aomridge.local_ridge",
+      "config_template": "bench/scenarios/configs/aomridge_local_compact_knn_sweep.yaml",
+      "task_types": [
+        "regression"
+      ],
+      "input_constraints": {
+        "min_n": 50
+      },
+      "supports_predefined_test_split": true,
+      "inner_cv_nested": true,
+      "runtime_tier": "medium",
+      "maturity": "exploratory",
+      "not_runnable_in_production": false,
+      "notes": "D-A-009 k-tuning sweep variant (Codex round 12 LOCK 2026-05-08 17:10 CEST).\nSame AOMLocalRidge class as `AOMRidge-Local-compact-knn50` (the D-A-003\nk=50-only baseline) but with internal `k_grid: [10, 25, 50, 100, 200]`\nsweep selecting best k per fit. Single-seed protocol (D-A-003 demonstrated\nbit-identical RMSEPs across seeds 0/1/2 for this deterministic atom).\nDiagnostic for the Chla+b_spxyG_species small-big-n boundary regression\n(n_train=3734, R²=-13.45 at k=50). Cohort: same 4 big-n datasets as D-A-003.\nA's manifest at bench/AOM_v0/Ridge/scenarios/da009_local_knn_sweep.json\nreuses the `AOMRidge-Local-compact-knn50` canonical_name with the\nkgrid-sweep YAML for registry-validation parity (workaround documented in\nA's manifest description). This registry entry is the formal Codex-R12-§3\npreset path for any future generic k-sweep runs.",
+      "evidence": {
+        "present_in_master": false
+      },
+      "penalties": [
+        "no_locked_evidence_in_master"
+      ]
+    },
+    {
       "canonical_name": "AdaptiveSuperLearner-bigN-guarded",
       "aliases": [
         "adaptive-super-learner-bigN-guarded"
@@ -1731,6 +1817,9 @@
     "FCK-PLS-static",
     "ASLS-FCK-PLS-static",
     "AOMPLS-compact-with-fck-full57",
+    "AOMRidgePLSCV-compact-with-fck",
+    "FCKResidual-AOMPLS-teacher",
+    "AOMRidge-Local-compact-knn-sweep",
     "AdaptiveSuperLearner-bigN-guarded",
     "Concat-SNV-FCK-AOMPLS-static"
   ],

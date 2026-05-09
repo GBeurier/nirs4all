@@ -1,12 +1,12 @@
 # Benchmark Strategy Synthesis
 
-Generated on 2026-05-08 from `benchmark_master_results.csv`.
+Generated on 2026-05-09 from `benchmark_master_results.csv`.
 
 ## Reformulation of the whole project
 
 The project is an empirical search for robust NIRS prediction models across many small-to-medium spectral datasets. The current practical baseline is the `tabpfn_paper` HPO TabPFN run: TabPFN plus a broad preprocessing search. The rest of `bench/` explores whether spectroscopy-aware linear models, operator selection, kernel mixtures, CNNs, hybrids, and learnable convolutional filters can beat or complement that baseline without losing robustness.
 
-The merged CSV stores 22659 observed/reference rows from 8 source families, covering 83 distinct eligible datasets across 86 (dataset, task) pairs. It also adds derived oracle rows per dataset/model class and per dataset globally, so strategy-level visualizations can ask: if this class were allowed to pick its best executed variant per dataset, how far would it get?
+The merged CSV stores 22857 observed/reference rows from 8 source families, covering 83 distinct eligible datasets across 86 (dataset, task) pairs. It also adds derived oracle rows per dataset/model class and per dataset globally, so strategy-level visualizations can ask: if this class were allowed to pick its best executed variant per dataset, how far would it get?
 
 ### Protocol maturity distribution
 
@@ -15,7 +15,7 @@ Each row carries a `protocol_maturity` tag introduced in the 2026-05-05 master f
 | Tag | Rows | Meaning |
 |---|---:|---|
 | locked | 19392 | Stable production-eligible source row (default for clean source runs). |
-| exploratory | 3208 | Partial coverage / smoke / diagnostic / pending nested audit (e.g. AOMRidge-headline-spxy3, multiview Phase-11 atoms, smoke runs). |
+| exploratory | 3406 | Partial coverage / smoke / diagnostic / pending nested audit (e.g. AOMRidge-headline-spxy3, multiview Phase-11 atoms, smoke runs). |
 | legacy | 0 | Explicitly superseded run (reserved for owner-driven downgrades via bench/SYNC.md; not auto-applied in this freeze). |
 | oracle | 808 | Derived oracle rows (`oracle_by_model_class`, `oracle_global_dataset`). |
 | local_not_master | 59 | `source_oracle` rows already present in source tables; kept for audit, excluded from derived oracle calculations. |
@@ -31,7 +31,7 @@ The tagging rules implemented in `bench/build_benchmark_synthesis.py::assign_mat
 | AOM-Ridge | 56 | 0.942 | 49/56 |
 | Ridge | 55 | 0.970 | 42/55 |
 | Meta-selector/MoE | 59 | 0.972 | 39/59 |
-| Hybrid CNN+AOM | 42 | 0.980 | 27/42 |
+| Hybrid CNN+AOM | 42 | 0.978 | 27/42 |
 | Multi-kernel ridge | 53 | 0.983 | 34/53 |
 | PLS | 67 | 1.000 | 0/67 |
 | Hybrid CNN+linear | 51 | 1.002 | 25/51 |

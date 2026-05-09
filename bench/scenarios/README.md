@@ -4,7 +4,7 @@ Auto-generated manifests describing the four benchmark presets defined in `bench
 
 Master CSV SHA256: `b27ea6f52b45e2568fb0c6912f535565f678d8b3e4f28af70dc2b86ae201ab5d`
 Generator: `bench/export_benchmark_scenarios.py`
-Generated on: 2026-05-07
+Generated on: 2026-05-08
 
 ## Presets
 
@@ -13,7 +13,7 @@ Generated on: 2026-05-07
 | `fast_reliable` | Seconds to a few minutes; no TabPFN, no multiview, no NN. | 6 | 0 |
 | `strong_practical` | Minutes to <1h; TabPFN gated by (n<=5000, p<=1000). | 9 | 1 |
 | `best_current` | 1-3h; multi-strategy mix with explicit gates. | 15 | 2 |
-| `exhaustive_research` | Multi-hour overnight; explicit `exploratory` rows allowed. | 31 | 14 |
+| `exhaustive_research` | Multi-hour overnight; explicit `exploratory` rows allowed. | 34 | 17 |
 
 ## Codex review
 

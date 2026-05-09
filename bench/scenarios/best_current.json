@@ -2,7 +2,7 @@
   "schema_version": "0.1.0",
   "preset": "best_current",
   "description": "1-3h; multi-strategy mix with explicit gates.",
-  "generated_on": "2026-05-07",
+  "generated_on": "2026-05-08",
   "generated_by": "/home/delete/nirs4all/nirs4all/bench/export_benchmark_scenarios.py",
   "registry_source": "bench/scenarios/model_registry.yaml",
   "master_csv_source": "bench/benchmark_master_results.csv",

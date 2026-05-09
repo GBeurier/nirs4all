@@ -135,6 +135,24 @@ EXPLORATORY_RUN_NAMES = frozenset({
     "da001_audit20_seeds012",       # A's D-A-001 audit20 launch 2026-05-07 05:30 CEST (Codex round 7 LOCKED_SCOPED)
     "da002_stub_atoms_seeds012",    # A's D-A-002-stub (Codex round 10 hybrid two-run): runnable-guard evidence with Ridge/PLS stub atoms; NOT canonical Phase-11 evidence.
     "da003_local_knn50_bigN_seeds012",  # A's D-A-003 Local-knn50 on 4 big-n datasets (Codex round 9 GO).
+    # B's D-B-016 (FCKResidualRegressor) — output: bench/fck_pls/runs/fck_residual_<cohort>/
+    # per B's 2026-05-08 SYNC entry §1; AOMPLS-compact teacher, seeds 0/1/2, default shrinkage.
+    "fck_residual_fast12",
+    "fck_residual_audit20",
+    "fck_residual_full57",
+    # B's D-B-017 (AOM-Ridge with FCK in bank) — output by analogy with D-B-014's aom_with_fck_*;
+    # B's plan §2 launches via extended bench/fck_pls/run_smoke_aom_with_fck.py.
+    "aom_ridge_with_fck_fast12",
+    "aom_ridge_with_fck_audit20",
+    "aom_ridge_with_fck_full57",
+    # B's D-B-018 (r22 hybrid Option-A shrinkage on V2L-Residual-AOMPLS) — output:
+    # bench/nicon_v2/benchmark_runs/r22_curated_hybrid_multiseed/ per B's 2026-05-08 SYNC §3;
+    # 5 seeds, 39 datasets; diagnostic only per Codex round-4.
+    "r22_curated_hybrid_multiseed",
+    # A's D-A-009 (Local-knn50 k-tuning sweep, Codex round 12 LOCK 2026-05-08 17:10 CEST) —
+    # output: bench/AOM_v0/Ridge/benchmark_runs/da009_local_knn_sweep_seed0/ per A's plan §6.
+    # 4 datasets × 1 seed = 4 fits; per-fit wall ~5x D-A-003 (internal k_grid sweep over 5 values).
+    "da009_local_knn_sweep_seed0",
     # AOM_v0 explicit smoke runs
     "smoke_old_11ds",
     # AOM_v0_Ridge known smokes

@@ -1,0 +1,74 @@
+# bench/scenarios/configs/aomridge_pls_cv_compact_with_fck.yaml
+#
+# Owner: Agent C / MLOps Spine. Companion to registry entry
+# `AOMRidgePLSCV-compact-with-fck` (D-B-017b, LOCKED via Codex round 8 APPROVE
+# 2026-05-08).
+#
+# Status: DECISION_LOCKED (Codex round 8 APPROVE).
+#
+# CV-tuned variant of AOM-Ridge with FCK kernels added to the compact bank
+# (17-op `compact_with_fck` from D-B-014). The fair comparison Codex round-7
+# demanded against `aom_ridge_curated_best`. Locked as `exhaustive_research`
+# per Codex round-8 stability-trade-off finding:
+# - median Δ% +13.4 % vs aom_ridge_curated_best (FAILS strict +5 % gate)
+# - q90 Δ% +45.9 % (-10.7 pp better than compact-only)
+# - worst-case Δ% +3173 % (-4278 pp better than compact-only ; q90 is the
+#   cleaner anchor since worst-case is dominated by Quartz_spxy70 numerical
+#   artifact)
+# - 4/39 wins (+1 over compact-only)
+# - vs paper CNN: median -2.8 %, 26/48 wins (54.2 %) — beats paper CNN
+#
+# Hypothesis (per Codex round-8 verdict): the 17-op compact-with-fck bank adds
+# 8 redundant blocks over the 9-op compact bank ; Ridge penalty must reabsorb
+# them, making the regression more conservative — which sacrifices small
+# median performance for substantially more robust tails. Mechanism not proven
+# by aggregate numbers alone ; flagged as hypothesis only.
+
+canonical_name: AOMRidgePLSCV-compact-with-fck
+schema_version: 0.1.0
+codex_review_status: DECISION_LOCKED  # Codex round 8 APPROVE 2026-05-08
+
+model:
+  pipeline:
+    - model:
+        class: aomridge.aom_ridge_pls.AOMRidgePLSCV
+        params:
+          operator_bank: compact_with_fck   # 9 compact ops + 8 FCK ops = 17 total
+          n_components_grid: [2, 3, 4, 5, 7, 10, 15, 20, 30]
+          # ridge_alpha_grid: null → defaults to np.logspace(-4, 4, 9) inside AOMRidgePLSCV
+          ridge_alpha_mode: absolute
+          block_scaling: frobenius
+          column_scaling: false
+          center_y: true
+          scale_y: false
+          per_component_penalty: uniform
+          cv: 5
+          selection_rule: min
+          scoring: rmse_mean
+          random_state: 0
+          max_iter: 500
+          tol: 1.0e-6
+
+hyperparameter_search:
+  protocol: model_native           # AOMRidgePLSCV does its own inner CV grid search
+  n_splits: null
+  param_grid: null
+
+dispatch:
+  n_jobs: 1
+  verbose: 0
+  timeout_s: 1800                  # CV grid search not enforced today (D-C-018 expanded)
+  pythonpath_prepend:
+    - bench/AOM_v0/Ridge           # provides aomridge.*
+    - bench/AOM_v0                 # provides aompls.* (operator bank dependency)
+
+evidence_anchors:
+  primary_score: rmsep
+  primary_score_lower_is_better: true
+  reference_models:
+    - PLS-tuned-cv5
+    - Ridge-tuned-cv5
+    - AOM-PLS-compact-numpy
+    - AOMPLS-compact-with-fck-full57   # D-B-015 sibling
+    - AOMRidge-global-compact-none     # AOM-Ridge curated baseline
+    - AOMRidgePLSCV-compact-with-fck   # this file
