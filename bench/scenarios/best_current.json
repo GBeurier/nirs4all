@@ -2,7 +2,7 @@
   "schema_version": "0.1.0",
   "preset": "best_current",
   "description": "1-3h; multi-strategy mix with explicit gates.",
-  "generated_on": "2026-05-08",
+  "generated_on": "2026-05-09",
   "generated_by": "/home/delete/nirs4all/nirs4all/bench/export_benchmark_scenarios.py",
   "registry_source": "bench/scenarios/model_registry.yaml",
   "master_csv_source": "bench/benchmark_master_results.csv",
@@ -42,7 +42,7 @@
         "n_rows_locked": 594,
         "n_rows_total": 628,
         "n_datasets": 61,
-        "coverage_fraction": 1.0702,
+        "coverage_fraction_raw": 1.0702,
         "median_rel_source_pls": 0.8608,
         "q75_rel_source_pls": 0.9512,
         "q90_rel_source_pls": 0.989,
@@ -108,7 +108,7 @@
         "n_rows_locked": 1217,
         "n_rows_total": 1389,
         "n_datasets": 56,
-        "coverage_fraction": 0.9825,
+        "coverage_fraction_raw": 0.9825,
         "median_rel_source_pls": 0.9551,
         "q75_rel_source_pls": 0.9815,
         "q90_rel_source_pls": 1.0059,
@@ -234,7 +234,7 @@
         "n_rows_locked": 57,
         "n_rows_total": 72,
         "n_datasets": 57,
-        "coverage_fraction": 1.0,
+        "coverage_fraction_raw": 1.0,
         "median_rel_source_pls": 0.96,
         "q75_rel_source_pls": 1.0009,
         "q90_rel_source_pls": 1.1155,
@@ -291,7 +291,7 @@
         "n_rows_locked": 862,
         "n_rows_total": 1034,
         "n_datasets": 66,
-        "coverage_fraction": 1.1579,
+        "coverage_fraction_raw": 1.1579,
         "median_rel_source_pls": 1.0,
         "q75_rel_source_pls": 1.0,
         "q90_rel_source_pls": 1.0,
@@ -370,165 +370,6 @@
       "penalties": []
     },
     {
-      "canonical_name": "AOMMultiView-MeanEnsemble4-fixed",
-      "aliases": [
-        "mean-ensemble-4-fixed"
-      ],
-      "model_class": "AOMMeanEnsemble",
-      "module": "bench.AOM_v0.multiview.estimators",
-      "config_template": "bench/scenarios/configs/mean_ensemble_4.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": false,
-      "runtime_tier": "medium",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "Equal-weight average of 4 bases. inner_cv_nested=false because the\nensemble does not fit a meta on Y; exporter must keep it out of\n`strong_practical` per the gating rule.",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 59,
-        "n_rows_total": 59,
-        "n_datasets": 59,
-        "coverage_fraction": 1.0351,
-        "median_rel_source_pls": 0.8829,
-        "q75_rel_source_pls": 0.9708,
-        "q90_rel_source_pls": 1.0479,
-        "median_rel_dataset_pls": 1.0241,
-        "q75_rel_dataset_pls": 1.1938,
-        "q90_rel_dataset_pls": 1.3093,
-        "worst_clipped_ratio": 1.364,
-        "wins_vs_source_pls": 49,
-        "wins_vs_dataset_pls": 27,
-        "median_fit_time_s": 1.674,
-        "q90_fit_time_s": 8.117,
-        "source_families": [
-          "AOM_v0_multiview"
-        ],
-        "source_runs": [
-          "full57.csv"
-        ],
-        "maturities_observed": [
-          "locked:59"
-        ]
-      },
-      "penalties": [
-        "non_nested_selector"
-      ]
-    },
-    {
-      "canonical_name": "moe-preproc-soft-pls-compact",
-      "aliases": [
-        "moe-preproc-soft-pls-compact"
-      ],
-      "model_class": "MoEPreprocSoftPLS",
-      "module": "bench.AOM_v0.multiview.estimators",
-      "config_template": "bench/scenarios/configs/moe_preproc_soft_pls_compact.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "medium",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "47/61 vs PLS-std (multiview/docs/SUMMARY §6).",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 153,
-        "n_rows_total": 167,
-        "n_datasets": 59,
-        "coverage_fraction": 1.0351,
-        "median_rel_source_pls": 0.9046,
-        "q75_rel_source_pls": 0.9728,
-        "q90_rel_source_pls": 1.0429,
-        "median_rel_dataset_pls": 1.0458,
-        "q75_rel_dataset_pls": 1.2207,
-        "q90_rel_dataset_pls": 1.586,
-        "worst_clipped_ratio": 1.2989,
-        "wins_vs_source_pls": 50,
-        "wins_vs_dataset_pls": 18,
-        "median_fit_time_s": 2.247,
-        "q90_fit_time_s": 25.688,
-        "source_families": [
-          "AOM_v0_multiview"
-        ],
-        "source_runs": [
-          "full57.csv",
-          "meta_selector_full57",
-          "smoke10.csv",
-          "smoke4_baseline.csv"
-        ],
-        "maturities_observed": [
-          "locked:153",
-          "exploratory:14"
-        ]
-      },
-      "penalties": []
-    },
-    {
-      "canonical_name": "TabPFN-Raw",
-      "aliases": [
-        "TabPFN-Raw",
-        "TabPFN-raw",
-        "tabpfn-raw"
-      ],
-      "model_class": "TabPFNRegressor",
-      "module": "tabpfn",
-      "config_template": "bench/scenarios/configs/tabpfn_raw.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 10,
-        "max_n": 5000,
-        "max_features": 1000
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "medium",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "Hard gate from plan §9.2: n_train <= 5000, n_features <= 1000.",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 61,
-        "n_rows_total": 61,
-        "n_datasets": 61,
-        "coverage_fraction": 1.0702,
-        "median_rel_source_pls": 0.954,
-        "q75_rel_source_pls": 1.1255,
-        "q90_rel_source_pls": 2.0935,
-        "median_rel_dataset_pls": 1.0059,
-        "q75_rel_dataset_pls": 1.2784,
-        "q90_rel_dataset_pls": 1.9202,
-        "worst_clipped_ratio": 5.0,
-        "wins_vs_source_pls": 31,
-        "wins_vs_dataset_pls": 28,
-        "median_fit_time_s": null,
-        "q90_fit_time_s": null,
-        "source_families": [
-          "paper_master_pivot"
-        ],
-        "source_runs": [
-          "master_pivot"
-        ],
-        "maturities_observed": [
-          "locked:61"
-        ]
-      },
-      "penalties": [
-        "q90_toxic(2.09)"
-      ]
-    },
-    {
       "canonical_name": "AOMRidge-global-compact-none",
       "aliases": [
         "AOMRidge-global-compact-none",
@@ -556,7 +397,7 @@
         "n_rows_locked": 276,
         "n_rows_total": 286,
         "n_datasets": 54,
-        "coverage_fraction": 0.9474,
+        "coverage_fraction_raw": 0.9474,
         "median_rel_source_pls": null,
         "q75_rel_source_pls": null,
         "q90_rel_source_pls": null,
@@ -622,7 +463,7 @@
         "n_rows_locked": 245,
         "n_rows_total": 254,
         "n_datasets": 54,
-        "coverage_fraction": 0.9474,
+        "coverage_fraction_raw": 0.9474,
         "median_rel_source_pls": null,
         "q75_rel_source_pls": null,
         "q90_rel_source_pls": null,
@@ -682,7 +523,7 @@
         "n_rows_locked": 304,
         "n_rows_total": 304,
         "n_datasets": 53,
-        "coverage_fraction": 0.9298,
+        "coverage_fraction_raw": 0.9298,
         "median_rel_source_pls": null,
         "q75_rel_source_pls": null,
         "q90_rel_source_pls": null,
@@ -714,175 +555,6 @@
       "penalties": []
     },
     {
-      "canonical_name": "MKM-reml-default",
-      "aliases": [
-        "MKM-reml",
-        "MKM-reml-asls",
-        "MKM-reml-msc"
-      ],
-      "model_class": "MKMRegressor",
-      "module": "bench.AOM_v0.Multi-kernel.estimators",
-      "config_template": "bench/scenarios/configs/mkm_reml_default.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30,
-        "max_n": 3000
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "medium",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "`module` path uses a hyphen; harness must quote-and-escape it.\nLocked but ranked below AOM-Ridge for `strong_practical`.",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 216,
-        "n_rows_total": 228,
-        "n_datasets": 53,
-        "coverage_fraction": 0.9298,
-        "median_rel_source_pls": null,
-        "q75_rel_source_pls": null,
-        "q90_rel_source_pls": null,
-        "median_rel_dataset_pls": 0.9884,
-        "q75_rel_dataset_pls": 1.0425,
-        "q90_rel_dataset_pls": 1.2102,
-        "worst_clipped_ratio": 4.1148,
-        "wins_vs_source_pls": 0,
-        "wins_vs_dataset_pls": 32,
-        "median_fit_time_s": 11.451,
-        "q90_fit_time_s": 162.579,
-        "source_families": [
-          "AOM_v0_MultiKernel"
-        ],
-        "source_runs": [
-          "all54_stageA",
-          "curated10",
-          "curated11",
-          "diverse10",
-          "smoke3",
-          "smoke3_branches"
-        ],
-        "maturities_observed": [
-          "locked:216",
-          "exploratory:12"
-        ]
-      },
-      "penalties": []
-    },
-    {
-      "canonical_name": "mkR-softmax-cv-default",
-      "aliases": [
-        "mkR-softmax_cv",
-        "mkR-softmax_cv-snv"
-      ],
-      "model_class": "SoftmaxCVMultiKernelRidge",
-      "module": "bench.AOM_v0.Multi-kernel.estimators",
-      "config_template": "bench/scenarios/configs/mkr_softmax_cv_default.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30,
-        "max_n": 3000
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "medium",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 144,
-        "n_rows_total": 153,
-        "n_datasets": 53,
-        "coverage_fraction": 0.9298,
-        "median_rel_source_pls": null,
-        "q75_rel_source_pls": null,
-        "q90_rel_source_pls": null,
-        "median_rel_dataset_pls": 1.0094,
-        "q75_rel_dataset_pls": 1.0556,
-        "q90_rel_dataset_pls": 1.1761,
-        "worst_clipped_ratio": 1.9904,
-        "wins_vs_source_pls": 0,
-        "wins_vs_dataset_pls": 23,
-        "median_fit_time_s": 16.09,
-        "q90_fit_time_s": 277.427,
-        "source_families": [
-          "AOM_v0_MultiKernel"
-        ],
-        "source_runs": [
-          "all54_stageA",
-          "curated10",
-          "curated11",
-          "diverse10",
-          "smoke3",
-          "smoke3_branches"
-        ],
-        "maturities_observed": [
-          "locked:144",
-          "exploratory:9"
-        ]
-      },
-      "penalties": []
-    },
-    {
-      "canonical_name": "TabPFN-opt",
-      "aliases": [
-        "TabPFN-opt",
-        "tabpfn-opt"
-      ],
-      "model_class": "TabPFNRegressor",
-      "module": "tabpfn",
-      "config_template": "bench/scenarios/configs/tabpfn_opt.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 10,
-        "max_n": 5000,
-        "max_features": 1000
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "slow",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 116,
-        "n_rows_total": 116,
-        "n_datasets": 58,
-        "coverage_fraction": 1.0175,
-        "median_rel_source_pls": 0.894,
-        "q75_rel_source_pls": 0.9915,
-        "q90_rel_source_pls": 1.1053,
-        "median_rel_dataset_pls": 0.9524,
-        "q75_rel_dataset_pls": 1.0379,
-        "q90_rel_dataset_pls": 1.3104,
-        "worst_clipped_ratio": 5.0,
-        "wins_vs_source_pls": 41,
-        "wins_vs_dataset_pls": 36,
-        "median_fit_time_s": null,
-        "q90_fit_time_s": null,
-        "source_families": [
-          "AOM_v0_multiview",
-          "paper_master_pivot"
-        ],
-        "source_runs": [
-          "master_pivot",
-          "meta_selector_full57"
-        ],
-        "maturities_observed": [
-          "locked:116"
-        ]
-      },
-      "penalties": []
-    },
-    {
       "canonical_name": "AOMRidge-MultiBranchMKL-compact-shrink03",
       "aliases": [
         "AOMRidge-MultiBranchMKL-compact-shrink03"
@@ -908,7 +580,7 @@
         "n_rows_locked": 152,
         "n_rows_total": 152,
         "n_datasets": 53,
-        "coverage_fraction": 0.9298,
+        "coverage_fraction_raw": 0.9298,
         "median_rel_source_pls": null,
         "q75_rel_source_pls": null,
         "q90_rel_source_pls": null,
@@ -936,58 +608,6 @@
         ]
       },
       "penalties": []
-    },
-    {
-      "canonical_name": "TabPFN-HPO-preprocessing",
-      "aliases": [
-        "TabPFN-HPO-preprocessing",
-        "tabpfn-hpo-preprocessing"
-      ],
-      "model_class": "TabPFNRegressor",
-      "module": "tabpfn",
-      "config_template": "bench/scenarios/configs/tabpfn_hpo_preprocessing.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 10,
-        "max_n": 5000,
-        "max_features": 1000
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "very_slow",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "Strongest paper baseline (`tabpfn_paper/table_results_tabpfn_final_light.csv`).\nRequires explicit preprocessing budget + rationale per plan §9.3.",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 58,
-        "n_rows_total": 58,
-        "n_datasets": 58,
-        "coverage_fraction": 1.0175,
-        "median_rel_source_pls": null,
-        "q75_rel_source_pls": null,
-        "q90_rel_source_pls": null,
-        "median_rel_dataset_pls": 0.9327,
-        "q75_rel_dataset_pls": 1.0544,
-        "q90_rel_dataset_pls": 1.3505,
-        "worst_clipped_ratio": 5.0,
-        "wins_vs_source_pls": 0,
-        "wins_vs_dataset_pls": 40,
-        "median_fit_time_s": null,
-        "q90_fit_time_s": null,
-        "source_families": [
-          "tabpfn_paper"
-        ],
-        "source_runs": [
-          "table_results_tabpfn_final_light"
-        ],
-        "maturities_observed": [
-          "locked:58"
-        ]
-      },
-      "penalties": []
     }
   ],
   "ordering_hint": [
@@ -995,17 +615,10 @@
     "Ridge-tuned-cv5",
     "ASLS-AOM-compact-cv5-numpy",
     "PLS-tuned-cv5",
-    "AOMMultiView-MeanEnsemble4-fixed",
-    "moe-preproc-soft-pls-compact",
-    "TabPFN-Raw",
     "AOMRidge-global-compact-none",
     "AOMRidge-global-compact-snv",
     "AOMRidge-Local-compact-knn50",
-    "MKM-reml-default",
-    "mkR-softmax-cv-default",
-    "TabPFN-opt",
-    "AOMRidge-MultiBranchMKL-compact-shrink03",
-    "TabPFN-HPO-preprocessing"
+    "AOMRidge-MultiBranchMKL-compact-shrink03"
   ],
   "budget": {
     "target_runtime": "1-3h per dataset",

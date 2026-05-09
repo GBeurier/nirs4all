@@ -9046,3 +9046,143 @@ User's 5-step plan (1=commit, 3=ping A, 4=Codex R10b, 5=Codex D-C-018,
 
 ### (a)/(b)/(c)/(d)/(e) detector
 all closed for the active C cycle. (e) negative. Counter reset.
+
+---
+
+## 2026-05-09 18:18 CEST — Agent A — canonical D-A-002 LAUNCHED (12-fit bg run) + D-C-015 ack
+
+### Trigger
+D-C-018 LOCKED via Codex R14 + IMPLEMENTED by C 18:00 CEST. All 4 prongs landed (timeout/OOM/worker-crash/seed-injection). Per A's 17:35 disposition (a), trigger canonical D-A-002 launch now. Codex round-2 D-C backlog audit also seen — D-C-015 deferred to A.
+
+### Canonical D-A-002 launch
+- **Manifest** : `bench/AOM_v0/Ridge/scenarios/da002_canonical_atoms.json` (NEW, candidate `AdaptiveSuperLearner-bigN-guarded`, config_template = canonical YAML).
+- **Cohort** : 4 big-n datasets per R10b Q2 LOCK (`Chla+b_spxyG_species,LUCAS_SOC_Cropland_8731_NocitaKS,LUCAS_SOC_all_26650_NocitaKS,LMA_spxyG_block2deg`).
+- **Seeds** : 0,1,2 per R10b Q3 LOCK (now meaningful per D-C-018 Prong D seed-injection LOCKED via R14).
+- **Workspace** : `bench/AOM_v0/Ridge/benchmark_runs/da002_canonical_atoms_seeds012/` (disjoint from stub workspace per R10b Q5 LOCK).
+
+```bash
+.venv/bin/python bench/harness/run_benchmark.py \
+  --cohort "Chla+b_spxyG_species,LUCAS_SOC_Cropland_8731_NocitaKS,LUCAS_SOC_all_26650_NocitaKS,LMA_spxyG_block2deg" \
+  --pipeline bench/AOM_v0/Ridge/scenarios/da002_canonical_atoms.json \
+  --workspace bench/AOM_v0/Ridge/benchmark_runs/da002_canonical_atoms_seeds012 \
+  --seeds 0,1,2
+```
+
+### First fit confirmation (1/12)
+- `Chla+b_spxyG_species` seed 0 : status=ok, rmsep=51.44, fit=14.1s, predict=0.15s.
+- High rmsep / negative r2 expected per D-A-010 fundamental_regression filing — Chla+b is structural regression class for the AOMRidge-Local-compact line ; ASL-bigN-guarded with canonical atoms is a different method-line and the rmsep here is consistent with the known Chla+b regression signal across the master CSV.
+
+### Status
+- 1/12 fits done at 18:18 CEST. 11 remaining (Chla+b seeds 1+2, LUCAS+LMA × 3 seeds).
+- D-C-018 prongs all active : timeout/OOM-kill/worker-crash/seed-injection. If LMA OOMs, harness writes `failed_terminal` row + resume treats as final per Q4 LOCK.
+- Process PID 1985038 running in background. No further A action until completion ; C ready to ingest per their 17:30 framing.
+
+### D-C-015 (MBMKL hyperparameter grid) — A acks the deferral
+C correctly identifies MBMKL as A territory (`bench.AOM_v0.Ridge.aomridge.multi_branch_mkl`). A's response : keep current `random_state`-only minimal template as the exhaustive_research stub (per C's 2nd option) ; defer canonical grid spec to a future D-A-011 when MBMKL is the active method-line for a benchmark question. The minimal stub is appropriate for the registry's current "exploratory probe" maturity tier and is consistent with how D-A-002-stub used Ridge/PLS atoms before canonical atoms were surfaced. C : please mark D-C-015 LOCKED with `extras.research_status=stub_minimal` framing ; no YAML edit needed today.
+
+### (a)/(b)/(c)/(d)/(e) detector
+- (b) AND (c) BOTH POSITIVE for the first time : registry has canonical-atoms YAML + harness hardened. Triggered the brief's authorised launch action.
+- (e) negative now (R14 closed D-C-018, R10b closed canonical D-A-002 design).
+- D-A-002 12-fit bg run is the only A-owned in-flight artefact.
+
+Counter reset.
+
+---
+
+## 2026-05-09 18:43 CEST — Agent A — heartbeat #164 (canonical D-A-002 in-flight, 3/12 done)
+
+D-A-002 bg run progress @ 21 min elapsed : Chla+b s0 (14s), LUCAS_Cropland s0 (356s), LUCAS_all s0 (784s) all OK ; RSS peaked 3.9 GB then dropped to 1.87 GB after LUCAS_all completed (GC between fits, OOM headroom healthy). Next : LMA_spxyG_block2deg s0 (n=39225, expected 20-40 min). Then seeds 1+2 across all 4 datasets ~ another 1-2 hr. Total ETA : ~2-3 hr. Watching for : LMA OOM (D-C-018 prong active → `failed_terminal` + resume continues if it OOMs), 12/12 completion. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-09 19:08 CEST — Agent A — heartbeat #165 (canonical D-A-002 in-flight, 9/12 done)
+
+D-A-002 bg run progress @ 45 min elapsed : 9/12 OK. Surprise speedup vs 18:43 estimate — LMA s0=115s + s1=138s only (LMA was MUCH faster than feared, not 20-40 min ; the n=39225 atom-set effectively fit in ~2 min on light_atoms). Seed-2 wave underway : Chla+b s2 done (6.9s). 3 fits remaining (LUCAS_Cropland s2, LUCAS_all s2, LMA s2) ~ 21 min more. Revised total ETA : ~66 min wall-clock. RSS healthy at 1.8 GB. No OOM. Watching for : 12/12 completion + harness exit_code, then handover to C for master CSV ingest. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-09 19:10 CEST — Agent C — Phase 1 pre-flight: pre-coverage audit + best_current pruning + TabPFN deferral + D-C-005a rename
+
+### Trigger
+User authorised 2 C-side actions before Phase 2 launch: (1) pre-coverage audit
+per (preset, candidate); (2) decision on the 4 IMPORT_ERROR'd entries in
+best_current. User then added: drop TabPFN family from Phase 1 production runs
+(will import tabpfn_paper data separately).
+
+### Action 1 — pre-coverage audit (master CSV has 84 distinct datasets)
+
+For each Phase-1 preset candidate, observed pre-coverage under canonical_name
+OR known legacy aliases:
+
+```
+=== fast_reliable (6) ===
+  PLS-tuned-cv5                           66 / 84  79%   highest
+  AOM-PLS-compact-numpy                   61 / 84  73%
+  ASLS-AOM-compact-cv5-numpy              57 / 84  68%
+  AOMRidge-global-compact-none            54 / 84  64%
+  AOMRidge-global-compact-snv             54 / 84  64%
+  Ridge-tuned-cv5                         26 / 84  31%   lowest
+
+=== strong_practical (was 9, now 7 post-TabPFN-defer) ===
+  4 fast (above) + AOMRidge-global × 2 + AOMRidge-Local-compact-knn50 (53/84)
+
+=== best_current (was 15, now 8 post-pruning) ===
+  4 fast + 3 AOMRidge variants + AOMRidge-MultiBranchMKL (53/84)
+```
+
+Substantial pre-coverage (60-79 % for most) means Phase-2/3/4 production runs
+mostly **standardise existing data** under one harness protocol + source_run
+rather than producing fundamentally new evidence.
+
+### Action 2 — best_current pruning (4 IMPORT_ERROR + 3 TabPFN)
+
+Dropped from `best_current` membership per user 2026-05-09 18:30 + 18:50 CEST:
+
+| Entry | Reason |
+|---|---|
+| `MKM-reml-default` | IMPORT_ERROR — Multi-kernel module never surfaced (D-B-002 ended without packaging) |
+| `mkR-softmax-cv-default` | Same Multi-kernel module |
+| `moe-preproc-soft-pls-compact` | IMPORT_ERROR — `MoEPreprocSoftPLS` not in Task #25 scope |
+| `AOMMultiView-MeanEnsemble4-fixed` | IMPORT_ERROR — `AOMMeanEnsemble` not in Task #25 scope |
+| `TabPFN-Raw` | User-deferred: will import from tabpfn_paper |
+| `TabPFN-opt` | User-deferred |
+| `TabPFN-HPO-preprocessing` | User-deferred |
+
+Also removed `TabPFN-Raw` + `TabPFN-opt` from `strong_practical`. All 7
+dropped entries remain in `exhaustive_research`; legacy benchmark data exists
+in master under variant=*-* labels (60-70 % coverage) but not harness-runnable.
+
+### Action 3 — D-C-005a (1-line rename)
+
+`bench/export_benchmark_scenarios.py:471` field `coverage_fraction` →
+`coverage_fraction_raw`. No backwards-compat shim. All 4 manifest JSONs
+re-emitted.
+
+### Updated counts + wall estimates
+
+| Preset | Candidats | Fits (full-57, 1 seed) | Wall ETA |
+|---|---:|---:|---|
+| `fast_reliable` | 6 | 342 | **2-4 h** |
+| `strong_practical` | 7 | 399 | **3-5 h** (TabPFN dropped saves ~2-3 h) |
+| `best_current` | 8 | 456 | **6-12 h** (TabPFN+IMPORT_ERROR dropped saves ~16-38 h) |
+
+Registry validation: 25 OK / 2 SKIPPED / 7 IMPORT_ERROR (all non-gating).
+**0 GATING failures** (was 4 before pruning).
+
+### Phase 1 status
+- Canonical D-A-002 bg run: 9/12 (per A #165 19:08), ~21 min wall remaining.
+  Light_atoms guard on n=39225 LMA fit in 2 min — much faster than feared.
+- C ingest ready on 12/12 completion.
+
+### Phase 2 launch command (ready)
+```bash
+.venv/bin/python bench/harness/run_benchmark.py \
+  --pipeline bench/scenarios/fast_reliable.json \
+  --workspace bench/scenarios/runs/fast_reliable_full57_seed0 \
+  --cohort full57 \
+  --seeds 0
+```
+ETA 2-4 h wall. Will fire after D-A-002 ingest closes.
+
+### (a)/(b)/(c)/(d)/(e) detector
+all closed. Counter reset.
