@@ -37,6 +37,7 @@ DECISION_PENDING_CODEX_REVIEW (D-C-006).
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import csv
 import importlib
 import json
@@ -243,8 +244,23 @@ def load_manifest(path: Path) -> dict[str, Any]:
 
 def load_completed(workspace: Path) -> set[tuple[str, int, str, str]]:
     """Return the set of (dataset, seed, canonical_name, selection) tuples
-    already present in the workspace's results.csv (status=ok or skipped).
+    already present in the workspace's results.csv that should NOT be re-run
+    on resume.
+
+    Terminal statuses (no retry):
+      * ``ok`` — successful completion
+      * ``skipped`` — explicit skip (not_runnable_in_production, etc.)
+      * ``dry_run`` — dry-run probe row
+      * ``failed_terminal`` — D-C-018 dispatcher hardening: timeout / OOM-kill
+        / worker-crash. Per Codex D-C-018 verdict Q4: these are infrastructure
+        failures, retry would just burn CPU. User must manually delete the
+        row to re-run after fixing the underlying issue (memory, timeout
+        budget, etc.).
+
+    Plain ``failed`` rows remain retriable so a build_error / dataset_load /
+    score_error caused by a fixable bug gets re-tried on the next resume run.
     """
+    terminal_statuses = {"ok", "skipped", "dry_run", "failed_terminal"}
     completed: set[tuple[str, int, str, str]] = set()
     results = workspace / "results.csv"
     if not results.exists():
@@ -252,7 +268,7 @@ def load_completed(workspace: Path) -> set[tuple[str, int, str, str]]:
     with results.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
-            if row.get("status") not in {"ok", "skipped", "dry_run"}:
+            if row.get("status") not in terminal_statuses:
                 continue
             try:
                 seed = int(row.get("seed", "0") or 0)
@@ -409,24 +425,51 @@ class ModelDispatcher:
                 error=f"build_error: {type(exc).__name__}: {exc}",
             )
 
+        timeout_s = (config.get("dispatch") or {}).get("timeout_s")
         try:
-            fit_start = time.perf_counter()
-            estimator.fit(bundle.X_train, bundle.y_train)
+            timeout_s = float(timeout_s) if timeout_s is not None else None
+        except (TypeError, ValueError):
+            timeout_s = None
+
+        fit_start = time.perf_counter()
+        try:
+            _run_with_optional_timeout(
+                estimator.fit, bundle.X_train, bundle.y_train,
+                timeout_s=timeout_s,
+            )
             fit_time = time.perf_counter() - fit_start
-        except Exception as exc:  # noqa: BLE001 - production boundary
+        except concurrent.futures.TimeoutError:
             return _failed_row(
                 spec, dataset, seed, cohort, preset, self.host, started,
-                error=f"fit_error: {type(exc).__name__}: {exc}",
+                error=f"timeout_{int(timeout_s or 0)}s: fit exceeded dispatch.timeout_s budget",
+                status="failed_terminal",
+            )
+        except Exception as exc:  # noqa: BLE001 - production boundary
+            error_msg, status = _classify_fit_exception(exc)
+            return _failed_row(
+                spec, dataset, seed, cohort, preset, self.host, started,
+                error=error_msg, status=status,
             )
 
+        predict_start = time.perf_counter()
         try:
-            predict_start = time.perf_counter()
-            y_pred = estimator.predict(bundle.X_test)
+            y_pred = _run_with_optional_timeout(
+                estimator.predict, bundle.X_test,
+                timeout_s=timeout_s,
+            )
             predict_time = time.perf_counter() - predict_start
-        except Exception as exc:  # noqa: BLE001 - production boundary
+        except concurrent.futures.TimeoutError:
             return _failed_row(
                 spec, dataset, seed, cohort, preset, self.host, started,
-                error=f"predict_error: {type(exc).__name__}: {exc}",
+                error=f"timeout_{int(timeout_s or 0)}s: predict exceeded dispatch.timeout_s budget",
+                status="failed_terminal",
+            )
+        except Exception as exc:  # noqa: BLE001 - production boundary
+            error_msg, status = _classify_fit_exception(exc)
+            return _failed_row(
+                spec, dataset, seed, cohort, preset, self.host, started,
+                error=error_msg.replace("fit_error", "predict_error"),
+                status=status,
             )
 
         try:
@@ -596,7 +639,15 @@ def _failed_row(
     *,
     error: str,
     ended_at: str | None = None,
+    status: str = "failed",
 ) -> ResultRow:
+    """Construct a failure row.
+
+    `status` defaults to ``"failed"`` (retriable on resume — the user can fix
+    the cause and re-run). Pass ``status="failed_terminal"`` for D-C-018
+    Prong A/B/C terminal failures (timeout, OOM-kill, worker-crash) that
+    must NOT be retried automatically (per Codex D-C-018 verdict Q4).
+    """
     return ResultRow(
         preset=preset,
         cohort=cohort,
@@ -606,7 +657,7 @@ def _failed_row(
         module=spec.module,
         config_template=spec.config_template,
         seed=seed,
-        status="failed",
+        status=status,
         error_message=error,
         started_at=started_at,
         ended_at=ended_at or datetime.now(UTC).isoformat(),
@@ -691,6 +742,96 @@ def _build_step(step: Any) -> tuple[str, Any]:
     return (name, instance)
 
 
+def _inject_seed_recursive(obj: Any, seed: int) -> None:
+    """Override `random_state` on `obj` and any nested `(name, estimator)`
+    tuples (D-C-018 Prong D).
+
+    For `protocol == "model_native"` the runtime `seed` must propagate into
+    the estimator's `random_state` for the multi-seed protocol to be
+    meaningful. The harness materialises YAML params literally; without this
+    helper the YAML-baked `random_state: 0` would be reused across all seeds.
+
+    Walks `atoms` and `light_atoms` attributes (per AdaptiveSuperLearner
+    convention from `bench/AOM_v0/multiview/multiview/super_learner.py`).
+    Tuples in those attrs follow the `(name, estimator)` shape produced by
+    `_materialize_value`'s name-keyed convention.
+    """
+    import contextlib
+    if hasattr(obj, "set_params"):
+        # estimator may not accept random_state, or set_params may not be
+        # sklearn-compatible — fall through to direct attribute set.
+        with contextlib.suppress(ValueError, TypeError, AttributeError):
+            obj.set_params(random_state=seed)
+    if hasattr(obj, "random_state"):
+        with contextlib.suppress(AttributeError, TypeError):
+            obj.random_state = seed
+    for attr in ("atoms", "light_atoms"):
+        items = getattr(obj, attr, None)
+        if items is None:
+            continue
+        try:
+            iterable = list(items)
+        except TypeError:
+            continue
+        for item in iterable:
+            if isinstance(item, tuple) and len(item) == 2:
+                _inject_seed_recursive(item[1], seed)
+            elif hasattr(item, "set_params") or hasattr(item, "random_state"):
+                _inject_seed_recursive(item, seed)
+
+
+_TERMINAL_FAILURE_PREFIXES = ("timeout_", "oom_kill", "worker_terminated")
+
+
+def _classify_fit_exception(exc: BaseException) -> tuple[str, str]:
+    """Classify a fit/predict exception as terminal vs retriable.
+
+    Returns ``(error_message, status)`` where status is one of:
+      * ``"failed"`` — retriable on resume (build_error / dataset_load /
+        score_error / generic fit_error from a bug in the model).
+      * ``"failed_terminal"`` — final, no retry on resume (timeout, OOM,
+        worker process kill). D-C-018 Prong B/C: these are infrastructure
+        failures, retry would just burn CPU.
+
+    Pattern-matches the exception type name (so we don't have to import
+    `joblib.externals.loky.process_executor.TerminatedWorkerError`
+    conditionally) and returncode markers from subprocess crashes.
+    """
+    cls = type(exc).__name__
+    msg = str(exc) or cls
+    lowered = (cls + " " + msg).lower()
+    if "terminatedworker" in lowered or "brokenprocesspool" in lowered:
+        return (f"oom_kill_or_worker_terminated: {cls}: {msg}", "failed_terminal")
+    if "memoryerror" in lowered:
+        return (f"oom_kill_local: {cls}: {msg}", "failed_terminal")
+    return (f"fit_error: {cls}: {msg}", "failed")
+
+
+def _run_with_optional_timeout(
+    func: Any,
+    *args: Any,
+    timeout_s: float | None,
+    **kwargs: Any,
+) -> Any:
+    """Run ``func(*args, **kwargs)`` either inline (no timeout) or under a
+    ThreadPoolExecutor with a wall-clock budget (D-C-018 Prong A).
+
+    On ``TimeoutError`` the caller is responsible for writing a
+    ``failed_terminal`` row. The thread itself is not killed (Python has no
+    safe way to kill a CPU-bound thread); the dispatch loop simply moves on
+    and the leaked thread completes its fit silently in the background.
+    Acceptable trade-off per Codex D-C-018 verdict ; preferable to silent
+    blocking of the cohort. Per Codex Q3: fail-open when ``timeout_s`` is
+    ``None`` or non-positive (current 23 YAML configs vary in declared
+    values, some null).
+    """
+    if not timeout_s or timeout_s <= 0:
+        return func(*args, **kwargs)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        return future.result(timeout=float(timeout_s))
+
+
 def _build_estimator(config: dict[str, Any], *, seed: int) -> Any:
     """Build a fitted-able estimator from a parsed config_template.
 
@@ -701,6 +842,10 @@ def _build_estimator(config: dict[str, Any], *, seed: int) -> Any:
       * a `sklearn.model_selection.GridSearchCV` wrapping the above when
         `hyperparameter_search.protocol == "kfold"` with a non-empty
         `param_grid` — preserving nested CV (D-C-010a).
+
+    For `protocol == "model_native"`, the runtime `seed` is recursively
+    injected into the estimator's and any nested-atom's `random_state`
+    (D-C-018 Prong D).
     """
     pipeline_block = (config.get("model") or {}).get("pipeline")
     if not isinstance(pipeline_block, list) or not pipeline_block:
@@ -717,6 +862,7 @@ def _build_estimator(config: dict[str, Any], *, seed: int) -> Any:
     protocol = (hps.get("protocol") or "kfold").lower()
     param_grid = hps.get("param_grid")
     if protocol == "model_native" or not param_grid:
+        _inject_seed_recursive(base, seed)
         return base
 
     if protocol != "kfold":
@@ -958,6 +1104,7 @@ def run(args: argparse.Namespace) -> int:
     n_skipped_not_runnable = 0
     n_run = 0
     n_failed = 0
+    n_failed_terminal = 0
 
     try:
         for candidate in candidates:
@@ -990,6 +1137,8 @@ def run(args: argparse.Namespace) -> int:
                     handle.flush()
                     if row.status == "failed":
                         n_failed += 1
+                    elif row.status == "failed_terminal":
+                        n_failed_terminal += 1
                     elif row.status in {"ok", "dry_run"}:
                         n_run += 1
                     elif row.status == "skipped":
@@ -1001,11 +1150,11 @@ def run(args: argparse.Namespace) -> int:
         f"[harness] preset={preset} cohort={args.cohort} "
         f"planned={n_planned} run={n_run} "
         f"skipped(resume)={n_skipped_resume} skipped(not_runnable)={n_skipped_not_runnable} "
-        f"failed={n_failed}"
+        f"failed={n_failed} failed_terminal={n_failed_terminal}"
     )
     if args.stats:
         write_stats(args.workspace)
-    return 1 if n_failed and not args.dry_run else 0
+    return 1 if (n_failed or n_failed_terminal) and not args.dry_run else 0
 
 
 def write_stats(workspace: Path) -> None:
