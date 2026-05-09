@@ -42,6 +42,7 @@ import csv
 import importlib
 import json
 import math
+import multiprocessing
 import os
 import random
 import statistics
@@ -431,17 +432,26 @@ class ModelDispatcher:
         except (TypeError, ValueError):
             timeout_s = None
 
+        # D-C-019: forward main-process pythonpath_prepend to the spawn worker
+        # so the worker can import the estimator's class when unpickling.
+        sys_path_extras = []
+        for entry in (config.get("dispatch") or {}).get("pythonpath_prepend") or []:
+            full = (BENCH.parent / str(entry)).resolve()
+            if str(full) not in sys_path_extras:
+                sys_path_extras.append(str(full))
+
         fit_start = time.perf_counter()
         try:
-            _run_with_optional_timeout(
-                estimator.fit, bundle.X_train, bundle.y_train,
+            estimator = _fit_with_optional_timeout(
+                estimator, bundle.X_train, bundle.y_train,
                 timeout_s=timeout_s,
+                sys_path_extras=sys_path_extras,
             )
             fit_time = time.perf_counter() - fit_start
         except concurrent.futures.TimeoutError:
             return _failed_row(
                 spec, dataset, seed, cohort, preset, self.host, started,
-                error=f"timeout_{int(timeout_s or 0)}s: fit exceeded dispatch.timeout_s budget",
+                error=f"timeout_{int(timeout_s or 0)}s: fit exceeded dispatch.timeout_s budget (D-C-019 subprocess terminate)",
                 status="failed_terminal",
             )
         except Exception as exc:  # noqa: BLE001 - production boundary
@@ -451,19 +461,11 @@ class ModelDispatcher:
                 error=error_msg, status=status,
             )
 
+        # Codex R15 Q4 LOCK: predict runs inline post-fit-success.
         predict_start = time.perf_counter()
         try:
-            y_pred = _run_with_optional_timeout(
-                estimator.predict, bundle.X_test,
-                timeout_s=timeout_s,
-            )
+            y_pred = estimator.predict(bundle.X_test)
             predict_time = time.perf_counter() - predict_start
-        except concurrent.futures.TimeoutError:
-            return _failed_row(
-                spec, dataset, seed, cohort, preset, self.host, started,
-                error=f"timeout_{int(timeout_s or 0)}s: predict exceeded dispatch.timeout_s budget",
-                status="failed_terminal",
-            )
         except Exception as exc:  # noqa: BLE001 - production boundary
             error_msg, status = _classify_fit_exception(exc)
             return _failed_row(
@@ -790,8 +792,9 @@ def _classify_fit_exception(exc: BaseException) -> tuple[str, str]:
       * ``"failed"`` — retriable on resume (build_error / dataset_load /
         score_error / generic fit_error from a bug in the model).
       * ``"failed_terminal"`` — final, no retry on resume (timeout, OOM,
-        worker process kill). D-C-018 Prong B/C: these are infrastructure
-        failures, retry would just burn CPU.
+        worker process kill, non-picklable estimator). D-C-018 Prong B/C
+        + D-C-019 Q3: these are infrastructure failures, retry would just
+        burn CPU.
 
     Pattern-matches the exception type name (so we don't have to import
     `joblib.externals.loky.process_executor.TerminatedWorkerError`
@@ -800,6 +803,11 @@ def _classify_fit_exception(exc: BaseException) -> tuple[str, str]:
     cls = type(exc).__name__
     msg = str(exc) or cls
     lowered = (cls + " " + msg).lower()
+    # D-C-019 Q3 LOCK: non-picklable estimator → terminal (can't be retried
+    # without code change). PicklingError raised at pool.apply_async submit
+    # time ; AttributeError with "pickle" in msg on unpickling failure.
+    if "picklingerror" in lowered or ("attributeerror" in lowered and "pickle" in lowered):
+        return (f"non_picklable_estimator: {cls}: {msg}", "failed_terminal")
     if "terminatedworker" in lowered or "brokenprocesspool" in lowered:
         return (f"oom_kill_or_worker_terminated: {cls}: {msg}", "failed_terminal")
     if "memoryerror" in lowered:
@@ -807,41 +815,75 @@ def _classify_fit_exception(exc: BaseException) -> tuple[str, str]:
     return (f"fit_error: {cls}: {msg}", "failed")
 
 
-def _run_with_optional_timeout(
-    func: Any,
-    *args: Any,
+def _fit_subprocess_worker(payload: tuple[Any, Any, Any, list[str]]) -> Any:
+    """Module-level worker function for subprocess fit execution (D-C-019).
+
+    Must be at module level so it's picklable for the spawn context.
+    Sets up sys.path from the main-process pythonpath_prepend before
+    pickling the estimator (which may need those paths to import its
+    own class on the worker side).
+    """
+    estimator, X, y, sys_path_extras = payload
+    if sys_path_extras:
+        for path_entry in sys_path_extras:
+            if path_entry not in sys.path:
+                sys.path.insert(0, path_entry)
+    estimator.fit(X, y)
+    return estimator
+
+
+def _fit_with_optional_timeout(
+    estimator: Any,
+    X: Any,
+    y: Any,
+    *,
     timeout_s: float | None,
-    **kwargs: Any,
+    sys_path_extras: list[str] | None = None,
 ) -> Any:
-    """Run ``func(*args, **kwargs)`` either inline (no timeout) or under a
-    ThreadPoolExecutor with a wall-clock budget (D-C-018 Prong A).
+    """Fit ``estimator.fit(X, y)`` with optional wall-clock timeout (D-C-019).
 
-    On ``TimeoutError`` the caller is responsible for writing a
-    ``failed_terminal`` row. The thread itself is not killed (Python has no
-    safe way to kill a CPU-bound thread); the dispatch loop simply moves on
-    and the leaked thread completes its fit silently in the background.
-    Acceptable trade-off per Codex D-C-018 verdict ; preferable to silent
-    blocking of the cohort. Per Codex Q3: fail-open when ``timeout_s`` is
-    ``None`` or non-positive (current 23 YAML configs vary in declared
-    values, some null).
+    D-C-019 (Codex round 15 LOCKED 2026-05-09): when ``timeout_s > 0``, runs
+    the fit in a ``multiprocessing.Pool(1)`` subprocess (spawn context). On
+    timeout, ``pool.terminate()`` actually kills the worker process — freeing
+    memory immediately and unblocking the dispatch loop. The fitted estimator
+    is pickled back to the main process for in-process predict (Codex Q4 LOCK).
 
-    NOTE: do NOT use ``with concurrent.futures.ThreadPoolExecutor(...) as
-    executor`` — the context manager calls ``executor.shutdown(wait=True)``
-    on exit, which BLOCKS until the runaway worker thread completes,
-    making the timeout decorative. Use ``shutdown(wait=False)`` so the
-    dispatch loop moves on immediately while the leaked thread runs in
-    background. Discovered 2026-05-09 19:55 CEST in Phase 2 fast_reliable
-    LMA fit: 1200s budget, fit ran 35+ min before being killed externally
-    (RSS 42 GB).
+    Codex R15 verdicts applied:
+      * Q1 CONDITIONAL — fit-only subprocess wrapper (predict stays inline).
+      * Q2 NO-GO — apply timeout-wrap to all timeout-declared configs (no
+        magic threshold).
+      * Q3 LOCK — non-picklable estimator → caller writes
+        ``failed_terminal`` with ``error_message="non_picklable_estimator..."``.
+      * Q4 LOCK — return the fitted estimator; predict runs inline.
+      * Q5 LOCK — re-runs after this lands need ``--no-resume`` to get clean
+        evidence under the new mechanism.
+
+    Supersedes the v2 ThreadPoolExecutor implementation (D-C-018 Prong A v2)
+    which only signaled timeout but couldn't kill CPU-bound threads, leading
+    to memory leak cascades in Phase 2 fast_reliable. See SYNC.md 2026-05-09
+    21:50 entry for the failure pattern.
     """
     if not timeout_s or timeout_s <= 0:
-        return func(*args, **kwargs)
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        estimator.fit(X, y)
+        return estimator
+
+    ctx = multiprocessing.get_context("spawn")
+    pool = ctx.Pool(processes=1)
     try:
-        future = executor.submit(func, *args, **kwargs)
-        return future.result(timeout=float(timeout_s))
+        async_result = pool.apply_async(
+            _fit_subprocess_worker,
+            ((estimator, X, y, list(sys_path_extras or [])),),
+        )
+        try:
+            return async_result.get(timeout=float(timeout_s))
+        except multiprocessing.TimeoutError as exc:
+            raise concurrent.futures.TimeoutError(str(exc)) from exc
     finally:
-        executor.shutdown(wait=False)
+        # terminate() force-kills running workers (frees memory).
+        # close() + join() ensure the pool is fully shut down before return.
+        pool.terminate()
+        pool.close()
+        pool.join()
 
 
 def _build_estimator(config: dict[str, Any], *, seed: int) -> Any:
