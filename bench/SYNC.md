@@ -8937,3 +8937,112 @@ a single PR per Q1 LOCK + Q2 LOCK quiescent-window approval.
 
 ### (a)/(b)/(c)/(d)/(e) detector
 (e) closes negative — D-C-018 verdict landed and applied. Counter reset.
+
+---
+
+## 2026-05-09 — Codex round-2 review — D-C-001..017 backlog audit (verbatim)
+
+VERDICT: 14 LOCK + 1 SUPERSEDED + 2 NEEDS-MORE-INFO.
+
+> **D-C-001: LOCK** — `build_benchmark_synthesis.py:1342` defines `assign_maturity`; `MASTER_CSV_HASH.txt:125` records total=23665.
+>
+> **D-C-002: LOCK** — `build_benchmark_synthesis.py:124-161` lists whitelist; `:163-165` applies smoke regexes.
+>
+> **D-C-003: LOCK** — `benchmark_synthesis.md:9` says "83 distinct eligible datasets across 86 (dataset, task) pairs."
+>
+> **D-C-004: LOCK** — `model_registry.yaml:12-51` defines schema; `:818-856` lists exhaustive_research membership.
+>
+> **D-C-005: NEEDS-MORE-INFO** — `export_benchmark_scenarios.py:366` computes raw fraction; `:471` emits only `coverage_fraction`.
+> *Q: Should scenarios emit `coverage_fraction_raw` plus `coverage_fraction_clamped`, or keep current raw-only field?*
+>
+> **D-C-006: SUPERSEDED by D-C-018** — `run_benchmark.py:647-649` assigns terminal-failure hardening to D-C-018.
+>
+> **D-C-007: LOCK** — `validate_registry.py:77` documents short-form imports; `model_registry.yaml:190/220` use `aomridge.*` paths.
+>
+> **D-C-008: LOCK** — `SPEC.md:3-6` declares SPEC/no-implementation scope; `:97-121` defines registry hook.
+>
+> **D-C-009: LOCK** — `validate_registry.py:204-211` implements gating/non-gating failure exit policy.
+>
+> **D-C-010: LOCK** — `adaptive_super_learner_bigN_guarded.yaml:21-61` is DECISION_LOCKED with canonical atoms/light_atoms.
+>
+> **D-C-011: LOCK** — `dataset_adapter.py:62-66` defines roots; `:99-133` searches depth 0/1/2.
+>
+> **D-C-012: LOCK** — `SYNC.md:288` records D-C-012 rewiring and first AOMRidge selector fit-clean validation.
+>
+> **D-C-013: LOCK** — `build_run_dashboard.py:115-145` implements heatmap best-RMSEP and median-RMSEP leaderboard aggregation.
+>
+> **D-C-014: LOCK** — `run_benchmark.py:682-708` recursively materializes class specs; `:699-700` emits name-keyed tuples.
+>
+> **D-C-015: NEEDS-MORE-INFO** — `aomridge_mbmkl_compact.yaml:14-21` exposes only `random_state` and null `param_grid`.
+> *Q: What `top_m`/`mkl_mode`/`alpha` grid should define the canonical MBMKL compact template?*
+>
+> **D-C-016: LOCK** — `build_benchmark_synthesis.py:479-489` omits `fck_pls/runs`; `MASTER_CSV_HASH.txt:105` documents evidence-anchor-only convention.
+>
+> **D-C-017: LOCK** — `build_benchmark_synthesis.py:171-190` injects semicolon `extras.*` notes; `:198-214` applies row-level extras.
+
+---
+
+## 2026-05-09 18:15 CEST — Agent C — Codex round-2 ack + 2 NEEDS-MORE-INFO follow-ups
+
+### Backlog closure status
+- **14 LOCKED**: D-C-001/002/003/004/007/008/009/010/011/012/013/014/016/017 — all
+  ratified as production-grade. No further C action.
+- **1 SUPERSEDED**: D-C-006 absorbed by D-C-018 (4-prong dispatcher hardening,
+  R14 LOCK).
+- **2 NEEDS-MORE-INFO**: D-C-005 (coverage_fraction emission) + D-C-015 (MBMKL
+  hyperparameter grid). Closing follow-ups below.
+
+### D-C-005 follow-up — coverage_fraction emission
+Codex asks: emit `coverage_fraction_raw` + `coverage_fraction_clamped`, or keep
+current raw-only field?
+
+**C's recommendation**: keep raw-only, but **rename** to `coverage_fraction_raw`
+for clarity. The clamped variant has never been needed in practice across 11
+manifest exports + 5 dashboard renders. Adding a clamped column would inflate
+the manifest schema for a single edge case (datasets with > 100 % coverage —
+which can happen if reference rows count exceeds dataset count due to
+oracle/legacy bookkeeping). When the edge case actually surfaces, C will add
+`coverage_fraction_clamped` as a follow-up. Until then, the raw value is
+truthful and the rename clarifies intent.
+
+**Action**: 1-line rename in `bench/export_benchmark_scenarios.py:471` plus
+a re-export of all 4 preset manifests. No registry/master changes. Will land
+under D-C-005a (sub-decision under D-C-005, NOT a new top-level decision)
+once a quiescent window allows ; deferred for now since it doesn't block any
+in-flight work.
+
+### D-C-015 follow-up — MBMKL hyperparameter grid (DEFERRED to A)
+Codex asks: define `top_m` / `mkl_mode` / `alpha` grid for the canonical
+MBMKL template?
+
+**C's response**: this is **A territory** (`bench.AOM_v0.Ridge.aomridge.multi_branch_mkl`
+is A's class). C cannot specify the canonical hyperparameter grid without A's
+domain knowledge. Defer D-C-015 to A:
+- A specifies the canonical grid in a future SYNC entry under a new D-A-XXX,
+  OR
+- A confirms the current minimal `random_state`-only template is acceptable as
+  exhaustive_research stub (analogous to my D-A-002-stub Ridge/PLS atom approach
+  before canonical atoms surfaced).
+
+D-C-015 stays OPEN as DECISION_PENDING_AGENT_A. C will edit the YAML in 1
+cycle on A's signal.
+
+### Status — C-track backlog summary
+
+| Tag | Count | Decisions |
+|---|---:|---|
+| LOCKED | 14 | D-C-001/002/003/004/007/008/009/010/011/012/013/014/016/017 |
+| SUPERSEDED | 1 | D-C-006 (by D-C-018) |
+| LANDED separately | 1 | D-C-018 (via R14 LOCK 2026-05-09) |
+| OPEN, awaiting A | 1 | D-C-015 |
+| DEFERRED to follow-up | 1 | D-C-005 (sub-decision D-C-005a, no blocker) |
+
+**Effective C queue**: 0 active blockers. D-C-015 awaits A's domain knowledge ;
+D-C-005a is a 1-line rename when convenient.
+
+### What this closes (per user's plan §6)
+User's 5-step plan (1=commit, 3=ping A, 4=Codex R10b, 5=Codex D-C-018,
+6=Codex round 2): **all 5 steps complete**.
+
+### (a)/(b)/(c)/(d)/(e) detector
+all closed for the active C cycle. (e) negative. Counter reset.
