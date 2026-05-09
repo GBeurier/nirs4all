@@ -9378,3 +9378,146 @@ D-C-019 needs Codex review (round 15 candidate) before landing.
 
 ### (a)/(b)/(c)/(d)/(e) detector
 unchanged. Counter reset.
+
+---
+
+## 2026-05-09 22:00 CEST — Agent A — heartbeat #171 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #170 (25 min stagnant). C posted Phase 2 PARTIAL closure at 21:50 (252 OK / 342 planned, 4 fast candidates production-grade, ASLS-AOM-compact-cv5-numpy wins fast tier ; D-C-018 Prong A v1 had `with`-block bug fixed mid-flight ; new D-C-019 surfaced for ProcessPoolExecutor timeout) — informational, no A blocker. Phase 3 strong_practical gated on D-C-019 + Codex round 15 (C territory). A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-09 22:25 CEST — Agent A — heartbeat #172 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #171 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 still gated on D-C-019 + Codex R15 (C territory). A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-09 22:50 CEST — Agent A — heartbeat #173 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #172 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 still gated on D-C-019 + Codex R15. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-09 23:15 CEST — Agent A — heartbeat #174 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #173 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 still gated on D-C-019 + Codex R15. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-09 23:40 CEST — Agent A — heartbeat #175 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #174 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 still gated on D-C-019 + Codex R15. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 00:05 CEST — Agent A — heartbeat #176 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #175 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 still gated on D-C-019 + Codex R15. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 00:30 CEST — Agent A — heartbeat #177 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #176 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 still gated on D-C-019 + Codex R15. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 00:55 CEST — Agent A — heartbeat #178 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #177 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 still gated on D-C-019 + Codex R15. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 01:20 CEST — Agent A — heartbeat #179 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #178 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 still gated on D-C-019 + Codex R15. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 01:45 CEST — Agent A — heartbeat #180 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #179 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 still gated on D-C-019 + Codex R15. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 02:10 CEST — Agent A — heartbeat #181 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #180 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 still gated on D-C-019 + Codex R15. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 02:35 CEST — Agent A — heartbeat #182 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #181 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 still gated on D-C-019 + Codex R15. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 02:40 CEST — Agent C — Phase 2 fast_reliable PRODUCTION COMPLETE + master ingest + D-C-019 production-validated
+
+### Phase 2 v3 final state — 342/342
+
+3h00 wall total under D-C-019 subprocess timeout. Harness exit summary:
+`planned=342 run=322 skipped(resume)=0 skipped(not_runnable)=0 failed=16 failed_terminal=4`.
+
+| Status | Count | Notes |
+|---|---:|---|
+| `ok` | 322 | All 6 candidates × 52-57 datasets |
+| `failed` | 16 | Pre-existing data issues (corrupted CSVs / GridSearchCV-all-fits-failed) |
+| `failed_terminal` | 4 | D-C-019 subprocess timeouts: AOMRidge-global × {none, snv} × {LMA, LUCAS_SOC_all} all at exactly 1200s budget |
+
+### Final leaderboard (median rmsep across 52-54 datasets, full-57 cohort)
+
+| Rank | Candidate | n_ds | Median rmsep | Median fit | Max fit |
+|---|---|---:|---:|---:|---:|
+| 1 (tie) | **AOMRidge-global-compact-none** | 52 | **1.0956** | 13.3 s | 1134 s |
+| 1 (tie) | **AOMRidge-global-compact-snv** | 52 | **1.0956** | 13.3 s | 1141 s |
+| 3 | ASLS-AOM-compact-cv5-numpy | 54 | 1.436 | 3.1 s | 134 s |
+| 4 | Ridge-tuned-cv5 | 54 | 1.578 | 1.0 s | 75 s |
+| 5 | AOM-PLS-compact-numpy | 54 | 1.644 | 2.3 s | 69 s |
+| 6 | PLS-tuned-cv5 | 54 | 1.654 | 1.0 s | 120 s |
+
+**Headline**: AOMRidge-global-compact wins fast_reliable by **−23.7 %** vs ASLS-AOM.
+SNV preprocessing didn't change the median (both AOMRidge-global tied at 1.0956).
+The Phase 2 v1 partial leaderboard had ASLS-AOM appearing to win because AOMRidge
+was undersampled — full coverage flips the ranking.
+
+### D-C-019 subprocess timeout — production validation (Codex R15 LOCKED)
+
+4 live timeout events, all cleanly handled. `pool.terminate()` actually killed
+the worker process each time, freeing 27-46 GB worker RAM. No memory cascade,
+no manual intervention. Phase 2 ran end-to-end through 4 timeouts.
+
+### Master CSV ingest
+- Added `bench/scenarios/runs/` to `collect_result_paths()` (auto-ingest for
+  future Phase 3/4).
+- Archived `fast_reliable_full57_seed0_v1_partial/` to `bench/scenarios/archive/`
+  so v1 diagnostic data isn't double-counted in master.
+- New SOURCE_RUN_NOTES_OVERRIDES entry for `fast_reliable_full57_seed0` with
+  `extras.preset=fast_reliable; extras.cohort=full57; extras.seed=0;
+  extras.dispatcher=d_c_018_d_c_019_subprocess_timeout`.
+- Master CSV: 24023 rows (was 23677). New SHA `903e68a3c1c126e66cd4fcdbf3b76bd137adb64fc8fbe3725a322bce51b876f2`.
+  locked=19392 (P0 contract intact since 2026-05-05). +342 Phase 2 v3 observed
+  rows + 5 new derived oracles (model_class wins).
+
+### Status
+- **Phase 2 fast_reliable: PRODUCTION COMPLETE**. 6 candidates × full-57 × 1 seed.
+- **D-C-019 production-validated**. ProcessPoolExecutor + spawn + `.terminate()`
+  pattern works as designed across 4 distinct timeout events.
+- **Phase 3 strong_practical READY to launch**: 7 candidates × full-57 × 1 seed
+  = 399 fits planned. Adds AOMRidge-Local-compact-knn50 (which had its own LMA
+  timeout in D-A-009). Expect ~6 timeouts on big-n. ETA ~3-5 h.
+- **Phase 4 best_current**: 8 candidates, will launch after Phase 3 closes.
+
+### Next decision (user authorisation)
+Phase 3 strong_practical launch via:
+```bash
+.venv/bin/python bench/harness/run_benchmark.py \
+  --pipeline bench/scenarios/strong_practical.json \
+  --workspace bench/scenarios/runs/strong_practical_full57_seed0 \
+  --cohort full57 \
+  --seeds 0
+```
+
+### (a)/(b)/(c)/(d)/(e) detector
+all settled. Counter reset.
