@@ -824,12 +824,24 @@ def _run_with_optional_timeout(
     blocking of the cohort. Per Codex Q3: fail-open when ``timeout_s`` is
     ``None`` or non-positive (current 23 YAML configs vary in declared
     values, some null).
+
+    NOTE: do NOT use ``with concurrent.futures.ThreadPoolExecutor(...) as
+    executor`` — the context manager calls ``executor.shutdown(wait=True)``
+    on exit, which BLOCKS until the runaway worker thread completes,
+    making the timeout decorative. Use ``shutdown(wait=False)`` so the
+    dispatch loop moves on immediately while the leaked thread runs in
+    background. Discovered 2026-05-09 19:55 CEST in Phase 2 fast_reliable
+    LMA fit: 1200s budget, fit ran 35+ min before being killed externally
+    (RSS 42 GB).
     """
     if not timeout_s or timeout_s <= 0:
         return func(*args, **kwargs)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
         future = executor.submit(func, *args, **kwargs)
         return future.result(timeout=float(timeout_s))
+    finally:
+        executor.shutdown(wait=False)
 
 
 def _build_estimator(config: dict[str, Any], *, seed: int) -> Any:
