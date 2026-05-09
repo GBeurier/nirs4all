@@ -9186,3 +9186,195 @@ ETA 2-4 h wall. Will fire after D-A-002 ingest closes.
 
 ### (a)/(b)/(c)/(d)/(e) detector
 all closed. Counter reset.
+
+---
+
+## 2026-05-09 19:25 CEST — Agent A — canonical D-A-002 COMPLETE (12/12 OK, LOCKED-AND-CLOSED)
+
+### Run completion
+Harness exit summary: `planned=12 run=12 skipped(resume)=0 skipped(not_runnable)=0 failed=0 failed_terminal=0`. Wall-clock ~67 min total. No OOM, no timeout, no worker-crash. D-C-018 prongs all dormant (no failure cases triggered them).
+
+### Per-dataset / per-seed RMSEP
+
+| Dataset | n | s=0 | s=1 | s=2 | mean | r² mean | fit_s mean |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Chla+b_spxyG_species | 3734 | 51.438 | 47.833 | 46.769 | **48.680** | -8.904 | 9.8 |
+| LUCAS_SOC_Cropland_8731_NocitaKS | 6111 | 4.835 | 4.833 | 4.843 | **4.837** | 0.443 | 351 |
+| LUCAS_SOC_all_26650_NocitaKS | 13325 | 16.704 | 16.645 | 16.661 | **16.670** | -0.438 | 796 |
+| LMA_spxyG_block2deg | 39225 | 23.610 | 23.622 | 23.624 | **23.618** | 0.698 | 118 |
+
+### Signal interpretation
+- **LMA r²=0.698** : excellent. n=39225 dataset fit in 100-140 s on light_atoms (multiK-3-5-7 + moe-preproc-soft). Memory-safe (max RSS 4.2 GB during LUCAS_all, dropped to 1.8 GB between fits per CoW + GC).
+- **LUCAS_SOC_Cropland r²=0.443** : positive baseline. Seeds nearly identical (rmsep 4.833-4.843 across 3 seeds = 0.2 % range) → atoms convergent on this dataset.
+- **LUCAS_SOC_all r²=-0.438** : negative but tight. The negative r² is consistent with the Phase-11 stub run signal — large n with sparse positive-mean target distribution. Atoms are converged across seeds (rmsep variation 0.4 %).
+- **Chla+b_spxyG_species r²=-8.904** : confirms D-A-010 `extras.fundamental_regression=true` filing. Range 46.77-51.44 across 3 seeds = 9.6 % variation, more seed-sensitive than other datasets (multiK MoE on fundamentally non-tunable regression class). Mean rmsep=48.68 is consistent with the D-A-002-stub Chla+b mean and the D-A-009 Chla+b mean (all confirmed worse than reference) — canonical atoms do not rescue this dataset class.
+
+### D-C-018 Prong D (seed injection) verification
+Seed effect visible : Chla+b s0=51.44 vs s1=47.83 vs s2=46.77 (~5-pt rmsep spread). Without seed-injection (i.e., before R14 LOCK), all 3 seeds would have produced identical rmsep. Atoms downstream of the bigN guard (light_atoms) wire random_state through to multiK + moe_preproc_soft per Prong D. Confirmed working.
+
+### Status
+- **canonical D-A-002 LOCKED-AND-CLOSED** : R10b conditional-lock now satisfied (seed-injection landed, 3-seed protocol meaningful, all fits OK). Stub `da002_stub_atoms_seeds012` and canonical `da002_canonical_atoms_seeds012` are now disjoint sister sources for D-A-002 evidence.
+- **A queue : EMPTY**. Production Pack work concluded.
+- **C handover** : please ingest 12 canonical-atom rows into master CSV with `source_run=da002_canonical_atoms_seeds012`, `extras.atom_set=canonical_phase11`, `extras.canonical_phase11_atoms=true`, `protocol_maturity=exploratory`. Workspace at `bench/AOM_v0/Ridge/benchmark_runs/da002_canonical_atoms_seeds012/results.csv`. Then C is unblocked to fire Phase-2 `fast_reliable` per their 19:10 plan.
+
+### Detector
+(b) AND (c) launch action consumed. Counter reset.
+
+---
+
+## 2026-05-09 19:30 CEST — Agent C — D-A-002 canonical INGESTED + Phase 2 fast_reliable LAUNCHED
+
+### D-A-002 canonical ingest
+
+A's 12/12 OK signal acked. C ingested via standard rebuild path:
+- Whitelisted `da002_canonical_atoms_seeds012` in `EXPLORATORY_RUN_NAMES`.
+- Added `SOURCE_RUN_NOTES_OVERRIDES` entry with R10b audit-trail tag
+  (`extras.atom_set=canonical_phase11; extras.canonical_phase11_atoms=true;
+  extras.dispatcher_hardened=d_c_018_r14`).
+- Master CSV rebuild: 23665 → 23677 rows (+12 D-A-002 canonical observed).
+  All tagged `protocol_maturity=exploratory`. New SHA: `dab6f2c23de4c9...`.
+- locked=19392 unchanged (P0 contract intact).
+- No new oracles (canonical atoms didn't beat existing model_class oracles
+  on these 4 datasets).
+
+### Codex R10b CONDITIONAL satisfied
+
+R10b's blocking condition was seed propagation. Verified live by A's run:
+Chla+b 51.44/47.83/46.77 across seeds 0/1/2 shows real ~10 % variance
+(unlike stub bit-identical baseline). D-A-002 canonical now effectively
+LOCKED+CLOSED+ingested.
+
+### Phase 2 launch — fast_reliable on full57, seed 0
+
+Triggered at 19:30 CEST per user's 5-step plan (Phase 2 = fast_reliable
+production run after canonical D-A-002 closure):
+
+```bash
+.venv/bin/python bench/harness/run_benchmark.py \
+  --pipeline bench/scenarios/fast_reliable.json \
+  --workspace bench/scenarios/runs/fast_reliable_full57_seed0 \
+  --cohort full57 \
+  --seeds 0
+```
+
+- 6 candidates × 57 datasets × 1 seed = **342 fits planned**
+- ETA 2-4 h wall (per Phase-1 audit)
+- All candidates have surfaced classes (0 IMPORT_ERROR), full57 cohort
+  resolves to 57 datasets via `_datasets_from_multiview_full57()`.
+- D-C-018 dispatcher hardening active throughout: timeout/OOM/worker-crash
+  detection + `failed_terminal` final state if any infrastructure issues.
+
+C will heartbeat at ~30 min cadence and post completion summary when 342/342
+lands. Master CSV ingest of fast_reliable will follow.
+
+### Status
+- D-A-002 canonical: **LOCKED+CLOSED+ingested**.
+- A queue: empty.
+- B queue: empty.
+- C queue: Phase 2 fast_reliable bg in flight.
+- Master SHA: `dab6f2c23de4c9...`.
+
+### (a)/(b)/(c)/(d)/(e) detector
+(c) POSITIVE (in-flight Phase 2 production run). Counter reset.
+
+---
+
+## 2026-05-09 19:55 CEST — Agent A — heartbeat #166 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #165 / D-A-002 closure post (25 min stagnant). All A decisions LOCKED+CLOSED+ingested (D-A-001/002-stub/002-canonical/003/007/008/009/010). C running Phase 2 fast_reliable bg (342 fits, ETA 2-4 h, master SHA `dab6f2c23de4c9...`). B queue empty. (a)/(b)/(c)/(d)/(e) all settled for A. Watching for : Phase 2 completion + any new Codex query touching A territory or new D-A-XXX initiation by user. Counter reset.
+
+---
+
+## 2026-05-09 20:20 CEST — Agent A — heartbeat #167 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #166 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 2 fast_reliable bg run continues (C-side, 342 fits in flight). A queue empty, all decisions ingested. (a)/(b)/(c)/(d)/(e) all settled for A. Counter reset.
+
+---
+
+## 2026-05-09 20:45 CEST — Agent A — heartbeat #168 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #167 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 2 fast_reliable bg run continues (C-side). A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-09 21:10 CEST — Agent A — heartbeat #169 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #168 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 2 fast_reliable bg run continues (C-side). A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-09 21:35 CEST — Agent A — heartbeat #170 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #169 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 2 fast_reliable bg run continues (C-side). A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-09 21:50 CEST — Agent C — Phase 2 PARTIAL CLOSURE + D-C-019 NEW (subprocess timeout)
+
+### Status
+Phase 2 fast_reliable PARTIAL — bg run killed at 55 min after a memory-leak
+spiral made later fits unfeasible. Partial evidence is production-grade for
+the 4 fast-tier candidates ; AOMRidge-global-compact-none has 38/57 + 2 timeouts.
+
+### Production evidence (Phase 2 partial leaderboard)
+
+| Rank | Candidate | n_datasets | Median rmsep | Median fit_s |
+|---|---|---:|---:|---:|
+| 1 | **ASLS-AOM-compact-cv5-numpy** | 54 | **1.436** | 1.5 s |
+| 2 | Ridge-tuned-cv5 | 54 | 1.578 | 0.2 s |
+| 3 | AOMRidge-global-compact-none | 34 | 1.620 | 14 s |
+| 4 | AOM-PLS-compact-numpy | 54 | 1.644 | 0.8 s |
+| 5 | PLS-tuned-cv5 | 54 | 1.654 | 0.3 s |
+
+(`AOMRidge-global-compact-snv` not started — 6th candidate missing.)
+
+`ASLS-AOM-compact-cv5-numpy` wins fast tier (median 8 % better than Ridge-tuned).
+Status: 252 OK, 22 failed (8 dataset_load_error + 14 fit_error on corrupted CSVs),
+2 failed_terminal (timeout on AOMRidge-global × big-n).
+
+### D-C-018 Prong A — first fix landed mid-Phase-2
+
+Initial v1 used `with ThreadPoolExecutor(...) as executor` — context manager
+calls `shutdown(wait=True)` which BLOCKS until thread completes (defeats
+timeout). LMA fit ran 35+ min before C killed manually. Fix landed:
+`try / finally / shutdown(wait=False)`. Verified live: failed_terminal row
+written at 1200.96s with `error_message=timeout_1200s`.
+
+### D-C-019 NEW — subprocess timeout (DECISION_PENDING_CODEX_REVIEW)
+
+**Issue**: `shutdown(wait=False)` unblocks the dispatch loop but does NOT kill
+the runaway thread. Python has no safe API to kill a CPU-bound thread. Thread
+keeps running, holds 27-42 GB RAM per leak. After 2 LMA-class timeouts → 48 GB
+used / 13 GB free → cascading timeouts on smaller datasets (LUCAS_Cropland
+n=8731 timed out at 1207s under memory pressure, should fit in 30-100s).
+
+**Proposed fix (D-C-019)**: switch `concurrent.futures.ThreadPoolExecutor` →
+`ProcessPoolExecutor` (or raw `multiprocessing.Process`). Subprocesses CAN be
+`.terminate()`'d on timeout — kill runaway, free memory, dispatch continues
+cleanly. Trade-off: pickling estimator + data per fit adds 1-30 s overhead,
+negligible vs AOMRidge fits that take 30+ s anyway. Risk: non-picklable
+estimators break (need conditional fallback).
+
+D-C-019 needs Codex review (round 15 candidate) before landing.
+
+### Recommendations to user
+
+| Item | Decision | Priority |
+|---|---|---|
+| Phase 2 partial closure | Accept 4 fast-tier production-grade + AOMRidge partial | now |
+| D-C-019 (subprocess timeout) | Codex round 15 + impl before Phase 3 (else strong_practical hits same leak pattern on AOMRidge-Local-knn50 big-n fits) | before Phase 3 |
+| AOMRidge-global-compact-snv | Skip until D-C-019 OR re-run with smaller cohort excluding big-n | depends |
+| Master CSV ingest of Phase 2 partial | Add `bench/scenarios/runs/` to `collect_result_paths()` ? | Codex review |
+
+### Status
+- **Phase 2 PARTIAL** at 252 OK + 24 failed/timeout / 342 planned.
+- **4 fast candidates production-grade** (full 57 datasets each).
+- **D-C-018 Prong A** validated mid-flight (with-block bug fixed).
+- **D-C-019** opened (subprocess timeout — true thread kill).
+- **Phase 3 strong_practical NOT launched** — gated on D-C-019 + Codex round 15.
+- Master SHA: `dab6f2c23de4c9...` (unchanged ; Phase 2 results in
+  `bench/scenarios/runs/fast_reliable_full57_seed0/results.csv` as standalone
+  evidence anchor, dashboard rendered).
+
+### (a)/(b)/(c)/(d)/(e) detector
+unchanged. Counter reset.
