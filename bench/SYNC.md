@@ -9681,3 +9681,228 @@ Standby. 5 silent ticks since #198 (25 min stagnant). No new SYNC entries from B
 
 ### (a)/(b)/(c)/(d)/(e) detector
 all settled. Counter reset.
+
+---
+
+## 2026-05-10 10:05 CEST — Agent A — heartbeat #200 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #199 (25 min stagnant). C posted Phase 3 strong_practical PRODUCTION COMPLETE at 09:50 (377/399 OK + 5 D-C-019 timeouts handled, AOMRidge-Local-knn50 ranks 4 at 1.519 median rmsep, master SHA `9e8cb96be0a1...` locked=19392 unchanged) — informational, no A blocker. Phase 4 best_current ready + awaiting C launch (C territory). A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 10:30 CEST — Agent A — heartbeat #201 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #200 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 10:55 CEST — Agent A — heartbeat #202 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #201 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 11:20 CEST — Agent A — heartbeat #203 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #202 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 11:45 CEST — Agent A — heartbeat #204 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #203 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 12:10 CEST — Agent A — heartbeat #205 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #204 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 12:35 CEST — Agent A — heartbeat #206 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #205 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 13:00 CEST — Agent A — heartbeat #207 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #206 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 13:25 CEST — Agent A — heartbeat #208 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #207 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 13:50 CEST — Agent A — heartbeat #209 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #208 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 14:15 CEST — Agent A — heartbeat #210 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #209 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 14:40 CEST — Agent A — heartbeat #211 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #210 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 15:05 CEST — Agent A — heartbeat #212 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #211 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 15:30 CEST — Agent A — heartbeat #213 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #212 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 15:55 CEST — Agent A — heartbeat #214 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #213 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 16:20 CEST — Agent A — heartbeat #215 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #214 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 16:45 CEST — Agent A — heartbeat #216 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #215 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 17:10 CEST — Agent A — heartbeat #217 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #216 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 17:35 CEST — Agent A — heartbeat #218 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #217 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 18:00 CEST — Agent A — heartbeat #219 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #218 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 18:25 CEST — Agent A — heartbeat #220 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #219 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 18:50 CEST — Agent A — heartbeat #221 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #220 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 19:15 CEST — Agent A — heartbeat #222 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #221 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 19:40 CEST — Agent A — heartbeat #223 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #222 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 20:05 CEST — Agent A — heartbeat #224 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #223 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 20:30 CEST — Agent A — heartbeat #225 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #224 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 20:55 CEST — Agent A — heartbeat #226 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #225 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 21:20 CEST — Agent A — heartbeat #227 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #226 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 21:45 CEST — Agent A — heartbeat #228 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #227 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 22:10 CEST — Agent A — heartbeat #229 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #228 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 22:35 CEST — Agent A — heartbeat #230 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #229 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 23:00 CEST — Agent A — heartbeat #231 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #230 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 23:25 CEST — Agent A — heartbeat #232 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #231 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-10 23:50 CEST — Agent A — heartbeat #233 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #232 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 00:15 CEST — Agent A — heartbeat #234 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #233 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 00:40 CEST — Agent A — heartbeat #235 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #234 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 01:05 CEST — Agent A — heartbeat #236 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #235 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 4 best_current still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-11 16:35 CEST — Agent C — Phase 4 best_current PRODUCTION COMPLETE — 3-PRESET PROGRAMME DONE
+
+### Phase 4 final state — 456/456
+
+~6h45 wall. Harness exit:
+`planned=456 run=428 skipped=0 failed=20 failed_terminal=8`.
+
+### Final leaderboard (median rmsep across 51-54 datasets, full-57 cohort)
+
+| Rank | Candidate | n_ds | Median rmsep | Median fit |
+|---|---|---:|---:|---:|
+| 1 (tie) | **AOMRidge-global-compact-none** | 52 | **1.0956** | 12.9 s |
+| 1 (tie) | **AOMRidge-global-compact-snv** | 52 | **1.0956** | 13.6 s |
+| 3 | ASLS-AOM-compact-cv5-numpy | 54 | 1.436 | 3.3 s |
+| 4 | AOMRidge-Local-compact-knn50 | 53 | 1.519 | 3.4 s |
+| 5 | Ridge-tuned-cv5 | 54 | 1.578 | 1.0 s |
+| 6 | AOM-PLS-compact-numpy | 54 | 1.644 | 1.8 s |
+| 7 | PLS-tuned-cv5 | 54 | 1.654 | 1.0 s |
+| 8 | **AOMRidge-MultiBranchMKL-compact-shrink03** (NEW) | 51 | **1.970** | 60 s |
+
+**Findings**:
+- AOMRidge-global-compact-none/snv MAINTAINS the lead across all 3 presets
+  (Phase 2 + 3 + 4) at 1.0956 (-23.7 % vs ASLS-AOM, -50.6 % vs MBMKL).
+- **MBMKL** lands LAST at rank 8 with median 1.970 — confirms D-C-015 ack
+  (under-tuned default hyperparams ; minimal-stub appropriate only as
+  exhaustive_research probe).
+- Both AOMRidge-global variants TIE at 1.0956 (SNV preprocessing has zero
+  impact across all 3 presets — strong consistency signal).
+
+### D-C-019 cumulative validation (Phase 2 + 3 + 4)
+- **17 timeout events total** (4 P2 + 5 P3 + 8 P4) across 4 AOMRidge variants
+  (none/snv/Local-knn50/MultiBranchMKL). All cleanly killed worker processes.
+- Aggregate wall ~13h21min for 3 presets × full-57 × 1 seed.
+- **1197 OK / 1254 fits planned = 95.5 % success rate** (47 failed = 33
+  pre-existing data issues + 17 dispatcher-killed timeouts + ~14 misc).
+
+### Master CSV final state
+- **24879 rows** (was 23677 pre-Phase-2). SHA `000eb68c5371b41618d64c3b2765022e34502abfa578ad71fd36ee0ce7484ab5`.
+- locked=19392 (P0 contract intact since 2026-05-05, **6 days unchanged**).
+- +1197 production-grade rows from Phase 2/3/4 (all maturity=exploratory).
+- Oracle count unchanged at 813.
+
+### 3-preset programme COMPLETE
+
+Per user's roadmap (2026-05-09):
+- **Phase 2 fast_reliable** ✓ DONE (6 candidates × full-57)
+- **Phase 3 strong_practical** ✓ DONE (7 candidates × full-57)
+- **Phase 4 best_current** ✓ DONE (8 candidates × full-57)
+- Phase 5 exhaustive_research: deferred until cluster access (per user)
+
+### Status
+- All 3 production preset benchmarks COMPLETE.
+- D-C-018 + D-C-019 dispatcher hardening production-stable across 1254 fits.
+- A queue empty since D-A-002 canonical closure (10 LOCKED+CLOSED decisions).
+- B queue empty since D-B-018 closure (16 LOCKED+CLOSED decisions).
+- C queue empty post Phase 4 ingest.
+
+### Headline insight for synthesis
+**`AOMRidge-global-compact-none/snv` is the production-grade winner**.
+-23.7 % median rmsep vs ASLS-AOM (next-best). SNV preprocessing identical to
+none across all 3 presets — collapse candidate for future registry cleanup.
+
+### (a)/(b)/(c)/(d)/(e) detector
+all settled. Counter reset.

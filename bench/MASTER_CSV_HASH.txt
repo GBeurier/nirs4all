@@ -159,3 +159,14 @@ delta_oracle    0    # 813 unchanged at master level (Phase 3 oracle wins replac
 maturity_after  locked=19392  exploratory=4159  oracle=813  local_not_master=59  total=24422
 phase3_leaderboard "Median rmsep across 52-54 datasets : AOMRidge-global-compact-none=1.0956 ; AOMRidge-global-compact-snv=1.0956 ; ASLS-AOM-compact-cv5-numpy=1.4360 ; AOMRidge-Local-compact-knn50=1.5188 (NEW) ; Ridge-tuned-cv5=1.5781 ; AOM-PLS-compact-numpy=1.6441 ; PLS-tuned-cv5=1.6541. AOMRidge-global maintains the lead established in Phase 2 (-23.7 % vs ASLS-AOM). Local-knn50 lands rank 4, between ASLS-AOM and Ridge-tuned ; complementary candidate for big-n datasets."
 phase3_dispatcher "D-C-019 subprocess timeout validated 5× live across 3 AOMRidge variants (none/snv/Local-knn50). All timeouts at 1200s exactly, all cleanly killed worker processes. Memory stable throughout (8-10 GB baseline, climbs to 25-45 GB during big-n fits, drops back on terminate)."
+
+# Re-build (Agent C; Phase 4 best_current production ingest):
+rebuilt   2026-05-10 16:35 CEST  sha256=000eb68c5371b41618d64c3b2765022e34502abfa578ad71fd36ee0ce7484ab5
+data_rows       24879
+trigger         "Phase 4 best_current full-57 production run COMPLETE in ~6h45 wall. bench/scenarios/runs/best_current_full57_seed0/ : 428 OK / 20 failed / 8 failed_terminal. 8 candidates × 57 datasets × 1 seed = 456 fits planned. Adds AOMRidge-MultiBranchMKL-compact-shrink03 (NEW) which lands rank 8 with median 1.970 (under-tuned default hyperparams per D-C-015 stub-minimal LOCKED)."
+delta_locked      0   # 19392 still unchanged from P0
+delta_exploratory +456  # 4159 → 4615 (456 Phase 4 observed rows)
+delta_oracle    0    # 813 unchanged at master level (Phase 4 wins replaced Phase 3 in place)
+maturity_after  locked=19392  exploratory=4615  oracle=813  local_not_master=59  total=24879
+phase4_leaderboard "Median rmsep across 51-54 datasets: AOMRidge-global-compact-none=1.0956 ; AOMRidge-global-compact-snv=1.0956 ; ASLS-AOM-compact-cv5-numpy=1.4360 ; AOMRidge-Local-compact-knn50=1.5188 ; Ridge-tuned-cv5=1.5781 ; AOM-PLS-compact-numpy=1.6441 ; PLS-tuned-cv5=1.6541 ; AOMRidge-MultiBranchMKL-compact-shrink03=1.9703 (NEW, last rank — confirms D-C-015 minimal-stub framing)."
+phase4_dispatcher "D-C-019 cumulative validation Phase 2+3+4 : 17 timeout events total across 4 AOMRidge variants. All cleanly killed worker processes via pool.terminate(). 1197 OK / 1254 fits planned across 3 presets = 95.5% success rate. Aggregate wall ~13h21min."

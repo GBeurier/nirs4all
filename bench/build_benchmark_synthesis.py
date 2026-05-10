@@ -167,6 +167,12 @@ EXPLORATORY_RUN_NAMES = frozenset({
     # Completed 2026-05-10 02:00 CEST. 377 OK / 17 failed / 5 failed_terminal (timeouts on
     # AOMRidge-{none,snv,Local-knn50} × {LMA, LUCAS_SOC_all_26650}, all cleanly killed by D-C-019).
     "strong_practical_full57_seed0",
+    # C's Phase 4 best_current production run (full57 × 1 seed, 8 candidates × 57 = 456 fits).
+    # Completed 2026-05-10 ~16:30 CEST after ~6h45 wall. 428 OK / 20 failed / 8 failed_terminal
+    # (timeouts on AOMRidge-{none,snv,Local-knn50,MultiBranchMKL} × {LMA, LUCAS_SOC_all_26650}).
+    # AOMRidge-MultiBranchMKL-compact-shrink03 (NEW) lands rank 8 with median 1.970 — under-tuned
+    # default hyperparams confirmed (per D-C-015 stub-minimal LOCKED).
+    "best_current_full57_seed0",
     # AOM_v0 explicit smoke runs
     "smoke_old_11ds",
     # AOM_v0_Ridge known smokes
@@ -227,6 +233,11 @@ SOURCE_RUN_NOTES_OVERRIDES: dict[str, str] = {
     "strong_practical_full57_seed0": (
         "Phase-3 strong_practical full-57 production run (preset benchmark); "
         "extras.preset=strong_practical; extras.cohort=full57; extras.seed=0; "
+        "extras.dispatcher=d_c_018_d_c_019_subprocess_timeout."
+    ),
+    "best_current_full57_seed0": (
+        "Phase-4 best_current full-57 production run (preset benchmark); "
+        "extras.preset=best_current; extras.cohort=full57; extras.seed=0; "
         "extras.dispatcher=d_c_018_d_c_019_subprocess_timeout."
     ),
 }
