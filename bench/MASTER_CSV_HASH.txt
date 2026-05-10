@@ -148,3 +148,14 @@ delta_oracle    +5    # 808 → 813 (5 new model_class oracle wins from Phase 2 
 maturity_after  locked=19392  exploratory=3760  oracle=813  local_not_master=59  total=24023
 phase2_leaderboard "Median rmsep across 52-54 datasets: AOMRidge-global-compact-none=1.0956 ; AOMRidge-global-compact-snv=1.0956 ; ASLS-AOM-compact-cv5-numpy=1.4360 ; Ridge-tuned-cv5=1.5781 ; AOM-PLS-compact-numpy=1.6441 ; PLS-tuned-cv5=1.6541. AOMRidge-global wins by -23.7 % vs ASLS-AOM. SNV preprocessing did not affect median outcome (same 1.0956 as none variant)."
 phase2_dispatcher "D-C-019 subprocess timeout (Codex R15 LOCK) validated 4× live: 2 × LMA_spxyG_block2deg + 2 × LUCAS_SOC_all_26650 timed out at exactly 1200s budget on AOMRidge-global × {none, snv}. Each timeout cleanly freed 27-46 GB worker RAM via pool.terminate(). Phase 2 ran end-to-end without manual intervention or memory pressure cascades."
+
+# Re-build (Agent C; Phase 3 strong_practical production ingest):
+rebuilt   2026-05-10 02:35 CEST  sha256=9e8cb96be0a19d70d230f69214c1f6a9b1ae436e5079ed5b371bb5b5fbcd1e3b
+data_rows       24422
+trigger         "Phase 3 strong_practical full-57 production run COMPLETE in ~3h36 wall. bench/scenarios/runs/strong_practical_full57_seed0/ : 377 OK / 17 failed / 5 failed_terminal (timeouts on AOMRidge × {none,snv,Local-knn50} × big-n datasets, all cleanly killed by D-C-019). 7 candidates × 57 datasets × 1 seed = 399 fits planned."
+delta_locked      0   # 19392 still unchanged from P0
+delta_exploratory +399  # 3760 → 4159 (399 Phase 3 observed rows)
+delta_oracle    0    # 813 unchanged at master level (Phase 3 oracle wins replaced Phase 2 oracles in place ; net 0)
+maturity_after  locked=19392  exploratory=4159  oracle=813  local_not_master=59  total=24422
+phase3_leaderboard "Median rmsep across 52-54 datasets : AOMRidge-global-compact-none=1.0956 ; AOMRidge-global-compact-snv=1.0956 ; ASLS-AOM-compact-cv5-numpy=1.4360 ; AOMRidge-Local-compact-knn50=1.5188 (NEW) ; Ridge-tuned-cv5=1.5781 ; AOM-PLS-compact-numpy=1.6441 ; PLS-tuned-cv5=1.6541. AOMRidge-global maintains the lead established in Phase 2 (-23.7 % vs ASLS-AOM). Local-knn50 lands rank 4, between ASLS-AOM and Ridge-tuned ; complementary candidate for big-n datasets."
+phase3_dispatcher "D-C-019 subprocess timeout validated 5× live across 3 AOMRidge variants (none/snv/Local-knn50). All timeouts at 1200s exactly, all cleanly killed worker processes. Memory stable throughout (8-10 GB baseline, climbs to 25-45 GB during big-n fits, drops back on terminate)."
