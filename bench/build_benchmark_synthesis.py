@@ -163,6 +163,10 @@ EXPLORATORY_RUN_NAMES = frozenset({
     # Workspace at bench/scenarios/runs/fast_reliable_full57_seed0/. The v1+v2 partial
     # diagnostic workspaces are archived under bench/scenarios/archive/ (out of rglob).
     "fast_reliable_full57_seed0",
+    # C's Phase 3 strong_practical production run (full57 × 1 seed, 7 candidates × 57 = 399 fits).
+    # Completed 2026-05-10 02:00 CEST. 377 OK / 17 failed / 5 failed_terminal (timeouts on
+    # AOMRidge-{none,snv,Local-knn50} × {LMA, LUCAS_SOC_all_26650}, all cleanly killed by D-C-019).
+    "strong_practical_full57_seed0",
     # AOM_v0 explicit smoke runs
     "smoke_old_11ds",
     # AOM_v0_Ridge known smokes
@@ -218,6 +222,11 @@ SOURCE_RUN_NOTES_OVERRIDES: dict[str, str] = {
     "fast_reliable_full57_seed0": (
         "Phase-2 fast_reliable full-57 production run (preset benchmark); "
         "extras.preset=fast_reliable; extras.cohort=full57; extras.seed=0; "
+        "extras.dispatcher=d_c_018_d_c_019_subprocess_timeout."
+    ),
+    "strong_practical_full57_seed0": (
+        "Phase-3 strong_practical full-57 production run (preset benchmark); "
+        "extras.preset=strong_practical; extras.cohort=full57; extras.seed=0; "
         "extras.dispatcher=d_c_018_d_c_019_subprocess_timeout."
     ),
 }

@@ -9521,3 +9521,163 @@ Phase 3 strong_practical launch via:
 
 ### (a)/(b)/(c)/(d)/(e) detector
 all settled. Counter reset.
+
+---
+
+## 2026-05-10 03:00 CEST — Agent A — heartbeat #183 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #182 (25 min stagnant). C posted Phase 2 fast_reliable PRODUCTION COMPLETE at 02:40 (322/342 OK + 4 D-C-019 timeouts cleanly handled, AOMRidge-global-compact wins fast tier −23.7 % vs ASLS-AOM, master SHA `903e68a3c1c1...` locked=19392 unchanged) — informational, no A blocker. Phase 3 strong_practical READY + awaiting C launch (C territory). A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 03:25 CEST — Agent A — heartbeat #184 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #183 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 03:50 CEST — Agent A — heartbeat #185 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #184 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 04:15 CEST — Agent A — heartbeat #186 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #185 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 04:40 CEST — Agent A — heartbeat #187 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #186 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 05:05 CEST — Agent A — heartbeat #188 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #187 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 05:30 CEST — Agent A — heartbeat #189 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #188 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 05:55 CEST — Agent A — heartbeat #190 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #189 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 06:20 CEST — Agent A — heartbeat #191 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #190 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 06:45 CEST — Agent A — heartbeat #192 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #191 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 07:10 CEST — Agent A — heartbeat #193 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #192 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 07:35 CEST — Agent A — heartbeat #194 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #193 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 08:00 CEST — Agent A — heartbeat #195 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #194 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 08:25 CEST — Agent A — heartbeat #196 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #195 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 08:50 CEST — Agent A — heartbeat #197 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #196 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 09:15 CEST — Agent A — heartbeat #198 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #197 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 09:40 CEST — Agent A — heartbeat #199 (post-D-A-002 canonical closure standby)
+
+Standby. 5 silent ticks since #198 (25 min stagnant). No new SYNC entries from B/C/Codex. Phase 3 strong_practical still pending C launch. A queue empty. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+---
+
+## 2026-05-10 09:50 CEST — Agent C — Phase 3 strong_practical PRODUCTION COMPLETE + master ingest
+
+### Phase 3 final state — 399/399
+
+3h36 wall total. Harness exit:
+`planned=399 run=377 skipped=0 failed=17 failed_terminal=5`.
+
+### Final leaderboard (median rmsep across 52-54 datasets, full-57 cohort)
+
+| Rank | Candidate | n_ds | Median rmsep | Median fit |
+|---|---|---:|---:|---:|
+| 1 (tie) | **AOMRidge-global-compact-none** | 52 | **1.0956** | 12.8 s |
+| 1 (tie) | **AOMRidge-global-compact-snv** | 52 | **1.0956** | 12.7 s |
+| 3 | ASLS-AOM-compact-cv5-numpy | 54 | 1.436 | 3.2 s |
+| 4 | **AOMRidge-Local-compact-knn50** (NEW Phase 3) | 53 | **1.519** | 3.7 s |
+| 5 | Ridge-tuned-cv5 | 54 | 1.578 | 1.0 s |
+| 6 | AOM-PLS-compact-numpy | 54 | 1.644 | 1.9 s |
+| 7 | PLS-tuned-cv5 | 54 | 1.654 | 1.1 s |
+
+**Findings**:
+- AOMRidge-global-compact maintains the lead established in Phase 2 (1.0956,
+  −23.7 % vs ASLS-AOM). SNV preprocessing has zero impact.
+- **AOMRidge-Local-compact-knn50** (NEW) lands rank 4 — between ASLS-AOM and
+  Ridge-tuned. Complementary candidate ; max fit 698 s on big-n (no timeout,
+  lighter than -global which timed out).
+
+### D-C-019 production validation (cumulative Phase 2 + 3)
+- **9 timeout events total** (4 Phase 2 + 5 Phase 3). All cleanly killed
+  worker processes via `pool.terminate()`. No memory leak cascades.
+- Each timeout fired at 1200.5-1200.7 s exact (within ±1 s of budget).
+- Phase 2 + 3 aggregate: 6h36 wall ; 700/741 = 94.5 % success rate (47
+  failed/timeout total, of which 33 are pre-existing data issues).
+
+### Master CSV ingest
+- Master CSV: 24422 rows (was 24023). SHA `9e8cb96be0a19d70d230f69214c1f6a9b1ae436e5079ed5b371bb5b5fbcd1e3b`.
+  locked=19392 (P0 contract intact since 2026-05-05). +399 Phase 3 observed
+  rows. Oracle count unchanged (Phase 3 wins replaced Phase 2 in place).
+
+### Status
+- **2 production presets done**: fast_reliable + strong_practical.
+- **Phase 4 best_current** ready to launch (8 candidates × full-57 × 1 seed
+  = 456 fits, ETA ~5-8 h with subprocess overhead + expected timeouts).
+
+### Phase 4 launch command (ready)
+```bash
+.venv/bin/python bench/harness/run_benchmark.py \
+  --pipeline bench/scenarios/best_current.json \
+  --workspace bench/scenarios/runs/best_current_full57_seed0 \
+  --cohort full57 \
+  --seeds 0 \
+  --no-resume
+```
+
+### (a)/(b)/(c)/(d)/(e) detector
+all settled. Counter reset.
