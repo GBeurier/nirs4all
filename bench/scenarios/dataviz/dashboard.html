@@ -218,6 +218,125 @@
       border-radius: 4px;
       background: white;
     }
+    /* Picker: searchable scrollable list */
+    .picker {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .picker-toolbar {
+      display: flex;
+      gap: 8px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      background: #fafafa;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .picker-toolbar input[type="text"] {
+      flex: 1;
+      min-width: 200px;
+      padding: 5px 9px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    .picker-toolbar select, .picker-toolbar button {
+      padding: 4px 8px;
+      font-size: 11px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: #fff;
+      cursor: pointer;
+    }
+    .picker-toolbar button:hover { background: #eef; }
+    .picker-list {
+      max-height: 380px;
+      overflow-y: auto;
+      font-size: 12px;
+    }
+    .picker-group-header {
+      padding: 6px 10px;
+      background: #f0f0f0;
+      font-weight: 600;
+      font-size: 11px;
+      color: #555;
+      position: sticky;
+      top: 0;
+      cursor: pointer;
+      user-select: none;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .picker-group-header .caret { width: 12px; font-family: monospace; }
+    .picker-group-header .group-actions { margin-left: auto; display: flex; gap: 4px; }
+    .picker-group-header .group-actions button {
+      padding: 1px 6px;
+      font-size: 10px;
+      border-radius: 3px;
+      border: 1px solid #bbb;
+      background: #fff;
+      cursor: pointer;
+    }
+    .picker-group-header .group-actions button:hover { background: #eef; }
+    .picker-row {
+      display: flex;
+      align-items: center;
+      padding: 4px 10px 4px 28px;
+      gap: 10px;
+      border-bottom: 1px solid #f1f1f1;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .picker-row:hover { background: #f5f9ff; }
+    .picker-row.selected { background: #e0f0ff; }
+    .picker-row input[type="checkbox"], .picker-row input[type="radio"] {
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .picker-row .row-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .picker-row .row-name .variants-count {
+      color: #888;
+      font-size: 10px;
+      margin-left: 4px;
+    }
+    .picker-row .row-meta {
+      display: flex;
+      gap: 8px;
+      font-size: 10px;
+      color: #666;
+      flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
+    }
+    .picker-row .row-meta .stat { min-width: 36px; text-align: right; }
+    .picker-row .row-meta .rmsep { color: var(--accent); font-weight: 500; }
+    .picker-empty {
+      padding: 30px;
+      text-align: center;
+      color: #888;
+      font-size: 12px;
+    }
+    .picker-stats-line {
+      padding: 6px 10px;
+      background: #fafafa;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: #666;
+    }
+    .picker-group.collapsed .picker-row { display: none; }
+    .picker-group.collapsed .picker-group-header .caret::before { content: '▶'; }
+    .picker-group .picker-group-header .caret::before { content: '▼'; }
   </style>
 </head>
 <body>
@@ -367,12 +486,6 @@
         candidate subset's per-dataset behaviour against the master best.
       </div>
       <div class="filter-bar">
-        <label>Search model:
-          <input id="m10-search" type="text" list="m10-search-list" placeholder="type a model name…" style="width:340px">
-          <datalist id="m10-search-list"></datalist>
-        </label>
-        <button id="m10-add" style="padding:4px 10px;cursor:pointer">+ add</button>
-        <button id="m10-clear" style="padding:4px 10px;cursor:pointer">clear all</button>
         <label>Metric:
           <select id="m10-metric">
             <option value="ratio">rmsep / best (ratio)</option>
@@ -405,8 +518,38 @@
         <button class="m10-preset" data-models="moe" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">MoE/Stack</button>
         <button class="m10-preset" data-models="fck" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">FCK family</button>
       </div>
-      <div id="m10-selected-pills" style="margin-bottom:14px;min-height:30px;padding:6px;background:#f5f5f5;border-radius:4px;font-size:11px"></div>
-      <div id="m10-scatter" class="plot-tall"></div>
+      <div class="grid-2" style="gap:18px;grid-template-columns:380px 1fr">
+        <div>
+          <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px">
+            Model picker — search/sort/click rows to toggle, grouped by class
+          </div>
+          <div class="picker" id="m10-picker">
+            <div class="picker-toolbar">
+              <input id="m10-filter" type="text" placeholder="filter by name or class (try 'ridge', 'tabpfn', 'snv'…)">
+              <select id="m10-sort">
+                <option value="median_rmsep">sort: median rmsep ↑</option>
+                <option value="n_datasets">sort: coverage ↓</option>
+                <option value="name">sort: alpha</option>
+                <option value="n_obs">sort: # obs ↓</option>
+              </select>
+              <button id="m10-collapse-all" title="collapse all class groups">▶|◀</button>
+              <button id="m10-expand-all" title="expand all class groups">◀|▶</button>
+            </div>
+            <div class="picker-list" id="m10-picker-list"></div>
+            <div class="picker-stats-line" id="m10-picker-stats">—</div>
+          </div>
+          <div style="margin-top:10px;padding:6px 8px;background:#f5f5f5;border-radius:4px;font-size:11px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <strong>Selected (<span id="m10-selected-count">0</span>):</strong>
+              <button id="m10-clear" style="padding:2px 8px;font-size:10px;cursor:pointer">clear all</button>
+            </div>
+            <div id="m10-selected-pills" style="min-height:24px;display:flex;flex-wrap:wrap;gap:3px"></div>
+          </div>
+        </div>
+        <div>
+          <div id="m10-scatter" class="plot-tall"></div>
+        </div>
+      </div>
     </div>
 
     <div class="section" id="sec-m9" style="border: 2px solid #2ca02c; background: linear-gradient(135deg, #f0fff4 0%, #fff 100%);">
@@ -416,31 +559,50 @@
         source_runs, all models, all seeds. Includes legacy paper rows + Phase
         2-5 production rows + D-A-* + D-B-* diagnostic rows.
       </div>
-      <div class="filter-bar">
-        <label>Dataset:
-          <input id="ds-detail-search" type="text" list="ds-detail-list" placeholder="type to filter…" style="width:340px">
-          <datalist id="ds-detail-list"></datalist>
-        </label>
-        <label>Filter class:
-          <select id="ds-detail-class"><option value="">all classes</option></select>
-        </label>
-        <label>Filter maturity:
-          <select id="ds-detail-maturity"><option value="">all</option><option value="locked">locked</option><option value="exploratory">exploratory</option></select>
-        </label>
-        <label>Sort by:
-          <select id="ds-detail-sort">
-            <option value="rmsep">rmsep ↑</option>
-            <option value="model_class">model class</option>
-            <option value="source_run">source run</option>
-            <option value="fit_time_s">fit time ↑</option>
-          </select>
-        </label>
-        <span id="ds-detail-count" style="font-size:12px;color:var(--muted)"></span>
+      <div class="grid-2" style="gap:18px;grid-template-columns:380px 1fr">
+        <div>
+          <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px">
+            Dataset picker — click a row to select
+          </div>
+          <div class="picker" id="ds-picker">
+            <div class="picker-toolbar">
+              <input id="ds-filter" type="text" placeholder="filter datasets (try 'beer', 'wood', 'spxy'…)">
+              <select id="ds-sort">
+                <option value="n_observations">sort: # obs ↓</option>
+                <option value="alpha">sort: alpha</option>
+                <option value="n_train">sort: n_train ↓</option>
+                <option value="best_rmsep">sort: best rmsep ↑</option>
+              </select>
+            </div>
+            <div class="picker-list" id="ds-picker-list"></div>
+            <div class="picker-stats-line" id="ds-picker-stats">—</div>
+          </div>
+          <div style="margin-top:10px;padding:8px;background:#f5f5f5;border-radius:4px;font-size:11px">
+            <strong>Selected:</strong> <span id="ds-detail-current" style="font-weight:600;color:#2ca02c">(none)</span>
+          </div>
+          <div class="filter-bar" style="margin-top:14px">
+            <label>Filter class:
+              <select id="ds-detail-class"><option value="">all classes</option></select>
+            </label>
+            <label>Filter maturity:
+              <select id="ds-detail-maturity"><option value="">all</option><option value="locked">locked</option><option value="exploratory">exploratory</option></select>
+            </label>
+            <label>Sort table by:
+              <select id="ds-detail-sort">
+                <option value="rmsep">rmsep ↑</option>
+                <option value="model_class">model class</option>
+                <option value="source_run">source run</option>
+                <option value="fit_time_s">fit time ↑</option>
+              </select>
+            </label>
+          </div>
+          <div id="ds-detail-count" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
+        </div>
+        <div>
+          <div class="kpi-row" id="ds-detail-kpis" style="margin-bottom:14px"></div>
+          <div id="ds-detail-boxplot" class="plot"></div>
+        </div>
       </div>
-
-      <div class="kpi-row" id="ds-detail-kpis" style="margin-bottom:14px"></div>
-
-      <div id="ds-detail-boxplot" class="plot"></div>
 
       <div class="scroll-table" id="ds-detail-table" style="max-height:600px;margin-top:14px"></div>
     </div>
@@ -934,14 +1096,26 @@
   // M9. Per-Dataset Detail
   // --------------------------------------------------------------------
   function initDatasetDetail(data) {
-    const datasets = Object.keys(data.master.observations_per_dataset).sort();
-    const datalist = document.getElementById('ds-detail-list');
+    const datasets = Object.keys(data.master.observations_per_dataset);
+    // Build per-dataset stats for the picker
+    const dsStats = {};
     datasets.forEach(ds => {
-      const opt = document.createElement('option');
-      opt.value = ds;
-      datalist.appendChild(opt);
+      const meta = data.master.per_dataset_meta[ds] || {};
+      const rows = data.master.observations_per_dataset[ds];
+      const bestRec = data.master.per_dataset_best.find(b => b.dataset === ds);
+      dsStats[ds] = {
+        name: ds,
+        n_obs: rows.length,
+        n_train: meta.n_train,
+        n_features: meta.n_features,
+        best_rmsep: bestRec ? bestRec.best_rmsep : null,
+        best_model: bestRec ? bestRec.best_model_name : null,
+        best_class: bestRec ? bestRec.best_model_class : null,
+      };
     });
-    // Populate class filter from all classes seen across all datasets
+    window._dsState = { datasets: dsStats, selected: null };
+
+    // Populate class filter dropdown
     const allClasses = new Set();
     Object.values(data.master.observations_per_dataset).forEach(arr =>
       arr.forEach(o => allClasses.add(o.model_class)));
@@ -952,24 +1126,71 @@
       opt.textContent = c;
       classSel.appendChild(opt);
     });
-    // Bind change events
-    ['ds-detail-search', 'ds-detail-class', 'ds-detail-maturity', 'ds-detail-sort'].forEach(id => {
-      document.getElementById(id).addEventListener('input', () => renderDatasetDetail(data));
+
+    // Bind events
+    document.getElementById('ds-filter').addEventListener('input', () => renderDatasetPicker(data));
+    document.getElementById('ds-sort').addEventListener('change', () => renderDatasetPicker(data));
+    ['ds-detail-class', 'ds-detail-maturity', 'ds-detail-sort'].forEach(id => {
       document.getElementById(id).addEventListener('change', () => renderDatasetDetail(data));
     });
+
     // Pre-select largest dataset by row count
     let largest = datasets[0];
     let largestN = 0;
     datasets.forEach(d => {
-      const n = data.master.observations_per_dataset[d].length;
-      if (n > largestN) { largestN = n; largest = d; }
+      if (dsStats[d].n_obs > largestN) { largestN = dsStats[d].n_obs; largest = d; }
     });
-    document.getElementById('ds-detail-search').value = largest;
+    window._dsState.selected = largest;
+    renderDatasetPicker(data);
     renderDatasetDetail(data);
   }
 
+  function renderDatasetPicker(data) {
+    const state = window._dsState;
+    if (!state) return;
+    const filter = (document.getElementById('ds-filter').value || '').toLowerCase().trim();
+    const sort = document.getElementById('ds-sort').value;
+
+    let list = Object.values(state.datasets);
+    if (filter) list = list.filter(d => d.name.toLowerCase().includes(filter));
+    if (sort === 'alpha') list.sort((a, b) => a.name.localeCompare(b.name));
+    else if (sort === 'n_train') list.sort((a, b) => (b.n_train || 0) - (a.n_train || 0));
+    else if (sort === 'best_rmsep') list.sort((a, b) => (a.best_rmsep ?? Infinity) - (b.best_rmsep ?? Infinity));
+    else list.sort((a, b) => b.n_obs - a.n_obs);
+
+    const html = list.map(d => {
+      const sel = d.name === state.selected ? 'selected' : '';
+      const safeName = d.name.replace(/"/g, '&quot;');
+      return `<div class="picker-row ${sel}" data-ds="${safeName}">
+        <input type="radio" name="ds-picker-radio" ${sel ? 'checked' : ''}>
+        <span class="row-name">${d.name}</span>
+        <span class="row-meta">
+          <span class="stat" title="observations">${fmtInt(d.n_obs)} obs</span>
+          <span class="stat" title="n_train">n=${d.n_train ?? '?'}</span>
+          <span class="stat rmsep" title="best rmsep">${d.best_rmsep !== null ? fmtNum(d.best_rmsep) : '?'}</span>
+        </span>
+      </div>`;
+    }).join('');
+
+    const listEl = document.getElementById('ds-picker-list');
+    listEl.innerHTML = html || '<div class="picker-empty">No datasets match the filter.</div>';
+    document.getElementById('ds-picker-stats').textContent =
+      `${list.length} / ${Object.keys(state.datasets).length} datasets`;
+
+    listEl.querySelectorAll('.picker-row').forEach(el => {
+      el.addEventListener('click', () => {
+        state.selected = el.dataset.ds;
+        renderDatasetPicker(data);
+        renderDatasetDetail(data);
+        // Scroll selected into view if filter cleared
+        el.scrollIntoView({ block: 'nearest' });
+      });
+    });
+  }
+
   function renderDatasetDetail(data) {
-    const ds = document.getElementById('ds-detail-search').value;
+    const ds = window._dsState ? window._dsState.selected : null;
+    document.getElementById('ds-detail-current').textContent = ds || '(none)';
     const classFilter = document.getElementById('ds-detail-class').value;
     const maturityFilter = document.getElementById('ds-detail-maturity').value;
     const sortBy = document.getElementById('ds-detail-sort').value;
@@ -1073,52 +1294,87 @@
   // --------------------------------------------------------------------
   // M10. Model-Dataset Distance Plot
   // --------------------------------------------------------------------
+  function m10Canonicalize(name) {
+    return name.toLowerCase()
+      .replace(/_/g, '-')
+      .replace(/-numpy$/, '')
+      .replace(/-default$/, '')
+      .replace(/-baseline$/, '')
+      .replace(/-+$/, '')
+      .trim();
+  }
+
+  function m10MedianOf(arr) {
+    if (!arr.length) return null;
+    const s = [...arr].sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 === 0 ? (s[m - 1] + s[m]) / 2 : s[m];
+  }
+
   function initM10(data) {
-    // Precompute per-model-per-dataset best (min) rmsep
+    // Raw per-model-per-dataset min rmsep
     const obs = data.master.observations_per_dataset;
-    const modelData = {};  // { model_name: { class, datasets: { ds: min_rmsep }, n_total } }
+    const rawModels = {};
     Object.entries(obs).forEach(([ds, rows]) => {
       rows.forEach(r => {
         if (r.rmsep === null || r.rmsep === undefined || !Number.isFinite(r.rmsep)) return;
         const m = r.model_name;
         if (!m) return;
-        if (!modelData[m]) modelData[m] = { class: r.model_class || '?', datasets: {}, n_total: 0 };
-        const cur = modelData[m].datasets[ds];
-        if (cur === undefined || r.rmsep < cur) modelData[m].datasets[ds] = r.rmsep;
-        modelData[m].n_total += 1;
+        if (!rawModels[m]) rawModels[m] = { class: r.model_class || '?', datasets: {}, n_obs: 0 };
+        const cur = rawModels[m].datasets[ds];
+        if (cur === undefined || r.rmsep < cur) rawModels[m].datasets[ds] = r.rmsep;
+        rawModels[m].n_obs += 1;
       });
     });
+
+    // Canonicalize: merge case/sep/suffix variants
+    const canonical = {};
+    Object.entries(rawModels).forEach(([name, info]) => {
+      const key = m10Canonicalize(name);
+      if (!canonical[key]) {
+        canonical[key] = {
+          display: name,
+          class: info.class,
+          variants: [],
+          variant_obs: {},
+          datasets: {},
+          n_obs: 0,
+        };
+      }
+      canonical[key].variants.push(name);
+      canonical[key].variant_obs[name] = info.n_obs;
+      canonical[key].n_obs += info.n_obs;
+      Object.entries(info.datasets).forEach(([ds, r]) => {
+        if (canonical[key].datasets[ds] === undefined || r < canonical[key].datasets[ds]) {
+          canonical[key].datasets[ds] = r;
+        }
+      });
+    });
+    // Pick a representative display name (most-observed variant) + compute median/coverage
+    Object.values(canonical).forEach(c => {
+      c.display = c.variants.slice().sort((a, b) => c.variant_obs[b] - c.variant_obs[a])[0];
+      const rs = Object.values(c.datasets);
+      c.median_rmsep = m10MedianOf(rs);
+      c.n_datasets = rs.length;
+    });
+
     const dsBest = {};
     data.master.per_dataset_best.forEach(d => { dsBest[d.dataset] = d; });
 
-    window._m10 = { modelData, dsBest, selected: [] };
+    window._m10 = { canonical, dsBest, selected: new Set() };
 
-    // Populate datalist (sorted alphabetically)
-    const allModels = Object.keys(modelData).sort();
-    const dl = document.getElementById('m10-search-list');
-    allModels.forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m;
-      const md = modelData[m];
-      opt.label = `${md.class} · ${Object.keys(md.datasets).length} ds · ${md.n_total} obs`;
-      dl.appendChild(opt);
+    // Bindings
+    document.getElementById('m10-filter').addEventListener('input', renderM10Picker);
+    document.getElementById('m10-sort').addEventListener('change', renderM10Picker);
+    document.getElementById('m10-collapse-all').addEventListener('click', () => {
+      document.querySelectorAll('#m10-picker-list .picker-group').forEach(g => g.classList.add('collapsed'));
     });
-
-    // Bind events
-    const tryAdd = () => {
-      const val = document.getElementById('m10-search').value.trim();
-      if (val && modelData[val] && !window._m10.selected.includes(val)) {
-        window._m10.selected.push(val);
-        document.getElementById('m10-search').value = '';
-        renderM10();
-      }
-    };
-    document.getElementById('m10-add').addEventListener('click', tryAdd);
-    document.getElementById('m10-search').addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); tryAdd(); }
+    document.getElementById('m10-expand-all').addEventListener('click', () => {
+      document.querySelectorAll('#m10-picker-list .picker-group').forEach(g => g.classList.remove('collapsed'));
     });
     document.getElementById('m10-clear').addEventListener('click', () => {
-      window._m10.selected = [];
+      window._m10.selected.clear();
+      renderM10Picker();
       renderM10();
     });
     ['m10-metric', 'm10-xsort', 'm10-yscale'].forEach(id => {
@@ -1126,141 +1382,251 @@
     });
     document.querySelectorAll('.m10-preset').forEach(btn => {
       btn.addEventListener('click', () => {
-        window._m10.selected = m10ComputePreset(btn.dataset.models, data, modelData);
+        window._m10.selected = new Set(m10ComputePreset(btn.dataset.models, data));
+        renderM10Picker();
         renderM10();
       });
     });
 
-    // Default selection: top 5 master models (≥10 datasets coverage)
-    window._m10.selected = data.master.top_models
-      .filter(t => t.n_datasets >= 10)
+    // Default: top 5 canonical models by median rmsep (≥10 datasets coverage)
+    const defaults = Object.entries(canonical)
+      .filter(([, e]) => e.n_datasets >= 10 && Number.isFinite(e.median_rmsep))
+      .sort(([, a], [, b]) => a.median_rmsep - b.median_rmsep)
       .slice(0, 5)
-      .map(t => t.model_name);
+      .map(([k]) => k);
+    window._m10.selected = new Set(defaults);
+
+    renderM10Picker();
     renderM10();
   }
 
-  function m10ComputePreset(name, data, modelData) {
-    const allNames = Object.keys(modelData);
+  function renderM10Picker() {
+    const state = window._m10;
+    if (!state) return;
+    const filter = (document.getElementById('m10-filter').value || '').toLowerCase().trim();
+    const sort = document.getElementById('m10-sort').value;
+
+    // Filter
+    const entries = Object.entries(state.canonical).filter(([key, e]) => {
+      if (!filter) return true;
+      return key.includes(filter)
+        || e.class.toLowerCase().includes(filter)
+        || e.display.toLowerCase().includes(filter)
+        || e.variants.some(v => v.toLowerCase().includes(filter));
+    });
+
+    // Group by class
+    const groups = {};
+    entries.forEach(([key, e]) => {
+      if (!groups[e.class]) groups[e.class] = [];
+      groups[e.class].push({ key, ...e });
+    });
+
+    Object.values(groups).forEach(g => {
+      if (sort === 'name') g.sort((a, b) => a.display.localeCompare(b.display));
+      else if (sort === 'n_datasets') g.sort((a, b) => b.n_datasets - a.n_datasets);
+      else if (sort === 'n_obs') g.sort((a, b) => b.n_obs - a.n_obs);
+      else g.sort((a, b) => (a.median_rmsep ?? Infinity) - (b.median_rmsep ?? Infinity));
+    });
+    const sortedClasses = Object.keys(groups).sort((a, b) => {
+      const am = groups[a][0] ? (groups[a][0].median_rmsep ?? Infinity) : Infinity;
+      const bm = groups[b][0] ? (groups[b][0].median_rmsep ?? Infinity) : Infinity;
+      return am - bm;
+    });
+
+    let html = '';
+    sortedClasses.forEach(cls => {
+      const g = groups[cls];
+      const color = MC_COLOR[cls] || colorForClass(cls);
+      const selectedInGroup = g.filter(item => state.selected.has(item.key)).length;
+      html += `<div class="picker-group" data-class="${cls.replace(/"/g, '&quot;')}">
+        <div class="picker-group-header">
+          <span class="caret"></span>
+          <span class="class-pill" style="background:${color}">${cls}</span>
+          <span style="color:#888;font-size:10px">${g.length} model${g.length>1?'s':''}${selectedInGroup ? ` · <strong style="color:#1f77b4">${selectedInGroup} selected</strong>` : ''}</span>
+          <span class="group-actions">
+            <button class="group-toggle-all" data-class="${cls.replace(/"/g, '&quot;')}" data-action="add" title="select all in this class">+ all</button>
+            <button class="group-toggle-all" data-class="${cls.replace(/"/g, '&quot;')}" data-action="remove" title="deselect all in this class">− all</button>
+          </span>
+        </div>`;
+      g.forEach(item => {
+        const sel = state.selected.has(item.key) ? 'selected' : '';
+        const variantsBadge = item.variants.length > 1
+          ? `<span class="variants-count" title="merged variants: ${item.variants.join(', ')}">×${item.variants.length} variants</span>`
+          : '';
+        html += `<div class="picker-row ${sel}" data-key="${item.key.replace(/"/g, '&quot;')}">
+          <input type="checkbox" ${sel ? 'checked' : ''}>
+          <span class="row-name" title="${item.variants.join(' / ')}">${item.display}${variantsBadge}</span>
+          <span class="row-meta">
+            <span class="stat" title="datasets covered">${item.n_datasets} ds</span>
+            <span class="stat" title="total observations">${item.n_obs} obs</span>
+            <span class="stat rmsep" title="median rmsep">${fmtNum(item.median_rmsep) ?? '?'}</span>
+          </span>
+        </div>`;
+      });
+      html += `</div>`;
+    });
+    if (entries.length === 0) html = '<div class="picker-empty">No models match the filter.</div>';
+
+    const list = document.getElementById('m10-picker-list');
+    list.innerHTML = html;
+    document.getElementById('m10-picker-stats').textContent =
+      `${entries.length} / ${Object.keys(state.canonical).length} canonical models · ${state.selected.size} selected`;
+
+    // Row click → toggle
+    list.querySelectorAll('.picker-row').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.target.tagName === 'INPUT') return;
+        toggleM10(el.dataset.key);
+      });
+    });
+    list.querySelectorAll('.picker-row input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', (e) => {
+        toggleM10(e.target.closest('.picker-row').dataset.key, e.target.checked);
+      });
+    });
+    // Group collapse
+    list.querySelectorAll('.picker-group-header').forEach(h => {
+      h.addEventListener('click', (e) => {
+        if (e.target.closest('.group-toggle-all')) return;
+        h.parentElement.classList.toggle('collapsed');
+      });
+    });
+    // Group add-all / remove-all
+    list.querySelectorAll('.group-toggle-all').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const cls = btn.dataset.class;
+        const action = btn.dataset.action;
+        const items = groups[cls] || [];
+        items.forEach(item => {
+          if (action === 'add') state.selected.add(item.key);
+          else state.selected.delete(item.key);
+        });
+        renderM10Picker();
+        renderM10();
+      });
+    });
+    renderM10SelectedPills();
+  }
+
+  function toggleM10(key, forceState) {
+    const state = window._m10;
+    if (!state) return;
+    const wantOn = (typeof forceState === 'boolean') ? forceState : !state.selected.has(key);
+    if (wantOn) state.selected.add(key);
+    else state.selected.delete(key);
+    renderM10Picker();
+    renderM10();
+  }
+
+  function renderM10SelectedPills() {
+    const state = window._m10;
+    if (!state) return;
+    document.getElementById('m10-selected-count').textContent = state.selected.size;
+    const container = document.getElementById('m10-selected-pills');
+    if (state.selected.size === 0) {
+      container.innerHTML = '<em style="color:#888;font-size:10px">none — click rows in the picker</em>';
+      return;
+    }
+    container.innerHTML = [...state.selected].map(key => {
+      const e = state.canonical[key];
+      if (!e) return '';
+      const color = MC_COLOR[e.class] || colorForClass(e.class);
+      const safeKey = key.replace(/"/g, '&quot;');
+      return `<span class="m10-pill" style="background:${color};color:#fff;padding:2px 7px;border-radius:10px;font-size:10px;cursor:pointer" data-key="${safeKey}" title="click to remove">${e.display} ×</span>`;
+    }).join('');
+    container.querySelectorAll('.m10-pill').forEach(el => {
+      el.addEventListener('click', () => toggleM10(el.dataset.key, false));
+    });
+  }
+
+  function m10ComputePreset(name, data) {
+    const state = window._m10;
+    if (!state) return [];
+    const keys = Object.keys(state.canonical);
     if (name === 'best5') {
-      return data.master.top_models
-        .filter(t => t.n_datasets >= 10)
+      return Object.entries(state.canonical)
+        .filter(([, e]) => e.n_datasets >= 10 && Number.isFinite(e.median_rmsep))
+        .sort(([, a], [, b]) => a.median_rmsep - b.median_rmsep)
         .slice(0, 5)
-        .map(t => t.model_name)
-        .filter(m => modelData[m]);
+        .map(([k]) => k);
     }
     if (name === 'best_current') {
-      // Match best_current preset candidate canonical_names against master model_names
       const p = data.presets.best_current;
       if (!p || !p.available) return [];
-      const top = p.candidates.slice(0, 6);
       const matched = [];
-      top.forEach(c => {
-        const canon = (c.canonical_name || c.short_name || '').toLowerCase();
-        const exact = allNames.find(m => m.toLowerCase() === canon);
-        if (exact) { matched.push(exact); return; }
-        const fuzzy = allNames.find(m => m.toLowerCase().includes(canon));
+      p.candidates.slice(0, 6).forEach(c => {
+        const canon = m10Canonicalize(c.canonical_name || c.short_name || '');
+        if (state.canonical[canon]) { matched.push(canon); return; }
+        const fuzzy = keys.find(k => k.includes(canon));
         if (fuzzy) matched.push(fuzzy);
       });
       return matched;
     }
-    if (name === 'aomridge') {
-      return allNames.filter(m => /aom[-_]?ridge/i.test(m) || modelData[m].class === 'AOM-Ridge').slice(0, 12);
-    }
-    if (name === 'aompls') {
-      return allNames.filter(m => /aom[-_]?pls/i.test(m) || modelData[m].class === 'AOM-PLS').slice(0, 12);
-    }
-    if (name === 'tabpfn') {
-      return allNames.filter(m => /tabpfn/i.test(m) || modelData[m].class === 'TabPFN').slice(0, 12);
-    }
-    if (name === 'moe') {
-      return allNames.filter(m => /moe|stack|super[\s_-]?learner|gating/i.test(m)).slice(0, 12);
-    }
-    if (name === 'fck') {
-      return allNames.filter(m => /fck/i.test(m) || /^fck/i.test(modelData[m].class)).slice(0, 12);
-    }
-    return [];
+    const filterFn = {
+      aomridge: k => /aom-?ridge/.test(k) || state.canonical[k].class === 'AOM-Ridge',
+      aompls: k => /aom-?pls/.test(k) || state.canonical[k].class === 'AOM-PLS',
+      tabpfn: k => /tabpfn/.test(k) || state.canonical[k].class === 'TabPFN',
+      moe: k => /moe|stack|super-?learner|gating/.test(k),
+      fck: k => /fck/.test(k),
+    }[name];
+    if (!filterFn) return [];
+    return keys.filter(filterFn).slice(0, 15);
   }
 
   function renderM10() {
     const state = window._m10;
     if (!state) return;
-    const selected = state.selected;
+    const selectedKeys = [...state.selected];
     const metric = document.getElementById('m10-metric').value;
     const xsort = document.getElementById('m10-xsort').value;
     const yscaleRaw = document.getElementById('m10-yscale').value;
-    // auto: log for ratio/abs (handles floor-effect outliers), linear for delta (can be 0)
-    const yscale = yscaleRaw === 'auto'
-      ? (metric === 'delta' ? 'linear' : 'log')
-      : yscaleRaw;
+    const yscale = yscaleRaw === 'auto' ? (metric === 'delta' ? 'linear' : 'log') : yscaleRaw;
 
-    // Render selected pills
-    const pillsContainer = document.getElementById('m10-selected-pills');
-    if (selected.length === 0) {
-      pillsContainer.innerHTML = '<em style="color:#888">No models selected — type a model name in the search above (or click a preset). The datalist autocompletes against all 347+ master models.</em>';
-    } else {
-      pillsContainer.innerHTML = `<strong>Selected (${selected.length}):</strong> ` + selected.map((m, i) => {
-        const md = state.modelData[m];
-        const color = md ? (MC_COLOR[md.class] || colorForClass(md.class)) : '#888';
-        return `<span class="m10-pill" style="display:inline-block;background:${color};color:#fff;padding:3px 8px;border-radius:12px;margin:2px;cursor:pointer;font-weight:500" data-idx="${i}" title="click to remove">${m} <span style="font-size:10px;opacity:0.7;margin-left:4px">×</span></span>`;
-      }).join('');
-      pillsContainer.querySelectorAll('.m10-pill').forEach(el => {
-        el.addEventListener('click', () => {
-          state.selected.splice(parseInt(el.dataset.idx), 1);
-          renderM10();
-        });
-      });
-    }
+    renderM10SelectedPills();
 
-    if (selected.length === 0) {
+    if (selectedKeys.length === 0) {
       Plotly.purge('m10-scatter');
       return;
     }
 
-    // Sort datasets along X
     let datasets = Object.keys(state.dsBest);
-    if (xsort === 'alpha') {
-      datasets.sort();
-    } else if (xsort === 'n_train') {
-      datasets.sort((a, b) => (state.dsBest[a].n_train || 0) - (state.dsBest[b].n_train || 0));
-    } else if (xsort === 'best') {
-      datasets.sort((a, b) => (state.dsBest[a].best_rmsep || Infinity) - (state.dsBest[b].best_rmsep || Infinity));
-    }
+    if (xsort === 'alpha') datasets.sort();
+    else if (xsort === 'n_train') datasets.sort((a, b) => (state.dsBest[a].n_train || 0) - (state.dsBest[b].n_train || 0));
+    else if (xsort === 'best') datasets.sort((a, b) => (state.dsBest[a].best_rmsep ?? Infinity) - (state.dsBest[b].best_rmsep ?? Infinity));
 
-    // Build traces (one per selected model)
-    const traces = selected.map((m, i) => {
-      const md = state.modelData[m];
-      if (!md) return null;
-      const x = [];
-      const y = [];
-      const text = [];
+    const traces = selectedKeys.map((key, i) => {
+      const e = state.canonical[key];
+      if (!e) return null;
+      const x = [], y = [], text = [];
       datasets.forEach(ds => {
-        const myRmsep = md.datasets[ds];
-        if (myRmsep === undefined) return;
+        const myR = e.datasets[ds];
+        if (myR === undefined) return;
         const dsRec = state.dsBest[ds];
         if (!dsRec) return;
-        const dsBest = dsRec.best_rmsep;
+        const dsB = dsRec.best_rmsep;
         let value;
-        if (metric === 'ratio') value = dsBest > 0 ? myRmsep / dsBest : null;
-        else if (metric === 'delta') value = myRmsep - dsBest;
-        else value = myRmsep;
+        if (metric === 'ratio') value = dsB > 0 ? myR / dsB : null;
+        else if (metric === 'delta') value = myR - dsB;
+        else value = myR;
         if (value === null || !Number.isFinite(value)) return;
         x.push(ds);
         y.push(value);
-        const isBest = m === dsRec.best_model_name;
         text.push(
-          `<b>${m}</b><br>` +
-          `class: ${md.class}<br>` +
+          `<b>${e.display}</b>${e.variants.length > 1 ? ` <span style="color:#999">(${e.variants.length} variants merged)</span>` : ''}<br>` +
+          `class: ${e.class}<br>` +
           `dataset: ${ds} (n_train=${dsRec.n_train ?? '?'}, p=${dsRec.n_features ?? '?'})<br>` +
-          `<b>rmsep: ${myRmsep.toFixed(4)}</b><br>` +
-          `best on ds: ${dsBest.toFixed(4)} (${dsRec.best_model_name})${isBest ? ' ← <b>this model is the best</b>' : ''}<br>` +
-          `ratio: ${(dsBest > 0 ? myRmsep / dsBest : 0).toFixed(3)} · delta: ${(myRmsep - dsBest).toFixed(4)}`
+          `<b>rmsep: ${myR.toFixed(4)}</b><br>` +
+          `best on ds: ${dsB.toFixed(4)} (${dsRec.best_model_name})<br>` +
+          `ratio: ${(dsB > 0 ? myR / dsB : 0).toFixed(3)} · delta: ${(myR - dsB).toFixed(4)}`
         );
       });
-      const color = MC_COLOR[md.class] || colorForClass(md.class, i);
+      const color = MC_COLOR[e.class] || colorForClass(e.class, i);
       return {
         type: 'scatter',
         mode: 'markers+lines',
-        name: `${m} <span style="color:#888;font-size:9px">(${md.class}, ${x.length}ds)</span>`,
+        name: `${e.display}${e.variants.length > 1 ? ` ×${e.variants.length}` : ''}`,
         x, y, text,
         marker: { size: 9, color, line: { color: '#222', width: 0.5 } },
         line: { color, width: 1.2, dash: 'dot' },
@@ -1268,32 +1634,22 @@
       };
     }).filter(t => t !== null && t.x.length > 0);
 
-    // Reference line at "best" level (1.0 for ratio, 0.0 for delta)
     const yref = metric === 'ratio' ? 1 : (metric === 'delta' ? 0 : null);
     const yTitle = metric === 'ratio'
-      ? 'rmsep / best_rmsep_on_dataset  (1.0 = best, 2.0 = 2× worse)'
-      : (metric === 'delta' ? 'rmsep − best_rmsep_on_dataset (absolute units)' : 'rmsep (absolute)');
+      ? 'rmsep / best_rmsep_on_dataset (1.0 = best, 2.0 = 2× worse)'
+      : (metric === 'delta' ? 'rmsep − best_rmsep_on_dataset' : 'rmsep (absolute)');
 
-    const layout = {
-      title: { text: `${selected.length} model${selected.length === 1 ? '' : 's'} × ${datasets.length} datasets — ${metric}`, font: { size: 13 } },
+    Plotly.newPlot('m10-scatter', traces, {
+      title: { text: `${selectedKeys.length} model${selectedKeys.length === 1 ? '' : 's'} × ${datasets.length} datasets — ${metric}`, font: { size: 13 } },
       xaxis: { title: 'dataset', tickangle: -45, tickfont: { size: 9 }, automargin: true },
       yaxis: { title: yTitle, type: yscale },
       showlegend: true,
       legend: { orientation: 'v', y: 1, x: 1.02, font: { size: 10 } },
       margin: { l: 70, r: 280, t: 50, b: 200 },
       height: 640,
-      shapes: yref !== null ? [{
-        type: 'line', xref: 'paper', x0: 0, x1: 1, y0: yref, y1: yref,
-        line: { color: '#d62728', dash: 'dash', width: 1.5 },
-      }] : [],
-      annotations: yref !== null ? [{
-        xref: 'paper', x: 1.005, y: yref, yanchor: 'middle', xanchor: 'left',
-        text: metric === 'ratio' ? '← best (1.0)' : '← best (0.0)',
-        showarrow: false, font: { size: 10, color: '#d62728' },
-      }] : [],
-    };
-
-    Plotly.newPlot('m10-scatter', traces, layout, { responsive: true });
+      shapes: yref !== null ? [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: yref, y1: yref, line: { color: '#d62728', dash: 'dash', width: 1.5 } }] : [],
+      annotations: yref !== null ? [{ xref: 'paper', x: 1.005, y: yref, yanchor: 'middle', xanchor: 'left', text: metric === 'ratio' ? '← best (1.0)' : '← best (0.0)', showarrow: false, font: { size: 10, color: '#d62728' } }] : [],
+    }, { responsive: true });
   }
 
   function colorForClass(cls, idx) {
