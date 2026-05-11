@@ -234,6 +234,7 @@
       <a href="#sec-m7" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M7 Scatter</a>
       <a href="#sec-m8" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M8 Family</a>
       <a href="#sec-m9" style="color:#fff;background:#2ca02c;padding:4px 10px;border-radius:12px;text-decoration:none;font-weight:600">▶ M9 PER-DATASET DETAIL ◀</a>
+      <a href="#sec-m10" style="color:#fff;background:#1f77b4;padding:4px 10px;border-radius:12px;text-decoration:none;font-weight:600">▶ M10 MODEL-DISTANCE PLOT ◀</a>
       <span style="color:#888;padding:4px 6px">|</span>
       <a href="#sec-p1" style="color:#fff;background:#1f77b4;padding:4px 10px;border-radius:12px;text-decoration:none">P1 Presets</a>
       <a href="#sec-p2" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P2 Heatmap</a>
@@ -355,6 +356,57 @@
         bench/fck_pls/, etc. Useful to see which legacy repo contributed most.
       </div>
       <div id="master-source-family" class="plot"></div>
+    </div>
+
+    <div class="section" id="sec-m10" style="border: 2px solid #1f77b4; background: linear-gradient(135deg, #f0f7ff 0%, #fff 100%);">
+      <h2 style="color:#1f77b4">▶ M10. Model-Dataset Distance Plot — select any models, plot vs best ◀</h2>
+      <div class="subtitle">
+        Pick one or more models. For each selected model, plot one point per
+        dataset: <strong>X = dataset, Y = rmsep / best_rmsep_on_dataset</strong>
+        (1.0 = best, 1.5 = 50 % worse, etc.). Lets you visually compare any
+        candidate subset's per-dataset behaviour against the master best.
+      </div>
+      <div class="filter-bar">
+        <label>Search model:
+          <input id="m10-search" type="text" list="m10-search-list" placeholder="type a model name…" style="width:340px">
+          <datalist id="m10-search-list"></datalist>
+        </label>
+        <button id="m10-add" style="padding:4px 10px;cursor:pointer">+ add</button>
+        <button id="m10-clear" style="padding:4px 10px;cursor:pointer">clear all</button>
+        <label>Metric:
+          <select id="m10-metric">
+            <option value="ratio">rmsep / best (ratio)</option>
+            <option value="delta">rmsep − best (absolute)</option>
+            <option value="abs">rmsep (absolute)</option>
+          </select>
+        </label>
+        <label>Sort X by:
+          <select id="m10-xsort">
+            <option value="n_train">n_train ↑</option>
+            <option value="alpha">alphabetical</option>
+            <option value="best">best rmsep ↑</option>
+          </select>
+        </label>
+        <label>Y scale:
+          <select id="m10-yscale">
+            <option value="auto" selected>auto (log for ratio, linear for delta)</option>
+            <option value="linear">linear</option>
+            <option value="log">log</option>
+          </select>
+        </label>
+      </div>
+      <div style="margin-bottom:12px">
+        <strong style="font-size:12px;color:var(--muted)">Quick-add presets:</strong>
+        <button class="m10-preset" data-models="best5" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">Top 5 master</button>
+        <button class="m10-preset" data-models="best_current" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">best_current winners</button>
+        <button class="m10-preset" data-models="aomridge" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">All AOM-Ridge</button>
+        <button class="m10-preset" data-models="aompls" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">All AOM-PLS</button>
+        <button class="m10-preset" data-models="tabpfn" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">TabPFN family</button>
+        <button class="m10-preset" data-models="moe" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">MoE/Stack</button>
+        <button class="m10-preset" data-models="fck" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">FCK family</button>
+      </div>
+      <div id="m10-selected-pills" style="margin-bottom:14px;min-height:30px;padding:6px;background:#f5f5f5;border-radius:4px;font-size:11px"></div>
+      <div id="m10-scatter" class="plot-tall"></div>
     </div>
 
     <div class="section" id="sec-m9" style="border: 2px solid #2ca02c; background: linear-gradient(135deg, #f0fff4 0%, #fff 100%);">
@@ -525,6 +577,7 @@
     renderAllScatter(data);
     renderSourceFamily(data);
     initDatasetDetail(data);
+    initM10(data);
     renderPresets(data);
     renderDatasetHeatmap(data, 'n_train');
     bindDatasetSortTabs(data);
@@ -1015,6 +1068,238 @@
         </tr></thead>
         <tbody>${tableRows}</tbody>
       </table>`;
+  }
+
+  // --------------------------------------------------------------------
+  // M10. Model-Dataset Distance Plot
+  // --------------------------------------------------------------------
+  function initM10(data) {
+    // Precompute per-model-per-dataset best (min) rmsep
+    const obs = data.master.observations_per_dataset;
+    const modelData = {};  // { model_name: { class, datasets: { ds: min_rmsep }, n_total } }
+    Object.entries(obs).forEach(([ds, rows]) => {
+      rows.forEach(r => {
+        if (r.rmsep === null || r.rmsep === undefined || !Number.isFinite(r.rmsep)) return;
+        const m = r.model_name;
+        if (!m) return;
+        if (!modelData[m]) modelData[m] = { class: r.model_class || '?', datasets: {}, n_total: 0 };
+        const cur = modelData[m].datasets[ds];
+        if (cur === undefined || r.rmsep < cur) modelData[m].datasets[ds] = r.rmsep;
+        modelData[m].n_total += 1;
+      });
+    });
+    const dsBest = {};
+    data.master.per_dataset_best.forEach(d => { dsBest[d.dataset] = d; });
+
+    window._m10 = { modelData, dsBest, selected: [] };
+
+    // Populate datalist (sorted alphabetically)
+    const allModels = Object.keys(modelData).sort();
+    const dl = document.getElementById('m10-search-list');
+    allModels.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m;
+      const md = modelData[m];
+      opt.label = `${md.class} · ${Object.keys(md.datasets).length} ds · ${md.n_total} obs`;
+      dl.appendChild(opt);
+    });
+
+    // Bind events
+    const tryAdd = () => {
+      const val = document.getElementById('m10-search').value.trim();
+      if (val && modelData[val] && !window._m10.selected.includes(val)) {
+        window._m10.selected.push(val);
+        document.getElementById('m10-search').value = '';
+        renderM10();
+      }
+    };
+    document.getElementById('m10-add').addEventListener('click', tryAdd);
+    document.getElementById('m10-search').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); tryAdd(); }
+    });
+    document.getElementById('m10-clear').addEventListener('click', () => {
+      window._m10.selected = [];
+      renderM10();
+    });
+    ['m10-metric', 'm10-xsort', 'm10-yscale'].forEach(id => {
+      document.getElementById(id).addEventListener('change', renderM10);
+    });
+    document.querySelectorAll('.m10-preset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        window._m10.selected = m10ComputePreset(btn.dataset.models, data, modelData);
+        renderM10();
+      });
+    });
+
+    // Default selection: top 5 master models (≥10 datasets coverage)
+    window._m10.selected = data.master.top_models
+      .filter(t => t.n_datasets >= 10)
+      .slice(0, 5)
+      .map(t => t.model_name);
+    renderM10();
+  }
+
+  function m10ComputePreset(name, data, modelData) {
+    const allNames = Object.keys(modelData);
+    if (name === 'best5') {
+      return data.master.top_models
+        .filter(t => t.n_datasets >= 10)
+        .slice(0, 5)
+        .map(t => t.model_name)
+        .filter(m => modelData[m]);
+    }
+    if (name === 'best_current') {
+      // Match best_current preset candidate canonical_names against master model_names
+      const p = data.presets.best_current;
+      if (!p || !p.available) return [];
+      const top = p.candidates.slice(0, 6);
+      const matched = [];
+      top.forEach(c => {
+        const canon = (c.canonical_name || c.short_name || '').toLowerCase();
+        const exact = allNames.find(m => m.toLowerCase() === canon);
+        if (exact) { matched.push(exact); return; }
+        const fuzzy = allNames.find(m => m.toLowerCase().includes(canon));
+        if (fuzzy) matched.push(fuzzy);
+      });
+      return matched;
+    }
+    if (name === 'aomridge') {
+      return allNames.filter(m => /aom[-_]?ridge/i.test(m) || modelData[m].class === 'AOM-Ridge').slice(0, 12);
+    }
+    if (name === 'aompls') {
+      return allNames.filter(m => /aom[-_]?pls/i.test(m) || modelData[m].class === 'AOM-PLS').slice(0, 12);
+    }
+    if (name === 'tabpfn') {
+      return allNames.filter(m => /tabpfn/i.test(m) || modelData[m].class === 'TabPFN').slice(0, 12);
+    }
+    if (name === 'moe') {
+      return allNames.filter(m => /moe|stack|super[\s_-]?learner|gating/i.test(m)).slice(0, 12);
+    }
+    if (name === 'fck') {
+      return allNames.filter(m => /fck/i.test(m) || /^fck/i.test(modelData[m].class)).slice(0, 12);
+    }
+    return [];
+  }
+
+  function renderM10() {
+    const state = window._m10;
+    if (!state) return;
+    const selected = state.selected;
+    const metric = document.getElementById('m10-metric').value;
+    const xsort = document.getElementById('m10-xsort').value;
+    const yscaleRaw = document.getElementById('m10-yscale').value;
+    // auto: log for ratio/abs (handles floor-effect outliers), linear for delta (can be 0)
+    const yscale = yscaleRaw === 'auto'
+      ? (metric === 'delta' ? 'linear' : 'log')
+      : yscaleRaw;
+
+    // Render selected pills
+    const pillsContainer = document.getElementById('m10-selected-pills');
+    if (selected.length === 0) {
+      pillsContainer.innerHTML = '<em style="color:#888">No models selected — type a model name in the search above (or click a preset). The datalist autocompletes against all 347+ master models.</em>';
+    } else {
+      pillsContainer.innerHTML = `<strong>Selected (${selected.length}):</strong> ` + selected.map((m, i) => {
+        const md = state.modelData[m];
+        const color = md ? (MC_COLOR[md.class] || colorForClass(md.class)) : '#888';
+        return `<span class="m10-pill" style="display:inline-block;background:${color};color:#fff;padding:3px 8px;border-radius:12px;margin:2px;cursor:pointer;font-weight:500" data-idx="${i}" title="click to remove">${m} <span style="font-size:10px;opacity:0.7;margin-left:4px">×</span></span>`;
+      }).join('');
+      pillsContainer.querySelectorAll('.m10-pill').forEach(el => {
+        el.addEventListener('click', () => {
+          state.selected.splice(parseInt(el.dataset.idx), 1);
+          renderM10();
+        });
+      });
+    }
+
+    if (selected.length === 0) {
+      Plotly.purge('m10-scatter');
+      return;
+    }
+
+    // Sort datasets along X
+    let datasets = Object.keys(state.dsBest);
+    if (xsort === 'alpha') {
+      datasets.sort();
+    } else if (xsort === 'n_train') {
+      datasets.sort((a, b) => (state.dsBest[a].n_train || 0) - (state.dsBest[b].n_train || 0));
+    } else if (xsort === 'best') {
+      datasets.sort((a, b) => (state.dsBest[a].best_rmsep || Infinity) - (state.dsBest[b].best_rmsep || Infinity));
+    }
+
+    // Build traces (one per selected model)
+    const traces = selected.map((m, i) => {
+      const md = state.modelData[m];
+      if (!md) return null;
+      const x = [];
+      const y = [];
+      const text = [];
+      datasets.forEach(ds => {
+        const myRmsep = md.datasets[ds];
+        if (myRmsep === undefined) return;
+        const dsRec = state.dsBest[ds];
+        if (!dsRec) return;
+        const dsBest = dsRec.best_rmsep;
+        let value;
+        if (metric === 'ratio') value = dsBest > 0 ? myRmsep / dsBest : null;
+        else if (metric === 'delta') value = myRmsep - dsBest;
+        else value = myRmsep;
+        if (value === null || !Number.isFinite(value)) return;
+        x.push(ds);
+        y.push(value);
+        const isBest = m === dsRec.best_model_name;
+        text.push(
+          `<b>${m}</b><br>` +
+          `class: ${md.class}<br>` +
+          `dataset: ${ds} (n_train=${dsRec.n_train ?? '?'}, p=${dsRec.n_features ?? '?'})<br>` +
+          `<b>rmsep: ${myRmsep.toFixed(4)}</b><br>` +
+          `best on ds: ${dsBest.toFixed(4)} (${dsRec.best_model_name})${isBest ? ' ← <b>this model is the best</b>' : ''}<br>` +
+          `ratio: ${(dsBest > 0 ? myRmsep / dsBest : 0).toFixed(3)} · delta: ${(myRmsep - dsBest).toFixed(4)}`
+        );
+      });
+      const color = MC_COLOR[md.class] || colorForClass(md.class, i);
+      return {
+        type: 'scatter',
+        mode: 'markers+lines',
+        name: `${m} <span style="color:#888;font-size:9px">(${md.class}, ${x.length}ds)</span>`,
+        x, y, text,
+        marker: { size: 9, color, line: { color: '#222', width: 0.5 } },
+        line: { color, width: 1.2, dash: 'dot' },
+        hovertemplate: '%{text}<extra></extra>',
+      };
+    }).filter(t => t !== null && t.x.length > 0);
+
+    // Reference line at "best" level (1.0 for ratio, 0.0 for delta)
+    const yref = metric === 'ratio' ? 1 : (metric === 'delta' ? 0 : null);
+    const yTitle = metric === 'ratio'
+      ? 'rmsep / best_rmsep_on_dataset  (1.0 = best, 2.0 = 2× worse)'
+      : (metric === 'delta' ? 'rmsep − best_rmsep_on_dataset (absolute units)' : 'rmsep (absolute)');
+
+    const layout = {
+      title: { text: `${selected.length} model${selected.length === 1 ? '' : 's'} × ${datasets.length} datasets — ${metric}`, font: { size: 13 } },
+      xaxis: { title: 'dataset', tickangle: -45, tickfont: { size: 9 }, automargin: true },
+      yaxis: { title: yTitle, type: yscale },
+      showlegend: true,
+      legend: { orientation: 'v', y: 1, x: 1.02, font: { size: 10 } },
+      margin: { l: 70, r: 280, t: 50, b: 200 },
+      height: 640,
+      shapes: yref !== null ? [{
+        type: 'line', xref: 'paper', x0: 0, x1: 1, y0: yref, y1: yref,
+        line: { color: '#d62728', dash: 'dash', width: 1.5 },
+      }] : [],
+      annotations: yref !== null ? [{
+        xref: 'paper', x: 1.005, y: yref, yanchor: 'middle', xanchor: 'left',
+        text: metric === 'ratio' ? '← best (1.0)' : '← best (0.0)',
+        showarrow: false, font: { size: 10, color: '#d62728' },
+      }] : [],
+    };
+
+    Plotly.newPlot('m10-scatter', traces, layout, { responsive: true });
+  }
+
+  function colorForClass(cls, idx) {
+    if (MC_COLOR[cls]) return MC_COLOR[cls];
+    const palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
+    return palette[(idx || 0) % palette.length];
   }
 
   // --------------------------------------------------------------------
