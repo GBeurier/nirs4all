@@ -653,6 +653,8 @@ def build_master_aggregations(master: list[dict]) -> dict:
                 if v is not None:
                     per_dataset_meta[ds]["n_test"] = v
 
+    preprocessing = build_preprocessing_master(obs)
+
     return {
         "top_models": top_models,
         "by_model_class": by_model_class,
@@ -663,7 +665,132 @@ def build_master_aggregations(master: list[dict]) -> dict:
         "observations_lean": obs_lean,
         "observations_per_dataset": dict(per_dataset_obs),
         "per_dataset_meta": per_dataset_meta,
+        "preprocessing": preprocessing,
         "n_observations_total": len(obs),
+    }
+
+
+def _quantile(vals: list[float], q: float) -> float:
+    if not vals:
+        return float("nan")
+    s = sorted(vals)
+    if len(s) == 1:
+        return s[0]
+    idx = q * (len(s) - 1)
+    lo = int(idx)
+    hi = min(lo + 1, len(s) - 1)
+    frac = idx - lo
+    return s[lo] * (1 - frac) + s[hi] * frac
+
+
+def _truncate_pp(pp: str, max_len: int = 60) -> str:
+    if len(pp) <= max_len:
+        return pp
+    return pp[: max_len - 1] + "…"
+
+
+def build_preprocessing_master(obs: list[dict]) -> dict:
+    """Aggregate preprocessing influence across all observed/paper rows.
+
+    Produces:
+      - leaderboard: per-pp stats (rmsep distribution, coverage)
+      - class_pp_heatmap: median rmsep per (class, pp) cell
+      - best_pp_per_dataset: per-dataset best/worst pp + spread
+      - top_pps_for_picker: short list of usable pp names for drill-down
+    """
+    pp_obs: dict[str, list[float]] = defaultdict(list)
+    pp_dataset: dict[str, set] = defaultdict(set)
+    pp_class: dict[str, set] = defaultdict(set)
+    pp_model: dict[str, set] = defaultdict(set)
+    class_pp_obs: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    ds_pp_obs: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+
+    for r in obs:
+        rmsep = safe_float(r.get("rmsep"))
+        if rmsep is None or not math.isfinite(rmsep):
+            continue
+        pp = (r.get("preprocessing_pipeline") or r.get("preprocessing") or "").strip()
+        if not pp:
+            continue
+        cls = (r.get("model_class") or "").strip()
+        ds = (r.get("dataset") or "").strip()
+        model = (r.get("model_name") or "").strip()
+
+        pp_obs[pp].append(rmsep)
+        pp_dataset[pp].add(ds)
+        if cls:
+            pp_class[pp].add(cls)
+            class_pp_obs[cls][pp].append(rmsep)
+        if model:
+            pp_model[pp].add(model)
+        if ds:
+            ds_pp_obs[ds][pp].append(rmsep)
+
+    # Leaderboard (filter: ≥5 obs to cut noise)
+    leaderboard = []
+    for pp, vals in pp_obs.items():
+        if len(vals) < 5:
+            continue
+        leaderboard.append({
+            "pp": _truncate_pp(pp),
+            "pp_full": pp if len(pp) > 60 else None,
+            "n_obs": len(vals),
+            "n_datasets": len(pp_dataset[pp]),
+            "n_classes": len(pp_class[pp]),
+            "n_models": len(pp_model[pp]),
+            "median": statistics.median(vals),
+            "q25": _quantile(vals, 0.25),
+            "q75": _quantile(vals, 0.75),
+            "best": min(vals),
+        })
+    leaderboard.sort(key=lambda x: x["median"])
+
+    # Class × PP heatmap — top 25 pp by n_obs
+    top_pps = [p["pp_full"] or p["pp"] for p in sorted(leaderboard, key=lambda x: -x["n_obs"])[:25]]
+    classes = sorted(class_pp_obs.keys())
+    heatmap_values = [[
+        statistics.median(class_pp_obs[c][p]) if class_pp_obs[c].get(p) else None
+        for p in top_pps
+    ] for c in classes]
+    heatmap_counts = [[len(class_pp_obs[c].get(p, [])) for p in top_pps] for c in classes]
+    heatmap = {
+        "classes": classes,
+        "pps": [_truncate_pp(p, 40) for p in top_pps],
+        "pps_full": top_pps,
+        "values": heatmap_values,
+        "counts": heatmap_counts,
+    }
+
+    # Best PP per dataset
+    best_pp_per_dataset = []
+    for ds, pps in ds_pp_obs.items():
+        if len(pps) < 2:
+            continue
+        ranked = sorted(
+            ((p, statistics.median(v), len(v)) for p, v in pps.items() if len(v) >= 2),
+            key=lambda x: x[1],
+        )
+        if not ranked:
+            continue
+        best = ranked[0]
+        worst = ranked[-1]
+        best_pp_per_dataset.append({
+            "dataset": ds,
+            "n_pps": len(pps),
+            "best_pp": _truncate_pp(best[0]),
+            "best_median": best[1],
+            "best_n": best[2],
+            "worst_pp": _truncate_pp(worst[0]),
+            "worst_median": worst[1],
+            "spread": worst[1] - best[1],
+            "rel_spread": (worst[1] - best[1]) / best[1] if best[1] > 0 else 0.0,
+        })
+    best_pp_per_dataset.sort(key=lambda x: -x["spread"])
+
+    return {
+        "leaderboard": leaderboard,
+        "class_pp_heatmap": heatmap,
+        "best_pp_per_dataset": best_pp_per_dataset,
     }
 
 
