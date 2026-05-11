@@ -1,30 +1,25 @@
 """Build comprehensive benchmark dataviz dashboard.
 
 Reads:
+  - bench/benchmark_master_results.csv (MASTER — 24K rows, 451 model_name,
+    112 source_runs, 85 datasets, 14 model_classes)
   - bench/scenarios/runs/<preset>_full57_seed0/results.csv (Phase 2-5 production)
-  - bench/benchmark_master_results.csv (master, for legacy TabPFN paper rows
-    and historical context)
 
 Produces:
-  - bench/scenarios/dataviz/dashboard_data.json (data blob for the HTML page)
+  - bench/scenarios/dataviz/dashboard_data.json
 
-The HTML page (dashboard.html) consumes this JSON inline.
+The HTML page (dashboard.html) consumes this JSON.
 
-Sections:
-  1. Header / overview cards
-  2. Per-preset leaderboards
-  3. Model class / family aggregation
-  4. Per-dataset rmsep heatmap (normalized)
-  5. Dataset size analysis (rmsep vs n_train)
-  6. Preprocessing influence (per-pair delta analysis)
-  7. Robustness / consistency (cross-preset variance)
-  8. Runtime / speed-accuracy Pareto
-  9. Failure pattern analysis
- 10. Head-to-head win matrix (best_current)
- 11. MoE / Stack performances breakdown
- 12. AOMRidge-Local k-tuning cross-retention (D-A-009)
+Sections produced:
+  preset_*:        per-preset leaderboards (production runs only)
+  master_*:        aggregations across ALL observed + reference_paper rows
+  datasets:        per-dataset best-overall
+  head_to_head:    8x8 win matrix on best_current
+  preproc_pairs:   preprocessing influence
+  failures:        failure patterns
+  tabpfn_paper:    legacy TabPFN paper rows
 
-Owner: Agent C. No new decisions; analysis of locked data.
+Owner: Agent C. Analysis of locked data only.
 """
 from __future__ import annotations
 
@@ -50,7 +45,6 @@ PRESETS = (
 
 
 # Map canonical_name → (family, friendly_short_name, color_hex)
-# Family taxonomy aligned with the registry's intent + ml-modeling tradition.
 FAMILIES: dict[str, tuple[str, str, str]] = {
     "AOM-PLS-compact-numpy": ("AOM-PLS", "AOM-PLS", "#1f77b4"),
     "AOM-default-nipals-adjoint-numpy": ("AOM-PLS", "AOM-PLS-default", "#3d8bcc"),
@@ -86,6 +80,24 @@ FAMILIES: dict[str, tuple[str, str, str]] = {
     "TabPFN-HPO-preprocessing": ("TabPFN", "TabPFN-HPO", "#f2b4dc"),
     "paper-CNN-reference": ("Paper-ref", "paper-CNN", "#aaaaaa"),
     "paper-CatBoost-reference": ("Paper-ref", "paper-CatBoost", "#bbbbbb"),
+}
+
+# model_class → color for the master view
+MODEL_CLASS_COLORS = {
+    "AOM-PLS": "#1f77b4",
+    "AOM-Ridge": "#d62728",
+    "PLS": "#8c564b",
+    "NICON/CNN": "#bcbd22",
+    "Ridge": "#2ca02c",
+    "Meta-selector/MoE": "#ff7f0e",
+    "Hybrid CNN+AOM": "#17becf",
+    "POP-PLS": "#5fa8e3",
+    "Hybrid CNN+linear": "#bcbd22",
+    "Multi-kernel ridge": "#7f7f7f",
+    "TabPFN": "#e377c2",
+    "CatBoost": "#9467bd",
+    "FCK-PLS": "#17becf",
+    "Stacked NN+Linear": "#ffaa00",
 }
 
 
@@ -132,12 +144,18 @@ def load_preset_rows(workspace: str) -> list[dict[str, str]]:
         return list(csv.DictReader(f))
 
 
+def load_master_rows() -> list[dict[str, str]]:
+    if not MASTER.exists():
+        return []
+    with MASTER.open() as f:
+        return list(csv.DictReader(f))
+
+
 def build_preset_section(preset_name: str, workspace: str) -> dict:
     rows = load_preset_rows(workspace)
     if not rows:
         return {"name": preset_name, "n_planned": 0, "candidates": [], "available": False}
 
-    # Aggregate per candidate
     by_cand: dict[str, list[dict[str, str]]] = defaultdict(list)
     for r in rows:
         by_cand[r["canonical_name"]].append(r)
@@ -167,7 +185,6 @@ def build_preset_section(preset_name: str, workspace: str) -> dict:
             "max_fit_s": max(fit_times) if fit_times else None,
         })
 
-    # Sort by median rmsep ascending (best first)
     candidates_out.sort(key=lambda c: c["median_rmsep"] if c["median_rmsep"] is not None else float("inf"))
 
     return {
@@ -182,16 +199,9 @@ def build_preset_section(preset_name: str, workspace: str) -> dict:
     }
 
 
-def build_dataset_section(presets: dict) -> dict:
-    """Per-dataset analysis across all presets.
-
-    For each dataset, collect rmsep + metadata (n_train, n_features) from
-    whichever preset provides them. Best candidate is computed across the
-    union of all preset rows.
-    """
-    # Map dataset → {meta, candidates: {cand: rmsep}}
+def build_dataset_section(presets: dict) -> list[dict]:
+    """Per-dataset analysis across preset workspaces."""
     ds_data: dict[str, dict] = {}
-
     for preset_name, info in presets.items():
         rows = load_preset_rows(info["workspace"])
         for r in rows:
@@ -209,65 +219,22 @@ def build_dataset_section(presets: dict) -> dict:
             rmsep = safe_float(r.get("rmsep"))
             if rmsep is None:
                 continue
-            # Keep best rmsep per candidate × dataset (across presets — should be identical)
             ds_data[ds_name]["candidates"][r["canonical_name"]] = rmsep
 
-    # Compute best candidate per dataset
     for ds in ds_data.values():
         if ds["candidates"]:
             best_cand, best_rmsep = min(ds["candidates"].items(), key=lambda x: x[1])
             ds["best_candidate"] = best_cand
             ds["best_rmsep"] = best_rmsep
             ds["worst_rmsep"] = max(ds["candidates"].values())
-            family, short, color = family_of(best_cand)
+            family, _, _ = family_of(best_cand)
             ds["best_family"] = family
 
     return list(ds_data.values())
 
 
-def build_family_section(presets: dict) -> dict:
-    """Aggregate candidates by family across all presets."""
-    fam_data: dict[str, dict] = defaultdict(lambda: {
-        "candidates": set(),
-        "rmseps_per_dataset": defaultdict(list),
-    })
-
-    for preset_name, info in presets.items():
-        rows = load_preset_rows(info["workspace"])
-        for r in rows:
-            if r["status"] != "ok":
-                continue
-            rmsep = safe_float(r.get("rmsep"))
-            if rmsep is None:
-                continue
-            family, _, _ = family_of(r["canonical_name"])
-            fam_data[family]["candidates"].add(r["canonical_name"])
-            fam_data[family]["rmseps_per_dataset"][r["dataset"]].append(rmsep)
-
-    out = []
-    for family, info in fam_data.items():
-        # Take best (min) rmsep per dataset across family candidates
-        best_per_ds = {ds: min(rmseps) for ds, rmseps in info["rmseps_per_dataset"].items()}
-        family_rmseps = list(best_per_ds.values())
-        out.append({
-            "family": family,
-            "candidates": sorted(info["candidates"]),
-            "n_candidates": len(info["candidates"]),
-            "n_datasets_covered": len(best_per_ds),
-            "median_best_rmsep": median(family_rmseps),
-            "q90_best_rmsep": quantile(family_rmseps, 0.90),
-        })
-    out.sort(key=lambda x: x["median_best_rmsep"] if x["median_best_rmsep"] is not None else float("inf"))
-    return out
-
-
 def build_head_to_head(workspace: str) -> dict:
-    """Build head-to-head win matrix for a single preset (best_current default).
-
-    For each (cand_a, cand_b), count datasets where cand_a rmsep < cand_b rmsep.
-    """
     rows = load_preset_rows(workspace)
-    # (cand, ds) → rmsep (status=ok only)
     pair_rmsep: dict[tuple[str, str], float] = {}
     candidates = set()
     for r in rows:
@@ -293,19 +260,10 @@ def build_head_to_head(workspace: str) -> dict:
                 if ra is not None and rb is not None and ra < rb:
                     wins += 1
             h2h[a][b] = wins
-    return {
-        "workspace": workspace,
-        "candidates": candidates,
-        "wins": h2h,
-    }
+    return {"workspace": workspace, "candidates": candidates, "wins": h2h}
 
 
 def build_preprocessing_pairs(workspace: str) -> list[dict]:
-    """Compare candidate pairs that differ only in preprocessing knob.
-
-    Currently the cleanest pair is `AOMRidge-global-compact-none` vs `-snv`.
-    Future pairs can be added here.
-    """
     rows = load_preset_rows(workspace)
     pair_rmsep: dict[tuple[str, str], float] = {}
     for r in rows:
@@ -319,7 +277,6 @@ def build_preprocessing_pairs(workspace: str) -> list[dict]:
     pairs = [
         ("AOMRidge-global-compact-none", "AOMRidge-global-compact-snv", "preprocessing: none vs SNV"),
     ]
-
     out = []
     for a, b, label in pairs:
         deltas = []
@@ -328,7 +285,7 @@ def build_preprocessing_pairs(workspace: str) -> list[dict]:
             rb = pair_rmsep.get((b, ds))
             if ra is None or rb is None:
                 continue
-            deltas.append({"dataset": ds, "delta": rb - ra, "ratio": rb / ra if ra != 0 else None})
+            deltas.append({"dataset": ds, "delta": rb - ra})
         if not deltas:
             continue
         delta_vals = [d["delta"] for d in deltas]
@@ -346,86 +303,353 @@ def build_preprocessing_pairs(workspace: str) -> list[dict]:
 
 
 def build_failures(presets: dict) -> dict:
-    """Failure pattern analysis across all presets."""
     failed_by_ds_cand: dict[str, list[str]] = defaultdict(list)
     timeout_by_ds_cand: dict[str, list[str]] = defaultdict(list)
-
-    # We use best_current as canonical view (most candidates seen there)
     workspace = presets["best_current"]["workspace"]
     rows = load_preset_rows(workspace)
     for r in rows:
-        key = r["dataset"]
         if r["status"] == "failed":
-            failed_by_ds_cand[key].append(r["canonical_name"])
+            failed_by_ds_cand[r["dataset"]].append(r["canonical_name"])
         elif r["status"] == "failed_terminal":
-            timeout_by_ds_cand[key].append(r["canonical_name"])
-
+            timeout_by_ds_cand[r["dataset"]].append(r["canonical_name"])
     return {
         "failed_by_dataset": {k: sorted(v) for k, v in failed_by_ds_cand.items()},
         "timeout_by_dataset": {k: sorted(v) for k, v in timeout_by_ds_cand.items()},
     }
 
 
-def build_tabpfn_paper(master_path: Path) -> list[dict]:
-    """Extract TabPFN paper rows from master CSV (reference_paper records)."""
-    if not master_path.exists():
-        return []
-    tabpfn_rows = []
-    with master_path.open() as f:
-        reader = csv.DictReader(f)
-        for r in reader:
-            if r.get("record_type") != "reference_paper":
+def build_tabpfn_paper(master: list[dict]) -> list[dict]:
+    out = []
+    for r in master:
+        if r.get("record_type") != "reference_paper":
+            continue
+        mn = (r.get("model_name") or "").strip()
+        if "tabpfn" not in mn.lower():
+            continue
+        rmsep = safe_float(r.get("rmsep"))
+        if rmsep is None:
+            continue
+        out.append({"model_name": mn, "dataset": r.get("dataset", ""), "rmsep": rmsep})
+    return out
+
+
+# ====================================================================
+# MASTER aggregations — the big additions
+# ====================================================================
+
+def build_master_aggregations(master: list[dict]) -> dict:
+    """Aggregate the ENTIRE master CSV (observed + reference_paper).
+
+    Produces:
+      - top_models: top N model_name by median rmsep (with >= min_ds datasets)
+      - by_model_class: 14 model_classes aggregated
+      - by_source_run: 112 source_runs aggregated
+      - by_source_family: 9 source families
+      - by_maturity: locked vs exploratory comparison
+      - all_observations: lightweight list for plotting (down-sampled if huge)
+      - per_dataset_best: best (model_name, rmsep) per dataset across all sources
+    """
+    # Filter
+    obs = [
+        r for r in master
+        if r.get("record_type") in ("observed", "reference_paper")
+        and r.get("status", "") in ("ok", "")
+        and safe_float(r.get("rmsep")) is not None
+    ]
+
+    # Group by model_name
+    by_model_name: dict[str, list[dict]] = defaultdict(list)
+    for r in obs:
+        mn = (r.get("model_name") or "").strip()
+        if mn:
+            by_model_name[mn].append(r)
+
+    # Per-model_name aggregation
+    top_models = []
+    for mn, mn_rows in by_model_name.items():
+        rmseps = [safe_float(r.get("rmsep")) for r in mn_rows]
+        rmseps = [x for x in rmseps if x is not None]
+        if not rmseps:
+            continue
+        # Best rmsep per dataset for this model_name (collapse duplicates)
+        best_per_ds: dict[str, float] = {}
+        for r in mn_rows:
+            v = safe_float(r.get("rmsep"))
+            if v is None:
                 continue
-            mn = (r.get("model_name") or "").strip()
-            if "tabpfn" not in mn.lower():
+            ds = r.get("dataset", "")
+            if not ds:
                 continue
-            rmsep = safe_float(r.get("rmsep"))
-            if rmsep is None:
-                continue
-            tabpfn_rows.append({
-                "model_name": mn,
-                "dataset": r.get("dataset", ""),
-                "rmsep": rmsep,
-            })
-    return tabpfn_rows
+            if ds not in best_per_ds or v < best_per_ds[ds]:
+                best_per_ds[ds] = v
+        ds_rmseps = list(best_per_ds.values())
+        if not ds_rmseps:
+            continue
+        # Most-common model_class for this model_name
+        mclass_counter: dict[str, int] = defaultdict(int)
+        for r in mn_rows:
+            mclass_counter[r.get("model_class", "")] += 1
+        model_class = max(mclass_counter, key=lambda k: mclass_counter[k]) if mclass_counter else ""
+        # Source runs covered
+        source_runs = sorted({r.get("source_run", "") for r in mn_rows if r.get("source_run")})
+        # Maturity tags
+        maturities = sorted({r.get("protocol_maturity", "") for r in mn_rows if r.get("protocol_maturity")})
+        top_models.append({
+            "model_name": mn,
+            "model_class": model_class,
+            "n_datasets": len(ds_rmseps),
+            "n_observations": len(mn_rows),
+            "median_rmsep": median(ds_rmseps),
+            "q25_rmsep": quantile(ds_rmseps, 0.25),
+            "q75_rmsep": quantile(ds_rmseps, 0.75),
+            "q90_rmsep": quantile(ds_rmseps, 0.90),
+            "best_rmsep": min(ds_rmseps),
+            "source_runs": source_runs[:10],  # cap list length
+            "n_source_runs": len(source_runs),
+            "maturities": maturities,
+        })
+    top_models.sort(key=lambda x: x["median_rmsep"] if x["median_rmsep"] is not None else float("inf"))
+
+    # Per-model_class aggregation (median best-per-dataset across all models in class)
+    by_class: dict[str, dict] = defaultdict(lambda: {
+        "n_models": 0,
+        "n_observations": 0,
+        "datasets": set(),
+        "best_per_ds_per_model": defaultdict(dict),  # ds → model_name → best rmsep
+    })
+    for r in obs:
+        mc = r.get("model_class", "")
+        if not mc:
+            continue
+        mn = (r.get("model_name") or "").strip()
+        v = safe_float(r.get("rmsep"))
+        ds = r.get("dataset", "")
+        if v is None or not ds:
+            continue
+        by_class[mc]["n_observations"] += 1
+        by_class[mc]["datasets"].add(ds)
+        # Track best rmsep per (model_class, dataset, model_name)
+        prev = by_class[mc]["best_per_ds_per_model"][ds].get(mn)
+        if prev is None or v < prev:
+            by_class[mc]["best_per_ds_per_model"][ds][mn] = v
+
+    by_model_class = []
+    for mc, info in by_class.items():
+        # For each dataset, take the BEST rmsep across all models in this class
+        ds_bests = []
+        for ds, model_rmseps in info["best_per_ds_per_model"].items():
+            ds_bests.append(min(model_rmseps.values()))
+        models_in_class = {
+            mn for ds_dict in info["best_per_ds_per_model"].values() for mn in ds_dict.keys()
+        }
+        by_model_class.append({
+            "model_class": mc,
+            "color": MODEL_CLASS_COLORS.get(mc, "#888888"),
+            "n_models": len(models_in_class),
+            "n_datasets_covered": len(info["datasets"]),
+            "n_observations": info["n_observations"],
+            "median_best_rmsep": median(ds_bests),
+            "q25_best_rmsep": quantile(ds_bests, 0.25),
+            "q75_best_rmsep": quantile(ds_bests, 0.75),
+            "q90_best_rmsep": quantile(ds_bests, 0.90),
+        })
+    by_model_class.sort(key=lambda x: x["median_best_rmsep"] if x["median_best_rmsep"] is not None else float("inf"))
+
+    # Per-source_run aggregation
+    by_source: dict[str, dict] = defaultdict(lambda: {
+        "n_observations": 0,
+        "datasets": set(),
+        "model_classes": set(),
+        "rmseps": [],
+    })
+    for r in obs:
+        sr = r.get("source_run", "")
+        if not sr:
+            continue
+        v = safe_float(r.get("rmsep"))
+        if v is None:
+            continue
+        by_source[sr]["n_observations"] += 1
+        by_source[sr]["datasets"].add(r.get("dataset", ""))
+        by_source[sr]["model_classes"].add(r.get("model_class", ""))
+        by_source[sr]["rmseps"].append(v)
+
+    by_source_run = []
+    for sr, info in by_source.items():
+        rmseps = info["rmseps"]
+        by_source_run.append({
+            "source_run": sr,
+            "n_observations": info["n_observations"],
+            "n_datasets": len(info["datasets"]),
+            "n_model_classes": len(info["model_classes"]),
+            "model_classes": sorted(info["model_classes"]),
+            "median_rmsep": median(rmseps),
+        })
+    by_source_run.sort(key=lambda x: -x["n_observations"])
+
+    # Per-source_family aggregation
+    by_family: dict[str, dict] = defaultdict(lambda: {
+        "n_observations": 0,
+        "datasets": set(),
+        "rmseps": [],
+    })
+    for r in obs:
+        sf = r.get("source_family", "")
+        if not sf:
+            continue
+        v = safe_float(r.get("rmsep"))
+        if v is None:
+            continue
+        by_family[sf]["n_observations"] += 1
+        by_family[sf]["datasets"].add(r.get("dataset", ""))
+        by_family[sf]["rmseps"].append(v)
+
+    by_source_family = []
+    for sf, info in by_family.items():
+        by_source_family.append({
+            "source_family": sf,
+            "n_observations": info["n_observations"],
+            "n_datasets": len(info["datasets"]),
+            "median_rmsep": median(info["rmseps"]),
+        })
+    by_source_family.sort(key=lambda x: -x["n_observations"])
+
+    # Per-maturity aggregation
+    by_maturity: dict[str, list[float]] = defaultdict(list)
+    for r in obs:
+        m = r.get("protocol_maturity", "")
+        if not m:
+            continue
+        v = safe_float(r.get("rmsep"))
+        if v is None:
+            continue
+        by_maturity[m].append(v)
+    maturity_summary = [
+        {
+            "maturity": m,
+            "n_observations": len(values),
+            "median_rmsep": median(values),
+            "q25_rmsep": quantile(values, 0.25),
+            "q75_rmsep": quantile(values, 0.75),
+        }
+        for m, values in by_maturity.items()
+    ]
+    maturity_summary.sort(key=lambda x: x["maturity"])
+
+    # Per-dataset best-overall (across all models in master)
+    ds_best: dict[str, dict] = {}
+    for r in obs:
+        ds = r.get("dataset", "")
+        v = safe_float(r.get("rmsep"))
+        if not ds or v is None:
+            continue
+        n_train = safe_int(r.get("n_train"))
+        n_features = safe_int(r.get("n_features"))
+        if ds not in ds_best:
+            ds_best[ds] = {
+                "dataset": ds,
+                "n_train": n_train,
+                "n_features": n_features,
+                "best_rmsep": v,
+                "best_model_name": r.get("model_name", ""),
+                "best_model_class": r.get("model_class", ""),
+                "best_source_run": r.get("source_run", ""),
+            }
+        else:
+            # update best if better, fill metadata if missing
+            if v < ds_best[ds]["best_rmsep"]:
+                ds_best[ds]["best_rmsep"] = v
+                ds_best[ds]["best_model_name"] = r.get("model_name", "")
+                ds_best[ds]["best_model_class"] = r.get("model_class", "")
+                ds_best[ds]["best_source_run"] = r.get("source_run", "")
+            if ds_best[ds]["n_train"] is None and n_train is not None:
+                ds_best[ds]["n_train"] = n_train
+            if ds_best[ds]["n_features"] is None and n_features is not None:
+                ds_best[ds]["n_features"] = n_features
+    per_dataset_best = sorted(ds_best.values(), key=lambda x: x["dataset"])
+
+    # All observations (lean) — for scatter / interactive plots
+    # Cap to N_max to keep JSON size manageable
+    N_max = 6000
+    obs_lean = []
+    for r in obs:
+        v = safe_float(r.get("rmsep"))
+        if v is None:
+            continue
+        obs_lean.append({
+            "model_name": (r.get("model_name") or "")[:80],
+            "model_class": r.get("model_class", ""),
+            "dataset": r.get("dataset", ""),
+            "source_run": r.get("source_run", ""),
+            "rmsep": v,
+            "n_train": safe_int(r.get("n_train")),
+            "maturity": r.get("protocol_maturity", ""),
+        })
+    if len(obs_lean) > N_max:
+        # Sample: keep all top-models rows + random sample of rest
+        import random
+        random.seed(0)
+        obs_lean = sorted(obs_lean, key=lambda x: x["rmsep"])[:1000] + random.sample(obs_lean, N_max - 1000)
+
+    return {
+        "top_models": top_models,
+        "by_model_class": by_model_class,
+        "by_source_run": by_source_run,
+        "by_source_family": by_source_family,
+        "by_maturity": maturity_summary,
+        "per_dataset_best": per_dataset_best,
+        "observations_lean": obs_lean,
+        "n_observations_total": len(obs),
+    }
 
 
 def main() -> None:
+    master = load_master_rows()
+
     presets_out: dict[str, dict] = {}
     for name, ws in PRESETS:
         presets_out[name] = build_preset_section(name, ws)
 
     datasets_out = build_dataset_section(presets_out)
-    families_out = build_family_section(presets_out)
     h2h_out = build_head_to_head("best_current_full57_seed0")
     preproc_out = build_preprocessing_pairs("best_current_full57_seed0")
     failures_out = build_failures(presets_out)
-    tabpfn_out = build_tabpfn_paper(MASTER)
+    tabpfn_out = build_tabpfn_paper(master)
+    master_aggregations = build_master_aggregations(master)
 
     payload = {
         "metadata": {
             "generated_at": datetime.now(UTC).isoformat(),
             "n_datasets_total": len(datasets_out),
-            "n_candidates_total": len({c["canonical_name"] for p in presets_out.values() for c in p["candidates"]}),
+            "n_candidates_preset": len({c["canonical_name"] for p in presets_out.values() for c in p["candidates"]}),
             "phases_complete": sum(1 for p in presets_out.values() if p["available"]),
+            "master_rows_total": len(master),
+            "master_observed_total": master_aggregations["n_observations_total"],
+            "master_distinct_models": len(master_aggregations["top_models"]),
+            "master_model_classes": len(master_aggregations["by_model_class"]),
+            "master_source_runs": len(master_aggregations["by_source_run"]),
         },
         "presets": presets_out,
         "datasets": datasets_out,
-        "families": families_out,
         "head_to_head": h2h_out,
         "preprocessing_pairs": preproc_out,
         "failures": failures_out,
         "tabpfn_paper": tabpfn_out,
-        "family_colors": {f: family_of(list(FAMILIES.keys())[0])[2] for f in {family_of(c)[0] for c in FAMILIES}},
+        "master": master_aggregations,
     }
 
     OUT_JSON.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-    print(f"Wrote {OUT_JSON} ({OUT_JSON.stat().st_size:,} bytes)")
+    size_kb = OUT_JSON.stat().st_size / 1024
+    print(f"Wrote {OUT_JSON} ({size_kb:.1f} KB)")
     print(f"  presets: {sum(1 for p in presets_out.values() if p['available'])}/{len(PRESETS)}")
-    print(f"  datasets: {len(datasets_out)}")
-    print(f"  candidates: {payload['metadata']['n_candidates_total']}")
-    print(f"  families: {len(families_out)}")
-    print(f"  tabpfn paper rows: {len(tabpfn_out)}")
+    print(f"  datasets (preset): {len(datasets_out)}")
+    print(f"  candidates (preset): {payload['metadata']['n_candidates_preset']}")
+    print(f"  master observed/paper rows: {master_aggregations['n_observations_total']}")
+    print(f"  master distinct models: {len(master_aggregations['top_models'])}")
+    print(f"  master model classes: {len(master_aggregations['by_model_class'])}")
+    print(f"  master source runs: {len(master_aggregations['by_source_run'])}")
+    print(f"  observations_lean (for plots): {len(master_aggregations['observations_lean'])}")
+    print(f"  per_dataset_best: {len(master_aggregations['per_dataset_best'])}")
 
 
 if __name__ == "__main__":
