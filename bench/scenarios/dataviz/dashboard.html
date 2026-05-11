@@ -224,6 +224,27 @@
   <header>
     <h1>nirs4all — Benchmark Dataviz</h1>
     <div class="meta" id="header-meta">Loading…</div>
+    <nav style="margin-top:14px;display:flex;flex-wrap:wrap;gap:6px;font-size:11px;">
+      <a href="#sec-m1" style="color:#fff;background:#d62728;padding:4px 10px;border-radius:12px;text-decoration:none">M1 Top Models</a>
+      <a href="#sec-m2" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M2 Class</a>
+      <a href="#sec-m3" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M3 Source</a>
+      <a href="#sec-m4" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M4 Class Box</a>
+      <a href="#sec-m5" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M5 Best/DS</a>
+      <a href="#sec-m6" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M6 Maturity</a>
+      <a href="#sec-m7" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M7 Scatter</a>
+      <a href="#sec-m8" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M8 Family</a>
+      <a href="#sec-m9" style="color:#fff;background:#2ca02c;padding:4px 10px;border-radius:12px;text-decoration:none;font-weight:600">▶ M9 PER-DATASET DETAIL ◀</a>
+      <span style="color:#888;padding:4px 6px">|</span>
+      <a href="#sec-p1" style="color:#fff;background:#1f77b4;padding:4px 10px;border-radius:12px;text-decoration:none">P1 Presets</a>
+      <a href="#sec-p2" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P2 Heatmap</a>
+      <a href="#sec-p3" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P3 vs n_train</a>
+      <a href="#sec-p4" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P4 Preproc</a>
+      <a href="#sec-p5" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P5 Pareto</a>
+      <a href="#sec-p6" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P6 H2H</a>
+      <a href="#sec-p7" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P7 Robust</a>
+      <a href="#sec-p8" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P8 Fails</a>
+      <a href="#sec-p9" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P9 TabPFN</a>
+    </nav>
   </header>
   <div class="container">
 
@@ -234,7 +255,7 @@
 
     <div class="kpi-row" id="master-kpis"></div>
 
-    <div class="section">
+    <div class="section" id="sec-m1">
       <h2>M1. Top Models — all sources combined</h2>
       <div class="subtitle">
         All 347+ distinct <code>model_name</code> from the master CSV, aggregated across
@@ -259,7 +280,7 @@
       <div class="scroll-table" id="top-models-table"></div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-m2">
       <h2>M2. Model Class Performance</h2>
       <div class="subtitle">
         Each of the 13 model_class buckets: median best-rmsep across covered
@@ -271,7 +292,7 @@
       </div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-m3">
       <h2>M3. Source Run Activity</h2>
       <div class="subtitle">
         Each of the 74 source_runs that contributed observations. Size = number
@@ -280,7 +301,7 @@
       <div id="master-source-treemap" class="plot-tall"></div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-m4">
       <h2>M4. Master rmsep distribution by model class</h2>
       <div class="subtitle">
         Box plots showing the full rmsep distribution per model_class across all
@@ -289,7 +310,7 @@
       <div id="master-class-box" class="plot-tall"></div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-m5">
       <h2>M5. Per-Dataset Best-Overall</h2>
       <div class="subtitle">
         For each of the 72 datasets, the model_name with the lowest rmsep across
@@ -308,7 +329,7 @@
       <div class="scroll-table" id="per-dataset-best-table"></div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-m6">
       <h2>M6. Maturity: locked vs exploratory</h2>
       <div class="subtitle">
         Distribution of rmsep across the 2 maturity buckets. <code>locked</code>
@@ -318,7 +339,7 @@
       <div id="master-maturity" class="plot"></div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-m7">
       <h2>M7. All observations — rmsep vs n_train</h2>
       <div class="subtitle">
         Scatter of every (model × dataset) observation in the master.
@@ -327,7 +348,7 @@
       <div id="master-all-scatter" class="plot-tall"></div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-m8">
       <h2>M8. Source family breakdown</h2>
       <div class="subtitle">
         9 distinct source_family buckets: bench/AOM_v0/, bench/nicon_v2/,
@@ -336,8 +357,8 @@
       <div id="master-source-family" class="plot"></div>
     </div>
 
-    <div class="section">
-      <h2>M9. Per-Dataset Detail — every observation</h2>
+    <div class="section" id="sec-m9" style="border: 2px solid #2ca02c; background: linear-gradient(135deg, #f0fff4 0%, #fff 100%);">
+      <h2 style="color:#2ca02c">▶ M9. Per-Dataset Detail — every observation for any dataset ◀</h2>
       <div class="subtitle">
         Pick a dataset to see <strong>every single observation</strong> across all
         source_runs, all models, all seeds. Includes legacy paper rows + Phase
@@ -379,14 +400,14 @@
 
     <div class="kpi-row" id="preset-kpis"></div>
 
-    <div class="section">
+    <div class="section" id="sec-p1">
       <h2>P1. Per-Preset Leaderboards</h2>
       <div class="subtitle">Median rmsep across the full-57 cohort. Production runs only.</div>
       <div class="tabs" id="preset-tabs"></div>
       <div id="preset-panels"></div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-p2">
       <h2>P2. Per-Preset-Dataset Heatmap</h2>
       <div class="subtitle">
         Each row is a dataset (preset workspace), columns are candidates. Cell color:
@@ -400,7 +421,7 @@
       <div id="dataset-heatmap" class="plot-xtall"></div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-p3">
       <h2>P3. Performance vs n_train (preset candidates)</h2>
       <div class="subtitle">
         Scatter of preset-candidate × dataset rmsep vs n_train. Log-log scale.
@@ -408,7 +429,7 @@
       <div id="size-scatter" class="plot-tall"></div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-p4">
       <h2>P4. Preprocessing Influence (none vs SNV on AOMRidge-global)</h2>
       <div class="subtitle">
         Δ rmsep per dataset. <code>0</code> = no impact ; positive = SNV worse.
@@ -419,25 +440,25 @@
       </div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-p5">
       <h2>P5. Speed vs Accuracy Pareto (best_current)</h2>
       <div class="subtitle">Median fit time (log) vs median rmsep. Bottom-left is best.</div>
       <div id="pareto-scatter" class="plot-tall"></div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-p6">
       <h2>P6. Head-to-Head Win Matrix (best_current 8×8)</h2>
       <div class="subtitle">Cell (row, col): datasets where row's rmsep is strictly less than col's.</div>
       <div id="h2h-heatmap" class="plot-tall"></div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-p7">
       <h2>P7. Cross-Preset Robustness</h2>
       <div class="subtitle">Same candidate × different preset: bars identical = robust.</div>
       <div id="robustness-grouped" class="plot-tall"></div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-p8">
       <h2>P8. Failure &amp; Timeout Patterns</h2>
       <div class="subtitle">Per dataset: data-issue failures (left) and dispatcher timeouts (right).</div>
       <div class="grid-2">
@@ -446,7 +467,7 @@
       </div>
     </div>
 
-    <div class="section">
+    <div class="section" id="sec-p9">
       <h2>P9. TabPFN paper reference (legacy master_pivot.csv)</h2>
       <div class="subtitle">
         Box plots of legacy TabPFN paper rows by model_name (TabPFN-Raw,
