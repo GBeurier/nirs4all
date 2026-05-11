@@ -354,6 +354,7 @@
       <a href="#sec-m8" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M8 Family</a>
       <a href="#sec-m9" style="color:#fff;background:#2ca02c;padding:4px 10px;border-radius:12px;text-decoration:none;font-weight:600">▶ M9 PER-DATASET DETAIL ◀</a>
       <a href="#sec-m10" style="color:#fff;background:#1f77b4;padding:4px 10px;border-radius:12px;text-decoration:none;font-weight:600">▶ M10 MODEL-DISTANCE PLOT ◀</a>
+      <a href="#sec-m11" style="color:#fff;background:#9467bd;padding:4px 10px;border-radius:12px;text-decoration:none;font-weight:600">▶ M11 PREPROCESSING ◀</a>
       <span style="color:#888;padding:4px 6px">|</span>
       <a href="#sec-p1" style="color:#fff;background:#1f77b4;padding:4px 10px;border-radius:12px;text-decoration:none">P1 Presets</a>
       <a href="#sec-p2" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P2 Heatmap</a>
@@ -535,6 +536,19 @@
               <button id="m10-collapse-all" title="collapse all class groups">▶|◀</button>
               <button id="m10-expand-all" title="expand all class groups">◀|▶</button>
             </div>
+            <div class="picker-toolbar" style="background:#fffbf0;border-top:0;font-size:10px;gap:6px;padding:4px 10px">
+              <span style="color:#888;font-weight:600">Numeric filters:</span>
+              <label style="display:flex;align-items:center;gap:3px">min datasets ≥
+                <input id="m10-min-ds" type="number" min="0" max="80" value="0" style="width:50px;padding:2px 4px">
+              </label>
+              <label style="display:flex;align-items:center;gap:3px">max median rmsep ≤
+                <input id="m10-max-rmsep" type="number" min="0" step="0.5" placeholder="∞" style="width:60px;padding:2px 4px">
+              </label>
+              <label style="display:flex;align-items:center;gap:3px">min obs ≥
+                <input id="m10-min-obs" type="number" min="0" max="10000" value="0" style="width:60px;padding:2px 4px">
+              </label>
+              <button id="m10-filters-reset" style="padding:1px 6px;font-size:9px">reset</button>
+            </div>
             <div class="picker-list" id="m10-picker-list"></div>
             <div class="picker-stats-line" id="m10-picker-stats">—</div>
           </div>
@@ -550,6 +564,79 @@
           <div id="m10-scatter" class="plot-tall"></div>
         </div>
       </div>
+    </div>
+
+    <div class="section" id="sec-m11" style="border: 2px solid #9467bd; background: linear-gradient(135deg, #faf5ff 0%, #fff 100%);">
+      <h2 style="color:#9467bd">▶ M11. Preprocessing Analysis — best pp by model class, by dataset, overall ◀</h2>
+      <div class="subtitle">
+        For each observation we extract the <code>preprocessing_pipeline</code> field
+        and aggregate by pp. Note: many entries are <em>atom-bank names</em> ("compact",
+        "default", "center") used by AOM/POP — not just classical pp like SNV/MSC.
+        Lower median rmsep = better. Only pp with ≥5 obs are kept.
+      </div>
+
+      <h3 style="margin-top:18px;margin-bottom:6px;color:#555;font-size:13px">
+        M11.1 — Overall preprocessing leaderboard
+      </h3>
+      <div class="filter-bar">
+        <label>Min datasets: <input id="pp-min-ds" type="number" value="5" min="1" max="80" style="width:60px"></label>
+        <label>Sort by:
+          <select id="pp-sort">
+            <option value="median">median rmsep ↑</option>
+            <option value="n_obs"># obs ↓</option>
+            <option value="n_datasets">coverage ↓</option>
+            <option value="n_classes">class diversity ↓</option>
+            <option value="best">best rmsep ↑</option>
+          </select>
+        </label>
+      </div>
+      <div class="scroll-table" id="pp-leaderboard" style="max-height:380px"></div>
+
+      <h3 style="margin-top:24px;margin-bottom:6px;color:#555;font-size:13px">
+        M11.2 — Class × Preprocessing heatmap
+      </h3>
+      <div class="subtitle" style="margin-bottom:8px">
+        Each cell = median rmsep on (model_class, pp). Empty = the class never used
+        that pp. Best column for each row is highlighted in the hover.
+      </div>
+      <div id="pp-heatmap" class="plot-tall"></div>
+
+      <h3 style="margin-top:24px;margin-bottom:6px;color:#555;font-size:13px">
+        M11.3 — Best preprocessing per dataset
+      </h3>
+      <div class="subtitle" style="margin-bottom:8px">
+        For each dataset with ≥2 pp tested, the spread between best and worst pp.
+        Sorted by absolute spread (most pp-sensitive datasets first).
+      </div>
+      <div class="filter-bar">
+        <label>Sort by:
+          <select id="pp-ds-sort">
+            <option value="spread">absolute spread ↓</option>
+            <option value="rel_spread">relative spread (%) ↓</option>
+            <option value="dataset">dataset name</option>
+          </select>
+        </label>
+        <label>Hide datasets with spread &lt;
+          <input id="pp-ds-min-spread" type="number" value="0" min="0" step="0.1" style="width:70px"> rmsep
+        </label>
+      </div>
+      <div class="scroll-table" id="pp-best-per-ds" style="max-height:420px"></div>
+
+      <h3 style="margin-top:24px;margin-bottom:6px;color:#555;font-size:13px">
+        M11.4 — Preprocessing influence on a specific model
+      </h3>
+      <div class="subtitle" style="margin-bottom:8px">
+        Pick a model from the master list and see its rmsep distribution across
+        every pp it was tested with. Reuses the M10 picker logic.
+      </div>
+      <div class="filter-bar">
+        <label>Model:
+          <input id="pp-model-filter" type="text" list="pp-model-list" placeholder="type a model name…" style="width:340px">
+          <datalist id="pp-model-list"></datalist>
+        </label>
+      </div>
+      <div id="pp-model-stats" style="margin-bottom:8px;font-size:11px;color:#666"></div>
+      <div id="pp-model-boxplot" class="plot"></div>
     </div>
 
     <div class="section" id="sec-m9" style="border: 2px solid #2ca02c; background: linear-gradient(135deg, #f0fff4 0%, #fff 100%);">
@@ -740,6 +827,7 @@
     renderSourceFamily(data);
     initDatasetDetail(data);
     initM10(data);
+    initM11(data);
     renderPresets(data);
     renderDatasetHeatmap(data, 'n_train');
     bindDatasetSortTabs(data);
@@ -1366,6 +1454,16 @@
     // Bindings
     document.getElementById('m10-filter').addEventListener('input', renderM10Picker);
     document.getElementById('m10-sort').addEventListener('change', renderM10Picker);
+    ['m10-min-ds', 'm10-max-rmsep', 'm10-min-obs'].forEach(id => {
+      document.getElementById(id).addEventListener('input', renderM10Picker);
+    });
+    document.getElementById('m10-filters-reset').addEventListener('click', () => {
+      document.getElementById('m10-filter').value = '';
+      document.getElementById('m10-min-ds').value = '0';
+      document.getElementById('m10-max-rmsep').value = '';
+      document.getElementById('m10-min-obs').value = '0';
+      renderM10Picker();
+    });
     document.getElementById('m10-collapse-all').addEventListener('click', () => {
       document.querySelectorAll('#m10-picker-list .picker-group').forEach(g => g.classList.add('collapsed'));
     });
@@ -1405,9 +1503,16 @@
     if (!state) return;
     const filter = (document.getElementById('m10-filter').value || '').toLowerCase().trim();
     const sort = document.getElementById('m10-sort').value;
+    const minDs = parseInt(document.getElementById('m10-min-ds').value || '0') || 0;
+    const maxRmsepRaw = document.getElementById('m10-max-rmsep').value;
+    const maxRmsep = maxRmsepRaw === '' ? Infinity : (parseFloat(maxRmsepRaw) || Infinity);
+    const minObs = parseInt(document.getElementById('m10-min-obs').value || '0') || 0;
 
-    // Filter
+    // Filter (text + numeric)
     const entries = Object.entries(state.canonical).filter(([key, e]) => {
+      if (e.n_datasets < minDs) return false;
+      if (e.n_obs < minObs) return false;
+      if (Number.isFinite(maxRmsep) && (e.median_rmsep == null || e.median_rmsep > maxRmsep)) return false;
       if (!filter) return true;
       return key.includes(filter)
         || e.class.toLowerCase().includes(filter)
@@ -1470,8 +1575,14 @@
 
     const list = document.getElementById('m10-picker-list');
     list.innerHTML = html;
+    const activeFilters = [];
+    if (filter) activeFilters.push(`text='${filter}'`);
+    if (minDs > 0) activeFilters.push(`ds≥${minDs}`);
+    if (Number.isFinite(maxRmsep)) activeFilters.push(`rmsep≤${maxRmsep}`);
+    if (minObs > 0) activeFilters.push(`obs≥${minObs}`);
+    const filterSuffix = activeFilters.length ? ` (filters: ${activeFilters.join(', ')})` : '';
     document.getElementById('m10-picker-stats').textContent =
-      `${entries.length} / ${Object.keys(state.canonical).length} canonical models · ${state.selected.size} selected`;
+      `${entries.length} / ${Object.keys(state.canonical).length} canonical models · ${state.selected.size} selected${filterSuffix}`;
 
     // Row click → toggle
     list.querySelectorAll('.picker-row').forEach(el => {
@@ -1656,6 +1767,224 @@
     if (MC_COLOR[cls]) return MC_COLOR[cls];
     const palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
     return palette[(idx || 0) % palette.length];
+  }
+
+  // --------------------------------------------------------------------
+  // M11. Preprocessing Analysis
+  // --------------------------------------------------------------------
+  function initM11(data) {
+    const pp = data.master.preprocessing;
+    if (!pp) {
+      document.getElementById('sec-m11').innerHTML += '<div class="status-line">No preprocessing data — rebuild dashboard_data.json with newer build_dashboard.py.</div>';
+      return;
+    }
+    // Build per-model pp index from observations_per_dataset (client-side)
+    const obsByDs = data.master.observations_per_dataset;
+    const modelPp = {};  // model_name → { pp → [rmsep, ...] }
+    Object.values(obsByDs).forEach(rows => {
+      rows.forEach(r => {
+        const pp_label = (r.preprocessing || '').trim();
+        if (!pp_label || r.rmsep == null || !Number.isFinite(r.rmsep)) return;
+        const m = r.model_name;
+        if (!m) return;
+        modelPp[m] = modelPp[m] || {};
+        modelPp[m][pp_label] = modelPp[m][pp_label] || [];
+        modelPp[m][pp_label].push(r.rmsep);
+      });
+    });
+    // Filter to models with ≥2 distinct pps
+    const modelsWithPp = Object.keys(modelPp).filter(m => Object.keys(modelPp[m]).length >= 2)
+      .sort((a, b) => {
+        const aN = Object.keys(modelPp[a]).length;
+        const bN = Object.keys(modelPp[b]).length;
+        return bN - aN;
+      });
+
+    window._m11 = { ...pp, modelPp, modelsWithPp };
+
+    // Populate datalist for model picker
+    const dl = document.getElementById('pp-model-list');
+    modelsWithPp.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.label = `${Object.keys(modelPp[m]).length} pps`;
+      dl.appendChild(opt);
+    });
+
+    // Bindings
+    document.getElementById('pp-min-ds').addEventListener('input', renderM11Leaderboard);
+    document.getElementById('pp-sort').addEventListener('change', renderM11Leaderboard);
+    document.getElementById('pp-ds-sort').addEventListener('change', renderM11BestPerDataset);
+    document.getElementById('pp-ds-min-spread').addEventListener('input', renderM11BestPerDataset);
+    document.getElementById('pp-model-filter').addEventListener('input', renderM11ModelDrilldown);
+    document.getElementById('pp-model-filter').addEventListener('change', renderM11ModelDrilldown);
+
+    renderM11Leaderboard();
+    renderM11Heatmap();
+    renderM11BestPerDataset();
+    // Pre-pick first model with many pps for drill-down
+    if (modelsWithPp.length > 0) {
+      document.getElementById('pp-model-filter').value = modelsWithPp[0];
+      renderM11ModelDrilldown();
+    }
+  }
+
+  function renderM11Leaderboard() {
+    const state = window._m11;
+    if (!state) return;
+    const minDs = parseInt(document.getElementById('pp-min-ds').value || '1') || 1;
+    const sort = document.getElementById('pp-sort').value;
+
+    let list = state.leaderboard.filter(e => e.n_datasets >= minDs);
+    if (sort === 'n_obs') list = [...list].sort((a, b) => b.n_obs - a.n_obs);
+    else if (sort === 'n_datasets') list = [...list].sort((a, b) => b.n_datasets - a.n_datasets);
+    else if (sort === 'n_classes') list = [...list].sort((a, b) => b.n_classes - a.n_classes);
+    else if (sort === 'best') list = [...list].sort((a, b) => a.best - b.best);
+    else list = [...list].sort((a, b) => a.median - b.median);
+
+    const bestMedian = Math.min(...list.map(e => e.median).filter(Number.isFinite));
+    const rows = list.map((e, i) => {
+      const ratio = e.median / bestMedian;
+      const ratioColor = ratio < 1.2 ? '#2ca02c' : ratio < 1.5 ? '#ff7f0e' : '#888';
+      const isWinner = i === 0 ? 'winner' : '';
+      return `<tr class="${isWinner}">
+        <td title="${e.pp_full || e.pp}">${e.pp}</td>
+        <td class="num">${fmtInt(e.n_obs)}</td>
+        <td class="num">${e.n_datasets}</td>
+        <td class="num">${e.n_classes}</td>
+        <td class="num">${fmtInt(e.n_models)}</td>
+        <td class="num"><strong>${fmtNum(e.median)}</strong></td>
+        <td class="num">${fmtNum(e.q25)}</td>
+        <td class="num">${fmtNum(e.q75)}</td>
+        <td class="num">${fmtNum(e.best)}</td>
+        <td class="num" style="color:${ratioColor}">${ratio.toFixed(2)}×</td>
+      </tr>`;
+    }).join('');
+    document.getElementById('pp-leaderboard').innerHTML = `
+      <table class="lb">
+        <thead><tr>
+          <th>Preprocessing</th>
+          <th class="num">n_obs</th><th class="num">n_ds</th>
+          <th class="num">n_cls</th><th class="num">n_models</th>
+          <th class="num">median</th><th class="num">q25</th><th class="num">q75</th>
+          <th class="num">best</th>
+          <th class="num">ratio to best</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  function renderM11Heatmap() {
+    const state = window._m11;
+    if (!state) return;
+    const hm = state.class_pp_heatmap;
+    Plotly.newPlot('pp-heatmap', [{
+      type: 'heatmap',
+      x: hm.pps,
+      y: hm.classes,
+      z: hm.values,
+      colorscale: [
+        [0, '#2ca02c'],
+        [0.3, '#bcbd22'],
+        [0.6, '#ff7f0e'],
+        [1, '#d62728'],
+      ],
+      reversescale: false,
+      zmin: 0,
+      zmax: Math.min(5, Math.max(...hm.values.flat().filter(v => v != null && Number.isFinite(v)))),
+      hovertemplate: 'class: %{y}<br>pp: %{x}<br>median rmsep: %{z:.3f}<extra></extra>',
+      showscale: true,
+      colorbar: { title: 'median rmsep', titleside: 'right', thickness: 14 },
+    }], {
+      title: { text: 'Median rmsep per (model_class × preprocessing) cell', font: { size: 13 } },
+      xaxis: { title: 'preprocessing', tickangle: -45, automargin: true, tickfont: { size: 10 } },
+      yaxis: { title: 'model class', automargin: true, tickfont: { size: 11 } },
+      margin: { l: 130, r: 60, t: 40, b: 160 },
+      height: 540,
+    }, { responsive: true });
+  }
+
+  function renderM11BestPerDataset() {
+    const state = window._m11;
+    if (!state) return;
+    const sort = document.getElementById('pp-ds-sort').value;
+    const minSpread = parseFloat(document.getElementById('pp-ds-min-spread').value || '0') || 0;
+
+    let list = state.best_pp_per_dataset.filter(e => e.spread >= minSpread);
+    if (sort === 'rel_spread') list = [...list].sort((a, b) => b.rel_spread - a.rel_spread);
+    else if (sort === 'dataset') list = [...list].sort((a, b) => a.dataset.localeCompare(b.dataset));
+    else list = [...list].sort((a, b) => b.spread - a.spread);
+
+    const rows = list.map(e => `<tr>
+      <td>${e.dataset}</td>
+      <td class="num">${e.n_pps}</td>
+      <td title="${e.best_pp}">${e.best_pp}</td>
+      <td class="num"><strong>${fmtNum(e.best_median)}</strong></td>
+      <td class="num">${e.best_n}</td>
+      <td title="${e.worst_pp}">${e.worst_pp}</td>
+      <td class="num">${fmtNum(e.worst_median)}</td>
+      <td class="num">${fmtNum(e.spread)}</td>
+      <td class="num">${(e.rel_spread * 100).toFixed(0)}%</td>
+    </tr>`).join('');
+    document.getElementById('pp-best-per-ds').innerHTML = `
+      <table class="lb">
+        <thead><tr>
+          <th>Dataset</th>
+          <th class="num">n_pps</th>
+          <th>Best pp</th><th class="num">best median</th><th class="num">best n</th>
+          <th>Worst pp</th><th class="num">worst median</th>
+          <th class="num">spread</th><th class="num">rel</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  function renderM11ModelDrilldown() {
+    const state = window._m11;
+    if (!state) return;
+    const m = document.getElementById('pp-model-filter').value.trim();
+    if (!m || !state.modelPp[m]) {
+      document.getElementById('pp-model-stats').textContent = 'Pick a model with ≥2 pps to drill down.';
+      Plotly.purge('pp-model-boxplot');
+      return;
+    }
+    const ppMap = state.modelPp[m];
+    const ppNames = Object.keys(ppMap).sort((a, b) => {
+      const am = m11Median(ppMap[a]);
+      const bm = m11Median(ppMap[b]);
+      return am - bm;
+    });
+    const totalObs = Object.values(ppMap).reduce((s, v) => s + v.length, 0);
+    const bestPp = ppNames[0];
+    const bestMedian = m11Median(ppMap[bestPp]);
+    document.getElementById('pp-model-stats').textContent =
+      `${m}: ${ppNames.length} pps · ${totalObs} obs · best pp = "${bestPp}" (median ${fmtNum(bestMedian)})`;
+
+    const traces = ppNames.map(p => ({
+      type: 'box',
+      name: p.length > 30 ? p.slice(0, 28) + '…' : p,
+      y: ppMap[p],
+      boxpoints: 'all',
+      jitter: 0.4,
+      pointpos: 0,
+      marker: { size: 4 },
+      hovertemplate: `<b>${p}</b><br>rmsep: %{y:.4f}<br>n=${ppMap[p].length}<extra></extra>`,
+    }));
+    Plotly.newPlot('pp-model-boxplot', traces, {
+      title: { text: `rmsep distribution per pp for ${m}`, font: { size: 13 } },
+      yaxis: { title: 'rmsep' },
+      xaxis: { tickangle: -30, tickfont: { size: 10 } },
+      margin: { l: 60, r: 30, t: 40, b: 140 },
+      height: 420,
+      showlegend: false,
+    }, { responsive: true });
+  }
+
+  function m11Median(arr) {
+    if (!arr || !arr.length) return Infinity;
+    const s = [...arr].sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 === 0 ? (s[m - 1] + s[m]) / 2 : s[m];
   }
 
   // --------------------------------------------------------------------
