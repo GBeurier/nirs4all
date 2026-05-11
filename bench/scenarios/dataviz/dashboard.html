@@ -336,6 +336,42 @@
       <div id="master-source-family" class="plot"></div>
     </div>
 
+    <div class="section">
+      <h2>M9. Per-Dataset Detail — every observation</h2>
+      <div class="subtitle">
+        Pick a dataset to see <strong>every single observation</strong> across all
+        source_runs, all models, all seeds. Includes legacy paper rows + Phase
+        2-5 production rows + D-A-* + D-B-* diagnostic rows.
+      </div>
+      <div class="filter-bar">
+        <label>Dataset:
+          <input id="ds-detail-search" type="text" list="ds-detail-list" placeholder="type to filter…" style="width:340px">
+          <datalist id="ds-detail-list"></datalist>
+        </label>
+        <label>Filter class:
+          <select id="ds-detail-class"><option value="">all classes</option></select>
+        </label>
+        <label>Filter maturity:
+          <select id="ds-detail-maturity"><option value="">all</option><option value="locked">locked</option><option value="exploratory">exploratory</option></select>
+        </label>
+        <label>Sort by:
+          <select id="ds-detail-sort">
+            <option value="rmsep">rmsep ↑</option>
+            <option value="model_class">model class</option>
+            <option value="source_run">source run</option>
+            <option value="fit_time_s">fit time ↑</option>
+          </select>
+        </label>
+        <span id="ds-detail-count" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+
+      <div class="kpi-row" id="ds-detail-kpis" style="margin-bottom:14px"></div>
+
+      <div id="ds-detail-boxplot" class="plot"></div>
+
+      <div class="scroll-table" id="ds-detail-table" style="max-height:600px;margin-top:14px"></div>
+    </div>
+
     <!-- ========================================================== -->
     <!-- PRODUCTION PRESETS section                                  -->
     <!-- ========================================================== -->
@@ -467,6 +503,7 @@
     renderMaturity(data);
     renderAllScatter(data);
     renderSourceFamily(data);
+    initDatasetDetail(data);
     renderPresets(data);
     renderDatasetHeatmap(data, 'n_train');
     bindDatasetSortTabs(data);
@@ -817,6 +854,146 @@
       margin: { l: 60, r: 30, t: 30, b: 100 },
       height: 380,
     }, { responsive: true });
+  }
+
+  // --------------------------------------------------------------------
+  // M9. Per-Dataset Detail
+  // --------------------------------------------------------------------
+  function initDatasetDetail(data) {
+    const datasets = Object.keys(data.master.observations_per_dataset).sort();
+    const datalist = document.getElementById('ds-detail-list');
+    datasets.forEach(ds => {
+      const opt = document.createElement('option');
+      opt.value = ds;
+      datalist.appendChild(opt);
+    });
+    // Populate class filter from all classes seen across all datasets
+    const allClasses = new Set();
+    Object.values(data.master.observations_per_dataset).forEach(arr =>
+      arr.forEach(o => allClasses.add(o.model_class)));
+    const classSel = document.getElementById('ds-detail-class');
+    Array.from(allClasses).filter(Boolean).sort().forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      classSel.appendChild(opt);
+    });
+    // Bind change events
+    ['ds-detail-search', 'ds-detail-class', 'ds-detail-maturity', 'ds-detail-sort'].forEach(id => {
+      document.getElementById(id).addEventListener('input', () => renderDatasetDetail(data));
+      document.getElementById(id).addEventListener('change', () => renderDatasetDetail(data));
+    });
+    // Pre-select largest dataset by row count
+    let largest = datasets[0];
+    let largestN = 0;
+    datasets.forEach(d => {
+      const n = data.master.observations_per_dataset[d].length;
+      if (n > largestN) { largestN = n; largest = d; }
+    });
+    document.getElementById('ds-detail-search').value = largest;
+    renderDatasetDetail(data);
+  }
+
+  function renderDatasetDetail(data) {
+    const ds = document.getElementById('ds-detail-search').value;
+    const classFilter = document.getElementById('ds-detail-class').value;
+    const maturityFilter = document.getElementById('ds-detail-maturity').value;
+    const sortBy = document.getElementById('ds-detail-sort').value;
+
+    let rows = data.master.observations_per_dataset[ds] || [];
+    rows = rows.filter(r => !classFilter || r.model_class === classFilter);
+    rows = rows.filter(r => !maturityFilter || r.maturity === maturityFilter);
+
+    // Sort
+    if (sortBy === 'rmsep') rows = [...rows].sort((a,b) => a.rmsep - b.rmsep);
+    else if (sortBy === 'fit_time_s') rows = [...rows].sort((a,b) => (a.fit_time_s ?? 1e9) - (b.fit_time_s ?? 1e9));
+    else if (sortBy === 'model_class') rows = [...rows].sort((a,b) => (a.model_class || '').localeCompare(b.model_class || '') || a.rmsep - b.rmsep);
+    else if (sortBy === 'source_run') rows = [...rows].sort((a,b) => (a.source_run || '').localeCompare(b.source_run || '') || a.rmsep - b.rmsep);
+
+    document.getElementById('ds-detail-count').textContent = `${rows.length} observations`;
+
+    if (!ds || rows.length === 0) {
+      document.getElementById('ds-detail-table').innerHTML = '<div class="status-line" style="margin:14px">Select a dataset above (type a few letters to filter the dropdown).</div>';
+      document.getElementById('ds-detail-kpis').innerHTML = '';
+      Plotly.purge('ds-detail-boxplot');
+      return;
+    }
+
+    // KPI cards for this dataset
+    const meta = data.master.per_dataset_meta[ds] || {};
+    const rmseps = rows.map(r => r.rmsep);
+    const best = rows[0]; // sorted by rmsep in JSON
+    // Recompute best from current filtered + sorted set
+    const bestRow = [...rows].sort((a,b) => a.rmsep - b.rmsep)[0];
+    const median = rmseps.length ? rmseps.slice().sort((a,b)=>a-b)[Math.floor(rmseps.length/2)] : null;
+    const max = rmseps.length ? Math.max(...rmseps) : null;
+    const distinctModels = new Set(rows.map(r => r.model_name)).size;
+    const distinctRuns = new Set(rows.map(r => r.source_run)).size;
+    const distinctClasses = new Set(rows.map(r => r.model_class)).size;
+
+    document.getElementById('ds-detail-kpis').innerHTML = `
+      <div class="kpi"><div class="label">Dataset</div><div class="value" style="font-size:14px">${ds}</div><div class="sub">n_train=${meta.n_train ?? '?'} · p=${meta.n_features ?? '?'} · n_test=${meta.n_test ?? '?'}</div></div>
+      <div class="kpi"><div class="label">Observations</div><div class="value">${rows.length}</div><div class="sub">across ${distinctRuns} source runs</div></div>
+      <div class="kpi"><div class="label">Distinct models</div><div class="value">${distinctModels}</div><div class="sub">in ${distinctClasses} classes</div></div>
+      <div class="kpi"><div class="label">Best rmsep</div><div class="value">${fmtNum(bestRow.rmsep)}</div><div class="sub">${(bestRow.model_name || '').slice(0,30)}</div></div>
+      <div class="kpi"><div class="label">Median rmsep</div><div class="value">${fmtNum(median)}</div><div class="sub">across visible rows</div></div>
+      <div class="kpi"><div class="label">Worst rmsep</div><div class="value">${fmtNum(max)}</div><div class="sub">spread = ${fmtNum(max - bestRow.rmsep)}</div></div>
+    `;
+
+    // Box plot per model_class for this dataset
+    const byCls = {};
+    rows.forEach(r => {
+      byCls[r.model_class] = byCls[r.model_class] || [];
+      byCls[r.model_class].push(r.rmsep);
+    });
+    const classes = Object.keys(byCls).sort((a,b) => byCls[b].length - byCls[a].length);
+    const traces = classes.map(c => ({
+      type: 'box', name: c, y: byCls[c],
+      marker: { color: MC_COLOR[c] || '#888' },
+      boxpoints: 'all', jitter: 0.4, pointpos: 0,
+      hovertemplate: '<b>' + c + '</b><br>rmsep: %{y:.4f}<extra></extra>',
+    }));
+    Plotly.newPlot('ds-detail-boxplot', traces, {
+      title: { text: `rmsep distribution per model class on ${ds}`, font: { size: 13 } },
+      yaxis: { title: 'rmsep' },
+      xaxis: { tickangle: -25 },
+      margin: { l: 50, r: 30, t: 40, b: 110 },
+      height: 380,
+      showlegend: false,
+    }, { responsive: true });
+
+    // Table
+    const tableRows = rows.slice(0, 1000).map((r, idx) => {
+      const color = MC_COLOR[r.model_class] || '#888';
+      const matColor = r.maturity === 'locked' ? '#2ca02c' : r.maturity === 'exploratory' ? '#ff7f0e' : '#aaa';
+      const winner = idx === 0 ? 'winner' : '';
+      return `<tr class="${winner}">
+        <td title="${r.model_name}">${(r.model_name || '').slice(0,45)}</td>
+        <td><span class="class-pill" style="background:${color}">${r.model_class || '?'}</span></td>
+        <td title="${r.variant}">${(r.variant || '').slice(0,30)}</td>
+        <td>${(r.source_run || '').slice(0,28)}</td>
+        <td class="num">${r.seed ?? ''}</td>
+        <td class="num">${fmtNum(r.rmsep)}</td>
+        <td class="num">${fmtNum(r.mae)}</td>
+        <td class="num">${fmtNum(r.r2, 3)}</td>
+        <td class="num">${fmtTime(r.fit_time_s)}</td>
+        <td><span class="class-pill" style="background:${matColor}">${r.maturity || '?'}</span></td>
+        <td>${(r.preprocessing || '').slice(0,20)}</td>
+        <td class="num">${r.n_components || ''}</td>
+      </tr>`;
+    }).join('');
+    const tooManyNote = rows.length > 1000 ? `<div class="status-line">Showing top 1000 of ${rows.length} rows</div>` : '';
+    document.getElementById('ds-detail-table').innerHTML = tooManyNote + `
+      <table class="lb">
+        <thead><tr>
+          <th>Model name</th><th>Class</th><th>Variant</th><th>Source run</th>
+          <th class="num">Seed</th>
+          <th class="num">rmsep</th><th class="num">mae</th><th class="num">r²</th>
+          <th class="num">fit_s</th><th>Maturity</th>
+          <th>Preproc</th><th class="num">n_comp</th>
+        </tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>`;
   }
 
   // --------------------------------------------------------------------
